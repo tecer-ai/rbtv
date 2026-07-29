@@ -1350,6 +1350,11 @@ SKIP_HARNESS_CHECK = os.environ.get("COORD_SKIP_HARNESS_CHECK") == "1"
 #   + native id resolve      NATIVE_ID_WAIT            8.0 s
 #   + pid exit               PID_EXIT_TIMEOUT          6.0 s
 #   = ~350 s = ~6 min worst case; the value below started as that worst case plus headroom.
+# ⚑ s3-06 ADDED ONE TERM, NAMED HERE RATHER THAN LEFT FOR THE MEASUREMENT TO REDISCOVER:
+#   + memory retries         LIFECYCLE_MEM_RETRIES x LIFECYCLE_MEM_RETRY_S    60 s
+# spent ONLY when the relaunch is blocked on memory. Worst case is therefore ~410 s (~7 min) --
+# still inside the value below, but the margin is now under 3 min, so this term belongs in the
+# derivation the measuring task replaces.
 # It is deliberately SHORTER than CLOSING_MAX_MIN: a stuck closer merely narrows an inbox, while a
 # stuck executor is a seat that is neither alive nor closed. That ordering is the load-bearing part
 # and holds whatever the number becomes.
@@ -3445,7 +3450,6 @@ def reap_blockers(entry, age, panes, decls=None, seat=None):
     elif age < REAP_MIN_AGE_MIN:
         out.append(f"only {age}min old (needs {REAP_MIN_AGE_MIN}min — a renewal decision may be "
                    f"in flight, and in-place renew needs this pane alive)")
-    # [INTEGRATION POINT — STAGE 3: the executor clears this]
     # s12-07. The age blocker above is a HEURISTIC about a renewal that MIGHT be in flight; this is
     # the ASSERTION that one IS — recorded by the checkout itself, at the one moment it was known.
     # It outlives the age window on purpose: `awaiting-close.json` deliberately does not expire, and
@@ -3453,11 +3457,14 @@ def reap_blockers(entry, age, panes, decls=None, seat=None):
     # Reaping here kills the pane the renewal respawns INTO (G-12 renews in place), so the two
     # legitimately coexist and this one is the durable half.
     #
-    # ⚠ UNTIL STAGE 3 EXISTS, EVERY `renew` ENTRY BLOCKS, AND THAT IS THE CORRECT READING, NOT A
-    # STUB. "Has not acted yet" is decidable from the record only because nothing can have acted:
-    # there is no executor. Stage 3 releases the block by CLEARING THE ENTRY or FLIPPING THE
-    # DISPOSITION — `clear_awaiting` already exists and is `close-seat`'s; whether it is also the
-    # executor's is Stage 3's ruling to make. Nothing here invents a clearing mechanism.
+    # ⚠ WHO RELEASES THIS BLOCK — SETTLED BY `s3-06`, WHICH DISCHARGED THIS SEAM. s12-07 left the
+    # question open ("Stage 3 releases it by CLEARING THE ENTRY or FLIPPING THE DISPOSITION; which
+    # is Stage 3's ruling to make"). The answer is CLEARING THE ENTRY, and the clearing act is step
+    # 9 of `run_lifecycle_sequence` — the executor calls the SAME `clear_awaiting` `close-seat`
+    # calls, at the end of a renewal that actually completed. So this blocker holds for exactly as
+    # long as the renewal is unfinished, which is what it was always claiming to mean. Nothing here
+    # invented a clearing mechanism, and nothing here needs to change: a FAILED renewal leaves the
+    # entry standing on purpose, so the pane stays un-reapable while the marker is in alarm.
     #
     # ⚠ `.get("disposition", "done")`, NEVER `entry["disposition"]`. Records written before this
     # field existed sit in live run packages right now, and a KeyError here would take down the
@@ -4364,8 +4371,512 @@ def inherited_log_path(fd=1):
     return resolved, ""
 
 
+# ---- STAGE 3 (s3-06): THE DISPOSITION SEQUENCES — what the executor actually DOES -------------
+#
+# ONE SEQUENCE, TWO DISPOSITIONS. `close` IS `renew` MINUS EVERY RELAUNCH STEP — not a second
+# implementation of the same teardown. The relaunch half is gated on ONE boolean (`relaunching`)
+# so the two paths cannot drift into disagreeing about how a pane is killed, how a kill is
+# verified, or what is cleared afterwards. `s3-07`'s `revive` reuses this same body for the same
+# reason; the seam where it differs is NAMED inside `run_lifecycle_sequence`, not forked here.
+#
+# EVERY STEP IS APPENDED AFTER IT VERIFIES, NEVER BEFORE. That is `append_lifecycle_step`'s own
+# rule and the G-134 inversion the marker exists to make impossible: a marker recording a step
+# that did not happen is WORSE than a marker recording nothing, because a later reader — and
+# Stage 4's revival detector — reads it as history.
+#
+# EVERY FAILURE BRANCH LEAVES THROUGH `lifecycle_alarm` WITH `failure=` AND EXIT CODE 3. Three
+# properties come from the chokepoint and are therefore NOT restated at the branches (s3-08):
+#   - the marker is flipped FAILED with the text BEFORE anything perishable is attempted (R-7);
+#   - ONE `type: note` reaches the package's leader-role recipient, else `undelivered-flags.md`,
+#     else a stderr shout — the ladder is the chokepoint's and this file grows no second copy;
+#   - the exit code stays 3, which is the split `s3-05` established and this task preserves:
+#     2 = an entry GUARD refused this invocation, 3 = the guards passed and the SEQUENCE broke.
+#     A reader of a detached log can tell "you were not allowed to" from "you were, and it broke".
+#
+# ⚠⚠ NO `finish_lifecycle` CALL IN ANY FAILURE BRANCH HERE. `s3-08` folded that write INTO
+# `lifecycle_alarm` so the durable-before-perishable ORDER lives at ONE site instead of being a
+# discipline eight branches could each forget. A branch writing its own would be a DUPLICATE write
+# and would silently reorder itself past the alarm that reports it.
+#
+# ⚠ AND NO SECOND `coord_lock` WRAPPER ANYWHERE IN THIS SECTION. `flock` blocks the SAME process on
+# a fresh fd (measured, `s4-05`), and `finish_lifecycle`, `append_lifecycle_step`, `clear_awaiting`,
+# `clear_closing` and `cmd_send` each take and release it themselves, sequentially. Wrapping a lock
+# around any of them deadlocks the executor with nobody left to notice.
+
+# The RAM gate's RETRY CADENCE. MECHANISM, not policy — and the distinction is `r-floor-single-source`'s
+# own: that ruling binds the FLOOR, a policy number with exactly one home (the run's budget.json,
+# read per act, never held here and never received as a flag). How long THIS loop is willing to wait
+# for memory to come back is a property of the loop. Bounded on purpose: an unbounded wait leaves a
+# seat neither alive nor closed, which is the state LIFECYCLE_STALE_MIN exists to surface.
+LIFECYCLE_MEM_RETRIES = 3
+LIFECYCLE_MEM_RETRY_S = 20
+# How often the settle wait re-asks /proc. Small enough that the common case (the caller is already
+# gone at the first look) costs no sleep at all.
+LIFECYCLE_SETTLE_POLL = 0.25
+
+
+def lifecycle_record_step(base, seat, step):
+    """Append ONE VERIFIED step to the marker, and SAY SO LOUDLY when the append fails (R-8).
+
+    `append_lifecycle_step` is best-effort BY CONTRACT — bookkeeping ABOUT a lifecycle act must not
+    break the act — so it answers False rather than raising. False here means the sequence is still
+    running while the marker has stopped recording it, and the two readers that matter (Stage 4's
+    revival detector, and a human at `status`) would then see a renewal frozen at an earlier step
+    than it actually reached. Reported, never swallowed."""
+    if append_lifecycle_step(base, seat, step):
+        return True
+    print(c(f"WARNING lifecycle-exec: step {step!r} VERIFIED but could NOT be appended to seat "
+            f"{seat!r}'s marker. The sequence continues; the marker is now BEHIND it, and anything "
+            f"reading `steps-completed` will understate how far this renewal got.", C_DEAD),
+          file=sys.stderr)
+    return False
+
+
+def lifecycle_settle(caller, budget_s=None):
+    """§3.1 THE SETTLE WAIT — bounded, then PROCEED REGARDLESS OF THE OUTCOME.
+
+    Returns the ONE entry that goes into `steps-completed` about a STATE rather than an act, and it
+    must say which of the two happened: `"caller-exited"` or `"caller-still-live-after-settle"`.
+
+    ⚠ `ident_is_live_process`, NEVER `ident_is_live_harness`. The caller is a PYTHON process and
+    `is_harness_argv` matches only the claude/codex/opencode basenames, so the harness predicate
+    reports every live caller DEAD and silently turns this wait into a no-op. The two are separate
+    functions with separate names precisely so this line cannot be written by accident.
+
+    ⚠ AND `ident_is_live_process` OFFERS NO "CANNOT TELL" (`s3-02`): a zombie and an unreadable
+    /proc BOTH answer False = gone. This loop has exactly two outcomes and is not written as if a
+    third existed.
+
+    ⚠ THE WAIT IS COURTESY, NOT CORRECTNESS, and nothing downstream branches on its answer.
+    CHECKOUT is the turn boundary: `cmd_close_seat` runs against an already-checked-out seat and
+    kills its pane with NO turn-boundary negotiation of any kind, and by the time this executor
+    runs the handoff is in `memory.md`, the transcript is exported, the roster is flipped and the
+    sessions.csv row is closed — so per `concepts/session.md` invariants 1 and 3 nothing durable is
+    left inside the session to rescue. That is why the budget is bounded and its EXPIRY is
+    RECORDED rather than refused."""
+    budget = LIFECYCLE_SETTLE_S if budget_s is None else budget_s
+    deadline = time.monotonic() + max(0.0, float(budget))
+    while True:
+        if not ident_is_live_process(caller):
+            return "caller-exited"
+        if time.monotonic() >= deadline:
+            return "caller-still-live-after-settle"
+        time.sleep(LIFECYCLE_SETTLE_POLL)
+
+
+def lifecycle_descriptor(args, base):
+    """The seat's DESCRIPTOR, discovered the identical way `cmd_close_seat` discovers it — never
+    returned without one, and never guessed.
+
+    A renew with no descriptor is `cmd_close_seat`'s own "nothing to relaunch" path, and inventing
+    one would boot a seat from a briefing nobody wrote. Resolved BEFORE anything is killed (G-51):
+    a seat killed and then found unlaunchable is the worst-ordered failure this sequence can
+    produce, so the refusal happens while the seat is still untouched."""
+    found = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.seat]
+    if found:
+        return found[0]
+    lifecycle_alarm(
+        "state",
+        f"NO DESCRIPTOR carries `agent: {args.seat}` in {workers_dir(args)}, so there is nothing "
+        f"to relaunch this seat FROM and this executor will not guess one. NOTHING HAS BEEN "
+        f"KILLED — the descriptor is resolved before any kill precisely so a renew can never leave "
+        f"a seat closed AND unlaunchable (G-51). Add the seat's briefing, then bring it back by "
+        f"hand: {coord_invocation(args)} launch --only {args.seat}",
+        3, base, args=args,
+        failure=(f"no descriptor carries `agent: {args.seat}` — the renew stopped BEFORE any kill "
+                 f"and the seat is untouched"))
+
+
+def lifecycle_check_bindings(args, seats, base):
+    """G-51's descriptor-vs-`taskforce.csv` check, run BEFORE any kill and routed onto the
+    executor's OWN alarm.
+
+    ⚠ WHY THE EXISTING CHECK IS CALLED AND ITS EXIT CONVERTED, RATHER THAN A SECOND COPY WRITTEN.
+    `check_bindings` refuses through the plain `refuse()`, which prints its full per-field detail
+    and exits 2. Out of THIS process that exit would leave the marker `in-flight` with a dead
+    executor — read as MID-RENEWAL until LIFECYCLE_STALE_MIN, the one reading Stage 4 must never be
+    handed wrongly — and would reach nobody, because the caller is gone and stderr here is a
+    detached log file. Re-deriving the divergence would be a duplicate of `binding_divergence`, so
+    the real check RUNS (its detail is already on the log) and only its EXIT is converted into the
+    chokepoint every other failure branch leaves through."""
+    try:
+        check_bindings(args, seats, f"lifecycle-exec --disposition {args.disposition}")
+        return
+    except SystemExit:
+        pass
+    lifecycle_alarm(
+        "state",
+        f"the DESCRIPTOR for '{args.seat}' disagrees with this run's taskforce.csv (G-51) — the "
+        f"per-field detail is printed immediately above this line by the shared binding check. "
+        f"Checked BEFORE any kill, so NOTHING HAS BEEN KILLED and the seat is untouched. Fix "
+        f"whichever side is wrong — the descriptor is what actually binds — then renew again.",
+        3, base, args=args,
+        failure=("descriptor/taskforce.csv binding divergence (G-51) — the renew stopped BEFORE "
+                 "any kill and the seat is untouched"))
+
+
+def lifecycle_memory_floor(args, base):
+    """(floor_mb, why) — this run's DECLARED launch floor, READ per act from its own `budget.json`.
+
+    ⚠ THE FLOOR IS NEVER CARRIED AND NEVER DEFAULTED (`r-floor-single-source`, task 7.82): argv is
+    a COPY, a file is a REFERENCE. `memory_gate` takes `floor_mb` as a required positional with NO
+    default precisely so no consumer can invent one, and this resolves it through the SAME call
+    `launch_gates` makes — same helper, same `which`, same two exception classes.
+
+    ⚠ THE TWO FAILURES ARE DIFFERENT FACTS AND GET DIFFERENT REFUSALS. A `budget.json` that IS
+    declared and cannot be read is not the same fact as no declaration at all; collapsing them is
+    what once made a WRONG PATH observationally identical to a package with no budget. `budget.py`
+    keeps them as two exception classes for that reason, and this consumer keeps them as two
+    messages a reader can act on differently."""
+    try:
+        return budget_mod.floor_source(package_dir(args), "refuse", None)
+    except budget_mod.FloorUnreadable as exc:
+        lifecycle_alarm(
+            "state",
+            f"this run's budget.json IS DECLARED and could NOT be read: {exc}. That is NOT the same "
+            f"fact as no budget being declared and is never treated as one — a wrong path and an "
+            f"undeclared budget must not look alike. The relaunch needs a memory floor, this "
+            f"executor may not invent one, and the seat's pane is already down. Repair the file, "
+            f"then bring the seat back by hand: {coord_invocation(args)} launch --only {args.seat}",
+            3, base, args=args,
+            failure=(f"budget.json is DECLARED and unreadable ({exc}) — no floor could be resolved "
+                     f"and the executor refused rather than defaulting"))
+    except budget_mod.FloorUndeclared as exc:
+        lifecycle_alarm(
+            "state",
+            f"NO memory floor is DECLARED for this run: {exc}. The floor's one home is the run's "
+            f"budget.json (`r-floor-single-source`), a consumer that invents a number is the exact "
+            f"defect that ruling deleted, and the seat's pane is already down. Declare the launch "
+            f"floor there, then bring the seat back by hand: {coord_invocation(args)} launch "
+            f"--only {args.seat}",
+            3, base, args=args,
+            failure=(f"no floor is declared for this run ({exc}) — the executor refused rather "
+                     f"than defaulting to a number of its own"))
+
+
+def lifecycle_memory_gate(args, base, n_seats=1):
+    """The relaunch's MEMORY pre-flight — alarmed and RETRIED, never silently given up on.
+    Returns the floor it used; never returns when the gate stays shut.
+
+    ⚠ THE EXECUTOR MUST NOT CALL `launch_gates`. That helper resolves a ROLE, and this process
+    holds NO seat identity by construction — it never calls `resolve_agent`, `gate`, or
+    `launch_gates`. So the two gates it bundles are taken apart here and only the MEMORY half is
+    evaluated; the role half was answered at the checkout that authorised this act.
+
+    ⚠ A REFUSAL IS NOT THE END. A seat closed and never relaunched is the worst outcome this stage
+    can produce, and memory pressure is the one refusal reason that CLEARS ON ITS OWN. So the first
+    refusal RAISES the bus alarm and the gate is re-evaluated on a bounded schedule; only an
+    exhausted budget is terminal. At most two messages, saying different things — "blocked, still
+    trying" and "gave up" — which is why the first goes through `lifecycle_raise_alarm` (it
+    RETURNS) and only the last through `lifecycle_alarm` (it never does).
+
+    ⚠ `available_mb() == 0` PASSES, by `memory_gate`'s own fail-safe: a broken sensor must not be
+    able to stop a run. Stated here because it is why no RAM-gate row can live inside
+    `_selftest_checks`, where `available_mb` is stubbed to exactly that."""
+    floor_mb, floor_why = lifecycle_memory_floor(args, base)
+    print(f"memory gate: floor {floor_why}")
+    reason = memory_gate(n_seats, available_mb(), floor_mb)
+    if not reason:
+        return floor_mb
+    _, first_line = lifecycle_raise_alarm(
+        "state",
+        f"the relaunch of '{args.seat}' is BLOCKED ON MEMORY and this executor is RETRYING, not "
+        f"giving up — {reason} The seat is checked out and its pane is already down; it comes back "
+        f"only if this gate clears, so freeing another seat now is what unblocks it.",
+        base, args)
+    print(first_line, file=sys.stderr)
+    for attempt in range(1, LIFECYCLE_MEM_RETRIES + 1):
+        time.sleep(LIFECYCLE_MEM_RETRY_S)
+        reason = memory_gate(n_seats, available_mb(), floor_mb)
+        if not reason:
+            lifecycle_record_step(base, args.seat, f"memory-gate-cleared-on-retry-{attempt}")
+            return floor_mb
+    lifecycle_alarm(
+        "state",
+        f"the relaunch of '{args.seat}' is REFUSED ON MEMORY after {LIFECYCLE_MEM_RETRIES} "
+        f"retries — {reason} The seat is checked out, its pane is down, and it is NOT coming back "
+        f"on its own: bring it back by hand once memory is free — "
+        f"{coord_invocation(args)} launch --only {args.seat}",
+        3, base, args=args,
+        failure=(f"the relaunch was refused on memory after {LIFECYCLE_MEM_RETRIES} retries — the "
+                 f"seat is closed and NOT relaunched"))
+
+
+def run_lifecycle_sequence(args, base, target):
+    """THE DISPOSITION SEQUENCE (`s3-06`): `renew` and `close`, each step VERIFIED before it is
+    recorded, each failure LOUD (R-8). Returns the successor's pane on a completed `renew` and
+    `""` on a completed `close`; NEVER RETURNS from a failure branch.
+
+    `target` is the caller's validated `--tmux-target` (guard 2). This executor NEVER computes one:
+    an unresolved target lands wherever tmux picks, which was measured to be the LIVE room.
+    """
+    seat_name = args.seat
+    # [INTEGRATION POINT — STAGE 3: `s3-07` widens this predicate for `revive`, which RELAUNCHES
+    # like a renew but had no checkout — no handoff to re-read, no awaiting-close record to verify
+    # or clear, and a caller that CRASHED rather than forked. It reuses this body rather than
+    # forking a copy; what it must widen is this boolean, the awaiting-record reads at steps 7 and
+    # 9, and `LIFECYCLE_DISPOSITIONS` + `LIFECYCLE_INTENT_OF` together (s3-05's row 6c forces both).]
+    relaunching = args.disposition == "renew"
+    pane = str(getattr(args, "pane", "") or "")
+    descriptor, in_place, new_pane = None, False, ""
+
+    # ---- 0a. THE DESCRIPTOR AND THE BINDING CHECK — both BEFORE anything is killed (G-51). ------
+    # Only a relaunching disposition needs a descriptor: a plain close relaunches nothing, so
+    # demanding a briefing it will never read would refuse exactly the seats most in need of being
+    # closed. The args NAMESPACE the callees need is THIS process's own — argparse already put
+    # `--package` on it, and the global `--base`/`--workers-dir` ride along — so no second
+    # hand-built Namespace is constructed here: a copy of an object that already exists is the
+    # duplication this build is explicitly not to create.
+    if relaunching:
+        descriptor = lifecycle_descriptor(args, base)
+        lifecycle_check_bindings(args, [descriptor], base)
+
+    # ---- 0b. THE SETTLE WAIT. Bounded; both outcomes converge on the same sequence. -------------
+    # Recorded FIRST and named exactly, because it is the one `steps-completed` entry about a STATE
+    # rather than an act — and `s3-11`(a) reads it to prove the executor never depended on the
+    # caller.
+    lifecycle_record_step(base, seat_name,
+                          lifecycle_settle((args.caller_pid, args.caller_starttime)))
+
+    # ---- STEP 1: RE-MEASURE THE OUTGOING HARNESS. A DEAD PANE IS A LEGAL INPUT. -----------------
+    # Measured HERE, while the pane still exists (G-10), and NOT refused when it comes back empty:
+    # a run that refused on a dead pane would strand exactly the seat most in need of a renew.
+    old_idents = pane_harness_idents(pane) if pane else []
+    lifecycle_record_step(base, seat_name, f"harness-idents-measured:{len(old_idents)}")
+
+    if relaunching:
+        # ---- STEP 2: THE G-154 BRANCH — the identical call `cmd_close_seat` makes. --------------
+        # `renew_in_place` is PURE and stays pure: the window the pane is in RIGHT NOW is measured
+        # by this caller and passed in, because that is the only thing that can say whether the
+        # seat is already where its briefing wants it.
+        in_place = renew_in_place(descriptor, pane, pane in live_panes(),
+                                  tmux_pane_window_name(pane) if pane else None)
+        lifecycle_record_step(base, seat_name,
+                              "in-place-decided:" + ("in-place" if in_place else "re-place"))
+
+        # ---- STEP 3: MIRROR + HISTORY LIMIT. Its contract is that it never blocks a launch. -----
+        # A renewed seat re-reads its rules at boot, and a renew lands mid-run — exactly when
+        # sources have been drifting. Its own failure is already a loud WARNING inside
+        # `refresh_mirrors_for`; anything it raises is caught here for the same reason, because a
+        # stale mirror still carries the previous render's rules rather than none.
+        try:
+            refresh_mirrors_for([descriptor])
+            tmux_raise_history_limit()
+            lifecycle_record_step(base, seat_name, "mirror-and-history-refreshed")
+        except Exception as exc:                                   # noqa: BLE001
+            print(c(f"WARNING lifecycle-exec: the pre-launch refresh raised "
+                    f"{type(exc).__name__}: {exc}. CONTINUING — its contract is that it never "
+                    f"blocks a launch, and a stale mirror beats no seat.", C_DEAD), file=sys.stderr)
+
+    # ---- STEP 4: TAKE THE OUTGOING SESSION DOWN, AND PROVE IT WENT. -----------------------------
+    # 4a in-place: respawn the SAME pane (G-12 — kill+split re-tiles the whole window and destroys
+    #    the layout the owner arranged). On a respawn failure, fall back to kill+split exactly as
+    #    `cmd_close_seat` does: a re-tiled window is a cosmetic loss, a seat that never comes back
+    #    is not.
+    # 4b otherwise: kill the pane.
+    # BOTH arms verify through `verify_pids_gone`, whose every signal passes `ident_is_live_harness`
+    # — identity re-derived from /proc at the instant of signalling, so a recycled pid can never be
+    # hit. Pane ancestry is no substitute: G-12's in-place respawn puts the replacement under the
+    # SAME pane, so an ancestry test would confirm the very process it must protect.
+    same_cell = None
+    if relaunching and in_place:
+        ok, rerr = tmux_respawn_pane(pane, descriptor["cwd"])
+        if ok:
+            same_cell = pane
+        else:
+            print(c(f"respawn-in-place FAILED ({rerr}) — falling back to kill+split, which "
+                    f"re-tiles this window", C_DEAD), file=sys.stderr)
+            in_place = False
+            tmux_kill_pane(pane)
+            lifecycle_record_step(base, seat_name, "respawn-failed-fell-back-to-kill")
+    elif pane:
+        ok, kerr = tmux_kill_pane(pane)
+        if not ok:
+            print(c(f"WARNING lifecycle-exec: `tmux kill-pane -t {pane}` reported {kerr!r}. The "
+                    f"process check below is what decides whether the session is actually gone.",
+                    C_DEAD), file=sys.stderr)
+    survivors, note = verify_pids_gone(old_idents)
+    if survivors:
+        # G-10: kill-pane SIGHUPs the process group and a blocked harness survives it as a ghost
+        # the roster never mentions. The reaper is ARMED before the alarm — it outlives this
+        # process, which the alarm's exit is about to end — and then the failure is reported. A
+        # ghost holding a seat's memory is not something a renewal may launch on top of.
+        arm_pid_reaper(old_idents)
+        lifecycle_alarm(
+            "state",
+            f"the outgoing harness of '{seat_name}' DID NOT DIE — {note} A detached reaper has "
+            f"been armed for pid(s) {', '.join(str(p) for p, _ in survivors)}, but this sequence "
+            f"STOPS here rather than launching a successor on top of a ghost that still holds the "
+            f"seat's memory. Confirm the pid(s) are gone, then bring the seat back by hand: "
+            f"{coord_invocation(args)} launch --only {seat_name}",
+            3, base, args=args,
+            failure=(f"the outgoing harness survived kill-pane, SIGTERM and SIGKILL "
+                     f"({', '.join(str(p) for p, _ in survivors)}); a reaper was armed and the "
+                     f"sequence stopped before any relaunch"))
+    lifecycle_record_step(
+        base, seat_name,
+        ("respawned-in-place:" + pane if same_cell else
+         ("killed:" + pane if pane else "no-pane-recorded-nothing-to-kill"))
+        + (f" ({note})" if note else ""))
+
+    if relaunching:
+        # ---- THE RAM GATE, immediately before the spend it gates. ---------------------------
+        lifecycle_memory_gate(args, base)
+
+        # ---- STEP 5: RELAUNCH THE SUCCESSOR FROM THE DESCRIPTOR. --------------------------------
+        # The deterministic keystroke path — `prompt_file` -> `harness_command` -> `wake` (which
+        # refuses multi-line) -> `wait_harness_up`. No boot-prompt change is needed: `boot_prompt`
+        # already tells a non-ephemeral seat to read its `memory.md` as its memory from prior
+        # sessions of this seat, which is where the checkout's handoff block landed.
+        new_pane, lerr = launch_seat(descriptor, args, target, pane=same_cell)
+        if lerr or not new_pane:
+            lifecycle_alarm(
+                "state",
+                f"THE RELAUNCH FAILED and '{seat_name}' IS CLOSED AND NOT BACK — "
+                f"{lerr or 'launch_seat returned no pane'}. This is the outcome the whole sequence "
+                f"is ordered to avoid, and it STOPS here: nothing further is verified or cleared, "
+                f"so the awaiting-close debt and this marker both stay on the books where "
+                f"`status` and `workers` will keep showing them. Bring the seat back by hand: "
+                f"{coord_invocation(args)} launch --only {seat_name}",
+                3, base, args=args,
+                failure=(f"the relaunch (step 5) failed — {lerr or 'launch_seat returned no pane'} "
+                         f"— the seat is CLOSED AND NOT RELAUNCHED"))
+        lifecycle_record_step(base, seat_name, f"relaunched:{new_pane}"
+                              + (" (same pane, layout intact)" if same_cell else ""))
+
+    # ---- STEP 6: THE ROSTER MUST NOT LIE ABOUT THIS SEAT. ---------------------------------------
+    # ⚠ WHAT IS ACTUALLY CHECKABLE HERE, AND WHY IT IS NOT "the row shows the successor's pane".
+    # NOTHING on the launch path writes a roster row: `launch_seat` opens the pane and starts the
+    # harness, and the ROW is written by the successor's own `checkin` — minutes later, from inside
+    # the new session. So at this instant the honest invariant is the NEGATIVE one, and it is the
+    # G-11 family: the roster may not carry an ACTIVE row for this seat pointing at a pane that is
+    # no longer the seat's. The checkout flipped the row inactive; an ACTIVE row here means either
+    # the checkout never happened or a stale row survived, and both are the roster claiming a
+    # session that is not there.
+    row = current_row(load_workers(base)[2], seat_name)
+    row_pane = str((row or {}).get("pane") or "")
+    row_active = bool(row) and (row or {}).get("active") == "yes"
+    if row_active and row_pane != new_pane:
+        lifecycle_alarm(
+            "state",
+            f"the roster still carries an ACTIVE row for '{seat_name}' on pane {row_pane or '(none)'}"
+            + (f", which is NOT the successor's pane {new_pane}" if new_pane
+               else ", and this close killed that pane") +
+            ". A row reading ACTIVE for a session that is not there is the G-11 lie, and it is what "
+            "every other seat routes messages by. Fix the roster before anything reads it: "
+            f"{coord_invocation(args)} close-seat {seat_name}",
+            3, base, args=args,
+            failure=(f"the roster shows an ACTIVE row for the seat on {row_pane or '(no pane)'} "
+                     f"after the session was taken down"))
+    lifecycle_record_step(base, seat_name, "roster-verified:" + (
+        f"active on {row_pane}" if row_active
+        else "no active row — the successor writes its own at checkin"))
+
+    # ---- STEP 7: THE TRANSCRIPT THE CHECKOUT EXPORTED. ------------------------------------------
+    # `exported` is STORED by `set_awaiting`, never inferred, precisely so a later actor can tell
+    # "safe" from "not yet safe" — and the FILE is checked, not only the flag, for `reap_blockers`'
+    # stated reason: a recorded path whose file has since gone is not a transcript.
+    record = load_awaiting(base).get(seat_name)
+    record = record if isinstance(record, dict) else {}
+    tpath = str(record.get("transcript") or "")
+    if not record.get("exported") or not tpath:
+        lifecycle_alarm(
+            "state",
+            f"'{seat_name}' has NO EXPORTED TRANSCRIPT recorded for this checkout "
+            f"(exported={bool(record.get('exported'))!r}, path={tpath or '(none)'}), so the "
+            f"session that just ended left no readable account of itself. The pane is already "
+            f"down and the scrollback went with it, which is why this is reported rather than "
+            f"repaired: nothing can re-export a pane that no longer exists.",
+            3, base, args=args,
+            failure=("no exported transcript is recorded for this checkout — the session ended "
+                     "with no readable account of itself"))
+    if not Path(tpath).exists():
+        lifecycle_alarm(
+            "state",
+            f"the transcript recorded for '{seat_name}' is NOT ON DISK: {tpath}. The record says "
+            f"exported, the file says otherwise, and the pane it came from is already down.",
+            3, base, args=args,
+            failure=f"the recorded transcript {tpath} is not on disk")
+    # ⚠ THE STALENESS TEST IS MINUTE-GRAINED, AND THAT BOUND IS STATED RATHER THAN HIDDEN.
+    # `set_awaiting` stamps `since` through `now()` ("%Y-%m-%d %H:%M"), so a transcript written in
+    # the SAME MINUTE as the checkout cannot be told from one written just before it. What this
+    # DOES catch is the case that matters: a file left over from an EARLIER session of the same
+    # seat, which is a stale export wearing a fresh record's name.
+    stale_note = ""
+    try:
+        checkout_at = datetime.strptime(str(record.get("since") or "").strip(), "%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        checkout_at = None
+        stale_note = " (checkout stamp unreadable — freshness not established)"
+    if checkout_at is not None and datetime.fromtimestamp(Path(tpath).stat().st_mtime) < checkout_at:
+        lifecycle_alarm(
+            "state",
+            f"the transcript recorded for '{seat_name}' PRE-DATES its own checkout: {tpath} was "
+            f"last written before {record.get('since')}. That is an earlier session's export "
+            f"carried on this checkout's record, so the session that just ended is unaccounted for.",
+            3, base, args=args,
+            failure=f"the recorded transcript {tpath} pre-dates the checkout it is filed under")
+    lifecycle_record_step(base, seat_name, f"transcript-verified:{tpath}{stale_note}")
+
+    if relaunching:
+        # ---- STEP 8: THE SUCCESSOR IS ACTUALLY RUNNING (G-11). ----------------------------------
+        # `wait_harness_up` inside `launch_seat` already refuses on POSITIVE absence, but it
+        # deliberately returns "" when liveness is UNVERIFIABLE — so a launch can succeed on
+        # "cannot tell". This asks the question again, at the end, and records the answer as the
+        # marker's own evidence that a row reading ACTIVE would not be a lie this time.
+        new_idents = pane_harness_idents(new_pane)
+        if not new_idents:
+            lifecycle_alarm(
+                "state",
+                f"'{seat_name}' RELAUNCHED INTO {new_pane} BUT NO HARNESS IS RUNNING THERE. That is "
+                f"G-11 exactly: a start line the pane's shell swallowed while everything upstream "
+                f"reported success. The seat is not back, whatever the pane looks like. Capture it "
+                f"to see what the shell did: tmux capture-pane -p -t {new_pane}",
+                3, base, args=args,
+                failure=(f"the successor pane {new_pane} carries NO harness process (G-11) — the "
+                         f"relaunch reported success and the seat is not running"))
+        lifecycle_record_step(
+            base, seat_name,
+            "successor-alive:" + ",".join(f"{p}:{s}" for p, s in new_idents))
+
+    # ---- STEP 9: SETTLE THE DEBTS THE CHECKOUT OPENED. ------------------------------------------
+    # ⚠ THIS IS THE ANSWER `s12-07` DEFERRED TO STAGE 3, and it is what releases `reap_blockers`'
+    # `disposition=renew` hold: that blocker is the checkout's ASSERTION that a renewal is in
+    # flight, and it is cleared by the act that COMPLETES the renewal — this one. `clear_awaiting`
+    # is `close-seat`'s and is reused, not re-implemented; `clear_closing` goes with it for G-21's
+    # reason — a closing flag that outlives its seat would quietly filter a live successor's
+    # messages. Both are notes, never failures: the sequence has already succeeded by here, and a
+    # debt that could not be cleared is visible in `status` rather than fatal.
+    if clear_awaiting(base, seat_name):
+        print(f"awaiting close: '{seat_name}' debt settled")
+    if clear_closing(base, seat_name):
+        print(f"inbox: '{seat_name}' closing state cleared")
+    lifecycle_record_step(base, seat_name, "awaiting-and-closing-cleared")
+
+    # ---- STEP 10: THE MARKER IS DONE. -----------------------------------------------------------
+    # `finish_lifecycle`, never `clear_lifecycle`: a successful renewal FLIPS to `done` and the
+    # entry stays until `close-run` sweeps it, because it is the only record that the renewal
+    # happened out of pane at all.
+    if not finish_lifecycle(base, seat_name, "done"):
+        lifecycle_alarm(
+            "state",
+            f"the {args.disposition} sequence for '{seat_name}' COMPLETED, but its marker could "
+            f"NOT be flipped `done`. Everything above actually happened; the record does not say "
+            f"so, and an entry left `in-flight` with a dead executor reads as a FAILED renewal to "
+            f"Stage 4 once LIFECYCLE_STALE_MIN elapses. Reported rather than left to be "
+            f"rediscovered as a phantom failure.",
+            3, base, args=args,
+            failure=(f"the {args.disposition} sequence completed and the marker could not be "
+                     f"flipped done — the work landed, the record did not"))
+    print(f"lifecycle-exec: {args.disposition} COMPLETE for '{seat_name}'"
+          + (f" — relaunched in {new_pane}"
+             + (" (same pane, layout intact)" if same_cell else "") if relaunching else ""))
+    return new_pane
+
+
 def cmd_lifecycle_exec(args):
-    """THE DETACHED LIFECYCLE EXECUTOR — entry guards only (this task, `s3-05`).
+    """THE DETACHED LIFECYCLE EXECUTOR — entry guards (`s3-05`) plus the disposition sequences
+    (`s3-06`).
 
     ALL ARGV, NOTHING FROM THE ENVIRONMENT. `--package` is never inferred: the caller resolves it
     (`package_dir`) and passes it absolute. Everything this process needs to decide is on its
@@ -4384,13 +4895,12 @@ def cmd_lifecycle_exec(args):
     and never a fresh regex; it READS ONLY — writing, rewriting or parsing `memory.md` beyond the
     delimiters is out of scope and belongs to `s12` (R-14).
 
-    ⚠ WHAT THIS FUNCTION DOES NOT DO. The disposition SEQUENCES are `s3-06`'s, `revive`'s
-    semantics `s3-07`'s, the bus alarm `s3-08`'s, and the caller-side fork `s3-09`'s. Past the
-    guards this stamps the marker and stops at a NAMED SEAM with exit code 3 — a code deliberately
-    distinct from the guards' 2, so a caller can tell "a guard refused this invocation" from "the
-    guards passed and the sequence is not built yet". It marks the marker FAILED before it stops:
-    a stamp left `in-flight` forever would read as a renewal in progress, which is the one reading
-    Stage 4 must never be given wrongly.
+    ⚠ WHAT THIS FUNCTION DOES NOT DO. `revive`'s semantics are `s3-07`'s and the caller-side fork
+    is `s3-09`'s. Past the five guards it hands off to `run_lifecycle_sequence` (`s3-06`), which
+    owns every act and leaves through `lifecycle_alarm` (`s3-08`) on any failure. THE EXIT-CODE
+    SPLIT IS PRESERVED AND IS THE CONTRACT: 2 = a GUARD refused this invocation, 3 = the guards
+    passed and the SEQUENCE broke. A marker is never left `in-flight` on a failure — that reads as
+    a renewal in progress, which is the one reading Stage 4 must never be given wrongly.
     """
     # ---- GUARD 1: SCRUB THE ENVIRONMENT, AT ENTRY, BEFORE ANY OTHER STATEMENT. ------------------
     # The full argument for popping these a second time is on LIFECYCLE_SCRUB_ENV above. What is
@@ -4560,25 +5070,12 @@ def cmd_lifecycle_exec(args):
             f"record that this executor ran: no reader could see it start, and Stage 4 could never "
             f"see it fail. Refusing before acting rather than acting unrecorded.", 2, args=args)
 
-    # [INTEGRATION POINT — STAGE 3: `s3-06` runs the DISPOSITION SEQUENCE here, and `s3-07` adds
-    # `revive`'s. Both replace the two statements below; every guard above stays.]
-    #
-    # The marker is flipped FAILED rather than left `in-flight`, because `in-flight` with a dead
-    # executor becomes a STALE alarm only after LIFECYCLE_STALE_MIN, and until then it reads as
-    # MID-RENEWAL — the one reading Stage 4 must never be handed wrongly.
-    #
-    # ⚠ THE FLIP IS `lifecycle_alarm`'s `failure=` (s3-08), no longer a `finish_lifecycle` call of
-    # this seam's own. Same write, same text, same order — the marker is still durable-first — but
-    # the ORDERING NOW LIVES IN THE CHOKEPOINT, which is what makes it hold for `s3-06`'s and
-    # `s3-07`'s failure branches too instead of being a discipline each of them could forget.
-    lifecycle_alarm(
-        "state",
-        f"every entry guard PASSED and the marker is stamped, but the {args.disposition} SEQUENCE "
-        f"ITSELF IS NOT BUILT — it lands with s3-06 (and `revive` with s3-07). Nothing has been "
-        f"launched, killed, respawned or cleared. Exit code 3 (not 2) says exactly this: the "
-        f"guards did not refuse you.", 3, base, args=args,
-        failure=(f"the {args.disposition} sequence is not implemented yet (s3-06); every "
-                 f"entry guard passed and nothing was acted on"))
+    # ---- PAST THE GUARDS: THE DISPOSITION SEQUENCE (`s3-06`). ----------------------------------
+    # Every guard above has passed and the marker is stamped `in-flight` with this process's own
+    # identity. From here the sequence owns the outcome: it flips the marker `done` when it
+    # completes, and every failure inside it leaves through `lifecycle_alarm` with exit 3 — so
+    # this call either returns having finished, or does not return at all.
+    run_lifecycle_sequence(args, base, target)
 
 
 def permitted_senders(agent, decls, roster):
@@ -8933,6 +9430,15 @@ def _selftest_checks(args, failures, names):
     global detect_pane, live_panes, _acquire_flock, atomic_write, pane_title
     global flip_handoff_read   # s12-08: rebound to exercise the flip-FAILURE arm
     global session_close       # rebound to exercise the trace-write FAILURE direction
+    # s3-06: the two the sequence reaches that nothing above stubs. DECLARED HERE, with every other
+    # global, rather than beside their use — a `global` statement after a name is already read in
+    # this scope is a SyntaxError that `ast.parse` does not raise and only `compile()` catches.
+    # `tmux_pane_window_name` SHELLS OUT to real tmux; `launch_seat` is wrapped by a spy that
+    # DELEGATES, so the renew rows still exercise the real launch path. Both are saved and restored
+    # inside the s3-06 block, not in the positional `real` tuple above.
+    global tmux_pane_window_name, launch_seat
+    # s3-06: the settle budget, zeroed for that block only (its own comment carries the clause).
+    global LIFECYCLE_SETTLE_S
     real = (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
             tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
             tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
@@ -13570,17 +14076,19 @@ def _selftest_checks(args, failures, names):
         # reach 2 however correct the code was.
         _h6_ip = "[INTEGRATION POINT " + "— STAGE 3"
         check("s12-06 S6-h: EVERY Stage-3 seam exists and is GREPPABLE — the module source carries "
-              "the named marker exactly FOUR times. Three are s12's: the renew path's fork "
-              "(the detached executor), the done path's fork (the detached reaper), and — added "
-              "by s12-07 — the `reap_blockers` block that every renew disposition holds until "
-              "that executor releases it. ONE is s3-05's, inside the executor itself: the point "
-              "past the entry guards where s3-06 runs the disposition sequence. ⚠ THE COUNT WENT "
-              "5 -> 4 WITH s3-08, WHICH DISCHARGED THE FIFTH: `lifecycle_alarm` no longer carries "
-              "a seam comment because it now RAISES the bus alarm rather than promising to. A "
-              "named comment is how the sites stay findable instead of being re-derived from a "
-              "spec nobody reads at the time — and this count is bumped in the SAME change as any "
-              "seam added or discharged, or the inventory starts lying quietly",
-              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 4)
+              "the named marker exactly THREE times. TWO are s12's, both still open and both "
+              "s3-09's: the renew path's fork (the detached executor) and the done path's fork "
+              "(the detached reaper). ONE is s3-06's, inside `run_lifecycle_sequence`: the "
+              "predicate `s3-07` widens for `revive`, which relaunches like a renew but had no "
+              "checkout. ⚠ THE COUNT WENT 5 -> 4 WITH s3-08 AND 4 -> 3 WITH s3-06, EACH "
+              "DISCHARGING ONE: s3-08's `lifecycle_alarm` now RAISES the bus alarm rather than "
+              "promising to, and s3-06 both BUILT the disposition sequence the executor's seam "
+              "promised and SETTLED s12-07's deferred question in `reap_blockers` (the executor "
+              "clears the entry, at step 9). A named comment is how the sites stay findable "
+              "instead of being re-derived from a spec nobody reads at the time — and this count "
+              "is bumped in the SAME change as any seam added or discharged, or the inventory "
+              "starts lying quietly",
+              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 3)
 
         # ============ s12-07: the DISPOSITION in awaiting-close.json =============================
         # Spec: stage-1-2-gate-checkout-spec.md §2.3. The rows that need a live pane, a recorded
@@ -14550,11 +15058,15 @@ def _selftest_checks(args, failures, names):
         _s5_norm_rec = load_lifecycle(_s5_base).get("s5-normal") or {}
         check("⚠⚠ s3-05 (6) THE MAPPED NORMAL PATH PROCEEDS — the plain done-checkout, the most "
               "common invocation this executor will ever see: `--disposition close` against a "
-              "record saying `done` passes every guard and reaches the s3-06 seam (exit 3, not the "
-              "guards' 2), stamping the marker on the way. The two sides share NO VALUE, so a "
-              "raw-equality guard would refuse exactly this — which is the defect the mapping "
-              "exists to prevent and the reason this row is not redundant with (5)",
-              _s5_norm_code == 3 and "s3-06" in _s5_norm_out
+              "record saying `done` passes every guard and reaches the DISPOSITION SEQUENCE, "
+              "stamping the marker on the way. EXIT 3 IS THE DISCRIMINATING HALF and it is the "
+              "s3-05 split, unchanged by s3-06: every entry guard refuses with 2, so a 3 can only "
+              "have come from PAST them. (Before s3-06 the 3 came from the unbuilt-sequence seam; "
+              "now it comes from the sequence itself, which stops on this fixture's missing "
+              "transcript. Same claim, same code, different producer.) The two sides share NO "
+              "VALUE, so a raw-equality guard would refuse exactly this — which is the defect the "
+              "mapping exists to prevent and the reason this row is not redundant with (5)",
+              _s5_norm_code == 3
               and _s5_norm_rec.get("disposition") == "close"
               and _s5_norm_rec.get("tmux-target") == "%40"
               and _s5_norm_rec.get("caller") == {"pid": 41190, "starttime": "884118"})
@@ -14571,14 +15083,17 @@ def _selftest_checks(args, failures, names):
         _s5_seam_out, _s5_seam_code = _s5_exec(seat="s5-seam", disposition="renew",
                                                handoff_written="0")
         _s5_seam_rec = load_lifecycle(_s5_base).get("s5-seam") or {}
-        check("s3-05 (6b) AND THE SEAM DOES NOT LEAVE A FALSE `in-flight`: the marker is flipped "
-              "FAILED with the reason, and the refusal renders the marker's alarm by CALLING "
-              "`lifecycle_line` rather than re-spelling STALE/FAILED/UNKNOWN — so this surface and "
-              "s3-04's can never hold two definitions. An `in-flight` stamp with a dead executor "
-              "reads as MID-RENEWAL until LIFECYCLE_STALE_MIN elapses, which is the one reading "
-              "Stage 4 must never be handed wrongly",
+        check("s3-05 (6b) AND A SEQUENCE FAILURE DOES NOT LEAVE A FALSE `in-flight`: the marker is "
+              "flipped FAILED with the reason, and the refusal renders the marker's alarm by "
+              "CALLING `lifecycle_line` rather than re-spelling STALE/FAILED/UNKNOWN — so this "
+              "surface and s3-04's can never hold two definitions. An `in-flight` stamp with a "
+              "dead executor reads as MID-RENEWAL until LIFECYCLE_STALE_MIN elapses, which is the "
+              "one reading Stage 4 must never be handed wrongly. ⚠ THE FAILURE THIS RIDES CHANGED "
+              "WITH s3-06 and the property did not: this package briefs no seat, so the renew now "
+              "stops at the descriptor lookup — BEFORE any kill (G-51) — instead of at the "
+              "unbuilt-sequence seam",
               _s5_seam_code == 3 and _s5_seam_rec.get("state") == "FAILED"
-              and "not implemented yet (s3-06)" in (_s5_seam_rec.get("failure") or "")
+              and "no descriptor carries" in (_s5_seam_rec.get("failure") or "")
               and "LIFECYCLE MARKERS IN ALARM" in _s5_seam_out
               and "s5-seam" in _s5_seam_out)
 
@@ -14714,9 +15229,16 @@ def _selftest_checks(args, failures, names):
         _s8_ns = ns(package=str(_s8_pkg), seat="s8-seat", disposition="renew")
 
         def _s8_exec(pkg, **kw):
-            """Drive the REAL executor to the s3-06 seam — the one failure branch that exists
-            today — so these rows ride the same chokepoint `s3-06`'s branches will call. Every
-            invocation refuses (2 at a guard, 3 at the seam), so `refuse()` is the right harness."""
+            """Drive the REAL executor into a REAL failure branch of the disposition sequence, so
+            these rows ride the same chokepoint every other branch calls.
+
+            ⚠ THE BRANCH IS CHOSEN FOR ISOLATION, not convenience: neither `_s8_pkg` nor
+            `_s8_bpkg` briefs a seat named `s8-seat`, so a `renew` stops at s3-06's DESCRIPTOR
+            lookup — before any kill (G-51), with nothing launched, killed or cleared, which is
+            what makes these fixtures safe to run repeatedly. It is also the ONE sequence branch
+            no s3-06 row asserts on, so a mutation of it reds these rows and only these. Every
+            invocation refuses (2 at a guard, 3 in the sequence), so `refuse()` is the right
+            harness."""
             d = {"package": str(pkg), "seat": "s8-seat", "disposition": "renew",
                  "pane": "%40", "tmux_target": "%40", "caller_pid": 41190,
                  "caller_starttime": "884118", "handoff_written": "0"}
@@ -14748,7 +15270,7 @@ def _selftest_checks(args, failures, names):
               "nothing, which is watch.py's recorded failure verbatim",
               _s8_code == 3 and _s8_note is not None and _s8_note["type"] == "note"
               and _s8_note["to"] == "leader" and "s8-seat" in _s8_body
-              and "SEQUENCE ITSELF IS NOT BUILT" in _s8_body and "ALARM RAISED" in _s8_out)
+              and "NO DESCRIPTOR carries" in _s8_body and "ALARM RAISED" in _s8_out)
 
         check("s3-08 (1b) THE BODY IS ACTIONABLE WITHOUT OPENING THE LOG: it carries the seat, the "
               "disposition, what failed, where the marker file is, where the executor's log "
@@ -14832,9 +15354,8 @@ def _selftest_checks(args, failures, names):
               "green under a reordering, because the write still happens; only the note's own "
               "account of the marker can tell the two orders apart",
               _s8_brec.get("state") == "FAILED"
-              and "not implemented yet (s3-06)" in (_s8_brec.get("failure") or "")
-              and "marker says: FAILED — the renew sequence is not implemented yet (s3-06)"
-              in _s8_body)
+              and "no descriptor carries" in (_s8_brec.get("failure") or "")
+              and "marker says: FAILED — no descriptor carries `agent: s8-seat`" in _s8_body)
 
         # ---- (4) THE LAST-RESORT PRINT, when even the append cannot land.
         # The append is blocked with a DIRECTORY at the flag file's path — a real OSError from the
@@ -14894,6 +15415,383 @@ def _selftest_checks(args, failures, names):
               and undelivered_flags(_s8_base) == [])
 
         calling_pane["v"], wake_ok["v"] = _s8_prior_pane, _s8_prior_wake
+
+        # ============ s3-06: the DISPOSITION SEQUENCES — renew and close ========================
+        # Spec: stage-3-executor-spec.md §3.2 (renew), §3.3 (close), §4.1 (the identity guards).
+        # These rows assert on the RECORDED STUB CALLS and on the marker's `steps-completed`, which
+        # is exactly what they should assert on: `pane_harness_idents`, `verify_pids_gone`,
+        # `arm_pid_reaper`, `wait_harness_up`, `tmux_respawn_pane`, `live_panes` and `available_mb`
+        # are stubbed here, and the real-process end-to-end proof is `s3-11`'s.
+        #
+        # ⚠⚠ NO RAM-GATE VERDICT ROW MAY LIVE INSIDE THIS SUITE, and that is not a preference.
+        # `available_mb` is stubbed to `0` and `memory_gate` PASSES on `avail_mb == 0` by its own
+        # fail-safe ("a broken sensor must not be able to stop a run"), so a gate row written here
+        # would be green whatever the gate did — the vacuous shape. Row (6) is therefore a DIRECT
+        # unit call plus two executor refusals that never reach the verdict at all.
+        #
+        # ⚠ LIFECYCLE_SETTLE_S IS ZEROED FOR THIS BLOCK, with the clause the real-time-budgets
+        # block above demands: THE WAIT IS NOT ANY OF THESE ROWS' SUBJECT. Their subject is the
+        # ENTRY the wait records and the fact that the sequence proceeds either way — and at zero
+        # BOTH outcomes stay reachable and both are exercised below (a dead caller answers
+        # `caller-exited` at the first look, before any sleep; a live one answers
+        # `caller-still-live-after-settle` at a deadline that has already passed). The DURATION
+        # itself is `s3-11`(a)'s, against a real process.
+        _s6_real_wname, _s6_real_idents = tmux_pane_window_name, pane_harness_idents
+        _s6_real_panes, _s6_real_sess = live_panes, tmux_session_name
+        _s6_real_respawn, _s6_real_split = tmux_respawn_pane, tmux_split_pane
+        _s6_real_launch, _s6_real_settle = launch_seat, LIFECYCLE_SETTLE_S
+        _s6_prior_pane, calling_pane["v"] = calling_pane["v"], ""
+        _s6_prior_wake, wake_ok["v"] = wake_ok["v"], True
+        _s6_prior_up, harness_up["v"] = harness_up["v"], [6009]
+        LIFECYCLE_SETTLE_S = 0
+
+        _s6_live = {"v": {"%60", "%61"}}      # %61 is the --tmux-target every row passes
+        _s6_idents = {}                       # pane -> the harness idents THAT pane holds
+        live_panes = lambda: set(_s6_live["v"])
+        tmux_session_name = lambda target: "s6sess"
+        tmux_pane_window_name = lambda pane: "workers"
+        pane_harness_idents = lambda pane: list(_s6_idents.get(pane, []))
+        # ⚠ THE RESPAWN STUB SWAPS THE PANE'S OCCUPANT, and that is what makes step 8 discriminating
+        # rather than decorative. `tmux respawn-pane -k` replaces what runs in the cell, so the
+        # in-place row's "successor is alive" assertion names a pid that CANNOT have been read
+        # before the respawn — without this the same pane would answer the same idents at step 1 and
+        # step 8 and the row would pass on the outgoing session's own processes.
+        _s6_respawned = []
+        def _s6_respawn(pane, cwd):
+            _s6_respawned.append((pane, cwd))
+            _s6_idents[pane] = [(6002, "stamp-6002")]
+            return True, ""
+        tmux_respawn_pane = _s6_respawn
+        # Deterministic pane ids for the re-place rows: the suite's own split stub numbers by a
+        # shared counter, so the id a row would have to assert on depends on every block before it.
+        _s6_splits, _s6_n = [], {"v": 0}
+        def _s6_split(target, cwd):
+            _s6_n["v"] += 1
+            pane = "%%7%d" % _s6_n["v"]
+            _s6_splits.append((target, pane))
+            _s6_idents[pane] = [(6100 + _s6_n["v"], "stamp-successor")]
+            return pane, ""
+        tmux_split_pane = _s6_split
+        # A SPY THAT DELEGATES: rows 1, 2 and 5 exercise the REAL `launch_seat` (prompt file ->
+        # harness command -> wake -> wait_harness_up -> session row); row 3 asserts it was never
+        # called and row 4 forces its failure. A wholesale stub would make "the relaunch happened"
+        # a claim about the stub.
+        _s6_launches, _s6_launch_fail = [], {"v": ""}
+        def _s6_launch(w, a, target, prompt=None, pane=None):
+            _s6_launches.append((w["agent"], target, pane))
+            if _s6_launch_fail["v"]:
+                return "", _s6_launch_fail["v"]
+            return _s6_real_launch(w, a, target, prompt=prompt, pane=pane)
+        launch_seat = _s6_launch
+
+        def _s6_make(name, seats=("renewer",), floors=True, budget_text=None):
+            pk = Path(td) / name
+            (pk / "coordination").mkdir(parents=True)
+            (pk / "workers").mkdir()
+            for s in seats:
+                (pk / "workers" / s).mkdir()
+                (pk / "workers" / s / "agent.md").write_text(
+                    f"---\nagent: {s}\nmodel: opus\n---\nbrief\n")
+            if budget_text is not None:
+                (pk / "budget.json").write_text(budget_text)
+            elif floors:
+                (pk / "budget.json").write_text(
+                    json.dumps({"floors": {"launch_refuse_mb": 2000, "pressure_warn_mb": 2000}}))
+            return pk, pk / "coordination"
+
+        def _s6_checkout(pkg, base, seat, pane, disposition):
+            """The state a real checkout leaves behind, written through the SAME `set_awaiting` the
+            checkout calls — never a hand-built dict, so a change to that record's shape reaches
+            these rows instead of passing them by."""
+            t = pkg / "coordination" / f"{seat}-transcript.txt"
+            t.write_text("captured scrollback\n")
+            set_awaiting(base, seat, pane, t, True, disposition=disposition)
+            return t
+
+        def _s6_exec(pkg, **kw):
+            """Drive the WHOLE command — guards then sequence. `refuse()` is used for the SUCCESS
+            rows too: it reports a normal return as exit 0, so one harness reads both outcomes and
+            no row has to guess which one it is about."""
+            d = {"package": str(pkg), "seat": "renewer", "disposition": "renew",
+                 "pane": "%60", "tmux_target": "%61", "caller_pid": 41190,
+                 "caller_starttime": "884118", "handoff_written": "0"}
+            d.update(kw)
+            return refuse(cmd_lifecycle_exec, **d)
+
+        def _s6_order(steps, *fragments):
+            """Every fragment appears in `steps`, IN ORDER. Ordered CONTAINMENT, not equality: a
+            row pinning the exact list would go red on any step's wording and would stop being
+            about the order it exists to assert."""
+            at = -1
+            for frag in fragments:
+                nxt = next((j for j, s in enumerate(steps) if j > at and frag in str(s)), None)
+                if nxt is None:
+                    return False
+                at = nxt
+            return True
+
+        def _s6_steps(base, seat):
+            rec = load_lifecycle(base).get(seat) or {}
+            got = rec.get("steps-completed")
+            return rec, [str(s) for s in got] if isinstance(got, list) else []
+
+        # ---- (1) RENEW / IN-PLACE: every step, in order, each recorded only after it verified.
+        _s6_p1, _s6_b1 = _s6_make("s6-inplace")
+        _s6_idents["%60"] = [(6001, "stamp-6001")]
+        _s6_t1 = _s6_checkout(_s6_p1, _s6_b1, "renewer", "%60", "renew")
+        _s6_o1, _s6_c1 = _s6_exec(_s6_p1)
+        _s6_r1, _s6_s1 = _s6_steps(_s6_b1, "renewer")
+        check("s3-06 (1) RENEW/IN-PLACE — THE WHOLE SEQUENCE, IN ORDER, ENDING `done`: the marker "
+              "records the caller-exit entry, the G-154 in-place decision, the respawn of the SAME "
+              "pane (G-12 — kill+split re-tiles the window and destroys the arranged layout), the "
+              "relaunch INTO that same pane, then all three verifications (roster, transcript, "
+              "successor-alive) and the debts cleared. The successor's pid is 6002 — the one the "
+              "respawn put there — so this cannot pass on the OUTGOING session's processes. The "
+              "awaiting-close debt is GONE, which is what releases `reap_blockers`' renew hold",
+              _s6_c1 == 0 and _s6_r1.get("state") == "done"
+              and _s6_order(_s6_s1, "caller-exited", "harness-idents-measured:1",
+                            "in-place-decided:in-place", "respawned-in-place:%60",
+                            "relaunched:%60", "roster-verified", "transcript-verified",
+                            "successor-alive:6002", "awaiting-and-closing-cleared")
+              and _s6_respawned and _s6_respawned[-1][0] == "%60"
+              # ⚠ THE LAUNCH TARGET IS DELIBERATELY NOT PINNED HERE — it is row (2)'s subject, and
+              # pinning it here asserts an irrelevance: an in-place relaunch passes `pane=` and
+              # `launch_seat` never places anything, so `target` is unread on this path. Measured
+              # rather than reasoned: with the target pinned, row (2)'s red arm (relaunch into the
+              # OLD pane instead of the validated `--tmux-target`) reddened this row as well and
+              # `--expect-fail` refused the evidence. The mutation was kept and this conjunct
+              # narrowed, never the other way round.
+              and _s6_launches and _s6_launches[-1][0] == "renewer"
+              and _s6_launches[-1][2] == "%60"
+              and "renewer" not in load_awaiting(_s6_b1))
+
+        # ---- (1b) THE APPEND-AFTER-VERIFY RULE, at the one step that can prove it.
+        # ⚠ THIS IS WHERE THE TASK'S ROW-1 RED ARM ACTUALLY LANDS, and the reason is arithmetic:
+        # the mutation is "make step 8 append BEFORE it verifies", and row (1) runs on a fixture
+        # whose successor IS alive — so under that mutation row (1) produces the identical marker
+        # and stays green. The mutation is only observable where the verification FAILS, which is
+        # this row: the successor pane holds no harness, the sequence must alarm, and
+        # `successor-alive` must be ABSENT from the marker. Append-before-verify records a step
+        # that did not happen, which is the G-134 inversion the whole discipline exists to prevent.
+        _s6_p1b, _s6_b1b = _s6_make("s6-g11")
+        _s6_live["v"] = {"%61"}                     # %64 is dead -> re-place -> a fresh split pane
+        _s6_idents["%64"] = [(6041, "stamp-6041")]
+        _s6_checkout(_s6_p1b, _s6_b1b, "renewer", "%64", "renew")
+        _s6_dead = {"v": True}
+        def _s6_split_dead(target, cwd):
+            _s6_n["v"] += 1
+            pane = "%%7%d" % _s6_n["v"]
+            _s6_splits.append((target, pane))
+            if not _s6_dead["v"]:
+                _s6_idents[pane] = [(6100 + _s6_n["v"], "stamp-successor")]
+            return pane, ""
+        tmux_split_pane = _s6_split_dead
+        _s6_o1b, _s6_c1b = _s6_exec(_s6_p1b, pane="%64")
+        _s6_r1b, _s6_s1b = _s6_steps(_s6_b1b, "renewer")
+        tmux_split_pane = _s6_split
+        check("⚠ s3-06 (1b) A STEP IS APPENDED ONLY AFTER IT VERIFIES — proven at step 8, the G-11 "
+              "check: the seat relaunches into a pane where NO harness comes up, so the sequence "
+              "ALARMS (exit 3, marker FAILED naming the pane) and `successor-alive` is ABSENT from "
+              "`steps-completed`. `relaunched:` IS present, because that step really did verify. A "
+              "marker that recorded a step which did not happen is worse than one recording "
+              "nothing — it is read as history, by Stage 4 and by whoever is woken at 04:00",
+              _s6_c1b == 3 and _s6_r1b.get("state") == "FAILED"
+              and "NO harness process" in (_s6_r1b.get("failure") or "")
+              and _s6_order(_s6_s1b, "in-place-decided:re-place", "killed:%64", "relaunched:")
+              and not any("successor-alive" in s for s in _s6_s1b)
+              and not any("awaiting-and-closing-cleared" in s for s in _s6_s1b)
+              and "renewer" in load_awaiting(_s6_b1b))
+
+        # ---- (2) RENEW / RE-PLACE: the kill arm, and the successor placed in a NEW cell.
+        _s6_p2, _s6_b2 = _s6_make("s6-replace")
+        _s6_live["v"] = {"%61"}                     # %62 is not live -> renew_in_place is False
+        _s6_idents["%62"] = [(6011, "stamp-6011")]
+        _s6_checkout(_s6_p2, _s6_b2, "renewer", "%62", "renew")
+        _s6_kills_before = len(killed)
+        _s6_o2, _s6_c2 = _s6_exec(_s6_p2, pane="%62")
+        _s6_r2, _s6_s2 = _s6_steps(_s6_b2, "renewer")
+        check("s3-06 (2) RENEW/RE-PLACE — the same sequence with the OTHER step-4 arm: the pane is "
+              "not live, so `renew_in_place` says re-place, the pane is KILLED (not respawned), "
+              "the successor is placed in a NEW cell split off the caller's validated "
+              "`--tmux-target`, and the same three verifications run. The in-place and re-place "
+              "paths differ in exactly one step and share every other, which is why they are ONE "
+              "sequence gated on one boolean rather than two implementations",
+              _s6_c2 == 0 and _s6_r2.get("state") == "done"
+              and _s6_order(_s6_s2, "caller-exited", "in-place-decided:re-place", "killed:%62",
+                            "relaunched:", "roster-verified", "transcript-verified",
+                            "successor-alive:", "awaiting-and-closing-cleared")
+              and "%62" in killed[_s6_kills_before:]
+              and not any(p == "%62" for p, _ in _s6_respawned)
+              and _s6_splits and _s6_splits[-1][0] == "%61"
+              and _s6_launches[-1] == ("renewer", "%61", None))
+
+        # ---- (3) CLOSE PERFORMS NO RELAUNCH.
+        # ⚠ THIS ROW DRIVES `run_lifecycle_sequence` DIRECTLY, AND THE REASON IS ISOLATION, NOT
+        # CONVENIENCE. A `close` invocation through the command must pass guard 4, whose OWN red
+        # arm (s3-05 row 6: compare argv and the record as raw strings) breaks EVERY close — the
+        # two vocabularies differ there by design. A completing close driven through the command
+        # would therefore go red under s3-05 (6)'s mutation as well, and `--expect-fail` demands
+        # exactly one. The guards are s3-05's subject; the SEQUENCE is this row's, and the seam
+        # between them is what s3-05 (6)'s exit-3 already proves. The marker is stamped here
+        # exactly as guard 5 stamps it, because `lifecycle_record_step` refuses to append to an
+        # entry that was never started.
+        _s6_p3, _s6_b3 = _s6_make("s6-close")
+        _s6_idents["%63"] = [(6021, "stamp-6021")]
+        _s6_checkout(_s6_p3, _s6_b3, "renewer", "%63", "done")
+        _s6_ns3 = ns(package=str(_s6_p3), seat="renewer", disposition="close", pane="%63",
+                     tmux_target="%61", caller_pid=41190, caller_starttime="884118",
+                     handoff_written=None)
+        stamp_lifecycle(_s6_b3, "renewer", {"disposition": "close", "pane": "%63",
+                                            "tmux-target": "%61",
+                                            "caller": (41190, "884118")})
+        _s6_launch3 = len(_s6_launches)
+        _s6_kills3 = len(killed)
+        _s6_o3, _s6_e3, _s6_c3 = harness_outcome(
+            lambda _a: run_lifecycle_sequence(_s6_ns3, _s6_b3, "%61"), ns())
+        _s6_r3, _s6_s3 = _s6_steps(_s6_b3, "renewer")
+        check("s3-06 (3) CLOSE PERFORMS NO RELAUNCH: the close sequence records the kill and the "
+              "same roster/transcript verifications, settles the debts and ends `done` — and "
+              "`launch_seat` IS NEVER CALLED (asserted on the spy, not inferred from the absence "
+              "of a pane). There is no in-place decision either: nothing is being placed. This is "
+              "`cmd_close_seat`'s plain-close half executed OUT OF PANE, and it is what closes the "
+              "G-134 'checkout != freed' gap the awaiting-close debt only RECORDS today",
+              _s6_c3 is None and _s6_r3.get("state") == "done"
+              and len(_s6_launches) == _s6_launch3
+              and not any("relaunched" in s or "in-place-decided" in s or "successor-alive" in s
+                          for s in _s6_s3)
+              and _s6_order(_s6_s3, "caller-exited", "killed:%63", "roster-verified",
+                            "transcript-verified", "awaiting-and-closing-cleared")
+              and "%63" in killed[_s6_kills3:]
+              and "renewer" not in load_awaiting(_s6_b3))
+
+        # ---- (4) A FAILED RELAUNCH STOPS LOUDLY, AND STOPS.
+        _s6_p4, _s6_b4 = _s6_make("s6-launchfail")
+        _s6_idents["%65"] = [(6031, "stamp-6031")]
+        _s6_checkout(_s6_p4, _s6_b4, "renewer", "%65", "renew")
+        _s6_launch_fail["v"] = "pane opened but harness start FAILED: selftest"
+        _s6_o4, _s6_c4 = _s6_exec(_s6_p4, pane="%65")
+        _s6_launch_fail["v"] = ""
+        _s6_r4, _s6_s4 = _s6_steps(_s6_b4, "renewer")
+        check("s3-06 (4) A FAILED RELAUNCH STOPS LOUDLY AND STOPS: with `launch_seat` returning an "
+              "error the marker reads FAILED, the failure text NAMES THE RELAUNCH and says the "
+              "seat is closed and not back, and steps 6-9 were NEVER ATTEMPTED — no roster, "
+              "transcript or successor verification, and the awaiting-close debt is STILL ON THE "
+              "BOOKS so `status`, `workers` and `reap` all keep showing a seat that has not come "
+              "back. A sequence that swallowed this would leave a seat neither alive nor closed "
+              "with nothing anywhere saying so",
+              _s6_c4 == 3 and _s6_r4.get("state") == "FAILED"
+              and "relaunch" in (_s6_r4.get("failure") or "").lower()
+              and "CLOSED AND NOT RELAUNCHED" in (_s6_r4.get("failure") or "").upper()
+              and not any(("roster-verified" in s) or ("transcript-verified" in s)
+                          or ("successor-alive" in s) or ("cleared" in s) for s in _s6_s4)
+              and "renewer" in load_awaiting(_s6_b4)
+              and "THE RELAUNCH FAILED" in _s6_o4)
+
+        # ---- (5) A DEAD PANE IS A LEGAL RENEW INPUT.
+        _s6_p5, _s6_b5 = _s6_make("s6-deadpane")
+        _s6_live["v"] = {"%61"}
+        _s6_checkout(_s6_p5, _s6_b5, "renewer", "%66", "renew")   # %66 holds no harness at all
+        _s6_o5, _s6_c5 = _s6_exec(_s6_p5, pane="%66")
+        _s6_r5, _s6_s5 = _s6_steps(_s6_b5, "renewer")
+        check("s3-06 (5) A DEAD PANE IS A LEGAL RENEW INPUT: step 1 measures ZERO harness idents "
+              "and the sequence PROCEEDS — recording the measurement rather than refusing on it — "
+              "all the way to `done`. A run that refused here would strand exactly the seat most "
+              "in need of a renew: the one whose harness has already died. `verify_pids_gone` on "
+              "an empty ident list is a no-op by its own first line, so nothing is being skipped "
+              "quietly either",
+              _s6_c5 == 0 and _s6_r5.get("state") == "done"
+              and _s6_order(_s6_s5, "caller-exited", "harness-idents-measured:0",
+                            "in-place-decided:re-place", "relaunched:", "successor-alive:",
+                            "awaiting-and-closing-cleared"))
+
+        # ---- (5b) THE OTHER SETTLE OUTCOME, so the entry is never a constant.
+        _s6_p5b, _s6_b5b = _s6_make("s6-livecaller")
+        # A LIVE HARNESS ON THE PANE, deliberately: row (5) owns the empty-idents case, and its own
+        # red arm ("refuse when step 1 measures nothing") must red row (5) ALONE. A second fixture
+        # that also measured zero would be reddened by it too and neither row would isolate.
+        _s6_idents["%67"] = [(6071, "stamp-6071")]
+        _s6_checkout(_s6_p5b, _s6_b5b, "renewer", "%67", "renew")
+        _s6_o5b, _s6_c5b = _s6_exec(_s6_p5b, pane="%67", caller_pid=os.getpid(),
+                                    caller_starttime=proc_stat(os.getpid())[1])
+        _s6_r5b, _s6_s5b = _s6_steps(_s6_b5b, "renewer")
+        check("s3-06 (5b) THE SETTLE WAIT RECORDS WHICH OF THE TWO HAPPENED, AND PROCEEDS EITHER "
+              "WAY: with a caller that is provably STILL LIVE (this process's own pid+starttime) "
+              "the entry reads `caller-still-live-after-settle` and the renew completes anyway. "
+              "The executor never depends on the caller — checkout IS the turn boundary, and by "
+              "the time this runs the handoff, the transcript, the roster flip and the session "
+              "row are all already on disk. Without this row the entry would be a constant and "
+              "row (1)'s `caller-exited` would assert nothing",
+              _s6_c5b == 0 and _s6_r5b.get("state") == "done"
+              and _s6_s5b and _s6_s5b[0] == "caller-still-live-after-settle"
+              and _s6_s1 and _s6_s1[0] == "caller-exited")
+
+        # ---- (6) THE RAM GATE IS SOURCED, NEVER CARRIED — a direct unit call plus two refusals.
+        _s6_floor = budget_mod.read_floor(_s6_p1, "refuse")
+        _s6_nofloor, _s6_nfb = _s6_make("s6-nofloor", floors=False)
+        _s6_idents["%68"] = [(6051, "stamp-6051")]
+        _s6_checkout(_s6_nofloor, _s6_nfb, "renewer", "%68", "renew")
+        _s6_und_o, _s6_und_c = _s6_exec(_s6_nofloor, pane="%68")
+        _s6_und_r = load_lifecycle(_s6_nfb).get("renewer") or {}
+        _s6_bad, _s6_badb = _s6_make("s6-badfloor", budget_text="{not json at all")
+        _s6_idents["%69"] = [(6061, "stamp-6061")]
+        _s6_checkout(_s6_bad, _s6_badb, "renewer", "%69", "renew")
+        _s6_unr_o, _s6_unr_c = _s6_exec(_s6_bad, pane="%69")
+        _s6_unr_r = load_lifecycle(_s6_badb).get("renewer") or {}
+        check("s3-06 (6) THE RAM GATE IS SOURCED, NEVER CARRIED (R-10, `r-floor-single-source`): "
+              "the floor is READ from the run's own budget.json — `memory_gate(1, floor-1, floor)` "
+              "refuses and `memory_gate(1, floor+1, floor)` passes against that read value, with "
+              "no number written here — and the executor's TWO resolution failures produce TWO "
+              "DISTINCT loud refusals. An undeclared budget and a DECLARED-but-unreadable one are "
+              "different facts and coord.py already distinguishes them; collapsing them is what "
+              "once made a wrong path observationally identical to a package with no floor. "
+              "⚠ THE RED ARM IS THE DEFAULTING ONE: give the resolver any fallback number and both "
+              "refusals disappear, which is precisely a consumer inventing a floor",
+              memory_gate(1, _s6_floor - 1, _s6_floor) != ""
+              and memory_gate(1, _s6_floor + 1, _s6_floor) == ""
+              and _s6_und_c == 3 and "NO memory floor is DECLARED" in _s6_und_o
+              and "no floor is declared" in (_s6_und_r.get("failure") or "")
+              and _s6_unr_c == 3 and "IS DECLARED and could NOT be read" in _s6_unr_o
+              and "unreadable" in (_s6_unr_r.get("failure") or "")
+              and _s6_und_o != _s6_unr_o)
+
+        # ---- (L) THE EXECUTOR STILL HOLDS NO IDENTITY, now that it LAUNCHES seats.
+        # ⚠ AST, NEVER A SUBSTRING SCAN, and that is measured rather than preferred: the first
+        # draft of this row tested `"gate(args" not in source` and went RED on the sequence's own
+        # `lifecycle_memory_gate(args, base)` call — a name that ENDS in the forbidden token. A
+        # matcher whose false positives track the very vocabulary the subject uses cannot report
+        # an absence. This collects CALLED NAMES from the parse tree of the sequence and every
+        # helper it is made of, so only a real call to a real gate can fire it.
+        _s6_forbidden = {"launch_gates", "gate", "resolve_agent"}
+        _s6_subjects = {"run_lifecycle_sequence", "lifecycle_descriptor",
+                        "lifecycle_check_bindings", "lifecycle_memory_floor",
+                        "lifecycle_memory_gate", "lifecycle_settle", "lifecycle_record_step"}
+        import ast as _s6_ast
+        _s6_called, _s6_seen = set(), set()
+        for _s6_node in _s6_ast.walk(_s6_ast.parse(Path(__file__).read_text(encoding="utf-8"))):
+            if not (isinstance(_s6_node, _s6_ast.FunctionDef) and _s6_node.name in _s6_subjects):
+                continue
+            _s6_seen.add(_s6_node.name)
+            for _s6_inner in _s6_ast.walk(_s6_node):
+                if isinstance(_s6_inner, _s6_ast.Call):
+                    _s6_called.add(getattr(_s6_inner.func, "id", "") or
+                                   getattr(_s6_inner.func, "attr", ""))
+        check("s3-06 (L) THE EXECUTOR ACQUIRES NO SEAT IDENTITY, even though it now LAUNCHES: "
+              "neither `run_lifecycle_sequence` nor any helper it is made of calls `launch_gates`, "
+              "`gate` or `resolve_agent`. It evaluates the MEMORY half of the launch pre-flight "
+              "itself and leaves the ROLE half alone — the role question was answered at the "
+              "checkout that authorised this act, and this process holds no roster row, no pane "
+              "and no COORD_AGENT (guard 1 popped it), so a role gate here could only ever refuse. "
+              "The subject set is asserted too, so a renamed or deleted helper turns this row red "
+              "instead of quietly shrinking what it scans",
+              _s6_seen == _s6_subjects and not (_s6_called & _s6_forbidden)
+              and "launch_seat" in _s6_called and "memory_gate" in _s6_called)
+
+        tmux_pane_window_name, pane_harness_idents = _s6_real_wname, _s6_real_idents
+        live_panes, tmux_session_name = _s6_real_panes, _s6_real_sess
+        tmux_respawn_pane, tmux_split_pane = _s6_real_respawn, _s6_real_split
+        launch_seat, LIFECYCLE_SETTLE_S = _s6_real_launch, _s6_real_settle
+        calling_pane["v"], wake_ok["v"] = _s6_prior_pane, _s6_prior_wake
+        harness_up["v"] = _s6_prior_up
 
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
