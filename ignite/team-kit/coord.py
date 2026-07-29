@@ -12764,6 +12764,194 @@ def _selftest_checks(args, failures, names):
               and "foreign author: delivered all the same" in _d8_xi_out
               and _d8_tau.read_text(encoding="utf-8").count("unread=no") == 1
               and _d8_xi.read_text(encoding="utf-8").count("unread=no") == 1)
+
+        # ============ s12-09: a CLASSIFIER-SHAPED failure at each renewal step is REPORTED ======
+        # Spec: stage-1-2-gate-checkout-spec.md §6 (the W2/W4 simulation block). R-8: a step that
+        # fails must say so at its own exit code or in its own output, naming the layer that
+        # failed — never log to a detached stream and report success. R-6: every row below is a
+        # VERIFICATION row over behaviour s12-05/06/08 already landed, so each is green-before by
+        # construction; the red arms (stub- and code-side mutations run one at a time under
+        # `--expect-fail`) are the R-6 evidence, per s12-08's labelling precedent.
+        #
+        # ⚠ THE BOUNDARY SIMULATED IS EACH STEP'S OWN WRITE, NOT A TMUX SEND. The task's named
+        # tmux stubs (`tmux_send_text`/`tmux_send_enter`/`wake`) ARE installed below, rebound to
+        # fail classifier-shaped and to RECORD every call — and each step's *1 row asserts they
+        # were never reached: none of the three renewal steps crosses tmux, so a tmux-side-only
+        # stub would make all nine rows vacuous (the task's own warning). What a classifier
+        # actually breaks in these steps is the step's boundary WRITE, so the denial is injected
+        # there: path-scoped through `atomic_write` (s12-07 S7-d's pattern), raising the
+        # classifier-shaped reason so the surface can be asserted to carry it — or shown to drop
+        # it.
+        #
+        # ⚠ EVERY STUB PROVES IT WAS REACHED. Each denial appends to its own observation list and
+        # each step's *1 row asserts that list non-empty IN THE SAME RUN, before anything about
+        # the failure: nine greens over a rebind that never fired would be nine vacuous rows.
+        #
+        # ⚠ NO SIXTH refuse() LAYER (W4). A classifier failure is NOT coord.py refusing, and the
+        # rows assert the two stay DISTINGUISHABLE: the arm and the delivery report theirs as
+        # loud stderr WARNINGs with no `refused [coord` prefix (BY RULING — a failed mute must
+        # not strand the renewal, and a delivery must never gate a check-in), while call 2
+        # refuses at coord.py's own layer `state` and carries the boundary's reason string
+        # through, so "the write failed because <reason>" never collapses into a bare refusal.
+        _s9_reason = "permission denied by harness classifier"
+        _s9_aw_real = atomic_write
+        _s9_tmux = []
+        _s9_send_real, _s9_enter_real, _s9_wake_real = tmux_send_text, tmux_send_enter, wake
+        _s9_send_deny = lambda pane, t: (_s9_tmux.append(("send", pane)) or (False, _s9_reason))
+        _s9_enter_deny = lambda pane: (_s9_tmux.append(("enter", pane)) or (False, _s9_reason))
+        _s9_wake_deny = lambda pane, t: (_s9_tmux.append(("wake", pane)) or (False, _s9_reason))
+
+        def _s9_install(aw_deny):
+            global atomic_write, tmux_send_text, tmux_send_enter, wake
+            atomic_write = aw_deny
+            tmux_send_text, tmux_send_enter, wake = _s9_send_deny, _s9_enter_deny, _s9_wake_deny
+
+        def _s9_restore():
+            global atomic_write, tmux_send_text, tmux_send_enter, wake
+            atomic_write = _s9_aw_real
+            tmux_send_text, tmux_send_enter, wake = _s9_send_real, _s9_enter_real, _s9_wake_real
+
+        # ---- S9-a: the ARM (`checkout --renew`, no --handoff). Boundary: the closing write ----
+        _s9a_obs = []
+
+        def _s9a_deny(path, text):
+            if Path(path).name == "closing.json":
+                _s9a_obs.append(Path(path).name)
+                raise OSError(_s9_reason)
+            return _s9_aw_real(path, text)
+
+        _s9a_mem = _d8_seat("s9a", "# s9a — seat memory\nprior state\n")
+        run(cmd_checkin, agent="s9a", summary="s12-09 arm fixture", pane="%88", force=True)
+        _s9a_before = _s9a_mem.read_text(encoding="utf-8")
+        _s9_install(_s9a_deny)
+        _s9a_o, _s9a_e, _s9a_c = harness_outcome(
+            cmd_checkout, ns(agent="s9a", renew=True, handoff=None, no_export=True))
+        _s9_restore()
+        _, _, _s9a_rows = load_workers(base_g)
+        _s9a_row = current_row(_s9a_rows, "s9a") or {}
+        check("s12-09 S9-a1: with the arm's boundary write DENIED the step still ends its turn "
+              "(code None — a failed mute must not strand the renewal, so the arm's failure "
+              "surface is a WARNING, not an exit) AND its own stderr carries an explicit failure "
+              "line, AND the denial was OBSERVED in this same run while the tmux-side stubs were "
+              "NEVER reached — the rows are about a failure that actually fired at the boundary "
+              "this step crosses, never about a rebind that missed the code under test",
+              len(_s9a_obs) >= 1 and not _s9_tmux and _s9a_c is None
+              and "WARNING" in _s9a_e and "NOTHING IS CLOSED YET" in _s9a_o)
+        check("s12-09 S9-a2: the arm's failure line is DISTINGUISHABLE from a coord.py refusal — "
+              "it names the act that failed (the wake mute could not be written) and carries no "
+              "`refused [coord` prefix, so a reader can tell 'the boundary write failed' from "
+              "'coord.py refused me'. ⚠ Known residue, surfaced to s12-05 and deliberately NOT "
+              "asserted either way: `set_closing` returns a bare False, so the boundary's OWN "
+              "reason string is dropped before this surface — the seat cannot tell a classifier "
+              "denial from a full disk. IMPLICATION FORM for red-arm isolation: the presence of "
+              "the failure line is S9-a1's subject, its grammar is this row's",
+              "WARNING" not in _s9a_e
+              or ("wake mute could NOT be written" in _s9a_e
+                  and "refused [coord" not in _s9a_e))
+        check("s12-09 S9-a3: NO HALF-WRITE — after the denied arm the roster row is still "
+              "`active == yes` with no checkout stamp (the arm never flips it; the roster clause "
+              "is also pinned by s12-05 S2-a, whose coverage it shares) and the seat's memory.md "
+              "is byte-identical: the step left every surface in exactly one of its legal states",
+              _s9a_row.get("active") == "yes" and not _s9a_row.get("checkout")
+              and _s9a_mem.read_text(encoding="utf-8") == _s9a_before)
+        clear_closing(base_g, "s9a")
+
+        # ---- S9-b: HANDOFF-APPEND + CHECKOUT (call 2). Boundary: the memory.md append ----
+        _s9b_obs = []
+
+        def _s9b_deny(path, text):
+            if Path(path).name == "memory.md":
+                _s9b_obs.append(Path(path).name)
+                raise OSError(_s9_reason)
+            return _s9_aw_real(path, text)
+
+        _s9b_mem = _d8_seat("s9b", "# s9b — seat memory\nprior state\n")
+        run(cmd_checkin, agent="s9b", summary="s12-09 call-2 fixture", pane="%89", force=True)
+        _s9b_before = _s9b_mem.read_text(encoding="utf-8")
+        _s9_install(_s9b_deny)
+        _s9b_o, _s9b_e, _s9b_c = harness_outcome(
+            cmd_checkout, ns(agent="s9b", renew=True,
+                             handoff="finish the arm; the successor starts at the spec",
+                             no_export=True))
+        _s9_restore()
+        _s9b_out = _s9b_o + _s9b_e
+        _, _, _s9b_rows = load_workers(base_g)
+        _s9b_row = current_row(_s9b_rows, "s9b") or {}
+        _s9b_landed = _s9b_mem.read_text(encoding="utf-8")
+        check("s12-09 S9-b1: with the append's boundary write DENIED call 2 fails LOUDLY at its "
+              "own exit — code 1, the output names the handoff as NOT WRITTEN, and neither "
+              "success line (`handoff appended`, `checked out:`) prints — and the denial was "
+              "OBSERVED in this same run while the tmux-side stubs were never reached. A step "
+              "that closed on top of a handoff that never landed is the exact detached-stream "
+              "anti-pattern this task exists to catch",
+              len(_s9b_obs) >= 1 and not _s9_tmux and _s9b_c == 1
+              and "HANDOFF NOT WRITTEN" in _s9b_out
+              and "handoff appended" not in _s9b_o and "checked out:" not in _s9b_o)
+        check("s12-09 S9-b2: call 2's refusal NAMES BOTH SIDES of the boundary — coord.py's own "
+              "layer (`refused [coord state]`) AND the denied write's reason string carried "
+              "through verbatim, so 'coord.py refused BECAUSE the boundary write failed with "
+              "<reason>' stays distinguishable from a bare coord.py refusal without minting a "
+              "sixth layer for the classifier (W4). IMPLICATION FORM for red-arm isolation: "
+              "presence is S9-b1's subject, the grammar is this row's",
+              "HANDOFF NOT WRITTEN" not in _s9b_out
+              or ("refused [coord state]" in _s9b_out and _s9_reason in _s9b_out))
+        check("s12-09 S9-b3: NO HALF-WRITE — memory.md either carries a COMPLETE handoff block "
+              "(both delimiters, opener before closer) or is byte-identical to before, never a "
+              "partial block; and the roster row sits in exactly one legal pair — `active yes` "
+              "with no checkout stamp, or `active no` with one. Here the refusal left it "
+              "untouched: still active, unstamped, memory byte-identical",
+              (_s9b_landed == _s9b_before
+               or (_s9b_landed.count(_h6_open) == 1 and _s9b_landed.count(_h6_close) == 1
+                   and _s9b_landed.find(_h6_open) < _s9b_landed.find(_h6_close)))
+              and ((_s9b_row.get("active") == "yes" and not _s9b_row.get("checkout"))
+                   or (_s9b_row.get("active") == "no" and bool(_s9b_row.get("checkout")))))
+        clear_closing(base_g, "s9b")
+
+        # ---- S9-c: the CHECK-IN DELIVERY. Boundary: the unread->read flip's write ----
+        # The R-8 property here is read off the WARNING grammar, not an exit code — BY RULING a
+        # delivery must never gate a check-in, so code None IS the expected code and the loud
+        # stderr WARNING carrying the reason is the visible failure surface. A flip that fails
+        # after the print leaves `unread=yes`: re-delivery beats loss, and that IS S9-c3.
+        _s9c_obs = []
+
+        def _s9c_deny(path, text):
+            if Path(path).name == "memory.md":
+                _s9c_obs.append(Path(path).name)
+                raise OSError(_s9_reason)
+            return _s9_aw_real(path, text)
+
+        _s9c_note = "carried across the break: the successor finishes the arm"
+        _s9c_mem = _d8_seat("s9c", "# s9c — seat memory\n\n"
+                            + _d8_block("s9c", "2026-07-29T13:00:00", "yes", _s9c_note))
+        _s9c_before = _s9c_mem.read_text(encoding="utf-8")
+        _s9_install(_s9c_deny)
+        _s9c_out, _s9c_c = _d8_in("s9c", "s12-09 delivery fixture", "%90")
+        _s9_restore()
+        _s9c_landed = _s9c_mem.read_text(encoding="utf-8")
+        check("s12-09 S9-c1: with the flip's boundary write DENIED the check-in still SUCCEEDS "
+              "(code None — BY RULING a delivery never gates a check-in, so no exit code will "
+              "ever carry this failure), the block is still PRINTED, its own output carries the "
+              "explicit failure line `NOT marked read`, and the denial was OBSERVED in this same "
+              "run while the tmux-side stubs were never reached. Visibility here IS the WARNING "
+              "— a delivery that logged nowhere and reported success is the measured shape this "
+              "task exists to forbid",
+              len(_s9c_obs) >= 1 and not _s9_tmux and _s9c_c is None
+              and "checked in: s9c" in _s9c_out and _s9c_note in _s9c_out
+              and "NOT marked read" in _s9c_out)
+        check("s12-09 S9-c2: the delivery's failure line carries the boundary's OWN reason "
+              "string and no `refused [coord` prefix — a reader of the WARNING can tell 'the "
+              "flip's write was denied (classifier-shaped)' from 'coord.py refused the "
+              "check-in', which is R-8's layer-naming applied to a surface that must never "
+              "refuse. IMPLICATION FORM for red-arm isolation: presence is S9-c1's subject, the "
+              "grammar is this row's",
+              "NOT marked read" not in _s9c_out
+              or (_s9_reason in _s9c_out and "refused [coord" not in _s9c_out))
+        check("s12-09 S9-c3: NO HALF-WRITE — the block's `unread` attribute is still `yes` and "
+              "memory.md is byte-identical: not shown as read means NOT marked read, so the next "
+              "check-in of this seat is shown the same block again. Re-delivery beats loss — "
+              "s12-08's ordering property observed through the classifier lens",
+              _s9c_landed == _s9c_before and _s9c_landed.count("unread=yes") == 1
+              and "unread=no" not in _s9c_landed)
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
