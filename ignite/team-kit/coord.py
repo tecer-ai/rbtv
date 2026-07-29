@@ -3934,6 +3934,387 @@ def lifecycle_line(base):
             % (len(rows), "\n".join(rows), lifecycle_path(base)))
 
 
+# ---- STAGE 3 (s3-05): the hidden `lifecycle-exec` subcommand and its FIVE ENTRY GUARDS --------
+#
+# WHAT RUNS HERE. `lifecycle-exec` is the DETACHED LIFECYCLE EXECUTOR's entry point: a fresh
+# subprocess the caller forks (`s3-09`) so a seat's session rotation is carried OUT OF the pane
+# that is dying. It is PURE CODE — there is no agent anywhere in this path — and it holds NO SEAT
+# IDENTITY: it never calls `resolve_agent`, never calls `gate`, never calls `launch_gates`. Those
+# resolve a ROLE, and by the time this runs the act is already authorised; the role gate is
+# Stage 1's (`s12`). Ruled bound this realizes (`d-cos-may-launch`): the chief-of-staff may OPEN a
+# session and may NEVER close, renew, reap, kill or revive one — every terminating act belongs to
+# this executor and to Stage 4's revival arm, and nothing here gives any agent a new path to
+# terminate a session.
+#
+# ⚠ IT IS NOT A CLOSER, AND MUST NEVER BE DESCRIBED AS ONE. `closer` is a settled term of the rbtv
+# system definition (`sd-graph show closer`; `concepts/closer.md`, settled by
+# `system-definition/decisions.md#d-agent-taxonomy`): a closer is a STAFF AGENT, spawned when a
+# seat crosses its ctx-refresh threshold, that MESSAGES the seat and NEGOTIATES the handoff,
+# landing the close at a turn boundary. Nothing here messages anybody, negotiates anything, or is
+# an agent. The closer machinery is untouched by this whole stage (spec § Ruled, owner, design doc
+# D7: the closer stays as-is, failure-path only, ZERO code change).
+#
+# WHY IT LIVES INSIDE coord.py RATHER THAN AS A SIBLING MODULE (settled — do not "simplify" it
+# out). `save-coord.py` gates coord.py ONLY, and it gates by IMPORTING the candidate AND running
+# `python3 <candidate> --help`, i.e. by BUILDING THE FULL PARSER TREE including every subparser.
+# A subparser registered here is therefore build-verified by the one gate this room already runs
+# on every save. A sibling `lifecycle_exec.py` would get NO gate, would have to `import coord`
+# anyway — inheriting coord's blast radius without its gate — and would be discovered broken at
+# 04:00, detached and out of pane. Accepted cost: coord.py grows. Counterweight: the executor is a
+# FRESH SUBPROCESS every time, so it always reads the current coord.py and can never hold the
+# stale import surface that drifted four commits under a running loop (`watch.py:105-112`).
+#
+# NO POLICY NUMBER CROSSES THIS BOUNDARY (R-10, `r-floor-single-source`): argv is a copy, a file
+# is a reference. The RAM floor is READ from the run's `budget.json` by the gate that needs it
+# (`s3-06`), never received as a flag here.
+
+# The four variables an inherited environment can use to make this process act as somebody else.
+# Popped at ENTRY, even though `s3-09`'s caller also scrubs them in the `env=` it hands `Popen`.
+# Doing it TWICE is deliberate: an executor that trusts its caller's scrub inherits whatever a
+# FUTURE caller forgets. Each consequence below is MEASURED, not hypothetical:
+#   TMUX / TMUX_PANE     watch.py's detached loop inherited TMUX_PANE from the shell that started
+#                        it, and every send was refused with "you claimed 'watcher', but this pane
+#                        (%145) is registered to 'chief-of-staff'" (`watch.py:962-972`).
+#   COORD_AGENT          injected into every launched seat's harness command, so an executor
+#                        forked out of a dying seat would resolve AS THE DYING SEAT.
+#   COORD_LAUNCH_TARGET  `cmd_close_seat` resolves its target as
+#                        `COORD_LAUNCH_TARGET or TMUX_PANE`. This executor MUST NOT inherit that
+#                        fallback — the hazard is spelled out on `lifecycle_target_live`.
+LIFECYCLE_SCRUB_ENV = ("TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET")
+
+# THE ARGV VOCABULARY — executor-side ACTIONS, and the parser's `--disposition` choices are read
+# FROM HERE so the two can never disagree.
+#
+# ⚠ `revive` IS DELIBERATELY ABSENT. `s3-07` widens the enum (reconciliation order s12-07 →
+# s3-07 → dag-08); registering it here would make that task's red arm — "`revive` is not an
+# accepted value yet" — unable to fire, which is the one thing that proves the widening happened.
+LIFECYCLE_DISPOSITIONS = ("renew", "close")
+
+# GUARD 4'S MAPPING, and the reason guard 4 is a MAPPING rather than a string comparison.
+#
+# The disposition is DECLARED ONCE at checkout, in `awaiting-close.json` (`s12-07`,
+# `stage-1-2-gate-checkout-spec.md` §2.3) — the moment of truth — and CARRIED into
+# `lifecycle-inflight.json` as the execution copy. Authority between the two files is settled and
+# is stated ONCE, at the head of the marker-store section above: awaiting-close.json is
+# authoritative for INTENT/debt, lifecycle-inflight.json for EXECUTION state. It is POINTED AT
+# here, never restated — a second copy of an authority statement is a second copy to drift.
+#
+# ⚠⚠ THE TWO SIDES SPEAK TWO VOCABULARIES WITH NO SHARED VALUE. argv is `renew|close` (executor
+# ACTIONS); the awaiting-close record is `done|renew` (checkout INTENTS, s12-07's mint). A plain
+# done-checkout writes `done` and forks `--disposition close` — so A RAW-EQUALITY GUARD REFUSES
+# THE NORMAL PATH, the single most common invocation this executor will ever see. That is why the
+# comparison goes through this dict and why the suite carries a row for exactly that shape.
+#
+# `LIFECYCLE_INTENT_ABSENT` means "no checkout happened, so NO awaiting-close record may exist" —
+# legal for `revive` ONLY, and `s3-07` extends this dict by ONE ROW (`"revive":
+# LIFECYCLE_INTENT_ABSENT`) plus one entry in `LIFECYCLE_DISPOSITIONS`. Nothing else restructures.
+# The in-suite row "THE ENUM AND THE MAPPING CANNOT DRIFT" fails if only one of the two is widened.
+LIFECYCLE_INTENT_ABSENT = None
+LIFECYCLE_INTENT_OF = {"close": "done", "renew": "renew"}
+
+
+def lifecycle_alarm(layer, msg, code=2, base=None):
+    """The executor's ONE refusal chokepoint: emit the layered refusal and exit.
+
+    Every entry guard refuses through here, and that is the point — `s3-08` adds the BUS ALARM at
+    ONE site instead of five, and can never add it to four of them.
+
+    [INTEGRATION POINT — STAGE 3: `s3-08` raises the bus alarm HERE, beside the refusal.]
+
+    ⚠ THE LOG IS EVIDENCE, NEVER THE ALARM. This text lands on the executor's inherited stderr,
+    i.e. in the caller's log file, where nobody is watching at 04:00. `watch.py`'s recorded failure
+    is exactly that shape — "printed to a detached stderr file, and lost, while the loop went on
+    reporting healthy". Until `s3-08` lands, the marker (and `lifecycle_line`'s rendering of it in
+    `status`/`workers`) is the only surface a human sees.
+
+    `base` is optional because guard 2 runs BEFORE the package is resolved. When it is given, the
+    marker's own alarm block is appended by CALLING `lifecycle_line` — never by re-spelling
+    STALE/FAILED/UNKNOWN here, so this surface and `s3-04`'s cannot hold two definitions that
+    drift apart.
+
+    ⚠ `layer` is passed through to `refuse` as a NAME, not a literal, so s12-03's L-a scan (which
+    collects literals at `refuse`/`refusal_text` call sites and SKIPS any whose first argument is a
+    Name) cannot see the layers this chokepoint routes. `_selftest_checks` carries a scan of THIS
+    function's own call sites for that reason; without it, routing a refusal through a helper
+    routes it out of the file's five-layer bound.
+    """
+    text = "lifecycle-exec: " + msg
+    if base is not None:
+        marker = lifecycle_line(base)
+        if marker:
+            text += "\n" + marker
+    refuse(layer, text, code)
+
+
+def lifecycle_target_live(target):
+    """(ok, why) — is `--tmux-target` a target tmux ACTUALLY RESOLVES right now?
+
+    ⚠⚠ THE EXECUTOR MUST REFUSE, NEVER GUESS. It has neither `COORD_LAUNCH_TARGET` nor `TMUX_PANE`
+    (guard 1 popped both), so inheriting `cmd_close_seat`'s `COORD_LAUNCH_TARGET or TMUX_PANE`
+    fallback would hand tmux an EMPTY target — and the hazard is measured, quoted verbatim from
+    `recover-room.py:13-19`:
+
+        Worse: it would not fail, it would guess. `launch` resolves its target as
+        COORD_LAUNCH_TARGET or TMUX_PANE … and a daemon-fired `fire-tool` exec has NEITHER. With
+        both unset, tmux resolves an empty target to the MOST RECENT session — measured, it
+        answered `build-core-daemon-mvp`, the LIVE room. A recovery that opens agents into the
+        live room believing it is repairing a dead one is worse than no recovery at all.
+
+    Two resolution routes, in this order, because a target is a PANE id or a WINDOW id:
+      1. the live pane set (`live_panes`) answers pane ids;
+      2. `tmux_session_name` answers anything tmux can name a session for, which is how a window
+         id resolves.
+    An empty target short-circuits to False WITHOUT touching tmux at all — the caller's guard
+    refuses before this is ever entered, and this arm exists so no other caller can slip an empty
+    string past it either.
+    """
+    t = str(target or "").strip()
+    if not t:
+        return False, "it is EMPTY"
+    if t in live_panes():
+        return True, ""
+    if tmux_session_name(t):
+        return True, ""
+    return False, ("tmux resolves neither a live pane nor a session for it — it names nothing "
+                   "that exists right now")
+
+
+def inherited_log_path(fd=1):
+    """(path, why) — the FILE this process's `fd` is redirected to, resolved from /proc.
+
+    THE EXECUTOR NEVER OPENS AND NEVER NAMES ITS OWN LOG. `s3-09` opens
+    `{base}/lifecycle-exec-{seat}-{stamp}.log` and hands it over as the child's stdout/stderr, with
+    ONE `{stamp}` computed once at the fork — two independently computed stamps would name two
+    different files for one run, and the marker would point at the empty one. So this reads back
+    WHAT WAS INHERITED rather than deriving a second name, and guard 5 records it.
+
+    `""` plus a stated reason whenever fd is not a plain file (a tty, a pipe, a deleted file, an
+    unreadable /proc). A blank recorded honestly beats a path that leads nowhere: the marker's
+    whole purpose here is that a reader can FIND the evidence, and a wrong path is worse than an
+    admitted absence. Never `DEVNULL` — that bar is `s3-09`'s.
+    """
+    try:
+        resolved = os.readlink(f"/proc/self/fd/{int(fd)}")
+    except (OSError, ValueError, TypeError) as exc:
+        return "", f"/proc/self/fd/{fd} is unreadable ({type(exc).__name__})"
+    if not os.path.isfile(resolved):
+        return "", (f"fd {fd} is not a plain file — it resolves to {resolved!r}, so this run's "
+                    f"output is not landing anywhere a reader can open")
+    return resolved, ""
+
+
+def cmd_lifecycle_exec(args):
+    """THE DETACHED LIFECYCLE EXECUTOR — entry guards only (this task, `s3-05`).
+
+    ALL ARGV, NOTHING FROM THE ENVIRONMENT. `--package` is never inferred: the caller resolves it
+    (`package_dir`) and passes it absolute. Everything this process needs to decide is on its
+    command line or in the run package's own files; the environment is scrubbed, not read.
+
+    THE FIVE GUARDS, IN THIS ORDER, BEFORE THE EXECUTOR ACTS ON ANYTHING:
+      1. scrub the environment AGAIN, at entry;
+      2. validate `--tmux-target` — empty or unresolvable REFUSES and acts on nothing;
+      3. the ADOPTION CHECK — never a second executor on one seat;
+      4. cross-verify the disposition against `awaiting-close.json` THROUGH `LIFECYCLE_INTENT_OF`;
+      5. record the inherited log path into the marker (the executor does NOT open the log).
+
+    The `renew` handoff re-read sits between 4 and 5: `--handoff-written` is the caller's
+    ASSERTION, and an assertion the executor can cheaply re-verify is one it must re-verify. It
+    reads `memory.md` through the LANDED reader (`handoff_blocks` / `handoff_truncated`, `s12-06`)
+    and never a fresh regex; it READS ONLY — writing, rewriting or parsing `memory.md` beyond the
+    delimiters is out of scope and belongs to `s12` (R-14).
+
+    ⚠ WHAT THIS FUNCTION DOES NOT DO. The disposition SEQUENCES are `s3-06`'s, `revive`'s
+    semantics `s3-07`'s, the bus alarm `s3-08`'s, and the caller-side fork `s3-09`'s. Past the
+    guards this stamps the marker and stops at a NAMED SEAM with exit code 3 — a code deliberately
+    distinct from the guards' 2, so a caller can tell "a guard refused this invocation" from "the
+    guards passed and the sequence is not built yet". It marks the marker FAILED before it stops:
+    a stamp left `in-flight` forever would read as a renewal in progress, which is the one reading
+    Stage 4 must never be given wrongly.
+    """
+    # ---- GUARD 1: SCRUB THE ENVIRONMENT, AT ENTRY, BEFORE ANY OTHER STATEMENT. ------------------
+    # The full argument for popping these a second time is on LIFECYCLE_SCRUB_ENV above. What is
+    # RECORDED is which ones were actually present: that is evidence about the CALLER, and the day
+    # a future caller forgets its own scrub, the marker says so instead of the room guessing.
+    scrubbed = sorted(v for v in LIFECYCLE_SCRUB_ENV if os.environ.pop(v, None) is not None)
+
+    # ---- GUARD 2: VALIDATE `--tmux-target`. Empty or unresolvable -> refuse, act on nothing. ----
+    # Deliberately BEFORE the package is resolved: `base_dir` registers the run tag, and a guard
+    # whose whole claim is "it acted on nothing" must not have written a registry entry first.
+    target = str(getattr(args, "tmux_target", "") or "").strip()
+    if not target:
+        lifecycle_alarm(
+            "input",
+            "--tmux-target is EMPTY. This executor has neither COORD_LAUNCH_TARGET nor TMUX_PANE "
+            "(guard 1 popped both) and it will NOT fall back to them the way cmd_close_seat does: "
+            "with both unset tmux resolves an empty target to the MOST RECENT session, which was "
+            "measured to be the LIVE room. Acting on nothing instead. The caller (s3-09) must "
+            "pass the pane or window id it measured.", 2)
+    target_ok, why = lifecycle_target_live(target)
+    if not target_ok:
+        lifecycle_alarm(
+            "environment",
+            f"--tmux-target {target!r} is unusable: {why}. Refusing and acting on nothing — a "
+            f"lifecycle act aimed at a target tmux cannot resolve would land wherever tmux picks, "
+            f"and opening a session into the wrong room is worse than not opening one at all.", 2)
+
+    base = base_dir(args)
+
+    # ---- GUARD 3: THE ADOPTION CHECK — never a second executor on one seat. ---------------------
+    # ⚠ `ident_is_live_process` OFFERS NO "CANNOT TELL" (s3-02): a zombie and an unreadable /proc
+    # BOTH answer False = gone. So this guard has exactly two outcomes and must not be written as
+    # if a third existed. False here therefore means "no live executor holds this seat", and this
+    # process proceeds and SUPERSEDES the older entry — which is correct and is the only thing that
+    # keeps a seat whose executor died from being unrecoverable forever. The cost is stated rather
+    # than hidden: the superseded entry's own record (its steps, its failure text) is overwritten,
+    # so the fresh stamp is the only surviving account of the seat from this point on.
+    #
+    # The condition is the COMPLEMENT of `lifecycle_stale`'s conjunct 3 — in-flight WITH a live
+    # executor is MID-RENEWAL. `lifecycle_line` deliberately never reports that class, so this
+    # refusal cannot be phrased in its vocabulary and does not try to: it names the live executor
+    # and stands down.
+    existing = load_lifecycle(base).get(args.seat)
+    if isinstance(existing, dict) and existing.get("state") == "in-flight":
+        held = lifecycle_ident(existing.get("executor"))
+        if held and ident_is_live_process((held["pid"], held["starttime"])):
+            steps = existing.get("steps-completed")
+            steps = [str(s) for s in steps] if isinstance(steps, list) else []
+            lifecycle_alarm(
+                "state",
+                f"STANDING DOWN — seat {args.seat!r} is ALREADY IN FLIGHT: its marker is "
+                f"`in-flight` and its recorded executor (pid {held['pid']}, starttime "
+                f"{held['starttime']}) IS STILL RUNNING. That is a renewal in progress, not a "
+                f"stuck one. Last verified step: "
+                f"{steps[-1] if steps else 'NONE — it has not verified a step yet'}. A second "
+                f"executor on one seat is the double-launch this marker exists to prevent, so "
+                f"this process acts on NOTHING and leaves the other one's record untouched.",
+                2, base)
+
+    # ---- GUARD 4: CROSS-VERIFY THE DISPOSITION, THROUGH THE MAPPING. ----------------------------
+    # The full argument for the mapping (and for why raw equality refuses the NORMAL path) is on
+    # LIFECYCLE_INTENT_OF above.
+    if args.disposition not in LIFECYCLE_INTENT_OF:
+        lifecycle_alarm(
+            "state",
+            f"--disposition {args.disposition!r} is accepted by the parser but has NO row in "
+            f"LIFECYCLE_INTENT_OF, so this executor cannot tell what checkout intent it should "
+            f"correspond to. The enum and the mapping were widened apart; widen both.", 2, base)
+    expected = LIFECYCLE_INTENT_OF[args.disposition]
+    record = load_awaiting(base).get(args.seat)
+    if record is not None and not isinstance(record, dict):
+        lifecycle_alarm(
+            "state",
+            f"awaiting-close.json holds an entry for {args.seat!r} that is not a record but a "
+            f"{type(record).__name__}. The checkout intent is unreadable, and this executor never "
+            f"proceeds on an intent it cannot read.", 2, base)
+    if expected is LIFECYCLE_INTENT_ABSENT:
+        # `revive` (lands with s3-07): there was no checkout, so there must be no record.
+        if record is not None:
+            lifecycle_alarm(
+                "state",
+                f"--disposition {args.disposition} means NO checkout happened, but "
+                f"awaiting-close.json HOLDS a record for {args.seat!r} "
+                f"(disposition={str(record.get('disposition', 'done'))!r}). Absence is legal for "
+                f"this disposition only, and this is not absence.", 2, base)
+    elif record is None:
+        lifecycle_alarm(
+            "state",
+            f"--disposition {args.disposition} requires the checkout that DECLARED it, and "
+            f"awaiting-close.json holds NO record for {args.seat!r}. The intent is stated once, at "
+            f"checkout, and this executor does not infer one that was never written.", 2, base)
+    else:
+        # `.get("disposition", "done")`, NEVER `record["disposition"]` — run packages written
+        # before s12-07 hold records with no such key, and `done` is what those records meant.
+        declared = str(record.get("disposition", "done"))
+        if declared != expected:
+            lifecycle_alarm(
+                "state",
+                f"DISPOSITION SKEW on seat {args.seat!r} — argv says --disposition "
+                f"{args.disposition!r}, which maps to the checkout intent {expected!r}, but "
+                f"awaiting-close.json records disposition={declared!r}. The record is the "
+                f"assertion made at the one moment the intent was known; argv is a copy that "
+                f"travelled. Acting on nothing rather than picking a side.", 2, base)
+
+    # ---- The `renew` handoff re-read. `--handoff-written` is the caller's ASSERTION. ------------
+    # ⚠ `revive` (lands with s3-07) passes 0 and MUST NOT require a block: a crashed session had no
+    # turn boundary at which to write one. That is why this is keyed on `renew` and not on
+    # "anything that is not close". The refusal itself is tested by `s3-07` (its row 3), which is
+    # why no row here asserts it.
+    if args.disposition == "renew":
+        if args.handoff_written is None:
+            lifecycle_alarm(
+                "input",
+                "--handoff-written is REQUIRED on --disposition renew: the successor session is "
+                "handed the block this flag claims exists, and an unasserted claim cannot be "
+                "re-verified.", 2, base)
+        if str(args.handoff_written) == "1":
+            memory = workers_dir(args) / args.seat / "memory.md"
+            try:
+                text = memory.read_text(encoding="utf-8")
+            except OSError:
+                text = ""
+            # Through the LANDED reader (s12-06), never a fresh regex over memory.md: the writer
+            # and the reader must not hold two opinions about what a block looks like. READ ONLY —
+            # this executor never writes, rewrites, or parses memory.md beyond the delimiters
+            # (R-14; the one sanctioned memory touchpoint is s12's checkout).
+            if not handoff_blocks(text):
+                # `handoff_truncated` is the WRITER's own refusal test, reused rather than
+                # re-derived: a half-written block must look the same to both sides.
+                shape = ("the file's LAST delimiter is an OPENER, so a block was half-written and "
+                         "memory.md is TRUNCATED" if handoff_truncated(text)
+                         else "no delimiter pair is present at all")
+                lifecycle_alarm(
+                    "state",
+                    f"--handoff-written 1 claims this seat's checkout appended a handoff block, "
+                    f"but {memory} carries NO COMPLETE block — {shape}. Renewing on that claim "
+                    f"would open the successor with nothing carried over, which is the one "
+                    f"artifact the whole ceremony exists to produce.", 2, base)
+
+    # ---- GUARD 5: RECORD THE LOG PATH — the executor does NOT open the log. ---------------------
+    # `s3-09` owns opening `{base}/lifecycle-exec-{seat}-{stamp}.log` and handing it over as this
+    # process's stdout/stderr. The duty HERE is only to RECORD where that evidence landed, so a
+    # reader of the marker can find it. Reading it back from /proc rather than recomputing a name
+    # is what guarantees ONE stamp per run.
+    log_path, log_note = inherited_log_path()
+    stamped = stamp_lifecycle(base, args.seat, {
+        "disposition": args.disposition,
+        # This process's own identity, in the (pid, starttime) form watch.py's revival detector
+        # reads. `stamp_lifecycle` normalizes it; the tuple is handed over deliberately, because
+        # the store owning that normalization is what keeps every writer honest.
+        "executor": (os.getpid(), proc_stat(os.getpid())[1]),
+        # The forking caller's identity, as the caller measured it — the input to `s3-06`'s settle
+        # wait (LIFECYCLE_SETTLE_S) and to the died-mid-flight evidence.
+        "caller": (args.caller_pid, args.caller_starttime),
+        "pane": str(args.pane or ""),
+        "tmux-target": target,
+        "log": log_path,
+        "log-note": log_note,
+        # Which of the four the caller leaked into this process. Empty is the healthy answer.
+        "scrubbed": scrubbed,
+    })
+    if not stamped:
+        lifecycle_alarm(
+            "environment",
+            f"the lifecycle marker for seat {args.seat!r} could NOT be written, so nothing would "
+            f"record that this executor ran: no reader could see it start, and Stage 4 could never "
+            f"see it fail. Refusing before acting rather than acting unrecorded.", 2)
+
+    # [INTEGRATION POINT — STAGE 3: `s3-06` runs the DISPOSITION SEQUENCE here, and `s3-07` adds
+    # `revive`'s. Both replace the two statements below; every guard above stays.]
+    #
+    # The marker is flipped FAILED rather than left `in-flight`, because `in-flight` with a dead
+    # executor becomes a STALE alarm only after LIFECYCLE_STALE_MIN, and until then it reads as
+    # MID-RENEWAL — the one reading Stage 4 must never be handed wrongly.
+    finish_lifecycle(base, args.seat, "FAILED",
+                     f"the {args.disposition} sequence is not implemented yet (s3-06); every "
+                     f"entry guard passed and nothing was acted on")
+    lifecycle_alarm(
+        "state",
+        f"every entry guard PASSED and the marker is stamped, but the {args.disposition} SEQUENCE "
+        f"ITSELF IS NOT BUILT — it lands with s3-06 (and `revive` with s3-07). Nothing has been "
+        f"launched, killed, respawned or cleared. Exit code 3 (not 2) says exactly this: the "
+        f"guards did not refuse you.", 3, base)
+
+
 def permitted_senders(agent, decls, roster):
     """Who may write to `agent` — or None when its inbox is unbounded. G-197.
 
@@ -9944,11 +10325,14 @@ def _selftest_checks(args, failures, names):
             listed = re.match(r"^  (\S(?:.*?\S)?)\s{2,}\S", epi_line)
             if listed:
                 documented.update(name.strip() for name in listed.group(1).split("/"))
-        undocumented = sorted(set(per_cmd) - documented)
+        undocumented = sorted(set(per_cmd) - documented - set(HIDDEN_COMMANDS))
         phantom = sorted(documented - set(per_cmd))
         check("T6 help: the epilog index and the parser agree on the command set, derived from "
-              "both rather than counted — accepted but undocumented: %s; documented but not "
-              "accepted: %s" % (undocumented or "none", phantom or "none"),
+              "both rather than counted, less the commands DECLARED hidden in "
+              "HIDDEN_COMMANDS (%s) — accepted but undocumented: %s; documented but "
+              "not accepted: %s"
+              % (", ".join(HIDDEN_COMMANDS) or "none", undocumented or "none",
+                 phantom or "none"),
               per_cmd and not undocumented and not phantom)
         check("T6 help: every command's own -h carries a worked example and the step that "
               "usually follows",
@@ -12920,13 +13304,16 @@ def _selftest_checks(args, failures, names):
         # reach 2 however correct the code was.
         _h6_ip = "[INTEGRATION POINT " + "— STAGE 3"
         check("s12-06 S6-h: EVERY Stage-3 seam exists and is GREPPABLE — the module source carries "
-              "the named marker exactly THREE times: the renew path's fork (the detached "
-              "executor), the done path's fork (the detached reaper), and — added by s12-07 — the "
-              "`reap_blockers` block that every renew disposition holds until that executor "
-              "releases it. Stage 3 wires the first two to the `arm_pid_reaper` pattern and rules "
-              "how it clears the third; a named comment is how the sites stay findable instead of "
-              "being re-derived from a spec nobody reads at the time",
-              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 3)
+              "the named marker exactly FIVE times. Three are s12's: the renew path's fork "
+              "(the detached executor), the done path's fork (the detached reaper), and — added "
+              "by s12-07 — the `reap_blockers` block that every renew disposition holds until "
+              "that executor releases it. Two are s3-05's, inside the executor itself: the "
+              "point past the entry guards where s3-06 runs the disposition sequence, and "
+              "`lifecycle_alarm`, where s3-08 raises the bus alarm at ONE site instead of five. "
+              "A named comment is how the sites stay findable instead of being re-derived from "
+              "a spec nobody reads at the time — and this count is bumped in the SAME change "
+              "as any seam added or discharged, or the inventory starts lying quietly",
+              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 5)
 
         # ============ s12-07: the DISPOSITION in awaiting-close.json =============================
         # Spec: stage-1-2-gate-checkout-spec.md §2.3. The rows that need a live pane, a recorded
@@ -13754,6 +14141,280 @@ def _selftest_checks(args, failures, names):
               "again, so no row after this block inherits an alarm this block manufactured",
               lifecycle_line(_s4_base) == "")
 
+        # ============ s3-05: `lifecycle-exec` — the subcommand and its FIVE ENTRY GUARDS =========
+        # ⚠ THE TMUX PRIMITIVES ARE RE-STUBBED FOR THIS BLOCK, and every target-validation row is
+        # driven off the stub's CONTROLLED answer, never off real tmux. The suite-wide
+        # `tmux_session_name` answers "testsess" for ANY target, which would make every id
+        # resolvable and the unresolvable row vacuous. Both are restored at the end of the block,
+        # so no row after it inherits this block's tmux.
+        _s5_real_panes, _s5_real_sess = live_panes, tmux_session_name
+        _s5_tmux = []                     # every tmux call these two stubs SEE, in order
+        _s5_live = {"v": {"%40"}}         # the one live pane this block's tmux knows
+        _s5_sess = {"v": ""}              # "" = tmux names no session for anything else
+        live_panes = lambda: (_s5_tmux.append("live_panes") or set(_s5_live["v"]))
+        tmux_session_name = lambda target: (_s5_tmux.append(("session_name", target))
+                                            or _s5_sess["v"])
+        _s5_pkg = Path(td) / "s5-run"
+        _s5_base = _s5_pkg / "coordination"
+        _s5_base.mkdir(parents=True)
+        (_s5_pkg / "workers").mkdir()
+
+        def _s5_exec(**kw):
+            """Invoke the executor. EVERY invocation in this block refuses — the guards refuse
+            with 2, and the post-guard seam refuses with 3 because `s3-06`'s sequence is not built
+            — so `refuse()` is the right harness for all of them and `run()` would mis-report the
+            seam as a failure of the row."""
+            d = {"package": str(_s5_pkg), "seat": "s5-seat", "disposition": "close",
+                 "pane": "%40", "tmux_target": "%40", "caller_pid": 41190,
+                 "caller_starttime": "884118", "handoff_written": None}
+            d.update(kw)
+            return refuse(cmd_lifecycle_exec, **d)
+
+        # ---- (1) THE PARSER BUILDS, AND THE COMMAND IS HIDDEN.
+        _s5_parser = build_parser()
+        _s5_top = _s5_parser.format_help()
+        _s5_own_help = harness_outcome(
+            lambda _a: _s5_parser.parse_args(["lifecycle-exec", "--help"]), ns())
+        check("s3-05 (1) THE PARSER BUILDS AND THE COMMAND IS HIDDEN: `lifecycle-exec` is a real "
+              "subparser (so save-coord.py's `--help` gate build-verifies it — the whole reason it "
+              "lives inside coord.py rather than beside it), its own -h exits 0, and it appears "
+              "NOWHERE in the top-level help, which IS the command list a seat reads. Hidden is "
+              "declared in HIDDEN_COMMANDS, so the epilog-vs-parser check reads the omission as "
+              "intended rather than as drift",
+              "lifecycle-exec" in _s5_parser.command_parsers
+              and _s5_own_help[2] == 0 and "usage: coordinate lifecycle-exec" in _s5_own_help[0]
+              and "lifecycle-exec" not in _s5_top
+              and "lifecycle-exec" in HIDDEN_COMMANDS)
+
+        # ---- (2) EVERY REQUIRED FLAG IS REQUIRED — six rows, not one.
+        _s5_full = ["lifecycle-exec", "--package", str(_s5_pkg), "--seat", "s5-seat",
+                    "--disposition", "close", "--tmux-target", "%40",
+                    "--caller-pid", "41190", "--caller-starttime", "884118"]
+
+        def _s5_parse(argv):
+            _o, _e, _c = harness_outcome(lambda _a: build_parser().parse_args(argv), ns())
+            return _o + _e, _c
+
+        check("s3-05 (2) THE PREMISE FOR ALL SIX OMISSION ROWS: the COMPLETE argv parses cleanly. "
+              "Without this row, an argv that could never parse would make all six omissions exit "
+              "non-zero for a reason that has nothing to do with requiredness — six green rows "
+              "testing nothing",
+              _s5_parse(_s5_full)[1] is None)
+        for _s5_i, _s5_flag in enumerate(("--package", "--seat", "--disposition", "--tmux-target",
+                                          "--caller-pid", "--caller-starttime")):
+            _s5_cut = _s5_full.index(_s5_flag)
+            _s5_out, _s5_code = _s5_parse(_s5_full[:_s5_cut] + _s5_full[_s5_cut + 2:])
+            check(f"s3-05 (2{'abcdef'[_s5_i]}) `{_s5_flag}` IS REQUIRED: omitting it exits "
+                  f"non-zero and the message NAMES the flag, so a caller reading a detached log "
+                  f"learns WHICH flag it forgot rather than that something was wrong",
+                  _s5_code not in (0, None) and _s5_flag in _s5_out)
+
+        # ---- (3) `--tmux-target ""` REFUSES AND ACTS ON NOTHING.
+        _s5_tmux.clear()
+        _s5_empty_out, _s5_empty_code = _s5_exec(seat="s5-empty", tmux_target="")
+        check("s3-05 (3) `--tmux-target \"\"` REFUSES AND ACTS ON NOTHING: non-zero exit, a "
+              "layered refusal naming the measured hazard (with both COORD_LAUNCH_TARGET and "
+              "TMUX_PANE unset, tmux resolves an empty target to the MOST RECENT session — "
+              "measured, the LIVE room), NO marker stamped, and NO tmux call recorded. ⚠ THE "
+              "DISCRIMINATING HALF IS THE MARKER, NOT THE TMUX LIST: nothing between guard 2 and "
+              "the s3-06 seam touches tmux yet, so `_s5_tmux == []` holds with the guard removed "
+              "too. It is asserted anyway because it becomes discriminating the moment s3-06 "
+              "lands its sequence — and the marker assertion reds today",
+              _s5_empty_code == 2 and "refused [coord input]" in _s5_empty_out
+              and "MOST RECENT session" in _s5_empty_out
+              and _s5_tmux == [] and "s5-empty" not in load_lifecycle(_s5_base))
+        _s5_tmux.clear()
+        _s5_bad_out, _s5_bad_code = _s5_exec(seat="s5-bad", tmux_target="%99")
+        check("s3-05 (3b) AN UNRESOLVABLE TARGET REFUSES TOO, and it is judged against the STUB'S "
+              "controlled answer rather than real tmux: `%99` is not in the stubbed live pane set "
+              "and the stubbed session lookup names nothing for it. Both routes were actually "
+              "consulted — the pane set first (a pane id), the session name second (a window id) "
+              "— so this row cannot pass on a validator that only ever asks one of them",
+              _s5_bad_code == 2 and "refused [coord environment]" in _s5_bad_out
+              and _s5_tmux == ["live_panes", ("session_name", "%99")]
+              and "s5-bad" not in load_lifecycle(_s5_base))
+
+        # ---- (4) THE ADOPTION CHECK STANDS DOWN.
+        # The seat is given a MATCHING awaiting-close record on purpose: with guard 3 deleted the
+        # flow then runs all the way to the stamp and OVERWRITES this entry, so the row reds on the
+        # record's contents. Without the matching record, guard 4 would refuse for its own reason
+        # and the entry would survive untouched — a green row under the very mutation it names.
+        _s5_live_id = {"pid": os.getpid(), "starttime": proc_stat(os.getpid())[1]}
+        check("s3-05 (4) THE FIXTURE'S OWN PREMISE, so the adoption row cannot be vacuous: this "
+              "process's (pid, starttime) reads LIVE to `ident_is_live_process`. On a fixture "
+              "where it did not, the guard could never fire and the row would be green under any "
+              "mutation of it",
+              ident_is_live_process((_s5_live_id["pid"], _s5_live_id["starttime"])) is True)
+        set_awaiting(_s5_base, "s5-adopt", "%40", "", False, disposition="renew")
+        stamp_lifecycle(_s5_base, "s5-adopt", {"disposition": "renew", "pane": "%40",
+                                               "tmux-target": "%40",
+                                               "executor": dict(_s5_live_id)})
+        append_lifecycle_step(_s5_base, "s5-adopt", "caller-exited")
+        _s5_adopt_before = dict(load_lifecycle(_s5_base).get("s5-adopt") or {})
+        _s5_ad_out, _s5_ad_code = _s5_exec(seat="s5-adopt", disposition="renew",
+                                           handoff_written="0")
+        _s5_adopt_after = load_lifecycle(_s5_base).get("s5-adopt") or {}
+        check("s3-05 (4) THE ADOPTION CHECK STANDS DOWN: a marker entry that is `in-flight` with a "
+              "LIVE executor ident is a renewal IN PROGRESS, so a second executor on that seat "
+              "refuses, names the live pid, and performs NO step — the other executor's record is "
+              "byte-for-byte what it was, its step list intact. A second executor on one seat is "
+              "the double launch this whole marker exists to prevent",
+              _s5_ad_code == 2 and "refused [coord state]" in _s5_ad_out
+              and "STANDING DOWN" in _s5_ad_out and str(os.getpid()) in _s5_ad_out
+              and _s5_adopt_after == _s5_adopt_before
+              and _s5_adopt_after.get("steps-completed") == ["caller-exited"])
+
+        # ---- (5)/(6) THE DISPOSITION CROSS-VERIFY, both directions of the mapping.
+        set_awaiting(_s5_base, "s5-skew", "%40", "", False, disposition="done")
+        _s5_skew_out, _s5_skew_code = _s5_exec(seat="s5-skew", disposition="renew",
+                                               handoff_written="0")
+        check("s3-05 (5) DISPOSITION SKEW FAILS LOUD: awaiting-close.json records "
+              "`disposition: done` while argv says `--disposition renew` — a genuine mismatch "
+              "UNDER the mapping (renew maps to the intent `renew`, not to `done`) — so the "
+              "executor refuses, NAMES BOTH VALUES and the intent the argv maps to, and stamps no "
+              "marker. The record is the assertion made when the intent was known; argv is a copy "
+              "that travelled, and neither side is silently picked",
+              _s5_skew_code == 2 and "refused [coord state]" in _s5_skew_out
+              and "DISPOSITION SKEW" in _s5_skew_out
+              and "'renew'" in _s5_skew_out and "'done'" in _s5_skew_out
+              and "s5-skew" not in load_lifecycle(_s5_base))
+        set_awaiting(_s5_base, "s5-normal", "%40", "", False, disposition="done")
+        _s5_norm_out, _s5_norm_code = _s5_exec(seat="s5-normal", disposition="close")
+        _s5_norm_rec = load_lifecycle(_s5_base).get("s5-normal") or {}
+        check("⚠⚠ s3-05 (6) THE MAPPED NORMAL PATH PROCEEDS — the plain done-checkout, the most "
+              "common invocation this executor will ever see: `--disposition close` against a "
+              "record saying `done` passes every guard and reaches the s3-06 seam (exit 3, not the "
+              "guards' 2), stamping the marker on the way. The two sides share NO VALUE, so a "
+              "raw-equality guard would refuse exactly this — which is the defect the mapping "
+              "exists to prevent and the reason this row is not redundant with (5)",
+              _s5_norm_code == 3 and "s3-06" in _s5_norm_out
+              and _s5_norm_rec.get("disposition") == "close"
+              and _s5_norm_rec.get("tmux-target") == "%40"
+              and _s5_norm_rec.get("caller") == {"pid": 41190, "starttime": "884118"})
+        # ⚠ EVERY OTHER ROW THAT NEEDS A PASSING INVOCATION USES `renew` AGAINST A `renew` RECORD,
+        # AND THAT IS ISOLATION BY CONSTRUCTION, not a coincidence. Row (6)'s mutation — compare
+        # argv and the record as RAW STRINGS — must red ROW (6) AND NOTHING ELSE, and
+        # `--expect-fail` demands exactly that. `close`/`done` is the ONE shape where the two
+        # vocabularies differ, so raw equality breaks it; `renew`/`renew` is the shape where raw
+        # equality happens to agree, so every row below survives that mutation and keeps testing
+        # its own subject. Measured first: with those rows on the `close` path, the mutation reds
+        # FOUR rows at once and proves nothing about any of them (the s3-04 block's `s4-nodisp`
+        # note is the same lesson — one fixture per property is what buys the isolation).
+        set_awaiting(_s5_base, "s5-seam", "%40", "", False, disposition="renew")
+        _s5_seam_out, _s5_seam_code = _s5_exec(seat="s5-seam", disposition="renew",
+                                               handoff_written="0")
+        _s5_seam_rec = load_lifecycle(_s5_base).get("s5-seam") or {}
+        check("s3-05 (6b) AND THE SEAM DOES NOT LEAVE A FALSE `in-flight`: the marker is flipped "
+              "FAILED with the reason, and the refusal renders the marker's alarm by CALLING "
+              "`lifecycle_line` rather than re-spelling STALE/FAILED/UNKNOWN — so this surface and "
+              "s3-04's can never hold two definitions. An `in-flight` stamp with a dead executor "
+              "reads as MID-RENEWAL until LIFECYCLE_STALE_MIN elapses, which is the one reading "
+              "Stage 4 must never be handed wrongly",
+              _s5_seam_code == 3 and _s5_seam_rec.get("state") == "FAILED"
+              and "not implemented yet (s3-06)" in (_s5_seam_rec.get("failure") or "")
+              and "LIFECYCLE MARKERS IN ALARM" in _s5_seam_out
+              and "s5-seam" in _s5_seam_out)
+
+        _s5_disp_choices = None
+        for _s5_act in _s5_parser.command_parsers["lifecycle-exec"]._actions:
+            if "--disposition" in (_s5_act.option_strings or []):
+                _s5_disp_choices = tuple(_s5_act.choices or ())
+        check("s3-05 (6c) THE ENUM AND THE MAPPING CANNOT DRIFT APART: the parser's "
+              "`--disposition` choices ARE `LIFECYCLE_DISPOSITIONS` (read off the built parser, "
+              "not off the constant), and every value it accepts has a row in "
+              "`LIFECYCLE_INTENT_OF`. `revive` is deliberately in NEITHER today — that absence is "
+              "what lets s3-07's red arm ('revive is not an accepted value yet') fire at all, and "
+              "this row is what forces s3-07 to widen BOTH rather than one",
+              _s5_disp_choices == LIFECYCLE_DISPOSITIONS
+              and set(LIFECYCLE_DISPOSITIONS) == set(LIFECYCLE_INTENT_OF)
+              and "revive" not in LIFECYCLE_DISPOSITIONS)
+
+        # ---- (7) THE ENVIRONMENT SCRUB AT ENTRY.
+        for _s5_v in LIFECYCLE_SCRUB_ENV:
+            os.environ[_s5_v] = f"inherited-{_s5_v}"
+        _s5_exec(seat="s5-env", tmux_target="")          # refuses at guard 2, the EARLIEST guard
+        _s5_env_left = [v for v in LIFECYCLE_SCRUB_ENV if v in os.environ]
+        for _s5_v in LIFECYCLE_SCRUB_ENV:
+            os.environ[_s5_v] = f"inherited-{_s5_v}"
+        set_awaiting(_s5_base, "s5-env2", "%40", "", False, disposition="renew")
+        _s5_exec(seat="s5-env2", disposition="renew", handoff_written="0")
+        _s5_env_rec = (load_lifecycle(_s5_base).get("s5-env2") or {}).get("scrubbed")
+        check("s3-05 (7) THE ENVIRONMENT IS SCRUBBED AT ENTRY, not merely in the caller's `env=`: "
+              "with all four set in the invoking environment, they are GONE from os.environ even "
+              "on an invocation that refuses at the FIRST guard (so the scrub provably precedes "
+              "every guard, not just the acting path), and a passing invocation RECORDS which ones "
+              "the caller leaked into the marker. Doing it twice is the point — an executor that "
+              "trusts its caller's scrub inherits whatever a future caller forgets, and "
+              "COORD_AGENT alone would make it resolve as the dying seat",
+              _s5_env_left == [] and sorted(_s5_env_rec or []) == sorted(LIFECYCLE_SCRUB_ENV))
+
+        # ---- (8) GUARD 5: THE LOG PATH IS RECORDED, AND NEVER COMPUTED.
+        # fd 1 is redirected AT THE OS LEVEL for the duration of the call, which is what makes this
+        # an exercise of the real default path (`inherited_log_path()` reading /proc/self/fd/1)
+        # rather than of a hand-fed fd. `redirect_stdout` swaps sys.stdout, never fd 1, so nothing
+        # in the suite writes into the log file while it is installed.
+        set_awaiting(_s5_base, "s5-log", "%40", "", False, disposition="renew")
+        _s5_logf = Path(td) / "lifecycle-exec-s5-log-20260729-041500.log"
+        sys.stdout.flush()
+        _s5_saved_fd1 = os.dup(1)
+        try:
+            with open(_s5_logf, "w") as _s5_fh:
+                os.dup2(_s5_fh.fileno(), 1)
+            _s5_exec(seat="s5-log", disposition="renew", handoff_written="0")
+        finally:
+            os.dup2(_s5_saved_fd1, 1)
+            os.close(_s5_saved_fd1)
+        _s5_log_rec = load_lifecycle(_s5_base).get("s5-log") or {}
+        check("s3-05 (8) THE LOG PATH IS RECORDED FROM WHAT WAS INHERITED, never recomputed: the "
+              "marker names the exact file the CALLER opened — a name carrying a stamp this "
+              "process could not have derived — because it reads /proc/self/fd/1 rather than "
+              "building `lifecycle-exec-{seat}-{stamp}.log` a second time. Two independently "
+              "computed stamps would name two different files for one run and the marker would "
+              "point at the empty one. The executor never opens the log; s3-09 does, and the log "
+              "is EVIDENCE, never the alarm",
+              _s5_log_rec.get("log") == os.path.realpath(str(_s5_logf))
+              and _s5_log_rec.get("log-note") == "")
+        # ⚠ NOT asserted against the SUITE's own fd 1: whether that is a plain file depends on how
+        # the tester invoked the suite (`selftest` vs `selftest > out.txt`), and a row whose
+        # verdict changes with the redirection is a row that reports the invocation, not the code.
+        # A pipe and an unopened descriptor are non-files by construction, on every box.
+        _s5_pr, _s5_pw = os.pipe()
+        try:
+            _s5_pipe_ans = inherited_log_path(_s5_pw)
+        finally:
+            os.close(_s5_pr)
+            os.close(_s5_pw)
+        _s5_badfd_ans = inherited_log_path(9999)
+        check("s3-05 (8b) AND A NON-FILE fd IS ADMITTED, never invented: a PIPE and an unopened "
+              "descriptor each answer an EMPTY path plus a stated reason, rather than a path that "
+              "leads nowhere. The marker's whole purpose here is that a reader can FIND the "
+              "evidence, so an admitted absence beats a plausible-looking wrong name",
+              _s5_pipe_ans[0] == "" and "not a plain file" in _s5_pipe_ans[1]
+              and _s5_badfd_ans[0] == "" and "unreadable" in _s5_badfd_ans[1])
+
+        # ---- (L) THE LAYER BOUND, restored for the refusals this block routes through a helper.
+        import ast as _s5_ast
+        _s5_layers, _s5_opaque = set(), []
+        for _s5_node in _s5_ast.walk(_s5_ast.parse(Path(__file__).read_text(encoding="utf-8"))):
+            if not (isinstance(_s5_node, _s5_ast.Call)
+                    and getattr(_s5_node.func, "id", None) == "lifecycle_alarm"
+                    and _s5_node.args):
+                continue
+            _s5_lits = [x.value for x in _s5_ast.walk(_s5_node.args[0])
+                        if isinstance(x, _s5_ast.Constant) and isinstance(x.value, str)]
+            if not _s5_lits:
+                _s5_opaque.append(_s5_node.lineno)
+            _s5_layers |= set(_s5_lits)
+        check("s3-05 (L) EVERY LAYER `lifecycle_alarm` IS CALLED WITH IS ONE OF THE FIVE — and "
+              "s12-03's L-a scan CANNOT SEE THESE. That scan collects literals at "
+              "`refuse`/`refusal_text` call sites and SKIPS any whose first argument is a Name, "
+              "which is exactly what a chokepoint passing its layer through looks like: routing a "
+              "refusal through a helper routes it out of the file's five-layer bound. This row "
+              "puts it back, over the helper's own call sites, and refuses a layer it cannot read",
+              _s5_layers and _s5_layers <= set(REFUSAL_LAYERS) and not _s5_opaque)
+
+        live_panes, tmux_session_name = _s5_real_panes, _s5_real_sess
+
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
@@ -14513,6 +15174,18 @@ other
 global: --run TAG | --package DIR (which run) · --as NAME (act as) · --pretty (colour)
 details + examples: coordinate <command> -h · --force overrides a refusal, where one exists""".format(limit=READ_LIMIT)
 
+# Commands that are ACCEPTED by the parser and deliberately ABSENT from HELP_EPILOG above.
+#
+# The epilog IS the command list a seat reads, and the parser-vs-epilog check treats any command
+# missing from it as drift — correctly, because that is how an undocumented command ships. This
+# tuple is the ONE way to declare an omission as intended, and it is a tuple rather than a habit so
+# the declaration is greppable and the check keeps failing for every command NOT in it.
+#
+# `lifecycle-exec` (s3-05) is here because no seat ever types it: `s3-09`'s caller forks it as a
+# detached subprocess. It is still registered through `command()` like every other subcommand, so
+# `save-coord.py`'s parser-build gate covers it and its own -h is held to the same example/next bar.
+HIDDEN_COMMANDS = ("lifecycle-exec",)
+
 
 ADVICE_SEND = re.compile(
     r'send\s+(?P<to>\{[^}]*\}|<[^>]*>|[A-Za-z0-9_.-]+)\s+\\?"(?P<body>[^"\\]*)\\?"'
@@ -15271,6 +15944,52 @@ def build_parser():
                         "only if that check failed and every other passed — a suite that goes red "
                         "for an unrelated reason is not evidence (G-62)")
     s.set_defaults(func=cmd_selftest)
+
+    # ---- s3-05: the HIDDEN lifecycle executor. Registered through `command()` like every other
+    # subcommand — so `save-coord.py`'s parser-build gate covers it and its own -h is held to the
+    # same example/next bar — but deliberately ABSENT from HELP_EPILOG, which IS the command list a
+    # seat reads. `HIDDEN_COMMANDS` is what tells the epilog-vs-parser check that the omission is
+    # intended rather than drift. No seat ever types this: `s3-09`'s caller forks it.
+    #
+    # ⚠ NOTE ON `help=argparse.SUPPRESS`. The task names it, and it is already in force twice over:
+    # the subparsers ACTION carries `help=argparse.SUPPRESS` (so the positional block renders no
+    # command at all) and `command()` deliberately passes no `help=` to `add_parser`. Widening
+    # `command()`'s signature to pass a third suppression would change no rendered byte.
+    s = command(
+        "lifecycle-exec",
+        "INTERNAL, NOT FOR HAND USE — the detached lifecycle executor. A fresh subprocess the\n"
+        "caller forks so a seat's session rotation runs OUT OF the pane that is dying. Pure code,\n"
+        "no agent in the path, NO seat identity: it never resolves a role, because by the time it\n"
+        "runs the act is already authorised.\n"
+        "\n"
+        "ALL ARGV, NOTHING FROM THE ENVIRONMENT — it scrubs TMUX/TMUX_PANE/COORD_AGENT/\n"
+        "COORD_LAUNCH_TARGET at entry and refuses rather than guessing a tmux target.",
+        "example:\n"
+        "  python3 coord.py lifecycle-exec --package /abs/run-3 --seat engineer \\\n"
+        "      --disposition close --pane %37 --tmux-target %37 \\\n"
+        "      --caller-pid 41190 --caller-starttime 884118\n"
+        "next: nothing by hand — read the seat's marker through `coordinate status`, which names "
+        "any lifecycle marker in alarm")
+    # Its OWN --package, required and absolute: this executor never infers a package from cwd, a
+    # run tag, or the environment. (argparse copies a subparser's values over the global ones, so
+    # this flag — not the global --package — is what `base_dir` reads here.)
+    s.add_argument("--package", metavar="DIR", required=True,
+                   help="the run package, ABSOLUTE — the caller resolves it (package_dir) and passes it; never inferred here")
+    s.add_argument("--seat", metavar="NAME", required=True,
+                   help="the seat whose session is rotating")
+    s.add_argument("--disposition", required=True, choices=LIFECYCLE_DISPOSITIONS,
+                   help="which lifecycle act this is — cross-verified against the intent awaiting-close.json recorded at checkout, through LIFECYCLE_INTENT_OF")
+    s.add_argument("--pane", metavar="%N", default=None,
+                   help="the seat's pane as the caller measured it")
+    s.add_argument("--tmux-target", dest="tmux_target", metavar="ID", required=True,
+                   help="explicit pane or window id for the relaunch — validated against live tmux; empty or unresolvable REFUSES, because an unresolved target lands in the most recent session, which was measured to be the live room")
+    s.add_argument("--caller-pid", dest="caller_pid", type=int, metavar="P", required=True,
+                   help="the forking process's pid — half of the identity pair the settle wait and the died-mid-flight evidence rest on")
+    s.add_argument("--caller-starttime", dest="caller_starttime", metavar="S", required=True,
+                   help="the forking process's /proc starttime — the half a recycled pid cannot forge")
+    s.add_argument("--handoff-written", dest="handoff_written", choices=("0", "1"), default=None,
+                   help="required on --disposition renew: the caller's assertion that it appended a handoff block, which this executor RE-READS in memory.md before renewing")
+    s.set_defaults(func=cmd_lifecycle_exec)
     p.command_parsers = made  # so the self-test can render every command's help
     return p
 
