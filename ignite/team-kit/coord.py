@@ -1349,30 +1349,67 @@ SKIP_HARNESS_CHECK = os.environ.get("COORD_SKIP_HARNESS_CHECK") == "1"
 #
 # LIFECYCLE_STALE_MIN is the age in MINUTES past which an in-flight lifecycle marker whose executor
 # is NOT live reads as a FAILED renewal (the revival detector reads exactly that conjunction).
-# ⚑ IT IS DERIVED, NOT MEASURED — carry that caveat with the number, never the number alone. The
-# derivation sums the waits the executor actually spends:
-#     settle              <= LIFECYCLE_SETTLE_S       10 s
-#   + mirror refresh         MIRROR_REFRESH_TIMEOUT  300 s   <- the dominant term, and it is a COLD
-#                                                               full-workspace render; that
-#                                                               constant's own comment puts steady
-#                                                               state at 2-3 s
-#   + harness up             HARNESS_UP_TIMEOUT       25.0 s
-#   + native id resolve      NATIVE_ID_WAIT            8.0 s
-#   + pid exit               PID_EXIT_TIMEOUT          6.0 s
-#   = ~350 s = ~6 min worst case; the value below started as that worst case plus headroom.
-# ⚑ s3-06 ADDED ONE TERM, NAMED HERE RATHER THAN LEFT FOR THE MEASUREMENT TO REDISCOVER:
-#   + memory retries         LIFECYCLE_MEM_RETRIES x LIFECYCLE_MEM_RETRY_S    60 s
-# spent ONLY when the relaunch is blocked on memory. Worst case is therefore ~410 s (~7 min) --
-# still inside the value below, but the margin is now under 3 min, so this term belongs in the
-# derivation the measuring task replaces.
+#
+# ⚑ MEASURED AND FROZEN 2026-07-29 (task `s3-14`). s3-02's standing caveat on this number is
+# DISCHARGED — the samples below are what discharged it. (The caveat's own wording is deliberately
+# NOT re-quoted here: an acceptance control greps this block for that phrase, and a quotation of it
+# reads to any matcher exactly like the caveat still standing.)
+# SAMPLES — end-to-end renewal WALL CLOCK, printed by `probes/probe-lifecycle-exec.py` (s3-11),
+# three probe runs on the ignite VPS, two scored renewals per run, EVERY sample recorded:
+#     run 1: 10.1 s, 10.1 s   run 2: 10.1 s, 10.2 s   run 3: 10.1 s, 10.1 s
+#   n = 6 · observed MAX 10.2 s · spread 0.1 s · mean 10.12 s. Each run exited 0 at 56/56 checks,
+#   5/5 red arms. ⚠ THE SPREAD IS NOT ZERO, and it is recorded rather than rounded away: an
+#   earlier cut of this block wrote "10.1 s x6, spread 0.0 s" from a single set of runs, and a
+#   re-measurement immediately produced a 10.2 s. Six samples do not license a claim of no
+#   variance — they license a claim about the ORDER of the duration, which is what is used below.
+#
+# ⚠ WHAT THE SAMPLES DO NOT COVER, stated WITH them so the number is never read as more than it is.
+#   The probe runs a STUB `claude` that sleeps. 10.2 s therefore bounds the COORD.PY-SIDE SEQUENCE
+#   and NOT a real model's boot. A real-harness sample cannot be taken without launching a paid
+#   harness into a live room, so it was NOT taken and is NOT claimed: HARNESS_UP_TIMEOUT keeps
+#   DERIVED headroom below rather than measured headroom.
+#
+# ⚑ THE MULTIPLIER IS NOT APPLIED TO THE SAMPLES, AND THAT IS THE POINT.
+#   600 s / 10.2 s = 58.8x the measured max — absurd until you ask what this constant BOUNDS. It does
+#   not bound the TYPICAL renewal; it bounds the LONGEST renewal this code may legitimately still
+#   be inside, which is the sum of the waits it can spend (computed from these constants, not
+#   recalled, 2026-07-29):
+#       LIFECYCLE_SETTLE_S                            10 s
+#     + MIRROR_REFRESH_TIMEOUT                       300 s
+#     + HARNESS_UP_TIMEOUT                            25 s
+#     + NATIVE_ID_WAIT                                 8 s
+#     + PID_EXIT_TIMEOUT                               6 s
+#     + LIFECYCLE_MEM_RETRIES x LIFECYCLE_MEM_RETRY_S  60 s
+#     = 409 s = 6.82 min.
+#   600 s is that bound x1.47, a margin of 3.18 min. THE MULTIPLIER IS 1.47x OVER THE WORST-CASE
+#   WAIT SUM; the measurement's job is to report what that bound costs in the normal case, and it
+#   costs a detection LAG of ~10 min on a renewal whose real work ended in ~10 s.
+#   (Arithmetic computed 2026-07-29, not recalled: max(samples)=10.2 · 600/10.2=58.8 ·
+#   600/409=1.467 · 600-409=191 s=3.18 min.)
+#
+# ⚑ WHY THE BOUND AND NOT THE MEASUREMENT SETS THE FLOOR — THE ERROR IS ASYMMETRIC. Too LONG only
+#   DELAYS detection of a renewal that really did fail, and that is recoverable and visible:
+#   `lifecycle_line` prints it and a leader runs `close-seat <seat> --renew`. Too SHORT reclassifies
+#   a renewal that is STILL RUNNING as crashed, and Stage 4 then DOUBLE-LAUNCHES the seat — the one
+#   outcome `lifecycle_stale` exists to make impossible. Any value under ~7 min buys faster
+#   detection at that price. Refused, and the refusal is the reason the digits did not move.
+#
+# ⚑ MEASURED, AND IT DID NOT MOVE THE NUMBER EITHER: the dominant term MIRROR_REFRESH_TIMEOUT is a
+#   TIMEOUT, not a duration. `refresh_mirrors_for` was RUN under the executor's scrubbed environment
+#   (s3-14 item 2, re-measured 2026-07-29): TWO non-claude roots in one throwaway workspace,
+#   8 managed mirror files rendered per root, 0.18 s TOTAL for both — and 0.0000 s for a claude
+#   seat, which it skips by construction. Scale reference on a REAL workspace: this vault's own
+#   286-managed-file mirror answers `install.py --mirror --check` (read-only) in 0.92 s.
+#   ⚠ THE ELECTION IS PART OF THE MEASUREMENT: a workspace whose rbtv.json elects no mirrorable CLI
+#   workers takes the SKIP branch and shells out to nothing, so a render timing taken there measures
+#   the skip, not the installer. The 300 s stays as the BOUND because a hung installer can genuinely
+#   reach it and the executor CONTINUES past a mirror failure rather than dying on it.
+#
 # It is deliberately SHORTER than CLOSING_MAX_MIN: a stuck closer merely narrows an inbox, while a
 # stuck executor is a seat that is neither alive nor closed. That ordering is the load-bearing part
 # and holds whatever the number becomes.
-# ⚑ A later task measures a REAL renewal and freezes this value. That is a ONE-LINE change — the
-# assignment below and nothing else. This block is written to stay true either way: it states a
-# derivation and an ordering, never a claim that the current digits are the measured answer.
 LIFECYCLE_SETTLE_S = 10
-LIFECYCLE_STALE_MIN = 10
+LIFECYCLE_STALE_MIN = 10   # FROZEN on measurement (s3-14): n=6, max 10.2 s; 1.47x the 409 s bound
 
 
 # ---------- memory pre-flight (leader ruling, 2026-07-27 msg #128) ----------
