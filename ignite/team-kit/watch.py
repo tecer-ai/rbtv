@@ -1170,6 +1170,291 @@ def check_budget(base, notes, prev_hb, snap, snap_err):
     return line, state
 
 
+# ---------- revival detection (stage 4 §1 — DETECTOR ONLY, s4-03) ----------
+#
+# REPORT-ONLY BY CONSTRUCTION. This block classifies and PRINTS; it claims nothing, writes no
+# lifecycle marker, forks nothing. Actuation is s4-05 (the coord_lock interlock) + s4-06 (the
+# fire). Landing the detector alone is safe: a mis-classification prints a wrong word. Landing
+# actuation first would double-launch. Do not merge the two here.
+
+REVIVAL_DEBOUNCE_TICKS = 2      # consecutive NON-STALE ticks a candidate must hold before CRASHED
+REVIVAL_STALE_NOTE_TICKS = 3    # consecutive stale ticks before the sensor outage is flagged once
+
+# Report-line literals. Kept as constants because the acceptance controls (task s4-03 § Acceptance
+# 4, 6, 8, 9) grep for the EXACT strings — a reworded line is a silently-failing control.
+REVIVAL_ROOM_DEAD_LINE = "REVIVAL n/a — room dead; recovery is jobs/recover-room.py (task 7.71)"
+REVIVAL_STALE_LINE = "REVIVAL paused — snapshot stale"
+
+
+def _snapshot_absent(snap_err):
+    """True when `snap_err` means state.json is NOT THERE, as opposed to unreadable.
+
+    ⚠ THE TWO ARE DIFFERENT FACTS AND THE DIRECTIONS ARE OPPOSITE — the same distinction
+    `check_budget` preserves for budget.json (its SILENT/LOUD split): NO SNAPSHOT AT ALL is the
+    normal case for every package that does not run team-monitor, and this module ships kit-wide,
+    so it must stay silent there. A snapshot that EXISTS and cannot be read is a SENSOR OUTAGE and
+    is treated as STALE — never as "no seat is absent", which would read absence as health.
+
+    The discriminator is `budget._load`'s own message wording, because s4-02 hoisted the ONE
+    state.json reading into `run_pass` and a second stat/read here would be a second observation of
+    the same fact (and a race between them). The coupling to that wording is REAL, so the selftest
+    asserts it directly against `budget_mod._load` on a missing path: if budget.py rewords, the
+    control goes red rather than this predicate silently answering False forever."""
+    return bool(snap_err) and " is ABSENT at " in snap_err
+
+
+def _strict_ledger(path):
+    """(data, status) with status in {"absent", "ok", "unparseable"} — the INVERTED reader.
+
+    ⚠ WHY THIS IS NOT `coord.load_closing` / `coord.load_awaiting`. Both of those collapse an
+    unreadable file to `{}` — "nobody is closing" / "no debt". That fail-SAFE direction is correct
+    for THEIR callers (a parse error must not take `checkout` down) and DANGEROUS for this one: it
+    would present a mid-close seat as having no ledger entry, i.e. as a crash, and a revival arm
+    reading it would relaunch a seat that is closing cleanly. So this caller needs three states
+    where they need two, and it gets them LOCALLY. Do NOT "fix" the shared loaders — their
+    direction is right for them, and changing it would break the callers it protects.
+
+    An EMPTY file reads as `absent`: both mean "no entry", both are safe to proceed on. Anything
+    that is not a JSON object is `unparseable` — a list where a dict belongs cannot be looked up by
+    seat, and guessing is the failure this reader exists to refuse."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}, "absent"
+    except OSError:                                            # present but unreadable != absent
+        return {}, "unparseable"
+    if not raw.strip():
+        return {}, "absent"
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return {}, "unparseable"
+    if not isinstance(data, dict):
+        return {}, "unparseable"
+    return data, "ok"
+
+
+def _executor_ident_live(entry):
+    """True when the marker entry's executor process is STILL THE SAME PROCESS.
+
+    ⚠ PLAIN pid+starttime EQUALITY, NEVER `coord.ident_is_live_harness`. That predicate rests on
+    `is_harness_argv` (`coord.py:1492`), which matches only claude/codex/opencode basenames — and
+    the lifecycle executor is a PYTHON process. Asked about a live executor it answers DEAD, which
+    turns MID-RENEWAL into CRASHED and produces the exact double-launch stage 4 exists to prevent
+    (stage-3 §4.1 guards 4/5). A pid alone is not an identity either: the kernel recycles pids and
+    a teardown is precisely when new processes start, so the starttime is the identity half."""
+    ex = entry.get("executor") if isinstance(entry, dict) else None
+    if not isinstance(ex, dict):
+        return False
+    pid, starttime = ex.get("pid"), ex.get("starttime")
+    if not pid or starttime in (None, ""):
+        return False
+    try:
+        return coord.proc_stat(int(pid))[1] == str(starttime)
+    except (TypeError, ValueError):
+        return False
+
+
+def check_revival(args, base, snap, snap_err, state, notes):
+    """SEAT-DOWN DETECTOR — classify every roster-absent seat. REPORT-ONLY (s4-03). Returns lines.
+
+    ⚠⚠ A SLOW OR THINKING SEAT IS NEVER CLASSIFIED CRASHED, AND THAT IS STRUCTURAL, NOT TUNED.
+    The discriminator is `harness_pid` liveness and NOTHING ELSE: `last_activity_age_s` and
+    `prompt_pending` are NOT READ BY THIS ARM AT ALL — not as a tiebreak, not as a hint. A seat
+    forty minutes into one ruling has `liveness: live` and a real `harness_pid`, so it cannot enter
+    `roster_absent` in the first place. This is the ruling's BINDING CONDITION
+    (`r-leader-revival-is-deterministic`): the trigger is a HARD liveness signal — pane/pid death —
+    NEVER a silence timeout, because a leader thinking through a long ruling and a leader that is
+    gone produce the SAME signal under every detector this run owns (measured: neither watch.py nor
+    state.json samples CPU), and a relaunch fired on silence would kill a live leader mid-judgement
+    and lose the turn. THE NEXT READER WILL WANT TO "IMPROVE" THIS WITH AN ACTIVITY AGE. Do not.
+
+    Candidate set is `snap["roster_absent"]` — `team_monitor.absent_rows` already computes exactly
+    this conjunction (roster row ACTIVE and (pane gone → `absent` | pane present, no harness →
+    `no-harness`)). Re-deriving it from `snap["seats"]` would give one fact a second home. It is
+    strictly broader than either loop in `run_pass`: the ghostrow loop visits only panes present in
+    `live`, and the per-seat flag loop skips `watcher`. Scope is EVERY roster-active seat, not
+    `leader` alone — the ruling's own rejection (c) is that a per-role responder just moves the
+    hole, the lesson `flag_recipient` already generalised for flags.
+
+    ⚠ `agent_type` / `agent_type_source` ride on these rows (task 7.80) and NO DECISION HERE MAY
+    KEY ON THEM — run-2's `budget.json` bar `no_permission_may_key_on_agent_type` is binding: the
+    field is a SENSOR OBSERVATION of a descriptor's claim, never an authorization.
+
+    ⚠ MEASURED CAVEAT: `snap["roster_absent"]` has NEVER been observed non-empty in run-2 (live
+    snapshot 2026-07-28 22:50 → `[]`). This candidate set is verified by CODE READING, not by a
+    live positive; task s4-10's acceptance (a) is the first thing that produces one.
+
+    Debounce is 2 consecutive non-stale ticks, and the number is CHOSEN, NOT MEASURED — no
+    crash-to-detection latency data exists in this run. At the LIVE loop's `--loop 10` (the flag is
+    declared with NO `default=`; the 10 is the running invocation's, recorded in the heartbeat as
+    `loop_min: 10` — never call it "the default") worst-case detection is ~20 MIN PLUS ONE SENSOR
+    CADENCE. That is named in the report line rather than hidden. Firing on ONE tick would make a
+    single transient sensor error a relaunch. Whether ~20 min is acceptable for a leader outage is
+    an OWNER QUESTION, UNASKED — do not answer it by editing `--loop` here.
+
+    Every disposition prints a line EVERY tick: a hole must never go quiet."""
+    # ---- 0. No snapshot at all → SILENT. Every package without team-monitor lands here. ----
+    if snap is None and _snapshot_absent(snap_err):
+        return []
+
+    room = state.setdefault("_revival_room", {})   # room-level, not a seat: nothing in this module
+    lines = []                                     # iterates `state` as a seat map (verified).
+
+    # ---- 1. SENSOR STALENESS PAUSES ENFORCEMENT (CMP-21 invariant 2) ----
+    # A stale snapshot is evidence in NEITHER direction, so the debounce counters are FROZEN —
+    # neither incremented nor reset. `snap_err` with the file PRESENT (unreadable) is stale too,
+    # never absence: the distinction check_budget's LOUD/SILENT split exists to preserve.
+    age = None
+    if isinstance(snap, dict) and snap.get("captured_at") is not None:
+        try:
+            age = time.time() - float(snap["captured_at"])
+        except (TypeError, ValueError):
+            age = None
+    if snap is None or age is None or age > budget_mod.STALE_AFTER_S:
+        room["stale_ticks"] = int(room.get("stale_ticks", 0)) + 1
+        why = snap_err or (f"snapshot age {int(age)}s > {budget_mod.STALE_AFTER_S}s"
+                           if age is not None else "snapshot carries no captured_at")
+        lines.append(f"{'revival':<18} {'PAUSED':<7} {REVIVAL_STALE_LINE} — {why}")
+        if room["stale_ticks"] >= REVIVAL_STALE_NOTE_TICKS and not room.get("notified_stale"):
+            notes.append(Flag(None,
+                f"watch: REVIVAL PAUSED — the seat-down detector has had no usable state.json "
+                f"snapshot for {room['stale_ticks']} consecutive passes ({why}). The SENSOR is the "
+                f"incident: while it is stale nothing can tell a crashed seat from a thinking one, "
+                f"so the detector takes no action in either direction and its debounce counters "
+                f"are frozen. Silence from this check is not a green."))
+            room["notified_stale"] = True
+        return lines
+    room["stale_ticks"] = 0
+    room.pop("notified_stale", None)
+
+    # ---- 2. ROOM-DEAD short-circuits: no per-seat classification at all ----
+    # Every seat is absent when the tmux session is gone; classifying them one by one would report
+    # N crashes for ONE incident, and the recovery owner is a different mechanism entirely. Two
+    # mechanisms that can disagree about whether a room is dead and both act is not redundancy.
+    if snap.get("session_alive") is False:
+        lines.append(REVIVAL_ROOM_DEAD_LINE)
+        return lines
+
+    absent = snap.get("roster_absent")
+    absent = absent if isinstance(absent, list) else []
+
+    # ---- 3. Clear the debounce EXPLICITLY on liveness == "live" ----
+    # ⚠ THE EXISTING `if st.get("pane") != pane` RESET IS NOT ENOUGH, and relying on it is the bug:
+    # an IN-PLACE RESPAWN (`tmux respawn-pane -k`, coord.renew_in_place) keeps the SAME pane id, so
+    # a pane-keyed reset never fires and a stale gone_ticks would survive into a healthy seat.
+    for s in snap.get("seats") or []:
+        if s.get("liveness") == "live" and s.get("seat"):
+            st = state.get(s["seat"])
+            if isinstance(st, dict) and st.get("revival"):
+                st.pop("revival", None)
+
+    if not absent:
+        lines.append(f"{'revival':<18} {'ok':<7} no roster-absent seat")
+        return lines
+
+    # LIVE roster, re-read now: the CLEANLY-OUT predicate must read the roster as it stands at
+    # classification time, not as the snapshot saw it up to one sensor cadence ago.
+    _, _, live_rows = coord.load_workers(base)
+    roster = {r["agent"]: r for r in live_rows}
+
+    closing, closing_st = _strict_ledger(coord.closing_path(base))
+    awaiting, awaiting_st = _strict_ledger(coord.awaiting_path(base))
+    # Stage 3's marker. Its READER is Stage 3's to ship (cross-prefix dep s3-03); until it lands an
+    # ABSENT marker file is "no entry", which is the correct reading, not a workaround.
+    marker, marker_st = _strict_ledger(base / "lifecycle-inflight.json")
+
+    bad = [n for n, s in (("closing.json", closing_st), ("awaiting-close.json", awaiting_st),
+                          ("lifecycle-inflight.json", marker_st)) if s == "unparseable"]
+
+    for row in absent:
+        seat = (row.get("seat") or "").strip()
+        if not seat:
+            continue
+        st = state.setdefault(seat, {"pane": row.get("pane")})
+        rev = st.get("revival") or {"gone_ticks": 0, "pane": row.get("pane")}
+        if rev.get("pane") != row.get("pane"):
+            rev = {"gone_ticks": 0, "pane": row.get("pane")}
+
+        # IDLE — unreachable BY CONSTRUCTION: a live harness never enters roster_absent. Asserted
+        # loudly rather than branched on, and NOT via `assert` (stripped under -O, and a monitor
+        # must never die of its own bookkeeping). If this ever prints, the sensor's conjunction and
+        # this reader disagree, and every classification below is untrustworthy.
+        if row.get("liveness") == "live":
+            lines.append(f"{seat:<18} {'BROKEN':<7} REVIVAL INVARIANT BROKEN — a `live` row in "
+                         f"roster_absent; classification refused")
+            if not room.get("notified_invariant"):
+                notes.append(Flag(seat,
+                    f"watch: REVIVAL DETECTOR INVARIANT BROKEN — '{seat}' appears in state.json's "
+                    f"roster_absent with liveness 'live', which team_monitor.absent_rows cannot "
+                    f"produce. The detector refuses to classify it. Treat the SENSOR as the "
+                    f"incident, not the seat."))
+                room["notified_invariant"] = True
+            st["revival"] = rev
+            continue
+
+        # (1) ROOM-DEAD handled above, before the candidate walk.
+
+        # (2) CLEANLY-OUT — never a candidate. `cmd_checkout` records the pane as a debt that never
+        # expires BY DESIGN; a checked-out seat is not a crash.
+        r = roster.get(seat)
+        if seat in awaiting or (r is not None and r.get("active") != "yes"):
+            lines.append(f"{seat:<18} {'REVIVAL':<7} CLEANLY-OUT — "
+                         f"{'in awaiting-close.json' if seat in awaiting else 'roster row not active'}")
+            rev["gone_ticks"] = 0
+            st["revival"] = rev
+            continue
+
+        # (3) s4-04: COMPLETED-ONE-SHOT gate goes here, BEFORE CRASHED.
+        #     D-3C (stage-4-revival-spec.md § Deltas accepted from topic 3). A normally-completed
+        #     opencode one-shot appears in roster_absent BYTE-IDENTICALLY to a crashed claude seat,
+        #     so without this gate a correct detector resurrects every finished one-shot forever.
+        #     The gate keys on the descriptor's `mode:`, NEVER on `harness:`. NOT IMPLEMENTED HERE.
+
+        # (4) MID-RENEWAL — the marker's executor is a LIVE PYTHON process (plain pid+starttime),
+        # or the seat is mid-close. Never fires today: Stage 3's executor is unbuilt.
+        entry = marker.get(seat) if isinstance(marker.get(seat), dict) else None
+        if (entry is not None and entry.get("state") == "in-flight"
+                and _executor_ident_live(entry)) or seat in closing:
+            lines.append(f"{seat:<18} {'REVIVAL':<7} MID-RENEWAL — "
+                         f"{'lifecycle executor in-flight and alive' if entry else 'in closing.json'}")
+            rev["gone_ticks"] = 0
+            st["revival"] = rev
+            continue
+
+        # Ledger unreadable → REFUSE TO FIRE, and FREEZE (a ledger we cannot read is evidence in
+        # neither direction, exactly like a stale snapshot). Reported EVERY tick; noted ONCE.
+        # ⚠ R-8: the refusal names its LAYER. This is the DETECTOR's own refusal — a tool gate —
+        # not a harness permission classifier refusing a command.
+        if bad:
+            lines.append(f"{seat:<18} {'REFUSED':<7} REVIVAL REFUSED — revival detector gate: "
+                         f"ledger unparseable ({', '.join(bad)}); cannot rule out a clean exit")
+            if not room.get("notified_ledger"):
+                notes.append(Flag(seat,
+                    f"watch: REVIVAL DETECTOR REFUSED — revival detector gate: {', '.join(bad)} "
+                    f"under {base} is present but unparseable, so a seat that checked out cleanly "
+                    f"is indistinguishable from a crashed one. '{seat}' is roster-absent and will "
+                    f"NOT be classified while that is true. Fix or remove the file. (This is the "
+                    f"detector refusing, not the harness permission classifier.)"))
+                room["notified_ledger"] = True
+            st["revival"] = rev
+            continue
+
+        # (5) CRASHED — in roster_absent, none of the above, debounce satisfied.
+        rev["gone_ticks"] = int(rev.get("gone_ticks", 0)) + 1
+        if rev["gone_ticks"] >= REVIVAL_DEBOUNCE_TICKS:
+            lines.append(f"{seat:<18} {'REVIVAL':<7} CRASHED — would revive "
+                         f"(pane {row.get('pane')}, {row.get('liveness')}; report-only, s4-05/s4-06 "
+                         f"own the claim and the fire)")
+        else:
+            lines.append(f"{seat:<18} {'REVIVAL':<7} CRASHED pending — "
+                         f"{rev['gone_ticks']}/{REVIVAL_DEBOUNCE_TICKS} consecutive non-stale ticks "
+                         f"(~20 min worst case at the live loop's --loop 10, plus one sensor cadence)")
+        st["revival"] = rev
+
+    return lines
+
+
 def check_leftover_windows(rows, seats, sysstate, notes):
     """PROP-10 — a briefing-declared window whose panes are ALL agent-dead: no ACTIVE roster
     seat's pane is in it. Covers both halves of the incident: a closed wave leaving bash-only
@@ -1287,6 +1572,16 @@ def run_pass(args):
             elif hp:
                 st.pop("notified_ghostrow", None)
             state[agent] = st
+
+    # Stage 4 §1 (s4-03), REPORT-ONLY: classify every roster-absent seat. A SNAPSHOT-LEVEL duty, so
+    # it sits here with the other snapshot consumers and NOT inside the per-seat loop — its
+    # candidate set (`snap["roster_absent"]`) is strictly broader than either loop around it: the
+    # ghostrow loop above visits only panes present in `live`, and the flag loop below skips
+    # `watcher`. It consumes the ONE hoisted state.json reading (s4-02), never a second load.
+    # ⚠ its lines are kept OUT of `report`, like `leftover_lines`: the pass header counts `report`
+    # as "N active seat(s)", and a revival line is not a seat row — folding them in would corrupt
+    # a number every reader trusts.
+    revival_lines = check_revival(args, base, snap, snap_err, state, notes)
 
     for r in rows:
         if r["active"] != "yes" or r["agent"] == "watcher":
@@ -1428,6 +1723,8 @@ def run_pass(args):
     for line in report:
         print("  " + line)
     for line in leftover_lines:
+        print("  " + line)
+    for line in revival_lines:
         print("  " + line)
     if args.notify:
         for text in notes:
@@ -2020,6 +2317,234 @@ def cmd_selftest():
               "Defaulting absence to healthy would rebuild the absence-reads-as-health defect "
               "inside the detector built to close it",
               hb["code_known"] is False and hb["code_drifted"] == [])
+
+        # ---- Stage 4 §1 (s4-03): the seat-down DETECTOR, report-only ----
+        # FIXTURE-ONLY BY DESIGN. The live-substrate proof (a real tmux room, a real team_monitor
+        # state.json, a real kill -9) is task s4-10's and is NOT attempted here — a hand-authored
+        # snapshot is explicitly not acceptable as THAT evidence. These are the detector's own
+        # controls: they prove the classifier, not the room.
+        rpkg = Path(td) / "revpkg"
+        rbase = rpkg / "coordination"
+        rbase.mkdir(parents=True)
+        rstate, rnotes = {}, []
+        rargs = argparse.Namespace(package=str(rpkg), base=None, workers_dir=None,
+                                   notify_to="leader", notify_fallback="leader")
+
+        def rroster(*rows):
+            body = ["| agent | active | pane | summary | checkin | checkout | lastread |",
+                    "|---|---|---|---|---|---|---|"]
+            body += [f"| {a} | {act} | {pane} | s | c |  |  |" for a, act, pane in rows]
+            (rbase / "workers.md").write_text("\n".join(body) + "\n", encoding="utf-8")
+
+        def rsnap(absent=(), seats=(), alive=True, age_s=0):
+            return {"captured_at": time.time() - age_s, "session_alive": alive,
+                    "session": "revsess", "seats": list(seats), "roster_absent": list(absent)}
+
+        def gone(seat="dseat", pane="%77", liveness="absent"):
+            return {"seat": seat, "pane": pane, "roster_active": True, "liveness": liveness,
+                    "agent_type": "claude-code", "agent_type_source": "descriptor",
+                    "reason": "roster row active, pane not in the room"}
+
+        def rev(snap, snap_err=None):
+            """One tick. Returns (report lines, notes pushed BY THIS TICK)."""
+            before = len(rnotes)
+            out = check_revival(rargs, rbase, snap, snap_err, rstate, rnotes)
+            return out, rnotes[before:]
+
+        def gt(seat="dseat"):
+            return ((rstate.get(seat) or {}).get("revival") or {}).get("gone_ticks")
+
+        rroster(("dseat", "yes", "%77"), ("leader", "yes", "%1"))
+
+        # (9) `snap_err` — UNREADABLE reads as STALE, ABSENT is the different, silent path.
+        lines, pushed = rev(None, "state.json is UNREADABLE at /x/state.json: Expecting value")
+        check("s4-03 (9): a state.json that EXISTS and cannot be read is a SENSOR OUTAGE — it "
+              "pauses the detector, and is never read as 'no seat is absent'. Absence reading as "
+              "health is this run's signature failure",
+              any(REVIVAL_STALE_LINE in l for l in lines))
+        check("s4-03 (9) CONTROL: an ABSENT state.json takes the different, SILENT path — this "
+              "module ships kit-wide and every package without team-monitor lands there, so a "
+              "pause line every tick would be noise in every other run",
+              rev(None, "state.json is ABSENT at /x/state.json")[0] == [])
+        check("s4-03 (9) COUPLING GUARD: the absent-vs-unreadable discriminator is budget._load's "
+              "OWN wording, so it is asserted against that function rather than assumed — if "
+              "budget.py rewords, this goes red instead of the predicate silently answering False",
+              _snapshot_absent(budget_mod._load(str(rpkg / "nope.json"), "state.json")[1])
+              and not _snapshot_absent(None))
+        rstate.clear(); rnotes.clear()
+
+        # (2) THE CONTROL THAT MUST NOT FIRE — a detector, not a relauncher.
+        thinking = {"seat": "thinker", "pane": "%1", "liveness": "live", "harness_pid": 4242,
+                    "prompt_pending": False, "last_activity_age_s": 7200.0}
+        lines, pushed = rev(rsnap(seats=[thinking]))
+        lines2, pushed2 = rev(rsnap(seats=[thinking]))
+        check("⚠ s4-03 (2) THE CONTROL THAT MUST NOT FIRE: a LIVE seat with prompt_pending false "
+              "and last_activity_age_s > 3600 — a leader forty minutes into one ruling — is NEVER "
+              "classified crashed, changes no state and pushes no note. Without this control the "
+              "test cannot distinguish a detector from a relauncher",
+              not any("CRASHED" in l for l in lines + lines2)
+              and "thinker" not in rstate and pushed == [] and pushed2 == [])
+        rstate.clear(); rnotes.clear()
+
+        # (3) The discriminator is harness_pid liveness AND NOTHING ELSE — asserted over the
+        # function's OWN source, so a future "tiebreak on activity age" cannot land quietly.
+        import inspect
+        rsrc = inspect.getsource(check_revival)
+        check("⚠ s4-03 (3): `last_activity_age_s` and `prompt_pending` are NOT READ by this arm at "
+              "all — the ruling's binding condition (a HARD liveness signal, never a silence "
+              "timeout) is satisfied STRUCTURALLY rather than by a tuned threshold. Grep-shaped and "
+              "weak alone; it is paired with the behavioural control above",
+              "last_activity_age_s" not in rsrc.split('"""')[2]
+              and "prompt_pending" not in rsrc.split('"""')[2])
+
+        # (4) ROOM-DEAD short-circuits the whole candidate walk.
+        lines, pushed = rev(rsnap(absent=[gone()], alive=False))
+        check("s4-03 (4): a DEAD ROOM prints its one line and performs NO per-seat "
+              "classification — every seat is absent when the session is gone, and reporting N "
+              "crashes for ONE incident would point the room at the wrong mechanism entirely",
+              lines == [REVIVAL_ROOM_DEAD_LINE])
+        check("s4-03 (4) CONTROL: with session_alive TRUE the same fixture DOES classify per "
+              "seat — proving the short-circuit is the room's state and not a dead branch",
+              any("dseat" in l for l in rev(rsnap(absent=[gone()], alive=True))[0]))
+        rstate.clear(); rnotes.clear()
+
+        # (5) CLEANLY-OUT is never a candidate, and its control proves the fixture COULD crash.
+        (rbase / "awaiting-close.json").write_text(json.dumps({"dseat": {"since": "x"}}))
+        l1, _ = rev(rsnap(absent=[gone()]))
+        l2, _ = rev(rsnap(absent=[gone()]))
+        check("s4-03 (5): a seat in awaiting-close.json is CLEANLY-OUT, never CRASHED, however "
+              "many ticks it stays absent — cmd_checkout records the pane as a debt that never "
+              "expires BY DESIGN, and a checked-out seat is not a crash",
+              all("CLEANLY-OUT" in l for l in l1 + l2) and not any("CRASHED" in l for l in l1 + l2)
+              and gt() == 0)
+        (rbase / "awaiting-close.json").write_text(json.dumps({}))
+        rroster(("dseat", "no", "%77"), ("leader", "yes", "%1"))
+        l3, _ = rev(rsnap(absent=[gone()]))
+        check("s4-03 (5b): the LIVE roster row reading active != yes is the second CLEANLY-OUT "
+              "arm, read at classification time rather than from the snapshot",
+              "CLEANLY-OUT" in " ".join(l3))
+        rroster(("dseat", "yes", "%77"), ("leader", "yes", "%1"))
+        l4, _ = rev(rsnap(absent=[gone()]))
+        l5, _ = rev(rsnap(absent=[gone()]))
+        check("⚠ s4-03 (5) CONTROL: with the awaiting entry removed and the roster row active, "
+              "the IDENTICAL fixture reaches CRASHED — a never-fires test proves nothing",
+              "CRASHED — would revive" in " ".join(l5)
+              and "CRASHED — would revive" not in " ".join(l4))
+        rstate.clear(); rnotes.clear()
+
+        # (6) An unparseable ledger REFUSES. BOTH ARMS, or the inversion was never tested —
+        # load_awaiting's own fail-safe would silently pass the first arm on its own.
+        (rbase / "awaiting-close.json").write_text("{ not json at all")
+        l1, p1 = rev(rsnap(absent=[gone()]))
+        l2, p2 = rev(rsnap(absent=[gone()]))
+        check("⚠ s4-03 (6): a ledger that is PRESENT but UNPARSEABLE makes the detector REFUSE — "
+              "the shared loaders collapse it to 'no debt', which here would let a mid-close seat "
+              "read as a crash. Three states locally where they have two",
+              not any("CRASHED" in l for l in l1 + l2)
+              and all("REVIVAL REFUSED" in l for l in l1 + l2))
+        check("s4-03 (6): the refusal NAMES ITS LAYER (R-8) and is pushed exactly ONCE, while the "
+              "report line prints every tick so the hole never goes quiet",
+              len(p1) == 1 and p2 == [] and "revival detector gate" in p1[0])
+        check("s4-03 (6) CONTROL: the same fixture with VALID json and no entry reaches CRASHED — "
+              "without it the refusal arm could be passing for the wrong reason",
+              ((rbase / "awaiting-close.json").write_text("{}") or True)
+              and "CRASHED" in " ".join(rev(rsnap(absent=[gone()]))[0] +
+                                        rev(rsnap(absent=[gone()]))[0]))
+        rstate.clear(); rnotes.clear()
+
+        # (7) Debounce needs two ticks, and the reset must survive an IN-PLACE respawn.
+        l1, _ = rev(rsnap(absent=[gone()]))
+        check("s4-03 (7): one tick on a fresh candidate counts, and does NOT classify CRASHED — "
+              "firing on a single tick would make one transient sensor error a relaunch",
+              gt() == 1 and "CRASHED — would revive" not in " ".join(l1)
+              and "1/2" in " ".join(l1) and "20 min" in " ".join(l1))
+        l2, _ = rev(rsnap(absent=[gone()]))
+        check("s4-03 (7): the second consecutive non-stale tick classifies CRASHED",
+              gt() == 2 and "CRASHED — would revive" in " ".join(l2))
+        rstate.clear()
+        rev(rsnap(absent=[gone()]))
+        rev(rsnap(seats=[{"seat": "dseat", "pane": "%77", "liveness": "live",
+                          "harness_pid": 31337}]))
+        check("⚠ s4-03 (7) CONTROL — THE BUG THE EXISTING RESET CANNOT CATCH: an IN-PLACE respawn "
+              "keeps the SAME pane id, so the `pane != pane` reset never fires. The counter is "
+              "cleared EXPLICITLY on liveness == live, and this proves it",
+              gt() is None or gt() == 0)
+        l3, _ = rev(rsnap(absent=[gone()]))
+        check("s4-03 (7) CONTROL: after that reset the seat must start over at 1, not resume at 2 "
+              "— otherwise the reset is cosmetic",
+              gt() == 1 and "CRASHED — would revive" not in " ".join(l3))
+        rstate.clear(); rnotes.clear()
+
+        # (8) STALE FREEZES the counter. A freeze and a reset are indistinguishable without the pair.
+        rev(rsnap(absent=[gone()]))
+        l2, _ = rev(rsnap(absent=[gone()], age_s=budget_mod.STALE_AFTER_S + 60))
+        check("s4-03 (8): a stale snapshot PAUSES enforcement and FREEZES the debounce counter — "
+              "neither increments nor resets, because a stale snapshot is evidence in NEITHER "
+              "direction (CMP-21 invariant 2)",
+              any(REVIVAL_STALE_LINE in l for l in l2) and gt() == 1)
+        l3, _ = rev(rsnap(absent=[gone()]))
+        check("⚠ s4-03 (8) THE DISCRIMINATING ARM: the next fresh tick reaches CRASHED. Had the "
+              "stale tick RESET instead of frozen, this tick would read 1/2 — that is the only "
+              "observation that tells a freeze from a reset",
+              "CRASHED — would revive" in " ".join(l3))
+        _, p1 = rev(rsnap(absent=[gone()], age_s=9999))
+        _, p2 = rev(rsnap(absent=[gone()], age_s=9999))
+        _, p3 = rev(rsnap(absent=[gone()], age_s=9999))
+        _, p4 = rev(rsnap(absent=[gone()], age_s=9999))
+        check("s4-03 (8): a sustained sensor outage is flagged ONCE, after 3 consecutive stale "
+              "ticks — the SENSOR is the incident, and it says so",
+              p1 == [] and p2 == [] and len(p3) == 1 and p4 == []
+              and "REVIVAL PAUSED" in p3[0])
+        rstate.clear(); rnotes.clear()
+
+        # (10) MID-RENEWAL uses PLAIN pid+starttime equality, never the harness predicate.
+        me = (os.getpid(), coord.proc_stat(os.getpid())[1])
+        (rbase / "lifecycle-inflight.json").write_text(json.dumps(
+            {"dseat": {"state": "in-flight", "disposition": "renew",
+                       "executor": {"pid": me[0], "starttime": me[1]}}}))
+        l1, _ = rev(rsnap(absent=[gone()]))
+        l2, _ = rev(rsnap(absent=[gone()]))
+        check("s4-03 (10): a marker entry in-flight whose executor is a LIVE PYTHON process is "
+              "MID-RENEWAL — and stays so however long it is absent",
+              all("MID-RENEWAL" in l for l in l1 + l2)
+              and not any("CRASHED" in l for l in l1 + l2))
+        check("⚠ s4-03 (10) THE RED ARM, IN-SUITE: `coord.ident_is_live_harness` answers DEAD for "
+              "this very same live ident, because is_harness_argv matches only "
+              "claude/codex/opencode and the lifecycle executor is PYTHON. Using it here would "
+              "turn MID-RENEWAL into CRASHED and produce the exact double-launch stage 4 exists "
+              "to prevent — so the two predicates are asserted to DISAGREE on this ident",
+              _executor_ident_live({"executor": {"pid": me[0], "starttime": me[1]}}) is True
+              and coord.ident_is_live_harness(me) is False)
+        (rbase / "lifecycle-inflight.json").write_text(json.dumps(
+            {"dseat": {"state": "in-flight", "executor": {"pid": 999999, "starttime": "1"}}}))
+        l3, _ = rev(rsnap(absent=[gone()]))
+        l4, _ = rev(rsnap(absent=[gone()]))
+        check("s4-03 (10) CONTROL: a marker whose executor ident is GONE does not hold the seat in "
+              "MID-RENEWAL forever — the same fixture with a dead ident reaches CRASHED",
+              "CRASHED — would revive" in " ".join(l4) and "MID-RENEWAL" not in " ".join(l3 + l4))
+        (rbase / "lifecycle-inflight.json").unlink()
+        rstate.clear(); rnotes.clear()
+
+        # Marker ABSENT reads as "no entry", the correct reading until Stage 3 ships its reader.
+        check("s4-03: an ABSENT lifecycle-inflight.json is 'no entry', not a refusal — Stage 3 "
+              "has not shipped the marker yet and treating its absence as unreadable would make "
+              "the detector permanently inert",
+              "CRASHED" in " ".join(rev(rsnap(absent=[gone()]))[0]
+                                    + rev(rsnap(absent=[gone()]))[0]))
+        rstate.clear(); rnotes.clear()
+
+        # IDLE is unreachable BY CONSTRUCTION, and the code says so out loud rather than branching.
+        l1, p1 = rev(rsnap(absent=[gone(liveness="live")]))
+        check("s4-03 (IDLE): a `live` row inside roster_absent is a SENSOR CONTRADICTION "
+              "team_monitor.absent_rows cannot produce — the detector refuses to classify it and "
+              "says so, instead of silently picking a branch",
+              "INVARIANT BROKEN" in " ".join(l1) and len(p1) == 1)
+        rstate.clear(); rnotes.clear()
+
+        check("s4-03: a room with NO roster-absent seat still prints a line every tick — a hole "
+              "must never go quiet, and silence is indistinguishable from a detector that is off",
+              rev(rsnap())[0] == [f"{'revival':<18} {'ok':<7} no roster-absent seat"])
+        rstate.clear(); rnotes.clear()
 
         # ---- 7.37 criterion 3 / R10: goal-level state, per-run sections ----
         # ⚠ THIS BLOCK EXISTS BECAUSE THE SUITE ABOVE PASSED WITHOUT EXERCISING ONE LINE OF IT.
