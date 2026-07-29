@@ -3290,10 +3290,15 @@ def is_authorized_launcher(name):
     `--force`: a flag that reads as an override of policy while actually being compliance with it,
     which trains the room to force and spends the flag's only signal.
 
-    MINTED RATHER THAN REUSING `is_leader_or_cos_or_closer`
+    MINTED RATHER THAN REUSING the then-existing `is_leader_or_cos_or_closer`
     (`core-build-run-adjustments/decisions.md#d-g257-widening-not-threading`). That predicate
-    exists for `kill-pane`/`relaunch-pane` and also admits every `closer-*` seat -- widening
+    gated `kill-pane`/`relaunch-pane` and also admitted every `closer-*` seat -- widening
     `launch` to closers is not what was ruled, and reusing it here would have quietly granted it.
+    It NO LONGER EXISTS: `d-cos-off-pane-kill` (s12-12) took the chief-of-staff off those two
+    commands, they moved to `is_leader_or_closer`, and the predicate was DELETED rather than left
+    callerless -- a dead permission predicate is how a widening gets silently restored. So this
+    function is now the ONLY place `chief-of-staff` appears in a role predicate, which is exactly
+    the scoping the ⚠ below asserts.
     ⚠ THIS WIDENS `launch` ALONE (`d-cos-inbox-is-convention`: "`launch` and nothing else").
     `close-run`, `panel`, `reap --go`, `add-to-group` and `remove-from-group` stay the leader's,
     and `d-cos-may-launch` bars the chief-of-staff from every TERMINATING verb -- close, renew,
@@ -3302,14 +3307,16 @@ def is_authorized_launcher(name):
     return name in ("leader", "chief-of-staff")
 
 
-def is_leader_or_cos_or_closer(name):
-    """Same NAME-PATTERN shape as `is_leader_or_closer` (this file gates roles by literal name
-    everywhere, never by a derived lookup -- `chief-of-staff` is one more literal beside `leader`,
-    not a new mechanism). `kill-pane` (task 7.91) exists FOR the chief-of-staff: it is the seat
-    that owns operational stewardship and is blocked from a raw `tmux kill-pane` by the harness
-    auto-mode classifier. This predicate governs WHO may call the command, never WHICH panes it
-    may touch -- the door/roster protections are a separate, unconditional check (criterion 2)."""
-    return name in ("leader", "chief-of-staff") or name.startswith("closer-")
+# `is_leader_or_cos_or_closer` STOOD HERE and is DELETED (s12-12, `d-cos-off-pane-kill`).
+# It gated `kill-pane` and `relaunch-pane` — commands built FOR the chief-of-staff (tasks
+# 7.91/7.95), which is why the seat was in the predicate at all. The ruling reads the bound the
+# other way: kill and relaunch are TERMINATING acts, and `d-cos-may-launch` bars the
+# chief-of-staff from every terminating verb, so both commands now gate on `is_leader_or_closer`
+# and the seat reaches a pane it must destroy through the leader.
+# It is DELETED rather than left with zero callers ON PURPOSE: a callerless permission predicate
+# is a loaded gun a later call site re-points at itself, and the widening comes back with no
+# ruling behind it. The chief-of-staff's ONE remaining role predicate is
+# `is_authorized_launcher` — open, never terminate.
 
 
 def is_closer(name):
@@ -3420,15 +3427,34 @@ def closing_seats(base):
 # `active: no` on the roster while its pane held RAM against a 2800 MB launch floor, until a human
 # happened to look. One instance ran 41 minutes and was found by hand.
 #
-# THE DEFECT WAS NEVER A MISSING KILL. `close-seat` has always killed. The stated fix — have
-# `checkout` kill its own pane — was REFUSED and the refusal ratified: it would destroy the
-# in-place renew path, which respawns the successor into the SAME pane to preserve window layout
-# (G-12) and therefore needs that pane alive at close time. That path is CONDITIONAL, not the
-# default (G-154): it is taken when the seat already sits in the window its briefing asks for. The
-# refusal still holds for every seat, because at checkout time nothing knows which case a later
-# renew will be — see G-151, where stating this half without its condition put two contradictory
-# claims in one file. `depart` is the wrong precedent; it is
-# a seat leaving for good, with no renewal question open. `checkout` is the half that KEEPS it open.
+# THE DEFECT WAS NEVER A MISSING KILL, and the refusal that stood here is now SATISFIED rather than
+# reversed. The stated fix — have `checkout` kill its own pane — was refused because the in-place
+# renew path needs the pane alive at close time (G-12), that path is CONDITIONAL (G-154: taken only
+# when the seat already sits in the window its briefing asks for), and "at checkout time nothing
+# knows which case a later renew will be." Both halves are now answered, neither by loosening it:
+#   1. THE CASE IS KNOWN, because the DISPOSITION arrives WITH the checkout
+#      (`checkout --renew --handoff "…"` vs a plain done-checkout) and is ASSERTED onto the record
+#      below rather than inferred later. Checkout no longer leaves the renewal question open; it
+#      carries the answer.
+#   2. THE PANE IS STILL NOT KILLED BY THE CALLER — nothing in `cmd_checkout` kills anything. On
+#      the RENEW disposition the caller forks a DETACHED executor (`lifecycle-exec`, built to
+#      `arm_pid_reaper`'s form) and exits. The pane stays alive until the EXECUTOR — out-of-pane,
+#      outliving its caller — makes the G-154 decision itself, calling `renew_in_place` with the
+#      pane's window measured live. In-place respawn keeps the pane; re-place kills it. The
+#      condition is evaluated where it CAN be evaluated, which is the one thing checkout could
+#      never do.
+# THE DONE DISPOSITION IS UNCHANGED, AND DELIBERATELY: it forks nothing, and the debt recorded
+# below is still the whole of what checkout does about its pane. That pane lives until leader runs
+# `close-seat`, which is where the relay-door refusal gets its say before anything dies — a seat
+# carrying `relays:` to a human role is refused there unless the caller passes `--force`, because a
+# door in the wrong place is cosmetic and a door destroyed is an outage. Answering the renew half
+# bought no right to skip that, so the done path was left exactly where the refusal put it.
+# So W1 is respected, not worked around: on this path no process respawns the pane it runs in — the
+# act that respawns runs OUTSIDE it, which is why `cmd_close_seat`'s self-act W1 warning is still
+# printed for the caller who reaches the respawn from inside its own pane.
+# `depart` remains the wrong precedent, for its own reason — a seat leaving for good, with no
+# renewal question to answer. What changed is not the wall; it is that the answer now arrives
+# BEFORE the wall instead of after it.
 #
 # So the record is written, not the kill: checkout ASSERTS the debt (who, which pane, whether the
 # transcript landed, when), and close-seat/depart clear it. That makes #259's ratified hand-mapping
@@ -10053,8 +10079,12 @@ def cmd_kill_pane(args):
     this reads the ROW's `active` field as ground truth rather than inferring aliveness from
     whether the pane is in `live_panes()` -- a pane that changed out from under a stale roster row
     must not be misread as free just because the OLD pane id looks live or dead."""
-    gate(args, "kill-pane", is_leader_or_cos_or_closer,
-         "leader's, chief-of-staff's, or a closer-*'s")
+    # s12-12 (`d-cos-off-pane-kill`): the chief-of-staff is OFF this predicate. Killing a pane is
+    # a TERMINATING act and `d-cos-may-launch` bars the seat from every one of them; that this
+    # command was BUILT for the chief-of-staff (7.91) is why it had to be narrowed by ruling
+    # rather than left as evidence of permission.
+    gate(args, "kill-pane", is_leader_or_closer,
+         "leader's or a closer-*'s")
     target = args.pane_id
     if not target.startswith("%"):
         refuse(
@@ -10170,7 +10200,10 @@ def cmd_relaunch_pane(args):
     matching `cmd_launch`'s own reasoning verbatim: a dry-run exists to show what a real relaunch
     would do, and hiding a registry divergence from it would make the one command meant for
     inspection the one that lies."""
-    role_desc = "leader's, chief-of-staff's, or a closer-*'s"
+    # s12-12 (`d-cos-off-pane-kill`): relaunching kills the pane it replaces, so it is a
+    # TERMINATING act and the chief-of-staff is off this predicate too — same ruling, same reason
+    # as `kill-pane` above.
+    role_desc = "leader's or a closer-*'s"
     seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
     if not seats:
         refuse(
@@ -10182,9 +10215,9 @@ def cmd_relaunch_pane(args):
             1)
 
     if args.dry_run:
-        gate(args, "relaunch-pane", is_leader_or_cos_or_closer, role_desc)
+        gate(args, "relaunch-pane", is_leader_or_closer, role_desc)
     else:
-        launch_gates(args, "relaunch-pane", is_leader_or_cos_or_closer, role_desc, 1)
+        launch_gates(args, "relaunch-pane", is_leader_or_closer, role_desc, 1)
 
     # G-51, on the dry-run path too (see docstring) — check_bindings does not special-case
     # dry_run itself; it refuses on a real divergence regardless.
@@ -13735,35 +13768,36 @@ def _selftest_checks(args, failures, names):
 
         killed.clear()
         _ko, _kc = refuse(cmd_kill_pane, agent="zeta", pane_id="%703")
-        check("kill-pane: the ROLE gate refuses a caller that is not leader/chief-of-staff/"
-              "closer-*, naming the flag the same way every other role gate does",
+        check("kill-pane: the ROLE gate refuses a caller that is not leader/closer-* (s12-12 "
+              "took the chief-of-staff off it), naming the flag the same way every other role "
+              "gate does",
               _kc == 2 and "kill-pane" in _ko and killed == [])
 
-        _bo, _bc = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="not-a-pane")
+        _bo, _bc = refuse(cmd_kill_pane, agent="leader", pane_id="not-a-pane")
         check("kill-pane: a malformed target (no leading %) is refused before anything else runs "
               "-- this is a PANE id, never a seat name, and the message says so",
               _bc == 1 and "does not look like a tmux pane id" in _bo and killed == [])
 
-        _oo, _oc = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="%799")
+        _oo, _oc = refuse(cmd_kill_pane, agent="leader", pane_id="%799")
         check("kill-pane (criterion 2, clause 2): a pane matching NO current roster row is "
               "refused -- this tool only ever touches panes this run's own roster accounts for, "
               "and the refusal names no --force escape because none exists",
               _oc == 1 and "matches no CURRENT roster row" in _oo and killed == [])
 
-        _do, _dc = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="%701")
+        _do, _dc = refuse(cmd_kill_pane, agent="leader", pane_id="%701")
         check("kill-pane (criterion 2, clause 1 / bars.md 4): the pane of a seat carrying "
               "`relays:` is refused, UNCONDITIONALLY -- the owner door -- derived from the "
               "descriptor, never a kit-side name list",
               _dc == 1 and "carries a relay path to a human role" in _do and killed == [])
 
-        _dfo, _dfc = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="%701", force=True)
+        _dfo, _dfc = refuse(cmd_kill_pane, agent="leader", pane_id="%701", force=True)
         check("kill-pane (criterion 3, the control's other half / bars.md 4): --force does NOT "
               "lift the door refusal -- unlike close-seat's OWN door check, this one has no "
               "escape at all, because kill-pane is a bare reap-by-id with none of close-seat's "
               "surrounding lifecycle care",
               _dfc == 1 and "carries a relay path to a human role" in _dfo and killed == [])
 
-        _ao, _ac = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="%702")
+        _ao, _ac = refuse(cmd_kill_pane, agent="leader", pane_id="%702")
         check("kill-pane (criterion 5): a pane whose roster row is still ACTIVE (not "
               "roster-done) is refused without --force -- read from the row's `active` field as "
               "ground truth (G-196), never inferred from whether the pane looks alive in tmux",
@@ -13775,7 +13809,7 @@ def _selftest_checks(args, failures, names):
         # (`killed.append(pane) or (True, "")`) never removes the pane from the live set, so it
         # doubles as this control for free.
         killed.clear()
-        _so, _sc = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="%703")
+        _so, _sc = refuse(cmd_kill_pane, agent="leader", pane_id="%703")
         check("kill-pane (criterion 4, the control -- can this check fail?): a pane the kill call "
               "reports OK for but which tmux STILL LISTS afterward is caught and refused, not "
               "laundered through a trusted exit code",
@@ -13794,14 +13828,14 @@ def _selftest_checks(args, failures, names):
         # force-override warnings elsewhere in this file), and `run()` leaves stderr on the real
         # stream (harness_outcome's capture_err=False) -- so the PROOF --force actually let this
         # through is `killed`, not a stdout substring.
-        run(cmd_kill_pane, agent="chief-of-staff", pane_id="%702", force=True)
+        run(cmd_kill_pane, agent="leader", pane_id="%702", force=True)
         check("kill-pane (criterion 5, the escape): --force overrides the not-roster-done "
               "refusal, the same convention close-seat's own door check uses for a deliberate "
               "act -- the pane is actually killed, not merely permitted on paper",
               "%702" in killed)
 
         killed.clear()
-        _go = run(cmd_kill_pane, agent="chief-of-staff", pane_id="%703")
+        _go = run(cmd_kill_pane, agent="leader", pane_id="%703")
         check("kill-pane (criterion 3, the permit direction / criterion 4, the pass): a "
               "genuinely reapable pane (roster-done, no relays) is killed and VERIFIED gone via "
               "live_panes(), not merely reported killed -- and its roster row is untouched (no "
@@ -13843,25 +13877,25 @@ def _selftest_checks(args, failures, names):
         respawned.clear()
         _role_o, _role_c = refuse(cmd_relaunch_pane, agent="zeta", target="rp-door",
                                   pane_id="%711", dry_run=False)
-        check("relaunch-pane: the ROLE gate refuses a caller that is not leader/chief-of-staff/"
-              "closer-*, the SAME predicate kill-pane uses (PRIN-11 — one derivation, not a new "
+        check("relaunch-pane: the ROLE gate refuses a caller that is not leader/closer-* "
+              "(s12-12), the SAME predicate kill-pane uses (PRIN-11 — one derivation, not a new "
               "mechanism)",
               _role_c == 2 and "relaunch-pane" in _role_o and respawned == [])
 
-        _nb_o, _nb_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-ghost",
+        _nb_o, _nb_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-ghost",
                               pane_id="%999", dry_run=False)
         check("relaunch-pane: an agent with no briefing at all is refused before any gate runs "
               "— there is nothing to relaunch, and no --force escape exists because there is "
               "nothing to force",
               _nb_c == 1 and "no worker briefing carries" in _nb_o and respawned == [])
 
-        _mp_o, _mp_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+        _mp_o, _mp_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-door",
                               pane_id="not-a-pane", dry_run=False)
         check("relaunch-pane: a malformed target (no leading %) is refused before anything else "
               "runs — this is a PANE id, never a seat name or a bare number",
               _mp_c == 1 and "does not look like a tmux pane id" in _mp_o and respawned == [])
 
-        _pm_o, _pm_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+        _pm_o, _pm_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-door",
                               pane_id="%999", dry_run=False)
         check("relaunch-pane (criterion 1 / bars.md 3): a pane id that does NOT match the "
               "roster's own recorded pane for the target is refused UNCONDITIONALLY — the "
@@ -13870,14 +13904,14 @@ def _selftest_checks(args, failures, names):
               _pm_c == 1 and "does not match the roster's own recorded pane" in _pm_o
               and "%711" in _pm_o and respawned == [])
 
-        _act_o, _act_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-live",
+        _act_o, _act_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-live",
                                 pane_id="%712", dry_run=False)
         check("relaunch-pane (kill-pane's own criterion-5 convention): a roster row still "
               "ACTIVE (not roster-done) is refused without --force — a live seat's pane is "
               "close-seat's or renew's to manage, not a bare relaunch",
               _act_c == 1 and "still ACTIVE" in _act_o and respawned == [])
 
-        _fo = run(cmd_relaunch_pane, agent="chief-of-staff", target="rp-live", pane_id="%712",
+        _fo = run(cmd_relaunch_pane, agent="leader", target="rp-live", pane_id="%712",
                   dry_run=False, force=True)
         check("relaunch-pane: --force lifts ONLY the still-active refusal (the same "
               "'if you mean it' convention close-seat's own door check and kill-pane's "
@@ -13888,7 +13922,7 @@ def _selftest_checks(args, failures, names):
         respawned.clear()
 
         live_tmux_panes["v"].discard("%711")
-        _tl_o, _tl_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+        _tl_o, _tl_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-door",
                               pane_id="%711", dry_run=False)
         check("relaunch-pane: a pane that is not currently live in tmux AT ALL is refused — "
               "nothing to relaunch into; `launch --only` is the tool for a genuinely fresh pane",
@@ -13896,7 +13930,7 @@ def _selftest_checks(args, failures, names):
         live_tmux_panes["v"].add("%711")
 
         harness_up["v"] = [4242]
-        _hr_o, _hr_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+        _hr_o, _hr_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-door",
                               pane_id="%711", dry_run=False)
         check("relaunch-pane (the unconditional backstop, bar 11 — can this check fail?): a "
               "pane that still holds a LIVE HARNESS PROCESS is refused with NO --force offered "
@@ -13912,7 +13946,7 @@ def _selftest_checks(args, failures, names):
         (pkg / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
             "tf-9,rp-door,,claude,fable,,,m0\n", encoding="utf-8")
-        _gd_o, _gd_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+        _gd_o, _gd_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-door",
                               pane_id="%711", dry_run=True)
         check("relaunch-pane (criterion 3, check_bindings/G-51, exercised on the dry-run path): "
               "a descriptor that disagrees with taskforce.csv's binding registry is refused, "
@@ -13922,7 +13956,7 @@ def _selftest_checks(args, failures, names):
               and "taskforce.csv says fable" in _gd_o and respawned == [])
         (pkg / "taskforce.csv").unlink()
 
-        _dr_o = run(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door", pane_id="%711",
+        _dr_o = run(cmd_relaunch_pane, agent="leader", target="rp-door", pane_id="%711",
                     dry_run=True)
         check("relaunch-pane: a clean --dry-run previews the command it would start and "
               "mutates NOTHING — no respawn, no launch, matching cmd_launch's own dry-run shape",
@@ -13934,7 +13968,7 @@ def _selftest_checks(args, failures, names):
         # ---- --dry-run deliberately skips the memory gate (matches cmd_launch's own G-51/5). ----
         avail_real_rp = available_mb
         available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
-        _mem_o, _mem_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+        _mem_o, _mem_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-door",
                                 pane_id="%711", dry_run=False)
         available_mb = avail_real_rp
         check("relaunch-pane (criterion 3, gate 2 — the memory floor): one MB under the "
@@ -13944,7 +13978,7 @@ def _selftest_checks(args, failures, names):
 
         # ---- criterion 3, gate 3 (both halves) + criteria 1/2, the genuine permit direction ----
         _sess_before = len(read_csv_table(sessions_csv(pkg), SESSIONS_COLS)[1])
-        _ok_o = run(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door", pane_id="%711",
+        _ok_o = run(cmd_relaunch_pane, agent="leader", target="rp-door", pane_id="%711",
                     dry_run=False)
         _sess_after = len(read_csv_table(sessions_csv(pkg), SESSIONS_COLS)[1])
         check("relaunch-pane (criteria 1+2, the permit direction): roster-done, pane alive, no "
@@ -14012,7 +14046,7 @@ def _selftest_checks(args, failures, names):
         # ---- glue code (launch_seat's own G-11 check is already covered elsewhere; what is ----
         # ---- NOT covered anywhere else is THIS command's own handling of that return value). ----
         harness_up["v"] = []   # positively absent: wait_harness_up will report failure
-        _wf_o, _wf_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door2",
+        _wf_o, _wf_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-door2",
                               pane_id="%713", dry_run=False)
         harness_up["v"] = None
         check("relaunch-pane (criterion 6, the control — can this check fail?): a respawn that "
@@ -14716,8 +14750,9 @@ def _selftest_checks(args, failures, names):
               and "leader's and the chief-of-staff's" in _s4b_out)
 
         check("s12-04 S4-b2 (control): a `closer-*` seat is STILL refused on `launch` -- the row "
-              "that proves `is_leader_or_cos_or_closer` was NOT reused. It admits every closer, "
-              "and `d-cos-inbox-is-convention` scopes this widening to the chief-of-staff on "
+              "that proves the then-existing `is_leader_or_cos_or_closer` was NOT reused (it "
+              "admitted every closer; s12-12 has since DELETED it). "
+              "`d-cos-inbox-is-convention` scopes this widening to the chief-of-staff on "
               "`launch` and nothing else (`d-g257-widening-not-threading`)",
               _s4b2_code == 2
               and re.search(r"^refused \[coord role gate\]: ", _s4b2_out, re.M) is not None)
@@ -14786,6 +14821,59 @@ def _selftest_checks(args, failures, names):
               "misses",
               all(("refused [coord role gate]" in dry) == ("role gate: REFUSED" in real)
                   for _who, dry, real in _s4g))
+
+        # ============ s12-12: the chief-of-staff comes OFF kill-pane / relaunch-pane ============
+        # `d-cos-off-pane-kill` (owner, 2026-07-29): `d-cos-may-launch` stands unchanged, and kill
+        # and relaunch are TERMINATING acts — so the seat these two commands were BUILT for
+        # (7.91/7.95, which predate the ruling) no longer passes their role gate. The rows read the
+        # LAYER, never the prose: a caller refused for the wrong reason is not this narrowing.
+        _pk_kill_cos = refuse(cmd_kill_pane, as_agent="chief-of-staff", pane_id="%1")
+        _pk_rel_cos = refuse(cmd_relaunch_pane, as_agent="chief-of-staff", target="gamma",
+                             pane_id="%1", dry_run=True)
+        check("s12-12 PK-1: the chief-of-staff is REFUSED on `kill-pane`, at the ROLE GATE — "
+              "killing a pane is a terminating act and `d-cos-may-launch` bars the seat from "
+              "every one of them (`d-cos-off-pane-kill`). The layer is the assertion: refusing "
+              "for a missing roster row would look the same to a reader and prove nothing",
+              _pk_kill_cos[1] == 2
+              and re.search(r"^refused \[coord role gate\]: ", _pk_kill_cos[0], re.M) is not None)
+
+        check("s12-12 PK-2: the chief-of-staff is REFUSED on `relaunch-pane`, at the ROLE GATE — "
+              "a relaunch kills the pane it replaces, so it terminates too. Read on the DRY-RUN "
+              "branch, which is the one a seat reaches first and the one that must not say yes "
+              "where the real branch says no",
+              _pk_rel_cos[1] == 2
+              and re.search(r"^refused \[coord role gate\]: ", _pk_rel_cos[0], re.M) is not None)
+
+        # CONTROL. The narrowing removed ONE name; it did not close the commands. Both callers are
+        # read on a POSITIVE token (`state`/`input` — they get past the role gate and fail on the
+        # run's own facts), never on the ABSENCE of a role-gate line, which a crashed call would
+        # also produce.
+        _pk_ctl = [
+            ("leader/kill-pane", refuse(cmd_kill_pane, as_agent="leader", pane_id="%1")),
+            ("closer/kill-pane", refuse(cmd_kill_pane, as_agent="closer-alpha", pane_id="%1")),
+            ("leader/relaunch-pane", refuse(cmd_relaunch_pane, as_agent="leader", target="gamma",
+                                            pane_id="bad", dry_run=True)),
+            ("closer/relaunch-pane", refuse(cmd_relaunch_pane, as_agent="closer-alpha",
+                                            target="gamma", pane_id="bad", dry_run=True)),
+        ]
+        check("s12-12 PK-3 (control): the leader and a `closer-*` still PASS the role gate on both "
+              "commands — each is refused further in, on the run's own state/input, and none of "
+              "them ever sees a `role gate` line. Without this row PK-1/PK-2 are equally "
+              "satisfied by a gate that refuses everybody",
+              all(re.search(r"^refused \[coord (state|input)\]: ", out, re.M) is not None
+                  and "refused [coord role gate]" not in out
+                  for _who, (out, _code) in _pk_ctl))
+
+        check("s12-12 PK-4: the widened predicate is GONE from the module, and `launch`'s own is "
+              "UNTOUCHED. A callerless permission predicate is how a widening comes back with no "
+              "ruling behind it — a later call site re-points at it and nothing reads as changed. "
+              "`is_authorized_launcher` stays the chief-of-staff's ONE role predicate: open, "
+              "never terminate (`d-cos-may-launch`)",
+              "is_leader_or_cos_or_closer" not in globals()
+              and is_authorized_launcher("chief-of-staff")
+              and not is_authorized_launcher("closer-alpha")
+              and not is_leader_or_closer("chief-of-staff")
+              and is_leader_or_closer("closer-alpha") and is_leader_or_closer("leader"))
 
         # ============ s12-01 + s12-05: the CLOSING wake-mute, and `checkout --renew` call 1 ======
         # Placed LAST inside this fixture DELIBERATELY. The block re-checks `gamma`, `alpha` and
