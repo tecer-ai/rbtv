@@ -23,11 +23,17 @@ hard gates, the contract §1 fixed block-kind reorder, and inline
 `Reference: <id>@latest` body resolution (d-run3-assembled-shape (i)).
 `relays:` is DELIBERATELY not emitted and refused as an input: owner ask A-40
 is OPEN — do not add it here without that ruling.
+
+The dag-05 REGISTRY HALF is landed — render_taskforce_rows/append_taskforce_rows:
+the taskforce.csv append in topological order of the added subgraph, the three
+pre-write validations (acyclicity of the RESULTING graph via
+goal_cli.check_acyclic; every --after member resolves; no status column —
+Rules 9/8/14 of the workflow.md DAG-authoring block), the frozen-copy `after`
+cells (Rule 13), taskforce-id read from the file (never argv), atomic
+read → append → os.replace (never an open-append), and the --force-partial
+rows half (byte-match completion of ONLY the missing rows).
 Named extension points for the follow-on tasks:
 
-    append_taskforce_rows  -> dag-05  (registry append: topological order,
-                                       acyclicity via goal_cli.check_acyclic,
-                                       --force-partial byte-match completion)
     create_run_package     -> dag-06  (bootstrap run-package creation,
                                        d-bootstrap-mechanics-ruled (b))
     run_sc_acceptance      -> dag-07  (the SC-1..SC-16 acceptance rows inside
@@ -50,6 +56,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import os
 import re
@@ -68,8 +75,10 @@ if str(_GOAL_CLI_DIR) not in sys.path:
 
 from goal_cli import (  # noqa: E402 — path bound just above
     BINDING_COLUMNS,
+    Findings,
     Refusal as CatalogRefusal,
     assemble_seat,
+    check_acyclic,
     index_units,
     load_catalogs,
 )
@@ -87,6 +96,16 @@ MANIFEST_SEAT_COLUMN = "Seat/workflow"
 MANIFEST_AFTER_COLUMN = "after"
 TASKFORCE_NAME = "taskforce.csv"
 MILESTONES_NAME = "milestones.csv"
+
+# ---- dag-05 registry constants ----
+
+# The registry's ONE header — run-2's live shape, verified 2026-07-28 (dag-05
+# task file). Read from the file and preserved on write; NEVER extended here.
+# In particular no `status` column: run-state is DERIVED from the check-out
+# record + declared outputs (KG `taskforce-descriptor`; workflow.md
+# DAG-authoring Rule 14) — a status column is a second ledger and is refused.
+TASKFORCE_HEADER = ("taskforce-id", "seat", "after", "harness", "model",
+                    "effort", "ctx-refresh", "milestone-id")
 
 # ---- dag-04 descriptor-surface constants ----
 
@@ -288,7 +307,8 @@ def effective_binding(bindings: dict, seat: str) -> dict:
     return merged
 
 
-def resolve_added(args, catalog_root: Path, seats_catalog: dict) -> tuple[list[str], dict]:
+def resolve_added(args, catalog_root: Path,
+                  seats_catalog: dict) -> tuple[list[str], dict, dict]:
     """Resolve the seat set this run materializes.
 
     --seat resolves against the SEAT CATALOG (seats.csv), never the manifest —
@@ -296,7 +316,8 @@ def resolve_added(args, catalog_root: Path, seats_catalog: dict) -> tuple[list[s
     --workflow resolves against the workflow manifest
     {catalog-root}/<component>/workflows/<W>/<W>.csv.
 
-    Returns (added seat ids in manifest order, internal after map).
+    Returns (added seat ids in manifest order, internal after map, RAW manifest
+    `after` cells — the byte-verbatim text the frozen copy writes, Rule 13).
     """
     if args.seat:
         if not ID_RE.match(args.seat):
@@ -312,7 +333,7 @@ def resolve_added(args, catalog_root: Path, seats_catalog: dict) -> tuple[list[s
                 f"under {catalog_root} — nothing materialized",
                 str(catalog_root),
             )
-        return [args.seat], {args.seat: []}
+        return [args.seat], {args.seat: []}, {args.seat: ""}
 
     wf = args.workflow
     if not ID_RE.match(wf):
@@ -349,6 +370,7 @@ def resolve_added(args, catalog_root: Path, seats_catalog: dict) -> tuple[list[s
             )
         added: list[str] = []
         internal_after: dict[str, list[str]] = {}
+        internal_after_raw: dict[str, str] = {}
         for row in reader:
             seat = (row.get(MANIFEST_SEAT_COLUMN) or "").strip()
             if not seat:
@@ -365,10 +387,11 @@ def resolve_added(args, catalog_root: Path, seats_catalog: dict) -> tuple[list[s
                     f"manifest lists seat '{seat}' twice",
                     str(mpath),
                 )
-            preds = [p.strip() for p in (row.get(MANIFEST_AFTER_COLUMN) or "").split(",")
-                     if p.strip()]
+            raw = (row.get(MANIFEST_AFTER_COLUMN) or "").strip()
+            preds = [p.strip() for p in raw.split(",") if p.strip()]
             added.append(seat)
             internal_after[seat] = preds
+            internal_after_raw[seat] = raw
     if not added:
         raise Refuse(
             "manifest-empty",
@@ -386,12 +409,17 @@ def resolve_added(args, catalog_root: Path, seats_catalog: dict) -> tuple[list[s
                 "internal to the workflow",
                 str(mpath),
             )
-    return added, internal_after
+    return added, internal_after, internal_after_raw
 
 
-def validate_after(args, package: Path) -> list[str]:
-    """The insertion point: every --after member must resolve to an existing
-    taskforce.csv row — a dangling predecessor is an edge that never fires."""
+def validate_after(args, package: Path, added: list[str]) -> list[str]:
+    """VALIDATION 2 of the dag-05 trio (workflow.md DAG-authoring Rule 8, run
+    side): every --after member must resolve to an existing taskforce.csv row —
+    a dangling predecessor is an edge that never fires and the seat sits
+    READY-never, silently. A member naming a seat of the ADDED set resolves too
+    (its row lands in this same act); that form is legal HERE and is then
+    refused by validation 1 when it closes a cycle — SC-5's descendant-attach
+    arm reaches check_acyclic, never this refusal."""
     if args.root:
         return []
     members = [m.strip() for m in args.after.split(",") if m.strip()]
@@ -403,6 +431,7 @@ def validate_after(args, package: Path) -> list[str]:
         )
     existing = {(r.get("seat") or "").strip()
                 for r in _csv_rows(package / TASKFORCE_NAME)}
+    existing |= set(added)
     unresolved = [m for m in members if m not in existing]
     if unresolved:
         raise Refuse(
@@ -818,8 +847,8 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
 
 
 def build_plan(package: Path, added: list[str], internal_after: dict,
-               attach_after: list[str], assembled: dict, bindings: dict,
-               args) -> dict:
+               internal_after_raw: dict, attach_after: list[str],
+               assembled: dict, bindings: dict, args) -> dict:
     """The write plan: descriptors first, then the registry append — never the
     reverse (orphan folders are the strictly safer half-state)."""
     writes = [
@@ -836,6 +865,7 @@ def build_plan(package: Path, added: list[str], internal_after: dict,
         "package": str(package),
         "added_seats": list(added),
         "internal_after": internal_after,
+        "internal_after_raw": internal_after_raw,
         "attach_after": attach_after,
         "root": bool(args.root),
         "milestone_id": args.milestone_id or "",
@@ -850,14 +880,18 @@ def build_plan(package: Path, added: list[str], internal_after: dict,
 def result_of(plan: dict, dry_run: bool) -> dict:
     """The --json return value: {ok, package, added_seats[], writes[],
     taskforce_rows_appended, warnings[]}. In a --dry-run result the appended
-    count is the PLANNED append."""
+    count is the PLANNED append (under --force-partial: only the MISSING rows)."""
+    registry = plan.get("registry") or {}
+    appended = plan.get("rows_appended")
+    if appended is None:
+        appended = len(registry.get("append_lines", plan["added_seats"]))
     return {
         "ok": True,
         "dry_run": dry_run,
         "package": plan["package"],
         "added_seats": plan["added_seats"],
         "writes": plan["writes"],
-        "taskforce_rows_appended": len(plan["added_seats"]),
+        "taskforce_rows_appended": appended,
         "warnings": plan["warnings"],
     }
 
@@ -916,16 +950,284 @@ def emit_seat_descriptors(plan: dict) -> list[str]:
     return written
 
 
+def _descriptor_binding(plan: dict, seat: str) -> dict:
+    """harness/model/effort/ctx-refresh EXACTLY as the emitted descriptor
+    carries them — parsed back OUT of the rendered descriptor text, never
+    re-derived from the bindings file, so the registry row cannot drift from
+    the file `check_bindings` (coord.py) compares it against. This equality IS
+    what check_bindings asserts at launch."""
+    fm = yaml.safe_load(_FM_RE.match(plan["descriptors"][seat]).group(1))
+    ctx = fm.get("ctx-refresh")
+    return {
+        "harness": str(fm.get("harness", "") or ""),
+        "model": str(fm.get("model", "") or ""),
+        "effort": str(fm.get("effort", "") or ""),
+        "ctx-refresh": "" if ctx in (None, "") else str(ctx),
+    }
+
+
+def _render_csv_line(values: list[str]) -> str:
+    """One registry line, csv-quoted exactly as the append writes it (a
+    multi-predecessor `after` cell carries commas and must quote)."""
+    buf = io.StringIO()
+    csv.writer(buf, lineterminator="\n").writerow(values)
+    return buf.getvalue()[:-1]
+
+
+def render_taskforce_rows(plan: dict) -> None:
+    """dag-05 — plan the registry append WITHOUT writing: read taskforce.csv,
+    run the three validations, and render the rows in topological order of the
+    added subgraph into plan['registry']. Fires BEFORE any write (descriptors
+    included) and before the --dry-run return, so a refusal here always leaves
+    zero files and zero rows.
+
+    Q8 second-carrier note (d-spec-open-points-ruled Q8; verified at dag-05
+    implementation): the verbatim 15-rule DAG-authoring block is carried by
+    TWO surfaces, both under .rbtv/mirror/meta/planner-workflow/ —
+    (1) workflows/planning/workflow.md § "DAG-authoring rules" (the source),
+    (2) prompts/cognitive-units/procedures/workflow-designer.md § "The
+    DAG-authoring rules — carried VERBATIM" (the byte-identical copy).
+    Of the 15 rules, THIS command enforces MECHANICALLY:
+      Rule 8  — validation 2 (every `after` member resolves: validate_after
+                for the --after argv, check_acyclic's edge-resolution findings
+                for the resulting graph),
+      Rule 9  — validation 1 (acyclicity of the RESULTING graph, via
+                goal_cli.check_acyclic — never a hand-rolled walk),
+      Rule 13 — the frozen-copy `after` cells below (manifest cells verbatim;
+                the --after/--root insertion point only on the added roots),
+      Rule 14 — validation 3 (no status column; TASKFORCE_HEADER check),
+      and Rule 7 (root declared, never defaulted — the --after/--root
+      mutually-exclusive required group) plus Rule 11's registry half (a
+      duplicate seat row/folder refuses: check_collisions,
+      registry-duplicate-row).
+    Rules 1–6, 10, 12, 15 (and Rule 5's pure-chain justification, Rule 11's
+    concurrent-pair naming) are carried as the DOCUMENTATION block only —
+    authoring-time judgment this command cannot check."""
+    tf_path = Path(plan["package"]) / TASKFORCE_NAME
+    if not tf_path.is_file():
+        raise Refuse(
+            "registry-absent",
+            f"the run package carries no {TASKFORCE_NAME} — the append needs "
+            "the run's registry (its taskforce-id is read from the file, "
+            "never argv); creating a run package is dag-06's bootstrap act",
+            str(tf_path),
+        )
+    text = tf_path.read_text(encoding="utf-8")
+    if not text.endswith("\n"):
+        raise Refuse(
+            "registry-tail-unterminated",
+            f"{TASKFORCE_NAME} does not end in a newline — a partial trailing "
+            "line is unparseable by every consumer at once; repair the "
+            "registry before materializing",
+            str(tf_path),
+        )
+    lines = text.split("\n")[:-1]
+    header_line = lines[0] if lines else ""
+    header = [h.strip() for h in (next(csv.reader([header_line]))
+                                  if header_line else [])]
+
+    # VALIDATION 3 (Rule 14): no status column is introduced — and none is
+    # PROPAGATED: a fixture header already carrying `status` refuses rather
+    # than being copied forward. Run-state is DERIVED from the check-out
+    # record + declared outputs; a status column here is a second ledger.
+    if "status" in header:
+        raise Refuse(
+            "status-column",
+            f"{TASKFORCE_NAME} header carries a 'status' column — run-state "
+            "is DERIVED from the check-out record + declared outputs (KG "
+            "taskforce-descriptor; workflow.md DAG-authoring Rule 14); a "
+            "status column is a second ledger, refused rather than propagated",
+            str(tf_path),
+        )
+    if header != list(TASKFORCE_HEADER):
+        raise Refuse(
+            "registry-header-drift",
+            f"{TASKFORCE_NAME} header is {header_line!r}, not the run-2 live "
+            "shape '" + ",".join(TASKFORCE_HEADER) + "' — the written header "
+            "must equal the read header exactly, so a drifted header refuses "
+            "rather than being silently rewritten or extended",
+            str(tf_path),
+        )
+
+    existing_rows: list[dict] = []
+    raw_by_seat: dict[str, str] = {}
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        row = dict(zip(header, next(csv.reader([line]))))
+        existing_rows.append(row)
+        seat = (row.get("seat") or "").strip()
+        if not seat:
+            continue
+        if seat in raw_by_seat:
+            raise Refuse(
+                "registry-duplicate-row",
+                f"{TASKFORCE_NAME} carries two rows for seat '{seat}' — "
+                "repair the registry before materializing (Rule 11: a seat id "
+                "is unique)",
+                str(tf_path),
+            )
+        raw_by_seat[seat] = line
+
+    # taskforce-id: the run's EXISTING id, read from the file — never argv.
+    ids = {(r.get("taskforce-id") or "").strip() for r in existing_rows}
+    ids.discard("")
+    if len(ids) != 1:
+        raise Refuse(
+            "taskforce-id-unreadable",
+            f"the run's taskforce-id is read from existing {TASKFORCE_NAME} "
+            f"rows, never argv, and the file carries {len(ids)} distinct "
+            "id(s) (" + (", ".join(sorted(ids)) or "none") + ") — nothing "
+            "materialized",
+            str(tf_path),
+        )
+    tf_id = next(iter(ids))
+
+    # The `after` cells — the FROZEN DAG copy (Rule 13, KG
+    # taskforce-descriptor): an internal row copies the workflow manifest's
+    # own cell VERBATIM; the added subgraph's roots take the --after set (or
+    # empty with --root). Nothing else ever computes an edge.
+    attach_cell = ",".join(plan["attach_after"])
+    after_cells = {
+        seat: (plan["internal_after_raw"][seat]
+               if plan["internal_after"][seat] else attach_cell)
+        for seat in plan["added_seats"]
+    }
+
+    # VALIDATION 1 (Rule 9): acyclicity of the RESULTING graph — existing
+    # rows plus the rows this run would append — through goal_cli's own
+    # check_acyclic, NEVER a hand-rolled walk. Its edge-resolution findings
+    # double as validation 2's resulting-graph arm (Rule 8): unreachable for
+    # the added rows by construction, kept as a loud backstop.
+    combined = [{"seat": (r.get("seat") or "").strip(),
+                 "after": (r.get("after") or "").strip()}
+                for r in existing_rows]
+    combined += [{"seat": s, "after": after_cells[s]}
+                 for s in plan["added_seats"]]
+    findings = Findings()
+    check_acyclic(combined, findings, tf_path)
+    cycles = [i["reason"] for i in findings.items
+              if i["check"] == "after graph acyclic"]
+    if cycles:
+        raise Refuse(
+            "cycle-introduced",
+            "the RESULTING after-graph is not acyclic "
+            "(goal_cli.check_acyclic, workflow.md DAG-authoring Rule 9): "
+            + "; ".join(cycles) + " — nothing materialized",
+            str(tf_path),
+        )
+    dangling = [i["reason"] for i in findings.items
+                if i["check"] == "after edge resolves"
+                and any(f"seat '{s}'" in i["reason"]
+                        for s in plan["added_seats"])]
+    if dangling:
+        raise Refuse("after-unresolved", "; ".join(dangling), str(tf_path))
+
+    # Topological order of the added subgraph (stable: manifest order among
+    # ready seats). Acyclicity is already proven above; the no-progress
+    # refusal is a loud unreachable, never the cycle check (Rule 9's check is
+    # check_acyclic alone).
+    ordered: list[str] = []
+    placed: set[str] = set()
+    pending = list(plan["added_seats"])
+    while pending:
+        ready = [s for s in pending
+                 if all(p in placed for p in plan["internal_after"][s])]
+        if not ready:
+            raise Refuse(
+                "cycle-introduced",
+                "the added subgraph does not topologically order: "
+                + ", ".join(pending),
+            )
+        for seat in ready:
+            ordered.append(seat)
+            placed.add(seat)
+            pending.remove(seat)
+
+    # Render every row IN MEMORY (cmd_materialize's own discipline — a refusal
+    # on seat 7 of 7 leaves zero rows). Under --force-partial an EXISTING row
+    # must byte-match the row this run would write — completing a partial
+    # failure, never overwriting drift; only the MISSING rows are appended.
+    append_lines: list[str] = []
+    matched: list[str] = []
+    for seat in ordered:
+        b = _descriptor_binding(plan, seat)
+        line = _render_csv_line([
+            tf_id, seat, after_cells[seat], b["harness"], b["model"],
+            b["effort"], b["ctx-refresh"], plan["milestone_id"],
+        ])
+        held = raw_by_seat.get(seat)
+        if held is not None:
+            # Reachable only under --force-partial: check_collisions refused
+            # the non-force collision before any rendering began.
+            if held != line:
+                raise Refuse(
+                    "partial-row-mismatch",
+                    f"{TASKFORCE_NAME} row for seat '{seat}' exists and does "
+                    "not byte-match the row this run would write — "
+                    "--force-partial completes a partial failure, never "
+                    f"overwrites drift (existing: {held!r}; would write: "
+                    f"{line!r})",
+                    str(tf_path),
+                )
+            matched.append(seat)
+            continue
+        append_lines.append(line)
+    plan["registry"] = {
+        "path": str(tf_path),
+        "text": text,
+        "header": header_line,
+        "append_lines": append_lines,
+        "matched_seats": matched,
+        "ordered": ordered,
+    }
+
+
 def append_taskforce_rows(plan: dict) -> int:
-    """dag-05 extension point — the registry append: one row per added seat in
-    topological order of the added subgraph, acyclicity via
-    goal_cli.check_acyclic (never a hand-rolled walk), atomic
-    read → append → replace, --force-partial byte-match completion. Until
-    dag-05 lands, this path refuses, writing nothing."""
-    raise Refuse(
-        "not-implemented",
-        f"the {TASKFORCE_NAME} append lands in dag-05 — nothing materialized",
-    )
+    """dag-05 — the registry append, from the plan render_taskforce_rows
+    validated: read → append → ATOMIC write (tmp in the same directory +
+    os.replace), NEVER an open-append — a partial line in the run's registry
+    is unparseable by every consumer at once. The existing bytes (header
+    included) pass through unchanged; only whole rendered lines are added.
+
+    WRITE ORDER (never the reverse — keep this comment so a later reader does
+    not "optimize" it): seat descriptors land FIRST (emit_seat_descriptors),
+    these rows SECOND. The two refusal shapes already in the tree decide it:
+    goal_cli's lint reports "seat has no seat folder (run goal-materialize)"
+    for a row with no folder — a recoverable, self-explaining state — while
+    check_bindings (coord.py) REFUSES a launch when the two surfaces disagree.
+    A crash between the steps leaves orphan folders that nothing launches; a
+    crash the other way leaves rows the kit tries to launch and cannot.
+    Descriptors first is the strictly safer half-state."""
+    reg = plan["registry"]
+    tf_path = Path(reg["path"])
+    if not reg["append_lines"]:
+        plan["rows_appended"] = 0
+        return 0
+    current = tf_path.read_text(encoding="utf-8")
+    if current != reg["text"]:
+        raise Refuse(
+            "registry-changed-underfoot",
+            f"{TASKFORCE_NAME} changed between validation and write — "
+            "re-run so the validations see the file that is actually there",
+            str(tf_path),
+        )
+    new_text = current + "".join(line + "\n" for line in reg["append_lines"])
+    fd, tmp_name = tempfile.mkstemp(dir=str(tf_path.parent),
+                                    prefix=f".{TASKFORCE_NAME}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(new_text)
+        os.chmod(tmp_name, os.stat(tf_path).st_mode & 0o7777)
+        os.replace(tmp_name, tf_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    plan["rows_appended"] = len(reg["append_lines"])
+    return plan["rows_appended"]
 
 
 def run_sc_acceptance(check, fixture: dict) -> None:
@@ -948,21 +1250,25 @@ def run(args) -> dict:
     bindings = load_bindings(Path(args.bindings))
     catalogs = load_catalogs(catalog_root)
     normalize_seat_rows(catalogs[0])
-    added, internal_after = resolve_added(args, catalog_root, catalogs[0])
+    added, internal_after, internal_after_raw = resolve_added(
+        args, catalog_root, catalogs[0])
     check_bindings_cover(bindings, added)
-    attach_after = validate_after(args, package)
+    attach_after = validate_after(args, package, added)
     validate_milestone(args, package)
     check_collisions(package, added, args.force_partial)
     units = index_units(catalog_root)
     assembled = assemble_all(added, bindings, catalogs, units)
-    plan = build_plan(package, added, internal_after, attach_after,
-                      assembled, bindings, args)
-    # dag-04: every emission gate fires HERE — before the dry-run return and
-    # before any write, so a refusal always leaves zero files and zero rows.
+    plan = build_plan(package, added, internal_after, internal_after_raw,
+                      attach_after, assembled, bindings, args)
+    # dag-04 + dag-05: EVERY gate fires HERE — the emission gates, then the
+    # three registry validations — before the dry-run return and before any
+    # write, so a refusal always leaves zero files and zero rows.
     render_descriptors(plan, catalogs[0], units)
+    render_taskforce_rows(plan)
     if args.dry_run:
         return result_of(plan, dry_run=True)
-    # Descriptors FIRST, then rows — never the reverse.
+    # Descriptors FIRST, then rows — never the reverse (the ordering rationale
+    # lives on append_taskforce_rows' docstring).
     emit_seat_descriptors(plan)   # dag-04
     append_taskforce_rows(plan)   # dag-05
     return result_of(plan, dry_run=False)
@@ -1137,13 +1443,24 @@ def build_fixture(tmp: Path) -> dict:
     comp.joinpath("seats.csv").write_text(
         "seat-id,executor,task,staffing-hints,description\n"
         "alpha,alpha-prompt,alpha-task,,the alpha seat\n"
-        "beta,beta-prompt,beta-task,,the beta seat\n", encoding="utf-8")
+        "beta,beta-prompt,beta-task,,the beta seat\n"
+        "a2,alpha-prompt,alpha-task,,the a2 seat\n"
+        "b2,beta-prompt,beta-task,,the b2 seat\n", encoding="utf-8")
     wf_dir = comp / "workflows" / "demo-flow"
     wf_dir.mkdir(parents=True)
     wf_dir.joinpath("demo-flow.csv").write_text(
         'Seat/workflow,after,i/o,Modality\n'
         'alpha,,"in: run inputs; out: alpha-notes.md",agentic\n'
         'beta,alpha,"in: alpha-notes.md; out: beta-report.md",agentic\n',
+        encoding="utf-8")
+    # A manifest whose ROW ORDER is deliberately anti-topological (the
+    # dependent b2 listed before its root a2) — the dag-05 topo-order proof.
+    sc_dir = comp / "workflows" / "scramble-flow"
+    sc_dir.mkdir(parents=True)
+    sc_dir.joinpath("scramble-flow.csv").write_text(
+        'Seat/workflow,after,i/o,Modality\n'
+        'b2,a2,"in: a2-notes.md; out: b2-report.md",agentic\n'
+        'a2,,"in: run inputs; out: a2-notes.md",agentic\n',
         encoding="utf-8")
 
     # A second component: five cheap one-shot workers sharing one
@@ -1197,6 +1514,25 @@ def build_fixture(tmp: Path) -> dict:
     (pkg9 / "seats" / "alpha").mkdir(parents=True)
     pkg9.joinpath(TASKFORCE_NAME).write_text(taskforce, encoding="utf-8")
     pkg9.joinpath(MILESTONES_NAME).write_text(milestones, encoding="utf-8")
+    # SC-10 control fixture: a registry whose header ALREADY carries `status`.
+    pkg_status = tmp / "goals" / "demo-goal" / "runs" / "run-8"
+    (pkg_status / "seats").mkdir(parents=True)
+    pkg_status.joinpath(TASKFORCE_NAME).write_text(
+        "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
+        "milestone-id,status\n"
+        "tf-1,chief,,claude,claude-opus-5,high,,m1,queued\n", encoding="utf-8")
+    # SC-21 fixture: the REPAIRED spine — m4 present, `bootstrap` absent
+    # (dag-15's live repair is parked; this spine is the fixture's own).
+    pkg_spine = tmp / "goals" / "demo-goal" / "runs" / "run-31"
+    (pkg_spine / "seats").mkdir(parents=True)
+    pkg_spine.joinpath(TASKFORCE_NAME).write_text(
+        "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
+        "milestone-id\n"
+        "tf-1,chief,,claude,claude-opus-5,high,,m3\n", encoding="utf-8")
+    pkg_spine.joinpath(MILESTONES_NAME).write_text(
+        "milestone-id,name,status\n"
+        + "".join(f"m{i},milestone {i},pending\n" for i in range(3, 8)),
+        encoding="utf-8")
 
     bdir = tmp / "bindings"
     bdir.mkdir()
@@ -1227,12 +1563,19 @@ def build_fixture(tmp: Path) -> dict:
                           "beta": {**seat_binding, "after": ["ghost"]}}}
     bdir.joinpath("badafter.json").write_text(json.dumps(badafter), encoding="utf-8")
     bdir.joinpath("broken.json").write_text("{not json", encoding="utf-8")
+    scramble = {"version": 1, "defaults": both["defaults"],
+                "seats": {"a2": {**seat_binding, "after": []},
+                          "b2": {**seat_binding, "after": ["a2"]}}}
+    bdir.joinpath("scramble.json").write_text(json.dumps(scramble),
+                                              encoding="utf-8")
 
     return {
         "tmp": tmp,
         "catalog": str(tmp / "catalog"),
         "pkg": str(pkg),
         "pkg9": str(pkg9),
+        "pkg_status": str(pkg_status),
+        "pkg_spine": str(pkg_spine),
         "pkg_absent": str(tmp / "goals" / "demo-goal" / "runs" / "run-7"),
         "b_both": str(bdir / "both.json"),
         "b_alpha": str(bdir / "alpha.json"),
@@ -1240,6 +1583,7 @@ def build_fixture(tmp: Path) -> dict:
         "b_extra": str(bdir / "extra.json"),
         "b_badafter": str(bdir / "badafter.json"),
         "b_broken": str(bdir / "broken.json"),
+        "b_scramble": str(bdir / "scramble.json"),
     }
 
 
@@ -1302,14 +1646,14 @@ def selftest_scenarios(fx: dict) -> list[tuple[str, list[str], int, str | None]]
          ["--package", fx["pkg9"], "--seat", "alpha", "--catalog-root",
           fx["catalog"], "--after", "chief", "--bindings", fx["b_alpha"],
           "--dry-run", "--json"], 1, "seat-exists"),
-        ("red: --force-partial passes the collision gate, emits the missing "
-         "descriptor, then the dag-05 half is unbuilt",
+        ("green: --force-partial completes the missing halves for a seat "
+         "whose folder already exists (descriptor + registry row)",
          ["--package", fx["pkg9"], "--seat", "alpha", "--catalog-root",
           fx["catalog"], "--after", "chief", "--bindings", fx["b_alpha"],
-          "--force-partial", "--json"], 1, "not-implemented"),
-        ("red: a non-dry run emits descriptors (dag-04), then refuses at the "
-         "dag-05 extension point",
-         wf(flags=["--root", "--json"]), 1, "not-implemented"),
+          "--force-partial", "--json"], 0, None),
+        ("green: a non-dry run emits descriptors (dag-04) then appends the "
+         "registry rows (dag-05)",
+         wf(flags=["--root", "--json"]), 0, None),
     ]
 
 
@@ -1361,11 +1705,11 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
             check("plan: planned append count is 2, warnings plumbed empty",
                   green_json.get("taskforce_rows_appended") == 2
                   and green_json.get("warnings") == [], str(green_json)[:200])
-            # SK-5 (amended at dag-04): dry runs and refusals still write
-            # NOTHING; the only disk deltas are the descriptor emissions the
-            # two non-dry scenarios legitimately perform before dag-05's
-            # unbuilt half refuses. Exactly those files, nothing else, and
-            # every pre-existing file byte-unchanged.
+            # SK-5 (amended at dag-05): dry runs and refusals still write
+            # NOTHING; the only disk deltas are what the two non-dry green
+            # scenarios legitimately materialize — their seat descriptors
+            # (new files) plus their registry appends (the ONLY modified
+            # pre-existing files). Exactly those, nothing else.
             post = _hash_tree(tmp)
             expected_new = {
                 str((Path(fx["pkg"]) / "seats" / s / "seat.md")
@@ -1374,10 +1718,17 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
                 str((Path(fx["pkg9"]) / "seats" / "alpha" / "seat.md")
                     .relative_to(tmp)),
             }
-            check("SK-5: the only writes are the dag-04 descriptor emissions",
+            expected_modified = {
+                str((Path(fx["pkg"]) / TASKFORCE_NAME).relative_to(tmp)),
+                str((Path(fx["pkg9"]) / TASKFORCE_NAME).relative_to(tmp)),
+            }
+            modified = {k for k, v in pre.items() if post.get(k) != v}
+            check("SK-5: the only writes are the two green materializations — "
+                  "new seat.mds plus exactly their registry appends",
                   set(post) - set(pre) == expected_new
-                  and all(post[k] == v for k, v in pre.items()),
-                  f"unexpected delta: {sorted(set(post) ^ set(pre))[:6]}")
+                  and modified == expected_modified,
+                  f"new: {sorted(set(post) - set(pre))[:6]} "
+                  f"modified: {sorted(modified)[:6]}")
             # dag-04 emission bits: file 0644, folder 0755.
             import stat as _stat
             alpha_md = Path(fx["pkg"]) / "seats" / "alpha" / "seat.md"
@@ -1420,10 +1771,9 @@ def run_dag04_acceptance(check, env: dict) -> None:
                       "--json"], env)
         alpha_md = Path(fx["pkg"]) / "seats" / "alpha" / "seat.md"
         beta_md = Path(fx["pkg"]) / "seats" / "beta" / "seat.md"
-        check("dag-04 setup: non-dry emit lands both descriptors "
-              "(dag-05 half still refuses)",
-              cp.returncode == 1
-              and _refusal(cp).get("code") == "not-implemented"
+        check("dag-04 setup: non-dry emit lands both descriptors and the "
+              "dag-05 rows half completes",
+              cp.returncode == 0
               and alpha_md.is_file() and beta_md.is_file(),
               cp.stdout.strip()[:200])
         atext = alpha_md.read_text(encoding="utf-8")
@@ -1614,10 +1964,10 @@ def run_dag04_acceptance(check, env: dict) -> None:
         smds = [Path(fx["pkg"]) / "seats" / f"s{i}" / "seat.md"
                 for i in range(1, 6)]
         check("SC-13 control: the same batch with provider/model slugs "
-              "writes all 5 descriptors",
-              cp.returncode == 1
-              and _refusal(cp).get("code") == "not-implemented"
-              and all(p.is_file() for p in smds),
+              "writes all 5 descriptors and appends all 5 rows",
+              cp.returncode == 0
+              and all(p.is_file() for p in smds)
+              and json.loads(cp.stdout).get("taskforce_rows_appended") == 5,
               cp.stdout.strip()[:200])
         s1_text = smds[0].read_text(encoding="utf-8")
         s1_fm = yaml.safe_load(_FM_RE.match(s1_text).group(1))
@@ -1740,23 +2090,34 @@ def run_dag04_acceptance(check, env: dict) -> None:
             "run-1,build,active,tf-1,2026-07-29,\n", encoding="utf-8")
         (run1 / MILESTONES_NAME).write_text(
             "milestone-id,name,status\nm1,prove,pending\n", encoding="utf-8")
+        # dag-05: seed the registry (canonical header + the run's existing
+        # row) so the append has a taskforce-id to read — the appended rows
+        # are now the REAL rows the lint reads, not hand-written stand-ins.
+        (run1 / TASKFORCE_NAME).write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
+            "milestone-id\n"
+            "tf-a,chief,,claude,claude-opus-5,high,50,\n", encoding="utf-8")
         cp = _invoke(["--package", str(run1), "--workflow", "demo-flow",
                       "--catalog-root", fx["catalog"], "--bindings",
                       fx["b_both"], "--root", "--json"], env)
-        check("lint setup: descriptors emitted into the goal fixture",
-              (run1 / "seats" / "alpha" / "seat.md").is_file()
+        check("lint setup: descriptors emitted + rows appended into the "
+              "goal fixture",
+              cp.returncode == 0
+              and (run1 / "seats" / "alpha" / "seat.md").is_file()
               and (run1 / "seats" / "beta" / "seat.md").is_file(),
               cp.stdout.strip()[:200])
-        # dag-05 is unbuilt — hand-write the registry rows the lint reads.
-        (run1 / TASKFORCE_NAME).write_text(
-            "taskforce-id,seat,after,harness,model,effort,ctx-refresh\n"
-            "tf-a,alpha,,claude,claude-opus-5,high,50\n"
-            "tf-b,beta,alpha,claude,claude-opus-5,high,50\n",
+        # The seeded chief row needs a lint-clean folder: reuse the emitted
+        # alpha descriptor verbatim (goal-lint checks bindings + refs, not
+        # the seat: name) — fixture furniture, not a mechanic under test.
+        chief_dir = run1 / "seats" / "chief"
+        chief_dir.mkdir()
+        (chief_dir / "seat.md").write_text(
+            (run1 / "seats" / "alpha" / "seat.md").read_text(encoding="utf-8"),
             encoding="utf-8")
         from goal_cli import lint_goal
         f = lint_goal(groot, "demo-goal")
-        check("goal_cli lint: the emitted package lints CLEAN — no scalar "
-              "key false-positives as an unresolved ref",
+        check("goal_cli lint: the emitted package (real appended rows "
+              "included) lints CLEAN — no scalar key false-positives",
               not bool(f), str(f.items[:4]))
         amd = run1 / "seats" / "alpha" / "seat.md"
         orig = amd.read_text(encoding="utf-8")
@@ -1768,6 +2129,381 @@ def run_dag04_acceptance(check, env: dict) -> None:
               any("no-such-unit" in i["reason"] for i in f2.items),
               str([i["reason"] for i in f2.items][:3]))
         amd.write_text(orig, encoding="utf-8")
+
+
+def run_dag05_acceptance(check, env: dict) -> None:
+    """dag-05's SC rows (spec §1.8: SC-1, SC-5, SC-6, SC-8, SC-9, SC-10,
+    SC-15, SC-20, SC-21), each with the control that must be able to FAIL.
+    Fixture-only (tempfile.TemporaryDirectory) — never a real run. SC-1's
+    launch coupling runs coord.py's OWN `launch --dry-run` / `descriptors`
+    against the throwaway package; the coord.py md5 under test is printed as
+    evidence. Registration side note: coord.py auto-registers packages by
+    folder-name tag in ~/.config/rbtv/coordinate-runs.json — the fixture
+    packages are named run-1, a tag held by a live run, so the register
+    declines (never stolen) and nothing durable is written."""
+    import shutil
+
+    def _refusal(cp):
+        try:
+            return json.loads(cp.stdout).get("refusal") or {}
+        except ValueError:
+            return {}
+
+    coord_py = Path(__file__).resolve().parent / "coord.py"
+    coord_md5 = hashlib.md5(coord_py.read_bytes()).hexdigest()
+    print(f"  info SC-1: coord.py under test — md5 {coord_md5}")
+
+    def coord(argv):
+        return subprocess.run([sys.executable, str(coord_py), *argv],
+                              capture_output=True, text=True, env=env)
+
+    # ---- group 1: SC-1 (full add + launch coupling), SC-9, SC-10 arm 1,
+    #      topo order ---------------------------------------------------
+    with tempfile.TemporaryDirectory() as td:
+        fx = build_fixture(Path(td))
+        pkg = Path(fx["pkg"])
+        tf = pkg / TASKFORCE_NAME
+        header_before = tf.read_text(encoding="utf-8").split("\n")[0]
+        rows_before = len(tf.read_text(encoding="utf-8").splitlines())
+        argv = ["--package", fx["pkg"], "--workflow", "demo-flow",
+                "--catalog-root", fx["catalog"], "--bindings", fx["b_both"],
+                "--milestone-id", "m1", "--root", "--json"]
+        cp = _invoke(argv, env)
+        tf_lines = tf.read_text(encoding="utf-8").splitlines()
+        check("SC-1: a full-workflow add creates N seat folders with N "
+              "seat.md and appends exactly N rows",
+              cp.returncode == 0
+              and json.loads(cp.stdout).get("taskforce_rows_appended") == 2
+              and (pkg / "seats" / "alpha" / "seat.md").is_file()
+              and (pkg / "seats" / "beta" / "seat.md").is_file()
+              and len(tf_lines) == rows_before + 2,
+              (cp.stdout + cp.stderr).strip()[:200])
+        check("SC-10: the written header equals the read header exactly",
+              tf_lines[0] == header_before, tf_lines[0])
+        rows = {r["seat"]: r for r in csv.DictReader(tf_lines)}
+        afm = yaml.safe_load(_FM_RE.match(
+            (pkg / "seats" / "alpha" / "seat.md")
+            .read_text(encoding="utf-8")).group(1))
+        check("rows: frozen `after` copy (alpha root '', beta 'alpha'), "
+              "milestone m1, taskforce-id READ FROM THE FILE (tf-1)",
+              rows["alpha"]["after"] == "" and rows["beta"]["after"] == "alpha"
+              and rows["alpha"]["milestone-id"] == "m1"
+              and rows["beta"]["milestone-id"] == "m1"
+              and rows["alpha"]["taskforce-id"] == "tf-1"
+              and rows["beta"]["taskforce-id"] == "tf-1",
+              str({s: dict(r) for s, r in rows.items()})[:200])
+        check("rows: the binding quadruple equals the DESCRIPTOR's — the "
+              "equality check_bindings asserts",
+              all(rows["alpha"][k] == str(afm.get(k, ""))
+                  for k in ("harness", "model", "effort"))
+              and rows["alpha"]["ctx-refresh"] == str(afm.get("ctx-refresh")),
+              str(dict(rows["alpha"])))
+        for seat in ("alpha", "beta"):
+            cpl = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+                         "launch", "--dry-run", "--only", seat])
+            check(f"SC-1: coordinate launch --dry-run --only {seat} resolves "
+                  "a harness command",
+                  cpl.returncode == 0
+                  and "claude --model claude-opus-5" in cpl.stdout
+                  and "REFUSED" not in cpl.stdout,
+                  (cpl.stdout + cpl.stderr).strip()[:200])
+        # SC-1 control (check_bindings half): a row that DISAGREES with the
+        # descriptor refuses the same dry-run.
+        text = tf.read_text(encoding="utf-8")
+        mutated = text.replace("beta,alpha,claude,claude-opus-5",
+                               "beta,alpha,claude,claude-opus-4")
+        check("SC-1 control setup: the beta row mutation actually lands",
+              mutated != text)
+        tf.write_text(mutated, encoding="utf-8")
+        cpl = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+                     "launch", "--dry-run", "--only", "beta"])
+        check("SC-1 control: a divergent registry row REFUSES the dry-run "
+              "through check_bindings",
+              cpl.returncode != 0
+              and "disagree with the run's registry" in cpl.stderr,
+              (cpl.stdout + cpl.stderr).strip()[:200])
+        # SC-1 control (no-registry-row half): DELETE the beta row.
+        deleted = "\n".join(l for l in text.splitlines()
+                            if not l.startswith("tf-1,beta")) + "\n"
+        tf.write_text(deleted, encoding="utf-8")
+        cpd = coord(["--package", fx["pkg"], "descriptors"])
+        check("SC-1 control: a deleted row is NAMED by the descriptor audit "
+              "(no-registry-row) and the audit exits nonzero",
+              cpd.returncode == 1 and "no-registry-row" in cpd.stdout
+              and "beta" in cpd.stdout,
+              (cpd.stdout + cpd.stderr).strip()[:200])
+        cpl = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+                     "launch", "--dry-run", "--only", "beta"])
+        # MEASURED, not asserted as policy: check_bindings compares only rows
+        # that EXIST, so launch --dry-run does NOT refuse a deleted row — the
+        # deleted-row refusal lives in the descriptors audit above. Recorded
+        # as a coupling gap in coord.py (read-only for dag-05).
+        print(f"  info SC-1 measured: launch --dry-run with beta's row "
+              f"DELETED exits {cpl.returncode} (check_bindings skips a "
+              f"missing row; the naming surface is `descriptors`)")
+        tf.write_text(text, encoding="utf-8")
+        # SC-9: the SAME call twice — second refuses naming the path, and the
+        # registry is byte-identical after the second call.
+        bytes_after_first = tf.read_bytes()
+        cp2 = _invoke(argv, env)
+        check("SC-9: re-running on an existing seat refuses (exit 1) naming "
+              "the existing path; registry byte-identical",
+              cp2.returncode == 1
+              and _refusal(cp2).get("code") == "seat-exists"
+              and "seats/alpha" in (_refusal(cp2).get("path") or "")
+              and tf.read_bytes() == bytes_after_first,
+              cp2.stdout.strip()[:200])
+        # Topological order: scramble-flow's manifest lists b2 BEFORE its
+        # root a2 — the appended rows must land a2 first anyway.
+        cp = _invoke(["--package", fx["pkg"], "--workflow", "scramble-flow",
+                      "--catalog-root", fx["catalog"], "--bindings",
+                      fx["b_scramble"], "--root", "--json"], env)
+        seats_col = [r["seat"] for r in csv.DictReader(
+            tf.read_text(encoding="utf-8").splitlines())]
+        check("topo: rows append in TOPOLOGICAL order of the added subgraph",
+              cp.returncode == 0 and seats_col[-2:] == ["a2", "b2"],
+              str(seats_col))
+        check("topo control: the manifest resolves b2 FIRST — file order "
+              "diverging from manifest order proves the sort acted",
+              json.loads(cp.stdout).get("added_seats") == ["b2", "a2"],
+              cp.stdout.strip()[:120])
+
+    # ---- group 2: SC-5 (cycle), SC-6 (dangling member), SC-15 (target
+    #      path bar) ----------------------------------------------------
+    with tempfile.TemporaryDirectory() as td:
+        fx = build_fixture(Path(td))
+        pkg = Path(fx["pkg"])
+        tf_before = (pkg / TASKFORCE_NAME).read_bytes()
+
+        def wf_after(after, extra=()):
+            return ["--package", fx["pkg"], "--workflow", "demo-flow",
+                    "--catalog-root", fx["catalog"], "--bindings",
+                    fx["b_both"], "--milestone-id", "m1", "--after", after,
+                    "--json", *extra]
+
+        cp = _invoke(wf_after("beta"), env)
+        check("SC-5: --after naming a descendant of the added set is refused "
+              "by check_acyclic — zero folders, zero rows",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "cycle-introduced"
+              and "cycle" in _refusal(cp).get("message", "")
+              and not any((pkg / "seats").iterdir())
+              and (pkg / TASKFORCE_NAME).read_bytes() == tf_before,
+              cp.stdout.strip()[:200])
+        cp = _invoke(wf_after("chief"), env)
+        check("SC-5/SC-6 control: the acyclic form with an existing --after "
+              "member exits 0 and materializes",
+              cp.returncode == 0
+              and json.loads(cp.stdout).get("taskforce_rows_appended") == 2,
+              (cp.stdout + cp.stderr).strip()[:200])
+        cp = _invoke(["--package", fx["pkg9"], "--seat", "alpha",
+                      "--catalog-root", fx["catalog"], "--after",
+                      "nonexistent-seat", "--bindings", fx["b_alpha"],
+                      "--dry-run", "--json"], env)
+        check("SC-6: a dangling --after member is refused NAMING the member",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "after-unresolved"
+              and "nonexistent-seat" in _refusal(cp).get("message", ""),
+              cp.stdout.strip()[:200])
+        mirror_pkg = Path(td) / "mirror" / "meta" / "planner-workflow"
+        mirror_pkg.mkdir(parents=True)
+        cp = _invoke(["--package", str(mirror_pkg), "--seat", "alpha",
+                      "--catalog-root", fx["catalog"], "--root",
+                      "--bindings", fx["b_alpha"], "--json"], env)
+        check("SC-15: a catalog/mirror path is refused — the target is the "
+              "run folder, never the catalog (d-all-seats-in-run-folder)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "package-not-a-run",
+              cp.stdout.strip()[:200])
+        cp = _invoke(["--package", fx["pkg_spine"], "--seat", "alpha",
+                      "--catalog-root", fx["catalog"], "--after", "chief",
+                      "--bindings", fx["b_alpha"], "--dry-run", "--json"], env)
+        check("SC-15 control: a real run package is accepted",
+              cp.returncode == 0, (cp.stdout + cp.stderr).strip()[:200])
+
+    # ---- group 3: SC-10 control (status column) + SC-21 (spine) --------
+    with tempfile.TemporaryDirectory() as td:
+        fx = build_fixture(Path(td))
+        pkg_status = Path(fx["pkg_status"])
+        tf_before = (pkg_status / TASKFORCE_NAME).read_bytes()
+        cp = _invoke(["--package", fx["pkg_status"], "--workflow",
+                      "demo-flow", "--catalog-root", fx["catalog"],
+                      "--bindings", fx["b_both"], "--root", "--json"], env)
+        check("SC-10 control: a registry whose header already carries "
+              "`status` REFUSES rather than propagating it — pre-write, so "
+              "zero folders and the file untouched",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "status-column"
+              and not any((pkg_status / "seats").iterdir())
+              and (pkg_status / TASKFORCE_NAME).read_bytes() == tf_before,
+              cp.stdout.strip()[:200])
+        spine = Path(fx["pkg_spine"])
+
+        def spine_argv(mid, extra=()):
+            return ["--package", fx["pkg_spine"], "--workflow", "demo-flow",
+                    "--catalog-root", fx["catalog"], "--bindings",
+                    fx["b_both"], "--root", "--milestone-id", mid,
+                    "--json", *extra]
+
+        cp = _invoke(spine_argv("bootstrap"), env)
+        check("SC-21: --milestone-id bootstrap against the REPAIRED spine "
+              "is refused (milestone-unresolved)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "milestone-unresolved"
+              and "bootstrap" in _refusal(cp).get("message", ""),
+              cp.stdout.strip()[:200])
+        cp = _invoke(spine_argv("m4"), env)
+        rows = {r["seat"]: r for r in csv.DictReader(
+            (spine / TASKFORCE_NAME).read_text(encoding="utf-8").splitlines())}
+        check("SC-21 control: --milestone-id m4 is accepted and the appended "
+              "rows carry it",
+              cp.returncode == 0
+              and rows["alpha"]["milestone-id"] == "m4"
+              and rows["beta"]["milestone-id"] == "m4",
+              (cp.stdout + cp.stderr).strip()[:200])
+
+    # ---- group 4: SC-8 (crash ordering, both arms) + SC-20 (force-partial
+    #      completes ONLY the missing half, all red arms) — in-process ----
+    class _Boom(Exception):
+        pass
+
+    def _crash(_plan):
+        raise _Boom()
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        fx = build_fixture(tmp)
+        groot = tmp / "lintgoals"
+        gdir = groot / "demo-goal"
+        run1 = gdir / "runs" / "run-1"
+        (run1 / "seats").mkdir(parents=True)
+        (gdir / "goal.md").write_text(
+            "---\nname: demo-goal\ncreation-date: 2026-07-29\n"
+            "type: one-shot\nstatus: active\n---\n\nProve SC-8.\n",
+            encoding="utf-8")
+        (gdir / "decisions.md").write_text("# decisions\n", encoding="utf-8")
+        (gdir / "threads.sql").write_text("-- threads\n", encoding="utf-8")
+        (gdir / "runs.csv").write_text(
+            "run-id,type,state,taskforce-id(s),opened,closed\n"
+            "run-1,build,active,tf-1,2026-07-29,\n", encoding="utf-8")
+        (run1 / MILESTONES_NAME).write_text(
+            "milestone-id,name,status\nm1,prove,pending\n", encoding="utf-8")
+        seed_text = ("taskforce-id,seat,after,harness,model,effort,"
+                     "ctx-refresh,milestone-id\n"
+                     "tf-1,chief,,claude,claude-opus-5,high,,m1\n")
+        (run1 / TASKFORCE_NAME).write_text(seed_text, encoding="utf-8")
+        argv = ["--package", str(run1), "--workflow", "demo-flow",
+                "--catalog-root", fx["catalog"], "--bindings", fx["b_both"],
+                "--milestone-id", "m1", "--root"]
+        args = build_parser().parse_args(argv)
+
+        # SC-8 arm 2 FIRST: abort BEFORE step 1 — nothing on disk at all.
+        pre = _hash_tree(run1)
+        orig_emit = globals()["emit_seat_descriptors"]
+        globals()["emit_seat_descriptors"] = _crash
+        try:
+            raised = False
+            try:
+                run(args)
+            except _Boom:
+                raised = True
+        finally:
+            globals()["emit_seat_descriptors"] = orig_emit
+        check("SC-8 arm 2: an abort BEFORE step 1 leaves NOTHING on disk",
+              raised and _hash_tree(run1) == pre)
+
+        # SC-8 arm 1: abort AFTER step 1 (descriptors written, append never
+        # ran) — orphan folders exist, ZERO rows appended.
+        orig_append = globals()["append_taskforce_rows"]
+        globals()["append_taskforce_rows"] = _crash
+        try:
+            raised = False
+            try:
+                run(args)
+            except _Boom:
+                raised = True
+        finally:
+            globals()["append_taskforce_rows"] = orig_append
+        check("SC-8 arm 1: an abort between the steps leaves orphan seat "
+              "folders and ZERO appended rows",
+              raised
+              and (run1 / "seats" / "alpha" / "seat.md").is_file()
+              and (run1 / "seats" / "beta" / "seat.md").is_file()
+              and (run1 / TASKFORCE_NAME).read_text(encoding="utf-8")
+              == seed_text)
+        from goal_cli import lint_goal
+        f = lint_goal(groot, "demo-goal")
+        lint_named = [i for i in f.items
+                      if "alpha" in i["reason"] or "beta" in i["reason"]]
+        # MEASURED GAP, recorded not asserted: goal-lint iterates ROWS, so an
+        # orphan FOLDER with no row is invisible to it — the surface that DOES
+        # name the half-state is coord.py's `descriptors` audit
+        # (no-registry-row), asserted below. goal_cli is read-only for dag-05;
+        # the lint gap is surfaced in the task return.
+        print(f"  info SC-8 measured: goal-lint findings naming the orphan "
+              f"folders: {len(lint_named)} (rows-only walk — the naming "
+              f"surface is coord.py `descriptors`)")
+        cpd = coord(["--package", str(run1), "descriptors"])
+        check("SC-8: the orphan-folder half-state IS named — coord "
+              "descriptors reports no-registry-row for both added seats",
+              cpd.returncode == 1
+              and cpd.stdout.count("no-registry-row") >= 2
+              and "alpha" in cpd.stdout and "beta" in cpd.stdout,
+              (cpd.stdout + cpd.stderr).strip()[:200])
+
+        # SC-20: --force-partial completes ONLY the missing rows half —
+        # descriptors untouched (hashed before/after), rows appended.
+        pre_seats = _hash_tree(run1 / "seats")
+        cp = _invoke([*argv, "--force-partial", "--json"], env)
+        seats_now = [r["seat"] for r in csv.DictReader(
+            (run1 / TASKFORCE_NAME).read_text(encoding="utf-8").splitlines())]
+        check("SC-20: --force-partial appends the missing rows and touches "
+              "no descriptor",
+              cp.returncode == 0
+              and json.loads(cp.stdout).get("taskforce_rows_appended") == 2
+              and _hash_tree(run1 / "seats") == pre_seats
+              and seats_now == ["chief", "alpha", "beta"],
+              (cp.stdout + cp.stderr).strip()[:200])
+
+        # SC-20 control: mutate one existing descriptor, re-create the
+        # missing-rows state — the byte-for-byte assertion REFUSES.
+        amd = run1 / "seats" / "alpha" / "seat.md"
+        orig_alpha = amd.read_text(encoding="utf-8")
+        (run1 / TASKFORCE_NAME).write_text(seed_text, encoding="utf-8")
+        amd.write_text(orig_alpha + "\n<!-- drift -->\n", encoding="utf-8")
+        cp = _invoke([*argv, "--force-partial", "--json"], env)
+        check("SC-20 control: a mutated descriptor REFUSES --force-partial "
+              "on the byte-for-byte assertion, appending nothing",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "partial-descriptor-mismatch"
+              and (run1 / TASKFORCE_NAME).read_text(encoding="utf-8")
+              == seed_text,
+              cp.stdout.strip()[:200])
+
+        # SC-20 rows-half red arm: an existing row that DIVERGES from what
+        # this run would write refuses (partial-row-mismatch), file untouched.
+        amd.write_text(orig_alpha, encoding="utf-8")
+        drifted = seed_text + "tf-1,alpha,,claude,claude-opus-5,low,50,m1\n"
+        (run1 / TASKFORCE_NAME).write_text(drifted, encoding="utf-8")
+        cp = _invoke([*argv, "--force-partial", "--json"], env)
+        check("SC-20 rows-half control: a divergent existing row REFUSES "
+              "(partial-row-mismatch), file untouched",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "partial-row-mismatch"
+              and (run1 / TASKFORCE_NAME).read_text(encoding="utf-8")
+              == drifted,
+              cp.stdout.strip()[:200])
+
+        # Collision's registry half: a row with NO folder refuses
+        # (registry-row-exists) without --force-partial.
+        shutil.rmtree(run1 / "seats" / "alpha")
+        shutil.rmtree(run1 / "seats" / "beta")
+        cp = _invoke([*argv, "--json"], env)
+        check("SC-9 registry half: an existing row with no folder refuses "
+              "(registry-row-exists)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "registry-row-exists",
+              cp.stdout.strip()[:200])
 
 
 def run_selftest() -> int:
@@ -1822,6 +2558,9 @@ def run_selftest() -> int:
 
     print("dag-04 acceptance pass (SC rows, each with its failing control)")
     run_dag04_acceptance(check, clean_env)
+
+    print("dag-05 acceptance pass (SC-1/5/6/8/9/10/15/20/21, both arms each)")
+    run_dag05_acceptance(check, clean_env)
 
     print(f"\n{'PASS' if not failures else 'FAIL'} — "
           f"{len(failures)} failure(s)")
