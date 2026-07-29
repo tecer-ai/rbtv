@@ -176,7 +176,17 @@ CREATION_INPUTS = (
 DESCRIPTOR_MODES = ("one-shot", "interactive")
 MODE_DEFAULTS = {"opencode": "one-shot", "claude": "interactive"}
 
-AGENT_TYPES = ("staff", "worker")
+# The KG's FULL agent-type TOP set (`concepts/agent-type.md` — the four-member
+# top set; `staff` is itself the grouping node the seven staff types sit under).
+# The registry GOVERNS: this is the emitter brought into line with it, never a
+# convention of its own (d-agent-type-widened-to-the-kg-top-set). The emitter
+# allowed only staff|worker, so `dag-24` — REQUIRED to materialize the `master`
+# seat — had NO truthful value: `staff` lists `master` as an explicit
+# NON-example, and run-2's live descriptor already carries `agent_type: master`.
+# Widened to the whole set, not to `master` alone: `verifier` is already valid
+# per the registry, and the accepted cost — `verifier` accepted before anything
+# emits one — is recorded in that ruling. `class:` stays REFUSED (G-217).
+AGENT_TYPES = ("master", "staff", "worker", "verifier")
 
 # Contract §1 (seatmd-render-contract.md) — the FIXED kind order the emitted
 # file carries, NEVER the catalog's CSV column order. Kinds outside this list
