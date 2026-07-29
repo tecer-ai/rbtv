@@ -11,14 +11,20 @@ row appends. It is an ignite-job: argv-only, environment-free, exit codes
 writes, no messages, no pane — announcing what was materialized is the
 CALLER's act, never this command's.
 
-This file is the dag-03 SKELETON: argument parsing, resolution, refusal
-plumbing, JSON result, environment scrub, selftest harness + fixture builder.
+This file carries the dag-03 SKELETON (argument parsing, resolution, refusal
+plumbing, JSON result, environment scrub, selftest harness + fixture builder)
+plus the dag-04 DESCRIPTOR SURFACE — render_descriptors/emit_seat_descriptors:
+the `seat:` (never `id:`) frontmatter schema in its ruled key order
+(d-seatmd-keys-dag04-schema — this schema IS the single source of truth for a
+materialized seat.md's frontmatter), the mode/ctx-refresh/close fail-closed
+rules (F4/F5/F8), the coord.validate_seat whole-batch gate before any write
+(F6), the one-shot boot text (F10), the empty-assembly and no-permissions
+hard gates, the contract §1 fixed block-kind reorder, and inline
+`Reference: <id>@latest` body resolution (d-run3-assembled-shape (i)).
+`relays:` is DELIBERATELY not emitted and refused as an input: owner ask A-40
+is OPEN — do not add it here without that ruling.
 Named extension points for the follow-on tasks:
 
-    emit_seat_descriptors  -> dag-04  (descriptor emission: `seat:` frontmatter
-                                       surface, mode/ctx-refresh/close rules,
-                                       validate_seat batch gate before any write,
-                                       empty-assembly refusal)
     append_taskforce_rows  -> dag-05  (registry append: topological order,
                                        acyclicity via goal_cli.check_acyclic,
                                        --force-partial byte-match completion)
@@ -52,6 +58,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import yaml
+
 # goal_cli.py is the goals-tree capability sibling of this team-kit — resolved
 # relative to this file, never from a hardcoded workspace path.
 _GOAL_CLI_DIR = Path(__file__).resolve().parent.parent / "capabilities" / "goals-tree" / "tool"
@@ -59,6 +67,7 @@ if str(_GOAL_CLI_DIR) not in sys.path:
     sys.path.insert(0, str(_GOAL_CLI_DIR))
 
 from goal_cli import (  # noqa: E402 — path bound just above
+    BINDING_COLUMNS,
     Refusal as CatalogRefusal,
     assemble_seat,
     index_units,
@@ -78,6 +87,55 @@ MANIFEST_SEAT_COLUMN = "Seat/workflow"
 MANIFEST_AFTER_COLUMN = "after"
 TASKFORCE_NAME = "taskforce.csv"
 MILESTONES_NAME = "milestones.csv"
+
+# ---- dag-04 descriptor-surface constants ----
+
+# F5 — the `mode:` enum, and its fail-closed emission defaults when a bindings
+# row carries no explicit mode. `one-shot` for opencode preserves today's
+# behaviour (harness_command hardcodes `run --auto`); `interactive` for
+# claude. ANY other harness — codex included — has NO default: the row is
+# REFUSED at emission (s4-04's fail-closed adjudication: an undecidable mode
+# is refused loudly, never defaulted).
+DESCRIPTOR_MODES = ("one-shot", "interactive")
+MODE_DEFAULTS = {"opencode": "one-shot", "claude": "interactive"}
+
+AGENT_TYPES = ("staff", "worker")
+
+# Contract §1 (seatmd-render-contract.md) — the FIXED kind order the emitted
+# file carries, NEVER the catalog's CSV column order. Kinds outside this list
+# (invoked-unit stubs: capability, reference) keep assembler order after it.
+KIND_ORDER = ("role", "procedure", "permissions", "restrictions", "constraints",
+              "io-spec", "resources", "task-goal", "scope", "done-contract")
+
+# Per-seat bindings keys this command understands. Anything else is a refusal
+# (a typo'd key must never pass silently). `class` and `relays` are refused
+# with their own messages: `class:` is the WITHDRAWN spelling of agent_type
+# (r-agent-type-field-name, G-217); `relays:` has no row in the ruled emitted
+# key set — owner ask A-40 is OPEN, so emitting OR silently dropping it would
+# both be wrong.
+ALLOWED_BINDING_KEYS = frozenset((
+    "after", "cwd-mode", "description", "agent_type", "harness", "model",
+    "effort", "mode", "ctx-refresh", "window", "senders", "close",
+    "auto-wake", "ephemeral", "broadcast", "component",
+))
+
+# The assembled projection's shapes this file READS (it never emits a block
+# itself — SK-7): the assembler's frontmatter fence and its attributed
+# kind-tag blocks. The block pattern deliberately starts `<(` so SK-7's
+# local-emitter detector cannot match it.
+_FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+_BLOCK_RE = re.compile(
+    r'<([a-z0-9-]+) id="([^"]+)" version="([^"]+)">\n(.*?)\n</\1>', re.DOTALL)
+
+# d-run3-assembled-shape (i) — a `Reference: <id>@latest` line INSIDE a unit
+# body (the io-spec mandate references; written with or without backticks,
+# with an optional list dash and trailing period). The assembly lockfile only
+# freezes catalog-row refs, so these would survive as dead pointers unless the
+# emitter inlines the referenced unit's body at the line.
+_INLINE_REF_RE = re.compile(
+    r"^[ \t]*(?:[-*][ \t]*)?Reference:[ \t]*`?"
+    r"([a-z0-9][a-z0-9-]*)@latest`?\.?[ \t]*$",
+    re.MULTILINE)
 
 
 class Refuse(Exception):
@@ -399,17 +457,361 @@ def check_collisions(package: Path, added: list[str], force_partial: bool) -> No
             )
 
 
-def assemble_all(added: list[str], bindings: dict, catalog_root: Path,
-                 catalogs: tuple[dict, dict, dict]) -> dict[str, str]:
+def normalize_seat_rows(seats_cat: dict) -> None:
+    """The ruled mirror seats.csv header pairs `executor` with `task`
+    (topic-2-authoring-contract.md § 2); goal_cli's assemble_seat reads
+    `prompt-id`/`executor` and `task-id` only, so a ruled-shape row would
+    silently lose its whole TASK half (task-goal/scope/done-contract — the
+    seat's done contract, contract § 2). Alias task -> task-id on the DATA
+    before the one assembler runs — row normalization, not a second
+    assembler (SK-7)."""
+    for row in seats_cat.values():
+        if not (row.get("task-id") or "").strip() and (row.get("task") or "").strip():
+            row["task-id"] = row["task"]
+
+
+def assemble_all(added: list[str], bindings: dict,
+                 catalogs: tuple[dict, dict, dict], units: dict) -> dict[str, str]:
     """Assemble every added seat IN MEMORY first (a refusal on seat 7 of 7
     must leave zero files) — through goal_cli's ONE assembler."""
     seats_cat, prompts_cat, tasks_cat = catalogs
-    units = index_units(catalog_root)
     return {
         seat: assemble_seat(seat, effective_binding(bindings, seat),
                             seats_cat, prompts_cat, tasks_cat, units)
         for seat in added
     }
+
+
+# ------------------------------------------------ dag-04: descriptor surface
+
+
+def _coord_validate_seat():
+    """The ONE import this command takes from coord.py (F6): the launch-time
+    harness+model predicate, imported so the two checks can never drift.
+    coord.py's import is side-effect-free (constants, regexes, function
+    definitions — verified at dag-04) and drags no runtime state; if that
+    ever changes, THIS IMPORT FAILING LOUDLY is the correct outcome. NEVER
+    re-implement the predicate here — a second copy is the drift the rule
+    exists to prevent."""
+    kit_dir = Path(__file__).resolve().parent
+    if str(kit_dir) not in sys.path:
+        sys.path.insert(0, str(kit_dir))
+    try:
+        from coord import validate_seat
+    except Exception as exc:  # loud, machine-readable — never a crash
+        raise Refuse(
+            "coord-import",
+            f"cannot import validate_seat from coord.py — {exc}; refusing "
+            "rather than re-implementing the predicate (F6)",
+        ) from exc
+    return validate_seat
+
+
+def _resolve_inline_refs(text: str, units: dict, seat: str) -> str:
+    """Inline every `Reference: <id>@latest` line inside a block body with the
+    referenced unit's body (d-run3-assembled-shape (i)); iterate so a
+    referenced body's own references resolve too, with a depth cap so a
+    reference cycle refuses instead of spinning."""
+    for _ in range(10):
+        if not _INLINE_REF_RE.search(text):
+            return text
+
+        def _sub(m: re.Match) -> str:
+            uid = m.group(1)
+            if uid not in units:
+                raise Refuse(
+                    "inline-ref-dangling",
+                    f"inline reference '{uid}@latest' inside a unit body of "
+                    f"seat '{seat}' resolves to no cognitive-unit file — a "
+                    "dead pointer must not reach the emitted descriptor",
+                )
+            return units[uid]["content"]
+
+        text = _INLINE_REF_RE.sub(_sub, text)
+    raise Refuse(
+        "inline-ref-depth",
+        f"inline references in seat '{seat}' did not resolve within 10 "
+        "passes — a reference cycle among unit bodies",
+    )
+
+
+def _descriptor_frontmatter(seat: str, b: dict, package: str,
+                            seats_cat: dict, plan: dict) -> dict:
+    """The ruled emitted key set, in its ruled order (d-seatmd-keys-dag04-
+    schema; the table in dag-04's task file). `seat:` — never `id:` (B3).
+    `class:` and `relays:` never emitted, refused as inputs."""
+    for key in b:
+        if key == "class":
+            raise Refuse(
+                "class-withdrawn",
+                f"bindings for seat '{seat}' carry 'class:' — the WITHDRAWN "
+                "spelling (r-agent-type-field-name, G-217); write "
+                "agent_type: staff|worker instead",
+            )
+        if key == "relays":
+            raise Refuse(
+                "relays-unruled",
+                f"bindings for seat '{seat}' carry 'relays:' — the ruled "
+                "emitted key set has no relays row and owner ask A-40 is "
+                "OPEN; refusing rather than inventing or silently dropping "
+                "the key",
+            )
+        if key not in ALLOWED_BINDING_KEYS:
+            raise Refuse(
+                "binding-key-unknown",
+                f"bindings for seat '{seat}' carry unknown key '{key}' — an "
+                "unknown key is a refusal, never ignored",
+            )
+
+    harness = str(b.get("harness", "") or "").strip()
+    model = str(b.get("model", "") or "").strip()
+    effort = str(b.get("effort", "") or "").strip()
+    if not effort:
+        raise Refuse(
+            "effort-missing",
+            f"bindings for seat '{seat}' carry no 'effort' — the "
+            "harness·model·effort triple is required (check_bindings "
+            "compares it against the taskforce.csv row)",
+        )
+
+    agent_type = str(b.get("agent_type", "") or "").strip()
+    if agent_type not in AGENT_TYPES:
+        raise Refuse(
+            "agent-type-invalid",
+            f"bindings for seat '{seat}' carry agent_type "
+            f"'{agent_type or '(absent)'}' — required, one of "
+            + "|".join(AGENT_TYPES),
+        )
+
+    description = str(b.get("description", "") or "").strip() \
+        or str((seats_cat.get(seat) or {}).get("description", "") or "").strip()
+    if not description:
+        raise Refuse(
+            "description-missing",
+            f"seat '{seat}' resolves no description from bindings or the "
+            "seat catalog row — required, one line",
+        )
+
+    cwd_mode = str(b.get("cwd-mode", "") or "").strip()
+    if cwd_mode != "seat-folder":
+        raise Refuse(
+            "cwd-mode-undecidable",
+            f"bindings for seat '{seat}' carry cwd-mode "
+            f"'{cwd_mode or '(absent)'}' — the only ruled mode is "
+            "'seat-folder' ({package}/seats/<seat>/); an undecidable cwd is "
+            "refused, never defaulted",
+        )
+    cwd = f"{package}/seats/{seat}/"
+
+    mode = str(b.get("mode", "") or "").strip()
+    if mode and mode not in DESCRIPTOR_MODES:
+        raise Refuse(
+            "mode-invalid",
+            f"bindings for seat '{seat}' carry mode '{mode}' — one of "
+            + "|".join(DESCRIPTOR_MODES),
+        )
+    if not mode:
+        mode = MODE_DEFAULTS.get(harness, "")
+        if not mode:
+            raise Refuse(
+                "mode-undecidable",
+                f"seat '{seat}' carries no explicit mode: and harness "
+                f"'{harness}' has no ruled emission default (only opencode -> "
+                "one-shot, claude -> interactive; codex included has NONE) — "
+                "an undecidable mode is refused loudly, never defaulted (F5)",
+            )
+
+    ctx_raw = b.get("ctx-refresh")
+    ctx: int | None = None
+    if ctx_raw not in (None, ""):
+        if mode == "one-shot":
+            raise Refuse(
+                "ctx-refresh-on-one-shot",
+                f"seat '{seat}' is mode: one-shot and carries "
+                f"ctx-refresh: {ctx_raw} — a one-shot never reaches a "
+                "mid-session threshold, so the key is a permanently dead "
+                "control that reads as a live one; refused (F4)",
+            )
+        try:
+            ctx = int(str(ctx_raw))
+        except ValueError:
+            raise Refuse(
+                "ctx-refresh-invalid",
+                f"seat '{seat}' carries non-integer ctx-refresh "
+                f"'{ctx_raw}'",
+            ) from None
+
+    window = str(b.get("window", "") or "").strip()
+    if window:
+        plan["warnings"].append(
+            f"seat '{seat}': window: '{window}' disables in-place renew "
+            "(G-154, seat_placement) — consequence printed per seat; the "
+            "tradeoff stays the binding author's",
+        )
+
+    senders_raw = b.get("senders")
+    senders = ""
+    if senders_raw not in (None, ""):
+        parts = [str(p).strip() for p in
+                 (senders_raw if isinstance(senders_raw, list)
+                  else str(senders_raw).split(","))]
+        parts = [p for p in parts if p]
+        kept = [p for p in parts if p != "engineer"]
+        if len(kept) != len(parts):
+            plan["warnings"].append(
+                f"seat '{seat}': senders entry 'engineer' dropped — never "
+                "emitted (d-engineer-retired)",
+            )
+        if parts and not kept:
+            raise Refuse(
+                "senders-empty",
+                f"seat '{seat}' senders allow-list is empty after dropping "
+                "'engineer' (d-engineer-retired) — emitting nothing would "
+                "silently flip the seat to UNBOUNDED; state the intended "
+                "allow-list or remove the key deliberately",
+            )
+        senders = ",".join(kept)
+
+    close = str(b.get("close", "") or "").strip()
+    if not close and mode == "one-shot" and agent_type == "worker":
+        # F8 — cmd_close spawns a claude closer regardless of the closed
+        # seat's harness; a memoryless one-shot worker gets the mechanical
+        # close (G-23, no memory.md) by construction.
+        close = "mechanical"
+
+    fm: dict = {
+        "seat": seat,            # `seat:`, never `id:` — closes B3
+        "description": description,
+        "cwd": cwd,
+        "agent_type": agent_type,
+        "harness": harness,
+        "model": model,
+        "effort": effort,
+        "mode": mode,
+    }
+    if ctx is not None:
+        fm["ctx-refresh"] = ctx
+    if window:
+        fm["window"] = window
+    if senders:
+        fm["senders"] = senders
+    if close:
+        fm["close"] = close
+    for key in ("auto-wake", "ephemeral", "broadcast", "component"):
+        val = b.get(key)
+        if val not in (None, ""):
+            fm[key] = val
+    return fm
+
+
+def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
+                       resolve_inline: bool = True,
+                       reorder: bool = True) -> None:
+    """dag-04 — build every emitted descriptor text into plan['descriptors'],
+    refusing the WHOLE batch (nothing on disk yet) on any bad row. The
+    `resolve_inline`/`reorder` knobs exist ONLY so the selftest's red arms
+    can prove their controls fail; every real caller uses the defaults."""
+    package = plan["package"]
+
+    # F6 — the whole-batch model/harness gate, BEFORE any write, through
+    # coord.py's own predicate (never a re-implementation).
+    validate_fn = _coord_validate_seat()
+    bad: list[str] = []
+    for seat in plan["added_seats"]:
+        b = plan["bindings"][seat]
+        reason = validate_fn({
+            "agent": seat,
+            "harness": str(b.get("harness", "") or "").strip(),
+            "model": str(b.get("model", "") or "").strip(),
+        })
+        if reason:
+            bad.append(f"seat '{seat}': {reason}")
+    if bad:
+        raise Refuse(
+            "model-invalid",
+            "validate_seat refuses the WHOLE batch before any write (F6): "
+            + "; ".join(bad)
+            + " — zero folders, zero registry rows",
+        )
+
+    kind_rank = {k: i for i, k in enumerate(KIND_ORDER)}
+    plan["descriptors"] = {}
+    for seat in plan["added_seats"]:
+        b = plan["bindings"][seat]
+        fm = _descriptor_frontmatter(seat, b, package, seats_cat, plan)
+
+        assembled = plan["assembled"][seat]
+        fm_m = _FM_RE.match(assembled)
+        if not fm_m:
+            raise Refuse(
+                "assembled-unparseable",
+                f"assembled projection for seat '{seat}' carries no "
+                "frontmatter fence — assembler drift",
+            )
+        body = assembled[fm_m.end():]
+        matches = list(_BLOCK_RE.finditer(body))
+        if not matches:
+            # The PRECONDITION, not a side effect: a catalog that cannot
+            # produce a non-empty body refuses (B1/B2 silent-empty class).
+            raise Refuse(
+                "empty-assembly",
+                f"no cognitive-unit block assembled for seat '{seat}'",
+            )
+        blocks = [(m.group(1), m.group(0)) for m in matches]
+        if not any(kind == "permissions" for kind, _ in blocks):
+            raise Refuse(
+                "no-permissions",
+                f"seat '{seat}' resolves no permissions unit — a seat that "
+                "boots with no permissions block is a live seat with "
+                "undeclared authority; HARD GATE, refused",
+            )
+        intro = body[:matches[0].start()]
+
+        if resolve_inline:
+            blocks = [(kind, _resolve_inline_refs(text, units, seat))
+                      for kind, text in blocks]
+        if reorder:
+            # Contract §1 fixed kind order — never CSV column order. The
+            # sort is stable: same-kind blocks and unlisted kinds keep the
+            # assembler's relative order (unlisted kinds after the listed).
+            blocks = sorted(
+                blocks, key=lambda kt: kind_rank.get(kt[0], len(KIND_ORDER)))
+
+        # The assembly-lockfile refs (frozen `<unit-id>@<version>` values)
+        # carry over from the assembler's frontmatter, after the scalars.
+        try:
+            afm = yaml.safe_load(fm_m.group(1)) or {}
+        except yaml.YAMLError as exc:
+            raise Refuse(
+                "assembled-unparseable",
+                f"assembled frontmatter for seat '{seat}' is not YAML — "
+                f"{exc}",
+            ) from exc
+        for key, val in afm.items():
+            if key in ("id", "description", *BINDING_COLUMNS):
+                continue
+            fm[key] = val
+
+        tail = ""
+        if fm["mode"] == "one-shot":
+            # F10 — a one-shot pays for CLI discovery inside its single
+            # session; carry the two exact command strings VERBATIM.
+            tail = (
+                "\n<!-- one-shot boot (F10): the two exact coordination "
+                "commands for this seat, verbatim. -->\n\n"
+                "One-shot boot — run these two commands exactly:\n\n"
+                f"    coordinate --package {package} --as {seat} checkin\n"
+                f"    coordinate --package {package} --as {seat} checkout\n"
+            )
+
+        # Same yaml.safe_dump call goal_cli uses at cmd_materialize — an
+        # unparseable descriptor is unproducible by construction (G-256).
+        header = ("---\n"
+                  + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True)
+                  + "---\n")
+        plan["descriptors"][seat] = (
+            header + intro + "\n\n".join(text for _, text in blocks)
+            + "\n" + tail)
 
 
 # ---------------------------------------------------------------- plan
@@ -480,16 +882,38 @@ def create_run_package(package: Path) -> None:
 
 
 def emit_seat_descriptors(plan: dict) -> list[str]:
-    """dag-04 extension point — descriptor emission: write each assembled
-    seat.md with the `seat:` (never `id:`) frontmatter surface, the
-    mode/ctx-refresh/close rules, and the validate_seat whole-batch gate
-    BEFORE any write; refuse an assembly with no cognitive-unit block. Until
-    dag-04 lands, a non-dry run refuses here, writing nothing."""
-    raise Refuse(
-        "not-implemented",
-        "descriptor emission lands in dag-04 — nothing materialized; run "
-        "with --dry-run to see the write plan",
-    )
+    """dag-04 — write the rendered descriptors: file mode 0644, folder 0755.
+    Every gate already fired in render_descriptors (before any write); under
+    --force-partial an existing seat.md must byte-match the freshly rendered
+    one (completing a partial failure, never overwriting drift)."""
+    written: list[str] = []
+    for seat in plan["added_seats"]:
+        text = plan["descriptors"][seat]
+        folder = Path(plan["package"]) / "seats" / seat
+        target = folder / "seat.md"
+        if target.exists():
+            if not plan["force_partial"]:
+                raise Refuse(  # unreachable past check_collisions; kept loud
+                    "seat-exists",
+                    f"seats/{seat}/seat.md already exists — materialize "
+                    "never overwrites",
+                    str(target),
+                )
+            if target.read_text(encoding="utf-8") != text:
+                raise Refuse(
+                    "partial-descriptor-mismatch",
+                    f"seats/{seat}/seat.md exists and does not byte-match "
+                    "the freshly assembled descriptor — --force-partial "
+                    "completes a partial failure, never overwrites drift",
+                    str(target),
+                )
+            continue
+        folder.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
+        target.chmod(0o644)
+        folder.chmod(0o755)
+        written.append(str(target))
+    return written
 
 
 def append_taskforce_rows(plan: dict) -> int:
@@ -523,14 +947,19 @@ def run(args) -> dict:
         )
     bindings = load_bindings(Path(args.bindings))
     catalogs = load_catalogs(catalog_root)
+    normalize_seat_rows(catalogs[0])
     added, internal_after = resolve_added(args, catalog_root, catalogs[0])
     check_bindings_cover(bindings, added)
     attach_after = validate_after(args, package)
     validate_milestone(args, package)
     check_collisions(package, added, args.force_partial)
-    assembled = assemble_all(added, bindings, catalog_root, catalogs)
+    units = index_units(catalog_root)
+    assembled = assemble_all(added, bindings, catalogs, units)
     plan = build_plan(package, added, internal_after, attach_after,
                       assembled, bindings, args)
+    # dag-04: every emission gate fires HERE — before the dry-run return and
+    # before any write, so a refusal always leaves zero files and zero rows.
+    render_descriptors(plan, catalogs[0], units)
     if args.dry_run:
         return result_of(plan, dry_run=True)
     # Descriptors FIRST, then rows — never the reverse.
@@ -617,6 +1046,8 @@ def main(argv: list[str] | None = None) -> int:
               f"{result['package']}: " + ", ".join(result["added_seats"]))
         for w in result["writes"]:
             print(f"  {w['kind']}: {w['path']}")
+        for warn in result["warnings"]:
+            print(f"  warning: {warn}")
     return 0
 
 
@@ -648,46 +1079,108 @@ def build_fixture(tmp: Path) -> dict:
     # catalog-root/<component>/... — one level, mirroring the live shape
     # (catalog-root .rbtv/mirror/meta, component planner-workflow).
     comp = tmp / "catalog" / "demo-comp"
-    role_dir = comp / "prompts" / "cognitive-units" / "role"
-    perm_dir = comp / "prompts" / "cognitive-units" / "permissions"
-    proc_dir = comp / "tasks" / "cognitive-units" / "procedure"
-    for d in (role_dir, perm_dir, proc_dir):
-        d.mkdir(parents=True)
-    role_dir.joinpath("alpha-role.md").write_text(
-        "---\nid: alpha-role\ndescription: alpha role\n---\n\n"
-        "<role>\nYou are alpha.\n</role>\n", encoding="utf-8")
-    role_dir.joinpath("beta-role.md").write_text(
-        "---\nid: beta-role\ndescription: beta role\n---\n\n"
-        "<role>\nYou are beta.\n</role>\n", encoding="utf-8")
-    perm_dir.joinpath("common-permissions.md").write_text(
-        "---\nid: common-permissions\ndescription: common permissions\n---\n\n"
-        "<permissions>\nRead the fixture tree. Write only your outputs.\n"
-        "</permissions>\n", encoding="utf-8")
-    proc_dir.joinpath("alpha-procedure.md").write_text(
-        "---\nid: alpha-procedure\ndescription: alpha procedure\n---\n\n"
-        "<procedure>\nProduce alpha-notes.md.\n</procedure>\n", encoding="utf-8")
-    proc_dir.joinpath("beta-procedure.md").write_text(
-        "---\nid: beta-procedure\ndescription: beta procedure\n---\n\n"
-        "<procedure>\nProduce beta-report.md.\n</procedure>\n", encoding="utf-8")
+
+    def unit(rel: str, uid: str, body: str) -> None:
+        path = comp / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"---\nid: {uid}\ndescription: {uid}\n---\n\n{body}\n",
+                        encoding="utf-8")
+
+    unit("prompts/cognitive-units/roles/alpha-role.md", "alpha-role",
+         "<role>\nYou are alpha.\n<persona>\nTerse and exact.\n</persona>\n"
+         "<agent-type>\nworker\n</agent-type>\n</role>")
+    unit("prompts/cognitive-units/roles/beta-role.md", "beta-role",
+         "<role>\nYou are beta.\n</role>")
+    unit("prompts/cognitive-units/permissions/common-permissions.md",
+         "common-permissions",
+         "<permissions>\nRead the fixture tree. Write only your outputs.\n"
+         "</permissions>")
+    unit("prompts/cognitive-units/procedures/alpha-procedure.md",
+         "alpha-procedure",
+         "<procedure>\nProduce alpha-notes.md.\n</procedure>")
+    unit("prompts/cognitive-units/procedures/beta-procedure.md",
+         "beta-procedure",
+         "<procedure>\nProduce beta-report.md.\n</procedure>")
+    # io-spec whose body carries an INLINE outcome reference — the
+    # d-run3-assembled-shape (i) resolution target (SC-20).
+    unit("prompts/cognitive-units/io-specs/alpha-io.md", "alpha-io",
+         "<io-spec>\n## Input\nRun inputs.\n## Outcome\n"
+         "- Reference: `alpha-outcome@latest`.\n## Output\nalpha-notes.md\n"
+         "</io-spec>")
+    unit("prompts/cognitive-units/outcomes/alpha-outcome.md", "alpha-outcome",
+         "<outcome>\nNotes that let beta act without re-reading the run.\n"
+         "</outcome>")
+    unit("tasks/cognitive-units/task-goals/demo-task-goal.md",
+         "demo-task-goal", "<task-goal>\nProve the fixture flow.\n</task-goal>")
+    unit("tasks/cognitive-units/scopes/demo-scope.md", "demo-scope",
+         "<scope>\nThe fixture tree only.\n</scope>")
+    unit("tasks/cognitive-units/done-contracts/demo-done.md", "demo-done",
+         "<done-contract>\nOutputs exist and are non-empty.\n</done-contract>")
+
+    # Column order DELIBERATELY scrambled against the contract §1 kind order
+    # (io-spec and permissions before role; done contract before task goal) —
+    # the reorder control's shuffled input.
     comp.joinpath("prompts.csv").write_text(
-        "prompt-id,role,permissions,description\n"
-        "alpha-prompt,alpha-role@latest,common-permissions,alpha prompt\n"
-        "beta-prompt,beta-role,common-permissions@latest,beta prompt\n",
+        "prompt-id,i/o spec,permissions,role,procedure,description\n"
+        "alpha-prompt,alpha-io@latest,common-permissions,alpha-role@latest,"
+        "alpha-procedure,alpha prompt\n"
+        "beta-prompt,,common-permissions@latest,beta-role,beta-procedure,"
+        "beta prompt\n",
         encoding="utf-8")
     comp.joinpath("tasks.csv").write_text(
-        "task-id,procedure,description\n"
-        "alpha-task,alpha-procedure,alpha task\n"
-        "beta-task,beta-procedure,beta task\n", encoding="utf-8")
+        "task-id,done contract,scope,task goal,description\n"
+        "alpha-task,demo-done,demo-scope,demo-task-goal,alpha task\n"
+        "beta-task,demo-done,demo-scope,demo-task-goal,beta task\n",
+        encoding="utf-8")
+    # The RULED mirror header (topic-2-authoring-contract §2): executor+task —
+    # exercises normalize_seat_rows' task -> task-id alias on every run.
     comp.joinpath("seats.csv").write_text(
-        "seat-id,prompt-id,task-id,description\n"
-        "alpha,alpha-prompt,alpha-task,the alpha seat\n"
-        "beta,beta-prompt,beta-task,the beta seat\n", encoding="utf-8")
+        "seat-id,executor,task,staffing-hints,description\n"
+        "alpha,alpha-prompt,alpha-task,,the alpha seat\n"
+        "beta,beta-prompt,beta-task,,the beta seat\n", encoding="utf-8")
     wf_dir = comp / "workflows" / "demo-flow"
     wf_dir.mkdir(parents=True)
     wf_dir.joinpath("demo-flow.csv").write_text(
         'Seat/workflow,after,i/o,Modality\n'
         'alpha,,"in: run inputs; out: alpha-notes.md",agentic\n'
         'beta,alpha,"in: alpha-notes.md; out: beta-report.md",agentic\n',
+        encoding="utf-8")
+
+    # A second component: five cheap one-shot workers sharing one
+    # prompt/task pair — the SC-13 whole-batch gate and F8/F10 fixtures.
+    wide = tmp / "catalog" / "wide-comp"
+
+    def wunit(rel: str, uid: str, body: str) -> None:
+        path = wide / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"---\nid: {uid}\ndescription: {uid}\n---\n\n{body}\n",
+                        encoding="utf-8")
+
+    wunit("prompts/cognitive-units/roles/wide-role.md", "wide-role",
+          "<role>\nYou are a wide worker.\n</role>")
+    wunit("prompts/cognitive-units/permissions/wide-permissions.md",
+          "wide-permissions",
+          "<permissions>\nRead the fixture tree.\n</permissions>")
+    wunit("prompts/cognitive-units/procedures/wide-procedure.md",
+          "wide-procedure", "<procedure>\nDo one bounded thing.\n</procedure>")
+    wide.joinpath("prompts.csv").write_text(
+        "prompt-id,role,procedure,permissions,description\n"
+        "wide-prompt,wide-role,wide-procedure,wide-permissions,wide prompt\n",
+        encoding="utf-8")
+    wide.joinpath("tasks.csv").write_text(
+        "task-id,task goal,scope,done contract,description\n"
+        "wide-task,demo-task-goal,demo-scope,demo-done,wide task\n",
+        encoding="utf-8")
+    wide.joinpath("seats.csv").write_text(
+        "seat-id,executor,task,staffing-hints,description\n"
+        + "".join(f"s{i},wide-prompt,wide-task,,wide worker {i}\n"
+                  for i in range(1, 6)),
+        encoding="utf-8")
+    wwf = wide / "workflows" / "wide-flow"
+    wwf.mkdir(parents=True)
+    wwf.joinpath("wide-flow.csv").write_text(
+        "Seat/workflow,after,i/o,Modality\n"
+        + "".join(f"s{i},,,agentic\n" for i in range(1, 6)),
         encoding="utf-8")
 
     taskforce = (
@@ -809,12 +1302,13 @@ def selftest_scenarios(fx: dict) -> list[tuple[str, list[str], int, str | None]]
          ["--package", fx["pkg9"], "--seat", "alpha", "--catalog-root",
           fx["catalog"], "--after", "chief", "--bindings", fx["b_alpha"],
           "--dry-run", "--json"], 1, "seat-exists"),
-        ("red: --force-partial passes the collision gate, then the dag-05 "
-         "half is unbuilt",
+        ("red: --force-partial passes the collision gate, emits the missing "
+         "descriptor, then the dag-05 half is unbuilt",
          ["--package", fx["pkg9"], "--seat", "alpha", "--catalog-root",
           fx["catalog"], "--after", "chief", "--bindings", fx["b_alpha"],
           "--force-partial", "--json"], 1, "not-implemented"),
-        ("red: a non-dry run refuses at the dag-04 extension point",
+        ("red: a non-dry run emits descriptors (dag-04), then refuses at the "
+         "dag-05 extension point",
          wf(flags=["--root", "--json"]), 1, "not-implemented"),
     ]
 
@@ -867,10 +1361,30 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
             check("plan: planned append count is 2, warnings plumbed empty",
                   green_json.get("taskforce_rows_appended") == 2
                   and green_json.get("warnings") == [], str(green_json)[:200])
-            # SK-5: nothing in the fixture tree changed — dry runs, refusals,
-            # and the unbuilt write path alike wrote NOTHING.
-            check("SK-5: no scenario wrote anything (tree hashes identical)",
-                  _hash_tree(tmp) == pre)
+            # SK-5 (amended at dag-04): dry runs and refusals still write
+            # NOTHING; the only disk deltas are the descriptor emissions the
+            # two non-dry scenarios legitimately perform before dag-05's
+            # unbuilt half refuses. Exactly those files, nothing else, and
+            # every pre-existing file byte-unchanged.
+            post = _hash_tree(tmp)
+            expected_new = {
+                str((Path(fx["pkg"]) / "seats" / s / "seat.md")
+                    .relative_to(tmp)) for s in ("alpha", "beta")
+            } | {
+                str((Path(fx["pkg9"]) / "seats" / "alpha" / "seat.md")
+                    .relative_to(tmp)),
+            }
+            check("SK-5: the only writes are the dag-04 descriptor emissions",
+                  set(post) - set(pre) == expected_new
+                  and all(post[k] == v for k, v in pre.items()),
+                  f"unexpected delta: {sorted(set(post) ^ set(pre))[:6]}")
+            # dag-04 emission bits: file 0644, folder 0755.
+            import stat as _stat
+            alpha_md = Path(fx["pkg"]) / "seats" / "alpha" / "seat.md"
+            check("dag-04: emitted seat.md is 0644 and its folder 0755",
+                  _stat.S_IMODE(alpha_md.stat().st_mode) == 0o644
+                  and _stat.S_IMODE(alpha_md.parent.stat().st_mode) == 0o755)
+            pre = post  # canary control baselines on the post-suite tree
             # SK-5 control arm: the hash comparison CAN go red.
             canary = tmp / "canary.txt"
             canary.write_text("x", encoding="utf-8")
@@ -881,6 +1395,379 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
                   _hash_tree(tmp) == pre)
             run_sc_acceptance(check, fx)  # dag-07 lands SC-1..SC-16 here
     return results
+
+
+def run_dag04_acceptance(check, env: dict) -> None:
+    """dag-04's SC rows, each with the control that must be able to FAIL.
+    Fixture-only (tempfile.TemporaryDirectory) — never a real run. The
+    in-process red arms use render_descriptors' selftest-only knobs."""
+    import stat as _stat
+
+    def _refusal(cp):
+        try:
+            return json.loads(cp.stdout).get("refusal") or {}
+        except ValueError:
+            return {}
+
+    # ---- group 1: the emitted surface (SC-2, SC-14/16 halves, SC-18,
+    #      SC-20 + reorder, key set/order, F10 control) -------------------
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        fx = build_fixture(tmp)
+        cp = _invoke(["--package", fx["pkg"], "--workflow", "demo-flow",
+                      "--catalog-root", fx["catalog"], "--bindings",
+                      fx["b_both"], "--milestone-id", "m1", "--root",
+                      "--json"], env)
+        alpha_md = Path(fx["pkg"]) / "seats" / "alpha" / "seat.md"
+        beta_md = Path(fx["pkg"]) / "seats" / "beta" / "seat.md"
+        check("dag-04 setup: non-dry emit lands both descriptors "
+              "(dag-05 half still refuses)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "not-implemented"
+              and alpha_md.is_file() and beta_md.is_file(),
+              cp.stdout.strip()[:200])
+        atext = alpha_md.read_text(encoding="utf-8")
+        btext = beta_md.read_text(encoding="utf-8")
+        afm = yaml.safe_load(_FM_RE.match(atext).group(1))
+        bfm = yaml.safe_load(_FM_RE.match(btext).group(1))
+
+        kit_dir = Path(__file__).resolve().parent
+        if str(kit_dir) not in sys.path:
+            sys.path.insert(0, str(kit_dir))
+        # Selftest-only import: SC-2's stated control IS discover_workers;
+        # the COMMAND itself imports only validate_seat from coord.py.
+        from coord import discover_workers
+        seats_dir = Path(fx["pkg"]) / "seats"
+        found = {w["agent"]: w for w in discover_workers(seats_dir)}
+        check("SC-2: descriptor carries seat: and discover_workers finds it",
+              afm.get("seat") == "alpha" and "alpha" in found
+              and found["alpha"]["briefing"] == alpha_md
+              and found["alpha"]["harness"] == "claude"
+              and found["alpha"]["ctx_refresh"] == 50,
+              str(sorted(found)))
+        alpha_md.write_text(atext.replace("seat: alpha", "id: alpha", 1),
+                            encoding="utf-8")
+        found_red = {w["agent"] for w in discover_workers(seats_dir)}
+        check("SC-2 red: with id: instead of seat: (B3) the seat is "
+              "returned not at all",
+              "alpha" not in found_red, str(sorted(found_red)))
+        alpha_md.write_text(atext, encoding="utf-8")
+
+        check("SC-18: every emitted frontmatter parses via yaml.safe_load",
+              isinstance(afm, dict) and isinstance(bfm, dict))
+        try:
+            yaml.safe_load("description: G-256: the colon-space defect\n")
+            raised = False
+        except yaml.YAMLError:
+            raised = True
+        check("SC-18 red: an unquoted colon-space description raises in "
+              "the loader (the check can fail)", raised)
+
+        kinds = [m.group(1) for m in _BLOCK_RE.finditer(atext)]
+        contract_order = ["role", "procedure", "permissions", "io-spec",
+                          "task-goal", "scope", "done-contract"]
+        check("contract §1: blocks in the FIXED kind order despite "
+              "scrambled CSV columns", kinds == contract_order, str(kinds))
+
+        bodies = "\n".join(m.group(4) for m in _BLOCK_RE.finditer(atext))
+        check("SC-20: inline Reference resolved — outcome body inlined, "
+              "zero @latest in block bodies",
+              "Notes that let beta act" in bodies
+              and "@latest" not in bodies)
+
+        def render_one(seat, **knobs):
+            catalogs = load_catalogs(Path(fx["catalog"]))
+            normalize_seat_rows(catalogs[0])
+            units = index_units(Path(fx["catalog"]))
+            b = load_bindings(Path(fx["b_both"]))
+            binding = effective_binding(b, seat)
+            plan = {"package": fx["pkg"], "added_seats": [seat],
+                    "bindings": {seat: binding}, "warnings": [],
+                    "force_partial": False,
+                    "assembled": {seat: assemble_seat(
+                        seat, binding, *catalogs, units)}}
+            render_descriptors(plan, catalogs[0], units, **knobs)
+            return plan["descriptors"][seat]
+
+        red20 = render_one("alpha", resolve_inline=False)
+        red20_bodies = "\n".join(
+            m.group(4) for m in _BLOCK_RE.finditer(red20))
+        check("SC-20 red: with resolution disabled the @latest grep "
+              "control goes RED", "@latest" in red20_bodies)
+        red_order = [m.group(1)
+                     for m in _BLOCK_RE.finditer(render_one("alpha",
+                                                            reorder=False))]
+        check("reorder red: with reorder disabled the order follows CSV "
+              "columns and violates the contract",
+              red_order != contract_order
+              and red_order == ["io-spec", "permissions", "role",
+                                "procedure", "done-contract", "scope",
+                                "task-goal"],
+              str(red_order))
+
+        check("emitted key set opens in the ruled order "
+              "(seat..description..cwd..agent_type..triple..mode)",
+              list(afm)[:8] == ["seat", "description", "cwd", "agent_type",
+                                "harness", "model", "effort", "mode"],
+              str(list(afm)[:9]))
+        check("B4 closed: cwd is the seat folder; ctx-refresh emitted in "
+              "interactive mode",
+              afm.get("cwd") == f"{fx['pkg']}/seats/alpha/"
+              and afm.get("ctx-refresh") == 50)
+        check("SC-14 (first arm): mode: emitted on every descriptor",
+              afm.get("mode") == "interactive"
+              and bfm.get("mode") == "interactive")
+        check("SC-16 control: an interactive staff seat gets NO close: key",
+              "close" not in afm and "close" not in bfm)
+        check("task half emitted (ruled executor+task header aliased to "
+              "the assembler's task-id)",
+              all(k in kinds for k in ("task-goal", "scope",
+                                       "done-contract")))
+        check("F10 control: an interactive seat carries no one-shot boot "
+              "text", "checkin" not in atext and "checkout" not in atext)
+        check("dag-04: emission bits are 0644 file / 0755 folder",
+              _stat.S_IMODE(alpha_md.stat().st_mode) == 0o644
+              and _stat.S_IMODE(alpha_md.parent.stat().st_mode) == 0o755)
+
+    # ---- group 2: SC-4 (permissions hard gate) + SC-3 (empty assembly) --
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        fx = build_fixture(tmp)
+        comp = Path(fx["catalog"]) / "demo-comp"
+        good_prompts = (comp / "prompts.csv").read_text(encoding="utf-8")
+        argv = ["--package", fx["pkg"], "--seat", "alpha", "--catalog-root",
+                fx["catalog"], "--after", "chief", "--bindings",
+                fx["b_alpha"], "--dry-run", "--json"]
+
+        (comp / "prompts.csv").write_text(good_prompts.replace(
+            "alpha-prompt,alpha-io@latest,common-permissions,",
+            "alpha-prompt,alpha-io@latest,,"), encoding="utf-8")
+        cp = _invoke(argv, env)
+        check("SC-4: a seat with no resolvable permissions unit is refused",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "no-permissions"
+              and "alpha" in _refusal(cp).get("message", ""),
+              cp.stdout.strip()[:200])
+        (comp / "prompts.csv").write_text(good_prompts, encoding="utf-8")
+        cp = _invoke(argv, env)
+        check("SC-4 control: the same seat WITH its permissions unit "
+              "exits 0", cp.returncode == 0, cp.stderr.strip()[:200])
+
+        (comp / "prompts.csv").write_text(
+            "prompt-id,i/o spec,permissions,role,procedure,description\n"
+            "alpha-prompt,free prose here,more prose here,other prose "
+            "here,also prose here,alpha prompt\n"
+            "beta-prompt,,x y z,z w v,v u t,beta prompt\n",
+            encoding="utf-8")
+        (comp / "tasks.csv").write_text(
+            "task-id,done contract,scope,task goal,description\n"
+            "alpha-task,p q r,r s t,t u v,alpha task\n"
+            "beta-task,p q r,r s t,t u v,beta task\n", encoding="utf-8")
+        cp = _invoke(argv, env)
+        check("SC-3: a catalog assembling an empty body refuses with the "
+              "exact message",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "empty-assembly"
+              and _refusal(cp).get("message")
+              == "no cognitive-unit block assembled for seat 'alpha'",
+              cp.stdout.strip()[:200])
+
+    # ---- group 3: SC-13 batch gate, SC-14/16 one-shot arms, F5 codex,
+    #      SC-17 class:, relays (A-40), senders, SC-19 window ------------
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        fx = build_fixture(tmp)
+        bdir = tmp / "bindings"
+        wide_defaults = {"harness": "opencode", "cwd-mode": "seat-folder",
+                         "agent_type": "worker", "effort": "low",
+                         "description": "a wide one-shot worker"}
+
+        def wide_bindings(name: str, bad_seat: str | None = None) -> str:
+            seats = {f"s{i}": {"model": "deepseek/deepseek-chat",
+                               "after": []} for i in range(1, 6)}
+            if bad_seat:
+                seats[bad_seat]["model"] = "deepseek-chat"
+            p = bdir / name
+            p.write_text(json.dumps({"version": 1, "defaults": wide_defaults,
+                                     "seats": seats}), encoding="utf-8")
+            return str(p)
+
+        def wf_argv(b: str) -> list[str]:
+            return ["--package", fx["pkg"], "--workflow", "wide-flow",
+                    "--catalog-root", fx["catalog"], "--bindings", b,
+                    "--root", "--json"]
+
+        tf_before = (Path(fx["pkg"]) / TASKFORCE_NAME).read_bytes()
+        cp = _invoke(wf_argv(wide_bindings("wide-bad.json", "s3")), env)
+        folders = sorted(p.name
+                         for p in (Path(fx["pkg"]) / "seats").iterdir())
+        check("SC-13: ONE bad model slug refuses the WHOLE 5-seat batch — "
+              "zero folders, zero rows (F6, never a per-seat skip)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "model-invalid"
+              and "s3" in _refusal(cp).get("message", "")
+              and folders == []
+              and (Path(fx["pkg"]) / TASKFORCE_NAME).read_bytes()
+              == tf_before,
+              cp.stdout.strip()[:200])
+        cp = _invoke(wf_argv(wide_bindings("wide-good.json")), env)
+        smds = [Path(fx["pkg"]) / "seats" / f"s{i}" / "seat.md"
+                for i in range(1, 6)]
+        check("SC-13 control: the same batch with provider/model slugs "
+              "writes all 5 descriptors",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "not-implemented"
+              and all(p.is_file() for p in smds),
+              cp.stdout.strip()[:200])
+        s1_text = smds[0].read_text(encoding="utf-8")
+        s1_fm = yaml.safe_load(_FM_RE.match(s1_text).group(1))
+        check("SC-14: opencode default is mode: one-shot, emitted, with "
+              "NO ctx-refresh key",
+              s1_fm.get("mode") == "one-shot"
+              and "ctx-refresh" not in s1_fm)
+        check("SC-16: a cheap one-shot worker gets close: mechanical (F8)",
+              s1_fm.get("close") == "mechanical")
+        check("F10: a one-shot descriptor carries both exact coordinate "
+              "command strings verbatim",
+              f"coordinate --package {fx['pkg']} --as s1 checkin" in s1_text
+              and f"coordinate --package {fx['pkg']} --as s1 checkout"
+              in s1_text)
+
+        def s1_bindings(name: str, extra: dict) -> str:
+            entry = {"model": "deepseek/deepseek-chat", "after": [], **extra}
+            p = bdir / name
+            p.write_text(json.dumps({"version": 1, "defaults": wide_defaults,
+                                     "seats": {"s1": entry}}),
+                         encoding="utf-8")
+            return str(p)
+
+        def s1_argv(b: str, dry: bool = True) -> list[str]:
+            base = ["--package", fx["pkg9"], "--seat", "s1",
+                    "--catalog-root", fx["catalog"], "--bindings", b,
+                    "--root", "--json"]
+            return base + (["--dry-run"] if dry else [])
+
+        cp = _invoke(s1_argv(s1_bindings("ctx-oneshot.json",
+                                         {"ctx-refresh": 50})), env)
+        check("SC-14: mode: one-shot with ctx-refresh refuses, naming the "
+              "key (F4)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "ctx-refresh-on-one-shot"
+              and "ctx-refresh" in _refusal(cp).get("message", ""),
+              cp.stdout.strip()[:200])
+        cp = _invoke(s1_argv(s1_bindings(
+            "ctx-interactive.json",
+            {"ctx-refresh": 50, "mode": "interactive"})), env)
+        check("SC-14 control: the same seat in mode: interactive is "
+              "accepted", cp.returncode == 0, cp.stderr.strip()[:200])
+        cp = _invoke(s1_argv(s1_bindings(
+            "codex.json", {"harness": "codex", "model": "gpt-5.5-codex"})),
+            env)
+        check("F5: codex with no explicit mode: is REFUSED at emission "
+              "(no default)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "mode-undecidable"
+              and "codex" in _refusal(cp).get("message", ""),
+              cp.stdout.strip()[:200])
+        cp = _invoke(s1_argv(s1_bindings("class.json",
+                                         {"class": "worker"})), env)
+        check("SC-17: class: is refused naming the withdrawn spelling "
+              "(G-217)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "class-withdrawn"
+              and "class:" in _refusal(cp).get("message", "")
+              and "withdrawn" in _refusal(cp).get("message", "").lower(),
+              cp.stdout.strip()[:200])
+        cp = _invoke(s1_argv(s1_bindings("plain.json", {})), env)
+        plain = json.loads(cp.stdout)
+        check("SC-17 control: agent_type: worker is accepted",
+              cp.returncode == 0, cp.stderr.strip()[:200])
+        check("SC-19 control: no window: value, no renew-consequence line",
+              plain.get("warnings") == [], str(plain.get("warnings")))
+        cp = _invoke(s1_argv(s1_bindings("relays.json",
+                                         {"relays": "master"})), env)
+        check("relays: refused as an input — A-40 is OPEN, never invented "
+              "or silently dropped",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "relays-unruled"
+              and "A-40" in _refusal(cp).get("message", ""),
+              cp.stdout.strip()[:200])
+        cp = _invoke(s1_argv(s1_bindings("window.json",
+                                         {"window": "main"})), env)
+        wobj = json.loads(cp.stdout)
+        check("SC-19: a window: value prints the seat and its renew "
+              "consequence",
+              cp.returncode == 0
+              and any("s1" in w and "in-place renew" in w
+                      for w in wobj.get("warnings", [])),
+              str(wobj.get("warnings")))
+        cp = _invoke(s1_argv(s1_bindings("senders-engineer-only.json",
+                                         {"senders": "engineer"})), env)
+        check("senders: an allow-list emptied by the engineer drop refuses "
+              "loudly (d-engineer-retired)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "senders-empty",
+              cp.stdout.strip()[:200])
+        cp = _invoke(s1_argv(s1_bindings("senders.json",
+                                         {"senders": "leader,engineer"}),
+                             dry=False), env)
+        s1_pkg9 = Path(fx["pkg9"]) / "seats" / "s1" / "seat.md"
+        s1_pkg9_fm = yaml.safe_load(
+            _FM_RE.match(s1_pkg9.read_text(encoding="utf-8")).group(1))
+        check("senders: 'engineer' is never emitted; the rest of the "
+              "allow-list survives",
+              s1_pkg9_fm.get("senders") == "leader",
+              str(s1_pkg9_fm.get("senders")))
+
+    # ---- group 4: goal_cli lint over an emitted package (the dag-01
+    #      guard-comment contract: no scalar key false-positives) --------
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        fx = build_fixture(tmp)
+        groot = tmp / "lintgoals"
+        gdir = groot / "demo-goal"
+        run1 = gdir / "runs" / "run-1"
+        (run1 / "seats").mkdir(parents=True)
+        (gdir / "goal.md").write_text(
+            "---\nname: demo-goal\ncreation-date: 2026-07-29\n"
+            "type: one-shot\nstatus: active\n---\n\n"
+            "Prove the emitted descriptor surface lints clean.\n",
+            encoding="utf-8")
+        (gdir / "decisions.md").write_text("# decisions\n", encoding="utf-8")
+        (gdir / "threads.sql").write_text("-- threads\n", encoding="utf-8")
+        (gdir / "runs.csv").write_text(
+            "run-id,type,state,taskforce-id(s),opened,closed\n"
+            "run-1,build,active,tf-1,2026-07-29,\n", encoding="utf-8")
+        (run1 / MILESTONES_NAME).write_text(
+            "milestone-id,name,status\nm1,prove,pending\n", encoding="utf-8")
+        cp = _invoke(["--package", str(run1), "--workflow", "demo-flow",
+                      "--catalog-root", fx["catalog"], "--bindings",
+                      fx["b_both"], "--root", "--json"], env)
+        check("lint setup: descriptors emitted into the goal fixture",
+              (run1 / "seats" / "alpha" / "seat.md").is_file()
+              and (run1 / "seats" / "beta" / "seat.md").is_file(),
+              cp.stdout.strip()[:200])
+        # dag-05 is unbuilt — hand-write the registry rows the lint reads.
+        (run1 / TASKFORCE_NAME).write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh\n"
+            "tf-a,alpha,,claude,claude-opus-5,high,50\n"
+            "tf-b,beta,alpha,claude,claude-opus-5,high,50\n",
+            encoding="utf-8")
+        from goal_cli import lint_goal
+        f = lint_goal(groot, "demo-goal")
+        check("goal_cli lint: the emitted package lints CLEAN — no scalar "
+              "key false-positives as an unresolved ref",
+              not bool(f), str(f.items[:4]))
+        amd = run1 / "seats" / "alpha" / "seat.md"
+        orig = amd.read_text(encoding="utf-8")
+        amd.write_text(orig.replace("---\n", "---\nbogus-ref: no-such-unit\n",
+                                    1), encoding="utf-8")
+        f2 = lint_goal(groot, "demo-goal")
+        check("lint control: a genuinely dangling ref is STILL flagged "
+              "(exclusion list not over-wide)",
+              any("no-such-unit" in i["reason"] for i in f2.items),
+              str([i["reason"] for i in f2.items][:3]))
+        amd.write_text(orig, encoding="utf-8")
 
 
 def run_selftest() -> int:
@@ -930,6 +1817,11 @@ def run_selftest() -> int:
           assemble_seat.__module__ == "goal_cli"
           and index_units.__module__ == "goal_cli"
           and load_catalogs.__module__ == "goal_cli")
+    check("F6: validate_seat is imported from coord, never re-implemented",
+          _coord_validate_seat().__module__ == "coord")
+
+    print("dag-04 acceptance pass (SC rows, each with its failing control)")
+    run_dag04_acceptance(check, clean_env)
 
     print(f"\n{'PASS' if not failures else 'FAIL'} — "
           f"{len(failures)} failure(s)")

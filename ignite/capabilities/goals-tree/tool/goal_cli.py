@@ -500,7 +500,10 @@ def lint_goal(root: Path, name: str) -> Findings:
         # body is the evidence: each frontmatter ref must have its block present.
         refs = []
         for key, val in sfm.items():
-            if key in ("id", "description", *BINDING_COLUMNS):
+            if key in ("id", "seat", "description", "cwd", "agent_type",
+                       "mode", "window", "senders", "close", "auto-wake",
+                       "ephemeral", "broadcast", "component",
+                       *BINDING_COLUMNS):
                 continue
             # Widened with _refs_of (d-spec-open-points-ruled Q10): bare ids
             # qualify, not just cu-prefixed ones. Assembled refs carry a FROZEN
@@ -510,6 +513,11 @@ def lint_goal(root: Path, name: str) -> Findings:
             # above — any non-ref SCALAR key a future emitted-schema change
             # adds (provenance stamps, dates) MUST be added there, or a
             # token-shaped value false-positives as an unresolved ref.
+            # dag-04 (2026-07-29) added exactly that: the emitted descriptor
+            # schema's scalar keys (seat/cwd/agent_type/mode/window/senders/
+            # close/auto-wake/ephemeral/broadcast/component) — proven to
+            # false-positive before the widening, and the dangling-ref
+            # control stays red-able (materialize-seats.py selftest).
             if isinstance(val, str) and _UNIT_ID_RE.match(val.strip().split("@", 1)[0]):
                 refs.append((key, val.strip()))
             elif isinstance(val, list):
