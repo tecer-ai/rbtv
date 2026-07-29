@@ -65,9 +65,13 @@ runs.
    for the seat it relaunches. A refresh that fails WARNS and launches anyway — a broken installer
    must not be able to stop a run. A workspace with no `rbtv.json`, or one electing no mirrorable
    worker, is skipped silently.
-3. Lifecycle: a seat ends with `checkout`, which exports its transcript first (ephemeral seats use
-   `depart`, which exports, checks out and kills their own pane in one command); leader closes or
-   renews long-lived seats via `close <agent> [--renew]`
+3. Lifecycle: a seat ends with `checkout` — plain for the done disposition, `--renew --handoff
+   "<note>"` to renew itself (two-step, CLI-taught; the handoff lands in its `memory.md`; no
+   closer in that path; protocol item 8 carries the evidence) — which exports its transcript
+   first (ephemeral seats use
+   `depart`, which exports, checks out and kills their own pane in one command); leader closes —
+   or, for a seat not renewing itself (e.g. a `close: mechanical` seat), renews —
+   long-lived seats via `close <agent> [--renew]`
    (a sonnet closer co-writes `workers/{agent}/memory.md`, then `close-seat` kills — and with
    `--renew` freshly relaunches — the seat). The leader seat itself renews the same way
    (`close leader --renew`): the relaunched leader lands back as a pane in the window its old

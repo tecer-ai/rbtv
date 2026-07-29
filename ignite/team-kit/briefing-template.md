@@ -60,8 +60,11 @@ ctx-refresh: 50            # optional; context-refresh threshold % for THIS seat
 ## Execution contract
 
 {Numbered steps. Coordination points marked. Owner-gated steps marked OWNER-GATED.
- Persistent seats end with a completion message then plain `checkout` — it exports the seat's
- transcript first (`--no-export` is the escape for a dead pane). Ephemeral seats end with plain
+ Persistent seats end with a completion message then `checkout` — plain for the done disposition;
+ `checkout --renew --handoff "<note>"` when the seat renews or context-refreshes instead (the CLI
+ teaches the two-step; the handoff lands in the seat's `memory.md`; a `close: mechanical` seat is
+ refused there — leader-side close-and-relaunch is its path; evidence at protocol item 8). It
+ exports the seat's transcript first (`--no-export` is the escape for a dead pane). Ephemeral seats end with plain
  `depart`, which exports, checks out and kills their own pane. Neither command takes a name —
  the seat's identity is resolved from its pane (protocol item 8).}
 

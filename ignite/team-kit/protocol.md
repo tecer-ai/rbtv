@@ -43,7 +43,8 @@ $COORD launch [--only a,b,c] [--dry-run]        # leader only — per-seat harne
 $COORD create-group <group> [member ...]        # creator + leader auto-included
 $COORD add-to-group <group> <member ...>        # leader only
 $COORD export-transcript <agent> [--label L]    # full pane scrollback -> workers/<agent>/transcripts/
-$COORD checkout                                 # on finish — exports your transcript first (--no-export skips)
+$COORD checkout                                 # on finish (done disposition) — exports your transcript first (--no-export skips)
+$COORD checkout --renew --handoff "<note>"      # renewal disposition — two-step, the CLI teaches it; the handoff lands in your memory.md (item 8)
 $COORD depart                                   # ephemeral seats: export + checkout + kill own pane
 $COORD close <agent> [--renew]                  # leader only — spawn a closer (memory.md co-write, then close; --renew relaunches fresh)
 $COORD close-seat <agent> [--renew] [--no-export]  # mechanical close (normally the closer runs it; leader for dead panes)
@@ -122,11 +123,23 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    DIRECT to `leader` (`--type completion`; to `all` only when it carries a milestone or roster
    consequence — the broadcast `--why` gate enforces exactly that), then `checkout`. The transcript export is no longer yours to remember —
    `checkout` captures your pane's scrollback before flipping your row (`--no-export` is the
-   escape when the pane is already dead). Ephemeral seats use `depart` (export + checkout + killing
+   escape when the pane is already dead). A checkout carries a DISPOSITION. Done: plain `checkout`
+   — completion to `leader` first, then check out; no handoff. Renewal or context refresh:
+   `checkout --renew`, which teaches you the second step; you MUST supply `--handoff "<note>"`
+   before the seat is renewed. The handoff is appended to your seat's `memory.md` and printed to
+   your successor at its check-in. A `close: mechanical` seat is REFUSED on this self-service
+   path — memoryless by design, its renewal stays the leader-side close-and-relaunch. (Evidence:
+   the build-core-daemon-mvp run-2 core-build batch, 2026-07-28 — a caller-only role gate refused
+   a seat's owner-ruled self-renewal at 15:1x because the only renewal path ran through another
+   seat's close ceremony; and G-257, a refusal text teaching `--force` as the remedy for a ruled
+   act.) Ephemeral seats use `depart` (export + checkout + killing
    the seat's own pane, one command, no name — a seat can only depart itself). Leader checks out
    only after all workers have.
 9. **Memory (persistent seats only).** `workers/<you>/memory.md` is your seat's cross-session
-   memory, co-written with a closer seat at each close. If it exists at boot, read it after your
+   memory, co-written with a closer seat at a CLOSE, and appended to by `checkout --renew
+   --handoff` at a RENEWAL (no closer is in the renewal path — evidence: the same run-2 15:1x
+   gate refusal item 8 cites; the closer ceremony was the only renewal path and it never composed
+   with a seat's own act). If it exists at boot, read it after your
    briefing and trust it as your own notes (re-verify what is cheap to verify). When a closer
    contacts you with a draft memory (`--type ask`), answering it IS briefing work: correct it,
    fill what only you know, reply promptly — an unanswered closer writes your memory alone.
