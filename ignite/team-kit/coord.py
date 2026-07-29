@@ -3992,10 +3992,20 @@ LIFECYCLE_SCRUB_ENV = ("TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET"
 # THE ARGV VOCABULARY — executor-side ACTIONS, and the parser's `--disposition` choices are read
 # FROM HERE so the two can never disagree.
 #
-# ⚠ `revive` IS DELIBERATELY ABSENT. `s3-07` widens the enum (reconciliation order s12-07 →
-# s3-07 → dag-08); registering it here would make that task's red arm — "`revive` is not an
-# accepted value yet" — unable to fire, which is the one thing that proves the widening happened.
-LIFECYCLE_DISPOSITIONS = ("renew", "close")
+# ⚠ `revive` LANDED WITH `s3-07`. It is the CRASH arm: no checkout preceded it, so it carries no
+# awaiting-close record, no stamped handoff block and a caller that DIED rather than forked. It
+# runs the `renew` sequence — the same body, gated on `LIFECYCLE_RELAUNCHING` below — and the two
+# places it diverges are NAMED at their sites, never forked into a second implementation.
+# (`dag-08` widens this enum a THIRD time; what a fourth value must touch is on
+# `LIFECYCLE_RELAUNCHING` and `LIFECYCLE_INTENT_OF`, both immediately below.)
+LIFECYCLE_DISPOSITIONS = ("renew", "close", "revive")
+
+# WHICH DISPOSITIONS PUT A SUCCESSOR BACK. `close` tears down and stops; `renew` and `revive` both
+# relaunch. ONE home for that fact, because `run_lifecycle_sequence` gates its whole relaunch half
+# on it — the descriptor lookup, the binding check, the in-place decision, the RAM gate, the
+# relaunch and the successor-alive verification. A NEW DISPOSITION DECLARES ITS SIDE HERE, in a
+# line a reader can find, instead of by editing a boolean buried three hundred lines down.
+LIFECYCLE_RELAUNCHING = ("renew", "revive")
 
 # GUARD 4'S MAPPING, and the reason guard 4 is a MAPPING rather than a string comparison.
 #
@@ -4006,18 +4016,20 @@ LIFECYCLE_DISPOSITIONS = ("renew", "close")
 # authoritative for INTENT/debt, lifecycle-inflight.json for EXECUTION state. It is POINTED AT
 # here, never restated — a second copy of an authority statement is a second copy to drift.
 #
-# ⚠⚠ THE TWO SIDES SPEAK TWO VOCABULARIES WITH NO SHARED VALUE. argv is `renew|close` (executor
-# ACTIONS); the awaiting-close record is `done|renew` (checkout INTENTS, s12-07's mint). A plain
-# done-checkout writes `done` and forks `--disposition close` — so A RAW-EQUALITY GUARD REFUSES
-# THE NORMAL PATH, the single most common invocation this executor will ever see. That is why the
-# comparison goes through this dict and why the suite carries a row for exactly that shape.
+# ⚠⚠ THE TWO SIDES SPEAK TWO VOCABULARIES WITH NO SHARED VALUE. argv is `renew|close|revive`
+# (executor ACTIONS); the awaiting-close record is `done|renew` (checkout INTENTS, s12-07's mint).
+# A plain done-checkout writes `done` and forks `--disposition close` — so A RAW-EQUALITY GUARD
+# REFUSES THE NORMAL PATH, the single most common invocation this executor will ever see. That is
+# why the comparison goes through this dict and why the suite carries a row for exactly that shape.
 #
 # `LIFECYCLE_INTENT_ABSENT` means "no checkout happened, so NO awaiting-close record may exist" —
-# legal for `revive` ONLY, and `s3-07` extends this dict by ONE ROW (`"revive":
-# LIFECYCLE_INTENT_ABSENT`) plus one entry in `LIFECYCLE_DISPOSITIONS`. Nothing else restructures.
+# legal for `revive` ONLY (s3-07), and the executor derives ONE more fact from it: `checked_out` in
+# `run_lifecycle_sequence` is READ OFF THIS MAPPING rather than off a second list of disposition
+# names, so the step that needs a checkout to have happened and the guard that forbids its record
+# can never hold two opinions about which dispositions had one.
 # The in-suite row "THE ENUM AND THE MAPPING CANNOT DRIFT" fails if only one of the two is widened.
 LIFECYCLE_INTENT_ABSENT = None
-LIFECYCLE_INTENT_OF = {"close": "done", "renew": "renew"}
+LIFECYCLE_INTENT_OF = {"close": "done", "renew": "renew", "revive": LIFECYCLE_INTENT_ABSENT}
 
 
 # ---- STAGE 3 (s3-08): THE BUS ALARM — the one surface an executor failure reaches a human on --
@@ -4373,11 +4385,13 @@ def inherited_log_path(fd=1):
 
 # ---- STAGE 3 (s3-06): THE DISPOSITION SEQUENCES — what the executor actually DOES -------------
 #
-# ONE SEQUENCE, TWO DISPOSITIONS. `close` IS `renew` MINUS EVERY RELAUNCH STEP — not a second
-# implementation of the same teardown. The relaunch half is gated on ONE boolean (`relaunching`)
-# so the two paths cannot drift into disagreeing about how a pane is killed, how a kill is
-# verified, or what is cleared afterwards. `s3-07`'s `revive` reuses this same body for the same
-# reason; the seam where it differs is NAMED inside `run_lifecycle_sequence`, not forked here.
+# ONE SEQUENCE, THREE DISPOSITIONS. `close` IS `renew` MINUS EVERY RELAUNCH STEP, and `revive`
+# (`s3-07`) IS `renew` MINUS EVERY STEP THAT NEEDS A CHECKOUT TO HAVE HAPPENED — neither is a
+# second implementation of the same teardown. The two halves are gated on ONE boolean each
+# (`relaunching`, from `LIFECYCLE_RELAUNCHING`; `checked_out`, from `LIFECYCLE_INTENT_OF`) so the
+# three paths cannot drift into disagreeing about how a pane is killed, how a kill is verified, or
+# what is cleared afterwards. Both booleans are read from the module's own vocabulary constants,
+# never from a disposition name spelled a second time down here.
 #
 # EVERY STEP IS APPENDED AFTER IT VERIFIES, NEVER BEFORE. That is `append_lifecycle_step`'s own
 # rule and the G-134 inversion the marker exists to make impossible: a marker recording a step
@@ -4435,8 +4449,15 @@ def lifecycle_record_step(base, seat, step):
 def lifecycle_settle(caller, budget_s=None):
     """§3.1 THE SETTLE WAIT — bounded, then PROCEED REGARDLESS OF THE OUTCOME.
 
-    Returns the ONE entry that goes into `steps-completed` about a STATE rather than an act, and it
-    must say which of the two happened: `"caller-exited"` or `"caller-still-live-after-settle"`.
+    Returns the settle's OWN `steps-completed` entry — one of the few that report a STATE rather
+    than an act — and it must say which of the two happened: `"caller-exited"` or
+    `"caller-still-live-after-settle"`.
+
+    ⚠ A `revive` CALLER IS EXPECTED TO BE STILL LIVE, AND THAT IS NOT A FAILURE (`s3-07`).
+    Stage 4's `check_revival()` in watch.py forks this executor and its loop KEEPS RUNNING, so
+    `--caller-pid` names a process that never exits and this wait always burns its full budget
+    before answering `caller-still-live-after-settle`. Bounded expiry RECORDED, never refused — the
+    seat whose session already CRASHED is the one that must not be left un-relaunched.
 
     ⚠ `ident_is_live_process`, NEVER `ident_is_live_harness`. The caller is a PYTHON process and
     `is_harness_argv` matches only the claude/codex/opencode basenames, so the harness predicate
@@ -4603,22 +4624,48 @@ def lifecycle_memory_gate(args, base, n_seats=1):
 
 
 def run_lifecycle_sequence(args, base, target):
-    """THE DISPOSITION SEQUENCE (`s3-06`): `renew` and `close`, each step VERIFIED before it is
-    recorded, each failure LOUD (R-8). Returns the successor's pane on a completed `renew` and
-    `""` on a completed `close`; NEVER RETURNS from a failure branch.
+    """THE DISPOSITION SEQUENCE (`s3-06`, widened by `s3-07`): `renew`, `close` and `revive`, each
+    step VERIFIED before it is recorded, each failure LOUD (R-8). Returns the successor's pane on a
+    completed `renew`/`revive` and `""` on a completed `close`; NEVER RETURNS from a failure branch.
 
     `target` is the caller's validated `--tmux-target` (guard 2). This executor NEVER computes one:
     an unresolved target lands wherever tmux picks, which was measured to be the LIVE room.
+
+    TWO BOOLEANS SHAPE THE BODY, and each is read from the module's vocabulary rather than from a
+    disposition name spelled here:
+
+      `relaunching`  (`LIFECYCLE_RELAUNCHING`) — does a successor go back? `renew` and `revive` yes,
+                     `close` no. Gates steps 2, 3, 5 and 8 plus the RAM gate and the descriptor.
+      `checked_out`  (`LIFECYCLE_INTENT_OF` mapping to `LIFECYCLE_INTENT_ABSENT`) — did a CHECKOUT
+                     precede this act? `renew`/`close` yes, `revive` no. Gates step 7's transcript
+                     read and step 6's roster invariant, the two that are ONLY true because a
+                     checkout ran first.
+
+    ⚠ `revive` IS `renew` ON A SEAT WHOSE SESSION CRASHED (`s3-07`, Stage-4 delta 1). The crash
+    means there was no turn boundary at which anything could be written: no awaiting-close record,
+    no exported transcript, no stamped handoff block, and a roster row still reading ACTIVE on the
+    pane that died. Those are INPUTS to this sequence, not faults in it — a revive that refused on
+    any of them would refuse in exactly the case revival exists for.
     """
     seat_name = args.seat
-    # [INTEGRATION POINT — STAGE 3: `s3-07` widens this predicate for `revive`, which RELAUNCHES
-    # like a renew but had no checkout — no handoff to re-read, no awaiting-close record to verify
-    # or clear, and a caller that CRASHED rather than forked. It reuses this body rather than
-    # forking a copy; what it must widen is this boolean, the awaiting-record reads at steps 7 and
-    # 9, and `LIFECYCLE_DISPOSITIONS` + `LIFECYCLE_INTENT_OF` together (s3-05's row 6c forces both).]
-    relaunching = args.disposition == "renew"
+    relaunching = args.disposition in LIFECYCLE_RELAUNCHING
+    # ⚠ DERIVED FROM THE MAPPING, NEVER FROM A NAME. `LIFECYCLE_INTENT_ABSENT` is guard 4's own
+    # statement that no checkout happened for this disposition, and this is the same fact read a
+    # second time by the sequence. Spelling `!= "revive"` here would put that fact in two places,
+    # and the day `dag-08` adds a fourth disposition the two would answer differently.
+    # `.get(..., "done")` never fires from the command path — guard 4 refuses an unmapped
+    # disposition before this runs — and covers the direct-call path the suite uses for `close`.
+    checked_out = LIFECYCLE_INTENT_OF.get(args.disposition, "done") is not LIFECYCLE_INTENT_ABSENT
     pane = str(getattr(args, "pane", "") or "")
     descriptor, in_place, new_pane = None, False, ""
+
+    # ---- THE FIRST MARKER ENTRY ON A NO-CHECKOUT ACT, so a reader can tell a REVIVAL from a
+    # RENEWAL by the marker ALONE. `steps-completed` is what Stage 4's detector and whoever is
+    # woken at 04:00 actually read, and the two acts produce otherwise near-identical lists; the
+    # `disposition` field says `revive` too, but a field is not what a step-list reader is reading.
+    # Named off the disposition rather than hardcoded, so a fourth no-checkout act names itself.
+    if not checked_out:
+        lifecycle_record_step(base, seat_name, f"{args.disposition}-no-checkout")
 
     # ---- 0a. THE DESCRIPTOR AND THE BINDING CHECK — both BEFORE anything is killed (G-51). ------
     # Only a relaunching disposition needs a descriptor: a plain close relaunches nothing, so
@@ -4632,9 +4679,10 @@ def run_lifecycle_sequence(args, base, target):
         lifecycle_check_bindings(args, [descriptor], base)
 
     # ---- 0b. THE SETTLE WAIT. Bounded; both outcomes converge on the same sequence. -------------
-    # Recorded FIRST and named exactly, because it is the one `steps-completed` entry about a STATE
-    # rather than an act — and `s3-11`(a) reads it to prove the executor never depended on the
-    # caller.
+    # Named exactly, because it reports a STATE rather than an act — and `s3-11`(a) reads it to
+    # prove the executor never depended on the caller. On a `revive` the caller is Stage 4's watch
+    # loop, which does NOT exit after forking, so this entry reads `caller-still-live-after-settle`
+    # on the normal revival path and the sequence proceeds anyway.
     lifecycle_record_step(base, seat_name,
                           lifecycle_settle((args.caller_pid, args.caller_starttime)))
 
@@ -4753,10 +4801,21 @@ def run_lifecycle_sequence(args, base, target):
     # no longer the seat's. The checkout flipped the row inactive; an ACTIVE row here means either
     # the checkout never happened or a stale row survived, and both are the roster claiming a
     # session that is not there.
+    #
+    # ⚠⚠ AND THAT INVARIANT IS TRUE ONLY BECAUSE A CHECKOUT RAN — SO IT IS GATED ON `checked_out`
+    # (`s3-07`). "The checkout never happened" is not a defect on a `revive`; it is the DEFINITION
+    # of one. A crashed session flips nothing, so its roster row is STILL ACTIVE on the pane that
+    # died — which is the very conjunct (`roster_absent` / GHOSTROW) Stage 4's detector fires the
+    # revival ON. Left ungated, this alarm would kill every revive whose pane could not be
+    # respawned in place (`new_pane` differs → the test trips), i.e. exactly the crashed seats
+    # revival exists for. The stale row is the crash's own signature, not a lie this executor
+    # introduced, and it is superseded the moment the successor writes its own row at check-in.
+    # It is RECORDED rather than repaired: repairing a roster row is `close-seat`'s act, and this
+    # executor holds no seat identity to perform one with.
     row = current_row(load_workers(base)[2], seat_name)
     row_pane = str((row or {}).get("pane") or "")
     row_active = bool(row) and (row or {}).get("active") == "yes"
-    if row_active and row_pane != new_pane:
+    if checked_out and row_active and row_pane != new_pane:
         lifecycle_alarm(
             "state",
             f"the roster still carries an ACTIVE row for '{seat_name}' on pane {row_pane or '(none)'}"
@@ -4769,54 +4828,71 @@ def run_lifecycle_sequence(args, base, target):
             failure=(f"the roster shows an ACTIVE row for the seat on {row_pane or '(no pane)'} "
                      f"after the session was taken down"))
     lifecycle_record_step(base, seat_name, "roster-verified:" + (
-        f"active on {row_pane}" if row_active
-        else "no active row — the successor writes its own at checkin"))
+        (f"active on {row_pane}"
+         + ("" if checked_out else " — STALE, left by the crash; the successor writes its own "
+                                   "at checkin"))
+        if row_active else "no active row — the successor writes its own at checkin"))
 
     # ---- STEP 7: THE TRANSCRIPT THE CHECKOUT EXPORTED. ------------------------------------------
     # `exported` is STORED by `set_awaiting`, never inferred, precisely so a later actor can tell
     # "safe" from "not yet safe" — and the FILE is checked, not only the flag, for `reap_blockers`'
     # stated reason: a recorded path whose file has since gone is not a transcript.
-    record = load_awaiting(base).get(seat_name)
-    record = record if isinstance(record, dict) else {}
-    tpath = str(record.get("transcript") or "")
-    if not record.get("exported") or not tpath:
-        lifecycle_alarm(
-            "state",
-            f"'{seat_name}' has NO EXPORTED TRANSCRIPT recorded for this checkout "
-            f"(exported={bool(record.get('exported'))!r}, path={tpath or '(none)'}), so the "
-            f"session that just ended left no readable account of itself. The pane is already "
-            f"down and the scrollback went with it, which is why this is reported rather than "
-            f"repaired: nothing can re-export a pane that no longer exists.",
-            3, base, args=args,
-            failure=("no exported transcript is recorded for this checkout — the session ended "
-                     "with no readable account of itself"))
-    if not Path(tpath).exists():
-        lifecycle_alarm(
-            "state",
-            f"the transcript recorded for '{seat_name}' is NOT ON DISK: {tpath}. The record says "
-            f"exported, the file says otherwise, and the pane it came from is already down.",
-            3, base, args=args,
-            failure=f"the recorded transcript {tpath} is not on disk")
-    # ⚠ THE STALENESS TEST IS MINUTE-GRAINED, AND THAT BOUND IS STATED RATHER THAN HIDDEN.
-    # `set_awaiting` stamps `since` through `now()` ("%Y-%m-%d %H:%M"), so a transcript written in
-    # the SAME MINUTE as the checkout cannot be told from one written just before it. What this
-    # DOES catch is the case that matters: a file left over from an EARLIER session of the same
-    # seat, which is a stale export wearing a fresh record's name.
-    stale_note = ""
-    try:
-        checkout_at = datetime.strptime(str(record.get("since") or "").strip(), "%Y-%m-%d %H:%M")
-    except (ValueError, TypeError):
-        checkout_at = None
-        stale_note = " (checkout stamp unreadable — freshness not established)"
-    if checkout_at is not None and datetime.fromtimestamp(Path(tpath).stat().st_mtime) < checkout_at:
-        lifecycle_alarm(
-            "state",
-            f"the transcript recorded for '{seat_name}' PRE-DATES its own checkout: {tpath} was "
-            f"last written before {record.get('since')}. That is an earlier session's export "
-            f"carried on this checkout's record, so the session that just ended is unaccounted for.",
-            3, base, args=args,
-            failure=f"the recorded transcript {tpath} pre-dates the checkout it is filed under")
-    lifecycle_record_step(base, seat_name, f"transcript-verified:{tpath}{stale_note}")
+    #
+    # ⚠ SKIPPED WHOLE ON A NO-CHECKOUT ACT (`s3-07`), and an ENTRY IS STILL RECORDED. There is no
+    # awaiting-close record to read — guard 4 REFUSED if one existed — so every branch below would
+    # alarm on a `revive`, on the fact that a crash produced no export. The substitute entry keeps
+    # the marker POSITION-FOR-POSITION alignable with a renewal's (which is how `s3-07`'s row 4
+    # proves `revive` reuses this body rather than a copy that quietly drops a verification), and
+    # it says WHY the transcript is missing instead of leaving a gap a reader must interpret.
+    # Nothing re-exports it: the pane and its scrollback died with the session.
+    if not checked_out:
+        lifecycle_record_step(base, seat_name, "no-checkout-no-transcript-to-verify")
+    else:
+        record = load_awaiting(base).get(seat_name)
+        record = record if isinstance(record, dict) else {}
+        tpath = str(record.get("transcript") or "")
+        if not record.get("exported") or not tpath:
+            lifecycle_alarm(
+                "state",
+                f"'{seat_name}' has NO EXPORTED TRANSCRIPT recorded for this checkout "
+                f"(exported={bool(record.get('exported'))!r}, path={tpath or '(none)'}), so the "
+                f"session that just ended left no readable account of itself. The pane is already "
+                f"down and the scrollback went with it, which is why this is reported rather than "
+                f"repaired: nothing can re-export a pane that no longer exists.",
+                3, base, args=args,
+                failure=("no exported transcript is recorded for this checkout — the session ended "
+                         "with no readable account of itself"))
+        if not Path(tpath).exists():
+            lifecycle_alarm(
+                "state",
+                f"the transcript recorded for '{seat_name}' is NOT ON DISK: {tpath}. The record "
+                f"says exported, the file says otherwise, and the pane it came from is already "
+                f"down.",
+                3, base, args=args,
+                failure=f"the recorded transcript {tpath} is not on disk")
+        # ⚠ THE STALENESS TEST IS MINUTE-GRAINED, AND THAT BOUND IS STATED RATHER THAN HIDDEN.
+        # `set_awaiting` stamps `since` through `now()` ("%Y-%m-%d %H:%M"), so a transcript written
+        # in the SAME MINUTE as the checkout cannot be told from one written just before it. What
+        # this DOES catch is the case that matters: a file left over from an EARLIER session of the
+        # same seat, which is a stale export wearing a fresh record's name.
+        stale_note = ""
+        try:
+            checkout_at = datetime.strptime(str(record.get("since") or "").strip(),
+                                            "%Y-%m-%d %H:%M")
+        except (ValueError, TypeError):
+            checkout_at = None
+            stale_note = " (checkout stamp unreadable — freshness not established)"
+        if (checkout_at is not None
+                and datetime.fromtimestamp(Path(tpath).stat().st_mtime) < checkout_at):
+            lifecycle_alarm(
+                "state",
+                f"the transcript recorded for '{seat_name}' PRE-DATES its own checkout: {tpath} "
+                f"was last written before {record.get('since')}. That is an earlier session's "
+                f"export carried on this checkout's record, so the session that just ended is "
+                f"unaccounted for.",
+                3, base, args=args,
+                failure=f"the recorded transcript {tpath} pre-dates the checkout it is filed under")
+        lifecycle_record_step(base, seat_name, f"transcript-verified:{tpath}{stale_note}")
 
     if relaunching:
         # ---- STEP 8: THE SUCCESSOR IS ACTUALLY RUNNING (G-11). ----------------------------------
@@ -4847,6 +4923,15 @@ def run_lifecycle_sequence(args, base, target):
     # reason — a closing flag that outlives its seat would quietly filter a live successor's
     # messages. Both are notes, never failures: the sequence has already succeeded by here, and a
     # debt that could not be cleared is visible in `status` rather than fatal.
+    #
+    # ⚠ THIS STEP IS **NOT** GATED ON `checked_out`, AND THAT IS A DECISION, NOT AN OVERSIGHT
+    # (`s3-07`). A `revive` has no awaiting-close record by construction — guard 4 refused if one
+    # existed — so `clear_awaiting` is a no-op that answers False and prints nothing. `clear_closing`
+    # is NOT a no-op: a closer may have been engaged on the seat when it CRASHED, and G-21's whole
+    # hazard is a closing flag outliving the session it narrowed — which is exactly what a revived
+    # successor would inherit. Gating this step off would have re-opened G-21 on the one path where
+    # nothing else clears the flag. Both calls are already absence-safe, so the correct widening
+    # here was to widen NOTHING.
     if clear_awaiting(base, seat_name):
         print(f"awaiting close: '{seat_name}' debt settled")
     if clear_closing(base, seat_name):
@@ -4895,8 +4980,12 @@ def cmd_lifecycle_exec(args):
     and never a fresh regex; it READS ONLY — writing, rewriting or parsing `memory.md` beyond the
     delimiters is out of scope and belongs to `s12` (R-14).
 
-    ⚠ WHAT THIS FUNCTION DOES NOT DO. `revive`'s semantics are `s3-07`'s and the caller-side fork
-    is `s3-09`'s. Past the five guards it hands off to `run_lifecycle_sequence` (`s3-06`), which
+    ⚠ WHAT THIS FUNCTION DOES NOT DO. The caller-side fork is `s3-09`'s. `revive` (`s3-07`) is now
+    a full member of the enum and passes through every guard above unchanged: guard 4 takes its
+    `LIFECYCLE_INTENT_ABSENT` branch (no checkout happened, so a record is the fault and its ABSENCE
+    is the healthy state), and the handoff re-read below is keyed on `renew` so a crashed session is
+    never asked for a block it had no turn boundary to write. Past the five guards it hands off to
+    `run_lifecycle_sequence` (`s3-06`), which
     owns every act and leaves through `lifecycle_alarm` (`s3-08`) on any failure. THE EXIT-CODE
     SPLIT IS PRESERVED AND IS THE CONTRACT: 2 = a GUARD refused this invocation, 3 = the guards
     passed and the SEQUENCE broke. A marker is never left `in-flight` on a failure — that reads as
@@ -4979,7 +5068,10 @@ def cmd_lifecycle_exec(args):
             f"{type(record).__name__}. The checkout intent is unreadable, and this executor never "
             f"proceeds on an intent it cannot read.", 2, base, args=args)
     if expected is LIFECYCLE_INTENT_ABSENT:
-        # `revive` (lands with s3-07): there was no checkout, so there must be no record.
+        # `revive` (s3-07): there was no checkout, so there must be no record. This branch was
+        # written by s3-05 and UNREACHABLE until this task mapped `revive` here; it is now the
+        # normal path of every revival, and its refusal arm is the one that catches a `revive`
+        # fired at a seat that actually checked out.
         if record is not None:
             lifecycle_alarm(
                 "state",
@@ -5007,10 +5099,17 @@ def cmd_lifecycle_exec(args):
                 f"travelled. Acting on nothing rather than picking a side.", 2, base, args=args)
 
     # ---- The `renew` handoff re-read. `--handoff-written` is the caller's ASSERTION. ------------
-    # ⚠ `revive` (lands with s3-07) passes 0 and MUST NOT require a block: a crashed session had no
-    # turn boundary at which to write one. That is why this is keyed on `renew` and not on
-    # "anything that is not close". The refusal itself is tested by `s3-07` (its row 3), which is
-    # why no row here asserts it.
+    # ⚠ `revive` (s3-07) passes 0 and MUST NOT require a block: a crashed session had no turn
+    # boundary at which to write one, so requiring it would make revival impossible in exactly the
+    # case revival exists for. THAT IS WHY THIS IS KEYED ON `renew` AND NOT ON `relaunching` — the
+    # relaunching set now holds both, and the day someone "simplifies" this line to the boolean two
+    # lines of code apart, every crash becomes unrecoverable. The refusal itself is s3-07's row 3.
+    #
+    # ⚠ AND THE PREDECESSOR'S LAST UNREAD BLOCK IS LEFT EXACTLY WHERE IT IS. This executor READS
+    # `memory.md` and never writes it (R-14); the `unread=` attribute is s12-08's cursor, flipped at
+    # the SUCCESSOR's check-in, and a revived successor is handed its predecessor's block by that
+    # same mechanism (the s12-08 header's keyed-on-(seat, unread) clause). s3-07's row 6 asserts the
+    # file's bytes are unchanged across a revive for that reason.
     if args.disposition == "renew":
         if args.handoff_written is None:
             lifecycle_alarm(
@@ -14076,19 +14175,19 @@ def _selftest_checks(args, failures, names):
         # reach 2 however correct the code was.
         _h6_ip = "[INTEGRATION POINT " + "— STAGE 3"
         check("s12-06 S6-h: EVERY Stage-3 seam exists and is GREPPABLE — the module source carries "
-              "the named marker exactly THREE times. TWO are s12's, both still open and both "
-              "s3-09's: the renew path's fork (the detached executor) and the done path's fork "
-              "(the detached reaper). ONE is s3-06's, inside `run_lifecycle_sequence`: the "
-              "predicate `s3-07` widens for `revive`, which relaunches like a renew but had no "
-              "checkout. ⚠ THE COUNT WENT 5 -> 4 WITH s3-08 AND 4 -> 3 WITH s3-06, EACH "
-              "DISCHARGING ONE: s3-08's `lifecycle_alarm` now RAISES the bus alarm rather than "
-              "promising to, and s3-06 both BUILT the disposition sequence the executor's seam "
-              "promised and SETTLED s12-07's deferred question in `reap_blockers` (the executor "
-              "clears the entry, at step 9). A named comment is how the sites stay findable "
-              "instead of being re-derived from a spec nobody reads at the time — and this count "
-              "is bumped in the SAME change as any seam added or discharged, or the inventory "
-              "starts lying quietly",
-              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 3)
+              "the named marker exactly TWICE. BOTH are s12's, both still open and both s3-09's: "
+              "the renew path's fork (the detached executor) and the done path's fork (the "
+              "detached reaper). ⚠ THE COUNT WENT 5 -> 4 WITH s3-08, 4 -> 3 WITH s3-06 AND 3 -> 2 "
+              "WITH s3-07, EACH DISCHARGING ONE: s3-08's `lifecycle_alarm` now RAISES the bus "
+              "alarm rather than promising to; s3-06 both BUILT the disposition sequence the "
+              "executor's seam promised and SETTLED s12-07's deferred question in `reap_blockers` "
+              "(the executor clears the entry, at step 9); and s3-07 WIDENED the sequence's "
+              "relaunch predicate for `revive` — the boolean is now read off "
+              "`LIFECYCLE_RELAUNCHING`, which is where a fourth disposition declares its side. A "
+              "named comment is how the sites stay findable instead of being re-derived from a "
+              "spec nobody reads at the time — and this count is bumped in the SAME change as any "
+              "seam added or discharged, or the inventory starts lying quietly",
+              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 2)
 
         # ============ s12-07: the DISPOSITION in awaiting-close.json =============================
         # Spec: stage-1-2-gate-checkout-spec.md §2.3. The rows that need a live pane, a recorded
@@ -15103,13 +15202,18 @@ def _selftest_checks(args, failures, names):
                 _s5_disp_choices = tuple(_s5_act.choices or ())
         check("s3-05 (6c) THE ENUM AND THE MAPPING CANNOT DRIFT APART: the parser's "
               "`--disposition` choices ARE `LIFECYCLE_DISPOSITIONS` (read off the built parser, "
-              "not off the constant), and every value it accepts has a row in "
-              "`LIFECYCLE_INTENT_OF`. `revive` is deliberately in NEITHER today — that absence is "
-              "what lets s3-07's red arm ('revive is not an accepted value yet') fire at all, and "
-              "this row is what forces s3-07 to widen BOTH rather than one",
+              "not off the constant), every value it accepts has a row in `LIFECYCLE_INTENT_OF`, "
+              "and every RELAUNCHING disposition is itself a member of the enum. ⚠ THIS ROW WAS "
+              "AUTHORED TO GO RED WHEN `revive` LANDED, and s3-07 is the task that consumed that "
+              "arm: the third conjunct was `revive not in LIFECYCLE_DISPOSITIONS` and is now the "
+              "positive statement that s3-07 widened BOTH constants rather than one — a widening "
+              "of only the enum leaves guard 4 unable to say what intent the new value maps to, "
+              "and a widening of only the mapping leaves the parser refusing it. `dag-08` widens "
+              "these a THIRD time and this row is what forces it to widen all three together",
               _s5_disp_choices == LIFECYCLE_DISPOSITIONS
               and set(LIFECYCLE_DISPOSITIONS) == set(LIFECYCLE_INTENT_OF)
-              and "revive" not in LIFECYCLE_DISPOSITIONS)
+              and set(LIFECYCLE_RELAUNCHING) <= set(LIFECYCLE_DISPOSITIONS)
+              and LIFECYCLE_INTENT_OF.get("revive", "unmapped") is LIFECYCLE_INTENT_ABSENT)
 
         # ---- (7) THE ENVIRONMENT SCRUB AT ENTRY.
         for _s5_v in LIFECYCLE_SCRUB_ENV:
@@ -15785,6 +15889,259 @@ def _selftest_checks(args, failures, names):
               "instead of quietly shrinking what it scans",
               _s6_seen == _s6_subjects and not (_s6_called & _s6_forbidden)
               and "launch_seat" in _s6_called and "memory_gate" in _s6_called)
+
+        # ============ s3-07: `revive` — the CRASH arm of the disposition sequence ================
+        # Spec: stage-3-executor-spec.md § "Deltas accepted from Stage 4", delta 1 (filed by
+        # stage-4-revival-spec.md). `revive` runs the RENEW sequence against a seat whose session
+        # CRASHED, so every artifact a checkout produces is absent BY CONSTRUCTION: no
+        # awaiting-close record, no exported transcript, no stamped handoff block — and a roster row
+        # still reading ACTIVE on the pane that died. Each of those is an INPUT here, not a fault.
+        #
+        # ⚠ THESE ROWS RIDE s3-06's STUBS AND FIXTURE HELPERS DELIBERATELY (`_s6_make`,
+        # `_s6_checkout`, `_s6_exec`, `_s6_order`, `_s6_steps`, and the tmux/launch spies), which is
+        # why the block sits INSIDE s3-06's stub scope rather than after its restores. Row (4)'s
+        # whole claim is that `revive` and `renew` run THE SAME BODY, and a claim like that can only
+        # be supported by a shared fixture — a second copy of the scaffolding would let the two
+        # sides drift apart and the comparison would stop meaning anything.
+        #
+        # ⚠ EVERY REVIVE FIXTURE EXCEPT ROW (2)'s CARRIES A COMPLETE HANDOFF BLOCK, and that is what
+        # makes row (2) isolable: its red arm is a revive-side handoff REQUIREMENT, which must red
+        # row (2) alone. Row (3)'s fixture is the other blockless one, and it is a `renew`.
+        def _s7_mem(pkg, block=True):
+            """`memory.md` as the seat's own predecessor left it. The block is written through
+            `handoff_block_text` — the WRITER s12 uses — never a hand-typed comment, so a change to
+            the block's shape reaches these rows instead of passing them by."""
+            m = pkg / "workers" / "renewer" / "memory.md"
+            m.write_text("# memory\n\nnotes from prior sessions of this seat\n"
+                         + ("\n" + handoff_block_text("renewer", "sess-s7", "renew",
+                                                      "carry this forward") if block else ""),
+                         encoding="utf-8")
+            return m
+
+        def _s7_keys(steps):
+            """The step list as a sequence of ACTS, payloads dropped. Pane ids and pids differ
+            between two fixtures by construction, so comparing raw entries would report the
+            fixtures; comparing the act names reports the SEQUENCE, which is row (4)'s subject."""
+            return [s.split(":", 1)[0] for s in steps]
+
+        # ---- (1) THE ENUM ACCEPTS EXACTLY THREE VALUES, AND REFUSES A FOURTH BY NAME.
+        _s7_parser = build_parser()
+        _s7_choices = None
+        for _s7_act in _s7_parser.command_parsers["lifecycle-exec"]._actions:
+            if "--disposition" in (_s7_act.option_strings or []):
+                _s7_choices = tuple(_s7_act.choices or ())
+
+        def _s7_parse(value):
+            _o, _e, _c = harness_outcome(lambda _a: build_parser().parse_args(
+                ["lifecycle-exec", "--package", str(td), "--seat", "s7", "--disposition", value,
+                 "--tmux-target", "%61", "--caller-pid", "1", "--caller-starttime", "1"]), ns())
+            return _o + _e, _c
+        _s7_harvest_out, _s7_harvest_code = _s7_parse("harvest")
+        check("s3-07 (1) THE ENUM ACCEPTS EXACTLY THREE VALUES AND REFUSES A FOURTH, NAMING THE "
+              "LEGAL SET: `renew`, `close` and `revive` all parse; `--disposition harvest` exits "
+              "non-zero and the message names the invalid value AND all three legal ones, so a "
+              "caller reading a detached log learns what it may pass instead of that something was "
+              "wrong. Membership is asserted on the BUILT PARSER and on the constant, which is a "
+              "different claim from s3-05 (6c)'s: that row pins enum-vs-mapping CONSISTENCY, this "
+              "one pins WHICH THREE. A fourth value smuggled into both constants together keeps "
+              "(6c) green and reds this row alone",
+              set(_s7_choices) == {"renew", "close", "revive"}
+              and set(LIFECYCLE_DISPOSITIONS) == {"renew", "close", "revive"}
+              and all(_s7_parse(v)[1] is None for v in ("renew", "close", "revive"))
+              and _s7_harvest_code not in (0, None)
+              and "harvest" in _s7_harvest_out
+              and all(v in _s7_harvest_out for v in ("renew", "close", "revive")))
+
+        # ---- (2) `revive` NEEDS NO HANDOFF BLOCK.
+        _s7_p2, _s7_b2 = _s6_make("s7-no-handoff")
+        _s7_m2 = _s7_mem(_s7_p2, block=False)
+        _s6_live["v"] = {"%61", "%80"}
+        _s6_idents["%80"] = [(7001, "stamp-7001")]
+        _s7_o2, _s7_c2 = _s6_exec(_s7_p2, disposition="revive", pane="%80", handoff_written="0")
+        _s7_r2, _s7_s2 = _s6_steps(_s7_b2, "renewer")
+        check("s3-07 (2) `revive` PROCEEDS WITH NO HANDOFF BLOCK AT ALL: memory.md carries none — "
+              "asserted through the LANDED reader, not by eyeballing the file — and "
+              "`--disposition revive --handoff-written 0` runs to `done` without a word about a "
+              "handoff. A crashed session had no turn boundary at which to write one, so requiring "
+              "it would refuse revival in exactly the case revival exists for. The marker's first "
+              "entry is `revive-no-checkout` and its `disposition` field carries `revive` verbatim, "
+              "which is how a later reader tells a revival from a renewal by the marker alone",
+              _s7_c2 == 0 and _s7_r2.get("state") == "done"
+              and handoff_blocks(_s7_m2.read_text(encoding="utf-8")) == []
+              and "handoff" not in _s7_o2.lower()
+              and _s7_s2 and _s7_s2[0] == "revive-no-checkout"
+              and _s7_r2.get("disposition") == "revive")
+
+        # ---- (3) `renew` STILL REQUIRES ONE — the row that proves revive relaxed ONE PATH.
+        _s7_p3, _s7_b3 = _s6_make("s7-renew-needs-handoff")
+        _s7_mem(_s7_p3, block=False)
+        _s6_live["v"] = {"%61", "%81"}
+        _s6_idents["%81"] = [(7011, "stamp-7011")]
+        _s6_checkout(_s7_p3, _s7_b3, "renewer", "%81", "renew")
+        _s7_kills3 = len(killed)
+        _s7_o3, _s7_c3 = _s6_exec(_s7_p3, disposition="renew", pane="%81", handoff_written="1")
+        check("s3-07 (3) `renew --handoff-written 1` WITH NO STAMPED BLOCK STILL REFUSES: exit 2 "
+              "(a GUARD, not the sequence), the refusal names memory.md and says no delimiter pair "
+              "is present, NO marker is stamped and the pane is NOT killed. This is the row that "
+              "proves `revive` relaxed one PATH and not the gate itself — without it, deleting the "
+              "handoff re-read entirely would look exactly like implementing this task",
+              _s7_c3 == 2 and "refused [coord state]" in _s7_o3
+              and "NO COMPLETE block" in _s7_o3
+              and "no delimiter pair is present" in _s7_o3
+              and "renewer" not in load_lifecycle(_s7_b3)
+              and "%81" not in killed[_s7_kills3:])
+
+        # ---- (4) `revive` RUNS THE RENEW SEQUENCE — the SAME body, not a copy.
+        # One shape, run twice: same fixture builder, same in-place arm, same live caller-exit.
+        _s7_pr, _s7_br = _s6_make("s7-pair-renew")
+        _s7_mem(_s7_pr)
+        _s6_live["v"] = {"%61", "%82"}
+        _s6_idents["%82"] = [(7021, "stamp-7021")]
+        _s6_checkout(_s7_pr, _s7_br, "renewer", "%82", "renew")
+        _s7_cr_o, _s7_cr_c = _s6_exec(_s7_pr, pane="%82")
+        _s7_rr, _s7_sr = _s6_steps(_s7_br, "renewer")
+        _s7_pv, _s7_bv = _s6_make("s7-pair-revive")
+        _s7_mem(_s7_pv)
+        _s6_live["v"] = {"%61", "%83"}
+        _s6_idents["%83"] = [(7022, "stamp-7022")]
+        _s7_cv_o, _s7_cv_c = _s6_exec(_s7_pv, disposition="revive", pane="%83")
+        _s7_rv, _s7_sv = _s6_steps(_s7_bv, "renewer")
+        _s7_kr, _s7_kv = _s7_keys(_s7_sr), _s7_keys(_s7_sv[1:])
+        _s7_div = [i for i in range(min(len(_s7_kr), len(_s7_kv))) if _s7_kr[i] != _s7_kv[i]]
+        check("s3-07 (4) `revive` RUNS THE RENEW SEQUENCE, NOT A COPY OF IT: two green runs of the "
+              "SAME fixture shape — one `renew`, one `revive` — produce step lists that are "
+              "IDENTICAL ACT FOR ACT AND POSITION FOR POSITION once revive's leading "
+              "`revive-no-checkout` entry is dropped, diverging at EXACTLY ONE position, which is "
+              "the checkout-derived transcript step. Equal length is half the claim: a `revive` "
+              "implemented as its own branch that quietly omits one verification shortens the list "
+              "and reds this row. The four acts that must survive any such branch — the relaunch "
+              "and all three verifications — are asserted present on the revive side by name, so "
+              "an omission from BOTH sides cannot pass either. No index and no length is hardcoded",
+              _s7_cr_c == 0 and _s7_cv_c == 0
+              and _s7_rr.get("state") == "done" and _s7_rv.get("state") == "done"
+              and _s7_sv and _s7_sv[0] == "revive-no-checkout"
+              and len(_s7_kr) == len(_s7_kv)
+              and [_s7_kr[i] for i in _s7_div] == ["transcript-verified"]
+              and [_s7_kv[i] for i in _s7_div] == ["no-checkout-no-transcript-to-verify"]
+              and {"relaunched", "roster-verified", "successor-alive",
+                   "awaiting-and-closing-cleared"} <= set(_s7_kv))
+
+        # ---- (5a)/(5b) THE AWAITING RECORD: ABSENCE IS LEGAL FOR `revive` AND LOUD FOR `renew`.
+        # ⚠ THE "ABSENCE IS LEGAL" HALF CANNOT BE ISOLATED BY A MUTATION, and that is stated rather
+        # than papered over: guard 4's ABSENT branch is on the critical path of EVERY revive, so
+        # inverting it reds rows (2), (4), (6), (7) and (8) at once and `--expect-fail` refuses the
+        # evidence. That half is therefore carried by those five green revives — none of which owns
+        # an awaiting-close record — and the two rows here take the two sides that CAN isolate: the
+        # ABSENT branch's own refusal arm (5a, the only fixture in the suite that fires a `revive`
+        # at a seat that DID check out) and the mapped branch's absence arm (5b).
+        _s7_p5a, _s7_b5a = _s6_make("s7-revive-with-record")
+        _s7_mem(_s7_p5a)
+        _s6_live["v"] = {"%61", "%84"}
+        _s6_idents["%84"] = [(7031, "stamp-7031")]
+        _s6_checkout(_s7_p5a, _s7_b5a, "renewer", "%84", "renew")
+        _s7_kills5a = len(killed)
+        _s7_o5a, _s7_c5a = _s6_exec(_s7_p5a, disposition="revive", pane="%84")
+        check("s3-07 (5a) A `revive` AT A SEAT THAT ACTUALLY CHECKED OUT IS REFUSED: the record "
+              "guard 4 forbids is PRESENT, so the executor refuses with 2, names the record's "
+              "declared disposition and states that absence is legal for this disposition ONLY. "
+              "Without this arm the ABSENT branch would be a hole rather than a branch — anything "
+              "could be revived, including a seat mid-renewal, and the double-launch the marker "
+              "exists to prevent would be reachable through the crash path",
+              _s7_c5a == 2 and "refused [coord state]" in _s7_o5a
+              and "Absence is legal for" in _s7_o5a
+              and "'renew'" in _s7_o5a
+              and "renewer" not in load_lifecycle(_s7_b5a)
+              and "%84" not in killed[_s7_kills5a:])
+        _s7_p5b, _s7_b5b = _s6_make("s7-renew-no-record")
+        _s7_mem(_s7_p5b)
+        _s6_live["v"] = {"%61", "%85"}
+        _s6_idents["%85"] = [(7041, "stamp-7041")]
+        _s7_kills5b = len(killed)
+        _s7_o5b, _s7_c5b = _s6_exec(_s7_p5b, disposition="renew", pane="%85")
+        check("s3-07 (5b) THE SAME ABSENCE IS LOUD FOR `renew`: same fixture shape, no "
+              "awaiting-close record, and a `renew` refuses with 2 rather than inferring an intent "
+              "nobody wrote. Opposite verdicts on one input is the whole point — the ABSENT branch "
+              "widens the guard for the crash arm and for nothing else, so a checkout that never "
+              "happened stays a loud failure everywhere it was supposed to happen",
+              _s7_c5b == 2 and "refused [coord state]" in _s7_o5b
+              and "requires the checkout that DECLARED it" in _s7_o5b
+              and "renewer" not in load_lifecycle(_s7_b5b)
+              and "%85" not in killed[_s7_kills5b:])
+
+        # ---- (6) THE PREDECESSOR'S UNREAD HANDOFF BLOCK IS NOT TOUCHED (R-14).
+        _s7_p6, _s7_b6 = _s6_make("s7-unread")
+        _s7_m6 = _s7_mem(_s7_p6)
+        _s7_bytes_before = _s7_m6.read_bytes()
+        _s6_live["v"] = {"%61", "%86"}
+        _s6_idents["%86"] = [(7051, "stamp-7051")]
+        _s7_o6, _s7_c6 = _s6_exec(_s7_p6, disposition="revive", pane="%86")
+        _s7_bytes_after = _s7_m6.read_bytes()
+        check("s3-07 (6) THE PREDECESSOR'S UNREAD HANDOFF BLOCK SURVIVES A REVIVE BYTE FOR BYTE: a "
+              "block stamped `unread=yes` is still there, still unread, and the file's bytes are "
+              "IDENTICAL after a green revive. This executor is a READER of memory.md and never a "
+              "writer (R-14) — the `unread=` attribute is s12-08's cursor, flipped at the "
+              "SUCCESSOR's check-in, and that is what hands a revived successor its own "
+              "predecessor's block. An executor that consumed it here would delete the one artifact "
+              "the crashed session left behind, at the one moment nobody is watching",
+              _s7_c6 == 0
+              and _s7_bytes_before == _s7_bytes_after
+              and _s7_bytes_after.count(b"unread=yes") == 1
+              and b"unread=no" not in _s7_bytes_after
+              and len(handoff_blocks(_s7_bytes_after.decode("utf-8"))) == 1)
+
+        # ---- (7) THE STALE ACTIVE ROSTER ROW IS THE CRASH'S SIGNATURE, NOT A G-11 LIE.
+        _s7_p7, _s7_b7 = _s6_make("s7-ghostrow")
+        _s7_mem(_s7_p7)
+        _s6_live["v"] = {"%61"}          # %87 died WITH the session -> re-place into a fresh cell
+        (_s7_b7 / "workers.md").write_text(
+            WORKERS_HEADER + row_text({"agent": "renewer", "active": "yes", "pane": "%87",
+                                       "summary": "crashed mid-turn", "checkin": now(),
+                                       "checkout": "", "lastread": "0"}),
+            encoding="utf-8")
+        _s7_o7, _s7_c7 = _s6_exec(_s7_p7, disposition="revive", pane="%87")
+        _s7_r7, _s7_s7 = _s6_steps(_s7_b7, "renewer")
+        _s7_row7 = current_row(load_workers(_s7_b7)[2], "renewer") or {}
+        check("⚠ s3-07 (7) A ROSTER ROW STILL READING ACTIVE ON THE DEAD PANE DOES NOT STOP A "
+              "REVIVE — and this is the row that catches the defect the delta did not name. Step "
+              "6's G-11 invariant ('an ACTIVE row here means the checkout never happened') is TRUE "
+              "ONLY BECAUSE A CHECKOUT RAN; on a crash nothing flips the row, which is the very "
+              "`roster_absent`/GHOSTROW conjunct Stage 4 fires the revival ON. Ungated it would "
+              "alarm on every revive whose pane could not be respawned in place — the successor "
+              "lands in a NEW cell, so the row's pane differs and the test trips — i.e. on exactly "
+              "the crashed seats revival exists for. Here the stale row is RECORDED (the entry "
+              "names it STALE) and left alone: repairing a roster row is `close-seat`'s act and "
+              "this process holds no seat identity to perform one with. The successor supersedes it "
+              "at check-in",
+              _s7_c7 == 0 and _s7_r7.get("state") == "done"
+              and any(s.startswith("roster-verified:active on %87") and "STALE" in s
+                      for s in _s7_s7)
+              # ⚠ `successor-alive` IS DELIBERATELY NOT IN THIS ORDER LIST — it is row (4)'s
+              # subject, and pinning it here asserts an irrelevance. Measured, not reasoned: row
+              # (4)'s red arm (skip step 8 for a no-checkout act) reddened this row as well and
+              # `--expect-fail` refused the evidence. The mutation was kept and this list narrowed.
+              and _s6_order(_s7_s7, "revive-no-checkout", "in-place-decided:re-place",
+                            "relaunched:", "roster-verified", "awaiting-and-closing-cleared")
+              and _s7_row7.get("active") == "yes" and _s7_row7.get("pane") == "%87")
+
+        # ---- (8) THE REVIVAL CALLER IS STILL LIVE, AND THAT IS THE NORMAL SHAPE.
+        _s7_p8, _s7_b8 = _s6_make("s7-live-caller")
+        _s7_mem(_s7_p8)
+        _s6_live["v"] = {"%61", "%88"}
+        _s6_idents["%88"] = [(7061, "stamp-7061")]
+        _s7_o8, _s7_c8 = _s6_exec(_s7_p8, disposition="revive", pane="%88",
+                                  caller_pid=os.getpid(),
+                                  caller_starttime=proc_stat(os.getpid())[1])
+        _s7_r8, _s7_s8 = _s6_steps(_s7_b8, "renewer")
+        check("s3-07 (8) A STILL-LIVE CALLER IS RECORDED AND PROCEEDED PAST, never refused — and "
+              "on the revival path that is the ONLY shape there is. Stage 4's `check_revival()` "
+              "forks this executor and its watch loop KEEPS RUNNING, so `--caller-pid` names a "
+              "process that never exits and the settle wait always expires. Both specs recorded "
+              "that gap and neither closed it; the answer is that expiry is a RECORDED state, so "
+              "the marker's second entry reads `caller-still-live-after-settle` (the first being "
+              "the revive marker) and the revive completes. A refusal here would make the arm "
+              "unusable by its only caller",
+              _s7_c8 == 0 and _s7_r8.get("state") == "done"
+              and _s7_s8[:2] == ["revive-no-checkout", "caller-still-live-after-settle"])
 
         tmux_pane_window_name, pane_harness_idents = _s6_real_wname, _s6_real_idents
         live_panes, tmux_session_name = _s6_real_panes, _s6_real_sess
@@ -17356,7 +17713,7 @@ def build_parser():
     s.add_argument("--seat", metavar="NAME", required=True,
                    help="the seat whose session is rotating")
     s.add_argument("--disposition", required=True, choices=LIFECYCLE_DISPOSITIONS,
-                   help="which lifecycle act this is — cross-verified against the intent awaiting-close.json recorded at checkout, through LIFECYCLE_INTENT_OF")
+                   help="which lifecycle act this is — cross-verified against awaiting-close.json through LIFECYCLE_INTENT_OF: renew|close expect the intent their checkout recorded, revive (the crash arm) expects NO record at all and no stamped handoff block")
     s.add_argument("--pane", metavar="%N", default=None,
                    help="the seat's pane as the caller measured it")
     s.add_argument("--tmux-target", dest="tmux_target", metavar="ID", required=True,
