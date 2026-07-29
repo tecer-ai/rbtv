@@ -3833,6 +3833,107 @@ def sweep_lifecycle(base):
     return cleared, survivors
 
 
+def lifecycle_line(base):
+    """The marker's READ SIDE: one block for the `status` and `workers` views, or `''` when the
+    marker holds nothing an operator must act on.
+
+    `undelivered_line`'s shape exactly — same `(base)` signature, same "a string or empty"
+    contract, same never-fatal posture — because it exists for the same reason and has to be
+    ignorable in the same way.
+
+    ⚠ WITHOUT THIS FUNCTION THE MARKER IS WRITE-ONLY. `stamp_lifecycle` records every renewal that
+    runs OUT OF PANE and, until Stage 4's revival arm lands, NOTHING READS IT. That is precisely
+    the shape `undelivered_flags` documents one screen up: warnings "printed to a detached stderr
+    file, and lost, while the loop went on reporting healthy". A marker nobody looks at is not a
+    fix, and a step that can fail must fail LOUDLY AND VISIBLY.
+
+    THREE CLASSES ARE REPORTED. The first two are the alarm; the third is not padding:
+
+      STALE    `lifecycle_stale(entry)` — in-flight, past `LIFECYCLE_STALE_MIN`, executor NOT live.
+               ⚠⚠ THE COMPLEMENT IS NEVER REPORTED: an in-flight entry with a LIVE executor is
+               MID-RENEWAL, a renewal in progress. Reporting it would train the room to scroll
+               past this line on the one night it is real — and the predicate is CALLED, never
+               re-spelled, so this surface and Stage 4 can never hold two definitions of stale.
+      FAILED   `state == "FAILED"`. NOT stale — it is young and its executor is legitimately gone —
+               but it IS an alarm: the executor itself reported that the renewal broke.
+      UNKNOWN  any other `state`. The store writes exactly `in-flight|done|FAILED`
+               (`finish_lifecycle` refuses anything else), so a fourth value means the file was
+               HAND-EDITED — and `sweep_lifecycle` will not clear it either, so it survives every
+               close-run. Named here for `sweep_lifecycle`'s own reason: an entry left behind
+               SILENTLY is indistinguishable from one never written.
+
+    `state: "done"` is the only class deliberately silent. A completed renewal is not news.
+
+    ⚠ AGES COME FROM `lifecycle_age_min`, NEVER `closing_age_min`. That one reads the key `since`;
+    this record stamps `stamped-at`, so `closing_age_min` returns None on every entry here —
+    silently — and every age would render as unknown while the line still looked correct.
+
+    ⚠ `disposition` is read with a `""` DEFAULT, never `load_awaiting`'s `"done"`. A blank means
+    the executor recorded no intent in THIS file, and the intent is `awaiting-close.json`'s to
+    state — so the line SAYS to read it there rather than inventing `done`. What this line reports
+    is EXECUTION state; the authority split between the two files is stated in full at the head of
+    this section and is not restated here.
+
+    NOT A REFUSAL, so it carries no `refuse()` layer token: this is display output, rendered by
+    its two callers in `C_DEAD` — the constant `undelivered_line` is already rendered in. A
+    rendered alarm an operator can act on is not a tool-gate verdict.
+
+    The remedy is named in plain words because a reader who has never seen this line before is
+    exactly the reader it is for: Stage 4's revival arm will act on it automatically once it
+    lands; until then a leader must run `close-seat <seat> --renew` by hand. No `coord_invocation`
+    prefix — the signature takes `base` alone (`undelivered_line`'s, deliberately) and no `args`
+    is in scope to resolve one from."""
+    entries = load_lifecycle(base)
+    if not isinstance(entries, dict) or not entries:
+        return ""
+    rows = []
+    for seat in sorted(entries):
+        entry = entries.get(seat)
+        if not isinstance(entry, dict):
+            rows.append(f"  UNKNOWN {seat} — its entry is not a record but a "
+                        f"{type(entry).__name__}; the file was hand-edited and no sweep will "
+                        f"clear it")
+            continue
+        state = entry.get("state")
+        if state == "done":
+            continue
+        if state == "in-flight" and not lifecycle_stale(entry):
+            continue        # MID-RENEWAL, or too young to judge. Never fire on it.
+        age = lifecycle_age_min(entry)
+        aged = f"marker {age}min old" if age is not None else "marker of UNREADABLE age"
+        disp = entry.get("disposition", "")
+        disp_txt = (f"disposition={disp}" if disp else
+                    "disposition NOT recorded here — read the intent from awaiting-close.json")
+        ident = lifecycle_ident(entry.get("executor"))
+        who = f"executor pid {ident['pid']}" if ident else "NO readable executor ident"
+        steps = entry.get("steps-completed")
+        steps = [str(s) for s in steps] if isinstance(steps, list) else []
+        last = f"last verified step: {steps[-1]}" if steps else "NO step ever verified"
+        if state == "FAILED":
+            rows.append(f"  FAILED  {seat} — {disp_txt}; {who}; {aged}; {last} — the executor "
+                        f"reported the break: "
+                        f"{(str(entry.get('failure') or '').strip() or '(no failure text)')}")
+        elif state == "in-flight":
+            rows.append(f"  STALE   {seat} — {disp_txt}; {who}, and it is NOT running; {aged}; "
+                        f"{last}")
+        else:
+            rows.append(f"  UNKNOWN {seat} — state={state!r} is not a state this store writes, so "
+                        f"this file was hand-edited; {disp_txt}; {who}; {aged}; {last}. close-run "
+                        f"will not sweep it either")
+    if not rows:
+        return ""
+    return ("LIFECYCLE MARKERS IN ALARM: %d — a renewal ran OUT OF PANE and never reported a clean "
+            # number-neutral on purpose: the block lists one entry or ten, and a header that says
+            # "the seat below" reads as a lie the moment there are two.
+            "ending. In plain words: EACH SEAT NAMED BELOW IS NEITHER ALIVE NOR CLOSED — nothing "
+            "is running it, nothing has freed its pane, and it will not recover on its own.\n"
+            "%s\n"
+            "  Remedy: Stage 4's revival arm will act on this automatically once it lands. UNTIL "
+            "THEN the remedy is manual — a leader runs `close-seat <seat> --renew`.\n"
+            "  Read them all: %s"
+            % (len(rows), "\n".join(rows), lifecycle_path(base)))
+
+
 def permitted_senders(agent, decls, roster):
     """Who may write to `agent` — or None when its inbox is unbounded. G-197.
 
@@ -4980,6 +5081,14 @@ def cmd_workers(args):
     _und = undelivered_line(base)
     if _und:
         print(c(_und, C_DEAD))
+    # s3-04: the lifecycle marker's READ SIDE, beside the undelivered line and for its exact
+    # reason — s3-03 records every out-of-pane renewal and, until Stage 4 lands, nothing looks at
+    # it. Rendered on BOTH surfaces the run actually reads (`workers` here, `status` at the twin
+    # site), in the same `C_DEAD` — a new colour would say "a different KIND of alarm", which this
+    # is not.
+    _lcl = lifecycle_line(base)
+    if _lcl:
+        print(c(_lcl, C_DEAD))
     # G-134: the debt is surfaced HERE because a record nobody reads is not a fix, and the roster
     # is where leader already looks to decide lifecycle. Rendered oldest-first with the pane's LIVE
     # state, because the two debts differ in what they cost: a live pane is still holding memory
@@ -6326,6 +6435,13 @@ def cmd_status(args):
     _und = undelivered_line(base)
     if _und:
         print(c(_und, C_DEAD))
+    # s3-04, the twin site. Surfaced on EVERY seat's status for the reason the line above carries:
+    # a stuck lifecycle is the run failing to finish an act it started, and the seat it is ABOUT is
+    # often the one that most needs to see it. Until Stage 4's revival arm lands, these two prints
+    # are the ONLY readers the marker has.
+    _lcl = lifecycle_line(base)
+    if _lcl:
+        print(c(_lcl, C_DEAD))
     if waiting:
         print(c(f"next:   {coord} read", C_HINT))
     elif mine:
@@ -13517,6 +13633,126 @@ def _selftest_checks(args, failures, names):
               and "nosuchseat" not in load_lifecycle(_lc_sb)
               and clear_lifecycle(_lc_sb, "nosuchseat") is False
               and (load_lifecycle(_lc_sb).get("gamma") or {}).get("state") == "in-flight")
+
+        # ============ s3-04: the LIFECYCLE LINE — the marker's READ SIDE ========================
+        # ⚠ THE FIXTURE IS THE MAIN PACKAGE'S OWN `coordination/`, not a bare temp dir, and that is
+        # not convenience. Rows (3a)/(3b) must render through the REAL commands, and `cmd_workers`
+        # RETURNS EARLY on a package with no roster rows — before it reaches either render site —
+        # so a fresh empty package would assert about a code path the command never enters: green
+        # whether or not the line is wired in, which is the whole property row 3 exists to prove.
+        # The marker is removed again at the end of this block.
+        _s4_base = base_dir(ns())
+        _s4_nofile = lifecycle_line(_s4_base)              # no marker file at all
+        _s4_clean_st = run(cmd_status, agent="alpha")
+        _s4_clean_wk = run(cmd_workers, full=False, history=False)
+        stamp_lifecycle(_s4_base, "s4-finished", {"disposition": "renew",
+                                                  "executor": {"pid": 999996, "starttime": "1"}})
+        finish_lifecycle(_s4_base, "s4-finished", "done")
+        _s4_done = lifecycle_line(_s4_base)                # marker holding ONLY a done entry
+        _s4_done_st = run(cmd_status, agent="alpha")
+        _s4_done_wk = run(cmd_workers, full=False, history=False)
+        check("s3-04 (1) SILENT WHEN CLEAN: with NO marker file, and with a marker holding only "
+              "`state: done`, `lifecycle_line` returns EMPTY and neither `status` nor `workers` "
+              "prints a lifecycle line. A completed renewal is not news, and a surface that "
+              "shouts on a healthy room gets scrolled past on a sick one — which is the failure "
+              "mode `undelivered_line` was written against, not a style preference",
+              _s4_nofile == "" and _s4_done == ""
+              and not any("LIFECYCLE MARKERS IN ALARM" in _o for _o in
+                          (_s4_clean_st, _s4_clean_wk, _s4_done_st, _s4_done_wk)))
+
+        # The stale/FAILED/hand-edited fixture. The two in-flight stamps are AGED through the
+        # store's own writer: `stamp_lifecycle` OWNS `stamped-at` and overwrites whatever a caller
+        # supplies, so rewriting the loaded dict is the only way a check can hold an old marker
+        # without sleeping for LIFECYCLE_STALE_MIN.
+        _s4_old = (datetime.now()
+                   - timedelta(minutes=LIFECYCLE_STALE_MIN + 5)).strftime("%Y-%m-%d %H:%M")
+        stamp_lifecycle(_s4_base, "s4-stuck", {"disposition": "renew", "pane": "%77",
+                                               "executor": {"pid": 999999, "starttime": "1"}})
+        append_lifecycle_step(_s4_base, "s4-stuck", "caller-exited")
+        append_lifecycle_step(_s4_base, "s4-stuck", "in-place-decided:in-place")
+        stamp_lifecycle(_s4_base, "s4-live", {"disposition": "renew", "pane": "%78",
+                                              "executor": dict(_lc_live_id)})
+        stamp_lifecycle(_s4_base, "s4-broke", {"disposition": "renew",
+                                               "executor": {"pid": 999998, "starttime": "1"}})
+        append_lifecycle_step(_s4_base, "s4-broke", "caller-exited")
+        finish_lifecycle(_s4_base, "s4-broke", "FAILED", "the respawned harness never came up")
+        # `s4-nodisp` exists so row (4d) rests on an entry of ITS OWN. It used to read the blank
+        # disposition off `s4-hand`, which made the mutation that deletes the hand-edited branch
+        # red TWO rows at once — and `--expect-fail` demands exactly one, so neither row's red arm
+        # could be isolated. One fixture entry per property is what buys that isolation.
+        stamp_lifecycle(_s4_base, "s4-nodisp", {"pane": "%79",
+                                                "executor": {"pid": 999995, "starttime": "1"}})
+        _s4_data = load_lifecycle(_s4_base)
+        for _s4_s in ("s4-stuck", "s4-live", "s4-nodisp"):
+            _s4_data[_s4_s]["stamped-at"] = _s4_old
+        _s4_data["s4-hand"] = {"state": "paused-by-hand", "stamped-at": _s4_old,
+                               "disposition": "", "failure": "", "steps-completed": [],
+                               "executor": {"pid": 999997, "starttime": "1"}}
+        _write_lifecycle(_s4_base, _s4_data)
+        _s4_line = lifecycle_line(_s4_base)
+        check("s3-04 (2) LOUD WHEN STALE: an `in-flight` entry stamped past LIFECYCLE_STALE_MIN "
+              "with a DEAD executor is named — the seat, its executor pid, its disposition, the "
+              "marker's age and the LAST VERIFIED STEP, so a reader can see where it stopped — "
+              "together with the consequence in plain words (NEITHER ALIVE NOR CLOSED) and the "
+              "interim manual remedy. RED ARM: run this same assertion against coord.py before "
+              "this task landed — `lifecycle_line` does not exist, so it fails by construction",
+              "s4-stuck" in _s4_line and "999999" in _s4_line
+              and "disposition=renew" in _s4_line
+              and "in-place-decided:in-place" in _s4_line
+              # the age is asserted over a two-minute window on purpose: `_s4_old` is computed one
+              # statement earlier than the render, so a clock crossing a minute boundary between
+              # them is a real and legitimate outcome, not a defect to pin the row on.
+              and any(f"marker {_a}min old" in _s4_line
+                      for _a in (LIFECYCLE_STALE_MIN + 5, LIFECYCLE_STALE_MIN + 6))
+              and "NEITHER ALIVE NOR CLOSED" in _s4_line
+              and "close-seat <seat> --renew" in _s4_line
+              and "s4-finished" not in _s4_line)
+        _s4_st = run(cmd_status, agent="alpha")
+        _s4_wk = run(cmd_workers, full=False, history=False)
+        check("s3-04 (3a) RENDERED BY `status`, not merely computed — this is the check that "
+              "separates 'the function exists' from 'the run can see it', which is the entire "
+              "point of the task. RED ARM: define `lifecycle_line` and wire it into neither "
+              "command; this row and (3b) both go red",
+              "LIFECYCLE MARKERS IN ALARM" in _s4_st and "s4-stuck" in _s4_st)
+        check("s3-04 (3b) RENDERED BY `workers` TOO — the roster is where the leader already "
+              "looks to decide lifecycle, and a marker visible on only one of the two surfaces is "
+              "half a read side. Split from (3a) so ONE mutation reds ONE row and `--expect-fail` "
+              "can isolate each half; the both-sites-removed mutant reds both, as it must",
+              "LIFECYCLE MARKERS IN ALARM" in _s4_wk and "s4-stuck" in _s4_wk)
+        check("s3-04 (4) FAILED IS REPORTED EVEN WHEN YOUNG, with its `failure` text: the entry "
+              "is one minute old and `lifecycle_stale` says NOT stale — asserted here, so this "
+              "row cannot pass through the staleness path and stay green if the FAILED branch is "
+              "deleted. A FAILED marker is not stale; it IS an alarm, because the executor itself "
+              "reported the break",
+              "s4-broke" in _s4_line
+              and "the respawned harness never came up" in _s4_line
+              and lifecycle_stale(_s4_data["s4-broke"]) is False)
+        check("⚠⚠ s3-04 (4b) MID-RENEWAL IS NEVER REPORTED — the one row that costs a DOUBLE "
+              "LAUNCH when it is wrong. `s4-live` is `in-flight`, stamped just as long ago as "
+              "`s4-stuck`, and its executor IS live, so it is a renewal IN PROGRESS. The class is "
+              "decided by CALLING `lifecycle_stale`, never by re-spelling it, so this surface and "
+              "Stage 4 cannot hold two definitions of stale that drift apart",
+              "s4-live" not in _s4_line
+              and lifecycle_stale(_s4_data["s4-live"]) is False
+              and lifecycle_stale(_s4_data["s4-stuck"]) is True)
+        check("s3-04 (4c) A HAND-EDITED STATE IS NAMED, never silently skipped: the store writes "
+              "exactly in-flight|done|FAILED, so a fourth value means somebody edited the file — "
+              "and `sweep_lifecycle` will not clear it either, so it survives every close-run. An "
+              "entry left behind SILENTLY is indistinguishable from one never written",
+              "s4-hand" in _s4_line and "'paused-by-hand'" in _s4_line
+              and "close-run will not sweep it either" in _s4_line)
+        check("s3-04 (4d) THE BLANK DISPOSITION READS AS BLANK, never as `done`: `\"\"` is this "
+              "file's absent-key reading (`load_awaiting`'s `done` default belongs to "
+              "awaiting-close.json's records, not these), and the line SAYS to read the intent "
+              "from awaiting-close.json rather than inventing one. This file is authoritative for "
+              "EXECUTION state only",
+              "s4-nodisp" in _s4_line
+              and "s4-nodisp — disposition NOT recorded here — read the intent from "
+                  "awaiting-close.json" in _s4_line)
+        lifecycle_path(_s4_base).unlink()   # leave the shared fixture as this block found it
+        check("s3-04 (1) AND THE FIXTURE IS RESTORED: with the marker removed the line is empty "
+              "again, so no row after this block inherits an alarm this block manufactured",
+              lifecycle_line(_s4_base) == "")
 
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
