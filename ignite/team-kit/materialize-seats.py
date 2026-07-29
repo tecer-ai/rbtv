@@ -648,7 +648,7 @@ def _descriptor_frontmatter(seat: str, b: dict, package: str,
                 "class-withdrawn",
                 f"bindings for seat '{seat}' carry 'class:' — the WITHDRAWN "
                 "spelling (r-agent-type-field-name, G-217); write "
-                "agent_type: staff|worker instead",
+                "agent_type: " + "|".join(AGENT_TYPES) + " instead",
             )
         if key not in ALLOWED_BINDING_KEYS:
             raise Refuse(
@@ -2409,6 +2409,60 @@ def run_dag04_acceptance(check, env: dict) -> None:
               "allow-list survives",
               s1_pkg9_fm.get("senders") == "leader",
               str(s1_pkg9_fm.get("senders")))
+        # agent-type — the PERMANENT guard on the widened AGENT_TYPES
+        # (d-agent-type-widened-to-the-kg-top-set). SC-17 above covers only
+        # `worker` acceptance, so a future re-narrowing to staff|worker would
+        # have passed the suite green. Green arm: `master` is accepted AND
+        # reaches the emitted frontmatter, `verifier` is accepted. Red arm: an
+        # invalid value is STILL refused and its message names ALL FOUR valid
+        # values (the arm that catches a re-narrowing), and an absent value is
+        # STILL refused — a widened set that accepted everything would make
+        # the green meaningless.
+        cp = _invoke(s1_argv(s1_bindings("agent-type-master.json",
+                                         {"agent_type": "master"}, seat="s3"),
+                             dry=False, seat="s3"), env)
+        s3_md = Path(fx["pkg9"]) / "seats" / "s3" / "seat.md"
+        s3_fm = (yaml.safe_load(
+            _FM_RE.match(s3_md.read_text(encoding="utf-8")).group(1))
+            if cp.returncode == 0 and s3_md.is_file() else {})
+        check("agent-type: agent_type: master is ACCEPTED and reaches the "
+              "emitted descriptor's frontmatter as master",
+              cp.returncode == 0 and s3_fm.get("agent_type") == "master",
+              cp.stdout.strip()[:200] or str(s3_fm))
+        cp = _invoke(s1_argv(s1_bindings("agent-type-verifier.json",
+                                         {"agent_type": "verifier"},
+                                         seat="s4"), seat="s4"), env)
+        check("agent-type: agent_type: verifier is ACCEPTED",
+              cp.returncode == 0, cp.stderr.strip()[:200])
+        cp = _invoke(s1_argv(s1_bindings("agent-type-bogus.json",
+                                         {"agent_type": "operator"},
+                                         seat="s5"), seat="s5"), env)
+        # The four values are written out LITERALLY here, deliberately: a
+        # check that reads AGENT_TYPES cannot detect a change to AGENT_TYPES
+        # — it would move with the code and pass a re-narrowing green
+        # (measured while landing this row). This literal IS the guard.
+        check("agent-type red: an invalid agent_type is REFUSED and the "
+              "refusal names ALL FOUR ruled values (master staff worker "
+              "verifier)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "agent-type-invalid"
+              and all(v in _refusal(cp).get("message", "")
+                      for v in ("master", "staff", "worker", "verifier")),
+              cp.stdout.strip()[:200])
+        p_absent = bdir / "agent-type-absent.json"
+        p_absent.write_text(json.dumps(
+            {"version": 1,
+             "defaults": {k: v for k, v in wide_defaults.items()
+                          if k != "agent_type"},
+             "seats": {"s5": {"model": "deepseek/deepseek-chat",
+                              "after": []}}}), encoding="utf-8")
+        cp = _invoke(s1_argv(str(p_absent), seat="s5"), env)
+        check("agent-type red: an ABSENT agent_type is REFUSED naming it "
+              "(absent) — required, never defaulted",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "agent-type-invalid"
+              and "(absent)" in _refusal(cp).get("message", ""),
+              cp.stdout.strip()[:200])
 
     # ---- group 4: goal_cli lint over an emitted package (the dag-01
     #      guard-comment contract: no scalar key false-positives) --------
@@ -3283,6 +3337,13 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
               ("SC-15: a catalog/mirror path is refused",)),
     "SC-16": (("SC-16: a cheap one-shot worker",), ("SC-16 control",)),
     "SC-17": (("SC-17 control",), ("SC-17: class: is refused",)),
+    # d-agent-type-widened-to-the-kg-top-set — the widening's permanent guard.
+    # Green: master accepted + emitted, verifier accepted. Red: an invalid
+    # value refused naming all four, an absent one refused.
+    "agent-type": (("agent-type: agent_type: master is ACCEPTED",
+                    "agent-type: agent_type: verifier is ACCEPTED"),
+                   ("agent-type red: an invalid agent_type",
+                    "agent-type red: an ABSENT agent_type")),
     # 7.104 — the pass-through row (d-relays-frontmatter-passthrough). Its
     # red arm is the counter-case: no declaration -> no key.
     "relays": (("relays: a declared relays: passes THROUGH",),
