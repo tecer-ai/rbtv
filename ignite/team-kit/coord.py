@@ -1141,10 +1141,15 @@ def wake(pane, text):
     while no harness had ever started, and wake() returned SUCCESS. Any text long enough to be
     multi-line goes through a file (prompt_file) so the wake line stays one line."""
     if "\n" in text or "\r" in text:
-        return False, ("refused: wake text carries a newline, and send-keys delivers a newline as "
-                       "Enter — the pane's shell would execute the text line by line (G-11). "
-                       "Write the text to a file and wake with a one-line command that reads it "
-                       "(see prompt_file).")
+        # s12-03: RETURNED, not printed — the caller prints it — so it goes through the
+        # message-building half of `refuse`. Left as a bare literal it would be the ONE un-layered
+        # refusal in the file, and invisible to the selftest guard, which scopes to `print(`.
+        return False, refusal_text(
+            "input",
+            "wake text carries a newline, and send-keys delivers a newline as "
+            "Enter — the pane's shell would execute the text line by line (G-11). "
+            "Write the text to a file and wake with a one-line command that reads it "
+            "(see prompt_file).")
     set_injection_context(action="wake")
     ok, err = tmux_send_text(pane, text)
     if not ok:
@@ -1921,8 +1926,7 @@ def cmd_current_run(args):
     goal = goal_dir(package_dir(args))
     run_id, detail = resolve_live_run(goal)
     if not run_id:
-        print(f"refused: {detail}", file=sys.stderr)
-        sys.exit(1)
+        refuse("state", detail, 1)
     print(run_id)
     print(c(f"resolved from {goal / 'runs.csv'} — one hop from the goal folder, so goal-level "
             f"state follows the run boundary (R10)", C_HINT))
@@ -1979,8 +1983,7 @@ def cmd_close_run(args):
     pkg = package_dir(args)
     ok, detail = close_run_index(pkg)
     if not ok:
-        print(f"refused: {detail}", file=sys.stderr)
-        sys.exit(1)
+        refuse("state", detail, 1)
     print(f"runs.csv: {detail}")
     print(c(f"the index now resolves the goal's current run without hand maintenance "
             f"({runs_index_csv(pkg)})", C_HINT))
@@ -2707,11 +2710,13 @@ def resolve_agent(args, required=True):
     registered = pane_agent(base_dir(args), pane) if pane else ""
     if claimed:
         if registered and registered != claimed and not getattr(args, "force", False):
-            print(f"refused: you claimed '{claimed}' ({source}), but this pane ({pane}) is "
-                  f"registered to '{registered}' in the roster.\n"
-                  f"Run the command without the claim to act as '{registered}', or pass --force "
-                  f"to override deliberately (leader acting on behalf of a seat).", file=sys.stderr)
-            sys.exit(2)
+            refuse(
+                "identity",
+                f"you claimed '{claimed}' ({source}), but this pane ({pane}) is "
+                f"registered to '{registered}' in the roster.\n"
+                f"Run the command without the claim to act as '{registered}', or pass --force "
+                f"to override deliberately (leader acting on behalf of a seat).",
+                2)
         return claimed
     if registered:
         return registered
@@ -2758,6 +2763,69 @@ ROLE_CASE_SELF = ("`{command}` is {allowed_desc}, and this is not a self-act it 
                   "resolve to '{caller}' and the target '{target}' IS you, but this command has "
                   "no self path")
 ROLE_REMEDY_SELF = "coordinate checkout --renew"
+
+
+# ---- Every refusal this file emits names its LAYER (task s12-03, stage-1 §1.4; standing ruling
+# R-8, `core-build-run-adjustments/rulings.md`).
+#
+# THE PROBLEM. A seat that hits a refusal cannot tell whether coord.py's OWN gate refused it or the
+# HARNESS's permission classifier did. The two look alike, a bare "refused:" carries nothing that
+# separates them, and the seat then sends the run at the wrong fix (W4) — this cost real run-2
+# time. The prefix is the fix, and it is shaped so `grep -c 'refused \[coord'` counts them.
+#
+# THE LAYER IS ASSIGNED BY WHAT THE CHECK READS. That rule is the durable artifact; the site list is
+# not. A refusal added tomorrow picks its layer by re-applying it — and `_selftest_checks` refuses
+# both a bare `print("refused: …")` (the sweep rots on the next added refusal otherwise: two new
+# commands added 12 un-layered sites in a single day) and a layer token outside this tuple.
+REFUSAL_LAYERS = (
+    "role gate",    # the CALLER's role/identity vs the act
+    "identity",     # who the caller resolves to, vs the pane
+    "state",        # the run's own recorded state forbids it
+    "input",        # the arguments/body are malformed or over a bound
+    "environment",  # the process/tmux/filesystem world is wrong
+)
+
+# Appended to the ROLE GATE's own refusals — the one layer a seat routinely MISREADS as a harness
+# block, because "you may not run this command" is exactly what the classifier also says. Naming
+# the layer in the prefix is not enough on its own: the prefix teaches a reader who already knows
+# the vocabulary, and this paragraph teaches the one who does not.
+ROLE_GATE_LAYER_NOTE = (
+    "layer:   this refusal is coord.py's OWN role gate, NOT your harness's permission\n"
+    "         classifier. Report it as \"coord role gate refused\" — the two look alike and\n"
+    "         a bare \"refused\" sends the run at the wrong fix."
+)
+
+
+def refusal_text(layer, msg):
+    """The refusal's TEXT, without the exit — the message-building half of `refuse`.
+
+    Split out for the refusals that are RETURNED rather than printed (`wake`'s newline guard
+    returns `(False, text)` and its caller prints it). Without this split that one refusal would be
+    the single un-layered refusal in the file, which is precisely the rot the selftest guard exists
+    to prevent — and it would be invisible to that guard, because the guard scopes to `print(`.
+
+    The layer is NOT validated here. A ValueError raised while building a refusal would replace a
+    refusal with a traceback — worse than the defect. `_selftest_checks` carries the enforcement
+    instead, where a wrong token costs a red line and nothing else.
+    """
+    return "refused [coord " + layer + "]: " + msg
+
+
+def refuse(layer, msg, code=2):
+    """Emit a layered refusal on stderr and exit with `code`.
+
+    ⚠ `code` IS NOT DECORATIVE, and it is passed explicitly at every one of this file's call sites
+    rather than defaulted. The sites exit with a MIX of 1 and 2 (the role gate and the identity
+    contradiction exit 2; nearly everything else exits 1), and `watch.py`'s `record_undelivered`
+    path keys on coord's EXIT CODE, not on this text. Uniformizing the codes would change behaviour
+    for it and for every scripted caller.
+
+    ⚠ `_selftest_checks` defines its own local `refuse(fn, **kw)` capture helper, which SHADOWS this
+    function inside that one scope. Deliberate: the fixtures called theirs long before this existed,
+    and module-level callers are unaffected because they resolve the global at call time.
+    """
+    print(refusal_text(layer, msg), file=sys.stderr)
+    sys.exit(code)
 
 
 def role_verdict(args, command, allow, allowed_desc, target=None, self_legal=False,
@@ -2826,8 +2894,11 @@ def gate(args, command, allow, allowed_desc, target=None, self_legal=False,
     # ruling (`p-override-split-is-safety-critical`) — but a refusal that offers "or pass --force"
     # teaches every reader to reach for the override instead of the legal path, and the legal path
     # is what `remedy` now names.
-    print(f"refused: {msg}", file=sys.stderr)
-    sys.exit(2)
+    # s12-03: and it NAMES ITS LAYER. `role gate` is the one layer a seat reads as a harness
+    # block, so the prefix carries the paragraph that separates the two. `{command}` is NOT
+    # re-stated here: every one of `role_verdict`'s case templates already renders it, so the
+    # §1.3 sketch's leading "`{command}` — " would print it twice.
+    refuse("role gate", f"{msg}\n{ROLE_GATE_LAYER_NOTE}", 2)
 
 
 def launch_gates(args, command, allow, allowed_desc, n_seats, target=None, self_legal=False,
@@ -2911,12 +2982,22 @@ def launch_gates(args, command, allow, allowed_desc, n_seats, target=None, self_
         refused = True
     verdicts = "\n  ".join(lines)
     if refused:
-        print(f"refused: `{command}` — BOTH gates evaluated, both verdicts below (neither flag "
-              f"carries the other):\n  {verdicts}\n"
-              f"--force carries the ROLE gate; --force-memory carries the MEMORY gate.\n"
-              f"If memory is the refusal, the right move is usually to WAIT for a seat to depart "
-              f"rather than override it.", file=sys.stderr)
-        sys.exit(2)
+        # s12-03: the HEAD line names the layer; the per-verdict lines below are untouched, and so
+        # is the two-flag disambiguation (jobs/recover-room.py reasons about exactly that split,
+        # `p-override-split-is-safety-critical`). The token follows the assignment rule: this head
+        # covers BOTH gates, so it names whichever one actually refused — `role gate` when the
+        # caller's role did, `environment` when the memory gate did (it reads available RAM, i.e.
+        # the process world). A head that always said "role gate" would misname half its refusals.
+        _role_refused = not role_ok and not role_forced
+        refuse(
+            "role gate" if _role_refused else "environment",
+            f"`{command}` — BOTH gates evaluated, both verdicts below (neither flag "
+            f"carries the other):\n  {verdicts}\n"
+            f"--force carries the ROLE gate; --force-memory carries the MEMORY gate.\n"
+            f"If memory is the refusal, the right move is usually to WAIT for a seat to depart "
+            f"rather than override it."
+            + (f"\n{ROLE_GATE_LAYER_NOTE}" if _role_refused else ""),
+            2)
     # Nothing refused. The floor and spike this launch actually used are stated even on the happy
     # path (task 7.82 criterion 8) — one line, on stderr, so it never pollutes a piped stdout.
     print(c("gates: " + " · ".join(provenance), C_HINT), file=sys.stderr)
@@ -3448,10 +3529,12 @@ def cmd_approve(args):
     _, _, rows = load_workers(base_dir(args))
     row = current_row(rows, args.target)
     if not row or row.get("active") != "yes" or not row.get("pane"):
-        print(f"refused: no ACTIVE pane is registered for '{args.target}', so there is nothing to "
-              f"send keys to — the seat never checked in, has checked out, or its pane changed.\n"
-              f"Check the roster first: {coord_invocation(args)} workers", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"no ACTIVE pane is registered for '{args.target}', so there is nothing to "
+            f"send keys to — the seat never checked in, has checked out, or its pane changed.\n"
+            f"Check the roster first: {coord_invocation(args)} workers",
+            1)
     pane = row["pane"]
     set_injection_context(action="approve")
     if args.keys:
@@ -3493,14 +3576,13 @@ def cmd_checkin(args):
     base.mkdir(parents=True, exist_ok=True)
     summary = " ".join(args.summary.split()).replace("|", "/")
     if len(summary) > SUMMARY_MAX:
-        print(
-            f"refused: summary is {len(summary)} chars — max {SUMMARY_MAX}.\n"
+        refuse(
+            "input",
+            f"summary is {len(summary)} chars — max {SUMMARY_MAX}.\n"
             "This line is how OTHER agents decide whether your work concerns them and whether "
             "to message you. Rewrite it to state, concretely: what you are changing/producing "
             "and which shared surfaces (records, scripts, views) you touch. No filler.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+            1)
     pane = detect_pane(args.pane)
     if not pane:
         print("warning: not inside tmux and no --pane given, so your row carries no pane and "
@@ -3521,8 +3603,9 @@ def cmd_checkin(args):
         prior = current_row(existing, args.agent)
         if (prior and prior["active"] == "yes" and prior["pane"] and prior["pane"] != pane
                 and prior["pane"] in live_panes()):
-            print(
-                f"refused: '{args.agent}' is already checked in on pane {prior['pane']}, and tmux "
+            refuse(
+                "state",
+                f"'{args.agent}' is already checked in on pane {prior['pane']}, and tmux "
                 f"says that pane is still ALIVE — checking in from {pane or 'no pane'} would put "
                 f"two live sessions under one name.\n"
                 f"Neither would see the other's messages (the unread filter is keyed on the name) "
@@ -3532,9 +3615,7 @@ def cmd_checkin(args):
                 f"(`tmux kill-pane -t {prior['pane']}`) — never by name — and check in again.\n"
                 f"If you are deliberately running two sessions under this name, re-run with "
                 f"--force.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+                1)
     # G-11: a row goes ACTIVE only when a harness process is actually running in its pane. The
     # closer whose multi-line prompt was executed by the pane's SHELL checked itself in from bash
     # — a real row, an honest-looking summary, and nothing running behind it; its "completion"
@@ -3547,8 +3628,9 @@ def cmd_checkin(args):
     if pane and not SKIP_HARNESS_CHECK:
         pids, verifiable = pane_harness_pids(pane)
         if verifiable and not pids:
-            print(
-                f"refused: no {'/'.join(HARNESS_PROCS)} process is running in pane {pane}, so this "
+            refuse(
+                "environment",
+                f"no {'/'.join(HARNESS_PROCS)} process is running in pane {pane}, so this "
                 f"check-in would put '{args.agent}' on the roster as ACTIVE with nothing behind it "
                 f"(G-11).\n"
                 f"This is what a briefing executed by the pane's SHELL looks like: the checkin line "
@@ -3557,9 +3639,7 @@ def cmd_checkin(args):
                 f"which pass the prompt as a file.\n"
                 f"If a harness IS running here under a wrapper this check cannot recognize, re-run "
                 f"with COORD_SKIP_HARNESS_CHECK=1 and say so on the log.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+                1)
     superseded = 0
     # The read cursor belongs to the SEAT, not to one session of it: a re-check-in (P1
     # supersession) and a renewed seat (close-seat --renew closes the row BEFORE the fresh
@@ -3637,10 +3717,12 @@ def cmd_checkout(args):
     _, _, rows = load_workers(base)
     row = current_row(rows, me)
     if not row or row["active"] != "yes":
-        print(f"refused: '{me}' has no ACTIVE roster row, so there is no session to end — you "
-              f"never checked in, or you already checked out.\n"
-              f"See the roster: {coord_invocation(args)} workers", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"'{me}' has no ACTIVE roster row, so there is no session to end — you "
+            f"never checked in, or you already checked out.\n"
+            f"See the roster: {coord_invocation(args)} workers",
+            1)
     # T3: the export is the seat's last durable artifact and was routinely forgotten — mechanize
     # it instead of teaching it (protocol item 8). --no-export is the escape for a dead pane.
     out, err = "", "--no-export"
@@ -4077,16 +4159,17 @@ def refuse_special_case_members(args, command, names):
         print(f"note: `{command}` added special-case seat(s) {', '.join(blocked)} with --force "
               f"(G-32); group messages still reach them only by TYPE", file=sys.stderr)
         return
-    print(f"refused: {', '.join(blocked)} "
-          f"{'are special-case seats' if many else 'is a special-case seat'} — group traffic is "
-          f"not {'their' if many else 'its'} input (G-32). A closer, `engineer` and the watcher "
-          f"serve the SYSTEM or the ROOM, not the goal's conversation, so the room's threads only "
-          f"spend the context {'their' if many else 'its'} one job needs.\n"
-          f"Send {'them' if many else 'it'} a DIRECT message instead — direct addressability is "
-          f"untouched: {coord_invocation(args)} send {blocked[0]} \"<what you need>\" --type note --inline\n"
-          f"--force adds {'them' if many else 'it'} anyway, if the membership is deliberate.",
-          file=sys.stderr)
-    sys.exit(1)
+    refuse(
+        "state",
+        f"{', '.join(blocked)} "
+        f"{'are special-case seats' if many else 'is a special-case seat'} — group traffic is "
+        f"not {'their' if many else 'its'} input (G-32). A closer, `engineer` and the watcher "
+        f"serve the SYSTEM or the ROOM, not the goal's conversation, so the room's threads only "
+        f"spend the context {'their' if many else 'its'} one job needs.\n"
+        f"Send {'them' if many else 'it'} a DIRECT message instead — direct addressability is "
+        f"untouched: {coord_invocation(args)} send {blocked[0]} \"<what you need>\" --type note --inline\n"
+        f"--force adds {'them' if many else 'it'} anyway, if the membership is deliberate.",
+        1)
 
 
 def cmd_create_group(args):
@@ -4096,19 +4179,23 @@ def cmd_create_group(args):
     agent_names = {r["agent"] for r in wrows}
     name = args.group
     if name == "all" or name in agent_names:
-        print(f"refused: '{name}' is already a recipient name ('all', or an agent on the roster), "
-              f"and `send {name}` could then mean two different things.\n"
-              f"Name the group after the WORKSTREAM instead (e.g. views-render).", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"'{name}' is already a recipient name ('all', or an agent on the roster), "
+            f"and `send {name}` could then mean two different things.\n"
+            f"Name the group after the WORKSTREAM instead (e.g. views-render).",
+            1)
     members = sorted(set(args.members) | {me, "leader"})
     refuse_special_case_members(args, "create-group", members)
     with coord_lock(base):
         path, _, grows = load_groups(base)
         if any(g["group"] == name for g in grows):
-            print(f"refused: group '{name}' already exists — creating it again would fork the "
-                  f"thread.\nAdd people to the existing one instead (leader): "
-                  f"{coord_invocation(args)} add-to-group {name} <member ...>", file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "state",
+                f"group '{name}' already exists — creating it again would fork the "
+                f"thread.\nAdd people to the existing one instead (leader): "
+                f"{coord_invocation(args)} add-to-group {name} <member ...>",
+                1)
         if not path.exists():
             atomic_write(path, GROUPS_HEADER)
         with open(path, "a", encoding="utf-8") as f:
@@ -4129,10 +4216,12 @@ def cmd_add_to_group(args):
         row = next((g for g in grows if g["group"] == args.group), None)
         if not row:
             known = ", ".join(sorted(g["group"] for g in grows)) or "(none yet)"
-            print(f"refused: there is no group '{args.group}', so there is nothing to add to.\n"
-                  f"existing groups: {known}\nCreate it instead: {coord_invocation(args)} "
-                  f"create-group {args.group} <member ...>", file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "state",
+                f"there is no group '{args.group}', so there is nothing to add to.\n"
+                f"existing groups: {known}\nCreate it instead: {coord_invocation(args)} "
+                f"create-group {args.group} <member ...>",
+                1)
         members = sorted(set(row["members"]) | set(args.members))
         lines[row["_line"]] = f"| {row['group']} | {', '.join(members)} | {row['by']} | {row['created']} |\n"
         atomic_write(path, "".join(lines))
@@ -4154,18 +4243,21 @@ def cmd_remove_from_group(args):
         row = next((g for g in grows if g["group"] == args.group), None)
         if not row:
             known = ", ".join(sorted(g["group"] for g in grows)) or "(none yet)"
-            print(f"refused: there is no group '{args.group}', so there is nothing to remove "
-                  f"from.\nexisting groups: {known}", file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "state",
+                f"there is no group '{args.group}', so there is nothing to remove "
+                f"from.\nexisting groups: {known}",
+                1)
         absent = [m for m in args.members if m not in row["members"]]
         if absent and not getattr(args, "force", False):
-            print(f"refused: {', '.join(absent)} "
-                  f"{'are' if len(absent) > 1 else 'is'} not in group '{args.group}', so removing "
-                  f"{'them' if len(absent) > 1 else 'it'} would report a change that did not "
-                  f"happen.\ncurrent members: {', '.join(row['members']) or '(none)'}\n"
-                  f"--force drops the names that ARE members and ignores the rest.",
-                  file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "state",
+                f"{', '.join(absent)} "
+                f"{'are' if len(absent) > 1 else 'is'} not in group '{args.group}', so removing "
+                f"{'them' if len(absent) > 1 else 'it'} would report a change that did not "
+                f"happen.\ncurrent members: {', '.join(row['members']) or '(none)'}\n"
+                f"--force drops the names that ARE members and ignores the rest.",
+                1)
         members = [m for m in row["members"] if m not in set(args.members)]
         lines[row["_line"]] = f"| {row['group']} | {', '.join(members)} | {row['by']} | {row['created']} |\n"
         atomic_write(path, "".join(lines))
@@ -4580,33 +4672,41 @@ def message_body(args):
     src = getattr(args, "file", None)
     msg = getattr(args, "message", None)
     if src and msg:
-        print("refused: a quoted body AND --file were both given, and only one of them can be "
-              "the message — silently picking one would send a body you did not read.\n"
-              "Pass the message positionally OR via --file, not both.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            "a quoted body AND --file were both given, and only one of them can be "
+            "the message — silently picking one would send a body you did not read.\n"
+            "Pass the message positionally OR via --file, not both.",
+            1)
     if src:
         if src == "-":
             body = sys.stdin.read()
         else:
             p = Path(src)
             if not p.is_file():
-                print(f"refused: --file {src} — no such file, so there is no body to send.\n"
-                      f"Write the file first, or pass an absolute path (relative paths resolve "
-                      f"from YOUR working directory, not the package's).", file=sys.stderr)
-                sys.exit(1)
+                refuse(
+                    "input",
+                    f"--file {src} — no such file, so there is no body to send.\n"
+                    f"Write the file first, or pass an absolute path (relative paths resolve "
+                    f"from YOUR working directory, not the package's).",
+                    1)
             body = p.read_text(encoding="utf-8")
     elif msg:
         body = msg
     else:
-        print('refused: no message body — pass "<msg>", or --file PATH (--file - reads stdin) '
-              'when the body carries backticks, quotes, or newlines', file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            'no message body — pass "<msg>", or --file PATH (--file - reads stdin) '
+            'when the body carries backticks, quotes, or newlines',
+            1)
     body = body.strip("\n")
     if not body.strip():
-        print("refused: the body is empty (whitespace only) — an empty message costs every "
-              "recipient a wake and a read, and says nothing.\nWrite the content, or drop the "
-              "send.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            "the body is empty (whitespace only) — an empty message costs every "
+            "recipient a wake and a read, and says nothing.\nWrite the content, or drop the "
+            "send.",
+            1)
     return body
 
 
@@ -4653,11 +4753,13 @@ def cmd_send(args):
     known = known_recipients(args, base)
     if args.to not in known and not force:
         near = difflib.get_close_matches(args.to, sorted(known), n=1, cutoff=0.6)
-        print(f"refused: '{args.to}' is not a known recipient — no roster row, no briefing, no "
-              f"group, no relay token and no addressable non-member of that name."
-              + (f" Did you mean '{near[0]}'?" if near else "")
-              + f"\nknown: {', '.join(sorted(known))}\nsend anyway: --force", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"'{args.to}' is not a known recipient — no roster row, no briefing, no "
+            f"group, no relay token and no addressable non-member of that name."
+            + (f" Did you mean '{near[0]}'?" if near else "")
+            + f"\nknown: {', '.join(sorted(known))}\nsend anyway: --force",
+            1)
     # S-7 — an `ask` stays OPEN until an answer is addressed to its SENDER via --re, and
     # `known_recipients` refuses any name none of its five sources carries (roster, briefing,
     # group, relay token, addressable non-member). So an
@@ -4674,27 +4776,29 @@ def cmd_send(args):
     # but right in some case. There is no state of the world in which opening an unclosable ask
     # is correct — the sender wants `flag` or `note`, both of which need no reply.
     if args.type == "ask" and sender not in known:
-        print(f"refused: '{sender}' cannot receive a reply — no roster row, no briefing and no "
-              f"group of that name — so an `ask` from you would stay OPEN forever. An answer "
-              f"must be addressed to its sender (--re), and nobody can address you.\n"
-              f"Send this as --type note (FYI) or --type flag if the type exists, or check in "
-              f"first so you have a roster row: {coord_invocation(args)} checkin {sender} "
-              f"\"<what you are doing>\".\n"
-              # G-165: for a NON-MEMBER that check-in line is the FORBIDDEN repair, and this text
-              # recommending it is how the trap reaches every next meta-agent. The correspondent
-              # that hit it declined the advice and said so; the next one will not have that
-              # context, so the alternative is named here rather than left to a ruling it cannot
-              # read.
-              f"⚠ If you are NOT a member of this run (a meta-agent with its own goal folder), do "
-              f"NOT check in — that would make you a member, which is the thing you are not. Ask "
-              f"this package to admit you as an addressable non-member instead: add your "
-              f"descriptor's path to {package_dir(args)}/addressable.csv and declare "
-              f"`addressable: non-member` in that descriptor. You then resolve as a recipient and "
-              f"gain nothing else — in particular NO WAKE: delivery is PULL, and you must read the "
-              f"log yourself.\n"
-              f"There is no --force for this one: 13 asks opened this way in one run and not "
-              f"one of them can ever be closed.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"'{sender}' cannot receive a reply — no roster row, no briefing and no "
+            f"group of that name — so an `ask` from you would stay OPEN forever. An answer "
+            f"must be addressed to its sender (--re), and nobody can address you.\n"
+            f"Send this as --type note (FYI) or --type flag if the type exists, or check in "
+            f"first so you have a roster row: {coord_invocation(args)} checkin {sender} "
+            f"\"<what you are doing>\".\n"
+            # G-165: for a NON-MEMBER that check-in line is the FORBIDDEN repair, and this text
+            # recommending it is how the trap reaches every next meta-agent. The correspondent
+            # that hit it declined the advice and said so; the next one will not have that
+            # context, so the alternative is named here rather than left to a ruling it cannot
+            # read.
+            f"⚠ If you are NOT a member of this run (a meta-agent with its own goal folder), do "
+            f"NOT check in — that would make you a member, which is the thing you are not. Ask "
+            f"this package to admit you as an addressable non-member instead: add your "
+            f"descriptor's path to {package_dir(args)}/addressable.csv and declare "
+            f"`addressable: non-member` in that descriptor. You then resolve as a recipient and "
+            f"gain nothing else — in particular NO WAKE: delivery is PULL, and you must read the "
+            f"log yourself.\n"
+            f"There is no --force for this one: 13 asks opened this way in one run and not "
+            f"one of them can ever be closed.",
+            1)
 
     # G-22 / #198 — the two enforcement halves of the broadcast discipline. `all` costs every seat
     # a wake and a read, so it must be justified rather than habitual: a broadcast names the clause
@@ -4704,26 +4808,31 @@ def cmd_send(args):
     why = getattr(args, "why", None)
     if args.to == "all" and not force:
         if args.type == "note":
-            print(f"refused: a `note` is never an `all` broadcast — if a seat that never reads it "
-                  f"still acts correctly, it does not belong in everyone's inbox.\n"
-                  f"Send it to a GROUP (`{coord_invocation(args)} create-group <name> <members>`) "
-                  f"or direct to the seats who need it.\n"
-                  f"If it genuinely binds every seat, it is a verdict/completion under one of: "
-                  f"{', '.join(sorted(BROADCAST_CLAUSES))} — send it as that type with --why.\n"
-                  f"override: --force", file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "input",
+                f"a `note` is never an `all` broadcast — if a seat that never reads it "
+                f"still acts correctly, it does not belong in everyone's inbox.\n"
+                f"Send it to a GROUP (`{coord_invocation(args)} create-group <name> <members>`) "
+                f"or direct to the seats who need it.\n"
+                f"If it genuinely binds every seat, it is a verdict/completion under one of: "
+                f"{', '.join(sorted(BROADCAST_CLAUSES))} — send it as that type with --why.\n"
+                f"override: --force",
+                1)
         if not why:
             clauses = "\n  ".join(f"{k} — {v}" for k, v in sorted(BROADCAST_CLAUSES.items()))
-            print(f"refused: `send all` requires --why <clause>, naming what makes this everyone's "
-                  f"business:\n  {clauses}\n"
-                  f"If none of them fits, the message is not a broadcast — send it to a group or "
-                  f"direct.\noverride: --force", file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "input",
+                f"`send all` requires --why <clause>, naming what makes this everyone's "
+                f"business:\n  {clauses}\n"
+                f"If none of them fits, the message is not a broadcast — send it to a group or "
+                f"direct.\noverride: --force",
+                1)
     if why and args.to != "all":
-        print(f"refused: --why justifies a BROADCAST and '{args.to}' is not `all`, so it would "
-              f"record a clause for a message nobody needed one for.\nDrop --why.",
-              file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            f"--why justifies a BROADCAST and '{args.to}' is not `all`, so it would "
+            f"record a clause for a message nobody needed one for.\nDrop --why.",
+            1)
 
     # G-21 — a seat mid-close has one job left, so a peer's direct message is REFUSED here, at the
     # CLI, rather than accepted into a log the seat will depart without reading. The refusal is the
@@ -4734,14 +4843,15 @@ def cmd_send(args):
     entry = closing_entry(base, args.to)
     if entry is not None and not closing_reaches(args.to, sender, entry) and not force:
         closer = entry.get("closer") or f"closer-{args.to}"
-        print(f"refused: '{args.to}' is CLOSING (since {entry.get('since', '?')}) — its inbox is "
-              f"{closer} and leader only, so this message would arrive as work it will never do "
-              f"and context its memory hand-off needs.\n"
-              f"You still hold it, and nothing is lost: send it to leader, or wait for the seat's "
-              f"successor if it is renewed and send it then.\n"
-              f"override (you are certain the seat must read this before it goes): --force",
-              file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"'{args.to}' is CLOSING (since {entry.get('since', '?')}) — its inbox is "
+            f"{closer} and leader only, so this message would arrive as work it will never do "
+            f"and context its memory hand-off needs.\n"
+            f"You still hold it, and nothing is lost: send it to leader, or wait for the seat's "
+            f"successor if it is renewed and send it then.\n"
+            f"override (you are certain the seat must read this before it goes): --force",
+            1)
 
     # THE SENDER BOUND (`r-cos-bounded-inbox`, `r-engineer-contact`) — refused HERE, at the CLI,
     # because a bound enforced only at read time is the exact failure this family is being fixed
@@ -4771,57 +4881,72 @@ def cmd_send(args):
     if targets and not reachable and not force:
         if bound is None:                      # a relay token: name what it resolved to
             named = ", ".join(sorted(bounds))
-            print(f"refused: '{args.to}' resolves to {named}, and every one of them has a BOUNDED "
-                  f"INBOX that '{sender}' is not among. This is a standing ruling about who may "
-                  f"spend those seats' context, not a judgement of your message.\n"
-                  f"You still hold it, and nothing is lost: send it to leader, who routes it.\n"
-                  f"override (it will still be filtered at each seat's read, though never silently "
-                  f"— their footers name it): --force", file=sys.stderr)
-            sys.exit(1)
-        print(f"refused: '{args.to}' has a BOUNDED INBOX — it receives messages from "
-              f"{', '.join(sorted(bound))} only, and '{sender}' is not among them. This is a "
-              f"standing ruling about who may spend that seat's context, not a judgement of your "
-              f"message.\n"
-              f"You still hold it, and nothing is lost: send it to leader, who routes it.\n"
-              f"override (and it will still be filtered at that seat's read, though never "
-              f"silently — its footer names it): --force", file=sys.stderr)
-        sys.exit(1)
+            refuse(
+                "state",
+                f"'{args.to}' resolves to {named}, and every one of them has a BOUNDED "
+                f"INBOX that '{sender}' is not among. This is a standing ruling about who may "
+                f"spend those seats' context, not a judgement of your message.\n"
+                f"You still hold it, and nothing is lost: send it to leader, who routes it.\n"
+                f"override (it will still be filtered at each seat's read, though never silently "
+                f"— their footers name it): --force",
+                1)
+        refuse(
+            "state",
+            f"'{args.to}' has a BOUNDED INBOX — it receives messages from "
+            f"{', '.join(sorted(bound))} only, and '{sender}' is not among them. This is a "
+            f"standing ruling about who may spend that seat's context, not a judgement of your "
+            f"message.\n"
+            f"You still hold it, and nothing is lost: send it to leader, who routes it.\n"
+            f"override (and it will still be filtered at that seat's read, though never "
+            f"silently — its footer names it): --force",
+            1)
     if len(body) > MESSAGE_MAX and not force:
-        print(f"refused: message is {len(body)} chars — max {MESSAGE_MAX}.\n"
-              f"A body this long is a document, and every agent pays for it at every checkpoint. "
-              f"Write it to a file, then send the PATH plus a 3-line summary: what it says, what "
-              f"you want done with it, and by whom.\noverride: --force", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            f"message is {len(body)} chars — max {MESSAGE_MAX}.\n"
+            f"A body this long is a document, and every agent pays for it at every checkpoint. "
+            f"Write it to a file, then send the PATH plus a 3-line summary: what it says, what "
+            f"you want done with it, and by whom.\noverride: --force",
+            1)
     if args.supersedes is not None and not any(b["num"] == args.supersedes for b in blocks):
-        print(f"refused: --supersedes {args.supersedes} — no such message in the log (it ends at "
-              f"#{blocks[-1]['num'] if blocks else 0}). A retraction pointing at nothing retracts "
-              f"nothing.\nFind the number you meant: {coord_invocation(args)} read --digest --all",
-              file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"--supersedes {args.supersedes} — no such message in the log (it ends at "
+            f"#{blocks[-1]['num'] if blocks else 0}). A retraction pointing at nothing retracts "
+            f"nothing.\nFind the number you meant: {coord_invocation(args)} read --digest --all",
+            1)
 
     re_num = getattr(args, "re_num", None)
     if args.type == "answer" and re_num is None and not force:
-        print("refused: an answer must name the ask it answers — pass --re <ask#> (list them "
-              "with `pending`).\nAn unlinked answer leaves the ask OPEN for every reader.\n"
-              "override: --force", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            "an answer must name the ask it answers — pass --re <ask#> (list them "
+            "with `pending`).\nAn unlinked answer leaves the ask OPEN for every reader.\n"
+            "override: --force",
+            1)
     if re_num is not None and args.type not in ("answer", "verdict"):
-        print(f"refused: --re is valid only on --type answer (required) and --type verdict "
-              f"(optional) — not on '{args.type}'. A `re:` on any other type would make the "
-              f"open-ask derivation lie.\nDrop --re, or send this as an answer.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            f"--re is valid only on --type answer (required) and --type verdict "
+            f"(optional) — not on '{args.type}'. A `re:` on any other type would make the "
+            f"open-ask derivation lie.\nDrop --re, or send this as an answer.",
+            1)
     if re_num is not None:
         target = next((b for b in blocks if b["num"] == re_num), None)
         if target is None:
-            print(f"refused: --re {re_num} — no such message in the log (it ends at "
-                  f"#{blocks[-1]['num'] if blocks else 0}), so the ask would stay OPEN for every "
-                  f"reader.\nList the open asks: {coord_invocation(args)} pending", file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "state",
+                f"--re {re_num} — no such message in the log (it ends at "
+                f"#{blocks[-1]['num'] if blocks else 0}), so the ask would stay OPEN for every "
+                f"reader.\nList the open asks: {coord_invocation(args)} pending",
+                1)
         if target["type"] != "ask":
-            print(f"refused: --re {re_num} — message #{re_num} is a '{target['type']}', not an "
-                  f"ask; --re links an answer/verdict to the ask it settles.\nList the open asks: "
-                  f"{coord_invocation(args)} pending", file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "state",
+                f"--re {re_num} — message #{re_num} is a '{target['type']}', not an "
+                f"ask; --re links an answer/verdict to the ask it settles.\nList the open asks: "
+                f"{coord_invocation(args)} pending",
+                1)
 
     n = append_message(base, sender, args.to, args.type, body,
                        supersedes=args.supersedes, re_num=re_num, why=why, origin=origin)
@@ -5097,9 +5222,11 @@ def cmd_read(args):
     if msg is not None:
         b = next((x for x in blocks if x["num"] == msg), None)
         if b is None:
-            print(f"refused: no message #{msg} in the log — it ends at #{blocks[-1]['num']}.\n"
-                  f"List what is there: {coord} read --digest --all", file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "state",
+                f"no message #{msg} in the log — it ends at #{blocks[-1]['num']}.\n"
+                f"List what is there: {coord} read --digest --all",
+                1)
         render_message(b, superseded_by)
         if b["re"] is not None:
             print(c(f"-- answers ask #{b['re']}", C_HINT))
@@ -5642,16 +5769,18 @@ def check_bindings(args, workers, command):
                          f"{registry_value}")
         lines.append(f"    descriptor: {w['briefing']}")
     detail = "\n  ".join(lines)
-    print(f"refused: `{command}` — {len(problems)} seat(s) disagree with the run's registry:\n  "
-          f"{detail}\n"
-          f"  registry: {package_dir(args) / 'taskforce.csv'}\n"
-          f"THE DESCRIPTOR IS AUTHORITATIVE — it is what the harness command is built from, so "
-          f"launching now would bind the DESCRIPTOR's value and the taskforce.csv row would stay "
-          f"a wrong record.\n"
-          f"Fix whichever is wrong: edit the DESCRIPTOR to change what actually binds, or the CSV "
-          f"row to correct the record. Then re-run.\n"
-          f"--force launches on the descriptor's value anyway and says so.", file=sys.stderr)
-    sys.exit(2)
+    refuse(
+        "state",
+        f"`{command}` — {len(problems)} seat(s) disagree with the run's registry:\n  "
+        f"{detail}\n"
+        f"  registry: {package_dir(args) / 'taskforce.csv'}\n"
+        f"THE DESCRIPTOR IS AUTHORITATIVE — it is what the harness command is built from, so "
+        f"launching now would bind the DESCRIPTOR's value and the taskforce.csv row would stay "
+        f"a wrong record.\n"
+        f"Fix whichever is wrong: edit the DESCRIPTOR to change what actually binds, or the CSV "
+        f"row to correct the record. Then re-run.\n"
+        f"--force launches on the descriptor's value anyway and says so.",
+        2)
 
 
 def identity_prefix(agent):
@@ -6006,11 +6135,12 @@ def seats_by_name(args, names=None):
     missing = set(wanted) - {w["agent"] for w in picked}
     if missing:
         known = ", ".join(sorted(w["agent"] for w in workers)) or "(none)"
-        print(f"refused: no worker briefing carries `agent: {', '.join(sorted(missing))}` in "
-              f"{workers_dir(args)}, so there is nothing to launch under that name.\n"
-              f"briefed seats: {known}\nFix the name, or add the briefing folder first.",
-              file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"no worker briefing carries `agent: {', '.join(sorted(missing))}` in "
+            f"{workers_dir(args)}, so there is nothing to launch under that name.\n"
+            f"briefed seats: {known}\nFix the name, or add the briefing folder first.",
+            1)
     return picked
 
 
@@ -6031,11 +6161,13 @@ def cmd_launch(args):
     # divergence from it would make the one command meant for inspection the one that lies.
     check_bindings(args, workers, "launch")
     if not workers:
-        print(f"refused: no worker briefing carries an `agent:` frontmatter key in "
-              f"{workers_dir(args)}, so there is no roster to launch.\n"
-              f"Each seat needs workers/<agent>/agent.md with `agent: <name>` "
-              f"(template: briefing-template.md beside coord.py).", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"no worker briefing carries an `agent:` frontmatter key in "
+            f"{workers_dir(args)}, so there is no roster to launch.\n"
+            f"Each seat needs workers/<agent>/agent.md with `agent: <name>` "
+            f"(template: briefing-template.md beside coord.py).",
+            1)
 
     # PROP-8 (tv-ux-review): validate EVERY seat's launch config BEFORE any pane opens. An
     # invalid model slug used to fail only at model-init, INSIDE each spawned pane — a whole
@@ -6044,17 +6176,21 @@ def cmd_launch(args):
     if invalid and not args.dry_run:
         for w, e in invalid:
             print(f"  {w['agent']}: {e}\n    briefing: {w['briefing']}", file=sys.stderr)
-        print(f"refused: {len(invalid)} seat(s) above carry an invalid harness/model — NO pane "
-              f"was opened (not even for the valid seats). Fix the briefing frontmatter, then "
-              f"relaunch the whole set.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"{len(invalid)} seat(s) above carry an invalid harness/model — NO pane "
+            f"was opened (not even for the valid seats). Fix the briefing frontmatter, then "
+            f"relaunch the whole set.",
+            1)
 
     target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
     if not target and not args.dry_run:
-        print("refused: launch opens tmux panes and this shell is not inside tmux (no $TMUX_PANE),"
-              " so there is no window to open them in.\nRun it from leader's tmux pane, or use "
-              "--dry-run to see the commands it would run.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "environment",
+            "launch opens tmux panes and this shell is not inside tmux (no $TMUX_PANE),"
+            " so there is no window to open them in.\nRun it from leader's tmux pane, or use "
+            "--dry-run to see the commands it would run.",
+            1)
 
     if args.dry_run:
         for cwd in dict.fromkeys(w["cwd"] for w in workers
@@ -6155,10 +6291,12 @@ def export_transcript(args, agent, label=""):
 def cmd_export_transcript(args):
     out, err = export_transcript(args, args.target, args.label or "")
     if err:
-        print(f"refused: cannot capture '{args.target}' — {err}. A scrollback capture needs the "
-              f"seat's registered pane to still exist.\nCheck the roster: "
-              f"{coord_invocation(args)} workers", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "environment",
+            f"cannot capture '{args.target}' — {err}. A scrollback capture needs the "
+            f"seat's registered pane to still exist.\nCheck the roster: "
+            f"{coord_invocation(args)} workers",
+            1)
     print(f"transcript exported: {out}")
     print(c(f"next: {coord_invocation(args)} close {args.target} — the closer reads this export "
             f"to write the seat's memory.md", C_HINT))
@@ -6296,10 +6434,12 @@ def cmd_close(args):
         return
     target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
     if not target:
-        print("refused: close spawns a closer seat in tmux and this shell is not inside tmux (no "
-              "$TMUX_PANE).\nRun it from leader's tmux pane, or use --dry-run to see the closer "
-              "prompt.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "environment",
+            "close spawns a closer seat in tmux and this shell is not inside tmux (no "
+            "$TMUX_PANE).\nRun it from leader's tmux pane, or use --dry-run to see the closer "
+            "prompt.",
+            1)
     # The memory gate for this spawn was answered up front by `launch_gates`, beside the role gate.
     # G-11: the closer prompt is MULTI-LINE markdown, and it used to be typed into the pane as
     # literal keystrokes — every newline arriving as Enter, so the pane's shell executed the
@@ -6421,16 +6561,17 @@ def cmd_close_seat(args):
         _row = current_row(load_workers(base)[2], args.target)
         _pane = (_row or {}).get("pane") or ""
         if _relays and _pane and _pane in live_panes():
-            print(f"refused: '{args.target}' carries a relay path to a human role "
-                  f"({', '.join(sorted(_relays))}), and its pane {_pane} is LIVE. A plain close "
-                  f"kills that pane; a --renew kills it too unless the seat is already in the "
-                  f"window its briefing asks for (G-154), and you cannot tell which case you are "
-                  f"in from here. So this may close the door a human is watching, possibly while "
-                  f"they are away and expecting it to be there.\n"
-                  f"A door in the wrong place is cosmetic; a door destroyed is an outage.\n"
-                  f"If you mean it (the run is ending, or the owner has moved): --force",
-                  file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "state",
+                f"'{args.target}' carries a relay path to a human role "
+                f"({', '.join(sorted(_relays))}), and its pane {_pane} is LIVE. A plain close "
+                f"kills that pane; a --renew kills it too unless the seat is already in the "
+                f"window its briefing asks for (G-154), and you cannot tell which case you are "
+                f"in from here. So this may close the door a human is watching, possibly while "
+                f"they are away and expecting it to be there.\n"
+                f"A door in the wrong place is cosmetic; a door destroyed is an outage.\n"
+                f"If you mean it (the run is ending, or the owner has moved): --force",
+                1)
     if not args.no_export:
         out, err = export_transcript(args, args.target, "close")
         print(f"transcript: {out}" if not err else f"transcript skipped — {err}")
@@ -6564,9 +6705,11 @@ def cmd_panel(args):
     gate(args, "panel", is_leader, "leader's alone (it splits the control-panel window)")
     target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
     if not target:
-        print("refused: panel splits a strip into the CALLING tmux window and this shell is not "
-              "inside tmux (no $TMUX_PANE).\nRun it from leader's own pane.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "environment",
+            "panel splits a strip into the CALLING tmux window and this shell is not "
+            "inside tmux (no $TMUX_PANE).\nRun it from leader's own pane.",
+            1)
     for pid, title in tmux_window_panes(target):
         if title == "overview":
             print(f"overview pane already open ({pid}) — nothing to do")
@@ -6695,38 +6838,45 @@ def cmd_kill_pane(args):
          "leader's, chief-of-staff's, or a closer-*'s")
     target = args.pane_id
     if not target.startswith("%"):
-        print(f"refused: '{target}' does not look like a tmux pane id (expected e.g. '%190') -- "
-              f"kill-pane targets a PANE, never a seat name (that is close-seat's argument)",
-              file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            f"'{target}' does not look like a tmux pane id (expected e.g. '%190') -- "
+            f"kill-pane targets a PANE, never a seat name (that is close-seat's argument)",
+            1)
     base = base_dir(args)
     _, _, rows = load_workers(base)
     current = [current_row(rows, a) for a in dict.fromkeys(r["agent"] for r in rows)]
     owner_row = next((r for r in current if r and r.get("pane") == target), None)
 
     if owner_row is None:
-        print(f"refused: pane {target} matches no CURRENT roster row of this run -- kill-pane only "
-              f"touches panes this run's own roster accounts for (criterion 2). If this is a "
-              f"genuine leak from something else, it is not this tool's to reap. No --force lifts "
-              f"this.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"pane {target} matches no CURRENT roster row of this run -- kill-pane only "
+            f"touches panes this run's own roster accounts for (criterion 2). If this is a "
+            f"genuine leak from something else, it is not this tool's to reap. No --force lifts "
+            f"this.",
+            1)
 
     decls = inbox_decls(args)
     relays = (decls.get(owner_row["agent"]) or {}).get("relays")
     if relays:
-        print(f"refused: pane {target} belongs to '{owner_row['agent']}', which carries a relay "
-              f"path to a human role ({', '.join(sorted(relays))}) -- its pane is a DOOR, never "
-              f"reapable, unconditionally (bars.md 4, r-owner-afk-liaison-parked). No --force "
-              f"lifts this.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"pane {target} belongs to '{owner_row['agent']}', which carries a relay "
+            f"path to a human role ({', '.join(sorted(relays))}) -- its pane is a DOOR, never "
+            f"reapable, unconditionally (bars.md 4, r-owner-afk-liaison-parked). No --force "
+            f"lifts this.",
+            1)
 
     if owner_row["active"] == "yes":
         if not getattr(args, "force", False):
-            print(f"refused: pane {target} belongs to '{owner_row['agent']}', whose roster row is "
-                  f"still ACTIVE -- not roster-done (criterion 5). A live working seat's pane is "
-                  f"close-seat's or renew's to manage, not a bare reap. If you mean it (the seat is "
-                  f"gone but the row was never closed): --force.", file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "state",
+                f"pane {target} belongs to '{owner_row['agent']}', whose roster row is "
+                f"still ACTIVE -- not roster-done (criterion 5). A live working seat's pane is "
+                f"close-seat's or renew's to manage, not a bare reap. If you mean it (the seat is "
+                f"gone but the row was never closed): --force.",
+                1)
         print(f"WARNING: '{owner_row['agent']}' is still roster-ACTIVE -- killing its pane anyway "
               f"because --force was given. Its roster row is UNCHANGED by this call and still "
               f"needs a close-seat.", file=sys.stderr)
@@ -6804,11 +6954,13 @@ def cmd_relaunch_pane(args):
     role_desc = "leader's, chief-of-staff's, or a closer-*'s"
     seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
     if not seats:
-        print(f"refused: no worker briefing carries `agent: {args.target}` in "
-              f"{workers_dir(args)}, so there is nothing to relaunch. This verb only revives an "
-              f"already-registered seat into its own pane; a seat with no briefing has never had "
-              f"one.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"no worker briefing carries `agent: {args.target}` in "
+            f"{workers_dir(args)}, so there is nothing to relaunch. This verb only revives an "
+            f"already-registered seat into its own pane; a seat with no briefing has never had "
+            f"one.",
+            1)
 
     if args.dry_run:
         gate(args, "relaunch-pane", is_leader_or_cos_or_closer, role_desc)
@@ -6820,50 +6972,58 @@ def cmd_relaunch_pane(args):
     check_bindings(args, seats, "relaunch-pane")
 
     if not args.pane_id.startswith("%"):
-        print(f"refused: '{args.pane_id}' does not look like a tmux pane id (expected e.g. "
-              f"'%501') -- relaunch-pane targets a PANE, never a bare number or a seat name.",
-              file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            f"'{args.pane_id}' does not look like a tmux pane id (expected e.g. "
+            f"'%501') -- relaunch-pane targets a PANE, never a bare number or a seat name.",
+            1)
 
     base = base_dir(args)
     _, _, rows = load_workers(base)
     row = current_row(rows, args.target)
     recorded = (row or {}).get("pane") or ""
     if recorded != args.pane_id:
-        print(f"refused: {args.pane_id} does not match the roster's own recorded pane for "
-              f"'{args.target}' ({recorded or 'none on record'}). Resolve the pane fresh with "
-              f"`{coord_invocation(args)} workers` (bars.md 3 -- never recall a pane id) and "
-              f"retarget. No --force lifts this: a mismatch means either the id is wrong or the "
-              f"roster is stale, and neither is fixed by acting on a pane current records do not "
-              f"attribute to this seat.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "state",
+            f"{args.pane_id} does not match the roster's own recorded pane for "
+            f"'{args.target}' ({recorded or 'none on record'}). Resolve the pane fresh with "
+            f"`{coord_invocation(args)} workers` (bars.md 3 -- never recall a pane id) and "
+            f"retarget. No --force lifts this: a mismatch means either the id is wrong or the "
+            f"roster is stale, and neither is fixed by acting on a pane current records do not "
+            f"attribute to this seat.",
+            1)
 
     if row["active"] == "yes":
         if not getattr(args, "force", False):
-            print(f"refused: '{args.target}'s roster row is still ACTIVE -- not roster-done. A "
-                  f"live seat's pane is close-seat's or renew's to manage, not a bare relaunch. "
-                  f"If you are certain the row is stale (the seat is gone but was never closed): "
-                  f"--force.", file=sys.stderr)
-            sys.exit(1)
+            refuse(
+                "state",
+                f"'{args.target}'s roster row is still ACTIVE -- not roster-done. A "
+                f"live seat's pane is close-seat's or renew's to manage, not a bare relaunch. "
+                f"If you are certain the row is stale (the seat is gone but was never closed): "
+                f"--force.",
+                1)
         print(f"WARNING: '{args.target}' is still roster-ACTIVE -- relaunching into its pane "
               f"anyway because --force was given. Its roster row is unchanged by this call.",
               file=sys.stderr)
 
     if args.pane_id not in live_panes():
-        print(f"refused: {args.pane_id} is not a live tmux pane -- there is nothing to relaunch "
-              f"into. If the pane is genuinely gone, use `{coord_invocation(args)} launch --only "
-              f"{args.target}` to open a fresh one instead.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "environment",
+            f"{args.pane_id} is not a live tmux pane -- there is nothing to relaunch "
+            f"into. If the pane is genuinely gone, use `{coord_invocation(args)} launch --only "
+            f"{args.target}` to open a fresh one instead.",
+            1)
 
     live_idents = pane_harness_idents(args.pane_id)
     if live_idents:
-        print(f"refused: {args.pane_id} still holds a live harness process "
-              f"({', '.join(str(p) for p, _ in live_idents)}) -- this is not a bare pane, and "
-              f"respawning it would silently kill whatever is running there, with no undo. No "
-              f"--force lifts this. If that process is a stuck registration, tear it down "
-              f"properly first: {coord_invocation(args)} close-seat {args.target}.",
-              file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "environment",
+            f"{args.pane_id} still holds a live harness process "
+            f"({', '.join(str(p) for p, _ in live_idents)}) -- this is not a bare pane, and "
+            f"respawning it would silently kill whatever is running there, with no undo. No "
+            f"--force lifts this. If that process is a stuck registration, tear it down "
+            f"properly first: {coord_invocation(args)} close-seat {args.target}.",
+            1)
 
     seat = seats[0]
     if args.dry_run:
@@ -6880,9 +7040,11 @@ def cmd_relaunch_pane(args):
     tmux_raise_history_limit()
     ok, rerr = tmux_respawn_pane(args.pane_id, seat["cwd"])
     if not ok:
-        print(f"refused: respawn of {args.pane_id} FAILED -- {rerr}. Nothing was started; verify "
-              f"at tmux capture-pane -p -t {args.pane_id} before retrying.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "environment",
+            f"respawn of {args.pane_id} FAILED -- {rerr}. Nothing was started; verify "
+            f"at tmux capture-pane -p -t {args.pane_id} before retrying.",
+            1)
     pane, err = launch_seat(seat, args, args.pane_id, pane=args.pane_id)
     if err:
         print(f"relaunch FAILED: {err}\nThe pane was respawned but the harness never verified "
@@ -7894,6 +8056,14 @@ def _selftest_checks(args, failures, names):
               code == 1 and "G-11" in out and "nothing behind it" in out)
         check("G-11: the refusal names the cause AND the escape hatch for an unrecognized wrapper",
               "literal keystrokes" in out and "COORD_SKIP_HARNESS_CHECK=1" in out)
+        # ---- s12-03 L-c (1 of 3): a CONTINUATION-literal site. This refusal's "refused:" was not
+        # on the `print(` line but on the line after it, so a converter keyed on `print(f"refused:`
+        # would have left it — and its exit code (1) unchanged means callers keyed on the code are
+        # untouched. Read behaviourally, on the same output the rows above read.
+        check("s12-03 L-c: the checkin NO-HARNESS refusal (a multi-line print whose `refused:` sat "
+              "on a continuation line) names its layer — the process world is wrong, so the layer "
+              "is `environment` — and the exit code is still 1",
+              re.search(r"^refused \[coord environment\]: ", out, re.M) is not None and code == 1)
         harness_up["v"] = None          # unverifiable
         out = run(cmd_checkin, agent="probe-a", summary="unverifiable pane", pane="%1")
         check("G-11: unverifiable liveness PASSES — losing a real seat to a false refusal is worse "
@@ -9090,6 +9260,13 @@ def _selftest_checks(args, failures, names):
               and current_row(twin_rows, "twin")["pane"] == "%51")
         check("P37: the refusal teaches confirm-dead-before-retry and kill BY PANE ID",
               "capture-pane" in out and "never by name" in out)
+        # ---- s12-03 L-c (2 of 3): the second CONTINUATION-literal site. The check reads the run's
+        # own roster (a live ACTIVE row under this name), so the layer is `state`, not
+        # `environment` — the pane being alive is evidence, the ROSTER is what forbids the act.
+        check("s12-03 L-c: the checkin ZOMBIE-DOUBLE-LAUNCH refusal (continuation-literal site) "
+              "names its layer as `state` — the run's own roster row is what forbids it — and "
+              "still exits 1",
+              re.search(r"^refused \[coord state\]: ", out, re.M) is not None and code == 1)
         out = run(cmd_checkin, agent="twin", summary="same pane, recovered", pane="%51")
         check("P37: re-checking in from the SAME pane is a recovery, not a twin — still supersedes",
               "superseded 1 prior row" in out)
@@ -10062,7 +10239,7 @@ def _selftest_checks(args, failures, names):
               "on the GATE's own refusal signature, never on the flag name: the healthy next-hint "
               "names that flag too (G-215(b))",
               _oc == 0 and "Ask leader to run it" not in _oo
-              and "refused:" not in _oo)
+              and "refused [coord" not in _oo)
 
         # ---- guard sweep, slice 2 sites 1-2: what the KILLING pass reports ----
         # `reap_blockers`, `confirm_reap` and `awaiting_debts` each have covered rows above, and
@@ -10785,7 +10962,7 @@ def _selftest_checks(args, failures, names):
             check("#230: with BOTH flags it proceeds, and the WARNING is distinguishable from a "
                   "refusal — it launches and names which gate was overridden",
                   code == 0 and "WARNING launching anyway" in out
-                  and "overridden with --force-memory" in out and "refused:" not in out)
+                  and "overridden with --force-memory" in out and "refused [coord" not in out)
             out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
                                force_memory=True)
             check("#230: --force-memory does NOT carry the ROLE gate — the memory flag is not a "
@@ -10824,7 +11001,7 @@ def _selftest_checks(args, failures, names):
                 out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
                 check("7.82/5: restoring budget.json restores the launch — the refusal above "
                       "tracked the declaration and not some unrelated failure",
-                      code == 0 and "refused:" not in out)
+                      code == 0 and "refused [coord" not in out)
                 # ⚠ THIS ASSERTS ON A SUCCESSFUL LAUNCH, DELIBERATELY. The verdict block prints
                 # only on a refusal or an override, so an earlier version of this check looked for
                 # the floor in a REFUSAL and passed — while a successful launch said nothing about
@@ -10999,6 +11176,101 @@ def _selftest_checks(args, failures, names):
               and "leader's alone (it splits the control-panel window)" in _s12k_out
               and "closing ANOTHER seat" not in _s12k_out)
 
+        # ============ s12-03: every refusal NAMES ITS LAYER (stage-1 §1.4, ruling R-8) ============
+        # A seat that hits a refusal cannot tell coord.py's OWN gate from its harness's permission
+        # classifier — the two look alike, and a bare "refused:" sends the run at the wrong fix
+        # (W4). These rows read the PROPERTY (the prefix a reader routes on), never the prose.
+
+        # ---- S1-c: the row the spec's Stage-1 acceptance table names. `_s12b_out` is the
+        # close-seat FOREIGN-target refusal S1-b already captured — read again here for its layer,
+        # so the two claims stay separable: S1-b says the gate still refuses, S1-c says the refusal
+        # is ROUTABLE. Anchored at a line start (`^`), because a prefix that appears mid-message is
+        # not a prefix.
+        check("s12-03 S1-c: the close-seat foreign-target refusal NAMES ITS LAYER — it begins "
+              "`refused [coord role gate]`, so a seat reporting it can never be confused with a "
+              "harness classifier block, and it carries the layer paragraph that says so in words",
+              re.search(r"^refused \[coord role gate\]: ", _s12b_out, re.M) is not None
+              and "NOT your harness's permission" in _s12b_out)
+
+        # ---- S1-h: THE GUARD. Without it the sweep rots on the next added refusal — which is
+        # exactly what happened between the spec's writing and its implementation: two new commands
+        # added 12 un-layered sites in one day. Read from the module's OWN SOURCE.
+        #
+        # ⚠ READ AS AN AST, NOT AS TEXT, and that is a correction of the obvious implementation
+        # rather than a flourish. A regex over `print(` plus a quote misses THREE SHAPES this sweep
+        # actually contained — one single-quoted site, three whose literal sat on a CONTINUATION
+        # line rather than beside the call, and one refusal that is RETURNED and never printed at
+        # all — while its own red arm still passes on the one shape it can see. It also matches its
+        # OWN explanatory comments, which is how this check first went red on prose. The AST has
+        # neither problem: it normalizes every quote and f-prefix shape, merges implicit
+        # concatenation, and carries no comments at all.
+        import ast as _s3_ast
+        _s3_src = Path(__file__).read_text(encoding="utf-8")
+        _s3_tree = _s3_ast.parse(_s3_src)
+        # ⚠ The token is BUILT, never written as a literal: this check reads the file it lives in,
+        # so a literal here would be its own first hit — the check would fail on itself forever.
+        _s3_bare_tok = "refused" + ":"
+        _s3_hits = []
+        for _s3_n in _s3_ast.walk(_s3_tree):
+            _s3_v = None
+            if isinstance(_s3_n, _s3_ast.Constant) and isinstance(_s3_n.value, str):
+                _s3_v = _s3_n.value
+            elif (isinstance(_s3_n, _s3_ast.JoinedStr) and _s3_n.values
+                  and isinstance(_s3_n.values[0], _s3_ast.Constant)):
+                _s3_v = _s3_n.values[0].value
+            if isinstance(_s3_v, str) and _s3_v.startswith(_s3_bare_tok):
+                _s3_hits.append(_s3_n.lineno)
+        check("s12-03 S1-h: NO refusal in this module is emitted bare — NO string literal anywhere "
+              "in it begins `refused:`, so every refusal is built by `refuse()`/`refusal_text()` "
+              "and names its layer. Scoped by AST rather than by a `print(`-shaped regex, which "
+              "missed four of the 57 sites and matched its own comments",
+              _s3_hits == [])
+
+        # ---- L-a: and every layer token is one of the FIVE. A prefix vocabulary nobody bounds is
+        # a prefix vocabulary that grows a sixth token nobody can route on. Read STRUCTURALLY (ast
+        # over the call sites) rather than by regex, so the one CONDITIONAL layer expression
+        # (`launch_gates`' head, which names the gate that actually refused) is read in full
+        # instead of half.
+        _s3_tokens, _s3_opaque = set(), []
+        for _s3_node in _s3_ast.walk(_s3_tree):
+            if not (isinstance(_s3_node, _s3_ast.Call)
+                    and getattr(_s3_node.func, "id", None) in ("refuse", "refusal_text")
+                    and _s3_node.args):
+                continue
+            _s3_a0 = _s3_node.args[0]
+            if isinstance(_s3_a0, _s3_ast.Name):
+                continue          # the selftest's own local `refuse(fn, **kw)` capture helper
+            _s3_lits = [x.value for x in _s3_ast.walk(_s3_a0)
+                        if isinstance(x, _s3_ast.Constant) and isinstance(x.value, str)]
+            if not _s3_lits:
+                # A layer this check cannot READ is a layer it cannot BOUND — never a pass.
+                _s3_opaque.append(_s3_node.lineno)
+            _s3_tokens |= set(_s3_lits)
+        check("s12-03 L-a: every layer token emitted anywhere in this module is one of the five "
+              "REFUSAL_LAYERS, all five are actually in use, and no call site hides its layer "
+              "behind an expression this check cannot read",
+              _s3_tokens == set(REFUSAL_LAYERS) and not _s3_opaque)
+
+        # ---- L-b: THE EXIT CODES ARE UNCHANGED. The sites exited with a MIX of 1 and 2 before the
+        # sweep, and `watch.py`'s `record_undelivered` path keys on coord's EXIT CODE rather than
+        # on this text — so a conversion that uniformized them would change behaviour for it and
+        # for every scripted caller while every text assertion above stayed green. Three sites,
+        # spanning both codes; the first is ALSO L-c (3 of 3), the third continuation-literal site.
+        _s3_lb_cont, _s3_lb_cont_code = refuse(
+            cmd_checkin, agent="s12-03-lb", summary="x" * (SUMMARY_MAX + 25), pane="%1",
+            force=False)
+        _s3_lb_head, _s3_lb_head_code = refuse(
+            cmd_read, agent="leader", msg=10 ** 9, after=None, peek=False, all=False, type=None,
+            addressed="any", digest=False, limit=None)
+        check("s12-03 L-b / L-c (3 of 3): exit codes survive the sweep — the checkin "
+              "SUMMARY-LENGTH site (the third continuation-literal one) still exits 1 and names "
+              "`input`, an ordinary head site still exits 1, and the role gate still exits 2. The "
+              "codes are behaviour (watch.py keys on them), not decoration",
+              _s3_lb_cont_code == 1 and _s3_lb_head_code == 1 and _s12k_code == 2
+              and re.search(r"^refused \[coord input\]: ", _s3_lb_cont, re.M) is not None
+              and re.search(r"^refused \[coord state\]: ", _s3_lb_head, re.M) is not None
+              and re.search(r"^refused \[coord role gate\]: ", _s12k_out, re.M) is not None)
+
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
@@ -11051,6 +11323,13 @@ def _selftest_checks(args, failures, names):
           "newline as Enter, so the pane's shell executes the text line by line (reproduced: a "
           "closer's prompt ran its own checkin line as bash and printed a fake completion)",
           not ok and "newline" in terr and "G-11" in terr)
+    # s12-03: the one refusal in this file that is RETURNED rather than printed. It goes through
+    # `refusal_text` so it is layered like every other — the selftest guard scopes to `print(` and
+    # would never have seen it, which is exactly why it is asserted here by hand.
+    check("s12-03: the RETURNED refusal (wake's newline guard) names its layer too — a refusal "
+          "that reaches a seat through its caller's print is still a refusal, and leaving it bare "
+          "would make it the file's one un-layered one, invisible to the print-scoped guard",
+          terr.startswith("refused [coord input]: "))
     ok, terr = wake("%1", "one line\r")
     check("G-11: a bare carriage return is refused too — the same Enter to a shell", not ok)
 
@@ -12519,19 +12798,20 @@ def assert_argv_body_shell_safe(args):
         return      # --file / --file - / no body: nothing a shell could have eaten
     eaten = substitution_eaten(body)
     if eaten and not getattr(args, "force", False):
-        print(f"refused: your shell SUBSTITUTED {' and '.join(eaten)} in this body before "
-              f"coord.py ever saw it — what you are about to log is the OUTPUT of a command "
-              f"that actually RAN on your box, not the text you wrote. coord.py cannot "
-              f"repair it: the original characters are already gone from argv.\n"
-              f"Send it via --file (or --file - with a quoted heredoc) — the only form a "
-              f"shell cannot eat:\n"
-              f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
-              f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
-              f"--type {getattr(args, 'type', '<type>')} --file /tmp/msg.txt\n"
-              f"your shell's original line, for reference:\n  {shell_source_line()[:400]}\n"
-              f"override (you are certain the substitution was harmless): --force",
-              file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            f"your shell SUBSTITUTED {' and '.join(eaten)} in this body before "
+            f"coord.py ever saw it — what you are about to log is the OUTPUT of a command "
+            f"that actually RAN on your box, not the text you wrote. coord.py cannot "
+            f"repair it: the original characters are already gone from argv.\n"
+            f"Send it via --file (or --file - with a quoted heredoc) — the only form a "
+            f"shell cannot eat:\n"
+            f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
+            f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
+            f"--type {getattr(args, 'type', '<type>')} --file /tmp/msg.txt\n"
+            f"your shell's original line, for reference:\n  {shell_source_line()[:400]}\n"
+            f"override (you are certain the substitution was harmless): --force",
+            1)
     # G-101 residual (leader #76): the parent-process test is GONE, deliberately. It asked "was
     # our argv parsed by a shell", and any exec-away wrapper — `timeout`, `env`, `nice`, `xargs`
     # — answers no while a shell parsed the line anyway. Measured after the boundary move:
@@ -12544,22 +12824,24 @@ def assert_argv_body_shell_safe(args):
     # removed, and it costs nothing real — every programmatic caller either goes in-process
     # (goal-watcher-job calls cmd_send directly) or already uses --file (the probes).
     if not getattr(args, "inline", False):
-        print(f"refused: this body was typed on a shell command line, and a shell eats "
-              f"backticks and $(...) BEFORE coord.py can see them — the corruption is "
-              f"undetectable after the fact and it has silently rewritten this room's "
-              # The count that used to sit here ("three times") had no maintainer and no way to be
-              # checked at read time — permanent text asserting a number that only ever grows. It
-              # is the drift the run already ruled on in its evidence layer, wearing a refusal's
-              # clothes. The force of the sentence was never the number; it is that the authors
-              # KNEW.
-              f"record repeatedly, each time by an author who knew about it.\n"
-              f"Shell-safe (cannot be eaten):\n"
-              f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
-              f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
-              f"--type {getattr(args, 'type', '<type>')} --file /tmp/msg.txt\n"
-              f"Short body with no backticks, quotes or $ in it? Add --inline and it is "
-              f"sent as typed.", file=sys.stderr)
-        sys.exit(1)
+        refuse(
+            "input",
+            f"this body was typed on a shell command line, and a shell eats "
+            f"backticks and $(...) BEFORE coord.py can see them — the corruption is "
+            f"undetectable after the fact and it has silently rewritten this room's "
+            # The count that used to sit here ("three times") had no maintainer and no way to be
+            # checked at read time — permanent text asserting a number that only ever grows. It
+            # is the drift the run already ruled on in its evidence layer, wearing a refusal's
+            # clothes. The force of the sentence was never the number; it is that the authors
+            # KNEW.
+            f"record repeatedly, each time by an author who knew about it.\n"
+            f"Shell-safe (cannot be eaten):\n"
+            f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
+            f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
+            f"--type {getattr(args, 'type', '<type>')} --file /tmp/msg.txt\n"
+            f"Short body with no backticks, quotes or $ in it? Add --inline and it is "
+            f"sent as typed.",
+            1)
 
 def main():
     # S-4(b): only a real CLI invocation had its argv parsed by a shell. watch.py and the
