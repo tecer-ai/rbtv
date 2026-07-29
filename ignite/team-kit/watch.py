@@ -1546,13 +1546,15 @@ def claim_revival(base, seat, pane, notes, room, disposition="revive"):
                                       f"identity, not a TTL, decides and it says wait")
 
             # ---- 4. no entry, or a TERMINAL one (done/FAILED): the claim is ours ----
-            # ⚠ s4-07 / s4-12 READ THIS BEFORE ADDING `blocked` / `abandoned`. Today the ONLY
-            # states this store writes are `in-flight`, `done` and `FAILED` (`finish_lifecycle`
-            # REFUSES any third value), so "not in-flight" safely means "no live claim" and the
-            # claim proceeds over it, carrying `attempts` through. The moment s4-07 introduces a
-            # state that means DO NOT RETRY, this line will happily claim over it and restart the
-            # ladder forever. That gate belongs HERE, in this branch, and it is s4-07's to add —
-            # this task deliberately does not guess at the enum it does not own.
+            # ⚠ s4-05 LEFT THIS EXACT GATE FOR s4-07 AND s4-07 HAS NOW ADDED IT. Its words: "the
+            # moment s4-07 introduces a state that means DO NOT RETRY, this line will happily claim
+            # over it and restart the ladder forever." `abandoned` IS that state. The check-then-
+            # write is inside the SAME critical section as everything else here, so a concurrent
+            # ladder write cannot slip an abandonment in between the read and the claim.
+            if isinstance(entry, dict) and entry.get("state") == "abandoned":
+                return "REFUSED", ("ABANDONED — the RAM-floor ladder exhausted its attempts for "
+                                   "this episode; claiming over it would restart the ladder "
+                                   "forever (s4-07)")
             marker[seat] = _claim_record(disposition, pane, attempts)
             ok, why = _write_claim(lifecycle, marker, room, notes, seat)
             return ("CLAIMED", f"disposition={disposition}, attempts={attempts}"
@@ -1584,6 +1586,530 @@ def _write_claim(lifecycle, marker, room, notes, seat):
                     f"that cannot be recorded is not a claim. (This is the revival claim gate "
                     f"failing, not the harness permission classifier.)")
         return False, f"marker write failed: {exc!r}"
+
+
+# ---------- revival ACTUATION (stage 4 §3 — THE FIRE, s4-06) ----------
+#
+# ⚠⚠ WAY-STATION, NOT A HOME — `decisions.md#d-watch-is-a-way-station` (owner ruling, 2026-07-29).
+# THE CODE BELOW IS THE ONE ACT IN THIS ENTIRE FILE THAT CHANGES THE ROOM, and it is a way-station
+# all the same. The s4-04 literals block above carries the ruling and the ground in full and is NOT
+# restated here; what is SPECIFIC TO THIS ARM is the migration cost, and it is WORSE than the
+# detector's, so read this before assuming 7.35 inherits a free move:
+#   · the DETECTOR moves to the `goal-watcher-job` (CMP-21) UNCHANGED — it reads the snapshot and
+#     the descriptors and nothing else;
+#   · THIS ARM DOES NOT. `revival_fork_target` calls tmux directly (`coord.live_panes`,
+#     `coord.tmux_pane_window_name`, `coord.tmux_find_window_pane`) and the fire calls
+#     `subprocess.Popen`. A daemon-fired job has NEITHER `TMUX` NOR `TMUX_PANE` — which is the
+#     precise hazard `jobs/recover-room.py:12-19` measured — so 7.35 rewrites the FIRING logic and
+#     its whole acceptance suite, not just its host. NOTHING HERE IS PERMANENT AND NOTHING HERE IS
+#     PRE-PAID. Do not build a second caller on it, and do not defend it as architecture.
+#
+# ⚠ NO AGENT IS IN THIS PATH, AND THAT IS THE RULING, NOT AN IMPLEMENTATION CHOICE.
+# `decisions.md#d-cos-may-launch` bars EVERY agent from the terminating acts — close, renew, reap,
+# kill, revive — and continues that those acts belong to topic-1's detached executor and stage-4's
+# revival arm. So this fires CODE: a `subprocess.Popen` of coord.py's hidden `lifecycle-exec`
+# subcommand. It never sends a prompt, never launches a seat, and never asks a seat to act.
+#
+# ⚠ THE EXIT CONTRACT IS THE EXECUTOR'S AND THIS ARM MUST NOT COLLAPSE IT. 2 = a GUARD refused the
+# invocation (all five of `s3-09`'s refuse-to-fork arms exit 2 and all say "YOUR CHECKOUT STANDS");
+# 3 = the guards passed and the SEQUENCE broke; 0 = completed. The fork is detached, so this loop
+# never sees the code — it is read off the marker (`state` FAILED + `failure`) and off the log,
+# which is why the log path is recorded in the marker rather than left to be guessed.
+#
+# ⚠ WE DO NOT REUSE `coord.fork_lifecycle_renewal`, AND THE REASON IS MEASURED, NOT STYLISTIC.
+# That function hard-codes `--disposition renew` and `--handoff-written 1` (coord.py:4744/4752) and
+# lives behind a SEAT's own checkout. A revival needs `revive` + `--handoff-written 0`, and
+# `coord.py` is under another custody. Widening that function is a Stage 3 change, not a watch one.
+#
+# ⚠⚠ THE EXECUTOR'S (pid, starttime) IS **NOT** WRITTEN HERE, AND THE TASK TEXT ASKING FOR IT IS
+# WRONG ON THE MEASUREMENT. `s4-06` § Detachment says "record the executor's (pid, starttime) into
+# the marker entry after the fork". IT CANNOT BE DONE FROM HERE AND IT MUST NOT BE FAKED:
+#   (a) MEASURED 2026-07-29 — `subprocess.Popen(["setsid", python, …], start_new_session=True)`
+#       returns the pid of the `setsid` BINARY, which double-forks (Python already made the child a
+#       session leader, so util-linux `setsid`'s own `setsid()` fails and it forks); the real
+#       executor's pid was `Popen.pid + 1` and IS NOT KNOWABLE from the parent. Writing `Popen.pid`
+#       would write a DEAD pid into a field every reader treats as an assertion that a process is
+#       there — `_executor_ident_live` above and `coord.lifecycle_stale` both key on it.
+#   (b) THE CHILD ALREADY WRITES IT, correctly, as its first act: `cmd_lifecycle_exec` guard 5
+#       stamps `executor: (os.getpid(), proc_stat(os.getpid())[1])` (coord.py, § STAGE 3). That is
+#       WHY `_claim_record` above leaves `executor` deliberately absent.
+# So the ident lands in the marker from the CHILD, and `s4-05`'s next-tick MID-RENEWAL check gets
+# exactly the ident it needs — one writer, one home (PRIN-11). What this arm records instead is its
+# OWN evidence: the log path and the target it computed, on the entry, before the fork.
+
+REVIVAL_FIRE_LAYER = "revival fire gate"
+
+
+def revival_fork_target(args, snap, seat, pane):
+    """(target, why) — the tmux target for a revival fork. `("", why)` means REFUSE, NEVER FIRE.
+
+    ⚠⚠ AN EMPTY TARGET IS THE FAILURE MODE THIS FUNCTION EXISTS FOR, quoted from
+    `jobs/recover-room.py:12-19`: *"it would not fail, it would guess"* — `launch` resolves its
+    target as `COORD_LAUNCH_TARGET or TMUX_PANE`, a daemon-fired exec has neither, and tmux
+    resolves an EMPTY target to the MOST RECENT session, measured to be the LIVE room. *"A recovery
+    that opens agents into the live room believing it is repairing a dead one is worse than no
+    recovery at all."* So this returns "" and the caller refuses; it never hands "" downward.
+
+    The four steps are stage-4 §3's, in order:
+      1. the seat's DESCRIPTOR, through `coord.discover_workers` — the ONE parser of a descriptor's
+         frontmatter (a second regex here would be a second opinion, PRIN-11) — then
+         `coord.seat_placement`, which reads the `window:` key;
+      2. pane LIVE **and** `coord.renew_in_place(...)` true -> the pane ITSELF. In-place respawn,
+         window layout intact (G-12);
+      3. pane DEAD (or live but in the wrong window) -> RE-PLACE onto an anchor: the first pane of
+         the declared window in the room's own session, else any pane the snapshot places in that
+         session which tmux still knows. `launch_seat` derives the session from the anchor;
+      4. nothing resolves -> "" and the caller refuses LOUDLY (R-8). `args.force` is never set, so
+         `launch_seat`'s window-drift check still runs downstream — a drift refusal is a LOUD
+         REFUSAL, never a reason to reach for `--force`.
+
+    ⚠ THE SNAPSHOT SUPPLIES THE SESSION, NOT tmux. `state.json` carries ONE `session` for the room
+    (team-monitor writes it), so "a pane the snapshot places in that session" is simply a pane on a
+    snapshot row: there is exactly one room per snapshot. Re-deriving the session from tmux would
+    give one fact a second home AND could name a DIFFERENT room than the one being observed."""
+    decl = None
+    for w in coord.discover_workers(coord.workers_dir(args)):
+        if w.get("agent") == seat:
+            decl = w
+            break
+    if decl is None:
+        return "", (f"no descriptor under {coord.workers_dir(args)} carries `agent: {seat}`, so "
+                    f"the seat declares no placement and no target can be computed")
+    _, wname = coord.seat_placement(decl)
+    panes = coord.live_panes()
+    pane = (pane or "").strip()
+    if pane and pane in panes:
+        if coord.renew_in_place(decl, pane, True, coord.tmux_pane_window_name(pane)):
+            return pane, (f"pane {pane} is LIVE and already sits in the window its descriptor "
+                          f"names, so the successor respawns IN PLACE and the layout survives "
+                          f"(G-12)")
+        why = (f"pane {pane} is live but is NOT in the window {wname!r} its descriptor declares, so "
+               f"this revival is also the act that moves the seat where it belongs")
+    else:
+        why = (f"pane {pane or '<none recorded>'} is not among the {len(panes)} pane(s) tmux "
+               f"currently knows")
+    session = str((snap or {}).get("session") or "")
+    anchor = coord.tmux_find_window_pane(session, wname) if (session and wname) else ""
+    if anchor:
+        return anchor, (f"{why}; RE-PLACING onto anchor {anchor} — the first pane of window "
+                        f"{wname!r} in session {session!r}")
+    for row in ((snap or {}).get("seats") or []):
+        p = str(row.get("pane") or "").strip()
+        if p and p in panes:
+            return p, (f"{why}; window {wname!r} does not exist in session {session!r}, so the "
+                       f"anchor is {p} — a live pane the snapshot places in this room's session, "
+                       f"from which `launch_seat` derives the session for a new window")
+    return "", (f"{why}; `tmux_find_window_pane({session!r}, {wname!r})` MISSED and NO pane the "
+                f"snapshot places in that session is live. NO ANCHOR RESOLVES — refusing rather "
+                f"than passing an empty target down")
+
+
+def revival_fork_argv(args, seat, pane, target):
+    """The EXACT argv of the detached fire. Pure, so the acceptance can grep it without forking.
+
+    `--handoff-written 0` and it is DELIBERATE, not an omission: a crashed session had no turn
+    boundary at which to write a handoff block, so requiring one would make revival impossible in
+    exactly the case revival exists for (`stage-3-executor-spec.md` delta 1, and `cmd_lifecycle_exec`
+    keys its re-read on `renew` for the same reason). The predecessor's last UNREAD block stays
+    exactly where it is and is delivered at the successor's `checkin`, keyed on `(seat, unread)` and
+    never on author. NOTHING ON THIS PATH READS OR WRITES `memory.md` — R-14.
+
+    NO `--force` AND NO `--force-memory`. `lifecycle-exec` does not even accept them (verified
+    against the built parser in the acceptance), and `--force` carries the ROLE gate ALONE
+    (`coord.GATE_FLAGS`) — it would not lift a memory or a window-drift refusal even if it were
+    passed. `args.force` is likewise never set, so `launch_seat`'s window-drift check runs."""
+    return ["setsid", sys.executable, str(Path(coord.__file__).resolve()), "lifecycle-exec",
+            "--package", str(coord.package_dir(args)),
+            "--seat", seat,
+            "--disposition", "revive",
+            "--pane", str(pane or ""),
+            "--tmux-target", target,
+            "--caller-pid", str(os.getpid()),
+            "--caller-starttime", str(coord.proc_stat(os.getpid())[1]),
+            "--handoff-written", "0"]
+
+
+def revival_child_env():
+    """The forked child's environment — `coord.LIFECYCLE_SCRUB_ENV` REMOVED, everything else kept.
+
+    ⚠ A DENYLIST, AND IT MUST STAY ONE. `TMUX_TMPDIR` survives into the child and is LOAD-BEARING:
+    an acceptance room on a private tmux socket is reachable only through it. Narrowing this to an
+    allowlist would make every fire land on the default server.
+
+    ⚠ WHY THE SCRUB AT ALL, in this file's own measured words (`watch.py:943-975`): *"a detached
+    loop INHERITS `TMUX_PANE` from whatever shell started it"*, and every send was refused with
+    "you claimed 'watcher', but this pane (%145) is registered to 'chief-of-staff'". The executor
+    pops the same four names AGAIN at entry (`cmd_lifecycle_exec` guard 1); the redundancy is
+    deliberate, so a caller that forgets is still caught by the child."""
+    return {k: v for k, v in os.environ.items() if k not in coord.LIFECYCLE_SCRUB_ENV}
+
+
+def fire_revival(args, base, snap, seat, pane, notes, room):
+    """FORK the detached revival executor for `seat`. Returns `(outcome, why)`. NEVER raises.
+
+        "FIRED"      the executor is running detached; its evidence path is in `why`
+        "NO-TARGET"  no tmux target resolved — nothing was forked, and a note names the layer
+        "REFUSED"    an identity or a log the fork needs could not be obtained; nothing was forked
+        "BROKE"      the fork itself failed; nothing is running
+
+    ONLY "FIRED" means a successor is coming. The three others are different facts and the caller
+    must not collapse them into "not fired" — that is the same discipline `claim_revival` states for
+    STOOD-DOWN vs REFUSED.
+
+    ⚠ stdout/stderr GO TO A FILE, NEVER `DEVNULL`, and the child READS THE PATH BACK off
+    `/proc/self/fd/1` (`coord.inherited_log_path`, guard 5) rather than recomputing a name — that is
+    what guarantees ONE stamp per run. So the caller MUST open the log; a fork without one is a
+    detached process whose output is lost, which this room has already paid for once.
+
+    ⚠ THE MARKER IS NOT RE-WRITTEN HERE. `claim_revival` wrote the entry that authorises this fire;
+    the CHILD overwrites it wholesale at guard 5 (`stamp_lifecycle` does `data[seat] = rec`). A
+    write from here would race that, and the two would disagree about which process holds the seat.
+    What this function records is `log` and `tmux-target` on the entry BEFORE the fork, so a fire
+    that never reaches the child still leaves evidence of where it was aimed."""
+    target, why_t = revival_fork_target(args, snap, seat, pane)
+    if not target:
+        _claim_note(room, notes, seat, "no-target",
+                    f"{REVIVAL_FIRE_LAYER}: '{seat}' is CRASHED and CLAIMED, but NO tmux target "
+                    f"could be computed — {why_t}. NOTHING WAS FORKED. This arm refuses rather "
+                    f"than passing an empty target down: with no target tmux resolves to the MOST "
+                    f"RECENT session, measured to be the LIVE room, and opening a successor into "
+                    f"the wrong room is worse than not opening one. The claim stands on disk and "
+                    f"the next tick will retry once a target exists; if the whole room is gone, "
+                    f"that is jobs/recover-room.py's (task 7.71), not this arm's. (This is the "
+                    f"revival fire gate refusing, not the harness permission classifier.)")
+        return "NO-TARGET", why_t
+    if not str(coord.proc_stat(os.getpid())[1] or ""):
+        _claim_note(room, notes, seat, "no-ident",
+                    f"{REVIVAL_FIRE_LAYER}: this loop cannot read its own /proc/{os.getpid()}/stat, "
+                    f"so it has no (pid, starttime) pair to hand the executor as `--caller-pid` / "
+                    f"`--caller-starttime`. The PAIR is what lets the executor tell 'my caller "
+                    f"exited' from 'a recycled pid landed on its number'; a pid alone is not an "
+                    f"identity. NOTHING WAS FORKED for '{seat}'. (This is the revival fire gate "
+                    f"refusing, not the harness permission classifier.)")
+        return "REFUSED", "the loop cannot read its own /proc stat — no caller identity to hand over"
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_path = Path(base) / f"lifecycle-exec-{seat}-{stamp}.log"
+    argv = revival_fork_argv(args, seat, pane, target)
+    try:
+        handle = open(log_path, "ab")
+    except OSError as exc:
+        _claim_note(room, notes, seat, "no-log",
+                    f"{REVIVAL_FIRE_LAYER}: the executor log {log_path} could not be opened "
+                    f"({exc!r}), so '{seat}' was NOT revived. A detached executor whose output goes "
+                    f"nowhere is the exact failure this room has already paid for once, so it is "
+                    f"not started at all. (This is the revival fire gate refusing, not the harness "
+                    f"permission classifier.)")
+        return "REFUSED", f"executor log {log_path} could not be opened ({exc!r})"
+    # Evidence BEFORE the fork, so a fire that never reaches the child still says where it was
+    # aimed. Best-effort by design: a monitor must never die of its own bookkeeping, and the fire
+    # is authorised by the claim that is already on disk, not by this annotation.
+    _annotate_claim(base, seat, {"tmux-target": target, "log": str(log_path)})
+    try:
+        subprocess.Popen(argv, stdout=handle, stderr=handle,
+                         start_new_session=True, env=revival_child_env())
+    except OSError as exc:
+        handle.close()
+        _claim_note(room, notes, seat, "fork",
+                    f"{REVIVAL_FIRE_LAYER}: the detached revival executor for '{seat}' could NOT "
+                    f"be spawned ({exc!r}) — nothing is running and the seat stays down. The "
+                    f"marker still reads in-flight from the claim; it will go stale and be "
+                    f"re-claimed by identity, never by a timeout. (This is the revival fire gate "
+                    f"failing, not the harness permission classifier.)")
+        return "BROKE", f"the fork failed ({exc!r})"
+    handle.close()
+    return "FIRED", f"target {target} ({why_t}); evidence {log_path}"
+
+
+def _annotate_claim(base, seat, fields):
+    """Merge `fields` into `seat`'s EXISTING marker entry, under the lock, in coord's byte format.
+
+    ⚠ MERGE, NEVER REPLACE, and never CREATE. An absent entry is answered False rather than written:
+    an annotation about a claim this file never saw made would be a claim, and the only thing that
+    may make one is `claim_revival` under its own critical section. Returns True/False, never raises
+    — this is bookkeeping ABOUT a lifecycle act and must not be able to break the act."""
+    try:
+        with coord.coord_lock(base) as held:
+            if not held:
+                return False
+            data, status = _strict_ledger(coord.lifecycle_path(base))
+            entry = data.get(seat)
+            if status != "ok" or not isinstance(entry, dict):
+                return False
+            entry.update({k: str(v) for k, v in fields.items()})
+            data[seat] = entry
+            coord.atomic_write(coord.lifecycle_path(base),
+                               json.dumps(data, indent=2, sort_keys=True) + "\n")
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+# ---------- the RAM-floor LOUD-REFUSAL PATH (stage 4 §4 — s4-07) ----------
+#
+# ⚠⚠ WAY-STATION, NOT A HOME — `decisions.md#d-watch-is-a-way-station`. The ladder below is the
+# stage-4 arm's RESPONSE half and it is deleted into the `goal-watcher-job` (CMP-21) by task 7.35
+# with everything else in this region. Its migration cost sits between the detector's and the
+# fire's: it reads the marker and the run's `budget.json` and calls no tmux — but it reads
+# `/proc/self/cmdline` for the loop's OWN warn floor, and "the loop" is a different process in the
+# job. NOTHING HERE IS PERMANENT.
+#
+# ⚠⚠ ONE GATE, IN ONE PLACE, AND IT IS **NOT HERE**. The RAM measurement is the EXECUTOR's
+# (`coord.lifecycle_memory_gate`), fired before its relaunch step and retried on its own bounded
+# schedule. STAGE 4 DOES NOT RE-MEASURE — a second gate is a second home for the bar, which is the
+# exact defect `r-bar-home-is-the-run-budget-json` exists to end. What this owns is the LOUD-REFUSAL
+# PATH: it reads the marker's `state`/`failure` and drives retry, escalation, abandonment and
+# reporting. If you find yourself about to call `coord.memory_gate` or `coord.available_mb` from
+# this file, stop: you are building the second gate.
+#
+# ⚠ NO POLICY NUMBER CROSSES INTO THIS PATH FROM ARGV OR ENV (R-10, `r-floor-single-source`:
+# "argv is a copy; a file is a reference"). The floor is READ, per act, from the run's own
+# `budget.json`, through `budget.floor_source(run_root, "refuse", None)` — the SAME call the
+# executor makes — and it is read ONLY TO REPORT IT, never to decide anything. `read_floor` has no
+# `default=` parameter deliberately; a missing declaration raises and this path SAYS SO rather than
+# substituting a number. `floor-lint.py` refuses a floor literal anywhere but `budget.json`.
+#
+# ⚠⚠ THE TWO FLOORS ARE DIFFERENT FACTS AND THIS FILE MUST NEVER CONFLATE THEM (run-2
+# `budget.json` `floors._scope`: they were ONE field until task 7.82 split them, and "warn me
+# before you start refusing" would be permanently unexpressible collapsed back):
+#   · `floors.pressure_warn_mb` — the PRESSURE floor. `--mem-floor-mb` resolves THIS one and only
+#     this one (`main`'s `floor_source(run_root, "warn", …)`), and it feeds only the pressure flag
+#     (`check_system`). ⚠ THE RUNNING LOOP HOLDS ITS STARTUP COPY IN ITS OWN ARGV until it is next
+#     relaunched — `budget.json` `floors._landed_is_not_live` — so the honest reading of "what this
+#     loop holds" is `/proc/self/cmdline`, and that is what is reported.
+#   · `floors.launch_refuse_mb` — the REFUSE floor. THIS is the revival launch gate's, and the
+#     executor reads it FRESH in a per-launch fork that cannot inherit this loop's argv.
+# NEVER CLAIM THE WARN FLOOR GATED A LAUNCH. It cannot: it is not the value the gate reads, and it
+# is not read in the process that runs the gate.
+
+REVIVAL_LAUNCH_LAYER = "revival launch gate: RAM floor"
+REVIVAL_BLOCKED_LINE = "REVIVAL BLOCKED — revival launch gate: RAM floor"
+REVIVAL_ABANDONED_LINE = "REVIVAL ABANDONED — revival launch gate: RAM floor"
+
+# MECHANISM, NOT POLICY, and the distinction is `r-floor-single-source`'s own — that ruling binds
+# the FLOOR (a policy number with exactly one home). How many times this loop is willing to re-fire,
+# and how often, is a property of the loop. `coord.LIFECYCLE_MEM_RETRIES` carries the identical
+# argument for the executor's inner retries; these are the OUTER ones and the two are not the same
+# ladder: the executor retries for ~60 s inside one fire, this retries across ticks.
+REVIVAL_MAX_ATTEMPTS = 3
+# ⚠ ONE CADENCE FOR BOTH THE ESCALATION AND THE RETRY, AND IT IS A DECISION, not an accident.
+# §3's escalation is `blocked_ticks % 3 == 0` (~30 min at the live `--loop 10`). Re-firing on EVERY
+# blocked tick would hammer a floor that has not moved and would exhaust the three attempts in
+# three ticks — after which `blocked_ticks` could never reach 6 and the second escalation the
+# acceptance names would be UNREACHABLE. Riding the same cadence makes both expressible: escalate
+# and retry at 3, again at 6, abandon at 9.
+REVIVAL_ESCALATE_EVERY = 3
+
+# The executor's own words for a memory refusal, matched as a substring. The COUPLING IS REAL and
+# is asserted in the selftest against `coord.lifecycle_memory_gate`'s source rather than trusted:
+# if Stage 3 rewords, this discriminator must go RED rather than silently answering "not a RAM
+# refusal" forever and turning every blocked revival into a plain re-claim loop.
+REVIVAL_RAM_FAILURE_MARK = "refused on memory"
+
+
+def _ram_refusal(entry):
+    """(is_ram_refusal, failure_text) for a marker entry the EXECUTOR left behind.
+
+    Keyed on `state == "FAILED"` plus the executor's own failure wording. `finish_lifecycle` REFUSES
+    any state but `done`/`FAILED`, so `FAILED` is the only shape a broken relaunch can leave."""
+    if not isinstance(entry, dict) or entry.get("state") != "FAILED":
+        return False, ""
+    failure = str(entry.get("failure") or "")
+    return (REVIVAL_RAM_FAILURE_MARK in failure), failure
+
+
+def _loop_warn_floor():
+    """The PRESSURE (warn) floor THIS RUNNING LOOP holds, read from its own /proc argv.
+
+    ⚠ NOT the revival gate's floor, and the returned text says so in as many words. `--mem-floor-mb`
+    resolves the WARN floor alone; a loop launched with it keeps that copy until it is next
+    relaunched, which is why this reads /proc rather than the tree — LANDED IS NOT LIVE."""
+    try:
+        argv = Path(f"/proc/{os.getpid()}/cmdline").read_bytes().decode("utf-8", "replace")
+        parts = [p for p in argv.split("\0") if p]
+    except OSError:
+        parts = []
+    held = ""
+    for i, a in enumerate(parts):
+        if a == "--mem-floor-mb" and i + 1 < len(parts):
+            held = parts[i + 1]
+        elif a.startswith("--mem-floor-mb="):
+            held = a.split("=", 1)[1]
+    return (f"PRESSURE (warn) floor this loop HOLDS, read from /proc/{os.getpid()}/cmdline: "
+            + (f"--mem-floor-mb {held} (an explicit operator override, carried in argv since "
+               f"startup)" if held else
+               "no --mem-floor-mb in argv, so it resolved floors.pressure_warn_mb from the run's "
+               "budget.json at startup")
+            + " — THIS IS THE PRESSURE FLOOR AND IT DID NOT GATE THE REVIVAL LAUNCH")
+
+
+def revival_floors(args, base):
+    """(warn_text, refuse_text) — the two floors, REPORTED SEPARATELY and never conflated.
+
+    Read ONLY to report. Nothing here gates anything; the gate is the executor's."""
+    run_root = coord.package_dir(args) if getattr(args, "package", None) else Path(base).parent
+    try:
+        value, why = budget_mod.floor_source(run_root, "refuse", None)
+        refuse = (f"REFUSE floor (floors.launch_refuse_mb — the one the revival launch gate reads): "
+                  f"{value} MB — {why}")
+    except budget_mod.FloorUndeclared as exc:
+        refuse = (f"REFUSE floor: UNRESOLVED — FloorUndeclared: {exc}. NO NUMBER IS SUBSTITUTED "
+                  f"(read_floor has no default= parameter, deliberately). Declare "
+                  f"floors.launch_refuse_mb in the run's budget.json; the pre-7.82 name "
+                  f"floors.ram_available_mb is RETIRED and is not read")
+    except budget_mod.FloorUnreadable as exc:
+        refuse = (f"REFUSE floor: UNRESOLVED — FloorUnreadable: {exc}. A budget.json that IS "
+                  f"declared and cannot be read is NOT the same fact as no declaration, and is "
+                  f"never treated as one")
+    return _loop_warn_floor(), refuse
+
+
+def _publish_ladder(base, seat, marker_state, lad, failure):
+    """Publish the ladder's verdict onto the marker entry. Returns True/False, never raises.
+
+    ⚠ ONE AUTHORITY, ONE PROJECTION (PRIN-11). The ladder's counters LIVE in this loop's own
+    persisted state (`{base}/watch-state.json`, goal-sectioned), and this writes a PROJECTION of
+    them onto the marker so `coordinate status` and any other marker reader can see the seat is
+    blocked. THE MARKER CANNOT BE THE AUTHORITY AND THE REASON IS MEASURED: `coord.stamp_lifecycle`
+    does `data[seat] = rec` — it REPLACES the whole entry — so the child of the very next retry
+    wipes any counter kept there, and `blocked_ticks` could never survive to reach the second
+    escalation. Recorded rather than worked around; widening `stamp_lifecycle` is a Stage 3 change.
+
+    ⚠ `blocked` AND `abandoned` ARE STATES `coord.finish_lifecycle` REFUSES TO WRITE (it accepts
+    only `done`/`FAILED`), which is exactly why this write is here and not there — `claim_revival`'s
+    step-4 comment named this task as the one that would introduce them, and it does."""
+    try:
+        with coord.coord_lock(base) as held:
+            if not held:
+                return False
+            data, status = _strict_ledger(coord.lifecycle_path(base))
+            entry = data.get(seat)
+            if status != "ok" or not isinstance(entry, dict):
+                return False
+            entry["state"] = marker_state
+            entry["blocked_ticks"] = int(lad.get("blocked_ticks", 0))
+            entry["revival_attempts"] = int(lad.get("attempts", 0))
+            entry["failure"] = str(failure)
+            data[seat] = entry
+            coord.atomic_write(coord.lifecycle_path(base),
+                               json.dumps(data, indent=2, sort_keys=True) + "\n")
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def revival_ladder(args, base, seat, entry, rev, notes, room):
+    """THE LOUD-REFUSAL PATH. Returns `(verdict, line_or_None)`; NEVER raises, NEVER fires.
+
+        "PROCEED"    no ladder is running — the caller's normal CRASHED path owns this tick
+        "BLOCKED"    blocked on the RAM floor; the caller must NOT fire this tick
+        "RETRY"      blocked, but the cadence says re-fire — the caller proceeds to claim + fire
+        "ABANDONED"  attempts exhausted; the caller must NEVER fire again for this episode
+
+    ⚠ EVERY FAILURE LANDS AS A VISIBLE ARTIFACT, and the report line prints EVERY TICK on every
+    non-PROCEED verdict — including after abandonment, so the hole never goes quiet. THE NOTES DO
+    NOT: one at the first block, one per escalation, one at abandonment. That difference is the
+    whole distinction between VISIBLE and SPAMMING, and a room trained to ignore this arm's notes
+    is a room this arm cannot reach.
+
+    ⚠ THE LADDER RE-ARMS WHERE EVERY OTHER REVIVAL COUNTER RE-ARMS: when the seat is seen LIVE
+    again (`check_revival` step 3). A revival that succeeds must not leave an armed ladder behind."""
+    lad = dict(rev.get("ladder") or {})
+    ram, failure = _ram_refusal(entry)
+    # ⚠ THE LADDER'S OWN STATE IS THE AUTHORITY FOR "AM I IN A LADDER", NOT THE MARKER. The FIRST
+    # tick enters from the executor's `state: FAILED`; from the second tick on the marker reads
+    # `blocked` — this loop's own projection — and `_ram_refusal` correctly answers False for it.
+    # Keying continuation on the marker would therefore drop out of the ladder after exactly one
+    # tick and hand the seat straight back to the CRASHED branch, re-firing every tick against a
+    # floor that has not moved. That was the first draft of this function and it is the reason this
+    # line exists.
+    in_ladder = bool(lad) and not lad.get("abandoned")
+    warn_text, refuse_text = None, None
+
+    if lad.get("abandoned"):
+        # Terminal. Reported forever, noted never again, and it authorises nothing.
+        return "ABANDONED", (
+            f"{seat:<18} {'REFUSED':<7} {REVIVAL_ABANDONED_LINE} — {lad.get('attempts', 0)} "
+            f"attempt(s) exhausted after {lad.get('blocked_ticks', 0)} blocked tick(s); NO further "
+            f"revival will be attempted for this episode. A human must free memory and relaunch "
+            f"the seat by hand")
+
+    if not (ram or in_ladder):
+        if isinstance(entry, dict) and entry.get("state") == "FAILED":
+            # A NON-RAM executor failure. Stage 3 raised its own alarm; this adds the Stage-4 half
+            # so the room learns the revival did not happen, then stands aside — the next tick
+            # re-claims over the terminal entry per s4-05, which is the correct behaviour for a
+            # failure that is not the one refusal reason that clears on its own.
+            _claim_note(room, notes, seat, "exec-failed",
+                        f"{REVIVAL_FIRE_LAYER}: the revival executor for '{seat}' ended FAILED and "
+                        f"the seat was NOT brought back — "
+                        f"{failure or 'no failure text was recorded'}. "
+                        f"This is NOT the RAM floor, so there is no retry ladder: the "
+                        f"next tick re-claims the seat and fires again. Read the executor's log "
+                        f"(the `log` field on the marker entry) before assuming it will succeed "
+                        f"the second time. (This is the revival fire gate reporting, not the "
+                        f"harness permission classifier.)")
+        return "PROCEED", None
+
+    # ---- a RAM refusal, or a ladder already running. Count the tick FIRST, then decide. ----
+    # The executor's own words are stored on the ladder at the FIRST refusal and quoted from there
+    # afterwards: from tick 2 the marker carries this loop's projection, and a note that stopped
+    # quoting the executor would leave the reader with the symptom and none of the evidence.
+    failure = failure or str(lad.get("failure") or "(the executor's failure text was not recorded)")
+    lad["failure"] = failure
+    lad["blocked_ticks"] = int(lad.get("blocked_ticks", 0)) + 1
+    # The fire that produced this refusal was attempt 1 — it already happened, and a ladder that
+    # started counting at 0 here would grant a fourth.
+    lad["attempts"] = max(int(lad.get("attempts", 0)), 1)
+    lad.setdefault("since", coord.now())
+    ticks, attempts = lad["blocked_ticks"], lad["attempts"]
+    cadence = (ticks % REVIVAL_ESCALATE_EVERY == 0)
+
+    if cadence and attempts >= REVIVAL_MAX_ATTEMPTS:
+        lad["abandoned"] = True
+        rev["ladder"] = lad
+        _publish_ladder(base, seat, "abandoned", lad, failure)
+        warn_text, refuse_text = revival_floors(args, base)
+        notes.append(Flag(seat,
+            f"{REVIVAL_LAUNCH_LAYER}: revival of '{seat}' is ABANDONED. {attempts} attempt(s) were "
+            f"made and every one was refused by the executor's launch gate; the seat has been down "
+            f"and blocked for {ticks} tick(s) since {lad['since']}. NO FURTHER REVIVAL WILL BE "
+            f"ATTEMPTED — this loop stops retrying, and the report line keeps printing every tick "
+            f"so the hole does not go quiet. Free memory, then bring the seat back by hand. "
+            f"Executor's own words: {failure}. {refuse_text}. {warn_text}. (This is the revival "
+            f"launch gate reporting, not the harness permission classifier.)"))
+        return "ABANDONED", (
+            f"{seat:<18} {'REFUSED':<7} {REVIVAL_ABANDONED_LINE} — {attempts} attempt(s) exhausted "
+            f"after {ticks} blocked tick(s); NO further revival will be attempted for this episode")
+
+    rev["ladder"] = lad
+    _publish_ladder(base, seat, "blocked", lad, failure)
+    line = (f"{seat:<18} {'REFUSED':<7} {REVIVAL_BLOCKED_LINE} — blocked_ticks {ticks}, attempt "
+            f"{attempts}/{REVIVAL_MAX_ATTEMPTS}, blocked since {lad['since']}")
+    if ticks == 1:
+        warn_text, refuse_text = revival_floors(args, base)
+        _claim_note(room, notes, seat, "ram-blocked",
+                    f"{REVIVAL_LAUNCH_LAYER}: revival of '{seat}' is BLOCKED. The detached executor "
+                    f"reached its relaunch step and its launch gate REFUSED on available memory, so "
+                    f"the seat is roster-absent and is NOT coming back until memory frees. This "
+                    f"loop will retry every {REVIVAL_ESCALATE_EVERY} ticks, up to "
+                    f"{REVIVAL_MAX_ATTEMPTS} attempts, and will keep saying so every tick. Freeing "
+                    f"another seat NOW is what unblocks it. Executor's own words: {failure}. "
+                    f"{refuse_text}. {warn_text}. (This is the revival launch gate reporting, not "
+                    f"the harness permission classifier.)")
+    elif cadence:
+        warn_text, refuse_text = revival_floors(args, base)
+        notes.append(Flag(seat,
+            f"{REVIVAL_LAUNCH_LAYER}: ⚠ ALARM — '{seat}' HAS BEEN DOWN AND BLOCKED FOR {ticks} "
+            f"CONSECUTIVE TICKS since {lad['since']}, and every revival attempt so far "
+            f"({attempts}/{REVIVAL_MAX_ATTEMPTS}) was refused by the executor's launch gate on "
+            f"available memory. Retrying now as attempt {attempts + 1}. Executor's own words: "
+            f"{failure}. {refuse_text}. {warn_text}. (This is the revival launch gate reporting, "
+            f"not the harness permission classifier.)"))
+        lad["attempts"] = attempts + 1
+        rev["ladder"] = lad
+        _publish_ladder(base, seat, "blocked", lad, failure)
+        return "RETRY", line + f" -> RETRYING as attempt {lad['attempts']}"
+    return "BLOCKED", line
 
 
 def check_revival(args, base, snap, snap_err, state, notes):
@@ -1858,6 +2384,23 @@ def check_revival(args, base, snap, snap_err, state, notes):
             st["revival"] = rev
             continue
 
+        # ---- (4b) s4-07: THE RAM-FLOOR LOUD-REFUSAL PATH, and it MUST sit BEFORE CRASHED.
+        # A seat whose last revival was refused on memory is still roster-absent and still looks
+        # exactly like a crash — so without this the CRASHED branch below re-claims and re-fires it
+        # EVERY TICK against a floor that has not moved, and the abandonment state can never be
+        # reached. The ladder decides; the caller obeys the verdict and never second-guesses it.
+        verdict, lad_line = revival_ladder(args, base, seat, marker.get(seat), rev, notes, room)
+        if verdict in ("BLOCKED", "ABANDONED"):
+            lines.append(lad_line)
+            st["revival"] = rev
+            continue
+        if verdict == "RETRY":
+            # The cadence says re-fire. Fall through to CRASHED with the debounce SATISFIED — the
+            # seat's absence is not in question here, only whether the launch can succeed, so
+            # re-serving a two-tick debounce would add ~20 min to every retry for no evidence.
+            lines.append(lad_line)
+            rev["gone_ticks"] = REVIVAL_DEBOUNCE_TICKS - 1
+
         # (5) CRASHED — in roster_absent, none of the above, debounce satisfied.
         rev["gone_ticks"] = int(rev.get("gone_ticks", 0)) + 1
         if rev["gone_ticks"] >= REVIVAL_DEBOUNCE_TICKS:
@@ -1867,9 +2410,17 @@ def check_revival(args, base, snap, snap_err, state, notes):
             # fires on "CLAIMED"/"RE-CLAIMED" ONLY: "STOOD-DOWN" and "REFUSED" are different
             # facts and neither authorises a launch.
             outcome, why = claim_revival(base, seat, row.get("pane"), notes, room)
-            lines.append(f"{seat:<18} {'REVIVAL':<7} CRASHED — would revive "
-                         f"(pane {row.get('pane')}, {row.get('liveness')}) — claim {outcome}: "
-                         f"{why}; the fire is s4-06's")
+            # s4-06: THE FIRE, and it fires on "CLAIMED"/"RE-CLAIMED" ONLY. "STOOD-DOWN" and
+            # "REFUSED" are different facts with the same consequence today and DIFFERENT
+            # consequences the moment anyone adds a retry, so this branches on the STRING and never
+            # on "did it not refuse" — `claim_revival`'s own docstring states the requirement.
+            if outcome in ("CLAIMED", "RE-CLAIMED"):
+                fired, fwhy = fire_revival(args, base, snap, seat, row.get("pane"), notes, room)
+                lines.append(f"{seat:<18} {'REVIVAL':<7} CRASHED — claim {outcome}: {why}; fire "
+                             f"{fired}: {fwhy}")
+            else:
+                lines.append(f"{seat:<18} {'REVIVAL':<7} CRASHED — NOT FIRED (pane "
+                             f"{row.get('pane')}, {row.get('liveness')}) — claim {outcome}: {why}")
         else:
             lines.append(f"{seat:<18} {'REVIVAL':<7} CRASHED pending — "
                          f"{rev['gone_ticks']}/{REVIVAL_DEBOUNCE_TICKS} consecutive non-stale ticks "
@@ -2754,6 +3305,24 @@ def cmd_selftest():
         rargs = argparse.Namespace(package=str(rpkg), base=None, workers_dir=None,
                                    notify_to="leader", notify_fallback="leader")
 
+        # ⚠⚠ NO TMUX ANYWHERE IN THIS SUITE — the bar the s4-05 block declared, re-declared by
+        # s4-06 and now LOAD-BEARING rather than incidental: s4-06 gave `check_revival` a FIRE, and
+        # the fire reads tmux (`live_panes`, `tmux_pane_window_name`, `tmux_find_window_pane`) and
+        # forks. Left alone, EVERY pre-existing s4-03/s4-04/s4-05 row that reaches CRASHED would
+        # shell out to the real tmux server and fork a real executor at the developer's live room.
+        # The three READS are substituted here for the whole revival region; `subprocess.Popen` is
+        # substituted ONLY inside the s4-06 rows, and restored immediately.
+        #
+        # ⚠ THE DEFAULT STATE IS "NO PANES, NO ANCHOR", WHICH IS ITSELF THE NO-TARGET REFUSAL. So
+        # every row that predates s4-06 exercises the fire's REFUSAL path and forks nothing — that
+        # is deliberate, and it is why those rows still prove what they proved: the fire cannot
+        # reach `Popen` without a target, and no row below hands it one by accident.
+        _tmux_real = (coord.live_panes, coord.tmux_pane_window_name, coord.tmux_find_window_pane)
+        _fx = {"panes": set(), "wname": "", "anchor": ""}
+        coord.live_panes = lambda: set(_fx["panes"])
+        coord.tmux_pane_window_name = lambda pane: _fx["wname"]
+        coord.tmux_find_window_pane = lambda sess, win: _fx["anchor"]
+
         def rroster(*rows):
             body = ["| agent | active | pane | summary | checkin | checkout | lastread |",
                     "|---|---|---|---|---|---|---|"]
@@ -2870,8 +3439,8 @@ def cmd_selftest():
         l5, _ = rev(rsnap(absent=[gone()]))
         check("⚠ s4-03 (5) CONTROL: with the awaiting entry removed and the roster row active, "
               "the IDENTICAL fixture reaches CRASHED — a never-fires test proves nothing",
-              "CRASHED — would revive" in " ".join(l5)
-              and "CRASHED — would revive" not in " ".join(l4))
+              "CRASHED — " in " ".join(l5)
+              and "CRASHED — " not in " ".join(l4))
         rstate.clear(); rnotes.clear()
 
         # (6) An unparseable ledger REFUSES. BOTH ARMS, or the inversion was never tested —
@@ -2898,11 +3467,11 @@ def cmd_selftest():
         l1, _ = rev(rsnap(absent=[gone()]))
         check("s4-03 (7): one tick on a fresh candidate counts, and does NOT classify CRASHED — "
               "firing on a single tick would make one transient sensor error a relaunch",
-              gt() == 1 and "CRASHED — would revive" not in " ".join(l1)
+              gt() == 1 and "CRASHED — " not in " ".join(l1)
               and "1/2" in " ".join(l1) and "20 min" in " ".join(l1))
         l2, _ = rev(rsnap(absent=[gone()]))
         check("s4-03 (7): the second consecutive non-stale tick classifies CRASHED",
-              gt() == 2 and "CRASHED — would revive" in " ".join(l2))
+              gt() == 2 and "CRASHED — " in " ".join(l2))
         rstate.clear()
         rev(rsnap(absent=[gone()]))
         rev(rsnap(seats=[{"seat": "dseat", "pane": "%77", "liveness": "live",
@@ -2914,7 +3483,7 @@ def cmd_selftest():
         l3, _ = rev(rsnap(absent=[gone()]))
         check("s4-03 (7) CONTROL: after that reset the seat must start over at 1, not resume at 2 "
               "— otherwise the reset is cosmetic",
-              gt() == 1 and "CRASHED — would revive" not in " ".join(l3))
+              gt() == 1 and "CRASHED — " not in " ".join(l3))
         rstate.clear(); rnotes.clear()
 
         # (8) STALE FREEZES the counter. A freeze and a reset are indistinguishable without the pair.
@@ -2928,7 +3497,7 @@ def cmd_selftest():
         check("⚠ s4-03 (8) THE DISCRIMINATING ARM: the next fresh tick reaches CRASHED. Had the "
               "stale tick RESET instead of frozen, this tick would read 1/2 — that is the only "
               "observation that tells a freeze from a reset",
-              "CRASHED — would revive" in " ".join(l3))
+              "CRASHED — " in " ".join(l3))
         _, p1 = rev(rsnap(absent=[gone()], age_s=9999))
         _, p2 = rev(rsnap(absent=[gone()], age_s=9999))
         _, p3 = rev(rsnap(absent=[gone()], age_s=9999))
@@ -2963,7 +3532,7 @@ def cmd_selftest():
         l4, _ = rev(rsnap(absent=[gone()]))
         check("s4-03 (10) CONTROL: a marker whose executor ident is GONE does not hold the seat in "
               "MID-RENEWAL forever — the same fixture with a dead ident reaches CRASHED",
-              "CRASHED — would revive" in " ".join(l4) and "MID-RENEWAL" not in " ".join(l3 + l4))
+              "CRASHED — " in " ".join(l4) and "MID-RENEWAL" not in " ".join(l3 + l4))
         (rbase / "lifecycle-inflight.json").unlink()
         rstate.clear(); rnotes.clear()
 
@@ -2994,6 +3563,7 @@ def cmd_selftest():
         # tests the branch and not the integration. NO TMUX and NO ACTUATION anywhere in this
         # block. ⚠ WAY-STATION: these rows travel with the gate to the goal-watcher-job at 7.35.
         import ast as _ast_mod
+        import textwrap as _textwrap
 
         def twice(**kw):
             """Two consecutive ticks — the debounce — returning (all lines, notes pushed).
@@ -3023,7 +3593,7 @@ def cmd_selftest():
         check("⚠ s4-04 LG-10 CONTROL: the IDENTICAL fixture with `mode: interactive` DOES reach "
               "CRASHED — one key, opposite verdict. A gate that never lets anything through is "
               "indistinguishable from a detector that is switched off",
-              "CRASHED — would revive" in " ".join(li))
+              "CRASHED — " in " ".join(li))
 
         # LG-11 — the gate reads `mode:`, not `harness:`. Both rows are the cases a harness-keyed
         # implementation gets BACKWARDS, so `harness == "opencode"` passes neither.
@@ -3032,7 +3602,7 @@ def cmd_selftest():
         check("⚠ s4-04 LG-11 (a): `harness: opencode` + `mode: interactive` → revival FIRES. "
               "Harness is a proxy that is true today and breaks the moment an opencode seat runs "
               "in TUI mode; gating on the proxy is how a correct rule becomes wrong SILENTLY",
-              "CRASHED — would revive" in " ".join(lopen))
+              "CRASHED — " in " ".join(lopen))
         rdecl(mode="one-shot", harness="claude")
         lclaude, _ = twice()
         check("⚠ s4-04 LG-11 (b): `harness: claude` + `mode: one-shot` → revival does NOT fire. "
@@ -3091,7 +3661,7 @@ def cmd_selftest():
         check("⚠ s4-04 (4) CONTROL (a): adding `mode: interactive` to that same descriptor makes "
               "revival FIRE — the refusal was the missing key, not the fixture",
               (rdecl(mode="interactive") or True)
-              and "CRASHED — would revive" in " ".join(twice()[0]))
+              and "CRASHED — " in " ".join(twice()[0]))
         check("⚠ s4-04 (4) CONTROL (b): adding `mode: one-shot` instead takes the ATTEST route — "
               "with (a) this is what tells a REFUSAL from a silent default to one-shot, which a "
               "single-arm test cannot",
@@ -3186,27 +3756,65 @@ def cmd_selftest():
               "the observation that makes the ordering load-bearing rather than incidental",
               "CRASHED" not in " ".join(twice()[0]))
 
-        # Row 7 — LG-16: this edit adds NO actuator arm. The count is UNCHANGED from whatever
-        # s4-03…s4-06 have landed, which at this landing point is ZERO (s4-06 has not landed) —
-        # never an absolute "exactly one".
+        # Row 7 — LG-16, AMENDED BY s4-06 AND THE AMENDMENT IS THE POINT. The row as s4-04 wrote it
+        # asserted `_actuator_syms(inspect.getsource(check_revival)) == set()` and called that "the
+        # actuator-arm count is UNCHANGED (ZERO at this landing point: s4-06 has not landed)".
+        #
+        # ⚠⚠ s4-06 HAS NOW LANDED AND THAT ASSERTION WOULD STILL HAVE PASSED — VACUOUSLY. The fire
+        # lives in `fire_revival`, which `check_revival` reaches by NAME, and `fire_revival` is not
+        # in the symbol set. A predicate scoped to one function's own bytes reports ZERO whether the
+        # actuator is absent or one call away, so it can no longer discriminate. It is REPLACED
+        # rather than left standing as a green: LG-16's real claim was about s4-04's GATE, and that
+        # claim is preserved below at its true scope (the gate BLOCK), while the ARM's count is
+        # asserted honestly at ONE — the s4-06 fire, named.
         def _actuator_syms(src):
-            t = _ast_mod.parse(src)
+            # DEDENTED before parsing: this predicate is applied to a nested BLOCK (s4-04's gate)
+            # as well as to whole functions, and an indented fragment is not a parseable module.
+            t = _ast_mod.parse(_textwrap.dedent(src))
             return (({n.id for n in _ast_mod.walk(t) if isinstance(n, _ast_mod.Name)}
                      | {n.attr for n in _ast_mod.walk(t) if isinstance(n, _ast_mod.Attribute)})
                     & {"fork", "Popen", "subprocess", "system", "execv", "execvp", "setsid",
                        "launch_seat", "cmd_launch", "renew_in_place", "seat_placement",
                        "live_panes", "tmux_new_window", "tmux_find_window_pane", "kill"})
 
-        check("⚠ s4-04 LG-16: the gate adds NO actuator arm — the detector references no fork, "
-              "exec, subprocess, launch or tmux symbol, so the actuator-arm count is UNCHANGED by "
-              "this edit (ZERO at this landing point: s4-06 has not landed). Asserted over the "
-              "function's own AST, not by eye",
-              _actuator_syms(_gate_src) == set())
-        _act_mutant = _gate_src.replace(_anchor, _anchor + "\n        coord.launch_seat(seat)", 1)
-        check("⚠ s4-04 LG-16 RED ARM: the SAME predicate over the SAME source with one launch call "
-              "inserted INSIDE the gate reports it — the row can go red, and the mutation is "
-              "asserted to have applied so a failed replace cannot pass as a green",
-              _act_mutant != _gate_src and _actuator_syms(_act_mutant) == {"launch_seat"})
+        check("⚠ s4-04 LG-16 (a), AT ITS TRUE SCOPE: s4-04's COMPLETED-ONE-SHOT gate BLOCK itself "
+              "still references no fork, exec, subprocess, launch or tmux symbol — the gate routes "
+              "and refuses, it never acts. This is what LG-16 always meant, asserted over the "
+              "gate's own AST rather than over the whole enclosing function",
+              _actuator_syms(_gate_body) == set())
+        _act_mutant = _gate_body.replace(_anchor, _anchor + "\n        coord.launch_seat(seat)", 1)
+        check("⚠ s4-04 LG-16 (a) RED ARM: the SAME predicate over the SAME gate block with one "
+              "launch call inserted reports it — the row can go red, and the mutation is asserted "
+              "to have applied so a failed replace cannot pass as a green",
+              _act_mutant != _gate_body and _actuator_syms(_act_mutant) == {"launch_seat"})
+        check("⚠ s4-04 LG-16 (b) — THE VACUITY, MEASURED AND DISCLOSED RATHER THAN INHERITED: the "
+              "ORIGINAL predicate (scoped to `check_revival`'s own source) STILL answers 'no "
+              "actuator' now that s4-06 has landed, because the fire is one call away by name. A "
+              "green that survives the arrival of the very thing it excluded proves nothing, which "
+              "is why the row above was re-scoped and the row below was added",
+              _actuator_syms(inspect.getsource(check_revival)) == set())
+        _arm_src = "\n".join(inspect.getsource(f) for f in
+                             (check_revival, fire_revival, revival_fork_target, revival_fork_argv,
+                              revival_child_env, claim_revival))
+        check("⚠ s4-06 LG-16 (c) — THE ARM'S ACTUATOR COUNT IS NOW **ONE**, AND s4-06 IS IT. Over "
+              "the WHOLE revival arm's call graph the actuator symbols are exactly the fire's: "
+              "`subprocess.Popen` (the detached exec) plus the three reads the target derivation "
+              "needs. ⚠ `setsid` is NOT among them and that is a property of the INSTRUMENT, not "
+              "of the code: it rides the argv as a STRING LITERAL, which an AST name/attribute "
+              "scan cannot see — stated so nobody reads its absence as evidence. `launch_seat`, "
+              "`cmd_launch`, `tmux_new_window` and `kill` ARE absent for real: this arm computes a "
+              "target and forks coord.py's `lifecycle-exec`; it never launches a seat itself and "
+              "never kills a pane",
+              _actuator_syms(_arm_src) == {"subprocess", "Popen", "live_panes",
+                                           "tmux_find_window_pane", "renew_in_place",
+                                           "seat_placement"}
+              and '"setsid"' in _arm_src)
+        check("⚠ s4-06 LG-16 (c) RED ARM: the same predicate over the same arm with `launch_seat` "
+              "and `tmux_new_window` inserted reports BOTH — so the row can go red, and it is the "
+              "row that will catch the next arm somebody adds here",
+              _actuator_syms(_arm_src + "\ncoord.launch_seat(x)\ncoord.tmux_new_window(y)\n")
+              == {"subprocess", "Popen", "live_panes", "tmux_find_window_pane",
+                  "renew_in_place", "seat_placement", "launch_seat", "tmux_new_window"})
 
         rdecl()
         rstate.clear(); rnotes.clear()
@@ -3556,10 +4164,11 @@ def cmd_selftest():
         check_revival(cargs, cbase, rsnap(absent=[gone()]), None, cstate, cnotes)
         lw = check_revival(cargs, cbase, rsnap(absent=[gone()]), None, cstate, cnotes)
         check("⚠ s4-05 WIRED: the DETECTOR's CRASHED branch calls the claim — proven end to end, "
-              "not by reading the call site. The s4-03 line prefix `CRASHED — would revive` "
-              "survives verbatim (its own controls grep it) and the outcome is appended to it, so "
-              "the room reads the claim's verdict on the same line as the classification",
-              "CRASHED — would revive" in " ".join(lw) and "claim CLAIMED" in " ".join(lw)
+              "not by reading the call site. ⚠ THE LINE PREFIX WAS `CRASHED — would revive` UNTIL "
+              "s4-06 LANDED AND IT WAS A LIE THE MOMENT THE FIRE EXISTED — every control that "
+              "grepped it now greps `CRASHED — `, which the `CRASHED pending` line does not carry. "
+              "The claim's verdict is on the same line as the classification",
+              "CRASHED — " in " ".join(lw) and "claim CLAIMED" in " ".join(lw)
               and cmarker()["dseat"]["disposition"] == "revive"
               and cmarker()["dseat"]["pane"] == "%77")
         lw2 = check_revival(cargs, cbase, rsnap(absent=[gone()]), None, cstate, cnotes)
@@ -3577,6 +4186,665 @@ def cmd_selftest():
                                                "liveness": "live", "harness_pid": 4242}]),
                                  None, cstate, cnotes) or True)
               and cstate["_revival_room"]["claim_notes"] == {})
+        cclean()
+
+        # ---- Stage 4 §3 (s4-06): THE FIRE ----
+        # ⚠⚠ WHAT THESE ROWS ARE AND ARE NOT. They are FIXTURE-ONLY. `subprocess.Popen` is
+        # SUBSTITUTED (except where a row says otherwise, and that row says so in its own text), the
+        # three tmux reads are substituted for the whole region above, and NO `lifecycle-exec` ever
+        # runs. The live proof — a real room, a real kill -9, a real successor pane — is s4-10's and
+        # s4-12's, and a hand-authored snapshot is explicitly not acceptable as THAT evidence.
+        #
+        # ⚠⚠ AND THE POSITIVE CANNOT BE DEMONSTRATED ON RUN-2'S OWN DESCRIPTORS AT ALL: ZERO of
+        # run-2's 52 `seat.md` files declare `mode:` (console-confirmed on disk), so s4-04's gate
+        # routes every roster-absent seat there into the UNDECIDABLE refusal and the CRASHED branch
+        # — and therefore this fire — is UNREACHABLE on any pre-dag-04 run. That is the ruled
+        # fail-closed behaviour, not a defect. Every fixture below declares `mode: interactive`
+        # EXPLICITLY for exactly that reason.
+        _popen_real = subprocess.Popen
+        _spawned = []
+
+        class _RecPopen:
+            """Records the fork instead of performing it. Carries `pid` because the production path
+            does not read it — see the way-station block's measured note on why it must not."""
+
+            def __init__(self, argv, stdout=None, stderr=None, start_new_session=None, env=None):
+                _spawned.append({"argv": list(argv), "env": dict(env or {}),
+                                 "log": getattr(stdout, "name", ""),
+                                 "new_session": start_new_session})
+                self.pid = -1
+
+        try:
+            subprocess.Popen = _RecPopen
+
+            def fire(seat="dseat", pane="%77", seats=()):
+                """One fire against a CLAIMED seat. Returns (outcome, why, notes, spawn-or-None).
+
+                `seats` populates the SNAPSHOT's seat rows — the only thing that can supply the
+                step-3 fallback anchor, because a pane belongs to this room exactly when the
+                snapshot lists it."""
+                fnotes, froom = [], {}
+                del _spawned[:]
+                out, why = fire_revival(cargs, cbase,
+                                        rsnap(absent=[gone(seat=seat, pane=pane)], seats=seats),
+                                        seat, pane, fnotes, froom)
+                return out, why, fnotes, (_spawned[0] if _spawned else None)
+
+            def claimed(seat="dseat", pane="%77"):
+                cclean()
+                croster((seat, "yes", pane))
+                return claim(seat=seat, pane=pane)[0]
+
+            # ---- ROW 1: THE TARGET IS NEVER EMPTY, AND THE REFUSAL IS LOUD ----
+            _fx.update(panes=set(), wname="", anchor="")
+            (cpkg / "workers" / "dseat.md").write_text(
+                "---\nagent: dseat\nmode: interactive\nwindow: control\n---\n\nseat body\n",
+                encoding="utf-8")
+            o1 = claimed()
+            f1, w1, n1, sp1 = fire()
+            check("⚠ s4-06 (1) THE TARGET IS NEVER EMPTY: pane DEAD, `tmux_find_window_pane` MISSES "
+                  "and NO live pane sits in the snapshot's session -> NO FORK, a refusal, and ONE "
+                  "note naming the layer. `recover-room.py:12-19` measured what the alternative "
+                  "is: tmux resolves an empty target to the MOST RECENT session, which was the "
+                  "LIVE room",
+                  o1 == "CLAIMED" and f1 == "NO-TARGET" and sp1 is None and len(_spawned) == 0
+                  and len(n1) == 1 and n1[0].startswith(REVIVAL_FIRE_LAYER + ":")
+                  and "NO ANCHOR RESOLVES" in w1)
+            check("⚠ s4-06 (1) R-8 — THE LAYER STRING LEADS THE BODY, so a reader cannot mistake "
+                  "this TOOL GATE's refusal for the harness permission classifier's",
+                  n1[0].startswith("revival fire gate: "))
+            check("⚠ s4-06 (1) R-8 RED ARM: the SAME predicate against the SAME body with the layer "
+                  "string moved to the END goes red — a buried layer string fails R-8's bar and a "
+                  "startswith assertion is only worth something if it can",
+                  not (str(n1[0])[len(REVIVAL_FIRE_LAYER) + 2:] + " " + REVIVAL_FIRE_LAYER
+                       ).startswith(REVIVAL_FIRE_LAYER + ":"))
+            # THE RED ARM FOR THE GUARD ITSELF: let an empty target through and the fork happens.
+            _empty_ok = inspect.getsource(fire_revival).replace(
+                "    if not target:\n", "    if False:\n", 1)
+            check("s4-06 (1) PRECONDITION: the empty-target mutant really applied — a replace that "
+                  "silently missed would make the red arm below a green that proves nothing",
+                  _empty_ok != inspect.getsource(fire_revival))
+            _g1 = dict(globals())
+            exec(compile(_empty_ok, "<s4-06 row 1 red arm>", "exec"), _g1)     # noqa: S102
+            del _spawned[:]
+            _g1["fire_revival"](cargs, cbase, rsnap(absent=[gone()]), "dseat", "%77", [], {})
+            check("⚠ s4-06 (1) THE RED ARM: with the no-target guard removed the SAME fixture DOES "
+                  "fork — and it forks with `--tmux-target ''`. This is what proves the guard is "
+                  "the thing that stopped it, rather than something else in the path happening to "
+                  "fail first",
+                  len(_spawned) == 1
+                  and _spawned[0]["argv"][_spawned[0]["argv"].index("--tmux-target") + 1] == "")
+
+            # ---- ROW 2: IN-PLACE vs RE-PLACE, THREE ARMS ----
+            # ⚠ THREE ARMS AND NOT TWO, because a two-arm test cannot separate "pane liveness" from
+            # "placement": arm (c) holds the pane LIVE and flips only the placement answer.
+            _fx.update(panes={"%77", "%9"}, wname="control", anchor="")
+            claimed()
+            f2a, w2a, _, sp2a = fire()
+            check("⚠ s4-06 (2a) IN-PLACE: pane LIVE and already in the window its descriptor names "
+                  "-> the argv carries THAT PANE and the successor respawns in place, layout "
+                  "intact (G-12)",
+                  f2a == "FIRED" and sp2a is not None
+                  and sp2a["argv"][sp2a["argv"].index("--tmux-target") + 1] == "%77"
+                  and "respawns IN PLACE" in w2a)
+            _fx.update(panes={"%9"}, wname="control", anchor="%12")
+            claimed()
+            f2b, w2b, _, sp2b = fire()
+            check("⚠ s4-06 (2b) RE-PLACE: pane DEAD -> the argv carries the ANCHOR, NOT the dead "
+                  "pane. Passing the dead pane down would be an empty target by another route",
+                  f2b == "FIRED" and sp2b is not None
+                  and sp2b["argv"][sp2b["argv"].index("--tmux-target") + 1] == "%12"
+                  and "%77" not in sp2b["argv"][sp2b["argv"].index("--tmux-target") + 1])
+            _fx.update(panes={"%77", "%9"}, wname="somewhere-else", anchor="%12")
+            claimed()
+            f2c, w2c, _, sp2c = fire()
+            check("⚠ s4-06 (2c) THE DISCRIMINATING ARM: pane LIVE but `renew_in_place` FALSE (its "
+                  "window drifted from the descriptor's) -> branch (b) is taken anyway. With only "
+                  "(a) and (b) the suite could not tell whether the decision keys on LIVENESS or "
+                  "on PLACEMENT; this row separates them",
+                  f2c == "FIRED" and sp2c is not None
+                  and sp2c["argv"][sp2c["argv"].index("--tmux-target") + 1] == "%12"
+                  and "is NOT in the window" in w2c)
+            _fx.update(panes={"%9"}, wname="control", anchor="")
+            claimed()
+            f2d, w2d, _, sp2d = fire(seats=[{"seat": "leader", "pane": "%9"}])
+            check("s4-06 (2d) THE SNAPSHOT FALLBACK: the declared window does not exist in the "
+                  "session, so the anchor is a LIVE pane the snapshot places in this room — from "
+                  "which `launch_seat` derives the session for a new window",
+                  f2d == "FIRED" and sp2d is not None
+                  and sp2d["argv"][sp2d["argv"].index("--tmux-target") + 1] == "%9")
+
+            # ---- ROW 3: `--force` IS NEVER SET ----
+            _fx.update(panes={"%77"}, wname="control", anchor="")
+            claimed()
+            f3, _, _, sp3 = fire()
+            check("⚠ s4-06 (3): NO `--force` AND NO `--force-memory` ANYWHERE in the constructed "
+                  "argv, asserted over the real argv rather than by eye. `--force` carries the ROLE "
+                  "gate ALONE (coord.GATE_FLAGS) and would not lift a memory or a window-drift "
+                  "refusal even if it were passed",
+                  f3 == "FIRED" and not ({"--force", "--force-memory"} & set(sp3["argv"]))
+                  and "--handoff-written" in sp3["argv"] and "--disposition" in sp3["argv"])
+            # ⚠ SUBSTITUTED ARM, AND THE SUBSTITUTION IS DISCLOSED. The task's own red arm — "set
+            # args.force = True and assert `launch_seat`'s window-drift refusal stops firing" —
+            # CANNOT BE RUN FROM THIS FILE: that refusal lives in `coord.launch_seat`, inside the
+            # DETACHED CHILD, and `coord.py` is not this task's write set. What IS measurable here,
+            # and is strictly stronger for the argv claim, is that the flag cannot be smuggled at
+            # all: the built `lifecycle-exec` parser REJECTS it.
+            _lex = coord.build_parser()
+            _base_argv = ["lifecycle-exec", "--package", str(cpkg), "--seat", "dseat",
+                          "--disposition", "revive", "--tmux-target", "%1",
+                          "--caller-pid", "1", "--caller-starttime", "1"]
+
+            def _parses(extra):
+                _oe, sys.stderr = sys.stderr, io.StringIO()
+                try:
+                    _lex.parse_args(_base_argv + extra)
+                    return True
+                except SystemExit:
+                    return False
+                finally:
+                    sys.stderr = _oe
+
+            check("⚠ s4-06 (3) SUBSTITUTED RED ARM, AND THE SUBSTITUTION IS DISCLOSED RATHER THAN "
+                  "GLOSSED: the task's own red arm — set `args.force` and watch `launch_seat`'s "
+                  "window-drift refusal stop firing — lives in `coord.launch_seat`, inside the "
+                  "DETACHED CHILD, and coord.py is not this task's write set. Substituted with a "
+                  "claim that is stronger for THIS argv and measurable here: `--force` and "
+                  "`--force-memory` cannot be smuggled onto the fire by any future editor, because "
+                  "the built `lifecycle-exec` parser REJECTS them",
+                  _parses(["--force"]) is False and _parses(["--force-memory"]) is False)
+            check("s4-06 (3) THE INSTRUMENT'S OWN CONTROL: the same probe against a flag the "
+                  "parser DOES define returns True — so a `False` above is a rejection and not a "
+                  "parser that refuses everything handed to it",
+                  _parses(["--handoff-written", "0"]) is True)
+
+            # ---- ROW 4: THE CHILD'S ENVIRONMENT IS SCRUBBED ----
+            os.environ["TMUX"] = "/tmp/fake,1,0"
+            os.environ["TMUX_PANE"] = "%145"
+            os.environ["COORD_AGENT"] = "chief-of-staff"
+            os.environ["COORD_LAUNCH_TARGET"] = "%1"
+            os.environ["TMUX_TMPDIR"] = "/tmp/s4-06-private-socket"
+            os.environ["S4_06_CANARY"] = "kept"
+            try:
+                _fx.update(panes={"%77"}, wname="control", anchor="")
+                claimed()
+                f4, _, _, sp4 = fire()
+                check("⚠ s4-06 (4) THE SCRUB: the child's env carries NONE of TMUX, TMUX_PANE, "
+                      "COORD_AGENT, COORD_LAUNCH_TARGET, while the parent holds all four. "
+                      "`watch.py` records why in its own measured words: a detached loop inherits "
+                      "TMUX_PANE from whatever shell started it, and every send was refused with "
+                      "\"you claimed 'watcher', but this pane (%145) is registered to "
+                      "'chief-of-staff'\"",
+                      f4 == "FIRED"
+                      and not ({"TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET"}
+                               & set(sp4["env"]))
+                      and all(v in os.environ for v in coord.LIFECYCLE_SCRUB_ENV))
+                check("⚠ s4-06 (4) IT IS A DENYLIST AND MUST STAY ONE: TMUX_TMPDIR SURVIVES into "
+                      "the child. An acceptance room on a private tmux socket is reachable only "
+                      "through it, so narrowing this to an allowlist would silently send every "
+                      "fire to the default server. An unrelated variable survives too",
+                      sp4["env"].get("TMUX_TMPDIR") == "/tmp/s4-06-private-socket"
+                      and sp4["env"].get("S4_06_CANARY") == "kept")
+                # THE RED ARM, AND IT IS A REAL /proc MEASUREMENT — "a scrub asserted only in the
+                # prompt is not a scrub". A REAL child is started with the REAL `revival_child_env()`
+                # and its /proc/<pid>/environ is read back; then the same child is started with the
+                # scrub REMOVED and the assertion goes red. No tmux, no lifecycle-exec: the payload
+                # is a sleeping python, because what is under test is the ENV COMPUTATION.
+                def _environ_of(env):
+                    pr = _popen_real([sys.executable, "-c", "import time; time.sleep(5)"],
+                                     env=env, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL, start_new_session=True)
+                    try:
+                        for _ in range(200):
+                            try:
+                                raw = Path(f"/proc/{pr.pid}/environ").read_bytes()
+                            except OSError:
+                                raw = b""
+                            if raw:
+                                break
+                            time.sleep(0.01)
+                        return {kv.split("=", 1)[0] for kv in
+                                raw.decode("utf-8", "replace").split("\0") if "=" in kv}
+                    finally:
+                        pr.kill()
+                        pr.wait()
+
+                _clean = _environ_of(revival_child_env())
+                _dirty = _environ_of(dict(os.environ))
+                check("⚠ s4-06 (4) MEASURED AT /proc, NOT ASSERTED: a REAL child started with the "
+                      "production `revival_child_env()` shows none of the four names in "
+                      "/proc/<pid>/environ, and its TMUX_TMPDIR is present",
+                      not ({"TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET"} & _clean)
+                      and "TMUX_TMPDIR" in _clean)
+                check("⚠ s4-06 (4) THE RED ARM AT THE SAME INSTRUMENT: the identical measurement "
+                      "with the scrub REMOVED (the parent's env passed straight through) shows all "
+                      "four — so the /proc read can go red, and the green above is the scrub's "
+                      "doing and not the instrument's",
+                      {"TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET"} <= _dirty)
+            finally:
+                for _v in ("TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET",
+                           "TMUX_TMPDIR", "S4_06_CANARY"):
+                    os.environ.pop(_v, None)
+
+            # ---- ROW 5: `--handoff-written 0`, AND memory.md IS NOT TOUCHED ----
+            _mem = cpkg / "workers" / "dseat" / "memory.md"
+            _mem.parent.mkdir(parents=True, exist_ok=True)
+            _mem.write_text("# memory\n\n<!-- handoff:start -->\nprior turn\n"
+                            "<!-- handoff:end -->\n", encoding="utf-8")
+            _before = _mem.read_bytes()
+            _fx.update(panes={"%77"}, wname="control", anchor="")
+            claimed()
+            f5, _, _, sp5 = fire()
+            _hw = sp5["argv"][sp5["argv"].index("--handoff-written") + 1]
+            check("⚠ s4-06 (5): the argv carries `--handoff-written 0` and `--disposition revive`, "
+                  "and `memory.md` is BYTE-IDENTICAL across the fire. A crashed session had no turn "
+                  "boundary at which to write a block, so requiring one would make revival "
+                  "impossible in exactly the case revival exists for (R-14: this arm neither "
+                  "writes, extends, nor reads that block)",
+                  f5 == "FIRED" and _hw == "0"
+                  and sp5["argv"][sp5["argv"].index("--disposition") + 1] == "revive"
+                  and _mem.read_bytes() == _before)
+            check("⚠ s4-06 (5) THE DISTINGUISHING CONTROL: the OTHER caller of this executor — "
+                  "`coord.fork_lifecycle_renewal`, Stage 2's normal `checkout --renew` path — "
+                  "hard-codes `--disposition renew` and `--handoff-written 1`. The two paths are "
+                  "therefore distinguishable at the argv, which is the whole reason this arm does "
+                  "not reuse that function",
+                  '"--handoff-written", "1"' in inspect.getsource(coord.fork_lifecycle_renewal)
+                  and '"--disposition", "renew"' in
+                  inspect.getsource(coord.fork_lifecycle_renewal))
+
+            # ---- ROW 6: THE EXECUTOR IDENT — THE TASK TEXT IS WRONG AND THIS ROW MEASURES WHY ----
+            # `s4-06` § Detachment asks this arm to "record the executor's (pid, starttime) into the
+            # marker entry after the fork". IT CANNOT, and writing one anyway would write a DEAD pid
+            # into a field every reader treats as "a process is there".
+            _sid = _popen_real(
+                ["setsid", sys.executable, "-c",
+                 f"import os,time; open({str(Path(td) / 'kidpid')!r},'w').write(str(os.getpid())); "
+                 f"time.sleep(4)"],
+                start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _kid = ""
+            for _ in range(400):
+                try:
+                    _kid = (Path(td) / "kidpid").read_text().strip()
+                except OSError:
+                    _kid = ""
+                if _kid:
+                    break
+                time.sleep(0.01)
+            check("⚠ s4-06 (6) THE MEASUREMENT THAT OVERTURNS THE TASK TEXT: with `setsid` in the "
+                  "argv AND `start_new_session=True`, Popen's pid is NOT the executor's. Python "
+                  "already made the child a session leader, so util-linux `setsid`'s own setsid() "
+                  "fails and it FORKS — the real executor is a different process. A caller-side "
+                  "`executor` write would therefore record a pid that is already gone",
+                  _kid != "" and _kid != str(_sid.pid))
+            _sid.kill()
+            _sid.wait()
+            check("⚠ s4-06 (6) SO THE IDENT COMES FROM THE CHILD, WHICH IS WHERE IT ALREADY CAME "
+                  "FROM: `cmd_lifecycle_exec` guard 5 stamps `executor: (os.getpid(), "
+                  "proc_stat(os.getpid())[1])` as its first act. ONE writer, ONE home (PRIN-11) — "
+                  "and it is exactly why `_claim_record` above leaves `executor` deliberately "
+                  "absent. Asserted against coord's own source so a Stage 3 change goes red here",
+                  '"executor": (os.getpid(), proc_stat(os.getpid())[1])'
+                  in inspect.getsource(coord.cmd_lifecycle_exec))
+            check("⚠ s4-06 (6) WHAT THIS ARM DOES RECORD INSTEAD — its own evidence, on the entry, "
+                  "BEFORE the fork: the target it computed and the log it opened. So a fire that "
+                  "never reaches the child still says where it was aimed. `executor` stays ABSENT "
+                  "until a real child stamps it",
+                  cmarker()["dseat"].get("tmux-target") == "%77"
+                  and cmarker()["dseat"].get("log", "").endswith(".log")
+                  and "executor" not in cmarker()["dseat"]
+                  and Path(cmarker()["dseat"]["log"]).exists())
+            _annotate_claim(cbase, "no-such-seat", {"log": "x"})
+            check("⚠ s4-06 (6) CONTROL: the annotation MERGES and never CREATES — an entry this "
+                  "file never saw claimed is left absent rather than invented, because an "
+                  "annotation about a claim nobody made would BE a claim",
+                  "no-such-seat" not in cmarker())
+
+            # ---- ROW 7: THE FIRE IS REACHED ONLY THROUGH THE CLAIM ----
+            cclean()
+            croster(("dseat", "yes", "%77"))
+            _fx.update(panes={"%77"}, wname="control", anchor="")
+            del _spawned[:]
+            wstate, wnotes = {}, []
+            check_revival(cargs, cbase, rsnap(absent=[gone()]), None, wstate, wnotes)
+            _lf = check_revival(cargs, cbase, rsnap(absent=[gone()]), None, wstate, wnotes)
+            check("⚠ s4-06 WIRED: the DETECTOR's CRASHED branch now FIRES, end to end, and the "
+                  "line says so — `claim CLAIMED` and `fire FIRED` on one line, one spawn recorded",
+                  "claim CLAIMED" in " ".join(_lf) and "fire FIRED" in " ".join(_lf)
+                  and len(_spawned) == 1
+                  and _spawned[0]["argv"][3] == "lifecycle-exec")
+            del _spawned[:]
+            _lf2 = check_revival(cargs, cbase, rsnap(absent=[gone()]), None, wstate, wnotes)
+            check("⚠ s4-06 WIRED — A STAND-DOWN IS NOT A FIRE: the very next tick stands down "
+                  "against the claim this loop wrote itself and NOTHING is forked. The branch is on "
+                  "the claim's STRING, not on 'did it not refuse' — a stand-down and a refusal are "
+                  "different facts and neither authorises a launch",
+                  "claim STOOD-DOWN" in " ".join(_lf2) and "NOT FIRED" in " ".join(_lf2)
+                  and len(_spawned) == 0)
+            # ---- Stage 4 §4 (s4-07): THE RAM-FLOOR LOUD-REFUSAL PATH ----
+            # ⚠ BUILD-LEVEL CONTROLS ONLY, AND FIXTURE-ONLY. Spec §6(c)'s live-fire acceptance —
+            # the visible-refusal run and the floor-at-1 control proving the launch COULD have
+            # succeeded — is OWNED BY s4-12 and is not duplicated here. No `lifecycle-exec` runs,
+            # no memory is actually measured: the executor's RAM gate is the executor's, and this
+            # arm is driven by the marker it leaves behind.
+            lpkg = Path(td) / "ladderpkg"
+            lbase = lpkg / "coordination"
+            lbase.mkdir(parents=True)
+            (lpkg / "workers").mkdir(parents=True, exist_ok=True)
+            (lpkg / "workers" / "dseat.md").write_text(
+                "---\nagent: dseat\nmode: interactive\nwindow: control\n---\n\nseat body\n",
+                encoding="utf-8")
+            (lbase / "workers.md").write_text(
+                "| agent | active | pane | summary | checkin | checkout | lastread |\n"
+                "|---|---|---|---|---|---|---|\n| dseat | yes | %77 | s | c |  |  |\n",
+                encoding="utf-8")
+            largs = argparse.Namespace(package=str(lpkg), base=None, workers_dir=None,
+                                       notify_to="leader", notify_fallback="leader")
+            lmark = lbase / "lifecycle-inflight.json"
+            # The floor's ONE home. Declared as the run's own budget.json declares it, with BOTH
+            # named thresholds — collapsing them back into one is what `floors._scope` records as
+            # permanently unexpressible.
+            _FLOOR_FX = 2000
+
+            def lbudget(refuse_field="launch_refuse_mb"):
+                (lpkg / "budget.json").write_text(json.dumps(
+                    {"floors": {refuse_field: _FLOOR_FX, "pressure_warn_mb": _FLOOR_FX}}),
+                    encoding="utf-8")
+
+            # The EXECUTOR's own words, taken from coord's source rather than retyped — see the
+            # coupling row below for why that matters.
+            _RAM_FAIL = (f"the relaunch was refused on memory after "
+                         f"{coord.LIFECYCLE_MEM_RETRIES} retries — the seat is closed and NOT "
+                         f"relaunched")
+
+            def lfailed(failure=None):
+                lmark.write_text(json.dumps({"dseat": {
+                    "state": "FAILED", "disposition": "revive",
+                    "failure": failure if failure is not None else _RAM_FAIL,
+                    "stamped-at": coord.now(), "steps-completed": [],
+                    "caller": {"pid": os.getpid(),
+                               "starttime": coord.proc_stat(os.getpid())[1]}}},
+                    indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+            lstate, lnotes = {}, []
+
+            def ltick():
+                """One tick. Returns (lines, notes pushed BY THIS TICK, marker entry)."""
+                before = len(lnotes)
+                out = check_revival(largs, lbase, rsnap(absent=[gone()]), None, lstate, lnotes)
+                mk = json.loads(lmark.read_text(encoding="utf-8")) if lmark.exists() else {}
+                return out, lnotes[before:], mk.get("dseat", {})
+
+            lbudget()
+            _fx.update(panes=set(), wname="control", anchor="")   # no target: nothing can fork
+            lfailed()
+            del _spawned[:]
+
+            # ---- ROW 1 + ROW 7: transitions ON DISK, and the layer string LEADS the body ----
+            l1, n1a, m1a = ltick()
+            check("⚠ s4-07 (1): the FIRST tick over an executor entry that FAILED ON MEMORY writes "
+                  "`state: blocked` and `blocked_ticks: 1` ON DISK, and the report line carries "
+                  "`revival launch gate: RAM floor`. Stage 4 did NOT re-measure anything — the "
+                  "measurement is the executor's and this read its verdict",
+                  m1a.get("state") == "blocked" and m1a.get("blocked_ticks") == 1
+                  and any(REVIVAL_BLOCKED_LINE in l for l in l1) and len(n1a) == 1)
+            check("⚠ s4-07 (7): the LAYER STRING LEADS THE BODY — R-8's bar is that a reader cannot "
+                  "mistake this TOOL GATE's refusal for the harness permission classifier's, and a "
+                  "buried string fails it",
+                  str(n1a[0]).startswith(REVIVAL_LAUNCH_LAYER))
+            check("⚠ s4-07 (7) RED ARM: the SAME predicate against the SAME body with the layer "
+                  "string moved to the END goes red — so the startswith assertion above is worth "
+                  "something",
+                  not (str(n1a[0])[len(REVIVAL_LAUNCH_LAYER):] + " " + REVIVAL_LAUNCH_LAYER
+                       ).startswith(REVIVAL_LAUNCH_LAYER))
+            l2, n2a, m2a = ltick()
+            check("⚠ s4-07 (1): the SECOND tick increments `blocked_ticks` on disk to 2 and prints "
+                  "the line AGAIN — and it pushes NO second note. ⚠ THIS IS ALSO THE ROW THAT "
+                  "CATCHES THE MARKER-AS-AUTHORITY BUG: after tick 1 the marker reads `blocked`, "
+                  "not `FAILED`, so a ladder keyed on the marker would drop out here and hand the "
+                  "seat back to CRASHED. Nothing is forked",
+                  m2a.get("blocked_ticks") == 2 and any(REVIVAL_BLOCKED_LINE in l for l in l2)
+                  and len(n2a) == 0 and len(_spawned) == 0)
+            # RED ARM for row 1: suppress the marker write and the on-disk assertion goes red.
+            _mut_pub = inspect.getsource(_publish_ladder).replace(
+                "            entry[\"state\"] = marker_state\n", "            return True\n", 1)
+            check("s4-07 (1) PRECONDITION: the suppressed-write mutant really applied",
+                  _mut_pub != inspect.getsource(_publish_ladder))
+            _gp = dict(globals())
+            exec(compile(_mut_pub, "<s4-07 row 1 red arm>", "exec"), _gp)       # noqa: S102
+            lfailed()
+            _rs, _rn = {}, []
+            _gp["_publish_ladder"](lbase, "dseat", "blocked",
+                                   {"blocked_ticks": 9, "attempts": 1}, "x")
+            check("⚠ s4-07 (1) THE RED ARM: with the marker write suppressed, the entry still "
+                  "reads `FAILED` with no `blocked_ticks` — the on-disk assertion above goes red, "
+                  "proving it observes a real write rather than a state this suite invented",
+                  json.loads(lmark.read_text())["dseat"]["state"] == "FAILED"
+                  and "blocked_ticks" not in json.loads(lmark.read_text())["dseat"])
+
+            # ---- ROW 2: the `% 3` ESCALATION GATE, not "a note eventually" ----
+            lmark.unlink(missing_ok=True)
+            lstate.clear()
+            del lnotes[:]
+            lfailed()
+            _esc = []
+            for _t in range(1, 13):
+                _l, _n, _m = ltick()
+                _esc.append((_t, len(_n), _m.get("blocked_ticks"), _m.get("state"),
+                             any("ALARM" in str(x) for x in _n)))
+                if _m.get("state") == "abandoned":
+                    break
+            print(f"      s4-07 row 2 ladder trace (tick, notes, blocked_ticks, state, alarm): "
+                  f"{_esc}")
+            check("⚠ s4-07 (2) THE `% 3` GATE, NOT 'A NOTE EVENTUALLY': an ALARM-worded escalation "
+                  "note appears at blocked_ticks 3 AND AGAIN at 6, and at ticks 1, 2, 4 and 5 "
+                  "there is NO escalation note. The tick-2, tick-4 and tick-5 ABSENCES are "
+                  "asserted, which is what proves the gate is `blocked_ticks % 3 == 0` and not "
+                  "'the note fires whenever it feels like it'",
+                  [e[4] for e in _esc[:6]] == [False, False, True, False, False, True]
+                  and [e[1] for e in _esc[:6]][1] == 0
+                  and [e[1] for e in _esc[:6]][3] == 0
+                  and [e[1] for e in _esc[:6]][4] == 0)
+            _alarm = next(str(x) for x in lnotes if "ALARM" in str(x))
+            check("⚠ s4-07 (2): the escalation note NAMES the seat, the REFUSE floor, the measured "
+                  "MB from the executor's own failure text, and the elapsed time — a bare 'still "
+                  "blocked' teaches the room nothing and gets ignored",
+                  all(t in _alarm for t in
+                      ("dseat", "REFUSE floor", str(_FLOOR_FX), "CONSECUTIVE TICKS",
+                       "refused on memory", "PRESSURE (warn) floor")))
+
+            # ---- ROW 5: ABANDONMENT DOES NOT GO QUIET ----
+            _ab = [e for e in _esc if e[3] == "abandoned"]
+            check("⚠ s4-07 (5): after 3 attempts the marker reads `state: abandoned` ON DISK and "
+                  "the retries STOP. It lands at blocked_tick 9 — attempt 2 fired at 3, attempt 3 "
+                  "at 6, and the fourth is refused — which is the arithmetic the shared "
+                  "escalate/retry cadence produces and the reason both escalations are reachable "
+                  "at all",
+                  len(_ab) == 1 and _ab[0][0] == 9 and _esc[-1][3] == "abandoned"
+                  and _esc[-1][1] == 1 and _esc[-1][4] is False)
+            check("⚠ s4-07 — THE PROJECTION IS WIPED AT EVERY FIRE AND THE LADDER SURVIVES IT, "
+                  "WHICH IS THE WHOLE PRIN-11 CLAIM. On the RETRY ticks (3 and 6) the marker's "
+                  "`blocked_ticks` reads NOTHING: the claim rewrites the entry, and the child's "
+                  "`coord.stamp_lifecycle` would replace it wholesale anyway. The ladder counts "
+                  "straight through — 2 -> 4 -> 5 -> 7 — because its counters live in THIS loop's "
+                  "own persisted state and the marker carries only a projection of them",
+                  [e[2] for e in _esc[:7]] == [1, 2, None, 4, 5, None, 7])
+            _post = [ltick() for _ in range(3)]
+            check("⚠ s4-07 (5) THE HOLE NEVER GOES QUIET: the report line STILL PRINTS on every "
+                  "tick after abandonment",
+                  all(any(REVIVAL_ABANDONED_LINE in l for l in p[0]) for p in _post))
+            check("⚠ s4-07 (5) THE CONTROL THAT SEPARATES VISIBLE FROM SPAMMING: no note is "
+                  "re-pushed on any of those ticks — ONE loud note at abandonment, then "
+                  "report-only. A single assertion conflates the two; this one does not",
+                  all(len(p[1]) == 0 for p in _post))
+            check("⚠ s4-07 (5): and NOTHING is fired on any post-abandonment tick — the "
+                  "do-not-retry gate `s4-05` left for this task is in `claim_revival` step 4, so "
+                  "even a caller that reached the claim would be REFUSED",
+                  len(_spawned) == 0
+                  and claim_revival(lbase, "dseat", "%77", [], {})[0] == "REFUSED")
+            check("s4-07 (5) RED ARM for that gate: the SAME claim against the SAME entry with "
+                  "`abandoned` swapped for a terminal `done` is CLAIMED — so the refusal above is "
+                  "the `abandoned` state's doing and not something else refusing first",
+                  (lambda: (json.loads(lmark.read_text()),
+                            lmark.write_text(json.dumps(
+                                {"dseat": dict(json.loads(lmark.read_text())["dseat"],
+                                               state="done")}, indent=2, sort_keys=True) + "\n",
+                                encoding="utf-8"),
+                            claim_revival(lbase, "dseat", "%77", [], {})[0])[-1])() == "CLAIMED")
+
+            # ---- ROW 3: THE FIELD NAME IS READ, NOT GUESSED ----
+            lbudget(refuse_field="ram_available_mb")            # the SPEC's stale, RETIRED name
+            _w_stale, _r_stale = revival_floors(largs, lbase)
+            lbudget()                                          # the name that is actually on disk
+            _w_ok, _r_ok = revival_floors(largs, lbase)
+            check("⚠ s4-07 (3) THE ROW THAT CATCHES AN IMPLEMENTER WHO BUILT FROM THE SPEC TEXT "
+                  "INSTEAD OF DISK: a budget.json declaring the SPEC's stale `floors."
+                  "ram_available_mb` with `launch_refuse_mb` ABSENT FAILS LOUD with "
+                  "`FloorUndeclared` and substitutes NO number. Task 7.82 split the pre-7.82 field "
+                  "into two named thresholds and RETIRED the old name",
+                  "FloorUndeclared" in _r_stale and "UNRESOLVED" in _r_stale
+                  and str(_FLOOR_FX) not in _r_stale)
+            check("⚠ s4-07 (3) CONTROL: renaming it to `launch_refuse_mb` makes the SAME call "
+                  "resolve, with the value and the `why` that is task 7.82 criterion 8's "
+                  "acceptance — the consumer must SAY which value it used and why",
+                  str(_FLOOR_FX) in _r_ok and "budget.json" in _r_ok
+                  and "FloorUndeclared" not in _r_ok)
+
+            # ---- ROW 8: THE TWO FLOORS, REPORTED SEPARATELY AND NEVER CONFLATED ----
+            check("⚠ s4-07 (8b): the report names the REFUSE floor the executor reads via "
+                  "`floor_source(run_root, 'refuse', None)`, WITH its why, and labels it as the "
+                  "one the revival launch gate reads",
+                  "launch_refuse_mb" in _r_ok and "revival launch gate reads" in _r_ok)
+            check("⚠ s4-07 (8a): the report names the WARN floor THIS RUNNING LOOP HOLDS, read "
+                  "from /proc, and LABELS it the PRESSURE floor with an explicit statement that it "
+                  "did NOT gate the revival launch. `--mem-floor-mb` resolves the WARN floor alone "
+                  "and feeds only the pressure flag",
+                  "PRESSURE (warn) floor this loop HOLDS" in _w_ok
+                  and "/proc/" in _w_ok
+                  and "DID NOT GATE THE REVIVAL LAUNCH" in _w_ok)
+            # ⚠ SUBSTITUTED CONTROL, DISCLOSED. The task's control launches "the fixture loop with
+            # `--mem-floor-mb 1` against a budget.json declaring 2000". This suite IS the loop and
+            # cannot rewrite its own /proc argv — so the identical measurement is taken in a REAL
+            # CHILD whose argv really carries the flag, against this fixture's budget.json. The
+            # function under test is the shipped one, read out of this file.
+            _probe = (
+                "import sys, importlib.util\n"
+                "spec = importlib.util.spec_from_file_location('w', %r)\n"
+                "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+                "print(m._loop_warn_floor())\n" % str(Path(__file__).resolve()))
+            _pr = _popen_real([sys.executable, "-c", _probe, "--mem-floor-mb", "1"],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            _child_warn = (_pr.communicate()[0] or "").strip()
+            check("⚠ s4-07 (8) THE DIVERGENCE CONTROL (substituted, and the substitution is "
+                  "stated): a REAL child whose argv carries `--mem-floor-mb 1` reports the WARN "
+                  "floor as 1 and calls it an explicit operator override, while this fixture's "
+                  "budget.json declares %d for BOTH thresholds. The two are reported "
+                  "INDEPENDENTLY and correctly labelled, and NOTHING claims the warn floor gated "
+                  "the launch — it cannot: the revival gate is the executor's fresh "
+                  "read_floor(run_root, 'refuse') in a per-launch fork that cannot inherit this "
+                  "loop's argv" % _FLOOR_FX,
+                  "--mem-floor-mb 1" in _child_warn
+                  and "explicit operator override" in _child_warn
+                  and "DID NOT GATE THE REVIVAL LAUNCH" in _child_warn
+                  and str(_FLOOR_FX) not in _child_warn)
+            check("s4-07 (8) THE INSTRUMENT'S OWN CONTROL: THIS process's argv carries no "
+                  "`--mem-floor-mb`, and the same function says so instead of inventing a number "
+                  "— so the child's answer above is its argv's doing, not the function's default",
+                  "no --mem-floor-mb in argv" in _w_ok)
+
+            # ---- ROW 6: THE UNDELIVERED PATH IS REAL ----
+            _undel = lbase / "undelivered-flags.md"
+            _send_real = coord.cmd_send
+            try:
+                coord.cmd_send = lambda ns: (_ for _ in ()).throw(SystemExit(2))
+                notify_leader(largs, Flag("dseat", str(lnotes[0])))
+                check("⚠ s4-07 (6): with `coord.cmd_send` forced to SystemExit the flag lands in "
+                      "the package's `undelivered-flags.md` — a plain append under "
+                      "`coordination/` that the messaging layer cannot refuse, which is the whole "
+                      "point of not routing this report back through the layer it reports on",
+                      _undel.exists() and REVIVAL_LAUNCH_LAYER in _undel.read_text()
+                      and "UNDELIVERED" in _undel.read_text())
+                _sent = []
+                coord.cmd_send = lambda ns: _sent.append(ns.message)
+                _bytes_before = _undel.read_bytes()
+                notify_leader(largs, Flag("dseat", str(lnotes[0])))
+                check("⚠ s4-07 (6) CONTROL: the SAME call with sending WORKING puts the note on "
+                      "the bus and appends NOTHING to `undelivered-flags.md` — without this the "
+                      "row above could pass against a path that always appends",
+                      len(_sent) == 1 and REVIVAL_LAUNCH_LAYER in _sent[0]
+                      and _undel.read_bytes() == _bytes_before)
+            finally:
+                coord.cmd_send = _send_real
+
+            # ---- THE COUPLING TO THE EXECUTOR'S WORDING, ASSERTED RATHER THAN TRUSTED ----
+            check("⚠ s4-07 COUPLING: the RAM-refusal discriminator is a SUBSTRING OF THE "
+                  "EXECUTOR'S OWN failure text, and that coupling is real. Asserted directly "
+                  "against `coord.lifecycle_memory_gate`'s source, so a Stage 3 reword goes RED "
+                  "here instead of this predicate silently answering 'not a RAM refusal' forever "
+                  "— which would turn every blocked revival back into a re-fire loop",
+                  REVIVAL_RAM_FAILURE_MARK in inspect.getsource(coord.lifecycle_memory_gate))
+            check("⚠ s4-07 COUPLING CONTROL: a NON-RAM executor failure is NOT swallowed by the "
+                  "ladder — it gets its own Stage-4 note and the seat proceeds to be re-claimed, "
+                  "because memory pressure is the one refusal reason that clears on its own and "
+                  "the others are not",
+                  (lambda: (lstate.clear(), lmark.unlink(missing_ok=True),
+                            lfailed("the tmux target could not be validated"),
+                            revival_ladder(largs, lbase, "dseat",
+                                           json.loads(lmark.read_text())["dseat"],
+                                           {}, lnotes, {}))[-1])()[0] == "PROCEED")
+
+            # ---- ROW 4: NO LITERAL FLOOR ANYWHERE ----
+            # ⚠ THE TASK SAYS "floor-lint exits 0 over the changed tree" AND IT DOES NOT — it
+            # exits 1 on a PRE-EXISTING violation in `materialize-seats.py` (a `--mem-floor-mb`
+            # argparse default) that is not this task's and is not in its write set. Its line and
+            # value are deliberately NOT written here: a floor literal in a comment is a literal,
+            # and this file must not add one for the linter to find. So the row asserts
+            # the claim that IS this task's: `watch.py` contributes ZERO violations, and the only
+            # violation in the tree is that one. Stated rather than passed off as a green.
+            _fl = _popen_real([sys.executable, str(Path(__file__).resolve().parent /
+                                                   "floor-lint.py")],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            _fl_out = (_fl.communicate()[0] or "")
+            _viol = [ln.strip() for ln in _fl_out.splitlines()
+                     if ln.startswith("  ") and "value=" in ln and "[" not in ln]
+            check("⚠ s4-07 (4) NO LITERAL FLOOR FROM THIS TASK: `floor-lint.py` reports ZERO "
+                  "violations in `watch.py`. ⚠ IT EXITS 1, NOT 0 AS THE TASK TEXT SAYS, on a "
+                  "PRE-EXISTING violation in `materialize-seats.py` that is neither this task's "
+                  "nor in its write set — asserted explicitly so the exit code is not read as this "
+                  "arm's",
+                  not any("watch.py" in v for v in _viol)
+                  and all("materialize-seats.py" in v for v in _viol) and len(_viol) == 1)
+            check("⚠ s4-07 (4) THE RED ARM: the SAME linter over a copy of THIS FILE with "
+                  "`floor_mb = <a literal>` inserted DOES report it — so the row can go red, and "
+                  "the green above is the absence of a literal rather than a linter that cannot "
+                  "see this file",
+                  (lambda: (
+                      (Path(td) / "floorlint" / "ignite" / "team-kit").mkdir(parents=True,
+                                                                            exist_ok=True),
+                      # ⚠ THE MUTANT USES `mem_floor_mb`, NOT `floor_mb`, AND THE REASON IS A
+                      # MEASURED GAP IN THE LINTER: floor-lint's KNOB pattern matches
+                      # `--mem-floor-mb`, `mem_floor_mb`, `MEM_FLOOR*`, `LAUNCH_MEM_FLOOR*`,
+                      # `ram_available_mb`, `launch_refuse_mb`, `pressure_warn_mb` and
+                      # `ram_floor_mb` — and NOT a bare `floor_mb`, which is the exact name
+                      # `coord.memory_gate`'s own required parameter carries. A red arm written
+                      # with `floor_mb` stays GREEN and proves nothing; measured, not assumed.
+                      (Path(td) / "floorlint" / "ignite" / "team-kit" / "watchcopy.py").write_text(
+                          "def go(args):\n    mem_floor_mb = %d\n    return mem_floor_mb\n"
+                          % _FLOOR_FX, encoding="utf-8"),
+                      _popen_real([sys.executable,
+                                   str(Path(__file__).resolve().parent / "floor-lint.py"),
+                                   "--repo", str(Path(td) / "floorlint")],
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  text=True).communicate()[0])[-1])().count("watchcopy.py") >= 1)
+
+        finally:
+            subprocess.Popen = _popen_real
+            (coord.live_panes, coord.tmux_pane_window_name,
+             coord.tmux_find_window_pane) = _tmux_real
+        check("s4-06 HYGIENE: the three tmux reads and `subprocess.Popen` are RESTORED to the real "
+              "implementations before the suite leaves the revival region — a substitution that "
+              "leaks makes every later row's evidence a fixture's",
+              coord.live_panes is _tmux_real[0] and subprocess.Popen is _popen_real)
         cclean()
 
         # ---- 7.37 criterion 3 / R10: goal-level state, per-run sections ----
