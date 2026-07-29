@@ -3732,6 +3732,111 @@ def cmd_checkin(args):
         print(c(f"next: {coord_invocation(args)} status — nothing waiting yet", C_HINT))
 
 
+# ---- the check-out handoff block (s12-06) ------------------------------------------------
+#
+# R-14 (`rulings.md`): this effort touches NOTHING that deals with memory — no dreamer, no closer
+# work, no compounding — WITH ONE EXCEPTION: the handoff on check-out, a simple form of short-term
+# memory. THIS IS THAT EXCEPTION, AND ITS WHOLE EXTENT. There is no rotation, no compaction, no
+# indexing, no summarizing and no pruning of `memory.md` here, and nothing reads a block back
+# except `s12-08`'s unread flip.
+#
+# ⚠ APPEND AT EOF, NEVER PARSE, NEVER REWRITE. A seat's `memory.md` is heterogeneous BY
+# CONSTRUCTION — some open with YAML frontmatter (`agent:`/`updated:`/`sessions-closed:`), some
+# start at a `#` heading — so any shape-assuming write corrupts exactly the files it did not
+# anticipate. The block is HTML comments so it is invisible in rendered markdown and cannot
+# collide with a heading, and `v=1` rides BOTH delimiters so a truncated append is DETECTABLE.
+
+HANDOFF_TOKEN = "coord:handoff"   # the delimiter word — and the one literal a note body may not carry
+HANDOFF_V = "v=1"                 # on BOTH delimiters, so a half-written block is detectable
+
+
+def handoff_block_text(seat, session, disposition, note, when=None):
+    """The handoff block, VERBATIM per `stage-1-2-gate-checkout-spec.md` §3.
+
+    `session=` is NEVER omitted — a missing key breaks a positional reader, an explicit `unknown`
+    does not. `unread=yes` is the ONLY mutable attribute (`s12-08` flips it to `no` after it has
+    printed the block at the successor's check-in); every other attribute is written once here and
+    never touched again.
+    """
+    stamp = when or datetime.now()
+    return (
+        f"<!-- {HANDOFF_TOKEN} {HANDOFF_V} seat={seat} session={session or 'unknown'} "
+        f"disposition={disposition} stamped={stamp.strftime('%Y-%m-%dT%H:%M:%S')} unread=yes -->\n"
+        f"## Handoff → next session of `{seat}` ({stamp.strftime('%Y-%m-%d %H:%M')})\n"
+        f"\n"
+        f"{note}\n"
+        f"\n"
+        f"<!-- /{HANDOFF_TOKEN} {HANDOFF_V} -->\n")
+
+
+def session_id_open(args, seat):
+    """The seat's OPEN `sessions.csv` session-id, or `''` — read-only and never fatal.
+
+    Read BEFORE the checkout body runs, because `session_close` stamps `ended` on exactly this row:
+    the handoff must name the session that WROTE it, not a row already closed out from under it.
+    LAST open row wins, the same rule `session_close` itself applies. `''` becomes `session=unknown`
+    at the block rather than a dropped attribute.
+    """
+    try:
+        path = sessions_csv(package_dir(args))
+        if not path.exists():
+            return ""
+        header, rows = read_csv_table(path, SESSIONS_COLS)
+        idx = {c: i for i, c in enumerate(header)}
+        if not {"seat", "ended", "session-id"} <= set(idx):
+            return ""
+        found = ""
+        for r in rows:
+            pad_row(r, header)
+            if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
+                found = r[idx["session-id"]].strip()
+        return found
+    except (OSError, ValueError, csv.Error):
+        return ""
+
+
+def append_handoff(base, memory_path, block):
+    """Append `block` at EOF under `coord_lock` + `atomic_write`, then VERIFY it landed.
+
+    Returns `(ok, detail)`; `detail` names the failure when `ok` is False.
+
+    ⚠ THE VERIFICATION IS NOT CEREMONY, IT IS THE POINT. `coord_lock` IS NEVER FATAL — a sandboxed
+    seat whose package is read-only (codex EROFS) proceeds WITHOUT the lock after one note — so
+    this write can be concurrent, and the replace can fail on a filesystem that accepted the open.
+    A silent half-write loses the ONE artifact the successor is promised, at the exact moment the
+    seat believes it handed over. So the file is RE-READ and the composed bytes must be found in it.
+
+    ⚠ APPEND-ONLY IN THE STRICT SENSE: the prior bytes are never rewritten, reordered, stripped or
+    normalized — the separator is only ever ADDED. Enough newline goes in to leave exactly one blank
+    line before the block and to guarantee no line is joined; a file that ALREADY ends in a blank
+    line gets nothing, because removing a trailing newline to tidy it would itself be a rewrite.
+    """
+    try:
+        with coord_lock(base):
+            prior = memory_path.read_text(encoding="utf-8") if memory_path.exists() else ""
+            if not prior or prior.endswith("\n\n"):
+                sep = ""
+            elif prior.endswith("\n"):
+                sep = "\n"
+            else:
+                sep = "\n\n"
+            atomic_write(memory_path, prior + sep + block)
+        landed = memory_path.read_text(encoding="utf-8") if memory_path.exists() else ""
+    except (OSError, ValueError) as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    if block not in landed:
+        return False, ("the composed block is NOT in the file after the write — the append did not "
+                       "land (a lockless write on a read-only package, or a replace that failed)")
+    # The independent half: the file's LAST delimiter must be a CLOSING one. A tail left open is
+    # the shape a truncated append leaves behind, and it is the shape `s12-08`'s reader would then
+    # scan forever. Matched on the delimiter WORD, not on the whole composed block, so this stays a
+    # statement about the file rather than a second copy of the line above.
+    if landed.rfind(f"<!-- /{HANDOFF_TOKEN}") < landed.rfind(f"<!-- {HANDOFF_TOKEN}"):
+        return False, ("the block on disk is TRUNCATED — the file's last handoff delimiter is an "
+                       "OPENING one, so the append stopped part-way through")
+    return True, ""
+
+
 def cmd_checkout(args):
     # s12-05 / D2: `--handoff` is the note the seat's SUCCESSOR reads, so it belongs only to a
     # checkout that OPENS a next session. A done-checkout writes no handoff. Refused FIRST — before
@@ -3764,20 +3869,71 @@ def cmd_checkout(args):
         if handoff is None:
             checkout_renew_arm(args, base, me)
             return
-        # [INTEGRATION POINT — s12-06: CALL 2.] Call 2 appends the handoff block to the seat's
-        # memory.md under coord_lock + atomic_write, THEN runs the body below (export -> roster
-        # flip -> set_awaiting with disposition="renew", s12-07), and Stage 3 forks the detached
-        # executor after it. NONE of that is built yet, so the note is REFUSED rather than
-        # swallowed: falling through here would run a DONE checkout and discard the one artifact
-        # the renewal exists to produce, silently, at the moment the seat believes it handed over.
-        refuse(
-            "environment",
-            f"--renew --handoff is the SECOND call of the renewal and this build does not carry "
-            f"it yet (s12-06 wires the handoff append; Stage 3 wires the executor). Your note was "
-            f"NOT written and nothing was closed — keep it, it is not lost.\n"
-            f"Until it lands: end this session with `{coord_invocation(args)} checkout` and ask "
-            f"leader to renew the seat with `{coord_invocation(args)} close {me} --renew`.",
-            2)
+        # ---- CALL 2 (s12-06): the handoff lands FIRST, then the ordinary checkout body runs. ----
+        #
+        # THE ORDER IS LOAD-BEARING. Everything in the body below is irreversible from the seat's
+        # side — the export is taken, the roster row is flipped, the session row is closed — so a
+        # handoff appended after it would be written by a session that no longer exists to be told
+        # it failed. Written first, verified, and only then does anything close.
+        #
+        # ⚠ THE THREE VALIDATIONS BELOW DUPLICATE `checkout_renew_arm`'s, ON PURPOSE. Call 1
+        # refuses a folderless and a `close: mechanical` seat before it arms anything — but CALL 2
+        # IS REACHABLE WITHOUT CALL 1: nothing forces the two-step, a seat can type the second
+        # command first, and a descriptor can change between the two. A guard that only ever fires
+        # behind another guard stops holding the day someone finds the other door.
+        if HANDOFF_TOKEN in handoff:
+            refuse(
+                "input",
+                f"your note contains the literal `{HANDOFF_TOKEN}`, which is the delimiter word of "
+                f"the block it would be written into. Escaping it would leave the block grammar "
+                f"ambiguous for every later reader, so it is REFUSED instead and the grammar stays "
+                f"decidable. Nothing was written and nothing was closed — your note is not lost.\n"
+                f"Re-word that phrase, then re-run: {coord_invocation(args)} checkout --renew "
+                f"--handoff \"<what the next session of this seat must do>\"",
+                2)
+        seat = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == me), None)
+        if seat is not None and seat.get("mechanical_close"):
+            refuse(
+                "input",
+                f"'{me}' declares `close: mechanical` (G-23), so it is memoryless BY DESIGN — no "
+                f"memory.md, and therefore nowhere for a handoff to land. The owner ruled this "
+                f"seat OFF the self-service renew path PERMANENTLY, not provisionally "
+                f"(`d-mechanical-no-self-renew`, 2026-07-29). Nothing was written and nothing was "
+                f"closed — your note is not lost.\n"
+                f"Its renewal is the LEADER-SIDE close-and-relaunch path instead — end this "
+                f"session with `{coord_invocation(args)} checkout`, and leader brings the next one "
+                f"up with `{coord_invocation(args)} close {me} --renew`.",
+                2)
+        folder = seat.get("folder") if seat else None
+        if folder is None:
+            refuse(
+                "input",
+                f"'{me}' has no seat FOLDER — its descriptor is a flat file, so there is no "
+                f"`{me}/memory.md` for this handoff to be appended to, and carrying it to your "
+                f"successor is the whole point of this path. Nothing was written and nothing was "
+                f"closed — your note is not lost.\n"
+                f"End this session with `{coord_invocation(args)} checkout` instead; leader "
+                f"relaunches the seat if it must come back.",
+                2)
+        memory_path = folder / "memory.md"
+        # The session id is resolved HERE, before the body: `session_close` below stamps `ended` on
+        # exactly the row this reads, and the block must name the session that WROTE it.
+        handoff_ok, handoff_why = append_handoff(
+            base, memory_path,
+            handoff_block_text(me, session_id_open(args, me), "renew", handoff))
+        if not handoff_ok:
+            refuse(
+                "state",
+                f"HANDOFF NOT WRITTEN — {handoff_why}. Your session is UNTOUCHED: nothing was "
+                f"exported, the roster still shows you active, and no close was recorded. The "
+                f"refusal is deliberate — closing on top of a handoff that is not on disk would "
+                f"destroy the one artifact this renewal exists to produce, at the moment you "
+                f"believe you handed over.\n"
+                f"Keep your note. Check that {memory_path} is writable, then re-run "
+                f"`{coord_invocation(args)} checkout --renew --handoff \"<note>\"`. If it fails "
+                f"again, tell leader and end with `{coord_invocation(args)} checkout`.",
+                1)
+        print(f"handoff appended: {memory_path}")
     # T3: the export is the seat's last durable artifact and was routinely forgotten — mechanize
     # it instead of teaching it (protocol item 8). --no-export is the escape for a dead pane.
     out, err = "", "--no-export"
@@ -3794,6 +3950,12 @@ def cmd_checkout(args):
     # G-134: the seat's half of the lifecycle is now done and its resources are NOT freed — only
     # `close-seat` kills the pane. Assert that debt here, at the one moment every input is known
     # for certain, instead of leaving a later pass to reconstruct it from roster + tmux + fs.
+    #
+    # [s12-07] THE DISPOSITION FIELD IS NOT WRITTEN HERE, AND ITS ABSENCE IS DELIBERATE. Both
+    # paths — done and renew — call this exactly as the done path always has. `s12-07` owns adding
+    # `disposition` / `handoff_stamp` to the per-seat record and the matching `reap` blocker;
+    # inventing the field here would give `cmd_reap` a key it does not read and `watch.py` a
+    # second surface to reconcile, which is the drift that task exists to avoid.
     if set_awaiting(base, me, (row or {}).get("pane", ""), out, not err):
         print(f"awaiting close: {me} recorded — its pane is STILL LIVE until leader runs "
               f"`{coord_invocation(args)} close-seat {me}`")
@@ -3803,8 +3965,25 @@ def cmd_checkout(args):
                 C_DEAD), file=sys.stderr)
     elif sid:
         print(f"sessions.csv: {sid} ended")
-    print(c(f"next: nothing on your side — leader closes or renews the seat "
-            f"(`{coord_invocation(args)} close {me} [--renew]`)", C_HINT))
+    if renew:
+        # [INTEGRATION POINT — STAGE 3: fork the detached executor]
+        # Stage 3 forks the renewal executor HERE, after the close is recorded and before this
+        # process exits, on the `arm_pid_reaper` pattern (setsid + start_new_session=True, the
+        # exact (pid, starttime) re-derived at act time). THE PATTERN IS `arm_pid_reaper`; IT IS
+        # NOT THE API. Nothing is wired yet, so the seat is told the truth about what remains.
+        print(c(f"next: nothing on your side — the renewal executor is not wired yet (Stage 3); "
+                f"leader runs `close-seat {me} --renew`.", C_HINT))
+    else:
+        # [INTEGRATION POINT — STAGE 3: fork the detached reaper]
+        # The done path's twin seam: Stage 3 forks the pane reaper here instead of leaving the
+        # debt above for a later human pass.
+        #
+        # ⚠ THIS LINE NO LONGER TEACHES `close <me> --renew`. Renewal is the SEAT's own act now
+        # (`checkout --renew`), so naming leader's close-and-renew as this seat's follow-up would
+        # teach the superseded ceremony at the one moment the seat is looking for its next step.
+        print(c(f"next: nothing on your side — this session is DONE and leader frees the pane "
+                f"(`{coord_invocation(args)} close-seat {me}`). Renewing a seat is the SEAT's own "
+                f"act now — `checkout --renew`, before you check out for good.", C_HINT))
 
 
 def checkout_renew_arm(args, base, me):
@@ -11705,6 +11884,218 @@ def _selftest_checks(args, failures, names):
               "before the export, so an argument error costs the seat nothing",
               _r1_h_code == 2 and "refused [coord input]" in _r1_h_out)
 
+        # ============ s12-06: the check-out HANDOFF BLOCK, and `checkout --renew --handoff` =====
+        # Spec: stage-1-2-gate-checkout-spec.md §2.2 (call 2) + §3 (the block schema). R-14 makes
+        # this block the ONE memory artifact this effort is allowed to write, so every row below is
+        # about that write being append-only, verbatim, self-verified, and REFUSED wherever the
+        # seat has nowhere — or no right — to write.
+        #
+        # ⚠ THE DELIMITER GRAMMAR IS RESTATED HERE FROM THE SPEC, NEVER IMPORTED FROM THE MODULE
+        # CONSTANTS. A test that asserts against the implementation's own constant asserts only
+        # that the implementation agrees with itself: rename the constant's VALUE and the row goes
+        # green on a grammar no reader of the spec would recognise. Split across a `+` so this
+        # source line is not itself a hit for the marker counts below.
+        _h6_open = "<!-- " + "coord:handoff" + " v=1 "
+        _h6_close = "<!-- /" + "coord:handoff" + " v=1 -->"
+        _h6_token = "coord" + ":handoff"
+
+        # ⚠ CALL-2 SUBJECTS RUN THROUGH `harness_outcome` DIRECTLY, NOT THROUGH `run()`. `run()`
+        # posts its OWN failing check when a subject refuses (G-215(a)), so a mutation that makes
+        # call 2 refuse would red TWO rows — the row under test and `run()`'s — and `--expect-fail`
+        # demands EXACTLY ONE. Every row below therefore carries `code is None` in its own
+        # condition: an unexpected refusal is still that row's failure, and only that row's.
+        def _h6(agent, note, **kw):
+            d = {"agent": agent, "renew": True, "handoff": note, "no_export": True}
+            d.update(kw)
+            _o, _e, _cd = harness_outcome(cmd_checkout, ns(**d))
+            return _o + _e, _cd
+
+        # ---- the two fixture memory.md shapes that did not exist (the task's checker fix) ----
+        # S6-e needs a memory.md that OPENS WITH YAML FRONTMATTER and S6-j needs one that does NOT
+        # END IN A NEWLINE; the only fixture memory.md was gamma's `# memory\nprior state\n`, so
+        # both rows were unrunnable. Created HERE, at the very end of the fixture, so no earlier
+        # row that enumerates seats, descriptors or taskforce bindings can inherit them.
+        _h6_mem = {}
+        for _h6_name, _h6_body in (
+                ("omega", "---\nagent: omega\nupdated: 2026-07-29\nsessions-closed: 3\n---\n"
+                          "# omega — seat memory\n\nprior state\n"),
+                ("sigma", "# sigma — seat memory\nthis last line has NO trailing newline"),
+                ("nu", "# nu — seat memory\nprior state\n")):
+            _h6_d = pkg / "workers" / _h6_name
+            _h6_d.mkdir()
+            (_h6_d / "agent.md").write_text(
+                f"---\nagent: {_h6_name}\nmodel: haiku\n---\nbrief\n", encoding="utf-8")
+            (_h6_d / "memory.md").write_text(_h6_body, encoding="utf-8")
+            _h6_mem[_h6_name] = ((_h6_d / "memory.md"), _h6_body)
+
+        # ---- gamma: the happy path (S2-b, S6-a, S6-b) and then the done path (S2-d, S6-i) ----
+        _h6_note = ("in flight: the `--renew` arm, half wired.\n"
+                    "\n"
+                    "- ruled out: a second `state.md` copy\n"
+                    "- next: read `stage-3-executor-spec.md` §2 before touching anything")
+        _h6_gmem = gdir / "memory.md"
+        _h6_gprior = _h6_gmem.read_text(encoding="utf-8")
+        run(cmd_checkin, agent="gamma", summary="s12-06 call-2 fixture", pane="%71", force=True)
+        _h6_gout, _h6_gcode = _h6("gamma", _h6_note)
+        _h6_glanded = _h6_gmem.read_text(encoding="utf-8")
+
+        check("s12-06 S2-b: the handoff LANDS and the write is APPEND-ONLY — after call 2 gamma's "
+              "memory.md still opens with its original bytes and now carries exactly ONE handoff "
+              "block, marked `unread=yes`. memory.md is heterogeneous by construction (some seats' "
+              "open with YAML frontmatter, some at a heading), so a write that assumed a shape "
+              "would corrupt every file whose shape it did not anticipate",
+              _h6_gcode is None and _h6_glanded.startswith(_h6_gprior)
+              and _h6_glanded.count(_h6_open) == 1 and "unread=yes" in _h6_glanded)
+
+        check("s12-06 S6-a: BOTH delimiters carry `v=1` — the opening comment and the closing one, "
+              "exactly once each. That is what makes a TRUNCATED append detectable: a reader that "
+              "finds an opener with no matching `v=1` closer knows the block is half-written, "
+              "which is precisely what a lockless write on a read-only package can leave behind",
+              _h6_gcode is None and _h6_glanded.count(_h6_open) == 1
+              and _h6_glanded.count(_h6_close) == 1)
+
+        check("s12-06 S6-b: the note body is VERBATIM, AS TYPED — markdown, backticks and a blank "
+              "line survive character-for-character between the delimiters. The successor reads "
+              "what its predecessor wrote; a transform applied here is a distortion introduced at "
+              "the one moment nobody is left who can check it",
+              _h6_gcode is None and ("\n" + _h6_note + "\n") in _h6_glanded)
+
+        # S2-d is deliberately TWO-CLAUSE. "memory.md is unchanged by a bare checkout" is VACUOUSLY
+        # true in a build where nothing ever writes memory.md — the row would pass for the ABSENCE
+        # of the feature it exists to bound. Clause (a) pins the block call 2 just wrote, so the
+        # row can only be green in a build that DOES write on the renew path and does NOT here.
+        run(cmd_checkin, agent="gamma", summary="s12-06 done-path fixture", pane="%71", force=True)
+        _h6_done_before = _h6_gmem.read_text(encoding="utf-8")
+        _h6_done_out = run(cmd_checkout, agent="gamma", renew=False, handoff=None, no_export=True)
+        _h6_done_after = _h6_gmem.read_text(encoding="utf-8")
+        check("s12-06 S2-d: a DONE check-out writes NOTHING into memory.md — the file is "
+              "byte-identical across a bare `checkout`, WHILE still carrying the one block the "
+              "renew path wrote a moment earlier (D2: a done-checkout has no successor to hand "
+              "anything to). Without that second clause the row would pass in a build where no "
+              "path writes a handoff at all",
+              _h6_done_before.count(_h6_open) == 1 and _h6_done_after == _h6_done_before)
+
+        check("s12-06 S6-i: the DONE path's closing text no longer teaches `close <me> --renew` as "
+              "the seat's follow-up — renewal is the SEAT's own act now, so a hint still routing "
+              "it through leader teaches the superseded ceremony at the exact moment the seat is "
+              "looking for its next step",
+              "close gamma --renew" not in _h6_done_out and "checkout --renew" in _h6_done_out)
+
+        # ---- nu: the body guard (S6-c) and the self-verifying append (S6-d) ----
+        run(cmd_checkin, agent="nu", summary="s12-06 token-body fixture", pane="%74", force=True)
+        _h6_nu_path, _h6_nu_prior = _h6_mem["nu"]
+        _h6_c_out, _h6_c_code = _h6("nu", "read the " + _h6_token + " grammar before editing")
+        check("s12-06 S6-c: a note body carrying the literal delimiter word is REFUSED, never "
+              "escaped — layer `input`, and memory.md is byte-identical afterwards. Escaping it "
+              "would make the block grammar ambiguous for every later reader; refusing keeps the "
+              "grammar decidable and the seat still holds its note",
+              _h6_c_code == 2 and "refused [coord input]" in _h6_c_out
+              and _h6_nu_path.read_text(encoding="utf-8") == _h6_nu_prior)
+
+        # ⚠ `atomic_write` is neutered AFTER nu's check-in, never before: the check-in writes the
+        # roster through it, and a fixture that cannot register its own seat would prove nothing.
+        # ⚠ AND the "unchanged" baseline is re-read HERE, not inherited from S6-c's. A baseline
+        # taken before another row's subject ran makes THIS row red whenever THAT row's mutation
+        # lands — measured: the escape-instead-of-refuse mutant reddened both, and `--expect-fail`
+        # rejected the pair as un-isolated, so the red said nothing about either check.
+        # ⚠ AND nu is re-checked-in first, for the same reason: a mutation that makes S6-c's
+        # subject SUCCEED checks nu out, and this row would then measure the no-active-row
+        # refusal instead of the verification it names — a second way one row's mutation reds
+        # another. Every precondition this row needs, this row establishes.
+        run(cmd_checkin, agent="nu", summary="s12-06 unwritable-append fixture", pane="%74",
+            force=True)
+        _h6_aw_real = atomic_write
+        _h6_nu_pre_d = _h6_nu_path.read_text(encoding="utf-8")
+        atomic_write = lambda path, text: None
+        _h6_d_out, _h6_d_code = _h6("nu", "a note that cannot reach the disk")
+        atomic_write = _h6_aw_real
+        check("s12-06 S6-d: THE APPEND VERIFIES ITS OWN RESULT — with `atomic_write` neutered the "
+              "block never reaches disk, and call 2 says so LOUDLY and closes NOTHING: it refuses "
+              "at layer `state`, names the handoff as NOT WRITTEN, and never prints `checked out`. "
+              "`coord_lock` is never fatal (a read-only package proceeds lockless after one note), "
+              "so an unverified append is exactly how the one artifact the successor is promised "
+              "is lost in silence",
+              _h6_d_code == 1 and "refused [coord state]" in _h6_d_out
+              and "HANDOFF NOT WRITTEN" in _h6_d_out and "checked out:" not in _h6_d_out
+              and _h6_nu_path.read_text(encoding="utf-8") == _h6_nu_pre_d)
+
+        # ---- omega: frontmatter is never touched (S6-e) ----
+        run(cmd_checkin, agent="omega", summary="s12-06 frontmatter fixture", pane="%75",
+            force=True)
+        _h6_om_path, _h6_om_prior = _h6_mem["omega"]
+        _h6_om_fm = _h6_om_prior[:_h6_om_prior.index("\n---\n") + 5]
+        _h6_e_out, _h6_e_code = _h6("omega", "the frontmatter above must not move")
+        _h6_om_landed = _h6_om_path.read_text(encoding="utf-8")
+        check("s12-06 S6-e: a memory.md that OPENS WITH YAML FRONTMATTER keeps it byte-identical — "
+              "the block is appended at EOF and the frontmatter is never parsed, rewritten or "
+              "reordered. Live seats carry several different shapes of it; a writer that "
+              "'understood' the file would eventually meet a file it did not understand",
+              _h6_e_code is None and _h6_om_landed.startswith(_h6_om_fm)
+              and _h6_om_landed.startswith(_h6_om_prior)
+              and _h6_om_landed.count(_h6_open) == 1)
+
+        # ---- sigma + omega: the separator, in BOTH directions (S6-j) ----
+        run(cmd_checkin, agent="sigma", summary="s12-06 no-trailing-newline fixture", pane="%76",
+            force=True)
+        _h6_sg_path, _h6_sg_prior = _h6_mem["sigma"]
+        _h6_j_out, _h6_j_code = _h6("sigma", "the content above me ended without a newline")
+        _h6_sg_landed = _h6_sg_path.read_text(encoding="utf-8")
+        # ⚠ GUARDED SLICES (G-215(a)). In a build where no block is written these `index` calls
+        # would RAISE, and a raise inside a check condition aborts the suite and takes every row
+        # behind it unrun — the one way a red arm can hide the rows it was meant to isolate. The
+        # sentinel is a byte no memory.md can end with, so an absent block fails the row instead.
+        _h6_sg_tail = (_h6_sg_landed[_h6_sg_landed.index(_h6_open):]
+                       if _h6_open in _h6_sg_landed else "\x00 no block was written")
+        _h6_om_tail = (_h6_om_landed[_h6_om_landed.index(_h6_open):]
+                       if _h6_open in _h6_om_landed else "\x00 no block was written")
+        check("s12-06 S6-j: the separator is correct in BOTH directions — on a memory.md that does "
+              "NOT end in a newline and on one that DOES, exactly one blank line stands between "
+              "the prior content and the block, and no line is ever joined. The prior bytes are "
+              "only ever ADDED TO: normalizing a trailing newline away would be a REWRITE of a "
+              "file this path is only allowed to append to",
+              _h6_j_code is None
+              and _h6_sg_landed.endswith("\n\n" + _h6_sg_tail)
+              and not _h6_sg_landed.endswith("\n\n\n" + _h6_sg_tail)
+              and _h6_om_landed.endswith("\n\n" + _h6_om_tail)
+              and not _h6_om_landed.endswith("\n\n\n" + _h6_om_tail))
+
+        # ---- the two call-2 refusals that duplicate call 1's, on purpose (S6-f, S6-g) ----
+        run(cmd_checkin, agent="alpha", summary="s12-06 folderless call-2 fixture", pane="%73",
+            force=True)
+        _h6_f_out, _h6_f_code = _h6("alpha", "there is nowhere for this to land")
+        check("s12-06 S6-f: a FOLDERLESS seat is refused AT CALL 2 as well — layer `input`, and "
+              "the message names the missing folder and the memory.md that does not exist. Call 1 "
+              "already refuses it, but call 2 IS REACHABLE WITHOUT CALL 1 (nothing forces the "
+              "two-step, and a descriptor can change between them), and a guard that only ever "
+              "fires behind another guard stops holding the day someone finds the other door",
+              _h6_f_code == 2 and "refused [coord input]" in _h6_f_out
+              and "no seat FOLDER" in _h6_f_out and "memory.md" in _h6_f_out)
+
+        run(cmd_checkin, agent="theta", summary="s12-06 mechanical call-2 fixture", pane="%72",
+            force=True)
+        _h6_g_out, _h6_g_code = _h6("theta", "a seat that must never carry one")
+        check("s12-06 S6-g: a `close: mechanical` seat is refused at call 2 — layer `input`, the "
+              "message names G-23, states the ruling as PERMANENT and points at the LEADER-SIDE "
+              "close-and-relaunch path that IS its renewal. `d-mechanical-no-self-renew` (owner, "
+              "2026-07-29) settled this as a standing rule, so the refusal must not read as a "
+              "temporary gap and must not cite the question it closed as still open",
+              _h6_g_code == 2 and "refused [coord input]" in _h6_g_out
+              and "G-23" in _h6_g_out and "PERMANENTLY" in _h6_g_out
+              and "close-and-relaunch" in _h6_g_out
+              and ("s12" + "-11") not in _h6_g_out)
+
+        # ---- the Stage-3 seams (S6-h) ----
+        # ⚠ The marker is BUILT from two halves, never written whole: this check reads the file it
+        # lives in, so a whole literal here would be its own third hit and the count could never
+        # reach 2 however correct the code was.
+        _h6_ip = "[INTEGRATION POINT " + "— STAGE 3"
+        check("s12-06 S6-h: BOTH Stage-3 seams exist and are GREPPABLE — the module source carries "
+              "the named marker exactly twice, once on the renew path (fork the detached executor) "
+              "and once on the done path (fork the detached reaper). Stage 3 wires them to the "
+              "`arm_pid_reaper` pattern; a named comment is how the two sites stay findable "
+              "instead of being re-derived from a spec nobody reads at the time",
+              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 2)
+
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
@@ -12430,7 +12821,7 @@ HELP_EPILOG = """everyday
   read        your unread messages, {limit} at a time (cursor persisted per agent)
   send        message one agent, a group, or all — typed, their pane woken
   pending     open asks: waiting on you, open to everyone, yours unanswered
-  checkout    end your session (exports your transcript first)
+  checkout    end your session (exports your transcript first) · --renew --handoff hands this seat to your own next session
 
 leader
   launch      open one tmux seat per worker briefing and start its harness
