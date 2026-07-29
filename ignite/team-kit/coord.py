@@ -3733,6 +3733,22 @@ def cmd_checkin(args):
 
 
 def cmd_checkout(args):
+    # s12-05 / D2: `--handoff` is the note the seat's SUCCESSOR reads, so it belongs only to a
+    # checkout that OPENS a next session. A done-checkout writes no handoff. Refused FIRST — before
+    # identity resolution, before the roster read, before the export — so an argument error costs
+    # nothing: at this point nothing has been read, written, captured or muted.
+    renew = getattr(args, "renew", False)
+    handoff = getattr(args, "handoff", None)
+    if handoff is not None and not renew:
+        refuse(
+            "input",
+            f"--handoff carries what the NEXT session of this seat must do, so it needs a checkout "
+            f"that opens one: pass --renew with it. A done-checkout has no successor to hand "
+            f"anything to, and accepting the note here would file a handoff nobody is ever booted "
+            f"to read.\n"
+            f"Renewing this seat: {coord_invocation(args)} checkout --renew\n"
+            f"Done for good:      {coord_invocation(args)} checkout",
+            2)
     base = base_dir(args)
     me = resolve_agent(args)
     _, _, rows = load_workers(base)
@@ -3744,6 +3760,24 @@ def cmd_checkout(args):
             f"never checked in, or you already checked out.\n"
             f"See the roster: {coord_invocation(args)} workers",
             1)
+    if renew:
+        if handoff is None:
+            checkout_renew_arm(args, base, me)
+            return
+        # [INTEGRATION POINT — s12-06: CALL 2.] Call 2 appends the handoff block to the seat's
+        # memory.md under coord_lock + atomic_write, THEN runs the body below (export -> roster
+        # flip -> set_awaiting with disposition="renew", s12-07), and Stage 3 forks the detached
+        # executor after it. NONE of that is built yet, so the note is REFUSED rather than
+        # swallowed: falling through here would run a DONE checkout and discard the one artifact
+        # the renewal exists to produce, silently, at the moment the seat believes it handed over.
+        refuse(
+            "environment",
+            f"--renew --handoff is the SECOND call of the renewal and this build does not carry "
+            f"it yet (s12-06 wires the handoff append; Stage 3 wires the executor). Your note was "
+            f"NOT written and nothing was closed — keep it, it is not lost.\n"
+            f"Until it lands: end this session with `{coord_invocation(args)} checkout` and ask "
+            f"leader to renew the seat with `{coord_invocation(args)} close {me} --renew`.",
+            2)
     # T3: the export is the seat's last durable artifact and was routinely forgotten — mechanize
     # it instead of teaching it (protocol item 8). --no-export is the escape for a dead pane.
     out, err = "", "--no-export"
@@ -3771,6 +3805,83 @@ def cmd_checkout(args):
         print(f"sessions.csv: {sid} ended")
     print(c(f"next: nothing on your side — leader closes or renews the seat "
             f"(`{coord_invocation(args)} close {me} [--renew]`)", C_HINT))
+
+
+def checkout_renew_arm(args, base, me):
+    """`checkout --renew` CALL 1: arm the seat's own renewal, teach it call 2, close NOTHING.
+
+    `d-close-renew-decider-recorded` — the SEAT decides its own renew/refresh; no agent stands in
+    the execution path and there is no `--force`. That is only safe if the call itself is safe to
+    make, so this one does NOT export, does NOT flip the roster row, and records no
+    awaiting-close debt (the G-134 debt is the DONE path's; the renew disposition is s12-07's to
+    write at call 2). All it does is mute the seat's wakes and print the second call.
+
+    ⚠ THE TWO REFUSALS FIRE BEFORE THE ARMING, NEVER AFTER. A flat-file seat has no folder and so
+    no `memory.md` for a handoff to land in, and a `close: mechanical` seat (G-23) is memoryless BY
+    RULING. Arming first and refusing second would leave such a seat MUTED for CLOSING_MAX_MIN
+    minutes with no renewal path out of it — cut off from the room by the very command that then
+    told it no. `s12-06`'s call-2 check stays as a belt-and-braces guard behind this one.
+
+    ⚠ THE CLOSER TOKEN IS THE SEAT'S OWN NAME, never a literal like "self-renew"
+    (`r-closing-is-a-true-wake-mute`, s12-01 amendment). `closing_reaches` admits exactly `leader`
+    and `entry["closer"]`, and the roster grammar admits ANY non-pipe string as an agent name — so
+    a literal token is an unclaimed free key into a narrowed inbox. With the seat's own name the
+    admitted set is {leader, me}, and a seat's own sends are never re-served nor woken, so the
+    effective inbox is exactly `leader`: what the teaching text below claims.
+    """
+    seat = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == me), None)
+    if seat is not None and seat.get("mechanical_close"):
+        refuse(
+            "input",
+            f"'{me}' declares `close: mechanical` (G-23), so it is memoryless BY DESIGN — no "
+            f"memory.md, and therefore no handoff for a successor to read. The owner ruled this "
+            f"seat OFF the self-service renew path PERMANENTLY, not provisionally "
+            f"(`d-mechanical-no-self-renew`, 2026-07-29). Nothing was armed: your wakes are not "
+            f"muted and your session is untouched.\n"
+            f"Its renewal is the LEADER-SIDE close-and-relaunch path instead — end this session "
+            f"with `{coord_invocation(args)} checkout`, and leader brings the next one up with "
+            f"`{coord_invocation(args)} close {me} --renew`.",
+            2)
+    folder = seat.get("folder") if seat else None
+    if folder is None:
+        refuse(
+            "input",
+            f"'{me}' has no seat FOLDER — its descriptor is a flat file, so there is no "
+            f"`{me}/memory.md` for a handoff to be appended to, and carrying that handoff to your "
+            f"successor is the whole point of this path. Nothing was armed: your wakes are not "
+            f"muted and your session is untouched.\n"
+            f"End this session with `{coord_invocation(args)} checkout` instead; leader relaunches "
+            f"the seat if it must come back.",
+            2)
+    if not set_closing(base, me, me):
+        print(c(f"WARNING the wake mute could NOT be written — your inbox is NOT narrowed and "
+                f"wakes keep arriving. The renewal below is still yours to finish; expect "
+                f"interruptions, and tell leader.", C_DEAD), file=sys.stderr)
+    # ⚠ VERBATIM (stage-1-2-gate-checkout-spec.md §2.2). This text IS the mechanism — it is the CLI
+    # teaching the seat the second step, and its wording, its order and its line breaks are the
+    # spec's, not this function's. The minute figure is DERIVED from CLOSING_MAX_MIN and never
+    # typed: a copy drifts, a reference does not.
+    memory_path = folder / "memory.md"
+    print(
+        f"renewal armed: {me} — wakes are muted and your inbox is narrowed to leader (clears in "
+        f"{CLOSING_MAX_MIN} min\n"
+        f"if you do not finish).\n"
+        f"\n"
+        f"NOTHING IS CLOSED YET. Two things are still yours, in this order:\n"
+        f"  1. STOP READING. Do not run `read` again — the log keeps queueing and your successor\n"
+        f"     inherits your cursor, so nothing is lost by stopping here.\n"
+        f"  2. WRITE YOUR SUCCESSOR'S HANDOFF, then re-run this command with it:\n"
+        f"\n"
+        f"     coordinate checkout --renew --handoff \"<what the next session of this seat must "
+        f"do>\"\n"
+        f"\n"
+        f"Write it for someone with NO memory of this session: what is in flight, what you were "
+        f"about\n"
+        f"to do next, what you tried and ruled out, and any path or id they would otherwise have "
+        f"to\n"
+        f"re-derive. It is appended to your seat memory ({memory_path}) and printed to your "
+        f"successor\n"
+        f"at its check-in.")
 
 
 # ---- owner state (task 7.85, owner ruling r-owner-state-is-not-binary) --------------------
@@ -11436,6 +11547,164 @@ def _selftest_checks(args, failures, names):
               all(("refused [coord role gate]" in dry) == ("role gate: REFUSED" in real)
                   for _who, dry, real in _s4g))
 
+        # ============ s12-01 + s12-05: the CLOSING wake-mute, and `checkout --renew` call 1 ======
+        # Placed LAST inside this fixture DELIBERATELY. The block re-checks `gamma`, `alpha` and
+        # `theta` in, arms and clears wake mutes on them and toggles the wake stub, so everything
+        # it perturbs sits BEHIND it and no earlier row can inherit a seat this block moved.
+
+        # ---- s12-01 (`r-closing-is-a-true-wake-mute`): set_closing is a TRUE wake-mute ----
+        # A CLOSING seat's pane receives no [coord wake] keystrokes at all: the per-branch
+        # closed_out cut removes it from `recipients` BEFORE the wake text is built and before
+        # any pane is touched. The wake stub FAILS here (wake_ok False), so a wake TARGET is
+        # observable as its named failure line "gamma (%71): selftest stub" — a seat absent
+        # from every such line was never targeted. Evidence ledger:
+        # .rbtv/goals/build-core-daemon-mvp/decisions.md#r-closing-is-a-true-wake-mute
+        _wake_ok_prior = wake_ok["v"]
+        wake_ok["v"] = False
+        run(cmd_checkin, agent="gamma", summary="s12-01 closing-mute fixture", pane="%71",
+            force=True)
+        set_closing(base_g, "gamma", "self-renew")
+        out = sd("alpha", "all", "s12-01 V-a broadcast", type="note", force=True)
+        check("V-a (s12-01): a CLOSING seat is cut from a broadcast wake — named under the "
+              "'closing' skip reason and in NO wake target list",
+              "closing: gamma" in out and "gamma (%71)" not in out)
+        clear_closing(base_g, "gamma")
+        out = sd("alpha", "all", "s12-01 V-b control broadcast", type="note", force=True)
+        check("V-b (s12-01) control: the SAME seat, NOT closing, IS a wake target and appears "
+              "under NO skip reason",
+              "gamma (%71)" in out and "closing: gamma" not in out
+              and not any("gamma" in seg.split(")")[0]
+                          for seg in out.split("skipped (")[1:]))
+        set_closing(base_g, "gamma", "self-renew")
+        out = sd("leader", "gamma", "s12-01 V-c leader order")
+        check("V-c (s12-01): leader still reaches a closing seat — the closing_reaches leader "
+              "exception makes gamma a wake target with no skip reason",
+              "gamma (%71)" in out and "closing: gamma" not in out)
+        clear_closing(base_g, "gamma")
+        wake_ok["v"] = _wake_ok_prior
+
+        # ---- s12-05: `checkout --renew` CALL 1 — arms, teaches, and closes NOTHING ----
+        # Spec: stage-1-2-gate-checkout-spec.md §2.1-2.2. Rulings: `d-close-renew-decider-recorded`
+        # (the SEAT decides its own renew), `d-mechanical-no-self-renew` (a `close: mechanical`
+        # seat is refused on this path PERMANENTLY), and s12-01's closer-token amendment.
+        run(cmd_checkin, agent="gamma", summary="s12-05 renew-arm fixture", pane="%71", force=True)
+        _r1_tdir = transcripts_dir(ns(), "gamma")
+        _r1_tx_before = sorted(p.name for p in _r1_tdir.glob("*.txt"))
+        _r1_aw_before = dict(load_awaiting(base_g))
+        _r1_cursor_before = cursor_of("gamma")
+        _r1_out = run(cmd_checkout, agent="gamma", renew=True, handoff=None, no_export=False)
+        _, _, _r1_rows = load_workers(base_g)
+        _r1_tx_after = sorted(p.name for p in _r1_tdir.glob("*.txt"))
+        _r1_aw_after = dict(load_awaiting(base_g))
+        _r1_rerun = ('coordinate checkout --renew --handoff '
+                     '"<what the next session of this seat must do>"')
+
+        check("s12-05 S2-a: the teaching step writes NOTHING destructive — after `checkout "
+              "--renew` with no --handoff the seat's roster row is STILL active, the output says "
+              "NOTHING IS CLOSED YET and carries the re-run command, and the closing (wake-mute) "
+              "state IS set. Call 1 is a call a seat must be safe to make",
+              (current_row(_r1_rows, "gamma") or {}).get("active") == "yes"
+              and "NOTHING IS CLOSED YET" in _r1_out
+              and "coordinate checkout --renew --handoff " in _r1_out
+              and closing_entry(base_g, "gamma") is not None)
+        check("s12-05 S5-a: call 1 does NOT export — no transcript path is printed and no new "
+              "export file appears for the seat. The export is the DONE path's last durable "
+              "artifact; a session that is about to write a handoff has not finished yet",
+              "transcript:" not in _r1_out and _r1_tx_after == _r1_tx_before)
+        check("s12-05 S5-b: call 1 records NO awaiting-close debt — awaiting-close.json is "
+              "byte-for-byte the same map after the call. The G-134 debt belongs to the DONE path, "
+              "and the renew disposition is s12-07's to write at call 2",
+              _r1_aw_after == _r1_aw_before)
+        check("s12-05 S2-f: the whole call-1 flow leaves the seat's READ CURSOR untouched (D3) — "
+              "the successor inherits this cursor, so a renewal that advanced it would cut the "
+              "next session off from messages nobody ever read. No-regression control, scoped to "
+              "call 1 (s12-08 carries its own copy for the check-in flow)",
+              cursor_of("gamma") == _r1_cursor_before)
+        check("s12-05 S5-d: the minute figure in the teaching text is DERIVED from "
+              "CLOSING_MAX_MIN, never typed — R-10's spirit: a copy drifts, a reference does not, "
+              "and a seat told the wrong expiry plans its handoff against a window that is not "
+              "there",
+              f"clears in {CLOSING_MAX_MIN} min" in _r1_out)
+        check("s12-05 S5-e: the re-run line is BYTE-EXACT — the second call is taught by being "
+              "printed, so a character that drifts is a command the seat pastes and the parser "
+              "refuses, at the one moment it has already stopped reading",
+              _r1_rerun in _r1_out)
+        check("s12-05 S5-h: the mute's closer token is the seat's OWN NAME, never the literal "
+              "'self-renew' (s12-01's amendment to `r-closing-is-a-true-wake-mute`). "
+              "closing_reaches admits `leader` plus entry['closer'], and the roster grammar "
+              "admits any non-pipe string as an agent name — so a literal token is an unclaimed "
+              "free key into a narrowed inbox",
+              (closing_entry(base_g, "gamma") or {}).get("closer") == "gamma"
+              and closing_reaches("gamma", "leader", closing_entry(base_g, "gamma"))
+              and not closing_reaches("gamma", "self-renew", closing_entry(base_g, "gamma")))
+
+        # The back-date runs ONLY where an entry exists. A missing entry is this row's FAILURE, not
+        # a KeyError: an exception here would truncate the suite and take every row behind it with
+        # it (G-215(a)), which is the one way a red arm can hide the rows it was meant to isolate.
+        # ⚠ The back-date is taken from the RECORD'S OWN `since`, never from `datetime.now()`.
+        # Re-stamping from now() would overwrite whatever call 1 actually wrote, so this row would
+        # pass for a call that stamped its mute unexpirably far in the future — the row would be
+        # testing `closing_entry`, which the G-21 block already owns, instead of the record call 1
+        # writes, which nothing else does.
+        _r1_stale = load_closing(base_g)
+        _r1_expired = "NO closing entry was written at all"
+        if "gamma" in _r1_stale:
+            _r1_keep = dict(_r1_stale["gamma"])
+            _r1_stale["gamma"]["since"] = (
+                datetime.strptime(_r1_keep["since"], "%Y-%m-%d %H:%M")
+                - timedelta(minutes=CLOSING_MAX_MIN + 5)).strftime("%Y-%m-%d %H:%M")
+            atomic_write(closing_path(base_g), json.dumps(_r1_stale) + "\n")
+            _r1_expired = closing_entry(base_g, "gamma")
+            _r1_stale["gamma"] = _r1_keep
+            atomic_write(closing_path(base_g), json.dumps(_r1_stale) + "\n")
+        check("s12-05 S5-c: the mute call 1 arms is an ORDINARY, EXPIRING closing record — present "
+              "immediately after the call, and gone once its `since` stamp is older than "
+              "CLOSING_MAX_MIN. A seat that arms a renewal and never returns un-mutes itself "
+              "instead of staying cut off from the room for the rest of the run",
+              closing_entry(base_g, "gamma") is not None and _r1_expired is None)
+        clear_closing(base_g, "gamma")
+
+        # A FOLDERLESS seat has no memory.md, and a `close: mechanical` seat is memoryless by
+        # ruling — both are refused HERE, at call 1, BEFORE the arming. Arming first would leave
+        # the seat muted for CLOSING_MAX_MIN minutes with no renewal path out of it, which is the
+        # one outcome worse than the refusal.
+        run(cmd_checkin, agent="alpha", summary="s12-05 folderless-seat fixture", pane="%73",
+            force=True)
+        _r1_ff_out, _r1_ff_code = refuse(cmd_checkout, agent="alpha", renew=True, handoff=None,
+                                         no_export=True)
+        check("s12-05 S5-f: a FOLDERLESS seat is refused at call 1 BEFORE arming — layer `input`, "
+              "the message names the missing folder and its absent memory.md, and NO closing entry "
+              "exists afterwards. Refusing after the arm would strand the seat muted with no way "
+              "to finish the renewal it was just refused",
+              _r1_ff_code == 2 and "refused [coord input]" in _r1_ff_out
+              and "no seat FOLDER" in _r1_ff_out and "memory.md" in _r1_ff_out
+              and closing_entry(base_g, "alpha") is None)
+        clear_closing(base_g, "alpha")
+
+        run(cmd_checkin, agent="theta", summary="s12-05 mechanical-close fixture", pane="%72",
+            force=True)
+        _r1_mc_out, _r1_mc_code = refuse(cmd_checkout, agent="theta", renew=True, handoff=None,
+                                         no_export=True)
+        check("s12-05 S5-g: a `close: mechanical` seat is refused at call 1 — layer `input`, the "
+              "message names G-23, states the ruling as PERMANENT and points at the LEADER-SIDE "
+              "close-and-relaunch path that IS its renewal, and no closing entry exists "
+              "afterwards. `d-mechanical-no-self-renew` (owner, 2026-07-29) closed this as a "
+              "standing rule, so the refusal must not read as a temporary gap",
+              _r1_mc_code == 2 and "refused [coord input]" in _r1_mc_out
+              and "G-23" in _r1_mc_out and "PERMANENTLY" in _r1_mc_out
+              and "close-and-relaunch" in _r1_mc_out and "s12-11" not in _r1_mc_out
+              and closing_entry(base_g, "theta") is None)
+        clear_closing(base_g, "theta")
+
+        # LAST in the block: on the mutant that ACCEPTS this pairing the call runs a full DONE
+        # checkout on gamma, so every measurement above must already be banked.
+        _r1_h_out, _r1_h_code = refuse(cmd_checkout, agent="gamma", renew=False, handoff="x",
+                                       no_export=True)
+        check("s12-05 S2-e: `--handoff` without `--renew` is REFUSED at layer `input` (D2 — a "
+              "done-checkout writes no handoff), and refused FIRST, before identity resolution and "
+              "before the export, so an argument error costs the seat nothing",
+              _r1_h_code == 2 and "refused [coord input]" in _r1_h_out)
+
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
@@ -12529,11 +12798,22 @@ def build_parser():
     s = command(
         "checkout",
         "End your session: exports your transcript, then flips your roster row to done. Run it\n"
-        "when your briefing is complete and your completion message is already sent.",
+        "when your briefing is complete and your completion message is already sent.\n"
+        "\n"
+        "--renew does the OPPOSITE of ending the seat: it opens the seat's NEXT session, and it is\n"
+        "YOUR call, not leader's. It runs in two steps — the first arms the renewal, mutes your\n"
+        "wakes and prints the second; the second carries your successor's handoff. Nothing is\n"
+        "closed until that second call.",
         "example:\n"
         "  coordinate checkout\n"
-        "next: nothing on your side — leader runs `close <you>` if the seat must go")
+        "  coordinate checkout --renew\n"
+        "next: ending for good — nothing on your side, leader runs `close <you>` if the seat must\n"
+        "      go; renewing — run the second call the first one printed for you")
     s.add_argument("--no-export", action="store_true", help="skip the automatic transcript export (e.g. the pane is already dead)")
+    s.add_argument("--renew", action="store_true",
+                   help="this checkout opens the NEXT session of this seat, not its last — run it once to arm the renewal and be taught the second call, then again with --handoff")
+    s.add_argument("--handoff", metavar="NOTE", default=None,
+                   help="what the next session of this seat must do, quoted — requires --renew; it is appended to your seat memory and printed to your successor at its check-in")
     add_identity_flags(s)
     s.set_defaults(func=cmd_checkout)
 
