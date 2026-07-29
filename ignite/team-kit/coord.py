@@ -3733,6 +3733,17 @@ def cmd_checkin(args):
     if inherited:
         note += f" (cursor kept at #{inherited})"
     print(f"checked in: {args.agent} ({pane or 'no pane'}){note} — {summary}")
+    # The check-out handoff, DELIVERED (s12-08). Placed HERE — after the check-in is recorded and
+    # reported, before the placement-drift flag — so the seat is handed its predecessor's note at
+    # the first moment it is a checked-in session, and `session_trace_safe` guards it for exactly
+    # the reason it guards the session trace a few lines below: bookkeeping ABOUT a check-in must
+    # never become a gate ON it. A seat that cannot check in is worse than a handoff shown twice,
+    # and every branch inside that could reasonably fail already handles itself.
+    _hd_ok, _hd_err = session_trace_safe(deliver_handoff, args, base, args.agent)
+    if _hd_err:
+        print(c(f"WARNING handoff delivery skipped — {_hd_err}. Your checkin STANDS. If a handoff "
+                f"was waiting it is still `unread=yes`, so the next check-in of this seat will "
+                f"show it.", C_DEAD), file=sys.stderr)
     # PLACEMENT DRIFT: the seat checks its OWN pane against what its descriptor declares.
     #
     # DETECTION, NOT PREVENTION, and the distinction is the honest half of this: a pane opened BY
@@ -3887,6 +3898,182 @@ def append_handoff(base, memory_path, block):
         return False, ("the block on disk is TRUNCATED — the file's last handoff delimiter is an "
                        "OPENING one, so the append stopped part-way through")
     return True, ""
+
+# ---- the check-in handoff DELIVERY (s12-08) -----------------------------------------------
+#
+# The delivery half of the handoff, and it COPIES THE MESSAGE CURSOR'S ORDERING deliberately:
+# `cmd_read` calls `persist_cursor` AFTER the messages are rendered, and that ordering is what
+# makes "shown" and "read" the same event. The `unread=` attribute is this mechanism's cursor and
+# it moves at the same moment, for the same reason.
+#
+# WHAT SATISFIES EACH REQUIREMENT (`stage-1-2-gate-checkout-spec.md` §4/§5):
+#   survives a crash        the block is on disk from the moment call 2 returns
+#   re-delivers if unshown  the flip FOLLOWS the print, so a kill anywhere before it leaves
+#                           `unread=yes` and the next check-in shows the same block again
+#   keyed on (seat, unread) the lookup reads the seat FOLDER and the ATTRIBUTE, never the `seat=`
+#                           author — so a revived successor of a CRASHED seat is handed its own
+#                           predecessor's block (D2). NO `workers.md` COLUMN: that row is
+#                           per-SESSION and is superseded at re-check-in, while the handoff must
+#                           outlive a crash that left no successor row at all
+#   idempotent              flipping an already-`no` block is a no-op, exactly as `persist_cursor`
+#                           skips a cursor that would not move
+#
+# ⚠ THE FLIP IS A TARGETED SPLICE AT THE SELECTED BLOCK'S OWN INDICES — NEVER A `replace_all`. A
+# whole-file `replace("unread=yes", "unread=no")` would mark EVERY historical block read in one
+# act and destroy the re-delivery property for all of them at once.
+
+
+def handoff_blocks(text):
+    """Every COMPLETE handoff block in `text`, in file order.
+
+    Each entry carries `head` (the opening comment, verbatim), its `head_start`/`head_end` span —
+    so the flip can splice at an INDEX rather than match a string two byte-identical headers could
+    both answer to — plus `attrs` and the `body` between the delimiters.
+
+    Attributes are read BY NAME, never by position: the writer emits `session=unknown` rather than
+    dropping the key precisely so a reader never has to count tokens, and a reader that counted
+    them would break the day a key is added.
+
+    An opener with no closer is NOT a block and is skipped here; the FILE-level truncation verdict
+    belongs to `handoff_truncated`, which is what the caller acts on.
+    """
+    opener = f"<!-- {HANDOFF_TOKEN} {HANDOFF_V} "
+    closer = f"<!-- /{HANDOFF_TOKEN} {HANDOFF_V} -->"
+    found, i = [], 0
+    while True:
+        start = text.find(opener, i)
+        if start < 0:
+            return found
+        head_end = text.find("-->", start)
+        if head_end < 0:
+            return found                  # a header cut mid-line: nothing after it can parse
+        head_end += 3
+        end = text.find(closer, head_end)
+        nl = text.find("\n", head_end)
+        i = head_end
+        if end < 0 or nl < 0 or nl > end:
+            continue
+        attrs = {}
+        for tok in text[start + len(opener):head_end - 3].split():
+            key, _, val = tok.partition("=")
+            attrs[key] = val
+        found.append({"head": text[start:head_end], "head_start": start, "head_end": head_end,
+                      "attrs": attrs, "body": text[nl + 1:end].strip("\n")})
+        i = end + len(closer)
+
+
+def handoff_truncated(text):
+    """True when the file's LAST handoff delimiter is an OPENING one.
+
+    THE SAME TEST `append_handoff` REFUSES ON, deliberately: the writer and the reader must not
+    hold two opinions about what a half-written block looks like, or the shape one refuses to
+    leave behind is a shape the other happily reads a whole file's tail out of.
+    """
+    return text.rfind(f"<!-- /{HANDOFF_TOKEN}") < text.rfind(f"<!-- {HANDOFF_TOKEN}")
+
+
+def handoff_stamp_human(stamp):
+    """The block's `stamped=` value rendered for the successor's eyes.
+
+    Parsed against `HANDOFF_STAMP_FMT` — the format the WRITER used — never against a second copy
+    of it; a literal here is the same drift `handoff_stamp_text` exists to prevent. An unparseable
+    value is shown RAW rather than dropped: a time that looks wrong still tells the reader more
+    than no time at all.
+    """
+    try:
+        return datetime.strptime(stamp, HANDOFF_STAMP_FMT).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return stamp or "an unrecorded time"
+
+
+def flip_handoff_read(base, memory_path, head):
+    """Mark the block whose header is `head` READ: ONE line, spliced at its own indices, under
+    `coord_lock` + `atomic_write`. Returns `(ok, detail)`.
+
+    ⚠ NEVER `replace_all`, and never a replacement computed over the whole file. The block is
+    RE-LOCATED under the lock and rewritten BY INDEX, so two byte-identical headers (one seat, one
+    session, one second) can never make this flip the wrong one — and every other block's bytes,
+    read or unread, are carried through untouched.
+
+    `head` is the header this process actually PRINTED. If the file moved underneath and the last
+    unread block is no longer that one, NOTHING is written: marking a block read that nobody was
+    shown is the one outcome worse than showing one twice.
+    """
+    new = ""
+    try:
+        with coord_lock(base):
+            text = memory_path.read_text(encoding="utf-8")
+            unread = [b for b in handoff_blocks(text) if b["attrs"].get("unread") == "yes"]
+            if not unread:
+                # Idempotent, the same way `persist_cursor` no-ops a cursor that would not move:
+                # a concurrent successor already marked it, and re-writing the file to say what it
+                # already says is pure race surface.
+                return True, "already read"
+            block = unread[-1]
+            if block["head"] != head:
+                return False, ("the file changed under the delivery — its LAST unread block is no "
+                               "longer the one that was printed, so nothing was marked read")
+            new = (text[:block["head_start"]]
+                   + head.replace("unread=yes", "unread=no", 1)
+                   + text[block["head_end"]:])
+            atomic_write(memory_path, new)
+            landed = memory_path.read_text(encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    if landed != new:
+        return False, ("the flip is NOT on disk after the write — the replace failed, or a "
+                       "concurrent writer overwrote it")
+    return True, ""
+
+
+def deliver_handoff(args, base, seat):
+    """Show this seat's unread handoff, THEN mark it read. NEVER blocks the check-in.
+
+    Non-fatal in every direction, and deliberately SILENT in most of them — a seat with no folder,
+    no `memory.md`, an unreadable one, or nothing unread has nothing to be told. The two loud
+    branches are the two where silence would mislead: a TRUNCATED block (printing its tail would
+    dump an unbounded slice of the file into the seat's context) and a FLIP THAT FAILED after the
+    block was already printed.
+    """
+    found = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == seat), None)
+    folder = found.get("folder") if found else None
+    if folder is None:
+        return
+    memory_path = folder / "memory.md"
+    try:
+        text = memory_path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return
+    if handoff_truncated(text):
+        print(c(f"WARNING {memory_path} ends in a TRUNCATED handoff block — its opening delimiter "
+                f"has no matching closer, so where that note ENDS is unknown and NOTHING was "
+                f"printed or marked read. Printing the tail instead would pour an unbounded slice "
+                f"of the file into this session. The text above the break is intact; repair the "
+                f"file by hand and tell leader.", C_DEAD), file=sys.stderr)
+        return
+    unread = [b for b in handoff_blocks(text) if b["attrs"].get("unread") == "yes"]
+    if not unread:
+        return
+    block = unread[-1]
+    print(f"handoff waiting — written by the previous session of this seat at "
+          f"{handoff_stamp_human(block['attrs'].get('stamped', ''))}:")
+    print(block["body"])
+    print(f"(marked read now; it stays in {memory_path})")
+    # ⚠ THE BROAD CATCH IS THE POINT, AND IT BELONGS HERE RATHER THAN AT THE CALLER. The block is
+    # already on the seat's screen; anything this raises must land on the ONE loud branch below,
+    # which says "you were shown it, it was NOT marked read". The caller's guard would report the
+    # delivery as SKIPPED instead — a statement that is simply false once the print has happened.
+    try:
+        ok, why = flip_handoff_read(base, memory_path, block["head"])
+    except Exception as exc:                                   # noqa: BLE001 — deliberate
+        ok, why = False, f"{type(exc).__name__}: {exc}"
+    if not ok:
+        print(c(f"WARNING the handoff above was NOT marked read — {why}. It is STILL "
+                f"`unread=yes` in {memory_path}, so the NEXT check-in of this seat will be shown "
+                f"it again. RE-DELIVERY BEATS LOSS: act on it once, and say so on the log if it "
+                f"keeps repeating.", C_DEAD), file=sys.stderr)
+
+
 
 
 def cmd_checkout(args):
@@ -7616,6 +7803,7 @@ def _selftest_checks(args, failures, names):
     global tmux_split_strip, restore_overview_strip, tmux_find_window_pane
     global tmux_send_text, tmux_send_enter, tmux_capture_tail, tmux_pane_window, RUNS_INDEX
     global detect_pane, live_panes, _acquire_flock, atomic_write, pane_title
+    global flip_handoff_read   # s12-08: rebound to exercise the flip-FAILURE arm
     global session_close       # rebound to exercise the trace-write FAILURE direction
     real = (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
             tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
@@ -12341,6 +12529,241 @@ def _selftest_checks(args, failures, names):
               and all(len(n.args) <= 5 for n in _s7_calls)
               and _s7_kwnames <= {"disposition", "handoff_stamp"})
 
+
+        # ============ s12-08: the CHECK-IN DELIVERS the unread handoff ===========================
+        # Spec: stage-1-2-gate-checkout-spec.md §4 + §5. The mechanism copied is the MESSAGE
+        # CURSOR's: `cmd_read` persists the cursor AFTER rendering, and that ordering is what makes
+        # "shown" and "read" one event. Every row below is about that ordering, about the lookup
+        # being keyed on (seat, unread) and never on the AUTHOR, and about the delivery never
+        # becoming a gate on the check-in it rides.
+        #
+        # ⚠ CHECK-IN SUBJECTS RUN THROUGH `harness_outcome` DIRECTLY, like s12-06's call-2 subjects
+        # and for the same reason: `run()` posts its OWN failing check when a subject refuses
+        # (G-215(a)), so a mutation that made the delivery fatal would red TWO rows while
+        # `--expect-fail` demands exactly one. Every row carries `code is None` in its own
+        # condition, so an unexpected refusal is still that row's failure and only that row's.
+        def _d8_in(agent, summary, pane="%80"):
+            _o, _e, _cd = harness_outcome(
+                cmd_checkin, ns(agent=agent, summary=summary, pane=pane, force=True))
+            return _o + _e, _cd
+
+        # ⚠ FIXTURE BLOCKS ARE COMPOSED IN THE SPEC'S GRAMMAR, never through the module's own
+        # writer or constants: a fixture built from the implementation asserts only that the
+        # implementation agrees with itself. `_h6_open`/`_h6_close` are s12-06's split literals,
+        # so this source line is not itself a hit for any marker count.
+        def _d8_head(seat, stamp, unread, session="s-1", disposition="renew"):
+            return (_h6_open + f"seat={seat} session={session} disposition={disposition} "
+                    f"stamped={stamp} unread={unread} -->")
+
+        def _d8_block(seat, stamp, unread, body, **kw):
+            return _d8_head(seat, stamp, unread, **kw) + "\n" + body + "\n" + _h6_close + "\n"
+
+        def _d8_seat(name, memory):
+            _d = pkg / "workers" / name
+            _d.mkdir()
+            (_d / "agent.md").write_text(f"---\nagent: {name}\nmodel: haiku\n---\nbrief\n",
+                                         encoding="utf-8")
+            (_d / "memory.md").write_text(memory, encoding="utf-8")
+            return _d / "memory.md"
+
+        # ---- gamma: the ordering, the crash, and the re-delivery (S2-c) + S2-f/S2-g/S8-b ----
+        # gamma's memory.md is RESET to a known base first: s12-06 left a real block in it and the
+        # check-ins between here and there have already delivered it, so counting from whatever
+        # survived would make every count below depend on rows that are not this task's subject.
+        _h6_gmem.write_text("# memory\nprior state\n", encoding="utf-8")
+        # ⚠ THE BASELINE IS DRAINED AND THEN PROVED, never merely read. A mutation that advances
+        # the cursor on the delivery path would have fired at the s12-06 check-ins ABOVE too — so
+        # a baseline captured here would already carry the mutant's value, `cursor_of() == baseline`
+        # would hold trivially, and S2-f would pass on exactly the build it exists to catch. The
+        # log is read down to its last message and the baseline must EQUAL that message's number:
+        # a cursor the delivery moved cannot satisfy that, because a moved cursor leaves the read
+        # with nothing to show and nothing to advance through.
+        _d8_in("gamma", "s12-08 cursor fixture", "%71")
+        _d8_prev = None
+        for _ in range(20):             # REAL reads, until the log is drained
+            rd("gamma")
+            if cursor_of("gamma") == _d8_prev:
+                break
+            _d8_prev = cursor_of("gamma")
+        _d8_cursor0 = cursor_of("gamma")
+        _d8_blocks = load_messages(base_g)[1]
+        _d8_msg_top = str(_d8_blocks[-1]["num"]) if _d8_blocks else "!the log is empty"
+        _d8_noteA = "block A: the first successor must read this, and only this"
+        _d8_noteB = "block B: written after A was read, and delivered TWICE"
+        _h6("gamma", _d8_noteA)         # call 2 writes block A and checks gamma out
+
+        # THE ORDERING PROBE, and it is the half of S2-c a crash simulation cannot reach. Moving
+        # the flip ABOVE the print leaves every crash-arm assertion below green (a flip that failed
+        # never marked anything either way), so the ordering is measured DIRECTLY: the stub records
+        # what was already on stdout at the moment the flip was called.
+        _d8_flip_real = flip_handoff_read
+        _d8_seen = {"stdout": ""}
+
+        def _d8_flip_probe(_b, _p, _h):
+            _d8_seen["stdout"] = getattr(sys.stdout, "getvalue", lambda: "")()
+            return _d8_flip_real(_b, _p, _h)
+
+        flip_handoff_read = _d8_flip_probe
+        _d8_outA, _d8_codeA = _d8_in("gamma", "s12-08 successor of A", "%71")
+        flip_handoff_read = _d8_flip_real
+        _d8_memA = _h6_gmem.read_text(encoding="utf-8")
+
+        _d8_out2, _d8_code2 = _d8_in("gamma", "s12-08 nothing left to deliver", "%71")
+
+        _d8_in("gamma", "s12-08 write-B fixture", "%71")
+        _h6("gamma", _d8_noteB)
+
+        def _d8_flip_raise(*_a, **_kw):
+            raise OSError("selftest: the flip cannot reach the disk")
+
+        flip_handoff_read = _d8_flip_raise
+        _d8_crash_out, _d8_crash_code = _d8_in("gamma", "s12-08 crashed successor", "%71")
+        flip_handoff_read = _d8_flip_real
+        _d8_crash_mem = _h6_gmem.read_text(encoding="utf-8")
+        _d8_again_out, _d8_again_code = _d8_in("gamma", "s12-08 re-delivered successor", "%71")
+        _d8_again_mem = _h6_gmem.read_text(encoding="utf-8")
+
+        check("s12-08 S2-c: a crash between the WRITE and the CHECK-IN re-delivers instead of "
+              "losing — the flip is called only AFTER the block is on stdout (measured at the call, "
+              "not inferred), and with the flip made to raise the block is still PRINTED, the "
+              "check-in still SUCCEEDS, a LOUD warning says it was not marked read, the attribute "
+              "is STILL `unread=yes`, and the very next check-in delivers the SAME block a second "
+              "time. That ordering is `cmd_read`'s: shown and read must be one event, and when "
+              "they cannot both happen, shown-twice beats shown-never",
+              _d8_codeA is None and _d8_crash_code is None and _d8_again_code is None
+              and "handoff waiting" in _d8_outA and _d8_noteA in _d8_outA
+              and _d8_noteA in _d8_seen["stdout"]
+              and _d8_memA.count("unread=yes") == 0 and _d8_memA.count("unread=no") == 1
+              and _d8_noteB in _d8_crash_out and "checked in: gamma" in _d8_crash_out
+              and "NOT marked read" in _d8_crash_out
+              and _d8_crash_mem.count("unread=yes") == 1
+              and _d8_noteB in _d8_again_out
+              and _d8_again_mem.count("unread=yes") == 0)
+
+        check("s12-08 S8-b: an ALREADY-READ block is never re-delivered — the check-in that "
+              "follows a successful delivery prints no handoff at all. `unread=no` is the whole "
+              "state; there is no second register that could disagree with it",
+              _d8_code2 is None and "handoff waiting" not in _d8_out2
+              and _d8_noteA not in _d8_out2)
+
+        check("s12-08 S2-f: the whole delivery flow leaves the seat's READ CURSOR untouched (D3) — "
+              "four deliveries and two renewals later gamma's `lastread` is still the value a REAL "
+              "read left it at, and that value is the log's last message number, so the baseline "
+              "cannot itself be a cursor some delivery already moved. The successor inherits this "
+              "cursor, so a delivery that advanced it would cut the next session off from messages "
+              "nobody ever read. ⚠ NO-REGRESSION ROW: green BEFORE this task's change as well as "
+              "after, and labelled so rather than counted as evidence of the new behaviour",
+              _d8_cursor0 == _d8_msg_top and cursor_of("gamma") == _d8_cursor0)
+
+        check("s12-08 S2-g: the successor INHERITS the cursor AND is handed the block in the SAME "
+              "check-in, in THAT ORDER — one output carries `(cursor kept at #N)` for the "
+              "pre-existing cursor and, after the `checked in:` line, the handoff banner. The two "
+              "mechanisms share a seat and a moment; a row that measured either alone would pass "
+              "on a build where the other never ran, and a delivery printed BEFORE the check-in "
+              "line hands a seat its predecessor's note before telling it that it is a session",
+              _d8_codeA is None and _d8_cursor0 != "0"
+              and f"(cursor kept at #{_d8_cursor0})" in _d8_outA
+              and 0 <= _d8_outA.find("checked in: gamma") < _d8_outA.find("handoff waiting"))
+
+        # ---- psi: TWO unread blocks, and only the last one wins (S8-a) ----
+        _d8_psi_old = _d8_block("psi", "2026-07-28T09:00:00", "yes",
+                                "older: this one must NOT be delivered")
+        _d8_psi_new = _d8_block("psi", "2026-07-28T17:30:00", "yes",
+                                "newer: the block that wins")
+        _d8_psi_prior = "# psi — seat memory\n\n" + _d8_psi_old + "\n" + _d8_psi_new
+        _d8_psi = _d8_seat("psi", _d8_psi_prior)
+        _d8_psi_out, _d8_psi_code = _d8_in("psi", "s12-08 two-unread fixture", "%81")
+        _d8_psi_mem = _d8_psi.read_text(encoding="utf-8")
+        check("s12-08 S8-a: with TWO unread blocks the LAST one is delivered and ONLY it is "
+              "flipped — the older block is neither printed nor touched, byte for byte. This is "
+              "also the row that catches a whole-file `replace_all`: it is the only fixture where "
+              "flipping every block at once differs from flipping the selected one",
+              _d8_psi_code is None
+              and "newer: the block that wins" in _d8_psi_out
+              and "older: this one must NOT be delivered" not in _d8_psi_out
+              and _d8_psi_old in _d8_psi_mem
+              and _d8_psi_mem.count("unread=yes") == 1
+              and _d8_psi_mem.count("unread=no") == 1)
+
+        # ---- chi: one read block, one unread, and the file is otherwise BYTE-IDENTICAL (S8-c) ----
+        # ⚠ The already-read block carries TRAILING WHITESPACE on purpose: it is what separates a
+        # targeted splice from an implementation that rewrites the file "tidily" on the way past.
+        _d8_chi_read = _d8_block("chi", "2026-07-27T08:00:00", "no",
+                                 "already read, and it ends in spaces ->   ")
+        _d8_chi_new = _d8_block("chi", "2026-07-29T08:00:00", "yes",
+                                "fresh: the only block that may change")
+        _d8_chi_prior = "# chi — seat memory\n\n" + _d8_chi_read + "\n" + _d8_chi_new
+        _d8_chi = _d8_seat("chi", _d8_chi_prior)
+        _d8_chi_out, _d8_chi_code = _d8_in("chi", "s12-08 targeted-flip fixture", "%82")
+        _d8_chi_mem = _d8_chi.read_text(encoding="utf-8")
+        _d8_chi_want = _d8_chi_prior.replace(_d8_head("chi", "2026-07-29T08:00:00", "yes"),
+                                             _d8_head("chi", "2026-07-29T08:00:00", "no"))
+        check("s12-08 S8-c: the flip is a TARGETED single-line splice — the file ends with exactly "
+              "one more `unread=no` and one fewer `unread=yes`, the already-read block's bytes "
+              "(trailing whitespace included) are untouched, and the whole file equals the prior "
+              "bytes with that ONE attribute changed. Nothing is normalized, reordered or "
+              "re-composed on the way past",
+              _d8_chi_code is None and _d8_chi_mem == _d8_chi_want
+              and _d8_chi_read in _d8_chi_mem
+              and _d8_chi_mem.count("unread=no") == _d8_chi_prior.count("unread=no") + 1
+              and _d8_chi_mem.count("unread=yes") == _d8_chi_prior.count("unread=yes") - 1)
+
+        # ---- alpha + upsilon: no folder, and a memory.md deleted MID-RUN (S8-d) ----
+        _d8_ff_out, _d8_ff_code = _d8_in("alpha", "s12-08 folderless check-in", "%83")
+        _d8_up = _d8_seat("upsilon", "# upsilon — seat memory\n\n"
+                          + _d8_block("upsilon", "2026-07-29T09:00:00", "yes",
+                                      "a note that will never be read"))
+        _d8_up.unlink()                 # the file goes AFTER the seat exists — the mid-run case
+        _d8_up_out, _d8_up_code = _d8_in("upsilon", "s12-08 deleted-memory check-in", "%84")
+        check("s12-08 S8-d: an absent or unreadable memory.md NEVER blocks a check-in and never "
+              "invents output — a FOLDERLESS seat and a seat whose memory.md was deleted mid-run "
+              "both check in successfully and print no handoff line of any kind. Most seats in "
+              "any run are in exactly one of these two states, so a delivery that raised or "
+              "chattered here would be a defect on the ordinary path, not the rare one",
+              _d8_ff_code is None and _d8_up_code is None
+              and "checked in: alpha" in _d8_ff_out and "checked in: upsilon" in _d8_up_out
+              and "handoff waiting" not in _d8_ff_out and "handoff waiting" not in _d8_up_out)
+
+        # ---- phi: a TRUNCATED block warns and prints nothing (S8-e) ----
+        _d8_phi_good = _d8_block("phi", "2026-07-29T10:00:00", "yes",
+                                 "the intact block above the break")
+        _d8_phi_prior = ("# phi — seat memory\n\n" + _d8_phi_good + "\n"
+                         + _d8_head("phi", "2026-07-29T11:00:00", "yes") + "\n"
+                         + "the append stopped here, mid-block\n")
+        _d8_phi = _d8_seat("phi", _d8_phi_prior)
+        _d8_phi_out, _d8_phi_code = _d8_in("phi", "s12-08 truncated-block fixture", "%85")
+        check("s12-08 S8-e: a TRUNCATED block warns and prints NOTHING — the check-in succeeds, "
+              "the warning names the truncation, neither the broken tail nor the intact block "
+              "above it reaches the seat, and not one byte of memory.md is written. A reader that "
+              "printed to EOF instead would pour an unbounded slice of the file into the session, "
+              "and would mark read a note whose end nobody can locate",
+              _d8_phi_code is None and "TRUNCATED" in _d8_phi_out
+              and "the intact block above the break" not in _d8_phi_out
+              and "the append stopped here" not in _d8_phi_out
+              and _d8_phi.read_text(encoding="utf-8") == _d8_phi_prior)
+
+        # ---- tau + xi: delivery is AUTHOR-BLIND (S8-f) ----
+        # tau's block names ITSELF (the crash-revival case the spec calls out). xi's names another
+        # seat entirely — the half that discriminates: a reader that filtered on `seat=` would
+        # still pass tau's half, so the foreign author is what makes this row fail by construction.
+        _d8_tau = _d8_seat("tau", "# tau — seat memory\n\n"
+                           + _d8_block("tau", "2026-07-29T12:00:00", "yes",
+                                       "self-authored: the crash-revival case"))
+        _d8_xi = _d8_seat("xi", "# xi — seat memory\n\n"
+                          + _d8_block("leader", "2026-07-29T12:30:00", "yes",
+                                      "foreign author: delivered all the same"))
+        _d8_tau_out, _d8_tau_code = _d8_in("tau", "s12-08 self-authored fixture", "%86")
+        _d8_xi_out, _d8_xi_code = _d8_in("xi", "s12-08 foreign-author fixture", "%87")
+        check("s12-08 S8-f: delivery is AUTHOR-BLIND (D2) — a block whose `seat=` names the "
+              "checking-in seat ITSELF is delivered normally, and so is one whose `seat=` names "
+              "another seat entirely. The key is (seat FOLDER, `unread`), never the author: a "
+              "successor revived after a crash reads a block its own predecessor wrote, and a "
+              "reader that matched on the author would strand exactly that seat",
+              _d8_tau_code is None and _d8_xi_code is None
+              and "self-authored: the crash-revival case" in _d8_tau_out
+              and "foreign author: delivered all the same" in _d8_xi_out
+              and _d8_tau.read_text(encoding="utf-8").count("unread=no") == 1
+              and _d8_xi.read_text(encoding="utf-8").count("unread=no") == 1)
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
