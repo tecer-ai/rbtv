@@ -46,8 +46,8 @@ $COORD export-transcript <agent> [--label L]    # full pane scrollback -> worker
 $COORD checkout                                 # on finish (done disposition) — exports your transcript first (--no-export skips)
 $COORD checkout --renew --handoff "<note>"      # renewal disposition — two-step, the CLI teaches it; the handoff lands in your memory.md (item 8)
 $COORD depart                                   # ephemeral seats: export + checkout + kill own pane
-$COORD close <agent> [--renew]                  # leader only — spawn a closer (memory.md co-write, then close; --renew relaunches fresh)
-$COORD close-seat <agent> [--renew] [--no-export]  # mechanical close (normally the closer runs it; leader for dead panes)
+$COORD close <agent> [--renew]                  # leader only — FAILURE PATH: spawn a closer to dirty-close/salvage a seat that cannot check itself out. A healthy seat renews itself (line above), never through this
+$COORD close-seat <agent> [--renew] [--no-export]  # mechanical close — leader's remedy for a dead pane, and the closer's own tail step
 $COORD panel                                    # leader only — open the control-panel overview pane (live tmux-overview + plan usage)
 ```
 
@@ -132,7 +132,12 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    the build-core-daemon-mvp run-2 core-build batch, 2026-07-28 — a caller-only role gate refused
    a seat's owner-ruled self-renewal at 15:1x because the only renewal path ran through another
    seat's close ceremony; and G-257, a refusal text teaching `--force` as the remedy for a ruled
-   act.) Ephemeral seats use `depart` (export + checkout + killing
+   act.) The second call can still REFUSE to bring the successor up — no briefing, no computable
+   tmux target (a seat that has drifted out of the window its descriptor names is one), an
+   unreadable caller identity, or an unwritable marker/log. Each refusal exits 2 and says YOUR
+   CHECKOUT STANDS: the handoff is written and the roster flipped, only the relaunch did not
+   happen, and the printed remedy is leader's `close-seat <you> --renew` — never a closer.
+   Ephemeral seats use `depart` (export + checkout + killing
    the seat's own pane, one command, no name — a seat can only depart itself). Leader checks out
    only after all workers have.
 9. **Memory (persistent seats only).** `workers/<you>/memory.md` is your seat's cross-session

@@ -16,7 +16,7 @@ runs.
 |------|-----------|
 | `coord.py` | The coordination CLI. Commands — everyday: `checkin` · `status` · `read` · `send` · `pending` · `checkout`; leader: `launch` · `close` · `close-seat` · `approve` · `panel` · `owner` · `add-to-group`; other: `workers` · `create-group` · `export-transcript` · `depart` · `selftest`. Identity is RESOLVED (calling pane → roster row, or `$COORD_AGENT`/`--as`) and verified, never typed — no command carries the caller's own name, and a claim contradicting the pane is refused. Messages are typed and threaded (`--re <ask#>`, required on answers); `read` is bounded (10 at a time, cursor advances only through what it SHOWED) with `--digest`/`--msg N`/`--after N`, and every filtered view is peek-only; `status` and `pending` answer "where am I" and "what is still open" in one shot; `--pretty` (or `COORD_PRETTY=1`) colours the view commands for a human reader, default output stays plain. Multi-harness (claude, codex, opencode — per-briefing `harness:`/`model:`/`effort:`/`ctx-refresh:`), per-seat launch profiles; `launch` pre-validates every seat's harness/model (alias/slug shapes, local knowledge only) and refuses BEFORE opening any pane (PROP-8). All state lives in the run package, resolved `--package DIR` > `--run TAG` (auto-registry) > `$COORD_PACKAGE` > cwd walk-up — a seat working in its own folder passes no flag at all. `python3 coord.py selftest` verifies the mechanics; `coordinate -h` is the grouped command index, `coordinate <command> -h` the detail. On the ignite VPS it is also on PATH as `coordinate` (per-machine symlink, never synced by git). |
 | `watch.py` | Deterministic liveness/inactivity/context/approval-gate monitor (the watcher-seat tool): flags leader with the exact command to run — `close --renew` at the context threshold, `approve <agent>` for a seat parked on its harness's approval prompt (P38), `tmux kill-window` for a wave window left with panes but no active seat (PROP-10). Also reads system RAM/load every pass and flags SYSTEM PRESSURE below `--mem-floor-mb` / at load ≥ cores (PROP-9 — graceful skip off-Linux). Every pass stamps `coordination/watch-heartbeat.json`, which `coordinate workers` reads back as `watcher: ok \| STALE` — the external check on the detached loop (P32). `python3 watch.py --selftest` verifies it. |
-| `closer-prompt.md` | The closer seat's prompt template (`close <agent>` fills and spawns it): co-writes the seat's `memory.md` with the worker, then closes (and optionally renews) the seat. |
+| `closer-prompt.md` | The closer seat's prompt template (`close <agent>` fills and spawns it) — the FAILURE PATH: co-writes the seat's `memory.md` with the worker, then closes (and optionally relaunches) a seat that cannot check itself out. A healthy seat renews itself with `checkout --renew --handoff`, with no closer in the path. |
 | `protocol.md` | The coordination protocol + execution rules every run's agents follow. |
 | `briefing-authoring.md` | The briefing/seat-descriptor authoring rules — read ONLY by whoever authors them (the assembler at bootstrap, or a live run's seat-authoring role), never by an executing seat. Split out of `protocol.md` 2026-07-28. |
 | `roles.md` | The role catalogue (leader, deputy, scientist, judge, verifier, worker, closer, watcher) + the codex/opencode harness note — read by a seat that HOLDS one of the special roles or runs a non-claude harness. Split out of `protocol.md` 2026-07-28. |
@@ -69,12 +69,13 @@ runs.
    "<note>"` to renew itself (two-step, CLI-taught; the handoff lands in its `memory.md`; no
    closer in that path; protocol item 8 carries the evidence) — which exports its transcript
    first (ephemeral seats use
-   `depart`, which exports, checks out and kills their own pane in one command); leader closes —
-   or, for a seat not renewing itself (e.g. a `close: mechanical` seat), renews —
-   long-lived seats via `close <agent> [--renew]`
-   (a sonnet closer co-writes `workers/{agent}/memory.md`, then `close-seat` kills — and with
-   `--renew` freshly relaunches — the seat). The leader seat itself renews the same way
-   (`close leader --renew`): the relaunched leader lands back as a pane in the window its old
+   `depart`, which exports, checks out and kills their own pane in one command). `close <agent>
+   [--renew]` is the FAILURE PATH, leader-gated and manual: a sonnet closer co-writes
+   `workers/{agent}/memory.md`, then `close-seat` kills — and with `--renew` freshly relaunches —
+   a seat that cannot check itself out (a memoryless `close: mechanical` seat, or one whose own
+   renewal refused). No healthy renewal routes through it. The leader seat renews itself like any
+   other seat (`checkout --renew --handoff "<note>"`): the relaunched leader lands back as a pane
+   in the window its old
    pane occupied (the control panel), boots resume-first from `workers/leader/memory.md`
    (its "Resume here" section — it continues the run, never re-runs completed work), and gets
    the auto `/rename` like any launched claude seat; a bare `launch` still never boots leader.

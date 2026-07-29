@@ -102,8 +102,9 @@ applies to it in its own pre-reads.
 - While the owner is present: front-load EVERY anticipated owner decision NOW — a doubt resolvable
   in the window must not survive it.
 - Ledger filing: file issues and ideas as APPENDS to the goal-root `issues.md` / `ideas.md` — never
-  directly to campaign or registry ledgers. The closer grooms your entries at seat close; the
-  leader promotes at milestone close. A question BLOCKING tonight's work bypasses the ledgers →
+  directly to campaign or registry ledgers. Groom your own entries before you check out — a
+  closer grooms them only on the failure path, where leader closes a seat that could not check
+  itself out; the leader promotes at milestone close. A question BLOCKING tonight's work bypasses the ledgers →
   owner channel / `doubts.md` now.
 - No loose end vanishes: deferred work, partial completions, discovered out-of-scope work, and
   unaddressed blockers are FILED (ledger entry or task) before you report done — chat is not a

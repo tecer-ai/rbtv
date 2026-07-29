@@ -2,7 +2,8 @@
 
 One FOLDER per seat: `workers/{agent}/` holds `agent.md` (this briefing), a thin `CLAUDE.md` +
 `AGENTS.md` loader pair (read briefing → memory → package protocol; mark memoryless seats
-MEMORYLESS), `memory.md` (closer-written — persistent seats only, never pre-created), and
+MEMORYLESS), `memory.md` (written by the seat's own `checkout --renew --handoff`, and by a closer
+on the leader-initiated failure close — persistent seats only, never pre-created), and
 `transcripts/` (created by export). Fill every section; delete the guidance comments. Rules for
 authoring briefings: `briefing-authoring.md` beside the protocol (isolation, folder form +
 frontmatter keys, verifiable premises, pre-declared done gate) — read it before filling this

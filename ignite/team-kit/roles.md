@@ -22,7 +22,8 @@ entries below cite.
   Leader also carries the run's ONLY seat-lifecycle authority (launch/close/renew/approve), which
   makes it a single point of failure — see **deputy**.
 - **deputy** (optional, rosters past ~8 seats or any AFK run) — a second seat briefed to take over
-  SEAT LIFECYCLE only: launch, close, `close --renew`, `approve`, and watcher restarts. It does
+  SEAT LIFECYCLE only: launch, `approve`, watcher restarts, and the failure-path close (`close`,
+  `close --renew`) for a seat that cannot check itself out — a healthy seat renews itself. It does
   NOT rule, does not talk to the owner (R-owner-channel is unchanged — leader remains the sole
   door), and does not write target surfaces. It exists because leader is renewable like any other
   seat: while leader is being closed and relaunched, nothing else in the run can start, close or
@@ -51,8 +52,11 @@ entries below cite.
 - **workers** — everyone else: execute exactly one briefing, message at coordination points,
   escalate decisions.
 - **closer seats** (`closer-<target>`, spawned by `close`, kit prompt `closer-prompt.md`) —
-  one-shot: co-write the target seat's `memory.md` with the target (transcript + log + a draft
-  the worker corrects), run `close-seat` (with `--renew` when leader ordered a renewal), depart.
+  one-shot, and a FAILURE PATH ONLY: leader spawns one to dirty-close or salvage a seat that
+  cannot check itself out. A healthy seat renews itself with `checkout --renew --handoff "<note>"`
+  and no closer is in that path. The ceremony: co-write the target seat's `memory.md` with the
+  target (transcript + log + a draft the worker corrects), run `close-seat` (with `--renew` when
+  leader ordered the salvaged seat brought back), depart.
   A closer never touches deliverables, never rules open questions, never messages beyond target
   and leader.
 - **watcher seats** — sentinel pattern: a deterministic monitor (`watch.py` beside `coord.py`)
