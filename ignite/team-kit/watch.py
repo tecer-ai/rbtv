@@ -1189,6 +1189,23 @@ REVIVAL_STALE_NOTE_TICKS = 3    # consecutive stale ticks before the sensor outa
 REVIVAL_ROOM_DEAD_LINE = "REVIVAL n/a — room dead; recovery is jobs/recover-room.py (task 7.71)"
 REVIVAL_STALE_LINE = "REVIVAL paused — snapshot stale"
 
+# ---- s4-04: the COMPLETED-ONE-SHOT gate's literals ----
+#
+# ⚠⚠ WAY-STATION, NOT A HOME — `decisions.md#d-watch-is-a-way-station` (owner ruling, 2026-07-29),
+# and it binds every stage-4 arm in this file, this gate included. THIS FILE IS SCHEDULED FOR
+# DELETION BY TASK 7.35. The gate lands here only because `watch.py` is TODAY the sole component
+# observing anything at all — team-monitor is not running, the daemon's queue holds zero rows, and
+# the live `goal-watcher` job has never executed once — so retiring first was impossible, not
+# preferable. WHAT SUPERSEDES IT: the `goal-watcher-job` (CMP-21), consuming the same canonical
+# `state.json` snapshot team-monitor (CMP-20) writes. The migration is PRE-PAID by construction:
+# this gate reads the SNAPSHOT and the SEAT DESCRIPTORS only — no tmux, no /proc, no pane — so it
+# moves to the job unchanged; what 7.35 rewrites is the FIRING logic and its acceptance suite, not
+# the mechanism. NOTHING HERE IS PERMANENT. Do not build on it as a home, and do not defend it as
+# one: an unlabelled interim mechanism is what the next reader mistakes for architecture.
+REVIVAL_ONE_SHOT_LINE = "COMPLETED-ONE-SHOT — never revived"
+REVIVAL_ATTEST_CMD = "coordinate attest-exit"
+REVIVAL_MODE_LAYER = "revival mode gate"
+
 
 def _snapshot_absent(snap_err):
     """True when `snap_err` means state.json is NOT THERE, as opposed to unreadable.
@@ -1311,8 +1328,9 @@ REVIVAL_CLAIM_LAYER = "revival claim gate"
 def _claim_note(room, notes, seat, kind, body):
     """Push ONE note per (seat, kind) per episode. Returns True when it actually pushed.
 
-    ⚠ R-8: THE LAYER STRING LEADS THE BODY. Every body below begins literally with
-    `REVIVAL_CLAIM_LAYER`, so `note.startswith(...)` is a true assertion and a reader cannot
+    ⚠ R-8: THE LAYER STRING LEADS THE BODY. Every body passed here begins literally with its own
+    gate's layer constant — `REVIVAL_CLAIM_LAYER` for the claim path, `REVIVAL_MODE_LAYER` for
+    s4-04's mode gate — so `note.startswith(...)` is a true assertion and a reader cannot
     mistake this TOOL GATE's refusal for the harness permission classifier's — the same bar s4-12
     row 5 asserts. Re-arms where every other revival counter re-arms: when the seat is seen LIVE
     again (`check_revival` step 3 clears both)."""
@@ -1598,6 +1616,13 @@ def check_revival(args, base, snap, snap_err, state, notes):
     snapshot 2026-07-28 22:50 → `[]`). This candidate set is verified by CODE READING, not by a
     live positive; task s4-10's acceptance (a) is the first thing that produces one.
 
+    s4-04 adds a FOURTH outcome ahead of CRASHED — COMPLETED-ONE-SHOT, keyed on the descriptor's
+    declared `mode:` and never on `harness:`. It is the axis liveness cannot supply: whether
+    absence is the seat's EXPECTED terminal state. An undeclared `mode:` is UNDECIDABLE and
+    REFUSES; it is not silently read as `interactive`. ⚠ THE WHOLE ARM, THIS GATE INCLUDED, IS A
+    WAY-STATION IN THIS FILE — task 7.35 deletes `watch.py` into the `goal-watcher-job` (CMP-21);
+    see the s4-04 literals block above for the ruling and the migration cost.
+
     Debounce is 2 consecutive non-stale ticks, and the number is CHOSEN, NOT MEASURED — no
     crash-to-detection latency data exists in this run. At the LIVE loop's `--loop 10` (the flag is
     declared with NO `default=`; the 10 is the running invocation's, recorded in the heartbeat as
@@ -1676,6 +1701,13 @@ def check_revival(args, base, snap, snap_err, state, notes):
     _, _, live_rows = coord.load_workers(base)
     roster = {r["agent"]: r for r in live_rows}
 
+    # s4-04: the SEAT DESCRIPTORS, re-read now for the same reason the roster is — the gate below
+    # keys on a DECLARED property and must read it as it stands, not as a snapshot saw it up to one
+    # sensor cadence ago. Through `coord.discover_workers`, which is the ONE parser of a
+    # descriptor's frontmatter and already emits `mode` (dag-11's key, `coord.FM_KEY["mode"]`); a
+    # second regex here would be a second opinion about what a seat declares (PRIN-11).
+    decls = {w["agent"]: w for w in coord.discover_workers(coord.workers_dir(args))}
+
     closing, closing_st = _strict_ledger(coord.closing_path(base))
     awaiting, awaiting_st = _strict_ledger(coord.awaiting_path(base))
     # Stage 3's marker. Its READER is Stage 3's to ship (cross-prefix dep s3-03); until it lands an
@@ -1723,11 +1755,79 @@ def check_revival(args, base, snap, snap_err, state, notes):
             st["revival"] = rev
             continue
 
-        # (3) s4-04: COMPLETED-ONE-SHOT gate goes here, BEFORE CRASHED.
-        #     D-3C (stage-4-revival-spec.md § Deltas accepted from topic 3). A normally-completed
-        #     opencode one-shot appears in roster_absent BYTE-IDENTICALLY to a crashed claude seat,
-        #     so without this gate a correct detector resurrects every finished one-shot forever.
-        #     The gate keys on the descriptor's `mode:`, NEVER on `harness:`. NOT IMPLEMENTED HERE.
+        # ---- (3) s4-04: THE COMPLETED-ONE-SHOT GATE — and it MUST stay BEFORE the CRASHED branch.
+        # ⚠ WAY-STATION: this arm's home is `watch.py` only until task 7.35 deletes the file into
+        # the `goal-watcher-job` (CMP-21) — see the s4-04 literals block above for the full ruling.
+        #
+        # D-3C. A NORMALLY-COMPLETED opencode one-shot appears in `roster_absent` BYTE-IDENTICALLY
+        # to a crashed claude seat (measured, `opencode-machinery-test.md` §6b). It is not IDLE
+        # (nothing is running) and not MID-RENEWAL (no marker), so without this gate it classifies
+        # CRASHED and a CORRECT detector resurrects every finished one-shot FOREVER — a relaunch
+        # loop firing on a seat whose ABSENCE IS ITS SUCCESS. The missing axis is not liveness; it
+        # is whether absence is the seat's EXPECTED TERMINAL STATE, which no liveness observation
+        # can supply — which is exactly why the three-way detector above cannot catch it.
+        #
+        # ⚠ THE KEY IS `mode:`, NEVER `harness:`. Harness is a proxy that is true today and breaks
+        # the moment an opencode seat runs in TUI mode, or a future one-shot harness arrives.
+        # Gating on the proxy is how a correct rule becomes wrong SILENTLY. `agent_type` is barred
+        # too (run-2 `budget.json`: a sensor observation is never an authorization).
+        #
+        # ⚠ AN UNDECLARED `mode:` IS NOT `interactive`. Defaulting either way ships one of the two
+        # failure modes in silence, so an absent — or unrecognised — value is UNDECIDABLE: refuse,
+        # print EVERY tick, note ONCE (R-8: the layer string LEADS the body). This is the same
+        # reading the attest-exit arm's own term (b) takes on this key (`coord.py`, dag-11), and
+        # issue-3's SC-14 makes a missing `mode:` a defect at EMISSION time — never a default here.
+        #
+        # ⚠ MEASURED CONSEQUENCE, stated so nobody meets it as a surprise: NO run-2 descriptor
+        # declares `mode:` (52 `seat.md` files, zero hits, 2026-07-29). On any run whose seats were
+        # emitted before dag-04, this gate therefore makes the CRASHED branch UNREACHABLE and every
+        # absent seat lands in the refusal below. THAT IS FAIL-CLOSED WORKING AS RULED, not a
+        # defect in this gate; the fix is at emission (dag-04 / SC-14), and a silent default here
+        # would trade a visible inert arm for an invisible wrong one.
+        mode = (decls.get(seat) or {}).get("mode") or ""
+        if mode == "one-shot":
+            lines.append(f"{seat:<18} {'REVIVAL':<7} {REVIVAL_ONE_SHOT_LINE} — declared mode: "
+                         f"one-shot; hand-off, not a drop: {REVIVAL_ATTEST_CMD} --seat {seat}")
+            # HAND-OFF, NEVER A SILENT DROP (LG-12): a gate that merely skips the seat has traded a
+            # resurrection loop for a PERMANENT STALL — the roster still reads active, the ready
+            # arithmetic still reads "working", and the successor never becomes ready. This loop
+            # does NOT run the arm (`coordinate attest-exit` is a subcommand, and this arm actuates
+            # nothing beyond its one ruled revival fire): it names the seat and the command, and
+            # the arm's own cadence plus the chief-of-staff's sweep own the execution.
+            _claim_note(room, notes, seat, "one-shot",
+                        f"{REVIVAL_MODE_LAYER}: '{seat}' is roster-absent and its descriptor "
+                        f"declares mode: one-shot, so its absence is the seat's EXPECTED terminal "
+                        f"state — it will NEVER be revived. It still needs an EXIT ATTESTATION, "
+                        f"which this loop does not perform: run `{REVIVAL_ATTEST_CMD} --seat "
+                        f"{seat}` (bare = report, --go = act). That arm records disposition "
+                        f"`exited`, which asserts ONE fact — the harness terminated — and NOTHING "
+                        f"about whether the work is done: an `exited` row advances no edge and "
+                        f"routes to the LEADER, the only seat that may investigate it and flip it "
+                        f"to `done`. (This is the revival mode gate routing a seat, not the "
+                        f"harness permission classifier refusing a command.)")
+            rev["gone_ticks"] = 0
+            st["revival"] = rev
+            continue
+        if mode != "interactive":
+            # UNDECIDABLE. FREEZE the debounce — neither increment nor reset — for the same reason
+            # a stale snapshot freezes it: an unreadable declaration is evidence in NEITHER
+            # direction. Reported every tick; noted once; re-arms when the seat is seen live.
+            lines.append(f"{seat:<18} {'REFUSED':<7} REVIVAL REFUSED — {REVIVAL_MODE_LAYER}: "
+                         f"descriptor declares mode: {mode or '<key absent>'} — UNDECIDABLE, so "
+                         f"neither revival nor exit-attestation can be ruled correct")
+            why_mode = ("absent" if not mode else
+                        f"{mode!r}, which is neither one-shot nor interactive")
+            _claim_note(room, notes, seat, "mode",
+                        f"{REVIVAL_MODE_LAYER}: '{seat}' is roster-absent and its descriptor's "
+                        f"`mode:` key is {why_mode} — so whether this absence is a CRASH or a "
+                        f"COMPLETED one-shot is UNDECIDABLE from the descriptor, and the two "
+                        f"answers are opposite acts (relaunch vs never relaunch). Nothing will be "
+                        f"revived for '{seat}' while that holds. Fix it at EMISSION — declare "
+                        f"`mode: one-shot | interactive` in the seat's descriptor (issue-3 SC-14 "
+                        f"makes a missing key a defect there) — not by a default here. (This is "
+                        f"the revival mode gate refusing, not the harness permission classifier.)")
+            st["revival"] = rev
+            continue
 
         # (4) MID-RENEWAL — the marker's executor is a LIVE PYTHON process (plain pid+starttime),
         # or the seat is mid-close. Never fires today: Stage 3's executor is unbuilt.
@@ -2678,6 +2778,24 @@ def cmd_selftest():
         def gt(seat="dseat"):
             return ((rstate.get(seat) or {}).get("revival") or {}).get("gone_ticks")
 
+        # s4-04 made the descriptor LOAD-BEARING: an undeclared `mode:` is UNDECIDABLE and the
+        # detector refuses, so every row below that must REACH the CRASHED branch needs a real
+        # descriptor on disk. Written as a real seat file and read back through
+        # `coord.discover_workers` — the production path — so these fixtures never assert against
+        # a hand-built dict this suite invented.
+        rwork = rpkg / "workers"
+        rwork.mkdir(parents=True, exist_ok=True)
+
+        def rdecl(seat="dseat", mode="interactive", harness=None):
+            fm = ["---", f"agent: {seat}"]
+            if harness:
+                fm.append(f"harness: {harness}")
+            if mode:
+                fm.append(f"mode: {mode}")
+            fm += ["---", "", "seat body"]
+            (rwork / f"{seat}.md").write_text("\n".join(fm) + "\n", encoding="utf-8")
+
+        rdecl()
         rroster(("dseat", "yes", "%77"), ("leader", "yes", "%1"))
 
         # (9) `snap_err` — UNREADABLE reads as STALE, ABSENT is the different, silent path.
@@ -2870,6 +2988,229 @@ def cmd_selftest():
               rev(rsnap())[0] == [f"{'revival':<18} {'ok':<7} no roster-absent seat"])
         rstate.clear(); rnotes.clear()
 
+        # ---- Stage 4 D-3C (s4-04): THE COMPLETED-ONE-SHOT GATE ----
+        # Every row drives the gate through a REAL descriptor written to disk and read back by
+        # `coord.discover_workers`, never a hand-built dict: a fixture that supplies its own parse
+        # tests the branch and not the integration. NO TMUX and NO ACTUATION anywhere in this
+        # block. ⚠ WAY-STATION: these rows travel with the gate to the goal-watcher-job at 7.35.
+        import ast as _ast_mod
+
+        def twice(**kw):
+            """Two consecutive ticks — the debounce — returning (all lines, notes pushed).
+
+            The marker is cleared too: a row that DOES reach CRASHED leaves a real claim on disk,
+            and a later row would then stand down against its predecessor's claim rather than
+            exercising its own path. Measured while building this block — the resurrection mutant
+            below reported STOOD-DOWN and read as a green gate."""
+            (rbase / "lifecycle-inflight.json").unlink(missing_ok=True)
+            rstate.clear(); rnotes.clear()
+            l1, p1 = rev(rsnap(absent=[gone()], **kw))
+            l2, p2 = rev(rsnap(absent=[gone()], **kw))
+            return l1 + l2, p1 + p2
+
+        # LG-10 — a one-shot seat is NEVER revived, however long it stays absent.
+        rdecl(mode="one-shot")
+        lo, po = twice()
+        check("⚠ s4-04 LG-10: a seat whose descriptor declares `mode: one-shot` is NEVER revived, "
+              "however many ticks it is absent — its absence is its SUCCESS. Without this gate a "
+              "CORRECT detector resurrects every finished one-shot forever, and the relaunch loop "
+              "looks exactly like working machinery",
+              all(REVIVAL_ONE_SHOT_LINE in l for l in lo)
+              and not any("CRASHED" in l for l in lo) and gt() == 0)
+        # THE CONTROL, and it is the same fixture with one key changed.
+        rdecl(mode="interactive")
+        li, _ = twice()
+        check("⚠ s4-04 LG-10 CONTROL: the IDENTICAL fixture with `mode: interactive` DOES reach "
+              "CRASHED — one key, opposite verdict. A gate that never lets anything through is "
+              "indistinguishable from a detector that is switched off",
+              "CRASHED — would revive" in " ".join(li))
+
+        # LG-11 — the gate reads `mode:`, not `harness:`. Both rows are the cases a harness-keyed
+        # implementation gets BACKWARDS, so `harness == "opencode"` passes neither.
+        rdecl(mode="interactive", harness="opencode")
+        lopen, _ = twice()
+        check("⚠ s4-04 LG-11 (a): `harness: opencode` + `mode: interactive` → revival FIRES. "
+              "Harness is a proxy that is true today and breaks the moment an opencode seat runs "
+              "in TUI mode; gating on the proxy is how a correct rule becomes wrong SILENTLY",
+              "CRASHED — would revive" in " ".join(lopen))
+        rdecl(mode="one-shot", harness="claude")
+        lclaude, _ = twice()
+        check("⚠ s4-04 LG-11 (b): `harness: claude` + `mode: one-shot` → revival does NOT fire. "
+              "With (a) above this is the pair no harness-keyed gate can pass, and the descriptor "
+              "the two rows differ in is the DECLARED property, never the proxy",
+              all(REVIVAL_ONE_SHOT_LINE in l for l in lclaude)
+              and not any("CRASHED" in l for l in lclaude))
+
+        # LG-12 — HANDLED, NOT MERELY SKIPPED. The gate does not RUN the arm (this loop actuates
+        # nothing beyond its one ruled revival fire), so what is proven here is that the route it
+        # names is REAL: the command exists in coord's own parser with the flag the note prints.
+        # ⚠ WHAT IS **NOT** PROVEN HERE: that an `exited` disposition is actually written. That
+        # requires executing `coordinate attest-exit --go`, which is actuation this task may not
+        # perform — it is the arm's own acceptance (dag-11), and is named as the gap it is.
+        rdecl(mode="one-shot")
+        lh, ph = twice()
+        _sp = next((a for a in coord.build_parser()._subparsers._group_actions
+                    if getattr(a, "choices", None)), None)
+        check("⚠ s4-04 LG-12: the one-shot seat is HANDED OFF, not dropped — the line and exactly "
+              "one note name the attest-exit arm and the seat. A gate that silently skips the seat "
+              "has traded a resurrection loop for a PERMANENT STALL: the roster still reads "
+              "active, the ready arithmetic still reads 'working', and the successor never becomes "
+              "ready (the measured F1 failure, seat `oc2`)",
+              len(ph) == 1 and f"{REVIVAL_ATTEST_CMD} --seat dseat" in ph[0]
+              and all(f"{REVIVAL_ATTEST_CMD} --seat dseat" in l for l in lh))
+        check("⚠ s4-04 LG-12: the command the note prints EXISTS — `attest-exit` is a real "
+              "subcommand of coord's own parser and really takes `--seat`. A hand-off to a "
+              "command that does not exist is the same permanent stall wearing a report line, and "
+              "a string this suite compares to another string in this file would never catch it",
+              _sp is not None and "attest-exit" in _sp.choices
+              and "--seat" in {o for act in _sp.choices["attest-exit"]._actions
+                               for o in act.option_strings}
+              # RED ARM for this row: the same membership test on a name that does NOT exist must
+              # answer False, or the row would pass for any string at all.
+              and REVIVAL_ATTEST_CMD.split()[-1] + "-nope" not in _sp.choices)
+
+        # Row 4 — MISSING `mode:` IS UNDECIDABLE, NOT A DEFAULT. A single-arm test here cannot tell
+        # "refused" from "defaulted to one-shot", so both controls run below.
+        rdecl(mode=None)
+        lu, pu = twice()
+        check("⚠ s4-04 (4): a descriptor with NO `mode:` key on a roster-absent seat is "
+              "UNDECIDABLE — no revival, a refusal line NAMING THE KEY, printed every tick, and "
+              "EXACTLY ONE note. Defaulting either way ships one of the two failure modes in "
+              "silence; SC-14 makes the missing key a defect at EMISSION, not a guess here",
+              len(pu) == 1 and all("REVIVAL REFUSED" in l and "mode: <key absent>" in l
+                                   for l in lu)
+              and not any("CRASHED" in l or REVIVAL_ONE_SHOT_LINE in l for l in lu))
+        check("⚠ s4-04 (4) R-8: the refusal's LAYER STRING LEADS the note body, so a reader can "
+              "never mistake this TOOL GATE for the harness permission classifier",
+              pu[0].startswith(REVIVAL_MODE_LAYER))
+        _moved = pu[0][len(REVIVAL_MODE_LAYER):].strip() + " " + REVIVAL_MODE_LAYER
+        check("⚠ s4-04 (4) RED ARM for the row above: the SAME predicate applied to the SAME body "
+              "with the layer string moved to the END returns False — so the assertion "
+              "discriminates position, and is not a substring check that any wording would pass",
+              REVIVAL_MODE_LAYER in _moved and not _moved.startswith(REVIVAL_MODE_LAYER))
+        check("⚠ s4-04 (4) CONTROL (a): adding `mode: interactive` to that same descriptor makes "
+              "revival FIRE — the refusal was the missing key, not the fixture",
+              (rdecl(mode="interactive") or True)
+              and "CRASHED — would revive" in " ".join(twice()[0]))
+        check("⚠ s4-04 (4) CONTROL (b): adding `mode: one-shot` instead takes the ATTEST route — "
+              "with (a) this is what tells a REFUSAL from a silent default to one-shot, which a "
+              "single-arm test cannot",
+              (rdecl(mode="one-shot") or True)
+              and REVIVAL_ONE_SHOT_LINE in " ".join(twice()[0]))
+        check("⚠ s4-04 (4): an UNRECOGNISED value is refused too, not waved through as 'declared "
+              "something' — the gate's two known values are the whole vocabulary, and a typo in a "
+              "descriptor must not become an authorization",
+              (rdecl(mode="one_shot") or True)
+              and "REVIVAL REFUSED" in " ".join(twice()[0]))
+        # ⚠ A FREEZE AND A RESET ARE INDISTINGUISHABLE FROM A ZERO COUNTER — the first draft of
+        # this row asserted `gt() == 0` after two undecidable ticks and would have passed either
+        # way. The counter has to be NON-ZERO first, so the two answers differ: 1 (frozen) vs 0.
+        rstate.clear(); rnotes.clear()
+        (rbase / "lifecycle-inflight.json").unlink(missing_ok=True)
+        rdecl(mode="interactive")
+        rev(rsnap(absent=[gone()]))
+        _before_freeze = gt()
+        rdecl(mode=None)
+        rev(rsnap(absent=[gone()]))
+        check("⚠ s4-04: the UNDECIDABLE branch FREEZES the debounce rather than resetting it — an "
+              "undeclared mode is evidence in NEITHER direction, exactly like a stale snapshot, so "
+              "the counter neither advances toward a fire nor forgets the absence. Measured from a "
+              "NON-ZERO counter: a reset would read 0 here and a zero counter cannot tell the two "
+              "apart",
+              _before_freeze == 1 and gt() == 1)
+        rdecl(mode="interactive")
+        rev(rsnap(absent=[gone()]))
+        check("⚠ s4-04 CONTROL for the freeze: once the descriptor declares a mode again the "
+              "counter RESUMES from the frozen value and fires — proving the freeze preserved "
+              "evidence rather than merely stalling the arm forever",
+              gt() == 2)
+
+        # Row 5 — ORDERING IS LOAD-BEARING, exercised by MUTATING the function, not by reading it.
+        _gate_src = inspect.getsource(check_revival)
+        _anchor = '        mode = (decls.get(seat) or {}).get("mode") or ""'
+        _gate_block_end = '            st["revival"] = rev\n            continue\n'
+        _lines = _gate_src.split(_anchor, 1)
+        check("s4-04 (5) PRECONDITION: the ordering mutant below really has an anchor to move — a "
+              "mutation that silently fails to apply is a green that proves nothing",
+              len(_lines) == 2 and _lines[1].count(_gate_block_end) >= 2)
+        _cut = _lines[1].rfind(_gate_block_end, 0, _lines[1].find("# (4) MID-RENEWAL"))
+        _gate_body = _anchor + _lines[1][:_cut + len(_gate_block_end)]
+        _moved_src = _gate_src.replace(_gate_body, "") + "\n"
+        _moved_src = _moved_src.replace("        st[\"revival\"] = rev\n\n    return lines",
+                                        "        st[\"revival\"] = rev\n" + _gate_body
+                                        + "\n    return lines")
+        def _run_mutant(src, tag):
+            _ns = dict(globals())
+            exec(compile(src, tag, "exec"), _ns)
+            rdecl(mode="one-shot")
+            (rbase / "lifecycle-inflight.json").unlink(missing_ok=True)
+            rstate.clear(); rnotes.clear()
+            _ns["check_revival"](rargs, rbase, rsnap(absent=[gone()]), None, rstate, rnotes)
+            return _ns["check_revival"](rargs, rbase, rsnap(absent=[gone()]), None,
+                                        rstate, rnotes)
+
+        _lm = _run_mutant(_moved_src, "<s4-04 ordering mutant>")
+        check("⚠ s4-04 (5) THE ORDERING RED ARM: the same function with the gate MOVED BELOW the "
+              "CRASHED branch CLASSIFIES the one-shot seat CRASHED — LG-10 goes RED. A gate placed "
+              "after the branch it guards is DEAD CODE THAT READS AS LIVE, and only a mutant that "
+              "actually runs can tell the two apart",
+              any("CRASHED" in l for l in _lm))
+        # ⚠ MEASURED, and disclosed rather than glossed: in THAT mutant the claim does not fire —
+        # not because the ordering is harmless, but because the gate's own `gone_ticks = 0` reset
+        # runs AFTER the CRASHED branch and starves the debounce. So the mutant above proves the
+        # misclassification and NOT the resurrection. This second mutant removes that accidental
+        # barrier — gate moved AND its reset dropped — and the resurrection is real: a `mode:
+        # one-shot` seat is CLAIMED for revival, marker on disk.
+        _no_reset = _gate_body.replace('            rev["gone_ticks"] = 0\n'
+                                       '            st["revival"] = rev\n            continue\n',
+                                       '            st["revival"] = rev\n            continue\n', 1)
+        check("s4-04 (5) PRECONDITION: the second ordering mutant really dropped the reset — a "
+              "mutation that silently fails to apply would make the row below vacuous",
+              _no_reset != _gate_body)
+        _lm2 = _run_mutant(_gate_src.replace(_gate_body, "").replace(
+            '        st["revival"] = rev\n\n    return lines',
+            '        st["revival"] = rev\n' + _no_reset + "\n    return lines"),
+            "<s4-04 ordering mutant, no reset>")
+        check("⚠ s4-04 (5) THE RESURRECTION ITSELF: with the gate below CRASHED and its debounce "
+              "reset removed, a `mode: one-shot` seat is CLAIMED FOR REVIVAL and the marker lands "
+              "on disk — the exact forever-relaunch of a finished one-shot this gate exists to "
+              "prevent. This is why the ORDER is load-bearing and not stylistic",
+              "claim CLAIMED" in " ".join(_lm2)
+              and json.loads((rbase / "lifecycle-inflight.json").read_text()
+                             )["dseat"]["disposition"] == "revive")
+        (rbase / "lifecycle-inflight.json").unlink()
+        rdecl(mode="one-shot")
+        rstate.clear(); rnotes.clear()
+        check("⚠ s4-04 (5) GREEN: the SHIPPED order — gate BEFORE CRASHED — never reaches the "
+              "CRASHED branch for the identical fixture. Paired with the mutant above, this is "
+              "the observation that makes the ordering load-bearing rather than incidental",
+              "CRASHED" not in " ".join(twice()[0]))
+
+        # Row 7 — LG-16: this edit adds NO actuator arm. The count is UNCHANGED from whatever
+        # s4-03…s4-06 have landed, which at this landing point is ZERO (s4-06 has not landed) —
+        # never an absolute "exactly one".
+        def _actuator_syms(src):
+            t = _ast_mod.parse(src)
+            return (({n.id for n in _ast_mod.walk(t) if isinstance(n, _ast_mod.Name)}
+                     | {n.attr for n in _ast_mod.walk(t) if isinstance(n, _ast_mod.Attribute)})
+                    & {"fork", "Popen", "subprocess", "system", "execv", "execvp", "setsid",
+                       "launch_seat", "cmd_launch", "renew_in_place", "seat_placement",
+                       "live_panes", "tmux_new_window", "tmux_find_window_pane", "kill"})
+
+        check("⚠ s4-04 LG-16: the gate adds NO actuator arm — the detector references no fork, "
+              "exec, subprocess, launch or tmux symbol, so the actuator-arm count is UNCHANGED by "
+              "this edit (ZERO at this landing point: s4-06 has not landed). Asserted over the "
+              "function's own AST, not by eye",
+              _actuator_syms(_gate_src) == set())
+        _act_mutant = _gate_src.replace(_anchor, _anchor + "\n        coord.launch_seat(seat)", 1)
+        check("⚠ s4-04 LG-16 RED ARM: the SAME predicate over the SAME source with one launch call "
+              "inserted INSIDE the gate reports it — the row can go red, and the mutation is "
+              "asserted to have applied so a failed replace cannot pass as a green",
+              _act_mutant != _gate_src and _actuator_syms(_act_mutant) == {"launch_seat"})
+
+        rdecl()
+        rstate.clear(); rnotes.clear()
+
         # ---- Stage 4 §2 (s4-05): THE NO-DOUBLE-LAUNCH INTERLOCK ----
         # ⚠ THE 20x ROW NEEDS REAL CONCURRENCY, so this block FORKS. `os.fork` and not
         # `multiprocessing`: the red arms below are exec'd function objects no start method can
@@ -2883,6 +3224,13 @@ def cmd_selftest():
         cbase.mkdir(parents=True)
         cargs = argparse.Namespace(package=str(cpkg), base=None, workers_dir=None,
                                    notify_to="leader", notify_fallback="leader")
+        # s4-04 made the descriptor load-bearing on the way to CRASHED: an undeclared `mode:` is
+        # UNDECIDABLE and the detector refuses before it ever reaches the claim. These seats are
+        # `interactive` so the rows below still exercise the INTERLOCK, which is what they assert.
+        (cpkg / "workers").mkdir(parents=True, exist_ok=True)
+        for _cs in ("dseat", "otherseat"):
+            (cpkg / "workers" / f"{_cs}.md").write_text(
+                f"---\nagent: {_cs}\nmode: interactive\n---\n\nseat body\n", encoding="utf-8")
         cmark = cbase / "lifecycle-inflight.json"
         race_n = [0]
 
