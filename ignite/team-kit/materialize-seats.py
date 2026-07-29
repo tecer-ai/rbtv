@@ -32,10 +32,38 @@ Rules 9/8/14 of the workflow.md DAG-authoring block), the frozen-copy `after`
 cells (Rule 13), taskforce-id read from the file (never argv), atomic
 read → append → os.replace (never an open-append), and the --force-partial
 rows half (byte-match completion of ONLY the missing rows).
-Named extension points for the follow-on tasks:
+The dag-06 CREATE-RUN-PACKAGE STEP is landed — plan_package_creation/
+create_run_package (d-bootstrap-mechanics-ruled (b)): an absent --package that
+passes the runs/run-N bar is CREATED — `runs/run-N/` plus the surfaces a run
+needs before a seat can check in (seats/, coordination/, header-only
+taskforce.csv, the ruled header-only state.csv) — so the MASTER can
+materialize at bootstrap, before the team exists. The three CONTENT surfaces
+— conduct.md, CLAUDE.md, budget.json — arrive as CALLER-SUPPLIED input files
+(--conduct / --claude-md / --budget-json, byte-copied), per
+`d-run3-seeds-from-run2-amended`: run-2's versions as amended by the authored
+designs, CARRIED BY THE CALLER (dag-16's bootstrap job). This command never
+invents run conventions, never defaults a floor — a missing input REFUSES
+loudly (`create-inputs-missing`) naming the input and the remedy. Creation is
+announced in `writes[]` (kind `package-surface`), planned-not-written under
+--dry-run, idempotent against an existing package, and COMPLETES a partial
+one. A freshly created registry has no taskforce-id to read, so the first
+append derives it from the compartment name (`run-N` -> `tf-N`) —
+deterministic, never argv (see render_taskforce_rows).
 
-    create_run_package     -> dag-06  (bootstrap run-package creation,
-                                       d-bootstrap-mechanics-ruled (b))
+Bootstrap call shape (the master's one call, d-master-scaffolds-at-bootstrap):
+the planning workflow's ENTRY SEATS are DECLARED ROOTS at authoring time
+(d-bootstrap-mechanics-ruled (c) — planning.csv's elicitator row carries an
+empty, declared `after`), so a bootstrap call passes `--root`, never
+`--after`. The bootstrap BINDINGS come from the workflow definition's OWN
+staffing hints (clause (d): seats.csv `staffing-hints` / prompts.csv
+`staffing-recommendations`, ratified by d-staffing-hints-stand): the CALLER
+produces the --bindings JSON from those hints — by hand or via a helper that
+emits and prints a bindings file — and this command still reads a file. The
+contract stays "bindings arrive as a file"; the command NEVER guesses a
+binding. The staffer stage re-binds as usual once it exists.
+
+Named extension point for the follow-on task:
+
     run_sc_acceptance      -> dag-07  (the SC-1..SC-16 acceptance rows inside
                                        the selftest)
 
@@ -106,6 +134,26 @@ MILESTONES_NAME = "milestones.csv"
 # DAG-authoring Rule 14) — a status column is a second ledger and is refused.
 TASKFORCE_HEADER = ("taskforce-id", "seat", "after", "harness", "model",
                     "effort", "ctx-refresh", "milestone-id")
+
+# ---- dag-06 create-run-package constants ----
+
+# The state-cursor header a CREATED package's state.csv carries — byte-exact,
+# the ruled run-3 authoring input (`r-stage0-state-cursor-interim-convention`
+# (a), goal decisions.md — the ONE ledger this line is consumed from). HEADER
+# ONLY: the first real row is the leader's at bootstrap, never this command's
+# (clause (b)); run-2's off-schema cursor is frozen history, never repaired.
+STATE_CSV_NAME = "state.csv"
+STATE_CSV_HEADER = "stamped-at,run-state,seat,session-id,note"
+
+# The caller-supplied content surfaces of a created package
+# (`d-run3-seeds-from-run2-amended`): surface name -> the argv option whose
+# FILE carries the base text. VALUES never cross argv (R-10,
+# r-floor-single-source) — the option is a path, a reference, not a copy.
+CREATION_INPUTS = (
+    ("conduct.md", "--conduct", "conduct"),
+    ("CLAUDE.md", "--claude-md", "claude_md"),
+    ("budget.json", "--budget-json", "budget_json"),
+)
 
 # ---- dag-04 descriptor-surface constants ----
 
@@ -212,8 +260,10 @@ def validate_package(raw: str) -> Path:
             "(d-all-seats-in-run-folder)",
             str(package),
         )
-    if not package.is_dir():
-        create_run_package(package)  # dag-06 extension point (refuses today)
+    # An ABSENT package no longer refuses here: dag-06's creation step plans
+    # it (plan_package_creation) and creates it AFTER every gate has passed
+    # (create_run_package in run()'s write phase) — the bar above still
+    # refuses BEFORE any creation, so nothing is ever created off-compartment.
     return package
 
 
@@ -848,10 +898,17 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
 
 def build_plan(package: Path, added: list[str], internal_after: dict,
                internal_after_raw: dict, attach_after: list[str],
-               assembled: dict, bindings: dict, args) -> dict:
-    """The write plan: descriptors first, then the registry append — never the
-    reverse (orphan folders are the strictly safer half-state)."""
+               assembled: dict, bindings: dict, args,
+               creation: list[dict]) -> dict:
+    """The write plan: created package surfaces first (dag-06), then
+    descriptors, then the registry append — never another order (orphan
+    folders are the strictly safer half-state)."""
     writes = [
+        {"kind": "package-surface", "surface": c["surface"],
+         "path": c["path"]}
+        for c in creation
+    ]
+    writes += [
         {"kind": "seat-descriptor", "seat": seat,
          "path": str(package / "seats" / seat / "seat.md")}
         for seat in added
@@ -863,6 +920,7 @@ def build_plan(package: Path, added: list[str], internal_after: dict,
     })
     return {
         "package": str(package),
+        "creation": creation,
         "added_seats": list(added),
         "internal_after": internal_after,
         "internal_after_raw": internal_after_raw,
@@ -896,23 +954,183 @@ def result_of(plan: dict, dry_run: bool) -> dict:
     }
 
 
-# ------------------------------------------------- extension points (stubs)
-# Each stub REFUSES loudly rather than reporting work it did not do — a green
-# from a command that materialized nothing is the defect class this tree
-# measures for.
+# ------------------------------------------- dag-06 run-package creation
 
 
-def create_run_package(package: Path) -> None:
-    """dag-06 extension point — bootstrap run-package creation
-    (d-bootstrap-mechanics-ruled (b)): create runs/run-N/ and its
-    state/coordination surfaces when absent, so the MASTER can materialize at
-    bootstrap. Until dag-06 lands, an absent package refuses."""
-    raise Refuse(
-        "package-absent",
-        "the run package does not exist and run-package creation lands in "
-        "dag-06 — nothing materialized",
-        str(package),
-    )
+def _read_creation_source(surface: str, opt: str, raw: str) -> bytes:
+    """The caller-supplied base text for one created surface — read and
+    validated, NEVER invented or defaulted. budget.json must already carry
+    the floor the launch gate will read (budget.py read_floor's own checks,
+    restated here so a floor-less budget fails at CREATION, not at the first
+    launch) — the CHECK is structural; no floor NUMBER exists in this file
+    (R-10, r-floor-single-source)."""
+    path = Path(raw)
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise Refuse(
+            "create-input-unreadable",
+            f"{opt} names a file this run cannot read ({exc}) — the created "
+            f"{surface} is a byte-copy of it, so nothing was created",
+            raw,
+        ) from exc
+    if not data.strip():
+        raise Refuse(
+            "create-input-empty",
+            f"{opt} names an empty file — an empty {surface} is the "
+            "silent-default failure this step exists to refuse",
+            raw,
+        )
+    if surface == "budget.json":
+        try:
+            floors = (json.loads(data.decode("utf-8")).get("floors") or {})
+            floor = floors.get("launch_refuse_mb")
+        except (ValueError, AttributeError, UnicodeDecodeError) as exc:
+            raise Refuse(
+                "create-input-invalid",
+                f"{opt} is not a JSON object ({exc}) — the launch gate reads "
+                "the created budget.json (r-floor-single-source), so a "
+                "broken copy would refuse every launch",
+                raw,
+            ) from exc
+        if not isinstance(floor, int) or isinstance(floor, bool) or floor <= 0:
+            raise Refuse(
+                "create-input-invalid",
+                f"{opt} declares no positive-integer floors.launch_refuse_mb "
+                f"(found {floor!r}) — every launch against the created "
+                "package would refuse FloorUndeclared/FloorUnreadable; this "
+                "command copies the caller's declaration and NEVER supplies "
+                "a floor of its own (R-10, r-floor-single-source)",
+                raw,
+            )
+    return data
+
+
+def plan_package_creation(package: Path, args) -> list[dict]:
+    """dag-06 — plan the run-package creation/completion WITHOUT writing
+    (d-bootstrap-mechanics-ruled (b)): at the opening of a brand-new goal the
+    run does not exist, so the MASTER's bootstrap materialize must create
+    `runs/run-N/` and the surfaces a run needs before a seat can check in.
+    Derived from the live run-2 package + coord.py's own expectations:
+
+      seats/          coord.py workers_dir + package discovery
+      coordination/   coord.py's state home (its files land on demand)
+      taskforce.csv   header-only, the run-2 live header — the registry the
+                      launch gate's check_bindings reads
+      state.csv       header-only, the ruled run-3 state-cursor header
+                      (r-stage0-state-cursor-interim-convention (a)/(b))
+      conduct.md      CALLER-SUPPLIED (--conduct)      \\  d-run3-seeds-
+      CLAUDE.md       CALLER-SUPPLIED (--claude-md)     } from-run2-amended:
+      budget.json     CALLER-SUPPLIED (--budget-json)  /  never invented here
+
+    Ask-(f) RULING ENCODED (`d-run3-seeds-from-run2-amended`, 2026-07-29):
+    all three content surfaces arrive as caller-supplied input FILES — run-2's
+    versions as amended by the authored designs, carried by the caller
+    (dag-16's bootstrap job). budget.json takes the caller-supplied-file
+    option of the dag-06 task (consistent with that ruling): a missing input
+    REFUSES loudly naming it; a silently-defaulted floor or an invented
+    conduct/CLAUDE surface is the failure this refusal exists to prevent.
+
+    DELIBERATELY NOT CREATED (each has its own writer/author):
+      sessions.csv / messages.md / workers.md / state.json — coord.py and
+      team-monitor create them on demand (script-managed state);
+      milestones.csv / seed.md / planning/ / bars.md and the other run-2
+      accretions — authored content owned by the goal machinery and the
+      authoring tasks, never command-invented.
+
+    Modes: an ABSENT package (bar already passed) plans full creation and
+    requires all three inputs; an existing package missing taskforce.csv is a
+    CREATION-PARTIAL half-state and is completed the same way (all inputs
+    required — closes the crash-then-flagless-retry window); an existing
+    package WITH taskforce.csv (run-2 and every legacy run) completes only
+    the structural dirs seats/ and coordination/, plus any caller-input
+    surface whose option was explicitly supplied and whose file is missing.
+    Existing surfaces are NEVER touched, compared, or overwritten."""
+    creating = not package.is_dir()
+    if creating:
+        goal = package.parent.parent
+        if not goal.is_dir():
+            raise Refuse(
+                "goal-folder-absent",
+                f"the goal folder {goal} does not exist — this command "
+                "creates a RUN PACKAGE inside an EXISTING goal folder; "
+                "creating a goal is rbtv-goal's act, never this command's",
+                str(package),
+            )
+    creation_partial = (not creating
+                        and not (package / TASKFORCE_NAME).is_file())
+    full = creating or creation_partial
+
+    plan: list[dict] = []
+    if creating:
+        plan.append({"surface": ".", "path": str(package), "dir": True})
+
+    missing_inputs = []
+    for surface, opt, attr in CREATION_INPUTS:
+        supplied = getattr(args, attr, None)
+        present = (package / surface).is_file() if not creating else False
+        if present:
+            continue
+        if supplied is None:
+            if full:
+                missing_inputs.append((surface, opt))
+            continue
+        plan.append({"surface": surface, "path": str(package / surface),
+                     "data": _read_creation_source(surface, opt, supplied),
+                     "source": supplied})
+    if missing_inputs:
+        raise Refuse(
+            "create-inputs-missing",
+            "creating (or completing) this run package needs the "
+            "caller-supplied base text for: "
+            + ", ".join(f"{s} (pass {o} <file>)" for s, o in missing_inputs)
+            + " — d-run3-seeds-from-run2-amended: the content is run-2's "
+            "version as amended by the authored designs, CARRIED BY THE "
+            "CALLER; this command never invents run conventions and never "
+            "defaults a floor. Nothing was created",
+            str(package),
+        )
+
+    if full:
+        # By construction only the full modes reach here with these missing:
+        # legacy mode means taskforce.csv is present, and legacy packages
+        # keep their own state-cursor story (run-2's frozen file is present
+        # and NEVER repaired; a legacy package without one is not retrofitted).
+        if not (package / TASKFORCE_NAME).is_file():
+            plan.append({"surface": TASKFORCE_NAME,
+                         "path": str(package / TASKFORCE_NAME),
+                         "data": (",".join(TASKFORCE_HEADER) + "\n").encode()})
+        if not (package / STATE_CSV_NAME).is_file():
+            plan.append({"surface": STATE_CSV_NAME,
+                         "path": str(package / STATE_CSV_NAME),
+                         "data": (STATE_CSV_HEADER + "\n").encode()})
+    for d in ("seats", "coordination"):
+        if creating or not (package / d).is_dir():
+            plan.append({"surface": d, "path": str(package / d), "dir": True})
+    return plan
+
+
+def create_run_package(package: Path, creation: list[dict]) -> list[str]:
+    """dag-06 — WRITE the planned creation surfaces, in plan order (content
+    surfaces before the structural markers, so a crash mid-creation leaves a
+    package that still lacks taskforce.csv and is completed as a
+    CREATION-PARTIAL on retry — inputs re-required, nothing silently
+    tolerated). Fires AFTER every gate (like every other write): a refusal
+    anywhere leaves zero created surfaces. Files are created EXCLUSIVELY
+    (mode 'xb') — this step never overwrites; a surface appearing between
+    plan and write fails loudly."""
+    written: list[str] = []
+    for entry in creation:
+        target = Path(entry["path"])
+        if entry.get("dir"):
+            target.mkdir(parents=True, exist_ok=True)
+            target.chmod(0o755)
+        else:
+            with open(target, "xb") as fh:
+                fh.write(entry["data"])
+            target.chmod(0o644)
+        written.append(str(target))
+    return written
 
 
 def emit_seat_descriptors(plan: dict) -> list[str]:
@@ -1004,15 +1222,26 @@ def render_taskforce_rows(plan: dict) -> None:
     concurrent-pair naming) are carried as the DOCUMENTATION block only —
     authoring-time judgment this command cannot check."""
     tf_path = Path(plan["package"]) / TASKFORCE_NAME
-    if not tf_path.is_file():
+    creating_tf = any(c["surface"] == TASKFORCE_NAME
+                      for c in plan.get("creation", ()))
+    if creating_tf:
+        # dag-06: the registry does not exist yet — every validation below
+        # runs against the header-only content create_run_package writes in
+        # this same act (append_taskforce_rows re-reads and compares, so a
+        # divergence between plan and disk still refuses loudly).
+        text = ",".join(TASKFORCE_HEADER) + "\n"
+    elif not tf_path.is_file():
         raise Refuse(
             "registry-absent",
             f"the run package carries no {TASKFORCE_NAME} — the append needs "
             "the run's registry (its taskforce-id is read from the file, "
-            "never argv); creating a run package is dag-06's bootstrap act",
+            "never argv). Completing this package is dag-06's creation step: "
+            "re-run with --conduct/--claude-md/--budget-json so the missing "
+            "surfaces can be created from caller-supplied content",
             str(tf_path),
         )
-    text = tf_path.read_text(encoding="utf-8")
+    else:
+        text = tf_path.read_text(encoding="utf-8")
     if not text.endswith("\n"):
         raise Refuse(
             "registry-tail-unterminated",
@@ -1070,9 +1299,20 @@ def render_taskforce_rows(plan: dict) -> None:
         raw_by_seat[seat] = line
 
     # taskforce-id: the run's EXISTING id, read from the file — never argv.
+    # dag-06 bootstrap story: a registry with ZERO data rows (a freshly
+    # created, header-only taskforce.csv — first materialize into a created
+    # package) carries no id to read, so the id is DERIVED from the
+    # runs/run-N compartment name the package bar already proved: run-N ->
+    # tf-N. Deterministic — a pure function of the package path, the same at
+    # creation and on every later empty-registry call — never argv, never
+    # guessed per call. The derivation fires ONLY on zero data rows: a
+    # registry that HAS rows but no readable id still refuses (red arm), and
+    # an id read from rows always wins over the derivation.
     ids = {(r.get("taskforce-id") or "").strip() for r in existing_rows}
     ids.discard("")
-    if len(ids) != 1:
+    if not existing_rows:
+        tf_id = "tf-" + Path(plan["package"]).name[len("run-"):]
+    elif len(ids) != 1:
         raise Refuse(
             "taskforce-id-unreadable",
             f"the run's taskforce-id is read from existing {TASKFORCE_NAME} "
@@ -1081,7 +1321,8 @@ def render_taskforce_rows(plan: dict) -> None:
             "materialized",
             str(tf_path),
         )
-    tf_id = next(iter(ids))
+    else:
+        tf_id = next(iter(ids))
 
     # The `after` cells — the FROZEN DAG copy (Rule 13, KG
     # taskforce-descriptor): an internal row copies the workflow manifest's
@@ -1240,6 +1481,7 @@ def run_sc_acceptance(check, fixture: dict) -> None:
 
 def run(args) -> dict:
     package = validate_package(args.package)
+    creation = plan_package_creation(package, args)  # dag-06 (plans, no write)
     catalog_root = Path(args.catalog_root)
     if not catalog_root.is_dir():
         raise Refuse(
@@ -1259,7 +1501,7 @@ def run(args) -> dict:
     units = index_units(catalog_root)
     assembled = assemble_all(added, bindings, catalogs, units)
     plan = build_plan(package, added, internal_after, internal_after_raw,
-                      attach_after, assembled, bindings, args)
+                      attach_after, assembled, bindings, args, creation)
     # dag-04 + dag-05: EVERY gate fires HERE — the emission gates, then the
     # three registry validations — before the dry-run return and before any
     # write, so a refusal always leaves zero files and zero rows.
@@ -1267,8 +1509,11 @@ def run(args) -> dict:
     render_taskforce_rows(plan)
     if args.dry_run:
         return result_of(plan, dry_run=True)
-    # Descriptors FIRST, then rows — never the reverse (the ordering rationale
-    # lives on append_taskforce_rows' docstring).
+    # Package surfaces FIRST (dag-06), descriptors SECOND, rows LAST — never
+    # another order (the descriptor/rows rationale lives on
+    # append_taskforce_rows' docstring; creation must precede both because
+    # descriptors land in seats/ and the append re-reads taskforce.csv).
+    create_run_package(package, creation)  # dag-06
     emit_seat_descriptors(plan)   # dag-04
     append_taskforce_rows(plan)   # dag-05
     return result_of(plan, dry_run=False)
@@ -1309,6 +1554,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--milestone-id", dest="milestone_id",
                    help="written to every materialized row; must resolve to a "
                         "milestones.csv row")
+    p.add_argument("--conduct", dest="conduct",
+                   help="caller-supplied conduct.md BASE-TEXT file, byte-"
+                        "copied into a CREATED run package (d-run3-seeds-"
+                        "from-run2-amended — this command never invents run "
+                        "conventions). Required when creating/completing")
+    p.add_argument("--claude-md", dest="claude_md",
+                   help="caller-supplied run CLAUDE.md base-text file, byte-"
+                        "copied into a CREATED run package (same ruling as "
+                        "--conduct). Required when creating/completing")
+    p.add_argument("--budget-json", dest="budget_json",
+                   help="caller-supplied budget.json file, byte-copied into "
+                        "a CREATED run package. A PATH, never a value: the "
+                        "floor lives in the file (R-10, r-floor-single-"
+                        "source). Required when creating/completing")
     p.add_argument("--dry-run", action="store_true", dest="dry_run",
                    help="print the full materialize write plan as JSON; "
                         "touch nothing")
@@ -1507,16 +1766,19 @@ def build_fixture(tmp: Path) -> dict:
     milestones = "milestone-id,name,status\nm1,prove the fixture,pending\n"
     pkg = tmp / "goals" / "demo-goal" / "runs" / "run-1"
     (pkg / "seats").mkdir(parents=True)
+    (pkg / "coordination").mkdir()  # a run package carries it (coord.py home)
     pkg.joinpath(TASKFORCE_NAME).write_text(taskforce, encoding="utf-8")
     pkg.joinpath(MILESTONES_NAME).write_text(milestones, encoding="utf-8")
     # A second package with seat alpha already materialized — the collision arm.
     pkg9 = tmp / "goals" / "demo-goal" / "runs" / "run-9"
     (pkg9 / "seats" / "alpha").mkdir(parents=True)
+    (pkg9 / "coordination").mkdir()
     pkg9.joinpath(TASKFORCE_NAME).write_text(taskforce, encoding="utf-8")
     pkg9.joinpath(MILESTONES_NAME).write_text(milestones, encoding="utf-8")
     # SC-10 control fixture: a registry whose header ALREADY carries `status`.
     pkg_status = tmp / "goals" / "demo-goal" / "runs" / "run-8"
     (pkg_status / "seats").mkdir(parents=True)
+    (pkg_status / "coordination").mkdir()
     pkg_status.joinpath(TASKFORCE_NAME).write_text(
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
         "milestone-id,status\n"
@@ -1525,6 +1787,7 @@ def build_fixture(tmp: Path) -> dict:
     # (dag-15's live repair is parked; this spine is the fixture's own).
     pkg_spine = tmp / "goals" / "demo-goal" / "runs" / "run-31"
     (pkg_spine / "seats").mkdir(parents=True)
+    (pkg_spine / "coordination").mkdir()
     pkg_spine.joinpath(TASKFORCE_NAME).write_text(
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
         "milestone-id\n"
@@ -1568,6 +1831,33 @@ def build_fixture(tmp: Path) -> dict:
                           "b2": {**seat_binding, "after": ["a2"]}}}
     bdir.joinpath("scramble.json").write_text(json.dumps(scramble),
                                               encoding="utf-8")
+    b2_only = {"version": 1, "defaults": both["defaults"],
+               "seats": {"b2": {**seat_binding, "after": []}}}
+    bdir.joinpath("b2.json").write_text(json.dumps(b2_only), encoding="utf-8")
+    beta_only = {"version": 1, "defaults": both["defaults"],
+                 "seats": {"beta": {**seat_binding, "after": []}}}
+    bdir.joinpath("beta.json").write_text(json.dumps(beta_only),
+                                          encoding="utf-8")
+
+    # dag-06 creation inputs — the CALLER-SUPPLIED trio
+    # (d-run3-seeds-from-run2-amended). Fixture stand-ins for the amended
+    # run-2 base texts dag-16 carries; the floor value is FIXTURE data inside
+    # a caller file, never a number this command holds (R-10).
+    seeds = tmp / "run-seeds"
+    seeds.mkdir()
+    (seeds / "conduct.md").write_text(
+        "# conduct\n\nFixture conduct base text (caller-supplied).\n",
+        encoding="utf-8")
+    (seeds / "CLAUDE.md").write_text(
+        "# run\n\nFixture run CLAUDE.md base text (caller-supplied).\n",
+        encoding="utf-8")
+    (seeds / "budget.json").write_text(json.dumps(
+        {"floors": {"launch_refuse_mb": 64},
+         "cap": {"agent_panes": 4},
+         "counting": {"counts_toward_cap": ["worker"]}}, indent=1) + "\n",
+        encoding="utf-8")
+    (seeds / "broken-budget.json").write_text(
+        json.dumps({"note": "no floors key at all"}), encoding="utf-8")
 
     return {
         "tmp": tmp,
@@ -1584,6 +1874,12 @@ def build_fixture(tmp: Path) -> dict:
         "b_badafter": str(bdir / "badafter.json"),
         "b_broken": str(bdir / "broken.json"),
         "b_scramble": str(bdir / "scramble.json"),
+        "b_b2": str(bdir / "b2.json"),
+        "b_beta": str(bdir / "beta.json"),
+        "src_conduct": str(seeds / "conduct.md"),
+        "src_claude": str(seeds / "CLAUDE.md"),
+        "src_budget": str(seeds / "budget.json"),
+        "src_budget_broken": str(seeds / "broken-budget.json"),
     }
 
 
@@ -1635,8 +1931,9 @@ def selftest_scenarios(fx: dict) -> list[tuple[str, list[str], int, str | None]]
          wf(**{"--package": fx["catalog"]}), 1, "package-not-a-run"),
         ("red: package not absolute",
          wf(**{"--package": "runs/run-1"}), 1, "package-not-absolute"),
-        ("red: absent package refuses at the dag-06 extension point",
-         wf(**{"--package": fx["pkg_absent"]}), 1, "package-absent"),
+        ("red: absent package with NO creation inputs refuses naming them "
+         "(dag-06 — an absent input is a refusal, never a default)",
+         wf(**{"--package": fx["pkg_absent"]}), 1, "create-inputs-missing"),
         ("red: unreadable bindings JSON",
          wf(**{"--bindings": fx["b_broken"]}), 1, "bindings-unreadable"),
         ("red: dangling --after member",
@@ -2078,6 +2375,7 @@ def run_dag04_acceptance(check, env: dict) -> None:
         gdir = groot / "demo-goal"
         run1 = gdir / "runs" / "run-1"
         (run1 / "seats").mkdir(parents=True)
+        (run1 / "coordination").mkdir()
         (gdir / "goal.md").write_text(
             "---\nname: demo-goal\ncreation-date: 2026-07-29\n"
             "type: one-shot\nstatus: active\n---\n\n"
@@ -2377,6 +2675,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         gdir = groot / "demo-goal"
         run1 = gdir / "runs" / "run-1"
         (run1 / "seats").mkdir(parents=True)
+        (run1 / "coordination").mkdir()
         (gdir / "goal.md").write_text(
             "---\nname: demo-goal\ncreation-date: 2026-07-29\n"
             "type: one-shot\nstatus: active\n---\n\nProve SC-8.\n",
@@ -2506,6 +2805,379 @@ def run_dag05_acceptance(check, env: dict) -> None:
               cp.stdout.strip()[:200])
 
 
+def run_dag06_acceptance(check, env: dict) -> None:
+    """dag-06's CP rows (CP-1..CP-8), each with the control that must be able
+    to FAIL. Fixture-only (tempfile.TemporaryDirectory) — never a real run.
+    CP-6's launch coupling runs coord.py's OWN launch gates against a freshly
+    CREATED throwaway package; the coord.py md5 under test is printed as
+    evidence. The coord-visible created package is named run-1 — a tag held
+    by a live run — so coord.py's auto-register declines (never stolen) and
+    nothing durable is written."""
+    import shutil
+
+    def _refusal(cp):
+        try:
+            return json.loads(cp.stdout).get("refusal") or {}
+        except ValueError:
+            return {}
+
+    coord_py = Path(__file__).resolve().parent / "coord.py"
+    coord_md5 = hashlib.md5(coord_py.read_bytes()).hexdigest()
+    print(f"  info CP-6: coord.py under test — md5 {coord_md5}")
+
+    def coord(argv):
+        return subprocess.run([sys.executable, str(coord_py), *argv],
+                              capture_output=True, text=True, env=env)
+
+    # ---- group 1: creation + launch coupling (CP-1/2/5/6/7/8) ----------
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        fx = build_fixture(tmp)
+        goal = tmp / "g6-goal"
+        goal.mkdir()
+        pkg = goal / "runs" / "run-1"  # live-held tag: register declines
+
+        def create_argv(seat, bindings, extra=()):
+            return ["--package", str(pkg), "--seat", seat,
+                    "--catalog-root", fx["catalog"], "--root",
+                    "--bindings", bindings,
+                    "--conduct", fx["src_conduct"],
+                    "--claude-md", fx["src_claude"],
+                    "--budget-json", fx["src_budget"], "--json", *extra]
+
+        # CP-7: --dry-run against the ABSENT package — plan printed, nothing
+        # on disk.
+        cp = _invoke(create_argv("alpha", fx["b_alpha"], ("--dry-run",)), env)
+        plan_writes = (json.loads(cp.stdout)
+                       if cp.returncode == 0 else {}).get("writes", [])
+        planned = {w.get("surface") for w in plan_writes
+                   if w["kind"] == "package-surface"}
+        check("CP-7: dry-run against an absent package exits 0 and the "
+              "printed plan names every created surface",
+              cp.returncode == 0
+              and {".", "conduct.md", "CLAUDE.md", "budget.json",
+                   TASKFORCE_NAME, STATE_CSV_NAME, "seats",
+                   "coordination"} <= planned,
+              (cp.stdout + cp.stderr).strip()[:200])
+        check("CP-7: ...and writes NOTHING — neither the package nor runs/ "
+              "exists after the dry-run",
+              not pkg.exists() and not (goal / "runs").exists())
+
+        # CP-1 green: the same argv without --dry-run CREATES + materializes.
+        cp = _invoke(create_argv("alpha", fx["b_alpha"]), env)
+        created = json.loads(cp.stdout) if cp.returncode == 0 else {}
+        surfaces = {w.get("surface") for w in created.get("writes", [])
+                    if w["kind"] == "package-surface"}
+        check("CP-1: a materialize against a NON-EXISTENT --package creates "
+              "the package and materializes into it, announcing every "
+              "created surface in writes[]",
+              cp.returncode == 0
+              and (pkg / "seats" / "alpha" / "seat.md").is_file()
+              and (pkg / "coordination").is_dir()
+              and (pkg / TASKFORCE_NAME).is_file()
+              and (pkg / STATE_CSV_NAME).is_file()
+              and {".", "conduct.md", "CLAUDE.md", "budget.json"} <= surfaces,
+              (cp.stdout + cp.stderr).strip()[:200])
+        check("CP-7 control: the dry flag is the discriminator — the same "
+              "argv without it created the package", pkg.is_dir())
+        check("state.csv: the created cursor carries EXACTLY the ruled "
+              "header, header only (r-stage0-state-cursor-interim-convention)",
+              (pkg / STATE_CSV_NAME).read_text(encoding="utf-8")
+              == STATE_CSV_HEADER + "\n")
+
+        rows = list(csv.DictReader(
+            (pkg / TASKFORCE_NAME).read_text(encoding="utf-8").splitlines()))
+        check("tf-id: the first materialize into a created package derives "
+              "the id from the compartment (run-1 -> tf-1), never argv",
+              [r["taskforce-id"] for r in rows] == ["tf-1"]
+              and rows[0]["seat"] == "alpha", str(rows))
+
+        # CP-1 control: the SAME call with the create step disabled refuses.
+        pkg2 = goal / "runs" / "run-2"
+        args2 = build_parser().parse_args(
+            [a if a != str(pkg) else str(pkg2)
+             for a in create_argv("alpha", fx["b_alpha"])])
+        orig_plan = globals()["plan_package_creation"]
+
+        def _stub(package, args):
+            raise Refuse("package-absent",
+                         "create step disabled (CP-1 control)", str(package))
+
+        globals()["plan_package_creation"] = _stub
+        try:
+            refused = False
+            try:
+                run(args2)
+            except Refuse as r:
+                refused = r.code == "package-absent"
+        finally:
+            globals()["plan_package_creation"] = orig_plan
+        check("CP-1 control: the SAME call with the create step disabled "
+              "refuses (package-absent) and creates nothing",
+              refused and not pkg2.exists())
+
+        # CP-5: no policy number on the argument surface; the caller's
+        # budget.json IS read and reaches the created package unchanged.
+        numeric_defaults = [a.option_strings for a in build_parser()._actions
+                            if isinstance(a.default, (int, float))
+                            and not isinstance(a.default, bool)]
+        check("CP-5: the argument surface carries NO numeric default — no "
+              "floor, cap, or model number (R-10, r-floor-single-source)",
+              numeric_defaults == [], str(numeric_defaults))
+        probe = argparse.ArgumentParser()
+        probe.add_argument("--mem-floor-mb", type=int, default=1200)
+        check("CP-5 control: the numeric-default detector fires on a parser "
+              "that DOES carry one",
+              any(isinstance(a.default, (int, float))
+                  and not isinstance(a.default, bool)
+                  for a in probe._actions))
+        src_budget = Path(fx["src_budget"]).read_bytes()
+        made_budget = (pkg / "budget.json").read_bytes()
+        check("CP-5 control: the caller-supplied budget.json IS read — the "
+              "created copy is byte-identical and its floor (64) arrives "
+              "unchanged",
+              made_budget == src_budget
+              and json.loads(made_budget)["floors"]["launch_refuse_mb"] == 64)
+        check("CP-5 comparator control: the byte comparator can fail (a "
+              "different source diverges)",
+              Path(fx["src_conduct"]).read_bytes() != made_budget)
+
+        # CP-8 green: conduct.md + CLAUDE.md byte-identical to the sources.
+        check("CP-8: created conduct.md and CLAUDE.md are byte-identical to "
+              "the caller-supplied base text",
+              (pkg / "conduct.md").read_bytes()
+              == Path(fx["src_conduct"]).read_bytes()
+              and (pkg / "CLAUDE.md").read_bytes()
+              == Path(fx["src_claude"]).read_bytes())
+
+        # CP-2 arm 1: the IDENTICAL call again — collision refusal on the
+        # materialize half, whole tree byte-identical (nothing recreated).
+        tree_before = _hash_tree(pkg)
+        cp = _invoke(create_argv("alpha", fx["b_alpha"]), env)
+        check("CP-2: the identical call again creates and changes NOTHING "
+              "(seat-exists refusal, tree byte-identical)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "seat-exists"
+              and _hash_tree(pkg) == tree_before)
+        # CP-2 arm 2: a DIFFERENT seat into the now-existing package — zero
+        # creation entries, every created surface byte-identical.
+        cp = _invoke(create_argv("b2", fx["b_b2"]), env)
+        res = json.loads(cp.stdout) if cp.returncode == 0 else {}
+        check("CP-2: a later materialize into the created package carries "
+              "ZERO creation entries and leaves every created surface "
+              "byte-identical",
+              cp.returncode == 0
+              and [w for w in res.get("writes", [])
+                   if w["kind"] == "package-surface"] == []
+              and (pkg / "conduct.md").read_bytes()
+              == Path(fx["src_conduct"]).read_bytes()
+              and (pkg / "budget.json").read_bytes() == src_budget
+              and (pkg / STATE_CSV_NAME).read_text(encoding="utf-8")
+              == STATE_CSV_HEADER + "\n",
+              (cp.stdout + cp.stderr).strip()[:200])
+
+        # CP-6: the created package is LAUNCHABLE.
+        cpl = coord(["--package", str(pkg), "--as", "chief-of-staff",
+                     "launch", "--dry-run", "--only", "alpha"])
+        check("CP-6: coordinate launch --dry-run --only alpha resolves a "
+              "harness command against the freshly created package",
+              cpl.returncode == 0
+              and "claude --model claude-opus-5" in cpl.stdout
+              and "REFUSED" not in cpl.stdout,
+              (cpl.stdout + cpl.stderr).strip()[:200])
+        # CP-6 green (real-launch form): with budget.json present the floor
+        # gate PASSES reading the created file (provenance names 64) and the
+        # launch fails only on the absent tmux pane — proving the FLOOR read
+        # hits the created surface on the real path the control below flips.
+        cpl = coord(["--package", str(pkg), "--as", "chief-of-staff",
+                     "launch", "--only", "alpha"])
+        check("CP-6: a REAL launch reads the created budget.json (floor "
+              "provenance = 64) and refuses only for the absent tmux pane",
+              cpl.returncode != 0
+              and "floors.launch_refuse_mb = 64" in cpl.stderr
+              and "not inside tmux" in cpl.stderr,
+              (cpl.stdout + cpl.stderr).strip()[:300])
+        # CP-6 control: remove budget.json — the SAME real launch now
+        # refuses for the undeclared floor. The surface list is load-bearing.
+        (pkg / "budget.json").unlink()
+        cpl = coord(["--package", str(pkg), "--as", "chief-of-staff",
+                     "launch", "--only", "alpha"])
+        check("CP-6 control: without budget.json the launch gate REFUSES "
+              "for the undeclared floor (FloorUndeclared, "
+              "r-floor-single-source)",
+              cpl.returncode != 0
+              and "no budget.json" in cpl.stderr
+              and "r-floor-single-source" in cpl.stderr,
+              (cpl.stdout + cpl.stderr).strip()[:300])
+
+    # ---- group 2: CP-3 completion, CP-4 bar, tf-id red arms, gated
+    #      creation ------------------------------------------------------
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        fx = build_fixture(tmp)
+        goal = tmp / "g6-goal"
+        goal.mkdir()
+
+        def argv_for(pkg, seat, bindings, extra=()):
+            return ["--package", str(pkg), "--seat", seat,
+                    "--catalog-root", fx["catalog"], "--root",
+                    "--bindings", bindings,
+                    "--conduct", fx["src_conduct"],
+                    "--claude-md", fx["src_claude"],
+                    "--budget-json", fx["src_budget"], "--json", *extra]
+
+        # CP-4: an absent path OUTSIDE runs/run-N refuses with NOTHING
+        # created — creation never bypasses SC-15's bar.
+        outside = tmp / "whatever"
+        cp = _invoke(argv_for(outside, "alpha", fx["b_alpha"]), env)
+        check("CP-4: --package <absent, outside runs/run-N> refuses "
+              "(package-not-a-run) and creates nothing on disk",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "package-not-a-run"
+              and not outside.exists())
+        nogoal_pkg = tmp / "no-goal" / "runs" / "run-1"
+        cp = _invoke(argv_for(nogoal_pkg, "alpha", fx["b_alpha"]), env)
+        check("CP-4: an absent GOAL folder refuses (goal-folder-absent — "
+              "goal creation is rbtv-goal's) and creates nothing",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "goal-folder-absent"
+              and not (tmp / "no-goal").exists())
+        # CP-4 control: <goal>/runs/run-9 (absent, correct shape) IS created.
+        pkg9 = goal / "runs" / "run-9"
+        cp = _invoke(argv_for(pkg9, "alpha", fx["b_alpha"]), env)
+        rows9 = (list(csv.DictReader((pkg9 / TASKFORCE_NAME).read_text(
+            encoding="utf-8").splitlines())) if pkg9.is_dir() else [])
+        check("CP-4 control: <goal>/runs/run-9 (absent) IS created and "
+              "materialized",
+              cp.returncode == 0
+              and (pkg9 / "seats" / "alpha" / "seat.md").is_file())
+        check("tf-id: the run-9 compartment derives tf-9",
+              [r["taskforce-id"] for r in rows9] == ["tf-9"], str(rows9))
+
+        # Creation is gated like every write: a later-gate refusal on an
+        # absent package leaves NOTHING created.
+        pkg5 = goal / "runs" / "run-5"
+        cp = _invoke(argv_for(pkg5, "beta", fx["b_alpha"]), env)
+        check("gated creation: a bindings refusal against an absent package "
+              "leaves nothing created (creation fires after every gate)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "bindings-missing-seat"
+              and not pkg5.exists())
+
+        # CP-8 red arm: omit --conduct → REFUSAL naming it, nothing created.
+        argv8 = argv_for(pkg5, "alpha", fx["b_alpha"])
+        i = argv8.index("--conduct")
+        del argv8[i:i + 2]
+        cp = _invoke(argv8, env)
+        check("CP-8 red: omitting the conduct source REFUSES "
+              "(create-inputs-missing naming --conduct) — never a silent "
+              "package without it",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "create-inputs-missing"
+              and "--conduct" in _refusal(cp).get("message", "")
+              and not pkg5.exists())
+        argv8 = argv_for(pkg5, "alpha", fx["b_alpha"])
+        i = argv8.index("--budget-json")
+        del argv8[i:i + 2]
+        cp = _invoke(argv8, env)
+        check("CP-6/CP-8 red: omitting the budget source REFUSES naming "
+              "--budget-json — a floor is never defaulted (R-10)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "create-inputs-missing"
+              and "--budget-json" in _refusal(cp).get("message", "")
+              and not pkg5.exists())
+        argvb = argv_for(pkg5, "alpha", fx["b_alpha"])
+        argvb[argvb.index("--budget-json") + 1] = fx["src_budget_broken"]
+        cp = _invoke(argvb, env)
+        check("budget-source red: a caller budget.json with no "
+              "floors.launch_refuse_mb refuses at creation "
+              "(create-input-invalid), before any write",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "create-input-invalid"
+              and not pkg5.exists())
+
+        # CP-3: a partially-present package is COMPLETED, never refused.
+        shutil.rmtree(pkg9 / "coordination")
+        cp = _invoke(["--package", str(pkg9), "--seat", "b2",
+                      "--catalog-root", fx["catalog"], "--root",
+                      "--bindings", fx["b_b2"], "--json"], env)
+        res = json.loads(cp.stdout) if cp.returncode == 0 else {}
+        creations = [w.get("surface") for w in res.get("writes", [])
+                     if w["kind"] == "package-surface"]
+        check("CP-3: deleting coordination/ → the next run recreates ONLY "
+              "that surface and names it in writes[]",
+              cp.returncode == 0 and creations == ["coordination"]
+              and (pkg9 / "coordination").is_dir(),
+              (cp.stdout + cp.stderr).strip()[:200])
+        # CP-3 control: delete nothing → zero creation entries.
+        cp = _invoke(["--package", str(pkg9), "--seat", "beta",
+                      "--catalog-root", fx["catalog"], "--root",
+                      "--bindings", fx["b_beta"], "--json"], env)
+        res = json.loads(cp.stdout) if cp.returncode == 0 else {}
+        check("CP-3 control: with nothing deleted a run carries ZERO "
+              "creation entries",
+              cp.returncode == 0
+              and [w for w in res.get("writes", [])
+                   if w["kind"] == "package-surface"] == [],
+              (cp.stdout + cp.stderr).strip()[:200])
+
+        # CREATION-PARTIAL half-state: an existing dir WITHOUT taskforce.csv
+        # re-requires the full input trio (closes the crash-then-flagless-
+        # retry window), then completes.
+        pkg6 = goal / "runs" / "run-6"
+        (pkg6 / "seats").mkdir(parents=True)
+        cp = _invoke(["--package", str(pkg6), "--seat", "alpha",
+                      "--catalog-root", fx["catalog"], "--root",
+                      "--bindings", fx["b_alpha"], "--json"], env)
+        check("creation-partial: an existing dir with NO taskforce.csv and "
+              "no inputs refuses create-inputs-missing (a crashed creation "
+              "is completed loudly, never tolerated)",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "create-inputs-missing")
+        cp = _invoke(argv_for(pkg6, "alpha", fx["b_alpha"]), env)
+        check("creation-partial control: the same call WITH the inputs "
+              "completes every missing surface and materializes",
+              cp.returncode == 0
+              and (pkg6 / "conduct.md").is_file()
+              and (pkg6 / "CLAUDE.md").is_file()
+              and (pkg6 / "budget.json").is_file()
+              and (pkg6 / TASKFORCE_NAME).is_file()
+              and (pkg6 / STATE_CSV_NAME).is_file()
+              and (pkg6 / "coordination").is_dir(),
+              (cp.stdout + cp.stderr).strip()[:200])
+
+        # tf-id red arm: rows that exist with NO readable id still refuse —
+        # the derivation fires only on a zero-row registry.
+        pkg7 = goal / "runs" / "run-7"
+        (pkg7 / "seats").mkdir(parents=True)
+        (pkg7 / "coordination").mkdir()
+        (pkg7 / TASKFORCE_NAME).write_text(
+            ",".join(TASKFORCE_HEADER) + "\n"
+            ",chief,,claude,claude-opus-5,high,,\n", encoding="utf-8")
+        cp = _invoke(["--package", str(pkg7), "--seat", "alpha",
+                      "--catalog-root", fx["catalog"], "--root",
+                      "--bindings", fx["b_alpha"], "--json"], env)
+        check("tf-id red: a registry WITH rows but no readable id refuses "
+              "(taskforce-id-unreadable) — the compartment derivation never "
+              "papers over it",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "taskforce-id-unreadable")
+        # tf-id file-wins arm: an id read from rows beats the derivation.
+        (pkg7 / TASKFORCE_NAME).write_text(
+            ",".join(TASKFORCE_HEADER) + "\n"
+            "tf-1,chief,,claude,claude-opus-5,high,,\n", encoding="utf-8")
+        cp = _invoke(["--package", str(pkg7), "--seat", "alpha",
+                      "--catalog-root", fx["catalog"], "--root",
+                      "--bindings", fx["b_alpha"], "--json"], env)
+        rows7 = list(csv.DictReader((pkg7 / TASKFORCE_NAME).read_text(
+            encoding="utf-8").splitlines()))
+        check("tf-id: an id READ FROM THE FILE (tf-1) wins over the run-7 "
+              "compartment derivation — the appended row carries tf-1",
+              cp.returncode == 0
+              and [r["taskforce-id"] for r in rows7] == ["tf-1", "tf-1"],
+              str(rows7))
+
+
 def run_selftest() -> int:
     failures: list[str] = []
 
@@ -2561,6 +3233,9 @@ def run_selftest() -> int:
 
     print("dag-05 acceptance pass (SC-1/5/6/8/9/10/15/20/21, both arms each)")
     run_dag05_acceptance(check, clean_env)
+
+    print("dag-06 acceptance pass (CP-1..CP-8, both arms each)")
+    run_dag06_acceptance(check, clean_env)
 
     print(f"\n{'PASS' if not failures else 'FAIL'} — "
           f"{len(failures)} failure(s)")
