@@ -45,6 +45,21 @@ is stronger on both axes that matter:
      `TMUX_TMPDIR`, a bare `tmux` command can only reach a socket inside this room's own
      directory; the live server is not addressable from this environment at all.
 
+  3. ⚠ AND THAT LAST CLAUSE HOLDS ONLY BECAUSE `env()` POPS `TMUX`. The pop is NOT a redundant
+     second layer behind the private server — the pop is what makes `TMUX_TMPDIR` work AT ALL.
+     `TMUX` carries a socket PATH, so a client that finds `TMUX` in its environment connects
+     THERE and never consults `TMUX_TMPDIR`. MEASURED 2026-07-29, on two throwaway private
+     servers so the live one was never touched: with `TMUX` naming server A and `TMUX_TMPDIR`
+     naming server B's directory, `tmux display-message -p '#{socket_path}'` answered A's socket,
+     and a bare `tmux new-window` LANDED ON A; with `TMUX` popped and nothing else changed, the
+     same command answered B's socket.
+     THE CONSEQUENCE, which is the reason this point exists: a fixture that builds its environment
+     BY HAND and forgets to pop `TMUX` acts on the LIVE tmux server while every isolation check it
+     runs reads GREEN — `TMUX_TMPDIR` being SET is not evidence that it took effect, and
+     `#{socket_path}` is the only thing that is. Two read-only diagnostics did exactly that during
+     the B4 acceptance batch, 2026-07-29. `env()` below is the ONLY sanctioned builder of this
+     room's environment, and this is the property it holds that hand-rolling loses first.
+
 So: socket directory `<tmpdir>/tt/tmux-<uid>/`, socket name `default` (the name a child's bare
 `tmux` resolves to — that is the point), session `wt-revival-<stamp>`, and the WHOLE directory is
 removed at teardown. `TMUX_TMPDIR` is not in `coord.py`'s `LIFECYCLE_SCRUB_ENV`
@@ -230,8 +245,10 @@ class AcceptanceRoom:
         return r
 
     def tmux(self, *args, check=True):
-        """tmux against THIS room's private server. Every call still names its target explicitly;
-        the private server is defence in depth, never a licence to omit one."""
+        """tmux against THIS room's private server — private BECAUSE `env()` pops `TMUX` first, not
+        merely because `TMUX_TMPDIR` is set (module docstring, ISOLATION point 3: `TMUX` outranks
+        `TMUX_TMPDIR`, measured). Every call still names its target explicitly; THAT explicitness
+        is the defence in depth here, and the private server is never a licence to omit it."""
         return self.sh(["tmux", *[str(a) for a in args]], check=check)
 
     # ---------- lifecycle ----------

@@ -75,8 +75,13 @@ one is measured, not asserted):
      arms). Duplicating them here would be a second implementation of a proof that exists.
   5. The kernel-level recycled-pid arm is `s3-12`'s and is not repeated.
 
-RUN IT:  cd /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit
-         python3 probes/probe-lifecycle-exec.py
+RUN IT (`--go` IS MANDATORY — this probe REFUSES to run unattended; see the guard block in
+`main()` for the ruling and the measurement behind it):
+
+         cd /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit
+         python3 -u probes/probe-lifecycle-exec.py --go
+
+A bare invocation prints the refusal and exits 2 in well under a second.
 
 Exit 0 = every arm passed. Exit 1 = a property is broken. Exit 2 = the probe could not run (never
 a pass: a probe that cannot execute has proven nothing, and reporting that as green is the very
@@ -89,7 +94,8 @@ its full `LIFECYCLE_SETTLE_S` budget once, and the RAM gate's full retry schedul
 — it is the input `s3-14` uses to decide whether `LIFECYCLE_STALE_MIN = 10` is several times too
 generous.
 
-Self-invocation modes (used by the probe's own controls, not by a human):
+Self-invocation modes (used by the probe's own controls, not by a human — each is sub-second,
+opens no room, and therefore needs no `--go`):
   --preflight    : run only the preflight, exit 0/2. Exercised with tmux removed from PATH to
                    prove the exit-2 path is real.
   --stub-scan    : report whether the three real-function names are the shipped ones.
@@ -480,6 +486,8 @@ def main():
     global AR
     ap = argparse.ArgumentParser(prog="probe-lifecycle-exec", add_help=True,
                                  description="s3-11 acceptance (a): kill the caller mid-command.")
+    ap.add_argument("--go", action="store_true",
+                    help="run the full acceptance suite (MANDATORY — a bare invocation refuses)")
     ap.add_argument("--preflight", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--stub-scan", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--plant-stub", action="store_true", help=argparse.SUPPRESS)
@@ -494,6 +502,53 @@ def main():
             return 2
         print("preflight ok")
         return 0
+
+    # ---- guard 0, on the SCHEDULER: this probe REFUSES to run unattended. ----------------------
+    # `rbtv-probe-suite.timer` is an ACTIVE hourly systemd USER timer, and its runner
+    # (`ignite/deploy/probe-suite-scheduled.py`) DERIVES coverage from every `probes/` directory
+    # under `ignite/` — so this file was picked up within the hour of landing and has fired hourly
+    # since. That runner's per-probe timeout SIGKILLs, and SIGKILL skips the
+    # `finally: room.teardown()` at the end of this function: it leaks a `/tmp/accroom-*` package
+    # AND a live private tmux server, on a box where `/tmp` is a RAM-backed tmpfs and the
+    # memory-runaway failure mode is uncontained.
+    #   MEASURED, on the only three fires that have reached this file (suite summaries under
+    #   `.rbtv/runtime/probe-suite/`, 2026-07-29): 20:00Z `TIMEOUT exit=- wall_ms=180010` — the
+    #   leak — then `PASS exit=0 wall_ms=133535` and `PASS exit=0 wall_ms=133200`. So the honest
+    #   statement is a ~133 s run sitting 47 s from a 180 s cliff: the leak is INTERMITTENT, not
+    #   hourly, and either way 133 s of real tmux/fork/RAM-gate work is spent every hour
+    #   re-proving what one deliberate run already proved.
+    # OWNER-RULED 2026-07-29 —
+    # `core-build-run-adjustments/decisions.md#d-scheduled-probe-refuses-unattended`. A longer
+    # per-probe leash was REJECTED (it would hold this box's RAM and CPU for minutes at a time,
+    # against `box-01`'s containment findings); excluding `team-kit/probes` wholesale was REJECTED
+    # as blunter than needed — `EXCLUDED_DIRS` stays reserved for the probe that makes real PAID
+    # calls (G-213), and this file writes nothing there. The accepted cost, stated so nobody
+    # discovers it: the hourly run now reports this probe as a REFUSAL, so it no longer evidences
+    # that the probe still WORKS; that signal comes from a deliberate run, which is how every
+    # acceptance probe on this build has been exercised anyway.
+    # TWO PLACEMENT FACTS, each load-bearing:
+    #   · the guard gates the FULL RUN ONLY, after the two early returns above — `--preflight` and
+    #     `--stub-scan` are this probe's own sub-second self-invocations, open no room, and cannot
+    #     leak, so requiring `--go` of them would only break its internal controls;
+    #   · it lives in `main()` and NEVER in the module body, because
+    #     `revival-fixture.load_exec_probe()` imports THIS FILE as a module for `run_caller`
+    #     (`probe-s411`'s SIGKILL wrapper) — a module-level exit would take that probe down with it.
+    # Exit 2 is this family's `the probe could not run`: RED, never a green hiding an absent
+    # acceptance. It changes NO assertion below — the 56 checks and 5 red arms are untouched.
+    if not args.go:
+        print(
+            "REFUSING TO RUN WITHOUT `--go`.\n"
+            "This is a ~133 s acceptance run that opens a private tmux server, forks detached\n"
+            "executors and SIGKILLs real processes. `ignite/deploy/probe-suite-scheduled.py`\n"
+            "fires hourly over every `probes/` directory with a 180 s per-probe timeout, and a\n"
+            "timeout SIGKILL skips this file's `finally: room.teardown()` — leaking a\n"
+            "/tmp/accroom-* package and a live tmux server on a box whose /tmp is a RAM-backed\n"
+            "tmpfs. Refusing is the owner's ruling\n"
+            "(core-build-run-adjustments/decisions.md#d-scheduled-probe-refuses-unattended):\n"
+            "refuse rather than start something that may be killed halfway.\n"
+            f"  Run it deliberately:  python3 -u {Path(__file__).resolve()} --go\n"
+            "Exiting 2 — `the probe could not run`, which is RED and is never a pass.")
+        return 2
 
     problems = preflight()
     if problems:
