@@ -1170,12 +1170,16 @@ def check_budget(base, notes, prev_hb, snap, snap_err):
     return line, state
 
 
-# ---------- revival detection (stage 4 §1 — DETECTOR ONLY, s4-03) ----------
+# ---------- revival detection (stage 4 §1 — the DETECTOR, s4-03) ----------
 #
-# REPORT-ONLY BY CONSTRUCTION. This block classifies and PRINTS; it claims nothing, writes no
-# lifecycle marker, forks nothing. Actuation is s4-05 (the coord_lock interlock) + s4-06 (the
-# fire). Landing the detector alone is safe: a mis-classification prints a wrong word. Landing
-# actuation first would double-launch. Do not merge the two here.
+# THE CLASSIFIER CLAIMS NOTHING AND FORKS NOTHING. It decides WHICH seat is down and WHY; the
+# marker write lives in the s4-05 block below (`claim_revival`) and the fire is still s4-06's.
+# ⚠ AMENDED WHEN s4-05 LANDED: this block was "REPORT-ONLY BY CONSTRUCTION" while it was the only
+# one here. It no longer is — the CRASHED branch now calls `claim_revival`, which WRITES the
+# shared lifecycle marker under `coord_lock`. Everything above CRASHED is still pure
+# classification, and the ordering rationale is unchanged: a mis-classification that only prints
+# is cheap, actuation without the interlock double-launches, so the pieces landed in this order
+# and must stay separable. NOTHING in this file forks, launches or calls tmux for a revival yet.
 
 REVIVAL_DEBOUNCE_TICKS = 2      # consecutive NON-STALE ticks a candidate must hold before CRASHED
 REVIVAL_STALE_NOTE_TICKS = 3    # consecutive stale ticks before the sensor outage is flagged once
@@ -1255,8 +1259,317 @@ def _executor_ident_live(entry):
         return False
 
 
+# ---------- revival CLAIM (stage 4 §2 — THE NO-DOUBLE-LAUNCH INTERLOCK, s4-05) ----------
+#
+# IT CLAIMS; IT DOES NOT FIRE. The critical section ends with a written claim and a released lock.
+# No fork, no launch, no tmux call exists anywhere below — s4-06 owns actuation.
+#
+# ⚠ THE FLOCK IS THE MUTEX; THE WRITE IS NOT. Stage 3's marker is ONE SHARED FILE keyed by seat
+# (`coord.py` § STAGE 3 block, `lifecycle_path` at :3600), so there is no per-seat create-exclusive
+# to hold and `O_EXCL` is neither available nor needed. `coord.atomic_write` is `os.replace`
+# (:517) — atomic PER WRITE, which `save_state` above already states "is not the same as safe
+# under two writers". Two claimers that both read "no entry" and both write produce TWO
+# successors. The exclusion comes from `coord.coord_lock` (:534) and from nothing else. Do not
+# "simplify" the critical section away.
+#
+# ⚠⚠ `coord_lock` IS NOT RE-ENTRANT, SO THIS CODE CANNOT CALL STAGE 3'S WRITERS. MEASURED, not
+# assumed: `coord_lock` opens a FRESH handle on `{base}/.lock` on every entry (:545), and
+# `flock(LOCK_EX)` on a second open file description BLOCKS against the one the same process
+# already holds. A nested `with coord.coord_lock(base)` under a 5 s SIGALRM deadlocked on the
+# inner `with` against the live coord.py (s4-05 probe, 2026-07-29). Every Stage 3 writer —
+# `stamp_lifecycle` (:3648), `append_lifecycle_step` (:3681), `finish_lifecycle` (:3703),
+# `clear_lifecycle` (:3729) — takes `coord_lock` ITSELF, so calling one from inside this critical
+# section would hang the watch loop forever: a monitor dying of its own bookkeeping, with no
+# timeout anywhere to notice. THEREFORE the claim performs the read-modify-write HERE, under the
+# ONE outer lock, in `_write_lifecycle`'s exact byte format (:3645) — the identical shape
+# `set_awaiting` (:3321) performs one file over. That format coupling is REAL and is asserted in
+# the selftest against `coord._write_lifecycle`'s own bytes rather than trusted.
+#
+# ⚠ WHICH PREDICATE GOVERNS WHICH BRANCH — and why the two never disagree in a way that acts.
+# Two liveness readings are in play and they are deliberately not the same call:
+#   · `coord.ident_is_live_process((pid, starttime))` (:1629) — PLAIN process identity, the "pair
+#     gone" half of the identity table. It has NO "cannot tell" state: any unreadable /proc entry
+#     is False. NEVER `ident_is_live_harness` — the executor is a PYTHON process and that
+#     predicate matches only claude/codex/opencode basenames, so it reports every live executor
+#     DEAD and turns MID-RENEWAL into CRASHED (`_executor_ident_live` above carries the same note).
+#   · `coord.lifecycle_stale(entry)` (:3762) — Stage 3's FAILED-RENEWAL predicate, the conjunction
+#     `in-flight AND age > LIFECYCLE_STALE_MIN AND NOT ident_is_live_process`. It, and only it,
+#     authorises the re-claim.
+# They agree because conjunct 3 of `lifecycle_stale` IS the same `ident_is_live_process` call on
+# the same `lifecycle_ident`-normalized pair. Where they can diverge is the case Stage 3 documents
+# as its fail-safe cost: an `in-flight` entry whose executor ident is MISSING or MALFORMED is
+# `lifecycle_stale() == False` FOREVER. That case lands in the stand-down branch here too — the
+# claim never fires on it — and is made LOUD instead, because silence is what would let a claim
+# nobody will ever execute hold a seat down permanently.
+#
+# ⚠ NO TTL, NO TIMEOUT, NO "PROBABLY DEAD" HEURISTIC. Age is read ONLY to decide whether to SPEAK
+# (the two loud notes below); it never authorises an act on its own. Identity or nothing.
+
+REVIVAL_CLAIM_LAYER = "revival claim gate"
+
+
+def _claim_note(room, notes, seat, kind, body):
+    """Push ONE note per (seat, kind) per episode. Returns True when it actually pushed.
+
+    ⚠ R-8: THE LAYER STRING LEADS THE BODY. Every body below begins literally with
+    `REVIVAL_CLAIM_LAYER`, so `note.startswith(...)` is a true assertion and a reader cannot
+    mistake this TOOL GATE's refusal for the harness permission classifier's — the same bar s4-12
+    row 5 asserts. Re-arms where every other revival counter re-arms: when the seat is seen LIVE
+    again (`check_revival` step 3 clears both)."""
+    seen = room.setdefault("claim_notes", {})
+    key = f"{seat}\t{kind}"
+    if seen.get(key):
+        return False
+    seen[key] = True
+    notes.append(Flag(seat, body))
+    return True
+
+
+def _claim_record(disposition, pane, attempts):
+    """The per-seat record this claim writes. STAGE 3 OWNS THIS SCHEMA (coord.py § STAGE 3 block);
+    this consumes it and defines nothing — not the path, not the field set, not the staleness
+    constant.
+
+    `caller` goes through `coord.lifecycle_ident` rather than being hand-shaped: Stage 3's block
+    records that a `(pid, starttime)` TUPLE written straight through makes every live ident read
+    as dead. `disposition` is stored AS GIVEN (`"revive"` for this path) — s3-03's semantics.
+
+    `executor` IS DELIBERATELY ABSENT. No executor process exists at claim time; s4-06 forks it and
+    Stage 3's `stamp_lifecycle` writes the real ident. A placeholder here would be a claim about a
+    process that does not exist, and every reader of this file treats `executor` as an assertion.
+
+    `attempts` counts the claims THIS one supersedes: 0 on a fresh claim, prior+1 on a re-claim of
+    a void entry, and it passes an existing count through unchanged when claiming over a terminal
+    entry. ⚠ s4-07/s4-12 drive a retry/abandon ladder ("after 3 attempts → abandoned") over this
+    same marker; whether that ladder reuses this field or adds its own is THEIR ruling, not this
+    task's. Read this docstring before assuming the counter means fires."""
+    return {"disposition": str(disposition),
+            "state": "in-flight",
+            "caller": coord.lifecycle_ident((os.getpid(), coord.proc_stat(os.getpid())[1])),
+            "pane": pane or "",
+            "stamped-at": coord.now(),
+            "steps-completed": [],
+            "failure": "",
+            "attempts": int(attempts)}
+
+
+def claim_revival(base, seat, pane, notes, room, disposition="revive"):
+    """THE INTERLOCK. Claim `seat`'s lifecycle-marker entry, or stand down. NEVER raises, NEVER
+    fires. Returns `(outcome, why)`:
+
+        "CLAIMED"     the entry is ours — s4-06 may fire on this and ONLY this
+        "RE-CLAIMED"  a VOID claim (executor died mid-flight) was superseded; ours, attempts+1
+        "STOOD-DOWN"  another path owns this seat's next act. Not an error, not a failure
+        "REFUSED"     the interlock could not be honoured. FAIL CLOSED — never fire on this
+
+    Only the first two authorise a launch, and s4-06 MUST branch on the string rather than on
+    "did it not refuse": a stand-down and a refusal are different facts with the same consequence
+    today and different consequences the moment anyone adds a retry.
+
+    THE CRITICAL SECTION, in order, all of it under ONE `coord.coord_lock(base)`:
+      0. the lock itself — `held is False` REFUSES (see below);
+      1. re-read the LIVE roster (`coord.load_workers`) — race cover 1;
+      2. re-read `closing.json`, `awaiting-close.json` and `lifecycle-inflight.json`;
+      3. the identity table over an `in-flight` entry — race cover 2;
+      4. read-modify-write our entry;
+    then release. The fork happens after the lock is gone, in s4-06.
+
+    ⚠ STEP 0 IS FAIL-CLOSED AND THAT IS THE WHOLE POINT. `coord_lock` yields False and proceeds
+    LOCKLESS on a package it cannot lock (its docstring: "a sandboxed seat whose package is
+    read-only (codex EROFS) cannot take the lock, so it proceeds WITHOUT it after one note"). For
+    every other caller that degradation is correct — a message still gets sent. Here the lock is
+    the ONLY mutex, so a lockless claim IS the double-launch risk itself. It refuses, prints, and
+    notes once. A relaunch that races is worse than a seat that stays down and says so.
+
+    ⚠ TWO INDEPENDENT RACE COVERS, and the acceptance disables one at a time because two covers
+    tested together prove neither:
+      · cover 1 — `cmd_close_seat` flips the roster row to `active: no` BEFORE killing the pane, so
+        the IN-SECTION roster re-read reads CLEANLY-OUT even if the marker were somehow missed;
+      · cover 2 — Stage 3's caller stamps the marker BEFORE forking ("so a marker with no executor
+        pid is impossible"), so an in-flight entry with a live executor reads MID-RENEWAL.
+      ⚑ COVER 1 IS THE ONE THAT ACTUALLY EXCLUDES A NORMAL RENEWAL, and this is worth stating
+      plainly rather than leaving for the next reader to discover: `stamp_lifecycle` writes
+      `data[seat] = rec` UNCONDITIONALLY — it does not check for an existing entry — so the marker
+      alone gives no mutual exclusion against Stage 3's caller. The marker excludes a second
+      REVIVAL claim (both go through this check-then-write under the same lock); the ROSTER
+      re-read is what excludes a renewal. Removing either cover leaves a real hole.
+
+    ⚠ THE MARKER IS READ WITH `_strict_ledger`, NOT `coord.load_lifecycle`, and the substitution is
+    deliberate: `load_lifecycle` collapses an unreadable file to `{}` — "no entry" — which INSIDE
+    this critical section would mean writing a claim over a marker that may hold a live renewal.
+    Same inversion, same reason, as the detector's own ledger reads. On any parseable input the two
+    return the identical dict, and the selftest asserts BOTH halves of that (agree when parseable,
+    disagree when not) so the substitution can never become silent."""
+    lifecycle = coord.lifecycle_path(base)
+    try:
+        with coord.coord_lock(base) as held:
+            # ---- 0. FAIL CLOSED on a lock we do not actually hold ----
+            if not held:
+                _claim_note(room, notes, seat, "lockless",
+                            f"{REVIVAL_CLAIM_LAYER}: coordination lock unavailable — '{seat}' is "
+                            f"classified CRASHED but the revival claim REFUSES to proceed. "
+                            f"coord_lock degraded to lockless under {base} (a read-only or "
+                            f"sandboxed package), and with a SHARED marker file that lock is the "
+                            f"only mutex there is: a lockless claim would race a concurrent "
+                            f"renewal and produce two successors for one seat. Nothing was "
+                            f"written and nothing will be launched while this holds. Fix the "
+                            f"package's writability. (This is the revival claim gate refusing, "
+                            f"not the harness permission classifier.)")
+                return "REFUSED", "lock unavailable — fail-closed, no claim written"
+
+            # ---- 1. LIVE roster re-read — race cover 1 ----
+            _, _, live_rows = coord.load_workers(base)
+            r = {row.get("agent"): row for row in live_rows}.get(seat)
+            if r is None or r.get("active") != "yes":
+                return "STOOD-DOWN", ("CLEANLY-OUT (cover 1: roster row "
+                                      f"{'absent' if r is None else 'not active'} at claim time)")
+
+            # ---- 2. ledgers, re-read INSIDE the section ----
+            awaiting, awaiting_st = _strict_ledger(coord.awaiting_path(base))
+            closing, closing_st = _strict_ledger(coord.closing_path(base))
+            marker, marker_st = _strict_ledger(lifecycle)
+            bad = [n for n, s in (("closing.json", closing_st),
+                                  ("awaiting-close.json", awaiting_st),
+                                  ("lifecycle-inflight.json", marker_st)) if s == "unparseable"]
+            if bad:
+                # The detector refuses on this before it ever reaches CRASHED, so arriving here
+                # means a ledger became unreadable BETWEEN that read and this one. Rare, and
+                # exactly the moment to be loudest.
+                _claim_note(room, notes, seat, "ledger",
+                            f"{REVIVAL_CLAIM_LAYER}: ledger unreadable inside the critical "
+                            f"section — {', '.join(bad)} under {base} parsed for the detector and "
+                            f"NOT for the claim, so it changed under the lock. '{seat}' is "
+                            f"classified CRASHED and the claim REFUSES: a claim written over a "
+                            f"marker that cannot be read may overwrite a live renewal. Nothing "
+                            f"was written. (This is the revival claim gate refusing, not the "
+                            f"harness permission classifier.)")
+                return "REFUSED", f"ledger unparseable inside the lock ({', '.join(bad)})"
+            if seat in awaiting:
+                return "STOOD-DOWN", "CLEANLY-OUT (in awaiting-close.json at claim time)"
+            if seat in closing:
+                return "STOOD-DOWN", "MID-CLOSE (in closing.json at claim time)"
+
+            # ---- 3. the identity table — race cover 2 ----
+            entry = marker.get(seat)
+            entry = entry if isinstance(entry, dict) else None
+            attempts = int(entry.get("attempts") or 0) if entry else 0
+            if entry is not None and entry.get("state") == "in-flight":
+                ident = coord.lifecycle_ident(entry.get("executor"))
+                alive = bool(ident) and coord.ident_is_live_process(
+                    (ident["pid"], ident["starttime"]))
+                age = coord.lifecycle_age_min(entry)
+                past = age is not None and age > coord.LIFECYCLE_STALE_MIN
+                void = coord.lifecycle_stale(entry)          # THE governing predicate for a re-claim
+                if alive and not past:
+                    # (a) executor pair ALIVE, young — MID-RENEWAL. Stand down, no note: this is
+                    # the healthy case and a note every tick would train the room to ignore them.
+                    return "STOOD-DOWN", ("MID-RENEWAL (cover 2: executor pid "
+                                          f"{ident['pid']} alive, {age} min)")
+                if alive:
+                    # (b) executor pair ALIVE but past the staleness bound. A SEPARATE loud note,
+                    # and it NEVER authorises a re-fire — a slow executor is still an executor,
+                    # and identity says it is there.
+                    _claim_note(room, notes, seat, "stale-alive",
+                                f"{REVIVAL_CLAIM_LAYER}: an in-flight lifecycle claim on '{seat}' "
+                                f"is {age} min old, past LIFECYCLE_STALE_MIN "
+                                f"({coord.LIFECYCLE_STALE_MIN}), AND ITS EXECUTOR IS ALIVE (pid "
+                                f"{ident['pid']}). The seat is roster-absent while a live process "
+                                f"holds its renewal, so the renewal is stuck, not dead. NOTHING "
+                                f"IS RELAUNCHED ON THIS — identity says the executor is there, "
+                                f"and a relaunch would double-launch the seat. Inspect pid "
+                                f"{ident['pid']} and its log; kill it deliberately if it is "
+                                f"wedged, and the next tick will re-claim. (This is the revival "
+                                f"claim gate reporting, not the harness permission classifier.)")
+                    return "STOOD-DOWN", (f"STALE-BUT-ALIVE (executor pid {ident['pid']} alive at "
+                                          f"{age} min > {coord.LIFECYCLE_STALE_MIN}); no re-fire")
+                if void:
+                    # (c) pair GONE and past the bound: the executor died mid-flight, so the claim
+                    # is VOID and ours supersedes it with attempts+1.
+                    attempts = attempts + 1
+                    _claim_note(room, notes, seat, "void",
+                                f"{REVIVAL_CLAIM_LAYER}: a VOID lifecycle claim on '{seat}' was "
+                                f"superseded — its executor (pid {ident['pid']}) is GONE and the "
+                                f"entry is {age} min old, past LIFECYCLE_STALE_MIN "
+                                f"({coord.LIFECYCLE_STALE_MIN}). That renewal died mid-flight "
+                                f"without reporting an ending, so the seat is neither alive nor "
+                                f"closed. The revival claim now holds the seat (attempt "
+                                f"{attempts}); the previous executor's steps-completed list is "
+                                f"the record of how far it got and is being overwritten — read "
+                                f"it in the run's transcript if this recurs. (This is the revival "
+                                f"claim gate acting, not the harness permission classifier.)")
+                    marker[seat] = _claim_record(disposition, pane, attempts)
+                    ok, why = _write_claim(lifecycle, marker, room, notes, seat)
+                    return ("RE-CLAIMED", f"void claim superseded, attempts={attempts}") if ok \
+                        else ("REFUSED", why)
+                # (d) pair GONE (or the ident is unresolvable) and NOT void. Stand down.
+                if past:
+                    # The Stage 3 fail-safe made visible: an in-flight entry with a missing or
+                    # malformed executor ident is `lifecycle_stale() == False` FOREVER, so nothing
+                    # here or in `sweep_lifecycle` will ever clear it and this seat can never be
+                    # revived again. Our OWN fresh claim has exactly this shape (no executor until
+                    # s4-06 forks one), so this note is also the alarm for "the claim landed and
+                    # nothing ever fired it".
+                    _claim_note(room, notes, seat, "unresolvable",
+                                f"{REVIVAL_CLAIM_LAYER}: an in-flight lifecycle claim on '{seat}' "
+                                f"is {age} min old, past LIFECYCLE_STALE_MIN "
+                                f"({coord.LIFECYCLE_STALE_MIN}), and its executor ident is "
+                                f"{'MISSING' if not ident else 'UNRESOLVABLE'} — so Stage 3's "
+                                f"staleness predicate answers NOT-STALE for it permanently and "
+                                f"NOTHING WILL EVER CLEAR OR SUPERSEDE IT, here or at close-run. "
+                                f"The seat stays down and cannot be re-claimed. Either a revival "
+                                f"claim was written and never fired, or an executor died before "
+                                f"stamping its ident. A HUMAN MUST CLEAR THE ENTRY for '{seat}' "
+                                f"in {lifecycle}. (This is the revival claim gate reporting, not "
+                                f"the harness permission classifier.)")
+                    return "STOOD-DOWN", (f"IN-FLIGHT, executor ident unresolvable at {age} min — "
+                                          f"not stale by construction, no re-claim possible")
+                return "STOOD-DOWN", (f"IN-FLIGHT, executor gone but only {age} min old — under "
+                                      f"LIFECYCLE_STALE_MIN ({coord.LIFECYCLE_STALE_MIN}); "
+                                      f"identity, not a TTL, decides and it says wait")
+
+            # ---- 4. no entry, or a TERMINAL one (done/FAILED): the claim is ours ----
+            # ⚠ s4-07 / s4-12 READ THIS BEFORE ADDING `blocked` / `abandoned`. Today the ONLY
+            # states this store writes are `in-flight`, `done` and `FAILED` (`finish_lifecycle`
+            # REFUSES any third value), so "not in-flight" safely means "no live claim" and the
+            # claim proceeds over it, carrying `attempts` through. The moment s4-07 introduces a
+            # state that means DO NOT RETRY, this line will happily claim over it and restart the
+            # ladder forever. That gate belongs HERE, in this branch, and it is s4-07's to add —
+            # this task deliberately does not guess at the enum it does not own.
+            marker[seat] = _claim_record(disposition, pane, attempts)
+            ok, why = _write_claim(lifecycle, marker, room, notes, seat)
+            return ("CLAIMED", f"disposition={disposition}, attempts={attempts}"
+                    + ("" if entry is None else f" (over a state={entry.get('state')!r} entry)")) \
+                if ok else ("REFUSED", why)
+    except (OSError, ValueError, TypeError) as exc:
+        # A monitor must never die of its own bookkeeping — but it must never call a failure a
+        # stand-down either. REFUSED is the fail-closed word and s4-06 will not fire on it.
+        _claim_note(room, notes, seat, "broke",
+                    f"{REVIVAL_CLAIM_LAYER}: the revival claim for '{seat}' BROKE ({exc!r}) — no "
+                    f"claim was written and nothing will be launched. The seat stays down. (This "
+                    f"is the revival claim gate failing, not the harness permission classifier.)")
+        return "REFUSED", f"claim raised {exc!r}"
+
+
+def _write_claim(lifecycle, marker, room, notes, seat):
+    """The read-modify-write's WRITE half, in `coord._write_lifecycle`'s exact byte format.
+
+    ⚠ `marker` IS THE WHOLE FILE, mutated in place by the caller — never `{seat: record}`. A
+    whole-file write here would silently drop every other seat's entry, which is the acceptance's
+    own red arm. Called ONLY from inside the held lock."""
+    try:
+        coord.atomic_write(lifecycle, json.dumps(marker, indent=2, sort_keys=True) + "\n")
+        return True, ""
+    except (OSError, ValueError, TypeError) as exc:
+        _claim_note(room, notes, seat, "write",
+                    f"{REVIVAL_CLAIM_LAYER}: the lifecycle marker write for '{seat}' FAILED "
+                    f"({exc!r}) — the claim does NOT hold and nothing will be launched. A claim "
+                    f"that cannot be recorded is not a claim. (This is the revival claim gate "
+                    f"failing, not the harness permission classifier.)")
+        return False, f"marker write failed: {exc!r}"
+
+
 def check_revival(args, base, snap, snap_err, state, notes):
-    """SEAT-DOWN DETECTOR — classify every roster-absent seat. REPORT-ONLY (s4-03). Returns lines.
+    """SEAT-DOWN DETECTOR — classify every roster-absent seat, and CLAIM the crashed ones. Lines.
 
     ⚠⚠ A SLOW OR THINKING SEAT IS NEVER CLASSIFIED CRASHED, AND THAT IS STRUCTURAL, NOT TUNED.
     The discriminator is `harness_pid` liveness and NOTHING ELSE: `last_activity_age_s` and
@@ -1348,6 +1661,11 @@ def check_revival(args, base, snap, snap_err, state, notes):
             st = state.get(s["seat"])
             if isinstance(st, dict) and st.get("revival"):
                 st.pop("revival", None)
+            # s4-05: the claim gate's per-seat notes re-arm HERE and nowhere else — same signal,
+            # same line. A seat seen live again is a new episode; leaving them armed would make a
+            # second, genuinely different outage silent.
+            for k in [k for k in room.get("claim_notes", {}) if k.startswith(s["seat"] + "\t")]:
+                room["claim_notes"].pop(k, None)
 
     if not absent:
         lines.append(f"{'revival':<18} {'ok':<7} no roster-absent seat")
@@ -1443,9 +1761,15 @@ def check_revival(args, base, snap, snap_err, state, notes):
         # (5) CRASHED — in roster_absent, none of the above, debounce satisfied.
         rev["gone_ticks"] = int(rev.get("gone_ticks", 0)) + 1
         if rev["gone_ticks"] >= REVIVAL_DEBOUNCE_TICKS:
+            # s4-05: THE CLAIM, and only the claim. It re-reads the roster and the ledgers under
+            # `coord_lock` — the classification above is up to one sensor cadence old and the
+            # section must decide on the room as it stands. The fire is still s4-06's, and it
+            # fires on "CLAIMED"/"RE-CLAIMED" ONLY: "STOOD-DOWN" and "REFUSED" are different
+            # facts and neither authorises a launch.
+            outcome, why = claim_revival(base, seat, row.get("pane"), notes, room)
             lines.append(f"{seat:<18} {'REVIVAL':<7} CRASHED — would revive "
-                         f"(pane {row.get('pane')}, {row.get('liveness')}; report-only, s4-05/s4-06 "
-                         f"own the claim and the fire)")
+                         f"(pane {row.get('pane')}, {row.get('liveness')}) — claim {outcome}: "
+                         f"{why}; the fire is s4-06's")
         else:
             lines.append(f"{seat:<18} {'REVIVAL':<7} CRASHED pending — "
                          f"{rev['gone_ticks']}/{REVIVAL_DEBOUNCE_TICKS} consecutive non-stale ticks "
@@ -2545,6 +2869,367 @@ def cmd_selftest():
               "must never go quiet, and silence is indistinguishable from a detector that is off",
               rev(rsnap())[0] == [f"{'revival':<18} {'ok':<7} no roster-absent seat"])
         rstate.clear(); rnotes.clear()
+
+        # ---- Stage 4 §2 (s4-05): THE NO-DOUBLE-LAUNCH INTERLOCK ----
+        # ⚠ THE 20x ROW NEEDS REAL CONCURRENCY, so this block FORKS. `os.fork` and not
+        # `multiprocessing`: the red arms below are exec'd function objects no start method can
+        # pickle, and 3.14's default start method on Linux is no longer fork. Children write a
+        # result file and `os._exit` — they never re-enter this suite.
+        # ⚠ NO TMUX ANYWHERE. s4-09's throwaway room is not built and this path makes no tmux call
+        # to need one, so every row here runs against a throwaway PACKAGE in the temp dir.
+        import ast
+        cpkg = Path(td) / "claimpkg"
+        cbase = cpkg / "coordination"
+        cbase.mkdir(parents=True)
+        cargs = argparse.Namespace(package=str(cpkg), base=None, workers_dir=None,
+                                   notify_to="leader", notify_fallback="leader")
+        cmark = cbase / "lifecycle-inflight.json"
+        race_n = [0]
+
+        def croster(*rows):
+            body = ["| agent | active | pane | summary | checkin | checkout | lastread |",
+                    "|---|---|---|---|---|---|---|"]
+            body += [f"| {a} | {act} | {pane} | s | c |  |  |" for a, act, pane in rows]
+            (cbase / "workers.md").write_text("\n".join(body) + "\n", encoding="utf-8")
+
+        def cclean():
+            for f in ("lifecycle-inflight.json", "awaiting-close.json", "closing.json"):
+                if (cbase / f).exists():
+                    (cbase / f).unlink()
+
+        def cmarker():
+            return json.loads(cmark.read_text(encoding="utf-8")) if cmark.exists() else None
+
+        def put_marker(d):
+            cmark.write_text(json.dumps(d, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+        def ago(minutes):
+            return datetime.fromtimestamp(time.time() - minutes * 60).strftime("%Y-%m-%d %H:%M")
+
+        def claim(seat="dseat", pane="%77", disp="revive", fn=None):
+            """One claim, its own notes and room. Returns (outcome, why, notes)."""
+            cnotes, croom = [], {}
+            out, why = (fn or claim_revival)(cbase, seat, pane, cnotes, croom, disp)
+            return out, why, cnotes
+
+        def race(n_revive=10, n_renew=10, fn=None, seat="dseat"):
+            """Fork n_revive+n_renew children that ALL enter the claim at once, behind a file
+            barrier. Returns [[outcome, disposition, first-note-or-""], ...]."""
+            race_n[0] += 1
+            resdir = Path(td) / f"claimrace-{race_n[0]}"
+            resdir.mkdir()
+            gate = resdir / "GO"
+            plan = ["revive"] * n_revive + ["renew"] * n_renew
+            pids = []
+            for i, disp in enumerate(plan):
+                pid = os.fork()
+                if pid == 0:                                   # ---- child ----
+                    rc = 0
+                    try:
+                        while not gate.exists():
+                            time.sleep(0.005)
+                        kn, kr = [], {}
+                        o, w = (fn or claim_revival)(cbase, seat, "%77", kn, kr, disp)
+                        (resdir / f"{i}.json").write_text(
+                            json.dumps([o, disp, str(kn[0]) if kn else ""]), encoding="utf-8")
+                    except BaseException as exc:               # noqa: BLE001 — reported, not raised
+                        rc = 1
+                        try:
+                            (resdir / f"{i}.json").write_text(
+                                json.dumps(["EXC", disp, repr(exc)]), encoding="utf-8")
+                        except OSError:
+                            pass
+                    finally:
+                        os._exit(rc)
+                pids.append(pid)
+            gate.write_text("go", encoding="utf-8")
+            for p in pids:
+                os.waitpid(p, 0)
+            return [json.loads((resdir / f"{i}.json").read_text(encoding="utf-8"))
+                    if (resdir / f"{i}.json").exists() else ["MISSING", plan[i], ""]
+                    for i in range(len(plan))]
+
+        def tally(res):
+            out = {}
+            for r in res:
+                out[r[0]] = out.get(r[0], 0) + 1
+            return out
+
+        me = {"pid": os.getpid(), "starttime": coord.proc_stat(os.getpid())[1]}
+        dead = {"pid": 999999, "starttime": "1"}                # starttime never matches: DEAD
+        csrc = inspect.getsource(claim_revival)
+        wsrc = inspect.getsource(_write_claim)
+
+        # ---- ROW 1: THE MUTEX. 20 concurrent claims, one seat, exactly one winner. ----
+        croster(("dseat", "yes", "%77"))
+        cclean()
+        res1 = race()
+        won1 = [r for r in res1 if r[0] in ("CLAIMED", "RE-CLAIMED")]
+        print(f"      s4-05 row 1 raw tally (20 concurrent, 10 revive / 10 renew): {tally(res1)}")
+        check("⚠ s4-05 (1) THE MUTEX, verbatim from stage-4-revival-spec.md:310-313: a driver "
+              "invoking the claim path 20x CONCURRENTLY against ONE seat (10 revive, 10 renew, "
+              "released together behind a file barrier) yields EXACTLY 1 success and 19 "
+              "stand-downs. With a SHARED marker file `atomic_write` is last-writer-wins, so this "
+              "is the flock's result and nothing else's",
+              len(res1) == 20 and len(won1) == 1
+              and sum(1 for r in res1 if r[0] == "STOOD-DOWN") == 19
+              and sorted(r[1] for r in res1) == sorted(["renew"] * 10 + ["revive"] * 10))
+        m1 = cmarker()
+        check("s4-05 (1): the ONE winner left ONE entry — in-flight, the disposition it was given "
+              "(stored as given, s3-03), attempts 0, and NO `executor` key: no executor process "
+              "exists at claim time and a placeholder would be a claim about a process that is not "
+              "there",
+              set(m1) == {"dseat"} and m1["dseat"]["state"] == "in-flight"
+              and m1["dseat"]["disposition"] in ("revive", "renew")
+              and m1["dseat"]["attempts"] == 0 and "executor" not in m1["dseat"]
+              and isinstance(m1["dseat"]["caller"].get("pid"), int)
+              and isinstance(m1["dseat"]["caller"].get("starttime"), str)
+              and m1["dseat"]["caller"]["starttime"] != ""
+              and m1["dseat"]["steps-completed"] == [])
+
+        # ---- ROW 2: lockless REFUSES rather than races. ----
+        cclean()
+        saved_flock = coord._acquire_flock
+
+        def broken_flock(fh):
+            raise OSError("forced by the s4-05 acceptance — the coord.py T5 fallback")
+
+        coord._acquire_flock = broken_flock
+        try:
+            res2 = race()
+        finally:
+            coord._acquire_flock = saved_flock
+        print(f"      s4-05 row 2 raw tally (20 concurrent, lock forced unavailable): "
+              f"{tally(res2)}")
+        check("⚠ s4-05 (2) LOCKLESS REFUSES RATHER THAN RACES: with `coord._acquire_flock` forced "
+              "to raise — coord.py's own T5 read-only-sandbox fallback — all 20 concurrent claims "
+              "REFUSE and ZERO entries are written. `coord_lock` yields False and proceeds "
+              "lockless for every other caller by design; here the lock is the only mutex, so a "
+              "lockless claim IS the double-launch risk",
+              len(res2) == 20 and all(r[0] == "REFUSED" for r in res2) and not cmark.exists())
+        check("⚠ s4-05 (2) R-8 — THE LAYER STRING LEADS THE BODY (s4-12 row 5's shape): every "
+              "refusal note starts with the layer, so a reader cannot mistake this TOOL GATE's "
+              "refusal for the harness permission classifier's",
+              all(r[2].startswith(REVIVAL_CLAIM_LAYER + ": coordination lock unavailable")
+                  for r in res2))
+        mut2_src = csrc.replace("            if not held:", "            if False:  # RED ARM", 1)
+        g2 = dict(globals())
+        exec(compile(mut2_src, "<s4-05 row 2 red arm>", "exec"), g2)          # noqa: S102
+        coord._acquire_flock = broken_flock
+        try:
+            res2r = race(fn=g2["claim_revival"])
+        finally:
+            coord._acquire_flock = saved_flock
+        won2r = sum(1 for r in res2r if r[0] in ("CLAIMED", "RE-CLAIMED"))
+        print(f"      s4-05 row 2 RED ARM raw tally (`held` check removed, lock unavailable): "
+              f"{tally(res2r)}")
+        check("⚠ s4-05 (2) RED ARM: the SAME 20x driver against a mutant with the `held` check "
+              "removed produces claims — so control 2 can go red. An implementation that ignores "
+              "`held` passes control 1 (the flock still serialises when it works) and fails ONLY "
+              "here, which is why this arm exists",
+              csrc.count("            if not held:") == 1 and mut2_src != csrc and won2r > 0)
+        cclean()
+
+        # ---- ROW 3: void-claim re-claim, and ONLY when void. ----
+        croster(("dseat", "yes", "%77"))
+        put_marker({"dseat": {"state": "in-flight", "disposition": "renew",
+                              "executor": dead, "stamped-at": ago(60)}})
+        o3, w3, n3 = claim()
+        m3 = cmarker()
+        check("⚠ s4-05 (3) THE POSITIVE ARM: an in-flight marker whose executor pair is GONE and "
+              "whose age exceeds LIFECYCLE_STALE_MIN is a VOID claim — the executor died "
+              "mid-flight — so it is re-claimed with attempts == 1 and disposition 'revive'",
+              o3 == "RE-CLAIMED" and m3["dseat"]["attempts"] == 1
+              and m3["dseat"]["disposition"] == "revive" and m3["dseat"]["state"] == "in-flight"
+              and len(n3) == 1)
+        check("⚠ s4-05 (3) R-8: the loud note's layer string LEADS the body",
+              n3[0].startswith(REVIVAL_CLAIM_LAYER + ": a VOID lifecycle claim"))
+        put_marker({"dseat": {"state": "in-flight", "disposition": "renew",
+                              "executor": me, "stamped-at": ago(1)}})
+        o3a, w3a, n3a = claim()
+        check("⚠ s4-05 (3) CONTROL (a) — MUST NOT RE-CLAIM: executor pid ALIVE and the entry "
+              "young reads MID-RENEWAL. Stand down, no claim, and NO note beyond the report line: "
+              "this is the healthy case and a note every tick trains the room to ignore them",
+              o3a == "STOOD-DOWN" and "MID-RENEWAL" in w3a and n3a == []
+              and cmarker()["dseat"]["disposition"] == "renew")
+        put_marker({"dseat": {"state": "in-flight", "disposition": "renew",
+                              "executor": me, "stamped-at": ago(60)}})
+        o3b, w3b, n3b = claim()
+        check("⚠ s4-05 (3) CONTROL (b) — MUST NOT RE-CLAIM: executor pid ALIVE but the entry past "
+              "LIFECYCLE_STALE_MIN raises a SEPARATE loud note and NEVER authorises a re-fire. A "
+              "slow executor is still an executor and identity says it is there",
+              o3b == "STOOD-DOWN" and "STALE-BUT-ALIVE" in w3b and len(n3b) == 1
+              and cmarker()["dseat"]["disposition"] == "renew"
+              and "attempts" not in cmarker()["dseat"])
+        check("⚠ s4-05 (3) CONTROL (b) R-8: that separate note's layer string LEADS its body too, "
+              "and its body NAMES the live executor rather than a timeout",
+              n3b[0].startswith(REVIVAL_CLAIM_LAYER + ": an in-flight lifecycle claim")
+              and "ITS EXECUTOR IS ALIVE" in n3b[0])
+        put_marker({"dseat": {"state": "in-flight", "disposition": "renew",
+                              "executor": dead, "stamped-at": ago(1)}})
+        o3c, w3c, n3c = claim()
+        check("⚠ s4-05 (3) CONTROL (c) — MUST NOT RE-CLAIM: executor GONE but the entry younger "
+              "than LIFECYCLE_STALE_MIN stands down. With (a) and (b) this separates identity "
+              "resolution from a TTL guess: a single positive arm cannot",
+              o3c == "STOOD-DOWN" and n3c == []
+              and cmarker()["dseat"]["disposition"] == "renew")
+        check("s4-05 (3): the RE-CLAIM is governed by `coord.lifecycle_stale` — Stage 3's own "
+              "FAILED-RENEWAL conjunction — and the four in-flight branches agree with it on "
+              "every one of these fixtures. The store's predicate decides; this file does not "
+              "re-derive one",
+              coord.lifecycle_stale({"state": "in-flight", "executor": dead,
+                                     "stamped-at": ago(60)}) is True
+              and coord.lifecycle_stale({"state": "in-flight", "executor": me,
+                                         "stamped-at": ago(60)}) is False
+              and coord.lifecycle_stale({"state": "in-flight", "executor": dead,
+                                         "stamped-at": ago(1)}) is False
+              and coord.lifecycle_stale({"state": "in-flight", "stamped-at": ago(60)}) is False)
+        put_marker({"dseat": {"state": "in-flight", "disposition": "revive",
+                              "stamped-at": ago(60)}})
+        o3u, w3u, n3u = claim()
+        check("⚠ s4-05 (3) THE FOURTH BRANCH — STAGE 3'S FAIL-SAFE COST, MADE LOUD: an in-flight "
+              "entry with NO readable executor ident is `lifecycle_stale() == False` FOREVER, so "
+              "nothing here or at close-run will ever clear or supersede it. This is the shape "
+              "OUR OWN claim has until s4-06 forks an executor, so the note is also the alarm for "
+              "'a claim landed and nothing ever fired it'. It stands down — it never re-claims",
+              o3u == "STOOD-DOWN" and len(n3u) == 1
+              and n3u[0].startswith(REVIVAL_CLAIM_LAYER + ": an in-flight lifecycle claim")
+              and "MISSING" in n3u[0]
+              and coord.lifecycle_stale(cmarker()["dseat"]) is False
+              and cmarker()["dseat"]["disposition"] == "revive")
+
+        # ---- ROW 4: both race covers, disabled ONE AT A TIME. ----
+        cclean()
+        croster(("dseat", "no", "%77"))
+        o4a, w4a, n4a = claim()
+        check("⚠ s4-05 (4a) COVER 1 ALONE — the marker cover DISABLED (no marker file at all): "
+              "the IN-SECTION roster re-read reads CLEANLY-OUT and refuses. `cmd_close_seat` "
+              "flips the row to active:no BEFORE killing the pane, which is what makes this cover "
+              "work at all",
+              o4a == "STOOD-DOWN" and "CLEANLY-OUT" in w4a and not cmark.exists())
+        croster(("dseat", "yes", "%77"))
+        put_marker({"dseat": {"state": "in-flight", "disposition": "renew",
+                              "executor": me, "stamped-at": ago(1)}})
+        o4b, w4b, n4b = claim()
+        check("⚠ s4-05 (4b) COVER 2 ALONE — the roster cover DISABLED (row left ACTIVE): a fresh "
+              "in-flight marker reads MID-RENEWAL and refuses. Stage 3's caller stamps the marker "
+              "BEFORE forking, so a marker with no executor pid is impossible on that path",
+              o4b == "STOOD-DOWN" and "MID-RENEWAL" in w4b
+              and cmarker()["dseat"]["disposition"] == "renew")
+        cclean()
+        o4c, w4c, n4c = claim()
+        check("⚠ s4-05 (4) THE DISCRIMINATING CONTROL: with BOTH covers off — roster active AND "
+              "no marker — the IDENTICAL call CLAIMS. Two covers tested together prove neither, "
+              "and a refusal test whose call could never have claimed proves nothing",
+              o4c == "CLAIMED" and cmarker()["dseat"]["disposition"] == "revive")
+
+        # ---- ROW 5: the claim is a REAL read-modify-write. ----
+        cclean()
+        croster(("dseat", "yes", "%77"), ("otherseat", "yes", "%78"))
+        coord.stamp_lifecycle(cbase, "otherseat", {"disposition": "renew", "pane": "%78",
+                                                   "executor": me, "caller": me})
+        before5 = cmark.read_text(encoding="utf-8")
+        frag5 = before5.split('"otherseat":', 1)[1].rsplit("}", 2)[0]
+        o5, w5, n5 = claim()
+        after5 = cmark.read_text(encoding="utf-8")
+        check("⚠ s4-05 (5): the claim is a REAL read-modify-write — a DIFFERENT seat's entry, "
+              "written by Stage 3's own `stamp_lifecycle`, survives BYTE-IDENTICAL beside ours",
+              o5 == "CLAIMED" and len(frag5) > 80 and frag5 in after5
+              and set(json.loads(after5)) == {"dseat", "otherseat"})
+        mut5_wsrc = wsrc.replace("json.dumps(marker, indent=2, sort_keys=True)",
+                                 "json.dumps({seat: marker[seat]}, indent=2, sort_keys=True)", 1)
+        g5 = dict(globals())
+        exec(compile(mut5_wsrc, "<s4-05 row 5 red arm>", "exec"), g5)         # noqa: S102
+        exec(compile(csrc, "<s4-05 row 5 red arm caller>", "exec"), g5)       # noqa: S102
+        cclean()
+        coord.stamp_lifecycle(cbase, "otherseat", {"disposition": "renew", "pane": "%78",
+                                                   "executor": me, "caller": me})
+        o5r, w5r, n5r = claim(fn=g5["claim_revival"])
+        check("⚠ s4-05 (5) RED ARM: replacing the read-modify-write with a WHOLE-FILE write of "
+              "our entry alone drops the other seat's entry entirely — so control 5 can go red. "
+              "`atomic_write` is `os.replace`; the file is shared, and the whole file is the unit",
+              wsrc.count("json.dumps(marker, indent=2, sort_keys=True)") == 1
+              and mut5_wsrc != wsrc and o5r == "CLAIMED" and set(cmarker()) == {"dseat"})
+
+        # ---- the two consumption couplings, asserted rather than trusted ----
+        cclean()
+        sample5 = {"z": {"state": "done"}, "a": {"state": "in-flight", "n": 1}}
+        coord._write_lifecycle(cbase, sample5)
+        store_bytes = cmark.read_text(encoding="utf-8")
+        cmark.unlink()
+        _write_claim(coord.lifecycle_path(cbase), sample5, {}, [], "z")
+        check("s4-05 COUPLING: the claim writes the marker in `coord._write_lifecycle`'s EXACT "
+              "byte format. It cannot CALL that writer — `stamp_lifecycle` and friends take "
+              "`coord_lock` themselves and flock is not re-entrant on a second handle, so nesting "
+              "deadlocks the loop (measured). This asserts the format rather than trusting it, so "
+              "a Stage 3 format change goes red here instead of silently reshaping the file",
+              cmark.read_text(encoding="utf-8") == store_bytes)
+        put_marker({"dseat": {"state": "done"}})
+        strict_ok, st_ok = _strict_ledger(coord.lifecycle_path(cbase))
+        loader_ok = coord.load_lifecycle(cbase)
+        cmark.write_text("{ not json at all", encoding="utf-8")
+        strict_bad, st_bad = _strict_ledger(coord.lifecycle_path(cbase))
+        check("s4-05 COUPLING: the critical section reads the marker with `_strict_ledger`, NOT "
+              "`coord.load_lifecycle`. The two AGREE on parseable input and DISAGREE on an "
+              "unreadable file — the loader collapses it to {} ('no entry'), which inside the "
+              "lock would mean writing a claim over a marker that may hold a live renewal. The "
+              "substitution is asserted here so it can never become silent",
+              st_ok == "ok" and strict_ok == loader_ok
+              and st_bad == "unparseable" and coord.load_lifecycle(cbase) == {})
+        croster(("dseat", "yes", "%77"))
+        o6, w6, n6 = claim()
+        check("⚠ s4-05: an UNPARSEABLE marker INSIDE the critical section REFUSES and writes "
+              "nothing — the file is left exactly as found. The detector refuses on this before "
+              "it ever reaches CRASHED, so reaching here means the ledger changed under the lock, "
+              "which is the moment to be loudest",
+              o6 == "REFUSED" and len(n6) == 1
+              and n6[0].startswith(REVIVAL_CLAIM_LAYER + ": ledger unreadable")
+              and cmark.read_text(encoding="utf-8") == "{ not json at all")
+
+        # ---- OUT OF SCOPE, STRUCTURALLY: it claims, it does not fire ----
+        def _sym(fn):
+            t = ast.parse(inspect.getsource(fn))
+            return ({n.id for n in ast.walk(t) if isinstance(n, ast.Name)}
+                    | {n.attr for n in ast.walk(t) if isinstance(n, ast.Attribute)})
+
+        csyms = _sym(claim_revival) | _sym(_write_claim) | _sym(_claim_record)
+        check("⚠ s4-05 OUT OF SCOPE, ASSERTED STRUCTURALLY: the claim path references no fork, "
+              "no exec, no subprocess and no tmux/pane symbol. s4-06 owns actuation; the critical "
+              "section ends with a written claim and a released lock, and a grep-by-eye is not a "
+              "control",
+              not (csyms & {"fork", "Popen", "subprocess", "system", "execv", "execvp",
+                            "setsid", "live_panes", "window_panes", "tmux_pane_window_name",
+                            "cmd_launch", "renew_in_place", "seat_placement"}))
+
+        # ---- WIRED: the detector's CRASHED branch really calls the claim ----
+        cclean()
+        croster(("dseat", "yes", "%77"))
+        cstate, cnotes = {}, []
+        check_revival(cargs, cbase, rsnap(absent=[gone()]), None, cstate, cnotes)
+        lw = check_revival(cargs, cbase, rsnap(absent=[gone()]), None, cstate, cnotes)
+        check("⚠ s4-05 WIRED: the DETECTOR's CRASHED branch calls the claim — proven end to end, "
+              "not by reading the call site. The s4-03 line prefix `CRASHED — would revive` "
+              "survives verbatim (its own controls grep it) and the outcome is appended to it, so "
+              "the room reads the claim's verdict on the same line as the classification",
+              "CRASHED — would revive" in " ".join(lw) and "claim CLAIMED" in " ".join(lw)
+              and cmarker()["dseat"]["disposition"] == "revive"
+              and cmarker()["dseat"]["pane"] == "%77")
+        lw2 = check_revival(cargs, cbase, rsnap(absent=[gone()]), None, cstate, cnotes)
+        check("⚠ s4-05 WIRED — THE LOOP CANNOT CLAIM THE SAME SEAT TWICE: the very next CRASHED "
+              "tick stands down against the claim it wrote itself. Without this the interlock "
+              "would exclude every OTHER claimer and not the one most likely to fire twice",
+              "claim STOOD-DOWN" in " ".join(lw2) and set(cmarker()) == {"dseat"})
+        check("s4-05: the claim gate's per-seat notes re-arm when the seat is seen LIVE again — "
+              "the same signal that clears the debounce. A second, genuinely different outage "
+              "must not be silent",
+              (cstate["_revival_room"].setdefault("claim_notes", {"dseat\tx": True})
+               or True)
+              and (check_revival(cargs, cbase,
+                                 rsnap(seats=[{"seat": "dseat", "pane": "%77",
+                                               "liveness": "live", "harness_pid": 4242}]),
+                                 None, cstate, cnotes) or True)
+              and cstate["_revival_room"]["claim_notes"] == {})
+        cclean()
 
         # ---- 7.37 criterion 3 / R10: goal-level state, per-run sections ----
         # ⚠ THIS BLOCK EXISTS BECAUSE THE SUITE ABOVE PASSED WITHOUT EXERCISING ONE LINE OF IT.
