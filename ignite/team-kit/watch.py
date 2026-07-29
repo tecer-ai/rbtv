@@ -11,7 +11,9 @@ it and relays judgment). One pass checks every ACTIVE roster seat and reports:
              defects in one night — a closer that checked itself in from a shell, and a watcher
              agent that died twice with its row still reading ACTIVE. Checked HERE and in no
              agent, because this detached loop outlives every agent, INCLUDING the watcher's own
-             row (the one row nothing else can report on). Notify only, never act.
+             row (the one row nothing else can report on). THIS flag notifies and never acts;
+             the loop's ONE actuator arm is the seat-down revival arm — see the charter beside
+             the PROP-11 loop in `run_pass`.
   activity   minutes since the pane's visible content last changed (content-hash based, so it
              works for panes sharing a window, where tmux window_activity cannot distinguish)
   context    for claude-harness seats: % of the context window used, computed from the seat's
@@ -41,9 +43,9 @@ workers` reads the stamp and reports the watcher STALE past three missed passes.
 
 Thresholds (watcher defaults, owner-ruled 2026-07-24): --inactive-min 30, --context-pct 50.
 With --notify each crossing sends ONE coordination `note` (via coord.py, so it is logged and wakes
-the pane) telling the recipient exactly what to run — e.g. `close <agent> --renew` at the context
-threshold. A crossing re-arms only when the condition clears (activity resumes / the seat's pane
-changes, i.e. it was renewed).
+the pane) telling the recipient exactly what to run — e.g. the seat's OWN
+`checkout --renew --handoff "<note>"` at the context threshold. A crossing re-arms only when the
+condition clears (activity resumes / the seat's pane changes, i.e. it was renewed).
 
 ⚠ A FLAG IS NEVER SENT TO THE SEAT IT IS ABOUT. `--notify-to` (default `leader`) takes the flags;
 a flag whose SUBJECT is that seat is diverted to `--notify-fallback` (default `leader`), because a
@@ -2522,7 +2524,31 @@ def run_pass(args):
     # detached loop, and in no agent: this loop was the only thing that survived tonight, still
     # stamping heartbeats while the agent whose job was to watch had died of the very gap it had
     # named. An agent that must remember to look IS vigilance; prevention has to be structural.
-    # NOTIFY ONLY — the loop never closes, kills, or relaunches anything (leader keeps lifecycle).
+    #
+    # ---- THE CHARTER OF THIS LOOP (amended by s4-08; goal decisions.md, anchor
+    # ---- `r-watch-revival-arm-amends-notify-only`) ----
+    # NOTIFY ONLY, WITH EXACTLY ONE EXCEPTION — the seat-down revival arm ruled by
+    # `r-leader-revival-is-deterministic` (goal decisions.md, resolve by ANCHOR; ~:3299 today, and
+    # that file is append-only and grows, so the number is a HINT and never the citation). That arm
+    # relaunches a CRASHED seat's session out-of-pane, from its seat.md, with no agent in the path.
+    # Everything else in this loop still closes, kills and relaunches NOTHING: the leader keeps
+    # lifecycle, the ctx and inactivity flags stay advisory, and the daemon cutover gate
+    # (`r-cutover-gated`) is untouched. The exception is narrow BY CONSTRUCTION: it fires only on a
+    # HARD liveness signal (no harness pid behind a roster-ACTIVE row), never on silence.
+    #
+    # ⚠ THE ACTUATOR COUNT OF THIS FILE IS **ONE**, NOT ZERO AND NOT "SOME" — and it is not a claim
+    # made in prose only. The single arm is `fire_revival` (§ revival ACTUATION, s4-06): one
+    # `subprocess.Popen` of coord.py's hidden `lifecycle-exec`. The selftest asserts that count over
+    # the WHOLE arm's call graph (`s4-06 LG-16 (c)`), with a red arm that inserts `launch_seat` and
+    # `tmux_new_window` and reports both — so a SECOND arm added anywhere here turns that row red
+    # rather than quietly making this sentence false. Anyone adding one amends THIS charter, the
+    # ledger anchor above, and that assertion, in the same act.
+    #
+    # ⚠ AND THE ONE ARM IS A WAY-STATION, NOT A HOME. The ruling, the ground and the migration cost
+    # are stated where the arm lives (§ revival ACTUATION) and at `decisions.md#d-watch-is-a-way-
+    # station`; they are NOT restated here. Read them before treating this exception as
+    # architecture — task 7.35 deletes this file into the goal-watcher-job (CMP-21).
+    #
     # The WATCHER'S OWN ROW is checked too, and it is the only check applied to it: watch.py
     # outlives the watcher agent, so it is the one thing positioned to report that death.
     for r in rows:
@@ -2658,9 +2684,19 @@ def run_pass(args):
                                  f"channel it is reachable through. If it needs action, that is the leader's "
                                  f"judgment, never a mechanical response to this flag."))
                 else:
+                    # s4-08: the remedy is the SEAT'S OWN act. Renewal stopped being a thing done
+                    # TO a seat when stage 2 landed `checkout --renew --handoff`; the closer is the
+                    # FAILURE path, for a seat that cannot check itself out (s3-13's sweep of the
+                    # seat-facing docs). ⚠ The reader is the LEADER, so both halves are phrased as
+                    # something to relay or to do, never as an instruction aimed at a seat that
+                    # will not read it.
                     notes.append(Flag(agent, f"watch: '{agent}' has shown no pane activity for {inact_min} min "
-                                 f"(threshold {args.inactive_min}). Check on it; if hung or done-but-"
-                                 f"stuck, close it — or renew: {coord.coord_invocation(args)} close {agent} --renew"))
+                                 f"(threshold {args.inactive_min}). Check on it. If it answers and is "
+                                 f"done-but-stuck, renewal is ITS act: tell it to run "
+                                 f"`{coord.coord_invocation(args)} checkout --renew` and carry a "
+                                 f"`--handoff` on the second call. If it cannot answer at all, that is the "
+                                 f"failure path and it is yours: "
+                                 f"{coord.coord_invocation(args)} close-seat {agent} --renew"))
                 st["notified_inactive"] = True
         # A seat may declare its OWN refresh threshold in its briefing (`ctx-refresh: 60`) — a
         # cheap ephemeral seat and a long-lived builder do not want the same one. The watcher's
@@ -2671,10 +2707,20 @@ def run_pass(args):
             flags.append(f"CONTEXT {pct}%")
             if not st.get("notified_context"):
                 source = " from its briefing ctx-refresh" if seat_pct else ""
+                # s4-08: same correction as the inactivity flag above. A seat past its ctx
+                # threshold is ALIVE — it is exactly the seat that CAN check itself out — so the
+                # remedy is the seat's OWN two-step `checkout --renew --handoff`, and the closer is
+                # not in that path at all. ⚠ THE READER OF THIS TEXT IS THE LEADER, NOT THE SEAT
+                # (`--notify-to`, and a flag is never sent to the seat it is about), so it is
+                # written as something to RELAY — an instruction phrased at the seat would be read
+                # by whoever cannot perform it.
                 notes.append(Flag(agent, f"watch: '{agent}' context is at {pct}% (threshold {threshold}%"
-                             f"{source}). Have the closer close and RENEW it now: "
-                             f"{coord.coord_invocation(args)} close {agent} --renew "
-                             f"(memory.md gets written, the seat relaunches fresh)."))
+                             f"{source}). Renewal is the SEAT'S OWN act, not yours: tell '{agent}' to run "
+                             f"`{coord.coord_invocation(args)} checkout --renew` (that arms it and prints "
+                             f"the second call, which carries `--handoff \"<what its next session must "
+                             f"do>\"`; nothing is closed until that second call). Reach for "
+                             f"`{coord.coord_invocation(args)} close {agent} --renew` — the closer, the "
+                             f"FAILURE path — only if '{agent}' cannot check itself out."))
                 st["notified_context"] = True
 
         ctx = f" ctx={pct}%" if pct is not None else ""
@@ -2874,8 +2920,14 @@ def cmd_selftest():
         save_state(base, st)
         tails["%2"] = "two CHANGED"
         notes = run_pass(ns())
-        check("inactivity: stale pane flagged with close --renew hint",
-              any("alpha" in n and "no pane activity" in n for n in notes))
+        # s4-08: the label used to say "with close --renew hint" while the body asserted only
+        # "no pane activity" — a label-body mismatch that would have stayed green through the very
+        # sweep that changed the hint. The hint is now asserted, in BOTH halves and in the negative.
+        check("inactivity: stale pane flagged, and the hint is the SEAT'S OWN `checkout --renew` "
+              "with `close-seat` as the failure path — never the superseded `close <seat> --renew`",
+              any("alpha" in n and "no pane activity" in n and "checkout --renew" in n
+                  and "close-seat alpha --renew" in n and "close alpha --renew" not in n
+                  for n in notes))
         check("inactivity: changed pane not flagged", not any("gamma" in n for n in notes))
         notes = run_pass(ns())
         check("inactivity: does not re-fire while still stale",
@@ -3055,6 +3107,17 @@ def cmd_selftest():
               any("'eta'" in n and "context is at" in n and "threshold 50" in n for n in notes))
         check("ctx-refresh: epsilon (own threshold 90) stays quiet even under the lower global",
               not any("epsilon" in n for n in notes))
+        # s4-08: the ctx flag's REMEDY had no assertion at all — every ctx row above tests WHEN it
+        # fires and none tested WHAT it tells the reader to do, so the superseded "have the closer
+        # close and RENEW it now" survived every green this suite ever produced. Asserted now, in
+        # both directions: the seat's own two-step must be named AND the superseded bare
+        # `close <seat> --renew` must be absent as the primary remedy.
+        check("⚠ s4-08: the ctx flag names the SEAT'S OWN `checkout --renew` (+ `--handoff`) as the "
+              "remedy and the closer only as the failure path — the amended charter's coaching, "
+              "which nothing asserted before this row existed",
+              any("'eta'" in n and "checkout --renew" in n and "--handoff" in n
+                  and "cannot check itself out" in n
+                  and "Have the closer close and RENEW it now" not in n for n in notes))
 
         # ---- P38: an approval-gated seat is seen from its pane title, not 30 minutes later ----
         pane_titles["%7"] = "eta — Action Required"
@@ -3204,7 +3267,10 @@ def cmd_selftest():
               "and until now nothing ever checked it against the process table",
               any("alpha" in n and "NO harness process" in n for n in notes))
         check("PROP-11: the notification says what it costs (work stopped, wakes typed into a "
-              "bare shell) and names the exact remedy — never acts itself",
+              "bare shell) and names the exact remedy — THIS FLAG notifies and never acts. Scoped "
+              "to the ghostrow flag deliberately (s4-08): the file's charter is no longer "
+              "notify-only file-wide, so a label claiming that would be false; what stays true, "
+              "and is what this row asserts, is that the GHOSTROW path takes no action itself",
               any("typed into a bare shell" in n and "close-seat alpha --renew" in n
                   for n in notes))
         notes = run_pass(ns(context_pct=90))

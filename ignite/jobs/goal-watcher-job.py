@@ -40,9 +40,23 @@ remedy command, and the agentic half is performed by chief-of-staff. Reasons, no
   2. `r-cutover-gated` bars the run's own control loop from adopting an un-shadowed feature.
      Handing a job built tonight autonomous close rights IS that cutover.
   3. It makes the shadow window mean something. `watch.py`, the layer this shadows, is
-     explicitly notify-only ("the loop never closes, kills, or relaunches anything"). Two
-     layers that both emit decisions are comparable; one that acts and one that advises are
-     not, and the comparison object is the DECISION SET, per the window's own definition.
+     notify-only WITH EXACTLY ONE EXCEPTION — its charter was amended by `s4-08` on
+     2026-07-29 (goal decisions.md, anchor `r-watch-revival-arm-amends-notify-only`; resolve
+     it by ANCHOR — that file is append-only and grows, so a line number is a hint only). The
+     one exception is the seat-down revival arm (`r-leader-revival-is-deterministic`): it
+     relaunches a CRASHED seat with no agent in the path, on a HARD liveness signal only, and
+     the loop's actuator count of ONE is asserted by `watch.py --selftest` rather than claimed
+     in prose. Everything else in that loop still closes, kills and relaunches nothing.
+     ⚠ This paragraph used to quote the PRE-AMENDMENT charter ("the loop never closes, kills,
+     or relaunches anything") as though it were still whole. It is not — and the amendment
+     does not reach THIS file: only the quotation was corrected here, no behaviour changed
+     (`r-cutover-gated`, still untouched, is reason 2 above).
+     The justification survives the amendment, and the reason is the comparison object: two
+     layers that both emit decisions are comparable, and the object is the DECISION SET, per
+     the window's own definition. Both layers still EMIT a decision for a down seat; only the
+     executor of it differs. What the amendment does cost is narrow, and must be said: on that
+     ONE row the two layers are no longer symmetric in ACTUATION, so nobody may read
+     `watch.py`'s revival arm as evidence that THIS job may act as well. It may not.
 
 Disclosed to the leader at entry (run-root `m2-lane-e-entry.md`); override is one flag on
 one code path.

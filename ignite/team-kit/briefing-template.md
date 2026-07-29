@@ -30,8 +30,9 @@ ephemeral: yes             # optional; memoryless one-pass seat: fresh relaunch 
 ctx-refresh: 50            # optional; context-refresh threshold % for THIS seat. watch.py reads
                            # it and enforces it per seat, falling back to its own global
                            # --context-pct for seats that declare none: past the threshold a
-                           # persistent seat is flagged to leader with the exact
-                           # `close <agent> --renew` command to run
+                           # persistent seat is flagged to leader, who relays it — renewal is
+                           # YOUR act: `checkout --renew`, then the second call it prints,
+                           # carrying `--handoff "<what your next session must do>"`
 ---
 
 # {agent-name} — {one-line role}

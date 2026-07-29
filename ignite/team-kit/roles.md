@@ -62,10 +62,18 @@ entries below cite.
 - **watcher seats** — sentinel pattern: a deterministic monitor (`watch.py` beside `coord.py`)
   measures liveness, inactivity, approval-gate parking, claude-seat context usage, system
   RAM/load pressure (PROP-9) and leftover all-dead wave windows (PROP-10) on a loop and
-  flags leader with the exact command to run (`close <agent> --renew` at the context threshold,
-  `approve <agent>` at a gate, `tmux kill-window` for a dead wave window); the watcher agent
-  keeps the loop alive and interprets, never acts
-  on seats directly. Context is measurable for claude-harness seats only — codex/opencode seats
+  flags leader with the exact command to run (at the context threshold, the seat's OWN
+  `checkout --renew --handoff "<note>"` — renewal is the seat's act, and the closer is only the
+  failure path for a seat that cannot check itself out; `approve <agent>` at a gate;
+  `tmux kill-window` for a dead wave window); the watcher agent keeps the loop alive and
+  interprets, and acts on no seat itself.
+  **The LOOP is notify-only with exactly ONE exception, and the watcher agent has none.** The one
+  exception is `watch.py`'s seat-down revival arm (`r-leader-revival-is-deterministic`), which
+  relaunches a CRASHED seat's session deterministically, with no agent in the path — it fires only
+  on a hard liveness signal (no harness pid behind a roster-ACTIVE row), never on silence. It is a
+  WAY-STATION in `watch.py`, not its permanent home (`decisions.md#d-watch-is-a-way-station`). The
+  charter in `watch.py` (beside its PROP-11 loop) is the source; this bullet must not drift from it.
+  Context is measurable for claude-harness seats only — codex/opencode seats
   get liveness/inactivity/approval watching.
   **Something must watch the watcher (P32).** The loop is detached, so its death produces no
   signal — a dead watcher and a healthy quiet run look identical. Every pass stamps
