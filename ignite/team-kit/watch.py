@@ -2432,6 +2432,232 @@ def check_revival(args, base, snap, snap_err, state, notes):
     return lines
 
 
+# ---------- dag-12: the STALLED-BLOCKING-DEPENDENTS flag (NOTIFY-ONLY, NO ACTUATOR ARM) ----------
+#
+# ⚠⚠ WAY-STATION, NOT A HOME — `decisions.md#d-watch-is-a-way-station`, the same ruling that binds
+# every stage-4 arm above. THIS FILE IS SCHEDULED FOR DELETION BY TASK 7.35; what supersedes this
+# flag is the `goal-watcher-job` (CMP-21) reading the same canonical `state.json` snapshot that
+# team-monitor (CMP-20) writes. It lands here only because `watch.py` is TODAY the sole component
+# observing anything at all. Do not build on it as a home and do not defend it as architecture.
+#
+# ⚠⚠ THE ACTUATOR COUNT OF THIS FILE STAYS **ONE**, AND THIS SECTION IS NOT IT. This flag NAMES a
+# stalled seat and its blocked dependents and stops. It launches nothing, kills nothing, writes no
+# lifecycle marker, and is NOT routed into stage-4's revival arm — a SECOND actuator arm here would
+# re-open the double-launch question stage 4 closed. The loop's charter (`run_pass`, amended by
+# s4-08) says NOTIFY ONLY WITH EXACTLY ONE EXCEPTION, and the exception is `fire_revival`. The
+# selftest asserts the count over the whole revival arm's call graph (`s4-06 LG-16 (c)`) AND over
+# this section's own call graph (`dag-12 RS-10`), each with a red arm. Anyone who adds a second arm
+# amends the charter, the ledger anchor `r-watch-revival-arm-amends-notify-only`, and BOTH
+# assertions, in one act.
+#
+# ⚠ WHY THIS ARM MAY KEY ON SILENCE WHERE THE REVIVAL ARM MAY NOT. `check_revival` is forbidden to
+# read `last_activity_age_s` at all: it ACTUATES, and a leader forty minutes into one ruling looks
+# exactly like a dead one, so a relaunch fired on silence kills a live seat. This flag actuates
+# nothing, and SHAPE A — the interactive stall — is BY DEFINITION a seat that is still alive in its
+# pane past a natural end. Silence is the only signal there is. The asymmetry is the design: the
+# notifier may guess, the actuator may not.
+
+STALLED_FLAG_NAME = "seat-stalled-blocking-dependents"
+
+# Report-line literals. Constants because the acceptance controls (dag-12 RS-9/RS-15/RS-16) grep
+# for the EXACT strings — a reworded line is a silently-failing control.
+STALLED_LINE = "STALLED-BLOCKING"
+STALLED_OK_LINE = f"{'stalled':<18} {'ok':<7} no stalled seat blocking a dependent"
+STALLED_STALE_LINE = "STALLED-BLOCKING paused — snapshot stale"
+STALLED_NO_DAG_LINE = (f"{'stalled':<18} {'n/a':<7} STALLED-BLOCKING n/a — the run declares no "
+                       f"taskforce.csv, so no row can name a predecessor")
+STALLED_LAYER = "stalled-blocking flag"
+
+# ⚠ THE HONEST LIMIT, and it is carried IN THE FLAG TEXT rather than only in a task file — R-6, and
+# the reason is that the reader of the flag is the one who has to act on it. For an INTERACTIVE seat
+# a DIRTY FINISH (the work is done, the check-out never happened) and a CRASH (the work is not done)
+# are NOT MECHANICALLY DISTINGUISHABLE in a run whose tasks carry no machine-checkable done contract
+# — telling them apart is CMP-25 step 1, and run-2's tasks carry none. So stage-4's revival arm
+# relaunches on the safe assumption (a successor reads `memory.md` and can check out clean in one
+# turn) and THIS FLAG surfaces the blocked dependents for a human's adjudication. This is the ONE
+# place the emulation is strictly weaker than CMP-25, and it is weaker for a reason not fixable
+# here: the absence of done contracts, not the absence of an edge-runner. For a ONE-SHOT the
+# ambiguity does not arise — absence is the EXPECTED terminal state, which is exactly what `mode:`
+# buys (s4-04) — so this text names the interactive case only.
+STALLED_LIMIT = (
+    "⚠ THIS FLAG CANNOT TELL A DIRTY FINISH FROM A CRASH, and that is a property of the run, not of "
+    "this check: for an interactive seat, 'the work is done and the check-out never happened' and "
+    "'the work is not done' produce the IDENTICAL observation, and separating them requires "
+    "verifying the seat's own done contract mechanically — which the tasks of this run do not carry. "
+    "So nothing is concluded here and nothing is actuated: the two answers are opposite acts and "
+    "only a human may pick one. Read the seat's pane and its `memory.md` before deciding.")
+
+
+def snapshot_age_s(snap):
+    """Age in seconds of a team-monitor snapshot, or None when it carries no usable `captured_at`.
+
+    ⚠ DECLARED DUPLICATION, with this as the single home. `check_revival` computes the same age
+    INLINE (its staleness block) and is NOT repointed here, because that function is stage 4's and
+    out of dag-12's write set. The duplication is therefore declared rather than silent, and it is
+    GUARDED: the selftest asserts the two paths agree on BOTH sides of `budget_mod.STALE_AFTER_S`
+    for the same snapshot, so a threshold or field change on either side goes red instead of
+    letting one arm enforce while the other pauses. Whoever next edits `check_revival` collapses it
+    onto this helper — the PRIN-11 sanctioned break is a copy that is declared in one home AND
+    checked, and this is both."""
+    if not isinstance(snap, dict) or snap.get("captured_at") is None:
+        return None
+    try:
+        return time.time() - float(snap["captured_at"])
+    except (TypeError, ValueError):
+        return None
+
+
+def stalled_candidates(snap, inactive_min):
+    """{seat: reason} — every seat the SNAPSHOT shows as absent-or-quiet. `state.json` AND NOTHING
+    ELSE: this function takes the parsed snapshot as its only argument and opens no file, reads no
+    pane, and touches no roster. That is CMP-21 invariant 1 held at its own boundary — a snapshot
+    missing `roster_absent`/`seats` yields `{}` and the flag simply does not fire, rather than
+    reaching around the sensor to a second observation path.
+
+    Two shapes, and the ORDER matters: a seat already reported roster-absent is never re-reported
+    as quiet, so one stalled seat is never two flags."""
+    out = {}
+    for row in snap.get("roster_absent") or []:
+        seat = (row.get("seat") or "").strip()
+        if seat:
+            out[seat] = (f"roster-absent ({row.get('liveness') or 'absent'}, pane "
+                         f"{row.get('pane')})")
+    for s in snap.get("seats") or []:
+        seat = (s.get("seat") or "").strip()
+        if not seat or seat in out or not s.get("roster_active"):
+            continue
+        try:
+            age = float(s.get("last_activity_age_s"))
+        except (TypeError, ValueError):
+            continue                      # no reading is not a reading of zero, and not a stall
+        if age >= inactive_min * 60:
+            out[seat] = (f"quiet {int(age // 60)} min (threshold {inactive_min} min), alive in "
+                         f"pane {s.get('pane')}")
+    return out
+
+
+def blocking_dependents(after):
+    """{predecessor: [dependents]} — the INVERSE of the run's `after` sets, dependents in file
+    order. A predecessor with no dependent gets no key, which is the whole discriminator: a stalled
+    LEAF blocks nobody and must never be flagged."""
+    inv = {}
+    for seat, preds in after.items():
+        for p in preds:
+            if seat not in inv.setdefault(p, []):
+                inv[p].append(seat)
+    return inv
+
+
+def check_stalled_blocking(args, base, snap, snap_err, state, notes):
+    """`seat-stalled-blocking-dependents` — ONE NOTIFY-ONLY flag. Returns report lines.
+
+    Fires for seat P when ALL THREE hold:
+      (1) the SNAPSHOT shows P absent-or-quiet past the loop's inactivity cadence, and
+      (2) P has NO terminal disposition — `coord.terminal_disposition`, dag-09's enum
+          (`done | renew | revive | exited`); a seat that checked out is not stalled, and
+      (3) at least one `taskforce.csv` row names P in its `after` set — P is BLOCKING.
+
+    It names P and every blocked dependent, carries `STALLED_LIMIT` verbatim, routes through
+    `flag_recipient` (run-2 sends flags to the chief-of-staff; a flag ABOUT that seat is relayed to
+    the leader — this arm adds no routing of its own), and ACTUATES NOTHING.
+
+    ⚠⚠ RS-15 AS THE SPEC WROTE IT DOES NOT HOLD, AND SAYING SO IS PART OF THE WORK. Its literal
+    words are "grep the flag's code path for any other file read → zero". THAT IS UNSATISFIABLE
+    TOGETHER WITH RS-16: the `after` sets live in the run's `taskforce.csv` and the dispositions in
+    `awaiting-close.json` / `sessions.csv`, and team-monitor publishes NEITHER — `state.json`'s
+    schema (`team-monitor/1`) has no dependency field at all, so a flag reading only the snapshot
+    could never name a dependent. The two controls contradict each other as written.
+
+    What holds instead, and it is the bound CMP-21 invariant 1 actually states ("it never touches a
+    tmux pane, a harness session file, /proc or a prompt directly"):
+      · EVERY OBSERVATION comes from the snapshot and nothing else — `stalled_candidates` above
+        takes the parsed snapshot as its only input and reads no file, no pane and no roster.
+      · The other two reads are NOT observations. `taskforce.csv` is the run's REGISTRY (the
+        workflow's shape, which no sensor observes) and the ledgers are the CHECK-OUT RECORD. Both
+        go through coord's own single-source readers — `taskforce_after` and `terminal_disposition`,
+        dag-09/dag-10's — never a second parse here (PRIN-11).
+      · That read inventory is CLOSED AND ASSERTED, not asserted-by-prose: the selftest scans this
+        section's whole call graph for reader symbols and requires EXACTLY those two plus the
+        hoisted `load_awaiting`, with a red arm that inserts a third and goes red.
+    The degradation half of RS-15's control DOES hold literally and is run: a `state.json` missing
+    `roster_absent`/`seats` degrades to NO FLAG rather than reading around the sensor."""
+    # A snapshot that is absent is the SILENT path (this module ships kit-wide and most packages
+    # run no team-monitor); a snapshot that is STALE pauses, for CMP-21 invariant 2's reason — stale
+    # data is evidence in neither direction. Neither state is a green.
+    if snap is None and _snapshot_absent(snap_err):
+        return []
+    age = snapshot_age_s(snap)
+    if snap is None or age is None or age > budget_mod.STALE_AFTER_S:
+        why = snap_err or (f"snapshot age {int(age)}s > {budget_mod.STALE_AFTER_S}s"
+                           if age is not None else "snapshot carries no captured_at")
+        return [f"{'stalled':<18} {'PAUSED':<7} {STALLED_STALE_LINE} — {why}"]
+    if snap.get("session_alive") is False:
+        # Every seat is absent when the room is gone. Flagging N stalls for ONE incident points the
+        # reader at the wrong mechanism entirely — the same reason the revival arm short-circuits.
+        return [f"{'stalled':<18} {'n/a':<7} STALLED-BLOCKING n/a — room dead"]
+
+    inactive_min = getattr(args, "inactive_min", None) or 30
+    cands = stalled_candidates(snap, inactive_min)
+    room = state.setdefault("_stalled_room", {})
+    armed = room.setdefault("notified", {})
+    if not cands:
+        armed.clear()
+        return [STALLED_OK_LINE]
+
+    # THE REGISTRY READ — not an observation. `taskforce_after` is dag-10's one parser of the
+    # `after` cell, matching `materialize-seats.py`'s writer exactly; a reader that invented its own
+    # separator would see one predecessor named "a,b".
+    after = coord.taskforce_after(coord.package_dir(args, register=False))
+    if not after:
+        armed.clear()
+        return [STALLED_NO_DAG_LINE]
+    inv = blocking_dependents(after)
+    # THE LEDGER READ — hoisted ONCE and passed down, exactly as dag-10's `ready_seat_rows` does it,
+    # so N candidates cost one read rather than N.
+    awaiting = coord.load_awaiting(base)
+
+    lines, seen = [], set()
+    for seat, why in cands.items():
+        deps = inv.get(seat) or []
+        if not deps:
+            lines.append(f"{seat:<18} {'ok':<7} stalled but blocks nobody — {why}")
+            continue
+        value, source, skew = coord.terminal_disposition(
+            coord.package_dir(args, register=False), base, seat, awaiting=awaiting)
+        if skew:
+            # A contradiction is never a tie-break. dag-10 reports SKEW and refuses; so does this.
+            lines.append(f"{seat:<18} {'SKEW':<7} STALLED-BLOCKING refused — {STALLED_LAYER}: "
+                         f"awaiting-close.json={skew[0]} | sessions.csv={skew[1]} ⚠ ADJUDICATE")
+            continue
+        if value is not None:
+            lines.append(f"{seat:<18} {'ok':<7} stalled but checked out `{value}` ({source}) — "
+                         f"not a stall")
+            continue
+        # ⚠ THE DEPENDENT LIST IS COMPLETE AND DELIBERATELY UNCAPPED, and on a DEGENERATE DAG that
+        # is long: measured against run-2's real 52-row taskforce.csv, a stalled `leader` names 50
+        # dependents and the note runs past a kilobyte. Truncating it was rejected — RS-16 requires
+        # every row that names P, and a "+43 more" would hand the reader back exactly the lookup
+        # this flag exists to spare them. The length is a symptom of the DAG (50 of 52 rows say
+        # `after: leader`, which is sequencing masquerading as dependency — the spec's RS-7
+        # pathology), not of this flag; re-authoring the DAG shortens it at the cause.
+        seen.add(seat)
+        lines.append(f"{seat:<18} {'FLAG':<7} {STALLED_LINE} — {why}; blocks "
+                     f"{len(deps)}: {', '.join(deps)}")
+        key = f"{seat}\t{why}"
+        if not armed.get(key):
+            notes.append(Flag(seat,
+                f"watch: {STALLED_FLAG_NAME} — '{seat}' is {why} and has NO check-out on record, "
+                f"and {len(deps)} seat(s) name it in their `after` set, so they cannot become "
+                f"ready while this holds: {', '.join(deps)}. {STALLED_LIMIT} "
+                f"NOTHING WAS ACTUATED BY THIS FLAG — it is a report and no more ({STALLED_LAYER}, "
+                f"not the harness permission classifier and not the revival arm). The frontier this "
+                f"blocks: {coord.coord_invocation(args)} ready-seats"))
+            armed[key] = True
+    for key in [k for k in armed if k.split("\t", 1)[0] not in seen]:
+        armed.pop(key, None)          # re-arm: a second, genuinely different stall must not be mute
+    return lines
+
+
 def check_leftover_windows(rows, seats, sysstate, notes):
     """PROP-10 — a briefing-declared window whose panes are ALL agent-dead: no ACTIVE roster
     seat's pane is in it. Covers both halves of the incident: a closed wave leaving bash-only
@@ -2544,6 +2770,14 @@ def run_pass(args):
     # rather than quietly making this sentence false. Anyone adding one amends THIS charter, the
     # ledger anchor above, and that assertion, in the same act.
     #
+    # ⚠ COVERAGE, STATED EXACTLY, because "anywhere here" was too generous the moment a second
+    # notify-only arm arrived: LG-16 (c) scans the REVIVAL arm's call graph, and the dag-12
+    # stalled-blocking flag below sits OUTSIDE it. That section carries its OWN zero-actuator
+    # assertion over its OWN call graph (`dag-12 RS-10`), with its own red arm. So the count is
+    # covered by TWO rows, one per arm, and a THIRD arm added in a THIRD place is covered by
+    # NEITHER until whoever adds it extends this list. That gap is the honest state of the
+    # instrument, not a claim of total coverage.
+    #
     # ⚠ AND THE ONE ARM IS A WAY-STATION, NOT A HOME. The ruling, the ground and the migration cost
     # are stated where the arm lives (§ revival ACTUATION) and at `decisions.md#d-watch-is-a-way-
     # station`; they are NOT restated here. Read them before treating this exception as
@@ -2583,6 +2817,15 @@ def run_pass(args):
     # as "N active seat(s)", and a revival line is not a seat row — folding them in would corrupt
     # a number every reader trusts.
     revival_lines = check_revival(args, base, snap, snap_err, state, notes)
+
+    # dag-12, NOTIFY-ONLY: the shape-A backstop. A snapshot-level duty like the revival detector, so
+    # it sits beside it and not in the per-seat loop — its candidate set is the snapshot's, and the
+    # per-seat loop below would reset the arming state it keeps. It runs AFTER the detector on
+    # purpose: for a CRASHED seat the reader should meet the classification first and this flag
+    # second, as the thing that says who is waiting on it. ⚠ Its lines stay OUT of `report` for the
+    # same reason the revival lines do — the pass header counts `report` as "N active seat(s)".
+    # ⚠ IT ACTUATES NOTHING; the charter's one exception above is `fire_revival` and stays one.
+    stalled_lines = check_stalled_blocking(args, base, snap, snap_err, state, notes)
 
     for r in rows:
         if r["active"] != "yes" or r["agent"] == "watcher":
@@ -2746,6 +2989,8 @@ def run_pass(args):
     for line in leftover_lines:
         print("  " + line)
     for line in revival_lines:
+        print("  " + line)
+    for line in stalled_lines:
         print("  " + line)
     if args.notify:
         for text in notes:
@@ -4912,6 +5157,319 @@ def cmd_selftest():
               "leaks makes every later row's evidence a fixture's",
               coord.live_panes is _tmux_real[0] and subprocess.Popen is _popen_real)
         cclean()
+
+        # ---- dag-12: the STALLED-BLOCKING-DEPENDENTS flag (RS-9, RS-10, RS-15, RS-16) ----
+        # ⚠⚠ THE INSTRUMENT DEFECT THIS BLOCK IS BUILT AROUND, MEASURED BEFORE THE CODE EXISTED.
+        # Run against the pre-change file, RS-9's two NEGATIVE arms and RS-15's degradation arm all
+        # PASSED — because a function that does not exist pushes no flag, so "no flag" is satisfied
+        # by absence. Three of the four spec controls were VACUOUS AS WRITTEN. Every negative row
+        # below is therefore asserted TOGETHER WITH its positive twin over the SAME fixture with ONE
+        # cell changed: the pair is the control, and neither half is evidence alone.
+        # ⚠ NO TMUX AND NO ACTUATION ANYWHERE IN THIS BLOCK — nothing here can reach one: the flag's
+        # whole call graph is asserted below to contain no actuator symbol at all.
+        spkg = Path(td) / "stalledpkg"
+        sbase = spkg / "coordination"
+        swork = spkg / "workers"
+        sbase.mkdir(parents=True); swork.mkdir(parents=True)
+        sargs = argparse.Namespace(package=str(spkg), base=None, workers_dir=None, run=None,
+                                   notify_to="chief-of-staff", notify_fallback="leader",
+                                   inactive_min=30)
+        sstate, snotes = {}, []
+
+        def stf(*rows):
+            """Write taskforce.csv — `(seat, after)` pairs, the real header, the real separator."""
+            out = ["taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id"]
+            out += [f"tf-s,{s},{a},claude,opus,low,60,m1" for s, a in rows]
+            (spkg / "taskforce.csv").write_text("\n".join(out) + "\n", encoding="utf-8")
+
+        def ssnap(absent=(), seats=(), alive=True, age_s=0):
+            return {"captured_at": time.time() - age_s, "session_alive": alive,
+                    "session": "ssess", "seats": list(seats), "roster_absent": list(absent)}
+
+        def sgone(seat="P", pane="%77"):
+            return {"seat": seat, "pane": pane, "roster_active": True, "liveness": "absent",
+                    "reason": "roster row active, pane not in the room"}
+
+        def squiet(seat="P", pane="%9", age=7200.0):
+            return {"seat": seat, "pane": pane, "roster_active": True, "liveness": "live",
+                    "harness_pid": 4242, "prompt_pending": False, "last_activity_age_s": age}
+
+        def sb(snap, snap_err=None, fresh=True):
+            """One tick. Returns (report lines, notes pushed BY THIS TICK)."""
+            if fresh:
+                sstate.clear()
+                del snotes[:]
+            before = len(snotes)
+            out = check_stalled_blocking(sargs, sbase, snap, snap_err, sstate, snotes)
+            return out, snotes[before:]
+
+        (sbase / "awaiting-close.json").write_text("{}")
+
+        # ---- RS-9 — THE PAIR, and the pair is the control. Same snapshot, `after` cells the ONE
+        # difference between the two arms.
+        stf(("P", ""), ("D1", "P"), ("D2", "P"))
+        l_dep, n_dep = sb(ssnap(absent=[sgone()]))
+        stf(("P", ""), ("D1", ""), ("D2", ""))
+        l_leaf, n_leaf = sb(ssnap(absent=[sgone()]))
+        check("⚠ dag-12 RS-9: a stalled seat WITH dependents raises the flag and a stalled LEAF "
+              "raises NONE — asserted as ONE predicate over the same snapshot with only the `after` "
+              "cells changed. ⚠ MEASURED: the leaf arm ALONE passes against a file where the flag "
+              "does not exist at all, so it is evidence only paired with the arm above it",
+              len(n_dep) == 1 and n_leaf == []
+              and any(STALLED_LINE in l for l in l_dep)
+              and not any(STALLED_LINE in l for l in l_leaf)
+              and any("blocks nobody" in l for l in l_leaf))
+        check("dag-12 RS-9: the LEAF arm still PRINTS every tick — a stalled seat that blocks "
+              "nobody is reported and not silently dropped, because silence is indistinguishable "
+              "from a check that is switched off",
+              len(l_leaf) == 1 and l_leaf[0].startswith("P "))
+
+        # ---- RS-9 second arm — a LIVE seat with dependents. The pair differs in ONE FIELD.
+        stf(("P", ""), ("D1", "P"))
+        l_live, n_live = sb(ssnap(seats=[squiet(age=60.0)]))
+        l_stall, n_stall = sb(ssnap(seats=[squiet(age=7200.0)]))
+        check("⚠ dag-12 RS-9 (LIVE arm): a LIVE seat with dependents raises NOTHING at 1 min idle "
+              "and DOES raise at 120 min — one field of one snapshot row is the whole difference. "
+              "Shape A is a seat still ALIVE in its pane past a natural end, so the quiet arm is "
+              "the only one that can see it; the pair proves the threshold is read rather than the "
+              "arm being dead",
+              n_live == [] and len(n_stall) == 1
+              and not any(STALLED_LINE in l for l in l_live)
+              and any(STALLED_LINE in l and "alive in pane" in l for l in l_stall))
+        check("⚠ dag-12: a snapshot row with NO `last_activity_age_s` reading is NOT read as zero "
+              "and NOT read as a stall — no reading is not a reading. Control: the same row with "
+              "the field present past the cadence DOES fire",
+              sb(ssnap(seats=[{"seat": "P", "pane": "%9", "roster_active": True,
+                               "liveness": "live"}]))[1] == []
+              and len(sb(ssnap(seats=[squiet()]))[1]) == 1)
+        check("dag-12: a snapshot row whose seat is NOT roster-active is never a candidate — the "
+              "quiet arm reads the sensor's own roster_active and does not re-derive it",
+              sb(ssnap(seats=[dict(squiet(), roster_active=False)]))[1] == [])
+
+        # ---- RS-16 — the dependents are NAMED, in the flag text AND the report line.
+        stf(("P", ""), ("D1", "P"), ("D2", "P"), ("E", ""))
+        l2, n2 = sb(ssnap(absent=[sgone()]))
+        check("⚠ dag-12 RS-16: the flag text names P and EVERY row that names P in its `after` set "
+              "— both dependents, the count, and NOT the unrelated seat. A flag that says 'someone "
+              "is blocked' hands the reader the reconstruction work the whole design refuses.\n"
+              "      ⚠ INSTRUMENT NOTE: the first draft of this row asserted `\"E\" not in <flag>` "
+              "to prove the unrelated seat is excluded. THAT WENT RED FOR THE WRONG REASON — the "
+              "flag body is full of capital-E prose (STALLED_LIMIT's own uppercase). A one-letter "
+              "seat name is unmatchable in free text, so exclusion is asserted on the DEPENDENT "
+              "LIST SEGMENT instead, which is the only place a wrong name could appear",
+              len(n2) == 1 and "'P'" in n2[0] and "2 seat(s)" in n2[0]
+              and "ready while this holds: D1, D2." in n2[0]
+              and "blocks 2: D1, D2" in " ".join(l2))
+        check("⚠ dag-12 RS-16 CONTROL: the SAME fixture with P's dependents repointed at E names "
+              "NEITHER P nor a dependent — so the row above is reading the `after` cells and not "
+              "printing a list it built from the roster",
+              (stf(("P", ""), ("D1", "E"), ("D2", "E"), ("E", "")) or True)
+              and sb(ssnap(absent=[sgone()]))[1] == [])
+
+        # ---- RS-16 / THE HONEST LIMIT — carried IN THE FLAG, where the reader meets it (R-6).
+        stf(("P", ""), ("D1", "P"), ("D2", "P"))
+        _, n3 = sb(ssnap(absent=[sgone()]))
+        check("⚠ dag-12 R-6: the SHAPE-A LIMIT rides in the flag body itself, not only in a task "
+              "file — the reader who has to act on this flag is told, in the same sentence, that a "
+              "dirty finish and a crash are NOT distinguishable here and that nothing was "
+              "actuated. Asserted against the STALLED_LIMIT constant, so a reword of the constant "
+              "cannot leave this row passing against stale text",
+              len(n3) == 1 and STALLED_LIMIT in n3[0]
+              and "NOTHING WAS ACTUATED BY THIS FLAG" in n3[0]
+              and "CANNOT TELL A DIRTY FINISH FROM A CRASH" in STALLED_LIMIT
+              and "done contract" in STALLED_LIMIT)
+
+        # ---- the TERMINAL-DISPOSITION term: a seat that checked out is not stalled. Both arms.
+        (sbase / "awaiting-close.json").write_text(json.dumps({"P": {"since": "x",
+                                                                    "disposition": "done"}}))
+        l_out, n_out = sb(ssnap(absent=[sgone()]))
+        (sbase / "awaiting-close.json").write_text("{}")
+        l_in, n_in = sb(ssnap(absent=[sgone()]))
+        check("⚠ dag-12: a candidate WITH a terminal disposition on record is not a stall (both "
+              "arms: `done` on record → no flag; the identical fixture with the record removed → "
+              "flag). The term goes through `coord.terminal_disposition` — dag-09/dag-10's own "
+              "reader — so this arm and `ready-seats` can never disagree about what a check-out is",
+              n_out == [] and len(n_in) == 1
+              and any("checked out `done`" in l for l in l_out)
+              and any(STALLED_LINE in l for l in l_in))
+        (spkg / "sessions.csv").write_text(
+            ",".join(coord.SESSIONS_COLS) + "\n"
+            "s1,P,claude,,,,2026-01-01,2026-01-02,,,,done\n", encoding="utf-8")
+        (sbase / "awaiting-close.json").write_text(json.dumps({"P": {"since": "x",
+                                                                    "disposition": "renew"}}))
+        l_skew, n_skew = sb(ssnap(absent=[sgone()]))
+        check("⚠ dag-12: DISPOSITION SKEW is REPORTED AND REFUSED, never tie-broken — the two "
+              "records of one seat's own ending disagree, both are named, and no flag is pushed. "
+              "Picking a winner would be this loop deciding a question only a human may",
+              n_skew == [] and any("SKEW" in l and "awaiting-close.json=renew" in l
+                                   and "sessions.csv=done" in l for l in l_skew))
+        (spkg / "sessions.csv").unlink()
+        (sbase / "awaiting-close.json").write_text("{}")
+
+        # ---- RS-15 (a) THE OBSERVATION BOUND — `stalled_candidates` takes the parsed snapshot and
+        # NOTHING ELSE, asserted over its AST rather than promised in prose.
+        _READERS = {"open", "read_text", "read_bytes", "load", "loads", "read_csv_table",
+                    "load_workers", "discover_workers", "load_awaiting", "load_closing",
+                    "taskforce_after", "terminal_disposition", "session_disposition",
+                    "pane_tail", "pane_cwd", "live_panes", "window_panes", "Path", "glob",
+                    "iterdir", "listdir", "run", "check_output", "Popen"}
+
+        def _reader_syms(src):
+            t = _ast_mod.parse(_textwrap.dedent(src))
+            return (({n.id for n in _ast_mod.walk(t) if isinstance(n, _ast_mod.Name)}
+                     | {n.attr for n in _ast_mod.walk(t) if isinstance(n, _ast_mod.Attribute)})
+                    & _READERS)
+        _obs_src = inspect.getsource(stalled_candidates)
+        check("⚠ dag-12 RS-15 (a) THE OBSERVATION BOUND, AT THE SCOPE THAT CAN HOLD IT: every "
+              "OBSERVATION the flag makes comes from the snapshot and nothing else — "
+              "`stalled_candidates` references NO file, pane, roster or process reader at all, so "
+              "there is no second observation path to reach around the sensor with (CMP-21 "
+              "invariant 1's actual words: no tmux pane, no session file, no /proc, no prompt)",
+              _reader_syms(_obs_src) == set())
+        check("⚠ dag-12 RS-15 (a) RED ARM: the SAME predicate over the SAME function with one "
+              "`coord.load_workers(base)` inserted REPORTS it — the row can go red, and the "
+              "mutation is asserted to have applied so a failed replace cannot pass as a green",
+              (lambda m: m != _obs_src and _reader_syms(m) == {"load_workers"})(
+                  _obs_src.replace("    out = {}", "    out = {}\n    coord.load_workers(base)", 1)))
+
+        # ---- RS-15 (b) THE READ INVENTORY OF THE WHOLE ARM IS CLOSED AND ASSERTED.
+        # ⚠⚠ RS-15 AS THE SPEC WROTE IT ("grep the flag's code path for any other file read → ZERO")
+        # IS UNSATISFIABLE TOGETHER WITH RS-16, and this row is the honest replacement rather than a
+        # dropped control. state.json's schema (`team-monitor/1`) carries NO dependency field — the
+        # `after` sets live in taskforce.csv and the dispositions in awaiting-close.json /
+        # sessions.csv — so a flag reading only the snapshot could never name a dependent, which is
+        # exactly what RS-16 demands. What is asserted instead: the non-snapshot reads are EXACTLY
+        # the registry read and the ledger read, both delegated to coord's single-source readers,
+        # and a THIRD reader added anywhere in the arm turns this row red.
+        _arm12 = "\n".join(inspect.getsource(f) for f in
+                           (check_stalled_blocking, stalled_candidates, blocking_dependents,
+                            snapshot_age_s))
+        _expect12 = {"taskforce_after", "terminal_disposition", "load_awaiting"}
+        check("⚠ dag-12 RS-15 (b) — RS-15's LITERAL FORM IS UNSATISFIABLE WITH RS-16 AND THIS IS "
+              "THE STRONGEST FORM THAT IS NOT: over the WHOLE flag's call graph the reader symbols "
+              "are EXACTLY {taskforce_after, terminal_disposition, load_awaiting} — the run's "
+              "REGISTRY and its CHECK-OUT RECORD, neither of which any sensor observes or "
+              "publishes, each through dag-09/dag-10's own reader and never a second parse. No "
+              "tmux, no /proc, no pane, no roster, no direct open()",
+              _reader_syms(_arm12) == _expect12)
+        check("⚠ dag-12 RS-15 (b) RED ARM: the same predicate over the same arm with a "
+              "`coord.load_workers` and a bare `open` inserted reports BOTH — so the inventory is "
+              "CLOSED rather than merely listed, and this is the row that catches the next reader "
+              "somebody adds here",
+              _reader_syms(_arm12 + "\ncoord.load_workers(b)\nopen(p)\n")
+              == _expect12 | {"load_workers", "open"})
+
+        # ---- RS-15 (c) THE DEGRADATION ARM — literal, and the one half of RS-15's control that
+        # DOES hold as written. Paired, because absence satisfies it vacuously on its own.
+        stf(("P", ""), ("D1", "P"))
+        _bad = ssnap(absent=[sgone()])
+        _bad.pop("roster_absent"); _bad.pop("seats")
+        l_bad, n_bad = sb(_bad)
+        l_good, n_good = sb(ssnap(absent=[sgone()]))
+        check("⚠ dag-12 RS-15 (c): a state.json MISSING `roster_absent`/`seats` degrades to NO "
+              "FLAG — it does not read around the sensor to the roster or to tmux to find the "
+              "absence it could not see. Paired with the identical-but-complete snapshot that DOES "
+              "fire, because 'no flag' is satisfied by a check that is switched off",
+              n_bad == [] and len(n_good) == 1
+              and l_bad == [STALLED_OK_LINE] and any(STALLED_LINE in l for l in l_good))
+        check("dag-12: a run with NO taskforce.csv says so and pushes nothing — dependency is "
+              "UNKNOWABLE there, and this module ships kit-wide to packages that have no DAG at "
+              "all. Control: the same snapshot with the file present fires",
+              ((spkg / "taskforce.csv").unlink() or True)
+              and sb(ssnap(absent=[sgone()])) == ([STALLED_NO_DAG_LINE], [])
+              and (stf(("P", ""), ("D1", "P")) or True)
+              and len(sb(ssnap(absent=[sgone()]))[1]) == 1)
+
+        # ---- STALENESS: enforcement PAUSES, and the two homes of the age are asserted to AGREE.
+        l_st, n_st = sb(ssnap(absent=[sgone()], age_s=budget_mod.STALE_AFTER_S + 60))
+        check("⚠ dag-12: a STALE snapshot PAUSES this flag (CMP-21 invariant 2 — stale data is "
+              "evidence in NEITHER direction) and says so every tick; nothing is pushed. Control: "
+              "the same fixture FRESH fires",
+              n_st == [] and any(STALLED_STALE_LINE in l for l in l_st)
+              and len(sb(ssnap(absent=[sgone()]))[1]) == 1)
+        check("⚠ dag-12 THE DECLARED-DUPLICATION GUARD: `snapshot_age_s` and `check_revival`'s "
+              "INLINE age computation are asserted to AGREE on the same snapshot on BOTH sides of "
+              "budget_mod.STALE_AFTER_S. The duplication is real and declared (check_revival is "
+              "stage 4's function and out of dag-12's write set); this is the deterministic check "
+              "that makes it PRIN-11's sanctioned break rather than a silent second home — a "
+              "threshold or field change on either side goes red here",
+              (lambda stale, fresh: (
+                  snapshot_age_s(stale) > budget_mod.STALE_AFTER_S
+                  and any(REVIVAL_STALE_LINE in l for l in
+                          check_revival(rargs, rbase, stale, None, {}, []))
+                  and snapshot_age_s(fresh) <= budget_mod.STALE_AFTER_S
+                  and not any(REVIVAL_STALE_LINE in l for l in
+                              check_revival(rargs, rbase, fresh, None, {}, []))))(
+                  ssnap(age_s=budget_mod.STALE_AFTER_S + 60), ssnap()))
+        check("dag-12: an ABSENT state.json takes the SILENT path (no line at all), while one that "
+              "EXISTS and cannot be read is a sensor outage that PAUSES loudly — the same "
+              "absent-vs-unreadable split the revival arm keeps, through the same discriminator",
+              check_stalled_blocking(sargs, sbase, None, "state.json is ABSENT at /x", {}, []) == []
+              and any(STALLED_STALE_LINE in l for l in check_stalled_blocking(
+                  sargs, sbase, None, "state.json is UNREADABLE at /x: Expecting value", {}, [])))
+        check("dag-12: a DEAD ROOM short-circuits — every seat is absent when the session is gone, "
+              "and N stall flags for ONE incident point the reader at the wrong mechanism",
+              sb(ssnap(absent=[sgone()], alive=False))[1] == []
+              and "room dead" in " ".join(sb(ssnap(absent=[sgone()], alive=False))[0]))
+
+        # ---- ARMING: the line prints every tick, the flag is pushed ONCE, and it RE-ARMS.
+        stf(("P", ""), ("D1", "P"))
+        l1, p1 = sb(ssnap(absent=[sgone()]))
+        l2, p2 = sb(ssnap(absent=[sgone()]), fresh=False)
+        l3, p3 = sb(ssnap(seats=[squiet(age=0.0)]), fresh=False)
+        l4, p4 = sb(ssnap(absent=[sgone()]), fresh=False)
+        check("⚠ dag-12: the REPORT LINE prints on every tick (a hole must never go quiet) while "
+              "the FLAG is pushed ONCE per episode — and it RE-ARMS after the seat is seen healthy, "
+              "so a second, genuinely different stall is not mute. Four ticks, one fixture",
+              len(p1) == 1 and p2 == [] and p3 == [] and len(p4) == 1
+              and all(any(STALLED_LINE in l for l in ls) for ls in (l1, l2, l4))
+              and l3 == [STALLED_OK_LINE])
+
+        # ---- RS-10 — THE ACTUATOR COUNT. This section is NOT the file's one arm.
+        check("⚠⚠ dag-12 RS-10 — THE ACTUATOR COUNT OF THIS FILE STAYS **ONE**, AND THIS FLAG IS "
+              "NOT IT: over the WHOLE stalled-blocking arm's call graph there is not one fork, "
+              "exec, subprocess, launch, kill or tmux symbol. Asserted with the SAME predicate "
+              "`s4-06 LG-16 (c)` uses on the revival arm, so the two rows together are the file's "
+              "arm inventory. A second actuator arm here would re-open the double-launch question "
+              "stage 4 closed",
+              _actuator_syms(_arm12) == set())
+        check("⚠ dag-12 RS-10 RED ARM: the same predicate over the same arm with `launch_seat` and "
+              "`subprocess.Popen` inserted reports BOTH — so the row can go red, and it is the row "
+              "that catches the next arm somebody adds to THIS section (LG-16 (c) does not: it "
+              "scans the revival arm's call graph and this section sits outside it)",
+              _actuator_syms(_arm12 + "\ncoord.launch_seat(x)\nsubprocess.Popen(y)\n")
+              == {"launch_seat", "subprocess", "Popen"})
+        check("⚠ dag-12 RS-10 (the other direction): the flag is NOT ROUTED INTO the revival arm "
+              "either — a flag that merely avoided calling Popen itself while handing its seat to "
+              "`fire_revival`/`claim_revival` would be a second arm wearing a report's clothes. "
+              "Asserted over the arm's own AST",
+              not ({"fire_revival", "claim_revival", "revival_ladder", "check_revival"}
+                   & ({n.id for n in _ast_mod.walk(_ast_mod.parse(_arm12))
+                       if isinstance(n, _ast_mod.Name)}
+                      | {n.attr for n in _ast_mod.walk(_ast_mod.parse(_arm12))
+                         if isinstance(n, _ast_mod.Attribute)})))
+        check("⚠ dag-12 RS-10 CONTROL for the row above: the same predicate DOES see those names "
+              "when they are present — proving the set is matched rather than never matchable",
+              {"fire_revival", "claim_revival"} <= (
+                  {n.attr for n in _ast_mod.walk(_ast_mod.parse(
+                      _arm12 + "\nx.fire_revival()\nx.claim_revival()\n"))
+                   if isinstance(n, _ast_mod.Attribute)}))
+
+        # ---- WIRED: `run_pass` really calls it, and its lines stay OUT of `report`.
+        _rp = inspect.getsource(run_pass)
+        check("⚠ dag-12 WIRED: `run_pass` calls `check_stalled_blocking` and PRINTS its lines, and "
+              "they are kept OUT of `report` — the pass header counts `report` as 'N active "
+              "seat(s)' and folding a stall line in would corrupt a number every reader trusts. A "
+              "flag nothing calls is a green suite over dead code (G-78)",
+              "check_stalled_blocking(args, base, snap, snap_err, state, notes)" in _rp
+              and "for line in stalled_lines:" in _rp
+              and "report.append" not in _rp.split("stalled_lines = ")[1].split("for r in rows")[0])
+        check("⚠ dag-12 WIRED CONTROL: the charter's one-actuator paragraph in `run_pass` now names "
+              "BOTH assertions that cover the count — it claimed 'a second arm added anywhere here' "
+              "would turn LG-16 (c) red, and that became FALSE the moment a second arm-shaped "
+              "section landed outside the revival call graph. The correction is asserted here so "
+              "the charter cannot go stale silently",
+              "dag-12 RS-10" in _rp and "covered by TWO rows, one per arm" in _rp)
 
         # ---- 7.37 criterion 3 / R10: goal-level state, per-run sections ----
         # ⚠ THIS BLOCK EXISTS BECAUSE THE SUITE ABOVE PASSED WITHOUT EXERCISING ONE LINE OF IT.
