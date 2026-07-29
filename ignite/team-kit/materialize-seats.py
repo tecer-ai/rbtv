@@ -62,10 +62,11 @@ emits and prints a bindings file — and this command still reads a file. The
 contract stays "bindings arrive as a file"; the command NEVER guesses a
 binding. The staffer stage re-binds as usual once it exists.
 
-Named extension point for the follow-on task:
-
-    run_sc_acceptance      -> dag-07  (the SC-1..SC-16 acceptance rows inside
-                                       the selftest)
+The dag-07 ACCEPTANCE ROLLUP is landed — ROW_ARMS/rollup_rows in the selftest:
+every acceptance row (SK-1..SK-7, SC-1..SC-21, CP-1..CP-8, contract-order,
+topo-order, tf-id, creation-partial, AS-2/AS-4) reports ONE line naming both
+arms, and the suite exits 0 only when every row passes BOTH arms — a row whose
+red arm is missing or failing is a suite failure, never a green (R-6, AS-2).
 
 Assembly is goal_cli's — `index_units` / `load_catalogs` / `assemble_seat`
 imported from the goals-tree tool. ONE assembler; this file must never grow a
@@ -1471,11 +1472,6 @@ def append_taskforce_rows(plan: dict) -> int:
     return plan["rows_appended"]
 
 
-def run_sc_acceptance(check, fixture: dict) -> None:
-    """dag-07 extension point — the SC-1..SC-16 acceptance rows land here,
-    inside the selftest, each with the control arm that must FAIL."""
-
-
 # ---------------------------------------------------------------- run
 
 
@@ -1964,6 +1960,7 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
         fx = build_fixture(tmp)
         pre = _hash_tree(tmp)
         green_json: dict = {}
+        real_json: dict = {}
         for label, argv, want_rc, want_code in selftest_scenarios(fx):
             cp = _invoke(argv, env)
             results.append((label, cp.returncode, _norm(cp.stdout, tmp)))
@@ -1981,8 +1978,12 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
                       and obj.get("refusal", {}).get("code") == want_code
                       and bool(obj.get("refusal", {}).get("message")),
                       f"stdout={cp.stdout.strip()[:200]}")
-            elif want_rc == 0 and not green_json:
-                green_json = json.loads(cp.stdout)
+            elif want_rc == 0:
+                obj = json.loads(cp.stdout)
+                if not green_json:
+                    green_json = obj  # the dry-run workflow plan
+                if label.startswith("green: a non-dry run emits"):
+                    real_json = obj  # the SAME argv, real (SC-12 half 2)
         if check is not None:
             # SK-6 control arm: a success carries ok:true and NO refusal key.
             check("SK-6 control: success JSON has ok:true and no refusal key",
@@ -2002,6 +2003,17 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
             check("plan: planned append count is 2, warnings plumbed empty",
                   green_json.get("taskforce_rows_appended") == 2
                   and green_json.get("warnings") == [], str(green_json)[:200])
+            # SK-5/SC-12 second half (dag-07): the dry-run PLAN equals what
+            # the real run then produces — same writes[], kind and path.
+            check("SK-5: the dry-run plan's writes[] equals the real run's "
+                  "writes[] kind-for-kind, path-for-path (spec SC-12 half 2)",
+                  bool(real_json.get("writes"))
+                  and [(w["kind"], w["path"])
+                       for w in green_json.get("writes", [])]
+                  == [(w["kind"], w["path"])
+                      for w in real_json.get("writes", [])],
+                  f"dry={green_json.get('writes')} "
+                  f"real={real_json.get('writes')}")
             # SK-5 (amended at dag-05): dry runs and refusals still write
             # NOTHING; the only disk deltas are what the two non-dry green
             # scenarios legitimately materialize — their seat descriptors
@@ -2041,7 +2053,6 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
             canary.unlink()
             check("SK-5 control: canary removed, tree restored",
                   _hash_tree(tmp) == pre)
-            run_sc_acceptance(check, fx)  # dag-07 lands SC-1..SC-16 here
     return results
 
 
@@ -3178,10 +3189,146 @@ def run_dag06_acceptance(check, env: dict) -> None:
               str(rows7))
 
 
+# dag-07 — the per-ROW rollup table. Every acceptance row of the command
+# (dag-03 SK-1..SK-7, dag-04+dag-05 SC-1..SC-21, dag-06 CP-1..CP-8, plus the
+# named rows the same tasks landed) maps to the check labels carrying its arms:
+#   green arm — the behaviour on conforming input;
+#   red arm   — the case that MUST be able to fail (a refusal, a mutation, a
+#               counter-case): R-6's proof the green is not vacuous.
+# Patterns are substrings matched against EXECUTED check labels; a pattern
+# matching nothing fails the row loudly (arm MISSING) — label drift breaks a
+# row, it never silently narrows one. Alias rows re-report checks carried by
+# another id so every spec id prints: SC-7=SK-1 (spec §1.8), SC-11=SK-4,
+# SC-12=SK-5, AS-4=SK-4 (the suite-level junk-env form; its one-time
+# whole-process evidence is in the dag-07 task return). A check may serve two
+# rows (e.g. one green materialization grounds SC-8/SC-9's green arms) — the
+# arms stay honest because each row's RED arm is its own.
+ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "SK-1": (("green: dry-run materializes the whole workflow plan",),
+             ("SK-1 red",)),
+    "SK-2": (("green: dry-run materializes one cataloged seat",),
+             ("SK-2 red",)),
+    "SK-3": (("green: dry-run materializes the whole workflow plan",),
+             ("SK-3 red",)),
+    "SK-4": (("SK-4: the whole suite is identical",), ("SK-4 control",)),
+    "SK-5": (("SK-5: the only writes", "SK-5: the dry-run plan's writes[]"),
+             ("SK-5 control: the hash detector goes red",)),
+    "SK-6": (("SK-6 control",), ("SK-6 machine-readable refusal",)),
+    "SK-7": (("SK-7: no local unit emitter",
+              "SK-7: assemble_seat is imported"), ("SK-7 control",)),
+    "SC-1": (("SC-1: a full-workflow add creates",
+              "SC-1: coordinate launch --dry-run --only"),
+             ("SC-1 control: a divergent registry row",
+              "SC-1 control: a deleted row")),
+    "SC-2": (("SC-2: descriptor carries seat:",), ("SC-2 red",)),
+    "SC-3": (("green: a non-dry run emits descriptors",),
+             ("SC-3: a catalog assembling an empty body",)),
+    "SC-4": (("SC-4 control",),
+             ("SC-4: a seat with no resolvable permissions",)),
+    "SC-5": (("SC-5/SC-6 control",),
+             ("SC-5: --after naming a descendant",)),
+    "SC-6": (("SC-5/SC-6 control",),
+             ("SC-6: a dangling --after member",)),
+    "SC-7": (("green: dry-run materializes the whole workflow plan",),
+             ("SK-1 red",)),
+    "SC-8": (("SC-1: a full-workflow add creates",),
+             ("SC-8 arm 2", "SC-8 arm 1",
+              "SC-8: the orphan-folder half-state")),
+    "SC-9": (("SC-1: a full-workflow add creates",),
+             ("SC-9: re-running on an existing seat",
+              "SC-9 registry half")),
+    "SC-10": (("SC-10: the written header equals",), ("SC-10 control",)),
+    "SC-11": (("SK-4: the whole suite is identical",), ("SK-4 control",)),
+    "SC-12": (("SK-5: the only writes",
+               "SK-5: the dry-run plan's writes[]"),
+              ("SK-5 control: the hash detector goes red",)),
+    "SC-13": (("SC-13 control",), ("SC-13: ONE bad model slug",)),
+    "SC-14": (("SC-14 (first arm)", "SC-14: opencode default",
+               "SC-14 control"),
+              ("SC-14: mode: one-shot with ctx-refresh refuses",)),
+    "SC-15": (("SC-15 control",),
+              ("SC-15: a catalog/mirror path is refused",)),
+    "SC-16": (("SC-16: a cheap one-shot worker",), ("SC-16 control",)),
+    "SC-17": (("SC-17 control",), ("SC-17: class: is refused",)),
+    "SC-18": (("SC-18: every emitted frontmatter parses",), ("SC-18 red",)),
+    "SC-19": (("SC-19: a window: value prints",), ("SC-19 control",)),
+    "SC-20": (("SC-20: inline Reference resolved",
+               "SC-20: --force-partial appends"),
+              ("SC-20 red", "SC-20 control: a mutated descriptor",
+               "SC-20 rows-half control")),
+    "SC-21": (("SC-21 control",), ("SC-21: --milestone-id bootstrap",)),
+    "CP-1": (("CP-1: a materialize against a NON-EXISTENT",),
+             ("CP-1 control",)),
+    "CP-2": (("CP-2: a later materialize",),
+             ("CP-2: the identical call again",)),
+    "CP-3": (("CP-3: deleting coordination/",), ("CP-3 control",)),
+    "CP-4": (("CP-4 control",),
+             ("CP-4: --package <absent, outside",
+              "CP-4: an absent GOAL folder")),
+    "CP-5": (("CP-5: the argument surface carries NO numeric default",
+              "CP-5 control: the caller-supplied budget.json IS read"),
+             ("CP-5 control: the numeric-default detector fires",
+              "CP-5 comparator control")),
+    "CP-6": (("CP-6: coordinate launch --dry-run --only alpha resolves",
+              "CP-6: a REAL launch reads the created budget.json"),
+             ("CP-6 control: without budget.json", "CP-6/CP-8 red")),
+    "CP-7": (("CP-7: dry-run against an absent package exits 0",
+              "CP-7: ...and writes NOTHING"), ("CP-7 control",)),
+    "CP-8": (("CP-8: created conduct.md",),
+             ("CP-8 red", "CP-6/CP-8 red")),
+    "contract-order": (("contract §1: blocks in the FIXED kind order",),
+                       ("reorder red",)),
+    "topo-order": (("topo: rows append in TOPOLOGICAL order",),
+                   ("topo control",)),
+    "tf-id": (("tf-id: the first materialize",
+               "tf-id: an id READ FROM THE FILE",
+               "tf-id: the run-9 compartment derives tf-9"),
+              ("tf-id red",)),
+    "creation-partial": (("creation-partial control",),
+                         ("creation-partial: an existing dir with NO "
+                          "taskforce.csv",)),
+    "AS-2": (("AS-2 green",), ("AS-2 control",)),
+    "AS-4": (("SK-4: the whole suite is identical",), ("SK-4 control",)),
+}
+
+
+def rollup_rows(records: list[tuple[str, bool]]
+                ) -> tuple[list[str], dict[str, str]]:
+    """dag-07 — fold the executed checks into ONE verdict line per acceptance
+    row: id, verdict, and on failure WHICH ARM failed (green or red) and how
+    (a matched check failed vs no check matched at all). A row passes ONLY
+    when both arms matched at least one check and every matched check passed
+    — a green-only row is a failure, never a pass (AS-2)."""
+    lines: list[str] = []
+    failing: dict[str, str] = {}
+    for row, (green, red) in ROW_ARMS.items():
+        parts: list[str] = []
+        bad: list[str] = []
+        for arm, pats in (("green", green), ("red", red)):
+            hits = [ok for label, ok in records
+                    if any(p in label for p in pats)]
+            if not hits:
+                parts.append(f"{arm} MISSING")
+                bad.append(f"{arm} arm: no check matched")
+            else:
+                parts.append(f"{arm} {sum(hits)}/{len(hits)}")
+                if not all(hits):
+                    bad.append(f"{arm} arm: "
+                               f"{len(hits) - sum(hits)} check(s) failed")
+        verdict = "PASS" if not bad else "FAIL"
+        lines.append(f"  row {row:<16} {verdict}  " + "  ".join(parts)
+                     + (f"  <- {'; '.join(bad)}" if bad else ""))
+        if bad:
+            failing[row] = "; ".join(bad)
+    return lines, failing
+
+
 def run_selftest() -> int:
     failures: list[str] = []
+    records: list[tuple[str, bool]] = []  # dag-07 — the rollup's input
 
     def check(label: str, cond: bool, detail: str = "") -> None:
+        records.append((label, bool(cond)))
         if cond:
             print(f"  ok   {label}")
         else:
@@ -3237,11 +3384,54 @@ def run_selftest() -> int:
     print("dag-06 acceptance pass (CP-1..CP-8, both arms each)")
     run_dag06_acceptance(check, clean_env)
 
-    print(f"\n{'PASS' if not failures else 'FAIL'} — "
-          f"{len(failures)} failure(s)")
+    print("\ndag-07 row rollup — one line per acceptance row; a row passes "
+          "only when BOTH arms pass (R-6/AS-2)")
+    _, pre_failing = rollup_rows(records)
+    # AS-2 green arm: no row reports a single verdict — every row's two arms
+    # each matched at least one executed check (the AS-2 row itself is
+    # excluded here: its own two checks are the two being run right now).
+    check("AS-2 green: every rollup row reports BOTH arms — no green-only "
+          "row, no arm without a matching check",
+          not any("no check matched" in why
+                  for row, why in pre_failing.items() if row != "AS-2"),
+          str({row: why for row, why in pre_failing.items()
+               if row != "AS-2" and "no check matched" in why}))
+    # AS-2 control: strip SC-2's red-arm checks from a COPY of the record —
+    # the rollup MUST fail row SC-2 naming its red arm. A rollup that cannot
+    # go red on a one-armed row proves nothing (R-6).
+    _, synth = rollup_rows([r for r in records if "SC-2 red" not in r[0]])
+    check("AS-2 control: the rollup goes RED on a row stripped of its red "
+          "arm (SC-2 minus its red check -> FAIL naming the red arm)",
+          "red arm" in synth.get("SC-2", ""), str(synth.get("SC-2")))
+    lines, failing_rows = rollup_rows(records)
+    for line in lines:
+        print(line)
+    print(f"  rows: {len(ROW_ARMS) - len(failing_rows)}/{len(ROW_ARMS)} "
+          "pass both arms")
+    print("  info SC-1 LOUD (spec § Could not pin): the launch arm is REAL "
+          "up to the LAST PRE-SPAWN GATE only — launch --dry-run resolves "
+          "the harness command for every assembled descriptor (SC-1, CP-6) "
+          "and a REAL launch reads the created budget.json floor and is "
+          "refused solely on the absent tmux pane (CP-6). The pane spawn + "
+          "harness exec of an assembled descriptor remains an INFERENCE: "
+          "this hermetic suite has no tmux, and the pane gate fires before "
+          "any harness command would run, so a stub harness cannot cross it.")
+    print("  info AS-1/AS-3 are one-time evidence recorded at dag-07 "
+          "landing, not per-invocation rows: AS-1 (scratch-copy seat:->id: "
+          "mutation -> suite exit 1 naming SC-2; pristine copy -> exit 0) "
+          "and AS-3 (workspace-.rbtv hash snapshot identical around a full "
+          "run; detector proven on a scratch stand-in — a permanent row "
+          "would hardcode one workspace's vault path into a general "
+          "command). AS-4's permanent form is the SK-4 pass (row AS-4).")
+
+    ok = not failures and not failing_rows
+    print(f"\n{'PASS' if ok else 'FAIL'} — {len(failures)} failed "
+          f"check(s), {len(failing_rows)} failed row(s) of {len(ROW_ARMS)}")
     for f in failures:
         print(f"  - {f}")
-    return 1 if failures else 0
+    for row, why in failing_rows.items():
+        print(f"  - row {row}: {why}")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
