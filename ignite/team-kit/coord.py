@@ -2049,6 +2049,21 @@ def cmd_close_run(args):
     print(f"runs.csv: {detail}")
     print(c(f"the index now resolves the goal's current run without hand maintenance "
             f"({runs_index_csv(pkg)})", C_HINT))
+    # ---- s3-03: the LIFECYCLE MARKER SWEEP. `clear_lifecycle` has exactly ONE caller and this is
+    # it. Without this block, "swept by the next close-run" would be a claim about code that does
+    # not exist: every `state: "done"` entry would accumulate for the life of the goal and
+    # `clear_lifecycle` would ship dead. Runs AFTER the index close, because a refused close means
+    # the run is not over and its marker is not the close's to touch.
+    #
+    # The survivors are printed one per line and NAMED. A close that quietly left entries behind
+    # would teach the leader that the marker is empty when it is not — and an in-flight entry at
+    # close time is exactly the report worth reading.
+    swept, survivors = sweep_lifecycle(base_dir(args))
+    if swept:
+        print(f"lifecycle marker: swept {len(swept)} completed "
+              f"{'entry' if len(swept) == 1 else 'entries'} ({', '.join(swept)})")
+    for _seat, _why in survivors:
+        print(f"lifecycle marker: LEFT {_seat} — {_why}")
 
 
 def claude_projects_dir():
@@ -3528,6 +3543,294 @@ def clear_closing(base, seat):
         return True
     except (OSError, ValueError):
         return False
+
+
+# ---- STAGE 3 (s3-03): the LIFECYCLE-INFLIGHT marker ------------------------------------------
+# `{package}/coordination/lifecycle-inflight.json` — beside `awaiting-close.json` and
+# `closing.json`, ONE SHARED FILE, a dict keyed by seat, written the way both of them are
+# (`coord_lock` + `atomic_write`) and never fatal on any path.
+#
+# ⚠ TWO FILES NOW CARRY A `disposition` KEY OVER THE SAME done|renew VOCABULARY. THE AUTHORITY
+# BETWEEN THEM IS SETTLED, AND IT IS NOT "WHICHEVER ONE THE READER OPENED":
+#
+#     `awaiting-close.json` is AUTHORITATIVE for INTENT/debt.
+#     `lifecycle-inflight.json` is AUTHORITATIVE for EXECUTION state.
+#
+# The checkout ASSERTS what it meant — `set_awaiting`'s `disposition`, recorded at the one moment
+# it was known — and that record is the DEBT: it deliberately never expires and `reap_blockers`
+# gates a pane KILL on it. This file records what the executor has actually DONE about that
+# intent: which steps verified, whether it is still running, how it ended. So a disagreement
+# between the two is never a tie to be broken — read the intent from awaiting-close.json and the
+# progress from here. Read the G-134 AWAITING-CLOSE DEBT block above (`awaiting_path` /
+# `load_awaiting` / `set_awaiting` / `reap_blockers`) for the design this half is bound to; it is
+# POINTED AT, never restated.
+#
+# Two of that block's rulings carry over unchanged, and are likewise pointed at rather than
+# re-argued:
+#   · "An assertion at the moment of truth beats an inference at the moment of action" — which is
+#     why `steps-completed` is appended AFTER a step VERIFIES, never before. A step listed here
+#     HAPPENED; no reader may have to wonder whether it merely started. `stamp_lifecycle` starts
+#     the list EMPTY for exactly that reason.
+#   · "A debt that ages out unpaid is not a debt" — which is why a finished renewal FLIPS to
+#     `state: "done"` instead of being deleted. Deleting it would erase the only record that a
+#     renewal happened OUT OF PANE, where nothing else saw it. `close-run` sweeps the done
+#     entries (`sweep_lifecycle`) and nothing else may.
+#
+# The per-seat record:
+#
+#     {"engineer": {"disposition": "renew",
+#                   "executor": {"pid": 41207, "starttime": "884231"},
+#                   "caller":   {"pid": 41190, "starttime": "884118"},
+#                   "pane": "%37", "tmux-target": "%37",
+#                   "stamped-at": "2026-07-28 16:04",
+#                   "steps-completed": ["caller-exited", "in-place-decided:in-place", "respawned"],
+#                   "state": "in-flight", "failure": ""}}
+#
+# `stamped-at` goes through `now()` AND NOWHERE ELSE — the store writes it itself and overwrites
+# whatever a caller supplies, so the package keeps ONE date format and `lifecycle_age_min` below
+# reads it with `closing_age_min`'s arithmetic unchanged. (It cannot CALL `closing_age_min`: that
+# one reads the key `since`, which is the closing record's name for the same thing.)
+#
+# `executor`/`caller` are normalized to `{"pid": int, "starttime": str}` at the boundary, and that
+# is not tidiness. watch.py's revival detector reads `entry["executor"]["pid"]` and
+# `["starttime"]` and answers False for ANY other shape, so a `(pid, starttime)` TUPLE written
+# straight through would make every LIVE executor read as dead — turning MID-RENEWAL into CRASHED
+# and double-launching the seat, which is the one outcome stages 3 and 4 both exist to prevent.
+
+def lifecycle_path(base):
+    return Path(base) / "lifecycle-inflight.json"
+
+
+def lifecycle_ident(ident):
+    """`{"pid": int, "starttime": str}` from a `(pid, starttime)` tuple, an already-shaped dict, or
+    anything else. `{}` when nothing resolves — NEVER a raise and never a partial dict: this runs
+    inside a marker write, and bookkeeping ABOUT a lifecycle act must not break the act.
+
+    `{}` rather than a pid-only dict on purpose. A pid ALONE is not an identity (`process_identity`
+    carries the reason at length: the kernel recycles pids and a teardown is exactly when new
+    processes start), and a half-identity here would be read as a live executor by a reader that
+    only checked the key's presence."""
+    if isinstance(ident, dict):
+        pid, start = ident.get("pid"), ident.get("starttime")
+    elif isinstance(ident, (tuple, list)) and len(ident) == 2:
+        pid, start = ident
+    else:
+        return {}
+    if pid is None or start is None or str(start) == "":
+        return {}
+    try:
+        return {"pid": int(pid), "starttime": str(start)}
+    except (TypeError, ValueError):
+        return {}
+
+
+def load_lifecycle(base):
+    """{seat: record} — the marker as it stands, `{}` on ANY read or parse failure. NEVER raises.
+
+    Same never-fatal contract as `load_awaiting`, and the same fail-safe direction: a marker that
+    cannot be read must not take down the renewal it is bookkeeping for. A consumer reads
+    `entry.get("disposition", "")` and NEVER `entry["disposition"]` — the blank is not `done`, it
+    is "the executor recorded no intent here", and the INTENT is awaiting-close.json's to state."""
+    path = lifecycle_path(base)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_lifecycle(base, data):
+    atomic_write(lifecycle_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+
+def stamp_lifecycle(base, seat, record):
+    """Write `seat`'s INITIAL record. Returns True/False, NEVER raises.
+
+    Best-effort for `set_awaiting`'s reason one file over: the caller checks the return and SAYS
+    SO when it is False; it does not abandon a renewal over an unwritten marker.
+
+    THE STORE OWNS FOUR FIELDS and overwrites whatever the caller passed for them:
+      `stamped-at`      -> `now()`, always (one date format in the package).
+      `state`           -> `"in-flight"`, always. A stamp IS the start; only `finish_lifecycle`
+                           writes a terminal state, so no caller can stamp a renewal as finished.
+      `steps-completed` -> `[]`, always. A caller able to pre-load it could claim a step before it
+                           ran — the exact inversion the G-134 block rules against.
+      `executor`/`caller` -> normalized through `lifecycle_ident` (see the block above).
+    Every other key the caller supplies is carried through unchanged."""
+    try:
+        rec = dict(record or {})
+        for k in ("executor", "caller"):
+            if k in rec:
+                rec[k] = lifecycle_ident(rec[k])
+        rec["disposition"] = str(rec.get("disposition") or "")
+        rec["failure"] = str(rec.get("failure") or "")
+        rec["state"] = "in-flight"
+        rec["steps-completed"] = []
+        rec["stamped-at"] = now()
+        with coord_lock(base):
+            data = load_lifecycle(base)
+            data[seat] = rec
+            _write_lifecycle(base, data)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def append_lifecycle_step(base, seat, step):
+    """Append ONE verified step to `seat`'s `steps-completed`. Returns True/False, never raises.
+
+    A step can only FOLLOW a stamp: an entry that does not exist is answered False rather than
+    created. A step appended to nothing would be a claim about a renewal this file never saw
+    start, and the caller must learn that immediately rather than read it back later as history."""
+    try:
+        with coord_lock(base):
+            data = load_lifecycle(base)
+            entry = data.get(seat)
+            if not isinstance(entry, dict):
+                return False
+            prior = entry.get("steps-completed")
+            entry["steps-completed"] = ([str(s) for s in prior] if isinstance(prior, list)
+                                        else []) + [str(step)]
+            data[seat] = entry
+            _write_lifecycle(base, data)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def finish_lifecycle(base, seat, state, failure=""):
+    """Terminal write: `state` is `"done"` or `"FAILED"`, `failure` carries the text of the break.
+    Returns True/False, never raises.
+
+    ANY OTHER `state` IS REFUSED (False) rather than written. The sweep in `sweep_lifecycle` keys
+    on these two strings exactly, so a third value would silently become an entry nothing ever
+    clears and nothing ever reads as a failure.
+
+    The entry is NOT deleted here — see the block above. `close-run` is the only sweep."""
+    if state not in ("done", "FAILED"):
+        return False
+    try:
+        with coord_lock(base):
+            data = load_lifecycle(base)
+            entry = data.get(seat)
+            if not isinstance(entry, dict):
+                return False
+            entry["state"] = str(state)
+            entry["failure"] = str(failure or "")
+            data[seat] = entry
+            _write_lifecycle(base, data)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def clear_lifecycle(base, seat):
+    """Remove ONE seat's entry. Returns True when one was actually removed.
+
+    ⚠ RUN TEARDOWN ONLY — `sweep_lifecycle` (and therefore `close-run`) is its ONE caller. NEVER
+    called on success: a successful renewal FLIPS to `state: "done"` via `finish_lifecycle`, and
+    deleting it there would erase the only record that the renewal happened out of pane."""
+    try:
+        with coord_lock(base):
+            data = load_lifecycle(base)
+            if seat not in data:
+                return False
+            del data[seat]
+            _write_lifecycle(base, data)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def lifecycle_age_min(entry, now_str=None):
+    """Minutes since `stamped-at`, or None when the stamp is unreadable.
+
+    `closing_age_min`'s arithmetic and `closing_age_min`'s format, deliberately — but not
+    `closing_age_min` itself, which reads the key `since`. `now_str` (same `"%Y-%m-%d %H:%M"`
+    form) lets a caller or a check supply the reference instant instead of sleeping for it."""
+    try:
+        ref = (datetime.strptime(str(now_str).strip(), "%Y-%m-%d %H:%M") if now_str
+               else datetime.now())
+        return max(0, int((ref - datetime.strptime((entry or {}).get("stamped-at", "").strip(),
+                                                   "%Y-%m-%d %H:%M")).total_seconds() // 60))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def lifecycle_stale(entry, now_str=None):
+    """THE FAILED-RENEWAL PREDICATE. True only when ALL THREE hold:
+
+        1. `entry["state"] == "in-flight"`, AND
+        2. the age of `stamped-at` exceeds `LIFECYCLE_STALE_MIN`, AND
+        3. the executor ident is NOT live, by `ident_is_live_process`.
+
+    ⚠⚠ READ THE COMPLEMENT, BECAUSE THE COMPLEMENT IS WHAT STAGE 4 ACTS ON: an entry that is
+    `in-flight` WITH A LIVE EXECUTOR IS **MID-RENEWAL** — a renewal in progress, which must NEVER
+    be fired on. Getting this one reading backwards turns MID-RENEWAL into CRASHED and
+    DOUBLE-LAUNCHES A SEAT, which is the failure this whole predicate exists to make impossible.
+
+    ⚠ CONJUNCT 3 IS `ident_is_live_process`, NEVER `ident_is_live_harness`. The executor is a
+    PYTHON process; `ident_is_live_harness` rests on `is_harness_argv`, which matches only the
+    claude/codex/opencode basenames in HARNESS_PROCS, so it reports EVERY LIVE EXECUTOR AS DEAD
+    and this predicate would fire on healthy renewals. `ident_is_live_process`'s own docstring
+    states the trap; the two are separate functions with separate names precisely so this line
+    cannot be written by accident.
+
+    FAIL-SAFE DIRECTION IS "NOT STALE". An unreadable stamp, a missing or malformed `executor`
+    ident, a non-dict entry — every unprovable case answers False. Firing wrongly revives a seat
+    that is alive (a double launch); declining wrongly leaves a stuck seat stuck AND REPORTED,
+    which is recoverable. ⚑ The cost of that direction is real and is stated rather than hidden:
+    an `in-flight` entry with no readable executor ident is stale to a human and False here
+    forever — `sweep_lifecycle` will not clear it either, so it survives every close-run and is
+    NAMED in each one's output. That visibility is the remedy; silence would not be."""
+    if not isinstance(entry, dict) or entry.get("state") != "in-flight":
+        return False
+    age = lifecycle_age_min(entry, now_str)
+    if age is None or age <= LIFECYCLE_STALE_MIN:
+        return False
+    ident = lifecycle_ident(entry.get("executor"))
+    if not ident:
+        return False
+    return not ident_is_live_process((ident["pid"], ident["starttime"]))
+
+
+def sweep_lifecycle(base):
+    """`close-run`'s marker sweep. Returns `(cleared, survivors)`: `cleared` is the sorted seats
+    removed, `survivors` is `[(seat, why)]` for every entry this REFUSES to touch. Never fatal —
+    a run stays closable with an unreadable marker, which reads as no entries at all.
+
+    ⚠ ONLY `state: "done"` IS SWEPT, and every survivor is NAMED by the caller. An `in-flight`
+    entry is a renewal that never reported an ending, and clearing it would destroy the one record
+    saying so at the exact moment the run closes and nobody looks again; a `FAILED` entry IS the
+    failure report. An entry left behind SILENTLY is indistinguishable from one never written,
+    which is the G-134 block's own argument for writing the record rather than re-deriving it."""
+    cleared, survivors = [], []
+    snapshot = load_lifecycle(base)
+    for seat in sorted(snapshot):
+        entry = snapshot.get(seat)
+        state = entry.get("state") if isinstance(entry, dict) else None
+        if state == "done":
+            if clear_lifecycle(base, seat):
+                cleared.append(seat)
+            else:
+                survivors.append((seat, "its entry is complete but the marker write FAILED, so "
+                                        "nothing was cleared"))
+        elif state == "in-flight":
+            age = lifecycle_age_min(entry)
+            survivors.append((seat, f"state=in-flight, stamped "
+                                    f"{str(age) + 'min ago' if age is not None else 'unreadably'}"
+                                    f" — a renewal that never reported an ending; this entry is "
+                                    f"the only record that it started"))
+        elif state == "FAILED":
+            survivors.append((seat, f"state=FAILED: "
+                                    f"{(entry.get('failure') or '').strip() or '(no failure text)'}"
+                                    f" — the failure report outlives the run"))
+        else:
+            survivors.append((seat, f"state={state!r} is not a state this store writes — left "
+                                    f"untouched rather than guessed at"))
+    return cleared, survivors
 
 
 def permitted_senders(agent, decls, roster):
@@ -13014,6 +13317,207 @@ def _selftest_checks(args, failures, names):
               "s12-08's ordering property observed through the classifier lens",
               _s9c_landed == _s9c_before and _s9c_landed.count("unread=yes") == 1
               and "unread=no" not in _s9c_landed)
+
+        # ============ s3-03: the LIFECYCLE-INFLIGHT marker store ================================
+        # ⚠ EVERY ROW BELOW ASSERTS ON A RETURN VALUE OR ON `load_lifecycle`'s DICT, NEVER ON FILE
+        # BYTES. `atomic_write` and `_acquire_flock` are rebindable in this suite (and ARE rebound
+        # by the never-fatal row), so a row that read the file directly would be asserting about
+        # the stub rather than about the store — green either way, which is the vacuity this file
+        # has caught before.
+        _lc_base = Path(td) / "lc" / "coordination"
+        _lc_base.mkdir(parents=True)
+        _lc_rec = {"disposition": "renew",
+                   "executor": {"pid": 41207, "starttime": "884231"},
+                   "caller": {"pid": 41190, "starttime": "884118"},
+                   "pane": "%37", "tmux-target": "%37"}
+        _lc_stamped = stamp_lifecycle(_lc_base, "engineer", dict(_lc_rec))
+        _lc_back = load_lifecycle(_lc_base)
+        _lc_e = _lc_back.get("engineer") or {}
+        check("s3-03 (1) ROUND-TRIP: `stamp_lifecycle` returns True and `load_lifecycle` gives "
+              "every caller-supplied field back UNCHANGED under the seat's own key, plus the four "
+              "the store owns — `stamped-at` in `now()`'s format (so `lifecycle_age_min` reads it "
+              "with `closing_age_min`'s arithmetic and the package keeps ONE date format), "
+              "`state: in-flight`, an EMPTY `steps-completed`, and `failure`",
+              _lc_stamped is True
+              and all(_lc_e.get(k) == v for k, v in _lc_rec.items())
+              and _lc_e.get("state") == "in-flight" and _lc_e.get("steps-completed") == []
+              and _lc_e.get("failure") == "" and lifecycle_age_min(_lc_e) == 0)
+        stamp_lifecycle(_lc_base, "leader", {"pane": "%9"})
+        _lc_two = load_lifecycle(_lc_base)
+        check("⚠ s3-03 (1) THE RED ARM: the marker is ONE FILE KEYED BY SEAT. A seat never "
+              "stamped is ABSENT, and a second seat's stamp leaves the first untouched. A flat "
+              "(non-seat-keyed) file would answer for EVERY seat and overwrite on every write, "
+              "and this is the only row that would see it",
+              "leader" not in _lc_back and "beta" not in _lc_two
+              and sorted(_lc_two) == ["engineer", "leader"]
+              and (_lc_two["engineer"] or {}).get("pane") == "%37"
+              and (_lc_two["leader"] or {}).get("pane") == "%9")
+
+        # ---- (2) NEVER FATAL, both directions.
+        _lc_garbage = Path(td) / "lc-garbage" / "coordination"
+        _lc_garbage.mkdir(parents=True)
+        lifecycle_path(_lc_garbage).write_text("{ this is not json", encoding="utf-8")
+        _lc_listy = Path(td) / "lc-listy" / "coordination"
+        _lc_listy.mkdir(parents=True)
+        lifecycle_path(_lc_listy).write_text('["a", "b"]', encoding="utf-8")
+        _lc_absent = Path(td) / "lc-absent" / "coordination"
+        _lc_absent.mkdir(parents=True)
+        try:
+            _lc_reads = (load_lifecycle(_lc_garbage), load_lifecycle(_lc_listy),
+                         load_lifecycle(_lc_absent))
+            _lc_read_raised = ""
+        except Exception as _lc_rexc:           # noqa: BLE001 — the raise IS this row's verdict
+            _lc_reads, _lc_read_raised = None, f"{type(_lc_rexc).__name__}: {_lc_rexc}"
+        check("s3-03 (2) NEVER FATAL on READ: unparseable JSON, VALID JSON of the wrong type (a "
+              "list), and an absent file each read as `{}` and raise NOTHING — `load_awaiting`'s "
+              "fail-safe direction, because a marker that cannot be read must never take down the "
+              "renewal it is bookkeeping for",
+              _lc_read_raised == "" and _lc_reads == ({}, {}, {}))
+        _lc_aw_real = atomic_write
+
+        def _lc_aw_deny(path, text):
+            # PATH-SCOPED, exactly as s12-07 S7-d is. A blanket raise would prove nothing about
+            # THIS store: every ledger in the package goes through the same writer, so the row
+            # would pass for a reason it does not name.
+            if Path(path).name == "lifecycle-inflight.json":
+                raise OSError("selftest: the lifecycle marker write fails")
+            return _lc_aw_real(path, text)
+
+        atomic_write = _lc_aw_deny
+        try:
+            _lc_wf = (stamp_lifecycle(_lc_base, "zeta", {"pane": "%1"}),
+                      append_lifecycle_step(_lc_base, "engineer", "never-happened"),
+                      finish_lifecycle(_lc_base, "engineer", "done"),
+                      clear_lifecycle(_lc_base, "engineer"))
+            _lc_wraised = ""
+        except Exception as _lc_wexc:           # noqa: BLE001 — the raise IS this row's verdict
+            _lc_wf, _lc_wraised = None, f"{type(_lc_wexc).__name__}: {_lc_wexc}"
+        atomic_write = _lc_aw_real
+        _lc_afterfail = load_lifecycle(_lc_base)
+        check("s3-03 (2) NEVER FATAL on WRITE: with the marker write failing, all four writers "
+              "REPORT False rather than raising, and NO HALF-WRITE lands — `zeta` was never "
+              "created, `engineer` is still `in-flight`, carries no step, and was not cleared",
+              _lc_wraised == "" and _lc_wf == (False, False, False, False)
+              and "zeta" not in _lc_afterfail
+              and (_lc_afterfail.get("engineer") or {}).get("state") == "in-flight"
+              and (_lc_afterfail.get("engineer") or {}).get("steps-completed") == [])
+
+        # ---- (3) APPEND ORDER, and a step may only FOLLOW a stamp.
+        _lc_steps_in = ["caller-exited", "in-place-decided:in-place", "respawned"]
+        _lc_appends = [append_lifecycle_step(_lc_base, "engineer", _s) for _s in _lc_steps_in]
+        _lc_orphan = append_lifecycle_step(_lc_base, "nosuchseat", "a step with no stamp")
+        _lc_a = load_lifecycle(_lc_base)
+        check("s3-03 (3) APPEND ORDER: three appends produce the three steps IN ORDER, and a step "
+              "appended to a seat with NO entry returns False rather than creating one. "
+              "`steps-completed` asserts that a step VERIFIED, so a list that could begin without "
+              "a stamp would assert about a renewal this file never saw start",
+              _lc_appends == [True, True, True] and _lc_orphan is False
+              and "nosuchseat" not in _lc_a
+              and (_lc_a.get("engineer") or {}).get("steps-completed") == _lc_steps_in)
+
+        # ---- (4) THE STALENESS PREDICATE, each conjunct isolated.
+        _lc_live_id = {"pid": os.getpid(), "starttime": proc_stat(os.getpid())[1]}
+        _lc_dead_id = {"pid": 999999, "starttime": "1"}
+        _lc_old = (datetime.now()
+                   - timedelta(minutes=LIFECYCLE_STALE_MIN + 5)).strftime("%Y-%m-%d %H:%M")
+        _lc_young = now()
+
+        def _lc_entry(state, stamp, ident):
+            return {"state": state, "stamped-at": stamp, "executor": dict(ident)}
+
+        check("s3-03 (4) THE FIXTURE'S OWN PREMISE, asserted so no row below can be vacuous: this "
+              "process's (pid, starttime) IS live to `ident_is_live_process` and the fabricated "
+              "one is NOT. On a fixture where both idents read the same way, every conjunct-3 row "
+              "would stay green under any mutation of conjunct 3",
+              ident_is_live_process((_lc_live_id["pid"], _lc_live_id["starttime"])) is True
+              and ident_is_live_process((_lc_dead_id["pid"], _lc_dead_id["starttime"])) is False)
+        check("s3-03 (4a) CONJUNCT 1 ISOLATED: `state=done` + old + DEAD executor is NOT stale — "
+              "a completed renewal is never a failed one, however long ago it completed",
+              lifecycle_stale(_lc_entry("done", _lc_old, _lc_dead_id)) is False)
+        check("s3-03 (4b) CONJUNCT 2 ISOLATED: `in-flight` + YOUNG + dead executor is NOT stale — "
+              "inside LIFECYCLE_STALE_MIN a renewal has not had time to fail, and its executor is "
+              "not yet observable to a reader that arrives mid-fork",
+              lifecycle_stale(_lc_entry("in-flight", _lc_young, _lc_dead_id)) is False)
+        check("⚠⚠ s3-03 (4c) CONJUNCT 3 ISOLATED — THE MID-RENEWAL ROW, and the one that "
+              "DOUBLE-LAUNCHES A SEAT when it is wrong: `in-flight` + old + a LIVE executor is "
+              "NOT stale. Stage 4 reads exactly this complement as MID-RENEWAL and must never "
+              "fire on it. However old the stamp, a running executor is a renewal in progress",
+              lifecycle_stale(_lc_entry("in-flight", _lc_old, _lc_live_id)) is False)
+        check("s3-03 (4d) ALL THREE TOGETHER: `in-flight` + old + DEAD executor IS stale — the "
+              "failed renewal, and the ONLY combination that is",
+              lifecycle_stale(_lc_entry("in-flight", _lc_old, _lc_dead_id)) is True)
+        check("s3-03 (4) THE FAIL-SAFE DIRECTION: an unreadable stamp, a missing executor ident, "
+              "and a non-dict entry all answer NOT stale. Firing wrongly revives a seat that is "
+              "alive; declining wrongly leaves a stuck seat stuck AND named in every close-run's "
+              "output, which is recoverable",
+              lifecycle_stale({"state": "in-flight", "stamped-at": "not a date",
+                               "executor": dict(_lc_dead_id)}) is False
+              and lifecycle_stale({"state": "in-flight", "stamped-at": _lc_old}) is False
+              and lifecycle_stale(None) is False)
+
+        # ---- (5) THE PREDICATE-CHOICE GUARD, and the record shape watch.py reads.
+        check("⚠ s3-03 (5) THE PREDICATE-CHOICE GUARD, IN-SUITE: the two predicates DISAGREE on "
+              "this very ident — `ident_is_live_process` says LIVE, `ident_is_live_harness` says "
+              "DEAD, because `is_harness_argv` matches only the claude/codex/opencode basenames "
+              "and the lifecycle executor is PYTHON. Swapping conjunct 3 to the harness predicate "
+              "would turn row (4c) from MID-RENEWAL into a fired staleness, i.e. a double launch. "
+              "This row is what makes (4c) DISCRIMINATING rather than merely green",
+              ident_is_live_process((_lc_live_id["pid"], _lc_live_id["starttime"])) is True
+              and ident_is_live_harness((_lc_live_id["pid"], _lc_live_id["starttime"])) is False)
+        _lc_tup = Path(td) / "lc-tuple" / "coordination"
+        _lc_tup.mkdir(parents=True)
+        stamp_lifecycle(_lc_tup, "engineer", {"executor": (4242, "884231"),
+                                              "caller": [4240, "884118"]})
+        _lc_tv = load_lifecycle(_lc_tup).get("engineer") or {}
+        check("s3-03 (5) THE SHAPE watch.py READS: `executor`/`caller` normalize to "
+              "`{'pid': int, 'starttime': str}` whatever form the caller hands over, and a "
+              "half-identity resolves to `{}` rather than a pid-only dict. watch.py's "
+              "`_executor_ident_live` reads `entry['executor']['pid']`/`['starttime']` and answers "
+              "False for any other shape, so a (pid, starttime) TUPLE written straight through "
+              "would make every LIVE executor read DEAD and double-launch the seat",
+              _lc_tv.get("executor") == {"pid": 4242, "starttime": "884231"}
+              and _lc_tv.get("caller") == {"pid": 4240, "starttime": "884118"}
+              and lifecycle_ident("nonsense") == {} and lifecycle_ident((7, "")) == {}
+              and lifecycle_ident({"pid": 7}) == {})
+
+        # ---- (6) THE CLOSE-RUN SWEEP.
+        _lc_pkg = Path(td) / "lc-run"
+        (_lc_pkg / "coordination").mkdir(parents=True)
+        (_lc_pkg / "runs.csv").write_text(
+            "run-id,type,state,taskforce-ids,opened,closed\n"
+            "lc-run,goal,open,tf-lc,2026-07-29 09:00,\n", encoding="utf-8")
+        _lc_sb = _lc_pkg / "coordination"
+        for _s in ("alpha", "beta"):
+            stamp_lifecycle(_lc_sb, _s, {"disposition": "renew", "pane": "%1"})
+            finish_lifecycle(_lc_sb, _s, "done")
+        stamp_lifecycle(_lc_sb, "gamma", {"disposition": "renew", "pane": "%2"})
+        stamp_lifecycle(_lc_sb, "delta", {"disposition": "renew", "pane": "%3"})
+        finish_lifecycle(_lc_sb, "delta", "FAILED", "the respawned harness never came up")
+        _lc_pre = sorted(load_lifecycle(_lc_sb))
+        _lc_close_out = run(cmd_close_run, package=str(_lc_pkg), as_agent="leader")
+        _lc_post = load_lifecycle(_lc_sb)
+        check("s3-03 (6) THE CLOSE-RUN SWEEP: on a marker holding two `done` entries, one "
+              "`in-flight` and one `FAILED`, `close-run` clears EXACTLY the two done ones, leaves "
+              "the other two, and NAMES each survivor with its reason. Without this sweep "
+              "`clear_lifecycle` ships with zero callers and 'swept by the next close-run' is "
+              "fiction — done entries would accumulate for the life of the goal",
+              _lc_pre == ["alpha", "beta", "delta", "gamma"]
+              and sorted(_lc_post) == ["delta", "gamma"]
+              and "lifecycle marker: swept 2 completed entries (alpha, beta)" in _lc_close_out
+              and "lifecycle marker: LEFT gamma — state=in-flight" in _lc_close_out
+              and "lifecycle marker: LEFT delta — state=FAILED: the respawned harness never "
+                  "came up" in _lc_close_out)
+        check("s3-03 (6) THE TERMINAL WRITE IS BOUNDED: `finish_lifecycle` refuses any state that "
+              "is not `done` or `FAILED`, refuses a seat with no entry rather than creating one, "
+              "and `clear_lifecycle` answers False on an absent seat. The sweep keys on those two "
+              "strings EXACTLY, so a third value would become an entry nothing ever clears and "
+              "nothing ever reads as a failure",
+              finish_lifecycle(_lc_sb, "gamma", "finished") is False
+              and finish_lifecycle(_lc_sb, "nosuchseat", "done") is False
+              and "nosuchseat" not in load_lifecycle(_lc_sb)
+              and clear_lifecycle(_lc_sb, "nosuchseat") is False
+              and (load_lifecycle(_lc_sb).get("gamma") or {}).get("state") == "in-flight")
+
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
