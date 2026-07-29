@@ -1077,8 +1077,13 @@ def check_system(args, sysstate, notes):
             f"load={sp['load1']}/{sp['cores']}  {' '.join(flags)}")
 
 
-def check_budget(base, notes, prev_hb):
+def check_budget(base, notes, prev_hb, snap, snap_err):
     """ROOM CAPACITY — declared cap vs the live census. Returns (report_line, state).
+
+    `snap`/`snap_err` are the ONE state.json snapshot `run_pass` hoists (s4-02) — the same pair
+    `check_revival` (s4-03) consumes — never loaded privately here anymore. `snap_err` MUST stay
+    distinguishable from `snap is None` with no error: a budget declared-but-unreadable and no
+    budget declared are DIFFERENT FACTS (see the LOUD/SILENT split below).
 
     Box-level, so it sits beside `check_system` rather than in the per-seat loop: capacity is not
     a property of any seat, the same call `check_daemon` made for the daemon.
@@ -1113,9 +1118,10 @@ def check_budget(base, notes, prev_hb):
     # ⚠ THE RUN ROOT, NOT `base`. `base` is coord.base_dir() = {run}/coordination/, and both inputs
     # live one level up at the run root. The first version of this read them from `base`, found
     # neither, and took the fail-soft branch below EVERY PASS — a flag that could never fire, in
-    # either direction, forever.
+    # either direction, forever. `state.json` is no longer read HERE (s4-02 hoisted it into
+    # `run_pass`, same root, same hazard note) — `bpath` is the one load this function still owns.
     root = base.parent
-    bpath, spath = root / "budget.json", root / "state.json"
+    bpath = root / "budget.json"
 
     # SILENT: no budget is declared here. The normal case for every other package, and it must stay
     # silent or this module cannot be shipped kit-wide.
@@ -1128,7 +1134,7 @@ def check_budget(base, notes, prev_hb):
     # and failure to read a declaration are DIFFERENT FACTS; collapsing them is how this recurs
     # invisibly the next time a path moves, and tasks 7.32/7.33 WILL move this code.
     b, err_b = budget_mod._load(str(bpath), "budget.json")
-    s, err_s = budget_mod._load(str(spath), "state.json")
+    s, err_s = snap, snap_err
     prev = (prev_hb or {}).get("budget") or {}
     if err_b or err_s:
         if not prev.get("broken"):  # once per episode, like every other flag here
@@ -1231,9 +1237,13 @@ def run_pass(args):
     # leftover dead window is invisible to the per-seat loop (its seats have no active row).
     sysstate = load_sys_state(base)
     sysline = check_system(args, sysstate, notes)
+    # ONE state.json snapshot, taken now and reused by both check_budget below and check_revival
+    # (s4-03) — the single reading s4-02 hoists so a second consumer never gets a second load of
+    # the same fact. THE RUN ROOT, NOT `base` — see the hazard note inside check_budget.
+    snap, snap_err = budget_mod._load(str(base.parent / "state.json"), "state.json")
     # Room capacity is box-level too. Read the PREVIOUS heartbeat before this pass overwrites it —
     # the re-arm comparison needs the prior breach state, and save_heartbeat rewrites the file whole.
-    budgetline, budget_state = check_budget(base, notes, load_heartbeat(base))
+    budgetline, budget_state = check_budget(base, notes, load_heartbeat(base), snap, snap_err)
     # G-188 push half: the daemon is box-level, not a seat, so it runs here with the other
     # box duties. ONE reading, taken now and reused by save_heartbeat at the end of the pass.
     daemon, daemon_change = daemon_reading(base)
