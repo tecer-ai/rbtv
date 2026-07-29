@@ -3219,8 +3219,12 @@ def awaiting_path(base):
 
 
 def load_awaiting(base):
-    """{seat: {"since", "pane", "transcript", "exported"}} — seats that finished their own
-    lifecycle and whose resources the leader has not yet freed.
+    """{seat: {"since", "pane", "transcript", "exported", "pids", "disposition", "handoff_stamp"}}
+    — seats that finished their own lifecycle and whose resources the leader has not yet freed.
+
+    ⚠ EVERY CONSUMER READS `entry.get("disposition", "done")`, NEVER `entry["disposition"]`. This
+    returns whatever is on disk, and run packages written before s12-07 hold records with neither
+    of the last two keys. The absent-key reading is `done`, which is what those records meant.
 
     Never fatal, same as `load_closing`: an unreadable file reads as "no debt". The fail-safe
     direction differs from closing's for a reason worth stating — a lost entry costs a leaked pane
@@ -3237,7 +3241,7 @@ def load_awaiting(base):
     return data if isinstance(data, dict) else {}
 
 
-def set_awaiting(base, seat, pane, transcript, exported):
+def set_awaiting(base, seat, pane, transcript, exported, disposition="done", handoff_stamp=""):
     """Record the debt at checkout. Best-effort: bookkeeping ABOUT a checkout must never break the
     checkout itself — 7.37 already ruled that shape for the session trace, and a seat that cannot
     check out is worse than a debt nobody recorded.
@@ -3245,7 +3249,18 @@ def set_awaiting(base, seat, pane, transcript, exported):
     `exported` is stored rather than inferred from `transcript` being truthy, because the two
     genuinely differ: an export can be SKIPPED (a dead pane, `--no-export`) and #259's mapping
     gates the kill on the transcript EXISTING. A reaper must be able to tell "safe to kill" from
-    "not yet safe" without re-running the export to find out."""
+    "not yet safe" without re-running the export to find out.
+
+    s12-07: `disposition` is `done` or `renew` — WHICH checkout this was — and `handoff_stamp` is
+    the ISO stamp of the block that checkout appended (`""` when it appended none). Both are
+    STORED for the same reason `exported` is: they are known FOR CERTAIN here, at the moment of
+    truth, and at no later moment. `reap` gates a pane KILL on the disposition, so inferring it
+    from an adjacent observable would be the seventh infer-from-ambient defect this run has
+    catalogued — and the first one that kills a pane a renewal is about to respawn into.
+
+    The default is `done` so every pre-s12-07 caller keeps its meaning unchanged; the checkout
+    passes BOTH arms explicitly anyway, because a default a reader must chase is not an assertion.
+    Both are coerced with `str()` at the boundary for the reason the record below states."""
     try:
         with coord_lock(base):
             data = load_awaiting(base)
@@ -3261,7 +3276,12 @@ def set_awaiting(base, seat, pane, transcript, exported):
                           # "no human on this pane" becomes an ASSERTION recorded at the moment it
                           # was true, rather than a guess made at kill time about a pane someone
                           # may have repurposed in between.
-                          "pids": [[p, s] for p, s in (pane_harness_idents(pane) if pane else [])]}
+                          "pids": [[p, s] for p, s in (pane_harness_idents(pane) if pane else [])],
+                          # s12-07, str()-coerced for the same reason the transcript is: these
+                          # arrive from a caller, and a non-serializable value here would raise
+                          # INSIDE the checkout this record is bookkeeping for.
+                          "disposition": str(disposition or "done"),
+                          "handoff_stamp": str(handoff_stamp or "")}
             atomic_write(awaiting_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
         return True
     except (OSError, ValueError):
@@ -3348,6 +3368,26 @@ def reap_blockers(entry, age, panes, decls=None, seat=None):
     elif age < REAP_MIN_AGE_MIN:
         out.append(f"only {age}min old (needs {REAP_MIN_AGE_MIN}min — a renewal decision may be "
                    f"in flight, and in-place renew needs this pane alive)")
+    # [INTEGRATION POINT — STAGE 3: the executor clears this]
+    # s12-07. The age blocker above is a HEURISTIC about a renewal that MIGHT be in flight; this is
+    # the ASSERTION that one IS — recorded by the checkout itself, at the one moment it was known.
+    # It outlives the age window on purpose: `awaiting-close.json` deliberately does not expire, and
+    # a renewal that has not been acted on in 15 minutes is more dangerous to reap, not less.
+    # Reaping here kills the pane the renewal respawns INTO (G-12 renews in place), so the two
+    # legitimately coexist and this one is the durable half.
+    #
+    # ⚠ UNTIL STAGE 3 EXISTS, EVERY `renew` ENTRY BLOCKS, AND THAT IS THE CORRECT READING, NOT A
+    # STUB. "Has not acted yet" is decidable from the record only because nothing can have acted:
+    # there is no executor. Stage 3 releases the block by CLEARING THE ENTRY or FLIPPING THE
+    # DISPOSITION — `clear_awaiting` already exists and is `close-seat`'s; whether it is also the
+    # executor's is Stage 3's ruling to make. Nothing here invents a clearing mechanism.
+    #
+    # ⚠ `.get("disposition", "done")`, NEVER `entry["disposition"]`. Records written before this
+    # field existed sit in live run packages right now, and a KeyError here would take down the
+    # whole sweep that reads them rather than skipping the one entry.
+    if (entry or {}).get("disposition", "done") == "renew":
+        out.append("its checkout recorded disposition=renew and the renewal executor has not "
+                   "acted yet — reaping now would kill the pane the renewal needs")
     recorded = [(int(p), str(s)) for p, s in (entry or {}).get("pids") or []]
     tpath = (entry or {}).get("transcript") or ""
     if not entry.get("exported") or not tpath:
@@ -3748,6 +3788,18 @@ def cmd_checkin(args):
 
 HANDOFF_TOKEN = "coord:handoff"   # the delimiter word — and the one literal a note body may not carry
 HANDOFF_V = "v=1"                 # on BOTH delimiters, so a half-written block is detectable
+HANDOFF_STAMP_FMT = "%Y-%m-%dT%H:%M:%S"
+
+
+def handoff_stamp_text(when):
+    """The block's `stamped=` value — ONE formatter, for BOTH of its consumers.
+
+    s12-07 stores this exact string in `awaiting-close.json`'s `handoff_stamp`, and the two must be
+    byte-identical: the record is what a later reader uses to find the block it describes. So the
+    clock is read ONCE at the call site and formatted HERE for the block and for the record alike.
+    Two `datetime.now()` calls can straddle a second — a whole second apart, with nothing able to
+    notice — and a second format string is the same drift with an extra way to go wrong."""
+    return when.strftime(HANDOFF_STAMP_FMT)
 
 
 def handoff_block_text(seat, session, disposition, note, when=None):
@@ -3761,7 +3813,7 @@ def handoff_block_text(seat, session, disposition, note, when=None):
     stamp = when or datetime.now()
     return (
         f"<!-- {HANDOFF_TOKEN} {HANDOFF_V} seat={seat} session={session or 'unknown'} "
-        f"disposition={disposition} stamped={stamp.strftime('%Y-%m-%dT%H:%M:%S')} unread=yes -->\n"
+        f"disposition={disposition} stamped={handoff_stamp_text(stamp)} unread=yes -->\n"
         f"## Handoff → next session of `{seat}` ({stamp.strftime('%Y-%m-%d %H:%M')})\n"
         f"\n"
         f"{note}\n"
@@ -3844,6 +3896,10 @@ def cmd_checkout(args):
     # nothing: at this point nothing has been read, written, captured or muted.
     renew = getattr(args, "renew", False)
     handoff = getattr(args, "handoff", None)
+    # s12-07: set by CALL 2 only, and read at the single `set_awaiting` both paths fall through to.
+    # The done path records "" because it appended no block — an empty stamp is the honest value,
+    # never a placeholder time.
+    handoff_stamp = ""
     if handoff is not None and not renew:
         refuse(
             "input",
@@ -3918,9 +3974,16 @@ def cmd_checkout(args):
         memory_path = folder / "memory.md"
         # The session id is resolved HERE, before the body: `session_close` below stamps `ended` on
         # exactly the row this reads, and the block must name the session that WROTE it.
+        # ONE clock reading, formatted ONCE, for both the block and the awaiting-close record
+        # (s12-07). Letting `handoff_block_text` take its own `datetime.now()` and computing the
+        # record's stamp separately would put two readings around one write, and the pair would
+        # disagree by a whole second whenever they straddled one — silently, and only sometimes.
+        handoff_when = datetime.now()
+        handoff_stamp = handoff_stamp_text(handoff_when)
         handoff_ok, handoff_why = append_handoff(
             base, memory_path,
-            handoff_block_text(me, session_id_open(args, me), "renew", handoff))
+            handoff_block_text(me, session_id_open(args, me), "renew", handoff,
+                               when=handoff_when))
         if not handoff_ok:
             refuse(
                 "state",
@@ -3951,12 +4014,18 @@ def cmd_checkout(args):
     # `close-seat` kills the pane. Assert that debt here, at the one moment every input is known
     # for certain, instead of leaving a later pass to reconstruct it from roster + tmux + fs.
     #
-    # [s12-07] THE DISPOSITION FIELD IS NOT WRITTEN HERE, AND ITS ABSENCE IS DELIBERATE. Both
-    # paths — done and renew — call this exactly as the done path always has. `s12-07` owns adding
-    # `disposition` / `handoff_stamp` to the per-seat record and the matching `reap` blocker;
-    # inventing the field here would give `cmd_reap` a key it does not read and `watch.py` a
-    # second surface to reconcile, which is the drift that task exists to avoid.
-    if set_awaiting(base, me, (row or {}).get("pane", ""), out, not err):
+    # s12-07: WHICH checkout this was, ASSERTED here rather than inferred later. Both paths — done
+    # and renew — fall through to this ONE call site, and `renew` is the branch discriminant, in
+    # scope on this very line. It is passed EXPLICITLY on both arms even though `done` is the
+    # default: at the one place the answer is known, a value a reader must chase to a signature is
+    # not an assertion. `handoff_stamp` is call 2's stamp, byte-identical to the block's `stamped=`
+    # because both come from one clock reading through one formatter; the done path passes "".
+    #
+    # It goes in THIS record, never a second file. A second surface would force `cmd_reap` and
+    # `watch.py` to reconcile two of them, re-importing the re-derivation hazard the comment block
+    # at the top of this section exists to name.
+    if set_awaiting(base, me, (row or {}).get("pane", ""), out, not err,
+                    disposition=("renew" if renew else "done"), handoff_stamp=handoff_stamp):
         print(f"awaiting close: {me} recorded — its pane is STILL LIVE until leader runs "
               f"`{coord_invocation(args)} close-seat {me}`")
     sid, cerr = session_trace_safe(session_close, args, me)   # 7.37: checkout ends the session as surely as a close does
@@ -3992,8 +4061,9 @@ def checkout_renew_arm(args, base, me):
     `d-close-renew-decider-recorded` — the SEAT decides its own renew/refresh; no agent stands in
     the execution path and there is no `--force`. That is only safe if the call itself is safe to
     make, so this one does NOT export, does NOT flip the roster row, and records no
-    awaiting-close debt (the G-134 debt is the DONE path's; the renew disposition is s12-07's to
-    write at call 2). All it does is mute the seat's wakes and print the second call.
+    awaiting-close debt (the G-134 debt is the DONE path's, and the record carrying
+    `disposition=renew` is written by CALL 2, at the moment something actually closes — s12-07).
+    All it does is mute the seat's wakes and print the second call.
 
     ⚠ THE TWO REFUSALS FIRE BEFORE THE ARMING, NEVER AFTER. A flat-file seat has no folder and so
     no `memory.md` for a handoff to land in, and a `close: mechanical` seat (G-23) is memoryless BY
@@ -10577,11 +10647,27 @@ def _selftest_checks(args, failures, names):
             "---\nagent: door2\nharness: claude\nmodel: opus\nrelays: master\n---\nbrief\n")
         _rt = pkg / "reap-probe-transcript.txt"
         _rt.write_text("scrollback", encoding="utf-8")
-        live_tmux_panes["v"] = {"%81", "%82"}
+        live_tmux_panes["v"] = {"%81", "%82", "%83"}
         set_awaiting(base_g, "door2", "%81", str(_rt), True)
         set_awaiting(base_g, "free2", "%82", str(_rt), True)
+        # s12-07's fixture seat. `renew2` passes EVERY OTHER precondition — a live pane, the
+        # harness identity it checked out with, an exported transcript that EXISTS on disk, and an
+        # age past the policy minimum — with no `relays:` declaration, so the ONLY thing that can
+        # hold it is its disposition. It carries a NON-EMPTY handoff_stamp deliberately: the
+        # inference mutant (`"renew" if handoff_stamp else "done"`) must leave THIS seat blocked,
+        # so that mutation reds S7-a alone and never S2-h and S7-b along with it.
+        # ⚠ GUARDED (G-215(a)): before the keyword parameters exist this call raises TypeError,
+        # and a raise here would abort the suite instead of failing the rows that name the gap.
+        try:
+            _s7_seeded = bool(set_awaiting(base_g, "renew2", "%83", str(_rt), True,
+                                           disposition="renew",
+                                           handoff_stamp="2026-07-29T12:00:00"))
+        except TypeError:
+            _s7_seeded = False
         _aw2 = load_awaiting(base_g)
-        for _s in ("door2", "free2"):
+        for _s in ("door2", "free2", "renew2"):
+            if _s not in _aw2:      # G-215(a): an unseeded fixture fails its rows, never the suite
+                continue
             # Aged past the policy minimum and already confirmed once, so READY is genuinely
             # REACHABLE here. Without that, a mutant would be stopped one guard later by the
             # two-pass rule and these rows could not fail whatever the guard did (bar 11).
@@ -10598,6 +10684,14 @@ def _selftest_checks(args, failures, names):
               "the reader to improvise the destructive command from memory",
               "READY to reap" in _rpo and "%82" in _rpo
               and "reap --go" in _rpo and killed == [])
+        check("s12-07 S2-h: a renew disposition HOLDS THE REAPER, and the dry pass says WHY — the "
+              "HELD line names `disposition=renew` and states the remedy in the leader's own "
+              "terms: the renewal executor has not acted yet, and the pane a reap would free is "
+              "the one that renewal needs. A gate that answers only yes/no teaches nobody why the "
+              "run is leaking, and this is the one blocker whose remedy is another act, not time",
+              _s7_seeded and "renew2" in _rpo and "HELD" in _rpo
+              and "disposition=renew" in _rpo
+              and "reaping now would kill the pane the renewal needs" in _rpo)
         _aw3 = load_awaiting(base_g)
         _aw3["free2"]["confirmed"] = []
         atomic_write(awaiting_path(base_g), json.dumps(_aw3, indent=2, sort_keys=True) + "\n")
@@ -10606,7 +10700,9 @@ def _selftest_checks(args, failures, names):
               "one nobody reads, and this one names a command that kills panes",
               "reap --go" not in _rpq and "READY to reap" not in _rpq)
         _aw4 = load_awaiting(base_g)
-        for _s in ("door2", "free2"):
+        for _s in ("door2", "free2", "renew2"):
+            if _s not in _aw4:      # G-215(a), same reason as the seeding loop above
+                continue
             _aw4[_s]["confirmed"] = ["2026-01-01 00:00"]
         atomic_write(awaiting_path(base_g), json.dumps(_aw4, indent=2, sort_keys=True) + "\n")
         killed.clear()
@@ -10618,8 +10714,44 @@ def _selftest_checks(args, failures, names):
               "it. (The kill itself is separately barred by the two-pass ledger, which resets on "
               "a blocked pass — this row claims the REPORT, not the kill)",
               "DOOR, not a leak" in _rgo and "%81" not in killed and "%82" in killed)
+        check("s12-07 S7-b: `reap` and `reap --go` AGREE about a renew entry — the same seat is "
+              "held on the DRY pass and on the KILLING one, and --go frees NOTHING for it while "
+              "freeing its neighbour in the same sweep. The blocker lives in `reap_blockers`, "
+              "which BOTH passes call, precisely so a guard cannot exist on the pass that reports "
+              "and be missing from the pass that kills",
+              _s7_seeded and "renew2" in _rpo and "renew2" in _rgo
+              and "%83" not in killed and "%82" in killed)
+        # ---- S7-a: the field is STORED, never inferred ----
+        # ⚠ THE FIXTURE IS THE CHECK — the same lesson the `exported` row one block above records.
+        # The CONTROL passes every precondition and is blocked by NOTHING, so whatever blocks the
+        # other two can only be the disposition. And both discriminating records make the STORED
+        # field DISAGREE with the handoff stamp an inference would reach for instead:
+        #   renew WITHOUT a stamp — `"renew" if handoff_stamp else "done"` answers `done`, so an
+        #                           inference LOSES the block this row demands;
+        #   done WITH a stamp     — that same inference answers `renew`, so it INVENTS a block
+        #                           this row forbids.
+        # A fixture whose field and stamp AGREE would be green over the exact inference it exists
+        # to forbid, which is how the earlier `exported` bar shipped.
+        _s7_age = REAP_MIN_AGE_MIN + 5
+        _s7_pass = {"since": now(), "pane": "%83", "transcript": str(_rt), "exported": True,
+                    "pids": [[4242, "stamp-4242"]], "disposition": "done", "handoff_stamp": ""}
+        _s7_b_control = reap_blockers(_s7_pass, _s7_age, {"%81", "%82", "%83"})
+        _s7_b_renew = reap_blockers(dict(_s7_pass, disposition="renew"), _s7_age,
+                                    {"%81", "%82", "%83"})
+        _s7_b_stamped = reap_blockers(dict(_s7_pass, handoff_stamp="2026-07-29T12:00:00"),
+                                      _s7_age, {"%81", "%82", "%83"})
+        check("s12-07 S7-a: the disposition is STORED, not INFERRED. The control record passes "
+              "every other precondition — live pane, the harness identity it checked out with, an "
+              "exported transcript that is still on disk, aged past the policy minimum — and is "
+              "held by nothing, so the renew record's blocker can only be about the disposition. "
+              "Both discriminating records disagree with the stamp on purpose: renew-with-no-stamp "
+              "must still block, done-with-a-stamp must still pass",
+              _s7_b_control == []
+              and len(_s7_b_renew) == 1 and "disposition=renew" in _s7_b_renew[0]
+              and _s7_b_stamped == [])
         clear_awaiting(base_g, "door2")
         clear_awaiting(base_g, "free2")
+        clear_awaiting(base_g, "renew2")
         _rt.unlink()
         _sh_rp = __import__("shutil")
         _sh_rp.rmtree(pkg / "workers" / "door2")
@@ -11938,6 +12070,16 @@ def _selftest_checks(args, failures, names):
         run(cmd_checkin, agent="gamma", summary="s12-06 call-2 fixture", pane="%71", force=True)
         _h6_gout, _h6_gcode = _h6("gamma", _h6_note)
         _h6_glanded = _h6_gmem.read_text(encoding="utf-8")
+        # s12-07 S7-e's measurement, taken HERE and not later: the DONE checkout a few rows down
+        # overwrites gamma's awaiting-close record, so the renew record must be banked before it.
+        # ⚠ `partition`, never `index` (G-215(a)): in a build that writes no block an `index` call
+        # would RAISE inside a check condition and abort the suite, taking every row behind it
+        # unrun. An absent block leaves the stamp `""`, which FAILS the row instead.
+        _h6_aw_renew = dict(load_awaiting(base_g).get("gamma") or {})
+        _h6_stamped = next(
+            (t[len("stamped="):] for t in
+             _h6_glanded.partition(_h6_open)[2].partition("-->")[0].split()
+             if t.startswith("stamped=")), "")
 
         check("s12-06 S2-b: the handoff LANDS and the write is APPEND-ONLY — after call 2 gamma's "
               "memory.md still opens with its original bytes and now carries exactly ONE handoff "
@@ -11960,6 +12102,15 @@ def _selftest_checks(args, failures, names):
               "the one moment nobody is left who can check it",
               _h6_gcode is None and ("\n" + _h6_note + "\n") in _h6_glanded)
 
+        check("s12-07 S7-e: the `handoff_stamp` in awaiting-close.json is the block's `stamped=` "
+              "attribute BYTE-FOR-BYTE — ONE clock reading, ONE formatter, both consumers. Two "
+              "`datetime.now()` calls can straddle a second, and then the record and the block it "
+              "describes carry different times with nothing downstream able to tell which block a "
+              "record belongs to. Asserted against the stamp READ BACK OUT of the file, never "
+              "against a second computation of it",
+              _h6_gcode is None and _h6_stamped != ""
+              and _h6_aw_renew.get("handoff_stamp") == _h6_stamped)
+
         # S2-d is deliberately TWO-CLAUSE. "memory.md is unchanged by a bare checkout" is VACUOUSLY
         # true in a build where nothing ever writes memory.md — the row would pass for the ABSENCE
         # of the feature it exists to bound. Clause (a) pins the block call 2 just wrote, so the
@@ -11974,6 +12125,16 @@ def _selftest_checks(args, failures, names):
               "anything to). Without that second clause the row would pass in a build where no "
               "path writes a handoff at all",
               _h6_done_before.count(_h6_open) == 1 and _h6_done_after == _h6_done_before)
+
+        _h6_aw_done = dict(load_awaiting(base_g).get("gamma") or {})
+        check("s12-07 S2-d (second half): a DONE check-out RECORDS ITS DISPOSITION — the very seat "
+              "whose renew checkout wrote `renew` a moment earlier now carries `done`, with no "
+              "handoff stamp, because it wrote no block. THE PAIRING IS THE ROW: a build that "
+              "hardcodes either value satisfies one half and fails the other, which a single-value "
+              "assertion could not tell apart from a build that decides",
+              _h6_aw_done.get("disposition") == "done"
+              and _h6_aw_done.get("handoff_stamp") == ""
+              and _h6_aw_renew.get("disposition") == "renew")
 
         check("s12-06 S6-i: the DONE path's closing text no longer teaches `close <me> --renew` as "
               "the seat's follow-up — renewal is the SEAT's own act now, so a hint still routing "
@@ -12089,12 +12250,96 @@ def _selftest_checks(args, failures, names):
         # lives in, so a whole literal here would be its own third hit and the count could never
         # reach 2 however correct the code was.
         _h6_ip = "[INTEGRATION POINT " + "— STAGE 3"
-        check("s12-06 S6-h: BOTH Stage-3 seams exist and are GREPPABLE — the module source carries "
-              "the named marker exactly twice, once on the renew path (fork the detached executor) "
-              "and once on the done path (fork the detached reaper). Stage 3 wires them to the "
-              "`arm_pid_reaper` pattern; a named comment is how the two sites stay findable "
-              "instead of being re-derived from a spec nobody reads at the time",
-              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 2)
+        check("s12-06 S6-h: EVERY Stage-3 seam exists and is GREPPABLE — the module source carries "
+              "the named marker exactly THREE times: the renew path's fork (the detached "
+              "executor), the done path's fork (the detached reaper), and — added by s12-07 — the "
+              "`reap_blockers` block that every renew disposition holds until that executor "
+              "releases it. Stage 3 wires the first two to the `arm_pid_reaper` pattern and rules "
+              "how it clears the third; a named comment is how the sites stay findable instead of "
+              "being re-derived from a spec nobody reads at the time",
+              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 3)
+
+        # ============ s12-07: the DISPOSITION in awaiting-close.json =============================
+        # Spec: stage-1-2-gate-checkout-spec.md §2.3. The rows that need a live pane, a recorded
+        # harness identity and an on-disk transcript (S2-h, S7-a, S7-b) sit with the `reap`
+        # fixture far above; the two that read call 2's own record (S2-d's second half, S7-e) sit
+        # with s12-06's subject, because that record is overwritten by the done checkout that
+        # follows it. What is left here needs none of that: the legacy record, the non-fatal
+        # property, and the caller sweep.
+
+        # ---- S7-c: a record written BEFORE this field existed ----
+        # ⚠ COMPUTED THROUGH A GUARD, AND THE GUARD IS HALF THE ROW. The mutation this row exists
+        # to catch is `entry["disposition"]`, which RAISES on exactly this record — and a raise
+        # inside a check's condition aborts the whole suite and takes every row behind it unrun
+        # (G-215(a)). The sentinel converts that raise into THIS row's failure.
+        _s7c_legacy = {"since": now(), "pane": "%84", "transcript": "/tmp/gone-s12-07",
+                       "exported": True, "pids": [[4242, "stamp-4242"]]}
+        try:
+            _s7c_out = reap_blockers(_s7c_legacy, REAP_MIN_AGE_MIN + 5, {"%84"})
+            _s7c_raised = ""
+        except Exception as _s7c_exc:               # noqa: BLE001 — the raise IS this row's verdict
+            _s7c_out, _s7c_raised = [], f"{type(_s7c_exc).__name__}: {_s7c_exc}"
+        check("s12-07 S7-c: a record written BEFORE this field existed reads as `done` and NEVER "
+              "raises — every consumer goes through `.get(\"disposition\", \"done\")`. Live run "
+              "packages hold such records on disk right now, and a KeyError here would take down "
+              "the whole sweep that reads them, not merely skip the one entry",
+              _s7c_raised == "" and "disposition" not in _s7c_legacy
+              and not any("disposition=renew" in b for b in _s7c_out))
+
+        # ---- S7-d: `set_awaiting` stays NON-FATAL ----
+        # ⚠ THE FAILURE IS SCOPED TO awaiting-close.json, never a blanket raise. `cmd_checkout`
+        # writes the roster row and the session trace through the SAME `atomic_write`, so a
+        # blanket raise would take the checkout down for reasons that have nothing to do with this
+        # record, and the row would prove nothing about the bookkeeping. Path-scoped, the subject
+        # IS the claim: bookkeeping ABOUT a checkout must never break the checkout itself.
+        run(cmd_checkin, agent="rho", summary="s12-07 non-fatal fixture", pane="%84", force=True)
+        _s7d_real = atomic_write
+
+        def _s7d_write(path, text):
+            if Path(path).name == "awaiting-close.json":
+                raise OSError("selftest: the awaiting-close write fails")
+            return _s7d_real(path, text)
+
+        atomic_write = _s7d_write
+        try:
+            _s7d_o, _s7d_e, _s7d_c = harness_outcome(
+                cmd_checkout, ns(agent="rho", renew=False, handoff=None, no_export=True))
+            _s7d_ret = set_awaiting(base_g, "rho", "%84", "/tmp/x", True)
+            _s7d_raised = ""
+        except Exception as _s7d_exc:               # noqa: BLE001 — the raise IS this row's verdict
+            _s7d_o, _s7d_e, _s7d_c, _s7d_ret = "", "", -1, None
+            _s7d_raised = f"{type(_s7d_exc).__name__}: {_s7d_exc}"
+        atomic_write = _s7d_real
+        check("s12-07 S7-d: `set_awaiting` is BEST-EFFORT and adding fields did not change that — "
+              "with the awaiting-close write failing, `checkout` still SUCCEEDS and still says so, "
+              "does NOT claim a debt it failed to record, and `set_awaiting` REPORTS False rather "
+              "than raising. A seat that cannot check out is worse than a debt nobody recorded, "
+              "and a new field must never add a raise path into the act it is bookkeeping for",
+              _s7d_raised == "" and _s7d_c is None and "checked out: rho" in _s7d_o
+              and "awaiting close:" not in _s7d_o and _s7d_ret is False)
+
+        # ---- S7-f: the CALLER SWEEP, asserted IN-SUITE ----
+        # A signature change includes its callers, and a sweep recorded only in a return is a
+        # sweep nobody re-runs. Read off the module's OWN AST: a positional sixth argument binds
+        # `disposition` BY POSITION, so the day a caller passes a stamp or a flag there it lands
+        # in the field `reap` now gates a pane KILL on, silently and with no parser to object.
+        import ast as _s7_ast
+        import inspect as _s7_inspect
+        _s7_calls = [n for n in _s7_ast.walk(
+                         _s7_ast.parse(Path(__file__).read_text(encoding="utf-8")))
+                     if isinstance(n, _s7_ast.Call) and getattr(n.func, "id", "") == "set_awaiting"]
+        _s7_params = list(_s7_inspect.signature(set_awaiting).parameters)
+        _s7_kwnames = {k.arg for n in _s7_calls for k in n.keywords}
+        check("s12-07 S7-f: EVERY `set_awaiting` call site in this module was swept — the five "
+              "positional parameters the signature has always had are unchanged and still first, "
+              "no call passes more than those five positionally, and every added value is passed "
+              "BY NAME. Counted against the source itself, so a caller added later cannot quietly "
+              "fall outside a sweep that was true once",
+              len(_s7_calls) >= 6
+              and _s7_params[:5] == ["base", "seat", "pane", "transcript", "exported"]
+              and _s7_params[5:] == ["disposition", "handoff_stamp"]
+              and all(len(n.args) <= 5 for n in _s7_calls)
+              and _s7_kwnames <= {"disposition", "handoff_stamp"})
 
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
