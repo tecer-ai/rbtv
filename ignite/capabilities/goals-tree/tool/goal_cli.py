@@ -607,19 +607,33 @@ def load_catalogs(catalog_root: Path) -> tuple[dict, dict, dict]:
     return seats, prompts, tasks
 
 
+_UNIT_REF_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(@[a-z0-9][a-z0-9-]*)?$")
+
+
 def _refs_of(row: dict, skip: tuple[str, ...]) -> list[tuple[str, list[str]]]:
     """Per-kind unit references off a catalog row, in column order.
 
     A cell may hold several refs separated by ';' — plural kinds take LIST
     values in the assembled frontmatter (YAML forbids duplicate keys).
+
+    Widened (decisions.md#d-spec-open-points-ruled Q10) to accept BARE unit
+    ids, not just the `cu-`-prefixed convention: a token qualifies as a
+    reference when it matches the unit-reference grammar `<id>` or
+    `<id>@<version>` (`<id>` = `[a-z0-9][a-z0-9-]*`). The `cu-` prefix is an
+    office-scaffold-prototype convention, not a requirement of any ratified
+    record — do not restore it as a tightening. To keep this a widening and
+    not "accept everything" (free-prose description/staffing-hint cells must
+    still yield no refs), a cell is treated as a reference list only when
+    EVERY ';'-separated part matches the grammar; if any part fails, the
+    whole cell is rejected rather than partially parsed.
     """
     out = []
     for col, cell in row.items():
         if col in skip or col.startswith("__") or not isinstance(cell, str):
             continue
-        refs = [r.strip() for r in cell.split(";") if r.strip().startswith("cu-")]
-        if refs:
-            out.append((col, refs))
+        parts = [r.strip() for r in cell.split(";") if r.strip()]
+        if parts and all(_UNIT_REF_RE.match(p) for p in parts):
+            out.append((col, parts))
     return out
 
 
