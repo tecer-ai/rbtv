@@ -1326,6 +1326,40 @@ PID_EXIT_TIMEOUT = 6.0
 SKIP_HARNESS_CHECK = os.environ.get("COORD_SKIP_HARNESS_CHECK") == "1"
 
 
+# ---------- lifecycle timeouts (the detached lifecycle executor) ----------
+# Two TIMEOUTS, not policy numbers. `r-floor-single-source` (R-10) governs the RAM FLOOR and does
+# not reach these; no floor literal belongs anywhere near them, and floor-lint.py refuses one
+# outside budget.json.
+#
+# LIFECYCLE_SETTLE_S bounds the executor's wait for the FORKING CALLER to exit before it acts, then
+# it proceeds REGARDLESS of the outcome: the executor never depends on the caller, which is the
+# whole point of detaching it. By the time the fork happens the handoff is appended, the transcript
+# exported, the roster flipped and the sessions.csv row closed — nothing durable is left inside the
+# caller's session to rescue — so the wait is courtesy, not correctness.
+#
+# LIFECYCLE_STALE_MIN is the age in MINUTES past which an in-flight lifecycle marker whose executor
+# is NOT live reads as a FAILED renewal (the revival detector reads exactly that conjunction).
+# ⚑ IT IS DERIVED, NOT MEASURED — carry that caveat with the number, never the number alone. The
+# derivation sums the waits the executor actually spends:
+#     settle              <= LIFECYCLE_SETTLE_S       10 s
+#   + mirror refresh         MIRROR_REFRESH_TIMEOUT  300 s   <- the dominant term, and it is a COLD
+#                                                               full-workspace render; that
+#                                                               constant's own comment puts steady
+#                                                               state at 2-3 s
+#   + harness up             HARNESS_UP_TIMEOUT       25.0 s
+#   + native id resolve      NATIVE_ID_WAIT            8.0 s
+#   + pid exit               PID_EXIT_TIMEOUT          6.0 s
+#   = ~350 s = ~6 min worst case; the value below started as that worst case plus headroom.
+# It is deliberately SHORTER than CLOSING_MAX_MIN: a stuck closer merely narrows an inbox, while a
+# stuck executor is a seat that is neither alive nor closed. That ordering is the load-bearing part
+# and holds whatever the number becomes.
+# ⚑ A later task measures a REAL renewal and freezes this value. That is a ONE-LINE change — the
+# assignment below and nothing else. This block is written to stay true either way: it states a
+# derivation and an ordering, never a claim that the current digits are the measured answer.
+LIFECYCLE_SETTLE_S = 10
+LIFECYCLE_STALE_MIN = 10
+
+
 # ---------- memory pre-flight (leader ruling, 2026-07-27 msg #128) ----------
 # A claude seat's steady RSS is 419-549 MB but its PEAK is ~1.4 GB: boot and compaction spike ~3x
 # steady state (systemd scope accounting, "1.4G memory peak"). Every launch gate tonight sized seats
@@ -1590,6 +1624,34 @@ def ident_is_live_harness(ident):
     except OSError:
         return False
     return is_harness_argv(argv)
+
+
+def ident_is_live_process(ident):
+    """True when (pid, starttime) still names THE SAME live process — ANY process, harness or not.
+
+    NOT a substitute for `ident_is_live_harness`, and never interchangeable with it: that predicate
+    additionally requires `is_harness_argv`, which matches only the claude/codex/opencode basenames
+    in HARNESS_PROCS. The lifecycle executor and its forking caller are PYTHON processes, so
+    `ident_is_live_harness` reports every live one of them DEAD — silently turning the
+    caller-settle wait (LIFECYCLE_SETTLE_S) into a no-op and the staleness test
+    (LIFECYCLE_STALE_MIN) into "always stale". A wait that cannot wait and a test that cannot say
+    "not yet" both LOOK like working code; that is why the two predicates are separate functions
+    with separate names rather than one with a flag.
+
+    Pure w.r.t. its argument, exactly as `ident_is_live_harness` is: it re-derives BOTH halves from
+    /proc at call time and trusts nothing remembered. The starttime half is what makes it a guard
+    at all — a pid alone is recyclable, and a teardown is exactly when new processes start. Pane
+    ancestry is no substitute for it either; `process_identity` carries the reason: "G-12's
+    in-place respawn puts the replacement under the SAME pane, so an ancestry test would confirm
+    the very process it must protect."
+
+    A zombie is NOT live: it has exited and its status is merely unreaped, which is precisely the
+    outcome both callers are waiting for. Any read failure is False as well — an unreadable /proc
+    entry is not evidence of liveness, and the fail-safe direction here is "assume it is gone",
+    because the alternative is an executor that waits forever on a process it cannot see."""
+    pid, starttime = ident
+    state, live_start = proc_stat(pid)
+    return bool(starttime) and live_start == starttime and state != "Z"
 
 
 def idents_alive(idents):
@@ -13120,6 +13182,20 @@ def _selftest_checks(args, failures, names):
           not ident_is_live_harness((me, "0")) and idents_alive([(me, "0")]) == [])
     check("reaper: this python process is live but is NOT a harness, so it is not a reap target "
           "either — both halves of the guard must hold", not ident_is_live_harness(my_ident))
+    # The lifecycle executor and its forking caller are PYTHON, so the harness predicate calls both
+    # of them dead while they run. This row is the whole justification for a SECOND predicate: it
+    # takes ONE identity — this live selftest process, read from the REAL /proc (proc_stat and
+    # process_identity are stubbed nowhere in this suite) — and asserts the two predicates DISAGREE
+    # about it. Collapse ident_is_live_process back into ident_is_live_harness and this row goes
+    # red; that is the point. The third conjunct keeps the recycled-pid half honest: a liveness test
+    # written as `os.path.exists(f"/proc/{pid}")` would pass the first two and fail here.
+    _wrong_start = str(int(my_ident[1]) + 1)
+    check("lifecycle: ident_is_live_process answers for ANY process — this python selftest reads "
+          "LIVE to it and DEAD to ident_is_live_harness (which also demands is_harness_argv) — and "
+          "it still refuses the same pid carrying a different starttime",
+          ident_is_live_process(my_ident) is True
+          and ident_is_live_harness(my_ident) is False
+          and ident_is_live_process((me, _wrong_start)) is False)
     script = reaper_script([(4242, "777")], 3)
     check("reaper: the detached script re-derives starttime at kill time and compares it to the "
           "value captured at ARM time — it never kills a remembered number",
