@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
-"""edge-runner-job — CMP-25's pass, STEPS 1-3: verify a finished seat's done contract and mark it
-`done` or `failed` (task 7.123 / M4-08), then evaluate readiness of every row whose `after` names
-it (task 7.124 / M4-09).
+"""edge-runner-job — CMP-25's pass, STEPS 1-4: verify a finished seat's done contract and mark it
+`done` or `failed` (task 7.123 / M4-08), evaluate readiness of every row whose `after` names it
+(task 7.124 / M4-09), and enqueue each LAUNCH CANDIDATE as a daemon job seeded with its
+predecessors' declared outputs (task 7.125 / M4-10).
 
 Fired by the ignite daemon as a `fire-tool` job, one job per finished seat. CMP-25 is ONE engine
 whose per-edge behaviour is entirely DATA; this file is that engine, and today it carries the
-first three of its five steps.
+first four of its five steps.
 
 ⚠⚠ WHAT THIS FILE IS NOT, YET. CMP-25's pass has five steps: (1) verify the finished seat's done
 contract, (2) mark it done or failed loudly, (3) evaluate every downstream row whose `after` names
-it, (4) enqueue each ready seat's launch job, (5) exit. **Steps 1, 2 and 3 are here. Step 4 is
-NOT, and its absence is a build state, not a design.** It is task 7.125 (M4-10, enqueue). A reader
-who finds no enqueue arm here has found an unbuilt stage, not a missing feature.
+it, (4) enqueue each ready seat's launch job, (5) exit. **Steps 1 through 4 are here. Step 5 is
+NOT, and its absence is a build state, not a design.** A reader who finds no exit arm here has
+found an unbuilt stage, not a missing feature.
+
+⚠ STEP 4 IS THIS WAVE'S ONE ENQUEUE INTERFACE. `enqueue()` is called by the check-out fast path
+(M4-11), the created goal's first workflow (M4-20) and the C1 rehearsal (M4-22). None of the three
+writes its own: two enqueue implementations are G-301 rebuilt at the queue, and the expensive half
+of that shape is that one of the two keeps reporting success. Its signature is a DECLARED OUTPUT of
+task 7.125 and is recorded in `probe-record-edge-runner-enqueue-builder.md`; `--signature` prints
+the live one, and a check binds the two together so it cannot move under its consumers silently.
 
 **NOTHING REGISTERS THIS FILE.** It is in no job catalogue and no queue row, so it fires for
 nothing and arms nothing. That is deliberate and it is the `r-cutover-gated` bound (m4 criterion
@@ -102,8 +110,10 @@ import inspect
 import json
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -117,6 +127,7 @@ COORD_PATH = HERE.parent / "team-kit" / "coord.py"
 SESSIONS = "{RUN}/sessions.csv"
 SEAT_MD_OUTPUTS = "{RUN}/seats/*/seat.md"
 TASKFORCE = "{RUN}/taskforce.csv"
+ROSTER = "{RUN}/coordination/workers.md"
 
 READS = [
     (SESSIONS, "seat"),          # which rows belong to the seat under verification
@@ -128,6 +139,12 @@ READS = [
     # through `coord.taskforce_after`, never with a private parser.
     (TASKFORCE, "seat"),         # which row each `after` cell belongs to
     (TASKFORCE, "after"),        # the predecessor set, COMMA-separated names and nothing else
+    # STEP 4 (M4-10) adds exactly these two, and both were already audited: trace-field-audit.md
+    # rows 7 and 8 carry `{RUN}/coordination/workers.md` `agent` and `active` as the roster reading
+    # of `running`. They are STEP 4's ACTIVE-roster self-state term, read through coord's OWN
+    # roster readers (`load_workers` / `current_row`), never with a private parser.
+    (ROSTER, "agent"),           # which roster row belongs to the seat
+    (ROSTER, "active"),          # whether it is occupying a pane right now — a double-launch guard
 ]
 
 # coord's closed enum, restated here ONLY as the literal this file's checks compare against, so a
@@ -155,6 +172,25 @@ def load_coord():
 # ---- declared outputs -------------------------------------------------------------------------
 
 _PATHISH = re.compile(r"`([^`\s]*/[^`\s]*\.[A-Za-z0-9]{1,6})`")
+
+
+def resolve_declared_path(pkg, tok):
+    """The absolute path a declared-output token resolves to, or None when it resolves nowhere.
+
+    ONE resolver, called by both consumers of a declared output: the artifact GRADE below (which
+    asks only "is it there?") and STEP 4's seed (which needs the path itself). A second resolution
+    written for the seed would be free to disagree with the grade about what a token means — the
+    two-readers shape this whole file is bounded against, at the smallest possible seam. The bases
+    are the run package and the goal root, in that order, and a token that resolves against neither
+    is returned as None rather than silently assumed present."""
+    cand = Path(tok)
+    if cand.is_absolute():
+        return cand if cand.exists() else None
+    for base in (pkg, pkg.parent.parent):
+        p = base / tok
+        if p.exists():
+            return p
+    return None
 
 
 def declared_outputs(pkg, seat):
@@ -189,13 +225,11 @@ def declared_outputs(pkg, seat):
     tokens = _PATHISH.findall(sec.group(1))
     resolvable, missing, unresolvable = [], [], []
     for tok in tokens:
-        cand = Path(tok)
-        bases = [Path("/")] if cand.is_absolute() else [pkg, pkg.parent.parent]
-        for base in bases:
-            p = (base / tok) if not cand.is_absolute() else cand
-            if p.exists():
-                resolvable.append(tok)
-                break
+        # ONE resolver, shared with STEP 4's seed. Behaviour is unchanged from the inline form this
+        # replaced; what changes is that the artifact GRADE and the SEED can no longer disagree
+        # about what a declared token means.
+        if resolve_declared_path(pkg, tok) is not None:
+            resolvable.append(tok)
         else:
             # declared, resolves against no known base -> MISSING, named. Never assumed present.
             missing.append(tok)
@@ -439,6 +473,260 @@ def readiness(coord, pkg, marks=None):
             "the verdict vocabulary is closed at %s. A row excluded by a conditional edge has no "
             "verdict here because no conditional edge can be authored: the cell is parsed on "
             "comma alone (issues.md G-301/G-308)." % (list(VERDICTS),),
+        ],
+    }
+
+
+# ---- STEP 4: enqueue each LAUNCH CANDIDATE as a daemon job (task 7.125 / M4-10) ---------------
+#
+# `enqueue()` below is THE enqueue interface of this wave. Three later seats call it — the
+# check-out fast path (M4-11), the created goal's first workflow (M4-20) and the C1 rehearsal
+# (M4-22) — and NONE of them writes its own. That is the whole point of the stage: two enqueue
+# implementations would be `issues.md` G-301 rebuilt at the queue, and the expensive half of that
+# shape is not the duplication, it is that ONE OF THE TWO KEEPS REPORTING SUCCESS. The signature is
+# a declared output for the same reason: a signature that moves after its consumers are built
+# breaks them silently, so `check_enqueue_signature_is_recorded` binds it to the probe record.
+#
+# ⚠⚠ READINESS IS NOT LAUNCH CANDIDACY — LEADER BAR, run-3 `decisions.md`
+# `#p-readiness-is-NOT-launch-candidacy`. STEP 3's predicate answers the `after`-SET TERM ONLY. It
+# has no term for the seat's own state, so a seat that has already FINISHED satisfies it, and
+# ENQUEUING THE READY LIST AS-IS RELAUNCHES FINISHED SEATS. Measured on run-3's own surfaces, not
+# hypothesised: `queue-loss-detector-namer` is listed READY (its `after` set is empty) while its own
+# mark is `failed`, and `master-path-wirer` carries `exited`. Both are genuine rows. This stage
+# therefore INTERSECTS the ready list with three self-state terms before anything is enqueued, and
+# NAMES every exclusion in `excluded` — the exclusion is the requirement, the naming is what makes it
+# auditable. `excluded` is present even when EMPTY: an empty list says "nothing was excluded", an
+# absent one says nothing at all.
+#
+# THE THREE SELF-STATE TERMS, AND WHY EACH IS COMPUTED BY CALLING coord RATHER THAN RE-READING:
+#   terminal mark      STEP 1-2's own mark for the seat. `done` and `failed` are both terminal —
+#                      neither is a thing to launch. Only an UNDECIDED seat (mark `None`) is a
+#                      candidate. This is the term the leader's bar names.
+#   no ACTIVE roster   `coord.load_workers` + `coord.current_row`, coord's OWN roster readers. A
+#                      seat occupying a pane right now is double-launched if enqueued.
+#   descriptor exists  `{RUN}/seats/<seat>/seat.md`, the same site `declared_outputs` already reads.
+#                      A `taskforce.csv`-only row would be launched into nothing.
+# These are the three terms `coord.ready_seat_rows` carries and STEP 3 deliberately does not. They
+# are CALLED here, never reimplemented. The one place this stage and coord are DESIGNED to differ is
+# STEP 3's declared-artifact strictness (`EXPECTED_DIVERGENCES`), and it is one-directional by the
+# leader's ruling: this stage may BLOCK what coord readies and may NEVER ready what coord blocks —
+# so nothing is ever enqueued on the strength of coord's readiness where STEP 3 blocks.
+#
+# THE SEED, AND THE ONE CASE THAT CANNOT ARISE FROM A SINGLE PASS. Each launch is seeded with the
+# absolute artifact paths its predecessors DECLARED, so it arrives holding what it needs instead of
+# rediscovering it. Every path is re-confirmed to exist AT ENQUEUE TIME, and a seed path that is not
+# there fails that seat's enqueue LOUDLY with the path named rather than enqueuing a launch that
+# cannot read its own input. Within ONE pass that failure is unreachable by construction — STEP 1-2
+# marks a seat `failed` when a declared output is missing, and a `failed` predecessor never
+# satisfies an edge, so no ready seat can have a done predecessor with a missing artifact. It is
+# reachable exactly one way: the artifact is DELETED between the marking pass and the enqueue, which
+# is why criterion 2 says "at enqueue time" and why `check_missing_seed_path_fails_loudly` drives it
+# as that time-of-check/time-of-use gap rather than as a shape the fixture can hold statically.
+# That is stated here, and in `--enqueue`'s own output, because a failure row that never appears
+# reads as "this did not happen" when the truth is "this cannot happen from one pass".
+
+# ⚠ THE KEY IS `excluded`, NOT the word a reader reaches for first — and the reason is a
+# TERMINOLOGY COLLISION, not taste. That other word is already TAKEN in this system: it is the
+# registry's name for a row excluded by a CONDITIONAL EDGE, and this file proves that name absent
+# from its own source (`check_no_conditional_evaluator_or_third_verdict`), because a state named but
+# unreachable reads as "this case did not arise" when the truth is "this case cannot arise". A
+# self-state exclusion and a conditional-edge exclusion are two different claims; giving them one
+# word in one file is how a later reader collapses them. The leader's bar is that every exclusion is
+# NAMED and that the list is present even when empty — both hold under this key.
+ENQUEUE_RESULT_KEYS = ("enqueued", "validated", "excluded", "failed", "caveats")
+ENQUEUE_ROW_KEYS = ("seat", "job-id", "seed")
+
+# The daemon's enqueue door. `ignite add-job` wraps the gateway's `enqueue-job` intent; this stage
+# does not speak to the store, the queue or the gateway directly, and holds no credential of its
+# own. `submit` is a parameter so the checks can drive the interface without a daemon and without
+# arming anything (m4 criterion C4).
+IGNITE_BIN = "ignite"
+_ENQUEUE_VERB = "add" + "-job"          # assembled, so the single-call-site check never counts ITSELF
+_QUEUE_ID = re.compile(r"queue id (\S+)")
+
+
+def iso_utc_now():
+    """Fixed-width ISO-8601 UTC, the exact shape the gateway's enqueue parse requires and the same
+    formatting the daemon's own isoNow() emits."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def default_submitter(argv):
+    """Run the daemon's enqueue door. (returncode, stdout, stderr) — no exception, no parsing: the
+    caller decides what a non-zero return means, so a failure is data rather than a traceback."""
+    res = subprocess.run(argv, capture_output=True, text=True)
+    return res.returncode, res.stdout, res.stderr
+
+
+def _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run):
+    """THE ONLY PLACE AN ENQUEUE COMMAND IS BUILT IN THIS TREE.
+
+    `check_single_enqueue_call_site` asserts by source inspection that the door's verb appears in
+    exactly this one function and nowhere else in the file. The seed rides in the args object,
+    which is where a launch-agent job reads its parameters from; `profile` is the one argument the
+    daemon REQUIRES of a launch-agent job, so it is a required parameter here rather than a
+    default this stage invents."""
+    args_obj = {"profile": profile, "seat": seat, "package": str(pkg), "seed": list(seed)}
+    argv = [IGNITE_BIN, _ENQUEUE_VERB,
+            "--fn", job_id,
+            "--args-json", json.dumps(args_obj, sort_keys=True),
+            "--trigger", "scheduled",
+            "--at", at]
+    if dry_run:
+        argv.append("--dry-run")
+    return argv
+
+
+def launch_candidates(coord, pkg, ready, self_marks):
+    """(candidates, excluded) — the ready list INTERSECTED with the three self-state terms.
+
+    `excluded` rows carry the seat, the term that excluded it and the value that term read, so an
+    exclusion is auditable by a reader who did not watch this run."""
+    _, _, roster = coord.load_workers(pkg / "coordination")
+    candidates, excluded = [], []
+    for seat in ready:
+        mark = self_marks.get(seat, NO_MARK)
+        if mark is not None:
+            excluded.append({"seat": seat, "term": "terminal-mark", "value": mark,
+                            "reason": "own mark is `%s` — terminal. Ready names the satisfaction "
+                                      "of INCOMING EDGES, never the desirability of an action."
+                                      % mark})
+            continue
+        row = coord.current_row(roster, seat)
+        if row is not None and row.get("active") == "yes":
+            excluded.append({"seat": seat, "term": "active-roster-row", "value": "yes",
+                            "reason": "an ACTIVE roster row — the seat is occupied right now, and "
+                                      "enqueuing it would double-launch it."})
+            continue
+        if not (pkg / "seats" / seat / "seat.md").exists():
+            excluded.append({"seat": seat, "term": "no-descriptor", "value": None,
+                            "reason": "no descriptor at {RUN}/seats/%s/seat.md — a taskforce.csv-"
+                                      "only row would be launched into nothing." % seat})
+            continue
+        candidates.append(seat)
+    return candidates, excluded
+
+
+def _tried_paths(pkg, tok):
+    """The ABSOLUTE candidates a declared-output token was looked for at. A failure that names only
+    the token says what was declared; naming where it was looked for says what to fix."""
+    cand = Path(tok)
+    if cand.is_absolute():
+        return [str(cand)]
+    return [str(base / tok) for base in (pkg, pkg.parent.parent)]
+
+
+def seed_for(coord, pkg, seat, after):
+    """(seed, missing) — the absolute artifact paths of `seat`'s predecessors' declared outputs.
+
+    A seat with NO predecessors gets `[]`, which is a correct and complete seed, not a failure: the
+    root case is the one an implementation keyed on predecessors forgets. Paths are de-duplicated
+    with order preserved (two predecessors may declare the same artifact).
+
+    WHERE THE ENQUEUE-TIME EXISTENCE CHECK ACTUALLY IS, stated because a reader will look for it in
+    the wrong place: it is `declared_outputs` being called HERE, in this loop, on this pass — it
+    re-resolves every declared token against disk and returns the absent ones, so `missing` is
+    computed from what is on disk NOW rather than from what STEP 1-2 saw. The `path is None` branch
+    below is NOT that check; it is the residual race INSIDE this pass (the artifact vanishing between
+    the two resolutions, microseconds apart) and it is deliberately unreachable in practice. It is
+    kept because the alternative is seeding `str(None)`, and it is labelled because a branch that
+    looks like the guard, but is not the guard, is how a mutation test passes green — measured: a
+    mutation that removed it left every check green, which is what sent this comment here."""
+    seed, missing, seen = [], [], set()
+    for pred in after.get(seat, []):
+        declared, resolvable, absent, err = declared_outputs(pkg, pred)
+        for tok in absent:
+            # THE enqueue-time guard: `declared_outputs` re-resolved this token a line ago and it
+            # is not on disk. Its check is `check_missing_seed_path_fails_loudly`, proven red by
+            # mutating THIS loop.
+            missing.append({"predecessor": pred, "path": tok, "tried": _tried_paths(pkg, tok),
+                            "reason": "declared by `%s`, absent at enqueue time — it resolves "
+                                      "against neither the run package nor the goal root" % pred})
+        for tok in resolvable:
+            path = resolve_declared_path(pkg, tok)
+            if path is None:                                   # the residual same-pass race; see above
+                missing.append({"predecessor": pred, "path": tok, "tried": _tried_paths(pkg, tok),
+                                "reason": "declared by `%s` and present two resolutions ago, ABSENT "
+                                          "now — it vanished DURING this pass" % pred})
+                continue
+            key = str(path)
+            if key not in seen:
+                seen.add(key)
+                seed.append(key)
+    return seed, missing
+
+
+def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=None,
+            dry_run=False):
+    """THE enqueue interface. Turn every LAUNCH CANDIDATE into a daemon job seeded with its
+    predecessors' declared outputs.
+
+    Returns `{enqueued: [{seat, job-id, seed}], validated, excluded, failed, caveats}`.
+
+      enqueued   one row per seat that reached the queue, each carrying the job id the door
+                 returned. A row is here ONLY with a real id.
+      validated  the same rows under `dry_run=True`, where the door validates and writes nothing,
+                 so no id exists. A separate key rather than an `enqueued` row with a null id:
+                 "validated" and "enqueued" are two different claims about the queue.
+      excluded    every ready seat the self-state intersection excluded, with the term and value.
+                 Present even when empty.
+      failed     every candidate whose enqueue did not happen, with the cause named — a missing
+                 seed path or a non-zero return from the door.
+
+    `readiness_result` is STEP 3's output; omit it and it is computed by running STEP 3, which is
+    the same code path rather than a second reading. `submit` is `(argv) -> (rc, stdout, stderr)`
+    and defaults to running the daemon's door; injecting it is how a caller exercises the interface
+    without a daemon. `at` defaults to now."""
+    res = readiness_result if readiness_result is not None else readiness(coord, pkg)
+    submit = submit or default_submitter
+    at = at or iso_utc_now()
+    after = coord.taskforce_after(pkg)
+
+    candidates, excluded = launch_candidates(coord, pkg, res["ready"], res["self-marks"])
+
+    enqueued, validated, failed = [], [], []
+    for seat in candidates:
+        seed, missing = seed_for(coord, pkg, seat, after)
+        if missing:
+            failed.append({"seat": seat, "missing-seed-paths": [m["path"] for m in missing],
+                           "detail": missing,
+                           "reason": "SEED PATH ABSENT AT ENQUEUE TIME: %s. Enqueuing this launch "
+                                     "would schedule a seat that fails on its first read."
+                                     % ", ".join(m["path"] for m in missing)})
+            continue
+        argv = _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run)
+        rc, out, err = submit(argv)
+        if rc != 0:
+            failed.append({"seat": seat, "missing-seed-paths": [], "detail": [],
+                           "reason": "the enqueue door returned %d: %s"
+                                     % (rc, (err or out or "").strip())})
+            continue
+        if dry_run:
+            validated.append({"seat": seat, "job-id": None, "seed": seed})
+            continue
+        m = _QUEUE_ID.search(out or "")
+        if not m:
+            failed.append({"seat": seat, "missing-seed-paths": [], "detail": [],
+                           "reason": "the enqueue door returned 0 but named NO queue id: %r. A row "
+                                     "with no id is not evidence of a queued job." % (out or "")})
+            continue
+        enqueued.append({"seat": seat, "job-id": m.group(1), "seed": seed})
+
+    return {
+        "enqueued": enqueued,
+        "validated": validated,
+        "excluded": excluded,
+        "failed": failed,
+        "caveats": [
+            "every row here was intersected with three self-state terms (terminal mark, ACTIVE "
+            "roster row, descriptor on disk) before enqueuing — `ready` alone is NOT launch "
+            "candidacy (leader bar `p-readiness-is-NOT-launch-candidacy`).",
+            "a seed path missing at enqueue time cannot arise from ONE pass: STEP 1-2 marks a seat "
+            "`failed` when a declared output is absent, and a `failed` predecessor satisfies no "
+            "edge. `failed` rows of that cause are therefore a time-of-check/time-of-use gap — the "
+            "artifact was deleted between the marking pass and this one — never a routine outcome.",
+            "the artifact GRADE this seeds from is existence, not content: `grades-not-afforded` "
+            "still holds, so a seed path being present is not a claim that its content is right.",
         ],
     }
 
@@ -942,6 +1230,277 @@ def check_agrees_with_coord_ready_seats(coord, pkg):
                      sorted(EXPECTED_DIVERGENCES)))
 
 
+# ---- STEP 4's checks (task 7.125 / M4-10) -----------------------------------------------------
+#
+# The fixture graph STEP 3 already writes carries every shape STEP 4 needs, so none is added here:
+# four ready rows with predecessors, two ready rows with none (the root case), and eight ready rows
+# carrying terminal marks (the leader's bar). Every expectation below is written out by hand — not
+# one is computed from `enqueue`, from the mark table, or from `READY_AFTER`.
+
+# The run-3 job catalogue id and launch profile are the caller's, never this stage's to invent, so
+# the checks pass their own fixture values and the interface has no defaults for either.
+FX_JOB_ID = "fx-launch-seat"
+FX_PROFILE = "fx-profile"
+
+# Every ready seat the self-state intersection MUST exclude, with the mark that excludes it. All
+# eight are `ready` on the `after` term — their `after` cells are empty — and all eight are the
+# wrong thing to launch. This is the leader's bar, spelled out row by row.
+EXPECT_ENQUEUE_EXCLUDED = {
+    "fx-done-outputs-present": "done",
+    "fx-done-output-missing":  "failed",
+    "fx-renew":                "failed",
+    "fx-revive":               "failed",
+    "fx-exited":               "failed",
+    "fx-empty-disposition":    "failed",
+    "fx-renewed-then-done":    "done",
+    "fx-no-iospec":            "done",
+}
+
+# The seat -> seed the stage must produce, as paths RELATIVE to the fixture package (the check
+# resolves them against it). `fx-r-two-done` and `fx-r-spaces` each name TWO predecessors that
+# declare the SAME artifact, and the expectation says ONE path: de-duplication, written out rather
+# than inferred. The two empty seeds are the root case of criterion 6.
+EXPECT_ENQUEUE_SEED = {
+    "fx-r-root":       [],
+    "fx-r-one-done":   ["outputs/present.md"],
+    "fx-r-two-done":   ["outputs/present.md"],
+    "fx-r-spaces":     ["outputs/present.md"],
+    "fx-open-sitting": [],
+    "fx-no-row":       [],
+}
+
+# The interface signature three later seats call. Spelled out as a literal, and asserted against
+# BOTH the live signature and the probe record on disk: a signature that moves after its consumers
+# are built breaks them silently, which is the whole reason it is a declared output.
+EXPECT_ENQUEUE_SIGNATURE = ("(coord, pkg, job_id, profile, readiness_result=None, at=None, "
+                            "submit=None, dry_run=False)")
+
+PROBE_RECORD = (_workspace_root(HERE) / ".rbtv" / "goals" / "build-core-daemon-mvp" / "runs"
+                / "run-3" / "planning" / "m4-workflow-engine-runs-DAG-edged-jobs"
+                / "probe-record-edge-runner-enqueue-builder.md")
+
+
+def _stub_door():
+    """A submitter standing in for the daemon's door: it records each argv and answers with a
+    deterministic queue id in the door's own success wording.
+
+    It stands in because this seat holds NO credential for the live gateway and is granted no
+    arming act — the extensions table gives `register-job` to `queue-rearmer` and the enqueue right
+    to three other seats. Driving the interface through an injected submitter exercises the whole
+    stage (intersection, seed, argv, id parse, failure paths) while arming nothing, which is m4
+    criterion C4's bound and not a convenience."""
+    calls = []
+
+    # Named `_door`, not `submit`: `check_single_enqueue_call_site` counts the submitter's INVOCATION
+    # sites by source needle, and a stub whose own body reads like the call site would be counted as
+    # a second one — the check would then be measuring its own helper instead of the interface.
+    def _door(argv):
+        calls.append(argv)
+        return 0, "queued: queue id fx-q-%d\n" % len(calls), ""
+    return _door, calls
+
+
+def check_enqueue_schema(coord, pkg):
+    """The declared output shape, asserted literally: `{enqueued: [{seat, job-id, seed}], ...}`,
+    with a row in `enqueued` ONLY when the door named a real id, and `excluded` always present."""
+    submit, calls = _stub_door()
+    res = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, submit=submit)
+    if tuple(res) != ENQUEUE_RESULT_KEYS:
+        return False, "schema: top-level keys are %r, expected %r" % (tuple(res),
+                                                                     ENQUEUE_RESULT_KEYS)
+    if "excluded" not in res:
+        return False, "schema: `excluded` must be present even when empty"
+    if not res["enqueued"]:
+        return False, ("schema: ZERO rows enqueued on a fixture with launch candidates — an empty "
+                       "result would satisfy every row assertion vacuously")
+    for row in res["enqueued"]:
+        if tuple(row) != ENQUEUE_ROW_KEYS:
+            return False, "schema: an enqueued row's keys are %r, expected %r" % (tuple(row),
+                                                                                 ENQUEUE_ROW_KEYS)
+        if not row["job-id"]:
+            return False, ("schema: %s is in `enqueued` with job-id %r — a row with no id is not "
+                           "evidence of a queued job" % (row["seat"], row["job-id"]))
+        if not isinstance(row["seed"], list) or not all(isinstance(s, str) for s in row["seed"]):
+            return False, "schema: %s's `seed` is not a list of paths: %r" % (row["seat"],
+                                                                             row["seed"])
+    if len(calls) != len(res["enqueued"]):
+        return False, ("schema: the door was called %d time(s) for %d enqueued row(s) — a row "
+                       "nothing submitted is a fabricated queue entry"
+                       % (len(calls), len(res["enqueued"])))
+    return True, ("criterion 1: keys %r; %d enqueued, each with a real job-id and a seed, one door "
+                  "call apiece" % (list(ENQUEUE_RESULT_KEYS), len(res["enqueued"])))
+
+
+def check_enqueue_excludes_self_marked(coord, pkg):
+    """CRITERION 1 / LEADER BAR — readiness is NOT launch candidacy.
+
+    Every ready seat carrying a terminal mark must be EXCLUDED and NAMED, with the mark that
+    excluded it. The expectation is the eight-row table above, compared exactly: a seat that stops
+    being excluded is red, and so is one that starts."""
+    submit, _ = _stub_door()
+    res = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, submit=submit)
+    got = {s["seat"]: s["value"] for s in res["excluded"] if s["term"] == "terminal-mark"}
+    if got != EXPECT_ENQUEUE_EXCLUDED:
+        only_got = sorted(set(got) - set(EXPECT_ENQUEUE_EXCLUDED))
+        only_exp = sorted(set(EXPECT_ENQUEUE_EXCLUDED) - set(got))
+        wrong = sorted(s for s in set(got) & set(EXPECT_ENQUEUE_EXCLUDED)
+                       if got[s] != EXPECT_ENQUEUE_EXCLUDED[s])
+        return False, ("leader bar: the terminal-mark exclusions are wrong — excluded but should "
+                       "not be %s; NOT excluded but must be %s; wrong mark %s. A ready seat with a "
+                       "terminal mark that reaches the queue is a RELAUNCH of finished work."
+                       % (only_got, only_exp, wrong))
+    landed = {r["seat"] for r in res["enqueued"]} | {r["seat"] for r in res["validated"]}
+    leaked = sorted(landed & set(EXPECT_ENQUEUE_EXCLUDED))
+    if leaked:
+        return False, "leader bar: %s were both excluded AND enqueued" % leaked
+    if not all(s.get("reason") for s in res["excluded"]):
+        return False, "leader bar: an exclusion carries no reason — an unnamed exclusion is invisible"
+    return True, ("leader bar: all %d ready-but-terminally-marked seats excluded and NAMED with "
+                  "their mark (%d done, %d failed); none reached the queue"
+                  % (len(got), sum(1 for v in got.values() if v == "done"),
+                     sum(1 for v in got.values() if v == "failed")))
+
+
+def check_seed_carries_predecessor_outputs(coord, pkg):
+    """CRITERION 2 — each launch is seeded with the ABSOLUTE artifact paths its predecessors
+    declared, de-duplicated, and every one of them exists on disk right now."""
+    submit, calls = _stub_door()
+    res = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, submit=submit)
+    want = {seat: [str(pkg / rel) for rel in rels]
+            for seat, rels in EXPECT_ENQUEUE_SEED.items()}
+    got = {r["seat"]: r["seed"] for r in res["enqueued"]}
+    if got != want:
+        diffs = [("%s: seed %r, expected %r" % (s, got.get(s), want.get(s)))
+                 for s in sorted(set(got) | set(want)) if got.get(s) != want.get(s)]
+        return False, "criterion 2: %d wrong seed(s): %s" % (len(diffs), "; ".join(diffs))
+    absent = [p for seed in got.values() for p in seed if not Path(p).exists()]
+    if absent:
+        return False, ("criterion 2: %d seed path(s) do not exist: %s — a seed naming a path that "
+                       "is not there is a launch that fails on its first read" % (len(absent), absent))
+    for argv in calls:
+        blob = argv[argv.index("--args-json") + 1]
+        if "seed" not in json.loads(blob):
+            return False, "criterion 2: an enqueue command carries no `seed` in its args"
+    return True, ("criterion 2: all %d seeds match the predecessors' declared outputs by name "
+                  "(%d absolute path(s), all confirmed on disk), and every command carries its seed"
+                  % (len(got), sum(len(s) for s in got.values())))
+
+
+def check_root_seat_empty_seed(coord, pkg):
+    """CRITERION 6 — a ready seat with NO upstream outputs enqueues with an EMPTY seed rather than
+    failing. Checked on its own because the root case is precisely the one an implementation keyed
+    on predecessors forgets, and it would otherwise hide inside the seed table."""
+    submit, _ = _stub_door()
+    res = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, submit=submit)
+    roots = ["fx-r-root", "fx-open-sitting", "fx-no-row"]
+    rows = {r["seat"]: r for r in res["enqueued"]}
+    failed = {r["seat"] for r in res["failed"]}
+    for seat in roots:
+        if seat in failed:
+            return False, ("criterion 6: %s FAILED to enqueue — a seat with no predecessors has an "
+                           "empty seed, which is a complete seed and not a shortfall" % seat)
+        if seat not in rows:
+            return False, "criterion 6: %s did not enqueue at all" % seat
+        if rows[seat]["seed"] != []:
+            return False, "criterion 6: %s's seed is %r, expected []" % (seat, rows[seat]["seed"])
+    return True, ("criterion 6: all %d no-predecessor seats %s enqueued with an empty seed and a "
+                  "real job-id" % (len(roots), roots))
+
+
+def check_missing_seed_path_fails_loudly(coord, pkg):
+    """CRITERION 2, failure arm — a seed path absent AT ENQUEUE TIME fails that seat's enqueue with
+    the path NAMED, and the seat does not reach the queue.
+
+    Driven as the time-of-check/time-of-use gap it actually is. Within ONE pass the case cannot
+    arise: STEP 1-2 marks a seat `failed` when a declared output is missing, and a `failed`
+    predecessor satisfies no edge — so the readiness result is computed FIRST, the artifact is then
+    deleted, and the enqueue runs against the marks that were true a moment ago. That is the only
+    way this row can appear in production, and a check that could not produce it would be asserting
+    on a branch nothing reaches. The artifact is restored before returning."""
+    res3 = readiness(coord, pkg)
+    artifact = pkg / "outputs" / "present.md"
+    body = artifact.read_text()
+    submit, _ = _stub_door()
+    try:
+        artifact.unlink()
+        res = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, readiness_result=res3, submit=submit)
+    finally:
+        artifact.write_text(body)
+    failed = {r["seat"]: r for r in res["failed"]}
+    landed = {r["seat"] for r in res["enqueued"]}
+    for seat in ("fx-r-one-done", "fx-r-two-done", "fx-r-spaces"):
+        if seat not in failed:
+            return False, ("criterion 2: %s enqueued with a seed path that is NOT on disk — the "
+                           "launch would fail on its first read" % seat)
+        if "outputs/present.md" not in failed[seat]["missing-seed-paths"]:
+            return False, ("criterion 2: %s failed without NAMING the absent path (got %r) — an "
+                           "unnamed missing path cannot be fixed by whoever reads this"
+                           % (seat, failed[seat]["missing-seed-paths"]))
+        tried = [t for d in failed[seat]["detail"] for t in d["tried"]]
+        if str(artifact) not in tried:
+            return False, ("criterion 2: %s named the declared token but not the ABSOLUTE path it "
+                           "was looked for at (tried %r) — the token says what was declared, the "
+                           "path says where to fix it" % (seat, tried))
+        if seat in landed:
+            return False, "criterion 2: %s is in BOTH `failed` and `enqueued`" % seat
+    if "fx-r-root" not in landed:
+        return False, ("criterion 2: the no-predecessor seat stopped enqueuing when an unrelated "
+                       "artifact vanished — the failure must be per-seat, not a whole-pass abort")
+    return True, ("criterion 2 failure arm: 3 seat(s) refused with the absent path %s named, none "
+                  "of them queued, and the unaffected root seat still enqueued; artifact restored"
+                  % artifact.name)
+
+
+def check_single_enqueue_call_site():
+    """CRITERION 3 — ONE enqueue implementation, proven by source inspection.
+
+    Three later seats call this interface. If any of them writes its own, the run has two enqueue
+    paths that will diverge, and the expensive half of that shape is that ONE OF THEM KEEPS
+    REPORTING SUCCESS. The guard here is structural: the door's name and its verb are referenced by
+    exactly ONE function, and the submitter is invoked at exactly one place. Every needle is
+    ASSEMBLED from fragments so this check never matches its own text — a source search whose
+    subject appears in the searching function measures itself and passes vacuously."""
+    verb = "_ENQUEUE" + "_VERB"
+    binary = "IGNITE" + "_BIN"
+    call = "submit" + "(argv)"
+    fns = {name: obj for name, obj in globals().items() if inspect.isfunction(obj)}
+    holders = {needle: sorted(n for n, f in fns.items() if needle in inspect.getsource(f))
+               for needle in (verb, binary, call)}
+    if holders[verb] != ["_enqueue_argv"] or holders[binary] != ["_enqueue_argv"]:
+        return False, ("criterion 3: the enqueue command is built in %s (verb) / %s (binary), "
+                       "expected exactly ['_enqueue_argv'] for both — a second builder is a second "
+                       "enqueue path, and one of two paths always keeps reporting success"
+                       % (holders[verb], holders[binary]))
+    if holders[call] != ["enqueue"]:
+        return False, ("criterion 3: the submitter is invoked in %s, expected exactly ['enqueue']"
+                       % holders[call])
+    return True, ("criterion 3: the enqueue command is built in exactly ONE function "
+                  "(`_enqueue_argv`) and submitted at exactly ONE call site (`enqueue`), across "
+                  "%d functions in this file" % len(fns))
+
+
+def check_enqueue_signature_is_recorded():
+    """CRITERION 4 — the interface's signature is what its three consumers were told it is.
+
+    Both directions are asserted: the LIVE signature equals the literal spelled out above, and the
+    probe record on disk carries that same literal. A signature that changes after M4-11, M4-20 and
+    M4-22 are built breaks them silently, and the record going stale is exactly how that happens
+    without anyone noticing."""
+    live = str(inspect.signature(enqueue))
+    if live != EXPECT_ENQUEUE_SIGNATURE:
+        return False, ("criterion 4: the live signature is %s, but its three consumers were given "
+                       "%s" % (live, EXPECT_ENQUEUE_SIGNATURE))
+    if not PROBE_RECORD.exists():
+        return False, ("criterion 4: the declared record is absent at %s — a signature recorded "
+                       "nowhere is a signature its consumers must guess" % PROBE_RECORD)
+    if EXPECT_ENQUEUE_SIGNATURE not in PROBE_RECORD.read_text(encoding="utf-8"):
+        return False, ("criterion 4: %s does not carry the signature %s — the record is STALE, "
+                       "which is how a moved signature breaks a consumer silently"
+                       % (PROBE_RECORD.name, EXPECT_ENQUEUE_SIGNATURE))
+    return True, ("criterion 4: live signature `enqueue%s` matches the literal and is recorded in "
+                  "%s" % (live, PROBE_RECORD.name))
+
+
 def build_fixture(root):
     """Write the fixture tree. Identical in content to the on-disk fixture the probe record drives,
     so `--selftest --fixture <DIR>` runs the same assertions against real disk."""
@@ -1029,6 +1588,14 @@ def cmd_selftest(fixture):
         ("no-conditional-evaluator", lambda: check_no_conditional_evaluator_or_third_verdict()),
         ("readiness-schema", lambda: check_readiness_schema(coord, pkg)),
         ("agrees-with-coord-ready-seats", lambda: check_agrees_with_coord_ready_seats(coord, pkg)),
+        # STEP 4 (M4-10)
+        ("enqueue-schema", lambda: check_enqueue_schema(coord, pkg)),
+        ("enqueue-excludes-self-marked", lambda: check_enqueue_excludes_self_marked(coord, pkg)),
+        ("seed-carries-pred-outputs", lambda: check_seed_carries_predecessor_outputs(coord, pkg)),
+        ("root-seat-empty-seed", lambda: check_root_seat_empty_seed(coord, pkg)),
+        ("missing-seed-path-fails", lambda: check_missing_seed_path_fails_loudly(coord, pkg)),
+        ("single-enqueue-call-site", lambda: check_single_enqueue_call_site()),
+        ("enqueue-signature-recorded", lambda: check_enqueue_signature_is_recorded()),
     ]
     failed = 0
     for name, fn in checks:
@@ -1058,11 +1625,52 @@ def main():
                         "the `after`-set term ONLY — it is not launch candidacy, and the "
                         "verdict vocabulary is closed at ready/blocked because no conditional "
                         "edge can be authored (issues.md G-301/G-308)")
+    p.add_argument("--enqueue", action="store_true",
+                   help="STEP 4: after marking and readiness, enqueue every LAUNCH CANDIDATE as a "
+                        "daemon job seeded with its predecessors' declared outputs. Requires "
+                        "--job-id and --profile. Readiness alone is NOT launch candidacy: the "
+                        "ready list is intersected with the seat's own mark, its roster row and "
+                        "its descriptor first, and every exclusion is named")
+    p.add_argument("--job-id", default=None,
+                   help="with --enqueue: the REGISTERED catalogue job whose fire launches a seat. "
+                        "No default — the catalogue id belongs to whoever armed the queue")
+    p.add_argument("--profile", default=None,
+                   help="with --enqueue: the launch profile name. No default — the daemon requires "
+                        "it of every launch-agent job and this stage does not invent one")
+    p.add_argument("--at", default=None,
+                   help="with --enqueue: ISO-8601 UTC fire time; default is now")
+    p.add_argument("--dry-run", action="store_true",
+                   help="with --enqueue: validate at the door and write nothing. Rows land under "
+                        "`validated`, never `enqueued` — the two are different claims")
+    p.add_argument("--signature", action="store_true",
+                   help="print this wave's ONE enqueue interface signature and its result schema, "
+                        "for the three seats that call it, then exit")
     p.add_argument("--selftest", action="store_true")
     p.add_argument("--fixture", default=None,
                    help="with --selftest: run the assertions against this on-disk package instead "
                         "of a temp tree")
     args = p.parse_args()
+
+    if args.signature:
+        print("edge-runner-job STEP 4 — the ONE enqueue interface of the m4 wave (task 7.125).")
+        print("Called by: the check-out fast path (M4-11), the created goal's first workflow "
+              "(M4-20), the C1 rehearsal (M4-22).")
+        print("\n  from edge_runner_job import enqueue")
+        print("  enqueue%s" % (inspect.signature(enqueue),))
+        print("\n  -> {%s}" % ", ".join(ENQUEUE_RESULT_KEYS))
+        print("     enqueued  [{%s}] — a row ONLY when the door returned a real id"
+              % ", ".join(ENQUEUE_ROW_KEYS))
+        print("     validated the same rows under dry_run=True; the door wrote nothing, so no id")
+        print("     excluded   every ready seat the self-state intersection excluded, with its "
+              "term and value. Present even when empty")
+        print("     failed    every candidate that did not reach the queue, with the cause named")
+        print("\n  job_id/profile have NO defaults — the catalogue id belongs to whoever armed the")
+        print("  queue and the daemon requires a profile of every launch-agent job.")
+        print("  submit is (argv) -> (rc, stdout, stderr) and defaults to the daemon's own door;")
+        print("  inject it to exercise the interface without a daemon and without arming anything.")
+        print("\n  DO NOT WRITE A SECOND ENQUEUE. Two implementations diverge, and the expensive")
+        print("  half of that shape is that one of the two keeps reporting success (G-301).")
+        return 0
 
     if args.selftest:
         return cmd_selftest(args.fixture)
@@ -1090,6 +1698,34 @@ def main():
             for c in res["caveats"]:
                 print("\ncaveat: %s" % c)
         return 0
+
+    if args.enqueue:
+        if not args.job_id or not args.profile:
+            p.error("--enqueue requires --job-id and --profile: the catalogue id belongs to "
+                    "whoever armed the queue, and the daemon requires a profile of every "
+                    "launch-agent job. This stage invents neither.")
+        full = marks if not args.seat else run_stage(coord, pkg)
+        res3 = readiness(coord, pkg, {r["seat"]: r["disposition"] for r in full})
+        res = enqueue(coord, pkg, args.job_id, args.profile, readiness_result=res3,
+                      at=args.at, dry_run=args.dry_run)
+        if args.json:
+            print(json.dumps(res, indent=2))
+        else:
+            for r in res["enqueued"]:
+                print("QUEUED    %-28s job %-12s seed: %s"
+                      % (r["seat"], r["job-id"], ", ".join(r["seed"]) or "(none — root seat)"))
+            for r in res["validated"]:
+                print("VALIDATED %-28s (dry run — nothing written) seed: %s"
+                      % (r["seat"], ", ".join(r["seed"]) or "(none — root seat)"))
+            for s in res["excluded"]:
+                print("excluded   %-28s %s" % (s["seat"], s["reason"]))
+            for c in res["caveats"]:
+                print("\ncaveat: %s" % c)
+        # FAIL LOUD: a candidate that did not reach the queue goes to stderr, so it is never only
+        # in a data structure somebody has to opt into reading.
+        for r in res["failed"]:
+            print("NOT ENQUEUED  %s — %s" % (r["seat"], r["reason"]), file=sys.stderr)
+        return 1 if res["failed"] else 0
 
     if args.json:
         print(json.dumps(marks, indent=2))
