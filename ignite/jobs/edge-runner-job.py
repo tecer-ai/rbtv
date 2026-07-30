@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""edge-runner-job — CMP-25's pass, STAGE 1 ONLY: verify a finished seat's done contract and
-mark it `done` or `failed` (task 7.123 / M4-08).
+"""edge-runner-job — CMP-25's pass, STEPS 1-3: verify a finished seat's done contract and mark it
+`done` or `failed` (task 7.123 / M4-08), then evaluate readiness of every row whose `after` names
+it (task 7.124 / M4-09).
 
 Fired by the ignite daemon as a `fire-tool` job, one job per finished seat. CMP-25 is ONE engine
-whose per-edge behaviour is entirely DATA; this file is that engine, and today it carries only the
-first of its five steps.
+whose per-edge behaviour is entirely DATA; this file is that engine, and today it carries the
+first three of its five steps.
 
 ⚠⚠ WHAT THIS FILE IS NOT, YET. CMP-25's pass has five steps: (1) verify the finished seat's done
 contract, (2) mark it done or failed loudly, (3) evaluate every downstream row whose `after` names
-it, (4) enqueue each ready seat's launch job, (5) exit. **Steps 1 and 2 are here. Steps 3 and 4 are
-NOT, and their absence is a build state, not a design.** They are tasks 7.124 (M4-09, readiness over
-plain `after` sets) and 7.125 (M4-10, enqueue). A reader who finds no readiness arm here has found
-an unbuilt stage, not a missing feature.
+it, (4) enqueue each ready seat's launch job, (5) exit. **Steps 1, 2 and 3 are here. Step 4 is
+NOT, and its absence is a build state, not a design.** It is task 7.125 (M4-10, enqueue). A reader
+who finds no enqueue arm here has found an unbuilt stage, not a missing feature.
 
 **NOTHING REGISTERS THIS FILE.** It is in no job catalogue and no queue row, so it fires for
 nothing and arms nothing. That is deliberate and it is the `r-cutover-gated` bound (m4 criterion
@@ -116,12 +116,18 @@ COORD_PATH = HERE.parent / "team-kit" / "coord.py"
 # trace-field-audit.md row 14 carries the same site with `field: null` for the same reason.
 SESSIONS = "{RUN}/sessions.csv"
 SEAT_MD_OUTPUTS = "{RUN}/seats/*/seat.md"
+TASKFORCE = "{RUN}/taskforce.csv"
 
 READS = [
     (SESSIONS, "seat"),          # which rows belong to the seat under verification
     (SESSIONS, "ended"),         # whether it FINISHED — CMP-25's precondition
     (SESSIONS, "disposition"),   # the durable check-out value; `done` alone advances an edge
     (SEAT_MD_OUTPUTS, None),     # its declared outputs, and the artifact paths they name
+    # STEP 3 (M4-09) adds exactly these two, and both were already audited: trace-field-audit.md
+    # rows 4 and 5 carry `{RUN}/taskforce.csv` `after` and `seat` for the `ready` state. Read
+    # through `coord.taskforce_after`, never with a private parser.
+    (TASKFORCE, "seat"),         # which row each `after` cell belongs to
+    (TASKFORCE, "after"),        # the predecessor set, COMMA-separated names and nothing else
 ]
 
 # coord's closed enum, restated here ONLY as the literal this file's checks compare against, so a
@@ -333,6 +339,110 @@ def run_stage(coord, pkg, explicit=()):
     return [verify(coord, pkg, s) for s in seats_of(coord, pkg, explicit)]
 
 
+# ---- STEP 3: readiness over PLAIN `after` sets (task 7.124 / M4-09) ---------------------------
+#
+# A seat is READY when every predecessor named in its `after` cell carries the mark `done`, and
+# BLOCKED otherwise with each unmet predecessor NAMED. That is the whole predicate.
+#
+# ⚠⚠ SCOPE BOUND, DELIBERATE AND NAMED — NO CONDITIONAL-EDGE EVALUATOR, AND NO THIRD VERDICT.
+# `VERDICTS` below is closed at two values. The state a reader might expect as a third — the one
+# the registry defines for a row excluded by a conditional edge — IS DEFINED AND UNREACHABLE
+# (trace-field-audit.md row 15: "resolves to NO column"; DAG §M4-12; issues.md G-301, G-308).
+# Saying so here is required rather than tidy: a value that silently never appears reads as "this
+# case did not arise", when the truth is "this case cannot arise", and those are different claims.
+# Whether the conditional mechanism should be BUILT is the `leader`'s call on those two ledger
+# rows, not this stage's.
+#
+# WHY THE PARSE IS `coord.taskforce_after` AND NOT A LOCAL SPLIT. The `after` cell has exactly one
+# producer (`materialize-seats.py`) and one runtime parse (`coord.taskforce_after`, coord.py:8667,
+# `raw.split(",")`, comma ONLY — it strips no conditional token and splits no alternate). A second
+# parse here is G-301 rebuilt at a new seam: today `goal_cli.check_acyclic` DOES split those forms
+# and reports NO finding while the runtime blocks the seat forever, and one of the two disagreeing
+# readers says everything is fine. This stage therefore reads what the RUNTIME reads, by calling
+# it. A conditional-shaped or alternate-shaped token is consequently ONE predecessor name, taken
+# verbatim, that resolves to nothing and holds its seat blocked — and `unresolvable_shape_note`
+# makes that visible in the reason instead of leaving it as a silent forever-block.
+#
+# ⚠ READINESS IS NOT LAUNCH CANDIDACY, AND STEP 4 MUST NOT TREAT IT AS SUCH. This predicate has
+# NO term for the seat's OWN state. `coord.ready_seat_rows` carries three more terms before it
+# says READY — terminal(self) is None, no ACTIVE roster row, a descriptor on disk — and a seat
+# that is already finished or already sitting satisfies this predicate while being the wrong
+# thing to launch. The `self-marks` key and the `caveats` list below carry that bound in the
+# output itself so the enqueue stage cannot miss it.
+
+VERDICTS = ("ready", "blocked")          # closed, spelled out, and compared against literally
+
+NO_MARK = None                           # a predecessor nothing has marked. NEVER read as `done`.
+
+_UNRESOLVABLE_SHAPE = re.compile(r"[\[\]|]")
+
+
+def unresolvable_shape_note(name):
+    """A note for an unmet predecessor whose NAME carries a conditional-edge or alternate
+    character. The note changes NO verdict and evaluates nothing — it reports that the whole
+    token is one uninterpreted name, which is why it can never resolve."""
+    if not _UNRESOLVABLE_SHAPE.search(name):
+        return None
+    return ("this whole token is ONE predecessor name — the runtime parse splits the cell on "
+            "COMMA only, so it is neither reduced nor split. It resolves to no seat and holds "
+            "this row blocked permanently. See issues.md G-301/G-308; this stage evaluates "
+            "nothing and reports the shape instead.")
+
+
+def readiness(coord, pkg, marks=None):
+    """`{ready: [seat], blocked: [{seat, unmet: [pred], ...}], ...}` for every `taskforce.csv` row.
+
+    `marks` is `{seat: disposition}` as STEP 1-2 emits it (`done` | `failed` | None). Omit it and
+    it is computed by running that stage — the same code path, never a second reading of the
+    trace. Rows are returned in `taskforce.csv` FILE ORDER, which is `taskforce_after`'s order.
+
+    Only the literal mark `done` satisfies an edge. `failed` does NOT, and neither does an absent
+    mark: `failed` is terminal, and reading terminal as "finished, therefore satisfied" is the
+    plausible wrong reading that would advance a workflow past work that did not pass."""
+    if marks is None:
+        marks = {r["seat"]: r["disposition"] for r in run_stage(coord, pkg)}
+    after = coord.taskforce_after(pkg)
+
+    ready, blocked = [], []
+    for seat, preds in after.items():
+        unmet, unmet_marks, notes = [], {}, {}
+        for p in preds:
+            mark = marks.get(p, NO_MARK)
+            if mark != ADVANCES_EDGE:
+                unmet.append(p)
+                unmet_marks[p] = mark
+                note = unresolvable_shape_note(p)
+                if note:
+                    notes[p] = note
+        if unmet:
+            blocked.append({
+                "seat": seat, "unmet": unmet, "unmet-marks": unmet_marks,
+                "after": list(preds), "notes": notes,
+                "reason": "after: " + " ".join(
+                    "%s=%s" % (p, unmet_marks[p] if unmet_marks[p] is not None else "<no mark>")
+                    for p in unmet),
+            })
+        else:
+            ready.append(seat)
+
+    return {
+        "ready": ready,
+        "blocked": blocked,
+        # The seat's OWN mark, for every seat this predicate calls ready. Carried because the
+        # predicate has no self-state term and a consumer that launched on `ready` alone would
+        # relaunch a finished seat.
+        "self-marks": {s: marks.get(s, NO_MARK) for s in ready},
+        "caveats": [
+            "readiness is the `after`-set term ONLY. Launch candidacy additionally requires "
+            "terminal(self) is None, no ACTIVE roster row, and a descriptor on disk — the three "
+            "terms coord.ready_seat_rows carries and this predicate does not.",
+            "the verdict vocabulary is closed at %s. A row excluded by a conditional edge has no "
+            "verdict here because no conditional edge can be authored: the cell is parsed on "
+            "comma alone (issues.md G-301/G-308)." % (list(VERDICTS),),
+        ],
+    }
+
+
 # ---- checks -----------------------------------------------------------------------------------
 #
 # Every expectation below is spelled out LITERALLY. Not one is read from the value under test: a
@@ -367,6 +477,66 @@ EXPECT = {
     "fx-renewed-then-done": "done",
     "fx-no-iospec": "done",
 }
+
+
+# ---- the STEP-3 fixture graph, and its expectations, spelled out literally --------------------
+#
+# One row per shape the predicate must get right. The `after` CELLS are written verbatim into the
+# fixture's taskforce.csv, INCLUDING the two malformed-on-purpose ones, so the comma-only parse is
+# exercised against real disk rather than against a hand-built dict.
+READY_AFTER = {
+    "fx-r-root":            "",
+    "fx-r-one-done":        "fx-done-outputs-present",
+    "fx-r-two-done":        "fx-done-outputs-present,fx-renewed-then-done",
+    "fx-r-spaces":          "  fx-done-outputs-present ,  fx-renewed-then-done  ",
+    "fx-r-failed-pred":     "fx-renew",
+    "fx-r-exited-pred":     "fx-exited",
+    "fx-r-undecided-pred":  "fx-open-sitting",
+    "fx-r-mixed":           "fx-done-outputs-present,fx-exited",
+    "fx-r-dangling":        "fx-nobody-by-that-name",
+    "fx-r-conditional":     "fx-done-outputs-present[state=ok]",
+    "fx-r-alternate":       "fx-done-outputs-present|fx-renewed-then-done",
+    "fx-r-artifact-strict": "fx-done-output-missing",
+}
+
+# The expected verdict and the expected UNMET SET for every fixture row, written out by hand.
+# Not one entry is computed from the predicate, from READY_AFTER, or from the mark table: a check
+# whose expectation is derived from the value under test moves with the code and passes any change
+# to it. The EXPECT seats of step 1-2 all carry an empty `after`, so every one of them is ready.
+EXPECT_READY = {
+    "fx-r-root":            ("ready",   []),
+    "fx-r-one-done":        ("ready",   []),
+    "fx-r-two-done":        ("ready",   []),
+    "fx-r-spaces":          ("ready",   []),
+    "fx-r-failed-pred":     ("blocked", ["fx-renew"]),
+    "fx-r-exited-pred":     ("blocked", ["fx-exited"]),
+    "fx-r-undecided-pred":  ("blocked", ["fx-open-sitting"]),
+    "fx-r-mixed":           ("blocked", ["fx-exited"]),
+    "fx-r-dangling":        ("blocked", ["fx-nobody-by-that-name"]),
+    "fx-r-conditional":     ("blocked", ["fx-done-outputs-present[state=ok]"]),
+    "fx-r-alternate":       ("blocked", ["fx-done-outputs-present|fx-renewed-then-done"]),
+    "fx-r-artifact-strict": ("blocked", ["fx-done-output-missing"]),
+    "fx-done-outputs-present": ("ready", []),
+    "fx-done-output-missing":  ("ready", []),
+    "fx-renew":                ("ready", []),
+    "fx-revive":               ("ready", []),
+    "fx-exited":               ("ready", []),
+    "fx-empty-disposition":    ("ready", []),
+    "fx-open-sitting":         ("ready", []),
+    "fx-no-row":               ("ready", []),
+    "fx-renewed-then-done":    ("ready", []),
+    "fx-no-iospec":            ("ready", []),
+}
+
+# The ONE row on which this predicate and `coord.ready_seat_rows` are EXPECTED to differ, named
+# rather than tolerated. coord satisfies an edge on the RAW check-out value; this stage satisfies
+# it on step 1-2's MARK, which additionally requires the predecessor's declared outputs to exist.
+# `fx-done-output-missing` checked out `done` and its declared artifact is NOT on disk, so coord
+# reads that edge satisfied and this stage does not. A strictness ordering, not a parse
+# disagreement — and `check_agrees_with_coord_ready_seats` proves the ordering is ONE-directional
+# (this stage may block what coord readies; it may NEVER ready what coord blocks) and that every
+# divergence is explained by exactly that grade. A divergence outside this set is RED.
+EXPECTED_DIVERGENCES = {"fx-r-artifact-strict"}
 
 
 def audited_pairs(path):
@@ -554,6 +724,224 @@ def check_no_status_column_written(coord, pkg):
                  "column present" % len(after)
 
 
+# ---- STEP 3's checks (task 7.124 / M4-09) -----------------------------------------------------
+
+# Assembled from two fragments ON PURPOSE, so that this check's own source is not a hit for the
+# search it performs. Spelling it out inline would make the check pass or fail on its own text.
+EXCLUDED_STATE = "skip" + "ped"
+
+READINESS_KEYS = ("ready", "blocked", "self-marks", "caveats")   # literal, not derived
+
+
+def _readiness_verdicts(res):
+    """{seat: verdict} from a readiness result, for comparison against the literal table."""
+    out = {s: "ready" for s in res["ready"]}
+    for b in res["blocked"]:
+        out[b["seat"]] = "blocked"
+    return out
+
+
+def check_readiness_verdicts(coord, pkg):
+    """CRITERION 1 + 4 — every fixture row gets the verdict and the UNMET SET the literal
+    EXPECT_READY table names. Covers the empty-`after` root (ready) and, as the discriminating
+    control, a predecessor marked `failed` (BLOCKED, never ready): treating a terminal mark as
+    "finished, therefore satisfied" is the plausible wrong reading and it is checked explicitly."""
+    res = readiness(coord, pkg)
+    got = _readiness_verdicts(res)
+    unmet = {b["seat"]: b["unmet"] for b in res["blocked"]}
+    bad = []
+    for seat, (want_verdict, want_unmet) in EXPECT_READY.items():
+        if seat not in got:
+            bad.append("%s: no verdict at all" % seat)
+            continue
+        if got[seat] != want_verdict:
+            bad.append("%s: expected %s, got %s" % (seat, want_verdict, got[seat]))
+        elif want_verdict == "blocked" and unmet.get(seat) != want_unmet:
+            bad.append("%s: expected unmet %s, got %s" % (seat, want_unmet, unmet.get(seat)))
+    extra = sorted(set(got) - set(EXPECT_READY))
+    if extra:
+        bad.append("rows with no expectation in the table: %s" % extra)
+    if bad:
+        return False, "criterion 1/4: %d wrong readiness row(s): %s" % (len(bad), "; ".join(bad))
+    return True, ("criterion 1/4: all %d rows correct (ready=%d, blocked=%d), every blocked row's "
+                  "unmet set matches by name" % (
+                      len(EXPECT_READY),
+                      sum(1 for v, _ in EXPECT_READY.values() if v == "ready"),
+                      sum(1 for v, _ in EXPECT_READY.values() if v == "blocked")))
+
+
+def check_after_split_is_comma_only(coord, pkg):
+    """CRITERION 2 — the `after` cell is split on COMMA and nothing else.
+
+    Fed two cells the parse must NOT interpret: a conditional-shaped token and an
+    alternate-shaped one. Each must survive as ONE predecessor name, character for character, and
+    must NOT be reduced to the seat name inside it — a reduction would mark the row ready off a
+    predecessor nobody named. Whitespace around comma-separated names IS stripped, which is what
+    `materialize-seats.py` writes and `coord.taskforce_after` reads."""
+    after = coord.taskforce_after(pkg)
+    cases = [
+        ("fx-r-conditional", ["fx-done-outputs-present[state=ok]"]),
+        ("fx-r-alternate",   ["fx-done-outputs-present|fx-renewed-then-done"]),
+        ("fx-r-spaces",      ["fx-done-outputs-present", "fx-renewed-then-done"]),
+        ("fx-r-two-done",    ["fx-done-outputs-present", "fx-renewed-then-done"]),
+        ("fx-r-root",        []),
+    ]
+    for seat, want in cases:
+        if after.get(seat) != want:
+            return False, ("criterion 2: `after` for %s parsed to %r, expected %r — the cell was "
+                           "split on something other than comma" % (seat, after.get(seat), want))
+    res = readiness(coord, pkg)
+    blocked = {b["seat"]: b for b in res["blocked"]}
+    for seat, want in (("fx-r-conditional", "fx-done-outputs-present[state=ok]"),
+                       ("fx-r-alternate", "fx-done-outputs-present|fx-renewed-then-done")):
+        b = blocked.get(seat)
+        if b is None:
+            return False, ("criterion 2: %s is NOT blocked — the uninterpretable token was "
+                           "resolved to something, which is how a row is readied off a "
+                           "predecessor nobody named" % seat)
+        if b["unmet"] != [want]:
+            return False, ("criterion 2: %s unmet is %r, expected exactly [%r]"
+                           % (seat, b["unmet"], want))
+        if not b["notes"].get(want):
+            return False, ("criterion 2: %s carries no note explaining that the token is one "
+                           "uninterpreted name — a permanent block with no stated cause" % seat)
+    return True, ("criterion 2: comma-only split confirmed on 5 cells; both uninterpretable "
+                  "tokens survive whole, block their row, and carry a stated cause")
+
+
+def check_no_conditional_evaluator_or_third_verdict():
+    """CRITERION 3 — no conditional-edge evaluator and no third verdict exist in this file.
+
+    A SEARCH, and it is recorded: the excluded state's name must not occur anywhere in the source,
+    the verdict tuple must be exactly the two values spelled out, and the shape-note helper must
+    have exactly one call site (its return value annotates a reason; it decides nothing)."""
+    src = Path(__file__).read_text(encoding="utf-8")
+    hits = [i + 1 for i, ln in enumerate(src.splitlines())
+            if EXCLUDED_STATE in ln.lower()]
+    if hits:
+        return False, ("criterion 3: the excluded state's name occurs at line(s) %s — a third "
+                       "verdict is being introduced" % hits)
+    if VERDICTS != ("ready", "blocked"):
+        return False, "criterion 3: VERDICTS is %r, expected exactly ('ready', 'blocked')" % (
+            VERDICTS,)
+    # The shape-note helper must be called from `readiness` ONCE and from nowhere else, so it
+    # cannot be reaching a verdict decision. Counted over function SOURCES rather than over the
+    # whole file: this check's own text names the helper, and a whole-file count would be
+    # measuring itself. This function is excluded BY NAME for exactly that reason.
+    inside = inspect.getsource(readiness).count("unresolvable_shape_note(")
+    if inside != 1:
+        return False, ("criterion 3: `readiness` calls the shape-note helper %d time(s), "
+                       "expected exactly 1" % inside)
+    me = "check_no_conditional_evaluator_or_third_verdict"
+    elsewhere = []
+    for name, obj in sorted(globals().items()):
+        if not callable(obj) or name in ("readiness", me):
+            continue
+        if getattr(obj, "__module__", None) != __name__:
+            continue
+        try:
+            body = inspect.getsource(obj)
+        except (OSError, TypeError):
+            continue
+        if name != "unresolvable_shape_note" and "unresolvable_shape_note(" in body:
+            elsewhere.append(name)
+    if elsewhere:
+        return False, ("criterion 3: the shape-note helper is also called from %s — it may be "
+                       "reaching a verdict decision there" % elsewhere)
+    return True, ("criterion 3: excluded state's name absent from all %d lines; VERDICTS == "
+                  "('ready', 'blocked'); the shape-note helper has exactly ONE call site, in "
+                  "`readiness`, and none elsewhere" % len(src.splitlines()))
+
+
+def check_readiness_schema(coord, pkg):
+    """The declared output shape, asserted literally: `{ready: [seat], blocked: [{seat, unmet}]}`
+    with `unmet` a list of NAMES, plus the two keys that carry the not-launch-candidacy bound."""
+    res = readiness(coord, pkg)
+    if tuple(res) != READINESS_KEYS:
+        return False, "schema: top-level keys are %r, expected %r" % (tuple(res), READINESS_KEYS)
+    if not all(isinstance(s, str) for s in res["ready"]):
+        return False, "schema: `ready` must be a list of seat names"
+    for b in res["blocked"]:
+        if not {"seat", "unmet"} <= set(b):
+            return False, "schema: a blocked row lacks `seat`/`unmet`: %r" % sorted(b)
+        if not b["unmet"] or not all(isinstance(p, str) for p in b["unmet"]):
+            return False, ("schema: %s's `unmet` is %r — every blocked row must NAME at least one "
+                           "unmet predecessor, so a stalled wave reports WHICH edge holds it"
+                           % (b["seat"], b["unmet"]))
+    if set(res["self-marks"]) != set(res["ready"]):
+        return False, "schema: `self-marks` must cover exactly the ready set"
+    return True, ("schema: keys %r; %d ready, %d blocked, every blocked row names >=1 unmet "
+                  "predecessor" % (list(READINESS_KEYS), len(res["ready"]), len(res["blocked"])))
+
+
+def _fixture_args(pkg):
+    """An args-shaped object for `coord.ready_seat_rows` pointed at the fixture.
+
+    `workers_dir` is supplied EXPLICITLY: left unset, `coord.workers_dir` resolves the package with
+    `register=True`, which WRITES the fixture into the machine's runs index. A read-only check must
+    not register a temp directory as a run."""
+    class _A:
+        package = str(pkg)
+        base = str(pkg / "coordination")
+        workers_dir = str(pkg / "seats")
+        run = None
+    return _A()
+
+
+def check_agrees_with_coord_ready_seats(coord, pkg):
+    """CRITERION 7 — this predicate and `coord.ready_seat_rows` agree on the fixture's graph, and
+    the ONE place they are designed to differ is named in advance.
+
+    Compared TERM BY TERM, which is the term `ready-seats --explain` prints: for each row, whether
+    every `after` predecessor is satisfied. coord's other three terms (terminal(self), an ACTIVE
+    roster row, a descriptor on disk) are NOT this predicate's and are excluded from the
+    comparison rather than silently swallowed.
+
+    Two readers of one graph that disagree is the defect class this wave is bounded against, so a
+    divergence outside `EXPECTED_DIVERGENCES` is RED, and an UNSOUND divergence — this stage
+    readying a row coord blocks — is red even if it were listed."""
+    theirs_rows = coord.ready_seat_rows(_fixture_args(pkg))
+    theirs_disp = {r["seat"]: r["disposition"] for r in theirs_rows}
+    after = coord.taskforce_after(pkg)
+    mine = _readiness_verdicts(readiness(coord, pkg))
+    marks = {r["seat"]: r["disposition"] for r in run_stage(coord, pkg)}
+
+    if not theirs_rows:
+        return False, ("criterion 7: coord.ready_seat_rows returned ZERO rows for the fixture — "
+                       "an empty comparison would agree vacuously")
+
+    diverged, unsound = [], []
+    for seat, preds in after.items():
+        theirs_ready = all(theirs_disp.get(p) == "done" for p in preds)
+        mine_ready = mine.get(seat) == "ready"
+        if mine_ready == theirs_ready:
+            continue
+        diverged.append(seat)
+        if mine_ready and not theirs_ready:
+            unsound.append("%s: THIS STAGE readies a row coord blocks" % seat)
+            continue
+        # Sound direction. It must be explained by the artifact grade and by nothing else.
+        cause = [p for p in preds
+                 if theirs_disp.get(p) == "done" and marks.get(p) == "failed"]
+        if not cause:
+            unsound.append("%s: blocked here, satisfied by coord, and NOT explained by the "
+                           "declared-artifact grade" % seat)
+
+    if unsound:
+        return False, ("criterion 7: %d unexplained disagreement(s): %s. Investigate WHICH is "
+                       "right before changing either; report to the leader with both outputs."
+                       % (len(unsound), "; ".join(unsound)))
+    if set(diverged) != EXPECTED_DIVERGENCES:
+        return False, ("criterion 7: divergence set is %s, expected exactly %s — a new row "
+                       "started disagreeing, or the named one stopped"
+                       % (sorted(diverged), sorted(EXPECTED_DIVERGENCES)))
+    return True, ("criterion 7: %d rows compared term-by-term against coord.ready_seat_rows; "
+                  "agreement on %d, and the %d named divergence %s is one-directional and "
+                  "explained by the declared-artifact grade"
+                  % (len(after), len(after) - len(diverged), len(diverged),
+                     sorted(EXPECTED_DIVERGENCES)))
+
+
 def build_fixture(root):
     """Write the fixture tree. Identical in content to the on-disk fixture the probe record drives,
     so `--selftest --fixture <DIR>` runs the same assertions against real disk."""
@@ -577,9 +965,26 @@ def build_fixture(root):
     # at all and is discoverable ONLY here. Without this file the stage silently never verifies it,
     # which is exactly how an un-launched seat becomes invisible instead of undecided — the first
     # version of this fixture omitted it and `check_dispositions` caught the omission.
-    (pkg / "taskforce.csv").write_text(
-        "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-        + "".join("tf-fx,%s,,claude,claude-opus-5,medium,50,fx\n" % s for s in EXPECT))
+    # The `after` cells of the step-3 rows are QUOTED, because two of them are deliberately
+    # malformed and one carries surrounding whitespace. csv.writer is used rather than a format
+    # string so the file on disk is exactly what a csv reader will hand back.
+    with (pkg / "taskforce.csv").open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["taskforce-id", "seat", "after", "harness", "model", "effort",
+                    "ctx-refresh", "milestone-id"])
+        for s in EXPECT:
+            w.writerow(["tf-fx", s, "", "claude", "claude-opus-5", "medium", "50", "fx"])
+        for s, cell in READY_AFTER.items():
+            w.writerow(["tf-fx", s, cell, "claude", "claude-opus-5", "medium", "50", "fx"])
+    # The step-3 rows get a descriptor apiece and NO session row: their own state must not shadow
+    # the `after` term when coord.ready_seat_rows is run over this same package for the agreement
+    # check (a seat with no descriptor reads UNBUILT there, and the comparison would be vacuous).
+    for seat in READY_AFTER:
+        d = pkg / "seats" / seat
+        d.mkdir(parents=True, exist_ok=True)
+        d.joinpath("seat.md").write_text(
+            "---\nseat: %s\nharness: claude\n---\n<role id=\"fx-role\" version=\"latest\">\n"
+            "A step-3 fixture row: it exists to carry an `after` cell.\n</role>\n" % seat)
     iospec = {"fx-done-output-missing": "outputs/absent.md"}
     for seat in EXPECT:
         d = pkg / "seats" / seat
@@ -618,6 +1023,12 @@ def cmd_selftest(fixture):
         ("evidence-is-per-seat", lambda: check_evidence_is_per_seat(coord, pkg)),
         ("scan-agrees-with-coord-reader", lambda: check_scan_agrees_with_coord_reader(coord, pkg)),
         ("no-status-column-written", lambda: check_no_status_column_written(coord, pkg)),
+        # STEP 3 (M4-09)
+        ("readiness-verdicts", lambda: check_readiness_verdicts(coord, pkg)),
+        ("after-split-comma-only", lambda: check_after_split_is_comma_only(coord, pkg)),
+        ("no-conditional-evaluator", lambda: check_no_conditional_evaluator_or_third_verdict()),
+        ("readiness-schema", lambda: check_readiness_schema(coord, pkg)),
+        ("agrees-with-coord-ready-seats", lambda: check_agrees_with_coord_ready_seats(coord, pkg)),
     ]
     failed = 0
     for name, fn in checks:
@@ -641,6 +1052,12 @@ def main():
                    help="verify only this seat (repeatable); default is every seat on the trace "
                         "or the roster")
     p.add_argument("--json", action="store_true", help="emit the marks as JSON")
+    p.add_argument("--readiness", action="store_true",
+                   help="STEP 3: after marking, print which seats are ready and which are "
+                        "blocked, each blocked row naming its unmet predecessors. Readiness is "
+                        "the `after`-set term ONLY — it is not launch candidacy, and the "
+                        "verdict vocabulary is closed at ready/blocked because no conditional "
+                        "edge can be authored (issues.md G-301/G-308)")
     p.add_argument("--selftest", action="store_true")
     p.add_argument("--fixture", default=None,
                    help="with --selftest: run the assertions against this on-disk package instead "
@@ -655,6 +1072,24 @@ def main():
     coord = load_coord()
     pkg = Path(args.package).resolve()
     marks = run_stage(coord, pkg, args.seat)
+
+    if args.readiness:
+        # Readiness is evaluated over the marks of a FULL pass, never over the `--seat` subset:
+        # a predecessor left out of the subset would carry no mark and read as unmet.
+        full = marks if not args.seat else run_stage(coord, pkg)
+        res = readiness(coord, pkg, {r["seat"]: r["disposition"] for r in full})
+        if args.json:
+            print(json.dumps(res, indent=2))
+        else:
+            for s in res["ready"]:
+                print("READY    %-28s (own mark: %s)" % (s, res["self-marks"][s] or "none"))
+            for b in res["blocked"]:
+                print("BLOCKED  %-28s %s" % (b["seat"], b["reason"]))
+                for p, note in b["notes"].items():
+                    print("%-37s ⚠ `%s` — %s" % ("", p, note))
+            for c in res["caveats"]:
+                print("\ncaveat: %s" % c)
+        return 0
 
     if args.json:
         print(json.dumps(marks, indent=2))
