@@ -140,15 +140,33 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    Ephemeral seats use `depart` (export + checkout + killing
    the seat's own pane, one command, no name — a seat can only depart itself). Leader checks out
    only after all workers have.
-9. **Memory (persistent seats only).** `workers/<you>/memory.md` is your seat's cross-session
-   memory, co-written with a closer seat at a CLOSE, and appended to by `checkout --renew
-   --handoff` at a RENEWAL (no closer is in the renewal path — evidence: the same run-2 15:1x
-   gate refusal item 8 cites; the closer ceremony was the only renewal path and it never composed
-   with a seat's own act). If it exists at boot, read it after your
-   briefing and trust it as your own notes (re-verify what is cheap to verify). When a closer
-   contacts you with a draft memory (`--type ask`), answering it IS briefing work: correct it,
-   fill what only you know, reply promptly — an unanswered closer writes your memory alone.
-   Ephemeral seats have NO memory by design: never create one, never read prior-pass artifacts.
+9. **Memory and the seat-folder write contract (persistent seats only).** This item is the ONE
+   normative home of the seat-folder write contract — every other surface (run routers,
+   `communication.md`, seat descriptors) CITES it and restates nothing.
+   - **`memory.md` — the ONLY obligatory per-session write.** `workers/<you>/memory.md` is a
+     PRESENT-TENSE state doc scoped to handoff/refresh only: what is true now, what the successor
+     must DO, open loops, live watch-items, standing instructions still in force. REWRITTEN IN
+     PLACE at every renewal/close — resolved items are DELETED, never corrected-below; no sitting
+     narrative, no sagas, no lesson essays. Keep ONLY the latest CLI-appended `coord:handoff`
+     block (fold still-live content of older blocks into the body, delete them). Target ≤ 2
+     screens (~120 lines): a successor reads it top-to-bottom and knows what to do.
+   - **Mechanics.** Co-written with a closer seat at a CLOSE, and appended to by `checkout
+     --renew --handoff` at a RENEWAL (no closer is in the renewal path — evidence: the same
+     run-2 15:1x gate refusal item 8 cites; the closer ceremony was the only renewal path and it
+     never composed with a seat's own act). If it exists at boot, read it after your briefing and
+     trust it as your own notes (re-verify what is cheap to verify). When a closer contacts you
+     with a draft memory (`--type ask`), answering it IS briefing work: correct it, fill what
+     only you know, reply promptly — an unanswered closer writes your memory alone.
+   - **`handoff-log.md` (run level) — the past; append-only; CONDITIONAL.** A sitting block is
+     written ONLY when ALL hold: (i) the sitting produced narrative a future auditor/groomer
+     genuinely needs; (ii) the content is not already in a ledger, ruling, or deliverable;
+     (iii) the block is succinct and objective — facts, measurements, ruling anchors, ≤ 30
+     lines. Quiet sittings write NO block. Never corrected in place; corrections are later blocks.
+   - **Conditionality.** Every non-memory artifact has a trigger; absent the trigger, the correct
+     number of writes is ZERO. No cadence-driven prose artifacts (per-pass reports, per-turn
+     logs) — proof-of-life is the sensors' job, never a prose file's.
+   - **Ephemeral seats have NO memory by design:** never create one, never read prior-pass
+     artifacts.
 
 ## Execution rules
 
