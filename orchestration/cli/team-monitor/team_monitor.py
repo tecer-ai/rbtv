@@ -760,11 +760,50 @@ def cmd_once(args):
         fh.close()
 
 
+# ---------- how `run` ENDS: one home per ending, so the log alone tells them apart ----------
+# `G-296`, the severity half. `session_alive` is ONE predicate read at TWO moments, and the two
+# readings are OPPOSITE outcomes: false before the loop means nothing was ever observed, false
+# inside it means the room ended. Until 2026-07-30 both printed the SAME line at exit 0, so four
+# consecutive auto-ensure deaths read as four healthy shutdowns and the room ran unobserved behind
+# a log that looked correct. Every ending is spelled ONCE, here, and `cmd_run` emits from these —
+# a second copy of a message is how the pairs collapse back together.
+
+EXIT_SESSION_UNRESOLVED = 4
+EXIT_SESSION_NEVER_ALIVE = 5
+RUN_EXIT_ROOM_GONE = ("room gone — team-monitor exiting (deterministic close)", 0)
+RUN_EXIT_RUN_CLOSED = ("run closed in runs.csv — team-monitor exiting (deterministic close)", 0)
+
+
+def run_exit_never_alive(session, how):
+    """The (message, exit-code) pair of a sensor aimed at a session that was NEVER alive.
+
+    It names the session AND how the name was arrived at, because the defect was a name nobody
+    could see the provenance of: the log said `session build-core-daemon-mvp` and a reader had no
+    way to know that came from the goal-folder path rather than from the room.
+    """
+    return (f"refusing: session {session!r} was NEVER alive at startup ({how}) — team-monitor "
+            "exiting WITHOUT EVER OBSERVING THE ROOM; no snapshot was written. This is NOT a "
+            "deterministic close.", EXIT_SESSION_NEVER_ALIVE)
+
+
 def cmd_run(args):
-    """The daemon body: capture on a cadence until the room's session disappears."""
+    """The daemon body: capture on a cadence until the room's session disappears.
+
+    THREE ENDINGS, THREE DISTINGUISHABLE `(message, exit-code)` PAIRS — see the block above:
+    unresolvable session (exit 4) · resolved but never alive (exit 5) · the room legitimately
+    ended (exit 0). The never-alive test runs BEFORE the lock is taken, so a sensor that never
+    observed anything also never occupies the writer slot.
+    """
     session = session_or_refuse(args)
     if not session:
-        return 4
+        return EXIT_SESSION_UNRESOLVED
+    if not session_alive(session):
+        how = ("an explicit --session" if args.session else
+               "resolved from the roster panes in "
+               f"{Path(args.package) / 'coordination' / 'workers.md'}")
+        msg, code = run_exit_never_alive(session, how)
+        print(msg, file=sys.stderr, flush=True)
+        return code
     fh = acquire_writer_lock(args.package)
     if not fh:
         print(f"refusing: another writer holds the lock (pid {lock_holder(args.package)})",
@@ -775,12 +814,13 @@ def cmd_run(args):
     try:
         while True:
             if not session_alive(session):
-                print("room gone — team-monitor exiting (deterministic close)", flush=True)
-                return 0
+                msg, code = RUN_EXIT_ROOM_GONE
+                print(msg, flush=True)
+                return code
             if run_closed(args.package):
-                print("run closed in runs.csv — team-monitor exiting (deterministic close)",
-                      flush=True)
-                return 0
+                msg, code = RUN_EXIT_RUN_CLOSED
+                print(msg, flush=True)
+                return code
             try:
                 write_snapshot(capture(args.package, session, args.sensor), args.package)
             except Exception as e:  # noqa: BLE001 — a bad pass must never kill the sensor
@@ -1042,6 +1082,81 @@ def cmd_selftest(args):
                 out = "SessionUnresolved"
             check(f"G-296: {label} REFUSES loudly and never defaults to the path "
                   f"(got {out})", out == "SessionUnresolved")
+
+    # ---- G-296, the SEVERITY half (task 7.110): three endings a log reader can tell apart ----
+    # ⚠ THIS BLOCK DRIVES `cmd_run` ITSELF and reads what it actually PRINTED. It does not compare
+    # the constants to each other: a check that hand-types both sides of a message can pass while
+    # the daemon prints something else entirely, which is the shape of the green that let this
+    # defect through in the first place. Each ending below is produced by the real function, on a
+    # throwaway package, and the pair recorded is (what a log reader sees, what the process
+    # returned) — the two halves criterion 5 requires to differ.
+    import contextlib
+    import io
+
+    def drive_run(pkg, session=None):
+        """Run `cmd_run` to one of its endings; return (printed-line, exit-code) as observed."""
+        a = argparse.Namespace(package=str(pkg), session=session, sensor=None, interval=0.1)
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = cmd_run(a)
+        printed = (out.getvalue() + err.getvalue()).strip().splitlines()
+        # the startup endings print one line; the loop endings print the `up:` line first
+        return (printed[-1] if printed else "", rc)
+
+    endings = {}
+    hdr296 = ("| agent | active | tmux pane | working on | checked in | checked out |\n"
+              "|---|---|---|---|---|---|\n")
+    with tempfile.TemporaryDirectory() as td:
+        # (a) UNRESOLVABLE — a roster whose only pane resolves to nothing
+        pkg = Path(td) / "goals" / "zz-goal" / "runs" / "run-1"
+        (pkg / "coordination").mkdir(parents=True)
+        (pkg / "coordination" / "workers.md").write_text(
+            hdr296 + "| a-seat | yes | %999999 | w | t1 |  |\n")
+        endings["unresolvable"] = drive_run(pkg)
+        # (b) NEVER ALIVE — the name resolves (explicitly) but no such session has ever existed
+        endings["never-alive"] = drive_run(pkg, session=f"zz-tm-no-such-session-{os.getpid()}")
+        # (c) LEGITIMATE CLOSE — the session IS alive and the run's own row reads closed, so the
+        # loop's deterministic close is the ending reached. A live room is required for this one:
+        # `session_alive` must be TRUE here or the check would be measuring ending (b) again.
+        sess = f"zz-tm-exit-selftest-{os.getpid()}"
+        made = subprocess.run(["tmux", "new-session", "-d", "-s", sess],
+                              capture_output=True, text=True)
+        check(f"7.110 fixture: throwaway room `{sess}` built for the legitimate-close ending "
+              f"(rc={made.returncode}, stderr={made.stderr.strip()!r})", made.returncode == 0)
+        try:
+            (pkg.parent.parent / "runs.csv").write_text(
+                "run-id,type,state,taskforce-ids,opened,closed\n"
+                "run-1,build,closed,,2026-07-30 00:00,2026-07-30 01:00\n")
+            endings["legitimate-close"] = drive_run(pkg, session=sess)
+        finally:
+            subprocess.run(["tmux", "kill-session", "-t", sess], capture_output=True)
+
+    for label, (line, rc) in sorted(endings.items()):
+        check(f"7.110: the `{label}` ending is reported at all (got rc={rc}, line={line!r})",
+              bool(line))
+    check("7.110: the never-alive ending exits NON-ZERO — a silent exit 0 is the whole defect "
+          f"(got {endings['never-alive'][1]})", endings["never-alive"][1] != 0)
+    check("7.110: the never-alive line names the session AND how it was resolved",
+          "no-such-session" in endings["never-alive"][0]
+          and "explicit --session" in endings["never-alive"][0])
+    # criterion 5: all three pairs differ, in BOTH halves, pairwise
+    pairs = sorted(endings.items())
+    for i, (la, pa) in enumerate(pairs):
+        for lb, pb in pairs[i + 1:]:
+            check(f"7.110 criterion 5: `{la}` and `{lb}` differ in the MESSAGE "
+                  f"({pa[0][:48]!r} vs {pb[0][:48]!r})", pa[0] != pb[0])
+            check(f"7.110 criterion 5: `{la}` and `{lb}` differ in the EXIT CODE "
+                  f"({pa[1]} vs {pb[1]})", pa[1] != pb[1])
+    # criteria 3+4: the legitimate close is UNCHANGED. The expected strings are spelled out as
+    # LITERALS rather than read from the constants they guard — a guard that reads the value under
+    # test moves with any edit to it and would pass a rewording silently.
+    check("7.110 criterion 3: the room-gone line is unchanged, byte for byte",
+          RUN_EXIT_ROOM_GONE == ("room gone — team-monitor exiting (deterministic close)", 0))
+    check("7.110 criterion 4: run_closed's line and its exit 0 are unchanged, byte for byte",
+          RUN_EXIT_RUN_CLOSED
+          == ("run closed in runs.csv — team-monitor exiting (deterministic close)", 0))
+    check("7.110: the legitimate close observed from `cmd_run` IS that unchanged pair",
+          endings["legitimate-close"] == RUN_EXIT_RUN_CLOSED)
 
     # ---- the declared agent type (task 7.80) ----
     # Four descriptor states, and the ABSENCES are checked as hard as the presence: an
