@@ -55,7 +55,7 @@ profiles:
       argv: ["--effort", "{effort}"]
     session_ref: { source: stdout-json, field: session_id }
     workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
-    caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
     # D58(3): the worker's kernel RW set must be EXACTLY its session dir. D61 UPDATE: the FS-mount
     # sandbox props below (ProtectSystem/ReadWritePaths/PrivateTmp) are NO LONGER emitted to systemd
     # — under the --user manager they are a no-op AND their mount-namespace setup denies bwrap the
@@ -88,7 +88,7 @@ profiles:
       argv: ["-c", "model_reasoning_effort={effort}"]
     session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
     workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
-    caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
     sandbox:
       ProtectSystem: strict
       ReadWritePaths: ["{workdir}"]
@@ -129,7 +129,7 @@ profiles:
       # — it touches certified carriage.js. Until then this stays bare.
       tui: { argv: ["opencode"] }
     workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
-    caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
     sandbox:
       ProtectSystem: strict
       ReadWritePaths: ["{workdir}"]
@@ -199,7 +199,7 @@ profiles:
     # being a shape a seat can launch into, because it is outside this root AND fails the §4a
     # canonical-shape check.
     workdir_root: .rbtv/goals
-    caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
     sandbox:
       NoNewPrivileges: true
       # Retained as the declarative source of the harness-local advisory write-restraint config
