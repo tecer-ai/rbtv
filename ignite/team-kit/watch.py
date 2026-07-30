@@ -351,6 +351,44 @@ def goal_state(base):
         return None, None
 
 
+RUN_CLOSED_LINE = "run closed in runs.csv — watch exiting (deterministic close)"
+
+
+def run_closed(package):
+    """True once THIS RUN's own row in the goal's runs.csv reads closed (G-297).
+
+    MATCHED FROM `team_monitor.py:410 run_closed`, DELIBERATELY NOT IMPORTED — the two modules are
+    separate custody, the same reason goal_state resolves the goal here instead of reaching into
+    coord.base_dir. Until this existed the two sibling loops of ONE watch layer disagreed about a
+    closed run: team-monitor exited, this loop did not, and a watch loop outlived run-2 by ~9.5h
+    while still WRITING into a folder `.rbtv/goals/CLAUDE.md` rules is append-only HISTORY. A live
+    process editing frozen record is a correctness defect, not untidiness.
+
+    FAILS OPEN BY CONSTRUCTION: absent, unreadable or unparseable runs.csv -> False, so a BROKEN
+    METER CAN NEVER STOP A HEALTHY LOOP. The reasoning is the sibling's and transfers verbatim —
+    this loop is the run's only source of liveness, approval, context and RAM flags, and silencing
+    it over an unreadable CSV costs more than letting it run one run too long.
+
+    THE ROW IS FOUND BY RUN-ID, never by position — and the `runs` layer is asserted BEFORE the file
+    is opened, which the sibling does not do and this file needs: `run-1` exists in EVERY goal, so a
+    package path that resolved the wrong directory would match a FOREIGN goal's `run-1` row and stop
+    this loop on a stranger's state. That check can only ever return False, so it cannot weaken the
+    fail-open posture. It is R11's discipline, the one goal_state states at :336.
+    """
+    import csv
+    p = Path(package).resolve()
+    if p.parent.name != "runs":
+        return False
+    try:
+        with (p.parent.parent / "runs.csv").open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                if (row.get("run-id") or "").strip() == p.name:
+                    return (row.get("state") or "").strip().lower() == "closed"
+    except (OSError, csv.Error, UnicodeDecodeError):
+        return False
+    return False
+
+
 def _migrate_runs(goal):
     """Every run's legacy per-run state, as {run-tag: {...}} — the one-time lift into the goal file.
 
@@ -5754,6 +5792,100 @@ def cmd_selftest():
               "its own state file takes the run's only sensor down with it",
               load_state(gbase2) == {})
 
+        # ---- G-297: THE RUN-CLOSED LOOP-TURN GUARD ----
+        # ⚠ EVERY ROW BELOW DRIVES `watch_loop`, NOT `run_closed`. A suite that only asserted the
+        # predicate's verdicts would stay green with the guard DELETED from the loop — and that is
+        # this defect's own shape: team_monitor.py:936 asserted its session derivation was
+        # self-consistent, never that it agreed with a live room, and stayed green through the whole
+        # defect. So the fixture counts the turns the LOOP actually took.
+        import io
+        import contextlib
+
+        class _RCLoopRanOn(Exception):
+            """Raised BY THE FIXTURE to escape a loop that did NOT stop — never by watch_loop."""
+
+        rcgoal = Path(td) / "runclosed-goal"
+        rcrun = rcgoal / "runs" / "run-7"
+        rcrun.mkdir(parents=True)
+        rccsv = rcgoal / "runs.csv"
+        rcargs = argparse.Namespace(loop=1)
+
+        def _rcturns(payload, root=rcrun, limit=3):
+            """(stopped_by_the_guard, turns_taken, printed) for one runs.csv payload.
+
+            `payload` None deletes the file; bytes are written raw (the undecodable case). `limit`
+            turns with no stop IS the negative result — an unguarded loop never returns on its own.
+            """
+            if payload is None:
+                if rccsv.exists():
+                    rccsv.unlink()
+            elif isinstance(payload, bytes):
+                rccsv.write_bytes(payload)
+            else:
+                rccsv.write_text(payload, encoding="utf-8")
+            turns = []
+
+            def _pass(_a):
+                turns.append(1)
+                if len(turns) >= limit:
+                    raise _RCLoopRanOn
+
+            stopped, buf = True, io.StringIO()
+            try:
+                with contextlib.redirect_stdout(buf):
+                    watch_loop(rcargs, root, do_pass=_pass, sleep_fn=lambda _s: None)
+            except _RCLoopRanOn:
+                stopped = False
+            return stopped, len(turns), buf.getvalue()
+
+        _CLOSED = "run-id,type,state,taskforce-ids,opened,closed\nrun-7,build,closed,,,2026-07-29\n"
+        _OPEN = "run-id,type,state,taskforce-ids,opened,closed\nrun-7,build,open,,,\n"
+
+        _st, _turns, _out = _rcturns(_CLOSED)
+        check("⚠ G-297 THE CRITERION ITSELF: with THIS run's row reading closed the LOOP RETURNS — "
+              "and it returns BEFORE taking a pass, so a loop started against a closed run never "
+              "writes into it. Unguarded, this loop outlived run-2 by ~9.5h still mutating a folder "
+              ".rbtv/goals/CLAUDE.md rules is append-only history",
+              (_st, _turns) == (True, 0))
+        check("G-297: the exit prints ONE distinct deterministic-close line, so a reader of the log "
+              "can tell a ruled close from a crash or a reap",
+              _out.strip() == RUN_CLOSED_LINE and RUN_CLOSED_LINE.strip() != "")
+        check("⚠ G-297 CONTROL, the row that makes the one above mean something: with the SAME "
+              "fixture reading open the loop does NOT stop — it keeps taking turns until the "
+              "fixture forces it out. Without this pair a guard that returned unconditionally "
+              "would pass",
+              _rcturns(_OPEN)[:2] == (False, 3))
+        check("⚠ G-297 FAILS OPEN — runs.csv ABSENT: the loop keeps running. A broken meter must "
+              "never stop a healthy loop; this loop is the run's ONLY source of liveness, approval, "
+              "context and RAM flags, and silencing it over a missing file costs more than letting "
+              "it run one run too long",
+              _rcturns(None)[:2] == (False, 3))
+        check("G-297 FAILS OPEN — runs.csv UNDECODABLE (not UTF-8): the loop keeps running",
+              _rcturns(b"\xff\xfe\x00run-id,state\n")[:2] == (False, 3))
+        check("G-297 FAILS OPEN — runs.csv present but SCHEMA-LESS (no run-id/state columns, the "
+              "shape the R10 fixture above happens to write): no row matches, the loop keeps running",
+              _rcturns("run,status\nrun-7,closed\n")[:2] == (False, 3))
+        check("⚠ G-297 THE ROW IS FOUND BY RUN-ID, NOT BY POSITION: a runs.csv whose FIRST row is a "
+              "DIFFERENT run reading closed does not stop this loop. A first-row or last-row read "
+              "would stop run-7 on run-1's state — every goal's runs.csv accumulates closed rows",
+              _rcturns("run-id,type,state\nrun-1,build,closed\nrun-7,build,open,\n")[:2]
+              == (False, 3))
+        # UNREADABLE, expressed as a DIRECTORY where the file belongs rather than as chmod 000 —
+        # a mode-based fixture is a no-op for root and would pass vacuously in a root container.
+        rcdir = Path(td) / "runclosed-unreadable"
+        (rcdir / "runs" / "run-7").mkdir(parents=True)
+        (rcdir / "runs.csv").mkdir()
+        check("G-297 FAILS OPEN — runs.csv UNREADABLE (OSError at open): the loop keeps running",
+              _rcturns(None, root=rcdir / "runs" / "run-7")[:2] == (False, 3))
+
+        (rcgoal / "notruns" / "run-7").mkdir(parents=True)
+        rccsv.write_text(_CLOSED, encoding="utf-8")
+        check("⚠ G-297 REFUSES TO GUESS A GOAL (R11, goal_state's discipline at :336): a package "
+              "that is not {goal}/runs/run-N resolves NO goal and the loop keeps running — even "
+              "though a closed run-7 row sits one directory away. `run-1` exists in EVERY goal, so "
+              "a walk that resolved the wrong directory would stop this loop on a STRANGER's state",
+              _rcturns(_CLOSED, root=rcgoal / "notruns" / "run-7")[:2] == (False, 3))
+
     coord.RUNS_INDEX = real_runs_index
     try:
         real_runs_after = real_runs_index.read_bytes()
@@ -5767,6 +5899,27 @@ def cmd_selftest():
         os.environ["COORD_AGENT"] = coord_env_agent
     print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
     sys.exit(1 if failures else 0)
+
+
+def watch_loop(args, run_root, do_pass=None, sleep_fn=None):
+    """The `--loop` body — and the ONE place this loop decides whether to take another turn.
+
+    EXTRACTED FROM main() SO A CHECK CAN DRIVE IT, and that is the whole reason it is a function:
+    the criterion is that THE LOOP exits on a closed run, and a check on run_closed() alone would
+    stay green with the guard deleted from the loop. A green that cannot go red is not evidence
+    (conduct §9) — and this defect's own history is a builder's green guarding a builder's
+    assumption, so the seam is placed where the mutation has to be observable.
+
+    `do_pass` / `sleep_fn` are the fixture's only injection points and default to the real ones.
+    """
+    do_pass = run_pass if do_pass is None else do_pass
+    sleep_fn = time.sleep if sleep_fn is None else sleep_fn
+    while True:
+        if run_closed(run_root):
+            print(RUN_CLOSED_LINE, flush=True)
+            return 0
+        do_pass(args)
+        sleep_fn(args.loop * 60)
 
 
 def main():
@@ -5831,9 +5984,9 @@ def main():
         sys.exit(2)
     print("watch: floor %s" % floor_why, file=sys.stderr)
     if args.loop:
-        while True:
-            run_pass(args)
-            time.sleep(args.loop * 60)
+        # G-297: `run_root` is already resolved above for the floor read, and it IS the run package
+        # — so the run-closed guard costs no second derivation of it (PRIN-11).
+        watch_loop(args, run_root)
     else:
         run_pass(args)
 
