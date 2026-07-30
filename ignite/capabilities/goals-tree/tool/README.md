@@ -18,6 +18,14 @@ rbtv-goal selftest
 **Exit codes** (the `sd-graph` convention): `0` success/clean · `1` refusal, gate-fail, or
 not-found · `2` usage error.
 
+**`<goal-name>` is a single folder name directly under `--root`, never a path.** `lint` and
+`materialize` resolve it and REFUSE (exit 1) anything landing outside the root — an absolute path
+or a `..` traversal. Before the guard, `root / name` discarded the root whenever the name was
+absolute: `materialize` wrote a `seat.md` outside the declared root and reported `"ok": true`,
+which defeats the only sandbox this tool has (`--root` is how a write verb is aimed at a test tree
+instead of a live package). Guarded by `../probes/probe-goal-root-escape.py`, whose red control
+runs the pre-fix expression and requires it to escape.
+
 All four verbs are LOCAL file operations — they work with the daemon down, which is why they live
 on the `rbtv` side and never on `ignite` (the detached gateway client). v1 ships standalone and
 folds into `rbtv goal <verb>` verbatim when the `rbtv` CLI lands (task 7.65) — the operator-surface

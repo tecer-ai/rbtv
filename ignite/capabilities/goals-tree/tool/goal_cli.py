@@ -151,6 +151,24 @@ def resolve_goals_root(explicit: str | None) -> Path:
     )
 
 
+def resolve_goal_dir(root: Path, name: str) -> Path:
+    """`root / name`, refused whenever the result is not a folder DIRECTLY under root.
+
+    `Path.__truediv__` discards the left operand when the right one is absolute, so an
+    absolute `goal_name` escapes `--root` entirely — the verb then reads, and materialize
+    WRITES, outside the declared root while still reporting ok. `..` segments walk out the
+    same way. A goal name is one folder name under the root, never a path, so anything that
+    does not resolve to a direct child of root is refused before any read or write.
+    """
+    goal_dir = (root / name).resolve()
+    if goal_dir.parent != root or goal_dir == root:
+        raise Refusal(
+            f"goal name '{name}' escapes --root {root} (resolves to {goal_dir}) — a goal "
+            "name is a single folder name directly under the root, never a path"
+        )
+    return goal_dir
+
+
 def unit_digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
@@ -368,7 +386,7 @@ def check_acyclic(rows: list[dict], f: Findings, path: Path) -> None:
 def lint_goal(root: Path, name: str) -> Findings:
     """READ-ONLY validation + dry-run emulation (CMP-14). Writes NOTHING, ever."""
     f = Findings()
-    goal_dir = root / name
+    goal_dir = resolve_goal_dir(root, name)
 
     if not goal_dir.is_dir():
         f.add("goal exists", str(goal_dir), "no such goal folder")
@@ -757,7 +775,7 @@ def assemble_seat(seat_id: str, binding: dict, seats: dict, prompts: dict,
 
 def cmd_materialize(args) -> int:
     root = resolve_goals_root(args.root)
-    goal_dir = root / args.goal_name
+    goal_dir = resolve_goal_dir(root, args.goal_name)
     if not goal_dir.is_dir():
         raise Refusal(f"{goal_dir}: no such goal folder")
 
