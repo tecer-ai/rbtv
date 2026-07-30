@@ -59,6 +59,20 @@ one. A freshly created registry has no taskforce-id to read, so the first
 append derives it from the compartment name (`run-N` -> `tf-N`) —
 deterministic, never argv (see render_taskforce_rows).
 
+The RUN REGISTER's OPENING HALF is landed — render_run_register/
+append_run_register_row: creating a run package also APPENDS the run's row to
+`<goal>/runs.csv`, the ONE home of a run's state
+(`.rbtv/goals/CLAUDE.md`; `d-run-close-is-runscsv-plus-run-claudemd`;
+`team_monitor.run_closed()` machine-reads it). It closes a measured asymmetry:
+the CLOSING half (`state=closed` + the closed stamp) had a writer while the
+OPENING half had none, so run-3 of `build-core-daemon-mvp` was born LIVE on
+disk and ABSENT from its own register. `--run-type fresh|fix` is CALLER-SUPPLIED
+and refused when missing — the KG `run` record makes run type csv DATA,
+explicitly NOT derivable from the ordinal. The append is APPEND-ONLY and
+IDEMPOTENT: existing rows (every closed run's history) pass through byte-
+unchanged, and a row already carrying this run-id is left alone and warned
+about. This command never writes the `closed` cell — closing stays where it is.
+
 Bootstrap call shape (the master's one call, d-master-scaffolds-at-bootstrap):
 the planning workflow's ENTRY SEATS are DECLARED ROOTS at authoring time
 (d-bootstrap-mechanics-ruled (c) — planning.csv's elicitator row carries an
@@ -93,6 +107,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime
 import hashlib
 import io
 import json
@@ -164,6 +179,41 @@ CREATION_INPUTS = (
     ("CLAUDE.md", "--claude-md", "claude_md"),
     ("budget.json", "--budget-json", "budget_json"),
 )
+
+# ---- run-register (the goal's runs.csv) constants ----
+
+# The goal-level RUN REGISTER: `<goal>/runs.csv`, the single home of a run's
+# state (.rbtv/goals/CLAUDE.md, d-run-close-is-runscsv-plus-run-claudemd).
+# Column ORDER is fixed and identical in both header spellings that exist on
+# disk: every live goal file spells the fourth column `taskforce-ids`, while
+# `rbtv-goal scaffold` writes `taskforce-id(s)` (goal_cli.RUNS_COLUMNS). BOTH
+# are accepted — normalized to the documented name before the header check —
+# because refusing either would break this writer on exactly one of the two
+# goal shapes that exist. The spelling divergence itself is goal_cli's to
+# settle; this command reads the register, never repairs it.
+RUNS_CSV_NAME = "runs.csv"
+RUN_REGISTER_HEADER = ("run-id", "type", "state", "taskforce-ids",
+                       "opened", "closed")
+RUN_REGISTER_HEADER_ALIASES = {"taskforce-id(s)": "taskforce-ids"}
+
+# Run TYPE is csv DATA — `fresh | fix` — and the KG `run` record states it is
+# NOT derivable from the ordinal (run 2 of a recurring goal is fresh). So it is
+# CALLER-SUPPLIED and refused when absent, never defaulted: defaulting `fresh`
+# would be right often enough to hide the one case it is wrong.
+RUN_TYPES = ("fresh", "fix")
+
+# A run this command CREATES is `open` by construction — creating the package
+# IS the act that opens the run, and nothing here can know it closed. The
+# vocabulary is .rbtv/goals/CLAUDE.md's (`open` | `closed`), matching every
+# live row. The `closed` cell and its stamp belong to the CLOSING half, which
+# this command never writes.
+RUN_STATE_OPEN = "open"
+
+# The `opened` stamp's format, byte-matching the live register's rows. The
+# VALUE is the wall clock at this act — an observation, not a default: this
+# command is the opening, so it is the one thing here that legitimately knows
+# when the run opened.
+RUN_OPENED_FORMAT = "%Y-%m-%d %H:%M"
 
 # ---- dag-04 descriptor-surface constants ----
 
@@ -1441,7 +1491,32 @@ def render_taskforce_rows(plan: dict) -> None:
         "append_lines": append_lines,
         "matched_seats": matched,
         "ordered": ordered,
+        # The run's taskforce-id, published so the run-register row carries the
+        # SAME value this append writes — derived ONCE, read by both surfaces,
+        # never recomputed per surface (PRIN-11).
+        "taskforce_id": tf_id,
     }
+
+
+def _atomic_replace(path: Path, new_text: str) -> None:
+    """Replace a csv's whole content atomically: tmp file in the SAME directory
+    + os.replace, carrying the live file's mode. NEVER an open-append — a
+    partial line in a csv is unparseable by every consumer at once. Shared by
+    both append writers (the taskforce registry and the run register) so the
+    two can never drift into two different write disciplines."""
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
+                                    prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(new_text)
+        os.chmod(tmp_name, os.stat(path).st_mode & 0o7777)
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def append_taskforce_rows(plan: dict) -> int:
@@ -1474,21 +1549,158 @@ def append_taskforce_rows(plan: dict) -> int:
             str(tf_path),
         )
     new_text = current + "".join(line + "\n" for line in reg["append_lines"])
-    fd, tmp_name = tempfile.mkstemp(dir=str(tf_path.parent),
-                                    prefix=f".{TASKFORCE_NAME}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
-            fh.write(new_text)
-        os.chmod(tmp_name, os.stat(tf_path).st_mode & 0o7777)
-        os.replace(tmp_name, tf_path)
-    except BaseException:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+    _atomic_replace(tf_path, new_text)
     plan["rows_appended"] = len(reg["append_lines"])
     return plan["rows_appended"]
+
+
+# ------------------------------------------- the run register's OPENING half
+
+
+def render_run_register(plan: dict, args) -> None:
+    """Plan the run's row in `<goal>/runs.csv` WITHOUT writing — the OPENING
+    half of the run-close convention (`.rbtv/goals/CLAUDE.md`,
+    `d-run-close-is-runscsv-plus-run-claudemd`). That convention makes runs.csv
+    the ONE home of a run's state, machine-read by `team_monitor.run_closed()`
+    and `goal_cli.current_run_dir`; its CLOSING half (state=closed + the closed
+    stamp) already had a writer and is NOT touched here. The OPENING half had
+    none, which is why run-3 of `build-core-daemon-mvp` was born live on disk
+    and absent from its own register.
+
+    FIRES ONLY when this act creates the package's taskforce.csv — i.e. a
+    creation or a creation-partial completion (the same detector
+    render_taskforce_rows uses). A legacy package already carries its row, so
+    nothing is planned for it.
+
+    APPEND-ONLY and IDEMPOTENT. A row already carrying this run-id is left
+    BYTE-UNTOUCHED and reported as a warning rather than refused: the creation
+    path is deliberately re-runnable (it completes a crashed creation), so
+    refusing here would turn a recoverable half-state into a dead end. No
+    existing row is ever rewritten, reordered, compared away, or re-read for
+    content — every closed run's history passes through as bytes.
+
+    Where every cell comes from — nothing here is invented:
+
+      run-id        the runs/run-N compartment name, which validate_package
+                    already proved; the same basis as the tf-N derivation
+      type          CALLER-SUPPLIED (--run-type): the KG `run` record makes run
+                    type csv DATA, `fresh|fix`, explicitly NOT derivable from
+                    the ordinal — refused when absent, never defaulted
+      state         `open`, by construction: this act opens the run
+      taskforce-ids the taskforce-id render_taskforce_rows already derived,
+                    taken from its plan — never recomputed, so the register and
+                    the registry cannot disagree
+      opened        the wall clock at this act, in the live register's format —
+                    the one value this command legitimately knows, because it
+                    IS the opening
+      closed        empty; the closing half's cell
+
+    NOT enforced here, deliberately: the ONE-LIVE-RUN-PER-GOAL invariant. It
+    has a home already (`goal_cli`'s lint reports two open rows), and a second
+    enforcement point is the duplication PRIN-11 forbids."""
+    creating_tf = any(c["surface"] == TASKFORCE_NAME
+                      for c in plan.get("creation", ()))
+    if not creating_tf:
+        return
+    package = Path(plan["package"])
+    runs_csv = package.parent.parent / RUNS_CSV_NAME
+    if not runs_csv.is_file():
+        raise Refuse(
+            "run-register-absent",
+            f"the goal carries no {RUNS_CSV_NAME} — it is the ONE home of a "
+            "run's state (.rbtv/goals/CLAUDE.md), so a run created without it "
+            "would be live on disk and invisible to every consumer; "
+            "scaffolding a goal is rbtv-goal's act, never this command's. "
+            "Nothing was created",
+            str(runs_csv),
+        )
+    run_type = getattr(args, "run_type", None)
+    if not run_type:
+        raise Refuse(
+            "run-type-missing",
+            "creating a run package registers the run in "
+            f"{RUNS_CSV_NAME} and its `type` cell needs "
+            "--run-type " + "|".join(RUN_TYPES) + " — run type is csv DATA "
+            "and the KG `run` record makes it explicitly NOT derivable from "
+            "the ordinal (run 2 of a recurring goal is fresh), so this "
+            "command refuses rather than defaulting one. Nothing was created",
+            str(runs_csv),
+        )
+
+    text = runs_csv.read_text(encoding="utf-8")
+    if not text.endswith("\n"):
+        raise Refuse(
+            "run-register-tail-unterminated",
+            f"{RUNS_CSV_NAME} does not end in a newline — appending would "
+            "join this run's row onto a partial line and corrupt the register; "
+            "repair it before creating a run",
+            str(runs_csv),
+        )
+    lines = text.split("\n")[:-1]
+    header_line = lines[0] if lines else ""
+    header = tuple(
+        RUN_REGISTER_HEADER_ALIASES.get(h.strip(), h.strip())
+        for h in (next(csv.reader([header_line])) if header_line else ()))
+    if header != RUN_REGISTER_HEADER:
+        raise Refuse(
+            "run-register-header-drift",
+            f"{RUNS_CSV_NAME} header is {header_line!r}, not the documented "
+            "run-register shape '" + ",".join(RUN_REGISTER_HEADER)
+            + "' (.rbtv/goals/CLAUDE.md) — a row written against a drifted "
+            "header lands its cells in the wrong columns, so this refuses "
+            "rather than guessing the mapping",
+            str(runs_csv),
+        )
+
+    run_id = package.name
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        cells = next(csv.reader([line]))
+        if cells and cells[0].strip() == run_id:
+            plan["warnings"].append(
+                f"{RUNS_CSV_NAME} already carries a row for {run_id} — left "
+                f"byte-untouched, no row appended (append-only, idempotent): "
+                f"{line}")
+            return
+
+    row = _render_csv_line([
+        run_id,
+        run_type,
+        RUN_STATE_OPEN,
+        (plan.get("registry") or {}).get("taskforce_id", ""),
+        datetime.datetime.now().strftime(RUN_OPENED_FORMAT),
+        "",
+    ])
+    plan["register"] = {"path": str(runs_csv), "text": text, "line": row}
+    plan["writes"].append({"kind": "run-register-append",
+                           "path": str(runs_csv), "row": row})
+
+
+def append_run_register_row(plan: dict) -> int:
+    """WRITE the planned run-register row: read → verify the file is byte-for-
+    byte what render_run_register validated → atomic replace. The existing
+    bytes (header and every previous run's row) pass through UNCHANGED; only
+    the one rendered line is added, at the end. Returns the rows appended
+    (0 when nothing was planned — a legacy package, or an already-present
+    row)."""
+    reg = plan.get("register")
+    if not reg:
+        return 0
+    path = Path(reg["path"])
+    current = path.read_text(encoding="utf-8")
+    if current != reg["text"]:
+        raise Refuse(
+            "run-register-changed-underfoot",
+            f"{RUNS_CSV_NAME} changed between validation and write — re-run "
+            "so the check sees the file that is actually there (the run "
+            "package is already created; the re-run appends only the missing "
+            "row)",
+            str(path),
+        )
+    _atomic_replace(path, current + reg["line"] + "\n")
+    plan["run_registered"] = reg["line"]
+    return 1
 
 
 # ---------------------------------------------------------------- run
@@ -1522,13 +1734,19 @@ def run(args) -> dict:
     # write, so a refusal always leaves zero files and zero rows.
     render_descriptors(plan, catalogs[0], units)
     render_taskforce_rows(plan)
+    render_run_register(plan, args)
     if args.dry_run:
         return result_of(plan, dry_run=True)
     # Package surfaces FIRST (dag-06), descriptors SECOND, rows LAST — never
     # another order (the descriptor/rows rationale lives on
     # append_taskforce_rows' docstring; creation must precede both because
     # descriptors land in seats/ and the append re-reads taskforce.csv).
+    # The run-register row lands immediately after creation, and never before
+    # it: the register would otherwise claim a run that does not exist. The
+    # other order's half-state is the one already survivable — a created
+    # package not yet registered, which the idempotent re-run completes.
     create_run_package(package, creation)  # dag-06
+    append_run_register_row(plan)  # the run register's opening half
     emit_seat_descriptors(plan)   # dag-04
     append_taskforce_rows(plan)   # dag-05
     return result_of(plan, dry_run=False)
@@ -1583,6 +1801,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "a CREATED run package. A PATH, never a value: the "
                         "floor lives in the file (R-10, r-floor-single-"
                         "source). Required when creating/completing")
+    p.add_argument("--run-type", dest="run_type", choices=RUN_TYPES,
+                   help="the created run's `type` cell in the goal's "
+                        "runs.csv register: fresh (a promotion) or fix (a "
+                        "request re-opening a closed run). Run type is DATA, "
+                        "not derivable from the ordinal (KG `run`), so it is "
+                        "never defaulted. Required when creating/completing")
     p.add_argument("--dry-run", action="store_true", dest="dry_run",
                    help="print the full materialize write plan as JSON; "
                         "touch nothing")
@@ -2933,6 +3157,10 @@ def run_dag06_acceptance(check, env: dict) -> None:
         fx = build_fixture(tmp)
         goal = tmp / "g6-goal"
         goal.mkdir()
+        # The goal's run register — a created run is registered in it, so a
+        # goal folder without one refuses (run-register-absent).
+        (goal / "runs.csv").write_text(
+            "run-id,type,state,taskforce-ids,opened,closed\n", encoding="utf-8")
         pkg = goal / "runs" / "run-1"  # live-held tag: register declines
 
         def create_argv(seat, bindings, extra=()):
@@ -2941,7 +3169,8 @@ def run_dag06_acceptance(check, env: dict) -> None:
                     "--bindings", bindings,
                     "--conduct", fx["src_conduct"],
                     "--claude-md", fx["src_claude"],
-                    "--budget-json", fx["src_budget"], "--json", *extra]
+                    "--budget-json", fx["src_budget"],
+                    "--run-type", "fresh", "--json", *extra]
 
         # CP-7: --dry-run against the ABSENT package — plan printed, nothing
         # on disk.
@@ -3115,6 +3344,8 @@ def run_dag06_acceptance(check, env: dict) -> None:
         fx = build_fixture(tmp)
         goal = tmp / "g6-goal"
         goal.mkdir()
+        (goal / "runs.csv").write_text(
+            "run-id,type,state,taskforce-ids,opened,closed\n", encoding="utf-8")
 
         def argv_for(pkg, seat, bindings, extra=()):
             return ["--package", str(pkg), "--seat", seat,
@@ -3122,7 +3353,8 @@ def run_dag06_acceptance(check, env: dict) -> None:
                     "--bindings", bindings,
                     "--conduct", fx["src_conduct"],
                     "--claude-md", fx["src_claude"],
-                    "--budget-json", fx["src_budget"], "--json", *extra]
+                    "--budget-json", fx["src_budget"],
+                    "--run-type", "fresh", "--json", *extra]
 
         # CP-4: an absent path OUTSIDE runs/run-N refuses with NOTHING
         # created — creation never bypasses SC-15's bar.
@@ -3276,6 +3508,184 @@ def run_dag06_acceptance(check, env: dict) -> None:
               str(rows7))
 
 
+def run_run_register_acceptance(check, env: dict) -> None:
+    """RR-1/RR-2 — the run register's OPENING half (render_run_register /
+    append_run_register_row), each row with the arm that MUST be able to fail.
+
+    EVERY EXPECTED VALUE BELOW IS A LITERAL — the header string, the six cells,
+    the run id, the taskforce id. Nothing is read back out of the module's own
+    constants: a check that asserts the code equals itself passes whatever the
+    code says, and four such rows shipped on this build before the pattern was
+    caught. Fixture-only (tempfile.TemporaryDirectory), never a real goal."""
+    def _refusal(cp):
+        try:
+            return json.loads(cp.stdout).get("refusal") or {}
+        except ValueError:
+            return {}
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        fx = build_fixture(tmp)
+        goal = tmp / "rr-goal"
+        goal.mkdir()
+        runs_csv = goal / RUNS_CSV_NAME
+        # A register that already holds CLOSED history — literal bytes, so the
+        # append-only claim has real rows to protect.
+        pre_text = ("run-id,type,state,taskforce-ids,opened,closed\n"
+                    "run-1,fresh,closed,tf-1,2026-07-27 01:30,"
+                    "2026-07-27 13:11\n"
+                    "run-2,fresh,closed,tf-2,2026-07-27 14:25,"
+                    "2026-07-29 17:12\n")
+        runs_csv.write_text(pre_text, encoding="utf-8")
+        pre_bytes = runs_csv.read_bytes()
+        pkg = goal / "runs" / "run-4"
+
+        def argv(seat, bindings, extra=()):
+            return ["--package", str(pkg), "--seat", seat,
+                    "--catalog-root", fx["catalog"], "--root",
+                    "--bindings", bindings,
+                    "--conduct", fx["src_conduct"],
+                    "--claude-md", fx["src_claude"],
+                    "--budget-json", fx["src_budget"],
+                    "--run-type", "fresh", "--json", *extra]
+
+        def rows():
+            with runs_csv.open(encoding="utf-8", newline="") as fh:
+                return [r for r in csv.reader(fh) if r]
+
+        # RR-1 red arm FIRST — omitting --run-type refuses and creates
+        # nothing. Run type is DATA (KG `run`: not derivable from the ordinal),
+        # so a default here would be wrong exactly when it matters.
+        no_type = [a for a in argv("alpha", fx["b_alpha"])]
+        i = no_type.index("--run-type")
+        del no_type[i:i + 2]
+        cp = _invoke(no_type, env)
+        check("RR-1 red: creating without --run-type REFUSES "
+              "(run-type-missing) — the type cell is never defaulted — and "
+              "neither the package nor a register row appears",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "run-type-missing"
+              and not pkg.exists()
+              and runs_csv.read_bytes() == pre_bytes,
+              (cp.stdout + cp.stderr).strip()[:200])
+
+        # RR-2 red arm — the dry run plans the append and writes NOTHING, so
+        # the "byte-identical" comparator below is exercised on a case where a
+        # write was genuinely planned.
+        cp = _invoke(argv("alpha", fx["b_alpha"], ("--dry-run",)), env)
+        planned = [w["kind"] for w in (json.loads(cp.stdout)
+                                       if cp.returncode == 0
+                                       else {}).get("writes", [])]
+        check("RR-2 red: --dry-run PLANS the run-register append yet writes "
+              "nothing — runs.csv byte-identical",
+              cp.returncode == 0 and "run-register-append" in planned
+              and runs_csv.read_bytes() == pre_bytes, str(planned))
+
+        # RR-1 green — the creation registers the run. Cells asserted as
+        # LITERALS against a csv.reader parse (never a grep: grep cannot tell
+        # an empty cell from a missing column).
+        cp = _invoke(argv("alpha", fx["b_alpha"]), env)
+        parsed = rows()
+        stamp = parsed[-1][4] if len(parsed) == 4 else ""
+        check("RR-1 green: creating runs/run-4 APPENDS its register row — "
+              "6 columns, cells [run-4, fresh, open, tf-4, <stamp>, '']",
+              cp.returncode == 0
+              and len(parsed) == 4
+              and all(len(r) == 6 for r in parsed)
+              and parsed[3][:4] == ["run-4", "fresh", "open", "tf-4"]
+              and parsed[3][5] == ""
+              and re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d", stamp)
+              is not None,
+              f"rc={cp.returncode} rows={parsed} "
+              f"err={cp.stderr.strip()[:160]}")
+        check("RR-1 green: the appended row is announced in writes[] "
+              "(kind run-register-append, path = the goal's runs.csv)",
+              any(w["kind"] == "run-register-append"
+                  and w["path"] == str(runs_csv)
+                  for w in (json.loads(cp.stdout)
+                            if cp.returncode == 0 else {}).get("writes", [])),
+              cp.stdout.strip()[:200])
+        after_one = runs_csv.read_bytes()
+        check("RR-2 green: the write is a PURE APPEND — the pre-existing "
+              "bytes (header, run-1, run-2) are unchanged and still first, "
+              "and exactly one line was added",
+              after_one.startswith(pre_bytes)
+              and after_one[len(pre_bytes):].count(b"\n") == 1,
+              repr(after_one[len(pre_bytes):])[:160])
+        check("RR-2 green: the two closed rows are byte-identical to what was "
+              "there before (no rewrite, no reorder)",
+              after_one.decode().splitlines(keepends=True)[:3]
+              == pre_text.splitlines(keepends=True),
+              str(after_one.decode().splitlines()[:3]))
+
+        # RR-2 green (idempotence) — a CREATION-PARTIAL retry whose row is
+        # already in the register appends NOTHING and says so.
+        (pkg / TASKFORCE_NAME).unlink()
+        cp = _invoke(argv("beta", fx["b_beta"]), env)
+        res = json.loads(cp.stdout) if cp.returncode == 0 else {}
+        warns = res.get("warnings") or []
+        check("RR-2 green: a creation-partial RETRY does not double-append — "
+              "it warns that run-4's row is already there, plans no register "
+              "write, and leaves runs.csv byte-identical",
+              cp.returncode == 0
+              and any("already carries a row for run-4" in w for w in warns)
+              and "run-register-append" not in [w["kind"] for w
+                                               in res.get("writes", [])]
+              and runs_csv.read_bytes() == after_one
+              and [r[0] for r in rows()[1:]] == ["run-1", "run-2", "run-4"],
+              f"rc={cp.returncode} warns={warns} rows={rows()}")
+
+        # RR-1 red (second arm) — a register whose columns are REORDERED
+        # refuses rather than landing cells in the wrong columns.
+        drift = tmp / "rr-drift-goal"
+        drift.mkdir()
+        (drift / RUNS_CSV_NAME).write_text(
+            "run-id,state,type,taskforce-ids,opened,closed\n",
+            encoding="utf-8")
+        dpkg = drift / "runs" / "run-1"
+        cp = _invoke([a if a != str(pkg) else str(dpkg)
+                      for a in argv("alpha", fx["b_alpha"])], env)
+        check("RR-1 red: a register with REORDERED columns refuses "
+              "(run-register-header-drift) instead of writing cells into the "
+              "wrong columns — nothing created",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "run-register-header-drift"
+              and not dpkg.exists(),
+              (cp.stdout + cp.stderr).strip()[:200])
+
+        # RR-1 green (alias) — rbtv-goal scaffold's `taskforce-id(s)` spelling
+        # is the OTHER header on disk and must be accepted, not refused.
+        scaf = tmp / "rr-scaffold-goal"
+        scaf.mkdir()
+        (scaf / RUNS_CSV_NAME).write_text(
+            "run-id,type,state,taskforce-id(s),opened,closed\n",
+            encoding="utf-8")
+        spkg = scaf / "runs" / "run-1"
+        cp = _invoke([a if a != str(pkg) else str(spkg)
+                      for a in argv("alpha", fx["b_alpha"])], env)
+        with (scaf / RUNS_CSV_NAME).open(encoding="utf-8", newline="") as fh:
+            srows = [r for r in csv.reader(fh) if r]
+        check("RR-1 green: the scaffolded header spelling `taskforce-id(s)` "
+              "is accepted and its run-1 row carries tf-1",
+              cp.returncode == 0 and len(srows) == 2
+              and srows[1][:4] == ["run-1", "fresh", "open", "tf-1"],
+              f"rc={cp.returncode} {srows}")
+
+        # RR-1 red (third arm) — a goal with NO register refuses: a run live on
+        # disk and invisible to every consumer is the defect this closes.
+        bare = tmp / "rr-bare-goal"
+        bare.mkdir()
+        bpkg = bare / "runs" / "run-1"
+        cp = _invoke([a if a != str(pkg) else str(bpkg)
+                      for a in argv("alpha", fx["b_alpha"])], env)
+        check("RR-1 red: a goal folder with NO runs.csv refuses "
+              "(run-register-absent) — a run is never created unregistered",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "run-register-absent"
+              and not bpkg.exists(),
+              (cp.stdout + cp.stderr).strip()[:200])
+
+
 # dag-07 — the per-ROW rollup table. Every acceptance row of the command
 # (dag-03 SK-1..SK-7, dag-04+dag-05 SC-1..SC-21, dag-06 CP-1..CP-8, plus the
 # named rows the same tasks landed) maps to the check labels carrying its arms:
@@ -3385,6 +3795,10 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "creation-partial": (("creation-partial control",),
                          ("creation-partial: an existing dir with NO "
                           "taskforce.csv",)),
+    # The run register's OPENING half. RR-1 = the row is written at creation;
+    # RR-2 = the write is append-only and idempotent.
+    "RR-1": (("RR-1 green",), ("RR-1 red",)),
+    "RR-2": (("RR-2 green",), ("RR-2 red",)),
     "AS-2": (("AS-2 green",), ("AS-2 control",)),
     "AS-4": (("SK-4: the whole suite is identical",), ("SK-4 control",)),
 }
@@ -3481,6 +3895,9 @@ def run_selftest() -> int:
 
     print("dag-06 acceptance pass (CP-1..CP-8, both arms each)")
     run_dag06_acceptance(check, clean_env)
+
+    print("run-register acceptance pass (RR-1/RR-2 — the opening half)")
+    run_run_register_acceptance(check, clean_env)
 
     print("\ndag-07 row rollup — one line per acceptance row; a row passes "
           "only when BOTH arms pass (R-6/AS-2)")
