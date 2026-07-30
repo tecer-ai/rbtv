@@ -834,7 +834,7 @@ def checkout_fastpath(coord, pkg, seat, disposition, submit=None, at=None):
     it. `check_fastpath_never_raises` proves it, and coord's own call site is wrapped as well —
     two independent guards, because this one rides on an act nobody can retry.
 
-    TWO GATES, and both are load-bearing:
+    THREE GATES, and all three are load-bearing:
 
       1. **`disposition` must be `done`.** `renew`, `revive` and `exited` each name a seat that has
          NOT finished its work. Enqueuing on one of them advances a dead seat silently, which is
@@ -842,6 +842,28 @@ def checkout_fastpath(coord, pkg, seat, disposition, submit=None, at=None):
          equality against ONE value — never a truthiness test, never a prefix match, never
          "not renew".
       2. **The package must be ARMED** — see `fastpath_arm`. C4.
+      3. **The package must have a TRACE AT ALL** — `sessions.csv` must exist. WHOLESALE, at the
+         PACKAGE, and NEVER a per-seat decision. `launch_candidates` excludes a seat whose own mark
+         is terminal, and with no trace `session_disposition` returns `None` for EVERY seat — so
+         every seat falls through into the candidate list, including the one that just checked out.
+         The consumer would read *not-terminal ⇒ eligible*, which is the mirror image of the
+         asymmetry `coord.session_disposition` documents for itself ("`None` means UNKNOWN and
+         never `done`"). ⚠ AND "ALSO EXCLUDE ON `None`" IS THE WRONG FIX, which is why this gate is
+         at the package: `None` is returned both for a seat that has NEVER run and for one that
+         just checked out into a traceless package, so NO per-seat polarity is correct — excluding
+         blocks every legitimate first launch, including relaunches finished seats. The information
+         is not there, and the only correct answer to a question the inputs cannot answer is to
+         refuse to answer it. `p-the-fastpath-must-REFUSE-a-package-with-no-trace-not-decide-per-
+         seat` (leader ruling `0757`), sharpened by `p-the-trace-records-LAUNCHED-sessions-only`:
+         the traceless package is not a corrupt one, it is the HAND-CHECKED-IN one — `sessions.csv`
+         records LAUNCHED sessions, so a package whose seats were checked in by hand legitimately
+         has no trace and genuinely cannot answer.
+
+    THE THIRD GATE IS DELIBERATELY LAST, AFTER `armed` IS SET. A refusal nobody can read is a
+    refusal that gets worked around: `fastpath_lines` prints nothing at all for an UNARMED package
+    (by design — every check-out in the workspace takes that branch and must stay quiet), so a
+    trace refusal raised before the arming flag would be silent. Armed-and-refused is a state a
+    reader must SEE, and it is the state this gate exists to produce.
 
     The arm is resolved BEFORE the disposition gate so `scope` is populated on every path: a
     `renew` check-out's result still reports what the package is armed for, which is what makes the
@@ -871,6 +893,23 @@ def checkout_fastpath(coord, pkg, seat, disposition, submit=None, at=None):
             res["why-not"] = scope
             return res
         res["armed"] = True
+        # GATE 3 — the trace must EXIST. One condition, read at the package, decided for the whole
+        # package: there is deliberately no per-seat branch here and no seat name in the reason.
+        trace = coord.sessions_csv(pkg)
+        if not trace.exists():
+            res["why-not"] = (
+                "REFUSING TO ADVANCE THIS PACKAGE: it carries no trace at %s, so no seat's "
+                "check-out record can be read — and this refusal is WHOLESALE, at the package, "
+                "not a decision about any one seat. With no trace, every seat's durable "
+                "disposition reads as UNKNOWN, and UNKNOWN is returned both by a seat that has "
+                "NEVER run and by one that JUST checked out: launching on it relaunches finished "
+                "seats, refusing on it blocks every legitimate first launch. The information to "
+                "tell those apart is not present, so this hook answers neither. TO ADVANCE THIS "
+                "PACKAGE, give it a real trace: its seats must be LAUNCHED THROUGH THE KIT, which "
+                "is what writes %s. ⚠ DO NOT HAND-WRITE THAT FILE — a hand-written trace "
+                "fabricates rows for sessions nobody launched, which is the false-completion this "
+                "gate exists to refuse." % (trace, trace.name))
+            return res
         res["enqueue"] = enqueue(coord, pkg, arm["job-id"], arm["profile"], at=at, submit=submit,
                                  dry_run=bool(arm.get("dry-run")))
         res["fired"] = True
@@ -1841,6 +1880,89 @@ def check_fastpath_nothing_ready_is_clean(coord):
                   % FASTPATH_ADVANCES)
 
 
+def check_fastpath_refuses_a_traceless_package(coord):
+    """GATE 3 — an ARMED package with NO `sessions.csv` is refused WHOLESALE, and the same package
+    WITH a trace still fires.
+
+    TWO ARMS DIFFERING IN EXACTLY ONE VARIABLE, and the variable is named: both packages are built
+    here, in the same act, from the same literals; the second one additionally carries a header-only
+    trace file. Anything that made only the traceless arm refuse for some OTHER reason would fail
+    the second arm too, which is what makes this a control rather than an assertion.
+
+    THE WHOLESALE HALF IS ASSERTED DIRECTLY, because it is the part of the ruling that a later
+    "refinement" would quietly undo: the refusal is produced for TWO DIFFERENT seat names and the
+    two reasons must be BYTE-IDENTICAL. A per-seat trace decision — the shape
+    `p-the-fastpath-must-REFUSE-a-package-with-no-trace-not-decide-per-seat` forbids — could not
+    produce the same string for two different seats, so this comparison is the bound made
+    mechanical rather than remembered."""
+    def _build(root, with_trace):
+        pkg = root / ("run-trace" if with_trace else "run-notrace")
+        (pkg / "coordination").mkdir(parents=True)
+        (pkg / "taskforce.csv").write_text("seat,after\nfx-a,\n", encoding="utf-8")
+        (pkg / "coordination" / "workers.md").write_text("", encoding="utf-8")
+        (pkg / "seats" / "fx-a").mkdir(parents=True)
+        (pkg / "seats" / "fx-a" / "seat.md").write_text("fixture seat\n", encoding="utf-8")
+        if with_trace:
+            # Header only: a well-formed trace surface asserting nothing about any session. Its
+            # PRESENCE is the whole variable.
+            coord.sessions_csv(pkg).write_text(",".join(coord.SESSIONS_COLS) + "\n",
+                                               encoding="utf-8")
+        _write_arm(pkg, FASTPATH_FIXTURE_ARM)
+        return pkg
+
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-fastpath-trace-"))
+    try:
+        notrace = _build(tmp, False)
+        trace_path = coord.sessions_csv(notrace)
+        if trace_path.exists():
+            return False, ("the traceless arm was built WITH a trace at %s, so it measures nothing"
+                           % trace_path)
+        submit, calls = _stub_door()
+        red = checkout_fastpath(coord, notrace, "fx-a", FASTPATH_ADVANCES, submit=submit)
+        if not red["armed"]:
+            return False, ("the traceless package did not read as ARMED (%s) — this check measures "
+                           "the trace gate, which only an armed package reaches" % red["scope"])
+        if red["fired"] or calls:
+            return False, ("⚠ AN ARMED TRACELESS PACKAGE ADVANCED: fired=%s door-calls=%d. With no "
+                           "trace every seat's disposition reads UNKNOWN and every seat falls "
+                           "through into the candidate list — including the one that just checked "
+                           "out" % (red["fired"], len(calls)))
+        if str(trace_path) not in (red["why-not"] or ""):
+            return False, ("the refusal does not name the absent trace surface %s, so a reader "
+                           "cannot act on it: %r" % (trace_path, red["why-not"]))
+        lines = fastpath_lines(red)
+        if not any(str(trace_path) in ln for ln in lines):
+            return False, ("the refusal is not PRINTED — a refusal nobody can read is a refusal "
+                           "that gets worked around. Printed: %r" % lines)
+
+        # WHOLESALE: a second seat name, and the reason must not move by one byte.
+        other = checkout_fastpath(coord, notrace, "fx-some-other-seat", FASTPATH_ADVANCES,
+                                  submit=submit)
+        if other["why-not"] != red["why-not"]:
+            return False, ("the refusal DIFFERS between two seats of the same package, so it is a "
+                           "PER-SEAT decision and not the wholesale one the ruling requires:\n"
+                           "  fx-a: %r\n  fx-some-other-seat: %r" % (red["why-not"],
+                                                                     other["why-not"]))
+        if calls:
+            return False, "the second traceless seat reached the door %d time(s)" % len(calls)
+
+        # THE OTHER ARM — same build, one variable added.
+        green_pkg = _build(tmp, True)
+        gsubmit, gcalls = _stub_door()
+        green = checkout_fastpath(coord, green_pkg, "fx-a", FASTPATH_ADVANCES, submit=gsubmit)
+        if not green["fired"]:
+            return False, ("the SAME package WITH a trace did not fire, so the two arms differ in "
+                           "more than the trace and this check controls nothing: %r"
+                           % green["why-not"])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return True, ("gate 3: an armed TRACELESS package reached the door 0 times, named %s in a "
+                  "PRINTED refusal, and returned a BYTE-IDENTICAL reason for two different seats "
+                  "(wholesale, not per-seat); the same package WITH a header-only trace fired and "
+                  "reached the door %d time(s). One variable, both arms."
+                  % (trace_path.name, len(gcalls)))
+
+
 def check_fastpath_never_raises(coord):
     """The hook returns a result for inputs that have no right to work, and RAISES on none of them.
 
@@ -2082,6 +2204,8 @@ def cmd_selftest(fixture):
         ("fastpath-fails-closed-on-bad-arm", lambda: check_fastpath_fails_closed_on_bad_arm(coord,
                                                                                             pkg)),
         ("fastpath-nothing-ready-is-clean", lambda: check_fastpath_nothing_ready_is_clean(coord)),
+        ("fastpath-refuses-traceless-pkg",
+         lambda: check_fastpath_refuses_a_traceless_package(coord)),
         ("fastpath-never-raises", lambda: check_fastpath_never_raises(coord)),
         ("fastpath-calls-the-one-interface", lambda: check_fastpath_calls_the_one_interface()),
         ("fastpath-call-site-in-coord", lambda: check_fastpath_call_site_in_coord()),
