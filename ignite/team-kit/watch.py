@@ -1208,6 +1208,20 @@ REVIVAL_ONE_SHOT_LINE = "COMPLETED-ONE-SHOT — never revived"
 REVIVAL_ATTEST_CMD = "coordinate attest-exit"
 REVIVAL_MODE_LAYER = "revival mode gate"
 
+# ---- s4-14: the OWNER-DOOR gate's literals ----
+#
+# ⚠⚠ SAME WAY-STATION CAVEAT as the s4-04 block above and it is not repeated here: task 7.35
+# deletes this file into the `goal-watcher-job` (CMP-21), and this gate travels with the arm.
+# Like s4-04's it reads the SNAPSHOT, the SEAT DESCRIPTORS and one coordination file — no tmux,
+# no /proc, no pane — so the migration is pre-paid by construction.
+#
+# OWNER RULING 2026-07-30 (`decisions.md#r-door-revival-follows-owner-state`): the revival arm
+# revives the OWNER DOOR only while the owner's declared state is `present` or `reachable`, and
+# NEVER while it is `afk`.
+REVIVAL_DOOR_STATES = ("present", "reachable")
+REVIVAL_DOOR_LINE = "DOOR HELD SHUT — owner state does not admit a revival"
+REVIVAL_DOOR_LAYER = "revival owner-door gate"
+
 
 def _snapshot_absent(snap_err):
     """True when `snap_err` means state.json is NOT THERE, as opposed to unreadable.
@@ -2236,6 +2250,18 @@ def check_revival(args, base, snap, snap_err, state, notes):
     # second regex here would be a second opinion about what a seat declares (PRIN-11).
     decls = {w["agent"]: w for w in coord.discover_workers(coord.workers_dir(args))}
 
+    # s4-14: the OWNER-DOOR gate's input, and it is DELIBERATELY A SECOND READ rather than a field
+    # added to `decls` above. The door is declared by `relays:`, which `discover_workers` does not
+    # carry and has no reason to: `inbox_decls` is the ONE derivation of that key, and it is
+    # already what BOTH existing door consumers use — the reap exemption (`coord.py`, the
+    # `r-owner-afk-liaison-parked` carve-out) and `owner_world`. Adding `relays` to
+    # `discover_workers` instead would give one declaration a second parser (PRIN-11), and the two
+    # would drift in exactly the way this file has been bitten by twice.
+    try:
+        door_decls, door_err = coord.inbox_decls(args), ""
+    except Exception as exc:  # noqa: BLE001 — a bad descriptor must never take the loop down
+        door_decls, door_err = {}, repr(exc)
+
     closing, closing_st = _strict_ledger(coord.closing_path(base))
     awaiting, awaiting_st = _strict_ledger(coord.awaiting_path(base))
     # Stage 3's marker. Its READER is Stage 3's to ship (cross-prefix dep s3-03); until it lands an
@@ -2385,6 +2411,89 @@ def check_revival(args, base, snap, snap_err, state, notes):
                 room["notified_ledger"] = True
             st["revival"] = rev
             continue
+
+        # ---- (4a) s4-14: THE OWNER-DOOR GATE — a DOOR IS NOT A CRASHED SEAT ----
+        #
+        # ⚠⚠ MEASURED, NOT ARGUED. On 2026-07-30 03:34:51 this arm relaunched run-3's `master`
+        # seat ~60s after the OWNER CLOSED THAT CONVERSATION HIMSELF
+        # (`coordination/lifecycle-exec-master-20260730-033451.log`). Nothing had crashed. The
+        # roster row was still ACTIVE, and a door with no harness behind it is BYTE-IDENTICAL to a
+        # crashed seat under every observation this loop makes. The same event also produced a
+        # GHOSTROW flag naming `close-seat master --renew` as the remedy — i.e. the loop proposed
+        # closing the owner's door on the strength of its own relaunch's startup window.
+        #
+        # THE MISSING AXIS IS s4-04'S, WITH A DIFFERENT SOURCE. s4-04 asks whether absence is the
+        # seat's EXPECTED terminal state and answers from the descriptor. For a door the question
+        # is the same and the descriptor CANNOT answer it: the fact that settles it is the OWNER'S
+        # OWN DECLARED STATE, which is why this gate reads `owner-status.md` and not another key.
+        #
+        # ⚠ AND IT CLOSES A RULED CONTRADICTION, not just a nuisance. `reachable` (task 7.85) is
+        # defined as *"at the PC, AFK FROM THE RUN — no master session running, a pane standing
+        # where one can be"*. An arm that relaunches the door the instant no door session runs
+        # makes that ruled state UNREACHABLE BY CONSTRUCTION (goal `issues.md` G-302).
+        #
+        # ⚠ THE DOOR IS DERIVED FROM `relays:`, NEVER FROM A NAME. `master` is ONE campaign's
+        # seat-id; the next human-contact seat is called something else and a name list forgets it
+        # identically — the reason `inbox_decls` states at length, and the reason the reap
+        # exemption derives the same way. No third vocabulary is minted here.
+        #
+        # ⚠ FAIL-CLOSED, and the DIRECTION is chosen, not inherited: an owner state that is
+        # missing, unparseable or unrecognised does NOT revive. Everywhere else in this arm an
+        # unprovable premise HOLDS THE ACT, and it holds it here too — but note what the act IS.
+        # Opening a human's door at them is not recoverable by the machine: the owner reopens a
+        # door in one keystroke and cannot un-see a session started at him.
+        #
+        # ⚠ SCOPE IS THE DOOR AND NOTHING ELSE. A seat with no `relays:` never enters this branch,
+        # so overnight revival of the `leader`, the planner and every worker is UNCHANGED — the
+        # control below asserts exactly that, because "I only touched the door" is a claim, not a
+        # proof. AND THIS GATE ONLY REFUSES: it forks nothing, launches nothing, calls no tmux.
+        # The file's actuator count stays ONE (`s4-06 LG-16 (c)`), which is why neither the
+        # charter in `run_pass` nor `r-watch-revival-arm-amends-notify-only` is amended by it.
+        if door_err:
+            # The door test itself is unreadable, so we cannot tell a door from a worker — and the
+            # arm's whole job is telling absences apart. REFUSE ROOM-WIDE, exactly as an
+            # unparseable ledger does below, rather than guessing per seat. FREEZE the debounce: a
+            # declaration we cannot read is evidence in NEITHER direction.
+            lines.append(f"{seat:<18} {'REFUSED':<7} REVIVAL REFUSED — {REVIVAL_DOOR_LAYER}: seat "
+                         f"declarations unreadable ({door_err}); a DOOR cannot be told from a "
+                         f"crashed seat")
+            _claim_note(room, notes, seat, "door-decls",
+                        f"{REVIVAL_DOOR_LAYER}: the seat declarations under "
+                        f"{coord.workers_dir(args)} could not be read ({door_err}), so this loop "
+                        f"cannot tell which seat carries the owner's door. Nothing will be revived "
+                        f"while that holds — reviving blind would relaunch the owner's door at him "
+                        f"as readily as a crashed worker. Fix the descriptor that fails to parse. "
+                        f"(This is the revival owner-door gate refusing, not the harness "
+                        f"permission classifier.)")
+            st["revival"] = rev
+            continue
+        if (door_decls.get(seat) or {}).get("relays"):
+            ost = coord.owner_status(base)
+            ostate = ost.get("state") or "unknown"
+            if ostate not in REVIVAL_DOOR_STATES:
+                # An UNRECOGNISED state is called out in both surfaces rather than rendered like a
+                # known one — `owner_status` degrades honestly instead of vanishing, and a reader
+                # must be able to tell "the owner said afk" from "nobody can parse what he said".
+                unk = "" if ost.get("known") else " (UNRECOGNISED by this tool)"
+                admitted = " or ".join(REVIVAL_DOOR_STATES)
+                lines.append(f"{seat:<18} {'REFUSED':<7} {REVIVAL_DOOR_LINE} — owner state "
+                             f"{ostate!r}{unk}; admitted: {admitted}")
+                _claim_note(room, notes, seat, "door",
+                            f"{REVIVAL_DOOR_LAYER}: '{seat}' is roster-absent and its descriptor "
+                            f"declares `relays:` — its pane is the OWNER'S DOOR, not a worker's "
+                            f"seat. The owner's declared state is {ostate!r}{unk}, which does not "
+                            f"admit a revival ({admitted} do), so the door STAYS SHUT. This is not "
+                            f"a stalled seat and needs no rescue: a closed door is the owner's own "
+                            f"act, and `coordinate owner <state>` is what changes it. (This is the "
+                            f"revival owner-door gate refusing, not the harness permission "
+                            f"classifier.)")
+                # RESET, not freeze — and the difference is load-bearing. A closed door is a KNOWN
+                # state, not an unreadable one, so the counter is not evidence being preserved. If
+                # the owner later declares `present`, the door re-serves the full two-tick debounce
+                # rather than firing instantly off ticks accumulated while it was legitimately shut.
+                rev["gone_ticks"] = 0
+                st["revival"] = rev
+                continue
 
         # ---- (4b) s4-07: THE RAM-FLOOR LOUD-REFUSAL PATH, and it MUST sit BEFORE CRASHED.
         # A seat whose last revival was refused on memory is still roster-absent and still looks
@@ -3666,14 +3775,29 @@ def cmd_selftest():
         rwork = rpkg / "workers"
         rwork.mkdir(parents=True, exist_ok=True)
 
-        def rdecl(seat="dseat", mode="interactive", harness=None):
+        def rdecl(seat="dseat", mode="interactive", harness=None, relays=None):
             fm = ["---", f"agent: {seat}"]
             if harness:
                 fm.append(f"harness: {harness}")
             if mode:
                 fm.append(f"mode: {mode}")
+            if relays:
+                fm.append(f"relays: {relays}")
             fm += ["---", "", "seat body"]
             (rwork / f"{seat}.md").write_text("\n".join(fm) + "\n", encoding="utf-8")
+
+        def rowner(state):
+            """Write the owner-state surface s4-14's gate reads, or REMOVE it when state is None.
+
+            Written through the same shape `coord.owner_status` parses off a live run, never a
+            hand-built dict: a fixture that supplies its own parse tests the branch and not the
+            integration — the bar the s4-04 block above sets and this one inherits."""
+            f = rbase / "owner-status.md"
+            if state is None:
+                f.unlink(missing_ok=True)
+                return
+            f.write_text("# owner-status — script-managed\n"
+                         f"owner: {state} | since 2026-01-01 00:00 — fixture\n", encoding="utf-8")
 
         rdecl()
         rroster(("dseat", "yes", "%77"), ("leader", "yes", "%1"))
@@ -4066,6 +4190,109 @@ def cmd_selftest():
               "CRASHED branch for the identical fixture. Paired with the mutant above, this is "
               "the observation that makes the ordering load-bearing rather than incidental",
               "CRASHED" not in " ".join(twice()[0]))
+
+        # ---- Stage 4 (s4-14): THE OWNER-DOOR GATE ----
+        # Every row drives a REAL descriptor and a REAL `owner-status.md` through the same parsers
+        # the live loop uses (`coord.inbox_decls`, `coord.owner_status`) — never a hand-built dict,
+        # for the reason the s4-04 block states. NO TMUX and NO ACTUATION anywhere in this block.
+        # ⚠ WAY-STATION: these rows travel with the gate to the goal-watcher-job at 7.35.
+        (rbase / "lifecycle-inflight.json").unlink(missing_ok=True)
+        rstate.clear(); rnotes.clear()
+
+        def _door_gate_src():
+            """The gate's OWN bytes, sliced by its section markers — so row (e) scopes its claim
+            to the gate rather than to the whole function, where an unrelated literal elsewhere
+            would make it pass or fail for the wrong reason."""
+            src = inspect.getsource(check_revival)
+            return src.split("(4a) s4-14")[1].split("(4b) s4-07")[0]
+
+        # (a) THE RULING ITSELF — owner `afk` + a door seat ⇒ the door stays shut.
+        rdecl(mode="interactive", relays="master")
+        rowner("afk")
+        lafk, pafk = twice()
+        check("⚠ s4-14 (a) THE OWNER RULING: a roster-absent seat declaring `relays:` is NOT "
+              "revived while the owner's declared state is `afk`. Measured cause: on 2026-07-30 "
+              "this arm relaunched run-3's owner door ~60s after the owner closed it himself — a "
+              "door with no harness behind it is byte-identical to a crashed seat, and the axis "
+              "that separates them is the owner's own state, not any descriptor key",
+              all(REVIVAL_DOOR_LINE in l for l in lafk)
+              and not any("CRASHED" in l for l in lafk) and gt() == 0)
+        check("⚠ s4-14 (a) R-8: the refusal's LAYER STRING LEADS the note body, so a reader can "
+              "never mistake this TOOL GATE for the harness permission classifier",
+              len(pafk) == 1 and pafk[0].startswith(REVIVAL_DOOR_LAYER))
+
+        # (a-RED) THE MUTATION. A green that could not have gone red is not evidence: widen the
+        # admitted set to include `afk` — the gate still RUNS, still keys on `relays:`, and only
+        # stops DISCRIMINATING on owner state — and the row above must flip to CRASHED.
+        _door_states_shipped = REVIVAL_DOOR_STATES
+        try:
+            globals()["REVIVAL_DOOR_STATES"] = ("present", "reachable", "afk")
+            lmut, _ = twice()
+        finally:
+            globals()["REVIVAL_DOOR_STATES"] = _door_states_shipped
+        check("⚠ s4-14 (a) RED ARM: with `afk` ADDED to the admitted set — the gate otherwise "
+              "untouched — the IDENTICAL fixture reaches CRASHED. So row (a) discriminates on the "
+              "owner's state rather than passing for some unrelated reason, and the shipped tuple "
+              "is what holds the door shut",
+              "CRASHED — " in " ".join(lmut))
+        check("⚠ s4-14 (a) RED-ARM RESTORE: the shipped admitted set is back in place, so the "
+              "mutation cannot leak into any row below it",
+              REVIVAL_DOOR_STATES == ("present", "reachable"))
+
+        # (b) SCOPE — the claim "only the door is affected" made into a control, not left an assertion.
+        rdecl(mode="interactive", relays=None)
+        lnodoor, _ = twice()
+        check("⚠ s4-14 (b) SCOPE CONTROL: the SAME fixture under the SAME `afk` owner state, with "
+              "`relays:` REMOVED, IS revived — one key, opposite verdict. This is what proves the "
+              "gate touches the owner's door alone and leaves overnight revival of the leader, the "
+              "planner and every worker exactly as it was",
+              "CRASHED — " in " ".join(lnodoor))
+
+        # (c) FAIL-CLOSED — an owner state nobody can read does NOT open a human's door.
+        rdecl(mode="interactive", relays="master")
+        rowner(None)
+        lmissing, _ = twice()
+        check("⚠ s4-14 (c) FAIL-CLOSED, no owner-status.md at all: the door is NOT revived. "
+              "Elsewhere in this arm an unprovable premise holds the act; here the act is starting "
+              "a session AT A HUMAN, which he cannot un-see — so the unreadable case resolves to "
+              "'leave it shut', never to 'assume he wants it'",
+              all(REVIVAL_DOOR_LINE in l for l in lmissing)
+              and not any("CRASHED" in l for l in lmissing))
+        rowner("banana")
+        lunk, punk = twice()
+        check("⚠ s4-14 (c) FAIL-CLOSED, UNRECOGNISED owner state: a value this tool does not know "
+              "is refused too — and is REPORTED as unrecognised rather than rendered like a known "
+              "one, so a reader can tell 'the owner said afk' from 'nobody can parse what he said'",
+              all(REVIVAL_DOOR_LINE in l for l in lunk)
+              and any("UNRECOGNISED" in l for l in lunk)
+              and not any("CRASHED" in l for l in lunk))
+
+        # (d) THE OTHER DIRECTION — the gate is not a blanket "never revive the door".
+        for _st in REVIVAL_DOOR_STATES:
+            rowner(_st)
+            _lok, _ = twice()
+            check(f"⚠ s4-14 (d) ADMITTED STATE `{_st}`: the door IS revived. Without this pair of "
+                  f"rows the gate would be indistinguishable from one that never revives a door at "
+                  f"all — which is a different rule than the owner gave, and would strand a "
+                  f"genuinely crashed door while he is sitting at it",
+                  "CRASHED — " in " ".join(_lok))
+
+        # (e) THE DERIVATION — `relays:` is read through coord's ONE parser of that key, so a
+        # future kit-side name list cannot quietly become the door's definition.
+        check("⚠ s4-14 (e) DERIVED, NEVER A NAME LIST: the gate's door test reads `relays:` via "
+              "`coord.inbox_decls` — the same derivation the reap exemption and `owner_world` use "
+              "— and the seat-id `master` appears NOWHERE in the arm. A name list freezes one "
+              "campaign's vocabulary into a shared tool and forgets the next such seat identically",
+              "inbox_decls" in inspect.getsource(check_revival)
+              and not any(lit in _door_gate_src() for lit in ('"master"', "'master'")))
+        check("⚠ s4-14 (e) CONTROL for the row above: the same predicate DOES see a seat-name "
+              "literal when one is present — proving it is matched rather than never matchable",
+              any(lit in (_door_gate_src() + '"master"') for lit in ('"master"', "'master'")))
+
+        rowner(None)
+        rdecl(mode="interactive")
+        (rbase / "lifecycle-inflight.json").unlink(missing_ok=True)
+        rstate.clear(); rnotes.clear()
 
         # Row 7 — LG-16, AMENDED BY s4-06 AND THE AMENDMENT IS THE POINT. The row as s4-04 wrote it
         # asserted `_actuator_syms(inspect.getsource(check_revival)) == set()` and called that "the
