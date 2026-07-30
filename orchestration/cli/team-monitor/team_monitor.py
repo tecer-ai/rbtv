@@ -396,10 +396,63 @@ def agent_type_of(seat, decls):
     return declared, "descriptor"
 
 
-def default_session(package):
-    """The room is the goal's tmux session: .../goals/<goal>/runs/<run> -> <goal>."""
-    p = Path(package).resolve()
-    return p.parent.parent.name
+class SessionUnresolved(RuntimeError):
+    """The room's session name could not be resolved. There is NO default (`G-296`)."""
+
+
+def tmux_session_name(target):
+    """Session name of a NAMED pane ('' when unresolvable) — the `coord.py:1218` form.
+
+    ⚠ NOT `ctx_monitor.current_session()`: that answers for the CALLER's own `$TMUX_PANE`, which
+    a detached daemon does not have at all and which, when set, is the launcher's pane and not
+    the room's. This asks about a pane the roster names.
+    """
+    r = subprocess.run(["tmux", "display-message", "-p", "-t", target, "#{session_name}"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def resolve_session(package, explicit=None):
+    """The ONE home of the room's session name (`G-296`) — ASKED OF THE ROOM, never derived.
+
+    Precedence: (i) an explicit `--session` wins; (ii) else the LIVE session of the first roster
+    pane that resolves; (iii) else REFUSE, loud and named.
+
+    ⚠⚠ NO PATH DERIVATION, EVER. Its predecessor `default_session` returned the GOAL FOLDER name
+    while the room was `core-build`, so four consecutive auto-ensures hit `session_alive` false on
+    their first loop turn, printed `room gone — deterministic close` and exited 0 — the room ran
+    unobserved behind a log that read healthy (`G-296`). And the derivation was unsound in
+    principle, not merely wrong here: nothing in this goal's contract defines a session's NAME, so
+    a derived name could only be right by coincidence. A refusal is the correct answer to an
+    unanswerable question; a guess is what produced a silent sensor.
+    """
+    if explicit:
+        return explicit
+    tried = []
+    for seat, rec in roster(package).items():
+        pane = (rec.get("pane") or "").strip()
+        if not pane:
+            continue
+        name = tmux_session_name(pane)
+        if name:
+            return name
+        tried.append(f"{seat}={pane}")
+    raise SessionUnresolved(
+        "cannot resolve the room's tmux session from "
+        f"{Path(package) / 'coordination' / 'workers.md'}: "
+        + (f"no roster pane resolves to a live session (tried {', '.join(tried)})" if tried
+           else "the roster carries no pane at all")
+        + " — pass --session explicitly. A session name is NEVER derived from the package"
+          " path (`G-296`).")
+
+
+def session_or_refuse(args):
+    """Resolve for a command, or print the refusal and return None (caller exits non-zero)."""
+    try:
+        return resolve_session(args.package, args.session)
+    except SessionUnresolved as e:
+        print(f"refusing: {e}", file=sys.stderr, flush=True)
+        return None
 
 
 def session_alive(session):
@@ -518,7 +571,7 @@ def capture(package, session=None, sensor_path=None):
     captured_at = time.time()
     t0 = time.monotonic()
 
-    session = session or default_session(package)
+    session = session or resolve_session(package)
     eng = sensor(sensor_path)
     panes = {p["pane_id"]: p for p in eng.list_panes(session)}
     records = eng.pane_records(session)
@@ -683,18 +736,24 @@ def write_snapshot(snap, package):
 
 def cmd_snapshot(args):
     """Capture and print. Writes nothing and takes no lock — safe for any reader."""
-    print(json.dumps(capture(args.package, args.session, args.sensor), indent=1))
+    session = session_or_refuse(args)
+    if not session:
+        return 4
+    print(json.dumps(capture(args.package, session, args.sensor), indent=1))
     return 0
 
 
 def cmd_once(args):
+    session = session_or_refuse(args)
+    if not session:
+        return 4
     fh = acquire_writer_lock(args.package)
     if not fh:
         print(f"another writer holds {lock_path(args.package)} (pid {lock_holder(args.package)})",
               file=sys.stderr)
         return 3
     try:
-        dest = write_snapshot(capture(args.package, args.session, args.sensor), args.package)
+        dest = write_snapshot(capture(args.package, session, args.sensor), args.package)
         print(dest)
         return 0
     finally:
@@ -703,12 +762,14 @@ def cmd_once(args):
 
 def cmd_run(args):
     """The daemon body: capture on a cadence until the room's session disappears."""
+    session = session_or_refuse(args)
+    if not session:
+        return 4
     fh = acquire_writer_lock(args.package)
     if not fh:
         print(f"refusing: another writer holds the lock (pid {lock_holder(args.package)})",
               file=sys.stderr)
         return 3
-    session = args.session or default_session(args.package)
     print(f"team-monitor up: pid {os.getpid()} session {session} "
           f"interval {args.interval}s -> {state_path(args.package)}", flush=True)
     try:
@@ -933,8 +994,54 @@ def cmd_selftest(args):
     check("GHOSTROW: a healthy seat raises nothing", "alive" not in got)
     check("GHOSTROW: a checked-out seat raises nothing", "departed" not in got)
 
-    check("default_session derives the room from the package path",
-          default_session("/x/goals/my-goal/runs/run-1") == "my-goal")
+    # ---- G-296: the room's session name has ONE home, and the ROOM is its source ----
+    # ⚠ THE FIXTURE DELIBERATELY DISAGREES WITH ITS OWN PATH: the package sits under a goal folder
+    # named `zz-goal-folder` while the live throwaway session is named otherwise — exactly the
+    # live room's condition (`build-core-daemon-mvp` on disk, `core-build` in tmux) and exactly the
+    # condition no earlier fixture had. The check this REPLACES asserted only that the derivation
+    # was self-consistent (`default_session(".../my-goal/runs/run-1") == "my-goal"`), so it stayed
+    # green through the entire defect. A fixture that agrees with its path cannot fail; this one
+    # can only pass if resolution actually asks the room.
+    with tempfile.TemporaryDirectory() as td:
+        pkg = Path(td) / "goals" / "zz-goal-folder" / "runs" / "run-1"
+        (pkg / "coordination").mkdir(parents=True)
+        header = ("| agent | active | tmux pane | working on | checked in | checked out |\n"
+                  "|---|---|---|---|---|---|\n")
+        sess = f"zz-tm-selftest-{os.getpid()}"
+        made = subprocess.run(["tmux", "new-session", "-d", "-s", sess],
+                              capture_output=True, text=True)
+        # a fixture that failed to build is reported, never skipped — a silent skip here would
+        # restore the very blind spot this block exists to close
+        check(f"G-296 fixture: throwaway room `{sess}` built to resolve against "
+              f"(rc={made.returncode}, stderr={made.stderr.strip()!r})", made.returncode == 0)
+        try:
+            pane = subprocess.run(["tmux", "list-panes", "-t", sess, "-F", "#{pane_id}"],
+                                  capture_output=True, text=True).stdout.split()[0]
+            (pkg / "coordination" / "workers.md").write_text(
+                f"{header}| a-seat | yes | {pane} | w | t1 |  |\n")
+            got = resolve_session(str(pkg))
+            check(f"G-296: the LIVE room name wins over the goal-folder name "
+                  f"(`{sess}` != `zz-goal-folder`; resolved `{got}`)", got == sess)
+            check("G-296: an explicit --session outranks the live resolution",
+                  resolve_session(str(pkg), "explicit-wins") == "explicit-wins")
+        finally:
+            subprocess.run(["tmux", "kill-session", "-t", sess], capture_output=True)
+    # the refuse branch: no pane resolves, so resolution RAISES — it never falls back to the
+    # goal-folder name, which is the whole point of the removal
+    for label, rows in (
+        ("a roster pane that resolves to nothing", "| a-seat | yes | %999999 | w | t1 |  |\n"),
+        ("a roster carrying no pane at all", "| a-seat | yes |  | w | t1 |  |\n"),
+    ):
+        with tempfile.TemporaryDirectory() as td:
+            pkg = Path(td) / "goals" / "zz-goal-folder" / "runs" / "run-1"
+            (pkg / "coordination").mkdir(parents=True)
+            (pkg / "coordination" / "workers.md").write_text(header + rows)
+            try:
+                out = repr(resolve_session(str(pkg)))
+            except SessionUnresolved:
+                out = "SessionUnresolved"
+            check(f"G-296: {label} REFUSES loudly and never defaults to the path "
+                  f"(got {out})", out == "SessionUnresolved")
 
     # ---- the declared agent type (task 7.80) ----
     # Four descriptor states, and the ABSENCES are checked as hard as the presence: an
@@ -1055,7 +1162,8 @@ def main():
         p.set_defaults(fn=fn)
         if package:
             p.add_argument("--package", required=True, help="absolute run-folder path")
-            p.add_argument("--session", help="tmux session (default: the goal folder name)")
+            p.add_argument("--session", help="tmux session; omitted, it is resolved LIVE from a "
+                                             "roster pane and NEVER derived from the path")
             p.add_argument("--sensor", help="override the inherited ctx-monitor path")
         return p
 
