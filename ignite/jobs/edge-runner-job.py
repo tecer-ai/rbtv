@@ -105,6 +105,7 @@ Usage:
 """
 
 import argparse
+import ast
 import csv
 import inspect
 import json
@@ -729,6 +730,180 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
             "still holds, so a seed path being present is not a claim that its content is right.",
         ],
     }
+
+
+# ---- STEP 4b (M4-11 / task 7.126): THE CHECK-OUT FAST PATH ------------------------------------
+#
+# WHAT IT IS. A seat's clean check-out already MAKES its successors ready — STEP 3 computes that
+# from disk on demand. Nothing ACTUATES it: today advancement happens only when an agent runs the
+# cadence sweep, which is the chief-of-staff standing in for a deterministic edge-runner. This hook
+# is what makes advancement PROMPT instead of sweep-paced: the check-out itself puts the newly
+# ready work in the queue.
+#
+# IT IMPLEMENTS NO ENQUEUE. It calls `enqueue()` above and nothing else. A second enqueue path is
+# G-301 rebuilt at the queue, and the expensive half of that shape is that ONE OF THE TWO KEEPS
+# REPORTING SUCCESS. `check_fastpath_calls_the_one_interface` asserts that structurally, by source
+# inspection, rather than trusting this paragraph.
+#
+# ⚠⚠ THE ARMING SCOPE IS THE WHOLE C4 QUESTION — it is the reason this is presence-keyed PER RUN
+# PACKAGE and not a global switch. Armed for the throwaway fixture, m4's bound is honoured. Armed
+# for the live build run, this is an ungated cutover on that run's OWN control loop, which
+# `r-cutover-gated` forbids without an agreed shadow window and a filed probe trail. So:
+#
+#   * There is deliberately NO environment variable and NO command-line flag that can arm it.
+#     Either would arm every package the process touches — the exact failure this scoping exists
+#     to prevent — and neither can be read back off disk later to answer "what was armed, when?".
+#     A file inside the package answers that months later, from the package itself.
+#   * Both enqueue parameters are REQUIRED in the file and neither has a default, so an empty,
+#     truncated or stray file arms NOTHING. Arming is an explicit, deliberate, auditable act.
+#   * Every not-armed branch fails CLOSED — absent, unreadable, unparseable and incomplete all
+#     return "not armed". An arming mechanism that arms on a file it could not read is the one
+#     failure mode here that damages the run this code is running inside.
+#
+# THE CALL SITE IS coord.py's `cmd_checkout`, DONE BRANCH ONLY, and there is exactly one of it —
+# `check_fastpath_call_site_in_coord` asserts both facts against coord.py's own source, by AST,
+# because a hook that quietly gained a second call site would double-enqueue every advancement.
+
+ARM_FILENAME = "edge-fastpath.json"
+
+# REQUIRED, with no defaults, because M4-10's interface has none: the catalogue id belongs to
+# whoever armed the queue, and the daemon requires a profile of every launch-agent job.
+ARM_REQUIRED = ("job-id", "profile")
+
+# ⚠ `why-not`, and NOT the word a reader reaches for first — the same collision M4-10 hit one key
+# over, for the same reason. That other word is the registry's name for a row excluded by a
+# CONDITIONAL EDGE, and `check_no_conditional_evaluator_or_third_verdict` asserts it occurs NOWHERE
+# in this file's source: a verdict that is named but unreachable reads as "this case did not arise"
+# when the truth is "this case cannot arise". A fast path that stood down and a row excluded by a
+# guard are two different claims. Measured, not anticipated — this stage's first draft used that
+# word and the inherited check went RED on 17 lines of it.
+FASTPATH_RESULT_KEYS = ("seat", "armed", "arm-path", "scope", "disposition", "fired", "enqueue",
+                        "why-not")
+
+
+def arm_path(pkg):
+    """THE one place the arming file's location is computed. ONE reader, deliberately: a second
+    one — in coord.py, say, to save an import — would be free to disagree with this one about which
+    packages are armed, and a disagreement about ARMING is the C4 failure itself."""
+    return Path(pkg) / "coordination" / ARM_FILENAME
+
+
+def fastpath_arm(pkg):
+    """(arm, scope) — this package's arming declaration, or `None` plus the reason it is NOT armed.
+
+    `scope` is a sentence, not a flag, and it is a DECLARED OUTPUT of this stage: the question a
+    later verifier asks is not "did the hook work" but "what was it armed FOR", and that question
+    is answered by printing this string for a package rather than by reading a diff."""
+    p = arm_path(pkg)
+    if not p.exists():
+        return None, ("NOT ARMED: no %s. A package arms this hook by carrying that file and by no "
+                      "other means — there is no environment variable and no flag that can arm "
+                      "it — so a package with no such file cannot be armed by accident." % p)
+    try:
+        arm = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, ("NOT ARMED: %s exists but did not read as JSON (%s: %s). FAIL-CLOSED — an "
+                      "arming file that could not be read arms nothing, because the alternative is "
+                      "advancing a run on a file nobody could parse."
+                      % (p, type(exc).__name__, exc))
+    if not isinstance(arm, dict):
+        return None, ("NOT ARMED: %s parsed as %s, not an object. FAIL-CLOSED."
+                      % (p, type(arm).__name__))
+    absent = [k for k in ARM_REQUIRED if not arm.get(k)]
+    if absent:
+        return None, ("NOT ARMED: %s carries no %s. Both are REQUIRED and neither has a default — "
+                      "the catalogue id belongs to whoever armed the queue, and the daemon requires "
+                      "a profile of every launch-agent job. An empty or stray file therefore arms "
+                      "nothing." % (p, " and no ".join("`%s`" % k for k in absent)))
+    return arm, ("ARMED by %s — job-id=%s profile=%s%s. THIS PACKAGE ONLY: the file lives inside "
+                 "the package, so it scopes to the package that carries it and to no other."
+                 % (p, arm["job-id"], arm["profile"],
+                    " (dry-run: the door validates and writes nothing)"
+                    if arm.get("dry-run") else ""))
+
+
+def checkout_fastpath(coord, pkg, seat, disposition, submit=None, at=None):
+    """THE HOOK. Called by coord.py's `cmd_checkout`, once, at the end of its DONE branch.
+
+    Returns `{armed, arm-path, scope, disposition, fired, enqueue, why-not}` ALWAYS and RAISES
+    NEVER. That is not defensiveness, it is the call site: by the time this runs, the check-out has
+    already taken every irreversible act — the transcript is exported, the roster row is flipped,
+    the awaiting-close record is written and the session row is closed. An exception here would
+    report a failure for a session that is already over and cannot be un-ended, and it would do it
+    to a seat that did nothing wrong. Every failure is DATA in the returned dict; the caller prints
+    it. `check_fastpath_never_raises` proves it, and coord's own call site is wrapped as well —
+    two independent guards, because this one rides on an act nobody can retry.
+
+    TWO GATES, and both are load-bearing:
+
+      1. **`disposition` must be `done`.** `renew`, `revive` and `exited` each name a seat that has
+         NOT finished its work. Enqueuing on one of them advances a dead seat silently, which is
+         precisely the failure the closed disposition enum exists to make visible. The gate is an
+         equality against ONE value — never a truthiness test, never a prefix match, never
+         "not renew".
+      2. **The package must be ARMED** — see `fastpath_arm`. C4.
+
+    The arm is resolved BEFORE the disposition gate so `scope` is populated on every path: a
+    `renew` check-out's result still reports what the package is armed for, which is what makes the
+    arming scope auditable from ANY check-out rather than only from a firing one.
+
+    `submit` is passed straight through to `enqueue()` and is how a check exercises the whole path
+    without a daemon and without arming anything. It is never defaulted here — `enqueue()` owns
+    that default, and a second one would be a second door."""
+    pkg = Path(pkg)
+    # `seat` is carried into the result rather than used to decide anything: this stage recomputes
+    # readiness over the WHOLE package (STEP 3 does), so the checking-out seat's identity changes
+    # no outcome. It is recorded because an advancement is only auditable if the check-out that
+    # triggered it is named — "a queue row appeared" and "THIS check-out produced it" are two
+    # different claims, and the second is the one M4-11 exists to make.
+    res = {"seat": seat, "armed": False, "arm-path": str(arm_path(pkg)), "scope": "",
+           "disposition": disposition, "fired": False, "enqueue": None, "why-not": None}
+    try:
+        arm, scope = fastpath_arm(pkg)
+        res["scope"] = scope
+        if disposition != ADVANCES_EDGE:
+            res["why-not"] = ("disposition is `%s`, and only `%s` advances an edge. `renew`, "
+                              "`revive` and `exited` each name a seat that has NOT finished; "
+                              "enqueuing on one of them advances a dead seat."
+                              % (disposition, ADVANCES_EDGE))
+            return res
+        if arm is None:
+            res["why-not"] = scope
+            return res
+        res["armed"] = True
+        res["enqueue"] = enqueue(coord, pkg, arm["job-id"], arm["profile"], at=at, submit=submit,
+                                 dry_run=bool(arm.get("dry-run")))
+        res["fired"] = True
+    except Exception as exc:                                          # noqa: BLE001
+        res["why-not"] = ("the fast path raised %s: %s — CAUGHT HERE. The check-out it rides on "
+                          "already completed and STANDS; only the advancement did not happen, and "
+                          "it is reported rather than swallowed."
+                          % (type(exc).__name__, exc))
+    return res
+
+
+def fastpath_lines(res):
+    """The hook's result as lines the caller prints. Separated from the hook so coord.py renders it
+    without knowing the result's shape, and so a check can assert the WORDING a seat actually sees:
+    an advancement nobody was told about is indistinguishable from one that did not happen."""
+    if not res.get("armed"):
+        return []
+    lines = []
+    eq = res.get("enqueue") or {}
+    for r in eq.get("enqueued", []):
+        lines.append("edge fast path: QUEUED %s as job %s" % (r["seat"], r["job-id"]))
+    for r in eq.get("validated", []):
+        lines.append("edge fast path: VALIDATED %s (dry run — the door wrote nothing)" % r["seat"])
+    for r in eq.get("failed", []):
+        lines.append("edge fast path: NOT ENQUEUED %s — %s" % (r["seat"], r["reason"]))
+    if res.get("why-not"):
+        lines.append("edge fast path: %s" % res["why-not"])
+    if not lines:
+        # An armed package that enqueued nothing SAYS so. Silence here would be indistinguishable
+        # from the hook never having run — the state this whole stage exists to leave behind.
+        lines.append("edge fast path: armed, and this check-out made nothing ready — nothing "
+                     "enqueued, which is a correct and complete outcome")
+    return lines
 
 
 # ---- checks -----------------------------------------------------------------------------------
@@ -1501,6 +1676,311 @@ def check_enqueue_signature_is_recorded():
                   "%s" % (live, PROBE_RECORD.name))
 
 
+# ---- STEP 4b's checks (M4-11) -----------------------------------------------------------------
+
+# The four values of coord's closed disposition enum, spelled out as LITERALS. Not one is read from
+# `ADVANCES_EDGE` or `EXPECTED_ENUM`: a check whose expectation is read from the constant under test
+# moves with that constant and passes any change to it. `check_enum_matches_coord` separately binds
+# these words to coord's own enum, so a rename there goes RED here instead of going silent.
+FASTPATH_ADVANCES = "done"
+FASTPATH_DOES_NOT_ADVANCE = ("renew", "revive", "exited")
+
+FASTPATH_FIXTURE_ARM = {"job-id": "fx-edge-runner", "profile": "fx-profile"}
+
+# The LIVE BUILD RUN's own package — a literal path, the C4 subject, and the thing this stage must
+# be able to prove it did NOT arm. Resolved the same way `AUDIT` is (by looking for `.rbtv/`, never
+# by counting parents), so a promotion that moves this file fails loudly instead of silently
+# checking the wrong directory and reporting "not armed" about a path that does not exist.
+THIS_RUN_PACKAGE = (_workspace_root(HERE) / ".rbtv" / "goals" / "build-core-daemon-mvp"
+                    / "runs" / "run-3")
+
+
+def _write_arm(pkg, payload):
+    """Write an arming file into `pkg` and return its path. A `str` payload is written verbatim, so
+    a check can arm with deliberately unparseable bytes."""
+    p = arm_path(pkg)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(payload if isinstance(payload, str) else json.dumps(payload), encoding="utf-8")
+    return p
+
+
+def check_fastpath_only_done_advances(coord, pkg):
+    """CRITERION 1 — a clean `done` check-out enqueues; `renew`, `revive` and `exited` enqueue
+    NOTHING.
+
+    THE DISCRIMINATING ARM of this whole stage, and the one a wrong reading makes expensive: a hook
+    that fired on every disposition would advance DEAD seats, and it would do it while the run
+    looked like it was progressing normally. Both halves are asserted at the DOOR — the count of
+    submissions, not merely the returned `fired` flag — because a hook could set the flag correctly
+    and still have reached the queue."""
+    submit, calls = _stub_door()
+    try:
+        _write_arm(pkg, FASTPATH_FIXTURE_ARM)
+        res = checkout_fastpath(coord, pkg, "fx-done-outputs-present", FASTPATH_ADVANCES,
+                                submit=submit)
+        if not res["fired"]:
+            return False, ("`%s` did NOT fire on an armed package — %s"
+                           % (FASTPATH_ADVANCES, res["why-not"]))
+        if not calls:
+            return False, ("`%s` reported fired but reached the door 0 times: an advancement that "
+                           "enqueued nothing is not an advancement" % FASTPATH_ADVANCES)
+        advanced = len(calls)
+        for disp in FASTPATH_DOES_NOT_ADVANCE:
+            before = len(calls)
+            other = checkout_fastpath(coord, pkg, "fx-done-outputs-present", disp, submit=submit)
+            if other["fired"] or len(calls) != before:
+                return False, ("`%s` FIRED and reached the door %d time(s). A seat that has not "
+                               "finished must never advance an edge — this is the silent stall the "
+                               "closed enum exists to prevent" % (disp, len(calls) - before))
+            if disp not in (other["why-not"] or ""):
+                return False, ("`%s` stood down but the reason does not name the disposition, so "
+                               "a reader cannot tell WHICH gate stopped it: %r"
+                               % (disp, other["why-not"]))
+    finally:
+        arm_path(pkg).unlink(missing_ok=True)
+    return True, ("criterion 1: `%s` reached the door %d time(s); `%s` reached it 0 times each, "
+                  "every refusal naming its own disposition"
+                  % (FASTPATH_ADVANCES, advanced, "`, `".join(FASTPATH_DOES_NOT_ADVANCE)))
+
+
+def check_fastpath_unarmed_is_a_no_op(coord, pkg):
+    """C4's shape at the smallest scale — an UNARMED package does not advance, and says why.
+
+    This is the branch every check-out on every un-armed package in the workspace takes, the live
+    build run's included. It must reach the door ZERO times, report `armed: False`, print NOTHING,
+    and name the absent file so a reader can tell "not armed" from "broken"."""
+    submit, calls = _stub_door()
+    p = arm_path(pkg)
+    if p.exists():
+        return False, ("the fixture is armed at %s before the check ran, so this check cannot "
+                       "measure the unarmed branch — a previous check leaked its arming file" % p)
+    res = checkout_fastpath(coord, pkg, "fx-done-outputs-present", FASTPATH_ADVANCES, submit=submit)
+    if res["armed"] or res["fired"] or calls:
+        return False, ("an UNARMED package advanced: armed=%s fired=%s door-calls=%d. This is the "
+                       "C4 breach in miniature" % (res["armed"], res["fired"], len(calls)))
+    if str(p) not in (res["why-not"] or ""):
+        return False, ("the refusal does not name the absent arming file, so a reader cannot tell "
+                       "an unarmed package from a broken one: %r" % res["why-not"])
+    if fastpath_lines(res) != []:
+        return False, ("an unarmed check-out printed %r — it must print nothing at all, or every "
+                       "check-out in the workspace gains noise about a hook that did not run"
+                       % fastpath_lines(res))
+    return True, ("an unarmed package reached the door 0 times, reported armed=False, printed "
+                  "nothing, and named %s as the absent arming file" % p.name)
+
+
+def check_fastpath_fails_closed_on_bad_arm(coord, pkg):
+    """Every malformed arming file arms NOTHING — unparseable, wrong type, and each required key
+    absent in turn.
+
+    Fail-CLOSED is asserted rather than assumed because the failure it prevents is asymmetric: an
+    arming mechanism that arms on a file it could not parse advances a run nobody meant to arm,
+    and the diff that did it looks like a typo."""
+    cases = [
+        ("unparseable bytes", "{not json at all"),
+        ("a JSON array, not an object", "[]"),
+        ("no `job-id`", json.dumps({"profile": "fx-profile"})),
+        ("no `profile`", json.dumps({"job-id": "fx-edge-runner"})),
+        ("both keys present but empty", json.dumps({"job-id": "", "profile": ""})),
+    ]
+    try:
+        for label, payload in cases:
+            submit, calls = _stub_door()
+            _write_arm(pkg, payload)
+            res = checkout_fastpath(coord, pkg, "fx-done-outputs-present", FASTPATH_ADVANCES,
+                                    submit=submit)
+            if res["armed"] or res["fired"] or calls:
+                return False, ("%s ARMED the hook (armed=%s fired=%s door-calls=%d) — it must fail "
+                               "CLOSED" % (label, res["armed"], res["fired"], len(calls)))
+            if "NOT ARMED" not in (res["why-not"] or ""):
+                return False, ("%s did not report NOT ARMED: %r" % (label, res["why-not"]))
+    finally:
+        arm_path(pkg).unlink(missing_ok=True)
+    return True, ("%d malformed arming files each armed nothing and each said NOT ARMED: %s"
+                  % (len(cases), "; ".join(label for label, _ in cases)))
+
+
+def check_fastpath_nothing_ready_is_clean(coord):
+    """CRITERION 6 — an ARMED check-out that makes nothing ready enqueues nothing and does NOT
+    error.
+
+    The empty case is the one an implementation keyed on "there will be work" gets wrong, and it is
+    the common case in a run's tail. Driven against a package built HERE with an empty taskforce,
+    so "nothing ready" is a property of the input rather than of an accident in the shared fixture."""
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-fastpath-empty-"))
+    try:
+        pkg = tmp / "run-empty"
+        (pkg / "coordination").mkdir(parents=True)
+        (pkg / "taskforce.csv").write_text("seat,after\n", encoding="utf-8")
+        (pkg / "sessions.csv").write_text("session-id,seat,started,ended,disposition,writer\n",
+                                          encoding="utf-8")
+        (pkg / "coordination" / "workers.md").write_text("", encoding="utf-8")
+        _write_arm(pkg, FASTPATH_FIXTURE_ARM)
+        submit, calls = _stub_door()
+        res = checkout_fastpath(coord, pkg, "nobody", FASTPATH_ADVANCES, submit=submit)
+        if not res["armed"]:
+            return False, "the package was armed but the hook read it as unarmed: %s" % res["scope"]
+        if not res["fired"]:
+            return False, ("an armed `%s` check-out did NOT fire, so criterion 6 measures nothing: "
+                           "%s" % (FASTPATH_ADVANCES, res["why-not"]))
+        eq = res["enqueue"] or {}
+        if eq.get("enqueued") or eq.get("validated") or eq.get("failed"):
+            return False, ("nothing was ready, yet the result carries enqueued=%r validated=%r "
+                           "failed=%r" % (eq.get("enqueued"), eq.get("validated"),
+                                          eq.get("failed")))
+        if calls:
+            return False, ("nothing was ready, yet the door was reached %d time(s)" % len(calls))
+        lines = fastpath_lines(res)
+        if len(lines) != 1 or "made nothing ready" not in lines[0]:
+            return False, ("an armed no-op must SAY it was armed and enqueued nothing — silence is "
+                           "indistinguishable from the hook never running. Printed: %r" % lines)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return True, ("criterion 6: an armed `%s` check-out over an empty taskforce enqueued nothing, "
+                  "reached the door 0 times, raised nothing, and said so in one line"
+                  % FASTPATH_ADVANCES)
+
+
+def check_fastpath_never_raises(coord):
+    """The hook returns a result for inputs that have no right to work, and RAISES on none of them.
+
+    It rides on a check-out that has already completed every irreversible act, so a throw here
+    would report failure for a session that cannot be un-ended. The wrap at coord's call site is a
+    SECOND guard; this asserts the first one, so neither is the only thing standing between a seat
+    and a traceback at the end of its last command."""
+    def _explodes(argv):
+        raise RuntimeError("the door exploded")
+
+    # ⚠ THE FIRST TWO CASES ALONE MAKE THIS CHECK VACUOUS, and that is measured rather than
+    # feared: with only those two, narrowing the hook's `except Exception` to `except
+    # ZeroDivisionError` left this check GREEN. Neither input reaches the guard — an absent path
+    # and a file both resolve to "not armed" through ordinary control flow, so the check was
+    # asserting the return shape of a path that never throws. THE THIRD CASE IS THE CHECK: it
+    # arms a real package and hands the interface a door that raises, which is the only one of
+    # the three that travels through the `try`. Kept together because the shape assertion is
+    # still worth making on all three.
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-fastpath-raise-"))
+    try:
+        armed = tmp / "run-armed"
+        (armed / "coordination").mkdir(parents=True)
+        (armed / "taskforce.csv").write_text("seat,after\nfx-a,\n", encoding="utf-8")
+        (armed / "sessions.csv").write_text(
+            "session-id,seat,started,ended,disposition,writer\n", encoding="utf-8")
+        (armed / "coordination" / "workers.md").write_text("", encoding="utf-8")
+        (armed / "seats" / "fx-a").mkdir(parents=True)
+        (armed / "seats" / "fx-a" / "seat.md").write_text("fixture seat\n", encoding="utf-8")
+        _write_arm(armed, FASTPATH_FIXTURE_ARM)
+        cases = [
+            ("a package that does not exist", Path("/nonexistent/edge-runner/m4-11/run-x"),
+             None, False),
+            ("a package that is a FILE, not a directory", Path(__file__), None, False),
+            ("an ARMED package whose door RAISES — the case that reaches the guard",
+             armed, _explodes, True),
+        ]
+        for label, pkg, submit, must_reach_guard in cases:
+            try:
+                res = checkout_fastpath(coord, pkg, "whoever", FASTPATH_ADVANCES, submit=submit)
+            except BaseException as exc:                              # noqa: BLE001
+                return False, ("%s RAISED %s: %s — at a call site where the check-out has already "
+                               "completed and cannot be un-ended"
+                               % (label, type(exc).__name__, exc))
+            if tuple(res) != FASTPATH_RESULT_KEYS:
+                return False, ("%s returned keys %r, expected %r"
+                               % (label, tuple(res), FASTPATH_RESULT_KEYS))
+            if res["fired"]:
+                return False, "%s reported fired=True" % label
+            if must_reach_guard and "the door exploded" not in (res["why-not"] or ""):
+                return False, ("%s did NOT travel through the hook's guard — `why-not` is %r, "
+                               "which does not carry the raised error. This check would then be "
+                               "asserting a path that never throws" % (label, res["why-not"]))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return True, ("%d inputs each returned the declared %d-key result and raised nothing, and the "
+                  "one that REACHES the guard (an armed package whose door raises) reported the "
+                  "error as data" % (len(cases), len(FASTPATH_RESULT_KEYS)))
+
+
+def check_fastpath_calls_the_one_interface():
+    """CRITERION 3 — the fast path CALLS the wave's one enqueue interface and implements no enqueue
+    of its own.
+
+    Asserted by source inspection, not by reading the docstring: the hook's body must contain a call
+    to `enqueue`, and must contain neither the door's verb nor the binary — those belong to
+    `_enqueue_argv` alone, which `check_single_enqueue_call_site` pins independently. Every needle is
+    ASSEMBLED from fragments so this check never matches its own text."""
+    verb = "_ENQUEUE" + "_VERB"
+    binary = "IGNITE" + "_BIN"
+    src = inspect.getsource(checkout_fastpath)
+    # The CALL is found by AST, not by a source needle: a needle keyed on the argument form goes
+    # red on a harmless refactor (`enqueue(coord=coord, ...)`) and green on a hostile one that
+    # merely mentions the name in a comment. `ast.parse` needs the source dedented — a method-level
+    # `def` would not parse standalone; this one is module-level, and the parse failing IS a
+    # finding rather than something to work around.
+    calls = [n.func.id for n in ast.walk(ast.parse(src))
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+    if "enqueue" not in calls:
+        return False, ("criterion 3: the hook calls %r and NONE of them is the enqueue interface — "
+                       "a fast path that does not enqueue is not a fast path" % sorted(set(calls)))
+    for needle in (verb, binary):
+        if needle in src:
+            return False, ("criterion 3: the hook references `%s`, so it is BUILDING an enqueue "
+                           "command of its own. Two enqueue paths diverge, and the expensive half "
+                           "of that shape is that one of them keeps reporting success (G-301)"
+                           % needle)
+    return True, ("criterion 3: the hook CALLS `enqueue` (AST, among %d call(s)) and references "
+                  "neither `%s` nor `%s` — it implements no enqueue of its own"
+                  % (len(calls), verb, binary))
+
+
+def check_fastpath_call_site_in_coord():
+    """ONE call site, in `cmd_checkout`, in coord.py — asserted against coord's own source by AST.
+
+    Counted structurally rather than by grep because the answer must be about CALLS, not about the
+    name appearing in a comment. A hook that quietly gains a second call site double-enqueues every
+    advancement, and a hook whose call site drifts out of `cmd_checkout` fires on something that is
+    not a check-out."""
+    if not COORD_PATH.exists():
+        return False, "coord.py is absent at %s" % COORD_PATH
+    try:
+        tree = ast.parse(COORD_PATH.read_text(encoding="utf-8"))
+    except SyntaxError as exc:
+        return False, "coord.py does not parse: %s" % exc
+    wanted = "edge_fastpath" + "_on_checkout"
+    holders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for inner in ast.walk(node):
+            if (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
+                    and inner.func.id == wanted):
+                holders.append(node.name)
+    if holders != ["cmd_checkout"]:
+        return False, ("the hook is CALLED in %r, expected exactly ['cmd_checkout']: a second call "
+                       "site double-enqueues every advancement, and a call site outside "
+                       "`cmd_checkout` fires on something that is not a check-out" % holders)
+    return True, ("`%s` is called at exactly ONE site in coord.py, inside `cmd_checkout`"
+                  % wanted)
+
+
+def check_this_run_is_not_armed():
+    """CRITERION 4 (C4) — the LIVE BUILD RUN's own package is not armed, verified POSITIVELY.
+
+    Not by the absence of an intent to arm it, and not by reading this wave's diff: by resolving the
+    scoping mechanism against that package's real path and reading back what it says. The package
+    itself must exist, or this check would report "not armed" about a directory that is not there —
+    a vacuous pass, and exactly the shape that makes a C4 assurance worthless."""
+    if not THIS_RUN_PACKAGE.is_dir():
+        return False, ("the live run package is absent at %s, so this check cannot distinguish "
+                       "'not armed' from 'looking in the wrong place'" % THIS_RUN_PACKAGE)
+    arm, scope = fastpath_arm(THIS_RUN_PACKAGE)
+    if arm is not None:
+        return False, ("⚠ C4 BREACH: the LIVE run package IS ARMED — %s. This is an ungated cutover "
+                       "on the run's own control loop, which `r-cutover-gated` forbids without an "
+                       "agreed shadow window and a filed probe trail" % scope)
+    return True, ("criterion 4: %s is NOT armed — %s"
+                  % (THIS_RUN_PACKAGE, scope.split(". A package arms")[0]))
+
+
 def build_fixture(root):
     """Write the fixture tree. Identical in content to the on-disk fixture the probe record drives,
     so `--selftest --fixture <DIR>` runs the same assertions against real disk."""
@@ -1596,6 +2076,16 @@ def cmd_selftest(fixture):
         ("missing-seed-path-fails", lambda: check_missing_seed_path_fails_loudly(coord, pkg)),
         ("single-enqueue-call-site", lambda: check_single_enqueue_call_site()),
         ("enqueue-signature-recorded", lambda: check_enqueue_signature_is_recorded()),
+        # STEP 4b (M4-11) — the check-out fast path
+        ("fastpath-only-done-advances", lambda: check_fastpath_only_done_advances(coord, pkg)),
+        ("fastpath-unarmed-is-a-no-op", lambda: check_fastpath_unarmed_is_a_no_op(coord, pkg)),
+        ("fastpath-fails-closed-on-bad-arm", lambda: check_fastpath_fails_closed_on_bad_arm(coord,
+                                                                                            pkg)),
+        ("fastpath-nothing-ready-is-clean", lambda: check_fastpath_nothing_ready_is_clean(coord)),
+        ("fastpath-never-raises", lambda: check_fastpath_never_raises(coord)),
+        ("fastpath-calls-the-one-interface", lambda: check_fastpath_calls_the_one_interface()),
+        ("fastpath-call-site-in-coord", lambda: check_fastpath_call_site_in_coord()),
+        ("this-run-is-NOT-armed", lambda: check_this_run_is_not_armed()),
     ]
     failed = 0
     for name, fn in checks:
@@ -1642,6 +2132,12 @@ def main():
     p.add_argument("--dry-run", action="store_true",
                    help="with --enqueue: validate at the door and write nothing. Rows land under "
                         "`validated`, never `enqueued` — the two are different claims")
+    p.add_argument("--arming-scope", action="store_true",
+                   help="M4-11 (C4): print whether --package is armed for the check-out fast path, "
+                        "the mechanism that scopes it, and — always, whatever --package is — "
+                        "whether the LIVE BUILD RUN's own package is armed. Then exit. This is the "
+                        "surface that answers 'what was this armed for?' off disk rather than off "
+                        "a diff")
     p.add_argument("--signature", action="store_true",
                    help="print this wave's ONE enqueue interface signature and its result schema, "
                         "for the three seats that call it, then exit")
@@ -1671,6 +2167,27 @@ def main():
         print("\n  DO NOT WRITE A SECOND ENQUEUE. Two implementations diverge, and the expensive")
         print("  half of that shape is that one of the two keeps reporting success (G-301).")
         return 0
+
+    if args.arming_scope:
+        print("edge-runner-job STEP 4b — the check-out fast path's ARMING SCOPE (task 7.126, m4 "
+              "criterion C4).")
+        print("\nThe mechanism, and the ONLY one: a package is armed by carrying")
+        print("  {RUN}/coordination/%s   with both `job-id` and `profile`" % ARM_FILENAME)
+        print("No environment variable and no flag can arm it. Either would arm every package the")
+        print("process touches, and neither can be read back off disk later to answer what was")
+        print("armed. Absent, unreadable, unparseable and incomplete all fail CLOSED.")
+        if args.package:
+            _, scope = fastpath_arm(Path(args.package).resolve())
+            print("\n--package %s\n  %s" % (Path(args.package).resolve(), scope))
+        # Printed on EVERY invocation, with or without --package: the question C4 asks is about
+        # the live run, and an answer a reader has to remember to ask for is an answer that goes
+        # unasked. The path is a literal, so this cannot be pointed somewhere reassuring.
+        live_arm, live_scope = fastpath_arm(THIS_RUN_PACKAGE)
+        print("\nTHE LIVE BUILD RUN — %s\n  %s" % (THIS_RUN_PACKAGE, live_scope))
+        print("  verdict: %s" % ("⚠ ARMED — an ungated cutover on the live run's own control loop"
+                                 if live_arm is not None else
+                                 "NOT ARMED — C4 holds, read positively off the mechanism above"))
+        return 1 if live_arm is not None else 0
 
     if args.selftest:
         return cmd_selftest(args.fixture)

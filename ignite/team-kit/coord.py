@@ -6251,6 +6251,66 @@ def deliver_handoff(args, base, seat):
 
 
 
+# ---- M4-11 (task 7.126): THE CHECK-OUT FAST PATH ----------------------------------------------
+#
+# A seat's clean check-out already MAKES its successors ready. Nothing ACTUATES that: advancement is
+# computed on demand and happens only when an agent runs the cadence sweep. This is the seam that
+# makes it prompt — the check-out itself puts the newly ready work in the queue.
+#
+# ⚠ EVERYTHING RISKY ABOUT THIS LIVES ON THE OTHER SIDE OF ONE CALL, ON PURPOSE. coord.py is the
+# only communications path between every seat in a room; it is read fresh on every invocation and
+# has no fallback. So this file gains ONE call and one wrapper, and NOT the arming decision, NOT the
+# queue, NOT a second reader of anything. In particular it does NOT test for the arming file itself,
+# even though that would save an import on every check-out: a second reader of WHICH PACKAGES ARE
+# ARMED could disagree with the first, and a disagreement about arming is the C4 failure itself
+# (`r-cutover-gated`). One reader, in edge-runner-job.py, at the cost of one module load per
+# check-out — an act that already spawns a transcript export.
+#
+# ⚠⚠ THIS RUNS AFTER EVERY IRREVERSIBLE ACT OF THE CHECK-OUT AND MUST NEVER AFFECT ITS OUTCOME. By
+# the time it is reached the transcript is exported, the roster row is flipped, `awaiting-close` is
+# recorded and the session row is closed. None of that can be undone, so a throw here would report
+# failure for a session that is already over, to a seat that did nothing wrong — and it would do it
+# at the last command that seat will ever run. Hence `BaseException`: a candidate module that called
+# `sys.exit()` at import would otherwise take the check-out's process down with it, which is the
+# exact failure `save-coord.py` exists to describe. The hook is wrapped on ITS side too; this is the
+# second of two independent guards, because neither should be the only one.
+EDGE_RUNNER_JOB_PATH = Path(__file__).resolve().parent.parent / "jobs" / "edge-runner-job.py"
+
+
+def edge_fastpath_on_checkout(base, me, disposition):
+    """Let a CLEAN check-out enqueue the work it just made ready — for an ARMED package ONLY.
+
+    Returns the hook's result dict, or `None` when the hook could not be reached at all. The return
+    value is for callers that want it; `cmd_checkout` ignores it, because there is nothing it could
+    correctly do with a failure at this point except say so, which happens here.
+
+    THE ARMING DECISION IS NOT MADE HERE and no argument to this function can influence it. It is
+    read from `{RUN}/coordination/edge-fastpath.json` by the hook, off the package being checked out
+    of. An unarmed package — which is every package in this workspace unless someone deliberately
+    armed one — prints nothing and reaches no queue."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("edge_runner_job", EDGE_RUNNER_JOB_PATH)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        # `sys.modules[__name__]` is THIS module, live — never a fresh `import coord`, which would
+        # give the hook a SECOND coord module object with its own state, one process, two coords.
+        res = mod.checkout_fastpath(sys.modules[__name__], Path(base).parent, me, disposition)
+        for line in mod.fastpath_lines(res):
+            print(line)
+        return res
+    except BaseException as exc:                                        # noqa: BLE001
+        try:
+            print(c(f"edge fast path stood down — {type(exc).__name__}: {exc}. YOUR CHECK-OUT "
+                    f"STANDS — it completed before this ran and nothing here can undo it; only the "
+                    f"advancement did not happen. Tell leader.", C_DEAD), file=sys.stderr)
+        except BaseException:                                           # noqa: BLE001
+            pass
+        return None
+
+
 def cmd_checkout(args):
     # s12-05 / D2: `--handoff` is the note the seat's SUCCESSOR reads, so it belongs only to a
     # checkout that OPENS a next session. A done-checkout writes no handoff. Refused FIRST — before
@@ -6434,6 +6494,13 @@ def cmd_checkout(args):
         # ⚠ THIS LINE NO LONGER TEACHES `close <me> --renew`. Renewal is the SEAT's own act now
         # (`checkout --renew`), so naming leader's close-and-renew as this seat's follow-up would
         # teach the superseded ceremony at the one moment the seat is looking for its next step.
+        # M4-11 (7.126): the check-out fast path. DONE BRANCH ONLY and LAST — `renew` takes the
+        # other arm and never reaches this line, which is half of the criterion: a seat that has
+        # not finished must never advance an edge. `exited` cannot reach it either, since this
+        # path is the SEAT's own and `exited` is the kit attesting a harness terminated. The hook
+        # re-asserts the disposition itself rather than trusting this placement — a guard that
+        # exists only as a call-site convention survives exactly until someone moves the call.
+        edge_fastpath_on_checkout(base, me, checkout_disposition)
         print(c(f"next: nothing on your side — this session is DONE and leader frees the pane "
                 f"(`{coord_invocation(args)} close-seat {me}`). Renewing a seat is the SEAT's own "
                 f"act now — `checkout --renew`, before you check out for good.", C_HINT))
