@@ -158,9 +158,73 @@ def stale_after_seconds(hb, tolerance):
     return FLAT_STALE_S, None
 
 
+def resolve_package(args):
+    """(Path, provenance) or (None, refusal) — the run package this job judges.
+
+    THE TARGET IS RESOLVED, NEVER PINNED (task 7.117, leader ruling on ask #204; `issues.md`
+    G-305/G-318). The LIVE entry used to carry `--package <a run package>` for a run that closed
+    2026-07-27, so a fire would have relaunched a sensor against a CLOSED run's package while the
+    mechanism's own status kept reading healthy. Swapping in a different run number would have
+    reproduced that defect at the next run close; the fix is that the live entry names NO run at
+    all and asks the register instead.
+
+    ⚠ THE TWO ENTRIES WERE NEVER POINTED AT THE SAME KIND OF THING, and G-305 records them as
+    though they were. Only the live entry named a RUN package. The twin names a SCRATCH FIXTURE
+    that merely sits inside a closed run's folder — a different claim, and the distinction is why
+    only one of them changed here.
+
+    `--package` SURVIVES AS THE EXPLICIT OVERRIDE and wins whenever it is present. That is not a
+    compatibility shim: the THROWAWAY twin must target a scratch package and must NEVER resolve
+    live, because a throwaway watcher pointed at the live run injects throwaway state into the live
+    room (the twin's own entry comment; C4). The twin therefore passes `--package` and NOT
+    `--goal`/`--coord`, so dropping its override cannot silently promote it onto the live run — it
+    refuses instead. That is a deliberate, disclosed divergence from "both entries carry an
+    identical flag surface": what the twin exists to keep identical is the RELAUNCH argv it
+    exercises on the live entry's behalf, and that is untouched by which target flag it carries.
+
+    THE REGISTER IS READ BY EXACTLY ONE READER, AND IT IS NOT THIS FILE. `coord.resolve_live_run()`
+    already does this and already REFUSES rather than guesses when zero or two rows read `open`
+    (R9's one-live-run guarantee, whose enforcement — task 7.77 — is NOT BUILT). A second CSV
+    reader here would be a second answer to "which run is live", which is the defect shape `G-301`
+    is made of. `coord` is imported INSIDE this function from the `--coord` path, mirroring
+    `goal-watcher-job.py:454`: at module level it would make every copy-and-test of this job carry
+    a sibling dependency it does not otherwise need.
+
+    Refusal is FAIL-CLOSED and returns no package. A self-heal that guessed its target on an
+    ambiguous register is the failure this whole task exists to remove.
+    """
+    if args.package:
+        return Path(args.package).resolve(), "--package (explicit override; register not consulted)"
+    if not args.goal or not args.coord:
+        absent = [f"--{f}" for f in ("goal", "coord") if not getattr(args, f)]
+        missing = " and ".join(absent) + (" are absent" if len(absent) > 1 else " is absent")
+        return None, (f"no --package, so the target must resolve from the run register — but "
+                      f"{missing}. Register resolution needs BOTH: --goal names the "
+                      f"goal folder holding runs.csv, --coord supplies the ONE resolver.")
+    sys.path.insert(0, str(Path(args.coord).resolve().parent))
+    import coord  # noqa: E402  — the register's single reader; see this docstring
+    goal = Path(args.goal).resolve()
+    run_id, detail = coord.resolve_live_run(goal)
+    if not run_id:
+        return None, (f"register at {goal / 'runs.csv'} did not resolve ONE live run: {detail}")
+    return (goal / "runs" / run_id).resolve(), (
+        f"{goal / 'runs.csv'} state=open -> {run_id} (resolved live via coord.resolve_live_run, R10)")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Relaunch watch.py when the run's sensor goes stale.")
-    ap.add_argument("--package", required=True, help="run package whose heartbeat is judged")
+    # ⚠ NO LONGER REQUIRED, AND NO RUN NUMBER LIVES IN THE CATALOGUE ENTRY ANY MORE (task 7.117).
+    # `--package` is the EXPLICIT OVERRIDE; absent, the target resolves from the run register at
+    # FIRE TIME. See resolve_package() for why the override survives and why the twin needs it.
+    ap.add_argument("--package", default=None,
+                    help="run package whose heartbeat is judged — the EXPLICIT OVERRIDE. Absent: "
+                         "resolved live from the goal's run register (needs --goal and --coord)")
+    ap.add_argument("--goal", default=None,
+                    help="goal folder whose runs.csv resolves the live run when --package is "
+                         "absent. Names a GOAL, never a run — there is no run number to go stale")
+    ap.add_argument("--coord", default=None,
+                    help="absolute path to the kit's coord.py, which supplies the ONE register "
+                         "resolver (coord.resolve_live_run). Required when --package is absent")
     ap.add_argument("--watch-py", required=True, help="absolute path to watch.py")
     # `--loop` is GONE, not re-valued: this job held the live default, and a relaunch that carries a
     # cadence number is a second home for it. `watch.py --loop-forever` reads the run's declaration.
@@ -192,7 +256,15 @@ def main():
 
     jobcontain.contain(mem_mb=args.mem_mb, seconds=args.budget_s)
 
-    package = Path(args.package).resolve()
+    package, provenance = resolve_package(args)
+    if package is None:
+        # FAIL CLOSED, LOUDLY. Judging the wrong package is exactly G-305: a self-heal that reports
+        # healthy while doing nothing for the live run. A refusal that names the ambiguity is the
+        # only safe answer, and a non-zero exit puts it in the ticker's own completion record
+        # instead of leaving it as a log line nobody reads.
+        log(f"REFUSING — cannot resolve which run to judge: {provenance}")
+        return 1
+    log(f"target={package} via {provenance}")
     held = jobcontain.single_instance(str(package / "coordination" / ".selfheal-watch.lock"))
     if held is None:
         log("ANOTHER INSTANCE HOLDS THE LOCK — exiting without judging. A periodic job must "

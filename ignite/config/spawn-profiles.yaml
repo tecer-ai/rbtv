@@ -412,8 +412,23 @@ tools:
     argv:
       - /usr/bin/python3
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-watch.py
-      - --package
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1
+      # ⚠ THIS ENTRY DELIBERATELY NAMES NO RUN — task 7.117, leader ruling on ask #204
+      # (`issues.md` G-305/G-318). It used to pin one run's package explicitly, and that run had
+      # CLOSED days earlier: a fire would have relaunched a sensor against a closed run's package
+      # while the self-heal's own status kept reading healthy. That is the cadence lesson one field
+      # over — a run number in an argv is a HOME IN WAITING, and it goes stale the moment that run
+      # closes. ⚠ THIS COMMENT THEREFORE NAMES NO RUN EITHER, deliberately: a run number in prose
+      # is a home in waiting too, and it drifts in silence because nothing consumes it.
+      # Re-pinning it to the then-live run would have reproduced the defect at the very next close,
+      # so the target is now RESOLVED rather than pinned: `--goal` names the GOAL, and
+      # `selfheal-watch.py` asks `coord.resolve_live_run()` which run reads `state=open` in that
+      # goal's runs.csv AT FIRE TIME. There is no value left here to go stale.
+      # The resolver REFUSES on zero or two open rows rather than guessing (R9/R10), so an
+      # ambiguous register produces a loud non-zero exit, never a silently wrong target.
+      - --goal
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp
+      - --coord
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
       - --watch-py
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/watch.py
       - --notify
@@ -434,6 +449,20 @@ tools:
 
   # THROWAWAY twin: a scratch package with its own heartbeat and its own watch.py.
   # No --notify: a throwaway watcher must never inject traffic into the live room.
+  #
+  # ⚠ THIS ENTRY KEEPS AN EXPLICIT `--package` AND MUST NEVER RESOLVE LIVE (task 7.117, leader
+  # ruling (b) on ask #204). `--package` is the EXPLICIT OVERRIDE, so naming it here means this
+  # entry never enters the resolving branch at all. That is the whole point: a THROWAWAY watcher
+  # resolved onto the LIVE run would inject throwaway state into the live room, which this entry's
+  # own `--notify` omission above exists to prevent and which C4 forbids outright.
+  # THE CLOSED-RUN SEGMENT IN THE PATH BELOW IS DELIBERATE AND IS NOT A STALE PIN. It is a scratch
+  # fixture inside a CLOSED run, and a closed run is the STABLE place for one precisely because
+  # nothing rewrites closed-run history. Relocating it into the live run was considered and RULED
+  # AGAINST: it buys nothing and puts throwaway state where C4 has to reason about it.
+  # So the absence-of-run-numbers property is the LIVE entry's, not this one's.
+  # ⚠ AND THIS ENTRY DELIBERATELY CARRIES NO `--goal` / `--coord`. Were they here, a later hand
+  # dropping `--package` would leave a throwaway job silently resolving onto the LIVE run — the
+  # exact C4 breach above. Without them it REFUSES with a non-zero exit instead. Fail closed.
   selfheal-watch-throwaway:
     argv:
       - /usr/bin/python3
