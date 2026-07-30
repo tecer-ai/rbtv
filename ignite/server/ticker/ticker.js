@@ -19,6 +19,10 @@ const { TERMINAL_TURN_STATUSES, sessionStatusForEndedTurn } = require('../heart/
 // spelling here would be a second definition that drifts (that module's own opening argument).
 const { resolveSeatHome } = require('../seat-identity/seat-folder');
 const { resolveWorkspaceRoot } = require('../spawn/config');
+// Task 7.129 (7.77 / R9) — the one-live-run rule. The DECISION lives in its own module and the
+// register read lives in seat-folder.js; dispatch below only obeys the decision. Keeping the rule
+// out of this function is what makes it unit-checkable without a tick.
+const { oneLiveRunDecision } = require('./one-live-run');
 
 const DEFAULT_CONFIG = {
   tick_interval_ms: 10000,
@@ -991,6 +995,34 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       const job = heartStore.getJob(queueRow.job_id);
       if (!job || !job.enabled) {
         actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'job-invalid' });
+        continue;
+      }
+
+      // ── R9's one-live-run rule (task 7.129 / M4-14), BEFORE any action branch ─────────────────
+      //
+      // Placed here and not inside a branch: the question "would this start a second live run of
+      // one goal?" is about the ROW, not about how the row would be launched, and a gate inside one
+      // branch is a gate a later action type silently escapes. `continue` leaves the queue row
+      // UNFIRED and UNTOUCHED — it stays due, is re-evaluated next tick, and starts by itself when
+      // the open run closes. `fireQueueRow` (the only thing that removes or re-arms a row) is never
+      // reached, so this can neither skip the start nor consume it.
+      const oneLive = oneLiveRunDecision({
+        job,
+        queueRow,
+        resolveRoot: () => resolveWorkspaceRoot(heartStore.dbPath),
+      });
+      if (oneLive.action === 'queued') {
+        // `action: 'queued'` is its own tick action, never a `defer`: an operator reading the tick
+        // log must be able to tell R9's refusal from a capacity deferral, and M4-15's notification
+        // path fires on this event. The nested `action` inside `event` is 7.77's declared field and
+        // is deliberately the same word.
+        actions.push({
+          phase: 'dispatch',
+          action: 'queued',
+          queueId: queueRow.queue_id,
+          reason: oneLive.reason,
+          event: oneLive.event,
+        });
         continue;
       }
 

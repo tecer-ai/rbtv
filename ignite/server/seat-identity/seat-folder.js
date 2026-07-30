@@ -137,25 +137,57 @@ function checkRunLive(parsed) {
 // second open row is a real possibility, and picking one — the newest, the first, any rule at all —
 // would let a job fire into a run nobody pointed it at. `checkRunLive` already refuses to supply an
 // optimistic default for a fact the record declines to state; this refuses for the same reason.
-function resolveSeatHome({ workspaceRoot, goal, seat }) {
-  if (!workspaceRoot || !goal || !seat) {
-    return { ok: false, reason: 'resolveSeatHome requires workspaceRoot, goal and seat' };
+// The RUN REGISTER read, and the ONLY one on the daemon side — `<goal>/runs.csv`'s `state` column
+// answers "is a run of this goal live?", and `run-id` names which (PRIN-11: never a second place
+// that answers it; trace-field-audit.md §2.3 rules `closed` deliberately NOT a read site, because
+// deriving open-ness from an empty `closed` would be that second answer).
+//
+// EXTRACTED, NOT WRITTEN (task 7.129 / M4-14): every line below already stood inside
+// resolveSeatHome. It is lifted out because the ticker's one-live-run gate must read the register
+// too, and a second spelling of this predicate in the scheduler would be two readers of one file
+// that can disagree — `issues.md` G-301's exact shape. resolveSeatHome now calls it, so there is
+// one reader with two callers and its behaviour is unchanged.
+//
+// It REPORTS and never decides: `open` is the set, `unrecognized` is the set whose `state` is
+// neither `open` nor `closed` (the comparison is exact and stays exact — `coord.py`'s
+// `close_run_index` writes exactly those two values). A caller that must fail closed reads
+// `unrecognized`; nothing here widens the comparison until a disagreement disappears.
+function openRunsOfGoal({ workspaceRoot, goal }) {
+  if (!workspaceRoot || !goal) {
+    return { ok: false, reason: 'openRunsOfGoal requires workspaceRoot and goal' };
   }
   const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', goal);
   const runsCsv = path.join(goalDir, 'runs.csv');
   const runs = readCsv(runsCsv);
   if (!runs.exists) {
-    return { ok: false, reason: `runs.csv unreadable at ${runsCsv} — goal "${goal}" has no run log` };
+    return { ok: false, register: runsCsv, goalDir, reason: `runs.csv unreadable at ${runsCsv} — goal "${goal}" has no run log` };
   }
   const runCol = runs.header.includes('run-id') ? 'run-id' : (runs.header.includes('run') ? 'run' : null);
   if (!runCol) {
-    return { ok: false, reason: `runs.csv carries no run-id/run column (header: ${runs.header.join(',')})` };
+    return { ok: false, register: runsCsv, goalDir, reason: `runs.csv carries no run-id/run column (header: ${runs.header.join(',')})` };
   }
   if (!runs.header.includes('state')) {
-    return { ok: false, reason: `runs.csv carries no state column (header: ${runs.header.join(',')})` };
+    return { ok: false, register: runsCsv, goalDir, reason: `runs.csv carries no state column (header: ${runs.header.join(',')})` };
   }
+  return {
+    ok: true,
+    register: runsCsv,
+    goalDir,
+    runCol,
+    rows: runs.rows,
+    open: runs.rows.filter((r) => r.state === 'open'),
+    unrecognized: runs.rows.filter((r) => r.state !== 'open' && r.state !== 'closed'),
+  };
+}
 
-  const open = runs.rows.filter((r) => r.state === 'open');
+function resolveSeatHome({ workspaceRoot, goal, seat }) {
+  if (!workspaceRoot || !goal || !seat) {
+    return { ok: false, reason: 'resolveSeatHome requires workspaceRoot, goal and seat' };
+  }
+  const register = openRunsOfGoal({ workspaceRoot, goal });
+  if (!register.ok) return { ok: false, reason: register.reason };
+  const { goalDir, register: runsCsv, runCol, open } = register;
+
   if (open.length === 0) {
     return { ok: false, reason: `goal "${goal}" has no run in state "open" in ${runsCsv} — nothing to fire into` };
   }
@@ -242,6 +274,7 @@ function checkMaterializedSeat(parsed) {
 module.exports = {
   parseSeatPath,
   resolveSeatFromCwd,
+  openRunsOfGoal,
   resolveSeatHome,
   checkRunLive,
   checkMaterializedSeat,
