@@ -23,6 +23,11 @@ const { resolveWorkspaceRoot } = require('../spawn/config');
 // register read lives in seat-folder.js; dispatch below only obeys the decision. Keeping the rule
 // out of this function is what makes it unit-checkable without a tick.
 const { oneLiveRunDecision } = require('./one-live-run');
+// Task 7.130 (7.77 / R9) — the other half of the same rule: a queued run tells the owner. Rendering
+// and delivery live in that module; the branch below only calls it and records what came back. Its
+// deliverer is INJECTED and the one wired here is credential-free (the owner feed) — nothing in the
+// daemon resolves a credentialed transport, because arming one is a cutover (`r-cutover-gated`).
+const { createQueuedRunNotifier, ownerFeedDeliverer } = require('./queued-run-notify');
 
 const DEFAULT_CONFIG = {
   tick_interval_ms: 10000,
@@ -168,6 +173,12 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     stampMessageRouted(msg.msg_id, tick);
     return msg;
   }
+
+  // Task 7.130 / M4-15 — built ONCE per ticker, not per tick, because its dedupe cache is the whole
+  // reason it exists: a queued row stays due and is re-evaluated every tick, so a notifier rebuilt
+  // each tick would announce the same held start every tick interval until the open run closed.
+  // The deliverer is the owner feed — no credential, nothing leaves the box.
+  const notifyQueuedRun = createQueuedRunNotifier({ deliver: ownerFeedDeliverer(recordOwnerNote) });
 
   function updateArgs(execId, argsJson) {
     runSql('UPDATE jobs_log SET args = ? WHERE exec_id = ?', argsJson, execId);
@@ -1023,6 +1034,48 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
           reason: oneLive.reason,
           event: oneLive.event,
         });
+
+        // ── Task 7.130 / M4-15 — the queued run tells the owner ────────────────────────────────
+        //
+        // AFTER the `queued` action is already recorded, and before the `continue`. The order is
+        // the design: the queueing is a fact the moment the decision was made, and it is recorded
+        // unconditionally, so no outcome of the notification can alter it. A failed send below
+        // therefore CANNOT turn a queued row into a skipped one — the thing it would have to
+        // undo is already banked, and this call has no queue handle to undo it with. That is the
+        // failure 7.77 designs out, made structural rather than promised.
+        //
+        // `notifyQueuedRun` never throws (its module's header says why, and 7.129 measured the
+        // cost: a throw on this path abandons the whole tick). So there is deliberately NO try
+        // around it — a second one here would suggest the containment is not already inside.
+        const notice = await notifyQueuedRun(oneLive.event, { now, tick });
+        if (notice.notified && !notice.delivered) {
+          // SURFACED IN TWO PLACES, SWALLOWED IN NEITHER. Its own tick action, so an operator
+          // reading the log sees the delivery failed and does not read the `queued` line above as
+          // "the owner was told"; and an owner-feed note, because the owner feed is the surface a
+          // human actually reads and a notification failure is exactly the thing that would
+          // otherwise be visible only to whoever was tailing the tick log at the time.
+          actions.push({
+            phase: 'dispatch',
+            action: 'queued-notify-failed',
+            queueId: queueRow.queue_id,
+            reason: oneLive.reason,
+            error: notice.error,
+          });
+          recordOwnerNote(
+            `ignite: a scheduled run start was QUEUED for goal ${job.goal_name} (queue row `
+            + `${queueRow.queue_id}), and the notification about it FAILED to deliver `
+            + `(${notice.error}). The start is queued, not lost — it resumes when the open run closes.`,
+            now, tick,
+          );
+        } else if (notice.notified) {
+          actions.push({
+            phase: 'dispatch',
+            action: 'queued-notified',
+            queueId: queueRow.queue_id,
+            reason: oneLive.reason,
+            ts: notice.ts,
+          });
+        }
         continue;
       }
 
