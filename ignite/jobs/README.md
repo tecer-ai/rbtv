@@ -21,8 +21,8 @@ its queue rows and run these by hand:
 # room dead — relaunch it through the kit path that created it
 python3 <rbtv>/ignite/team-kit/coord.py --package <PKG> launch --only <SEAT> --force
 
-# sensor dead — relaunch the watch loop
-nohup python3 <rbtv>/ignite/team-kit/watch.py --package <PKG> --notify --loop 10 >/dev/null 2>&1 &
+# sensor dead — relaunch the watch loop (cadence comes from the run's budget.json; pass no number)
+nohup python3 <rbtv>/ignite/team-kit/watch.py --package <PKG> --notify --loop-forever >/dev/null 2>&1 &
 ```
 
 ## What they write

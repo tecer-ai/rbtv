@@ -9,21 +9,31 @@ One entry per target — the live package and its throwaway twin are separate en
 WHAT "HEALTHY" MEANS HERE — a heartbeat is TWO facts, never one
 -----------------------------------------------------------------
 `watch.py` stamps `{package}/coordination/watch-heartbeat.json` with `last_pass`,
-`loop_min` and `pid` every pass. On 2026-07-27 04:46-04:54 that file kept reading a
+`loop_seconds` and `pid` every pass. On 2026-07-27 04:46-04:54 that file kept reading a
 recent `last_pass` and a `pid` for a watch.py the owner had just killed: a well-formed
 gravestone. Freshness alone would have read it as healthy for a whole tolerance window.
 So this detector requires BOTH:
 
-  1. `last_pass` is no older than `loop_min * TOLERANCE` minutes, and
+  1. `last_pass` is no older than `loop_seconds * TOLERANCE` SECONDS, and
   2. the `pid` in the file is ALIVE and is a `watch.py` for THIS package.
 
 Either fact failing is staleness.
 
-TOLERANCE = 3, and the number is not free: `coord.watcher_heartbeat()` already judges
-the same file at `loop_min * 3` ("one skipped pass is a slow tmux capture, three in a
-row is a dead loop") and that judgement is what `coordinate workers` prints for humans.
-A different multiplier here would make the automated and the human-visible verdicts
-disagree about the same file — the automation must not invent a second truth.
+⚠ SECONDS, NOT MINUTES, SINCE task 7.112 (`r-watch-loop-30s`: cadence 30 s maximum). This
+detector used to compare whole minutes against `loop_min * TOLERANCE`, and at a 30-second
+cadence that clock was COARSER THAN THE THING IT JUDGES — a loop several passes dead still
+measured age 0 and read healthy. `loop_min` is still accepted as a fallback so a mixed-version
+window (an older watch.py still running) is judged on the cadence it actually reported instead
+of dropping to the flat window.
+
+TOLERANCE = 3, and the number is not free: `coord.watcher_heartbeat()` judges the same file at
+three missed passes ("one skipped pass is a slow tmux capture, three in a row is a dead loop")
+and that judgement is what `coordinate workers` prints for humans. A different multiplier here
+would make the automated and the human-visible verdicts disagree about the same file — the
+automation must not invent a second truth. ⚠ THE TWO NOW DIFFER IN PRECISION, NOT IN INTENT:
+coord.py still multiplies the legacy minute-denominated `loop_min`, which `watch.py` writes
+rounded UP, so coord's threshold is the coarser of the two. Retiring `loop_min` across all its
+readers needs `coord.py`, which task 7.112 does not hold; it is filed, not forgotten.
 
 DOUBLE-START REFUSAL
 --------------------
@@ -39,7 +49,7 @@ Nothing but stdout/stderr. `fire-tool` captures that into
 a private log file would create a new unbounded artifact class outside that sweep.
 
 FALLBACK, one command (the kit path stays armed):
-  nohup python3 <team-kit>/watch.py --package <PKG> --notify --loop 10 >/dev/null 2>&1 &
+  nohup python3 <team-kit>/watch.py --package <PKG> --notify --loop-forever >/dev/null 2>&1 &
 """
 
 import argparse
@@ -55,7 +65,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import jobcontain  # noqa: E402  — self-containment; a fire-tool exec gets none (G-30)
 
 TOLERANCE = 3
-DEFAULT_LOOP_MIN = 10
+# ⚠ NO DEFAULT CADENCE CONSTANT LIVES HERE ANY MORE (task 7.112, ruling `r-watch-loop-30s`).
+# `DEFAULT_LOOP_MIN = 10` stood here and it was THE LIVE DEFAULT — the actual value every relaunch
+# carried — which made this file a home for a policy number it does not own. The cadence's one home
+# is the run's `budget.json` (`r-bar-home-is-the-run-budget-json`), and the relaunch now passes
+# `--loop-forever` with NO number at all, so `watch.py` resolves the declaration itself. A recovery
+# path that holds no number cannot resurrect a sensor running at a cadence nobody ruled.
+FLAT_STALE_S = 1800
 
 
 def log(msg):
@@ -111,19 +127,48 @@ def read_heartbeat(path):
     return hb, None
 
 
-def age_minutes(last_pass):
+def age_seconds(last_pass):
+    """Age of the stamp in SECONDS, or None when it does not parse.
+
+    ⚠ WAS `age_minutes`, AND THE UNIT WAS THE DEFECT (task 7.112). It floor-divided to whole
+    minutes, so under the ruled ≤30 s cadence (`r-watch-loop-30s`) a loop that had missed SEVERAL
+    passes still measured age 0 and every freshness verdict rounded to healthy. A clock coarser than
+    the cadence it judges cannot see the failure it exists to detect.
+    """
     try:
-        return int((datetime.now() - datetime.fromisoformat(last_pass)).total_seconds() // 60)
+        return int((datetime.now() - datetime.fromisoformat(last_pass)).total_seconds())
     except (TypeError, ValueError):
         return None
+
+
+def stale_after_seconds(hb, tolerance):
+    """(threshold in seconds, the cadence it came from or None) — how late is too late.
+
+    Prefers the heartbeat's `loop_seconds`; falls back to the legacy minute-denominated `loop_min`
+    written by an OLDER watch.py, so a relaunch during a mixed-version window is judged on the
+    cadence it actually reported rather than dropped to the flat threshold. Both absent → flat.
+    """
+    secs = hb.get("loop_seconds")
+    if isinstance(secs, int) and not isinstance(secs, bool) and secs > 0:
+        return secs * tolerance, secs
+    mins = hb.get("loop_min")
+    if isinstance(mins, int) and not isinstance(mins, bool) and mins > 0:
+        return mins * 60 * tolerance, mins * 60
+    # A one-shot pass has no cadence to be late against: judge it on a flat window.
+    return FLAT_STALE_S, None
 
 
 def main():
     ap = argparse.ArgumentParser(description="Relaunch watch.py when the run's sensor goes stale.")
     ap.add_argument("--package", required=True, help="run package whose heartbeat is judged")
     ap.add_argument("--watch-py", required=True, help="absolute path to watch.py")
-    ap.add_argument("--loop", type=int, default=DEFAULT_LOOP_MIN,
-                    help="loop minutes to relaunch with (default 10)")
+    # `--loop` is GONE, not re-valued: this job held the live default, and a relaunch that carries a
+    # cadence number is a second home for it. `watch.py --loop-forever` reads the run's declaration.
+    # Registered ONLY to refuse, so a stale catalogue entry fails loudly instead of being ignored by
+    # argparse's own "unrecognized arguments" error, which names no replacement.
+    ap.add_argument("--loop", default=None,
+                    help="RETIRED (r-watch-loop-30s). The relaunch passes --loop-forever and "
+                         "watch.py reads the cadence from the run's budget.json")
     ap.add_argument("--tolerance", type=int, default=TOLERANCE,
                     help="missed passes tolerated before stale (default 3)")
     ap.add_argument("--notify", action="store_true",
@@ -138,6 +183,12 @@ def main():
     ap.add_argument("--mem-mb", type=int, default=256, help="self address-space cap (default 256)")
     ap.add_argument("--budget-s", type=int, default=120, help="self wall-clock cap (default 120)")
     args = ap.parse_args()
+    if args.loop is not None:
+        ap.error("--loop is RETIRED (owner ruling r-watch-loop-30s): it was loop MINUTES and this "
+                 "job held the live default, which made it a second home for a policy number. The "
+                 "relaunch now passes --loop-forever and watch.py reads "
+                 "cadence.watch_loop_max_seconds from the run's budget.json. Drop the flag and its "
+                 "value from the catalogue entry — do not re-value them.")
 
     jobcontain.contain(mem_mb=args.mem_mb, seconds=args.budget_s)
 
@@ -156,13 +207,13 @@ def main():
     if hb is None:
         stale, why = True, reason
     else:
-        loop_min = hb.get("loop_min") if isinstance(hb.get("loop_min"), int) else None
-        stale_after = (loop_min * args.tolerance) if loop_min and loop_min > 0 else 30
-        age = age_minutes(hb["last_pass"])
+        stale_after, cadence_s = stale_after_seconds(hb, args.tolerance)
+        age = age_seconds(hb["last_pass"])
         if age is None:
             stale, why = True, f"unparseable last_pass {hb['last_pass']!r}"
         elif age > stale_after:
-            stale, why = True, f"last_pass {age} min old > {stale_after} min ({loop_min}x{args.tolerance})"
+            basis = f"{cadence_s}sx{args.tolerance}" if cadence_s else "flat (no cadence reported)"
+            stale, why = True, f"last_pass {age}s old > {stale_after}s ({basis})"
         else:
             # ---- fact 2: the stated writer is a LIVE watch.py for this package ----
             pid = hb.get("pid")
@@ -191,7 +242,12 @@ def main():
     cmd = [sys.executable, str(Path(args.watch_py).resolve()), "--package", str(package)]
     if args.notify:
         cmd.append("--notify")
-    cmd += ["--loop", str(args.loop)]
+    # NO CADENCE VALUE CROSSES THIS BOUNDARY. `--loop-forever` says "keep looping" and carries no
+    # number; `watch.py` resolves `cadence.watch_loop_max_seconds` from the run's budget.json itself.
+    # This used to be `["--loop", str(args.loop)]`, which made every relaunch a courier for a policy
+    # number — and by this file's own G-42 argument, a relaunch carrying a stale cadence resurrects a
+    # WEAKER sensor than the one that died and the run never notices the downgrade.
+    cmd.append("--loop-forever")
     cmd += list(args.watch_arg)
 
     # The sensor must OUTLIVE this job's exec, so it gets its own transient unit —

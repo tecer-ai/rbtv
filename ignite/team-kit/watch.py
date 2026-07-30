@@ -54,7 +54,7 @@ it was found as one — a context warning about the LEADER was delivered to the 
 its own close/renew/approve with no seat above it and an AFK owner — and the general rule is what
 closes it, since pointing the flags at any single seat just moves the hole to that seat.
 
-  python3 watch.py --package <abs-run-package> [--notify] [--loop 10]
+  python3 watch.py --package <abs-run-package> [--notify] [--loop-forever] [--cadence-s SEC]
 
 State (7.37 criterion 3 / R10): the agent-keyed re-arm state lives at the GOAL folder —
 <goal>/watch-state.json, SECTIONED BY RUN (`{"runs": {"run-1": {...}, "run-2": {...}}}`) — so it
@@ -825,7 +825,67 @@ def check_daemon(sysstate, daemon, change, notes, code=None):
     return f"{'daemon':<18} {label:<7} {detail}"
 
 
-def save_heartbeat(base, loop_min, daemon=None, change=None, daemon_code=None, budget=None):
+def _ticks_minutes(ticks, args):
+    """`ticks` of the loop rendered as human wall-clock, DERIVED from the cadence actually in force.
+
+    ⚠ IT IS COMPUTED, NOT WRITTEN DOWN, AND THAT IS THE WHOLE REASON IT EXISTS. The line this feeds
+    is the one place an operator reads a detection latency, and it used to carry the literal
+    "~20 min worst case at the live loop's --loop 10" — arithmetic over a cadence that the owner has
+    now superseded, printed every tick, to a human, as if it were an observation. A latency spelled
+    out beside a cadence that can change is a stale claim with a schedule.
+
+    The tick constants themselves are UNTOUCHED and stay in TICK units (`r-watch-loop-30s`: they
+    re-scale by the cadence alone). This renders them; it never redefines them.
+
+    Returns "n/a (one-shot)" on a non-looping pass, where no cadence is resolved and there is no
+    such thing as a next tick.
+    """
+    cadence = getattr(args, "cadence_s", None)
+    if not isinstance(cadence, int) or cadence <= 0:
+        return "n/a (one-shot)"
+    seconds = ticks * cadence
+    if seconds < 120:
+        return "%ds" % seconds
+    return "%.1f min" % (seconds / 60.0)
+
+
+def _loop_min_compat(loop_seconds):
+    """`loop_seconds` rendered into the heartbeat's LEGACY minute-denominated field, or None.
+
+    ⚠ THIS FUNCTION EXISTS TO KEEP `coord.py` OUT OF TASK 7.112's DIFF, and saying so is the point.
+    `loop_min` is a CROSS-MODULE PROTOCOL FIELD with three readers, and two of them are outside this
+    change's declared outputs and under separate custody:
+
+      * `coord.py:~884`  `stale_after = (loop_min * 3) if isinstance(loop_min, int) ... else 30`
+      * `coord.py:~6841` `f", loop {hb['loop_min']}min" if hb.get("loop_min") else ", one-shot"`
+      * `jobs/selfheal-watch.py` — migrated to `loop_seconds` by this same task; it is an output.
+
+    DROPPING THE FIELD WOULD HAVE BEEN THE SILENT DEFECT THIS WHOLE WAVE IS ABOUT. With `loop_min`
+    absent or non-int, BOTH coord readers fall through: staleness becomes a flat 30 MINUTES (a dead
+    30-second sensor would go unreported ~20x longer than today) and `coordinate workers` prints the
+    live sentinel as `one-shot`. That is `G-42`'s weaker-sensor-nobody-notices shape arriving through
+    a data field instead of an argv.
+
+    So the field survives, MEANING EXACTLY WHAT ITS NAME SAYS — minutes — rounded UP, never below 1:
+
+      * ceil, not round: it feeds staleness multipliers, and rounding 30 s DOWN to 0 would re-enter
+        the `else 30` fallback this exists to avoid — the falsy-zero trap that made `--loop 0`
+        meaningless is the same trap one layer down.
+      * `max(1, ...)`: coord gates on `loop_min > 0`.
+
+    THE RESIDUAL, NAMED NOT BURIED. At 30 s coord computes staleness of 3 min where the true figure
+    is 1.5 — TIGHTER than the 30 it would otherwise use and never looser than today's behaviour, so
+    the rounding errs toward reporting a dead sensor early. `coordinate workers` shows `loop 1min`
+    for a 30-second loop: visibly coarse, and not the `one-shot` lie. Retiring `loop_min` in favour
+    of `loop_seconds` across all three readers is filed as a protocol migration this task must not
+    absorb — it requires `coord.py`, which task 7.112 does not hold.
+    """
+    if not isinstance(loop_seconds, int) or isinstance(loop_seconds, bool) or loop_seconds <= 0:
+        return None
+    return max(1, -(-loop_seconds // 60))
+
+
+def save_heartbeat(base, loop_seconds, daemon=None, change=None, daemon_code=None, budget=None):
     """P32 — stamp this pass so something outside the loop can tell a live watcher from a dead one.
 
     A SEPARATE file from watch-state.json on purpose: that file is keyed by agent name, and a
@@ -869,7 +929,8 @@ def save_heartbeat(base, loop_min, daemon=None, change=None, daemon_code=None, b
     try:
         coord.atomic_write(base / "watch-heartbeat.json", json.dumps(
             {"last_pass": now_dt().isoformat(timespec="seconds"),
-             "loop_min": loop_min, "pid": os.getpid(), "code": LOADED_CODE,
+             "loop_seconds": loop_seconds, "loop_min": _loop_min_compat(loop_seconds),
+             "pid": os.getpid(), "code": LOADED_CODE,
              "daemon": daemon, "daemon_change": change,
              # A tuple would round-trip through JSON as a list; named keys instead, so the reader
              # never indexes into a shape it has to remember.
@@ -1946,7 +2007,7 @@ REVIVAL_ABANDONED_LINE = "REVIVAL ABANDONED — revival launch gate: RAM floor"
 # ladder: the executor retries for ~60 s inside one fire, this retries across ticks.
 REVIVAL_MAX_ATTEMPTS = 3
 # ⚠ ONE CADENCE FOR BOTH THE ESCALATION AND THE RETRY, AND IT IS A DECISION, not an accident.
-# §3's escalation is `blocked_ticks % 3 == 0` (~30 min at the live `--loop 10`). Re-firing on EVERY
+# §3's escalation is `blocked_ticks % 3 == 0` (~1.5 min at the ruled ≤30 s cadence). Re-firing on EVERY
 # blocked tick would hammer a floor that has not moved and would exhaust the three attempts in
 # three ticks — after which `blocked_ticks` could never reach 6 and the second escalation the
 # acceptance names would be UNREACHABLE. Riding the same cadence makes both expressible: escalate
@@ -2204,12 +2265,19 @@ def check_revival(args, base, snap, snap_err, state, notes):
     see the s4-04 literals block above for the ruling and the migration cost.
 
     Debounce is 2 consecutive non-stale ticks, and the number is CHOSEN, NOT MEASURED — no
-    crash-to-detection latency data exists in this run. At the LIVE loop's `--loop 10` (the flag is
-    declared with NO `default=`; the 10 is the running invocation's, recorded in the heartbeat as
-    `loop_min: 10` — never call it "the default") worst-case detection is ~20 MIN PLUS ONE SENSOR
-    CADENCE. That is named in the report line rather than hidden. Firing on ONE tick would make a
-    single transient sensor error a relaunch. Whether ~20 min is acceptable for a leader outage is
-    an OWNER QUESTION, UNASKED — do not answer it by editing `--loop` here.
+    crash-to-detection latency data exists in this run. THE CONSTANTS ARE IN TICK UNITS AND THEY
+    RE-SCALE BY THE CADENCE ALONE, so at the ruled ≤30 s cadence (`r-watch-loop-30s`) worst-case
+    detection is ~1 MIN PLUS ONE SENSOR CADENCE. That is named in the report line rather than hidden.
+    Firing on ONE tick would make a single transient sensor error a relaunch.
+
+    ⚠ THE OWNER QUESTION THIS COMMENT USED TO WITHHOLD IS ANSWERED. It read: *"whether ~20 min is
+    acceptable for a leader outage is an OWNER QUESTION, UNASKED — do not answer it by editing
+    `--loop` here."* The owner ASKED AND ANSWERED it — `r-watch-loop-30s`, 2026-07-30: 30 seconds
+    maximum, which discharges 7.32's open question on the side of tighter bounds. The instruction is
+    struck because, left standing, it told the next reader NOT to make the change the owner had just
+    ruled. The cadence now has a home (`budget.json cadence.watch_loop_max_seconds`), so the way to
+    change it is to change that declaration — not to edit a flag here, which is what the retired
+    `--loop` refuses to let anyone do silently.
 
     Every disposition prints a line EVERY tick: a hole must never go quiet."""
     # ---- 0. No snapshot at all → SILENT. Every package without team-monitor lands here. ----
@@ -2546,7 +2614,11 @@ def check_revival(args, base, snap, snap_err, state, notes):
         if verdict == "RETRY":
             # The cadence says re-fire. Fall through to CRASHED with the debounce SATISFIED — the
             # seat's absence is not in question here, only whether the launch can succeed, so
-            # re-serving a two-tick debounce would add ~20 min to every retry for no evidence.
+            # re-serving a two-tick debounce would add a FULL DEBOUNCE (REVIVAL_DEBOUNCE_TICKS ticks)
+            # to every retry for no evidence. Stated in TICKS, not minutes, deliberately: this line
+            # used to say "~20 min", which was arithmetic over the superseded 10-minute loop and went
+            # stale the moment the owner ruled the cadence (`r-watch-loop-30s`). Ticks re-scale; a
+            # wall-clock figure written beside a configurable cadence does not.
             lines.append(lad_line)
             rev["gone_ticks"] = REVIVAL_DEBOUNCE_TICKS - 1
 
@@ -2573,7 +2645,8 @@ def check_revival(args, base, snap, snap_err, state, notes):
         else:
             lines.append(f"{seat:<18} {'REVIVAL':<7} CRASHED pending — "
                          f"{rev['gone_ticks']}/{REVIVAL_DEBOUNCE_TICKS} consecutive non-stale ticks "
-                         f"(~20 min worst case at the live loop's --loop 10, plus one sensor cadence)")
+                         f"(~{_ticks_minutes(REVIVAL_DEBOUNCE_TICKS, args)} worst case at this "
+                         f"loop's cadence, plus one sensor cadence)")
         st["revival"] = rev
 
     return lines
@@ -3121,7 +3194,7 @@ def run_pass(args):
 
     save_state(base, state)
     save_sys_state(base, sysstate)
-    save_heartbeat(base, getattr(args, "loop", None), daemon, daemon_change, daemon_code,
+    save_heartbeat(base, getattr(args, "cadence_s", None), daemon, daemon_change, daemon_code,
                    budget_state)
     stamp = nnow.strftime("%Y-%m-%d %H:%M")
     print(f"watch pass {stamp} — {len(report)} active seat(s), {len(notes)} new flag(s)")
@@ -3699,6 +3772,24 @@ def cmd_selftest():
               "no liveness/context/approval cover and no signal that anything had stopped",
               hb is not None and hb["stale"] is False and hb["age_min"] == 0
               and hb["pid"] == os.getpid())
+        # ⚠ 7.112 THE CROSS-MODULE SEAM, AND IT IS THE RISKIEST THING IN THIS CHANGE. The cadence is
+        # now SECONDS, but `coord.watcher_heartbeat()` still judges staleness off the legacy
+        # minute-denominated `loop_min` — and coord.py is NOT this task's to edit. Had the writer
+        # simply dropped that field, coord's `isinstance(loop_min, int)` test would fail and staleness
+        # would silently become a FLAT 30 MINUTES for a 30-SECOND loop: a dead sensor unreported ~20x
+        # longer, with nothing to notice it. This row drives a REAL pass at a 30 s cadence and asserts
+        # what coord actually computes from it, because the two modules only meet on disk.
+        run_pass(ns(context_pct=90, cadence_s=30))
+        _hb30 = json.loads((base / "watch-heartbeat.json").read_text(encoding="utf-8"))
+        _rd30 = coord.watcher_heartbeat(base)
+        check("⚠ 7.112 the heartbeat a 30 s loop writes is READABLE BY coord.py's UNCHANGED reader: "
+              "it carries loop_seconds=30 AND a ceiled loop_min=1, so coord derives a 3-MINUTE "
+              "staleness deadline. Dropping loop_min would have silently handed a 30-second loop the "
+              "flat 30-MINUTE fallback — the weaker-sensor-nobody-notices defect (G-42) arriving "
+              "through a data field instead of an argv",
+              _hb30.get("loop_seconds") == 30 and _hb30.get("loop_min") == 1
+              and _rd30 is not None and _rd30["stale_after"] == 3)
+
         coord.atomic_write(base / "watch-heartbeat.json", json.dumps(
             {"last_pass": "2000-01-01T00:00:00", "loop_min": 10, "pid": 1}))
         hb = coord.watcher_heartbeat(base)
@@ -3760,8 +3851,12 @@ def cmd_selftest():
         rbase = rpkg / "coordination"
         rbase.mkdir(parents=True)
         rstate, rnotes = {}, []
+        # `cadence_s=30` is the RULED cadence (`r-watch-loop-30s`), and it is here because the
+        # revival report line now DERIVES its latency from the cadence in force instead of carrying a
+        # literal. Without it these rows would run as a one-shot pass and the latency assertion in
+        # (7) below could only ever see "n/a (one-shot)" — green, and blind to the derivation.
         rargs = argparse.Namespace(package=str(rpkg), base=None, workers_dir=None,
-                                   notify_to="leader", notify_fallback="leader")
+                                   notify_to="leader", notify_fallback="leader", cadence_s=30)
 
         # ⚠⚠ NO TMUX ANYWHERE IN THIS SUITE — the bar the s4-05 block declared, re-declared by
         # s4-06 and now LOAD-BEARING rather than incidental: s4-06 gave `check_revival` a FIRE, and
@@ -3941,7 +4036,7 @@ def cmd_selftest():
         check("s4-03 (7): one tick on a fresh candidate counts, and does NOT classify CRASHED — "
               "firing on a single tick would make one transient sensor error a relaunch",
               gt() == 1 and "CRASHED — " not in " ".join(l1)
-              and "1/2" in " ".join(l1) and "20 min" in " ".join(l1))
+              and "1/2" in " ".join(l1) and "60s" in " ".join(l1))
         l2, _ = rev(rsnap(absent=[gone()]))
         check("s4-03 (7): the second consecutive non-stale tick classifies CRASHED",
               gt() == 2 and "CRASHED — " in " ".join(l2))
@@ -5808,7 +5903,10 @@ def cmd_selftest():
         rcrun = rcgoal / "runs" / "run-7"
         rcrun.mkdir(parents=True)
         rccsv = rcgoal / "runs.csv"
-        rcargs = argparse.Namespace(loop=1)
+        # `cadence_s`, not `loop`: task 7.112 retired the minute-denominated flag, and this fixture
+        # is a CALLER of `watch_loop`, so it moves with the signature. It carried `loop=1` — the
+        # interim 60 s overshoot — which no longer means anything to the loop.
+        rcargs = argparse.Namespace(cadence_s=30)
 
         def _rcturns(payload, root=rcrun, limit=3):
             """(stopped_by_the_guard, turns_taken, printed) for one runs.csv payload.
@@ -5886,6 +5984,143 @@ def cmd_selftest():
               "a walk that resolved the wrong directory would stop this loop on a STRANGER's state",
               _rcturns(_CLOSED, root=rcgoal / "notruns" / "run-7")[:2] == (False, 3))
 
+    # ---------- 7.112: the ruled ≤30 s cadence — the flag REFUSES, and the loop SLEEPS SECONDS ----
+    #
+    # ⚠ WHAT THESE ROWS EXIST TO CATCH is not "is 30 expressible" but the SILENT MIGRATION. The old
+    # `--loop` was int MINUTES sleeping `loop * 60`; the two obvious fixes both fail without a sound,
+    # in OPPOSITE directions (redefine to seconds → surviving `--loop 10` callers mean 10 s, inside
+    # the ceiling so nothing alarms; keep minutes + add a flag → those callers keep the superseded
+    # 10-minute cadence). So the assertions below are on the REFUSAL and on the ACTUAL SLEEP ARGUMENT,
+    # never on the parser's declared metavar — a metavar is a claim about intent, and intent is
+    # exactly what was wrong.
+    with tempfile.TemporaryDirectory() as td:
+        cpkg = Path(td) / "cadence-pkg"
+        cpkg.mkdir()
+
+        class _CadStop(Exception):
+            """Raised BY THE FIXTURE to escape the loop after one sleep — never by watch_loop."""
+
+        def _raised(fn, *a):
+            """The exception `fn(*a)` raised, or None. Absence of a raise is a real result here."""
+            try:
+                fn(*a)
+            except Exception as exc:
+                return exc
+            return None
+
+        # (1) THE RETIRED FLAG REFUSES, THROUGH main() — the real wiring, not a re-implementation.
+        def _main_with(argv):
+            """(exit code or None, stderr) for a real main() invocation."""
+            real_argv, err = sys.argv, io.StringIO()
+            sys.argv = ["watch.py"] + argv
+            try:
+                with contextlib.redirect_stderr(err):
+                    main()
+                return None, err.getvalue()
+            except SystemExit as exc:
+                return exc.code, err.getvalue()
+            finally:
+                sys.argv = real_argv
+
+        _code, _err = _main_with(["--loop", "10", "--package", str(cpkg)])
+        check("⚠ 7.112 (1) THE CRITERION ITSELF — the minute-denominated --loop is RETIRED and "
+              "REFUSES: it exits NON-ZERO and NAMES its replacement. Reinterpreting it would be "
+              "silent in both directions — `--loop 10` never said whether it meant 10 minutes (the "
+              "superseded cadence) or 10 seconds (inside the ceiling, so no alarm fires)",
+              _code not in (None, 0) and "RETIRED" in _err and "--loop-forever" in _err
+              and "--cadence-s" in _err)
+        # ORDERING, PROVED BY WHICH ERROR WINS. `--loop 10` with NO --package would fail either way,
+        # so the exit code proves nothing here and the MESSAGE is the whole assertion: the retirement
+        # must beat main()'s own "--package is required", which sits immediately after it. That is
+        # what makes this a STARTUP refusal rather than a late one.
+        #
+        # ⚠ NOT WRITTEN AS `--loop 10 --selftest`, WHICH IS WHERE THIS ROW STARTED: with the guard
+        # mutated away that argv re-enters cmd_selftest FROM INSIDE cmd_selftest and the suite HANGS
+        # instead of failing. A check that hangs under mutation cannot be proven red — it reports
+        # nothing at all — so the fixture had to stop calling the thing it runs inside.
+        _ncode, _nerr = _main_with(["--loop", "10"])
+        check("7.112 (1) the refusal fires BEFORE any other startup work — with --loop present it "
+              "wins over main()'s own --package requirement, so a caller can never get as far as a "
+              "pass and learn afterwards that its cadence was ignored",
+              _ncode not in (None, 0) and "RETIRED" in _nerr and "--package is required" not in _nerr)
+
+        # (2) ≤30 s IS EXPRESSIBLE AND IS WHAT THE LOOP ACTUALLY SLEEPS.
+        _slept = []
+
+        def _record_sleep(seconds):
+            _slept.append(seconds)
+            raise _CadStop
+
+        try:
+            watch_loop(argparse.Namespace(cadence_s=30), Path(td) / "no-such-run",
+                       do_pass=lambda _a: None, sleep_fn=_record_sleep)
+        except _CadStop:
+            pass
+        check("⚠ 7.112 (4) THE CRITERION ITSELF — 30 SECONDS IS WHAT THE LOOP SLEEPS, exactly, with "
+              "no unit arithmetic on the way: asserted on the ARGUMENT sleep actually received, not "
+              "on the flag's metavar. Under the old `args.loop * 60` this value slept 30 MINUTES and "
+              "no value of the flag could express 30 s at all",
+              _slept == [30])
+
+        # (3) THE DEFAULT COMES FROM budget.json, DRIVEN OFF A REAL FILE ON DISK — not from
+        # hand-built inputs, which would test the arithmetic and skip the resolution.
+        (cpkg / "budget.json").write_text(json.dumps(
+            {"cadence": {"watch_loop_max_seconds": 30}}), encoding="utf-8")
+        _v, _why = budget_mod.cadence_source(cpkg, None)
+        check("⚠ 7.112 (3) the cadence DEFAULT is READ from the run's budget.json "
+              "(r-bar-home-is-the-run-budget-json, p-cadence-home-and-catalog-root ASK 2) and the "
+              "loop SAYS which value it used and why — a consumer that resolves correctly and prints "
+              "nothing fails budget.py's own acceptance",
+              _v == 30 and "budget.json" in _why and "watch_loop_max_seconds" in _why)
+        # ⚠ BOTH UNDECLARED BRANCHES, AND THE SECOND ONE IS WHY THIS ROW WAS REWRITTEN. It first
+        # asserted only the NO-FILE case, and a mutation that made the missing-FIELD branch return a
+        # fallback `30` LEFT IT GREEN — the check could not reach the line it was meant to guard.
+        # The missing-field case is also the realistic one: a package can easily carry a budget.json
+        # with floors and no cadence section. A control that exercises one of two branches is a
+        # control over the branch nobody was worried about.
+        _nofield = Path(td) / "budget-without-cadence"
+        _nofield.mkdir()
+        (_nofield / "budget.json").write_text(json.dumps(
+            {"floors": {"pressure_warn_mb": 2000}}), encoding="utf-8")
+        _badval = Path(td) / "budget-bad-cadence"
+        _badval.mkdir()
+        (_badval / "budget.json").write_text(json.dumps(
+            {"cadence": {"watch_loop_max_seconds": 0}}), encoding="utf-8")
+        check("⚠ 7.112 (3) CONTROL — with NO declaration the resolution RAISES rather than choosing a "
+              "number, in BOTH undeclared shapes: no budget.json at all, AND a budget.json that "
+              "declares other things but no cadence. A default here would be a literal, a literal is "
+              "a home, and a second home for a policy number is the defect r-floor-single-source "
+              "exists to prevent",
+              isinstance(_raised(budget_mod.cadence_source, Path(td), None),
+                         budget_mod.CadenceUndeclared)
+              and isinstance(_raised(budget_mod.cadence_source, _nofield, None),
+                             budget_mod.CadenceUndeclared))
+        check("7.112 (3) CONTROL — a cadence that is declared but NOT a positive integer is UNREADABLE "
+              "and loud, never silently treated as absent: failing to read a declaration and having "
+              "none are different facts, and collapsing them is how a wrong path once looked exactly "
+              "like a package with no budget",
+              isinstance(_raised(budget_mod.cadence_source, _badval, None),
+                         budget_mod.CadenceUnreadable))
+        _vo, _whyo = budget_mod.cadence_source(cpkg, 60)
+        check("⚠ 7.112 an override ABOVE the declared ceiling is announced as a BREACH, not as a "
+              "disagreement — a cadence is a MAXIMUM, so larger is the one direction that violates "
+              "the ruling. This is r-watch-loop-30s's own interim 60 s overshoot: disclosed loudly, "
+              "never silently clamped and never silently obeyed",
+              _vo == 60 and "BREACH" in _whyo.upper() and "30" in _whyo)
+
+        # (4) THE HEARTBEAT'S LEGACY MINUTE FIELD SURVIVES, ROUNDED UP. This guards coord.py's two
+        # readers, which this task does NOT hold: with `loop_min` absent or non-int BOTH fall through
+        # to a flat 30-MINUTE staleness and `coordinate workers` prints a live loop as "one-shot".
+        check("⚠ 7.112 the heartbeat still carries loop_min for coord.py's two readers, CEILED to "
+              "whole minutes and never below 1 — a 30 s cadence must not round to 0 and re-enter the "
+              "falsy-zero fallback this exists to avoid",
+              _loop_min_compat(30) == 1 and _loop_min_compat(60) == 1
+              and _loop_min_compat(90) == 2 and _loop_min_compat(600) == 10)
+        check("7.112 loop_min is None exactly when there is no cadence — a one-shot pass reports no "
+              "interval rather than a fabricated one",
+              _loop_min_compat(None) is None and _loop_min_compat(0) is None
+              and _loop_min_compat(True) is None)
+
     coord.RUNS_INDEX = real_runs_index
     try:
         real_runs_after = real_runs_index.read_bytes()
@@ -5902,7 +6137,7 @@ def cmd_selftest():
 
 
 def watch_loop(args, run_root, do_pass=None, sleep_fn=None):
-    """The `--loop` body — and the ONE place this loop decides whether to take another turn.
+    """The `--loop-forever` body — and the ONE place this loop decides whether to take another turn.
 
     EXTRACTED FROM main() SO A CHECK CAN DRIVE IT, and that is the whole reason it is a function:
     the criterion is that THE LOOP exits on a closed run, and a check on run_closed() alone would
@@ -5919,7 +6154,12 @@ def watch_loop(args, run_root, do_pass=None, sleep_fn=None):
             print(RUN_CLOSED_LINE, flush=True)
             return 0
         do_pass(args)
-        sleep_fn(args.loop * 60)
+        # SECONDS, AS RESOLVED. No `* 60` and no unit arithmetic anywhere on this path: the flag
+        # carries its unit in its name, `budget.json` declares the same unit, and the one conversion
+        # that survives (to the heartbeat's minute-denominated field) happens at that field's writer
+        # where its lossiness is visible. A cadence multiplied in the sleep call is how 30 s became
+        # unreachable in the first place.
+        sleep_fn(args.cadence_s)
 
 
 def main():
@@ -5950,10 +6190,49 @@ def main():
                         "diverted to --notify-fallback: a seat cannot be told to act on itself")
     p.add_argument("--notify-fallback", metavar="SEAT", default="leader",
                    help="seat that receives flags ABOUT --notify-to (default leader)")
-    p.add_argument("--loop", type=int, metavar="MIN", help="repeat forever every MIN minutes (the watcher seat's mode)")
+    # ⚠ RETIRED, AND REGISTERED SO IT CAN REFUSE — task 7.112, ruling `r-watch-loop-30s`.
+    #
+    # NO `type=` AND NO `metavar`, DELIBERATELY: this flag must reach the refusal below whatever was
+    # passed to it. With `type=int` a stale `--loop abc` would die on a type error instead of the
+    # retirement message, and the caller would never learn what replaced it.
+    #
+    # WHY A REFUSAL AND NOT A REINTERPRETATION. `--loop` was int MINUTES sleeping `loop * 60`, so the
+    # ruled 30 s was unreachable at any value. Both silent migrations fail, in OPPOSITE directions:
+    # redefine `--loop` to seconds and the surviving `--loop 10` callers mean 10 s — INSIDE the
+    # ceiling, so no policy alarm fires while the sensor's real load triples unrecorded; keep minutes
+    # beside a new sub-minute flag and those same callers keep the SUPERSEDED 10-minute cadence
+    # exactly where the self-heal path runs. A refusal converts an invisible wrong cadence into a
+    # loud startup failure, which is the only one of the three a human finds out about.
+    p.add_argument("--loop", default=None,
+                   help="RETIRED (r-watch-loop-30s). Use --loop-forever, and --cadence-s to "
+                        "override the interval. Passing this REFUSES rather than guessing which "
+                        "unit you meant")
+    # THE MODE SWITCH CARRIES NO NUMBER, and that is the point: `spawn-profiles.yaml` reproduces the
+    # sensor's invocation, and an argv holding a cadence value is a second home that drifts silently
+    # because nothing consumes it (that file's own G-42 argument, made for the floor). A recovery
+    # path that holds no number cannot resurrect a weaker sensor than the one that died.
+    p.add_argument("--loop-forever", action="store_true",
+                   help="repeat forever at the run's declared cadence (the watcher seat's mode)")
+    p.add_argument("--cadence-s", type=int, metavar="SEC", default=None,
+                   help="DELIBERATE OPERATOR OVERRIDE of the loop interval, in SECONDS. Default: "
+                        "the run's budget.json cadence.watch_loop_max_seconds "
+                        "(r-bar-home-is-the-run-budget-json). The loop reports which value it used "
+                        "and why")
     p.add_argument("--claude-projects-dir", help="override ~/.claude/projects (testing only)")
     p.add_argument("--selftest", action="store_true")
     args = p.parse_args()
+    # ⚠ FIRST, BEFORE --selftest AND BEFORE ANY WORK. A retired policy flag must refuse at STARTUP:
+    # a caller that gets a pass done and only later learns its cadence was ignored has already been
+    # told the room is watched at a rate nobody agreed to.
+    if args.loop is not None:
+        p.error("--loop is RETIRED (owner ruling r-watch-loop-30s, 2026-07-30): it was integer "
+                "MINUTES and the ruled cadence is 30 SECONDS MAXIMUM, which no value of it could "
+                "express. It is REFUSED rather than reinterpreted, because `--loop 10` does not say "
+                "whether you meant 10 minutes (the superseded cadence) or 10 seconds, and guessing "
+                "either way is silent.\n"
+                "  Replace it with:  --loop-forever            (loop at the run's declared cadence)\n"
+                "                    --loop-forever --cadence-s SEC   (deliberate operator override)\n"
+                "  The cadence's one home is the run's budget.json cadence.watch_loop_max_seconds.")
     if args.selftest:
         cmd_selftest()
         return
@@ -5983,7 +6262,24 @@ def main():
               "deliberately." % exc, file=sys.stderr)
         sys.exit(2)
     print("watch: floor %s" % floor_why, file=sys.stderr)
-    if args.loop:
+    if args.loop_forever:
+        # ⚠ RESOLVED ONLY ON THE LOOPING PATH, and the asymmetry with the floor above is deliberate.
+        # A ONE-SHOT pass has no interval to be wrong about, so making an absent cadence fatal there
+        # would brick every package without a budget.json for a number that pass never uses. A LOOP
+        # cannot choose its own interval without becoming that interval's second home, so for the
+        # loop an absent declaration IS fatal — same shape as the floor, different trigger.
+        try:
+            args.cadence_s, cadence_why = budget_mod.cadence_source(run_root, args.cadence_s)
+        except (budget_mod.CadenceUndeclared, budget_mod.CadenceUnreadable) as exc:
+            print("watch: REFUSING TO LOOP — %s\n"
+                  "  The cadence's one home is the run's budget.json "
+                  "(r-bar-home-is-the-run-budget-json, p-cadence-home-and-catalog-root ASK 2). This "
+                  "loop will not invent an interval: a sensor running at a made-up cadence reports "
+                  "staleness and latency against a rate nobody ruled.\n"
+                  "  Declare cadence.watch_loop_max_seconds there, or pass --cadence-s to override "
+                  "deliberately." % exc, file=sys.stderr)
+            sys.exit(2)
+        print("watch: cadence %s" % cadence_why, file=sys.stderr)
         # G-297: `run_root` is already resolved above for the floor read, and it IS the run package
         # — so the run-closed guard costs no second derivation of it (PRIN-11).
         watch_loop(args, run_root)

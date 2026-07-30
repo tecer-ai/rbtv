@@ -406,8 +406,8 @@ tools:
   # ── task 7.72 (issues.md G-2) — watch-heartbeat freshness + relaunch ──────
   # LIVE target: the run's only sensor. A heartbeat is TWO facts — the timestamp AND that
   # its stated pid is a live watch.py (p-heartbeat-is-two-facts). Tolerance 3 matches
-  # coord.watcher_heartbeat()'s loop_min x 3, so the job and `coordinate workers` never
-  # disagree about the same file. Refuses to double-start.
+  # coord.watcher_heartbeat()'s three-missed-passes judgement, so the job and `coordinate workers`
+  # never disagree about the same file. Refuses to double-start.
   selfheal-watch:
     argv:
       - /usr/bin/python3
@@ -416,9 +416,13 @@ tools:
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1
       - --watch-py
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/watch.py
-      - --loop
-      - "10"
       - --notify
+      # ⚠ THIS ENTRY DELIBERATELY NAMES NO CADENCE VALUE — task 7.112, ruling `r-watch-loop-30s`.
+      # It used to pass `--loop "10"`, and that is the FLOOR'S LESSON ONE FIELD OVER: a number in an
+      # argv is a HOME IN WAITING. The cadence's normative home is the run's budget.json
+      # (`cadence.watch_loop_max_seconds`); `selfheal-watch.py` now relaunches with a valueless
+      # `--loop-forever` and `watch.py` reads the declaration. A recovery path holding no number
+      # cannot resurrect a sensor at a cadence nobody ruled.
       # The relaunch must reproduce the sensor's OWN invocation, whatever that invocation is:
       # a self-heal that silently dropped a flag would resurrect a WEAKER sensor than the one
       # that died, and the run would never notice the downgrade (G-42).
@@ -438,12 +442,13 @@ tools:
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1/seats/jobs-builder/throwaway/pkg-watch
       - --watch-py
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/watch.py
-      - --loop
-      - "10"
       # The SAME passthrough as the live entry, and it is not cosmetic: the relaunch path is
       # only ever exercised by this twin (the live entry no-ops while the sensor is healthy),
       # so without these the staged-failure probe would run an argv that does not contain the
       # thing being proved. Integrator's catch, #303.
+      # ⚠ SO THE CADENCE ARGV LEFT THIS ENTRY IN THE SAME ACT AS THE LIVE ONE (task 7.112). By the
+      # argument directly above, moving only one would have left the probe proving an argv nobody
+      # runs — the twin must keep matching the live entry, including in what it no longer carries.
       - --budget-s
       - "120"
 
