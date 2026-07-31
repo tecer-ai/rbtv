@@ -1285,6 +1285,15 @@ def check_budget(base, notes, prev_hb, snap, snap_err):
 REVIVAL_DEBOUNCE_TICKS = 2      # consecutive NON-STALE ticks a candidate must hold before CRASHED
 REVIVAL_STALE_NOTE_TICKS = 3    # consecutive stale ticks before the sensor outage is flagged once
 
+# 7.164: consecutive passes a roster-ACTIVE row must show NO harness process before the GHOSTROW
+# flag fires. DERIVED FROM `REVIVAL_DEBOUNCE_TICKS`, not written as a second `2`, and that is the
+# whole point of the line: the two arms watch the SAME fact — a roster row with nothing behind it —
+# from opposite sides (this one from inside the pane's process table, the revival arm from the
+# roster's absence). Two independently-tuned numbers for one physical condition is a second
+# debounce convention, which the row that added this was told not to introduce. Anyone who wants
+# them to differ changes THIS line and says why; the default is that they cannot drift apart.
+GHOSTROW_DEBOUNCE_TICKS = REVIVAL_DEBOUNCE_TICKS
+
 # Report-line literals. Kept as constants because the acceptance controls (task s4-03 § Acceptance
 # 4, 6, 8, 9) grep for the EXACT strings — a reworded line is a silently-failing control.
 REVIVAL_ROOM_DEAD_LINE = "REVIVAL n/a — room dead; recovery is jobs/recover-room.py (task 7.71)"
@@ -3015,17 +3024,82 @@ def run_pass(args):
             if st.get("pane") != pane:
                 st = {"pane": pane}
             if verifiable and not hp:
-                report.append(f"{agent:<18} GHOSTROW pane {pane} has no harness process")
-                if not st.get("notified_ghostrow"):
-                    notes.append(Flag(agent,
-                        f"watch: '{agent}' is ACTIVE in the roster but pane {pane} runs NO "
-                        f"harness process — the row claims a seat that is not there. Its work is "
-                        f"stopped and every wake sent to it is typed into a bare shell. Inspect "
-                        f"(tmux capture-pane -p -t {pane}), then either relaunch or close it: "
-                        f"{coord.coord_invocation(args)} close-seat {agent} --renew"))
-                    st["notified_ghostrow"] = True
+                # ---- 7.164 (a) THE DEBOUNCE, and it MIRRORS the revival arm rather than
+                # ---- inventing a second convention: a counter in the seat's own state, reset by
+                # ---- the healthy observation, threshold DERIVED from REVIVAL_DEBOUNCE_TICKS.
+                # One sample was enough to fire this flag while its sibling arm — watching the same
+                # physical fact from the roster side — required two. A harness that is mid-restart,
+                # a pane read during a relaunch's startup window, and a genuinely dead seat are
+                # indistinguishable in ONE sample; on 2026-07-30 03:34 the loop flagged the owner's
+                # `master` door off exactly such a window. The counter says nothing new about the
+                # seat — it says the observation held.
+                gt = int(st.get("ghost_ticks", 0)) + 1
+                st["ghost_ticks"] = gt
+                if gt < GHOSTROW_DEBOUNCE_TICKS:
+                    # Printed EVERY pass, like the revival arm's pending line: a condition being
+                    # debounced must never be a condition gone quiet, or the debounce reads as a
+                    # mute to anyone watching the report.
+                    report.append(f"{agent:<18} GHOSTROW pending — {gt}/{GHOSTROW_DEBOUNCE_TICKS} "
+                                  f"consecutive passes with no harness process on pane {pane} "
+                                  f"(~{_ticks_minutes(GHOSTROW_DEBOUNCE_TICKS, args)} worst case "
+                                  f"at this loop's cadence)")
+                else:
+                    report.append(f"{agent:<18} GHOSTROW pane {pane} has no harness process "
+                                  f"({gt} consecutive passes)")
+                    if not st.get("notified_ghostrow"):
+                        # ---- 7.164 (b) THE OWNER-DOOR EXEMPTION, scoped to the REMEDY ----
+                        #
+                        # ⚠ MEASURED. The same 2026-07-30 event produced a GHOSTROW flag naming
+                        # `close-seat master --renew` at the owner's door. A PARKED DOOR MATCHES
+                        # THIS SHAPE BY DESIGN — `r-owner-afk-liaison-parked` has the door's pane
+                        # deliberately SURVIVE its session, so a door between sessions is
+                        # byte-identical to a ghost row under the only observation this loop makes.
+                        #
+                        # ⚠ THE FLAG IS NOT SUPPRESSED — the same reasoning G-176 states at the
+                        # inactivity arm: a door in trouble and a door waiting are indistinguishable
+                        # from outside, and suppressing here would make the re-mute this fix's own
+                        # failure mode. What changes is the REMEDY, and only for the door.
+                        #
+                        # ⚠ DERIVED FROM `relays:`, NEVER FROM A PANE ID OR A SEAT NAME. `door_seats`
+                        # is the ONE resolution the reap exemption and the revival door gate already
+                        # use. A rule naming `%40` or `master` protects a dead pane and one
+                        # campaign's vocabulary respectively — the standing bar says a live pane id
+                        # is resolved at the instant of use and never written into a standing rule.
+                        if agent in door_seats:
+                            notes.append(Flag(agent,
+                                f"watch: '{agent}' is ACTIVE in the roster but pane {pane} has run "
+                                f"NO harness process for {gt} consecutive passes — and it declares "
+                                f"`relays:`, so its pane is a DOOR to a human role, not a worker's "
+                                f"seat. ⚠ A PARKED DOOR MATCHES THIS SHAPE BY DESIGN: the door's "
+                                f"pane deliberately outlives its session (r-owner-afk-liaison-parked), "
+                                f"so 'no harness behind it' is NOT by itself evidence of a fault — "
+                                f"and it is also NOT proof the door is fine. THEY LOOK IDENTICAL "
+                                f"FROM OUTSIDE. So LOOK, do not assume either way: "
+                                f"tmux capture-pane -p -t {pane}. ⚠ AND DO NOT close, reap or renew "
+                                f"this row — that is forbidden on a door, and it is how a run severs "
+                                f"the channel its human is reachable through. If the door should be "
+                                f"re-opened, that is done by relaunching in THAT SPOT and it is the "
+                                f"leader's judgment, never a mechanical response to this flag."))
+                        else:
+                            notes.append(Flag(agent,
+                                f"watch: '{agent}' is ACTIVE in the roster but pane {pane} has run "
+                                f"NO harness process for {gt} consecutive passes — the row claims a "
+                                f"seat that is not there. Its work is stopped and every wake sent to "
+                                f"it is typed into a bare shell. Inspect FIRST "
+                                f"(tmux capture-pane -p -t {pane}), then either relaunch or close "
+                                f"it: {coord.coord_invocation(args)} close-seat {agent} --renew"))
+                        st["notified_ghostrow"] = True
             elif hp:
+                # A harness seen behind the row is the healthy observation, so it BOTH re-arms the
+                # notification and clears the debounce — an intermittent read must not accumulate
+                # across healthy passes into a fire.
                 st.pop("notified_ghostrow", None)
+                st.pop("ghost_ticks", None)
+            # ⚠ THE THIRD CASE IS DELIBERATE AND IS NEITHER BRANCH: an UNVERIFIABLE process table
+            # (`verifiable` false) FREEZES the counter — it neither counts nor resets. A reading
+            # that could not be taken is evidence in neither direction, the same asymmetry the
+            # revival arm applies to a stale snapshot. Resetting here would let a flapping /proc
+            # hold a genuinely dead seat below the threshold forever.
             state[agent] = st
 
     # Stage 4 §1 (s4-03), REPORT-ONLY: classify every roster-absent seat. A SNAPSHOT-LEVEL duty, so
@@ -3725,11 +3799,63 @@ def cmd_selftest():
         # The gap common to five defects in one night: nothing checked that a row claiming ACTIVE
         # still had a harness behind it. A closer checked itself in from a bare shell and was
         # believed; the watcher agent died twice with its row still reading ACTIVE.
+        import io as _io
+        import contextlib as _cl
+
+        def run_pass_capturing(a):
+            """(notes, printed report lines) — the report is PRINTED, not returned, and 7.164's
+            pending line lives only there. Same `run_pass`, stdout captured; never a second
+            implementation of the loop."""
+            buf = _io.StringIO()
+            with _cl.redirect_stdout(buf):
+                nts = run_pass(a)
+            return nts, [ln.strip() for ln in buf.getvalue().splitlines()]
+
+        # THE ARM'S OWN SOURCE, read from disk. F-164c is a claim about what the code CONTAINS
+        # (a literal pane id or a seat name), and no behavioural fixture can observe an absent
+        # literal — only reading the arm can.
+        def _ghostrow_arm_src(code_only=False):
+            whole = Path(__file__).read_text()
+            i = whole.index("7.164 (a) THE DEBOUNCE")
+            j = whole.index("Stage 4 §1 (s4-03), REPORT-ONLY", i)
+            arm = whole[i:j]
+            if not code_only:
+                return arm
+            # ⚠ COMMENTS ARE STRIPPED, AND THAT IS THE POINT. The claim below is about what the
+            # arm EXECUTES, not what it says: the arm's prose names the 2026-07-30 `master`
+            # incident on purpose, and a check that forbade the word would fail on correct code
+            # for citing its own evidence — the same false-red G-176 records one line down.
+            return "\n".join(ln.split("#", 1)[0] for ln in arm.splitlines())
+
+        def _derived_exemption(src):
+            """F-164c as ONE predicate, so its green row and its red row cannot drift apart."""
+            return ("%" not in src and "master" not in src and "door_seats" in src)
+
+        check("7.164 fixture guard: the arm slice actually isolates the ghostrow arm, and the "
+              "code-only view still carries the arm's logic — a slice that missed, or a strip "
+              "that ate the code, would make every absence check below vacuously green",
+              "notified_ghostrow" in _ghostrow_arm_src()
+              and "notified_ghostrow" in _ghostrow_arm_src(code_only=True)
+              and len(_ghostrow_arm_src()) < len(Path(__file__).read_text()) / 10)
+
         pane_harness["%1"] = []          # alpha's pane: shell only, no harness
+        notes, report_lines = run_pass_capturing(ns(context_pct=90))
+        # ---- 7.164 (1): THE DEBOUNCE, ASSERTED IN THE SUPPRESSING DIRECTION FIRST ----
+        # This row is the one that goes red if the debounce is deleted, and it is written before
+        # the firing row on purpose: a debounce is only ever proved by the tick that does NOT fire.
+        check("⚠ 7.164 (1) THE SUPPRESSING ARM: ONE sample does NOT fire GHOSTROW. Before this, a "
+              "single un-debounced read fired it — and on 2026-07-30 03:34 that read was taken "
+              "inside a relaunch's own startup window, at the owner's door",
+              not any("NO harness process" in n for n in notes))
+        check("7.164 (1b): the pending condition is REPORTED every pass while it debounces — a "
+              "condition being debounced must never be a condition gone quiet",
+              any(l.startswith("alpha") and "GHOSTROW pending" in l
+                  and f"1/{GHOSTROW_DEBOUNCE_TICKS}" in l for l in report_lines))
         notes = run_pass(ns(context_pct=90))
         check("PROP-11: a roster-ACTIVE row whose pane runs NO harness process is flagged "
               "GHOSTROW and the leader is told — the roster is the run's map of what is alive, "
-              "and until now nothing ever checked it against the process table",
+              "and until now nothing ever checked it against the process table. 7.164: it now "
+              "takes the SECOND consecutive pass, which is what makes the row above meaningful",
               any("alpha" in n and "NO harness process" in n for n in notes))
         check("PROP-11: the notification says what it costs (work stopped, wakes typed into a "
               "bare shell) and names the exact remedy — THIS FLAG notifies and never acts. Scoped "
@@ -3738,12 +3864,29 @@ def cmd_selftest():
               "and is what this row asserts, is that the GHOSTROW path takes no action itself",
               any("typed into a bare shell" in n and "close-seat alpha --renew" in n
                   for n in notes))
+        # Captured from a REAL firing, so the 7.164 door control below compares against an ordinary
+        # seat's ACTUAL ghostrow remedy rather than a re-derived expectation of one.
+        alpha_ghost = next((n for n in notes if "alpha" in n and "NO harness process" in n), "")
+        check("⚠ 7.164 (2) THE DEBOUNCE IS NOT A MUTE: a SUSTAINED condition does fire. F-164b is "
+              "the failure this row exists to catch — a debounce that never releases is worse "
+              "than none, because the loop then reports a dead seat as healthy",
+              bool(alpha_ghost))
         notes = run_pass(ns(context_pct=90))
         check("PROP-11: armed once per seat/pane, like every other flag",
               not any("NO harness process" in n for n in notes))
         pane_harness["%1"] = [4242]      # a harness came back up
         run_pass(ns(context_pct=90))
+        check("7.164 (3): a harness seen behind the row CLEARS the debounce counter as well as "
+              "re-arming the notification — otherwise intermittent reads accumulate across "
+              "HEALTHY passes into a fire, which is a debounce in name only",
+              "ghost_ticks" not in (load_state(base).get("alpha") or {}))
         pane_harness["%1"] = []
+        notes = run_pass(ns(context_pct=90))
+        check("⚠ 7.164 (3b) THE DISCRIMINATING ARM of the reset: the first pass after a healthy "
+              "one does NOT fire. Had the reset not happened, the pre-existing count would carry "
+              "over and this pass would fire — that is the only observation separating a cleared "
+              "counter from an uncleared one",
+              not any("NO harness process" in n for n in notes))
         notes = run_pass(ns(context_pct=90))
         check("PROP-11: re-arms once a harness is seen again, so a second death is reported",
               any("NO harness process" in n for n in notes))
@@ -3752,9 +3895,63 @@ def cmd_selftest():
         check("PROP-11: 'cannot tell' is NOT 'nothing running' — an unreadable process table "
               "raises nothing (fail-safe, same asymmetry as coord's checkin guard)",
               not any("NO harness process" in n for n in notes))
+        check("7.164 (4): an UNVERIFIABLE process table FREEZES the debounce counter — it neither "
+              "counts nor resets. A reading that could not be taken is evidence in neither "
+              "direction; resetting here would let a flapping /proc hold a dead seat below the "
+              "threshold forever",
+              (load_state(base).get("alpha") or {}).get("ghost_ticks") == GHOSTROW_DEBOUNCE_TICKS)
+
+        # ---- 7.164: THE OWNER-DOOR EXEMPTION — a DOOR IS NOT A GHOST ROW ----
+        # ⚠ MEASURED, NOT ARGUED. On 2026-07-30 this arm's flag named `close-seat master --renew`
+        # at the owner's door. A parked door matches the ghostrow shape BY DESIGN
+        # (r-owner-afk-liaison-parked has its pane outlive its session), so the flag proposed
+        # closing the one pane a standing ruling says is never reapable.
+        # The `door` seat is IDENTICAL to `alpha` in every respect but its `relays:` declaration —
+        # that declaration is the only thing permitted to change the outcome.
+        pane_harness["%3"] = []          # door's pane (checked in at %3 by the G-176 block above)
+        run_pass(ns(context_pct=90))     # tick 1 — debounce
+        notes = run_pass(ns(context_pct=90))
+        door_ghost = next((n for n in notes if "door" in n and "NO harness process" in n), "")
+        check("⚠ 7.164 (5) THE DOOR STILL FLAGS. Suppressing it would make the re-mute this fix's "
+              "own failure mode: a door in trouble and a parked door are indistinguishable from "
+              "outside, and the door is the last pane a run can afford to lose unreported",
+              bool(door_ghost))
+        check("⚠ 7.164 (5b) THE DOOR'S REMEDY HANDS THE READER NO CLOSE/RENEW INVOCATION — this "
+              "is F-164a, the exact false positive the row exists to remove. Asserts the ABSENT "
+              "COMMAND, not absent words: the text itself says 'DO NOT close, reap or renew', so "
+              "forbidding the vocabulary would fail on correct code",
+              bool(door_ghost) and "close-seat door" not in door_ghost
+              and "--renew" not in door_ghost)
+        check("7.164 (5c): the door's remedy says DOOR, tells the reader to LOOK first, and names "
+              "the ruling — and it does NOT reassure: it states that a parked door and a failing "
+              "door look identical, so the text can never talk a reader out of looking",
+              "DOOR" in door_ghost and "capture-pane" in door_ghost
+              and "r-owner-afk-liaison-parked" in door_ghost
+              and "LOOK IDENTICAL FROM OUTSIDE" in door_ghost.upper())
+        check("⚠ 7.164 (5d) THE CONTROL — the ORDINARY seat's ghostrow remedy is UNCHANGED and "
+              "still carries the close-seat --renew invocation. THE TWO ARMS MUST DIFFER: "
+              "suppressing the invocation on BOTH would pass a one-arm test and break the "
+              "detector for every worker in the run",
+              "--renew" in alpha_ghost and "DOOR" not in alpha_ghost
+              and alpha_ghost != door_ghost)
+        check("⚠ 7.164 (5e) THE EXEMPTION IS DERIVED, NOT A LITERAL — F-164c. It keys on the "
+              "`relays:` declaration through `door_seats`, the same resolution the reap exemption "
+              "and the revival door gate use. No pane id and no seat name appears in the arm: a "
+              "rule naming a live id protects a DEAD pane, and a name list encodes one campaign's "
+              "vocabulary into a kit every run shares. Asserted over the arm's EXECUTABLE lines "
+              "only — the arm's prose cites the `master` incident that produced this row, and "
+              "forbidding the word would fail on correct code for naming its own evidence",
+              _derived_exemption(_ghostrow_arm_src(code_only=True)))
+        check("⚠ 7.164 (5f) RED ARM for the row above — THE SAME PREDICATE over the SAME arm with "
+              "a literal pane id and a seat name inserted goes FALSE, so (5e) is a check and not "
+              "a decoration: it is the row that catches the next person who hardcodes one",
+              not _derived_exemption(_ghostrow_arm_src(code_only=True)
+                                     + '\nif agent == "master" or pane == "%40": pass\n'))
+        pane_harness.clear()
         coord.cmd_checkin(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
                                              agent="watcher", summary="w", pane="%3"))
         pane_harness["%3"] = []
+        run_pass(ns(context_pct=90))
         notes = run_pass(ns(context_pct=90))
         check("PROP-11: the WATCHER'S OWN row is reconciled too — this loop outlives the watcher "
               "agent, so it is the only thing positioned to report that death (the watcher named "
