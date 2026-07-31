@@ -563,11 +563,19 @@ def _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run):
     """THE ONLY PLACE AN ENQUEUE COMMAND IS BUILT IN THIS TREE.
 
     `check_single_enqueue_call_site` asserts by source inspection that the door's verb appears in
-    exactly this one function and nowhere else in the file. The seed rides in the args object,
-    which is where a launch-agent job reads its parameters from; `profile` is the one argument the
+    exactly this one function and nowhere else in the file. `profile` is the one argument the
     daemon REQUIRES of a launch-agent job, so it is a required parameter here rather than a
-    default this stage invents."""
-    args_obj = {"profile": profile, "seat": seat, "package": str(pkg), "seed": list(seed)}
+    default this stage invents.
+
+    THE ARGS OBJECT CARRIES EXACTLY THE TWO REGISTERED KEYS `{profile, workdir}` (M4-38). It once
+    carried `{profile, seat, package, seed}`; `seat`, `package` and `seed` are in no registered
+    `args_schema`, and the door refuses the object by NAME on the first of them (`E_BAD_ARGS`),
+    which masked a second refusal on a placeholder profile behind it. THE SEED NO LONGER RIDES IN
+    ARGV AND MUST NOT BE PUT BACK: a seat is driven by its DESCRIPTOR and by the room, never by
+    argv text, so predecessor-output addresses reach a seat through its own `seat.md`
+    (milestone-spine part iii). `seed` stays a parameter here and stays in the RESULT rows — it is
+    what the failure and exclusion arms report on — it simply is not submitted."""
+    args_obj = {"profile": profile, "workdir": str((Path(pkg) / "seats" / seat).resolve())}
     argv = [IGNITE_BIN, _ENQUEUE_VERB,
             "--fn", job_id,
             "--args-json", json.dumps(args_obj, sort_keys=True),
