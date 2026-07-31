@@ -251,8 +251,13 @@ FM_KEY = {
 
 
 def _fm_yes(fm, key):
+    # ⚠ The quotes are STRIPPED before the compare (r-checkout-selfclose C2, 2026-07-31): the
+    # materializer emits `ephemeral: 'yes'` — a YAML dumper MUST quote bare `yes` (it is a YAML
+    # boolean), so the quoted form is the NORMAL materialized shape, not an anomaly. Comparing
+    # the raw capture left every materialized `ephemeral: 'yes'` reading as False: 41 of run-3's
+    # 59 seats carried the flag and 0 parsed as ephemeral — the whole flag class was inert.
     m = FM_KEY[key].search(fm)
-    return bool(m) and m.group(1).lower() in ("yes", "true")
+    return bool(m) and m.group(1).strip("'\"").lower() in ("yes", "true")
 
 
 def _fm_mechanical_close(fm):
@@ -5852,6 +5857,28 @@ def cmd_checkin(args):
                 f"If you are deliberately running two sessions under this name, re-run with "
                 f"--force.",
                 1)
+        # G-leader-0731-0421 / r-checkout-selfclose (owner, 2026-07-31): the OTHER zombie shape.
+        # The name's PRIOR session checked out done, its pane still lives as awaiting-close debt,
+        # and this check-in's own later checkout would OVERWRITE that name-keyed debt record
+        # (`set_awaiting` is `data[seat] = ...`), orphaning the live pane where no instrument can
+        # reach it — `reap` then reports "pane already gone", true of the pane it names, false of
+        # the room. Run-3 measured three such orphans resident 14-23 h. Refuse until the debt pane
+        # is freed; --force is the same deliberate override as above.
+        debt = load_awaiting(base).get(args.agent) or {}
+        if debt.get("pane") and debt["pane"] != pane and debt["pane"] in live_panes():
+            refuse(
+                "state",
+                f"'{args.agent}' has an UNSETTLED awaiting-close debt on pane {debt['pane']}, "
+                f"and tmux says that pane is still ALIVE — checking in from "
+                f"{pane or 'no pane'} now would let this session's later checkout overwrite the "
+                f"name-keyed debt record and orphan that pane where reap can no longer see it "
+                f"(G-leader-0731-0421).\n"
+                f"Free it first: leader runs `{coord_invocation(args)} close-seat {args.agent}` "
+                f"(or `{coord_invocation(args)} reap --go` once due) — or inspect and kill BY "
+                f"PANE ID: `tmux capture-pane -p -t {debt['pane']}`, then "
+                f"`tmux kill-pane -t {debt['pane']}`. Then check in again.\n"
+                f"Deliberately checking in over the live debt anyway: --force.",
+                1)
     # G-11: a row goes ACTIVE only when a harness process is actually running in its pane. The
     # closer whose multi-line prompt was executed by the pane's SHELL checked itself in from bash
     # — a real row, an honest-looking summary, and nothing running behind it; its "completion"
@@ -6044,14 +6071,35 @@ def append_handoff(base, memory_path, block):
     A silent half-write loses the ONE artifact the successor is promised, at the exact moment the
     seat believes it handed over. So the file is RE-READ and the composed bytes must be found in it.
 
-    ⚠ APPEND-ONLY IN THE STRICT SENSE: the prior bytes are never rewritten, reordered, stripped or
-    normalized — the separator is only ever ADDED. Enough newline goes in to leave exactly one blank
-    line before the block and to guarantee no line is joined; a file that ALREADY ends in a blank
-    line gets nothing, because removing a trailing newline to tidy it would itself be a rewrite.
+    ⚠ APPEND-ONLY FOR EVERYTHING THAT IS NOT A CONSUMED HANDOFF. The file's own body — every byte
+    outside this writer's delimited blocks — is never rewritten, reordered, stripped or
+    normalized, and an UNREAD (`unread=yes`) block is NEVER touched: re-delivery beats loss, and
+    s12-08's flip is the only thing that may move that cursor. What IS consumed here, per
+    `r-seat-file-contract` / protocol item 9's "keep ONLY the latest CLI-appended block": every
+    COMPLETE prior block already DELIVERED (`unread=no`) is spliced out at its own indices before
+    the new block goes in. The successor was handed that block at its check-in and had a whole
+    session to fold what still lives into the body; stacking it further is the append-only-log
+    shape the owner ruled out (r-checkout-selfclose companion, 2026-07-31 — run-3 measured 133
+    delivered blocks / 214 KB stacked on one seat). The separator discipline for the append half
+    is unchanged: enough newline to leave exactly one blank line before the block, and nothing
+    removed to tidy a tail.
     """
     try:
         with coord_lock(base):
             prior = memory_path.read_text(encoding="utf-8") if memory_path.exists() else ""
+            pruned = 0
+            if prior:
+                _closer = f"<!-- /{HANDOFF_TOKEN} {HANDOFF_V} -->"
+                for _b in reversed([x for x in handoff_blocks(prior)
+                                    if x["attrs"].get("unread") == "no"]):
+                    _end = prior.find(_closer, _b["head_end"])
+                    if _end < 0:
+                        continue
+                    _end += len(_closer)
+                    if prior[_end:_end + 1] == "\n":
+                        _end += 1
+                    prior = prior[:_b["head_start"]] + prior[_end:]
+                    pruned += 1
             if not prior or prior.endswith("\n\n"):
                 sep = ""
             elif prior.endswith("\n"):
@@ -6072,6 +6120,9 @@ def append_handoff(base, memory_path, block):
     if landed.rfind(f"<!-- /{HANDOFF_TOKEN}") < landed.rfind(f"<!-- {HANDOFF_TOKEN}"):
         return False, ("the block on disk is TRUNCATED — the file's last handoff delimiter is an "
                        "OPENING one, so the append stopped part-way through")
+    if pruned:
+        print(f"consumed {pruned} delivered handoff block(s) — memory.md keeps only the latest "
+              f"(protocol item 9)")
     return True, ""
 
 # ---- the check-in handoff DELIVERY (s12-08) -----------------------------------------------
@@ -6233,7 +6284,9 @@ def deliver_handoff(args, base, seat):
     print(f"handoff waiting — written by the previous session of this seat at "
           f"{handoff_stamp_human(block['attrs'].get('stamped', ''))}:")
     print(block["body"])
-    print(f"(marked read now; it stays in {memory_path})")
+    print(f"(marked read now; it stays in {memory_path} until your own renewal appends the next "
+          f"handoff, which CONSUMES this one — the file is yours to keep in contract shape: "
+          f"rewritten in place, ≤2 screens, never a log)")
     # ⚠ THE BROAD CATCH IS THE POINT, AND IT BELONGS HERE RATHER THAN AT THE CALLER. The block is
     # already on the seat's screen; anything this raises must land on the ONE loud branch below,
     # which says "you were shown it, it was NOT marked read". The caller's guard would report the
@@ -6501,6 +6554,35 @@ def cmd_checkout(args):
         # re-asserts the disposition itself rather than trusting this placement — a guard that
         # exists only as a call-site convention survives exactly until someone moves the call.
         edge_fastpath_on_checkout(base, me, checkout_disposition)
+        # r-checkout-selfclose (owner, 2026-07-31): an `ephemeral: yes` seat's DONE-checkout
+        # finishes the way `depart` finishes — after every bookkeeping act above, the CLI kills
+        # the seat's own pane, no agent in the path. Run-3 measured the alternative: `depart` was
+        # invoked 0 times in 94 launches, every finished seat left its pane as debt, and the reap
+        # pass (leader-gated, two-pass, 15-min floor) never drained it — 6 of 10 mapped panes sat
+        # finished-but-open, three of them 14-23 h. The debt record written above is settled by
+        # the same act that makes it moot — the exact G-134 discipline `cmd_depart` states.
+        # PERSISTENT seats (no `ephemeral: yes`) keep the leader-frees-the-pane path unchanged.
+        _seat_e = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == me), None)
+        if _seat_e is not None and _seat_e.get("ephemeral"):
+            clear_closing(base, me)
+            clear_awaiting(base, me)
+            _pane_e = (row or {}).get("pane") or detect_pane(None)
+            if _pane_e:
+                _idents_e = pane_harness_idents(_pane_e)
+                if _idents_e:
+                    print(f"arming the exit reaper for harness pid(s) "
+                          f"{', '.join(str(p) for p, _ in _idents_e)} — no ghost survives this "
+                          f"self-close (it fires only on an exact pid+starttime match, so a "
+                          f"recycled pid is safe)")
+                    arm_pid_reaper(_idents_e)
+                print(f"ephemeral seat, session DONE — killing own pane {_pane_e} (self-close at "
+                      f"checkout, r-checkout-selfclose: depart and done-checkout end the same "
+                      f"way for ephemeral seats). Goodbye.")
+                tmux_kill_pane(_pane_e)
+            else:
+                print("ephemeral seat, session DONE — no pane to kill (not inside tmux); any "
+                      "remnant is leader's close-seat")
+            return
         print(c(f"next: nothing on your side — this session is DONE and leader frees the pane "
                 f"(`{coord_invocation(args)} close-seat {me}`). Renewing a seat is the SEAT's own "
                 f"act now — `checkout --renew`, before you check out for good.", C_HINT))
@@ -9267,8 +9349,10 @@ def boot_prompt(w, args):
         # memory.md, or it would trust a file its close path never writes and that goes stale the
         # moment its external state moves. Long-lived, but boots fresh every session.
         if w["folder"] and not w["ephemeral"] and not w.get("mechanical_close"):
-            memory = (f" If {mem} exists, read it too — it is your memory from "
-                      f"prior sessions of this seat; trust it as your own notes.")
+            memory = (f" If {mem} exists, read it too — it is your PREDECESSOR'S HANDOFF for you "
+                      f"(protocol item 9); trust it as your own notes, and after reading it the "
+                      f"file is YOURS: a present-tense state doc you REWRITE in place at your own "
+                      f"renewal/close — resolved items deleted, ≤2 screens, never a log.")
         first = f"Read your briefing {w['briefing']} first.{memory}"
     return (
         f"You are agent '{w['agent']}' of the run package at {pkg}. "
@@ -15263,6 +15347,76 @@ def _selftest_checks(args, failures, names):
               "looking for its next step",
               "close gamma --renew" not in _h6_done_out and "checkout --renew" in _h6_done_out)
 
+        # ---- eph: r-checkout-selfclose + delivered-block consumption (owner, 2026-07-31) ----
+        # d-run3-lifecycle-memory-idle-fixes pins the two run-3-measured failure shapes: (1)
+        # `depart` invoked 0 times in 94 launches — every finished ephemeral seat left its pane as
+        # awaiting-close debt no reap pass drained; (2) delivered handoff blocks stacked without
+        # bound (133 on one seat, 214 KB). C1 proves consumption, C2 proves the self-close.
+        _eph_d = pkg / "workers" / "eph"
+        _eph_d.mkdir()
+        # ⚠ The flag is QUOTED on purpose — `ephemeral: 'yes'` is the shape the materializer
+        # actually emits (a YAML dumper must quote bare `yes`), and the un-stripped compare in
+        # `_fm_yes` read that shape as False for every one of run-3's 41 flagged seats. This
+        # fixture is the regression row for the quote-stripping fix: it goes red on any build
+        # that compares the raw capture again.
+        (_eph_d / "agent.md").write_text(
+            "---\nagent: eph\nmodel: haiku\nephemeral: 'yes'\n---\nbrief\n", encoding="utf-8")
+        _eph_read_blk = (_h6_open + "seat=eph session=s1 disposition=renew "
+                         "stamped=2026-07-30T08:00:00 unread=no -->\n"
+                         "## Handoff → next session of `eph` (2026-07-30 08:00)\n\n"
+                         "older, already delivered — consumed at the next append\n\n"
+                         + _h6_close + "\n")
+        _eph_keep_blk = (_h6_open + "seat=eph session=s2 disposition=renew "
+                         "stamped=2026-07-30T09:00:00 unread=yes -->\n"
+                         "## Handoff → next session of `eph` (2026-07-30 09:00)\n\n"
+                         "unread survivor, never this writer's to drop\n\n"
+                         + _h6_close + "\n")
+        run(cmd_checkin, agent="eph", summary="selfclose+consume fixture", pane="%79", force=True)
+        # The memory is authored AFTER the check-in, deliberately: a check-in DELIVERS the last
+        # unread block and flips it to `unread=no` (s12-08), so a fixture written before it would
+        # hand call 2 two DELIVERED blocks and the unread-survival clause would test nothing.
+        (_eph_d / "memory.md").write_text(
+            "# eph — seat memory\nbody the prune must not touch\n\n"
+            + _eph_read_blk + "\n" + _eph_keep_blk, encoding="utf-8")
+        _eph_out1, _eph_code1 = _h6("eph", "the one block a successor should find")
+        _eph_mem1 = (_eph_d / "memory.md").read_text(encoding="utf-8")
+        check("r-checkout-selfclose C1: append_handoff CONSUMES delivered blocks and ONLY them — "
+              "after call 2 the unread=no block is GONE, the unread=yes block and the non-block "
+              "body survive, the fresh block is present, and the output names the consumption "
+              "count. protocol item 9's 'keep ONLY the latest' is mechanical now, never a seat's "
+              "diligence — run-3 measured what diligence alone does",
+              _eph_code1 is None
+              and "older, already delivered" not in _eph_mem1
+              and "unread survivor, never this writer's to drop" in _eph_mem1
+              and "body the prune must not touch" in _eph_mem1
+              and "the one block a successor should find" in _eph_mem1
+              and "consumed 1 delivered handoff block" in _eph_out1)
+
+        _eph_kill_real = tmux_kill_pane
+        _eph_killed = []
+
+        def _eph_kill_stub(_p):
+            _eph_killed.append(_p)
+            return True, ""
+
+        tmux_kill_pane = _eph_kill_stub
+        run(cmd_checkin, agent="eph", summary="selfclose done fixture", pane="%79", force=True)
+        _eph_o2, _eph_e2, _eph_code2 = harness_outcome(
+            cmd_checkout, ns(agent="eph", renew=False, handoff=None, no_export=True))
+        tmux_kill_pane = _eph_kill_real
+        _eph_all2 = _eph_o2 + _eph_e2
+        check("r-checkout-selfclose C2: an `ephemeral: yes` seat's DONE checkout SELF-CLOSES — the "
+              "output kills the seat's own pane instead of teaching 'leader frees the pane', the "
+              "kill targets exactly the seat's roster pane, and the awaiting-close debt is CLEARED "
+              "by the same act (the G-134 discipline cmd_depart states: a departure settles what "
+              "it made moot). gamma's done checkout above (S2-d/S6-i) keeps the leader path — the "
+              "branch is the DESCRIPTOR's, never the verb's",
+              _eph_code2 is None
+              and "killing own pane %79" in _eph_all2
+              and _eph_killed == ["%79"]
+              and "leader frees the pane" not in _eph_all2
+              and load_awaiting(base_g).get("eph") is None)
+
         # ---- nu: the body guard (S6-c) and the self-verifying append (S6-d) ----
         run(cmd_checkin, agent="nu", summary="s12-06 token-body fixture", pane="%74", force=True)
         _h6_nu_path, _h6_nu_prior = _h6_mem["nu"]
@@ -19496,7 +19650,7 @@ def build_parser():
     s.add_argument("--renew", action="store_true",
                    help="this checkout opens the NEXT session of this seat, not its last — run it once to arm the renewal and be taught the second call, then again with --handoff")
     s.add_argument("--handoff", metavar="NOTE", default=None,
-                   help="what the next session of this seat must do, quoted — requires --renew; it is appended to your seat memory and printed to your successor at its check-in")
+                   help="what the next session of this seat must do, quoted — requires --renew; it becomes your seat memory's LATEST handoff block (already-delivered older blocks are consumed — protocol item 9) and is printed to your successor at its check-in")
     add_identity_flags(s)
     s.set_defaults(func=cmd_checkout)
 

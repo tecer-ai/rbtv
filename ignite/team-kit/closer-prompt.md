@@ -40,9 +40,12 @@ close the worker's seat and your own. {RENEW_NOTE}
    `--file <path>` — never inline. A message over 2,000 chars is refused: write the file, send
    its path plus a 3-line summary.
 
-6. **Write `{MEMORY}`.** Create it, or UPDATE it if it exists: overwrite the "Resume here" and
-   "Task state" sections, merge "Gotchas", and APPEND to "Session history" — never delete
-   existing history entries.
+6. **Write `{MEMORY}`.** REPLACE the file's entire content with the structure below — the memory
+   is a PRESENT-TENSE handoff, rewritten in place (`r-seat-file-contract`; team-kit `protocol.md`
+   item 9): resolved items are DELETED, never corrected-below, and nothing accumulates across
+   sessions. Target ≤ 2 screens (~120 lines). Fold what still LIVES from the prior content into
+   the sections below and drop the rest; narrative a future auditor genuinely needs goes as ONE
+   ≤30-line block in the run-level `handoff-log.md` (the append-only past), never here.
 
    ```markdown
    ---
@@ -64,10 +67,12 @@ close the worker's seat and your own. {RENEW_NOTE}
    <Rulings received, with message numbers from the log. Include pending asks not yet answered.>
 
    ## Gotchas and working notes
-   <Accumulated across sessions: traps hit, approaches abandoned and why, environment quirks.>
+   <STILL-LIVE only: traps and environment quirks that still bind the next session. Delete what
+   resolved — the run-level `handoff-log.md` holds the past.>
 
-   ## Session history
-   - <YYYY-MM-DD HH:MM> — <one line: what this session did, why it was closed>
+   ## Last session
+   - <YYYY-MM-DD HH:MM> — <one line: what this session did, why it was closed. REPLACES the
+     previous line; the run-level `handoff-log.md` is the append-only past.>
    ```
 
 7. **Close the worker's seat.**

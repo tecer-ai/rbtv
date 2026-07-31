@@ -123,8 +123,15 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    DIRECT to `leader` (`--type completion`; to `all` only when it carries a milestone or roster
    consequence — the broadcast `--why` gate enforces exactly that), then `checkout`. The transcript export is no longer yours to remember —
    `checkout` captures your pane's scrollback before flipping your row (`--no-export` is the
-   escape when the pane is already dead). A checkout carries a DISPOSITION. Done: plain `checkout`
-   — completion to `leader` first, then check out; no handoff. Renewal or context refresh:
+   escape when the pane is already dead). A checkout carries a DISPOSITION. **Ephemeral seats
+   (most seats): your DONE exit takes your pane with it — plain `checkout` on an `ephemeral: yes`
+   seat SELF-CLOSES after the bookkeeping (the CLI kills the seat's own pane; no leader, no
+   reaper in the normal path), and `depart` is the explicit one-command form of the same exit
+   (r-checkout-selfclose, owner 2026-07-31; measured in run-3: `depart` invoked 0 times in 94
+   launches, six finished panes left open, three of them 14-23 h —
+   `d-run3-lifecycle-memory-idle-fixes`).** Done for a PERSISTENT seat: plain `checkout` —
+   completion to `leader` first, then check out; no handoff; leader frees the pane. Renewal or
+   context refresh:
    `checkout --renew`, which teaches you the second step; you MUST supply `--handoff "<note>"`
    before the seat is renewed. The handoff is appended to your seat's `memory.md` and printed to
    your successor at its check-in. A `close: mechanical` seat is REFUSED on this self-service
@@ -137,9 +144,8 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    unreadable caller identity, or an unwritable marker/log. Each refusal exits 2 and says YOUR
    CHECKOUT STANDS: the handoff is written and the roster flipped, only the relaunch did not
    happen, and the printed remedy is leader's `close-seat <you> --renew` — never a closer.
-   Ephemeral seats use `depart` (export + checkout + killing
-   the seat's own pane, one command, no name — a seat can only depart itself). Leader checks out
-   only after all workers have.
+   (`depart` = export + checkout + killing the seat's own pane, one command, no name — a seat
+   can only depart itself.) Leader checks out only after all workers have.
 9. **Memory and the seat-folder write contract (persistent seats only).** This item is the ONE
    normative home of the seat-folder write contract — every other surface (run routers,
    `communication.md`, seat descriptors) CITES it and restates nothing.
@@ -148,7 +154,10 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
      must DO, open loops, live watch-items, standing instructions still in force. REWRITTEN IN
      PLACE at every renewal/close — resolved items are DELETED, never corrected-below; no sitting
      narrative, no sagas, no lesson essays. Keep ONLY the latest CLI-appended `coord:handoff`
-     block (fold still-live content of older blocks into the body, delete them). Target ≤ 2
+     block (fold still-live content of older blocks into the body, delete them) — the CLI
+     enforces the block half mechanically now: `checkout --renew` CONSUMES every already-delivered
+     block as it appends yours (r-checkout-selfclose companion, 2026-07-31); the folding judgment
+     stays yours. Target ≤ 2
      screens (~120 lines): a successor reads it top-to-bottom and knows what to do.
    - **Mechanics.** Co-written with a closer seat at a CLOSE, and appended to by `checkout
      --renew --handoff` at a RENEWAL (no closer is in the renewal path — evidence: the same
@@ -164,7 +173,11 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
      lines. Quiet sittings write NO block. Never corrected in place; corrections are later blocks.
    - **Conditionality.** Every non-memory artifact has a trigger; absent the trigger, the correct
      number of writes is ZERO. No cadence-driven prose artifacts (per-pass reports, per-turn
-     logs) — proof-of-life is the sensors' job, never a prose file's.
+     logs) — proof-of-life is the sensors' job, never a prose file's. **`memory.md` is
+     cadence-bound too, not exempt: its ONLY write moments are renewal and close.** A per-pass or
+     per-nudge "handoff" block is the same cadence-log defect wearing the one filename this item
+     used to leave unruled (measured run-3 2026-07-31: 121 hand-forged per-pass blocks, 214 KB on
+     one seat, while the rewrite duty starved — `d-run3-lifecycle-memory-idle-fixes`).
    - **Ephemeral seats have NO memory by design:** never create one, never read prior-pass
      artifacts.
 
