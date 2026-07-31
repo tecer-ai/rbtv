@@ -101,6 +101,25 @@ floor, no pane cap, no model default — the bindings file states what to bind.
 Selftest: `materialize-seats.py --selftest` materializes ONLY against a
 throwaway fixture in tempfile.TemporaryDirectory(); it never points at a real
 run.
+
+Ruled command name: `scaffold-seats`. The planning workflow and the rulings
+that reach for this tool name it `scaffold-seats` (planner-workflow
+workflow.md: "scaffold-seats --workflow planning" / "scaffold-seats --seat
+planner"); this FILE keeps its own name, and the ruled name is EXPOSED, never
+substituted (d-materialize-term keeps the spec token deliberately; run-3
+p-the-scaffold-seats-fix-is-NOT-a-text-alignment forbids a rename). Exposure is
+a PER-MACHINE symlink, never synced by git — the same form `coordinate` uses
+for coord.py, so on a box where nobody has run it the ruled name resolves to
+nothing and this paragraph is the only record that it exists:
+
+    # run from THIS file's own directory (ignite/team-kit); the target must be
+    # absolute, because a symlink stores the text it was given
+    ln -s "$(pwd)/materialize-seats.py" ~/.local/bin/scaffold-seats
+    command -v scaffold-seats   # rc=0 once it resolves
+
+The exec bit and the shebang are already on this file; the symlink needs no
+chmod. Every path this file derives goes through Path(__file__).resolve(), so
+invocation through the symlink resolves the kit dir, not ~/.local/bin.
 """
 
 from __future__ import annotations
