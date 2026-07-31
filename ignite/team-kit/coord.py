@@ -1901,7 +1901,14 @@ NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close
 # "may THIS writer write it" are the same question asked twice. Two constants would be two things
 # to widen, and the second one is the one somebody forgets (PRIN-11).
 #
+# ⚠ EACH VALUE IS A SET OF ADMITTED WRITERS, NOT A SINGLE OWNER (task 7.154). It was a single
+# owner until the widening below, and the shape changed because the model had to express a value
+# with TWO admitted writers without growing a second constant beside it — which is the exact thing
+# the paragraph above bars. A set of one is still a bound of one: `renew`, `revive` and `exited`
+# each admit exactly one writer and are no wider than they were.
+#
 #   done    the SEAT, at its own clean check-out    — the ONLY value that advances a DAG edge
+#           ALSO the LEADER, and ONLY on the ruled act below.
 #   renew   the SEAT, at a context refresh          — the same seat comes back; no advancement
 #   revive  the KIT's revival path (stage 4)        — the same seat comes back; no advancement.
 #           It never reaches `awaiting-close.json` at all: a crash had no check-out, which is
@@ -1911,18 +1918,41 @@ NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close
 #   exited  the KIT's attest-exit arm (`dag-11`) ONLY, NEVER a seat — and it means, in full:
 #           THE HARNESS TERMINATED; WHETHER THE WORK IS DONE IS NOT ESTABLISHED HERE.
 #
+# ⚠⚠ WHY THE LEADER MAY WRITE `done`, AND WHAT AUTHORIZES IT: `d-exited-row-closure` (owner,
+# ruling A-10, 2026-07-28) — "the leader's act on an `exited` row routed to it by the
+# chief-of-staff's sweep: INVESTIGATE whether the row needs relaunching; if the work had in fact
+# CONCLUDED, simply switch the row to `done`." `cmd_attest_exit` PRINTS that instruction to the
+# leader in its own closing line. Until 7.154 the value space REFUSED it — `leader` was not a
+# declared writer at all — so the tool directed the leader to do what its own validator forbade.
+# The widening resolves that contradiction in the direction the ruling already settled.
+#
+# ⚠ THE WIDENING IS EXACTLY ONE PAIR, AND THE NARROWNESS IS THE POINT. `leader` is admitted for
+# `done` and for NOTHING ELSE: it may not write `renew` (a seat's own refresh), `revive` (the
+# kit's), or `exited` (the kit attesting to a termination it witnessed and the leader did not).
+# A leader that could write `exited` would be attesting to a fact it did not witness — the same
+# misgrading R-6 bars — and the ruling grants no such thing. Refusal matrix: task 7.154's captures
+# under `planning/briefing-designed-work-with-no-seats/captures-7154-disposition-writer-model/`.
+#
+# ⚠ THIS IS NOT A BYPASS AND IT IS NOT ATTACHED TO A FLAG. It is a value-space change: the leader's
+# write is validated by the same boundary as every other, and is refused by name everywhere the
+# ruling does not reach. No gate is re-attached to `--force`.
+#
 # ⚠ NOTHING ANYWHERE MAPS `exited` TO `done`. An implementation that does it "because the work is
 # probably fine" has reintroduced F1 — the measured one-shot (seat `oc2`, 2026-07-28) that
 # finished its work, exited without checking out, and left every surface reading "still working,
 # forever" — with extra steps, and it has done it by ATTESTING TO A FACT IT DID NOT WITNESS,
 # which is the misgrading R-6 bars. An `exited` row is routed to a LEADER's judgment; it is never
-# resolved by a default.
+# resolved by a default. THE WIDENING ABOVE DOES NOT WEAKEN THIS: no code maps one value to the
+# other, and the leader's `done` is the OUTCOME OF AN INVESTIGATION it performed, never a
+# translation of the `exited` value it started from.
 DISPOSITION_WRITER_SEAT = "seat"
 DISPOSITION_WRITER_KIT = "kit"
-RECORD_DISPOSITION_WRITER = {"done": DISPOSITION_WRITER_SEAT,
-                             "renew": DISPOSITION_WRITER_SEAT,
-                             "revive": DISPOSITION_WRITER_KIT,
-                             "exited": DISPOSITION_WRITER_KIT}
+DISPOSITION_WRITER_LEADER = "leader"
+RECORD_DISPOSITION_WRITER = {
+    "done": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_LEADER}),
+    "renew": frozenset({DISPOSITION_WRITER_SEAT}),
+    "revive": frozenset({DISPOSITION_WRITER_KIT}),
+    "exited": frozenset({DISPOSITION_WRITER_KIT})}
 
 
 def validate_disposition(disposition, writer):
@@ -1941,8 +1971,11 @@ def validate_disposition(disposition, writer):
     (R-8).
 
     The writer set is derived from the mapping's own values rather than kept as a second
-    constant, so a new writer cannot exist without a value that names it."""
-    writers = set(RECORD_DISPOSITION_WRITER.values())
+    constant, so a new writer cannot exist without a value that names it. Since 7.154 each value
+    is a SET of admitted writers, so the derivation is a union rather than a collection of
+    singletons — the property it exists for is unchanged: a writer nobody's value names does not
+    exist here, and adding one is a single edit to the mapping."""
+    writers = set().union(*RECORD_DISPOSITION_WRITER.values())
     if writer not in writers:
         raise ValueError(
             f"unknown disposition writer {writer!r} — the writers are "
@@ -1955,14 +1988,17 @@ def validate_disposition(disposition, writer):
             f"{', '.join(sorted(RECORD_DISPOSITION_WRITER))}. The value is REFUSED here rather "
             f"than normalized to a neighbour: the DAG advances on this field, and a normalized "
             f"guess advances it on something nobody established.")
-    owner = RECORD_DISPOSITION_WRITER[disposition]
-    if owner != writer:
+    owners = RECORD_DISPOSITION_WRITER[disposition]
+    if writer not in owners:
         raise ValueError(
             f"the {writer} may not write disposition {disposition!r} — that value belongs to the "
-            f"{owner}. The bound is not decoration: `exited` is the kit attesting that a harness "
-            f"terminated, a fact a seat cannot witness about itself, and `done` is a seat "
-            f"reporting its own work finished, a fact the kit never witnessed. Each side writes "
-            f"only what it saw.")
+            f"{', '.join(sorted(owners))}. The bound is not decoration: `exited` is the kit "
+            f"attesting that a harness terminated, a fact a seat cannot witness about itself, and "
+            f"`done` is a seat reporting its own work finished, a fact the kit never witnessed. "
+            f"Each side writes only what it saw. The one act by which a THIRD side writes a value "
+            f"it did not itself perform is the leader's `done` on an investigated `exited` row "
+            f"(`d-exited-row-closure`), and it is admitted for that value ALONE — this refusal is "
+            f"what keeps it there.")
 
 
 def goal_dir(pkg):
@@ -15651,7 +15687,12 @@ def _selftest_checks(args, failures, names):
                 return str(_d8_e)
 
         _d8_names = sorted(RECORD_DISPOSITION_WRITER)
-        _d8_each = {_d: _d8_val(_d, _w) for _d, _w in RECORD_DISPOSITION_WRITER.items()}
+        # Every (value, admitted writer) pair, not one pair per value: since 7.154 a value may
+        # admit more than one writer, and iterating `.items()` as if the value were a single
+        # writer would hand a frozenset to the validator and red every row below for the wrong
+        # reason.
+        _d8_each = {(_d, _w): _d8_val(_d, _w)
+                    for _d, _ws in RECORD_DISPOSITION_WRITER.items() for _w in _ws}
         _d8_fifth = _d8_val("harvest", DISPOSITION_WRITER_SEAT) or ""
         _d8_bridge = [v for v in LIFECYCLE_INTENT_OF.values() if v is not LIFECYCLE_INTENT_ABSENT]
         check("dag-08 EX-1: THE RECORD ENUM IS EXACTLY `done|renew|revive|exited`, EACH ACCEPTED "
@@ -15741,6 +15782,45 @@ def _selftest_checks(args, failures, names):
                   == {k: v for k, v in _d8_post.items() if k != "since"}
               and _d8_bad_ret == "raised" and "harvest" in _d8_bad_msg
               and "d8-bad" not in load_awaiting(base_g))
+
+        # ---- 7.154: THE LEADER WIDENING, AND THE PROOF THAT IT IS EXACTLY ONE PAIR WIDE ----
+        # `d-exited-row-closure` grants the leader ONE act: flip an investigated `exited` row to
+        # `done`. The value space had to admit it — `cmd_attest_exit` prints that instruction and
+        # the validator refused it, so the tool directed the leader to do what its own value space
+        # forbade. The hazard in fixing that is not the fix, it is the OVERSHOOT: a widening with
+        # no enumeration replaces a contradiction that refuses loudly with a hole that accepts
+        # silently. So this row asserts the ADMITTED SET ITSELF, spelled out as a literal.
+        #
+        # ⚠ THE EXPECTATION IS A LITERAL AND MUST STAY ONE. Deriving it from
+        # `RECORD_DISPOSITION_WRITER` would make it move with the value under test, and the row
+        # would pass any widening at all — which is the single failure this row exists to catch.
+        # The probed DOMAIN is a different matter and is deliberately WIDER than the model: the
+        # literal writers below UNION the model's own, so a writer added to the mapping later is
+        # probed by this row instead of silently falling outside it.
+        _w154_expected = {("done", "seat"), ("done", "leader"), ("renew", "seat"),
+                          ("revive", "kit"), ("exited", "kit")}
+        _w154_domain = ({"seat", "kit", "leader", "auditor"}
+                        | set().union(*RECORD_DISPOSITION_WRITER.values()))
+        _w154_admitted = {(_d, _w) for _d in RECORD_DISPOSITION_WRITER for _w in _w154_domain
+                          if _d8_val(_d, _w) is None}
+        _w154_leader_exited = _d8_val("exited", DISPOSITION_WRITER_LEADER) or ""
+        check("7.154: THE WRITER MODEL ADMITS THE LEADER'S RULED FLIP AND NOTHING ELSE. Over the "
+              "full cross product of the enum and a writer domain WIDER than the model's own, the "
+              "admitted set is EXACTLY {done<-seat, done<-leader, renew<-seat, revive<-kit, "
+              "exited<-kit} — five pairs, compared against a literal so this row cannot move with "
+              "the mapping it grades. The leader is admitted for `done` (`d-exited-row-closure`: "
+              "investigate the routed row, and where the work had CONCLUDED switch it to `done`) "
+              "and is REFUSED for `exited` by name — a leader writing `exited` would attest to a "
+              "termination it did not witness, which is the misgrading R-6 bars and which the "
+              "ruling does not grant. Control arms both directions: `done<-leader` must be "
+              "ADMITTED and `exited<-leader` must RAISE, so a model that granted nothing and a "
+              "model that granted everything both red this row",
+              _w154_admitted == _w154_expected
+              and _d8_val("done", DISPOSITION_WRITER_LEADER) is None
+              and _w154_leader_exited and "exited" in _w154_leader_exited
+              and DISPOSITION_WRITER_KIT in _w154_leader_exited
+              and DISPOSITION_WRITER_LEADER in set().union(
+                  *RECORD_DISPOSITION_WRITER.values()))
 
         # ============ dag-09: THE DURABLE DISPOSITION COLUMN ON `sessions.csv` ===================
         # Spec: implementation-tasks/dag-09-sessions-disposition-column.md (LG-7…LG-9, LG-13, LG-14).
@@ -19580,9 +19660,31 @@ def advice_refused_sends(path=None):
     return offenders, len(sites)
 
 
+class _RefusingParser(argparse.ArgumentParser):
+    """argparse's stock `error()` echoes the offending value back VERBATIM as its last line and
+    exits 2. For `send`, a misplaced positional makes the MESSAGE BODY that offending value — so
+    a caller piping through `2>&1 | tail -N` sees the tail of its own message where a receipt
+    would be, and reads a usage error as delivery (this silently dropped every staffer send for
+    50 minutes on 2026-07-31; the one line that said "error" was cropped off the TOP by tail).
+    Two properties close the trap: the echoed value is truncated so body text can never dominate
+    the output, and the LAST line is a layered refusal — tail keeps the END of a stream, so the
+    refusal survives any `| tail -N`. Exit stays 2 (argparse's own convention; scripted callers
+    and watch.py key on codes)."""
+
+    def error(self, message):
+        if len(message) > 200:
+            message = message[:200] + f" ...[+{len(message) - 200} more chars cut]"
+        self.print_usage(sys.stderr)
+        print(refusal_text("input", f"usage error — {message}. NOTHING WAS SENT OR WRITTEN. "
+                           f"Run `coordinate <command> --help` for the exact signature "
+                           f"(send takes TWO positionals: <to> [message] — never your own name)."),
+              file=sys.stderr)
+        sys.exit(2)
+
+
 def build_parser():
     """The whole CLI surface. Split out of main() so the self-test can render the help texts."""
-    p = argparse.ArgumentParser(
+    p = _RefusingParser(
         prog="coordinate",
         usage="coordinate [--run TAG | --package DIR] [--as NAME] [--pretty] <command> [args]",
         description="Coordination CLI for a multi-agent tmux team run — all state lives in the "
@@ -19603,7 +19705,8 @@ def build_parser():
     p.add_argument("--workers-dir", help=argparse.SUPPRESS)     # testing only
     # help=SUPPRESS hides the subparsers action from the "positional arguments" block (the epilog
     # IS the command list); parsing is untouched.
-    sub = p.add_subparsers(dest="cmd", required=True, metavar="<command>", help=argparse.SUPPRESS)
+    sub = p.add_subparsers(dest="cmd", required=True, metavar="<command>", help=argparse.SUPPRESS,
+                           parser_class=_RefusingParser)
 
     made = {}
 
