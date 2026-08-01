@@ -2708,6 +2708,76 @@ def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
         return target[idx["session-id"]].strip(), ""
 
 
+def sessions_last_ended(pkg):
+    """{seat: (session-id, disposition)} — every seat's LAST ENDED session row, in ONE read.
+
+    THE SINGLE ROW SELECTION EVERY DURABLE-DISPOSITION QUESTION GOES THROUGH, and it is one
+    function because there are now TWO questions about that same row — what the ending WAS
+    (`session_disposition`) and whether an ending was DECLARED AT ALL (`undeclared_endings`).
+    Selecting the row twice is exactly how the two would come to describe DIFFERENT sessions
+    while reading as though they agreed; this file already carries that argument at
+    `session_close`/`set_awaiting` ("ONE VARIABLE, READ BY BOTH SURFACES") and it is the same
+    argument here.
+
+    LAST IN FILE ORDER — preserved verbatim from `session_disposition`, which has always done
+    this and whose behaviour must not move: rows are APPENDED in open order, so a seat's last
+    ended row is its newest ended session. Deliberately NOT re-sorted by the `ended` cell; a
+    sort would be a second, subtly different selection rule reaching the same readers.
+
+    Returns {} on every surface that cannot answer — no `sessions.csv`, or a header predating
+    dag-09 with no `disposition` column — which keeps `None`/absent meaning UNKNOWN in both
+    readers rather than manufacturing a value neither file asserted."""
+    path = sessions_csv(pkg)
+    if not path.exists():
+        return {}
+    header, rows = read_csv_table(path, SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if not {"seat", "ended", "disposition"} <= set(idx):
+        return {}
+    out = {}
+    for r in rows:
+        pad_row(r, header)
+        seat = r[idx["seat"]].strip()
+        if seat and r[idx["ended"]].strip():
+            out[seat] = (r[idx["session-id"]].strip() if "session-id" in idx else "",
+                         r[idx["disposition"]].strip())
+    return out
+
+
+def undeclared_endings(pkg, last_ended=None):
+    """{seat: session-id} for every seat whose LAST ENDED row DECLARES NO DISPOSITION.
+
+    THE STATE `session_disposition` CANNOT REPORT, AND THE WHOLE REASON THIS EXISTS. That reader
+    returns `None` for two states it cannot tell apart:
+
+      (a) NOTHING ENDED — no session row, or none of this seat's rows is ended. The seat has work
+          ahead of it and is a legitimate launch candidate.
+      (b) A SESSION ENDED AND NOBODY DECLARED WHAT IT MEANT — the cell is empty. The seat's work
+          CONCLUDED; what is missing is the assertion, not the work.
+
+    `ready_seat_rows` read that shared `None` as "not itself finished" and offered (b) to a
+    launcher as unstarted work — a seat that had already finished, re-offered as ready.
+
+    MEASURED ON THIS RUN, 2026-08-01, against run-3's own `sessions.csv` (219 rows, 120 seats):
+    three seats sat in state (b) — `briefing-collision-verifier`, `fixture-sensor-runner`,
+    `leader-briefing-home-mover` — and TWO of them were in the live READY set at that instant.
+    The count is a FLOOR, not a closed population: the same computation returned 4 an hour
+    earlier, and one seat left the class when a later session superseded its empty cell.
+
+    ⚠ THIS REPORTS; IT DECIDES NOTHING, AND IT NEVER MEANS `done`. An undeclared ending is a
+    DEFECT FOR THE `leader` to investigate — never a relaunch, because relaunching re-runs work
+    that already concluded, which is the exact harm. It is also NOT a licence for any caller to
+    infer the ending: only the occupant witnessed what its session meant, and nobody else may
+    assert it on the occupant's behalf (the same bound that keeps `close-seat` and `depart`
+    writing an empty cell instead of a convenient one).
+
+    `last_ended` is injectable so a caller that already read the file passes its own map instead
+    of paying for a second read — `ready_seat_rows` hoists exactly one."""
+    le = sessions_last_ended(pkg) if last_ended is None else last_ended
+    return {seat: (sid or "(session-id unrecorded)")
+            for seat, (sid, disp) in le.items() if not disp}
+
+
 def session_disposition(pkg, seat):
     """The DURABLE check-out disposition of `seat`, read off its LAST ENDED session row. `None`
     when there is not one.
@@ -2726,20 +2796,14 @@ def session_disposition(pkg, seat):
     Read-only, and it takes `pkg` rather than `args` deliberately — it is the durable half of the
     ready arithmetic and must be callable by anything that can name a run package, not only by a
     command with a parsed argv (PRIN-13: the boundary is what makes it reusable, and `dag-10`'s
-    `terminal()` is its first caller, not its owner)."""
-    path = sessions_csv(pkg)
-    if not path.exists():
-        return None
-    header, rows = read_csv_table(path, SESSIONS_COLS)
-    idx = {c: i for i, c in enumerate(header)}
-    if not {"seat", "ended", "disposition"} <= set(idx):
-        return None
-    found = None
-    for r in rows:
-        pad_row(r, header)
-        if r[idx["seat"]].strip() == seat and r[idx["ended"]].strip():
-            found = r[idx["disposition"]].strip()
-    return found or None
+    `terminal()` is its first caller, not its owner).
+
+    7.237: the row selection moved OUT to `sessions_last_ended` and is not reimplemented here.
+    WHAT THIS FUNCTION RETURNS DID NOT CHANGE — same row, same file order, same `or None`, and an
+    empty cell still reads UNKNOWN. What changed is that `undeclared_endings` can now ask a SECOND
+    question about the SAME selected row (was an ending declared AT ALL?) without a second copy of
+    the selection drifting away from this one."""
+    return (sessions_last_ended(pkg).get(seat) or ("", ""))[1] or None
 
 
 # ---------- per-seat statusline (task 7.69, statusline half) ----------
@@ -9115,8 +9179,21 @@ def ready_seat_rows(args):
                Nothing here maps `exited` to `done`.
       RUNNING  an ACTIVE roster row — the seat is occupied; launching it again double-launches it
       UNBUILT  no descriptor on disk — a `taskforce.csv`-only row would be launched into nothing
+      UNDECLARED  (7.237) this seat's LAST ENDED session declared NO disposition — its work
+               CONCLUDED and nobody asserted how it ended. NOT a launch candidate, and NOT a
+               relaunch: relaunching re-runs finished work, which is the harm. Routes to the
+               `leader` as a defect. ⚠ IT SITS ABOVE `BLOCKED` DELIBERATELY — a member of this
+               class whose own `after` set happens to be unmet would otherwise read as an
+               ordinary BLOCKED and its undeclared ending would never surface. Measured: of the
+               three members on run-3, one (`briefing-collision-verifier`) was masked exactly
+               that way while the other two sat in the live READY set.
       BLOCKED  at least one `after` predecessor lacks a `done` check-out
       READY    every term above cleared
+
+    ⚠ `UNDECLARED` REMOVES SEATS FROM `READY` AND ADDS NONE. A consumer that filters
+    `verdict == "READY"` — which is what the launch-offer path does — cannot be handed one of
+    these seats even if it never reads the reason string, and a consumer that does not know the
+    value simply fails to match it. Both directions are fail-safe; neither advances an edge.
     """
     pkg = package_dir(args, register=False)
     base = base_dir(args, register=False)
@@ -9124,6 +9201,11 @@ def ready_seat_rows(args):
     _, _, roster = load_workers(base)
     built = {w["agent"] for w in discover_workers(workers_dir(args))}
     awaiting = load_awaiting(base)
+    # 7.237: hoisted ONCE, for the same reason `awaiting` above is — N seats must cost one read of
+    # `sessions.csv`, not N. The map feeds `undeclared_endings` directly so the undeclared term and
+    # `session_disposition` are answering about THE SAME selected row rather than two reads that
+    # could straddle a concurrent append.
+    undeclared = undeclared_endings(pkg, last_ended=sessions_last_ended(pkg))
     term = {}
     for seat in after:
         term[seat] = terminal_disposition(pkg, base, seat, awaiting=awaiting)
@@ -9141,7 +9223,12 @@ def ready_seat_rows(args):
         active = bool(row) and row.get("active") == "yes"
         rec = {"seat": seat, "after": list(preds), "disposition": value, "source": source,
                "skew": list(skew) if skew else None, "active": active,
-               "built": seat in built}
+               "built": seat in built,
+               # 7.237: present on EVERY row (None when the ending was declared), never only on
+               # the rows that trip. A key that appears only when it fires cannot be rendered as
+               # a term of the predicate, and `--explain` must show the value that DECIDED a
+               # term even when that value is the clean one.
+               "undeclared-session": undeclared.get(seat)}
         if skew:
             rec["verdict"] = "SKEW"
             rec["reason"] = (f"awaiting-close.json={skew[0]} | sessions.csv={skew[1]}  "
@@ -9163,6 +9250,19 @@ def ready_seat_rows(args):
         elif seat not in built:
             rec["verdict"] = "UNBUILT"
             rec["reason"] = f"no descriptor under {workers_dir(args) / seat}"
+        elif seat in undeclared:
+            # 7.237. `terminal(self)` is None here, and this branch is the ONE place that None is
+            # read as something other than "has not finished yet" — because an ENDED row says the
+            # opposite. Above `BLOCKED` on purpose (see the verdict list): a transient unmet edge
+            # must never mask a concluded seat whose ending nobody declared.
+            rec["verdict"] = "UNDECLARED"
+            rec["reason"] = (
+                f"session `{undeclared[seat]}` ENDED with an EMPTY disposition — this seat's work "
+                f"CONCLUDED and nobody declared how it ended. NOT OFFERED: relaunching would "
+                f"re-run finished work. This is a DEFECT FOR THE `leader` to investigate — it "
+                f"either gets the ending declared or rules the row — and it is NOT a relaunch "
+                f"instruction to anyone. Nothing here infers what the ending WAS: only the "
+                f"occupant witnessed that. It advances NO edge meanwhile")
         else:
             unmet = []
             for p in preds:
@@ -9479,6 +9579,13 @@ def cmd_ready_seats(args):
               f"   -> not itself finished: {rec['disposition'] is None}")
         print(f"  no ACTIVE roster row                                 -> {not rec['active']}")
         print(f"  descriptor on disk                                   -> {rec['built']}")
+        # 7.237: rendered on EVERY seat, not only the ones it trips — the term that decided a
+        # verdict is unreadable if the clean value is invisible. It names the session, because
+        # "an ending was not declared" sends the reader hunting for WHICH one.
+        _u = rec.get("undeclared-session")
+        print(f"  last ended session declared an ending                -> {_u is None}"
+              + (f"   ⚠ `{_u}` ENDED with an EMPTY disposition — work CONCLUDED, ending never "
+                 f"declared. Defect -> `leader`, NOT a relaunch" if _u else ""))
         if not rec["after"]:
             print("  every `after` predecessor is `done`                   -> True (root — none)")
         for p in rec["after"]:
@@ -17019,6 +17126,48 @@ def _selftest_checks(args, failures, names):
               and "a=exited" in _rs12_out
               and "leader" in _rs12_out and "relaunch" in _rs12_out
               and _rs12_fv == {"a": "DONE", "b": "READY"})
+
+        # ---- RS-17 (7.237): an ENDED session that declared NOTHING is a defect, not a candidate --
+        # `a` ENDED and declared nothing; `b` is after it; `nostart` never ran at all. The third
+        # seat is the row's discriminating control and the reason it is not a one-armed test:
+        # `a` and `nostart` have the IDENTICAL `terminal(self) = None`, and the verdicts must
+        # differ. A detector that merely reported "no disposition on record" would call BOTH
+        # UNDECLARED and would stop the run's whole unlaunched frontier — the failure mode that
+        # matters here is not missing the defect, it is refusing every seat that has yet to work.
+        _rs17 = _rs_make("17", [("a", ""), ("b", "a"), ("nostart", "")], sessions=[("a", "")])
+        _rs17_v, _ = _rs_v(_rs17)
+        _rs17_out, _, _ = _rs(_rs17)
+        _rs17_ex, _, _ = _rs(_rs17, explain="a")
+        # CONTROL 1 — ONE CELL different: the same package with `a`'s disposition filled in.
+        _rs17_c = _rs_make("17c", [("a", ""), ("b", "a"), ("nostart", "")],
+                           sessions=[("a", "done")])
+        _rs17_cv, _ = _rs_v(_rs17_c)
+        # CONTROL 2 — THE MASKING ARM: `q` is undeclared AND its own `after` is unmet. It must
+        # report UNDECLARED, not BLOCKED: a transient edge would otherwise hide the defect for as
+        # long as the predecessor stayed open, which is exactly how one of run-3's three measured
+        # members sat unreported while the other two were being offered as READY.
+        _rs17_m = _rs_make("17m", [("p", ""), ("q", "p")], sessions=[("q", "")])
+        _rs17_mv, _ = _rs_v(_rs17_m)
+        check("dag-10 RS-17 (7.237): A SEAT WHOSE LAST ENDED SESSION DECLARED NO DISPOSITION IS "
+              "`UNDECLARED` AND IS NOT OFFERED. Its work CONCLUDED and nobody asserted how it "
+              "ended, so relaunching it would re-run finished work — the reason names the session, "
+              "routes to the `leader` as a defect, and says in words that it is NOT a relaunch. "
+              "⚠ THE DISCRIMINATING CONTROL IS `nostart`, IN THE SAME PACKAGE: it has the "
+              "IDENTICAL `terminal(self) = None` and is READY, so an implementation that keyed on "
+              "the absent disposition instead of on the ENDED ROW passes the first arm and "
+              "refuses the entire unstarted frontier here. ⚠ CONTROL 2 flips ONE CELL to `done` "
+              "and the seat becomes DONE with its dependent READY. ⚠ CONTROL 3 proves the "
+              "precedence: an undeclared seat whose OWN `after` is unmet still reports "
+              "UNDECLARED, because a transient block must never mask a concluded seat",
+              _rs17_v.get("a") == "UNDECLARED"
+              and _rs17_v.get("nostart") == "READY"
+              and _rs17_v.get("b") == "BLOCKED"
+              and "a-sid" in _rs17_out and "leader" in _rs17_out
+              and "NOT a relaunch" in _rs17_out
+              and "last ended session declared an ending" in _rs17_ex
+              and "a-sid" in _rs17_ex
+              and _rs17_cv == {"a": "DONE", "b": "READY", "nostart": "READY"}
+              and _rs17_mv == {"p": "READY", "q": "UNDECLARED"})
 
         # ---- --explain: the predicate, term by term ----
         # ON RS-2'S FIXTURE, NOT RS-12'S: sharing RS-12's meant this row asserted the printed
