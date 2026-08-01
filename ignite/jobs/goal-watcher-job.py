@@ -523,6 +523,52 @@ def flag_text(d, snap):
               f"this job reads that snapshot and no raw source)")
 
 
+# ---------------------------------------------------------------- room target
+
+def resolve_room_package(args):
+    """(str, provenance) or (None, refusal) — the run package flags are DELIVERED into.
+
+    THE ROOM IS RESOLVED, NEVER PINNED. The `goal-watcher-throwaway` entry used to carry
+    `--room-package .../runs/run-1` for a run closed 2026-07-27, so a fire would have delivered its
+    flags into a CLOSED run's package while the job's own status kept reading healthy. Swapping in a
+    different run number reproduces that defect at the next run close; the fix is that the entry
+    names NO run at all and asks the register instead (task 7.168 / design T9). This is the same
+    remedy `recover-room.py:resolve_package()` and `selfheal-watch.py:resolve_package()` already
+    carry, deliberately in the same shape — three jobs answering "which run is live" three different
+    ways is the defect one level up.
+
+    `--room-package` SURVIVES AS THE EXPLICIT OVERRIDE and wins whenever it is present. That is not
+    a compatibility shim: a probe whose flags must NOT reach the live room needs a way to say so,
+    and an override that resolves live on being dropped would promote such a probe onto the live run
+    silently.
+
+    THE REGISTER IS READ BY EXACTLY ONE READER, AND IT IS NOT THIS FILE. `coord.resolve_live_run()`
+    already does this and already REFUSES rather than guesses when zero or two rows read `open`
+    (R9's one-live-run guarantee, whose enforcement — task 7.77 — is NOT BUILT). A second CSV reader
+    here would be a second answer to the same question. `coord` is imported INSIDE this function
+    from the `--coord` path this job already requires, so a copy-and-test of this file carries no
+    sibling dependency it does not otherwise need.
+
+    With NEITHER flag the room is the watched package, which is the production case: in production
+    the run being watched and the room being told about it are the same run.
+
+    Refusal is FAIL-CLOSED and returns no package: delivering a flag into a room picked by a guess
+    on an ambiguous register is worse than not delivering it, because the flag reads as having been
+    delivered to whoever can act on it."""
+    if args.room_package:
+        return args.room_package, "--room-package (explicit override; register not consulted)"
+    if not args.room_goal:
+        return args.package, "--package (neither --room-package nor --room-goal; room == watched run)"
+    sys.path.insert(0, str(Path(args.coord).resolve().parent))
+    import coord  # noqa: E402  — the register's single reader; see this docstring
+    goal = Path(args.room_goal).resolve()
+    run_id, detail = coord.resolve_live_run(goal)
+    if not run_id:
+        return None, (f"register at {goal / 'runs.csv'} did not resolve ONE live run: {detail}")
+    return str((goal / "runs" / run_id).resolve()), (
+        f"{goal / 'runs.csv'} state=open -> {run_id} (resolved live via coord.resolve_live_run, R10)")
+
+
 # ---------------------------------------------------------------- main
 
 def main():
@@ -532,9 +578,16 @@ def main():
     p.add_argument("--coord", required=True, help="path to the kit's coord.py (delivery)")
     p.add_argument("--room-package", default=None,
                    help="the run package flags are DELIVERED into, and whose snapshot decides "
-                        "whether the recipient is live. Defaults to --package; in production "
-                        "they are the same run. A probe watching a throwaway target is the "
-                        "only case that separates them.")
+                        "whether the recipient is live — the EXPLICIT OVERRIDE. Absent: resolved "
+                        "live from the goal's run register (needs --room-goal), else --package. "
+                        "In production the watched run and the room are the same run; a probe "
+                        "watching a throwaway target is the only case that separates them.")
+    p.add_argument("--room-goal", default=None,
+                   help="goal folder whose runs.csv resolves the LIVE room at FIRE TIME when "
+                        "--room-package is absent. Naming a run here instead would be a home in "
+                        "waiting: it goes stale the moment that run closes. Resolution goes "
+                        "through coord.resolve_live_run(), which REFUSES on zero or two open "
+                        "rows rather than guessing (R9/R10).")
     p.add_argument("--team-monitor", default="", help="path to team_monitor.py (remedy text)")
     p.add_argument("--to", default=DEFAULT_ROLE_SEAT, help="the seat holding chief-of-staff")
     p.add_argument("--fallback-to", default=DEFAULT_FALLBACK)
@@ -575,7 +628,19 @@ def main():
     args = p.parse_args()
 
     jobcontain.contain(mem_mb=args.mem_mb, seconds=args.budget_s)
-    args.room_package = args.room_package or args.package
+    # ⚠ RESOLVED ONCE, HERE, AND REPORTED — same discipline as the memory floor below. A refusal is
+    # a HARD START FAILURE, never a fallback onto some run the job picked: see resolve_room_package.
+    room, room_why = resolve_room_package(args)
+    if room is None:
+        print("goal-watcher-job: REFUSING TO START — %s\n"
+              "  The room flags are DELIVERED into must be the LIVE run, and this job will not "
+              "guess which one that is: a flag delivered into the wrong room reads as having "
+              "reached someone who can act on it.\n"
+              "  Fix the run register, or pass --room-package to override deliberately."
+              % room_why, file=sys.stderr)
+        return 2
+    args.room_package = room
+    print("goal-watcher-job: room %s" % room_why, file=sys.stderr)
     pkg = Path(args.package)
 
     # ⚠ RESOLVED ONCE, HERE, AND REPORTED. Criterion 5: a missing or unreadable declaration is a

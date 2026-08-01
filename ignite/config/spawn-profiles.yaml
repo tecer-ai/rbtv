@@ -513,8 +513,20 @@ tools:
       # The room flags are DELIVERED into is the live run; the package WATCHED is the throwaway.
       # Those are different things, and conflating them was a real defect this build's own probe
       # found: the recipient does not live in the room being watched.
-      - --room-package
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1
+      # ⚠ SO THE ROOM SIDE DELIBERATELY NAMES NO RUN — task 7.168 (design T9), on 7.167's
+      # classification. It used to pin one run's package explicitly, and that run had CLOSED: the
+      # comment directly above was TRUE when both were written in one commit 25 minutes before that
+      # close, so the value went stale while the invariant did not. ⚠ THIS COMMENT THEREFORE NAMES
+      # NO RUN EITHER, deliberately: a run number in prose is a home in waiting too, and it drifts
+      # in silence because nothing consumes it. Swapping in the then-live run would reproduce the
+      # defect at the very next close; naming the GOAL and asking runs.csv does not.
+      # Same remedy and same shape as the live `selfheal-watch` and `selfheal-room` entries above —
+      # resolved through coord.resolve_live_run (R10), which REFUSES rather than guesses on zero or
+      # two open rows. ⚠ THE PACKAGE WATCHED, one field up, KEEPS ITS CLOSED-RUN FIXTURE PATH: that
+      # one is ruled deliberate (7.117, leader ruling (b) on ask #204), and the two fields are in
+      # different classes on purpose.
+      - --room-goal
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp
       - --coord
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
       - --team-monitor
