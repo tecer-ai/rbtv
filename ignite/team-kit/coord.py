@@ -10001,6 +10001,51 @@ def cmd_launch(args):
             f"(template: briefing-template.md beside coord.py).",
             1)
 
+    # 7.241 (U4.6): THE UNDECLARED-ENDING REFUSAL — the CONSUMER of 7.237's detector on the ONE
+    # path that opens panes. `undeclared_endings` is 7.237's function, called here and not
+    # reimplemented: this adds NO detector, it wires the existing one to a caller that acts.
+    #
+    # WHY HERE AND NOT ONLY IN `ready_seat_rows`: 7.237 put the class into the READY arithmetic,
+    # which removes these seats from what the offer lane is HANDED. But `launch` reads the
+    # `after` field zero times and calls no readiness computation, so `launch --only <seat>`
+    # walked straight past it — 7.237 declared exactly that as its residue. A verdict nothing on
+    # the launch path consults is a log line to this command.
+    #
+    # WHAT IT PREVENTS: relaunching a seat whose session ENDED with an EMPTY disposition re-runs
+    # work that already CONCLUDED. The empty cell is a missing assertion, never missing work.
+    #
+    # ⚠ NO FLAG CARRIES THIS, and that is deliberate, not an oversight. It is NOT on `--force`
+    # (which carries the ROLE gate alone) and NOT on `--force-memory`; re-attaching a second gate
+    # to either is barred by the run's standing bar. An undeclared ending is a DEFECT FOR THE
+    # `leader` — it either gets the ending declared or rules the row — and it is never a relaunch
+    # instruction, so there is nothing for an override to express. Nobody but the occupant
+    # witnessed what that session meant, and no caller here may assert it on its behalf.
+    #
+    # SCOPED TO WHAT THE CALLER TARGETED: the class is filtered OUT of the launch set, so a mass
+    # launch still opens every other seat. The command refuses outright only when the filter
+    # empties the set — which is precisely the `--only <undeclared-seat>` case.
+    #
+    # BOTH BRANCHES CARRY THE SAME PREDICATE (G-257's lesson, argued a few lines above for the
+    # role gate): the filter and the refusal run on `--dry-run` too. A dry-run exists to show
+    # what a real launch would do; one that showed a pane opening where the real path refuses
+    # would make the one command meant for inspection the one that lies.
+    undeclared = undeclared_endings(package_dir(args, register=False))
+    blocked = [w for w in workers if w["agent"] in undeclared]
+    if blocked:
+        for w in blocked:
+            print(c(f"  {w['agent']}: session `{undeclared[w['agent']]}` ENDED with an EMPTY "
+                    f"disposition — NOT LAUNCHED", C_DEAD), file=sys.stderr)
+        workers = [w for w in workers if w["agent"] not in undeclared]
+        detail = (f"{len(blocked)} seat(s) above have an UNDECLARED ending: their last session "
+                  f"ENDED and nobody declared how. Their work CONCLUDED — relaunching re-runs "
+                  f"finished work, which is the harm.\nThis is a DEFECT FOR THE `leader` to "
+                  f"investigate, NOT a relaunch instruction, and NO flag overrides it: only the "
+                  f"occupant witnessed what its session meant.\nSee: "
+                  f"{coord_invocation(args)} ready-seats --explain <seat>")
+        if not workers:
+            refuse("state", detail + "\nNO pane was opened.", 1)
+        print(c(detail, C_DEAD), file=sys.stderr)
+
     # PROP-8 (tv-ux-review): validate EVERY seat's launch config BEFORE any pane opens. An
     # invalid model slug used to fail only at model-init, INSIDE each spawned pane — a whole
     # wave died before its first checkin, its panes holding memory until someone noticed.
@@ -10081,6 +10126,15 @@ def cmd_launch(args):
     # and that difference decides what the operator does next (relaunch two seats, or find out why
     # nothing came up). The code says "something failed"; only this line says how much.
     launched = len(workers) - len(refused)
+    # 7.241: the UNDECLARED-ending seats join the refusal AFTER `launched` is computed, never
+    # before — they were filtered OUT of `workers`, so seeding them into `refused` would subtract
+    # them from a total they were never in and undercount the seats that actually came up. They
+    # belong in the verdict because they ARE refusals of this command in the sense it already
+    # means: a mass launch that deliberately skipped one must exit 1 and say `launch INCOMPLETE`.
+    # A scripted caller — the cadence sweep — reads the exit code and nothing else, so omitting
+    # them would report SUCCESS for a launch this command declined to perform, which is the same
+    # defect this verdict block was written to fix arriving by a new door.
+    refused = refused + [w["agent"] for w in blocked]
     if refused:
         print(c(f"launch INCOMPLETE: {launched} launched, {len(refused)} refused "
                 f"({', '.join(refused)}). The launched seats are UP and were not rolled back.",
@@ -15282,10 +15336,73 @@ def _selftest_checks(args, failures, names):
               "would do, so hiding a divergence from it would make the one command meant for "
               "inspection the one that lies",
               code == 2)
+        # ---- 7.241: gamma's ending is DECLARED before the launches below ------------------
+        # ⚠ THIS IS A FIXTURE REPAIR, AND IT WEAKENS NO CHECK BELOW. The 7.37 probe block above
+        # ends gamma's session through `close-seat`/`depart`, which write an EMPTY disposition BY
+        # DESIGN — neither witnessed what the occupant meant. That leaves gamma in 7.237's
+        # UNDECLARED class, and 7.241's launch refusal (cmd_launch) now declines to relaunch a
+        # seat in it. Three checks below — G-51's `--force` launch, #230's two-flag launch, and
+        # 7.82/5's restored-budget launch — assert a SUCCESSFUL launch of gamma, and every one of
+        # them is about the ROLE gate, the MEMORY gate, the FLOOR declaration or the DESCRIPTOR
+        # binding. NONE of them reads a disposition. Declaring gamma's ending restores the state
+        # each of those checks was written against instead of relaxing what any of them asserts:
+        # the subject stays gamma, the flags stay the same, the expected verdicts stay the same.
+        #
+        # It appends a DECLARED ended row rather than editing the empty one — `sessions_last_ended`
+        # takes the LAST ended row in file order, which is exactly how a real seat leaves this
+        # class in a live run (a later session supersedes the empty cell). Nothing here rewrites
+        # history, and nothing asserts what that earlier session meant.
+        _u46_g = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "gamma"][0]
+        session_open(ns(), _u46_g, since=time.time(), wait=0.0)
+        session_close(ns(), "gamma", disposition="done")
+        check("7.241 (fixture precondition): gamma's ending is DECLARED, so the launches below "
+              "are testing the gate each of them names and not the UNDECLARED refusal — an "
+              "undeclared gamma would refuse all three and they would read as role/memory/floor "
+              "failures that never happened",
+              "gamma" not in undeclared_endings(pkg))
         out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True, force=True)
         check("G-51: --force launches on the DESCRIPTOR's value anyway and says so",
               code == 0 and "WARNING --force" in out and "binds from its DESCRIPTOR" in out)
         (pkg / "taskforce.csv").unlink()
+
+        # ---- 7.241 (U4.6): the UNDECLARED-ending REFUSAL, ON THE LAUNCH PATH -----------------
+        # 7.237 put this class into the READY arithmetic, which governs what the offer lane is
+        # HANDED. `launch` reads the `after` field zero times and calls no readiness computation,
+        # so `launch --only <seat>` walked straight past it — 7.237 declared exactly that as its
+        # residue. These rows assert the LAUNCH consumer, not the verdict: the two are different
+        # surfaces and a check on the verdict alone would leave this path unproven.
+        #
+        # THE PAIR IS THE POINT. The refusal row alone is satisfied by a gate that refuses
+        # everything; the control row alone is satisfied by a gate that refuses nothing. Only the
+        # two together say the gate reads the DISPOSITION CELL and nothing else — the seat, the
+        # flags and the package are identical across them and the cell is the only thing that moves.
+        session_open(ns(), _u46_g, since=time.time(), wait=0.0)
+        session_close(ns(), "gamma")          # no disposition — `close-seat`/`depart`'s own shape
+        out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True, force=True)
+        check("7.241: a seat whose LAST ENDED session declared NO disposition is REFUSED BY "
+              "`launch` — NO pane opens, and the refusal names the session, says the work "
+              "CONCLUDED, and routes to the `leader` as a defect rather than a relaunch. 7.237's "
+              "verdict alone could not stop this: the launch path never consults it",
+              code == 1 and "UNDECLARED ending" in out
+              and "NO pane was opened" in out and "[dry-run] gamma" not in out)
+        out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=True, force=True,
+                           force_memory=True)
+        check("7.241: and NO FLAG CARRIES IT — a caller who overrides the ROLE gate with "
+              "`--force` AND carries `--force-memory` is STILL refused here, and the output "
+              "shows the role override succeeding on the same command. `--force` carries the "
+              "ROLE gate alone (GATE_FLAGS untouched, p-override-split-is-safety-critical) and "
+              "this gate is attached to neither flag: only the occupant witnessed what its "
+              "session meant, so there is nothing for an override to express",
+              code == 1 and "role gate overridden with --force" in out
+              and "UNDECLARED ending" in out and "[dry-run] gamma" not in out)
+        session_open(ns(), _u46_g, since=time.time(), wait=0.0)
+        session_close(ns(), "gamma", disposition="done")
+        out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True, force=True)
+        check("7.241 (CONTROL): the SAME seat, the SAME flags, the SAME package — with the "
+              "ending DECLARED it launches. The refusal above tracked the empty disposition "
+              "cell and not some unrelated failure, and this gate refuses a class rather than "
+              "refusing everybody",
+              code == 0 and "UNDECLARED ending" not in out and "[dry-run] gamma" in out)
 
         # ---- #210 + #230: BOTH gates evaluated, BOTH verdicts reported, no short-circuit ----
         # The watcher must pass --force on EVERY launch (the seed rule gives it DAG-unblock
