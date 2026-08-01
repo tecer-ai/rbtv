@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shlex
+import signal as signal_mod
 import subprocess
 import sys
 import tempfile
@@ -1665,6 +1666,53 @@ def process_identity(pid):
 def harness_idents(snapshot, root_pid):
     """[(pid, starttime)] for the harness processes under `root_pid` — identity, not bare pids."""
     return [i for i in (process_identity(p) for p in harness_pids(snapshot, root_pid)) if i]
+
+
+def signal_pid(pid, sig):
+    """Send `sig` to ONE pid. (ok, err). Isolated as a module-level function for exactly one
+    reason: the self-test rebinds it. A suite that really signalled processes would be a suite
+    nobody could run on a live box, and `terminate-pid`'s whole subject is WHICH pid it will
+    signal — so the decision must be exercisable without the signal ever leaving the process."""
+    try:
+        os.kill(pid, sig)
+        return True, ""
+    except OSError as err:
+        return False, str(err)
+
+
+def seat_radius_pids(args):
+    """({pid: (seat, pane)}, verifiable) — every pid at or below the pane of every CURRENT roster
+    row of this run. The SEAT RADIUS, derived from the roster and the live process table, never
+    from a kit-side name list.
+
+    ⚠ `verifiable` is the whole fail-safe, and it is NOT the same value as an empty map. `ps` may
+    be unavailable and tmux may be unreachable, and in both worlds this returns {} — which, read as
+    "no pid belongs to a seat", would turn `terminate-pid` into an unguarded kill of any pid on the
+    box at exactly the moment it can see least. Cannot-tell is never nothing (`pane_harness_pids`
+    carries the same split for the same reason). The caller REFUSES on `verifiable` False.
+
+    The radius is the whole pane subtree, not just its harness processes: a seat's pane holds its
+    shell and whatever that shell started, and `terminate-pid` is non-seat-radius BY CONTRACT
+    (7.153 criterion 3 arm C) — a contract about the SEAT, not about the harness binary."""
+    snap = ps_snapshot()
+    if not snap:
+        return {}, False
+    _, _, rows = load_workers(base_dir(args))
+    current = [current_row(rows, a) for a in dict.fromkeys(r["agent"] for r in rows)]
+    panes = [(r["agent"], r["pane"]) for r in current if r and r.get("pane")]
+    out, resolved = {}, 0
+    for agent, pane in panes:
+        root = tmux_pane_pid(pane)
+        if not root:
+            continue
+        resolved += 1
+        for pid in descendant_pids(snap, root):
+            out.setdefault(pid, (agent, pane))
+    # The roster claims panes and tmux resolved NONE of them: that is a tmux the process world
+    # cannot be read through, not a run whose seats hold no processes. Fail safe, same rule.
+    if panes and resolved == 0:
+        return {}, False
+    return out, True
 
 
 def ident_is_live_harness(ident):
@@ -10376,6 +10424,166 @@ def cmd_kill_pane(args):
             f"a close-seat to finish its lifecycle", C_HINT))
 
 
+def cmd_terminate_pid(args):
+    """Terminate ONE process named by pid, under the leader's authorization, with that
+    authorization written to the coordination log (task 7.153, G-303).
+
+    THE GAP THIS CLOSES IS AN AUTHORITY WITH NO INSTRUMENT, not a missing permission. `G-303`
+    measured it twice in one sitting: the chief-of-staff holds OPEN verbs only, so stopping a
+    non-seat process it had started SECONDS EARLIER routed to the leader as a hand `kill` — an act
+    outside every ruled procedure, unreplayable and unaudited. `kill-pane` cannot serve it: both
+    processes were DETACHED with no pane, unreachable by a pane verb under any identity
+    (`p-reap-stray-closed-run-watch-loop` clause (b)). So the fix could not be a widening of who
+    may act; it had to be a command that PERFORMS the act the leader was already authorized to
+    perform, and records it.
+
+    ⚠ NON-SEAT RADIUS BY CONTRACT (criterion 3 arm C). A pid at or below ANY current roster row's
+    pane is REFUSED, unconditionally, no --force. This is not caution — it is the boundary that
+    makes the verb safe to hand a leader: every seat-directed act has its own lifecycle command
+    (`close-seat`, `reap`, `kill-pane`, `depart`) which does the roster, transcript and session-
+    trace work this one deliberately does not. A verb that could reach both would be a second,
+    careless path to closing a seat.
+
+    ⚠ AND THE RADIUS FAILS SAFE. `seat_radius_pids` returns `verifiable=False` when the process
+    table or tmux cannot be read, and this REFUSES on it. An unreadable world would otherwise
+    render an empty radius, i.e. "no pid belongs to a seat" — the guard reporting maximum
+    permission at the moment it can see least.
+
+    THE TARGET IS NAMED, NEVER INHERITED (the row's own constraint). There is no "current process",
+    no environment variable, no default. A pid arrives as an argument or the command does not run.
+    `--starttime` is offered because a pid ALONE is not an identity (`process_identity`): the
+    kernel recycles pids, and the gap between the leader MEASURING a pid and typing this command is
+    exactly the window in which one is reused. Supplying it turns a stale pid into a refusal
+    instead of a stranger's death.
+
+    NO SILENT ESCALATION. It sends the ONE signal it was asked for and then checks. A TERM that
+    does not take is reported and exits non-zero (criterion 2); it does not become a KILL the
+    caller never named. `verify_pids_gone` escalates because a pane teardown must complete; an
+    authorized single terminate must instead do exactly what was authorized."""
+    caller = gate(args, "terminate-pid", is_leader, "the leader's alone",
+                  remedy=CLOSE_OTHER_REMEDY)
+    pid = args.pid
+    if pid <= 1:
+        refuse(
+            "input",
+            f"'{pid}' is not a terminable pid — 1 is init and anything below it is a process "
+            f"GROUP or an error, never one named process. terminate-pid takes exactly one pid.",
+            1)
+
+    ident = process_identity(pid)
+    if ident is None:
+        refuse(
+            "state",
+            f"pid {pid} does not exist (no readable /proc/{pid}/stat) — nothing was signalled and "
+            f"nothing was recorded. Re-measure the pid at the instant of use (`ps -eo "
+            f"pid=,args=`); a pid carried from an earlier reading names a stranger as often as a "
+            f"corpse.",
+            1)
+    if args.starttime and args.starttime != ident[1]:
+        refuse(
+            "state",
+            f"pid {pid} is LIVE but its /proc starttime is {ident[1]}, not the {args.starttime} "
+            f"you measured — the pid was recycled between your reading and this call, so it now "
+            f"names a DIFFERENT process. Refusing: this is the exact case --starttime exists to "
+            f"catch.",
+            1)
+
+    snap = ps_snapshot()
+    if not snap:
+        refuse(
+            "environment",
+            "the process table could not be read (`ps` returned nothing), so neither the "
+            "self-kill guard nor the seat radius can be evaluated. Cannot-tell is not "
+            "not-a-seat, and this verb refuses rather than kill blind.",
+            1)
+    if os.getpid() in descendant_pids(snap, pid):
+        refuse(
+            "state",
+            f"pid {pid} is this very process or an ancestor of it — terminating it would kill "
+            f"`coordinate` mid-act, before the authorization record is written. The record is not "
+            f"decoration: an unrecorded terminate is the hand kill this verb replaces.",
+            1)
+
+    radius, verifiable = seat_radius_pids(args)
+    if not verifiable:
+        refuse(
+            "environment",
+            "the SEAT RADIUS could not be established — the process table or tmux could not be "
+            "read for this run's roster panes. This verb is non-seat-radius BY CONTRACT and "
+            "cannot honour that contract against a world it cannot see, so it refuses. An "
+            "unreadable radius is never an empty one.",
+            1)
+    if pid in radius:
+        seat, pane = radius[pid]
+        refuse(
+            "state",
+            f"pid {pid} belongs to seat '{seat}' (pane {pane}) — terminate-pid is NON-SEAT-radius "
+            f"by contract and no --force lifts this. A seat is ended through its own lifecycle: "
+            f"`close-seat {seat}` (transcript + roster + session trace), or `kill-pane {pane}` if "
+            f"only the pane must be freed. Killing a seat's pid from here would leave its roster "
+            f"row, its debt and its trace all claiming a process that no longer exists.",
+            1)
+
+    cmdline = next((argv for p, _, argv in snap if p == pid), "(argv unreadable)")
+    sig = signal_mod.SIGKILL if args.signal == "KILL" else signal_mod.SIGTERM
+    base = base_dir(args)
+
+    # ⚠ THE RECORD IS WRITTEN BEFORE THE SIGNAL, and the order is the point. It is an AUTHORIZATION
+    # record, not a receipt: it says who licensed this act, against what, and why — all of which is
+    # true the instant before the kill and stays true whether or not the kill takes. Written after,
+    # it would be lost by exactly the failure that most needs a record (the terminate that killed
+    # something it should not have, or the one that took `coordinate` down with it). The OUTCOME is
+    # a second record below, tied to this one by `re:`.
+    auth_n = append_message(
+        base, caller, "all", "note",
+        f"AUTHORIZATION — terminate-pid. Authorized by: {caller} (resolved identity, not an "
+        f"asserted one: `terminate-pid` is leader-gated and this name is what the gate admitted).\n"
+        f"target pid: {pid} · starttime: {ident[1]} · signal: SIG{args.signal}\n"
+        f"target argv: {cmdline}\n"
+        f"non-seat radius: CHECKED — the pid is at or below no current roster row's pane "
+        f"({len(radius)} pid(s) in the seat radius at this instant).\n"
+        f"reason: {args.reason}\n"
+        f"This record is written BEFORE the signal. The outcome follows as its own entry.")
+    print(f"authorization recorded as message #{auth_n} (authorized by: {caller})")
+
+    ok, err = signal_pid(pid, sig)
+    if not ok:
+        append_message(base, caller, "all", "note",
+                       f"OUTCOME — terminate-pid {pid}: the signal could NOT be sent ({err}). "
+                       f"Nothing was terminated.", re_num=auth_n)
+        refuse("environment",
+               f"SIG{args.signal} could not be sent to pid {pid}: {err}. The authorization is on "
+               f"the log as #{auth_n}; the process is untouched.", 1)
+    print(f"SIG{args.signal} sent to pid {pid} ({cmdline[:80]})")
+
+    # Gone is asserted from /proc, never from os.kill's silence — os.kill returns None for a
+    # delivered signal a process is free to ignore, and `terminate-pid` claiming a kill it did not
+    # make is the one lie a terminate verb must never tell (S5, and G-10's shape at pid scale).
+    deadline = time.time() + PID_EXIT_TIMEOUT
+    while time.time() < deadline and process_identity(pid) == ident:
+        time.sleep(0.3)
+    survived = process_identity(pid) == ident
+
+    append_message(
+        base, caller, "all", "note",
+        f"OUTCOME — terminate-pid {pid} (SIG{args.signal}, authorized by {caller}): "
+        + (f"the process SURVIVED {PID_EXIT_TIMEOUT}s and is still live. NOTHING was escalated: "
+           f"this verb sends the signal it was asked for and no other."
+           if survived else "the process is GONE, verified from /proc, not from the signal call."),
+        re_num=auth_n)
+
+    if survived:
+        print(f"process check: pid {pid} is STILL LIVE {PID_EXIT_TIMEOUT}s after SIG{args.signal} "
+              f"— NOT terminated. No escalation was performed.")
+        print(c(f"next: {coord_invocation(args)} terminate-pid {pid} --signal KILL --reason "
+                f"\"<why SIGTERM was not enough>\" — a deliberate second act, never this one's "
+                f"silent second half", C_HINT))
+        sys.exit(1)
+    print(f"process check: pid {pid} is GONE (re-read from /proc, not inferred from the signal)")
+    print(c(f"next: {coord_invocation(args)} read — the authorization (#{auth_n}) and its outcome "
+            f"are on the log for whoever audits this", C_HINT))
+
+
 def cmd_relaunch_pane(args):
     """Relaunch a seat's harness INTO A NAMED, ALREADY-REGISTERED PANE, in place (task 7.95,
     G-282) — the path `close-seat --renew` cannot take for a seat carrying `relays:`, because
@@ -10763,6 +10971,16 @@ def _selftest_checks(args, failures, names):
     # pair rather than the indexed `real` tuple above, which is positional and easy to break.
     global pane_harness_pids, pane_harness_idents, wait_harness_up, verify_pids_gone
     global arm_pid_reaper, tmux_pane_pid, tmux_respawn_pane, available_mb
+    # 7.153: the three seams `terminate-pid`'s own block rebinds. DECLARED HERE, with every other
+    # global, for the reason the s3-06 comment above states in full — a `global` placed after the
+    # name is already read in this scope is a SyntaxError `ast.parse` does not raise and only
+    # `compile()` catches. `process_identity` is READ far below this point by the G-10/G-11 rows,
+    # so its declaration MUST precede them; the 7.153 block saves and restores all three itself.
+    # `PID_EXIT_TIMEOUT` rides in this declaration for a REASON THAT IS NOT STYLE: it is READ a few
+    # lines below, in `verify_pids_gone`'s stub default. A `global` for it beside the 7.153 block
+    # would therefore be a SyntaxError — the exact one this comment's neighbours describe, and the
+    # exact one `ast.parse` reports OK on. Measured: writing it there first is how that was found.
+    global ps_snapshot, signal_pid, process_identity, PID_EXIT_TIMEOUT
     proc_real = (pane_harness_pids, pane_harness_idents, wait_harness_up, verify_pids_gone,
                  arm_pid_reaper, tmux_pane_pid, tmux_respawn_pane, available_mb)
     harness_up = {"v": None}   # None = unverifiable; [] = positively absent; [pid] = up
@@ -14073,6 +14291,182 @@ def _selftest_checks(args, failures, names):
             __import__("shutil").rmtree(pkg / "workers" / _kpd, ignore_errors=True)
         live_tmux_panes["v"] -= {"%701", "%702", "%703"}
         killed.clear()
+
+        # ---- terminate-pid (task 7.153, G-303): the leader's instrument over a NON-SEAT pid ----
+        #
+        # THE THREE ARMS ARE THE ROW'S OWN CONTRACT (criterion 3), and they are here rather than
+        # only in a one-off capture because a matrix run once proves the verb worked once. What is
+        # asserted in EVERY arm is `_tp_signalled` — what was actually signalled — never the exit
+        # code alone: a guard that refuses for the right reason while still having signalled is a
+        # guard that did not guard, and an exit code cannot tell the two apart.
+        #
+        # FOUR SEAMS ARE STUBBED, and the reason each is a seam rather than the real thing:
+        #   ps_snapshot / tmux_pane_pid  — the seat radius must be DERIVED here, from a roster and
+        #     a process table, exactly as it is in production. Stubbing `seat_radius_pids` whole
+        #     would leave the derivation — the part that decides whether a pid is a seat's —
+        #     untested, which is the one thing arm C is about.
+        #   signal_pid                   — a suite that really signalled processes is a suite
+        #     nobody can run on a live box.
+        #   process_identity             — so a fixture pid can be alive, dead, or STUBBORN
+        #     (signalled and still live) on demand; the stubborn case is the only way the
+        #     no-silent-escalation row can be exercised at all.
+        _tp_real = (ps_snapshot, tmux_pane_pid, signal_pid, process_identity, PID_EXIT_TIMEOUT)
+        # Zeroed for THIS BLOCK ONLY. The wait's subject is never what these rows assert: every one
+        # of them turns on which pid was signalled and what /proc says afterwards, and the stub
+        # answers both instantly. The stubborn row would otherwise pay the full budget to reach the
+        # outcome it was always going to reach.
+        PID_EXIT_TIMEOUT = 0.0
+
+        (pkg / "workers" / "tp-seat").mkdir(exist_ok=True)
+        (pkg / "workers" / "tp-seat" / "agent.md").write_text(
+            "---\nagent: tp-seat\nharness: claude\nmodel: opus\n---\nbrief\n")
+        run(cmd_checkin, agent="tp-seat", summary="a live seat, terminate-pid fixture", pane="%711")
+        live_tmux_panes["v"].add("%711")
+
+        # 8100 is tp-seat's pane shell; 8101 is its harness, a CHILD of it — so arm C's target is
+        # reached through the ancestry walk, not by being the pane pid itself. 9000 is the stray
+        # G-303 shape: detached, parented to init, no pane anywhere.
+        _tp_table = [(8100, 1, "-bash"),
+                     (8101, 8100, "claude --model opus"),
+                     (9000, 1, "python3 watch.py --loop 5"),
+                     (9001, 1, "python3 watch.py --loop 5  # the stubborn one")]
+        _tp_live = {8100, 8101, 9000, 9001}
+        _tp_stubborn = {9001}
+        _tp_signalled = []
+        _tp_ps_blind = {"v": False}
+        _tp_tmux_blind = {"v": False}
+
+        ps_snapshot = lambda: ([] if _tp_ps_blind["v"]
+                               else [r for r in _tp_table if r[0] in _tp_live])
+        tmux_pane_pid = lambda pane: (0 if _tp_tmux_blind["v"]
+                                      else (8100 if pane == "%711" else 0))
+        process_identity = lambda pid: ((pid, f"st-{pid}") if pid in _tp_live else None)
+
+        def _tp_signal(pid, sig):
+            _tp_signalled.append((pid, int(sig)))
+            if pid not in _tp_stubborn:
+                _tp_live.discard(pid)
+            return True, ""
+        signal_pid = _tp_signal
+
+        def _tp_args(**kw):
+            d = {"agent": "leader", "pid": 9000, "reason": "a fixture terminate",
+                 "starttime": None, "signal": "TERM"}
+            d.update(kw)
+            return d
+
+        # ARM B first, DELIBERATELY: it runs while the target is still alive and still terminable,
+        # so a pass here cannot be an artefact of the target already being gone. Run last, after
+        # arm A had killed 9000, this row would go green on a verb with no gate at all.
+        _tpb_o, _tpb_c = refuse(cmd_terminate_pid, **_tp_args(agent="zeta"))
+        check("7.153 arm B (criterion 3): terminate-pid REFUSES a caller who is not the leader — "
+              "role gate, exit 2 — and NOTHING is signalled. The exit code alone would not "
+              "establish the second half, which is the half that matters",
+              _tpb_c == 2 and "terminate-pid" in _tpb_o and _tp_signalled == [])
+
+        _tpc_o, _tpc_c = refuse(cmd_terminate_pid, **_tp_args(pid=8101))
+        check("7.153 arm C (criterion 3): a pid inside the SEAT RADIUS is refused even for the "
+              "leader and with no --force escape — 8101 is a CHILD of tp-seat's pane pid, so the "
+              "refusal comes from the ancestry walk over a real roster row, not from matching a "
+              "pane pid; the text names the seat and routes to close-seat",
+              _tpc_c == 1 and "belongs to seat 'tp-seat'" in _tpc_o
+              and "close-seat tp-seat" in _tpc_o and _tp_signalled == [])
+
+        # THE CONTROL FOR ARM C — can it go red? The radius is what refuses, so remove the radius
+        # and the SAME call must be permitted. Without this row, arm C passes identically whether
+        # the guard reads the roster or refuses every pid it is ever handed.
+        _tp_radius_off = [r for r in _tp_table]
+        _tp_table = [(8101, 1, "claude --model opus")] + [r for r in _tp_table if r[0] != 8101]
+        _tp_ctl_o = run(cmd_terminate_pid, **_tp_args(pid=8101))
+        check("7.153 arm C, the control (S6 — a green that cannot go red proves nothing): with "
+              "8101 REPARENTED off tp-seat's pane, the identical call is PERMITTED and the pid is "
+              "signalled. So arm C's refusal is the seat radius answering, not a verb that "
+              "refuses everything",
+              "GONE" in _tp_ctl_o and (8101, int(signal_mod.SIGTERM)) in _tp_signalled)
+        _tp_table = _tp_radius_off
+        _tp_live.add(8101)
+        _tp_signalled.clear()
+
+        _tpe_o, _tpe_c = refuse(cmd_terminate_pid, **_tp_args(starttime="st-WRONG"))
+        check("7.153 (pid reuse): a --starttime that disagrees with /proc REFUSES — a pid alone "
+              "is not an identity, and the gap between measuring one and typing this command is "
+              "exactly the window a recycled pid slips through. Nothing is signalled",
+              _tpe_c == 1 and "recycled" in _tpe_o and _tp_signalled == [])
+
+        _tp_ps_blind["v"] = True
+        _tpf_o, _tpf_c = refuse(cmd_terminate_pid, **_tp_args())
+        # ⚠ THIS ROW'S SUBJECT IS THE `ps` GUARD, NOT THE RADIUS, AND THE DISTINCTION IS MEASURED.
+        # An unreadable process table refuses at the EARLIER snapshot check (the self-kill guard
+        # needs the same table), so this row goes green whether or not the radius fail-safe works —
+        # it is confounded for the radius and honest only for `ps`. Naming it "the radius fails
+        # closed" would have been a check whose title described a guard it cannot see. The radius's
+        # OWN fail-safe is the next row, and the M4 mutation reddens that one and not this one.
+        check("7.153 fail-safe (the process table is unreadable): terminate-pid REFUSES rather "
+              "than kill. Cannot-tell is never nothing — and neither the self-kill guard nor the "
+              "seat radius can be evaluated against a world that cannot be read at all",
+              _tpf_c == 1 and "process table could not be read" in _tpf_o
+              and _tp_signalled == [])
+        _tp_ps_blind["v"] = False
+
+        _tp_tmux_blind["v"] = True
+        _tpg_o, _tpg_c = refuse(cmd_terminate_pid, **_tp_args())
+        check("7.153 fail-safe (the RADIUS's own, and this is the row that measures it): the "
+              "process table reads fine — so every earlier guard is satisfied and this call "
+              "reaches the radius — but tmux resolves NONE of the roster's panes, so the radius "
+              "is unverifiable. Refused, nothing signalled. An unreadable radius would otherwise "
+              "render EMPTY, i.e. 'no pid belongs to a seat': maximum permission at the moment "
+              "the guard can see least",
+              _tpg_c == 1 and "never an empty one" in _tpg_o and _tp_signalled == [])
+        _tp_tmux_blind["v"] = False
+
+        _tph_o, _tph_c = refuse(cmd_terminate_pid, **_tp_args(pid=1))
+        check("7.153 (criterion: the target is NAMED, and bounded): pid 1 and below is refused as "
+              "input — 1 is init and anything below it names a process GROUP, never one process",
+              _tph_c == 1 and "not a terminable pid" in _tph_o and _tp_signalled == [])
+
+        _tpi_o, _tpi_c = refuse(cmd_terminate_pid, **_tp_args(pid=7654))
+        check("7.153 (a pid that does not exist): refused, and NOT reported as a successful "
+              "terminate — 'it is gone now' is exactly what a verb must not say about a process "
+              "it never found; criterion 2's exits-non-zero half",
+              _tpi_c == 1 and "does not exist" in _tpi_o and _tp_signalled == [])
+
+        # ARM A — the permit direction, and the record. Runs after every refusal row so that no
+        # refusal above could have been passing merely because the target was already dead.
+        _tpa_o = run(cmd_terminate_pid, **_tp_args(reason="stray watch.py loop, G-303 case 2"))
+        _tp_msgs = (pkg / "coordination" / "messages.md").read_text(encoding="utf-8")
+        check("7.153 arm A (criterion 3): the leader terminates a NON-SEAT pid — the signal is "
+              "actually sent, and the process is reported GONE from a /proc re-read rather than "
+              "from os.kill's silence (S5: a delivered signal a process ignores returns None too)",
+              (9000, int(signal_mod.SIGTERM)) in _tp_signalled and "GONE" in _tpa_o
+              and 9000 not in _tp_live)
+        check("7.153 criterion 4 (the authorization record): the act is written to the "
+              "coordination log and the record NAMES THE AUTHORIZING PARTY — read back from "
+              "messages.md on disk, never from the command's own output, which certifies nothing "
+              "about what was written (S5). The reason travels with it, so the record answers "
+              "'why' and not only 'who'",
+              "AUTHORIZATION — terminate-pid" in _tp_msgs
+              and "Authorized by: leader" in _tp_msgs
+              and "reason: stray watch.py loop, G-303 case 2" in _tp_msgs
+              and "target pid: 9000" in _tp_msgs)
+        check("7.153 criterion 4 (the outcome is its OWN record, tied to the authorization): the "
+              "authorization is written BEFORE the signal, so it survives a terminate that kills "
+              "the caller or takes the wrong process; the outcome follows as a separate entry",
+              "OUTCOME — terminate-pid 9000" in _tp_msgs and "is GONE, verified from /proc" in _tp_msgs)
+
+        _tp_signalled.clear()
+        _tpj_o, _tpj_c = refuse(cmd_terminate_pid, **_tp_args(pid=9001))
+        check("7.153 (no silent escalation): a target that SURVIVES the signal exits non-zero and "
+              "is reported as still live — and exactly ONE signal was sent. A TERM that does not "
+              "take never becomes a KILL the caller did not name; `verify_pids_gone` escalates "
+              "because a pane teardown must complete, and an authorized single terminate must "
+              "instead do exactly what was authorized",
+              _tpj_c == 1 and _tp_signalled == [(9001, int(signal_mod.SIGTERM))]
+              and 9001 in _tp_live)
+
+        (ps_snapshot, tmux_pane_pid, signal_pid, process_identity,
+         PID_EXIT_TIMEOUT) = _tp_real
+        __import__("shutil").rmtree(pkg / "workers" / "tp-seat", ignore_errors=True)
+        live_tmux_panes["v"].discard("%711")
 
         # ---- relaunch-pane (task 7.95, G-282): revive an ALREADY-REGISTERED, bare pane IN ----
         # ---- PLACE via the same tmux_respawn_pane + launch_seat(pane=...) pair close-seat's ----
@@ -19340,7 +19734,7 @@ HELP_EPILOG = """everyday
 leader
   launch      open one tmux seat per worker briefing and start its harness
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / close-run / current-run / attest-exit  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · end / resolve the run · record that a one-shot harness terminated (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / current-run / attest-exit  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · record that a one-shot harness terminated (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -20008,6 +20402,43 @@ def build_parser():
                     help="the tmux PANE ID to kill (e.g. %%482) -- never a seat name")
     add_identity_flags(s)
     s.set_defaults(func=cmd_kill_pane)
+
+    s = command(
+        "terminate-pid",
+        "(leader) Terminate ONE process named by pid, with the authorization written to the\n"
+        "coordination log (task 7.153, G-303). The verb the leader was always authorized to have\n"
+        "and never had: a detached non-seat process — a stray watch.py, a loop a seat could not\n"
+        "stop — could only be ended by a hand `kill`, which nothing replays and nothing audits.\n"
+        "`kill-pane` cannot serve it: a detached process has no pane.\n"
+        "NON-SEAT RADIUS BY CONTRACT: a pid at or below ANY current roster row's pane is REFUSED,\n"
+        "and no --force lifts it — a seat ends through close-seat/reap/kill-pane, which do the\n"
+        "roster, transcript and trace work this verb deliberately does not.\n"
+        "Sends the ONE signal it was asked for and then VERIFIES from /proc; a SIGTERM that does\n"
+        "not take is reported and exits non-zero, never silently escalated to SIGKILL.",
+        "example:\n"
+        "  coordinate terminate-pid 1302382 --reason \"stray watch.py loop, G-303 case 2\"\n"
+        "  coordinate terminate-pid 1302382 --starttime 884118 --reason \"...\"   # pid-reuse guard\n"
+        "next: coordinate read -- the authorization and its outcome are on the log for the audit")
+    s.add_argument("pid", type=int,
+                   help="the pid to terminate -- NAMED, never inherited: there is no 'current "
+                        "process' default and never will be. Re-measure it at the instant of use "
+                        "(`ps -eo pid=,args=`); a pid carried from an earlier reading names a "
+                        "stranger as often as a corpse")
+    s.add_argument("--reason", required=True,
+                   help="why this process is being terminated, quoted -- it is written into the "
+                        "authorization record, which is the whole point of the verb: a terminate "
+                        "nobody can later ask 'why' about is the hand kill this replaces")
+    s.add_argument("--starttime", default=None, metavar="S",
+                   help="the target's /proc starttime as YOU measured it -- a pid ALONE is not an "
+                        "identity, and the gap between your reading and this call is exactly the "
+                        "window a recycled pid slips through. Supplying it turns a stale pid into "
+                        "a refusal instead of a stranger's death")
+    s.add_argument("--signal", choices=("TERM", "KILL"), default="TERM",
+                   help="which signal to send (default TERM). KILL is a SECOND, deliberate act "
+                        "after a TERM was seen not to take -- never this command's silent second "
+                        "half")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_terminate_pid)
 
     s = command(
         "relaunch-pane",

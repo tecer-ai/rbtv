@@ -39,6 +39,7 @@ import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 
 def log(msg):
@@ -105,7 +106,49 @@ def harness_pids(pane, socket=None):
     return kids
 
 
-def launch_argv(args):
+def resolve_package(args):
+    """(Path, provenance) or (None, refusal) — the run package the recovery seat is launched into.
+
+    THE TARGET IS RESOLVED, NEVER PINNED. The LIVE `selfheal-room` entry used to carry
+    `--package .../runs/run-1` for a run closed 2026-07-27, so a fire would have booted a recovery
+    seat into a CLOSED run's package while the job's own status kept reading healthy. Swapping in a
+    different run number reproduces that defect at the next run close; the fix is that the live
+    entry names NO run at all and asks the register instead (task 7.188 / design M4-49, discharging
+    7.106 criterion 3's remainder). This is the same remedy `selfheal-watch.py:resolve_package()`
+    already carries for the sensor, deliberately in the same shape — two jobs answering "which run
+    is live" two different ways is the defect one level up.
+
+    `--package` SURVIVES AS THE EXPLICIT OVERRIDE and wins whenever it is present. That is not a
+    compatibility shim: the THROWAWAY twin (`selfheal-room-throwaway`) must target a scratch
+    package and must NEVER resolve live, because a throwaway recovery pointed at the live run opens
+    agents into the live room. The twin therefore passes `--package` and NOT `--goal`, so dropping
+    its override cannot silently promote it onto the live run — it refuses instead.
+
+    THE REGISTER IS READ BY EXACTLY ONE READER, AND IT IS NOT THIS FILE. `coord.resolve_live_run()`
+    already does this and already REFUSES rather than guesses when zero or two rows read `open`
+    (R9's one-live-run guarantee, whose enforcement — task 7.77 — is NOT BUILT). A second CSV
+    reader here would be a second answer to the same question. `coord` is imported INSIDE this
+    function from the `--coord` path this job already requires, so a copy-and-test of this file
+    carries no sibling dependency it does not otherwise need.
+
+    Refusal is FAIL-CLOSED and returns no package: a recovery that guessed its target on an
+    ambiguous register is worse than no recovery, which is this whole script's premise."""
+    if args.package:
+        return Path(args.package).resolve(), "--package (explicit override; register not consulted)"
+    if not args.goal:
+        return None, ("no --package, so the target must resolve from the run register — but --goal "
+                      "is absent. Register resolution needs the goal folder holding runs.csv.")
+    sys.path.insert(0, str(Path(args.coord).resolve().parent))
+    import coord  # noqa: E402  — the register's single reader; see this docstring
+    goal = Path(args.goal).resolve()
+    run_id, detail = coord.resolve_live_run(goal)
+    if not run_id:
+        return None, (f"register at {goal / 'runs.csv'} did not resolve ONE live run: {detail}")
+    return (goal / "runs" / run_id).resolve(), (
+        f"{goal / 'runs.csv'} state=open -> {run_id} (resolved live via coord.resolve_live_run, R10)")
+
+
+def launch_argv(args, package):
     """The EXACT argv the recovery executes. Built here, above every early return, so a
     `--dry-run` can print the real thing (G-56).
 
@@ -119,7 +162,7 @@ def launch_argv(args):
     EXACTLY the low-memory state that kills seats and calls for recovery. Tonight's readings
     touched 2449 / 2757 / 2837 against a 2800 floor. A run whose healing fails precisely when it
     is needed is worse than one with no healing, because the second is honest about it."""
-    return [sys.executable, args.coord, "--package", args.package,
+    return [sys.executable, args.coord, "--package", str(package),
             "launch", "--only", args.seat, "--force", "--force-memory"]
 
 
@@ -183,7 +226,15 @@ def main():
     ap = argparse.ArgumentParser(
         description="Re-create a dead room and boot a recovery seat into it, explicitly.")
     ap.add_argument("--session", required=True, help="tmux session name that IS the room")
-    ap.add_argument("--package", required=True, help="run package the seat belongs to")
+    # ⚠ NO LONGER REQUIRED, AND THE LIVE ENTRY CARRIES NO RUN NUMBER ANY MORE (task 7.188).
+    # `--package` is the EXPLICIT OVERRIDE; absent, the target resolves from the run register at
+    # FIRE TIME. See resolve_package() for why the override survives and why the twin needs it.
+    ap.add_argument("--package", default=None,
+                    help="run package the seat belongs to — the EXPLICIT OVERRIDE. Absent: "
+                         "resolved live from the goal's run register (needs --goal)")
+    ap.add_argument("--goal", default=None,
+                    help="goal folder whose runs.csv resolves the live run when --package is "
+                         "absent. Names a GOAL, never a run — there is no run number to go stale")
     ap.add_argument("--seat", required=True, help="seat to launch as the recovery agent")
     ap.add_argument("--coord", required=True, help="absolute path to coord.py")
     ap.add_argument("--cwd", default=None, help="cwd for the created session (default: package)")
@@ -195,7 +246,16 @@ def main():
     args = ap.parse_args()
 
     sock = args.tmux_socket
-    cwd = args.cwd or args.package
+
+    # ---- 0a · the target, RESOLVED and never pinned (task 7.188) -----------
+    # Ahead of the gate check and of any tmux call: a recovery that cannot say which run it is
+    # repairing must not create a session first and discover that afterwards.
+    package, provenance = resolve_package(args)
+    if package is None:
+        log(f"FATAL — REFUSING to recover: {provenance}")
+        return 2
+    log(f"target package {package} — {provenance}")
+    cwd = args.cwd or str(package)
 
     # ---- 0 · the precondition this path never used to state (S-6(a)) ------
     # Checked BEFORE anything is created, and on --dry-run too: a cheap check that stayed silent
@@ -223,7 +283,7 @@ def main():
                 f"explicitly, re-read it for ownership, then run the argv below with "
                 f"COORD_LAUNCH_TARGET set to that pane.")
             disclose_overrides()
-            log(f"DRY-RUN argv: {' '.join(launch_argv(args))}")
+            log(f"DRY-RUN argv: {' '.join(launch_argv(args, package))}")
             return 0
         r = tmux("new-session", "-d", "-s", args.session, "-c", cwd,
                  "-P", "-F", "#{pane_id}", socket=sock)
@@ -249,14 +309,14 @@ def main():
     if args.dry_run:
         log(f"DRY-RUN — would launch '{args.seat}' with COORD_LAUNCH_TARGET={pane}")
         disclose_overrides()
-        log(f"DRY-RUN argv: {' '.join(launch_argv(args))}")
+        log(f"DRY-RUN argv: {' '.join(launch_argv(args, package))}")
         return 0
 
     # ---- 3 · launch, with the target handed over EXPLICITLY ---------------
     env = dict(os.environ)
     env["COORD_LAUNCH_TARGET"] = pane
     env.pop("TMUX_PANE", None)   # never let a stale pane win over the one we just proved
-    cmd = launch_argv(args)
+    cmd = launch_argv(args, package)
     disclose_overrides()
     log(f"launching: COORD_LAUNCH_TARGET={pane} {' '.join(cmd)}")
     try:

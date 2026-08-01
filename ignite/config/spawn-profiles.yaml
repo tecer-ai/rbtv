@@ -360,8 +360,15 @@ tools:
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/recover-room.py
       - --session
       - build-core-daemon-mvp
-      - --package
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1
+      # ⚠ THIS ENTRY DELIBERATELY NAMES NO RUN — task 7.188 (design M4-49), discharging 7.106
+      # criterion 3's remainder. It carried `--package .../runs/run-1` for a run CLOSED
+      # 2026-07-27, so a fire would have booted the recovery seat into a closed run's package
+      # while the job's own status kept reading healthy. Swapping in run-3 reproduces that defect
+      # at the next run close; naming the GOAL and asking runs.csv does not. Same remedy and same
+      # shape as the live `selfheal-watch` entry below — resolved through coord.resolve_live_run
+      # (R10), which REFUSES rather than guesses on zero or two open rows.
+      - --goal
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp
       - --seat
       - recovery-agent
       - --coord
