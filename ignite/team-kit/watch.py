@@ -233,7 +233,11 @@ def system_pressure():
 # ---------- claude transcript matching ----------
 
 def munge_cwd(cwd):
-    return re.sub(r"[/.]", "-", str(cwd))
+    # A declared seat cwd may carry a trailing slash (materialize's `cwd-mode: seat-folder`
+    # bakes one into the frontmatter); the harness's project-dir name never does. Munging the
+    # slash into a trailing `-` names a directory that does not exist, so every transcript
+    # lookup from a declared cwd returns None and the CONTEXT flag can never fire.
+    return re.sub(r"[/.]", "-", str(cwd).rstrip("/") or "/")
 
 
 def projects_dir(override=None):
@@ -283,16 +287,16 @@ def find_transcript(agent, cwd, proj_override=None):
 def find_transcript_by_path_fragment(agent, cwd, proj_override=None):
     """Fallback for a seat whose boot prompt never carries the standard launch phrasing (a
     hand-started seat, e.g. leader). Newest transcript JSONL in cwd's project dir whose first
-    user text references this seat's own `workers/<agent>/` path fragment. mtime alone is never
-    sufficient — the fragment match is required."""
+    user text references this seat's own `seats/<agent>/` (or legacy `workers/<agent>/`) path
+    fragment. mtime alone is never sufficient — the fragment match is required."""
     pdir = projects_dir(proj_override) / munge_cwd(cwd)
     if not pdir.is_dir():
         return None
-    fragment = f"workers/{agent}/"
+    fragments = (f"seats/{agent}/", f"workers/{agent}/")
     candidates = []
     for p in sorted(pdir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
         head = first_user_text(p)
-        if fragment in head:
+        if any(f in head for f in fragments):
             candidates.append(p)
     return candidates[0] if candidates else None
 
@@ -1110,6 +1114,41 @@ PRESSURE_REFLAG_MEM_MB = 250
 PRESSURE_REFLAG_LOAD = 1.0
 
 
+def pressure_remedy(mem_low, load_high):
+    """The remedy sentence for the trigger that ACTUALLY fired.
+
+    ⚠ WHY THIS IS NOT ONE STRING ANY MORE. The sent message asserted "An OOM cascade kills seats
+    AND this watcher itself. Free the box NOW" on EVERY crossing — including a load-only one,
+    where RAM is above the floor and no OOM is coming. A remedy that is wrong most of the times it
+    is read costs twice: the reader who follows it acts on the wrong cause, and the reader who
+    learns to discount it ignores the message that matters. The condition was already computed a
+    few lines up; only the text was unconditional.
+
+    ⚠ EVERY ARM LEADS WITH AN INSPECT MOVE, and that ordering is the rule, not the style. A remedy
+    whose FIRST verb is destructive gets a seat closed on a reading nobody looked at. Closing
+    comes after the census, never instead of it. No arm names a specific seat-terminating
+    invocation: which pane may be closed and which may never be is 7.164's door-exemption
+    question, and a second answer here would be a second home for it."""
+    if mem_low and load_high:
+        return ("Memory AND load both fired; MEMORY is the one that kills — an OOM cascade takes "
+                "the seats AND this watcher itself, the one process that would report it. Read "
+                "the box first (`free -m`, `uptime`, then the per-seat census) and treat the RAM "
+                "as the emergency: close out idle/done seats, tear down leftover dead wave "
+                "windows (tmux kill-window), and pause further launches until this clears. The "
+                "load may well drain on its own once the memory picture is dealt with.")
+    if mem_low:
+        return ("An OOM cascade kills seats AND this watcher itself, the one process that would "
+                "report it. Read the box first (`free -m`, then the per-seat census) to see what "
+                "is holding the RAM, then free it: close out idle/done seats, tear down leftover "
+                "dead wave windows (tmux kill-window), and pause further launches until this "
+                "clears.")
+    return ("This is LOAD, not memory: RAM is ABOVE the floor, nothing here says an OOM is "
+            "coming, and no seat needs closing on this flag's account. Read what is actually "
+            "running first (`uptime`, `ps` sorted by CPU) — a compile, a selftest sweep or a "
+            "transcript scan is load that drains by itself. Hold further launches until it "
+            "drains, and escalate only if it does not.")
+
+
 def check_system(args, sysstate, notes):
     """PROP-9 — system memory/load as a first-class duty of the loop: the run's stuck-process
     pile-up OOM-killed the WATCHER itself, and nothing had the instrumentation to see the
@@ -1157,11 +1196,9 @@ def check_system(args, sysstate, notes):
             head = ("SYSTEM PRESSURE" if first
                     else f"SYSTEM PRESSURE WORSENING — {worse}.")
             notes.append(
-                f"watch: {head} — {sp['avail_mb']}MB RAM available (floor {floor}MB), "
-                f"load {sp['load1']}/{sp['cores']} cores. An OOM cascade kills seats AND this "
-                f"watcher itself. Free the box NOW: accelerate close-out of idle/done seats, "
-                f"tear down leftover dead wave windows (tmux kill-window), and pause further "
-                f"launches until this clears.")
+                f"watch: {head} [{' '.join(flags)}] — {sp['avail_mb']}MB RAM available "
+                f"(floor {floor}MB), load {sp['load1']}/{sp['cores']} cores. "
+                f"{pressure_remedy(mem_low, load_high)}")
             sysstate["notified_pressure"] = True
             sysstate["pressure_reading"] = {"avail_mb": sp["avail_mb"], "load1": sp["load1"]}
         elif prev is None:
