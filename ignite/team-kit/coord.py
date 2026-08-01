@@ -1918,8 +1918,20 @@ RUNS_INDEX_COLS = ["run-id", "type", "state", "taskforce-ids", "opened", "closed
 # the alternatives are worse: `taskforce.csv` may not carry run state (it is DERIVED), and a new
 # coordination file re-imports the two-surfaces hazard this module already names.
 # ⚠ AN EMPTY CELL IS `unknown`, NEVER `done` — see `session_disposition` below.
+# `disposition-writer` (task 7.155) is APPENDED LAST, after `disposition`, and it holds the writer
+# that was VALIDATED for the value beside it — never a second, independently-chosen name. It exists
+# because `d-exited-row-closure` gave the `disposition` column a SECOND author: until 7.155 every
+# value on this row came from the seat's own check-out or the kit's attest arm, and a reader could
+# infer the author from the value. The leader's ruled `done` is indistinguishable from a seat's own
+# `done` BY VALUE, and the two mean different things — one is a seat reporting its own work
+# finished, the other is a third party's ruling after an investigation. A reader that cannot tell
+# them apart cannot audit the ruled ones, so the author is RECORDED rather than inferred.
+# ⚠ AN EMPTY CELL HERE MEANS `not recorded`, and it is the reading every row written before this
+# column existed carries. It is NEVER read as `seat`: guessing an author is the same class of
+# defect as guessing a disposition, one field over.
 SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir",
-                 "recorded", "started", "ended", "pid", "pid-starttime", "tty", "disposition"]
+                 "recorded", "started", "ended", "pid", "pid-starttime", "tty", "disposition",
+                 "disposition-writer"]
 NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close re-resolves
 
 
@@ -2580,6 +2592,13 @@ def session_close(args, seat, disposition="", writer=DISPOSITION_WRITER_SEAT):
         if disposition and "disposition" in idx:
             validate_disposition(disposition, writer)
             target[idx["disposition"]] = disposition
+            # 7.155: the AUTHOR, written from the SAME pair the line above validated — never
+            # re-derived, never looked up. It is recorded here and not only on the ruled-flip path
+            # because a column filled on one path and blank on the others cannot be read: a blank
+            # would mean both "written before this column existed" and "written by a path that does
+            # not bother", and the second reading would make the first unprovable.
+            if "disposition-writer" in idx:
+                target[idx["disposition-writer"]] = writer
         if ("native-session-id" in idx and not target[idx["native-session-id"]].strip()
                 and target[idx.get("harness", 0)].strip() == "claude"):
             since = None
@@ -2594,6 +2613,99 @@ def session_close(args, seat, disposition="", writer=DISPOSITION_WRITER_SEAT):
         write_csv_table(path, header, rows)
         ensure_run_index(pkg)
         return target[idx["session-id"]].strip() if "session-id" in idx else ""
+
+
+# ---- 7.155: THE RULED FLIP — the second half of `d-exited-row-closure` -----------------------
+#
+# THE RULING, verbatim (`core-build-run-adjustments/decisions.md#d-exited-row-closure`, owner,
+# ruling A-10, 2026-07-28): the leader's act on an `exited` row routed to it by the
+# chief-of-staff's sweep is to INVESTIGATE whether the row needs relaunching, and "if the work had
+# in fact CONCLUDED, simply switch the row to `done`."
+#
+# 7.154 made that act REPRESENTABLE — `RECORD_DISPOSITION_WRITER` now admits `done` from the
+# leader. Nothing PERFORMED it: every disposition writer in this file targets the seat's LAST OPEN
+# row (`session_close`, reached from checkout / close-seat / depart / attest-exit), and the row the
+# ruling speaks about is ENDED — the arm that ended it wrote `exited` on the way out. So the tool
+# printed an instruction whose only execution path was a human editing a CSV by hand, which is the
+# one edit the whole `validate_disposition` boundary exists to prevent.
+#
+# ⚠ THE SOURCE VALUE IS PINNED, AND THE NARROWNESS IS THE POINT. The ruling grants ONE transition:
+# an investigated `exited` row becomes `done`. It does not grant the leader a general power to
+# rewrite dispositions, so this verb refuses a row that is not sitting on `exited` — a leader
+# "correcting" a seat's own `done` or `renew` is not the ruled act and has no ruling behind it.
+# The DESTINATION value is NOT pinned here: it is validated against `RECORD_DISPOSITION_WRITER`
+# like every other write, so what the leader may write is decided by the writer model and by
+# nothing this verb declares. A second copy of that decision here is the drift 7.154's split
+# exists to prevent (PRIN-11).
+RULED_FLIP_FROM = "exited"
+
+
+def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
+    """Record a RULED disposition on `seat`'s LAST session row, which must ALREADY BE ENDED.
+
+    Returns `(session_id, "")` on a write and `("", reason)` on a refusal. NOTHING is written on a
+    refusal, and `dry=True` runs every check and writes nothing either way — one predicate serving
+    the report pass and the acting pass, so a `--go` run can never accept what a bare run refused.
+
+    ⚠ IT IS THE MIRROR IMAGE OF `session_close`'S ROW SELECTION, DELIBERATELY. That one takes the
+    LAST OPEN row (the live session); this one takes the LAST row and REFUSES it while it is open.
+    The two together mean no row is reachable by both: a live session's disposition is its own
+    occupant's to declare at check-out, and a third party writing one into a session still running
+    would be recording an ending that has not happened. That refusal is this function's ACTIVE arm.
+
+    ⚠ THE WRITER IS A PARAMETER, exactly as in `session_close`, and for the same reason: deriving
+    it from the mapping it is then checked against would be a guard that cannot fire. The CALL SITE
+    declares which side is writing; `validate_disposition` — the ONE copy of the writer model —
+    decides whether that side may. This function holds no copy of the model and no opinion about
+    which writers exist."""
+    # FIRST, and before the file is even opened: an out-of-enum value or a writer reaching across
+    # the bound is a caller contract breach, and it RAISES (R-8) rather than being reported as one
+    # more refusable row state. The two failures are different in kind and must stay so.
+    validate_disposition(disposition, writer)
+    path = sessions_csv(pkg)
+    if not path.exists():
+        return "", (f"no `sessions.csv` under {pkg} — this run has no session trace at all, so "
+                    f"there is no ended row to rule on")
+    with coord_lock(base):
+        header, rows = read_csv_table(path, SESSIONS_COLS)
+        header, widened = widen_header(header, SESSIONS_COLS)
+        if widened:
+            rows = [pad_row(r, header) for r in rows]
+        idx = {c: i for i, c in enumerate(header)}
+        if not {"seat", "ended", "disposition"} <= set(idx):
+            return "", ("this `sessions.csv` carries no `seat`/`ended`/`disposition` columns — it "
+                        "predates the durable disposition column and cannot record a ruling")
+        target = None
+        for r in rows:                      # LAST row wins — the seat's CURRENT session
+            pad_row(r, header)
+            if r[idx["seat"]].strip() == seat:
+                target = r
+        if target is None:
+            return "", (f"no session row for seat '{seat}' in {path} — a ruling is recorded ON a "
+                        f"row, and there is none to carry it")
+        if not target[idx["ended"]].strip():
+            return "", (f"'{seat}'s LAST session row ({target[idx['session-id']].strip() or '?'}) "
+                        f"is still OPEN — no `ended` stamp, so that session has not finished. This "
+                        f"verb writes ENDED rows ONLY: a disposition on a live session would be a "
+                        f"third party recording an ending that has not happened, and the "
+                        f"occupant's own check-out is what ends it. If the seat is gone but the "
+                        f"row is open, that is `attest-exit`'s act, not this one")
+        current = target[idx["disposition"]].strip()
+        if current != RULED_FLIP_FROM:
+            return "", (f"'{seat}'s last row carries disposition "
+                        f"{current or '<empty — nobody declared one>'!s}, not "
+                        f"`{RULED_FLIP_FROM}`. `d-exited-row-closure` grants the leader ONE "
+                        f"transition — an INVESTIGATED `{RULED_FLIP_FROM}` row becomes what the "
+                        f"investigation found — and grants no power to rewrite a disposition its "
+                        f"own writer declared. Nothing was written")
+        if dry:
+            return target[idx["session-id"]].strip(), ""
+        target[idx["disposition"]] = disposition
+        if "disposition-writer" in idx:
+            target[idx["disposition-writer"]] = writer
+        write_csv_table(path, header, rows)
+        ensure_run_index(pkg)
+        return target[idx["session-id"]].strip(), ""
 
 
 def session_disposition(pkg, seat):
@@ -3721,6 +3833,43 @@ def set_awaiting(base, seat, pane, transcript, exported, disposition="done", han
         return True
     except (OSError, ValueError):
         return False
+
+
+def rule_awaiting_disposition(base, seat, disposition, writer):
+    """Re-point an EXISTING awaiting-close entry's `disposition` at a ruled value, changing NOTHING
+    else in it. Returns `"updated"`, `"absent"` (no entry to re-point) or `"failed"`.
+
+    ⚠ WHY THIS EXISTS RATHER THAN A `set_awaiting` CALL, and it is not a style preference.
+    `set_awaiting` REBUILDS the record: a fresh `since`, and `pids` re-resolved off the pane AS IT
+    IS NOW. On the path this serves the pane is typically dead, so a rebuild would replace the
+    harness identity `reap` gates its pane-kill on with an empty list — turning "these exact
+    processes were on this pane when the seat left" into "nothing was", which is the one assertion
+    that record exists to carry. A ruling about a disposition must not silently rewrite the
+    evidence beside it.
+
+    ⚠ AND WHY IT IS WRITTEN AT ALL: `terminal_disposition` reads BOTH surfaces and reports SKEW
+    when they disagree, and `attest-exit` leaves `exited` on BOTH. A ruled flip that touched only
+    the durable row would manufacture exactly that disagreement — the seat's verdict would go from
+    `exited` (routes to the leader) to SKEW (⚠ ADJUDICATE, advances nothing), so the instrument
+    built to perform the leader's exit would have deepened the hole it was closing. Measured on a
+    fixture before this function existed; the capture is in this task's evidence folder.
+
+    Best-effort in the same sense `set_awaiting` is — the durable row is the DAG's source and is
+    written first by the caller — but the validation sits OUTSIDE the try for that function's own
+    reason: a contract breach must not be swallowed into a `False` that reads like a full disk."""
+    validate_disposition(disposition, writer)
+    try:
+        with coord_lock(base):
+            data = load_awaiting(base)
+            entry = data.get(seat)
+            if not isinstance(entry, dict):
+                return "absent"
+            entry["disposition"] = disposition
+            data[seat] = entry
+            atomic_write(awaiting_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
+        return "updated"
+    except (OSError, ValueError):
+        return "failed"
 
 
 def clear_awaiting(base, seat):
@@ -9245,9 +9394,68 @@ def cmd_attest_exit(args):
     if acted:
         print(c(f"\n{acted} seat(s) attested `exited`. THAT IS THE ONLY CLAIM MADE: the harness "
                 f"terminated. Whether the work is done is NOT established here — each row routes "
-                f"to the LEADER, which investigates and either relaunches the seat or flips its "
-                f"disposition to `done`. Until then it advances NO edge "
-                f"({coord_invocation(args)} ready-seats).", C_HINT))
+                f"to the LEADER, which investigates and either relaunches the seat or, where the "
+                f"work had in fact concluded, records that ruling with "
+                f"`{coord_invocation(args)} rule-disposition <seat> done --go` (leader's; the row "
+                f"then names the leader as the party that ruled it). Until then it advances NO "
+                f"edge ({coord_invocation(args)} ready-seats).", C_HINT))
+
+
+def cmd_rule_disposition(args):
+    """(leader) Record a RULED disposition on a session row that has ALREADY ENDED — the second
+    half of `d-exited-row-closure`. BARE = report; `--go` = write.
+
+    THE ACT, in full: the chief-of-staff's sweep routes an `exited` row to the leader; the leader
+    INVESTIGATES whether the seat needs relaunching; where the work had in fact concluded, this is
+    how that finding is recorded. The investigation is the leader's and happens before this command
+    — the command records a ruling, it never makes one, and it reads nothing about the work.
+
+    ⚠ BOTH SURFACES, ONE VALUE, DURABLE FIRST. `terminal_disposition` reads `awaiting-close.json`
+    and the session row and reports SKEW when they disagree, and `attest-exit` wrote `exited` to
+    both. The durable row is written first because it is the surface that survives the lifecycle
+    executor's clear; the live entry is re-pointed after, and its outcome is REPORTED rather than
+    assumed — an `absent` entry is the ordinary case for a seat whose debt was already cleared, and
+    a `failed` one is a skew the caller must see, not a step that quietly did nothing."""
+    gate(args, "rule-disposition", is_leader,
+         "the leader's alone — `d-exited-row-closure` grants this act to the leader, and to no "
+         "other side. Every other writer declares its own disposition at its own check-out",
+         remedy="ask the leader to run it; the row is routed to that seat for exactly this")
+    pkg = package_dir(args)
+    base = base_dir(args)
+    seat = args.seat
+    disposition = args.disposition
+    go = bool(getattr(args, "go", False))
+    # The writer is DECLARED at this call site, exactly as `attest_exit_seat` declares the kit's.
+    # Whether the leader may write the requested value is `RECORD_DISPOSITION_WRITER`'s answer,
+    # read through `validate_disposition` inside the writer below — never re-stated here.
+    try:
+        sid, why = session_rule_disposition(pkg, base, seat, disposition,
+                                            DISPOSITION_WRITER_LEADER, dry=not go)
+    except ValueError as exc:
+        refuse("input", f"{exc}\nThat is the writer model's own refusal, read at the moment of "
+                        f"the write — this command carries no copy of it.", 2)
+    if why:
+        refuse("state", f"{seat}: {why}", 1)
+    if not go:
+        print(f"{c(seat, C_LABEL)}  RULABLE — its last session row ({sid}) is ENDED and carries "
+              f"`{RULED_FLIP_FROM}`, and `{disposition}` is admitted from the leader.")
+        print("    (report only — nothing was written. Re-run with --go to record the ruling.)")
+        return
+    print(f"{c(seat, C_LABEL)}  RULED `{disposition}` by {DISPOSITION_WRITER_LEADER}")
+    print(f"    sessions.csv: {sid} disposition `{disposition}`, "
+          f"disposition-writer `{DISPOSITION_WRITER_LEADER}`")
+    outcome = rule_awaiting_disposition(base, seat, disposition, DISPOSITION_WRITER_LEADER)
+    print({"updated": f"    awaiting-close.json: entry re-pointed to `{disposition}` — the two "
+                      f"surfaces agree, so nothing reads SKEW",
+           "absent": "    awaiting-close.json: no entry for this seat — nothing to re-point (the "
+                     "debt was already cleared; the durable row is the surviving record)",
+           "failed": "    awaiting-close.json: NOT re-pointed — the two surfaces now DISAGREE and "
+                     "`ready-seats` will report SKEW for this seat until that is resolved. SAY SO"
+           }[outcome])
+    print(c(f"\nThe ruling is recorded, and the row names {DISPOSITION_WRITER_LEADER} as the party "
+            f"that made it — a later reader can tell this `{disposition}` from one a seat wrote "
+            f"about its own work. Advancement follows the ordinary arithmetic "
+            f"({coord_invocation(args)} ready-seats).", C_HINT))
 
 
 def cmd_ready_seats(args):
@@ -16349,19 +16557,26 @@ def _selftest_checks(args, failures, names):
         # NEW file. `zip` is the shape every hand-rolled positional parse takes, and it stops at
         # the shorter side — so the appended field is SILENTLY DROPPED and no exception is raised.
         _d9_positional = dict(zip(_d9_cols_before_dag09, _d9_fields))
-        check("dag-09 LG-13: THE APPENDED COLUMN BREAKS NO READER, AND THE SWEEP'S QUESTION WAS "
+        check("dag-09 LG-13: EVERY APPENDED COLUMN BREAKS NO READER, AND THE SWEEP'S QUESTION WAS "
               "REAL. The eleven pre-dag-09 columns are still a PREFIX of the on-disk header in "
-              "their original order and `disposition` is APPENDED LAST, which is what every "
-              "header-keyed reader needs — coord.py's own (`idx` off the header) and the ignite "
+              "their original order, `disposition` is APPENDED after them and `disposition-writer` "
+              "(7.155) after THAT — appended, never inserted, which is what every header-keyed "
+              "reader needs: coord.py's own (`idx` off the header) and the ignite "
               "seat-identity gate's (`csv.js` builds rows as `row[header[c]]` and checks required "
               "columns with `header.includes`). The CONTROL proves the risk was not imaginary: a "
-              "positional reader built on the OLD eleven names silently DROPS the new field "
-              "instead of raising, which is exactly how an appended column goes wrong quietly",
+              "positional reader built on the OLD eleven names silently DROPS the new fields "
+              "instead of raising, which is exactly how an appended column goes wrong quietly. "
+              "⚠ THIS ROW IS THE SCHEMA'S TRIPWIRE AND IT FIRED: 7.155's column reddened it "
+              "exactly as written, which is why the tail is asserted by NAME and by INDEX rather "
+              "than as 'the last one' — a claim that moves with the file grades nothing",
               _d9_hdr[:len(_d9_cols_before_dag09)] == _d9_cols_before_dag09
-              and _d9_hdr[-1] == "disposition"
-              and _d9_idx["tty"] == 10 and _d9_idx["disposition"] == len(_d9_hdr) - 1
+              and _d9_hdr[-2:] == ["disposition", "disposition-writer"]
+              and _d9_idx["tty"] == 10
+              and _d9_idx["disposition"] == len(_d9_hdr) - 2
+              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 1
               and len(_d9_fields) == len(_d9_hdr)
               and "disposition" not in _d9_positional
+              and "disposition-writer" not in _d9_positional
               and len(_d9_positional) == len(_d9_cols_before_dag09))
 
         check("dag-09 LG-14: `disposition` APPEARS EXACTLY ONCE — in the column constant and in "
@@ -16371,6 +16586,195 @@ def _selftest_checks(args, failures, names):
               "check-outs were being recorded faithfully one cell to the left",
               SESSIONS_COLS.count("disposition") == 1
               and _d9_hdr.count("disposition") == 1)
+
+        # ============ 7.155: THE RULED FLIP ON AN ALREADY-ENDED ROW ==============================
+        # `d-exited-row-closure` grants the leader an act; 7.154 made it REPRESENTABLE; nothing
+        # PERFORMED it. Every row below drives the REAL `cmd_rule_disposition` through the real
+        # parser-facing namespace, and reads the result back off disk header-keyed — never off the
+        # command's own success line, which certifies nothing about the state it claims.
+        #
+        # ⚠ THE ARMS ARE CHOSEN TO ISOLATE. The ENDED arm and the ACTIVE arm differ in ONE field
+        # (`ended`), so a verb that ignored row state would green the first and red the second
+        # together; the two refusal arms below then separate "the ROW is wrong" from "the VALUE is
+        # wrong", which are different layers with different exit codes and must not be one row.
+        _r155_pkg = Path(td) / "r155-pkg"
+        (_r155_pkg / "coordination").mkdir(parents=True)
+
+        def _r155_ns(**kw):
+            d = {"package": str(_r155_pkg), "base": None, "workers_dir": None,
+                 "as_agent": "leader", "force": False, "go": True,
+                 "seat": "r155", "disposition": "done"}
+            d.update(kw)
+            return argparse.Namespace(**d)
+
+        def _r155_seed(seat, ended, disposition, awaiting=True):
+            """One session row in a named state, written through the file's OWN header — plus the
+            awaiting-close entry `attest-exit --go` would have left beside it, because the SKEW
+            this verb must not manufacture only exists when both surfaces are present."""
+            _p = sessions_csv(_r155_pkg)
+            _h, _r = read_csv_table(_p, SESSIONS_COLS)
+            _h, _w = widen_header(_h, SESSIONS_COLS)
+            if _w:
+                _r = [pad_row(_x, _h) for _x in _r]
+            _i = {c: n for n, c in enumerate(_h)}
+            _new = ["" for _ in _h]
+            _new[_i["session-id"]] = f"{seat}-sid"
+            _new[_i["seat"]] = seat
+            _new[_i["started"]] = now()
+            _new[_i["ended"]] = ended
+            _new[_i["disposition"]] = disposition
+            _r.append(_new)
+            write_csv_table(_p, _h, _r)
+            if awaiting and disposition:
+                _b = base_dir(_r155_ns())
+                _d = load_awaiting(_b)
+                _d[seat] = {"since": now(), "pane": "%466", "transcript": "/tmp/r155.txt",
+                            "exported": True, "pids": [[4242, "884118"]],
+                            "disposition": disposition, "handoff_stamp": ""}
+                atomic_write(awaiting_path(_b),
+                             json.dumps(_d, indent=2, sort_keys=True) + "\n")
+
+        def _r155_row(seat):
+            _h, _r = read_csv_table(sessions_csv(_r155_pkg), SESSIONS_COLS)
+            _i = {c: n for n, c in enumerate(_h)}
+            _hit = None
+            for _x in _r:
+                pad_row(_x, _h)
+                if _x[_i["seat"]].strip() == seat:
+                    _hit = _x
+            return {c: _hit[_i[c]] for c in _h} if _hit else {}
+
+        # ---- ARM 1: the ENDED row is written, and the row names the party that ruled it ----
+        _r155_seed("r155ended", ended=now(), disposition="exited")
+        _r155_out, _r155_err, _r155_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="r155ended"))
+        _r155_after = _r155_row("r155ended")
+        _r155_awa = load_awaiting(base_dir(_r155_ns())).get("r155ended") or {}
+        check("7.155 (1) THE ENDED ARM WRITES, AND THE ROW RECORDS WHO RULED IT. The seat's last "
+              "session row is ENDED and carries `exited` — the state `attest-exit` leaves and the "
+              "state `d-exited-row-closure` routes to the leader. The verb exits clean, the row "
+              "now reads `done` in `disposition` AND `leader` in `disposition-writer`, and the "
+              "`ended` stamp is untouched. The writer cell is the whole point: by VALUE a ruled "
+              "`done` is indistinguishable from a seat's own, and the two are different claims — "
+              "one is a seat reporting its work finished, the other a third party's ruling after "
+              "an investigation it performed",
+              _r155_code is None
+              and _r155_after.get("disposition") == "done"
+              and _r155_after.get("disposition-writer") == "leader"
+              and _r155_after.get("ended")
+              and "leader" in _r155_out)
+        check("7.155 (2) BOTH SURFACES MOVE TOGETHER, AND THE ENTRY IS RE-POINTED RATHER THAN "
+              "REBUILT. `terminal_disposition` reads `awaiting-close.json` AND the session row and "
+              "reports SKEW when they disagree, so a flip that touched only the durable row would "
+              "have taken the seat from `exited` (routes to the leader) to SKEW (adjudicate, "
+              "advances nothing) — the instrument for the leader's exit deepening the hole it "
+              "closes. The control is FIELD-LEVEL: `pids`, `pane`, `transcript` and `exported` are "
+              "byte-identical to what was seeded, because `reap` gates a pane KILL on that "
+              "recorded harness identity and a rebuild would replace it with an empty list read "
+              "off a pane that is already dead",
+              _r155_awa.get("disposition") == "done"
+              and _r155_awa.get("pids") == [[4242, "884118"]]
+              and _r155_awa.get("pane") == "%466"
+              and _r155_awa.get("transcript") == "/tmp/r155.txt"
+              and _r155_awa.get("exported") is True
+              and terminal_disposition(_r155_pkg, base_dir(_r155_ns()), "r155ended")
+                  == ("done", "awaiting-close.json", None))
+
+        # ---- ARM 2: the ACTIVE row REFUSES, and nothing is written ----
+        _r155_seed("r155active", ended="", disposition="", awaiting=False)
+        _r155_a_out, _r155_a_err, _r155_a_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="r155active"))
+        _r155_a_after = _r155_row("r155active")
+        check("7.155 (3) THE ACTIVE ARM REFUSES, LAYERED, AND WRITES NOTHING. The row differs from "
+              "arm 1 in ONE field — no `ended` stamp — and that alone must flip the verdict, which "
+              "is what makes the pair a discriminating test rather than two runs of the same "
+              "thing. A disposition on a LIVE session is a third party recording an ending that "
+              "has not happened, and the occupant's own check-out is what ends it. The refusal "
+              "names the layer (`state`), exits 1 rather than 0, and the row is byte-unchanged: "
+              "still open, still carrying no disposition and no writer",
+              _r155_a_code == 1
+              and "refused [coord state]" in (_r155_a_out + _r155_a_err)
+              and "OPEN" in (_r155_a_out + _r155_a_err)
+              and _r155_a_after.get("ended") == ""
+              and _r155_a_after.get("disposition") == ""
+              and _r155_a_after.get("disposition-writer") == "")
+
+        # ---- ARM 3: the VALUE the writer model refuses, from the same caller and the same row ----
+        _r155_seed("r155value", ended=now(), disposition="exited")
+        _r155_v_out, _r155_v_err, _r155_v_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="r155value", disposition="exited"))
+        _r155_v_after = _r155_row("r155value")
+        check("7.155 (4) THE VERB READS THE WRITER MODEL AND CARRIES NO COPY OF IT. Same caller, "
+              "same rulable row, ONLY the requested value changed: `exited` from the leader is "
+              "REFUSED — by `validate_disposition`, in its own words, naming the kit as the side "
+              "that owns it — because a leader writing `exited` would attest to a termination it "
+              "did not witness. The refusal is layered `input` and exits 2 (the value-space layer, "
+              "distinct from arm 3's `state`/1), and the row is unchanged. That the refusal text "
+              "is the VALIDATOR's own is what shows the model is READ at write time: a verb "
+              "carrying its own copy could not produce this sentence",
+              _r155_v_code == 2
+              and "refused [coord input]" in (_r155_v_out + _r155_v_err)
+              and "may not write disposition 'exited'" in (_r155_v_out + _r155_v_err)
+              and DISPOSITION_WRITER_KIT in (_r155_v_out + _r155_v_err)
+              and _r155_v_after.get("disposition") == "exited"
+              and _r155_v_after.get("disposition-writer") == "")
+
+        # ---- ARM 4: the SOURCE value is pinned to the ruling's radius ----
+        _r155_seed("r155src", ended=now(), disposition="renew")
+        _r155_s_out, _r155_s_err, _r155_s_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="r155src"))
+        check("7.155 (5) THE RULING'S RADIUS IS THE SOURCE VALUE TOO. `d-exited-row-closure` "
+              "grants ONE transition — an INVESTIGATED `exited` row — and grants no power to "
+              "rewrite a disposition its own writer declared. An ENDED row carrying `renew` is "
+              "REFUSED even though the caller is the leader and the value asked for is admitted "
+              "from the leader: both of arm 1's terms hold and the act is still not the ruled one. "
+              "Without this row the widening would have bought the leader a general disposition "
+              "rewrite, which is the OVERSHOOT 7.154's own matrix row exists to prevent one layer "
+              "down",
+              _r155_s_code == 1
+              and "refused [coord state]" in (_r155_s_out + _r155_s_err)
+              and "renew" in (_r155_s_out + _r155_s_err)
+              and RULED_FLIP_FROM in (_r155_s_out + _r155_s_err)
+              and _r155_row("r155src").get("disposition") == "renew")
+
+        # ---- ARM 5: the ROLE gate, and the report pass ----
+        _r155_seed("r155role", ended=now(), disposition="exited")
+        _r155_r_out, _r155_r_err, _r155_r_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="r155role", as_agent="r155role"))
+        _r155_d_out, _r155_d_err, _r155_d_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="r155role", go=False))
+        check("7.155 (6) THE ACT IS THE LEADER'S, AND A BARE RUN WRITES NOTHING. A non-leader "
+              "caller is refused at the ROLE layer (exit 2) on a row that is otherwise perfectly "
+              "rulable — so the gate is what refused, not the row. And the report pass runs EVERY "
+              "check the acting pass runs and writes nothing: same predicate, one function, so a "
+              "`--go` run can never accept what a bare run refused. Both are read at the row, "
+              "which still carries `exited` and no writer after both calls",
+              _r155_r_code == 2
+              and "refused [coord role gate]" in (_r155_r_out + _r155_r_err)
+              and _r155_d_code is None
+              and "report only" in (_r155_d_out + _r155_d_err)
+              and _r155_row("r155role").get("disposition") == "exited"
+              and _r155_row("r155role").get("disposition-writer") == ""
+              and (load_awaiting(base_dir(_r155_ns())).get("r155role") or {}
+                   ).get("disposition") == "exited")
+
+        # ---- ARM 6: the routing text names a verb that EXISTS ----
+        _r155_help = build_parser().format_help()
+        _r155_src = Path(__file__).read_text(encoding="utf-8")
+        _r155_attest_src = _d8_ast.get_source_segment(
+            _r155_src,
+            next(n for n in _d8_ast.walk(_d8_ast.parse(_r155_src))
+                 if isinstance(n, _d8_ast.FunctionDef) and n.name == "cmd_attest_exit"))
+        check("7.155 (7) THE ROUTING TEXT NAMES A VERB THAT EXISTS. `cmd_attest_exit`'s closing "
+              "line is what tells the leader what to do with the `exited` row it just wrote, and "
+              "until this task it described an act with no instrument — the leader's only path was "
+              "hand-editing the CSV, the one edit the `validate_disposition` boundary exists to "
+              "prevent. The name in that text is asserted to be a REGISTERED subcommand and to "
+              "appear in the top-level index a seat actually reads, so the instruction cannot go "
+              "stale by rename without reddening here",
+              "rule-disposition" in (_r155_attest_src or "")
+              and "rule-disposition" in build_parser().command_parsers
+              and "rule-disposition" in _r155_help)
 
         # ============ dag-10: THE READY-SEAT ARITHMETIC ==========================================
         # Spec: implementation-tasks/dag-10-ready-seats-command.md (RS-1…RS-8, RS-12).
@@ -19734,7 +20138,7 @@ HELP_EPILOG = """everyday
 leader
   launch      open one tmux seat per worker briefing and start its harness
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / current-run / attest-exit  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · record that a one-shot harness terminated (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / current-run / attest-exit / rule-disposition  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -20567,6 +20971,31 @@ def build_parser():
     s.add_argument("--go", action="store_true",
                    help="ACT: export, flip the roster row, record `exited`, close the session row")
     s.set_defaults(func=cmd_attest_exit)
+
+    s = command(
+        "rule-disposition",
+        "(leader) Record a RULED disposition on a session row that has ALREADY ENDED — the\n"
+        "second half of `d-exited-row-closure`. `attest-exit` writes `exited` (THE HARNESS\n"
+        "TERMINATED, nothing more) and routes the row to the leader; the leader investigates,\n"
+        "and where the work had in fact concluded this is how that finding is recorded. It\n"
+        "writes ENDED rows ONLY — a row still open is its occupant's to end — and only one\n"
+        "sitting on `exited`. The value is validated against the SAME writer model every other\n"
+        "disposition is, and the row records the leader as the party that ruled it. BARE =\n"
+        "report only.",
+        "example:\n"
+        "  coordinate rule-disposition oc2 done          # report: is this row rulable?\n"
+        "  coordinate rule-disposition oc2 done --go     # record the ruling\n"
+        "next: coordinate ready-seats — a ruled `done` advances its successors' edges like any "
+        "other `done`")
+    s.add_argument("seat", help="the TARGET seat whose ended row carries the ruling — never the caller")
+    s.add_argument("disposition",
+                   help="the ruled value; admitted only where RECORD_DISPOSITION_WRITER admits it "
+                        "from the leader")
+    s.add_argument("--go", action="store_true",
+                   help="ACT: write the ruling to the session row and re-point the awaiting-close "
+                        "entry; without it nothing is written")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_rule_disposition)
 
     s = command(
         "ready-seats",
