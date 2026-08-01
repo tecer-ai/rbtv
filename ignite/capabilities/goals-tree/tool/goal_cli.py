@@ -593,8 +593,14 @@ def index_units(catalog_root: Path) -> dict[str, dict]:
             continue
         try:
             fm = yaml.safe_load(m.group(1)) or {}
-        except yaml.YAMLError:
-            continue
+        except yaml.YAMLError as exc:
+            # NEVER `continue` here. A skipped parse failure returns an index
+            # one unit smaller with no output at all, and every downstream
+            # check that counts what this returned agrees with it (7.170).
+            raise Refusal(
+                f"{path}: cognitive-unit frontmatter is not valid YAML — "
+                f"{str(exc).strip()}"
+            ) from exc
         if not isinstance(fm, dict) or not fm.get("id"):
             continue
         body = text[m.end():]
@@ -704,7 +710,10 @@ def assemble_seat(seat_id: str, binding: dict, seats: dict, prompts: dict,
         raise Refusal(f"seat '{seat_id}' names neither an executor nor a task")
 
     fm: dict = {
-        "id": seat_id,
+        # `seat:` is the roster key coord.py reads (FM_KEY["agent"] matches
+        # `^(?:seat|agent):`). Emitting `id:` here produced descriptors the kit
+        # could not resolve, leaving every materialized seat UNBUILT (M4-27).
+        "seat": seat_id,
         "description": (srow.get("description") or "").strip(),
     }
     for col in BINDING_COLUMNS:
