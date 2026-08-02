@@ -3625,6 +3625,88 @@ def is_closer(name):
     return bool(name) and name.startswith("closer-")
 
 
+def gate_role_names(pred):
+    """The role names a gate predicate admits, READ FROM THE PREDICATE'S OWN SOURCE.
+
+    DERIVED, NEVER ENUMERATED (G-158) -- the same discipline `advice_coached_sends` applies to the
+    advice surface, for the same reason. `relaunch-pane`'s `-h` advertised
+    `(leader/chief-of-staff/closer-*)` long after `d-cos-off-pane-kill` took the chief-of-staff OFF
+    `is_leader_or_closer`, which is the SECOND fork between this gate and its own advertisement in
+    this file's history. EDITING THE PRINTED STRING REPAIRS ONE INSTANCE; deriving it removes the
+    channel a third fork would come back through. That is why this exists at all: it is
+    enforcement, not presentation.
+
+    An exact test (`name == "x"`) renders `x`; a prefix test (`name.startswith("x-")`) renders
+    `x-*`; a membership test (`name in ("x", "y")`) renders each member. Source order is preserved,
+    so the rendering reads in the order the predicate reads.
+
+    ⚠ AN INSTANCE GRANT IS NEVER READ BACK INTO THE STANDING SET. Leader, #1835: "if the owner
+    grants item 13, that is an INSTANCE, NEVER A PRECEDENT, and must not be read back into the
+    standing set." This function reads the PREDICATE and nothing else -- never a roster, never a
+    per-call authorization, never a `--force` that once carried a caller through. The standing set
+    IS the predicate's own source, so a one-off grant to one caller for one act cannot widen what
+    this renders, and no later reader can mistake such a grant for membership.
+
+    Returns [] when the source cannot be read (a module with no source file). Every caller MUST
+    render that as a VISIBLE FAILURE and never as a set -- a confidently printed wrong list is the
+    exact defect above, and a silent empty one is worse than a loud gap.
+    """
+    import ast
+    import inspect
+    import textwrap
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(pred)))
+    except (OSError, TypeError, SyntaxError):
+        return []
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare) and len(node.ops) == 1:
+            right = node.comparators[0]
+            if (isinstance(node.ops[0], ast.Eq) and isinstance(right, ast.Constant)
+                    and isinstance(right.value, str)):
+                found.append((right.lineno, right.col_offset, right.value))
+            elif (isinstance(node.ops[0], ast.In)
+                  and isinstance(right, (ast.Tuple, ast.List, ast.Set))):
+                for elt in right.elts:
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                        found.append((elt.lineno, elt.col_offset, elt.value))
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+              and node.func.attr == "startswith" and node.args
+              and isinstance(node.args[0], ast.Constant)
+              and isinstance(node.args[0].value, str)):
+            arg = node.args[0]
+            found.append((arg.lineno, arg.col_offset, arg.value + "*"))
+    names = []
+    for _lineno, _col, name in sorted(found):
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def gate_roles_help(pred):
+    """The `(a/b)` parenthetical a gated command's `-h` opens with, rendered from its own gate."""
+    names = gate_role_names(pred)
+    if not names:
+        return f"(role gate `{pred.__name__}` -- SET UNRENDERABLE, read the predicate)"
+    return "(" + "/".join(names) + ")"
+
+
+def gate_roles_desc(pred):
+    """`allowed_desc` for `gate`/`launch_gates`, from the SAME predicate the gate actually runs.
+
+    Possessive, and byte-identical to the hand-maintained string it replaces on the two-member set
+    `{leader, closer-*}`: "leader's or a closer-*'s". That identity is asserted in selftest, so a
+    predicate whose shape this renderer cannot carry goes RED here rather than shipping prose that
+    quietly stops describing the gate."""
+    names = gate_role_names(pred)
+    if not names:
+        return f"gated by `{pred.__name__}` -- SET UNRENDERABLE, read the predicate"
+    parts = [names[0] + "'s"] + [f"a {n}'s" for n in names[1:]]
+    if len(parts) == 1:
+        return parts[0]
+    return ", ".join(parts[:-1]) + " or " + parts[-1]
+
+
 def broadcast_scope(agent, decls=None):
     """Which `to: all` broadcast TYPES reach `agent` (G-20).
 
@@ -11004,7 +11086,10 @@ def cmd_relaunch_pane(args):
     # s12-12 (`d-cos-off-pane-kill`): relaunching kills the pane it replaces, so it is a
     # TERMINATING act and the chief-of-staff is off this predicate too — same ruling, same reason
     # as `kill-pane` above.
-    role_desc = "leader's or a closer-*'s"
+    # C5.2: DERIVED from the very predicate the two gate calls below pass, never hand-maintained
+    # alongside it. What it renders is byte-identical to the string it replaces ("leader's or a
+    # closer-*'s"), asserted so in selftest — the change is the SOURCE of the text, not the text.
+    role_desc = gate_roles_desc(is_leader_or_closer)
     seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
     if not seats:
         refuse(
@@ -15924,6 +16009,56 @@ def _selftest_checks(args, failures, names):
               and not is_authorized_launcher("closer-alpha")
               and not is_leader_or_closer("chief-of-staff")
               and is_leader_or_closer("closer-alpha") and is_leader_or_closer("leader"))
+
+        # ---- C5.2: the help/`allowed_desc` text is DERIVED from the gate, not kept beside it ----
+        # The fork PK-1..PK-4 above prove at the GATE is the same fork the `-h` string got wrong
+        # for as long as it did. These rows prove the string can no longer disagree, because it is
+        # no longer a string.
+        _c52_relaunch = gate_role_names(is_leader_or_closer)
+        check("C5.2 GD-1: `relaunch-pane`'s advertised set is RENDERED from `is_leader_or_closer` "
+              "and reads {leader, closer-*} — the chief-of-staff is gone from it as a CONSEQUENCE "
+              "of the derivation, never as an edited string (`d-cos-off-pane-kill`)",
+              _c52_relaunch == ["leader", "closer-*"]
+              and gate_roles_help(is_leader_or_closer) == "(leader/closer-*)")
+
+        # POSITIVE CONTROL, and it is the row that makes GD-1 mean anything. A renderer that
+        # ignored its argument and returned a hardcoded {leader, closer-*} passes GD-1 exactly as
+        # well as a real derivation does. These two predicates have DIFFERENT sets and different
+        # shapes (membership tuple; bare equality), so a constant cannot satisfy all three rows.
+        check("C5.2 GD-2 (control): the SAME renderer, read against two other predicates, returns "
+              "THEIR sets — `is_authorized_launcher` {leader, chief-of-staff} and `is_leader` "
+              "{leader}. Without this row GD-1 is satisfied by a hardcoded answer",
+              gate_role_names(is_authorized_launcher) == ["leader", "chief-of-staff"]
+              and gate_roles_help(is_authorized_launcher) == "(leader/chief-of-staff)"
+              and gate_role_names(is_leader) == ["leader"]
+              and gate_roles_help(is_leader) == "(leader)")
+
+        check("C5.2 GD-3: the refusal's `allowed_desc` is derived from the same predicate and is "
+              "BYTE-IDENTICAL to the hand-maintained string it replaced — the change is the "
+              "SOURCE of the text, not the text, so no refusal a seat reads has moved",
+              gate_roles_desc(is_leader_or_closer) == "leader's or a closer-*'s")
+
+        # The set is UNCHANGED by this landing: the predicate is what it was, and the leader-OUT
+        # half is deliberately NOT landed (leader #1921 (4)). Read at the predicate, so the row
+        # goes red if a later edit narrows it while leaving the derivation intact.
+        check("C5.2 GD-4: the ALLOWED SET is untouched by the derivation — the leader is still IN "
+              "and every `closer-*` is still IN, and the leader-OUT half was NOT landed (#1921)",
+              is_leader_or_closer("leader") and is_leader_or_closer("closer-alpha")
+              and not is_leader_or_closer("chief-of-staff")
+              and "leader" in _c52_relaunch and "closer-*" in _c52_relaunch)
+
+        # What the renderer RETURNS and what `-h` PRINTS are two different claims, and only the
+        # second is the artifact that was wrong. Read off the REAL rendered help, the same way
+        # every other help row in this file does (`parser.command_parsers`).
+        _c52_help = build_parser().command_parsers["relaunch-pane"].format_help()
+        check("C5.2 GD-5: the help `relaunch-pane -h` actually PRINTS opens with the derived "
+              "parenthetical and no longer advertises the chief-of-staff as a CALLER. The later "
+              "`retires the chief-of-staff's raw tmux send-keys` clause is about what this "
+              "command REPLACED, not about who may call it, and correctly stays — which is why "
+              "this row reads the ROLE parenthetical and not the word anywhere in the text",
+              "(leader/closer-*) Relaunch a seat's harness" in _c52_help
+              and "(leader/chief-of-staff/closer-*)" not in _c52_help
+              and "retires the chief-of-staff's raw" in _c52_help)
 
         # ============ s12-01 + s12-05: the CLOSING wake-mute, and `checkout --renew` call 1 ======
         # Placed LAST inside this fixture DELIBERATELY. The block re-checks `gamma`, `alpha` and
@@ -21112,9 +21247,16 @@ def build_parser():
 
     s = command(
         "relaunch-pane",
-        "(leader/chief-of-staff/closer-*) Relaunch a seat's harness INTO a named, already-\n"
-        "registered pane, in place (task 7.95, G-282) -- the door's own path back up when a\n"
-        "plain `launch` would move it and `close-seat --renew` is refused by the relays: guard.\n"
+        # C5.2: the role parenthetical is RENDERED FROM `is_leader_or_closer`, the predicate this
+        # command actually gates on — it is not a string kept in step by hand. It printed
+        # `(leader/chief-of-staff/closer-*)` for as long as it did because nothing tied the two
+        # together (`d-cos-off-pane-kill`). The prose below still names the chief-of-staff, and
+        # correctly: that clause is about the stopgap this command RETIRED, not about who may call
+        # it.
+        f"{gate_roles_help(is_leader_or_closer)} Relaunch a seat's harness INTO a named,"
+        " already-registered pane,\n"
+        "in place (task 7.95, G-282) -- the door's own path back up when a plain `launch`\n"
+        "would move it and `close-seat --renew` is refused by the relays: guard.\n"
         "Never kills anything: refuses unless the pane is already bare (no harness running) and\n"
         "the roster row is already roster-done. Never routes through close-seat and never needs\n"
         "--force for the intended case -- retires the chief-of-staff's raw `tmux send-keys`\n"
