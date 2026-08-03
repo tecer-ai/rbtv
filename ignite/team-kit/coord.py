@@ -9674,6 +9674,382 @@ def ready_seat_rows(args):
     return out
 
 
+# ---------- 7.274 (A3): THE LAUNCH-ADMISSION PREDICATE ------------------------------------
+#
+# Spec: `planning/briefing-scoped-launch/launch-admission-spec.md` version 5, ACCEPTED at
+# `runs/run-3/decisions.md#p-v5-RESPEC-ACCEPTED-at-d02432b0-all-lifts-fire` (that ANCHOR governs;
+# the file's own internal banner is stale by authorship and the leader ruled it stays as-is).
+#
+# WHAT LIVES HERE AND WHY IT IS NOT INSIDE `cmd_launch`. These are the ROW-LEVEL terms of the
+# admission decision — a pure function of one `ready_seat_rows` record and nothing else. They sit
+# beside the home that PRODUCES those records so the two are read together, and so the self-test
+# can drive them over a fixture without driving a launch. `cmd_launch` CALLS them; it re-derives
+# nothing. A second computation of one fact is the defect class this run keeps filing (PRIN-11).
+#
+# ⚠ NO TERM HERE READS `verdict`. `no-class-clause`: the three ruled-legitimate relaunch lanes are
+# structurally excluded from ever reading `READY`, so a `verdict`-keyed filter would decide the
+# admission on a field whose value those lanes can never carry. What writing on FIELDS buys is the
+# REPORT axis — eleven deferral classes where the verdict word gives one, so `exit-unruled` routes
+# to the `leader` where `finished` does not, though all four disposition values read `DONE`.
+
+# The disposition limb's own sub-partition. `RECORD_DISPOSITION_WRITER` closes this domain AT THE
+# WRITE BOUNDARY; `terminal_disposition` does not re-validate at the READ, so a value outside it is
+# a real edge and gets its own loud class rather than a closure this code did not measure. The
+# self-test asserts the two key sets are equal, so a disposition value added without a class here
+# goes RED instead of silently classing as `terminal-unenumerated`.
+_DEFERRAL_BY_DISPOSITION = {"done": "finished", "renew": "renewing",
+                            "revive": "revived", "exited": "exit-unruled"}
+
+# The class → verdict mirror. It is a HAND-COPY of `ready_seat_rows`' own precedence, and it is
+# made SELF-DETECTING by the self-test's row-P fixture rather than trusted: the fixture covers every
+# REACHABLE pair of defer limbs, so transposing any two of them reds arm 1.
+CLASS_TO_VERDICT = {"records-disagree": "SKEW", "finished": "DONE", "renewing": "DONE",
+                    "revived": "DONE", "exit-unruled": "DONE", "terminal-unenumerated": "DONE",
+                    "occupied": "RUNNING", "unbuilt": "UNBUILT", "undeclared-ending": "UNDECLARED",
+                    "row-stopped": "STOPPED", "unmet-predecessor": "BLOCKED"}
+
+# The seven defer LIMBS, in the home's own precedence order. SEVEN LIMBS, ELEVEN CLASSES — they are
+# not the same count and a reader computing `len(classes) == len(limbs)` gets every figure
+# downstream wrong: the `disposition` limb alone produces five.
+ADMISSION_LIMBS = ("skew", "disposition", "active", "built", "undeclared", "stop", "unmet")
+
+# limb → the class it names on a row that trips it, or None. ONE table read by the classifier, the
+# transposition check and the coverage counter, so a limb cannot be defined three ways.
+_LIMB_CLASS = {
+    "skew":        lambda r: "records-disagree" if r["skew"] is not None else None,
+    "disposition": lambda r: (_DEFERRAL_BY_DISPOSITION.get(r["disposition"],
+                                                           "terminal-unenumerated")
+                              if r["disposition"] is not None else None),
+    "active":      lambda r: "occupied" if r["active"] is True else None,
+    "built":       lambda r: "unbuilt" if r["built"] is not True else None,
+    "undeclared":  lambda r: "undeclared-ending" if r["undeclared-session"] is not None else None,
+    "stop":        lambda r: "row-stopped" if r["row-outcome"]["stop"] else None,
+    "unmet":       lambda r: "unmet-predecessor" if r["unmet-after"] else None,
+}
+
+# The FIELD each limb decided on, so a deferral names the value that decided it and not only the
+# class word. "Never filter silently": a filter that removes without naming what it removed and why
+# is indistinguishable from a filter that never ran.
+_LIMB_FIELD = {"skew": "skew", "disposition": "disposition", "active": "active",
+               "built": "built", "undeclared": "undeclared-session",
+               "stop": "row-outcome.stop", "unmet": "unmet-after"}
+
+
+def deferral_class_under(row, order):
+    """The class this row defers with, under an ARBITRARY limb precedence. `None` == admitted.
+
+    Parameterised on the order for ONE reason: the self-test transposes two limbs and asserts the
+    class map stops mirroring the home's verdicts. A checker that could not re-order could not
+    prove the mirror is real rather than coincidental on today's population."""
+    for limb in order:
+        cls = _LIMB_CLASS[limb](row)
+        if cls:
+            return cls
+    return None
+
+
+def deferral_class(row):
+    """The class this row defers with under the TRUE precedence, or `None` when it admits.
+
+    A PURE FUNCTION OF THE ROW. It reads no argument, no invocation shape and no caller state:
+    an `exited` row classes `exit-unruled` however the tool was invoked, which is what makes the
+    instrument (below) an instrument rather than a second reading of this function."""
+    return deferral_class_under(row, ADMISSION_LIMBS)
+
+
+def deferral_field(row):
+    """(field-name, value) — the field that DECIDED this row's class, for the deferral line."""
+    for limb in ADMISSION_LIMBS:
+        if _LIMB_CLASS[limb](row):
+            name = _LIMB_FIELD[limb]
+            value = row["row-outcome"]["stop"] if limb == "stop" else row.get(name)
+            return name, value
+    return "", None
+
+
+def conjunction_admits(row):
+    """Clauses A–G of the admission boolean: the ORDINARY path, with no instrument in play.
+
+    Every term is a NAMED FIELD of the row. Type safety is a property of the producer and is
+    asserted there: `active`/`built` are real bools, `disposition` is never `""`, `row-outcome` is
+    always a dict and always carries `stop`, `unmet-after` is present on every row (`[]` when
+    clean) — an ABSENT key would raise here, which is why the producer's emit-on-every-row rule is
+    a term of this boolean's safety and not a presentation choice."""
+    return (row["skew"] is None                      # clause A
+            and row["disposition"] is None           # clause B — VALUE-level, single null test
+            and row["active"] is False               # clause C
+            and row["built"] is True                 # clause D
+            and row["undeclared-session"] is None    # clause E
+            and row["row-outcome"]["stop"] == []     # clause F
+            and row["unmet-after"] == [])            # clause G — 7.273's field
+
+
+# ---- the limb-pair coverage instruments (self-test only; here because they are pure row math) ----
+#
+# ⚠ THE THREE SETS BELOW ARE SPELLED OUT AS EXPLICIT LITERAL MEMBERS, never as one set minus a
+# computed predicate. A set derived by the same reasoning the assertion tests would pass any change
+# to that reasoning — the guard-that-reads-its-own-constant defect. Pairs are canonical-ordered by
+# `ADMISSION_LIMBS` index.
+ALL_21_PAIRS = frozenset({
+    ("skew", "disposition"), ("skew", "active"), ("skew", "built"), ("skew", "undeclared"),
+    ("skew", "stop"), ("skew", "unmet"),
+    ("disposition", "active"), ("disposition", "built"), ("disposition", "undeclared"),
+    ("disposition", "stop"), ("disposition", "unmet"),
+    ("active", "built"), ("active", "undeclared"), ("active", "stop"), ("active", "unmet"),
+    ("built", "undeclared"), ("built", "stop"), ("built", "unmet"),
+    ("undeclared", "stop"), ("undeclared", "unmet"),
+    ("stop", "unmet"),
+})
+
+# 19 of 21. `(skew, disposition)` and `(skew, undeclared)` cannot BOTH hold on any row this home
+# can produce, and the proofs are at source, not by inspection of today's population:
+#   (skew, disposition) — the only `return` that produces a skew tuple binds `None` as the
+#       disposition, so a tripped `skew` FORCES the `disposition` conjunct to hold.
+#   (skew, undeclared)  — skew requires a NON-EMPTY durable cell; `undeclared_endings` admits a
+#       seat only when that SAME cell of that SAME row is EMPTY. Both cannot hold.
+REACHABLE_PAIRS = frozenset({
+    ("skew", "active"), ("skew", "built"), ("skew", "stop"), ("skew", "unmet"),
+    ("disposition", "active"), ("disposition", "built"), ("disposition", "undeclared"),
+    ("disposition", "stop"), ("disposition", "unmet"),
+    ("active", "built"), ("active", "undeclared"), ("active", "stop"), ("active", "unmet"),
+    ("built", "undeclared"), ("built", "stop"), ("built", "unmet"),
+    ("undeclared", "stop"), ("undeclared", "unmet"),
+    ("stop", "unmet"),
+})
+
+# 20 of 21 — a DIFFERENT set from the one above, and the difference is the point. Coverage is
+# bounded by what the home can PRODUCE; detection by what a re-ordering can be SEEN BY. A
+# transposition re-orders the whole map, so a swap of two limbs is caught by any row tripping the
+# lower one and anything ranked between them — no row need trip both. `(skew, undeclared)` is
+# therefore DETECTABLE though unreachable. Only `(skew, disposition)` — ADJACENT in precedence AND
+# impossible — is undetectable by any fixture whatsoever.
+DETECTABLE_PAIRS = frozenset({
+    ("skew", "active"), ("skew", "built"), ("skew", "undeclared"), ("skew", "stop"),
+    ("skew", "unmet"),
+    ("disposition", "active"), ("disposition", "built"), ("disposition", "undeclared"),
+    ("disposition", "stop"), ("disposition", "unmet"),
+    ("active", "built"), ("active", "undeclared"), ("active", "stop"), ("active", "unmet"),
+    ("built", "undeclared"), ("built", "stop"), ("built", "unmet"),
+    ("undeclared", "stop"), ("undeclared", "unmet"),
+    ("stop", "unmet"),
+})
+
+
+def tripped_limbs(row):
+    """The set of defer limbs this row trips — ALL of them, not only the winning one."""
+    return {limb for limb in ADMISSION_LIMBS if _LIMB_CLASS[limb](row)}
+
+
+def covered_limb_pairs(rows):
+    """Every canonical limb PAIR some row of `rows` trips simultaneously."""
+    order = {limb: i for i, limb in enumerate(ADMISSION_LIMBS)}
+    out = set()
+    for row in rows:
+        limbs = sorted(tripped_limbs(row), key=order.__getitem__)
+        for i, x in enumerate(limbs):
+            for y in limbs[i + 1:]:
+                out.add((x, y))
+    return frozenset(out)
+
+
+def arm1_fails_under_transposition(rows, x, y):
+    """True when swapping limbs `x` and `y` in the precedence makes arm 1 go RED on `rows`.
+
+    THIS IS THE META-CHECK. Arm 1 alone proves the class map agrees with the home TODAY; only this
+    proves the agreement is load-bearing — that a re-ordering would be CAUGHT rather than passing
+    unnoticed on a population that never trips both limbs."""
+    order = list(ADMISSION_LIMBS)
+    i, j = order.index(x), order.index(y)
+    order[i], order[j] = order[j], order[i]
+    for row in rows:
+        cls = deferral_class_under(row, tuple(order))
+        ok = (cls is None and row["verdict"] == "READY") or \
+             (cls is not None and CLASS_TO_VERDICT[cls] == row["verdict"])
+        if not ok:
+            return True
+    return False
+
+
+# ---------- 7.274 (A3): THE RULED-RELAUNCH GRANT — exit 1 of `d-exited-row-closure` ------------
+#
+# THE PROBLEM IT SOLVES, stated as the finding that forced it (`C-2`). An `exited` row defers on
+# every launch shape a caller can type unaided — clause B is a single null test and gives
+# `done`/`renew`/`revive`/`exited` the same answer. Exit 2 of `d-exited-row-closure` (the work had
+# in fact concluded → `rule-disposition <seat> done --go`) is landed. Exit 1 — the leader RULES a
+# relaunch needed — had no carrier, and the shape that suggests itself (a flag meaning "a leader
+# ruled this") is refuted by construction: a flag's PRESENCE is caller-asserted and unfalsifiable,
+# so any authorized launcher could execute an attestation that a ruling existed when none did.
+#
+# SO THE AUTHORIZATION IS VERIFIED BY STATE, NOT BY THE SHAPE OF THE INVOCATION. The leader MINTS
+# a grant row with `rule-relaunch` (gated `is_leader`, the same predicate and the same exclusivity
+# as exit 2's own gate); `launch --relaunch-ruled <anchor>` then admits ONE seat only where a row
+# matching (seat, live last-ENDED session-id, anchor) exists and is UNSPENT. Values are checked
+# against the world, exactly as `--declare-only`'s P3 reads `undeclared_endings` and its P4 reads
+# occupancy.
+#
+# WHAT IS NOT CURED, at the same volume: a leader who mints carelessly is admitted. That is the
+# trust level owner ruling A-10 grants its ruler and it is exit 2's own residue — `rule-disposition`
+# likewise verifies that the leader PERFORMED the act, never that the investigation was diligent.
+# This builds exit 1 to exactly that level: no lower, and no higher.
+#
+# APPEND-AND-MARK ONLY. Rows are NEVER deleted, so the file is also the durable history of every
+# ruled relaunch — including after the `exited` state has left the row by supersession. It is not a
+# second home of an existing answer: the ledger anchor holds the ruling's RATIONALE, the grant row
+# holds its OPERATIVE authorization. Two facts, one home each.
+RELAUNCH_GRANT_COLS = ["seat", "session-id", "anchor", "minted-by", "minted-at", "spent-at"]
+
+
+def relaunch_grants_csv(base):
+    """`{package}/coordination/relaunch-grants.csv` — under the dir this run's single-writer map
+    reserves to scripts. Exactly two commands write it: `rule-relaunch` mints, `launch` spends."""
+    return Path(base) / "relaunch-grants.csv"
+
+
+def read_relaunch_grants(base):
+    """[(row-index, {col: cell})] over the grant file, file order. `[]` when there is none."""
+    path = relaunch_grants_csv(base)
+    if not path.exists():
+        return []
+    header, rows = read_csv_table(path, RELAUNCH_GRANT_COLS)
+    out = []
+    for i, r in enumerate(rows):
+        pad_row(r, header)
+        out.append((i, {col: (r[header.index(col)].strip() if col in header else "")
+                        for col in RELAUNCH_GRANT_COLS}))
+    return out
+
+
+def match_relaunch_grant(base, seat, session_id, anchor):
+    """(index, row, why) — the first UNSPENT grant matching all three cells.
+
+    `why` NAMES WHICH LEG FAILED rather than reporting a bare miss: `no-row`, `stale-session`,
+    `anchor-mismatch`, `spent`. A refusal that cannot say which of four conditions it tripped
+    sends the caller back to guess, and the four have four different remedies. The legs are
+    reported in the order of what the caller can most cheaply check."""
+    rows = read_relaunch_grants(base)
+    for_seat = [(i, g) for i, g in rows if g["seat"] == seat]
+    if not for_seat:
+        return None, None, "no-row"
+    for i, g in for_seat:
+        if g["session-id"] == session_id and g["anchor"] == anchor and not g["spent-at"]:
+            return i, g, ""
+    if not any(g["session-id"] == session_id for _, g in for_seat):
+        return None, None, "stale-session"
+    same_session = [(i, g) for i, g in for_seat if g["session-id"] == session_id]
+    if not any(g["anchor"] == anchor for _, g in same_session):
+        return None, None, "anchor-mismatch"
+    return None, None, "spent"
+
+
+def mint_relaunch_grant(base, seat, session_id, anchor, minted_by):
+    """Append one grant row. Returns the row as written."""
+    path = relaunch_grants_csv(base)
+    with coord_lock(base):
+        header, rows = read_csv_table(path, RELAUNCH_GRANT_COLS)
+        header, _ = widen_header(header, RELAUNCH_GRANT_COLS)
+        rows = [pad_row(r, header) for r in rows]
+        rec = {"seat": seat, "session-id": session_id, "anchor": anchor,
+               "minted-by": minted_by, "minted-at": now(), "spent-at": ""}
+        rows.append([rec.get(col, "") for col in header])
+        write_csv_table(path, header, rows)
+    return rec
+
+
+def spend_relaunch_grant(base, seat, session_id, anchor):
+    """Stamp `spent-at` on the matched unspent grant. Returns the stamp, or "" when none matched.
+
+    ⚠ THE DIRECTION IS CHOSEN FAIL-CLOSED. The grant is spent BEFORE any pane opens, so a launch
+    that admits and then aborts burns it LOUDLY — grant spent, no live pane, row still `exited` —
+    and the leader re-mints with one command. Spending AFTER the pane opened would leave an unspent
+    grant behind a crashed launch, which is a replay window: the exact class this check exists to
+    close."""
+    with coord_lock(base):
+        path = relaunch_grants_csv(base)
+        header, rows = read_csv_table(path, RELAUNCH_GRANT_COLS)
+        if "spent-at" not in header:
+            return ""
+        idx = {col: i for i, col in enumerate(header)}
+        stamp = now()
+        for r in rows:
+            pad_row(r, header)
+            if (r[idx["seat"]].strip() == seat
+                    and r[idx["session-id"]].strip() == session_id
+                    and r[idx["anchor"]].strip() == anchor
+                    and not r[idx["spent-at"]].strip()):
+                r[idx["spent-at"]] = stamp
+                write_csv_table(path, header, rows)
+                return stamp
+    return ""
+
+
+def cmd_rule_relaunch(args):
+    """(leader) MINT the grant that admits ONE ruled relaunch of an `exited` row — exit 1 of
+    `d-exited-row-closure`. BARE = report; `--go` = write.
+
+    THE EXIT-2 TWIN, and deliberately shaped like it. `rule-disposition <seat> done --go` records
+    the finding "the work had in fact concluded"; this records the OTHER finding — "this row needs
+    relaunching" — which no disposition value can express, because `RECORD_DISPOSITION_WRITER`
+    admits the leader for `done` and for nothing else. Both are records of a leader investigation
+    that already happened; neither performs one, and neither can check that one did."""
+    gate(args, "rule-relaunch", is_leader,
+         "the leader's alone — `d-exited-row-closure` grants the ruling to the leader, and this "
+         "command records that ruling. Performing the relaunch afterwards is a different act with "
+         "a different holder",
+         remedy="ask the leader to mint the grant; the launch then carries its anchor")
+    pkg = package_dir(args)
+    base = base_dir(args)
+    seat = args.seat
+    anchor = (args.anchor or "").strip()
+    go = bool(getattr(args, "go", False))
+    if not anchor:
+        refuse("input",
+               "--anchor is the leader's own ruling anchor and carries the trail; an empty one "
+               "would mint a grant citing nothing.", 2)
+    le = sessions_last_ended(pkg)
+    # Precondition 1 — there is an ENDED row to rule on.
+    if seat not in le:
+        refuse("state",
+               f"'{seat}' has no ENDED session row in this package, so there is no ruled relaunch "
+               f"to authorize — a seat that has not ended is an ordinary launch candidate.\n"
+               f"Read the row: {coord_invocation(args)} ready-seats --explain {seat}", 1)
+    sid, disp = le[seat]
+    # Precondition 2 — its last ENDED disposition is `exited`. ONE CONSTANT keys both exits of the
+    # ruling: this is the mirror of `session_rule_disposition`'s own from-state check.
+    if disp != RULED_FLIP_FROM:
+        refuse("state",
+               f"'{seat}'s last ENDED row ({sid}) carries disposition "
+               f"`{disp or '(empty)'}`, and this verb mints a grant on `{RULED_FLIP_FROM}` rows "
+               f"ONLY. An EMPTY cell is the UNDECLARED class and its one instrument is "
+               f"`launch --declare-only <leader-anchor>`; a cell its own writer filled records an "
+               f"ending nobody asked this command to re-rule.\n"
+               f"THIS REFUSAL IS BY STATE, NOT BY PURPOSE.", 1)
+    # Precondition 3 — no unspent grant already exists for this (seat, session-id).
+    existing = [g for _, g in read_relaunch_grants(base)
+                if g["seat"] == seat and g["session-id"] == sid and not g["spent-at"]]
+    if existing:
+        refuse("state",
+               f"'{seat}' already carries an UNSPENT grant for session {sid} "
+               f"(anchor `{existing[0]['anchor']}`, minted {existing[0]['minted-at']} by "
+               f"{existing[0]['minted-by']}). Minting a second would authorize two relaunches "
+               f"where one was ruled.\n"
+               f"Spend the existing one: {coord_invocation(args)} launch --only {seat} "
+               f"--relaunch-ruled {existing[0]['anchor']}", 1)
+    if not go:
+        print(f"{c(seat, C_LABEL)}  GRANTABLE — its last session row ({sid}) is ENDED and carries "
+              f"`{disp}`, and no unspent grant exists for it.")
+        print("    (report only — nothing was written. Re-run with --go to mint the grant.)")
+        return
+    rec = mint_relaunch_grant(base, seat, sid, anchor, DISPOSITION_WRITER_LEADER)
+    print(f"{c(seat, C_LABEL)}  GRANT MINTED for session {sid}")
+    print(f"    relaunch-grants.csv: seat `{seat}` session-id `{sid}` anchor `{anchor}` "
+          f"minted-by `{rec['minted-by']}` minted-at `{rec['minted-at']}` spent-at (unspent)")
+    print(c(f"\nThe grant is SINGLE-USE and SESSION-BOUND: it admits exactly one launch of this "
+            f"seat, for this ended session, carrying this anchor, and is stamped spent at that "
+            f"admission. It does not clear the `exited` row — that clears by SUPERSESSION when the "
+            f"admitted session writes its own ended row.\nnext: "
+            f"{coord_invocation(args)} launch --only {seat} --relaunch-ruled {anchor}", C_HINT))
+
+
 # ---------- dag-11: the attest-exit arm (`coordinate attest-exit`) ----------
 #
 # THE MEASURED FAILURE THIS CLOSES (F1, 2026-07-28, seat `oc2`). The seat DID THE WORK — `done.txt`
@@ -10605,6 +10981,239 @@ def cmd_launch(args):
                 refuse("state", detail + "\nNO pane was opened.", 1)
             print(c(detail, C_DEAD), file=sys.stderr)
 
+    # 7.274 (A3): THE ADMISSION FILTER — `cmd_launch` CONSULTS THE DEPENDENCY GRAPH AT LAST.
+    #
+    # WHAT WAS BROKEN. This command read the `after` field zero times and called no readiness
+    # computation, so `launch --only <seat>` walked straight past every term `ready-seats` had
+    # already computed — a seat whose predecessors had not checked out, whose descriptor was gone,
+    # whose store row the run had ruled held, all opened a pane exactly as if they were ready. The
+    # 7.241 block above closed ONE of those classes (the undeclared ending). This closes the rest,
+    # and it closes them the only way that adds no second home: by CALLING `ready_seat_rows` — the
+    # one readiness home — and filtering on NAMED FIELDS OF ITS ROWS.
+    #
+    # ⚠ EXACTLY ONE CALL, AND NO ARITHMETIC. This block computes NO readiness of its own. It joins
+    # `workers` (built from descriptor frontmatter, keyed `agent`) to the home's rows (built from
+    # `taskforce.csv`, keyed `seat`) and evaluates a boolean over fields the home already emits. A
+    # reconstruction here — looking each `after` member up among the other rows — is the PRIN-11
+    # second-home defect AND is silently WRONG on a dangling predecessor, which gets no output row
+    # of its own and would read as satisfied.
+    #
+    # ⚠ WHY HERE. Before PROP-8's validation, so that validates the set that will actually open;
+    # BEFORE the returning `if args.dry_run:` branch, which is what makes dry-run parity true by
+    # construction rather than by promise; AFTER the 7.241 block, which sets the flag clause I
+    # reads. `ready_seat_rows` opens no pane and writes no surface, so it costs nothing here.
+    #
+    # ⚠⚠ AT `cmd_launch`'s OWN BODY DEPTH — NOT inside `if not _declare_only_admitted:` and NOT
+    # inside `if blocked:`. The 7.241 anchor above sits two `If` suites deep; landing this block
+    # there would disable it on exactly the path `--declare-only` admits. The self-test asserts the
+    # placement at the AST, because the hazard is invisible to every behavioural row that does not
+    # happen to admit.
+    #
+    # ⚠ TWO GATES RUN ABOVE THIS POINT AND SEE THE UNFILTERED SET, and they are deliberately not
+    # moved: `launch_gates(…, len(workers) or 1, …)` sizes the MEMORY gate by seat COUNT and
+    # `check_bindings` validates bindings. A launch of N seats of which N−1 defer is still
+    # memory-gated at N. That over-reserves and never under-reserves — fail-safe in direction,
+    # unfixable by placement, and out of this change's scope.
+    _adm_rows = {r["seat"]: r for r in ready_seat_rows(args)}
+
+    # ---- clause I′: THE RULED-RELAUNCH INSTRUMENT (exit 1 of `d-exited-row-closure`) ----------
+    #
+    # NOT AN OVERRIDE, and not a member of the `--force` family. `--force` carries the ROLE gate
+    # alone, a memory refusal answers to `--force-memory` alone, and NO gate is ever re-attached to
+    # either — by this change or any successor. This is a THIRD independent parameter, exactly as
+    # `--declare-only` is a fourth.
+    #
+    # ⚠ THE FLAG EXPRESSES THE PURPOSE AND ARMS NOTHING BY ITSELF. Admission needs a row in a file
+    # this tool controls, written by an act only the `leader` can perform (`rule-relaunch`, gated
+    # `is_leader`). A caller supplying a fabricated anchor — or a real but unrelated one — refuses
+    # at P5 because no grant row matches. That is finding C-2's demand met: the carried
+    # authorization is verified against something the tool can CHECK, by state and never by the
+    # shape of the invocation.
+    #
+    # THE LADDER IS P2a → P2b → P3a → P3b → P3c → P4 → P5, each leg refusing PRE-BOOLEAN with its
+    # own named reason, and each refusal BY STATE — the same refusal whatever the caller intended.
+    _relaunch_anchor = (getattr(args, "relaunch_ruled", None) or "").strip()
+    _relaunch_ruled_admitted = False
+    _relaunch_target = ""
+    _relaunch_grant = None
+    if _relaunch_anchor:
+        _rl_pkg = package_dir(args, register=False)
+        _rl_base = base_dir(args, register=False)
+        _rl_only = [n.strip() for n in (args.only or "").split(",") if n.strip()]
+        # P2a — a seat must be named. The grant authorizes ONE seat's relaunch; a mass launch has
+        # no per-seat grant to spend.
+        if not _rl_only:
+            refuse("state",
+                   "P2a: no seat named. --relaunch-ruled spends a grant minted for ONE seat, so "
+                   "it cannot be applied to a set the caller did not name.\n"
+                   f"Name the seat: {coord_invocation(args)} launch --only <seat> "
+                   "--relaunch-ruled <leader-anchor>", 1)
+        # P2b — exactly one. Two names would spend one ruling on two relaunches.
+        if len(_rl_only) > 1:
+            refuse("state",
+                   f"P2b: more than one seat named (--only named {len(_rl_only)}: "
+                   f"{', '.join(_rl_only)}). One grant authorizes ONE relaunch; applying it to "
+                   "several would cite one ruling as authority for relaunches it never covered.\n"
+                   "Run it once per seat, each with that seat's own minted grant.", 1)
+        _rl_t = _rl_only[0]
+        _rl_le = sessions_last_ended(_rl_pkg)
+        # P3a — there is an ENDED row. Nothing to relaunch without an ending.
+        if _rl_t not in _rl_le:
+            refuse("state",
+                   f"P3a: no ENDED row. '{_rl_t}' has no ENDED session row in this package, so "
+                   "there is no terminated session for a ruled relaunch to supersede — such a "
+                   f"seat is an ordinary launch candidate: {coord_invocation(args)} launch "
+                   f"--only {_rl_t}", 1)
+        _rl_sid, _rl_disp = _rl_le[_rl_t]
+        # P3b — its last ENDED disposition is `exited`. ONE CONSTANT keys both exits of the ruling;
+        # this is the mirror of `session_rule_disposition`'s own from-state check.
+        if _rl_disp != RULED_FLIP_FROM:
+            refuse("state",
+                   f"P3b: last ENDED disposition is not `{RULED_FLIP_FROM}` — '{_rl_t}'s last "
+                   f"ENDED row ({_rl_sid}) carries `{_rl_disp or '(empty)'}`. This instrument "
+                   f"carries exit 1 of `d-exited-row-closure` and reaches `{RULED_FLIP_FROM}` "
+                   "rows ONLY. An EMPTY cell is the UNDECLARED class, whose one instrument is "
+                   "`--declare-only <leader-anchor>`; a declared ending means the work CONCLUDED "
+                   "and was accounted for.\n"
+                   "THIS REFUSAL IS BY STATE, NOT BY PURPOSE: it is the same refusal whatever the "
+                   "caller intended, and it is what closes the re-run hole.", 1)
+        _rl_row = _adm_rows.get(_rl_t)
+        # P3c — the SKEW leg, and it refuses BEFORE the grant is read or spent. A skewed row reads
+        # `disposition: None` (the two records of its own ending disagree) while `sessions_last_ended`
+        # reads the DURABLE cell directly and can return `exited` — so P3b can pass on a row whose
+        # `skew` is non-None, and the conjunction's clause A never runs on this path. Refusing here
+        # means a skewed world never reaches the grant: nothing is spent and nothing needs re-minting.
+        # An UNJOINED row (`row is None`) passes this leg — clause J's fail-open shape is unchanged.
+        if _rl_row is not None and _rl_row["skew"] is not None:
+            refuse("state",
+                   f"P3c: skew present. '{_rl_t}'s two records of its own ending DISAGREE "
+                   f"(awaiting-close.json={_rl_row['skew'][0]} | sessions.csv={_rl_row['skew'][1]}). "
+                   "Nothing advances on either until a human rules, and a relaunch ruled against "
+                   "one of two contradictory records is a ruling made on a fact that is not "
+                   "established. NO grant was read and none was spent.\n"
+                   f"Adjudicate first: {coord_invocation(args)} ready-seats --explain {_rl_t}", 1)
+        # P4 — no LIVE pane already holds the name. Carried unchanged from `--declare-only`'s own
+        # P4 and BINDING: it re-provides clause C (`active is False`) on this path, where the
+        # conjunction is short-circuited.
+        _, _, _rl_rows = load_workers(base_dir(args))
+        _rl_prior = current_row(_rl_rows, _rl_t)
+        if (_rl_prior and _rl_prior.get("active") == "yes" and _rl_prior.get("pane")
+                and _rl_prior["pane"] in live_panes()):
+            refuse("state",
+                   f"P4: a live pane already holds the name — '{_rl_t}' is checked in on pane "
+                   f"{_rl_prior['pane']} and tmux says that pane is still ALIVE. Admitting a "
+                   "relaunch now would put two live sessions under one name (P37): neither would "
+                   "see the other's messages and only the newest pane would receive wakes.\n"
+                   f"Confirm the old session is dead first (`tmux capture-pane -p -t "
+                   f"{_rl_prior['pane']}`); if it is a zombie, kill it BY PANE ID, then retry.\n"
+                   "NO grant was spent and NO pane was opened.", 1)
+        # P5 — THE MECHANISM. A grant row matching (seat, live last-ENDED session-id, anchor), and
+        # UNSPENT. Each miss names WHICH leg failed, because the four have four different remedies.
+        _rl_i, _rl_g, _rl_why = match_relaunch_grant(_rl_base, _rl_t, _rl_sid, _relaunch_anchor)
+        if _rl_g is None:
+            _rl_leg = {
+                "no-row": (f"no grant row exists for '{_rl_t}' at all. The `leader` mints one "
+                           f"with `{coord_invocation(args)} rule-relaunch {_rl_t} --anchor "
+                           f"<leader-anchor> --go`; until it exists this seat's `exited` row "
+                           f"defers on every launch shape."),
+                "stale-session": (f"a grant exists for '{_rl_t}' but names a DIFFERENT ended "
+                                  f"session. The live last-ENDED session is `{_rl_sid}`; a grant "
+                                  f"minted for an earlier ending never admits a later one — the "
+                                  f"`leader` ruled on the row it investigated, not on this one."),
+                "anchor-mismatch": (f"a grant exists for '{_rl_t}' and session `{_rl_sid}`, but "
+                                    f"its anchor is not `{_relaunch_anchor}`. The anchor is the "
+                                    f"ruling this launch claims to execute; a mismatch means it "
+                                    f"is claiming a different one."),
+                "spent": (f"the matching grant for '{_rl_t}' session `{_rl_sid}` is ALREADY "
+                          f"SPENT. A grant is SINGLE-USE by design — it authorizes one relaunch, "
+                          f"and a second would be a replay. If another is warranted, the `leader` "
+                          f"mints a new one."),
+            }[_rl_why]
+            refuse("state",
+                   f"P5: {_rl_why} — {_rl_leg}\n"
+                   "THIS REFUSAL IS BY STATE: the flag declares the purpose, and the grant file "
+                   "is what makes the authorization checkable. A flag alone admits nothing.", 1)
+        _relaunch_ruled_admitted = True
+        _relaunch_target = _rl_t
+        _relaunch_grant = dict(_rl_g)
+        # THE ATTESTATION — on stdout with the HINT colour, never a refusal's stream or colour, and
+        # it asserts ONLY what the tool verified. Its disclaimer is deliberately NOT
+        # `--declare-only`'s ("recorded not verified"): this one WAS verified, against the leader's
+        # own recorded ruling act.
+        print(c(f"  {_rl_t}: ADMITTED by --relaunch-ruled — session `{_rl_sid}` ENDED with "
+                f"disposition `{RULED_FLIP_FROM}`, and the `leader`'s `d-exited-row-closure` "
+                f"exit-1 ruling is being executed. This admits a WORKING session which supersedes "
+                f"that ending only by writing its own ended row; the `{RULED_FLIP_FROM}` row is "
+                f"untouched and every reader still reports it.\n"
+                f"  trail (VERIFIED against the `leader`'s recorded ruling act — a grant row "
+                f"minted under `is_leader`): anchor `{_rl_g['anchor']}`, minted-by "
+                f"`{_rl_g['minted-by']}`, minted-at `{_rl_g['minted-at']}`, spent at this "
+                f"admission. What remains unverified is the anchor's CONTENT, which is the "
+                f"ledger's own trust model, as it is for every ledger entry.", C_HINT))
+
+    # ---- the filter: ADMIT(w), one row-level boolean, evaluated per worker -------------------
+    #
+    # ADMIT(w) == clause I  (`--declare-only` admitted, the landed sibling instrument)
+    #          or clause I′ (this launch's ruled-relaunch grant, matched and unspent)
+    #          or clause J  (no row joined — fail-OPEN ALWAYS, and NAMED)
+    #          or the A–G conjunction over named row fields.
+    #
+    # ⚠ CLAUSE J CARRIES NO INVOCATION-SHAPE CONDITION AND MUST NOT ACQUIRE ONE — not an `--only`
+    # cardinality, not the exit-1 flag, not any other property of how the launch was typed.
+    # Deferring an unjoined seat would mint a launch outage out of a join gap, which is the wrong
+    # fail direction: the same direction this file already refuses for a degraded sensor.
+    #
+    # ⚠ CLAUSE I′ IS SCOPED TO THE GRANT ROW'S OWN `seat` CELL, which is what makes the admitted
+    # set exactly one seat — not any cardinality of `--only`. P2b already refuses a second name;
+    # this is the narrower statement of the same bound, and it is the one the design names.
+    _adm_deferred = []
+    _adm_kept = []
+    for w in workers:
+        _adm_row = _adm_rows.get(w["agent"])
+        _adm_by_grant = _relaunch_ruled_admitted and w["agent"] == _relaunch_target
+        if (_declare_only_admitted or _adm_by_grant or _adm_row is None
+                or conjunction_admits(_adm_row)):
+            _adm_kept.append(w)
+            # THE TWO ADMITTED DISCLOSURES. An admission nobody can see is the same defect as a
+            # silent filter, facing the other way — so both print, on STDOUT with C_HINT.
+            if _adm_row is None:
+                print(c(f"  {w['agent']}: ADMITTED WITHOUT A READINESS TERM — no `taskforce.csv` "
+                        f"row joins this seat, so no term of the admission predicate could be "
+                        f"evaluated for it. Admitting is the deliberate fail-OPEN direction: "
+                        f"deferring would turn a join gap into a launch outage.", C_HINT))
+            elif _adm_by_grant:
+                print(c(f"  {w['agent']}: ADMITTED by the ruled-relaunch grant — its row still "
+                        f"classes `{deferral_class(_adm_row) or 'clean'}` and stays that way "
+                        f"until this session writes its own ended row.", C_HINT))
+        else:
+            _adm_deferred.append((w, deferral_class(_adm_row), _adm_row))
+    # NEVER FILTER SILENTLY: every deferred seat is named, with its class AND the field value that
+    # decided it. A filter that removes without saying what it removed and why is indistinguishable
+    # from a filter that never ran.
+    for _adm_w, _adm_cls, _adm_r in _adm_deferred:
+        _adm_f, _adm_v = deferral_field(_adm_r)
+        print(c(f"  {_adm_w['agent']}: NOT LAUNCHED — {_adm_cls} ({_adm_f} = {_adm_v!r})",
+                C_DEAD), file=sys.stderr)
+    workers = _adm_kept
+    if _adm_deferred:
+        _adm_detail = (
+            f"{len(_adm_deferred)} seat(s) above were DEFERRED by the launch-admission filter: "
+            f"`{coord_invocation(args)} ready-seats` had already computed a term that says this "
+            f"seat is not a launch candidate, and until now this command never read it.\nThe "
+            f"class word says what to do: `unmet-predecessor` waits; `occupied` is already live; "
+            f"`unbuilt` needs its descriptor materialized; `finished`/`renewing`/`revived` belong "
+            f"to lanes that own the row; `records-disagree`, `exit-unruled`, "
+            f"`terminal-unenumerated` and `undeclared-ending` route to the `leader`.\nNO OVERRIDE "
+            f"FLAG CARRIES THIS: `--force` carries the ROLE gate and `--force-memory` the MEMORY "
+            f"gate, and neither reaches here. The `leader` has exactly two instruments, each "
+            f"admitting ONE named seat for ONE act: `--declare-only <leader-anchor>` for an "
+            f"undeclared ending, and `--relaunch-ruled <leader-anchor>` for an `exited` row it has "
+            f"ruled needs relaunching (minted first with `rule-relaunch`).\nSee: "
+            f"{coord_invocation(args)} ready-seats --explain <seat>")
+        if not workers:
+            refuse("state", _adm_detail + "\nNO pane was opened.", 1)
+        print(c(_adm_detail, C_DEAD), file=sys.stderr)
+
     # PROP-8 (tv-ux-review): validate EVERY seat's launch config BEFORE any pane opens. An
     # invalid model slug used to fail only at model-init, INSIDE each spawned pane — a whole
     # wave died before its first checkin, its panes holding memory until someone noticed.
@@ -10618,6 +11227,41 @@ def cmd_launch(args):
             f"was opened (not even for the valid seats). Fix the briefing frontmatter, then "
             f"relaunch the whole set.",
             1)
+
+    # 7.274 (A3) — THE ONE EXIT-CODE FOLD, and it is computed HERE: above the returning
+    # `if args.dry_run:` branch, so BOTH paths exit from it (`C-1`'s ruled cure, Option B).
+    #
+    # THE DEFECT IT CLOSES. The dry-run branch returns above the verdict block, which is where the
+    # only non-zero exit for a partial launch lives. So a launch that deferred SOME seats and left
+    # a non-empty remainder exited 1 on the real path and 0 under `--dry-run` — opposite answers to
+    # a cadence sweep that reads the exit code and nothing else.
+    #
+    # SEEDED FROM EVERY REFUSAL THAT IS A PROPERTY OF THE REQUEST and visible on BOTH paths — at
+    # this writing exactly two sources: this block's own deferred list, and PROP-8's invalid-config
+    # set, which `--dry-run` already detects and PRINTS while exiting 0. A fold seeded from the
+    # deferred list alone leaves a bad model slug — ordinary, not exotic — still answering
+    # oppositely, which is the same defect by a second door.
+    #
+    # THE TEST FOR ANYTHING ADDED LATER, so the next editor does not have to guess: ask what the
+    # refusing condition is a property OF. Of the launch REQUEST (the seats named, their rows,
+    # their briefings) → it JOINS THIS FOLD. Of a PRECONDITION of the act the real path performs
+    # and the dry run does not (no tmux to open panes in) → it stays real-path-only, because
+    # folding it would make the command refuse the very thing its own refusal text recommends. Of
+    # an OUTCOME of that act (a pane that fails to open) → irreducible, and it is the ONE named
+    # residual divergence below. Silence is not a fourth option.
+    #
+    # ⚠ "BOTH PATHS EXIT FROM ONE FOLD" MEANS ONE COMPUTED VERDICT READ BY TWO EXIT INSTRUMENTS,
+    # not one `sys.exit` statement — the two paths leave this function by different instruments.
+    # The real path's instruments are PROP-8's own refusal (for the invalid half) and the verdict
+    # block's `sys.exit(1)` (for the deferred half, seeded into `refused` below); the dry-run
+    # path's is the exit inside its branch.
+    #
+    # THE ONE RESIDUAL DIVERGENCE, which no placement removes and which is NOT claimed away: a real
+    # launch can fail to OPEN a pane and `--dry-run` opens none, so where a pane-open fails the
+    # real path exits 1 and the dry run exits 0. It is ONE-SIDED — the real path's code is never
+    # lower than the dry run's — and it is never caused by an admission decision.
+    _adm_fold = ([w["agent"] for w, _c, _r in _adm_deferred]
+                 + [w["agent"] for w, _e in invalid])
 
     target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
     if not target and not args.dry_run:
@@ -10643,7 +11287,31 @@ def cmd_launch(args):
             print(f"[dry-run] {w['agent']} ({w['harness']}/{w['model'] or 'plan-default'}"
                   f"{'/' + w['effort'] if w['harness'] == 'claude' else ''}, {place}, cwd={w['cwd']}): "
                   f"{cmd if cmd else 'REFUSED — ' + err}")
+        # 7.274 (A3): the dry run's exit instrument, reading the ONE fold computed above. Before
+        # this the branch returned 0 unconditionally and the real path exited 1 on the same set.
+        if _adm_fold:
+            print(c(f"launch INCOMPLETE (dry-run): {len(_adm_fold)} seat(s) would NOT launch "
+                    f"({', '.join(_adm_fold)}). The exit code is the same one a real launch of "
+                    f"this set would return — a dry run exists to show what a real launch would "
+                    f"do, and one that answered 0 where the real path answers 1 would make the "
+                    f"one command meant for inspection the one that lies.", C_DEAD),
+                  file=sys.stderr)
+            sys.exit(1)
         return
+
+    # 7.274 (A3) — P5's SPEND, and its placement is ruled, not incidental: BELOW the returning
+    # dry-run branch and ABOVE the pane-opening loop. Real-path-only BY CONSTRUCTION, so no
+    # `args.dry_run` test is needed at admission and the parity of the DECISION stays true by
+    # construction; and the design's fail-closed direction holds — the grant is spent before any
+    # pane opens, so a launch that admits and then aborts burns it LOUDLY rather than leaving an
+    # unspent grant behind a crashed launch, which is a replay window.
+    if _relaunch_grant is not None:
+        _rl_stamp = spend_relaunch_grant(base_dir(args), _relaunch_target,
+                                         _relaunch_grant["session-id"], _relaunch_anchor)
+        _rl_spend_note = _rl_stamp or ("(NOT STAMPED — the grant row moved under this launch; "
+                                       "re-read relaunch-grants.csv before minting another)")
+        print(c(f"  grant SPENT at {_rl_spend_note} — single-use, and no second launch of this "
+                f"ending is authorized by it.", C_HINT))
 
     # The memory gate is answered UP FRONT, beside the role gate, by `launch_gates` — both
     # verdicts in one message, neither flag carrying the other (#210/#230).
@@ -10693,7 +11361,13 @@ def cmd_launch(args):
     # A scripted caller — the cadence sweep — reads the exit code and nothing else, so omitting
     # them would report SUCCESS for a launch this command declined to perform, which is the same
     # defect this verdict block was written to fix arriving by a new door.
-    refused = refused + [w["agent"] for w in blocked]
+    # 7.274 (A3): the admission-DEFERRED seats join the refusal on exactly 7.241's own ground and
+    # at exactly its position — AFTER `launched` is computed, because they were filtered OUT of
+    # `workers` and seeding them earlier would subtract them from a total they were never in. They
+    # are the real-path half of the ONE fold computed above the dry-run branch: the same set, read
+    # by this path's own exit instrument, which is what makes the two paths' exit codes agree.
+    refused = refused + [w["agent"] for w in blocked] \
+        + [w["agent"] for w, _c, _r in _adm_deferred]
     if refused:
         print(c(f"launch INCOMPLETE: {launched} launched, {len(refused)} refused "
                 f"({', '.join(refused)}). The launched seats are UP and were not rolled back.",
@@ -12553,9 +13227,20 @@ def _selftest_checks(args, failures, names):
               "the whole wave at model-init, after every pane had spawned)",
               code == 1 and "badseat" in out and "opsu" in out and "NO pane" in out
               and len(opened) == opened_before)
-        out = run(cmd_launch, agent="leader", only="badseat,alpha", dry_run=True)
-        check("PROP-8: dry-run shows the same per-seat pre-flight refusal instead of a command",
-              "REFUSED" in out and "opsu" in out)
+        # 7.274 (A3) / `C-1`, Option B: the dry run still PRINTS the same per-seat pre-flight
+        # refusal — and now EXITS 1 like the real path above, instead of 0. This row moved from
+        # `run()` to `refuse()` in that same change, and the move is the POINT rather than an
+        # accommodation: it was the one in-repo caller encoding the divergence C-1 names. A cadence
+        # sweep reads the exit code and nothing else, and a bad model slug is ordinary rather than
+        # exotic, so 0-here/1-there was the defect arriving by PROP-8's door instead of the
+        # admission's. The CONTENT assertions are unchanged and unweakened.
+        out, code = refuse(cmd_launch, agent="leader", only="badseat,alpha", dry_run=True)
+        check("PROP-8: dry-run shows the same per-seat pre-flight refusal instead of a command — "
+              "and exits with the SAME code the real launch of the same set returns (7.274's one "
+              "fold, computed above the returning dry-run branch and read by both paths' own exit "
+              "instrument)",
+              "REFUSED" in out and "opsu" in out and code == 1
+              and "launch INCOMPLETE (dry-run)" in out)
         badf.unlink()
 
         # ---- r-window-layout, THE LAUNCH-SIDE WIRING (guard sweep, slice 1 site 1) ----
@@ -15922,7 +16607,29 @@ def _selftest_checks(args, failures, names):
               "undeclared gamma would refuse all three and they would read as role/memory/floor "
               "failures that never happened",
               "gamma" not in undeclared_endings(pkg))
-        out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True, force=True)
+        # ---- 7.274 (A3) FIXTURE REPAIR, and it weakens nothing this row asserts ----------------
+        # This row asserts a SUCCESSFUL `--force` launch through a binding divergence. gamma can no
+        # longer be its subject: two lines above, the 7.241 repair declares gamma's ending `done`,
+        # and 7.274's admission filter defers a seat carrying a terminal disposition — that is
+        # clause B's own subject and refusing it is the design, not a regression. The two fixture
+        # repairs want opposite states of the SAME seat, so the subject moves to one that carries
+        # neither: `hk-1` has no ended session row, no active roster row and a descriptor on disk.
+        #
+        # THE ROW'S SUBJECT IS UNCHANGED — the descriptor-vs-registry binding and `--force`'s
+        # override of it — and so is every assertion. The registry row is written to diverge on
+        # `model` exactly as gamma's did, and the seat's admission is ASSERTED rather than assumed:
+        # a subject the filter deferred would red this row instead of letting it pass for a reason
+        # this test does not name.
+        (pkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-1,hk-1,,claude,deepseek/deepseek-v4-pro,,,m0\n", encoding="utf-8")
+        _g51_row = {r["seat"]: r for r in ready_seat_rows(ns())}.get("hk-1")
+        check("7.274 (fixture precondition): the `--force` binding row's subject is ADMITTED by "
+              "the launch-admission filter, so the launch it asserts is reachable. Asserted and "
+              "not assumed: a deferred subject would make the row below refuse for a reason it "
+              "never names",
+              _g51_row is not None and conjunction_admits(_g51_row))
+        out, code = refuse(cmd_launch, agent="leader", only="hk-1", dry_run=True, force=True)
         check("G-51: --force launches on the DESCRIPTOR's value anyway and says so",
               code == 0 and "WARNING --force" in out and "binds from its DESCRIPTOR" in out)
         (pkg / "taskforce.csv").unlink()
@@ -18526,6 +19233,511 @@ def _selftest_checks(args, failures, names):
               and _rs_ex_badcode == 2
               and "nobody" in (_rs_ex_bad + _rs_ex_baderr)
               and "a, b, c" in (_rs_ex_bad + _rs_ex_baderr))
+
+        # ============ 7.274 (A3): THE LAUNCH-ADMISSION FILTER ====================================
+        # Spec: `planning/briefing-scoped-launch/launch-admission-spec.md` v5, accepted at
+        # `runs/run-3/decisions.md#p-v5-RESPEC-ACCEPTED-at-d02432b0-all-lifts-fire`.
+        #
+        # PLACED HERE, AFTER dag-10, FOR ONE REASON: `_rs_make` above builds a WHOLE run package
+        # with a taskforce DAG, descriptors, a roster and BOTH disposition surfaces. This block
+        # needs exactly that and re-authoring it would be a second fixture builder for one job.
+        #
+        # ⚠ EVERY ARM BELOW RUNS ON A FIXTURE, NEVER ON THE LIVE PACKAGE. The numbers are
+        # properties of the constructed package and of nothing else — which is the whole point:
+        # arm 1 run against a live population is blind to a precedence swap, because precedence is
+        # only observable where two limbs COMPETE on one row, and a live population almost never
+        # produces that. A guard whose redness depends on today's population is not a guard.
+
+        # ---- the row-P fixture: every REACHABLE limb pair, plus one row per class -------------
+        # `disp` picks WHICH disposition class a disposition-tripping row lands in, so the five
+        # sub-classes of that one limb are each exercised by a row that names them.
+        _a3_spec = [
+            # (seat, limbs, disposition-value) — 19 REACHABLE pairs
+            ("p01", ("skew", "active"), ""), ("p02", ("skew", "built"), ""),
+            ("p03", ("skew", "stop"), ""), ("p04", ("skew", "unmet"), ""),
+            ("p05", ("disposition", "active"), "done"),
+            ("p06", ("disposition", "built"), "renew"),
+            ("p07", ("disposition", "undeclared"), "revive"),
+            ("p08", ("disposition", "stop"), "exited"),
+            ("p09", ("disposition", "unmet"), "not-a-declared-value"),
+            ("p10", ("active", "built"), ""), ("p11", ("active", "undeclared"), ""),
+            ("p12", ("active", "stop"), ""), ("p13", ("active", "unmet"), ""),
+            ("p14", ("built", "undeclared"), ""), ("p15", ("built", "stop"), ""),
+            ("p16", ("built", "unmet"), ""),
+            ("p17", ("undeclared", "stop"), ""), ("p18", ("undeclared", "unmet"), ""),
+            ("p19", ("stop", "unmet"), ""),
+            # one SINGLE-LIMB row per class (C-3's superset), so class coverage never rests on
+            # which limb happened to win a pair row
+            ("s01", ("skew",), ""), ("s02", ("disposition",), "done"),
+            ("s03", ("disposition",), "renew"), ("s04", ("disposition",), "revive"),
+            ("s05", ("disposition",), "exited"), ("s06", ("disposition",), "unenumerated-value"),
+            ("s07", ("active",), ""), ("s08", ("built",), ""), ("s09", ("undeclared",), ""),
+            ("s10", ("stop",), ""), ("s11", ("unmet",), ""),
+            # the CLEAN row — READY, class None, admitted by the conjunction
+            ("clean", (), ""),
+        ]
+        _a3_tf, _a3_built, _a3_active, _a3_awaiting, _a3_sessions, _a3_ids = [], [], [], [], [], {}
+        for _s, _limbs, _disp in _a3_spec:
+            _a3_tf.append((_s, "danglingpred" if "unmet" in _limbs else ""))
+            if "built" not in _limbs:              # tripping `built` == having NO descriptor
+                _a3_built.append(_s)
+            if "active" in _limbs:
+                _a3_active.append(_s)
+            _a3_ids[_s] = "tasks.md#R1" if "stop" in _limbs else ""
+            if "skew" in _limbs:
+                # BOTH surfaces carry a disposition and they DISAGREE — the one state that yields
+                # a skew tuple, and it forces `disposition` to None, which is why (skew,
+                # disposition) is UNREACHABLE rather than merely unobserved.
+                _a3_awaiting.append((_s, "renew"))
+                _a3_sessions.append((_s, "done"))
+            elif "disposition" in _limbs and "undeclared" in _limbs:
+                # the live surface carries the value while the DURABLE cell is empty — the only
+                # shape in which both limbs trip at once.
+                _a3_awaiting.append((_s, _disp))
+                _a3_sessions.append((_s, ""))
+            elif "disposition" in _limbs:
+                _a3_sessions.append((_s, _disp))
+            elif "undeclared" in _limbs:
+                _a3_sessions.append((_s, ""))
+        _a3_pkg = _rs_make("a3-classmap", _a3_tf, built=_a3_built, active=_a3_active,
+                           awaiting=_a3_awaiting, sessions=_a3_sessions,
+                           store=[("R1", "#row-outcome/held-by-ruling")], store_ids=_a3_ids)
+        _a3_rows = ready_seat_rows(argparse.Namespace(
+            package=str(_a3_pkg), base=None, workers_dir=None, as_agent=None, force=False))
+        _a3_by = {r["seat"]: r for r in _a3_rows}
+
+        # ---- arm 1: the class map MIRRORS the home's own verdict precedence, on the FIXTURE ----
+        _a3_arm1 = [(r["seat"], deferral_class(r), r["verdict"]) for r in _a3_rows]
+        check("7.274 row P arm 1: every fixture row's DEFERRAL CLASS agrees with the verdict the "
+              "home computed for it — `CLASS_TO_VERDICT[cls] == row['verdict']`, and class None "
+              "iff READY. The class map is a HAND-COPY of `ready_seat_rows`' precedence and this "
+              "is what makes the copy checkable rather than trusted",
+              len(_a3_rows) == len(_a3_spec)
+              and all((cls is None and v == "READY") or
+                      (cls is not None and CLASS_TO_VERDICT[cls] == v)
+                      for _s, cls, v in _a3_arm1))
+        # ---- arm 1C: C-3's SUPERSET — every class the map defines is EXERCISED ----
+        check("7.274 row P arm 1C: every one of the ELEVEN classes is exercised by some fixture "
+              "row — set equality, not a count. Seven limbs produce eleven classes (the "
+              "`disposition` limb alone produces five), so a fixture carrying one row per LIMB "
+              "would leave four classes unexercised while reading as complete",
+              {deferral_class(r) for r in _a3_rows} - {None} == set(CLASS_TO_VERDICT)
+              and len(CLASS_TO_VERDICT) == 11)
+        # ---- arm 1M: THE META-CHECK, over TWO DIFFERENT SETS ----
+        _a3_cov = covered_limb_pairs(_a3_rows)
+        check("7.274 row P arm 1M (coverage): the fixture covers EVERY REACHABLE limb pair — "
+              "19 of the 21, the two exclusions being structurally impossible. Precedence is only "
+              "observable where two limbs COMPETE on one row; a fixture that covers fewer pairs "
+              "cannot SEE a swap of the ones it misses, which is exactly how a live population "
+              "leaves 11 of 21 transpositions undetected while arm 1 reads GREEN",
+              _a3_cov == REACHABLE_PAIRS and len(REACHABLE_PAIRS) == 19)
+        _a3_undetected = [(x, y) for x, y in sorted(DETECTABLE_PAIRS)
+                          if not arm1_fails_under_transposition(_a3_rows, x, y)]
+        check("7.274 row P arm 1M (detection): TRANSPOSING ANY TWO LIMBS OF THE PRECEDENCE MAKES "
+              "ARM 1 GO RED — all 20 detectable pairs, each re-ordered and re-run. This is the "
+              "row that proves arm 1 is load-bearing rather than coincidentally true of today's "
+              "fixture: without it, a map that mirrored nothing would still pass arm 1",
+              _a3_undetected == [] and len(DETECTABLE_PAIRS) == 20)
+        check("7.274 row P arm 1M (the two sets are NOT the same set): coverage is bounded by what "
+              "the home can PRODUCE, detection by what a re-ordering can be SEEN BY. "
+              "`(skew,disposition)` and `(skew,undeclared)` cannot occur on any row this home "
+              "emits; `(skew,undeclared)` is DETECTABLE anyway, because a transposition re-orders "
+              "the whole map and any row tripping the lower limb sees it. Only "
+              "`(skew,disposition)` — ADJACENT in precedence AND impossible — is undetectable by "
+              "any fixture whatsoever, and asserting over the full cross-product is therefore "
+              "unsatisfiable rather than merely unmet",
+              ALL_21_PAIRS - REACHABLE_PAIRS == {("skew", "disposition"), ("skew", "undeclared")}
+              and ALL_21_PAIRS - DETECTABLE_PAIRS == {("skew", "disposition")}
+              and len(ALL_21_PAIRS) == 21)
+        # ---- arm 2 / 2N: clause B's ONE answer, and the conjunctive control ----
+        check("7.274 row P arm 2: an `exited` row that is otherwise CLEAN classes `exit-unruled` "
+              "— routed to the `leader`, not to a relaunch, and NOT collapsed into `finished`. "
+              "All four disposition values read `DONE` at the verdict, so this distinction exists "
+              "only on the class axis, which is what writing the predicate on FIELDS buys",
+              deferral_class(_a3_by["s05"]) == "exit-unruled"
+              and _a3_by["s05"]["verdict"] == "DONE"
+              and deferral_class(_a3_by["s02"]) == "finished")
+        check("7.274 row P arm 2N (NEGATIVE control): an `exited` row that is ALSO OCCUPIED "
+              "classes on the HIGHER limb (`occupied`), never on `exit-unruled`. The predicate is "
+              "a CONJUNCTION and no clause of it carries an admission exception — the classing of "
+              "a row does not depend on how the tool was invoked",
+              deferral_class(_a3_by["p05"]) == "finished"
+              and deferral_class(_a3_by["p10"]) == "occupied"
+              and deferral_class(_a3_by["s07"]) == "occupied")
+        # ---- arm 4: ADMIT <=> (deferral_class is None), SCOPED TO THE CONJUNCTION PATH ----
+        check("7.274 row P arm 4: on the CONJUNCTION path the boolean and the class map are "
+              "JOINTLY TOTAL and MUTUALLY EXCLUSIVE — `conjunction_admits(row)` is true exactly "
+              "where `deferral_class(row)` is None, on every fixture row, and neither raises. "
+              "SCOPED, because unscoped the biconditional is FALSE BY CONSTRUCTION: an instrument "
+              "admits a row that still carries a class, by design",
+              all(conjunction_admits(r) == (deferral_class(r) is None) for r in _a3_rows)
+              and conjunction_admits(_a3_by["clean"])
+              and sum(1 for r in _a3_rows if conjunction_admits(r)) == 1)
+        # ---- row S: the disposition domain's closure, MECHANIZED ----
+        check("7.274 row S: every value `RECORD_DISPOSITION_WRITER` admits at the WRITE boundary "
+              "has a deferral class here — set equality, so a disposition added without a class "
+              "goes RED instead of silently classing as `terminal-unenumerated` and reading as a "
+              "considered decision",
+              set(_DEFERRAL_BY_DISPOSITION) == set(RECORD_DISPOSITION_WRITER))
+        check("7.274 row S (control): a value OUTSIDE that domain still classes, and loudly. "
+              "`terminal_disposition` reads the cell back WITHOUT re-validating it, so the domain "
+              "is closed at the writer and not re-asserted at the reader — this class is that "
+              "edge, and it defers rather than admitting on a value nobody established",
+              deferral_class(_a3_by["s06"]) == "terminal-unenumerated"
+              and "unenumerated-value" not in RECORD_DISPOSITION_WRITER)
+
+        # ---- the LAUNCH package: the guard ladder, the filter, the naming, the parity ---------
+        # A package of its own, because these rows drive the REAL `cmd_launch` and the classmap
+        # fixture above is deliberately full of rows every one of which defers.
+        _a3l = _rs_make("a3-launch", [("ex1", ""), ("ex2", ""), ("occ", ""), ("done1", ""),
+                                      ("noend", ""), ("okseat", ""), ("undec", ""),
+                                      ("blk1", "danglingpred")],
+                        active=["occ"],
+                        awaiting=[("ex2", "renew")],
+                        sessions=[("ex1", "exited"), ("ex2", "exited"), ("occ", "exited"),
+                                  ("done1", "done"), ("undec", "")])
+        (_a3l / "budget.json").write_text(
+            json.dumps({"floors": {"launch_refuse_mb": 1, "pressure_warn_mb": 1}}))
+        # `check_bindings` runs ABOVE the admission block and refuses on ANY descriptor/registry
+        # divergence, `effort` included — so the descriptors are written to AGREE with the rows
+        # `_rs_make` generated. Without this every row below would refuse at the binding check and
+        # read as an admission verdict that never ran: the misgrading shape, where an assertion
+        # passes or fails for a reason the test does not name.
+        for _a3l_s in ("ex1", "ex2", "occ", "done1", "noend", "okseat", "undec", "blk1"):
+            (_a3l / "seats" / _a3l_s / "seat.md").write_text(
+                f"---\nagent: {_a3l_s}\nmodel: opus\neffort: medium\nctx-refresh: 50\n"
+                f"---\nbrief\n", encoding="utf-8")
+        _a3l_base = _a3l / "coordination"
+        _a3l_sid = sessions_last_ended(_a3l)["ex1"][0]
+        _a3l_anchor = "p-ex1-relaunch-ruled"
+
+        def _a3l_run(**kw):
+            _d = dict(agent="leader", package=str(_a3l), dry_run=True)
+            _d.update(kw)
+            return refuse(cmd_launch, **_d)
+
+        def _a3_admit(shape):
+            """(verdict, leg, output, code) for one launch shape — read off the REAL command's own
+            output, never re-implemented. The leg is matched on the SPELLED-OUT tag each refusal
+            prints, so a row cannot pass on a bare refusal that tripped some other guard."""
+            _o, _c = _a3l_run(**shape)
+            for _leg in ("P2a", "P2b", "P3a", "P3b", "P3c: skew present", "P4",
+                         "P5: no-row", "P5: stale-session", "P5: anchor-mismatch", "P5: spent"):
+                if _leg + (":" if ":" not in _leg else "") in _o or _leg in _o:
+                    return ("REFUSED pre-boolean", _leg, _o, _c)
+            if "ADMITTED by --relaunch-ruled" in _o:
+                return ("ADMITTED", "clause I-prime", _o, _c)
+            return ("(neither)", "(no leg named)", _o, _c)
+
+        def _a3_grants():
+            return [g for _i, g in read_relaunch_grants(_a3l_base)]
+
+        def _a3_write_grants(rows):
+            """Write the grant file directly — a FIXTURE of the file `rule-relaunch` mints into.
+            The minting command itself is exercised separately, below, against the real writer."""
+            write_csv_table(relaunch_grants_csv(_a3l_base), RELAUNCH_GRANT_COLS,
+                            [[r.get(_c3, "") for _c3 in RELAUNCH_GRANT_COLS] for r in rows])
+
+        # THE GUARD LADDER: ten refusal legs and ONE admitting shape. Each leg refuses on its OWN
+        # named reason — checked on the reason string and never on the bare refusal, because ten
+        # guards that all refuse are indistinguishable from one guard that refuses everything.
+        _a3_ladder = []
+        _a3_write_grants([])
+        _a3_ladder.append((dict(only=None, relaunch_ruled=_a3l_anchor),
+                           ("REFUSED pre-boolean", "P2a")))
+        _a3_ladder.append((dict(only="ex1,done1", relaunch_ruled=_a3l_anchor),
+                           ("REFUSED pre-boolean", "P2b")))
+        _a3_ladder.append((dict(only="noend", relaunch_ruled=_a3l_anchor),
+                           ("REFUSED pre-boolean", "P3a")))
+        _a3_ladder.append((dict(only="done1", relaunch_ruled=_a3l_anchor),
+                           ("REFUSED pre-boolean", "P3b")))
+        _a3_ladder.append((dict(only="ex2", relaunch_ruled=_a3l_anchor),
+                           ("REFUSED pre-boolean", "P3c: skew present")))
+        _a3_ladder.append((dict(only="ex1", relaunch_ruled=_a3l_anchor),
+                           ("REFUSED pre-boolean", "P5: no-row")))
+        _a3_results = [( _a3_admit(_sh), _exp) for _sh, _exp in _a3_ladder]
+        # P4 needs a LIVE pane holding the name; `occ` carries an active roster row on `%1`.
+        _a3_prior_live = set(live_tmux_panes["v"])
+        live_tmux_panes["v"] = _a3_prior_live | {"%1"}
+        _a3_write_grants([{"seat": "occ", "session-id": sessions_last_ended(_a3l)["occ"][0],
+                           "anchor": _a3l_anchor, "minted-by": "leader",
+                           "minted-at": "2026-08-03 15:00", "spent-at": ""}])
+        _a3_results.append((_a3_admit(dict(only="occ", relaunch_ruled=_a3l_anchor)),
+                            ("REFUSED pre-boolean", "P4")))
+        live_tmux_panes["v"] = _a3_prior_live
+        # the three remaining P5 legs, each a different cell of the SAME matched-row question
+        _a3_write_grants([{"seat": "ex1", "session-id": "ex1-a-different-ending",
+                           "anchor": _a3l_anchor, "minted-by": "leader",
+                           "minted-at": "2026-08-03 15:00", "spent-at": ""}])
+        _a3_results.append((_a3_admit(dict(only="ex1", relaunch_ruled=_a3l_anchor)),
+                            ("REFUSED pre-boolean", "P5: stale-session")))
+        _a3_write_grants([{"seat": "ex1", "session-id": _a3l_sid, "anchor": "p-some-other-ruling",
+                           "minted-by": "leader", "minted-at": "2026-08-03 15:00",
+                           "spent-at": ""}])
+        _a3_results.append((_a3_admit(dict(only="ex1", relaunch_ruled=_a3l_anchor)),
+                            ("REFUSED pre-boolean", "P5: anchor-mismatch")))
+        _a3_write_grants([{"seat": "ex1", "session-id": _a3l_sid, "anchor": _a3l_anchor,
+                           "minted-by": "leader", "minted-at": "2026-08-03 15:00",
+                           "spent-at": "2026-08-03 15:30"}])
+        _a3_results.append((_a3_admit(dict(only="ex1", relaunch_ruled=_a3l_anchor)),
+                            ("REFUSED pre-boolean", "P5: spent")))
+        # and THE ONE ADMITTING SHAPE — a matched, unspent, leader-minted grant.
+        _a3_write_grants([{"seat": "ex1", "session-id": _a3l_sid, "anchor": _a3l_anchor,
+                           "minted-by": "leader", "minted-at": "2026-08-03 15:00", "spent-at": ""}])
+        _a3_admit_res = _a3_admit(dict(only="ex1", relaunch_ruled=_a3l_anchor))
+        _a3_results.append((_a3_admit_res, ("ADMITTED", "clause I-prime")))
+        check("7.274 arm 3 (THE GUARD LADDER): all ELEVEN shapes — ten refusal legs and the one "
+              "admitting shape — produce the verdict AND the named leg the design assigns them. "
+              "P2a · P2b · P3a · P3b · P3c · P4 · P5's four cells · the admission. Matched on the "
+              "leg TAG rather than on a bare refusal: ten guards that all refuse without saying "
+              "which one fired are one guard wearing ten names",
+              len(_a3_results) == 11
+              and all(_res[:2] == _exp for _res, _exp in _a3_results))
+        check("7.274 arm 3 (every refusal leg opens NOTHING and exits 1): a pre-boolean refusal "
+              "is a refusal of the whole command, not a filter of one seat",
+              all(_res[3] == 1 for _res, _exp in _a3_results if _exp[0] != "ADMITTED"))
+        check("7.274 P3c (the SKEW leg refuses BEFORE the grant is read or spent): a skewed row "
+              "reads `disposition: None` while `sessions_last_ended` reads the DURABLE cell and "
+              "returns `exited`, so P3b passes and the conjunction's clause A never runs on this "
+              "path. Refusing at P3c means a skewed world never reaches the grant — nothing is "
+              "spent and nothing needs re-minting",
+              _a3_by is not None
+              and _a3_admit((lambda: dict(only="ex2", relaunch_ruled=_a3l_anchor))())[1]
+              == "P3c: skew present")
+        _a3_write_grants([{"seat": "ex2", "session-id": sessions_last_ended(_a3l)["ex2"][0],
+                           "anchor": _a3l_anchor, "minted-by": "leader",
+                           "minted-at": "2026-08-03 15:00", "spent-at": ""}])
+        _a3_skew_res = _a3_admit(dict(only="ex2", relaunch_ruled=_a3l_anchor))
+        check("7.274 P3c (SKEWED_EXITED_WITH_VALID_GRANT): the same skewed target carrying a "
+              "PERFECTLY VALID, UNSPENT grant is STILL refused at P3c, and the grant is STILL "
+              "UNSPENT afterwards. Without this row the leg could refuse after spending, which "
+              "burns an authorization on a launch that never happened",
+              _a3_skew_res[:2] == ("REFUSED pre-boolean", "P3c: skew present")
+              and all(not g["spent-at"] for g in _a3_grants() if g["seat"] == "ex2"))
+
+        # ---- the FILTER, the NAMING, the EMPTY-SET refusal, the PARITY ------------------------
+        _a3_write_grants([])
+        _a3_mixed, _a3_mixed_code = _a3l_run(only="okseat,done1,blk1")
+        check("7.274 THE FILTER: a mixed launch keeps the admitted seat and DEFERS the rest — "
+              "`launch` consults the readiness home at last. Before this the command read the "
+              "`after` field zero times and called no readiness computation, so every one of "
+              "these opened a pane exactly as if it were ready",
+              "[dry-run] okseat" in _a3_mixed
+              and "[dry-run] done1" not in _a3_mixed
+              and "[dry-run] blk1" not in _a3_mixed)
+        check("7.274 NEVER FILTER SILENTLY: every deferred seat is printed BY NAME with its CLASS "
+              "and the FIELD VALUE that decided it. A filter that removes without naming what it "
+              "removed and why is indistinguishable from a filter that never ran — which is "
+              "exactly how a freshly landed detector gets walked past the day it ships",
+              "done1: NOT LAUNCHED — finished (disposition = 'done')" in _a3_mixed
+              and "blk1: NOT LAUNCHED — unmet-predecessor (unmet-after = [{" in _a3_mixed
+              and "'seat': 'danglingpred'" in _a3_mixed
+              and "DEFERRED by the launch-admission filter" in _a3_mixed)
+        check("7.274 THE TWO FILTERS STAY INDEPENDENTLY READABLE: the 7.241 undeclared-ending "
+              "refusal above still owns its own class and prints its own text — an UNDECLARED "
+              "seat is removed by THAT gate and never reaches this one, so the two are not one "
+              "filter wearing two names and neither swallowed the other",
+              "ENDED with an EMPTY disposition — NOT LAUNCHED"
+              in _a3l_run(only="okseat,undec")[0]
+              and "undec: NOT LAUNCHED — undeclared-ending"
+              not in _a3l_run(only="okseat,undec")[0])
+        check("7.274 THE ADMITTED SET IS NOT REFUSED: a launch that defers SOME seats still opens "
+              "the rest — the filter is scoped to what the caller targeted, exactly as 7.241's "
+              "is, and the command refuses outright only when the filter empties the set",
+              _a3_mixed_code == 1 and "NO pane was opened" not in _a3_mixed)
+        _a3_opened_before = len(opened)
+        _a3_empty, _a3_empty_code = _a3l_run(only="done1", dry_run=False)
+        check("7.274 THE EMPTY-SET REFUSAL (criterion 6): when the filter empties the set the "
+              "command REFUSES, exits 1, and opens NO pane — asserted on the pane ledger itself, "
+              "not on the absence of a success line",
+              _a3_empty_code == 1 and "NO pane was opened" in _a3_empty
+              and len(opened) == _a3_opened_before)
+        # ---- DRY-RUN PARITY (criterion 5), on one fixture, both paths ----
+        _a3_par_dry, _a3_par_dry_code = _a3l_run(only="done1,undec", dry_run=True)
+        _a3_par_real, _a3_par_real_code = _a3l_run(only="done1,undec", dry_run=False)
+
+        def _a3_defer_lines(text):
+            return [ln for ln in text.splitlines() if "NOT LAUNCHED —" in ln]
+        check("7.274 PARITY (criterion 5): the filtered set, the per-seat CLASS NAMING and the "
+              "EXIT CODE are identical with and without `--dry-run`. The decision half holds BY "
+              "CONSTRUCTION — the block contains no `args.dry_run` test at all — and the exit-code "
+              "half BY PLACEMENT: one fold computed above the returning dry-run branch, read by "
+              "both paths' own exit instrument. The non-empty assertion is what stops this "
+              "comparing two absences and calling them equal",
+              _a3_defer_lines(_a3_par_dry) != []
+              and _a3_defer_lines(_a3_par_dry) == _a3_defer_lines(_a3_par_real)
+              and _a3_par_dry_code == _a3_par_real_code == 1)
+        _a3_ok_dry, _a3_ok_dry_code = _a3l_run(only="okseat", dry_run=True)
+        check("7.274 PARITY (the OTHER direction — a clean launch exits 0 on BOTH paths): without "
+              "this row the parity above would be satisfied by a filter that refused everything, "
+              "and a check that cannot tell those apart measures nothing",
+              _a3_ok_dry_code == 0 and _a3_defer_lines(_a3_ok_dry) == []
+              and "[dry-run] okseat" in _a3_ok_dry)
+        # ---- clause J: the unjoined seat, fail-OPEN, and NAMED ----
+        _a3_unj = [w["agent"] for w in discover_workers(_a3l / "seats")]
+        (_a3l / "seats" / "unjoined").mkdir(exist_ok=True)
+        (_a3l / "seats" / "unjoined" / "seat.md").write_text(
+            "---\nagent: unjoined\nmodel: opus\n---\nbrief\n", encoding="utf-8")
+        _a3_j, _a3_j_code = _a3l_run(only="unjoined")
+        check("7.274 CLAUSE J: a seat with NO `taskforce.csv` row is ADMITTED on every launch "
+              "shape, and the launch PRINTS that it was admitted without a readiness term. "
+              "Deferring would mint a launch outage out of a join gap — the wrong fail direction, "
+              "and the same one this file already refuses for a degraded sensor",
+              _a3_j_code == 0 and "unjoined" not in [_s for _s, _a in _a3_tf]
+              and "ADMITTED WITHOUT A READINESS TERM" in _a3_j
+              and "[dry-run] unjoined" in _a3_j)
+        check("7.274 CLAUSE J carries NO invocation-shape condition: the same seat is admitted on "
+              "a SET launch too, not only when named alone. Putting clause J behind an `--only` "
+              "split would defer unjoined seats on ordinary mass launches — the exact inversion, "
+              "on the common path",
+              "ADMITTED WITHOUT A READINESS TERM" in _a3l_run(only="unjoined,okseat")[0])
+
+        # ---- arm 4's instrument-path halves: ADMITTED while STILL CARRYING A CLASS ------------
+        _a3_write_grants([{"seat": "ex1", "session-id": _a3l_sid, "anchor": _a3l_anchor,
+                           "minted-by": "leader", "minted-at": "2026-08-03 15:00", "spent-at": ""}])
+        _a3_g_out, _a3_g_code = _a3l_run(only="ex1", relaunch_ruled=_a3l_anchor)
+        _a3_ex1_row = {r["seat"]: r for r in ready_seat_rows(argparse.Namespace(
+            package=str(_a3l), base=None, workers_dir=None, as_agent=None,
+            force=False))}["ex1"]
+        check("7.274 arm 4 (the INSTRUMENT path): a seat admitted by the ruled-relaunch grant is "
+              "launched WHILE ITS ROW STILL CLASSES `exit-unruled`. The biconditional is scoped to "
+              "the CONJUNCTION path and does not hold here — by design, and stated rather than "
+              "discovered: an instrument admits a row that still carries a class, exactly as "
+              "`--declare-only` admits one that still reads UNDECLARED",
+              _a3_g_code == 0 and "[dry-run] ex1" in _a3_g_out
+              and deferral_class(_a3_ex1_row) == "exit-unruled"
+              and not conjunction_admits(_a3_ex1_row))
+        check("7.274 THE ATTESTATION states only what the tool VERIFIED, and its disclaimer is "
+              "NOT `--declare-only`'s. That instrument prints `recorded not verified` because no "
+              "tool can check an anchor names a real investigation; this one verified the "
+              "authorization against the leader's own recorded ruling ACT — the grant row — and "
+              "says so, while naming the anchor's CONTENT as the part that remains the ledger's "
+              "trust model",
+              "ADMITTED by --relaunch-ruled" in _a3_g_out
+              and "VERIFIED against the `leader`'s recorded ruling act" in _a3_g_out
+              and "minted under `is_leader`" in _a3_g_out
+              and "recorded not verified" not in _a3_g_out
+              and _a3l_anchor in _a3_g_out)
+        check("7.274 THE SPEND IS REAL-PATH-ONLY (`--dry-run` VERIFIES and never SPENDS): the "
+              "admission decision is identical on both paths and the WRITE happens on neither at "
+              "the decision point. The dry run above admitted and the grant is still UNSPENT",
+              all(not g["spent-at"] for g in _a3_grants() if g["seat"] == "ex1"))
+        _a3_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
+        _a3_prior_wake = wake_ok["v"]
+        os.environ["COORD_LAUNCH_TARGET"] = "%0"
+        wake_ok["v"] = True
+        try:
+            _a3_real_out, _a3_real_code = _a3l_run(only="ex1", relaunch_ruled=_a3l_anchor,
+                                                   dry_run=False)
+        finally:
+            wake_ok["v"] = _a3_prior_wake
+            if _a3_prior_target is None:
+                os.environ.pop("COORD_LAUNCH_TARGET", None)
+            else:
+                os.environ["COORD_LAUNCH_TARGET"] = _a3_prior_target
+        check("7.274 THE SPEND, ON THE REAL PATH: a real admitted launch stamps `spent-at` on the "
+              "matched row, and the row is NEVER deleted — the file is the durable history of "
+              "every ruled relaunch, including after the `exited` state has left the row by "
+              "supersession",
+              _a3_real_code == 0 and "grant SPENT at" in _a3_real_out
+              and len([g for g in _a3_grants() if g["seat"] == "ex1"]) == 1
+              and all(g["spent-at"] for g in _a3_grants() if g["seat"] == "ex1"))
+        _a3_replay = _a3_admit(dict(only="ex1", relaunch_ruled=_a3l_anchor))
+        check("7.274 SINGLE-USE: the SAME invocation immediately after refuses at `P5: spent`. A "
+              "grant authorizes ONE relaunch and a second is a replay — which is why the spend is "
+              "placed BELOW the returning dry-run branch and ABOVE the pane loop: fail-closed, so "
+              "a launch that admits and then aborts burns the grant loudly rather than leaving a "
+              "replay window open behind a crash",
+              _a3_replay[:2] == ("REFUSED pre-boolean", "P5: spent"))
+        # ---- the MINTING command, driven for real ----
+        _a3_rr_ns = dict(package=str(_a3l), base=None, workers_dir=None, force=False,
+                         as_agent=None, agent="leader")
+        _a3_rr_bare, _a3_rr_bare_code = refuse(cmd_rule_relaunch, seat="ex1",
+                                               anchor="p-second-ruling", go=False, **_a3_rr_ns)
+        check("7.274 `rule-relaunch` BARE is a REPORT — it says the row is grantable and writes "
+              "nothing, which is `rule-disposition`'s own shape and the reason both verbs can be "
+              "read before they are run",
+              _a3_rr_bare_code == 0 and "GRANTABLE" in _a3_rr_bare
+              and len([g for g in _a3_grants() if g["anchor"] == "p-second-ruling"]) == 0)
+        _a3_rr_go, _a3_rr_go_code = refuse(cmd_rule_relaunch, seat="ex1", anchor="p-second-ruling",
+                                           go=True, **_a3_rr_ns)
+        check("7.274 `rule-relaunch --go` MINTS the row, stamping the LIVE last-ENDED session-id "
+              "and the leader as `minted-by`. The grant is SESSION-BOUND: one minted for ending N "
+              "never admits ending N+1, so a ruling cannot be silently re-used on an ending it "
+              "never examined",
+              _a3_rr_go_code == 0 and "GRANT MINTED" in _a3_rr_go
+              and [g for g in _a3_grants() if g["anchor"] == "p-second-ruling"][0]["session-id"]
+              == _a3l_sid
+              and [g for g in _a3_grants() if g["anchor"] == "p-second-ruling"][0]["minted-by"]
+              == "leader")
+        _a3_rr_dup, _a3_rr_dup_code = refuse(cmd_rule_relaunch, seat="ex1", anchor="p-third",
+                                             go=True, **_a3_rr_ns)
+        check("7.274 `rule-relaunch` refuses a SECOND unspent grant for the same (seat, session): "
+              "minting two would authorize two relaunches where ONE was ruled",
+              _a3_rr_dup_code == 1 and "already carries an UNSPENT grant" in _a3_rr_dup)
+        _a3_rr_done, _a3_rr_done_code = refuse(cmd_rule_relaunch, seat="done1", anchor="p-x",
+                                               go=True, **_a3_rr_ns)
+        _a3_rr_noend, _a3_rr_noend_code = refuse(cmd_rule_relaunch, seat="noend", anchor="p-x",
+                                                 go=True, **_a3_rr_ns)
+        check("7.274 `rule-relaunch` mints on `exited` rows ONLY, and BY STATE: a `done` row and a "
+              "seat with no ended row are both refused with their own reason. ONE CONSTANT keys "
+              "both exits of `d-exited-row-closure` — this is the mirror of "
+              "`session_rule_disposition`'s own from-state check, never a second copy of the value",
+              _a3_rr_done_code == 1 and "mints a grant on `exited` rows" in _a3_rr_done
+              and _a3_rr_noend_code == 1 and "no ENDED session row" in _a3_rr_noend)
+        _a3_rr_role, _a3_rr_role_code = refuse(cmd_rule_relaunch, seat="ex1", anchor="p-x",
+                                               go=True, **dict(_a3_rr_ns, agent="chief-of-staff"))
+        check("7.274 `rule-relaunch` IS THE LEADER'S ALONE — the chief-of-staff is refused by the "
+              "role gate itself, the same predicate and the same exclusivity as exit 2's gate. "
+              "The chief-of-staff MAY launch; minting the authorization a launch spends is a "
+              "ruling, and rulings are not the operational lane's",
+              _a3_rr_role_code != 0 and "rule-relaunch" in _a3_rr_role)
+
+        # ---- the STATIC rows: the block's own shape, asserted at the SOURCE -------------------
+        import inspect as _a3_inspect
+        import ast as _a3_ast
+        import textwrap as _a3_tw
+        _a3_src = _a3_inspect.getsource(cmd_launch)
+        _a3_block = _a3_src[_a3_src.index("_adm_rows = {"):
+                            _a3_src.index("# PROP-8 (tv-ux-review)")]
+        check("7.274 row O (`no-class-clause`, asserted at the source): the admission block reads "
+              "the `verdict` field ZERO times. The three ruled-legitimate relaunch lanes are "
+              "structurally excluded from ever reading `READY`, so a verdict-keyed filter would "
+              "decide admission on a value those lanes can never carry. The positive control is "
+              "`ready_seat_rows`, which demonstrably does subscript it",
+              '["verdict"]' not in _a3_block
+              and '["verdict"]' in _a3_inspect.getsource(ready_seat_rows))
+        check("7.274 row Q (parity BY CONSTRUCTION, asserted at the source): the admission block "
+              "contains ZERO `dry_run` reads, so it cannot branch on the path it runs under. The "
+              "positive control is the enclosing function, which demonstrably does contain them",
+              "dry_run" not in _a3_block and "dry_run" in _a3_src)
+        check("7.274 criterion (1): the block parses the `after` set PRIVATELY zero times — it "
+              "reads the home's `unmet-after` FIELD instead. A reconstruction here would be a "
+              "second home for the readiness arithmetic AND would read a DANGLING predecessor as "
+              "SATISFIED, because such a predecessor gets no output row of its own",
+              '["after"]' not in _a3_block
+              and "conjunction_admits(" in _a3_block
+              and "unmet-after" in _a3_inspect.getsource(conjunction_admits))
+        check("7.274 criterion (2): EXACTLY ONE call into `ready_seat_rows` appears in "
+              "`cmd_launch` — the one readiness home, called once and joined O(1), never per-seat "
+              "and never re-implemented",
+              _a3_src.count("ready_seat_rows(") == 1)
+        _a3_fn = [_n for _n in _a3_ast.walk(_a3_ast.parse(_a3_tw.dedent(_a3_src)))
+                  if isinstance(_n, _a3_ast.FunctionDef) and _n.name == "cmd_launch"][0]
+        _a3_direct = [_n for _n in _a3_fn.body
+                      if isinstance(_n, _a3_ast.Assign)
+                      and any(getattr(_t, "id", "") == "_adm_rows" for _t in _n.targets)]
+        _a3_nested = [_n for _n in _a3_ast.walk(_a3_fn)
+                      if isinstance(_n, _a3_ast.Assign)
+                      and any(getattr(_t, "id", "") == "_adm_rows" for _t in _n.targets)]
+        check("7.274 row T2 (THE PLACEMENT CHECK): the admission block is a DIRECT CHILD of "
+              "`cmd_launch`'s body — not of any `If`. The 7.241 anchor it lands after sits TWO "
+              "`If` suites deep (`if not _declare_only_admitted:` and `if blocked:`), so the "
+              "required dedent is 8 spaces and not 4; landing it one suite in would disable the "
+              "filter on exactly the path `--declare-only` admits — reachable in the parser, dead "
+              "in the path, and invisible to every behavioural row that does not happen to admit",
+              len(_a3_direct) == 1 and len(_a3_nested) == 1
+              and _a3_direct[0].col_offset == 4)
 
         # ============ dag-11: THE ATTEST-EXIT ARM ================================================
         # Spec: implementation-tasks/dag-11-attest-exit-arm.md (RS-11, RS-13, RS-14, AE-1…AE-3).
@@ -21626,7 +22838,7 @@ HELP_EPILOG = """everyday
 leader
   launch      open one tmux seat per worker briefing and start its harness
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / current-run / attest-exit / rule-disposition  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / current-run / attest-exit / rule-disposition / rule-relaunch  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited` row (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -22194,8 +23406,44 @@ def build_parser():
                         "stays UNDECLARED until its new session supersedes it, a seat with a "
                         "DECLARED ending is still refused, and --force/--force-memory are "
                         "untouched and carry no part of this")
+    # 7.274 (A3): exit 1 of `d-exited-row-closure`, and a FOURTH independent parameter — not an
+    # override and not a member of the --force family. The flag DECLARES the purpose; it arms
+    # nothing. Admission needs a grant row minted by `rule-relaunch` (the leader's alone) matching
+    # this seat, its live last-ENDED session-id and this anchor, and still unspent.
+    s.add_argument("--relaunch-ruled", metavar="LEADER-ANCHOR", default=None,
+                   help="admit ONE --only seat whose last session ENDED with disposition "
+                        "`exited`, executing the leader's ruled relaunch. Takes that ruling's "
+                        "anchor, which is VERIFIED against a grant row the leader minted with "
+                        "`rule-relaunch` (single-use, session-bound, spent at admission). NOT an "
+                        "override: a fabricated or unmatched anchor refuses, the `exited` row is "
+                        "untouched until this session supersedes it, and --force/--force-memory "
+                        "carry no part of this")
     add_identity_flags(s)
     s.set_defaults(func=cmd_launch)
+
+    s = command(
+        "rule-relaunch",
+        "(leader) MINT the grant that admits ONE ruled relaunch of an `exited` row — exit 1 of\n"
+        "`d-exited-row-closure`, and the twin of `rule-disposition`. `attest-exit` writes `exited`\n"
+        "(THE HARNESS TERMINATED, nothing more) and routes the row to the leader; the leader\n"
+        "investigates and either records that the work had concluded (`rule-disposition <seat>\n"
+        "done --go`) or rules that the seat must be relaunched — which no disposition value can\n"
+        "express. This records THAT ruling as a single-use, session-bound authorization the\n"
+        "launch path can VERIFY, so admission never rests on the shape of an invocation. BARE =\n"
+        "report only.",
+        "example:\n"
+        "  coordinate rule-relaunch oc2 --anchor p-oc2-relaunch-ruled        # report\n"
+        "  coordinate rule-relaunch oc2 --anchor p-oc2-relaunch-ruled --go   # mint the grant\n"
+        "next: coordinate launch --only <seat> --relaunch-ruled <anchor> — the one invocation the "
+        "grant admits, and it is spent there")
+    s.add_argument("seat", help="the TARGET seat whose ended row the ruling covers — never the caller")
+    s.add_argument("--anchor", default=None,
+                   help="the leader's own ruling anchor (`p-*`/`d-*`, or a message ref); it is "
+                        "recorded as the trail and must be presented verbatim at launch")
+    s.add_argument("--go", action="store_true",
+                   help="ACT: append the grant row; without it nothing is written")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_rule_relaunch)
 
     s = command(
         "export-transcript",
