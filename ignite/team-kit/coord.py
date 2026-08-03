@@ -10533,6 +10533,26 @@ def cmd_launch(args):
                 f"verified — no tool can check that an anchor names a real investigation): "
                 f"{_decl_anchor}", C_HINT))
 
+    # ⚠⚠ BOUND BEFORE THE BRANCH, AND THE PLACEMENT IS THE FIX (`G-admission-predicate-prover-
+    # 0803-0155`). The launch VERDICT far below reads `blocked` UNCONDITIONALLY —
+    # `refused = refused + [w["agent"] for w in blocked]` — but the only assignment used to live
+    # inside the `if not _declare_only_admitted:` body, which is exactly the branch an ADMITTED
+    # `--declare-only` skips. Every real admit therefore raised `UnboundLocalError` AFTER the pane
+    # was already open: the seat came up, the command died, and the operator was left holding a
+    # live pane the tool said nothing about.
+    #
+    # THE EMPTY LIST IS THE CORRECT VALUE, not a placeholder that silences a traceback. `blocked`
+    # means "seats this command DECLINED to launch for an undeclared ending". On the admitted path
+    # the command declined NOBODY — P2 made the launch set exactly the one named seat and the
+    # admission launched it — so the undeclared-refusal contribution to the verdict is empty by
+    # construction, and `launched`/`refused` below stay the counts they already meant.
+    #
+    # ⚠ WHY 16 GREEN ROWS MISSED IT, recorded so the next editor does not re-open the hole: every
+    # 7.251 row that ADMITS ran `--dry-run`, and `cmd_launch` RETURNS at its dry-run branch above,
+    # far short of the verdict block. The admitted REAL path was covered by nothing. The row that
+    # closes that gap is `7.251 CRASH` in the self-test, which drives a real (non-dry-run) admit
+    # all the way through this read — delete this binding and that row goes red.
+    blocked = []
     if not _declare_only_admitted:
         undeclared = undeclared_endings(package_dir(args, register=False))
         blocked = [w for w in workers if w["agent"] in undeclared]
@@ -16088,6 +16108,72 @@ def _selftest_checks(args, failures, names):
               "`--force-memory`, so it carries no part of either gate and neither carries any "
               "part of it. DO-1 above admitted on a caller that passed neither flag",
               "--force" not in _do_ok.split("ADMITTED by --declare-only")[0][-400:])
+        # ---- 7.251 CRASH (`G-admission-predicate-prover-0803-0155`): THE ADMITTED PATH, RUN FOR
+        # ---- REAL, ALL THE WAY THROUGH THE LAUNCH VERDICT.
+        #
+        # ⚠⚠ THIS IS THE ROW THE 16 ABOVE COULD NOT BE. Every one of them that ADMITS runs
+        # `--dry-run`, and `cmd_launch` RETURNS at its dry-run branch long before the verdict block
+        # — so `refused = refused + [w["agent"] for w in blocked]` was reached by NOTHING. `blocked`
+        # was assigned only inside the `if not _declare_only_admitted:` body, which is precisely the
+        # branch an admitted caller skips, and every real admit raised `UnboundLocalError` AFTER the
+        # pane was already open. A green suite whose rows all stop short of the defect is the
+        # failure mode this row exists to close, not a stronger reason to trust the other sixteen.
+        #
+        # WHAT MAKES IT A CONTROL RATHER THAN A SMOKE TEST: it asserts REACHING the read, not merely
+        # surviving the call. The two verdict renderings below are printed ONLY on the far side of
+        # that line, so their absence reds this row even if the command exits 0 by some path that
+        # never got there. Remove the `blocked = []` binding and this row goes red — measured by
+        # mutation, not asserted.
+        #
+        # The exception is caught HERE rather than left to the harness: `harness_outcome` converts
+        # `SystemExit` and nothing else, so an `UnboundLocalError` would ABORT the suite and every
+        # row behind it would go unrun — G-215(a)'s shape, and a mutation that aborts is evidence
+        # about nothing.
+        session_open(ns(), _u46_g, since=time.time(), wait=0.0)
+        session_close(ns(), "gamma")          # undeclared again — the one state the admission admits
+        _crash_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
+        _crash_prior_wake = wake_ok["v"]
+        os.environ["COORD_LAUNCH_TARGET"] = "%0"   # a real launch resolves a target or refuses
+        wake_ok["v"] = True                        # harness starts succeed: set, never inherited
+        _crash_out, _crash_code, _crash_exc = "", None, None
+        try:
+            _crash_out, _crash_code = refuse(cmd_launch, agent="leader", only="gamma",
+                                             dry_run=False, declare_only="#1825")
+        except Exception as _crash_e:              # noqa: BLE001
+            _crash_exc = f"{type(_crash_e).__name__}: {_crash_e}"
+        finally:
+            wake_ok["v"] = _crash_prior_wake
+            if _crash_prior_target is None:
+                os.environ.pop("COORD_LAUNCH_TARGET", None)
+            else:
+                os.environ["COORD_LAUNCH_TARGET"] = _crash_prior_target
+        _crash_reached = ("every seat above must appear there" in _crash_out
+                          or "launch INCOMPLETE" in _crash_out)
+        check("7.251 CRASH: a REAL (non-dry-run) `--declare-only` admit runs to the launch VERDICT "
+              "without raising. `blocked` is read unconditionally there and is assigned only in the "
+              "branch an admitted caller skips, so before the binding this path raised "
+              "`UnboundLocalError` AFTER opening the pane — the operator kept a live seat and the "
+              "command died. The exception is captured, never propagated: an aborting row measures "
+              "nothing",
+              _crash_exc is None
+              and "ADMITTED by --declare-only" in _crash_out)
+        check("7.251 CRASH (REACH): the run actually got PAST the read, asserted by output only the "
+              "verdict block emits — surviving the call is not the same claim as reaching the line, "
+              "and a row that could not tell them apart would pass against a command that returned "
+              "early for an unrelated reason",
+              _crash_reached and _crash_exc is None)
+        check("7.251 CRASH (VALUE): on the admitted path the command declined NOBODY for an "
+              "undeclared ending, so the verdict is the SUCCESS hint and not `launch INCOMPLETE`. "
+              "The empty binding is the CORRECT value and not a traceback silencer: a fix that "
+              "bound `blocked` to the admitted seat would launch it and report it refused in the "
+              "same breath, and this row is what separates the two",
+              _crash_code == 0
+              and "launch INCOMPLETE" not in _crash_out
+              and "every seat above must appear there" in _crash_out)
+        # the real launch above opened a NEW session row for gamma; end it DECLARED so the
+        # postcondition below — and every row after this block — meets the state it expects.
+        session_close(ns(), "gamma", disposition="done")
+
         # ---- restore the fixture: gamma leaves this block DECLARED, as the rows after it expect.
         check("7.251 (fixture postcondition): gamma's ending is DECLARED again, so every row "
               "after this block meets the state it was written against rather than inheriting "
