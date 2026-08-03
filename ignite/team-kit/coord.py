@@ -9560,6 +9560,30 @@ def ready_seat_rows(args):
         value, source, skew = term[seat]
         row = current_row(roster, seat)
         active = bool(row) and row.get("active") == "yes"
+        # 7.273: THE UNMET SET, HOISTED out of the terminal `else` below so that EVERY row reaches
+        # it. The computation is unchanged and unmoved in substance — it is the SAME loop over the
+        # SAME `term` reads the `else` has always run; only its position changed, because a row
+        # taking any earlier branch never executed it and would carry no value at all.
+        # TWO SHAPES, ONE PASS: `unmet` is the prose membership the BLOCKED `reason` string has
+        # always rendered and is spent there UNCHANGED; `unmet_after` is the structured, LOSSLESS
+        # form the launch-admission predicate reads as a term of the ROW. Lossless is the word
+        # that matters: the skew pair rides as its two members rather than collapsing to the bare
+        # word the prose renders inside `SKEW(a|b)`, so the field and the string it must agree
+        # with carry the same membership, the same order, and the same information.
+        unmet = []
+        unmet_after = []
+        for p in preds:
+            pv, psrc, pskew = term[p]
+            if pskew:
+                unmet.append(f"{p}=SKEW({pskew[0]}|{pskew[1]})")
+                unmet_after.append({"seat": p, "state": "skew",
+                                    "skew": [pskew[0], pskew[1]]})
+            elif pv is None:
+                unmet.append(f"{p}=<no check-out>")
+                unmet_after.append({"seat": p, "state": "no-check-out"})
+            elif pv != "done":
+                unmet.append(f"{p}={pv}")
+                unmet_after.append({"seat": p, "state": pv})
         rec = {"seat": seat, "after": list(preds), "disposition": value, "source": source,
                "skew": list(skew) if skew else None, "active": active,
                "built": seat in built,
@@ -9575,7 +9599,18 @@ def ready_seat_rows(args):
                "row-outcome": outcomes.get(
                    seat, {"store-row": "", "values": [], "stop": [],
                           "note": "no `store-id` column on this run's taskforce.csv — the seat "
-                                  "→ store-row join is not made on this package"})}
+                                  "→ store-row join is not made on this package"}),
+               # 7.273: present on EVERY row — `[]` when nothing is unmet, never only on the rows
+               # that trip. Same rule and same reason as `undeclared-session` and `row-outcome`
+               # above, applied to a third key: a consumer of the launch-admission predicate reads
+               # this as a term of the ROW, and an ABSENT key raises where an empty list decides.
+               # It is therefore a term of that boolean's safety, not a presentation choice.
+               # ⚠ IT CARRIES NO VERDICT. The value is the same membership the BLOCKED `reason`
+               # string names, in the same order, structured rather than re-parsed — the
+               # alternative, reconstructing it from `after` in the consumer, is a second home for
+               # the readiness arithmetic AND reads a DANGLING predecessor as satisfied, because a
+               # predecessor with no `taskforce.csv` row of its own gets no output row here.
+               "unmet-after": unmet_after}
         if skew:
             rec["verdict"] = "SKEW"
             rec["reason"] = (f"awaiting-close.json={skew[0]} | sessions.csv={skew[1]}  "
@@ -9625,15 +9660,9 @@ def ready_seat_rows(args):
                 f"never lifts; a holding value lifts only when its named exit event fires and the "
                 f"tag is cleared in that same act. It advances NO edge meanwhile")
         else:
-            unmet = []
-            for p in preds:
-                pv, psrc, pskew = term[p]
-                if pskew:
-                    unmet.append(f"{p}=SKEW({pskew[0]}|{pskew[1]})")
-                elif pv is None:
-                    unmet.append(f"{p}=<no check-out>")
-                elif pv != "done":
-                    unmet.append(f"{p}={pv}")
+            # 7.273: `unmet` is built ONCE at the top of this iteration, for every row and not
+            # only the ones that reach here — see the hoist above. The membership, the order and
+            # the rendering below are byte-for-byte what this branch built for itself before.
             if unmet:
                 rec["verdict"] = "BLOCKED"
                 rec["reason"] = "after: " + " ".join(unmet)
@@ -18413,6 +18442,71 @@ def _selftest_checks(args, failures, names):
               _rs19_v == {"p": "READY", "q": "STOPPED"}
               and _rs19_bv == {"z": "UNDECLARED"}
               and "row-outcome/finished-unsatisfiable" in _rs19_bex)
+
+        # ---- RS-20 (7.273): the unmet set is a STRUCTURED FIELD on EVERY row ----
+        # The launch-admission predicate reads the unmet-predecessor set as a term of the ROW. It
+        # was computed here already and spent on the `reason` prose only, so a consumer had two
+        # options and both are refused: re-parse the string, or re-walk `after` in the consumer —
+        # a second home for the readiness arithmetic that ALSO reads a dangling predecessor as
+        # satisfied. Hence the field. Three arms, because one of them alone proves nothing:
+        #   arm 1 — PRESENCE ON EVERY ROW, including the rows that take an earlier branch and so
+        #           never executed the builder before the hoist. `[]` when clean, never absent:
+        #           the consumer's boolean raises on a missing key where an empty list decides.
+        #   arm 2 — AGREEMENT WITH THE PROSE it replaces, member for member, in the same ORDER,
+        #           on a fixture carrying a BLOCKED row and a READY row at once. Without this arm
+        #           the field could carry anything at all and arm 1 would still pass.
+        #   arm 3 — LOSSLESSNESS on the skew shape, the one branch where the prose renders two
+        #           values into one token: the field carries the PAIR, so no reader has to take
+        #           `SKEW(a|b)` apart to recover what disagreed.
+        _rs20 = _rs_make("20", [("a", ""), ("b", ""), ("f", ""), ("c", "a,b,f"), ("d", "a")],
+                         sessions=[("a", "done"), ("b", "renew")])
+        _rs20_out, _, _ = _rs(_rs20, json=True)
+        _rs20_rows = {r["seat"]: r for r in json.loads(_rs20_out)}
+        # arm 2, computed off the row rather than restated: the prose the BLOCKED branch prints is
+        # `after: ` + the members joined by a space; the field must name the SAME seats in the SAME
+        # order. ⚠ THE SPLIT IS ON A MEMBER BOUNDARY, NOT ON A SPACE. One member rendering — the
+        # `<no check-out>` value — contains a space of its own, so a naive `.split(" ")` tears it
+        # in two and reports a disagreement that is the SPLITTER's, not the field's. Measured on
+        # the live run's own package before this fixture carried the shape: 3 of 3 BLOCKED rows
+        # "disagreed", all three under the naive split, none under this one. Hence `f`, whose
+        # member carries that exact rendering, sits in this fixture beside `b`'s plain value.
+        _rs20_prose = [m.split("=", 1)[0] for m in
+                       re.split(r" (?=[^ =]+=)",
+                                _rs20_rows["c"]["reason"].split("after: ", 1)[1])]
+        # arm 3: a seat whose two records of its own ending DISAGREE, seen from its successor.
+        _rs20_skew = _rs_make("20s", [("s", ""), ("t", "s")],
+                              awaiting=[("s", "done")], sessions=[("s", "renew")])
+        _rs20_sout, _, _ = _rs(_rs20_skew, json=True)
+        _rs20_srows = {r["seat"]: r for r in json.loads(_rs20_sout)}
+        check("dag-10 RS-20 (7.273): THE UNMET-PREDECESSOR SET IS EMITTED AS A STRUCTURED "
+              "`unmet-after` FIELD ON EVERY ROW — `[]` on the rows with nothing unmet and on the "
+              "rows that never reach the BLOCKED branch at all, never a key that appears only "
+              "when it fires. A key present only on the rows that trip cannot be read as a term "
+              "of the predicate: the consumer's boolean RAISES where the key is absent, so the "
+              "rows that would raise are exactly the ones an absent-key implementation looks "
+              "correct on. ⚠ AND IT AGREES WITH THE PROSE IT REPLACES, member for member and in "
+              "the same order, asserted against the `reason` string SPLIT AT RUNTIME rather than "
+              "against a hand-typed list — a hand-typed expectation would pass for a field that "
+              "carries plausible members in the wrong order. ⚠ AND IT IS LOSSLESS ON SKEW, the "
+              "one branch where the prose renders TWO values into a single `SKEW(a|b)` token: "
+              "the field carries the pair, so nothing downstream has to take that token apart",
+              # arm 1: present on all five rows, and `[]` — not absent — on the four that are not
+              # blocked, two of which (`a`, `b`) take the DONE branch and never saw the builder.
+              all("unmet-after" in r for r in _rs20_rows.values())
+              and [_rs20_rows[s]["unmet-after"] for s in ("a", "b", "d", "f")] == [[], [], [], []]
+              and _rs20_rows["c"]["verdict"] == "BLOCKED"
+              and _rs20_rows["d"]["verdict"] == "READY"
+              # arm 2: exactly the two unmet members, in the prose's own order, with the
+              # disposition value verbatim as one state and the no-check-out class as the other —
+              # the met predecessor `a` is absent from both renderings.
+              and _rs20_rows["c"]["unmet-after"] == [{"seat": "b", "state": "renew"},
+                                                     {"seat": "f", "state": "no-check-out"}]
+              and [m["seat"] for m in _rs20_rows["c"]["unmet-after"]] == _rs20_prose
+              # arm 3: the skew pair survives, both members, live surface first.
+              and "unmet-after" in _rs20_srows["t"]
+              and _rs20_srows["t"]["unmet-after"] == [
+                  {"seat": "s", "state": "skew", "skew": ["done", "renew"]}]
+              and "s=SKEW(done|renew)" in _rs20_srows["t"]["reason"])
 
         # ---- --explain: the predicate, term by term ----
         # ON RS-2'S FIXTURE, NOT RS-12'S: sharing RS-12's meant this row asserted the printed
