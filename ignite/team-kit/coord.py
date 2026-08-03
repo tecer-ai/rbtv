@@ -9314,6 +9314,149 @@ def taskforce_after(pkg):
     return out
 
 
+# ---------- U2.1 (7.224): the seat → STORE ROW binding ----------
+#
+# THE DEFECT THIS CLOSES. Until this term existed the seat-radius predicate read NO store input at
+# all: `terminal(self)`, the roster, the descriptor and the predecessors' dispositions — every one
+# of them a statement about a SESSION or a SEAT, none about the ROW the seat exists to discharge.
+# So a seat whose row the run had already ruled concluded was offered for launch anyway, and on
+# run-3 three of them sat in the live READY set at once (`both-goal-kinds-driver`,
+# `c1-rehearsal-driver`, `staffer-launch-attributor` — all three `unreachable-by-construction`).
+# Telling the caller the truth was already tried; it was ignored, which is why this refuses instead.
+#
+# THE AUTHORITATIVE SURFACE IS RULED, NOT CHOSEN HERE: the store ROW — its title line's `#`-tag
+# tokens — per U1(b)'s `pick` = `row`
+# (`runs/run-3/decisions.md#p-U1-terminal-state-design-ACCEPTED-PROVISIONAL-both-contradictions-settled-in-this-ruling`).
+# The FIELD read is the row's `tags[]`, in the `row-outcome/` namespace.
+#
+# THE JOIN KEY IS RULED TOO, and against the shape this file could have reached more easily: the
+# leader ruled it is `taskforce.csv`'s REFERENCE COLUMN and explicitly NOT a descriptor frontmatter
+# key, on measured evidence that a `seat.md` is a one-shot projection already observed disagreeing
+# with reality (a seat declaring `window: wave-rtss-1` while its pane sat in `wave-rtss-10`).
+# `taskforce.csv` has ONE writer, the materialize command. NEVER KEY A JOIN ON THE SURFACE KNOWN TO
+# DRIFT — so this reads the column and never the descriptor, even though the descriptor is nearer.
+ROW_OUTCOME_TAG_PREFIX = "row-outcome/"
+
+# The FIVE values that suppress an offer, spelled exactly as U1(a) enumerates them. BOTH classes,
+# and that is the whole point of stating it as a set rather than as "the terminal ones": under the
+# terminal-class-only reading the design fixes ONE of the seven measured mis-offers. A terminal's
+# suppression never lifts; a holding state's lifts when its named exit event fires. They differ in
+# WHEN, not in WHETHER.
+#   terminal: no event exits them — offering is always wrong
+#   holding:  an exit event exists and has NOT fired — offering is wrong until it does
+# `done` and `untouched` are deliberately ABSENT: they are U1(a)'s `baseline` pair, carried by the
+# checkbox and by the offerable state itself, and suppressing `untouched` would refuse every
+# ordinary seat. An unenumerated `row-outcome/*` value does NOT suppress — it is RENDERED instead
+# (see `--explain`), because over-refusal is as much a defect here as under-refusal and a value
+# this file does not know is not a value it may act on.
+ROW_OUTCOME_STOP_STATES = ("skipped-by-guard", "finished-unsatisfiable",
+                           "unreachable-by-construction",      # terminal
+                           "accepted-not-closable-yet", "held-by-ruling")  # holding
+
+# The join column on `taskforce.csv`. ABSENT ON EVERY PACKAGE THAT HAS NOT ADDED IT, and its
+# absence is NOT an error: the term simply binds nothing and every seat keeps the verdict it had.
+# That is the fail-safe direction — a run with no join must not have all 149 of its seats refused.
+TASKFORCE_STORE_JOIN_COLUMN = "store-id"
+
+# The row's title line: `- [ ] 7.224 Title #tag #tag`. The tag grammar is `sb_task.py`'s TAG_RE,
+# copied deliberately rather than imported — team-kit ships without the vault's task CLI on
+# sys.path, and a silent ImportError here would make every row read as untagged, which is exactly
+# the failure this term exists to end.
+STORE_ROW_LINE_RE = r"^- \[[ x]\] {rid}(?:\s|$)"
+STORE_TAG_RE = re.compile(r"(?:(?<=\s)|^)#([A-Za-z0-9_/-]+)")
+
+
+def taskforce_store_ids(pkg):
+    """{seat: raw `store-id` cell} from `taskforce.csv`. `{}` when the column does not exist.
+
+    One producer, one parse — the same discipline `taskforce_after` states for the `after` cell."""
+    header, rows = read_csv_table(pkg / "taskforce.csv", [])
+    if not rows or "seat" not in header or TASKFORCE_STORE_JOIN_COLUMN not in header:
+        return {}
+    idx = {c: i for i, c in enumerate(header)}
+    out = {}
+    for r in rows:
+        pad_row(r, header)
+        seat = r[idx["seat"]].strip()
+        if seat:
+            out[seat] = r[idx[TASKFORCE_STORE_JOIN_COLUMN]].strip()
+    return out
+
+
+def resolve_store_path(pkg, rel):
+    """The store file `rel` names, resolved from the package UPWARD, or None.
+
+    NO WORKSPACE ROOT IS HARDCODED, by the same ruling that keeps window names out of this file: a
+    path frozen into a tool every run shares refuses every run organized differently. So a
+    workspace-relative cell is resolved the only way that needs no constant — try the package, then
+    each ancestor, first hit wins. An absolute cell is taken as given."""
+    p = Path(rel)
+    if p.is_absolute():
+        return p if p.is_file() else None
+    for d in [Path(pkg)] + list(Path(pkg).resolve().parents):
+        cand = d / p
+        if cand.is_file():
+            return cand
+    return None
+
+
+def store_row_outcome(pkg, cell, cache=None):
+    """(values, note) — the `row-outcome/*` values on the store row this cell names.
+
+    `values` is [] both when the row carries no such tag AND when the cell resolves to nothing;
+    `note` is what tells those two apart, and it is rendered on EVERY seat rather than only on the
+    ones that trip. AN UNRESOLVED JOIN NEVER SUPPRESSES: a cell this function cannot read is a
+    missing measurement, and refusing on a missing measurement would turn a typo into a room-wide
+    launch freeze. It is made LOUD instead — silence is what would make it dangerous.
+
+    The cell is `<store-path>#<row-id>`; the path half may be omitted only if there is nothing to
+    resolve, in which case the join is reported unresolved rather than guessed at."""
+    cell = (cell or "").strip()
+    if not cell:
+        return [], "no `store-id` cell — this seat is bound to no store row"
+    if "#" not in cell:
+        return [], (f"UNRESOLVED JOIN: `{cell}` carries no store path. The cell is "
+                    f"`<store-path>#<row-id>`; a bare row id names no file to read")
+    rel, _, rid = cell.rpartition("#")
+    if not rel or not rid:
+        return [], f"UNRESOLVED JOIN: `{cell}` is not `<store-path>#<row-id>`"
+    path = resolve_store_path(pkg, rel)
+    if path is None:
+        return [], f"UNRESOLVED JOIN: no file `{rel}` at or above {pkg}"
+    if cache is None:
+        cache = {}
+    key = str(path)
+    if key not in cache:
+        try:
+            cache[key] = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as e:
+            cache[key] = []
+            return [], f"UNRESOLVED JOIN: {path} could not be read ({e})"
+    pat = re.compile(STORE_ROW_LINE_RE.format(rid=re.escape(rid)))
+    line = next((ln for ln in cache[key] if pat.match(ln)), None)
+    if line is None:
+        return [], f"UNRESOLVED JOIN: no row `{rid}` in {path}"
+    vals = [t[len(ROW_OUTCOME_TAG_PREFIX):] for t in STORE_TAG_RE.findall(line)
+            if t.startswith(ROW_OUTCOME_TAG_PREFIX)]
+    return vals, f"row `{rid}` in {path}"
+
+
+def seat_store_outcomes(pkg):
+    """{seat: {store-row, values, stop, note}} for every seat, join column present or not.
+
+    PRESENT ON EVERY SEAT, never only on the ones it trips — 7.237's rule, and it is the same
+    reason: `--explain` must render the value that DECIDED a term even when that value is the clean
+    one, and a key that appears only when it fires cannot be read as a term of the predicate."""
+    cells = taskforce_store_ids(pkg)
+    cache = {}
+    out = {}
+    for seat, cell in cells.items():
+        vals, note = store_row_outcome(pkg, cell, cache)
+        out[seat] = {"store-row": cell, "values": vals, "note": note,
+                     "stop": [v for v in vals if v in ROW_OUTCOME_STOP_STATES]}
+    return out
+
+
 def terminal_disposition(pkg, base, seat, awaiting=None):
     """(value, source, skew) — the seat's DURABLE check-out disposition.
 
@@ -9369,6 +9512,17 @@ def ready_seat_rows(args):
                ordinary BLOCKED and its undeclared ending would never surface. Measured: of the
                three members on run-3, one (`briefing-collision-verifier`) was masked exactly
                that way while the other two sat in the live READY set.
+      STOPPED  (7.224) the seat's BOUND STORE ROW carries a `row-outcome/*` STOP-STATE — the run
+               has already ruled that row concluded or held, so offering the seat offers work the
+               run has settled. THE ROW GOVERNS AND THE SEAT SURFACE DOES NOT: the row-outcome
+               claim's subject is the ROW, and a surface whose subject is the SESSION cannot carry
+               a claim about a row without re-collapsing the two. ⚠ IT SITS ABOVE `BLOCKED` for
+               exactly 7.237's reason — a stop-state row whose `after` set happens to be unmet
+               would otherwise read as an ordinary BLOCKED and its stop-state would never surface.
+               ⚠ AND BELOW `UNDECLARED` DELIBERATELY: both verdicts refuse the offer identically,
+               so precedence decides only WHICH reason prints, and `UNDECLARED` names an
+               unresolved DEFECT the leader must act on, which would be lost if a settled state
+               printed over it. Ordering them the other way changes no seat's offerability.
       BLOCKED  at least one `after` predecessor lacks a `done` check-out
       READY    every term above cleared
 
@@ -9388,6 +9542,9 @@ def ready_seat_rows(args):
     # `session_disposition` are answering about THE SAME selected row rather than two reads that
     # could straddle a concurrent append.
     undeclared = undeclared_endings(pkg, last_ended=sessions_last_ended(pkg))
+    # 7.224: hoisted ONCE for the same reason `awaiting` and `undeclared` are — N seats must cost
+    # one read of the store file, not N. `seat_store_outcomes` caches per resolved path internally.
+    outcomes = seat_store_outcomes(pkg)
     term = {}
     for seat in after:
         term[seat] = terminal_disposition(pkg, base, seat, awaiting=awaiting)
@@ -9410,7 +9567,15 @@ def ready_seat_rows(args):
                # the rows that trip. A key that appears only when it fires cannot be rendered as
                # a term of the predicate, and `--explain` must show the value that DECIDED a
                # term even when that value is the clean one.
-               "undeclared-session": undeclared.get(seat)}
+               "undeclared-session": undeclared.get(seat),
+               # 7.224: present on EVERY row, join column or no join column — same rule, same
+               # reason as `undeclared-session` above. `{}` would be a key that means "clean";
+               # this carries the NOTE that says WHY it is clean, which is the difference between
+               # "the row carries no stop-state" and "nothing was read at all".
+               "row-outcome": outcomes.get(
+                   seat, {"store-row": "", "values": [], "stop": [],
+                          "note": "no `store-id` column on this run's taskforce.csv — the seat "
+                                  "→ store-row join is not made on this package"})}
         if skew:
             rec["verdict"] = "SKEW"
             rec["reason"] = (f"awaiting-close.json={skew[0]} | sessions.csv={skew[1]}  "
@@ -9445,6 +9610,20 @@ def ready_seat_rows(args):
                 f"either gets the ending declared or rules the row — and it is NOT a relaunch "
                 f"instruction to anyone. Nothing here infers what the ending WAS: only the "
                 f"occupant witnessed that. It advances NO edge meanwhile")
+        elif rec["row-outcome"]["stop"]:
+            # 7.224. THE REFUSAL ITSELF — not a warning beside the offer. The caller that filters
+            # `verdict == "READY"` cannot be handed this seat even if it never reads the reason,
+            # and a caller that does not know the value simply fails to match it. Both directions
+            # are fail-safe; neither advances an edge.
+            _ro = rec["row-outcome"]
+            rec["verdict"] = "STOPPED"
+            rec["reason"] = (
+                f"store row {_ro['store-row']} carries "
+                f"`row-outcome/{'`, `row-outcome/'.join(_ro['stop'])}` — the run has already "
+                f"ruled this row concluded or held. NOT OFFERED: the row-outcome claim's subject "
+                f"is the ROW, and it governs over every session-keyed surface. A terminal value "
+                f"never lifts; a holding value lifts only when its named exit event fires and the "
+                f"tag is cleared in that same act. It advances NO edge meanwhile")
         else:
             unmet = []
             for p in preds:
@@ -9774,6 +9953,20 @@ def cmd_ready_seats(args):
         print(f"  last ended session declared an ending                -> {_u is None}"
               + (f"   ⚠ `{_u}` ENDED with an EMPTY disposition — work CONCLUDED, ending never "
                  f"declared. Defect -> `leader`, NOT a relaunch" if _u else ""))
+        # 7.224: rendered on EVERY seat, not only the ones it trips — same rule as the line above,
+        # same reason. The NOTE is always printed because "no stop-state" and "nothing was read"
+        # are the two readings a reader must never have to guess between, and an unenumerated
+        # `row-outcome/*` value is named here rather than acted on.
+        _ro = rec.get("row-outcome") or {"values": [], "stop": [], "note": "(not computed)"}
+        _other = [v for v in _ro["values"] if v not in _ro["stop"]]
+        print(f"  bound store row carries no stop-state                -> {not _ro['stop']}"
+              f"   [{_ro['note']}]"
+              + (f"   ⚠ STOP-STATE: `row-outcome/"
+                 + "`, `row-outcome/".join(_ro["stop"]) + "` — the run has ruled this row "
+                 "concluded or held. NOT OFFERED" if _ro["stop"] else "")
+              + (f"   (also carries `row-outcome/"
+                 + "`, `row-outcome/".join(_other) + "`, which is not an enumerated stop-state "
+                 "and does NOT suppress)" if _other else ""))
         if not rec["after"]:
             print("  every `after` predecessor is `done`                   -> True (root — none)")
         for p in rec["after"]:
@@ -17719,15 +17912,33 @@ def _selftest_checks(args, failures, names):
         # Every fixture below is a WHOLE run package of its own — a taskforce DAG, descriptors, a
         # roster, and BOTH disposition surfaces — because the predicate has four terms and a row
         # that shares a package with its neighbours cannot isolate which term it moved.
-        def _rs_make(name, tf, built=None, active=(), awaiting=(), sessions=()):
+        def _rs_make(name, tf, built=None, active=(), awaiting=(), sessions=(),
+                     store=None, store_ids=None):
             """A self-contained run package. `tf` is [(seat, after-cell)]; `awaiting` and
-            `sessions` are [(seat, disposition)] on the live and durable surfaces."""
+            `sessions` are [(seat, disposition)] on the live and durable surfaces.
+
+            7.224: `store` is [(row-id, tag-string)] written as a task-store markdown file inside
+            the package, and `store_ids` is {seat: cell} written into a `store-id` REFERENCE column
+            on `taskforce.csv`. Both omitted ⇒ NO join column at all, which is what every package
+            predating the binding looks like — the shape the fail-safe arm is asserted on."""
             p = Path(td) / f"rs-{name}"
             (p / "coordination").mkdir(parents=True)
             (p / "seats").mkdir()
+            if store is not None:
+                (p / "tasks.md").write_text(
+                    "# fixture store\n\n"
+                    + "".join(f"- [ ] {rid} A row{(' ' + tg) if tg else ''}\n"
+                              f"  - _Context:_ body prose, never the value\n"
+                              for rid, tg in store),
+                    encoding="utf-8")
+            _sid = store_ids or {}
+            _extra_h = f",{TASKFORCE_STORE_JOIN_COLUMN}" if store_ids is not None else ""
             (p / "taskforce.csv").write_text(
-                "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-                + "".join(f'tf-x,{s},"{a}",claude,opus,medium,50,m1\n' for s, a in tf),
+                "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id"
+                + _extra_h + "\n"
+                + "".join(f'tf-x,{s},"{a}",claude,opus,medium,50,m1'
+                          + (f",{_sid.get(s, '')}" if store_ids is not None else "") + "\n"
+                          for s, a in tf),
                 encoding="utf-8")
             for s, _a in tf:
                 if built is None or s in built:
@@ -17999,6 +18210,123 @@ def _selftest_checks(args, failures, names):
               and "a-sid" in _rs17_ex
               and _rs17_cv == {"a": "DONE", "b": "READY", "nostart": "READY"}
               and _rs17_mv == {"p": "READY", "q": "UNDECLARED"})
+
+        # ---- RS-18 (7.224): the BOUND STORE ROW's stop-state refuses the offer ----
+        # Every seat below is otherwise PERFECTLY OFFERABLE — no disposition, no roster row, a
+        # descriptor on disk, no predecessors — so the ONLY thing that can move a verdict here is
+        # the store row's tag. `stop` carries a terminal value, `hold` a holding value, `plain` a
+        # row with no tag at all, and `base` a row tagged with a BASELINE value. The last two are
+        # the discriminating controls and they are the reason this is not a one-armed test: an
+        # implementation that suppressed on the mere PRESENCE of a `row-outcome/` tag — or worse,
+        # on the mere presence of a `store-id` cell — passes the first two arms and refuses the
+        # entire offerable frontier, which is over-refusal and is as much a defect as the
+        # under-refusal this row exists to end.
+        _rs18_tf = [("stop", ""), ("hold", ""), ("plain", ""), ("base", ""), ("unk", "")]
+        _rs18 = _rs_make(
+            "18", _rs18_tf,
+            store=[("7.209", "#mod/ignite #row-outcome/finished-unsatisfiable"),
+                   ("7.47", "#mod/orchestration #row-outcome/held-by-ruling"),
+                   ("7.218", "#mod/ignite"),
+                   ("7.224", "#row-outcome/untouched"),
+                   ("7.999", "#row-outcome/not-a-ruled-value")],
+            store_ids={"stop": "tasks.md#7.209", "hold": "tasks.md#7.47",
+                       "plain": "tasks.md#7.218", "base": "tasks.md#7.224",
+                       "unk": "tasks.md#7.999"})
+        _rs18_v, _ = _rs_v(_rs18)
+        _rs18_out, _, _ = _rs(_rs18)
+        _rs18_ex, _, _ = _rs(_rs18, explain="stop")
+        _rs18_exp, _, _ = _rs(_rs18, explain="plain")
+        # CONTROL — ONE CELL different: the SAME package with the SAME store, the same tags, and
+        # the join column REMOVED. Every seat comes back offerable. This is what proves the term
+        # reads the ROW and not something incidental to the fixture, and it is simultaneously the
+        # fail-safe arm: a package that never made the join is not a package whose seats are all
+        # refused.
+        _rs18_nojoin = _rs_make("18n", _rs18_tf,
+                                store=[("7.209", "#row-outcome/finished-unsatisfiable")])
+        _rs18_nv, _ = _rs_v(_rs18_nojoin)
+        # CONTROL — the join cell is present and UNRESOLVABLE (no such file). It must NOT refuse:
+        # a cell this file cannot read is a missing measurement, and refusing on a missing
+        # measurement turns one typo into a room-wide launch freeze. It must be LOUD, not silent.
+        _rs18_bad = _rs_make("18b", [("x", "")], store=[("7.1", "")],
+                             store_ids={"x": "nowhere.md#7.1"})
+        _rs18_bv, _ = _rs_v(_rs18_bad)
+        _rs18_bex, _, _ = _rs(_rs18_bad, explain="x")
+        # CONTROL — the tag is on the row's BODY, not its title line. The design says the body
+        # carries rationale and is NEVER the value; an implementation grepping the whole row would
+        # refuse here and would make every `_Context:_` mention of a state into a bar.
+        _rs18_body = Path(td) / "rs-18body"
+        (_rs18_body / "coordination").mkdir(parents=True)
+        (_rs18_body / "seats" / "y").mkdir(parents=True)
+        (_rs18_body / "seats" / "y" / "seat.md").write_text("---\nagent: y\n---\nb\n",
+                                                            encoding="utf-8")
+        (_rs18_body / "tasks.md").write_text(
+            "- [ ] 7.5 A row\n  - _Context:_ was once #row-outcome/held-by-ruling, now lifted\n",
+            encoding="utf-8")
+        (_rs18_body / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id,store-id\n"
+            'tf-x,y,"",claude,opus,medium,50,m1,tasks.md#7.5\n', encoding="utf-8")
+        (_rs18_body / "coordination" / "workers.md").write_text(WORKERS_HEADER, encoding="utf-8")
+        _rs18_yv, _ = _rs_v(_rs18_body)
+        check("dag-10 RS-18 (7.224): A SEAT WHOSE BOUND STORE ROW CARRIES A `row-outcome/` "
+              "STOP-STATE IS `STOPPED` AND IS NOT OFFERED — for a TERMINAL value and for a HOLDING "
+              "value alike, because they differ in WHEN the suppression lifts and not in WHETHER "
+              "it applies. The seats are otherwise perfectly offerable, so the store row's tag is "
+              "the only term that can have moved them. ⚠ THE DISCRIMINATING CONTROLS ARE IN THE "
+              "SAME PACKAGE: `plain` (a bound row with no tag), `base` (tagged with the BASELINE "
+              "value `untouched`) and `unk` (tagged with a value the enumeration does not carry) "
+              "are all READY — an implementation suppressing on tag presence, or on the join cell "
+              "itself, passes the first two arms and refuses the whole frontier, which is "
+              "over-refusal and is the same defect wearing the other sign. ⚠ CONTROL: the SAME "
+              "store and tags with the join column REMOVED leaves every seat offerable — the term "
+              "reads the ROW, and a package that never made the join is never mass-refused. "
+              "⚠ CONTROL: an UNRESOLVABLE cell does not refuse and says so in words. ⚠ CONTROL: a "
+              "stop-state spelled in the row's BODY does not refuse — the design says the title "
+              "line is the value and the body is rationale, and grepping the row whole would turn "
+              "every `_Context:_` mention into a bar",
+              _rs18_v == {"stop": "STOPPED", "hold": "STOPPED", "plain": "READY",
+                          "base": "READY", "unk": "READY"}
+              and "row-outcome/finished-unsatisfiable" in _rs18_out
+              and "row-outcome/held-by-ruling" in _rs18_out
+              and "NOT OFFERED" in _rs18_out
+              and "bound store row carries no stop-state" in _rs18_ex
+              and "-> False" in _rs18_ex.split("bound store row")[1].splitlines()[0]
+              and "7.209" in _rs18_ex
+              and "bound store row carries no stop-state" in _rs18_exp
+              and "-> True" in _rs18_exp.split("bound store row")[1].splitlines()[0]
+              and _rs18_nv == {"stop": "READY", "hold": "READY", "plain": "READY",
+                               "base": "READY", "unk": "READY"}
+              and _rs18_bv == {"x": "READY"}
+              and "UNRESOLVED JOIN" in _rs18_bex
+              and _rs18_yv == {"y": "READY"})
+
+        # ---- RS-19 (7.224): the stop-state OUTRANKS a transient block, and yields to a defect ----
+        # Same masking logic RS-17's control 2 proves for UNDECLARED: a stop-state row whose own
+        # `after` happens to be unmet must still report STOPPED, or the ruled state stays invisible
+        # for exactly as long as the predecessor stays open. The second arm fixes the OTHER
+        # boundary: where a seat is BOTH undeclared and stopped, UNDECLARED prints — both refuse
+        # the offer identically, so precedence decides only which reason a reader gets, and the
+        # unresolved defect the leader must act on must not be printed over by a settled state.
+        _rs19 = _rs_make("19", [("p", ""), ("q", "p")],
+                         store=[("7.209", "#row-outcome/unreachable-by-construction")],
+                         store_ids={"q": "tasks.md#7.209"})
+        _rs19_v, _ = _rs_v(_rs19)
+        _rs19_both = _rs_make("19b", [("z", "")], sessions=[("z", "")],
+                              store=[("7.209", "#row-outcome/finished-unsatisfiable")],
+                              store_ids={"z": "tasks.md#7.209"})
+        _rs19_bv, _ = _rs_v(_rs19_both)
+        _rs19_bex, _, _ = _rs(_rs19_both, explain="z")
+        check("dag-10 RS-19 (7.224): A STOP-STATE ROW WHOSE OWN `after` IS UNMET STILL REPORTS "
+              "`STOPPED`, NOT `BLOCKED` — a transient edge must never mask a state the run has "
+              "already ruled, which is the same masking failure RS-17 measured from the other "
+              "end. ⚠ AND THE OTHER BOUNDARY, asserted so the precedence is a decision and not an "
+              "accident: a seat that is BOTH undeclared and stopped reports `UNDECLARED`. Both "
+              "verdicts refuse the offer, so the order changes no seat's offerability — it "
+              "decides only which reason prints, and an unresolved defect the `leader` must act "
+              "on must not be printed over by a settled state. The stop-state stays legible on "
+              "that seat anyway, in `--explain`, which renders the term on EVERY seat",
+              _rs19_v == {"p": "READY", "q": "STOPPED"}
+              and _rs19_bv == {"z": "UNDECLARED"}
+              and "row-outcome/finished-unsatisfiable" in _rs19_bex)
 
         # ---- --explain: the predicate, term by term ----
         # ON RS-2'S FIXTURE, NOT RS-12'S: sharing RS-12's meant this row asserted the printed
