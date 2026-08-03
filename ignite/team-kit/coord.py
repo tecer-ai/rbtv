@@ -11342,14 +11342,49 @@ def cmd_launch(args):
                 print(c(f"  {w['agent']}: ADMITTED by the ruled-relaunch grant — its row still "
                         f"classes `{deferral_class(_adm_row) or 'clean'}` and stays that way "
                         f"until this session writes its own ended row.", C_HINT))
+            elif not _declare_only_admitted:
+                # 7.280 (O3) · S-2 — THE ORDINARY ADMISSION, AND IT IS THE CASE NOBODY TESTS.
+                # Every other outcome at this door already speaks: three disclosures for the
+                # instrument and clause-J paths, one line per deferred seat, one refusal when the
+                # set empties. The seat admitted by the plain A–G conjunction was the ONE outcome
+                # that printed nothing — and silence on success is exactly the shape a reader
+                # ASSUMES is correct and never checks. "Never filter silently" and "never admit
+                # silently" are the same bar facing two directions.
+                #
+                # ⚠ THE VERDICT IS PRINTED HERE AND DECIDES NOTHING HERE. This is the REPORT axis:
+                # the admission was already taken, by `conjunction_admits` over named row FIELDS.
+                # Row O below asserts that separation at the AST — every `verdict` read in this
+                # whole block must sit inside a `print(...)`, so a verdict-keyed DECISION goes RED
+                # while a verdict-carrying REPORT does not. Reverse the causation — admit because
+                # the verdict reads `READY` — and the three ruled-legitimate relaunch lanes, none
+                # of which can ever carry `READY`, become unadmissible by construction.
+                #
+                # ⚠ CLAUSE I's CARVE-OUT IS CONSULTED, NOT RE-TESTED. `_declare_only_admitted` is
+                # the boolean the landed `--declare-only` block already set at its own admission;
+                # this branch READS it for ONE purpose — to stay quiet where that block ALREADY
+                # printed its own ADMITTED line and its trail. Re-printing would state the same
+                # admission twice under two different sentences, which is how one act acquires a
+                # second mechanism. Nothing here re-runs P2–P4, and nothing here mints.
+                print(c(f"  {w['agent']}: ADMITTED — verdict {_adm_row['verdict']}; "
+                        f"{_adm_row['reason']}", C_HINT))
         else:
             _adm_deferred.append((w, deferral_class(_adm_row), _adm_row))
     # NEVER FILTER SILENTLY: every deferred seat is named, with its class AND the field value that
     # decided it. A filter that removes without saying what it removed and why is indistinguishable
     # from a filter that never ran.
+    #
+    # 7.280 (O3) · S-1 — the verdict and the reason join the SAME line, APPENDED behind the class
+    # and the field value rather than reordered around them. The append is deliberate and it is the
+    # smaller of two changes: the landed shape `<seat>: NOT LAUNCHED — <class> (<field> = <value>)`
+    # is asserted as a LITERAL by two rows already in this suite (7.274's NEVER-FILTER-SILENTLY row
+    # and F1's RED CONTROL), so reshaping the prefix would have reddened two rows outside this
+    # change for a cosmetic gain, and a RED outside one's own new rows is a revert, not a push.
+    # The reader gains what the design asked for — the home's own verdict and its own reason, on
+    # the line that named the class — and every prior assertion about that line stays true.
     for _adm_w, _adm_cls, _adm_r in _adm_deferred:
         _adm_f, _adm_v = deferral_field(_adm_r)
-        print(c(f"  {_adm_w['agent']}: NOT LAUNCHED — {_adm_cls} ({_adm_f} = {_adm_v!r})",
+        print(c(f"  {_adm_w['agent']}: NOT LAUNCHED — {_adm_cls} ({_adm_f} = {_adm_v!r}); "
+                f"verdict {_adm_r['verdict']}; {_adm_r['reason']}",
                 C_DEAD), file=sys.stderr)
     workers = _adm_kept
     if _adm_deferred:
@@ -20030,13 +20065,69 @@ def _selftest_checks(args, failures, names):
         _a3_src = _a3_inspect.getsource(cmd_launch)
         _a3_block = _a3_src[_a3_src.index("_adm_rows = {"):
                             _a3_src.index("# PROP-8 (tv-ux-review)")]
-        check("7.274 row O (`no-class-clause`, asserted at the source): the admission block reads "
-              "the `verdict` field ZERO times. The three ruled-legitimate relaunch lanes are "
-              "structurally excluded from ever reading `READY`, so a verdict-keyed filter would "
-              "decide admission on a value those lanes can never carry. The positive control is "
-              "`ready_seat_rows`, which demonstrably does subscript it",
-              '["verdict"]' not in _a3_block
-              and '["verdict"]' in _a3_inspect.getsource(ready_seat_rows))
+        # 7.280 (O3) — ROW O RE-AUTHORED AS AN AST WALK, and the replacement is STRICTLY STRONGER
+        # than the substring form it supersedes. Two reasons, one of them a defect in the old form:
+        #
+        #  (a) THE OLD FORM WAS EVADABLE BY QUOTE STYLE. It tested `'["verdict"]' not in _a3_block`
+        #      — a DOUBLE-quoted subscript. `_adm_row['verdict']` is the same read spelled with
+        #      single quotes and the substring never matches it, so a verdict-keyed FILTER written
+        #      in the other quote style passed the row green. The walk below sees both, because it
+        #      reads the parse tree and not the characters. Mutation-proved: M-O2 in the ledger
+        #      below plants a SINGLE-quoted verdict test inside the admission predicate; the
+        #      superseded substring row stays GREEN on it and this row goes RED.
+        #
+        #  (b) IT BARRED THE REPORT ALONG WITH THE DECISION. `no-class-clause` is scoped to the
+        #      PREDICATE — `A1` says so in as many words ("the class-naming code is not part of
+        #      it") — while the block must be able to SAY which verdict a seat carries. The walk
+        #      separates the two by POSITION: a `verdict` read is legal only inside a `print(...)`
+        #      call, so a report may carry it and a decision may not. Nothing that could key an
+        #      admission on a verdict survives this row.
+        #
+        # Two positive controls, because an absence proves nothing about a walker that finds
+        # nothing anywhere: `ready_seat_rows` — the ONE definition site of the domain — is asserted
+        # to contain verdict reads OUTSIDE any print (it assigns them), and the predicate `If` this
+        # row scopes itself to is asserted to have been FOUND rather than silently missed.
+        _o3_blk_ast = _a3_ast.parse(_a3_tw.dedent("    " + _a3_block))
+
+        def _o3_print_descendants(_tree):
+            return {id(_n) for _p in _a3_ast.walk(_tree)
+                    if isinstance(_p, _a3_ast.Call)
+                    and getattr(_p.func, "id", "") == "print"
+                    for _n in _a3_ast.walk(_p)}
+
+        def _o3_verdict_reads(_tree):
+            return [_n for _n in _a3_ast.walk(_tree)
+                    if isinstance(_n, _a3_ast.Subscript)
+                    and isinstance(_n.slice, _a3_ast.Constant)
+                    and _n.slice.value == "verdict"]
+
+        _o3_blk_prints = _o3_print_descendants(_o3_blk_ast)
+        _o3_blk_verdicts = _o3_verdict_reads(_o3_blk_ast)
+        _o3_decisive = [_n for _n in _o3_blk_verdicts if id(_n) not in _o3_blk_prints]
+        _o3_pred_ifs = [_n for _n in _a3_ast.walk(_o3_blk_ast)
+                        if isinstance(_n, _a3_ast.If)
+                        and "conjunction_admits" in _a3_ast.dump(_n.test)]
+        _o3_home_ast = _a3_ast.parse(_a3_tw.dedent(_a3_inspect.getsource(ready_seat_rows)))
+        _o3_home_prints = _o3_print_descendants(_o3_home_ast)
+        _o3_home_decisive = [_n for _n in _o3_verdict_reads(_o3_home_ast)
+                             if id(_n) not in _o3_home_prints]
+        check("7.274 row O / 7.280 (`no-class-clause`, asserted at the AST): NO `verdict` read in "
+              "the admission block sits anywhere a DECISION could read it — every one is inside a "
+              "`print(...)`, and the admission predicate itself contains none. The three "
+              "ruled-legitimate relaunch lanes are structurally excluded from ever carrying "
+              "`READY`, so a verdict-keyed filter would decide admission on a value those lanes "
+              "can never present, and no wording of the exception fixes that. The REPORT is a "
+              "different axis and is deliberately allowed to name the verdict. Positive controls: "
+              "`ready_seat_rows` demonstrably carries verdict reads outside any print, and the "
+              "predicate `If` this row scopes itself to was FOUND, so an empty result cannot mean "
+              "the walker looked in the wrong place",
+              _o3_decisive == []
+              and len(_o3_pred_ifs) == 1
+              and _o3_verdict_reads(_o3_pred_ifs[0].test) == []
+              and '["verdict"]' not in _a3_inspect.getsource(conjunction_admits)
+              and "'verdict'" not in _a3_inspect.getsource(conjunction_admits)
+              and len(_o3_blk_verdicts) >= 2
+              and len(_o3_home_decisive) >= 1)
         check("7.274 row Q (parity BY CONSTRUCTION, asserted at the source): the admission block "
               "contains ZERO `dry_run` reads, so it cannot branch on the path it runs under. The "
               "positive control is the enclosing function, which demonstrably does contain them",
@@ -20677,6 +20768,163 @@ def _selftest_checks(args, failures, names):
               and "RULED_FLIP_FROM_STATES" in _a3_inspect.getsource(session_rule_disposition)
               and "if disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_mint_leg
               and "if _rl_disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_ladder_src)
+
+        # ============ O3 (7.280): THE `--only` STATEMENT + THE CARVE-OUT CONSUMPTION ============
+        # Spec: `planning/briefing-scoped-launch/only-statement-spec.md` (O1, sha256 c3113ec9…,
+        # ACCEPTED) § `statement-shape` / `refusal-set` / `no-force-clause` / `dry-run-parity`, and
+        # `carve-out-consume-map.md` (O2, sha256 60c77711…) § 3, whose right-hand column names the
+        # symbol this wiring CONSULTS. Nothing here mints an instrument: the one-word test is MINT
+        # versus POINT, and every lane below points.
+        #
+        # THE FIXTURE IS `_a3l` AND ITS RUNNER `_a3l_run`, reused rather than rebuilt — a statement
+        # asserted on the same package the filter rows above drove is comparable to them by
+        # construction, and a second fixture would have made "the admitted set did not move" a
+        # claim about two different worlds.
+        #
+        # ⚠ MUTATION-CONTROL LEDGER — every row below was proved RED by an ACTUAL mutation run on
+        # a scratch copy of this file (7 mutants, each a full `selftest`), never by inspection. An
+        # assertion whose control stays green would pass with the mechanism absent, and is vacuous.
+        # Baseline for all seven: 819 rows / 0 failures before this change, 825 / 0 after — measured
+        # on THIS file's own parent (`coord.py` at sha256 4224159d…, C3/7.278's landing), never
+        # carried from the pre-rebase run. The full ladder was run twice, once on each parent
+        # (81ac0115 and 4224159d), and produced the identical RED set both times; the edit sites
+        # are byte-identical across the two, which is what made the rebase a re-proof and not a
+        # re-authoring.
+        #   M-1  delete the S-2 `ADMITTED — verdict …` print          → O3-1, O3-1b, O3-5, row O RED
+        #   M-2  drop `; verdict …; {reason}` from the S-1 line       → O3-2, row O RED
+        #   M-3  gate the empty-set refusal on `not args.force`       → O3-3 RED
+        #   M-4  weaken `elif not _declare_only_admitted:` to `else:` → O3-4 RED
+        #   M-5  print S-2 only when `not args.dry_run`               → O3-1, O3-1b, O3-5 and
+        #                                                               7.274 row Q RED
+        #   M-O1 plant `_adm_row["verdict"] == "READY"` into the      → row O RED
+        #        admission predicate (DOUBLE-quoted)
+        #   M-O2 the SAME plant spelled `_adm_row['verdict']`         → row O RED — while the
+        #        (SINGLE-quoted)                                        SUPERSEDED substring form
+        #                                                               stayed GREEN on the same
+        #                                                               mutant. That measurement,
+        #                                                               not a preference, is why
+        #                                                               row O was re-authored.
+        # (M-1 and M-2 red row O through its own `len(_o3_blk_verdicts) >= 2` positive control:
+        #  the walk is asserted to FIND the statement's verdict reads, so "none outside a print"
+        #  can never be satisfied by a build that stopped reading the verdict anywhere.)
+        _a3_write_grants([])
+        _o3_ok = _a3l_run(only="okseat")[0]
+        _o3_mixed, _o3_mixed_code = _a3l_run(only="okseat,done1,blk1")
+
+        def _o3_admit_lines(text):
+            return [ln for ln in text.splitlines() if ": ADMITTED — verdict " in ln]
+
+        def _o3_stmt_lines(text):
+            return [ln for ln in text.splitlines()
+                    if ": ADMITTED — verdict " in ln or "NOT LAUNCHED —" in ln]
+
+        check("O3-1 (criterion 1): `--only` STATES the verdict on an ADMITTED target too. The "
+              "ordinarily-admitted seat was the ONE outcome at this door that printed nothing — "
+              "and silence on success is the case a reader ASSUMES is correct and never tests, "
+              "which is exactly why it is asserted here on the literal line. Asserted with the "
+              "seat name, the verdict AND the home's own reason, so a line that said `ADMITTED` "
+              "and nothing else could not satisfy it",
+              "okseat: ADMITTED — verdict READY; after: (root — no predecessors)" in _o3_ok
+              and len(_o3_admit_lines(_o3_ok)) == 1)
+        check("O3-1b (the statement is TOTAL over the launch set): a mixed launch prints ONE line "
+              "per named member — the admitted seat's ADMITTED line and one NOT LAUNCHED line per "
+              "deferred seat — so no member of the set is silent. Asserted as a COUNT against the "
+              "named set, because three assertions about three individual lines cannot detect a "
+              "fourth member that printed nothing",
+              len(_o3_stmt_lines(_o3_mixed)) == 3
+              and len(_o3_admit_lines(_o3_mixed)) == 1
+              and "okseat: ADMITTED — verdict READY" in _o3_mixed
+              and "done1: NOT LAUNCHED — finished" in _o3_mixed
+              and "blk1: NOT LAUNCHED — unmet-predecessor" in _o3_mixed)
+        check("O3-2 (the DEFERRED half of the same statement): every NOT LAUNCHED line now carries "
+              "the home's VERDICT and the home's own REASON behind the class and the deciding "
+              "field value. The reason is what turns a class word into an instruction — `blk1`'s "
+              "names WHICH predecessor is unmet — and it is read off `ready_seat_rows`, never "
+              "re-composed here, so the launch door and `ready-seats --explain` cannot drift apart",
+              "done1: NOT LAUNCHED — finished (disposition = 'done'); verdict DONE; check-out "
+              "`done`" in _o3_mixed
+              and "blk1: NOT LAUNCHED — unmet-predecessor" in _o3_mixed
+              and "; verdict BLOCKED; after: danglingpred=<no check-out>" in _o3_mixed)
+        # ---- criterion 2: THE REFUSAL CARRIES NO OVERRIDE ------------------------------------
+        # Driven, not asserted: the same empty-set refusal is run three ways — bare, with
+        # `--force`, with `--force-memory` — and the three outputs are compared for BYTE identity.
+        # A row that only asserted `GATE_FLAGS` would be satisfied by a build that read the flag
+        # somewhere else entirely, and a row that only drove `--force` would miss the other half of
+        # the family.
+        _o3_open_before = len(opened)
+        _o3_bare, _o3_bare_code = _a3l_run(only="done1", dry_run=False)
+        _o3_forced, _o3_forced_code = _a3l_run(only="done1", dry_run=False, force=True)
+        _o3_fmem, _o3_fmem_code = _a3l_run(only="done1", dry_run=False, force_memory=True)
+        check("O3-3 (criterion 2 — NO OVERRIDE CARRIES THE REFUSAL): the empty-set refusal is "
+              "BYTE-IDENTICAL and exits 1 with `--force`, with `--force-memory`, and with "
+              "neither, and NO pane opens on any of the three — asserted on the pane ledger, not "
+              "on the absence of a success line. `GATE_FLAGS` is additionally asserted against a "
+              "SPELLED-OUT literal pair rather than against itself: a guard written in terms of "
+              "the symbol under change moves with the change and passes any edit to it. `--force` "
+              "carries the ROLE gate alone and `--force-memory` the MEMORY gate alone; no gate is "
+              "ever re-attached to either, by this change or any successor",
+              _o3_bare_code == 1 and _o3_forced_code == 1 and _o3_fmem_code == 1
+              and _o3_bare == _o3_forced == _o3_fmem
+              and "NO pane was opened" in _o3_bare
+              and len(opened) == _o3_open_before
+              and GATE_FLAGS == {"--force": ("role",), "--force-memory": ("memory",)})
+        # ---- criterion 3: THE CARVE-OUT IS CONSULTED, NOT RE-IMPLEMENTED ---------------------
+        _o3_stmt_src = _a3_block[_a3_block.index("# ---- the filter: ADMIT(w)"):]
+        _o3_decl_src = _a3_src[_a3_src.index("_decl_anchor = ("):
+                               _a3_src.index("# ⚠⚠ BOUND BEFORE THE BRANCH")]
+        _o3_do, _o3_do_code = _a3l_run(only="undec", declare_only="#1825")
+        check("O3-4 (criterion 3 — ONE INSTRUMENT, NOT TWO): the statement CONSULTS the sibling "
+              "pass's landed carve-out by reading the `_declare_only_admitted` boolean that block "
+              "already set, and re-tests NOTHING it decided. Asserted both ways. At the SOURCE: "
+              "the statement region names the boolean and contains none of P2–P4's three reads "
+              "(`sessions_last_ended` / `undeclared_endings` / `live_panes`), while the landed "
+              "`--declare-only` block — the positive control — demonstrably contains all three, so "
+              "the absence is a measurement and not a pattern that could only ever return "
+              "nothing. BEHAVIOURALLY: an admitted `--declare-only` launch prints that block's own "
+              "ADMITTED line EXACTLY ONCE and adds NO second admission sentence beside it. Two "
+              "sentences for one act is how a carve-out becomes an override",
+              "_declare_only_admitted" in _o3_stmt_src
+              and "sessions_last_ended(" not in _o3_stmt_src
+              and "undeclared_endings(" not in _o3_stmt_src
+              and "live_panes(" not in _o3_stmt_src
+              and "sessions_last_ended(" in _o3_decl_src
+              and "undeclared_endings(" in _o3_decl_src
+              and "live_panes(" in _o3_decl_src
+              and _o3_do_code == 0
+              and _o3_do.count("ADMITTED by --declare-only") == 1
+              and _o3_admit_lines(_o3_do) == []
+              and "[dry-run] undec" in _o3_do)
+        # ---- criterion 5's `--only` instance: DRY-RUN PARITY OF THE STATEMENT ITSELF ----------
+        # The pair is driven on ONE mixed launch carrying BOTH halves of the statement, so the row
+        # cannot be satisfied by a build whose deferral lines match while its admission lines do
+        # not. The real path is given a launch target and a wake, exactly as F1's ladder row does.
+        _o3_par_dry = _a3l_run(only="okseat,done1", dry_run=True)[0]
+        _o3_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
+        _o3_prior_wake = wake_ok["v"]
+        os.environ["COORD_LAUNCH_TARGET"] = "%0"
+        wake_ok["v"] = True
+        try:
+            _o3_par_real = _a3l_run(only="okseat,done1", dry_run=False)[0]
+        finally:
+            wake_ok["v"] = _o3_prior_wake
+            if _o3_prior_target is None:
+                os.environ.pop("COORD_LAUNCH_TARGET", None)
+            else:
+                os.environ["COORD_LAUNCH_TARGET"] = _o3_prior_target
+        check("O3-5 (criterion 5, the `--only` instance — THE STATEMENT IS IDENTICAL ON BOTH "
+              "PATHS): the ADMITTED line and the NOT LAUNCHED line are byte-identical with and "
+              "without `--dry-run`. It holds BY CONSTRUCTION — row O/Q's source walk shows the "
+              "block contains no `dry_run` read at all — and this row measures it rather than "
+              "inheriting the claim. A dry run that showed only refusals would be silent on "
+              "exactly the case this whole row exists to make loud, which would make the one "
+              "command meant for inspection the one that lies. The non-empty assertion, and the "
+              "assertion that BOTH shapes are present, are what stop this comparing two absences "
+              "and calling them equal",
+              _o3_stmt_lines(_o3_par_dry) != []
+              and _o3_stmt_lines(_o3_par_dry) == _o3_stmt_lines(_o3_par_real)
+              and len(_o3_admit_lines(_o3_par_dry)) == 1
+              and len([ln for ln in _o3_stmt_lines(_o3_par_dry)
+                       if "NOT LAUNCHED —" in ln]) == 1)
 
         # ============ dag-11: THE ATTEST-EXIT ARM ================================================
         # Spec: implementation-tasks/dag-11-attest-exit-arm.md (RS-11, RS-13, RS-14, AE-1…AE-3).
