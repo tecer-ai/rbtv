@@ -2629,21 +2629,48 @@ def session_close(args, seat, disposition="", writer=DISPOSITION_WRITER_SEAT):
 # printed an instruction whose only execution path was a human editing a CSV by hand, which is the
 # one edit the whole `validate_disposition` boundary exists to prevent.
 #
-# ⚠ THE SOURCE VALUE IS PINNED, AND THE NARROWNESS IS THE POINT. The ruling grants ONE transition:
-# an investigated `exited` row becomes `done`. It does not grant the leader a general power to
-# rewrite dispositions, so this verb refuses a row that is not sitting on `exited` — a leader
-# "correcting" a seat's own `done` or `renew` is not the ruled act and has no ruling behind it.
+# ⚠ THE SOURCE VALUE IS PINNED TO EXACTLY TWO STATES, AND THE NARROWNESS IS STILL THE POINT.
+# `d-exited-row-closure` grants the leader ONE transition — an INVESTIGATED `exited` row becomes
+# what the investigation found — and `r-grant-47-done-via-gated-change` extends that SAME shape to
+# the row that carries no disposition at all: an ended row whose occupant never checked out, which
+# `session_close` above already records as the ABSENCE of a disposition rather than as a value. So
+# this verb admits two from-states and no third: `exited`, and an EMPTY cell.
+#
+# ⚠ IT IS A TWO-MEMBER SET, NEVER "ANYTHING BUT DECLARED". The refusal that carries the whole
+# conservation is the one on a cell its own writer FILLED — a leader "correcting" a seat's own
+# `done` or `renew` is not the ruled act and has no ruling behind it. A predicate written as the
+# complement ("refuse only what is declared") would admit every state nobody enumerated, INCLUDING
+# any value a later `RECORD_DISPOSITION_WRITER` widening introduces, and it would admit it silently
+# — no edit here, no line for a reviewer to see. Enumerating costs one edit per ruling; the
+# complement costs a grant nobody made.
+#
+# ⚠ THE EMPTINESS TEST IS `.strip()`, AND IT IS THE ONE ALREADY BELOW. `current` is read stripped,
+# so a whitespace-only cell IS an empty cell and reaches the same admission. NOTHING ELSE is
+# normalized: no case folding, no aliases — `Exited` is not `exited` and stays refused, which is
+# the conservative direction. A normalization added here would be a second, subtly different
+# vocabulary reaching a boundary that already has exactly one (`validate_disposition`).
+#
+# ⚠ WHAT THIS PREDICATE DOES NOT CHECK, SAID PLAINLY SO NOBODY READS IT AS A FENCE. The grant is
+# gated on a RECORDED INVESTIGATION of the row, and rows carrying a contrary standing anchor sit
+# outside it. This code can see NEITHER fact: it reads a CELL, not a judgment, and it will accept a
+# leader's write on an empty row nobody investigated. That gate lives in the ruling and in the
+# leader's written trail (`r-grant-repointed-investigation-gated`); the refusal text below NAMES
+# it. NAMED IS NOT PREVENTED, and nothing here claims otherwise.
+#
 # The DESTINATION value is NOT pinned here: it is validated against `RECORD_DISPOSITION_WRITER`
 # like every other write, so what the leader may write is decided by the writer model and by
 # nothing this verb declares. A second copy of that decision here is the drift 7.154's split
 # exists to prevent (PRIN-11).
 RULED_FLIP_FROM = "exited"
+RULED_FLIP_FROM_STATES = (RULED_FLIP_FROM, "")
 
 
 def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
     """Record a RULED disposition on `seat`'s LAST session row, which must ALREADY BE ENDED.
 
-    Returns `(session_id, "")` on a write and `("", reason)` on a refusal. NOTHING is written on a
+    Returns `(session_id, from_state, "")` on a write and `("", from_state, reason)` on a refusal —
+    `from_state` is the row's OWN disposition cell as this function read it under the lock, empty
+    string where no row was reached. NOTHING is written on a
     refusal, and `dry=True` runs every check and writes nothing either way — one predicate serving
     the report pass and the acting pass, so a `--go` run can never accept what a bare run refused.
 
@@ -2664,7 +2691,7 @@ def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
     validate_disposition(disposition, writer)
     path = sessions_csv(pkg)
     if not path.exists():
-        return "", (f"no `sessions.csv` under {pkg} — this run has no session trace at all, so "
+        return "", "", (f"no `sessions.csv` under {pkg} — this run has no session trace at all, so "
                     f"there is no ended row to rule on")
     with coord_lock(base):
         header, rows = read_csv_table(path, SESSIONS_COLS)
@@ -2673,7 +2700,7 @@ def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
             rows = [pad_row(r, header) for r in rows]
         idx = {c: i for i, c in enumerate(header)}
         if not {"seat", "ended", "disposition"} <= set(idx):
-            return "", ("this `sessions.csv` carries no `seat`/`ended`/`disposition` columns — it "
+            return "", "", ("this `sessions.csv` carries no `seat`/`ended`/`disposition` columns — it "
                         "predates the durable disposition column and cannot record a ruling")
         target = None
         for r in rows:                      # LAST row wins — the seat's CURRENT session
@@ -2681,31 +2708,37 @@ def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
             if r[idx["seat"]].strip() == seat:
                 target = r
         if target is None:
-            return "", (f"no session row for seat '{seat}' in {path} — a ruling is recorded ON a "
+            return "", "", (f"no session row for seat '{seat}' in {path} — a ruling is recorded ON a "
                         f"row, and there is none to carry it")
         if not target[idx["ended"]].strip():
-            return "", (f"'{seat}'s LAST session row ({target[idx['session-id']].strip() or '?'}) "
+            return "", "", (f"'{seat}'s LAST session row ({target[idx['session-id']].strip() or '?'}) "
                         f"is still OPEN — no `ended` stamp, so that session has not finished. This "
                         f"verb writes ENDED rows ONLY: a disposition on a live session would be a "
                         f"third party recording an ending that has not happened, and the "
                         f"occupant's own check-out is what ends it. If the seat is gone but the "
                         f"row is open, that is `attest-exit`'s act, not this one")
         current = target[idx["disposition"]].strip()
-        if current != RULED_FLIP_FROM:
-            return "", (f"'{seat}'s last row carries disposition "
-                        f"{current or '<empty — nobody declared one>'!s}, not "
-                        f"`{RULED_FLIP_FROM}`. `d-exited-row-closure` grants the leader ONE "
-                        f"transition — an INVESTIGATED `{RULED_FLIP_FROM}` row becomes what the "
-                        f"investigation found — and grants no power to rewrite a disposition its "
-                        f"own writer declared. Nothing was written")
+        if current not in RULED_FLIP_FROM_STATES:
+            return "", current, (f"'{seat}'s last row carries disposition `{current}`, and this verb "
+                        f"admits exactly two from-states: `{RULED_FLIP_FROM}`, and an EMPTY cell "
+                        f"(no disposition declared at all). A cell its own writer FILLED is "
+                        f"neither. `d-exited-row-closure` grants the leader ONE transition — an "
+                        f"INVESTIGATED `{RULED_FLIP_FROM}` row becomes what the investigation "
+                        f"found — and `r-grant-47-done-via-gated-change` extends that same shape "
+                        f"to the row that never got a disposition. Neither grants a power to "
+                        f"rewrite a disposition its own writer declared, which is what this row "
+                        f"carries. Both admitted from-states are gated on a RECORDED "
+                        f"INVESTIGATION of the row, and a row under a contrary standing anchor is "
+                        f"outside the grant — this verb checks NEITHER of those: it reads a cell, "
+                        f"not a judgment, and the leader carries both. Nothing was written")
         if dry:
-            return target[idx["session-id"]].strip(), ""
+            return target[idx["session-id"]].strip(), current, ""
         target[idx["disposition"]] = disposition
         if "disposition-writer" in idx:
             target[idx["disposition-writer"]] = writer
         write_csv_table(path, header, rows)
         ensure_run_index(pkg)
-        return target[idx["session-id"]].strip(), ""
+        return target[idx["session-id"]].strip(), current, ""
 
 
 def sessions_last_ended(pkg):
@@ -9611,16 +9644,22 @@ def cmd_rule_disposition(args):
     # Whether the leader may write the requested value is `RECORD_DISPOSITION_WRITER`'s answer,
     # read through `validate_disposition` inside the writer below — never re-stated here.
     try:
-        sid, why = session_rule_disposition(pkg, base, seat, disposition,
-                                            DISPOSITION_WRITER_LEADER, dry=not go)
+        sid, from_state, why = session_rule_disposition(pkg, base, seat, disposition,
+                                                        DISPOSITION_WRITER_LEADER, dry=not go)
     except ValueError as exc:
         refuse("input", f"{exc}\nThat is the writer model's own refusal, read at the moment of "
                         f"the write — this command carries no copy of it.", 2)
     if why:
         refuse("state", f"{seat}: {why}", 1)
     if not go:
+        # The row's OWN cell, as the predicate that admitted it read it — never the constant. A
+        # report interpolating `RULED_FLIP_FROM` would tell a leader that an EMPTY row "carries"
+        # whatever the constant renders as: a lie about the row this command exists to inspect,
+        # and one no assertion on this line could catch, because it moves with the constant.
+        carried = (f"`{from_state}`" if from_state
+                   else "an EMPTY disposition cell (nobody declared one)")
         print(f"{c(seat, C_LABEL)}  RULABLE — its last session row ({sid}) is ENDED and carries "
-              f"`{RULED_FLIP_FROM}`, and `{disposition}` is admitted from the leader.")
+              f"{carried}, and `{disposition}` is admitted from the leader.")
         print("    (report only — nothing was written. Re-run with --go to record the ruling.)")
         return
     print(f"{c(seat, C_LABEL)}  RULED `{disposition}` by {DISPOSITION_WRITER_LEADER}")
@@ -17078,22 +17117,26 @@ def _selftest_checks(args, failures, names):
               and _r155_v_after.get("disposition") == "exited"
               and _r155_v_after.get("disposition-writer") == "")
 
-        # ---- ARM 4: the SOURCE value is pinned to the ruling's radius ----
+        # ---- ARM 4: the SOURCE value is pinned — and the radius is now TWO states ----
         _r155_seed("r155src", ended=now(), disposition="renew")
         _r155_s_out, _r155_s_err, _r155_s_code = harness_outcome(
             cmd_rule_disposition, _r155_ns(seat="r155src"))
-        check("7.155 (5) THE RULING'S RADIUS IS THE SOURCE VALUE TOO. `d-exited-row-closure` "
-              "grants ONE transition — an INVESTIGATED `exited` row — and grants no power to "
-              "rewrite a disposition its own writer declared. An ENDED row carrying `renew` is "
-              "REFUSED even though the caller is the leader and the value asked for is admitted "
-              "from the leader: both of arm 1's terms hold and the act is still not the ruled one. "
-              "Without this row the widening would have bought the leader a general disposition "
-              "rewrite, which is the OVERSHOOT 7.154's own matrix row exists to prevent one layer "
-              "down",
+        check("7.155 (5) THE RULING'S RADIUS IS THE SOURCE VALUE TOO, AND WIDENING IT TO THE "
+              "EMPTY CELL DID NOT OPEN IT. `d-exited-row-closure` now admits TWO from-states — an "
+              "INVESTIGATED `exited` row, and an ENDED row nobody declared a disposition on — and "
+              "it still grants no power to rewrite a disposition its own writer declared. An "
+              "ENDED row carrying `renew` is REFUSED even though the caller is the leader and the "
+              "value asked for is admitted from the leader: both of arm 1's terms hold and the "
+              "act is still not the ruled one. Without this row the widening would have bought "
+              "the leader a general disposition rewrite, which is the OVERSHOOT 7.154's own "
+              "matrix row exists to prevent one layer down. THE LITERAL `exited` IS SPELLED OUT "
+              "IN THIS GUARD rather than read from the constant the widening edits: a guard "
+              "written in terms of the symbol under change moves with the change and cannot go "
+              "red on its own",
               _r155_s_code == 1
               and "refused [coord state]" in (_r155_s_out + _r155_s_err)
               and "renew" in (_r155_s_out + _r155_s_err)
-              and RULED_FLIP_FROM in (_r155_s_out + _r155_s_err)
+              and "exited" in (_r155_s_out + _r155_s_err)
               and _r155_row("r155src").get("disposition") == "renew")
 
         # ---- ARM 5: the ROLE gate, and the report pass ----
@@ -17134,6 +17177,147 @@ def _selftest_checks(args, failures, names):
               "rule-disposition" in (_r155_attest_src or "")
               and "rule-disposition" in build_parser().command_parsers
               and "rule-disposition" in _r155_help)
+
+        # ============ RD-EC: THE EMPTY-CELL CONTROL BATTERY ======================================
+        # Spec: t5-control-battery-spec.md (RD-EC-1…RD-EC-5). Placed after 7.155 arm 6 and before
+        # dag-10, inside the scope where the four `_r155_*` fixture helpers are defined and before
+        # any block that rewrites or unlinks the package. No new fixture convention is introduced:
+        # every row drives the REAL `cmd_rule_disposition` through `_r155_ns` and reads the result
+        # back off disk with `_r155_row`, exactly as arms 1-6 do.
+        #
+        # ⚠ NO EXPECTED VALUE IN THIS BATTERY IS READ FROM THE SYMBOL UNDER CHANGE. Every one is a
+        # spelled-out literal. A guard written in terms of `RULED_FLIP_FROM` (or of whatever
+        # constant the widened predicate introduces) moves with the change and cannot go red on
+        # its own — that defect is the reason this battery exists, and reproducing it here would
+        # be the same bug in a new place.
+
+        # ---- RD-EC-1: class (a) — the empty-cell ENDED row is rulable, and the write lands ----
+        _r155_seed("rdec1", ended=now(), disposition="")
+        _rdec1_out, _rdec1_err, _rdec1_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec1"))
+        _rdec1_after = _r155_row("rdec1")
+        check("RD-EC-1 AN EMPTY-CELL ENDED ROW IS RULABLE AND THE WRITE LANDS, NAMING THE LEADER. "
+              "The row is ENDED and NOBODY DECLARED WHAT ITS SESSION MEANT — the state "
+              "`undeclared_endings` exists to report and the one the grant re-points the leader's "
+              "act at. It differs from 7.155 arm 1 in ONE cell, and that cell is the whole "
+              "change: the same caller, the same value, the same package. The row must come back "
+              "reading `done` in `disposition` AND `leader` in `disposition-writer`, because by "
+              "VALUE a ruled `done` is indistinguishable from a seat's own and the two are "
+              "different claims",
+              _rdec1_code is None
+              and _rdec1_after.get("disposition") == "done"
+              and _rdec1_after.get("disposition-writer") == "leader"
+              and _rdec1_after.get("ended"))
+
+        # ---- RD-EC-2: classes (b)+(e) — a DECLARED cell stays unrewritable, bare and --force ----
+        _r155_seed("rdec2done", ended=now(), disposition="done")
+        _r155_seed("rdec2revive", ended=now(), disposition="revive")
+        _rdec2_d_out, _rdec2_d_err, _rdec2_d_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec2done"))
+        _rdec2_df_out, _rdec2_df_err, _rdec2_df_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec2done", force=True))
+        _rdec2_v_out, _rdec2_v_err, _rdec2_v_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec2revive"))
+        _rdec2_vf_out, _rdec2_vf_err, _rdec2_vf_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec2revive", force=True))
+        _rdec2_d_after = _r155_row("rdec2done")
+        _rdec2_v_after = _r155_row("rdec2revive")
+        check("RD-EC-2 A DECLARED CELL STAYS UNREWRITABLE, AND `--force` DOES NOT MOVE IT. The "
+              "widening admits the EMPTY cell and the `exited` cell and NOTHING ELSE — never "
+              "\"anything but `exited`\" by accident. A row carrying `done` or `revive` carries "
+              "its own writer's word about its own work, and the grant confers no power to "
+              "overwrite one. Both values are asserted, and each is asserted TWICE — once bare "
+              "and once with `--force` — because the state refusals in this verb have never been "
+              "force-carried and this change attaches nothing to that flag. (`renew` is the same "
+              "conservation and is asserted by 7.155 arm 5, so that ONE mutation reds ONE row.)",
+              _rdec2_d_code == 1
+              and _rdec2_df_code == 1
+              and _rdec2_v_code == 1
+              and _rdec2_vf_code == 1
+              and "refused [coord state]" in (_rdec2_d_out + _rdec2_d_err)
+              and "refused [coord state]" in (_rdec2_df_out + _rdec2_df_err)
+              and "refused [coord state]" in (_rdec2_v_out + _rdec2_v_err)
+              and "refused [coord state]" in (_rdec2_vf_out + _rdec2_vf_err)
+              and _rdec2_d_after.get("disposition") == "done"
+              and _rdec2_d_after.get("disposition-writer") == ""
+              and _rdec2_v_after.get("disposition") == "revive"
+              and _rdec2_v_after.get("disposition-writer") == "")
+
+        # ---- RD-EC-3: classes (c)+(e) — the OPEN row the widening could have swallowed ----
+        _r155_seed("rdec3", ended="", disposition="", awaiting=False)
+        _rdec3_out, _rdec3_err, _rdec3_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec3"))
+        _rdec3_f_out, _rdec3_f_err, _rdec3_f_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec3", force=True))
+        _rdec3_after = _r155_row("rdec3")
+        check("RD-EC-3 AN OPEN ROW IS STILL REFUSED BY THE ENDED-STAMP CHECK, AND `--force` DOES "
+              "NOT MOVE IT. This is the row the widening could have swallowed: its disposition "
+              "cell IS empty, which the widened predicate now admits, and it must still be "
+              "refused — by the EARLIER, separate `ended` check, because a disposition on a live "
+              "session is a third party recording an ending that has not happened. The refusal "
+              "names the layer, exits 1, and the row keeps its empty `ended` stamp",
+              _rdec3_code == 1
+              and _rdec3_f_code == 1
+              and "refused [coord state]" in (_rdec3_out + _rdec3_err)
+              and "OPEN" in (_rdec3_out + _rdec3_err)
+              and "refused [coord state]" in (_rdec3_f_out + _rdec3_f_err)
+              and "OPEN" in (_rdec3_f_out + _rdec3_f_err)
+              and _rdec3_after.get("ended") == ""
+              and _rdec3_after.get("disposition") == ""
+              and _rdec3_after.get("disposition-writer") == "")
+
+        # ---- RD-EC-4: class (d) — the 7.154 writer matrix, re-run on the NEW from-state ----
+        _r155_seed("rdec4", ended=now(), disposition="")
+        _rdec4_e_out, _rdec4_e_err, _rdec4_e_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec4", disposition="exited"))
+        _rdec4_n_out, _rdec4_n_err, _rdec4_n_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec4", disposition="renew"))
+        _rdec4_v_out, _rdec4_v_err, _rdec4_v_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec4", disposition="revive"))
+        _rdec4_after = _r155_row("rdec4")
+        check("RD-EC-4 THE WIDENING NEVER REACHES THE WRITER MODEL, RE-RUN ON THE NEW FROM-STATE. "
+              "The 7.154 matrix asserted leader × {`exited`,`renew`,`revive`} is refused; this "
+              "row re-runs it on the row shape the change ADDS — an ENDED row with an EMPTY cell, "
+              "which the widened predicate admits. All three values are refused at the `input` "
+              "layer with exit 2, in the VALIDATOR's own words, because the value space is "
+              "`RECORD_DISPOSITION_WRITER`'s answer and this verb carries no copy of it. The "
+              "from-state widened; the value space did not",
+              _rdec4_e_code == 2
+              and _rdec4_n_code == 2
+              and _rdec4_v_code == 2
+              and "refused [coord input]" in (_rdec4_e_out + _rdec4_e_err)
+              and "refused [coord input]" in (_rdec4_n_out + _rdec4_n_err)
+              and "refused [coord input]" in (_rdec4_v_out + _rdec4_v_err)
+              and "may not write disposition" in (_rdec4_e_out + _rdec4_e_err)
+              and "may not write disposition" in (_rdec4_n_out + _rdec4_n_err)
+              and "may not write disposition" in (_rdec4_v_out + _rdec4_v_err)
+              and _rdec4_after.get("disposition") == ""
+              and _rdec4_after.get("disposition-writer") == "")
+
+        # ---- RD-EC-5: class (f) — the bare report's PRINTED TEXT on an empty-cell row ----
+        # Conjunct 2's literal is t3's spec's empty-cell report wording, resolved at assembly to
+        # this fixture's seat and session-id. Conjunct 3 is the NEGATIVE literal, spelled out —
+        # never `RULED_FLIP_FROM`.
+        _r155_seed("rdec5", ended=now(), disposition="")
+        _rdec5_out, _rdec5_err, _rdec5_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="rdec5", go=False))
+        _rdec5_after = _r155_row("rdec5")
+        check("RD-EC-5 THE BARE REPORT TELLS THE TRUTH ABOUT AN EMPTY CELL — PRINTED TEXT, NOT "
+              "THE EXIT CODE. The report line interpolated a CONSTANT rather than the row's "
+              "actual value, so after the widening it would have told the leader that a row "
+              "carrying NOTHING \"carries `exited`\" — the one command meant for inspection lying "
+              "about the row it inspected. This row asserts what is PRINTED, positively and "
+              "negatively: the empty-cell wording is present and the `exited` wording is ABSENT, "
+              "spelled as literals so the assertion cannot move with the symbol it guards. The "
+              "exit code is 0 either way and could never have caught this",
+              _rdec5_code is None
+              and ("rdec5  RULABLE — its last session row (rdec5-sid) is ENDED and carries an "
+                   "EMPTY disposition cell (nobody declared one), and `done` is admitted from "
+                   "the leader.") in _rdec5_out
+              and "carries `exited`" not in _rdec5_out
+              and "report only" in _rdec5_out
+              and _rdec5_after.get("disposition") == ""
+              and _rdec5_after.get("disposition-writer") == "")
 
         # ============ dag-10: THE READY-SEAT ARITHMETIC ==========================================
         # Spec: implementation-tasks/dag-10-ready-seats-command.md (RS-1…RS-8, RS-12).
