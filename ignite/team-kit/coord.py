@@ -1349,7 +1349,7 @@ SKIP_HARNESS_CHECK = os.environ.get("COORD_SKIP_HARNESS_CHECK") == "1"
 #
 # LIFECYCLE_SETTLE_S bounds the executor's wait for the FORKING CALLER to exit before it acts, then
 # it proceeds REGARDLESS of the outcome: the executor never depends on the caller, which is the
-# whole point of detaching it. By the time the fork happens the handoff is appended, the transcript
+# whole point of detaching it. By the time the fork happens the handoff is written, the transcript
 # exported, the roster flipped and the sessions.csv row closed — nothing durable is left inside the
 # caller's session to rescue — so the wait is courtesy, not correctness.
 #
@@ -5067,7 +5067,7 @@ def inherited_log_path(fd=1):
 # ---- STAGE 3 (s3-09): THE CALLER-SIDE FORK — where the pane stops being trusted --------------
 #
 # THE SEAT'S OWN CHECKOUT FORKS THE EXECUTOR AND THEN EXITS. Everything `cmd_checkout` does before
-# this seam is in-pane work that is SAFE in-pane — the handoff append, the transcript export, the
+# this seam is in-pane work that is SAFE in-pane — the handoff write, the transcript export, the
 # roster flip, the sessions.csv close, the awaiting-close record. The renewal itself is not: it
 # respawns or kills the very pane the caller runs in, so a process attempting it would die halfway
 # through its own act (W1, and the reason `cmd_close_seat` prints its self-act WARNING). The fork
@@ -6018,7 +6018,7 @@ def cmd_lifecycle_exec(args):
                          else "no delimiter pair is present at all")
                 lifecycle_alarm(
                     "state",
-                    f"--handoff-written 1 claims this seat's checkout appended a handoff block, "
+                    f"--handoff-written 1 claims this seat's checkout WROTE a handoff block, "
                     f"but {memory} carries NO COMPLETE block — {shape}. Renewing on that claim "
                     f"would open the successor with nothing carried over, which is the one "
                     f"artifact the whole ceremony exists to produce.", 2, base, args=args)
@@ -6397,23 +6397,43 @@ def cmd_checkin(args):
         print(c(f"next: {coord_invocation(args)} status — nothing waiting yet", C_HINT))
 
 
-# ---- the check-out handoff block (s12-06) ------------------------------------------------
+# ---- the check-out handoff block (s12-06, AMENDED 2026-08-03) -----------------------------
 #
 # R-14 (`rulings.md`): this effort touches NOTHING that deals with memory — no dreamer, no closer
 # work, no compounding — WITH ONE EXCEPTION: the handoff on check-out, a simple form of short-term
 # memory. THIS IS THAT EXCEPTION, AND ITS WHOLE EXTENT. There is no rotation, no compaction, no
-# indexing, no summarizing and no pruning of `memory.md` here, and nothing reads a block back
-# except `s12-08`'s unread flip.
+# indexing and no summarizing of `memory.md` here, and nothing reads a block back except
+# `s12-08`'s unread flip.
 #
-# ⚠ APPEND AT EOF, NEVER PARSE, NEVER REWRITE. A seat's `memory.md` is heterogeneous BY
-# CONSTRUCTION — some open with YAML frontmatter (`agent:`/`updated:`/`sessions-closed:`), some
-# start at a `#` heading — so any shape-assuming write corrupts exactly the files it did not
-# anticipate. The block is HTML comments so it is invisible in rendered markdown and cannot
-# collide with a heading, and `v=1` rides BOTH delimiters so a truncated append is DETECTABLE.
+# ⚠⚠ OWNER RULING, 2026-08-03 — `memory.md` IS THE HANDOFF, AND THE RENEW CHECK-OUT REPLACES THE
+# FILE WHOLESALE. A seat's memory is now exactly one thing: the current handoff block. No body, no
+# prior blocks, no history. The seat does not maintain a state doc beside it and nothing accretes
+# in it between sessions — what the successor is handed is the WHOLE of what it inherits.
+#
+# ⚠ AND THAT RULING IS WHAT MAKES THE REPLACE SAFE — the file is HOMOGENEOUS BY CONSTRUCTION now,
+# because this writer is the only thing that ever writes it. The superseded bar above this line
+# read "APPEND AT EOF, NEVER PARSE, NEVER REWRITE", and it was right FOR ITS ERA: `memory.md` was
+# then heterogeneous by construction — some opened with YAML frontmatter
+# (`agent:`/`updated:`/`sessions-closed:`), some at a `#` heading — so any shape-assuming write
+# corrupted exactly the files it did not anticipate. A wholesale replace of a heterogeneous file
+# destroys a seat's state doc; a wholesale replace of a file that holds ONE block and nothing else
+# destroys nothing, and is the point: it is what makes "keep ONLY the latest" mechanical rather
+# than a prune pass over a log (protocol item 9; the run-3 measurement that forced it — 133
+# delivered blocks / 214 KB stacked on one seat — cannot recur when the file cannot stack).
+#
+# The block format is UNCHANGED and deliberately so: HTML comments, invisible in rendered
+# markdown, unable to collide with a heading, `v=1` on BOTH delimiters so a half-written file is
+# DETECTABLE. Every reader — `handoff_blocks`, `handoff_truncated`, `deliver_handoff`, the
+# executor's re-read — is untouched by this amendment and keeps parsing exactly what it did.
 
 HANDOFF_TOKEN = "coord:handoff"   # the delimiter word — and the one literal a note body may not carry
 HANDOFF_V = "v=1"                 # on BOTH delimiters, so a half-written block is detectable
 HANDOFF_STAMP_FMT = "%Y-%m-%dT%H:%M:%S"
+# The note's TARGET size, in lines. A WARNING THRESHOLD, NEVER A GATE: the note is the seat's whole
+# memory now, so refusing an oversized one would destroy the handoff at the moment it is being made
+# — the checkout stands and the seat is told to tighten it. `protocol.md` item 9 carries this same
+# number in prose; if one moves, both move.
+HANDOFF_MAX_LINES = 120
 
 
 def handoff_stamp_text(when):
@@ -6472,69 +6492,41 @@ def session_id_open(args, seat):
         return ""
 
 
-def append_handoff(base, memory_path, block):
-    """Append `block` at EOF under `coord_lock` + `atomic_write`, then VERIFY it landed.
+def write_handoff(base, memory_path, block):
+    """REPLACE `memory.md` with `block` under `coord_lock` + `atomic_write`, then VERIFY it landed.
 
     Returns `(ok, detail)`; `detail` names the failure when `ok` is False.
+
+    ⚠ WHOLESALE, BY OWNER RULING (2026-08-03) — the file's ENTIRE content after this call is the
+    one block passed in. Nothing prior is read, merged, pruned or carried: there is no body to
+    preserve, no delivered block to splice out at its indices, and no separator to negotiate,
+    because a seat's `memory.md` holds exactly one handoff and nothing else. This is a REPLACEMENT
+    of the append-plus-prune writer that stood until that ruling, not an option beside it — the
+    prune existed only to bound a file that could stack, and a file that is rewritten whole cannot.
+    The section header above carries why the old bar (append at EOF, never rewrite) was correct for
+    a heterogeneous `memory.md` and why it stopped applying to a homogeneous one.
 
     ⚠ THE VERIFICATION IS NOT CEREMONY, IT IS THE POINT. `coord_lock` IS NEVER FATAL — a sandboxed
     seat whose package is read-only (codex EROFS) proceeds WITHOUT the lock after one note — so
     this write can be concurrent, and the replace can fail on a filesystem that accepted the open.
     A silent half-write loses the ONE artifact the successor is promised, at the exact moment the
-    seat believes it handed over. So the file is RE-READ and the composed bytes must be found in it.
-
-    ⚠ APPEND-ONLY FOR EVERYTHING THAT IS NOT A CONSUMED HANDOFF. The file's own body — every byte
-    outside this writer's delimited blocks — is never rewritten, reordered, stripped or
-    normalized, and an UNREAD (`unread=yes`) block is NEVER touched: re-delivery beats loss, and
-    s12-08's flip is the only thing that may move that cursor. What IS consumed here, per
-    `r-seat-file-contract` / protocol item 9's "keep ONLY the latest CLI-appended block": every
-    COMPLETE prior block already DELIVERED (`unread=no`) is spliced out at its own indices before
-    the new block goes in. The successor was handed that block at its check-in and had a whole
-    session to fold what still lives into the body; stacking it further is the append-only-log
-    shape the owner ruled out (r-checkout-selfclose companion, 2026-07-31 — run-3 measured 133
-    delivered blocks / 214 KB stacked on one seat). The separator discipline for the append half
-    is unchanged: enough newline to leave exactly one blank line before the block, and nothing
-    removed to tidy a tail.
+    seat believes it handed over. So the file is RE-READ and must equal the composed bytes EXACTLY.
+    Equality is what a wholesale write can assert and an append could not: the old writer had to
+    ask two weaker questions (is the block IN the file, and is the file's last delimiter a CLOSING
+    one) because everything else in the file was somebody else's bytes. Byte-equality subsumes
+    both — a truncated write cannot equal the block. `handoff_truncated` stays exactly where it is
+    as the READER's verdict on a file this writer did not produce.
     """
     try:
         with coord_lock(base):
-            prior = memory_path.read_text(encoding="utf-8") if memory_path.exists() else ""
-            pruned = 0
-            if prior:
-                _closer = f"<!-- /{HANDOFF_TOKEN} {HANDOFF_V} -->"
-                for _b in reversed([x for x in handoff_blocks(prior)
-                                    if x["attrs"].get("unread") == "no"]):
-                    _end = prior.find(_closer, _b["head_end"])
-                    if _end < 0:
-                        continue
-                    _end += len(_closer)
-                    if prior[_end:_end + 1] == "\n":
-                        _end += 1
-                    prior = prior[:_b["head_start"]] + prior[_end:]
-                    pruned += 1
-            if not prior or prior.endswith("\n\n"):
-                sep = ""
-            elif prior.endswith("\n"):
-                sep = "\n"
-            else:
-                sep = "\n\n"
-            atomic_write(memory_path, prior + sep + block)
+            atomic_write(memory_path, block)
         landed = memory_path.read_text(encoding="utf-8") if memory_path.exists() else ""
     except (OSError, ValueError) as exc:
         return False, f"{type(exc).__name__}: {exc}"
-    if block not in landed:
-        return False, ("the composed block is NOT in the file after the write — the append did not "
-                       "land (a lockless write on a read-only package, or a replace that failed)")
-    # The independent half: the file's LAST delimiter must be a CLOSING one. A tail left open is
-    # the shape a truncated append leaves behind, and it is the shape `s12-08`'s reader would then
-    # scan forever. Matched on the delimiter WORD, not on the whole composed block, so this stays a
-    # statement about the file rather than a second copy of the line above.
-    if landed.rfind(f"<!-- /{HANDOFF_TOKEN}") < landed.rfind(f"<!-- {HANDOFF_TOKEN}"):
-        return False, ("the block on disk is TRUNCATED — the file's last handoff delimiter is an "
-                       "OPENING one, so the append stopped part-way through")
-    if pruned:
-        print(f"consumed {pruned} delivered handoff block(s) — memory.md keeps only the latest "
-              f"(protocol item 9)")
+    if landed != block:
+        return False, ("memory.md does NOT hold the composed block after the write — the replace "
+                       "did not land, or landed partially (a lockless write on a read-only "
+                       "package, or a replace that failed)")
     return True, ""
 
 # ---- the check-in handoff DELIVERY (s12-08) -----------------------------------------------
@@ -6603,9 +6595,13 @@ def handoff_blocks(text):
 def handoff_truncated(text):
     """True when the file's LAST handoff delimiter is an OPENING one.
 
-    THE SAME TEST `append_handoff` REFUSES ON, deliberately: the writer and the reader must not
-    hold two opinions about what a half-written block looks like, or the shape one refuses to
-    leave behind is a shape the other happily reads a whole file's tail out of.
+    THE READER'S OWN VERDICT, and since the 2026-08-03 amendment it is the ONLY holder of this
+    test: `write_handoff` now asserts BYTE-EQUALITY with the block it composed, which subsumes
+    this shape (a truncated write cannot equal the block). This function is not thereby dead —
+    it judges files this writer did not produce: a hand-edited `memory.md`, one left behind by an
+    older build, or one a crash caught mid-replace on a filesystem that does not honour rename
+    atomicity. What it must NOT become is a second opinion about what a half-written block looks
+    like; it states the same shape the writer refuses to leave behind.
     """
     return text.rfind(f"<!-- /{HANDOFF_TOKEN}") < text.rfind(f"<!-- {HANDOFF_TOKEN}")
 
@@ -6696,9 +6692,9 @@ def deliver_handoff(args, base, seat):
     print(f"handoff waiting — written by the previous session of this seat at "
           f"{handoff_stamp_human(block['attrs'].get('stamped', ''))}:")
     print(block["body"])
-    print(f"(marked read now; it stays in {memory_path} until your own renewal appends the next "
-          f"handoff, which CONSUMES this one — the file is yours to keep in contract shape: "
-          f"rewritten in place, ≤2 screens, never a log)")
+    print(f"(marked read now; it stays in {memory_path} until your own renewal REPLACES the file "
+          f"with your handoff — owner ruling 2026-08-03: memory.md holds your current handoff and "
+          f"nothing else, so anything above that you still need, you carry into your own note)")
     # ⚠ THE BROAD CATCH IS THE POINT, AND IT BELONGS HERE RATHER THAN AT THE CALLER. The block is
     # already on the seat's screen; anything this raises must land on the ONE loud branch below,
     # which says "you were shown it, it was NOT marked read". The caller's guard would report the
@@ -6783,20 +6779,61 @@ def cmd_checkout(args):
     # nothing: at this point nothing has been read, written, captured or muted.
     renew = getattr(args, "renew", False)
     handoff = getattr(args, "handoff", None)
+    handoff_file = getattr(args, "handoff_file", None)
     # s12-07: set by CALL 2 only, and read at the single `set_awaiting` both paths fall through to.
-    # The done path records "" because it appended no block — an empty stamp is the honest value,
+    # The done path records "" because it wrote no block — an empty stamp is the honest value,
     # never a placeholder time.
     handoff_stamp = ""
-    if handoff is not None and not renew:
+    # ⚠ THE TWO NOTE SOURCES ARE EXCLUSIVE AND THE REFUSAL IS EXPLICIT, not argparse's mutually
+    # exclusive group: a seat that passed both is holding two versions of the note it is about to
+    # be judged on, and a bare usage string does not tell it which one would have won. Nothing has
+    # been read, written or closed at this point, so the refusal costs it nothing but the re-run.
+    if handoff is not None and handoff_file is not None:
         refuse(
             "input",
-            f"--handoff carries what the NEXT session of this seat must do, so it needs a checkout "
-            f"that opens one: pass --renew with it. A done-checkout has no successor to hand "
-            f"anything to, and accepting the note here would file a handoff nobody is ever booted "
-            f"to read.\n"
+            f"--handoff and --handoff-file both carry your successor's note, so passing both "
+            f"leaves it undecided which one becomes this seat's memory — and that memory is now "
+            f"the WHOLE of what your successor inherits (owner ruling 2026-08-03). Nothing was "
+            f"written and nothing was closed.\n"
+            f"Pick one: `--handoff \"<note>\"` for a short one typed inline, or `--handoff-file "
+            f"<path>` for one you wrote to a file.",
+            2)
+    if (handoff is not None or handoff_file is not None) and not renew:
+        refuse(
+            "input",
+            f"--handoff/--handoff-file carry what the NEXT session of this seat must do, so they "
+            f"need a checkout that opens one: pass --renew with it. A done-checkout has no "
+            f"successor to hand anything to, and accepting the note here would file a handoff "
+            f"nobody is ever booted to read.\n"
             f"Renewing this seat: {coord_invocation(args)} checkout --renew\n"
             f"Done for good:      {coord_invocation(args)} checkout",
             2)
+    # ⚠ THE FILE IS READ HERE — BEFORE identity resolution, before the roster read, before the
+    # export, and therefore before any state change at all. An unreadable path is an argument
+    # error, and an argument error must cost the seat nothing: the alternative is discovering it
+    # after the arm, with the wakes already muted and the note still only in a file.
+    if handoff_file is not None:
+        try:
+            handoff = Path(handoff_file).read_text(encoding="utf-8").rstrip("\n")
+        except (OSError, ValueError, UnicodeDecodeError) as exc:
+            refuse(
+                "input",
+                f"--handoff-file {handoff_file} could not be read as UTF-8 text — "
+                f"{type(exc).__name__}: {exc}. Nothing was written and nothing was closed; your "
+                f"session is untouched and your note is not lost.\n"
+                f"Check the path (it is resolved from THIS process's working directory, so pass "
+                f"it absolute), then re-run `{coord_invocation(args)} checkout --renew "
+                f"--handoff-file <path>`.",
+                2)
+        if not handoff.strip():
+            refuse(
+                "input",
+                f"--handoff-file {handoff_file} is EMPTY. It would replace this seat's memory.md "
+                f"with a handoff that says nothing, and your successor would boot with nothing at "
+                f"all (owner ruling 2026-08-03: memory.md IS the handoff). Nothing was written and "
+                f"nothing was closed.\n"
+                f"Write the note into that file, then re-run the same command.",
+                2)
     base = base_dir(args)
     me = resolve_agent(args)
     _, _, rows = load_workers(base)
@@ -6816,7 +6853,7 @@ def cmd_checkout(args):
         #
         # THE ORDER IS LOAD-BEARING. Everything in the body below is irreversible from the seat's
         # side — the export is taken, the roster row is flipped, the session row is closed — so a
-        # handoff appended after it would be written by a session that no longer exists to be told
+        # handoff written after it would be written by a session that no longer exists to be told
         # it failed. Written first, verified, and only then does anything close.
         #
         # ⚠ THE THREE VALIDATIONS BELOW DUPLICATE `checkout_renew_arm`'s, ON PURPOSE. Call 1
@@ -6852,7 +6889,7 @@ def cmd_checkout(args):
             refuse(
                 "input",
                 f"'{me}' has no seat FOLDER — its descriptor is a flat file, so there is no "
-                f"`{me}/memory.md` for this handoff to be appended to, and carrying it to your "
+                f"`{me}/memory.md` for this handoff to be written to, and carrying it to your "
                 f"successor is the whole point of this path. Nothing was written and nothing was "
                 f"closed — your note is not lost.\n"
                 f"End this session with `{coord_invocation(args)} checkout` instead; leader "
@@ -6867,7 +6904,7 @@ def cmd_checkout(args):
         # disagree by a whole second whenever they straddled one — silently, and only sometimes.
         handoff_when = datetime.now()
         handoff_stamp = handoff_stamp_text(handoff_when)
-        handoff_ok, handoff_why = append_handoff(
+        handoff_ok, handoff_why = write_handoff(
             base, memory_path,
             handoff_block_text(me, session_id_open(args, me), "renew", handoff,
                                when=handoff_when))
@@ -6883,7 +6920,27 @@ def cmd_checkout(args):
                 f"`{coord_invocation(args)} checkout --renew --handoff \"<note>\"`. If it fails "
                 f"again, tell leader and end with `{coord_invocation(args)} checkout`.",
                 1)
-        print(f"handoff appended: {memory_path}")
+        print(f"handoff written: {memory_path}")
+        # ⚠ TAUGHT AT THE MOMENT IT IS TRUE, NEVER ONLY IN A DOC. The seat has just replaced its
+        # own memory and this is the last instant at which it can still add to the note; a rule
+        # stated anywhere else is read long before or long after the one act it governs.
+        print(f"⚠ THAT NOTE IS NOW THE ENTIRE MEMORY OF THIS SEAT. {memory_path} holds it and "
+              f"nothing else — your successor is handed exactly what you just wrote and NOTHING "
+              f"ELSE (owner ruling 2026-08-03). Every open loop, live watch-item and standing "
+              f"instruction that is not IN it is gone.")
+        # The size WARNING — loud, and deliberately NOT a gate. The note is already on disk and the
+        # checkout STANDS: refusing here would destroy the handoff to punish its length, which is
+        # the one outcome worse than an over-long note. Counted on the note the seat supplied, not
+        # on the composed block, so the number the seat is told matches the text it wrote.
+        _hd_lines = len(handoff.splitlines())
+        if _hd_lines > HANDOFF_MAX_LINES:
+            print(c(f"WARNING your handoff is {_hd_lines} lines — the target is ~"
+                    f"{HANDOFF_MAX_LINES} (protocol item 9). THE CHECKOUT STANDS and the note is "
+                    f"written; nothing was refused. But a note this long is one your successor "
+                    f"reads at boot in full, and length is where the live items get lost among "
+                    f"the narrative. Tighten it before your next renewal: state what is IN FLIGHT, "
+                    f"what comes NEXT, and what was RULED OUT — not what happened.", C_DEAD),
+                  file=sys.stderr)
     # T3: the export is the seat's last durable artifact and was routinely forgotten — mechanize
     # it instead of teaching it (protocol item 8). --no-export is the escape for a dead pane.
     out, err = "", "--no-export"
@@ -7041,7 +7098,7 @@ def checkout_renew_arm(args, base, me):
         refuse(
             "input",
             f"'{me}' has no seat FOLDER — its descriptor is a flat file, so there is no "
-            f"`{me}/memory.md` for a handoff to be appended to, and carrying that handoff to your "
+            f"`{me}/memory.md` for a handoff to be written to, and carrying that handoff to your "
             f"successor is the whole point of this path. Nothing was armed: your wakes are not "
             f"muted and your session is untouched.\n"
             f"End this session with `{coord_invocation(args)} checkout` instead; leader relaunches "
@@ -7051,10 +7108,15 @@ def checkout_renew_arm(args, base, me):
         print(c(f"WARNING the wake mute could NOT be written — your inbox is NOT narrowed and "
                 f"wakes keep arriving. The renewal below is still yours to finish; expect "
                 f"interruptions, and tell leader.", C_DEAD), file=sys.stderr)
-    # ⚠ VERBATIM (stage-1-2-gate-checkout-spec.md §2.2). This text IS the mechanism — it is the CLI
-    # teaching the seat the second step, and its wording, its order and its line breaks are the
-    # spec's, not this function's. The minute figure is DERIVED from CLOSING_MAX_MIN and never
-    # typed: a copy drifts, a reference does not.
+    # ⚠ VERBATIM (stage-1-2-gate-checkout-spec.md §2.2), WITH ONE AMENDED PARAGRAPH. This text IS
+    # the mechanism — it is the CLI teaching the seat the second step, and its wording, its order
+    # and its line breaks are the spec's, not this function's. The minute figure is DERIVED from
+    # CLOSING_MAX_MIN and never typed: a copy drifts, a reference does not.
+    #
+    # THE AMENDMENT is the closing paragraph, and it is not a style edit: the spec's text said the
+    # note is APPENDED to the seat's memory, and since the owner's 2026-08-03 ruling it REPLACES
+    # that file wholesale. Teaching "appended" here would tell a seat its state doc survives, at
+    # the exact moment it is deciding what to leave out of the note.
     memory_path = folder / "memory.md"
     print(
         f"renewal armed: {me} — wakes are muted and your inbox is narrowed to leader (clears in "
@@ -7068,14 +7130,19 @@ def checkout_renew_arm(args, base, me):
         f"\n"
         f"     coordinate checkout --renew --handoff \"<what the next session of this seat must "
         f"do>\"\n"
+        f"     coordinate checkout --renew --handoff-file <path>   (same thing, note read from a "
+        f"file)\n"
         f"\n"
         f"Write it for someone with NO memory of this session: what is in flight, what you were "
         f"about\n"
         f"to do next, what you tried and ruled out, and any path or id they would otherwise have "
         f"to\n"
-        f"re-derive. It is appended to your seat memory ({memory_path}) and printed to your "
-        f"successor\n"
-        f"at its check-in.")
+        f"re-derive. IT BECOMES YOUR SEAT MEMORY IN FULL — {memory_path} is REPLACED by it (owner\n"
+        f"ruling 2026-08-03: memory.md IS the handoff, nothing else lives in it), and it is "
+        f"printed to\n"
+        f"your successor at its check-in. Anything already in that file that still matters, carry "
+        f"into\n"
+        f"the note; what you leave out is gone. Target ~{HANDOFF_MAX_LINES} lines.")
 
 
 # ---- owner state (task 7.85, owner ruling r-owner-state-is-not-binary) --------------------
@@ -16566,8 +16633,12 @@ def _selftest_checks(args, failures, names):
         # ============ s12-06: the check-out HANDOFF BLOCK, and `checkout --renew --handoff` =====
         # Spec: stage-1-2-gate-checkout-spec.md §2.2 (call 2) + §3 (the block schema). R-14 makes
         # this block the ONE memory artifact this effort is allowed to write, so every row below is
-        # about that write being append-only, verbatim, self-verified, and REFUSED wherever the
-        # seat has nowhere — or no right — to write.
+        # about that write being verbatim, self-verified, and REFUSED wherever the seat has
+        # nowhere — or no right — to write. ⚠ THE FOURTH PROPERTY CHANGED SIDES on 2026-08-03: it
+        # was APPEND-ONLY and it is now WHOLESALE REPLACEMENT, by owner ruling (memory.md IS the
+        # handoff). The rows that asserted the old property carry `(AMENDED 2026-08-03)` in their
+        # text and assert its negation — kept rather than deleted, because their fixtures are the
+        # awkward file shapes and those are exactly what a shape-blind writer must be proven on.
         #
         # ⚠ THE DELIMITER GRAMMAR IS RESTATED HERE FROM THE SPEC, NEVER IMPORTED FROM THE MODULE
         # CONSTANTS. A test that asserts against the implementation's own constant asserts only
@@ -16628,12 +16699,15 @@ def _selftest_checks(args, failures, names):
              _h6_glanded.partition(_h6_open)[2].partition("-->")[0].split()
              if t.startswith("stamped=")), "")
 
-        check("s12-06 S2-b: the handoff LANDS and the write is APPEND-ONLY — after call 2 gamma's "
-              "memory.md still opens with its original bytes and now carries exactly ONE handoff "
-              "block, marked `unread=yes`. memory.md is heterogeneous by construction (some seats' "
-              "open with YAML frontmatter, some at a heading), so a write that assumed a shape "
-              "would corrupt every file whose shape it did not anticipate",
-              _h6_gcode is None and _h6_glanded.startswith(_h6_gprior)
+        check("s12-06 S2-b (AMENDED 2026-08-03): the handoff LANDS and the write is WHOLESALE — "
+              "after call 2 gamma's memory.md is the block and ONLY the block: none of its prior "
+              "bytes survive, it carries exactly one `unread=yes` block, and it BEGINS with the "
+              "opening delimiter. The owner ruled memory.md IS the handoff, so a build that still "
+              "appended would leave the predecessor's file in front of the note and hand the "
+              "successor a history it was ruled out of reading. The prior-bytes clause is asserted "
+              "NEGATIVELY on a fixture that HAS prior bytes, so it cannot pass vacuously",
+              _h6_gcode is None and bool(_h6_gprior.strip())
+              and _h6_gprior not in _h6_glanded and _h6_glanded.startswith(_h6_open)
               and _h6_glanded.count(_h6_open) == 1 and "unread=yes" in _h6_glanded)
 
         check("s12-06 S6-a: BOTH delimiters carry `v=1` — the opening comment and the closing one, "
@@ -16693,7 +16767,9 @@ def _selftest_checks(args, failures, names):
         # d-run3-lifecycle-memory-idle-fixes pins the two run-3-measured failure shapes: (1)
         # `depart` invoked 0 times in 94 launches — every finished ephemeral seat left its pane as
         # awaiting-close debt no reap pass drained; (2) delivered handoff blocks stacked without
-        # bound (133 on one seat, 214 KB). C1 proves consumption, C2 proves the self-close.
+        # bound (133 on one seat, 214 KB). C1 proved CONSUMPTION until 2026-08-03 and now proves
+        # the WHOLESALE REPLACE that superseded it — same failure shape, closed structurally
+        # instead of by a prune pass. C2 proves the self-close, and is untouched by that ruling.
         _eph_d = pkg / "workers" / "eph"
         _eph_d.mkdir()
         # ⚠ The flag is QUOTED on purpose — `ephemeral: 'yes'` is the shape the materializer
@@ -16722,17 +16798,22 @@ def _selftest_checks(args, failures, names):
             + _eph_read_blk + "\n" + _eph_keep_blk, encoding="utf-8")
         _eph_out1, _eph_code1 = _h6("eph", "the one block a successor should find")
         _eph_mem1 = (_eph_d / "memory.md").read_text(encoding="utf-8")
-        check("r-checkout-selfclose C1: append_handoff CONSUMES delivered blocks and ONLY them — "
-              "after call 2 the unread=no block is GONE, the unread=yes block and the non-block "
-              "body survive, the fresh block is present, and the output names the consumption "
-              "count. protocol item 9's 'keep ONLY the latest' is mechanical now, never a seat's "
-              "diligence — run-3 measured what diligence alone does",
+        check("r-checkout-selfclose C1 (AMENDED 2026-08-03): write_handoff REPLACES — after call 2 "
+              "NOTHING that was in the file is left: not the delivered block, not the UNREAD one, "
+              "not the free-text body; the file is exactly one block and it is the fresh one. The "
+              "row was 'consume the delivered blocks and only them' while memory.md still held a "
+              "seat-maintained body an unread block could be lost from; the owner ruled the body "
+              "out of existence, and with it the distinction the old prune had to be careful "
+              "about. protocol item 9's 'keep ONLY the latest' is now structural rather than "
+              "mechanical — the file CANNOT stack, so the 133-block / 214 KB shape run-3 measured "
+              "has no way back in",
               _eph_code1 is None
               and "older, already delivered" not in _eph_mem1
-              and "unread survivor, never this writer's to drop" in _eph_mem1
-              and "body the prune must not touch" in _eph_mem1
+              and "unread survivor, never this writer's to drop" not in _eph_mem1
+              and "body the prune must not touch" not in _eph_mem1
               and "the one block a successor should find" in _eph_mem1
-              and "consumed 1 delivered handoff block" in _eph_out1)
+              and _eph_mem1.count(_h6_open) == 1
+              and _eph_mem1.startswith(_h6_open))
 
         _eph_kill_real = tmux_kill_pane
         _eph_killed = []
@@ -16804,12 +16885,18 @@ def _selftest_checks(args, failures, names):
         _h6_om_fm = _h6_om_prior[:_h6_om_prior.index("\n---\n") + 5]
         _h6_e_out, _h6_e_code = _h6("omega", "the frontmatter above must not move")
         _h6_om_landed = _h6_om_path.read_text(encoding="utf-8")
-        check("s12-06 S6-e: a memory.md that OPENS WITH YAML FRONTMATTER keeps it byte-identical — "
-              "the block is appended at EOF and the frontmatter is never parsed, rewritten or "
-              "reordered. Live seats carry several different shapes of it; a writer that "
-              "'understood' the file would eventually meet a file it did not understand",
-              _h6_e_code is None and _h6_om_landed.startswith(_h6_om_fm)
-              and _h6_om_landed.startswith(_h6_om_prior)
+        check("s12-06 S6-e (AMENDED 2026-08-03): a memory.md that OPENS WITH YAML FRONTMATTER is "
+              "REPLACED like any other — the frontmatter is gone, the file is the block, and "
+              "nothing about the prior shape changed the write. The old row asserted the opposite "
+              "(frontmatter byte-identical) and was correct for the heterogeneous era; the owner's "
+              "ruling makes the file this writer's alone, and a writer that still preserved a "
+              "shape it finds would carry a stale `sessions-closed:` header in front of every "
+              "successor's only inheritance. The row is kept BECAUSE the fixture is the awkward "
+              "shape: it proves the replace is shape-blind, not merely that it works on the easy "
+              "file",
+              _h6_e_code is None and not _h6_om_landed.startswith(_h6_om_fm)
+              and _h6_om_prior not in _h6_om_landed
+              and _h6_om_landed.startswith(_h6_open)
               and _h6_om_landed.count(_h6_open) == 1)
 
         # ---- sigma + omega: the separator, in BOTH directions (S6-j) ----
@@ -16818,24 +16905,26 @@ def _selftest_checks(args, failures, names):
         _h6_sg_path, _h6_sg_prior = _h6_mem["sigma"]
         _h6_j_out, _h6_j_code = _h6("sigma", "the content above me ended without a newline")
         _h6_sg_landed = _h6_sg_path.read_text(encoding="utf-8")
-        # ⚠ GUARDED SLICES (G-215(a)). In a build where no block is written these `index` calls
-        # would RAISE, and a raise inside a check condition aborts the suite and takes every row
-        # behind it unrun — the one way a red arm can hide the rows it was meant to isolate. The
-        # sentinel is a byte no memory.md can end with, so an absent block fails the row instead.
-        _h6_sg_tail = (_h6_sg_landed[_h6_sg_landed.index(_h6_open):]
-                       if _h6_open in _h6_sg_landed else "\x00 no block was written")
-        _h6_om_tail = (_h6_om_landed[_h6_om_landed.index(_h6_open):]
-                       if _h6_open in _h6_om_landed else "\x00 no block was written")
-        check("s12-06 S6-j: the separator is correct in BOTH directions — on a memory.md that does "
-              "NOT end in a newline and on one that DOES, exactly one blank line stands between "
-              "the prior content and the block, and no line is ever joined. The prior bytes are "
-              "only ever ADDED TO: normalizing a trailing newline away would be a REWRITE of a "
-              "file this path is only allowed to append to",
+        # ⚠ THE SEPARATOR QUESTION IS GONE, NOT MOVED (owner ruling 2026-08-03). There is no prior
+        # content for the block to be separated FROM: the file IS the block. So the row that asked
+        # "is there exactly one blank line between the old bytes and the new block, in both
+        # newline-terminated and not" is REPLACED by the question that outlived it — is the file
+        # EXACTLY the block, whatever the prior file's tail looked like. Both fixtures are kept
+        # and both are still awkward shapes (sigma ends without a newline, omega opens with YAML),
+        # because a shape-blind writer is exactly what must be proven.
+        check("s12-06 S6-j (AMENDED 2026-08-03): THE PRIOR TAIL IS IRRELEVANT — on a memory.md "
+              "that does NOT end in a newline and on one that DOES, the landed file starts at the "
+              "opening delimiter, ends at the closing one, and carries neither fixture's prior "
+              "bytes. A build that still negotiated a separator would leave those bytes in front "
+              "of the note; a build that 'tidied' the tail would prove nothing here, because "
+              "there is no tail left to tidy",
               _h6_j_code is None
-              and _h6_sg_landed.endswith("\n\n" + _h6_sg_tail)
-              and not _h6_sg_landed.endswith("\n\n\n" + _h6_sg_tail)
-              and _h6_om_landed.endswith("\n\n" + _h6_om_tail)
-              and not _h6_om_landed.endswith("\n\n\n" + _h6_om_tail))
+              and _h6_sg_landed.startswith(_h6_open)
+              and _h6_sg_landed.rstrip("\n").endswith(_h6_close)
+              and _h6_sg_prior not in _h6_sg_landed
+              and _h6_om_landed.startswith(_h6_open)
+              and _h6_om_landed.rstrip("\n").endswith(_h6_close)
+              and _h6_om_prior not in _h6_om_landed)
 
         # ---- the two call-2 refusals that duplicate call 1's, on purpose (S6-f, S6-g) ----
         run(cmd_checkin, agent="alpha", summary="s12-06 folderless call-2 fixture", pane="%73",
@@ -18504,13 +18593,13 @@ def _selftest_checks(args, failures, names):
         _s9b_landed = _s9b_mem.read_text(encoding="utf-8")
         check("s12-09 S9-b1: with the append's boundary write DENIED call 2 fails LOUDLY at its "
               "own exit — code 1, the output names the handoff as NOT WRITTEN, and neither "
-              "success line (`handoff appended`, `checked out:`) prints — and the denial was "
+              "success line (`handoff written`, `checked out:`) prints — and the denial was "
               "OBSERVED in this same run while the tmux-side stubs were never reached. A step "
               "that closed on top of a handoff that never landed is the exact detached-stream "
               "anti-pattern this task exists to catch",
               len(_s9b_obs) >= 1 and not _s9_tmux and _s9b_c == 1
               and "HANDOFF NOT WRITTEN" in _s9b_out
-              and "handoff appended" not in _s9b_o and "checked out:" not in _s9b_o)
+              and "handoff written" not in _s9b_o and "checked out:" not in _s9b_o)
         check("s12-09 S9-b2: call 2's refusal NAMES BOTH SIDES of the boundary — coord.py's own "
               "layer (`refused [coord state]`) AND the denied write's reason string carried "
               "through verbatim, so 'coord.py refused BECAUSE the boundary write failed with "
@@ -21442,7 +21531,9 @@ def build_parser():
     s.add_argument("--renew", action="store_true",
                    help="this checkout opens the NEXT session of this seat, not its last — run it once to arm the renewal and be taught the second call, then again with --handoff")
     s.add_argument("--handoff", metavar="NOTE", default=None,
-                   help="what the next session of this seat must do, quoted — requires --renew; it becomes your seat memory's LATEST handoff block (already-delivered older blocks are consumed — protocol item 9) and is printed to your successor at its check-in")
+                   help="what the next session of this seat must do, quoted — requires --renew; it REPLACES your seat memory (memory.md IS the handoff, owner ruling 2026-08-03: no body, no history) and is printed to your successor at its check-in. Target ~%d lines; longer warns, never refuses" % HANDOFF_MAX_LINES)
+    s.add_argument("--handoff-file", dest="handoff_file", metavar="PATH", default=None,
+                   help="the same note, read from a UTF-8 file instead of the command line — requires --renew, and never together with --handoff. Use it whenever the note has backticks, quotes or many lines, which a shell mangles before coord.py sees them")
     add_identity_flags(s)
     s.set_defaults(func=cmd_checkout)
 
@@ -22001,7 +22092,7 @@ def build_parser():
     s.add_argument("--caller-starttime", dest="caller_starttime", metavar="S", required=True,
                    help="the forking process's /proc starttime — the half a recycled pid cannot forge")
     s.add_argument("--handoff-written", dest="handoff_written", choices=("0", "1"), default=None,
-                   help="required on --disposition renew: the caller's assertion that it appended a handoff block, which this executor RE-READS in memory.md before renewing")
+                   help="required on --disposition renew: the caller's assertion that it wrote a handoff block, which this executor RE-READS in memory.md before renewing")
     s.set_defaults(func=cmd_lifecycle_exec)
     p.command_parsers = made  # so the self-test can render every command's help
     return p

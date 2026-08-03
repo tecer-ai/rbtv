@@ -44,7 +44,7 @@ $COORD create-group <group> [member ...]        # creator + leader auto-included
 $COORD add-to-group <group> <member ...>        # leader only
 $COORD export-transcript <agent> [--label L]    # full pane scrollback -> workers/<agent>/transcripts/
 $COORD checkout                                 # on finish (done disposition) — exports your transcript first (--no-export skips)
-$COORD checkout --renew --handoff "<note>"      # renewal disposition — two-step, the CLI teaches it; the handoff lands in your memory.md (item 8)
+$COORD checkout --renew --handoff "<note>"      # renewal disposition — two-step, the CLI teaches it; the handoff REPLACES your memory.md (item 9). --handoff-file PATH for a note the shell would mangle
 $COORD depart                                   # ephemeral seats: export + checkout + kill own pane
 $COORD close <agent> [--renew]                  # leader only — FAILURE PATH: spawn a closer to dirty-close/salvage a seat that cannot check itself out. A healthy seat renews itself (line above), never through this
 $COORD close-seat <agent> [--renew] [--no-export]  # mechanical close — leader's remedy for a dead pane, and the closer's own tail step
@@ -133,8 +133,9 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    completion to `leader` first, then check out; no handoff; leader frees the pane. Renewal or
    context refresh:
    `checkout --renew`, which teaches you the second step; you MUST supply `--handoff "<note>"`
-   before the seat is renewed. The handoff is appended to your seat's `memory.md` and printed to
-   your successor at its check-in. A `close: mechanical` seat is REFUSED on this self-service
+   before the seat is renewed (`--handoff-file <path>` for a note the shell would mangle). The
+   handoff REPLACES your seat's `memory.md` wholesale (item 9) and is printed to your successor at
+   its check-in. A `close: mechanical` seat is REFUSED on this self-service
    path — memoryless by design, its renewal stays the leader-side close-and-relaunch. (Evidence:
    the build-core-daemon-mvp run-2 core-build batch, 2026-07-28 — a caller-only role gate refused
    a seat's owner-ruled self-renewal at 15:1x because the only renewal path ran through another
@@ -148,24 +149,27 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    can only depart itself.) Leader checks out only after all workers have.
 9. **Memory and the seat-folder write contract (persistent seats only).** This item is the ONE
    normative home of the seat-folder write contract — every other surface (run routers,
-   `communication.md`, seat descriptors) CITES it and restates nothing.
-   - **`memory.md` — the ONLY obligatory per-session write.** `workers/<you>/memory.md` is a
-     PRESENT-TENSE state doc scoped to handoff/refresh only: what is true now, what the successor
-     must DO, open loops, live watch-items, standing instructions still in force. REWRITTEN IN
-     PLACE at every renewal/close — resolved items are DELETED, never corrected-below; no sitting
-     narrative, no sagas, no lesson essays. Keep ONLY the latest CLI-appended `coord:handoff`
-     block (fold still-live content of older blocks into the body, delete them) — the CLI
-     enforces the block half mechanically now: `checkout --renew` CONSUMES every already-delivered
-     block as it appends yours (r-checkout-selfclose companion, 2026-07-31); the folding judgment
-     stays yours. Target ≤ 2
-     screens (~120 lines): a successor reads it top-to-bottom and knows what to do.
-   - **Mechanics.** Co-written with a closer seat at a CLOSE, and appended to by `checkout
-     --renew --handoff` at a RENEWAL (no closer is in the renewal path — evidence: the same
-     run-2 15:1x gate refusal item 8 cites; the closer ceremony was the only renewal path and it
-     never composed with a seat's own act). If it exists at boot, read it after your briefing and
-     trust it as your own notes (re-verify what is cheap to verify). When a closer contacts you
-     with a draft memory (`--type ask`), answering it IS briefing work: correct it, fill what
-     only you know, reply promptly — an unanswered closer writes your memory alone.
+   `communication.md`, seat descriptors) CITES it and restates nothing. **Amended owner-ruled
+   2026-08-03: `memory.md` IS the handoff — one block, nothing else — and the CLI REPLACES the
+   file wholesale at renew.**
+   - **`memory.md` IS your handoff, and contains nothing else.** `workers/<you>/memory.md` holds
+     EXACTLY ONE thing: the note the departing session leaves its successor. No body, no past
+     handoff blocks, no history, no sitting narrative, no sagas, no lesson essays. The note is
+     PRESENT-TENSE: what is true now, what the successor must DO, open loops, live watch-items,
+     standing instructions still in force. **Anything you do not put in the note is GONE** — that
+     is the design, and the CLI says so at write time. Target ≤ 2 screens (~120 lines); past it
+     the CLI WARNS and still writes. A successor reads it top-to-bottom and knows what to do.
+   - **Mechanics — the seat never hand-maintains this file.** It is written by `checkout --renew
+     --handoff "<note>"`, which REPLACES the file wholesale with your new handoff block
+     (`--handoff-file <path>` when the note is too long, or too quote-hazardous, for a shell
+     argument). No folding, no editing between checkouts, no appending: the previous handoff was
+     already delivered and the CLI drops it (r-checkout-selfclose companion, 2026-07-31). At a
+     CLOSE it is co-written with a closer seat; no closer is in the RENEWAL path (evidence: the
+     same run-2 15:1x gate refusal item 8 cites — the closer ceremony was the only renewal path
+     and it never composed with a seat's own act). If it exists at boot, read it after your
+     briefing and trust it as your own notes (re-verify what is cheap to verify). When a closer
+     contacts you with a draft memory (`--type ask`), answering it IS briefing work: correct it,
+     fill what only you know, reply promptly — an unanswered closer writes your memory alone.
    - **`handoff-log.md` (run level) — the past; append-only; CONDITIONAL.** A sitting block is
      written ONLY when ALL hold: (i) the sitting produced narrative a future auditor/groomer
      genuinely needs; (ii) the content is not already in a ledger, ruling, or deliverable;
@@ -177,7 +181,7 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
      cadence-bound too, not exempt: its ONLY write moments are renewal and close.** A per-pass or
      per-nudge "handoff" block is the same cadence-log defect wearing the one filename this item
      used to leave unruled (measured run-3 2026-07-31: 121 hand-forged per-pass blocks, 214 KB on
-     one seat, while the rewrite duty starved — `d-run3-lifecycle-memory-idle-fixes`).
+     one seat, while the handoff duty starved — `d-run3-lifecycle-memory-idle-fixes`).
    - **Ephemeral seats have NO memory by design:** never create one, never read prior-pass
      artifacts.
 
