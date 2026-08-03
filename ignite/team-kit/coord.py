@@ -10135,12 +10135,34 @@ def cmd_launch(args):
     # WHAT IT PREVENTS: relaunching a seat whose session ENDED with an EMPTY disposition re-runs
     # work that already CONCLUDED. The empty cell is a missing assertion, never missing work.
     #
-    # ⚠ NO FLAG CARRIES THIS, and that is deliberate, not an oversight. It is NOT on `--force`
-    # (which carries the ROLE gate alone) and NOT on `--force-memory`; re-attaching a second gate
-    # to either is barred by the run's standing bar. An undeclared ending is a DEFECT FOR THE
-    # `leader` — it either gets the ending declared or rules the row — and it is never a relaunch
-    # instruction, so there is nothing for an override to express. Nobody but the occupant
-    # witnessed what that session meant, and no caller here may assert it on its behalf.
+    # ⚠ NO *OVERRIDE* FLAG CARRIES THIS, and that is deliberate, not an oversight. It is NOT on
+    # `--force` (which carries the ROLE gate alone) and NOT on `--force-memory`; re-attaching a
+    # second gate to either is barred by the run's standing bar, and 7.251 attaches nothing to
+    # either — THE BARRED LIST IS UNCHANGED BY THE ADMISSION BELOW. An undeclared ending is a
+    # DEFECT FOR THE `leader` — it either gets the ending declared or rules the row — and it is
+    # never a relaunch instruction, so there is nothing for an override to express. Nobody but the
+    # occupant witnessed what that session meant, and no caller here may assert it on its behalf.
+    #
+    # ⚠⚠ 7.251 (C1.2) — `--declare-only <leader-anchor>` IS A SEPARATE, PURPOSE-CARRIED ADMISSION
+    # AND IS NOT AN OVERRIDE. Read this before concluding the paragraph above is now false; it is
+    # not, and the distinction is the whole design (`p-C1-2-comment-amendment-approved-with-three-
+    # bounds`, on the reconciliation in `admission-predicate-spec.md` §6):
+    #
+    #   (1) IT DOES NOT OVERTURN THE VERDICT. After admission the target is STILL UNDECLARED and
+    #       every reader still says so. Nothing about the dead session changes. The verdict clears
+    #       later by SUPERSESSION — when the admitted session writes its OWN ended row.
+    #   (2) IT ADMITS A DIFFERENT ACT. The harm named above is "relaunching … re-runs work that
+    #       already CONCLUDED". A session that declares its own ending and checks out re-runs
+    #       NOTHING, so that harm does not reach it.
+    #   (3) IT *IS* THE REMEDY THIS COMMENT ALREADY ROUTES TO. The `leader` "either gets the
+    #       ending declared or rules the row"; until 7.251 no tool admitted the FIRST arm. This is
+    #       that arm, and it carries the `leader`'s own anchor as its VALUE — so it is reachable
+    #       only by way of the investigation this comment demands.
+    #
+    #   THE BARRED LIST IS UNTOUCHED AND STAYS UNTOUCHED: `--force` carries the ROLE gate alone, a
+    #   memory refusal answers to `--force-memory` alone, and NO gate is ever re-attached to
+    #   either — by this change or any successor. `--declare-only` is a THIRD, independent
+    #   parameter; a reader who finds it beside them and infers a family has inferred wrong.
     #
     # SCOPED TO WHAT THE CALLER TARGETED: the class is filtered OUT of the launch set, so a mass
     # launch still opens every other seat. The command refuses outright only when the filter
@@ -10149,23 +10171,130 @@ def cmd_launch(args):
     # BOTH BRANCHES CARRY THE SAME PREDICATE (G-257's lesson, argued a few lines above for the
     # role gate): the filter and the refusal run on `--dry-run` too. A dry-run exists to show
     # what a real launch would do; one that showed a pane opening where the real path refuses
-    # would make the one command meant for inspection the one that lies.
-    undeclared = undeclared_endings(package_dir(args, register=False))
-    blocked = [w for w in workers if w["agent"] in undeclared]
-    if blocked:
-        for w in blocked:
-            print(c(f"  {w['agent']}: session `{undeclared[w['agent']]}` ENDED with an EMPTY "
-                    f"disposition — NOT LAUNCHED", C_DEAD), file=sys.stderr)
-        workers = [w for w in workers if w["agent"] not in undeclared]
-        detail = (f"{len(blocked)} seat(s) above have an UNDECLARED ending: their last session "
-                  f"ENDED and nobody declared how. Their work CONCLUDED — relaunching re-runs "
-                  f"finished work, which is the harm.\nThis is a DEFECT FOR THE `leader` to "
-                  f"investigate, NOT a relaunch instruction, and NO flag overrides it: only the "
-                  f"occupant witnessed what its session meant.\nSee: "
-                  f"{coord_invocation(args)} ready-seats --explain <seat>")
-        if not workers:
-            refuse("state", detail + "\nNO pane was opened.", 1)
-        print(c(detail, C_DEAD), file=sys.stderr)
+    # would make the one command meant for inspection the one that lies. THE SAME RULE BINDS THE
+    # ADMISSION: no `args.dry_run` test appears anywhere in the block below, so its verdict, its
+    # text and its exit code are identical on both paths BY CONSTRUCTION rather than by promise.
+    #
+    # ⚠ THE ADMISSION IS EVALUATED FIRST, and only when it does NOT admit does the filter run.
+    # Ordering it the other way would filter the target out of `workers` before anything could
+    # admit it, leaving an instrument that is reachable in the parser and dead in the path.
+    _decl_anchor = (getattr(args, "declare_only", None) or "").strip()
+    _declare_only_admitted = False
+    if _decl_anchor:
+        # 7.251 / `admission-predicate-spec.md` §3 — ADMIT(T) iff P1 ∧ P2 ∧ P3 ∧ P4. Every clause
+        # reads an EXISTING function or field; this block adds NO detector, exactly as the 7.241
+        # gate above adds none. P1 is the parameter itself (an INPUT, it detects nothing) and is
+        # true by the `if`.
+        _pkg = package_dir(args, register=False)
+        _only = [n.strip() for n in (args.only or "").split(",") if n.strip()]
+        # P2 — exactly ONE seat, explicitly named. The anchor cites the `leader`'s investigation
+        # of ONE undeclared ending, so it cannot be spread over a set the caller did not name.
+        if not _only:
+            refuse(
+                "state",
+                "--declare-only admits ONE named seat, and no seat was named. It carries the "
+                "`leader`'s anchor for a SPECIFIC undeclared ending, so it cannot be applied to "
+                "a set the caller did not name — a mass launch has no per-seat anchor to cite.\n"
+                f"Name the seat: {coord_invocation(args)} launch --only <seat> "
+                "--declare-only <leader-anchor>\n"
+                "A mass launch needs no flag: undeclared seats are filtered out of it and every "
+                "other seat still opens.",
+                1)
+        if len(_only) > 1:
+            refuse(
+                "state",
+                f"--declare-only admits ONE seat per invocation, and --only named {len(_only)}: "
+                f"{', '.join(_only)}.\nThe anchor you passed cites the `leader`'s investigation "
+                "of ONE undeclared ending; applying it to several would cite one investigation "
+                "as evidence for endings it never examined.\n"
+                "Run it once per seat, each with that seat's own anchor.",
+                1)
+        _t = _only[0]
+        # P3 — the target's LAST ENDED row exists and its disposition cell is EMPTY. Both reads
+        # are the 7.241 gate's own, and `last_ended` is injected so the file is read once.
+        _le = sessions_last_ended(_pkg)
+        _undec = undeclared_endings(_pkg, last_ended=_le)
+        if _t not in _le:
+            refuse(
+                "state",
+                f"'{_t}' has no ENDED session row in this package, so there is no undeclared "
+                "ending to declare and --declare-only has nothing to admit.\n"
+                f"A seat that has not ended is an ordinary launch candidate: "
+                f"{coord_invocation(args)} launch --only {_t}\n"
+                f"If you expected an ended row, read it first: {coord_invocation(args)} "
+                f"ready-seats --explain {_t}",
+                1)
+        if _t not in _undec:
+            # ⚠ THE BRANCH THAT CLOSES THE RE-RUN HOLE, and it closes it BY STATE. P1 (purpose) is
+            # caller-asserted and unfalsifiable — a caller who wanted to re-run finished work
+            # passes the same flag as one who did not (the carve-out diff over every readable
+            # field is EMPTY, `admission-predicate-spec.md` §8). P3 is package STATE and no caller
+            # can assert it. So: P3 bounds the HARM, P1 bounds the ACT, and neither substitutes.
+            refuse(
+                "state",
+                f"'{_t}' last ENDED with a DECLARED disposition (`{_le[_t][1]}`), so it is not in "
+                "the undeclared class and --declare-only does not admit it. The ending is already "
+                "on the record; there is nothing left to declare.\n"
+                "THIS REFUSAL IS BY STATE, NOT BY PURPOSE: it is the same refusal whatever the "
+                "caller intended, and it is what closes the re-run hole. A declared ending means "
+                "the work CONCLUDED and was accounted for — relaunching it re-runs finished work, "
+                "which is the harm the launch gate exists to prevent, and an honest purpose does "
+                "not make that harm smaller.\n"
+                f"Read the row: {coord_invocation(args)} ready-seats --explain {_t}",
+                1)
+        # P4 — no LIVE pane already holds the name. This re-uses P37's own composition and adds no
+        # detector; P37 remains the backstop at check-in. Without P4 the launch would succeed, a
+        # pane would open, and the seat would fail one command later holding a pane nobody asked
+        # for. P37 also tests `prior["pane"] != pane` (its caller's own), which has no meaning
+        # here: at `launch` no candidate pane exists yet.
+        _, _, _rows = load_workers(base_dir(args))
+        _prior = current_row(_rows, _t)
+        if (_prior and _prior.get("active") == "yes" and _prior.get("pane")
+                and _prior["pane"] in live_panes()):
+            refuse(
+                "state",
+                f"'{_t}' is already checked in on pane {_prior['pane']}, and tmux says that pane "
+                "is still ALIVE — admitting a declare-only session now would put two live "
+                "sessions under one name (P37).\nNeither would see the other's messages (the "
+                "unread filter is keyed on the name) and only the newest pane would receive "
+                "wakes.\nConfirm the old session is dead first: inspect it with `tmux "
+                f"capture-pane -p -t {_prior['pane']}`; if it is a zombie, kill it BY PANE ID "
+                f"(`tmux kill-pane -t {_prior['pane']}`) — never by name — then retry.\n"
+                "NO pane was opened.",
+                1)
+        # ADMITTED. P2 made the launch set exactly this one seat, so skipping the filter below
+        # cannot let any OTHER undeclared seat through.
+        _declare_only_admitted = True
+        print(c(f"  {_t}: ADMITTED by --declare-only — session "
+                f"`{_undec[_t]}` ended UNDECLARED and stays UNDECLARED. This admits a session "
+                f"that DECLARES ITS OWN ENDING and does nothing else; it asserts nothing about "
+                f"the dead one, and the verdict clears only by supersession when this session "
+                f"writes its own ended row.\n  trail (the `leader`'s anchor, recorded not "
+                f"verified — no tool can check that an anchor names a real investigation): "
+                f"{_decl_anchor}", C_HINT))
+
+    if not _declare_only_admitted:
+        undeclared = undeclared_endings(package_dir(args, register=False))
+        blocked = [w for w in workers if w["agent"] in undeclared]
+        if blocked:
+            for w in blocked:
+                print(c(f"  {w['agent']}: session `{undeclared[w['agent']]}` ENDED with an EMPTY "
+                        f"disposition — NOT LAUNCHED", C_DEAD), file=sys.stderr)
+            workers = [w for w in workers if w["agent"] not in undeclared]
+            detail = (f"{len(blocked)} seat(s) above have an UNDECLARED ending: their last session "
+                      f"ENDED and nobody declared how. Their work CONCLUDED — relaunching re-runs "
+                      f"finished work, which is the harm.\nThis is a DEFECT FOR THE `leader` to "
+                      f"investigate, NOT a relaunch instruction: only the occupant witnessed what "
+                      f"its session meant, and no override flag expresses it — `--force` and "
+                      f"`--force-memory` carry other gates and are barred from this one.\nThe "
+                      f"`leader` has exactly one instrument here, and it does not override this "
+                      f"verdict: `--declare-only <leader-anchor>` admits ONE named seat for a "
+                      f"session that DECLARES ITS OWN ENDING AND DOES NOTHING ELSE. It re-runs no "
+                      f"work, so the harm above does not apply to it.\nSee: "
+                      f"{coord_invocation(args)} ready-seats --explain <seat>")
+            if not workers:
+                refuse("state", detail + "\nNO pane was opened.", 1)
+            print(c(detail, C_DEAD), file=sys.stderr)
 
     # PROP-8 (tv-ux-review): validate EVERY seat's launch config BEFORE any pane opens. An
     # invalid model slug used to fail only at model-init, INSIDE each spawned pane — a whole
@@ -15527,6 +15656,183 @@ def _selftest_checks(args, failures, names):
               "cell and not some unrelated failure, and this gate refuses a class rather than "
               "refusing everybody",
               code == 0 and "UNDECLARED ending" not in out and "[dry-run] gamma" in out)
+
+        # ==== 7.251 (C1.2): THE DECLARE-ONLY ADMISSION ======================================
+        # Spec: admission-predicate-spec.md §3 (the four clauses) and §5 (six closed branches).
+        # Placed here because the 7.241 rows immediately above establish exactly the two states
+        # this instrument discriminates, on the same seat, in the same package — so every row
+        # below moves ONE thing against a control that is already proven to move the other way.
+        #
+        # ⚠ NO EXPECTED VALUE BELOW IS READ FROM THE CODE UNDER TEST. The refusal substrings are
+        # spelled-out literals; a check written in terms of the string the branch itself builds
+        # would move with any change to it and could not go red on its own.
+        #
+        # gamma's ending is DECLARED at this point (the CONTROL row directly above left it so),
+        # which is precisely the precondition R4 needs — so R4 runs FIRST, before anything
+        # re-opens the empty cell.
+
+        # ---- DO-R4: a DECLARED ending is refused BY STATE, and this is the row that closes the
+        # ---- re-run hole. The caller's purpose is honest and identical to DO-1's; only the
+        # ---- package STATE differs. An instrument that admitted here would launder any relaunch.
+        _do_r4, _do_r4_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                     declare_only="#1825")
+        check("7.251 R4: `--declare-only` on a seat whose last ending is DECLARED is REFUSED, "
+              "non-zero, and NO pane opens. THE HOLE IS CLOSED BY STATE, NOT BY PURPOSE: this "
+              "invocation carries the same honest purpose DO-1 carries and is refused anyway, "
+              "because a declared ending means the work CONCLUDED and was accounted for. P1 is "
+              "caller-asserted and unfalsifiable; P3 is package state no caller can assert",
+              _do_r4_code == 1
+              and "last ENDED with a DECLARED disposition" in _do_r4
+              and "BY STATE, NOT BY PURPOSE" in _do_r4
+              and "[dry-run] gamma" not in _do_r4)
+        _do_r4f, _do_r4f_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                       declare_only="#1825", force=True, force_memory=True)
+        check("7.251 R4 + BARRED FLAGS: the state refusal above does not move for `--force` OR "
+              "`--force-memory`. The admission attaches to NEITHER flag and confers nothing on "
+              "them; they carry the ROLE gate and the MEMORY gate exactly as before, and this "
+              "row is the machine check behind the amended comment's 'barred list is unchanged'",
+              _do_r4f_code == 1
+              and "last ENDED with a DECLARED disposition" in _do_r4f
+              and "[dry-run] gamma" not in _do_r4f)
+
+        # ---- now re-open the empty cell: gamma ENDS UNDECLARED again (close-seat/depart's own
+        # ---- shape), which is the one state the instrument exists to admit.
+        session_open(ns(), _u46_g, since=time.time(), wait=0.0)
+        session_close(ns(), "gamma")          # no disposition — the undeclared class
+
+        # ---- DO-CONTROL (done criterion 6): the PLAIN relaunch of the SAME target still refuses.
+        # ---- Run BEFORE the admission so no admitted launch can be mistaken for this verdict.
+        _do_plain, _do_plain_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True)
+        check("7.251 CONTROL (criterion 6): with the instrument LANDED, the PLAIN relaunch of the "
+              "same undeclared target STILL REFUSES — the general gate is not weakened by the "
+              "carve-out, and the carve-out is reachable only by asking for it. Without this row "
+              "an instrument that quietly admitted everything would pass every other check here",
+              _do_plain_code == 1
+              and "UNDECLARED ending" in _do_plain
+              and "NO pane was opened" in _do_plain
+              and "[dry-run] gamma" not in _do_plain)
+        check("7.251 CONTROL: and that refusal now NAMES the instrument instead of claiming no "
+              "flag exists. The pre-7.251 sentence ('NO flag overrides it') became FALSE the "
+              "moment the admission landed, and a refusal that misdescribes its own tool is the "
+              "lying-comment defect in the one place a blocked caller is looking",
+              "--declare-only <leader-anchor>" in _do_plain
+              and "DECLARES ITS OWN ENDING AND DOES NOTHING ELSE" in _do_plain
+              and "are barred from this one" in _do_plain
+              and "NO flag overrides it" not in _do_plain)
+
+        # ---- DO-1: the admission itself — the SAME seat, the SAME package, one flag added.
+        _do_ok, _do_ok_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                     declare_only="#1825")
+        check("7.251 DO-1: `--declare-only <anchor>` ADMITS the undeclared target and the launch "
+              "proceeds. Paired with the CONTROL above, the seat, the package and the flags are "
+              "identical and the FLAG is the only thing that moved — so this admits a class "
+              "rather than admitting everybody, and the control proves the gate still refuses",
+              _do_ok_code == 0
+              and "ADMITTED by --declare-only" in _do_ok
+              and "[dry-run] gamma" in _do_ok)
+        check("7.251 DO-1: the admission does NOT overturn the verdict, and it says so where the "
+              "caller reads it. The target is STILL in the undeclared class after admission — "
+              "the cell is untouched, the readers still report it, and it clears only by "
+              "SUPERSESSION when the admitted session writes its own ended row",
+              "gamma" in undeclared_endings(pkg)
+              and "stays UNDECLARED" in _do_ok
+              and "supersession" in _do_ok)
+        check("7.251 DO-1: the anchor is RECORDED as the trail and its truth is NOT claimed. The "
+              "instrument tests presence and non-emptiness; whether an anchor names a real "
+              "investigation is the `leader`'s to know and no tool's to verify, and the output "
+              "names that bound rather than implying a check that does not exist",
+              "#1825" in _do_ok and "recorded not verified" in _do_ok)
+
+        # ---- DO-R1 / DO-R2 / DO-R3: the remaining closed branches. Each opens nothing.
+        _do_r1, _do_r1_code = refuse(cmd_launch, agent="leader", only=None, dry_run=True,
+                                     declare_only="#1825")
+        check("7.251 R1: `--declare-only` with NO `--only` is refused. The anchor cites the "
+              "`leader`'s investigation of ONE undeclared ending, so it cannot be spread over a "
+              "set the caller never named — a mass launch has no per-seat anchor to cite",
+              _do_r1_code == 1 and "admits ONE named seat, and no seat was named" in _do_r1)
+        _do_r2, _do_r2_code = refuse(cmd_launch, agent="leader", only="gamma,delta",
+                                     dry_run=True, declare_only="#1825")
+        check("7.251 R2: `--declare-only` naming MORE THAN ONE seat is refused. Applying one "
+              "anchor to several would cite one investigation as evidence for endings it never "
+              "examined — one invocation per seat, each with that seat's own anchor",
+              _do_r2_code == 1 and "admits ONE seat per invocation" in _do_r2)
+        _do_le0 = sessions_last_ended(pkg)
+        _do_noend = next((s for s in ("beta", "delta", "alpha") if s not in _do_le0), None)
+        _do_r3, _do_r3_code = refuse(cmd_launch, agent="leader", only=(_do_noend or "beta"),
+                                     dry_run=True, declare_only="#1825")
+        check("7.251 R3: a target with NO ended session row is refused — there is no undeclared "
+              "ending to declare, so the instrument has nothing to admit, and such a seat is an "
+              "ordinary launch candidate. The seat is CHOSEN by computing which briefed seat has "
+              "no ended row, and the choice is asserted here: an unfound one would red this row "
+              "rather than let it pass against a seat that quietly had a row all along",
+              _do_noend is not None
+              and _do_r3_code == 1
+              and "has no ENDED session row in this package" in _do_r3)
+
+        # ---- DO-PARITY: every refusal branch is IDENTICAL with and without `--dry-run`. This is
+        # ---- G-257's lesson applied to the new block: a dry-run exists to show what a real
+        # ---- launch would do, so one that differed here would make the one command meant for
+        # ---- inspection the one that lies. Only the REFUSAL branches are exercised both ways —
+        # ---- they open nothing. The ADMITTED branch's parity is C1.4's, on the fixture, and is
+        # ---- NOT claimed by this row.
+        #
+        # ⚠ THE COMPARISON IS SCOPED TO THE ADMISSION'S OWN TEXT, AND THE SCOPE IS THE POINT —
+        # NOT a convenience that makes the row pass. `cmd_launch` answers the role gate ALONE on
+        # `--dry-run` and the role AND MEMORY gates on the real path (the `if args.dry_run` a few
+        # lines above the admission), and that divergence is PRE-EXISTING AND CORRECT: a dry-run
+        # opens nothing, so refusing it on available memory would refuse a command that cannot
+        # spend any. A whole-command comparison goes red on THAT and measures the wrong thing —
+        # `admission-predicate-spec.md` §7 names this exclusion in advance, and the first version
+        # of these three rows ignored it and failed for exactly that reason.
+        _p_markers = {"R4": "last ENDED with a DECLARED disposition",
+                      "R1": "admits ONE named seat, and no seat was named",
+                      "R2": "admits ONE seat per invocation"}
+        def _p_admission_text(text, marker):
+            """The admission's own output: everything from its first line onward. Empty string
+            when the marker is absent, which reds the row rather than comparing '' to ''."""
+            ls = text.splitlines()
+            for i, l in enumerate(ls):
+                if marker in l:
+                    return "\n".join(ls[i:])
+            return ""
+        for _p_label, _p_kw in (("R4", dict(only="gamma", declare_only="#1825")),
+                                ("R1", dict(only=None, declare_only="#1825")),
+                                ("R2", dict(only="gamma,delta", declare_only="#1825"))):
+            if _p_label == "R4":
+                session_open(ns(), _u46_g, since=time.time(), wait=0.0)
+                session_close(ns(), "gamma", disposition="done")
+            _p_m = _p_markers[_p_label]
+            _p_dry, _p_dry_code = refuse(cmd_launch, agent="leader", dry_run=True, **_p_kw)
+            _p_real, _p_real_code = refuse(cmd_launch, agent="leader", dry_run=False, **_p_kw)
+            _p_a, _p_b = _p_admission_text(_p_dry, _p_m), _p_admission_text(_p_real, _p_m)
+            check(f"7.251 PARITY {_p_label}: the admission's verdict, its TEXT and its exit code "
+                  f"are IDENTICAL with and without `--dry-run`. The block contains no "
+                  f"`args.dry_run` test at all, so this holds by CONSTRUCTION rather than by a "
+                  f"promise two branches could drift out of. The non-empty assertion is what "
+                  f"stops this from comparing two absences and calling them equal",
+                  _p_a != "" and _p_a == _p_b
+                  and _p_dry_code == _p_real_code and _p_real_code == 1)
+        import inspect as _do_inspect
+        _do_src = _do_inspect.getsource(cmd_launch)
+        _do_block = _do_src[_do_src.index("_decl_anchor = "):_do_src.index("if not _declare_only_admitted:")]
+        check("7.251 PARITY (construction): the admission block contains ZERO `dry_run` reads — "
+              "the placement rule the parity rows above depend on, asserted at the SOURCE so it "
+              "cannot be re-introduced silently by a later edit. The positive control is the "
+              "enclosing function, which demonstrably does contain them",
+              "dry_run" not in _do_block and "dry_run" in _do_src)
+
+        # ---- DO-BARRED: the barred list is untouched, asserted at the PARSER as well as at the
+        # ---- behaviour. `--declare-only` is a THIRD, independent parameter — a reader who finds
+        # ---- it beside `--force`/`--force-memory` and infers a family has inferred wrong.
+        check("7.251 BARRED: the admission is reachable with NEITHER `--force` NOR "
+              "`--force-memory`, so it carries no part of either gate and neither carries any "
+              "part of it. DO-1 above admitted on a caller that passed neither flag",
+              "--force" not in _do_ok.split("ADMITTED by --declare-only")[0][-400:])
+        # ---- restore the fixture: gamma leaves this block DECLARED, as the rows after it expect.
+        check("7.251 (fixture postcondition): gamma's ending is DECLARED again, so every row "
+              "after this block meets the state it was written against rather than inheriting "
+              "an undeclared seat this block opened",
+              "gamma" not in undeclared_endings(pkg))
 
         # ---- #210 + #230: BOTH gates evaluated, BOTH verdicts reported, no short-circuit ----
         # The watcher must pass --force on EVERY launch (the seed rule gives it DAG-unblock
@@ -21277,6 +21583,18 @@ def build_parser():
     s.add_argument("--dry-run", action="store_true", help="print the command each seat would start with, open nothing")
     s.add_argument("--force-memory", action="store_true",
                    help="override the MEMORY gate only (--force does not: it covers the role gate)")
+    # 7.251 (C1.2): NOT an override and NOT a member of the --force family. It admits ONE named
+    # seat whose last session ENDED UNDECLARED, for a session that declares its own ending and
+    # does nothing else. Its VALUE is the written trail, so the instrument cannot be invoked
+    # without one — presence declares the purpose, the value carries the anchor.
+    s.add_argument("--declare-only", metavar="LEADER-ANCHOR", default=None,
+                   help="admit ONE --only seat whose last session ended UNDECLARED, for a "
+                        "DECLARE-ONLY session (it declares its own ending and checks out; it "
+                        "does NO work). Takes the leader's investigation/acceptance anchor for "
+                        "that seat, which is recorded as the trail. NOT an override: the target "
+                        "stays UNDECLARED until its new session supersedes it, a seat with a "
+                        "DECLARED ending is still refused, and --force/--force-memory are "
+                        "untouched and carry no part of this")
     add_identity_flags(s)
     s.set_defaults(func=cmd_launch)
 
