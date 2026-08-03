@@ -462,6 +462,14 @@ def handle(request, goals_root, package, catalog_root, bindings, conduct, claude
         return result
     if do_launch:
         result["acts"]["launch"] = launch(package, only=seat, dry_run=dry_run)
+        # THE LANE IS NAMED IN THE RESULT AND NEVER IN THE ARGV. It is computed from the argument
+        # the entry already received: it reaches no argv, gates nothing, refuses nothing and adds
+        # no flag. It exists because the entry's own output otherwise cannot say WHICH lane it just
+        # asked for — the two are told apart only by the ABSENCE of `--only`. The staged lane asks
+        # by forwarding a BARE launch and selecting nothing; naming the workflow's seats in the
+        # argv instead would be the entry selecting seats, which is exactly what it is barred from.
+        result["acts"]["launch"]["launch-lane"] = (
+            "named-seat" if seat is not None else "staged-workflow")
         # THE LAUNCH ARM GATES THE OUTCOME TOO, and it is asserted at the ARTIFACT rather than at
         # the return code. A launch can exit 0 having opened a pane whose harness then died, and
         # `sessions.csv` is written only AFTER the harness is verified up — so the trace row, not

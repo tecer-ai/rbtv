@@ -31,6 +31,9 @@ Nothing here reads or writes a live goals package. Every mutant lives under `tem
 """
 
 import ast
+import contextlib
+import io
+import json
 import re
 import sys
 import tempfile
@@ -310,6 +313,154 @@ def check_refusal_is_stated(src, mod):
     return True, "requester-facing outcome names the member, its name and the offending field"
 
 
+# ------------------------------- the checks task 7.283 AUTHORS (E2, the entry's staged vocabulary)
+#
+# WHAT THESE PIN, AND WHY THE ARGV IS WHERE THEY LOOK. The entry asks for a STAGED launch by
+# forwarding a BARE `coordinate launch` and selecting nothing; it asks for the named-seat lane by
+# forwarding `--only S`. Those two argvs are the whole vocabulary — the launcher, not the entry,
+# decides what a bare launch then does. So the defect these exist to bar is the entry acquiring
+# seat selection on the workflow form (`--only W`), which would be legal-looking, would still
+# launch something, and would silently make the staged lane name the seats it must never name.
+#
+# Every check below drives the entry's OWN CLI (`main`), not `handle` directly, so the argument
+# wiring is under test too — check 14's condition lives in `main` and a check calling `handle`
+# with `do_launch=False` would pass with that wiring deleted.
+VALID_REQUEST = {"goal-name": "x-y", "goal-type": "one-shot", "goal-contract": "c",
+                 "goal-kind": "interactive"}
+
+
+def _drive(mod, *, selection, insertion=("--root",), no_launch=False, dry_run=False):
+    """Run one entry FORM end to end and RECORD the launch argv. Nothing is executed.
+
+    `create`, `arm` and `_run` are substituted inside the loaded module's own namespace before any
+    call, so no `coordinate` process, no `scaffold-seats` process and no pane is reachable from
+    here; every path is a tempfile. `sessions.csv` is planted because the launch act asserts the
+    trace row (check 6) — without it every form would read FAILED at launch for a reason that has
+    nothing to do with the argv under test.
+
+    Returns (argvs, result, error): argvs is one list per `_run` call, the package path replaced by
+    `{PKG}` so the assertion is over the FORM and not over a temp path.
+    """
+    if mod is None:
+        return None, None, "module did not import"
+    captured = []
+    real = (mod.create, mod.arm, mod._run)
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        pkg = td / "pkg"
+        pkg.mkdir()
+        (pkg / "sessions.csv").write_text("header\nrow\n", encoding="utf-8")
+        goals_root = td / "goals"
+        goals_root.mkdir()
+        req = td / "request.json"
+        req.write_text(json.dumps(VALID_REQUEST), encoding="utf-8")
+        try:
+            mod.create = lambda *a, **k: [{"step": "create-package", "rc": 0}]
+            mod.arm = lambda *a, **k: {"step": "arm", "accepted-by-fastpath-reader": True}
+            mod._run = lambda cmd, step, dry_run=False: (
+                captured.append(list(cmd)),
+                {"step": step, "argv": list(cmd), "rc": 0, "stdout": "", "stderr": ""})[1]
+            argv = ["handle", str(req), "--goals-root", str(goals_root), "--package", str(pkg),
+                    "--catalog-root", "CAT", "--bindings", "BIND", "--conduct", "COND",
+                    "--claude-md", "CMD", "--budget-json", "BUD", "--job-id", "JOB",
+                    "--profile", "PROF", *selection, *insertion]
+            if no_launch:
+                argv.append("--no-launch")
+            if dry_run:
+                argv.append("--dry-run")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+                mod.main(argv)
+            result = json.loads(buf.getvalue())
+        except Exception as exc:  # a mutant that CRASHES proves nothing — say so, never report red
+            return None, None, f"the entry raised {exc!r} — no verdict"
+        finally:
+            mod.create, mod.arm, mod._run = real
+        return ([[t.replace(str(pkg), "{PKG}") for t in c] for c in captured], result, None)
+
+
+BARE = ["coordinate", "--package", "{PKG}", "launch"]
+
+
+def _argv_check(mod, expected, *, selection, dry_run=False):
+    argvs, _, err = _drive(mod, selection=selection, dry_run=dry_run)
+    if err:
+        return False, err
+    if argvs != [expected]:
+        return False, f"forwarded {argvs}, expected exactly [{expected}]"
+    return True, f"forwards {expected}"
+
+
+def check_workflow_form_forwards_bare(src, mod):
+    """The `--workflow` form forwards a BARE launch — the staged ask, selecting nothing.
+
+    W is never forwarded: naming the workflow's seats at the entry IS the barred selection.
+    """
+    return _argv_check(mod, BARE, selection=["--workflow", "W"])
+
+
+def check_workflow_form_dry_run(src, mod):
+    """`--workflow --dry-run` appends exactly `--dry-run` and nothing else."""
+    return _argv_check(mod, BARE + ["--dry-run"], selection=["--workflow", "W"], dry_run=True)
+
+
+def check_seat_form_forwards_only(src, mod):
+    """The `--seat S` form forwards `--only S` — the named-seat lane."""
+    return _argv_check(mod, BARE + ["--only", "S"], selection=["--seat", "S"])
+
+
+def check_seat_form_dry_run_order(src, mod):
+    """`--seat S --dry-run` appends BOTH, in this order: `--only S` then `--dry-run`."""
+    return _argv_check(mod, BARE + ["--only", "S", "--dry-run"], selection=["--seat", "S"],
+                       dry_run=True)
+
+
+def check_no_launch_forwards_nothing(src, mod):
+    """`--no-launch` produces NO `coordinate` call at all — the caller withheld the act.
+
+    Asserted at the argv and not only at the reported field: a `performed: False` report on a
+    launch that in fact ran is the failure this exists to catch, and the two are distinguishable
+    only by whether the launcher was invoked.
+    """
+    for selection in (["--seat", "S"], ["--workflow", "W"]):
+        for dry_run in (False, True):
+            argvs, result, err = _drive(mod, selection=selection, no_launch=True, dry_run=dry_run)
+            if err:
+                return False, err
+            if argvs:
+                return False, (f"--no-launch {selection[0]} dry-run={dry_run} still invoked the "
+                               f"launcher: {argvs}")
+            act = result.get("acts", {}).get("launch", {})
+            if act.get("performed") is not False:
+                return False, f"the withheld launch act does not report performed=False: {act}"
+    return True, "4 --no-launch forms: 0 launcher invocations, all report performed=False"
+
+
+def check_lane_named_in_result_not_argv(src, mod):
+    """The result NAMES the lane it asked for — and the naming reaches no argv.
+
+    The two lanes are told apart in the argv only by the ABSENCE of `--only`, so an output that
+    does not state the lane cannot be read back as evidence of which one was used. This field is a
+    REPORT: it is computed from the argument the entry already received, it gates nothing and it
+    refuses nothing. The second half of the assertion is the one that matters — a lane that leaked
+    into the argv would be the entry selecting seats.
+    """
+    seen = {}
+    for selection, expected in ((["--workflow", "W"], "staged-workflow"),
+                                (["--seat", "S"], "named-seat")):
+        argvs, result, err = _drive(mod, selection=selection)
+        if err:
+            return False, err
+        lane = result.get("acts", {}).get("launch", {}).get("launch-lane")
+        if lane != expected:
+            return False, f"{selection[0]} form reported lane {lane!r}, expected {expected!r}"
+        flat = [t for c in argvs for t in c]
+        if any(t in ("named-seat", "staged-workflow", "launch-lane") for t in flat):
+            return False, f"the lane leaked into the forwarded argv: {argvs}"
+        seen[selection[0]] = lane
+    return True, f"lanes {seen}, neither reaching any argv"
+
+
 # The mutation each check must be able to catch. Text substitutions, applied to a throwaway copy.
 CHECKS = [
     # ⚠ THIS MUTATION WAS REPAIRED BY TASK 7.206, AND THE REPAIR IS THE HARNESS WORKING. The
@@ -357,6 +508,36 @@ CHECKS = [
     ("9 refusal-is-stated", check_refusal_is_stated,
      lambda s: s.replace('        result["outcome"] = "REFUSED — no act performed\\n" + verdict["stated-refusal"]',
                          '        result["outcome"] = "REFUSED"\n        result["stated-refusal"] = ""')),
+    # --- task 7.283's six, each mutated at the value the check reads, never at a crash ---
+    # THE SEAT-SELECTION DEFECT ITSELF: the workflow name forwarded as `--only`. It launches, it
+    # exits 0, and the entry has selected the seats it is barred from selecting. Nothing but this
+    # assertion separates that from the staged ask.
+    ("10 workflow-form-forwards-bare", check_workflow_form_forwards_bare,
+     lambda s: s.replace('        result["acts"]["launch"] = launch(package, only=seat, dry_run=dry_run)',
+                         '        result["acts"]["launch"] = launch(package, only=workflow, dry_run=dry_run)')),
+    # The forwarding of --dry-run deleted: the caller asks to inspect and the launcher acts.
+    ("11 workflow-form-dry-run", check_workflow_form_dry_run,
+     lambda s: s.replace('    if dry_run:\n        cmd += ["--dry-run"]\n', '')),
+    # The named-seat lane loses its selection and silently becomes a mass launch.
+    ("12 seat-form-forwards-only", check_seat_form_forwards_only,
+     lambda s: s.replace('        result["acts"]["launch"] = launch(package, only=seat, dry_run=dry_run)',
+                         '        result["acts"]["launch"] = launch(package, only=None, dry_run=dry_run)')),
+    # The two appends swapped, so the flag ORDER inverts while both flags remain present — the
+    # mutation an assertion written as "contains --only and --dry-run" would sail straight past.
+    ("13 seat-form-dry-run-order", check_seat_form_dry_run_order,
+     lambda s: s.replace('    if only:\n        cmd += ["--only", only]\n'
+                         '    if dry_run:\n        cmd += ["--dry-run"]\n',
+                         '    if dry_run:\n        cmd += ["--dry-run"]\n'
+                         '    if only:\n        cmd += ["--only", only]\n')),
+    # The withholding itself deleted at the CLI wiring — the flag still parses, and the launch the
+    # caller withheld runs anyway. This mutation is why these checks drive `main` and not `handle`.
+    ("14 no-launch-forwards-nothing", check_no_launch_forwards_nothing,
+     lambda s: s.replace('do_launch=not args.no_launch', 'do_launch=True')),
+    # The lane pinned to a constant: the report still exists, still looks like a lane, and now
+    # names the wrong one on every staged ask.
+    ("15 lane-named-in-result", check_lane_named_in_result_not_argv,
+     lambda s: s.replace('            "named-seat" if seat is not None else "staged-workflow")',
+                         '            "named-seat")')),
 ]
 
 
