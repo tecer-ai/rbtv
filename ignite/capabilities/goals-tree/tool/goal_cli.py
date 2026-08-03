@@ -654,6 +654,32 @@ _UNIT_REF_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(@[a-z0-9][a-z0-9-]*)?$")
 # frozen `latest+standin-sha256:<digest>` form _UNIT_REF_RE cannot carry.
 _UNIT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
+# Catalog columns that are NEVER unit references. Skipped BEFORE the grammar is
+# applied, because the grammar cannot tell a short label from a short unit id.
+# Two kinds live here, and the distinction IS the maintenance rule:
+#
+#   IDENTITY   seat-id, prompt-id, task-id, executor, description — the row's
+#              own keys plus its free-prose label.
+#   LABEL      design-id, store-task-id — cross-references OUT of the catalog
+#              (to a milestone-task-dag row; to a task-store row). Their domain
+#              is SHORT TOKENS, so one is eventually spelled inside the bare-id
+#              grammar and read as a dangling unit reference. Measured
+#              2026-08-03: 8 components carry design-id and 7 escaped only by
+#              accident of casing or a dot (M4-38, E1, C1, U1.1, P1, C0.1);
+#              admission-design-fork's t1..t27 were the first lowercase labels
+#              and refused 27 of 27 rows.
+#
+# ANY NEW LABEL COLUMN IS ADDED HERE IN THE SAME ACT THAT ADDS IT TO A CATALOG
+# SCHEMA. Two columns are deliberately NOT here: free-PROSE cells (`context`,
+# `staffing-recommendations`) are left to the grammar, which is a sound
+# discriminator for a domain of sentences and is the widening's own stated
+# design; `capabilities` is a REAL reference column (invoked kind `capability`),
+# proven by this file's own selftest — skipping it would break assembly.
+NON_REF_COLUMNS = (
+    "seat-id", "prompt-id", "task-id", "executor", "description",
+    "design-id", "store-task-id",
+)
+
 
 def _refs_of(row: dict, skip: tuple[str, ...]) -> list[tuple[str, list[str]]]:
     """Per-kind unit references off a catalog row, in column order.
@@ -671,6 +697,10 @@ def _refs_of(row: dict, skip: tuple[str, ...]) -> list[tuple[str, list[str]]]:
     still yield no refs), a cell is treated as a reference list only when
     EVERY ';'-separated part matches the grammar; if any part fails, the
     whole cell is rejected rather than partially parsed.
+
+    The grammar cannot discriminate a short LABEL from a short unit id, so
+    columns that never carry a reference are excluded by NAME before it runs —
+    see NON_REF_COLUMNS above, which the one caller passes as `skip`.
     """
     out = []
     for col, cell in row.items():
@@ -721,9 +751,8 @@ def assemble_seat(seat_id: str, binding: dict, seats: dict, prompts: dict,
             fm[col] = str(binding[col]).strip()
 
     blocks: list[str] = []
-    skip = ("seat-id", "prompt-id", "task-id", "executor", "description")
     for label, row in parts:
-        for kind_col, refs in _refs_of(row, skip):
+        for kind_col, refs in _refs_of(row, NON_REF_COLUMNS):
             resolved: list[str] = []
             for ref in refs:
                 unit_id, _, pinned = ref.partition("@")
@@ -964,13 +993,36 @@ def cmd_selftest(args) -> int:
             "prompt-id,persona,permissions,description\n"
             "prompt-demo,cu-persona-demo@latest,cu-permissions-demo@latest,demo prompt\n",
             encoding="utf-8")
-        (comp / "tasks.csv").write_text(
-            "task-id,task-goal,capabilities,description\n"
-            "task-demo,cu-task-goal-demo@latest,cu-capability-grep-it,demo task\n",
+        # The task row deliberately carries BOTH label columns, spelled inside
+        # the bare-id grammar: `t1` is the shape that refused all 27 rows of
+        # admission-design-fork (2026-08-03), `7` the latent store-id shape that
+        # escapes today only because real store ids carry a dot. The whole
+        # end-to-end below therefore runs WITH the collision present — a
+        # regression in NON_REF_COLUMNS turns the assembly checks red, not just
+        # the two dedicated ones.
+        tasks_csv = comp / "tasks.csv"
+        tasks_csv.write_text(
+            "task-id,store-task-id,design-id,task-goal,capabilities,description\n"
+            "task-demo,7,t1,cu-task-goal-demo@latest,cu-capability-grep-it,demo task\n",
             encoding="utf-8")
         (comp / "seats.csv").write_text(
             "seat-id,prompt-id,task-id,description\n"
             "w-demo,prompt-demo,task-demo,the demo seat\n", encoding="utf-8")
+
+        print("label columns are not unit references")
+        label_row = next(csv.DictReader(tasks_csv.open(encoding="utf-8")))
+        kept = [c for c, _ in _refs_of(label_row, NON_REF_COLUMNS)]
+        check("a label cell yields no unit reference",
+              kept == ["task-goal", "capabilities"], str(kept))
+        # RED CONTROL — the check above must be able to FAIL. Drop the two label
+        # names from the skip list and the SAME row must yield them as refs; a
+        # green that survives this mutation is measuring nothing.
+        unskipped = tuple(c for c in NON_REF_COLUMNS
+                          if c not in ("design-id", "store-task-id"))
+        red = [c for c, _ in _refs_of(label_row, unskipped)]
+        check("red control: unskipped, the labels ARE read as refs",
+              red == ["store-task-id", "design-id", "task-goal", "capabilities"],
+              str(red))
 
         run = gd / "runs" / "run-1"
         run.mkdir(parents=True)
@@ -1013,6 +1065,9 @@ def cmd_selftest(args) -> int:
               "Long procedure that must NOT be inlined." not in sbody
               and "Entry point:" in sbody)
         check("permissions unit assembled", '<permissions id="cu-permissions-demo"' in sbody)
+        check("a label column emits no frontmatter ref key",
+              "design-id" not in sfm and "store-task-id" not in sfm,
+              json.dumps(sfm))
 
         try:
             cmd_materialize(argparse.Namespace(dry_run=False, **vars(mns)))
@@ -1032,6 +1087,22 @@ def cmd_selftest(args) -> int:
             check("materialize refuses without --catalog-root", False, "did not refuse")
         except Refusal:
             check("materialize refuses without --catalog-root", True)
+
+        # The scanner's PURPOSE must survive the skip list: a genuinely dangling
+        # reference in a REAL reference column still refuses. Same row, same
+        # command — only the ref column's value changes.
+        good_tasks = tasks_csv.read_text(encoding="utf-8")
+        tasks_csv.write_text(
+            "task-id,store-task-id,design-id,task-goal,capabilities,description\n"
+            "task-demo,7,t1,cu-task-goal-absent@latest,cu-capability-grep-it,demo task\n",
+            encoding="utf-8")
+        try:
+            cmd_materialize(argparse.Namespace(dry_run=True, **forced))
+            check("a dangling unit ref STILL refuses", False, "did not refuse")
+        except Refusal as exc:
+            check("a dangling unit ref STILL refuses",
+                  "cu-task-goal-absent" in str(exc), str(exc))
+        tasks_csv.write_text(good_tasks, encoding="utf-8")
 
         print("lint after materialize")
         f4 = lint_goal(root, "demo-goal")
