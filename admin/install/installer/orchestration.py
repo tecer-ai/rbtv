@@ -720,6 +720,12 @@ _CONTEXT_MONITOR_RELATIVE = Path("orchestration") / "hooks" / "context-monitor.p
 # wire's idempotency nor p2-2's unwire can orphan an entry whose key was dropped.
 _HOOK_COMMAND_SIGNATURE = _CONTEXT_MONITOR_RELATIVE.as_posix()
 
+# POSIX prefix resolving the interpreter NAME at hook-run time. `.claude/
+# settings.local.json` is git-tracked and shared across machines, so an
+# install-time interpreter breaks every other machine — see
+# `_build_cwd_independent_command`.
+_PY_PICK = 'command -v python >/dev/null 2>&1 && RBTVPY=python || RBTVPY=python3;'
+
 
 def _build_cwd_independent_command(
     interpreter: str, script_posix: str, extra_args: list[str] | None = None
@@ -737,6 +743,14 @@ def _build_cwd_independent_command(
     holding a `.git` directory (the real repo root), then joins `script_posix`. No
     match (e.g. a differently laid out machine) exits 0 silently — never a hard
     error.
+
+    ``interpreter`` is IGNORED for the emitted name (kept for call compatibility):
+    the interpreter is resolved when the hook RUNS, via `_PY_PICK`. Baking one at
+    install time is wrong here because `.claude/settings.local.json` is git-tracked
+    and shared across machines — an absolute ``sys.executable`` captured on the
+    Linux VPS is a nonexistent path on Windows, and vice versa (observed 2026-07-31:
+    a baked ``/usr/bin/python3`` failed every hook run on the Windows desktop).
+    `_PY_PICK` is POSIX-shell syntax, so the entry pins ``"shell": "bash"``.
     """
     tail = "" if not extra_args else "," + ",".join(repr(a) for a in extra_args)
     code = (
@@ -748,7 +762,7 @@ def _build_cwd_independent_command(
         f"p=os.path.join(d,{script_posix!r}) if d else None;"
         f"sys.exit(s.call([sys.executable,p{tail}]) if p and os.path.isfile(p) else 0)"
     )
-    return f'"{interpreter}" -c "{code}"'
+    return f'{_PY_PICK} "$RBTVPY" -c "{code}"'
 
 
 def _entry_commands(entry: dict) -> list[str]:
@@ -820,12 +834,13 @@ def sync_hook_entry(
     absolute path. (A bare ``$CLAUDE_PROJECT_DIR``-relative command broke when Claude
     Code ran the hook from a non-repo-root CWD — see `_build_cwd_independent_command`.)
 
-    The interpreter is ``sys.executable`` (the Python running THIS install), captured
-    as an absolute path — never a bare ``python`` / ``python3`` name. That name is not
-    portable: macOS ships ``python3`` and no ``python``; Windows commonly ships
-    ``python`` (or the ``py`` launcher) and no ``python3``. Baking the interpreter that
-    provably exists on this machine (the installer is running under it) makes the hook
-    correct on every OS. Re-install re-captures it, so a moved/upgraded Python self-heals.
+    The interpreter is NOT baked at install time. It is picked when the hook runs —
+    ``python`` if present, else ``python3`` — and the entry pins ``"shell": "bash"``
+    so that POSIX prefix parses on Windows too. Baking either a bare name or the
+    installing machine's ``sys.executable`` is wrong: this settings file is commonly
+    git-tracked and shared across machines, so whichever machine installed last
+    breaks the hook on all the others (observed 2026-07-31 — a ``/usr/bin/python3``
+    baked on the Linux VPS errored on every hook run on the Windows desktop).
 
     Idempotent: re-running replaces any stale entry with the current resolved path.
     Fails soft (returns False + message) on a malformed settings file.
@@ -837,17 +852,18 @@ def sync_hook_entry(
     # Resolve the script path relative to target_root using rbtv_relative.
     # The command string uses forward slashes and quotes the path to handle spaces.
     script_posix = (rbtv_relative / _CONTEXT_MONITOR_RELATIVE).as_posix()
-    # Interpreter = the Python running this install (guaranteed to exist here).
-    # Forward-slash + quote it so absolute paths with spaces / Windows drive letters
-    # survive being embedded in the shell command string.
-    interpreter = Path(sys.executable).as_posix()
-    command_str = _build_cwd_independent_command(interpreter, script_posix)
+    # No interpreter is baked: the emitted command picks python/python3 when it
+    # RUNS (see `_build_cwd_independent_command`), because this settings file is
+    # shared across machines with different Python names and locations.
+    command_str = _build_cwd_independent_command("", script_posix)
 
     # The entry the installer owns, identifiable by _HOOK_SENTINEL.
     rbtv_entry: dict = {
         "__rbtv__": _HOOK_SENTINEL,
         "matcher": "",
-        "hooks": [{"type": "command", "command": command_str}],
+        # shell: bash — the command carries a POSIX interpreter picker (_PY_PICK)
+        # that PowerShell cannot parse.
+        "hooks": [{"type": "command", "command": command_str, "shell": "bash"}],
     }
 
     settings: dict = {}
