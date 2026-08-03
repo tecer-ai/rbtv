@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """rbtv-goal — the goals-tree machinery (task 7.63).
 
-Four verbs over the CMP-4 goals tree, all LOCAL file operations (they work with
+Five verbs over the CMP-4 goals tree, all LOCAL file operations (they work with
 the daemon down, which is why they live on the rbtv side and never on ignite):
 
     rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--due DATE] [--dry-run]
     rbtv-goal reindex
     rbtv-goal lint <goal-name>
     rbtv-goal materialize <goal-name> [--catalog-root DIR] [--force] [--dry-run]
+    rbtv-goal gate-key-check <goal-name> --pass-folder NAME [--override ANCHOR]
 
 Grammar is owner-ruled (r-763-grammar-ruled, all four items at their recommended
 defaults) and is implemented here, not re-derived. Exit codes follow the sd-graph
-convention: 0 success/clean, 1 refusal/gate-fail/not-found, 2 usage error.
+convention: 0 success/clean, 1 refusal/gate-fail/not-found, 2 usage error — and
+`gate-key-check` extends it by exactly one: 3 flagged-pass (it never uses 2,
+which argparse reserves for a mistyped flag).
 
 v1 ships standalone; it folds into `rbtv goal <verb>` verbatim when task 7.65
 lands (the operator-surface stand-in pattern — no contract change at fold-in).
@@ -20,11 +23,13 @@ lands (the operator-surface stand-in pattern — no contract change at fold-in).
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import datetime as _dt
 import hashlib
 import io
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -574,6 +579,580 @@ def cmd_lint(args) -> int:
     return 1 if f else 0
 
 
+# ------------------------------------------------------------ gate-key check
+#
+# The planning-time check that REFUSES a plan landing a keyless gate.
+# Owner ruling: `.rbtv/goals/build-core-daemon-mvp/decisions.md`
+#   `#r-gate-ships-with-its-own-key`.
+# Specification: `runs/run-3/planning/briefing-gate-ships-with-its-own-key-check/
+#   gate-key-check-spec.md`, ACCEPTED at sha256/16 9c5e4a09dbaed6b5. Section
+#   numbers below cite that document; each clause states a READ the check does.
+#
+# This check is itself a gate, so `r-gate-ships-with-its-own-key` binds it: its
+# own key (the § 6a K3 ships-dark path and the § 6b recorded `--override`) lands
+# in this same change. A mechanism whose own repair path it blocks reproduces
+# the failure it was built to stop.
+
+GATE_KEY_DECLARATION_NAME = "gate-key-declaration.csv"
+GATE_KEY_OVERRIDE_NAME = "gate-key-override.md"
+
+# § 1 — the header is EXACTLY these seven names in this order. A mismatch is a
+# REFUSAL, never a repair: a check that silently accepts a renamed column reads
+# a different file than the one it reports on.
+GATE_KEY_COLUMNS = ("task-id", "lands-mechanism", "defers-classes", "key-form",
+                    "key-ref", "ships-dark-default", "note")
+
+# § 4 — the three key forms. § 5 — the six reason codes, a CLOSED set.
+GATE_KEY_FORMS = ("K1", "K2", "K3")
+GATE_KEY_REASON_CODES = ("blank-declaration", "uncovered-class", "key-unresolved",
+                         "dark-not-dark", "class-not-in-source", "schema-violation")
+
+# § 2b — the nine words, MEASURED over 323 rows and published UNTUNED: 15.0 %
+# precision, 68.8 % recall, and an exhaustive 511-subset search proving no
+# subset does better than 28.6 % at 12.5 % recall (§ 9). Arm 2 therefore FLAGS
+# and never refuses (§ 2c; ruled OPEN-2). Arm 1 carries the whole rule.
+GATE_KEY_LEXICON = ("refuse", "admit", "defer", "gate", "filter", "block",
+                    "deny", "precondition", "guard")
+_GATE_KEY_TAIL = r"(s|d|r|rs|ed|es|ing|al|als|ion|ions)?"
+
+
+def gate_key_lexicon_hits(text: str) -> list[str]:
+    """§ 2b's matcher, stated exactly: case-insensitive, word-boundary anchored,
+    with a bounded inflection tail.
+
+    SUBSTRING matching is refused as an implementation — measured, it fires on
+    13 additional rows purely as a matcher artefact (`gateway`x53,
+    `aggregate`x7, `unblock`x6).
+    """
+    low = (text or "").lower()
+    return [w for w in GATE_KEY_LEXICON
+            if re.search(r"\b" + re.escape(w) + _GATE_KEY_TAIL + r"\b", low)]
+
+
+def _module_level_literals(py_source: str) -> dict:
+    """{name: value} for every module-level assignment carrying a literal.
+
+    AST only, never `import` — `coord.py` is not importable from an arbitrary
+    cwd (it imports `budget` from its own directory), the failure this run
+    recorded four times as a mutation that "proved" nothing.
+    """
+    out: dict = {}
+    for node in ast.parse(py_source).body:
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets = [t for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) \
+                and node.value is not None:
+            targets = [node.target]
+        for t in targets:
+            try:
+                out[t.id] = ast.literal_eval(node.value)
+            except (ValueError, SyntaxError, TypeError):
+                pass
+    return out
+
+
+def _module_level_names(py_source: str) -> set[str]:
+    """Every module-level def/class/assignment NAME — § 4's K2 read.
+
+    A definition or assignment resolved by AST, NEVER a substring hit, which a
+    comment or a docstring would satisfy.
+    """
+    names: set[str] = set()
+    for node in ast.parse(py_source).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+    return names
+
+
+def coord_source_path() -> Path:
+    """The ONE legal literal of § 3c — the PATH to `coord.py`.
+
+    Resolved relative to THIS file, never to a caller's cwd: the same anchor
+    `materialize-seats.py` uses to reach this module from the other direction.
+    """
+    return Path(__file__).resolve().parents[3] / "team-kit" / "coord.py"
+
+
+def read_live_classes(coord_path: Path) -> tuple[set | None, set | None, str | None]:
+    """§ 3a — LIVE_CLASSES / LIVE_LIMBS read FROM SOURCE at check time.
+
+    § 3c FORBIDS a literal list of the eleven class names, the seven limb names
+    or the four dispositions anywhere in this file — not in code, not in a
+    constant, not in a docstring used as data, not in a test fixture. A copied
+    list is a second home for a policy set and every copy drifts: all three line
+    numbers this check's own inputs carried for these symbols had drifted within
+    one day of being written.
+
+    The first term is VALUES, not keys: `_DEFERRAL_BY_DISPOSITION`'s KEYS are
+    dispositions, not classes, and taking them yields a 15-element mongrel set
+    (§ 0.3). The union is kept even though the first term is today a subset of
+    the second, because it stays correct if a disposition class is ever added
+    without a verdict entry.
+
+    Returns (classes, limbs, problem). A problem is REPORTED by the caller and
+    never silently degraded to the § 3b arm.
+    """
+    try:
+        src = Path(coord_path).read_text(encoding="utf-8")
+    except OSError as exc:
+        return None, None, f"{coord_path}: unreadable ({exc.__class__.__name__})"
+    try:
+        lits = _module_level_literals(src)
+    except SyntaxError as exc:
+        return None, None, f"{coord_path}: does not parse ({exc})"
+    missing = [n for n in ("_DEFERRAL_BY_DISPOSITION", "CLASS_TO_VERDICT",
+                           "ADMISSION_LIMBS") if n not in lits]
+    if missing:
+        return None, None, (f"{coord_path}: module-level symbol(s) absent or "
+                            f"non-literal: {', '.join(missing)}")
+    try:
+        classes = set(lits["_DEFERRAL_BY_DISPOSITION"].values()) | set(lits["CLASS_TO_VERDICT"])
+        limbs = set(lits["ADMISSION_LIMBS"])
+    except (AttributeError, TypeError) as exc:
+        return None, None, f"{coord_path}: symbol shape unusable ({exc})"
+    return classes, limbs, None
+
+
+def _gate_key_workspace(goals_root: Path) -> Path:
+    """The anchor a RELATIVE `key-ref` path resolves against.
+
+    `<workspace>/.rbtv/goals` is the settled root shape, so the workspace is two
+    levels up from it; anything else anchors at the root itself.
+    """
+    if goals_root.name == "goals" and goals_root.parent.name == ".rbtv":
+        return goals_root.parents[1]
+    return goals_root
+
+
+def _resolve_key_path(raw: str, workspace: Path, pass_dir: Path) -> tuple[Path | None, list[str]]:
+    """An absolute path is used as given; a relative one is tried against the
+    workspace root, then this pass's own folder. Both anchors are reported when
+    neither resolves — a path the check could not find must never look like a
+    path it chose not to read."""
+    p = Path(raw).expanduser()
+    if p.is_absolute():
+        return (p if p.is_file() else None), [str(p)]
+    tried = []
+    for anchor in (workspace, pass_dir):
+        cand = anchor / p
+        tried.append(str(cand))
+        if cand.is_file():
+            return cand, tried
+    return None, tried
+
+
+def _split_key_ref(raw: str) -> tuple[str, str] | None:
+    """`<path>#<symbol>` — split on the LAST `#`, since a path may not carry one
+    but a symbol never does."""
+    if "#" not in raw:
+        return None
+    path, _, symbol = raw.rpartition("#")
+    if not path.strip() or not symbol.strip():
+        return None
+    return path.strip(), symbol.strip()
+
+
+def _verify_k2(key_ref: str, workspace: Path, pass_dir: Path) -> str | None:
+    """§ 4 K2 — the path exists and is readable AND `<symbol>` occurs in it. For
+    a `.py` path the occurrence MUST be a module-level definition or assignment
+    resolved by AST. Returns None when verified, else the specific finding.
+
+    The read is BY SYMBOL, never by line number: had this check been written
+    against a carried line number it would already be broken (§ 4a).
+    """
+    parts = _split_key_ref(key_ref)
+    if parts is None:
+        return f"key-ref '{key_ref}' is not the K2 shape <path>#<symbol>"
+    rel, symbol = parts
+    path, tried = _resolve_key_path(rel, workspace, pass_dir)
+    if path is None:
+        return f"path '{rel}' does not resolve to a file; tried: {', '.join(tried)}"
+    try:
+        src = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"{path}: unreadable ({exc.__class__.__name__})"
+    if path.suffix == ".py":
+        try:
+            names = _module_level_names(src)
+        except SyntaxError as exc:
+            return f"{path}: does not parse ({exc})"
+        if symbol not in names:
+            return (f"{path}: '{symbol}' is not a module-level definition or "
+                    f"assignment (AST read — a comment or docstring hit is not a key)")
+    elif symbol not in src:
+        return f"{path}: '{symbol}' does not occur in the file"
+    return None
+
+
+def _verify_k3(key_ref: str, declared_default: str, workspace: Path,
+               pass_dir: Path) -> tuple[str | None, str | None]:
+    """§ 4 K3 — the symbol exists by the same AST read as K2, AND its literal
+    default equals `ships-dark-default`, AND that value is FALSY.
+
+    A K3 whose default is truthy is REFUSED: a mechanism declared dark that
+    ships lit is worse than one that ships lit honestly.
+
+    Returns (key_unresolved_finding, dark_not_dark_finding) — at most one set.
+    """
+    parts = _split_key_ref(key_ref)
+    if parts is None:
+        return f"key-ref '{key_ref}' is not the K3 shape <path>#<symbol>", None
+    rel, symbol = parts
+    path, tried = _resolve_key_path(rel, workspace, pass_dir)
+    if path is None:
+        return f"path '{rel}' does not resolve to a file; tried: {', '.join(tried)}", None
+    if path.suffix != ".py":
+        return (f"{path}: K3 reads a literal default, which only a python source "
+                f"carries; '{path.suffix or 'no'}' suffix is not readable that way"), None
+    try:
+        lits = _module_level_literals(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError) as exc:
+        return f"{path}: unreadable or unparseable ({exc.__class__.__name__})", None
+    if symbol not in lits:
+        return (f"{path}: '{symbol}' carries no module-level literal default "
+                f"(AST read)"), None
+    value = lits[symbol]
+    want = declared_default.strip()
+    try:
+        parsed = ast.literal_eval(want)
+        matched = parsed == value
+    except (ValueError, SyntaxError):
+        parsed, matched = want, str(value) == want
+    if not matched:
+        return None, (f"{path}: '{symbol}' default is {value!r}, but the row declares "
+                      f"ships-dark-default {want!r} — the declaration and the source "
+                      f"disagree about what dark means")
+    if value:
+        return None, (f"{path}: '{symbol}' default {value!r} is TRUTHY — declared dark, "
+                      f"ships lit")
+    return None, None
+
+
+def _gate_key_block(task_id: str, code: str, finding: str, uncovered: list,
+                    closes: str) -> str:
+    """§ 5's refusal block. `uncovered classes:` is NEVER abbreviated to a count —
+    an operator told "2 classes uncovered" must re-derive which two, which is the
+    work the refusal was supposed to save."""
+    names = ", ".join(uncovered) if uncovered else "-"
+    return (f"REFUSED  {task_id}  {code}\n"
+            f"  {finding}\n"
+            f"  uncovered classes: {names}\n"
+            f"  what closes it: {closes}")
+
+
+def gate_key_check(root: Path, goal_name: str, pass_folder: str,
+                   f: Findings, coord_path: Path | None = None) -> dict:
+    """Read a pass's `gate-key-declaration.csv` and return the check's result.
+
+    Returns {"refusals": [block…], "flags": [line…], "reports": [line…]}.
+    Writes NOTHING — the only write this verb ever makes is § 6b's override
+    record, and that is the caller's.
+    """
+    refusals: list[str] = []
+    flags: list[str] = []
+    reports: list[str] = []
+
+    def refuse(task_id, code, finding, uncovered=(), closes="") -> None:
+        refusals.append(_gate_key_block(task_id, code, finding, list(uncovered), closes))
+        f.add(f"gate-key: {code}", str(task_id), finding)
+
+    goal_dir = resolve_goal_dir(root, goal_name)
+    run_dir = current_run_dir(goal_dir, f)
+    if run_dir is None:
+        refuse("-", "schema-violation", f"{goal_dir}: no run folder resolves",
+               closes="a run folder with an open row in runs.csv")
+        return {"refusals": refusals, "flags": flags, "reports": reports}
+    pass_dir = run_dir / "planning" / pass_folder
+    decl_path = pass_dir / GATE_KEY_DECLARATION_NAME
+    if not decl_path.is_file():
+        refuse("-", "schema-violation",
+               f"{decl_path}: absent — a pass that declares nothing declares no gate",
+               closes="the pass emits its gate-key-declaration.csv")
+        return {"refusals": refusals, "flags": flags, "reports": reports}
+
+    with decl_path.open(encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        header = tuple(reader.fieldnames or ())
+        rows = [dict(r) for r in reader]
+    if header != GATE_KEY_COLUMNS:
+        refuse("-", "schema-violation",
+               f"{decl_path}: header is {list(header)}, not {list(GATE_KEY_COLUMNS)}",
+               closes="the exact seven-column header, in order")
+        return {"refusals": refusals, "flags": flags, "reports": reports}
+
+    live_classes, live_limbs, problem = read_live_classes(
+        coord_path if coord_path is not None else coord_source_path())
+    if problem:
+        # § 3a: reported, NEVER silently degraded to the § 3b arm.
+        reports.append(f"source-enumeration-unreadable: {problem}; the § 3a "
+                       f"exhaustiveness arm did NOT run for any row")
+        flags.append(f"source-enumeration-unreadable: {problem}")
+    else:
+        reports.append(f"source-enumeration: {len(live_classes)} class(es) / "
+                       f"{len(live_limbs)} limb(s) read from "
+                       f"{coord_path if coord_path is not None else coord_source_path()}")
+
+    declared_ids = {(r.get("task-id") or "").strip()
+                    for r in rows if (r.get("task-id") or "").strip()}
+
+    def cell(r, name):
+        return (r.get(name) or "").strip()
+
+    for idx, r in enumerate(rows, start=2):  # line 1 is the header
+        tid = cell(r, "task-id")
+        where = tid or f"<blank task-id, line {idx}>"
+        if not tid:
+            refuse(where, "schema-violation", f"line {idx}: task-id is blank",
+                   closes="a task-id in the pass's own id-space")
+            continue
+
+        lands = cell(r, "lands-mechanism").lower()
+        if not lands:
+            # § 2a — blank is REFUSED. No default, no inference, no "empty
+            # means no". A mandatory field with a refused blank makes OMISSION
+            # impossible, and that is arm 1's entire job.
+            refuse(tid, "blank-declaration", "lands-mechanism is blank",
+                   closes="declare lands-mechanism explicitly: yes or no")
+            continue
+        if lands not in ("yes", "no"):
+            refuse(tid, "schema-violation",
+                   f"lands-mechanism is '{lands}', not yes|no",
+                   closes="declare lands-mechanism explicitly: yes or no")
+            continue
+
+        classes = [c.strip() for c in cell(r, "defers-classes").split(";") if c.strip()]
+        form = cell(r, "key-form")
+        key_ref = cell(r, "key-ref")
+        dark_default = cell(r, "ships-dark-default")
+
+        if lands == "yes" and not classes:
+            refuse(tid, "schema-violation",
+                   "lands-mechanism: yes with no defers-classes — an empty class "
+                   "set is legal only when lands-mechanism: no",
+                   closes="name the class(es) this task defers")
+            continue
+        if not classes:
+            if form or key_ref:
+                refuse(tid, "schema-violation",
+                       f"no defers-classes, but key-form '{form}' / key-ref "
+                       f"'{key_ref}' is populated",
+                       closes="leave key-form and key-ref empty when no class is deferred")
+            continue
+
+        # § 3a vs § 3b — a row is under the source-verified arm when it names at
+        # least one class the live enumeration knows. A row naming none sits on
+        # another lifecycle path and gets § 3b's mandatory report line instead.
+        if live_classes is not None:
+            known = [c for c in classes if c in live_classes]
+            if known:
+                unknown = [c for c in classes if c not in live_classes]
+                if unknown:
+                    refuse(tid, "class-not-in-source",
+                           f"class(es) absent from the live enumeration: "
+                           f"{', '.join(unknown)}",
+                           uncovered=unknown,
+                           closes="name a class the source enumerates, or move the "
+                                  "row to a non-coord.py lifecycle path")
+            else:
+                reports.append(
+                    f"partition-unverified: {tid} declares {len(classes)} class(es) "
+                    f"against no source enumeration; exhaustiveness NOT checked. "
+                    f"Classes: {', '.join(classes)}")
+                flags.append(f"partition-unverified: {tid}")
+
+        if not form:
+            # § 5 — "a declared class carries no key form". The most specific of
+            # the two codes that could claim this row, and the one whose
+            # `uncovered classes:` naming the acceptance bar demands.
+            refuse(tid, "uncovered-class",
+                   f"{len(classes)} class(es) declared with no key-form",
+                   uncovered=classes,
+                   closes="K1 (key in this plan), K2 (key already on disk), or "
+                          "K3 (ships dark)")
+            continue
+        if form not in GATE_KEY_FORMS:
+            refuse(tid, "schema-violation",
+                   f"key-form '{form}' is not one of {', '.join(GATE_KEY_FORMS)}",
+                   uncovered=classes,
+                   closes=f"one of {', '.join(GATE_KEY_FORMS)}")
+            continue
+        if not key_ref:
+            refuse(tid, "schema-violation",
+                   f"key-form {form} with an empty key-ref",
+                   uncovered=classes,
+                   closes="the K-form's argument")
+            continue
+
+        if form == "K1":
+            named = [x.strip() for x in key_ref.split(";") if x.strip()]
+            if not named:
+                refuse(tid, "key-unresolved", "K1 names no task-id",
+                       uncovered=classes,
+                       closes="at least one task-id of THIS declaration")
+                continue
+            absent = [x for x in named if x not in declared_ids]
+            if absent:
+                # § 0.4 / § 4 — membership in THIS declaration, NEVER a store
+                # lookup: at fan-in the store rows do not exist yet, so a store
+                # lookup would refuse every correct plan.
+                refuse(tid, "key-unresolved",
+                       f"K1 names {', '.join(absent)}, which are not task-ids of "
+                       f"this declaration",
+                       uncovered=classes,
+                       closes="name task-ids this pass itself plans")
+        elif form == "K2":
+            problem2 = _verify_k2(key_ref, _gate_key_workspace(root), pass_dir)
+            if problem2:
+                refuse(tid, "key-unresolved", f"K2: {problem2}",
+                       uncovered=classes,
+                       closes="a <path>#<symbol> the check can resolve by AST")
+        else:  # K3
+            if not dark_default:
+                refuse(tid, "schema-violation",
+                       "key-form K3 with an empty ships-dark-default",
+                       uncovered=classes,
+                       closes="the literal the K3 symbol's default must evaluate to")
+                continue
+            unresolved, not_dark = _verify_k3(key_ref, dark_default,
+                                              _gate_key_workspace(root), pass_dir)
+            if unresolved:
+                refuse(tid, "key-unresolved", f"K3: {unresolved}",
+                       uncovered=classes,
+                       closes="a <path>#<symbol> the check can resolve by AST")
+            elif not_dark:
+                refuse(tid, "dark-not-dark", f"K3: {not_dark}",
+                       uncovered=classes,
+                       closes="a falsy default, or an honest K1/K2 key")
+
+    # § 2b — arm 2's matcher is landed (`gate_key_lexicon_hits`) and selftested,
+    # but the text it scans is a task's STORE text, and at the fan-in stage
+    # § 7b fixes this check to, the store rows do not exist yet (the same
+    # collision § 0.4 cured for K1, uncured for arm 2). goal_cli.py resolves no
+    # task store, and hard-coding one workspace's store path here is the second
+    # home § 3c forbids. The arm is therefore NOT exercised, and says so on
+    # every run rather than reporting itself exercised — routed to the leader.
+    reports.append(
+        f"lexicon-unexercised: arm 2's matcher is landed and proven, but no "
+        f"scannable task text resolves at this stage for {len(declared_ids)} "
+        f"declared task(s); arm 2 did NOT run. Arm 1 carries the rule (§ 2c).")
+
+    return {"refusals": refusals, "flags": flags, "reports": reports}
+
+
+def write_gate_key_override(pass_dir: Path, anchor: str, refusals: list) -> Path:
+    """§ 6b — the override's record. Carries the anchor, the UTC timestamp, the
+    refusals overridden VERBATIM, and the invoking seat.
+
+    The check exits 0 only after this is on disk and re-read: a record it could
+    not write is a refusal, not an override.
+    """
+    seat = os.environ.get("COORD_AGENT") or "unknown (no COORD_AGENT in the environment)"
+    stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    body = [
+        f"# gate-key-override — {stamp}",
+        "",
+        f"- **anchor:** `{anchor}`",
+        f"- **invoked by:** {seat}",
+        f"- **pass folder:** `{pass_dir.name}`",
+        f"- **refusals overridden:** {len(refusals)}",
+        "",
+        "## The refusals, verbatim",
+        "",
+        "```",
+    ]
+    body.extend(refusals if refusals else ["(none — no refusal was outstanding)"])
+    body.append("```")
+    body.append("")
+    path = pass_dir / GATE_KEY_OVERRIDE_NAME
+    path.write_text("\n".join(body), encoding="utf-8")
+    return path
+
+
+def cmd_gate_key_check(args) -> int:
+    """§ 7a — exit 0 clean · 1 REFUSED · 3 flagged-pass.
+
+    Exit 2 is deliberately unused: argparse reserves it for usage errors, and a
+    check whose flagged-pass is indistinguishable from a mistyped flag is a
+    check nobody can gate on.
+    """
+    root = resolve_goals_root(args.root)
+    f = Findings()
+    result = gate_key_check(root, args.goal_name, args.pass_folder, f)
+    refusals, flags, reports = result["refusals"], result["flags"], result["reports"]
+
+    override = getattr(args, "override", None)
+    override_ok = False
+    override_path = None
+    if override is not None:
+        if not str(override).strip():
+            msg = "--override carries an empty anchor"
+            refusals.append(_gate_key_block("-", "schema-violation", msg, [],
+                                            "a non-empty leader-ruling anchor"))
+            f.add("gate-key: schema-violation", "--override", msg)
+        else:
+            goal_dir = resolve_goal_dir(root, args.goal_name)
+            run_dir = current_run_dir(goal_dir, Findings())
+            pass_dir = (run_dir / "planning" / args.pass_folder) if run_dir else None
+            try:
+                override_path = write_gate_key_override(pass_dir, str(override).strip(),
+                                                        refusals)
+                # re-read: a record it could not write is a refusal, not an override
+                override_ok = bool(override_path.read_text(encoding="utf-8").strip())
+            except (OSError, AttributeError, TypeError) as exc:
+                msg = (f"--override could not write its § 6b record "
+                       f"({exc.__class__.__name__}: {exc}) — a record it could not "
+                       f"write is a refusal, not an override")
+                refusals.append(_gate_key_block("-", "schema-violation", msg, [],
+                                                "a writable pass folder"))
+                f.add("gate-key: schema-violation", "--override", msg)
+
+    if refusals and override_ok:
+        rc = 0
+    elif refusals:
+        rc = 1
+    elif flags:
+        rc = 3
+    else:
+        rc = 0
+
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "ok": rc == 0, "exit": rc, "goal": args.goal_name,
+            "pass-folder": args.pass_folder, "root": str(root),
+            "findings": f.items, "flags": flags, "reports": reports,
+            "override": {"anchor": str(override).strip() if override else None,
+                         "recorded": override_ok,
+                         "record": str(override_path) if override_path else None},
+        }, indent=2))
+    else:
+        for line in reports:
+            print(f"  {line}")
+        for line in flags:
+            print(f"FLAG  {line}")
+        for block in refusals:
+            print(block, file=sys.stderr)
+        if refusals and not override_ok:
+            print("  the recorded exit: gate-key-check --override <leader-anchor> "
+                  "(§ 6b — never silent, always audited after)", file=sys.stderr)
+        if override_ok:
+            print(f"gate-key-check {args.pass_folder}: {len(refusals)} refusal(s) "
+                  f"OVERRIDDEN, recorded at {override_path}")
+        elif refusals:
+            print(f"gate-key-check {args.pass_folder}: {len(refusals)} refusal(s) "
+                  f"— the plan is redesigned")
+        elif flags:
+            print(f"gate-key-check {args.pass_folder}: flagged-pass — {len(flags)} "
+                  f"flag(s), 0 refusal(s); the fan-in seat addresses every flag")
+        else:
+            print(f"gate-key-check {args.pass_folder}: clean")
+    return rc
+
+
 # ---------------------------------------------------------------- materialize
 
 
@@ -1118,6 +1697,254 @@ def cmd_selftest(args) -> int:
         check("lint rejects a cyclic after-graph",
               any(i["check"] == "after graph acyclic" for i in f5.items))
 
+        # ------------------------------------------------ gate-key check
+        # Spec: runs/run-3/planning/briefing-gate-ships-with-its-own-key-check/
+        # gate-key-check-spec.md (ACCEPTED, sha256/16 9c5e4a09dbaed6b5).
+        #
+        # The fixture's class and limb names are INVENTED (cls-*, limb-*), never
+        # the live ones: § 3c forbids a literal copy of the eleven classes, the
+        # seven limbs or the four dispositions anywhere in this file, test
+        # fixtures explicitly included. The fixture proves the READER; the live
+        # enumeration is exercised against the real source, asserting only
+        # relations it computes there, never values copied to here.
+        print("gate-key check — the source-enumeration reader (§ 3a)")
+        fixture = tmp / "fixture"
+        fixture.mkdir(parents=True, exist_ok=True)
+        fake_coord = fixture / "coord.py"
+        fake_coord.write_text(
+            "_DEFERRAL_BY_DISPOSITION = {'d1': 'cls-alpha', 'd2': 'cls-beta'}\n"
+            "CLASS_TO_VERDICT = {'cls-alpha': 'A', 'cls-beta': 'B', 'cls-gamma': 'C'}\n"
+            "ADMISSION_LIMBS = ('limb-one', 'limb-two')\n"
+            "SHIPS_DARK = False\n"
+            "SHIPS_LIT = True\n"
+            "SHIPS_EMPTY = ''\n"
+            "# GHOST_SYMBOL is named ONLY in this comment.\n"
+            '"""GHOST_SYMBOL is named again here, in a docstring."""\n',
+            encoding="utf-8")
+
+        fclasses, flimbs, fproblem = read_live_classes(fake_coord)
+        check("§3a reader: the union takes VALUES of the disposition map, not keys",
+              fproblem is None and fclasses == {"cls-alpha", "cls-beta", "cls-gamma"}
+              and "d1" not in fclasses, f"{fproblem} {sorted(fclasses or [])}")
+        check("§3a reader: limbs read from source", flimbs == {"limb-one", "limb-two"},
+              str(sorted(flimbs or [])))
+        # RED CONTROL — a source missing a symbol must be REPORTED, never
+        # silently degraded to the § 3b arm.
+        maimed = fixture / "coord-maimed.py"
+        maimed.write_text("_DEFERRAL_BY_DISPOSITION = {}\nCLASS_TO_VERDICT = {}\n",
+                          encoding="utf-8")
+        mc, ml, mp = read_live_classes(maimed)
+        check("red control: an absent symbol is REPORTED, not degraded",
+              mc is None and ml is None and mp is not None
+              and "ADMISSION_LIMBS" in mp, str(mp))
+        mc2, _, mp2 = read_live_classes(fixture / "nope.py")
+        check("red control: an unreadable source is REPORTED",
+              mc2 is None and mp2 is not None and "unreadable" in mp2, str(mp2))
+
+        # The reader against the LIVE source — the integration arm. It asserts
+        # RELATIONS computed there, never a value copied to here.
+        lclasses, llimbs, lproblem = read_live_classes(coord_source_path())
+        if lproblem is None:
+            live_lits = _module_level_literals(
+                coord_source_path().read_text(encoding="utf-8"))
+            check("§3a live: the union is a superset of the disposition VALUES",
+                  set(live_lits["_DEFERRAL_BY_DISPOSITION"].values()) <= lclasses
+                  and bool(lclasses) and bool(llimbs),
+                  f"{len(lclasses)} classes / {len(llimbs)} limbs")
+            check("§3a live: FABRICATED control — an invented class is ABSENT",
+                  "cls-fabricated-control" not in lclasses)
+        else:
+            check("§3a live: the live source reads", False, str(lproblem))
+
+        print("gate-key check — arm 2's matcher (§ 2b)")
+        hits = gate_key_lexicon_hits("This gate refuses to admit it, and defers the guard.")
+        check("§2b matcher: word-boundary hits, with the inflection tail",
+              set(hits) == {"gate", "refuse", "admit", "defer", "guard"}, str(hits))
+        # RED CONTROL — substring matching is REFUSED as an implementation:
+        # measured, it fires on gateway x53, aggregate x7, unblock x6 purely as
+        # a matcher artefact. Under a substring matcher this line returns hits.
+        contam = gate_key_lexicon_hits("The gateway aggregates and unblocks the ungated.")
+        check("red control: substring contamination yields NO hit", contam == [],
+              str(contam))
+
+        print("gate-key check — the declaration (§ 1) and the refusals (§ 5)")
+        pass_dir = run / "planning" / "pass-demo"
+        pass_dir.mkdir(parents=True, exist_ok=True)
+        decl = pass_dir / GATE_KEY_DECLARATION_NAME
+        head = ",".join(GATE_KEY_COLUMNS) + "\n"
+
+        def gk(body: str, coord=fake_coord) -> dict:
+            decl.write_text(head + body, encoding="utf-8")
+            return gate_key_check(root, "demo-goal", "pass-demo", Findings(),
+                                  coord_path=coord)
+
+        def codes(res: dict) -> list[str]:
+            return [b.split("\n")[0].split()[-1] for b in res["refusals"]]
+
+        r = gk("t1,,,,,,\n")
+        check("§2a: a blank lands-mechanism is REFUSED",
+              codes(r) == ["blank-declaration"], str(codes(r)))
+        # RED CONTROL — the same row declared explicitly must NOT refuse.
+        r = gk("t1,no,,,,,\n")
+        check("red control: an explicit 'no' is not refused", codes(r) == [], str(codes(r)))
+
+        r = gk("t1,yes,cls-alpha;cls-beta,,,,\n")
+        check("§5: a declared class with no key-form is uncovered-class",
+              codes(r) == ["uncovered-class"], str(codes(r)))
+        check("§5: uncovered classes are NAMED, never counted",
+              "uncovered classes: cls-alpha, cls-beta" in r["refusals"][0],
+              r["refusals"][0] if r["refusals"] else "")
+
+        r = gk("t1,yes,cls-alpha,K1,t2,,\nt2,no,,,,,\n")
+        check("§4 K1: an id of THIS declaration verifies (never a store lookup)",
+              codes(r) == [], str(codes(r)))
+        r = gk("t1,yes,cls-alpha,K1,7.999,,\n")
+        check("red control: K1 naming a non-member is key-unresolved",
+              codes(r) == ["key-unresolved"], str(codes(r)))
+
+        r = gk("t1,yes,cls-alpha,K2,fixture/coord.py#SHIPS_LIT,,\n")
+        check("§4 K2: a module-level assignment resolves", codes(r) == [], str(codes(r)))
+        # RED CONTROL — the K2 read is by AST, so a symbol living only in a
+        # comment or a docstring is NOT a key. A substring read would pass this.
+        r = gk("t1,yes,cls-alpha,K2,fixture/coord.py#GHOST_SYMBOL,,\n")
+        check("red control: a comment/docstring-only symbol is NOT a K2 key",
+              codes(r) == ["key-unresolved"], str(codes(r)))
+        r = gk("t1,yes,cls-alpha,K2,fixture/absent.py#SHIPS_DARK,,\n")
+        check("red control: an unresolvable K2 path is key-unresolved",
+              codes(r) == ["key-unresolved"], str(codes(r)))
+
+        # § 6a — the check's OWN key: the K3 ships-dark path.
+        r = gk("t1,yes,cls-alpha,K3,fixture/coord.py#SHIPS_DARK,False,\n")
+        check("§4 K3: a falsy default matching the declaration verifies",
+              codes(r) == [], str(codes(r)))
+        r = gk("t1,yes,cls-alpha,K3,fixture/coord.py#SHIPS_EMPTY,'',\n")
+        check("§4 K3: an empty-string default is falsy and verifies",
+              codes(r) == [], str(codes(r)))
+        # RED CONTROL — declared dark, ships LIT.
+        r = gk("t1,yes,cls-alpha,K3,fixture/coord.py#SHIPS_LIT,True,\n")
+        check("red control: a TRUTHY K3 default is dark-not-dark",
+              codes(r) == ["dark-not-dark"], str(codes(r)))
+        r = gk("t1,yes,cls-alpha,K3,fixture/coord.py#SHIPS_DARK,True,\n")
+        check("red control: source and declaration disagreeing is dark-not-dark",
+              codes(r) == ["dark-not-dark"], str(codes(r)))
+        r = gk("t1,yes,cls-alpha,K3,fixture/coord.py#SHIPS_DARK,,\n")
+        check("red control: K3 with no ships-dark-default is schema-violation",
+              codes(r) == ["schema-violation"], str(codes(r)))
+
+        # The § 3a arm engages on a row naming at least one class the live
+        # enumeration knows; the unknown one beside it is then refused. A row
+        # naming NO known class is § 3b's, two rows below — which is what makes
+        # this code reachable instead of vacuous.
+        r = gk("t1,yes,cls-alpha;cls-nowhere,K1,t1,,\n")
+        check("§5: a class absent from the live enumeration is class-not-in-source",
+              codes(r) == ["class-not-in-source"], str(codes(r)))
+        check("class-not-in-source NAMES the class",
+              "uncovered classes: cls-nowhere" in r["refusals"][0], str(r["refusals"]))
+        # § 3b — a row naming no known class sits on another lifecycle path: the
+        # partition-unverified line is mandatory, and it FLAGS rather than refuses.
+        r = gk("t1,yes,planning-pass-refused,K1,t1,,\n")
+        check("§3b: an off-enumeration partition is reported, not refused",
+              codes(r) == [] and any(x.startswith("partition-unverified: t1")
+                                     for x in r["reports"]), str(r["reports"]))
+        check("§3b: the unverified partition FLAGS", any("partition-unverified" in x
+                                                         for x in r["flags"]),
+              str(r["flags"]))
+        # § 3a — an unreadable source is REPORTED and does not degrade to § 3b.
+        r = gk("t1,yes,cls-alpha,K1,t1,,\n", coord=fixture / "nope.py")
+        check("§3a: an unreadable source reports and flags, never degrades silently",
+              any("source-enumeration-unreadable" in x for x in r["flags"])
+              and codes(r) == [], f"{r['flags']} {codes(r)}")
+
+        # § 2b — arm 2 is landed but NOT exercised: at fan-in the store rows do
+        # not exist, so no scannable task text resolves. It says so on every run.
+        r = gk("t1,no,,,,,\n")
+        check("§2b: arm 2 reports itself UNexercised on every run",
+              any(x.startswith("lexicon-unexercised:") for x in r["reports"]),
+              str(r["reports"]))
+
+        decl.write_text("task-id,lands-mechanism,defers-classes\nt1,yes,cls-alpha\n",
+                        encoding="utf-8")
+        r = gate_key_check(root, "demo-goal", "pass-demo", Findings(), coord_path=fake_coord)
+        check("§1: a header mismatch is REFUSED, never repaired",
+              codes(r) == ["schema-violation"], str(codes(r)))
+        (pass_dir / GATE_KEY_DECLARATION_NAME).unlink()
+        r = gate_key_check(root, "demo-goal", "pass-demo", Findings(), coord_path=fake_coord)
+        check("§1: an absent declaration is REFUSED",
+              codes(r) == ["schema-violation"], str(codes(r)))
+
+        print("gate-key check — the exit-code contract (§ 7a) at the real invocation")
+        # Driven through main() so build_parser's registration is exercised too.
+        # These declarations never depend on the live enumeration's CONTENT:
+        # a no-class row flags under neither arm, and an off-enumeration class
+        # flags under § 3b whether or not the live source reads.
+        decl.write_text(head + "t1,no,,,,,\n", encoding="utf-8")
+        rc = main(["--root", str(root), "gate-key-check", "demo-goal",
+                   "--pass-folder", "pass-demo"])
+        check("§7a: exit 0 — clean", rc == 0, str(rc))
+        decl.write_text(head + "t1,yes,off-enumeration-class,K1,t1,,\n", encoding="utf-8")
+        rc = main(["--root", str(root), "gate-key-check", "demo-goal",
+                   "--pass-folder", "pass-demo"])
+        check("§7a: exit 3 — flagged-pass, never 2 (argparse owns 2)", rc == 3, str(rc))
+        decl.write_text(head + "t1,,,,,,\n", encoding="utf-8")
+        rc = main(["--root", str(root), "gate-key-check", "demo-goal",
+                   "--pass-folder", "pass-demo"])
+        check("§7a: exit 1 — REFUSED", rc == 1, str(rc))
+
+        # § 7b — --json is exit-code-preserving. A caller gating on the envelope
+        # and a caller gating on the exit code must never disagree.
+        buf = io.StringIO()
+        _stdout = sys.stdout
+        try:
+            sys.stdout = buf
+            rc_json = main(["--root", str(root), "--json", "gate-key-check",
+                            "demo-goal", "--pass-folder", "pass-demo"])
+        finally:
+            sys.stdout = _stdout
+        env = json.loads(buf.getvalue())
+        check("§7b: the --json envelope agrees with the exit code",
+              env["exit"] == rc_json == 1 and env["ok"] is False
+              and any(i["check"] == "gate-key: blank-declaration" for i in env["findings"]),
+              buf.getvalue()[:400])
+
+        # § 6b — the check's OWN key: the explicit RECORDED override. Auditable
+        # AFTER, never gated before; a record it could not write is a refusal.
+        print("gate-key check — the check's own key (§ 6b)")
+        ovr = argparse.Namespace(root=str(root), json=False, goal_name="demo-goal",
+                                 pass_folder="pass-demo", override="p-some-leader-anchor")
+        rc = cmd_gate_key_check(ovr)
+        rec = pass_dir / GATE_KEY_OVERRIDE_NAME
+        check("§6b: an override turns a refusal into exit 0", rc == 0, str(rc))
+        check("§6b: the override RECORD is on disk", rec.is_file())
+        rec_text = rec.read_text(encoding="utf-8") if rec.is_file() else ""
+        check("§6b: the record carries the anchor and the refusal VERBATIM",
+              "p-some-leader-anchor" in rec_text
+              and "REFUSED  t1  blank-declaration" in rec_text, rec_text[:300])
+        # RED CONTROL — an empty anchor is not an override.
+        rec.unlink()
+        ovr_blank = argparse.Namespace(root=str(root), json=False, goal_name="demo-goal",
+                                       pass_folder="pass-demo", override="   ")
+        rc = cmd_gate_key_check(ovr_blank)
+        check("red control: an empty anchor does NOT override", rc == 1, str(rc))
+        check("red control: an empty anchor writes no record", not rec.is_file())
+        # RED CONTROL — an unwritable pass folder: the override FAILS CLOSED.
+        decl_body = decl.read_text(encoding="utf-8")
+        ovr_gone = argparse.Namespace(root=str(root), json=False, goal_name="demo-goal",
+                                      pass_folder="pass-absent",
+                                      override="p-some-leader-anchor")
+        buf2 = io.StringIO()
+        _err = sys.stderr
+        try:
+            sys.stderr = buf2
+            rc = cmd_gate_key_check(ovr_gone)
+        finally:
+            sys.stderr = _err
+        # rc==1 alone would be confounded — the absent declaration refuses this
+        # folder anyway. The discriminating read is the override's OWN block.
+        check("red control: an unwritable record is a REFUSAL, not an override",
+              rc == 1 and "a record it could not write is a refusal" in buf2.getvalue(),
+              f"{rc} {buf2.getvalue()[:300]}")
+        decl.write_text(decl_body, encoding="utf-8")
+
         print("reindex")
         rc = cmd_reindex(argparse.Namespace(root=str(root), json=False))
         check("reindex exits 0", rc == 0)
@@ -1197,6 +2024,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="regenerate an already-materialized run")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_materialize)
+
+    # § 7b — the invocation shape the specification fixes. Registered through
+    # add_common like every other verb, so --root/--json work on either side of
+    # the verb; SUPPRESS is load-bearing (see add_common's own docstring).
+    p = add_common(sub.add_parser(
+        "gate-key-check",
+        help="refuse a plan landing a keyless gate (exit 0 clean / 1 refused / 3 flagged)"))
+    p.add_argument("goal_name")
+    p.add_argument("--pass-folder", required=True,
+                   help="the pass folder NAME under runs/<current-run>/planning/, "
+                        "never a path")
+    p.add_argument("--override", default=None,
+                   help="a leader-ruling anchor: the check's OWN key (§ 6b). "
+                        "Auditable AFTER, never gated before — it writes "
+                        "gate-key-override.md and is never silent")
+    p.set_defaults(func=cmd_gate_key_check)
 
     p = add_common(sub.add_parser("selftest", help="end-to-end exercise on a throwaway tree"))
     p.set_defaults(func=cmd_selftest)
