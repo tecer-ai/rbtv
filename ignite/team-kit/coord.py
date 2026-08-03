@@ -195,6 +195,17 @@ MSG_HEADER = re.compile(
 FM_KEY = {
     # roster signature: `seat:` is the KG term (seat.md descriptors); `agent:` is the legacy key
     "agent": re.compile(r"^(?:seat|agent):\s*(\S+)\s*$", re.MULTILINE),
+    # 7.278 (C3): the seat's DECLARED agent type, and the capacity term's ONLY source for it.
+    # It is read HERE, off the descriptor, and never off `state.json`: the snapshot has no row for
+    # a seat that has not launched yet, so sizing the cap from `state_agent_types()` would read
+    # EVERY launch candidate as not-counted and the cap could never bind — the class making the
+    # answer YES by construction. ABSENT is not `unclassified` and is not a default: the capacity
+    # term treats it as outside `counting.counts_toward_cap` (C1 §2.1's literal definition) and
+    # NAMES the seat on its own output, per `budget.json`'s `counting.unclassified_with_descriptor`
+    # ("never silently counted and never silently skipped"). Ruled `p-7278-wire-form-confirmed`.
+    # ⚠ `agent:`'s own pattern is anchored `^(?:seat|agent):`, so it never matched `agent_type:`
+    # and this key takes nothing away from it.
+    "agent_type": re.compile(r"^agent_type:\s*(\S+)\s*$", re.MULTILINE),
     "harness": re.compile(r"^harness:\s*(\S+)\s*$", re.MULTILINE),
     "model": re.compile(r"^model:\s*(\S+)\s*$", re.MULTILINE),
     "effort": re.compile(r"^effort:\s*(\S+)\s*$", re.MULTILINE),
@@ -9013,7 +9024,9 @@ def discover_workers(wdir):
     by-name `launch --only leader` or `close-seat leader --renew` can target it. A bare
     mass `launch` still never boots leader: seats_by_name filters it from the no-names sweep.
 
-    Returns per-seat dicts: agent, briefing, harness, model, effort, cwd, window, ephemeral,
+    Returns per-seat dicts: agent, agent_type (str — the DECLARED type, "" when the descriptor
+    declares none; 7.278's capacity term sizes `counting.counts_toward_cap` off this and nothing
+    else), briefing, harness, model, effort, cwd, window, ephemeral,
     ctx_refresh (int|None — the seat's own context-refresh threshold, consumed by watch.py),
     folder (the seat's worker folder in folder form, else None)."""
     found = []
@@ -9032,6 +9045,7 @@ def discover_workers(wdir):
         # to boot_prompt and every renewed PERSISTENT seat booted without being told to read its
         # own memory — the one artifact a close exists to produce. Both briefing names count.
         folder = p.parent if p.name in ("agent.md", "seat.md") and p.parent != wdir else None
+        mt = FM_KEY["agent_type"].search(fm)   # 7.278 (C3) — additive; no existing key changes
         mh = FM_KEY["harness"].search(fm)
         mm = FM_KEY["model"].search(fm)
         me = FM_KEY["effort"].search(fm)
@@ -9040,6 +9054,9 @@ def discover_workers(wdir):
         harness = mh.group(1) if mh else "claude"
         found.append({
             "agent": m.group(1), "briefing": p, "harness": harness,
+            # 7.278 (C3): "" means the descriptor DECLARED NOTHING. Kept distinguishable from a
+            # declared value on purpose — the capacity term prints the undeclared ones by name.
+            "agent_type": mt.group(1) if mt else "",
             "model": mm.group(1) if mm else (DEFAULT_MODEL if harness == "claude" else ""),
             "effort": me.group(1) if me else DEFAULT_EFFORT,
             "cwd": mc.group(1) if mc else (str(folder) if folder else VAULT_ROOT),
@@ -10821,6 +10838,53 @@ def seats_by_name(args, names=None):
     return picked
 
 
+# ---------- 7.278 (C3): THE CAPACITY TERM'S LITERAL LINES ---------------------------------------
+#
+# Carried VERBATIM from `capacity-admission-spec.md` §6.1 and §6.2 — the spec prints these, this
+# file does not paraphrase them. They are module-level so a selftest row can assert the SHAPE
+# without re-typing it, which is how a "the line is right" check stops being a check that the line
+# equals itself.
+#
+# ⚠ NO POLICY NUMBER APPEARS IN EITHER STRING. Both numbers in the stamp form come from the
+# census's own emitted fields AT RUNTIME (`snapshot_age_s`, `stale_after_s`) and the cap is named
+# by FIELD NAME (`cap.agent_panes`), never by value: `r-floor-single-source` refuses a copy, and a
+# threshold written into source would be that copy.
+CAPACITY_DEGRADE_LINE = ("  capacity: CAP NOT CONSULTED — {reason} | admitted {n} seat(s) on the "
+                         "memory floor alone (budget.json floors.launch_refuse_mb, read live at "
+                         "the launch gate) | {stamp}")
+CAPACITY_DEFER_LINE = ("  {agent}: DEFERRED (capacity) — cap.agent_panes headroom is exhausted for "
+                       "this act; {k} of {m} counted candidate(s) admitted. This is a WAIT: the "
+                       "pickup lane is A4's (deferred-pickup-lane.md).")
+# §5.1 — the fact the EXIT CODE no longer carries, so the output must. A capacity deferral that
+# empties the set exits 0: it is a WAIT, and a non-zero code would make a wait indistinguishable
+# from a denial. This is the ONE place that says so.
+CAPACITY_EMPTY_LINE = ("  capacity: NO PANE WAS OPENED — every counted candidate was "
+                       "capacity-deferred. This is a WAIT, not a refusal: headroom on "
+                       "cap.agent_panes returns as seats depart. No override flag carries this "
+                       "term, and none may be attached to --force or --force-memory.")
+# §4.5 — readings worth SAYING that are not worth DEGRADING on. They print on the full-capacity
+# branch only: each one describes how the cap reading was USED, and on the degrade branch it was
+# not used at all, so printing them there would describe a consultation that did not happen.
+CAPACITY_NOTE_UNACCOUNTED = ("  capacity: {k} unaccounted pane(s) are INSIDE in_use — the cap "
+                             "reading is conservative, not wrong. An owner console and a leaked "
+                             "pane are indistinguishable here (budget.py's own ruling); reported, "
+                             "never flagged.")
+CAPACITY_NOTE_CROSS_GOAL = ("  capacity: {k} cross_goal pane(s) resolve OUTSIDE this run — ruled "
+                            "not to count against this run's cap. They still spend RAM, which "
+                            "budget.json floors.launch_refuse_mb protects, not the cap.")
+CAPACITY_NOTE_BREACH = ("  capacity: census verdict BREACH — the room is already over "
+                        "cap.agent_panes. Every counted candidate is DEFERRED.")
+# 7.278's own addition, ruled `p-7278-wire-form-confirmed`: C1 §2.1 defines COUNTED by membership
+# in `counting.counts_toward_cap` and is SILENT on a descriptor that declares no `agent_type`. The
+# literal definition is followed (absent ⇒ not counted) and the seat is NAMED, because
+# `budget.json`'s own `counting.unclassified_with_descriptor` rule is "never silently counted and
+# never silently skipped" — and an unnamed skip here is a seat that quietly escaped the cap.
+CAPACITY_NOTE_UNDECLARED = ("  {agent}: capacity — descriptor declares NO `agent_type`, so it is "
+                            "outside counting.counts_toward_cap and spends NO cap slot. It is "
+                            "named because an unnamed skip is a seat that quietly escaped the cap; "
+                            "declare the type in its descriptor to bring it under the cap.")
+
+
 def cmd_launch(args):
     role_desc = "leader's and the chief-of-staff's (it opens seats and spends plan budget)"
     # #210: the roster is resolved FIRST because the memory gate is sized by seat COUNT, and both
@@ -11356,6 +11420,164 @@ def cmd_launch(args):
     # lower than the dry run's — and it is never caused by an admission decision.
     _adm_fold = ([w["agent"] for w, _c, _r in _adm_deferred]
                  + [w["agent"] for w, _e in invalid])
+
+    # 7.278 (C3): THE CAPACITY TERM — `cap.agent_panes`'s FIRST machine consumer on any launch
+    # path. Before this the cap existed only as a number in `budget.json` and an aggregate in
+    # `budget.py census()`; NOTHING that opens a pane had ever read it (measured at this row's
+    # start: `agent_panes` occurred ZERO times in this file).
+    #
+    # ⚠ WHY HERE, and every half of it is load-bearing (`capacity-admission-spec.md` §8.4):
+    #   • AFTER A3's admission filter — the term sizes the ADMITTED set, never the unfiltered
+    #     roster. Sizing by the roster would size the gate with seats the DAG has already refused.
+    #   • AFTER PROP-8's `validate_seat` pre-flight — an invalid harness/model must still refuse
+    #     the WHOLE set regardless of capacity. A capacity deferral must never hide a config
+    #     defect by removing the seat that carries it.
+    #   • AFTER `_adm_fold` is computed, and this is the one placement the spec did not name
+    #     because the fold landed after it was written: the fold is the EXIT-1 set, and a capacity
+    #     deferral EXITS 0 (§5.1 — it is a WAIT, not a refusal). Computing the fold first is what
+    #     keeps the two apart; a capacity deferral must never reach `_adm_fold` or `refused`.
+    #   • BEFORE the returning `if args.dry_run:` branch — §4.4's parity holds BY CONSTRUCTION,
+    #     and there is deliberately NO `args.dry_run` test anywhere in this block.
+    #   • BEFORE the launch loop — no pane opens against an unread census.
+    #   • `launch_gates` at the top of this command is NEITHER MOVED NOR RE-SIZED. Limb M (the
+    #     memory floor) was answered there, live from `budget.json`, and it STANDS. Re-deriving it
+    #     into a count here would weaken the one gate that is currently the real protection.
+    #
+    # ⚠ THE CENSUS IS CALLED EXACTLY ONCE PER INVOCATION, before the first pane opens, and its one
+    # reading bounds the WHOLE act. The reason is measurable, not stylistic: `state.json` is
+    # written by the `team-monitor` sensor, so panes THIS act opens do not appear in it until the
+    # sensor next runs. A mid-loop re-read would return the same `in_use`, hence the same
+    # `headroom`, and the act would spend the same headroom twice.
+    _cap_pkg = package_dir(args, register=False)
+    _cap_c = None
+    _cap_err = ""
+    _cap_why = []          # the degrade reasons that fired, in the §3.1 read order
+    # The module's own loader, exactly as `watch.py` already uses it. RECORDED, NOT HIDDEN: `_load`
+    # carries a leading underscore, so this is a private-name coupling. It is nonetheless the ONE
+    # loader in the repo; the alternative — a public loader in `budget.py` — would need C2, whose
+    # contract is scoped to emitting A FIELD, which a loader is not.
+    _cap_b, _cap_eb = budget_mod._load(os.path.join(str(_cap_pkg), "budget.json"), "budget.json")
+    _cap_s, _cap_es = budget_mod._load(os.path.join(str(_cap_pkg), "state.json"), "state.json")
+    # `_cap_eb` is NOT this term's refusal: the floor read at the launch gate already refused an
+    # unreadable budget (§5 R1) before this block runs. `_cap_es` is D1.
+    if _cap_es:
+        _cap_err = _cap_es
+    else:
+        try:
+            _cap_c = budget_mod.census(_cap_b or {}, _cap_s or {})
+        except Exception as _cap_exc:            # noqa: BLE001 — a sensor fault DEGRADES, never
+            _cap_err = (f"census raised {_cap_exc.__class__.__name__}: {_cap_exc}")   # refuses
+    if _cap_c is None:
+        _cap_why.append(f"the census could not be produced: {_cap_err}")            # D1
+        _cap_stamp = f"no snapshot — {_cap_err}"
+    else:
+        # ---- THE FIVE DECISION FIELDS, READ BEFORE `headroom` IS USED AT ALL (§3.1/§3.2) -------
+        #
+        # ⚠ THE ORDER IS THE POINT, AND A SELFTEST ROW ASSERTS IT OVER THIS FUNCTION'S OWN SOURCE.
+        # `headroom` is a confident-looking number that a stale, incomplete or in-run-`cross_goal`
+        # census produces just as readily as a sound one. A consumer that reads it first has
+        # already made its decision before it learns the reading was bad.
+        _cap_verdict = _cap_c["verdict"]
+        _cap_stale = _cap_c["stale"]
+        _cap_complete = _cap_c["complete"]
+        _cap_unclassified = _cap_c["unclassified"]
+        _cap_cross = _cap_c["cross_goal"]
+        # D5's predicate — THE TERM ON THE ROW, NEVER ON THE CLASS. A legitimate other-goal seat
+        # and a same-run leak both land in `cross_goal` with the SAME class value, so no
+        # enumeration over class membership separates them; the already-emitted `descriptor` field
+        # does. `census()` cannot compute this at its own home — it receives two mappings and
+        # never the run root — and giving it one would move a consumer's question into a reporter.
+        _cap_seats_root = os.path.join(os.path.abspath(str(_cap_pkg)), "seats") + os.sep
+        _cap_in_run = [_m for _m in _cap_cross
+                       if os.path.abspath(_m.get("descriptor") or "").startswith(_cap_seats_root)]
+        # ⚠ IF SEVERAL FIRE, THE REASON NAMES ALL OF THEM. A line that named only the first would
+        # be a filter that removed a reason without saying so.
+        if _cap_verdict == "UNKNOWN":                                              # D2
+            _cap_why.append("census verdict UNKNOWN")
+        if _cap_stale is True:                                                     # D3
+            _cap_why.append("census reports stale=true")
+        # D2 and D3 OVERLAP today (`stale` forces `UNKNOWN` inside `census()`). They are tested
+        # separately ON PURPOSE: they are two different facts, `budget.json`'s own `bars.staleness`
+        # names the second, and a consumer that folded them could not survive the day one stops
+        # implying the other.
+        if _cap_complete is False or _cap_unclassified:                            # D4
+            _cap_why.append(f"census reports complete=false "
+                            f"({len(_cap_unclassified)} unclassified row(s))")
+        if _cap_in_run:                                                            # D5
+            _cap_why.append(f"{len(_cap_in_run)} cross_goal row(s) resolve inside this run's own "
+                            f"seats/ — in_use under-counts and headroom over-admits")
+        _cap_age = _cap_c["snapshot_age_s"]
+        _cap_stamp = (f"snapshot age {_cap_age}s (stale after {_cap_c['stale_after_s']}s)"
+                      if _cap_age is not None
+                      else "snapshot age unknown — state.json carries no captured_at")
+    _cap_deferred = []
+    if _cap_why:
+        # ---- THE DEGRADE BRANCH — IT NEVER REFUSES -------------------------------------------
+        #
+        # A bad SENSOR reading degrades; refusing on one would mint a LAUNCH OUTAGE out of a
+        # SENSOR OUTAGE, which is the wrong fail direction. `headroom` is not read, no allowance is
+        # computed, every admitted seat proceeds, and the act NAMES on its own output that the cap
+        # was not consulted, with every reason that fired and the snapshot stamp. Limb M — the
+        # memory floor, read live at the launch gate — stands as the only capacity protection, and
+        # the exit code is untouched: a degrade is not a failure.
+        print(c(CAPACITY_DEGRADE_LINE.format(reason="; ".join(_cap_why), n=len(workers),
+                                             stamp=_cap_stamp), C_HINT))
+    else:
+        # ---- THE FULL-CAPACITY BRANCH — `headroom` IS USED ONLY FROM HERE ---------------------
+        #
+        # The allowance reads the EMITTED `headroom` and never `cap` or `in_use` directly:
+        # combining those two is `census()`'s job, and doing it here would be a second home for
+        # one fact. BREACH is a CONFIDENT reading, not a degraded one, so it takes THIS branch —
+        # never the degrade one — and defers every counted candidate. `max(0, …)` normalizes the
+        # allowance to a count; it is NOT what produces that deferral, and is not claimed to be:
+        # the loop's own `_cap_taken < _cap_allow` already defers everything on a negative value.
+        _cap_allow = max(0, _cap_c["headroom"])
+        if _cap_verdict == "BREACH":
+            print(c(CAPACITY_NOTE_BREACH, C_HINT))                                 # N3
+        if _cap_c["unaccounted"]:                                                  # N1
+            print(c(CAPACITY_NOTE_UNACCOUNTED.format(k=len(_cap_c["unaccounted"])), C_HINT))
+        if _cap_cross and not _cap_in_run:                                         # N2
+            print(c(CAPACITY_NOTE_CROSS_GOAL.format(k=len(_cap_cross)), C_HINT))
+        # COUNTED — the subsequence of ADMITTED, IN ADMITTED'S OWN ORDER, whose DECLARED
+        # `agent_type` is a member of `counting.counts_toward_cap`. The membership predicate is
+        # `budget.json`'s own, the SAME one `census()` classifies on, so the act and the census can
+        # never disagree about who spends a slot. The parked owner door is outside it because
+        # `budget.json` says so by name — this POINTS at that exclusion and MINTS none.
+        _cap_counts = set((_cap_b or {}).get("counting", {}).get("counts_toward_cap") or [])
+        # ⚠ NO ORDERING IS MINTED. `ADMITTED_FINAL` preserves A3's order exactly: no priority, no
+        # reordering, no queue. Consequence, stated rather than left to be discovered: a
+        # short-lived unblocking launch can be deferred behind long-running work. That is a WAIT
+        # that clears as panes free; an ordering would be a `leader` ruling and a separate row.
+        _cap_taken = 0
+        _cap_final = []
+        for w in workers:
+            _cap_atype = w.get("agent_type") or ""
+            if _cap_atype in _cap_counts:
+                if _cap_taken < _cap_allow:
+                    _cap_taken += 1
+                    _cap_final.append(w)
+                else:
+                    _cap_deferred.append(w)
+            else:
+                _cap_final.append(w)
+                if not _cap_atype:
+                    print(c(CAPACITY_NOTE_UNDECLARED.format(agent=w["agent"]), C_HINT))
+        workers = _cap_final
+        # NEVER FILTER SILENTLY: every capacity-deferred seat is named, with how many of the
+        # counted candidates were admitted. A filter that removes without saying what it removed
+        # and why is indistinguishable from a filter that never ran.
+        for w in _cap_deferred:
+            print(c(CAPACITY_DEFER_LINE.format(agent=w["agent"], k=_cap_taken,
+                                               m=_cap_taken + len(_cap_deferred)), C_DEAD),
+                  file=sys.stderr)
+        # ⚠ AND WHEN THE TERM EMPTIES THE SET IT STILL DOES NOT REFUSE (§5.1). The act opens no
+        # pane, names every deferral, and EXITS 0 — so the output has to carry the fact the exit
+        # code no longer carries. This is DERIVED, not chosen: this row's contract closes the
+        # refuse branch at ONE case (the floor unreadable at the instant of use), so calling
+        # `refuse()` here is unavailable — and it is also the honest reading, because an exit code
+        # that reads as a refusal makes a WAIT indistinguishable from a DENIAL.
+        if _cap_deferred and not workers:
+            print(c(CAPACITY_EMPTY_LINE, C_DEAD), file=sys.stderr)
 
     target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
     if not target and not args.dry_run:
@@ -19846,6 +20068,367 @@ def _selftest_checks(args, failures, names):
               "in the path, and invisible to every behavioural row that does not happen to admit",
               len(_a3_direct) == 1 and len(_a3_nested) == 1
               and _a3_direct[0].col_offset == 4)
+
+        # ============ 7.278 (C3): THE CAPACITY TERM ==============================================
+        # The pane cap's FIRST machine consumer on any launch path. Every row below drives the
+        # REAL `cmd_launch` against a fixture package with its own `budget.json` and `state.json` —
+        # nothing here re-implements the term, and no number of the live run's policy is copied in
+        # (the fixture declares its own, which is what a fixture budget is for).
+        #
+        # ⚠ THE THREE PATHS THIS ROW'S CONTRACT NAMES — full-capacity, degrade, refuse — each have
+        # rows below, and EACH row was proven to discriminate by a mutation actually run and
+        # observed RED (recorded in the row's completion artifact). A row whose control stays green
+        # would pass with the mechanism absent, which is the one thing a capacity gate must not do.
+        _c3l = _rs_make("c3-cap", [("cap1", ""), ("cap2", ""), ("cap3", ""),
+                                   ("capm", ""), ("capu", "")])
+        # `check_bindings` runs ABOVE the capacity block and refuses on ANY descriptor/registry
+        # divergence, so the descriptors are written to AGREE with the rows `_rs_make` generated —
+        # otherwise every row below would refuse at the binding check and read as a capacity
+        # verdict that never ran.
+        #
+        # ⚠ `capm` DECLARES `master` AND `capu` DECLARES NOTHING, and that asymmetry is the point:
+        # `master` is excluded by `budget.json`'s OWN `counting.never_counts` (this POINTS at that
+        # exclusion and mints none), while `capu` is the descriptor that declares no type at all —
+        # the edge C1 is silent on, wired to the literal definition plus a named disclosure.
+        for _c3_s, _c3_t in (("cap1", "worker"), ("cap2", "worker"), ("cap3", "worker"),
+                             ("capm", "master"), ("capu", None)):
+            (_c3l / "seats" / _c3_s / "seat.md").write_text(
+                f"---\nagent: {_c3_s}\nmodel: opus\neffort: medium\nctx-refresh: 50\n"
+                + (f"agent_type: {_c3_t}\n" if _c3_t else "")
+                + "---\nbrief\n", encoding="utf-8")
+        # An OUTSIDE-the-run seat folder, for N2's `cross_goal` half. It is deliberately NOT under
+        # the fixture package, so D5's path predicate must NOT match it.
+        _c3_out = Path(td) / "c3-other-goal" / "seats" / "elsewhere"
+        _c3_out.mkdir(parents=True)
+        (_c3_out / "seat.md").write_text("---\nagent: elsewhere\n---\nbrief\n", encoding="utf-8")
+
+        def _c3_budget(cap=2, floors=True):
+            _d = {"counting": {"counts_toward_cap": ["staff", "worker", "verifier"],
+                               "never_counts": {"master": "the owner door", "no-seat": "no descriptor"}}}
+            if floors:
+                _d["floors"] = {"launch_refuse_mb": 1, "pressure_warn_mb": 1}
+            if cap is not None:
+                _d["cap"] = {"agent_panes": cap}
+            (_c3l / "budget.json").write_text(json.dumps(_d), encoding="utf-8")
+
+        def _c3_state(seats=(), age=0.0, drop=False):
+            """Write (or REMOVE) the fixture's snapshot. `age` is seconds BEFORE now, so a row can
+            make the census stale without writing any threshold of its own — the bound is
+            `budget.py`'s and is read from the census's own emitted `stale_after_s`."""
+            _p = _c3l / "state.json"
+            if drop:
+                if _p.exists():
+                    _p.unlink()
+                return
+            _p.write_text(json.dumps({"captured_at": time.time() - age,
+                                      "box": {"available_mb": 999999},
+                                      "seats": list(seats)}), encoding="utf-8")
+
+        def _c3_run(**kw):
+            _d = dict(agent="leader", package=str(_c3l), dry_run=True)
+            _d.update(kw)
+            return refuse(cmd_launch, **_d)
+
+        def _c3_defer_lines(text):
+            return [_ln for _ln in text.splitlines() if "DEFERRED (capacity)" in _ln]
+
+        # ---- THE FULL-CAPACITY PATH: the cap BINDS, on the ADMITTED set ------------------------
+        _c3_budget(cap=2)
+        _c3_state()
+        _c3_full, _c3_full_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.278 THE FULL-CAPACITY PATH: `cap.agent_panes` BINDS a launch for the first time. "
+              "Three counted candidates, headroom 2 — the first two proceed IN THE ADMITTED SET'S "
+              "OWN ORDER and the third is deferred. Before this row the cap existed only as a "
+              "number in `budget.json` and an aggregate in `budget.py`: NOTHING that opens a pane "
+              "had ever read it, so a wave could open panes without limit while the census "
+              "reported the breach to nobody",
+              "[dry-run] cap1" in _c3_full and "[dry-run] cap2" in _c3_full
+              and "[dry-run] cap3" not in _c3_full)
+        check("7.278 NEVER FILTER SILENTLY: the capacity-deferred seat is printed BY NAME with the "
+              "count that decided it, in the same shape every other deferral in this command "
+              "uses. A filter that removes without naming what it removed and why is "
+              "indistinguishable from a filter that never ran",
+              "cap3: DEFERRED (capacity) — cap.agent_panes headroom is exhausted" in _c3_full
+              and "2 of 3 counted candidate(s) admitted" in _c3_full)
+        check("7.278 A CAPACITY DEFERRAL IS A **WAIT**, NOT A REFUSAL — it exits 0 and never joins "
+              "7.274's exit-1 fold. This is the one place the two stages must NOT be merged: an "
+              "admission deferral means the DAG refused the seat and the launch is INCOMPLETE; a "
+              "capacity deferral means the room is full and the seat launches when a pane frees. "
+              "An exit code that read as a refusal would make a wait indistinguishable from a "
+              "denial to the cadence sweep, which reads the code and nothing else",
+              _c3_full_code == 0 and "launch INCOMPLETE" not in _c3_full
+              and "NO pane was opened" not in _c3_full)
+        # ---- the exclusion is `budget.json`'s OWN, and this POINTS at it -----------------------
+        _c3_pointed, _c3_pointed_code = _c3_run(only="cap1,cap2,cap3,capm")
+        check("7.278 THE PARKED OWNER DOOR SPENDS NO CAP SLOT, and NO CARVE-OUT IS MINTED FOR IT: "
+              "`capm` launches while `cap3` — same launch, same headroom, already exhausted — does "
+              "not. The predicate is `budget.json`'s own `counting.counts_toward_cap`, the SAME "
+              "membership `census()` classifies on, so the act and the census can never disagree "
+              "about who spends a slot. The one-word test is mint versus point: this points",
+              "[dry-run] capm" in _c3_pointed and "[dry-run] cap3" not in _c3_pointed
+              and _c3_pointed_code == 0)
+        _c3_undec, _c3_undec_code = _c3_run(only="cap1,cap2,cap3,capu")
+        check("7.278 A DESCRIPTOR THAT DECLARES NO `agent_type` IS NOT COUNTED — AND IS NAMED. C1 "
+              "defines COUNTED by membership in `counts_toward_cap` and is SILENT on the absent "
+              "case; the literal definition is followed and the seat is PRINTED, because "
+              "`budget.json`'s own `counting.unclassified_with_descriptor` rule is \"never "
+              "silently counted and never silently skipped\" — and an unnamed skip here is a seat "
+              "that quietly escaped the cap. Ruled `p-7278-wire-form-confirmed`",
+              "[dry-run] capu" in _c3_undec and "[dry-run] cap3" not in _c3_undec
+              and "capu: capacity — descriptor declares NO `agent_type`" in _c3_undec
+              and _c3_undec_code == 0)
+        check("7.278 THE TYPE IS READ OFF THE **DESCRIPTOR**, NEVER OFF `state.json`: the snapshot "
+              "has no row for a seat that has not launched yet, so sizing the cap from the sensor "
+              "would read EVERY launch candidate as not-counted and the cap could never bind — "
+              "the class making the answer YES by construction. The positive control is that the "
+              "fixture's snapshot carries NO seat rows at all, and the cap still bound above",
+              {_w["agent"]: _w["agent_type"] for _w in discover_workers(_c3l / "seats")}
+              == {"cap1": "worker", "cap2": "worker", "cap3": "worker",
+                  "capm": "master", "capu": ""}
+              and json.loads((_c3l / "state.json").read_text())["seats"] == [])
+        # ---- DRY-RUN PARITY, and the EMPTY-SET WAIT --------------------------------------------
+        _c3_par_real, _c3_par_real_code = _c3_run(only="cap1,cap2,cap3", dry_run=False)
+        check("7.278 PARITY: the capacity decision, the per-seat naming and the EXIT CODE are "
+              "identical with and without `--dry-run`. It holds BY CONSTRUCTION — the block "
+              "contains no `args.dry_run` test at all — and the non-empty assertion is what stops "
+              "this comparing two absences and calling them equal",
+              _c3_defer_lines(_c3_full) != []
+              and _c3_defer_lines(_c3_full) == _c3_defer_lines(_c3_par_real)
+              and _c3_full_code == _c3_par_real_code == 0)
+        _c3_budget(cap=0)
+        _c3_opened_before = len(opened)
+        _c3_empty, _c3_empty_code = _c3_run(only="cap1,cap2,cap3", dry_run=False)
+        check("7.278 WHEN THE TERM EMPTIES THE SET IT STILL DOES NOT REFUSE (the refuse branch "
+              "stays at ONE case): no pane opens — asserted on the pane ledger itself, not on the "
+              "absence of a success line — the exit code is 0, and the output carries the fact "
+              "the exit code no longer carries, verbatim",
+              _c3_empty_code == 0 and len(opened) == _c3_opened_before
+              and "capacity: NO PANE WAS OPENED — every counted candidate was capacity-deferred"
+              in _c3_empty and "This is a WAIT, not a refusal" in _c3_empty)
+        # ---- THE DEGRADE PATH: a bad SENSOR reading degrades, it never refuses ------------------
+        _c3_budget(cap=2)
+        _c3_state(drop=True)
+        _c3_d1, _c3_d1_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.278 THE DEGRADE PATH (D1 — the census cannot be produced): the act does NOT "
+              "consult the cap, opens every admitted seat on the memory floor alone, and NAMES on "
+              "its own output that the cap was not consulted, with the reason and the snapshot "
+              "stamp. `cap3` — deferred a moment ago under the same headroom — now proceeds, "
+              "which is what proves the cap was genuinely skipped rather than merely unmentioned. "
+              "Refusing here would mint a LAUNCH outage out of a SENSOR outage: the wrong fail "
+              "direction, and the one this file already refuses elsewhere",
+              _c3_d1_code == 0 and "[dry-run] cap3" in _c3_d1
+              and _c3_defer_lines(_c3_d1) == []
+              and "capacity: CAP NOT CONSULTED — the census could not be produced: state.json is "
+                  "ABSENT" in _c3_d1
+              and "admitted 3 seat(s) on the memory floor alone" in _c3_d1
+              and "| no snapshot — state.json is ABSENT" in _c3_d1)
+        _c3_state(age=99999.0)
+        _c3_d234, _c3_d234_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.278 THE DEGRADE REASON NAMES **EVERY** CONDITION THAT FIRED, in the ruled read "
+              "order — not just the first. A stale snapshot fires D2, D3 and D4 together, and a "
+              "line naming only one of them would be a filter that removed a reason without "
+              "saying so. D2 and D3 are tested SEPARATELY even though `stale` forces `UNKNOWN` "
+              "today: they are two different facts, and a consumer that folded them could not "
+              "survive the day one stops implying the other",
+              _c3_d234_code == 0 and "[dry-run] cap3" in _c3_d234
+              and ("CAP NOT CONSULTED — census verdict UNKNOWN; census reports stale=true; "
+                   "census reports complete=false (0 unclassified row(s))") in _c3_d234
+              and "(stale after " in _c3_d234)
+        _c3_state(seats=[{"seat": "ghost", "agent_type": "unclassified",
+                          "agent_type_source": "seat", "harness": "claude",
+                          "liveness": "live", "cwd": str(_c3l / "seats" / "cap1")}])
+        _c3_d4, _c3_d4_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.278 D4 FIRES ALONE on a FRESH census over a partly-unclassified population: the "
+              "snapshot is not stale and the verdict is not UNKNOWN, so this row cannot be "
+              "satisfied by the staleness path — `complete=false` is its own degrade condition, "
+              "and the count in the reason is the census's own emitted row count",
+              _c3_d4_code == 0 and "[dry-run] cap3" in _c3_d4
+              and "CAP NOT CONSULTED — census reports complete=false (1 unclassified row(s))"
+              in _c3_d4
+              and "census verdict UNKNOWN" not in _c3_d4
+              and "census reports stale=true" not in _c3_d4)
+        _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
+                          "harness": "claude", "liveness": "live",
+                          "cwd": str(_c3l / "seats" / "cap1")}])
+        _c3_d5, _c3_d5_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.278 D5 — THE TERM ON THE **ROW**, NEVER ON THE CLASS: a `cross_goal` pane whose "
+              "own `descriptor` field resolves INSIDE this run's `seats/` degrades the act, "
+              "because `in_use` under-counts it and `headroom` therefore over-admits. A "
+              "legitimate other-goal pane and a same-run leak carry the IDENTICAL class value, so "
+              "no enumeration over the class separates them; the already-emitted path field does",
+              _c3_d5_code == 0 and "[dry-run] cap3" in _c3_d5
+              and "cross_goal row(s) resolve inside this run's own seats/" in _c3_d5)
+        _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
+                          "harness": "claude", "liveness": "live", "cwd": str(_c3_out)}])
+        _c3_n2, _c3_n2_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.278 N2 (the OTHER edge of D5, and it is a DISCLOSURE, not a degrade): a "
+              "`cross_goal` pane resolving OUTSIDE this run is ruled not to count against this "
+              "run's cap — so it is SAID and the cap limb still BINDS (`cap3` stays deferred). "
+              "Without this row D5 would be satisfied by a predicate that degraded on every "
+              "`cross_goal` row, which is the class-level answer D5 exists to avoid",
+              _c3_n2_code == 0 and "[dry-run] cap3" not in _c3_n2
+              and "cross_goal pane(s) resolve OUTSIDE this run" in _c3_n2
+              and "CAP NOT CONSULTED" not in _c3_n2)
+        _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
+                          "harness": "claude", "liveness": "live", "cwd": str(Path(td))}])
+        _c3_n1, _c3_n1_code = _c3_run(only="cap1,cap2")
+        check("7.278 N1 (a reading worth SAYING that is not worth DEGRADING on): an unaccounted "
+              "pane sits INSIDE `in_use`, so it makes the cap reading CONSERVATIVE — it "
+              "under-admits and never over-admits. It is reported and the cap still binds; "
+              "degrading on it would be degrading because the reading was SAFE",
+              _c3_n1_code == 0 and "unaccounted pane(s) are INSIDE in_use" in _c3_n1
+              and "CAP NOT CONSULTED" not in _c3_n1)
+        _c3_state()
+        _c3_budget(cap=None)
+        _c3_d2, _c3_d2_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.278 AN UNDECLARED `cap.agent_panes` DEGRADES (D2), IT DOES NOT REFUSE: `census()` "
+              "answers `UNKNOWN` with a null headroom, and a missing cap declaration is a "
+              "configuration gap, not a reason to stop a run. The refuse branch stays at exactly "
+              "one case",
+              _c3_d2_code == 0 and "[dry-run] cap3" in _c3_d2
+              and "CAP NOT CONSULTED — census verdict UNKNOWN" in _c3_d2)
+        # ---- BREACH is a CONFIDENT reading, not a degraded one ---------------------------------
+        _c3_budget(cap=1)
+        _c3_state(seats=[{"seat": "busy", "agent_type": "worker", "agent_type_source": "seat",
+                          "harness": "claude", "liveness": "live",
+                          "cwd": str(_c3l / "seats" / "cap1")},
+                         {"seat": "busy2", "agent_type": "worker", "agent_type_source": "seat",
+                          "harness": "claude", "liveness": "live",
+                          "cwd": str(_c3l / "seats" / "cap2")}])
+        _c3_br, _c3_br_code = _c3_run(only="cap1,cap2,cap3", dry_run=False)
+        check("7.278 BREACH BINDS AT ZERO AND DOES **NOT** DEGRADE: the room is already over "
+              "`cap.agent_panes`, which is a CONFIDENT reading rather than a broken one, so it "
+              "takes the full-capacity branch and every counted candidate waits. Degrading here "
+              "would open panes into a room already over its cap — treating the one reading that "
+              "says STOP as a reason to stop reading. ⚠ WHAT THIS ROW DISCRIMINATES is BREACH's "
+              "BRANCH, proven by adding BREACH to the degrade set and watching it go RED; the "
+              "`max(0, …)` clamp is NOT under test here and is not claimed to be — a negative "
+              "allowance already defers everything through the loop's own comparison",
+              "capacity: census verdict BREACH" in _c3_br
+              and len(_c3_defer_lines(_c3_br)) == 3
+              and "0 of 3 counted candidate(s) admitted" in _c3_br
+              and "CAP NOT CONSULTED" not in _c3_br and _c3_br_code == 0)
+        # ---- THE REFUSE BRANCH: EXACTLY ONE CASE, and it is the FLOOR ---------------------------
+        _c3_budget(cap=2, floors=False)
+        _c3_state()
+        _c3_r1, _c3_r1_code = _c3_run(only="cap1", dry_run=False)
+        check("7.278 THE REFUSE BRANCH — case R1, THE FLOOR ITSELF UNREADABLE AT THE INSTANT OF "
+              "USE: with no floor resolved there is no measured protection at all and admitting "
+              "would be admitting blind, so the act refuses and opens nothing. C3 MINTS NOTHING "
+              "HERE — it points at the refusal `launch_gates` ALREADY performs, which is why this "
+              "row asserts that gate's OWN exit (an `environment` refusal, code 2) and its OWN "
+              "text naming the missing field. Asserting a bare non-zero would pass on any refusal "
+              "at all, including one this term had wrongly minted",
+              _c3_r1_code == 2 and "[dry-run] cap1" not in _c3_r1
+              and "declares no floors.launch_refuse_mb" in _c3_r1
+              and "capacity:" not in _c3_r1)
+        _c3_budget(cap=2, floors=True)
+        _c3_state(drop=True)
+        _c3_r1n, _c3_r1n_code = _c3_run(only="cap1", dry_run=False)
+        check("7.278 THE REFUSE BRANCH REFUSES **ONLY** ON THAT ONE CASE (the discriminating "
+              "control): the SAME launch with the floor readable and the SENSOR gone does NOT "
+              "refuse — it degrades and proceeds. Without this pair the refusal row would be "
+              "satisfied by a term that refused on any bad reading at all, which is precisely the "
+              "wrong fail direction this branch is bounded to avoid",
+              _c3_r1n_code == 0 and "CAP NOT CONSULTED" in _c3_r1n)
+        # ---- THE STATIC ROWS: the block's own shape, asserted at the SOURCE ---------------------
+        _c3_src = _a3_inspect.getsource(cmd_launch)
+        _c3_block = _c3_src[_c3_src.index("_cap_pkg = package_dir("):
+                            _c3_src.index('target = os.environ.get("COORD_LAUNCH_TARGET")')]
+        _c3_five = ['["verdict"]', '["stale"]', '["complete"]', '["unclassified"]',
+                    '["cross_goal"]']
+        import io as _c3_io
+        import tokenize as _c3_tok
+        import textwrap as _c3_tw
+
+        def _c3_code_only(text):
+            """The block's CODE with every COMMENT removed, tokenized rather than guessed.
+
+            ⚠ THIS IS NOT TIDINESS, IT IS THE DIFFERENCE BETWEEN A CHECK AND A COINCIDENCE. A
+            source-shape row run against the raw slice reads the prose too: the comment explaining
+            WHY there is no `args.dry_run` test contains the string `dry_run`, and the comment
+            explaining why `refuse()` is unavailable here contains `refuse(`. Such a row measures
+            the commentary and inverts the moment somebody rewords it — three of these rows were
+            observed doing exactly that before this helper existed."""
+            _lines = _c3_tw.dedent(text).splitlines()
+            _cut = {}
+            for _t in _c3_tok.generate_tokens(
+                    _c3_io.StringIO("\n".join(_lines) + "\n").readline):
+                if _t.type == _c3_tok.COMMENT:
+                    _r, _col = _t.start
+                    _cut[_r] = min(_cut.get(_r, len(_lines[_r - 1])), _col)
+            return "\n".join(_ln[:_cut[_i]] if _i in _cut else _ln
+                             for _i, _ln in enumerate(_lines, 1))
+        _c3_code = _c3_code_only(_c3_block)
+        check("7.278 CRITERION 2 — THE FIVE DECISION FIELDS ARE READ **BEFORE** `headroom` IS "
+              "USED AT ALL, asserted over the function's own source in source order. `headroom` "
+              "is a confident-looking number that a stale, incomplete or in-run-`cross_goal` "
+              "census produces just as readily as a sound one: a consumer that reads it first has "
+              "already made its decision before it learns the reading was bad. Every one of the "
+              "five is asserted PRESENT first, so this can never pass by a field being absent",
+              all(_f in _c3_block for _f in _c3_five)
+              and '["headroom"]' in _c3_block
+              and max(_c3_block.index(_f) for _f in _c3_five)
+              < _c3_block.index('["headroom"]'))
+        check("7.278 PARITY BY CONSTRUCTION (asserted at the source): the capacity block contains "
+              "ZERO `dry_run` reads, so it cannot branch on the path it runs under. The positive "
+              "control is the enclosing function, which demonstrably does contain them. Asserted "
+              "over the block's CODE with comments stripped — against the raw slice this row "
+              "reads the very comment that explains the absence, and passes for the wrong reason",
+              "dry_run" not in _c3_code and "dry_run" in _c3_src)
+        check("7.278 THE CENSUS IS CALLED EXACTLY ONCE PER INVOCATION, and the cap is never "
+              "recombined from `cap` and `in_use` by hand: the act reads the EMITTED `headroom` "
+              "and nothing else, because combining those two is `census()`'s job and doing it "
+              "here would be a second home for one fact. One reading bounds the whole act — a "
+              "mid-loop re-read would return the same `in_use` and spend the same headroom twice",
+              _c3_code.count("budget_mod.census(") == 1
+              and '["in_use"]' not in _c3_code and '["cap"]' not in _c3_code)
+        check("7.278 CRITERION 1 — `cap.agent_panes` HAS A LAUNCH-PATH CONSUMER AT LAST, and the "
+              "term REFUSES NOTHING OF ITS OWN: the launch path reaches the cap through the "
+              "census, reads the membership predicate out of `budget.json` at runtime, and calls "
+              "`refuse()` ZERO times — the single refusing case is the floor's, performed by the "
+              "gate above. Both halves asserted over the block's CODE, comments stripped: the "
+              "comment stating that `refuse()` is unavailable here contains the token `refuse(`, "
+              "so against the raw slice this row could never have passed",
+              "budget_mod.census(" in _c3_code
+              and "counts_toward_cap" in _c3_code
+              and _c3_code.count("refuse(") == 0
+              and "cap.agent_panes" in CAPACITY_DEFER_LINE
+              and "cap.agent_panes" in CAPACITY_NOTE_BREACH)
+        _c3_cap_fn = [_n for _n in _a3_ast.walk(_a3_ast.parse(_a3_tw.dedent(_c3_src)))
+                      if isinstance(_n, _a3_ast.FunctionDef) and _n.name == "cmd_launch"][0]
+        _c3_direct = [_n for _n in _c3_cap_fn.body
+                      if isinstance(_n, _a3_ast.Assign)
+                      and any(getattr(_t, "id", "") == "_cap_pkg" for _t in _n.targets)]
+        check("7.278 THE PLACEMENT CHECK: the capacity block is a DIRECT CHILD of `cmd_launch`'s "
+              "body — not nested inside any `If` — and it sits BELOW `_adm_fold` (the exit-1 set) "
+              "and ABOVE the returning dry-run branch. Both halves are load-bearing: nested, it "
+              "would silently skip whole launch shapes; above the fold, a capacity WAIT would "
+              "leak into the exit code that means the launch was INCOMPLETE. ⚠ THE DRY-RUN "
+              "ANCHOR IS THE RETURNING BRANCH'S OWN FIRST STATEMENT, not the string `if "
+              "args.dry_run:` — `cmd_launch` contains TWO body-level tests of that flag and the "
+              "EARLIER one sits above this block, so anchoring on the text would have compared "
+              "the block against the wrong branch and reported RED on correct placement",
+              len(_c3_direct) == 1 and _c3_direct[0].col_offset == 4
+              and _c3_src.index("_adm_fold = (") < _c3_src.index("_cap_pkg = package_dir(")
+              < _c3_src.index("[dry-run] would refresh the worker mirror"))
+        check("7.278 THE MEMORY GATE IS NEITHER MOVED NOR RE-SIZED (criterion 7, at the source): "
+              "`launch_gates` is still called ONCE, still sized by `len(workers) or 1` — the "
+              "UNFILTERED count — and the capacity block neither calls it nor re-derives the "
+              "floor into a count of its own. It over-reserves and never under-reserves, which is "
+              "fail-safe in direction; re-sizing it to the capacity-filtered set would weaken the "
+              "one gate that is the real protection today",
+              _c3_src.count("launch_gates(args,") == 1
+              and "launch_gates(args, \"launch\", is_authorized_launcher, role_desc, "
+                  "len(workers) or 1," in _c3_src
+              and "launch_gates(" not in _c3_code
+              and "floor_source(" not in _c3_code and "read_floor(" not in _c3_code)
+        check("7.278 NOTHING ATTACHES TO `--force` OR `--force-memory` (at the source): the "
+              "capacity term reads neither flag, so no gate is re-attached to either by this "
+              "change. The memory gate answers to `--force-memory` and the role gate to "
+              "`--force`; a capacity WAIT answers to neither, and the deferral text says so",
+              "args.force" not in _c3_block and "force_memory" not in _c3_block
+              and "none may be attached to --force or --force-memory" in CAPACITY_EMPTY_LINE)
 
         # ============ F1 (7.317): THE FOURTH LANE — the grant's class widens, the FLIP's does not =
         # Ruled at `runs/run-3/decisions.md#p-fourth-lane-option-A-trade-owned` (leader,
