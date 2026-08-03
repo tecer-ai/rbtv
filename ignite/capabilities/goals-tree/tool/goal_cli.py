@@ -1028,6 +1028,19 @@ def gate_key_check(root: Path, goal_name: str, pass_folder: str,
                 refuse(tid, "dark-not-dark", f"K3: {not_dark}",
                        uncovered=classes,
                        closes="a falsy default, or an honest K1/K2 key")
+            else:
+                # § 7a AS AMENDED by the leader's ruling
+                # `p-arm-iii-RULED-a-dark-gate-flags` (2026-08-03): a SATISFIED
+                # K3 is an exit-3 source, so § 6a's "passes FLAGGED" survives and
+                # § 7a's source list gains this arm. Ships-dark is a TEMPORARY
+                # TRACKED state; a dark gate whose output cannot be told apart
+                # from a keyed one makes that state silently permanent — the
+                # failure this whole check exists to end, one level deeper.
+                # MEASURED at 7.323 before the ruling: the two outputs were
+                # byte-identical apart from the pass-folder name.
+                flags.append(f"ships-dark: {tid} lands SWITCHED OFF behind "
+                             f"{key_ref} (default {dark_default}) — the key is "
+                             f"still owed for: {', '.join(classes)}")
 
     # § 2b — arm 2's matcher is landed (`gate_key_lexicon_hits`) and selftested,
     # but the text it scans is a task's STORE text, and at the fan-in stage
@@ -1820,6 +1833,27 @@ def cmd_selftest(args) -> int:
         r = gk("t1,yes,cls-alpha,K3,fixture/coord.py#SHIPS_EMPTY,'',\n")
         check("§4 K3: an empty-string default is falsy and verifies",
               codes(r) == [], str(codes(r)))
+        # § 7a AS AMENDED (p-arm-iii-RULED-a-dark-gate-flags): a SATISFIED K3
+        # FLAGS, so a plan landing a dark gate never reads like a keyed one.
+        # 7.323 measured the unamended behaviour: the two outputs were
+        # byte-identical, which is what the ruling closes.
+        r = gk("t1,yes,cls-alpha,K3,fixture/coord.py#SHIPS_DARK,False,\n")
+        check("§7a: a satisfied K3 FLAGS — a dark gate is never silent",
+              any(x.startswith("ships-dark: t1") for x in r["flags"]), str(r["flags"]))
+        check("the ships-dark flag NAMES the class whose key is still owed",
+              any("cls-alpha" in x for x in r["flags"] if x.startswith("ships-dark:")),
+              str(r["flags"]))
+        # RED CONTROL — a KEYED gate (K1, same class, same row shape) must raise
+        # NO dark flag, or the flag is not discriminating darkness at all.
+        r = gk("t1,yes,cls-alpha,K1,t1,,\n")
+        check("red control: a keyed gate raises NO ships-dark flag",
+              not any(x.startswith("ships-dark:") for x in r["flags"]), str(r["flags"]))
+        # RED CONTROL — a REFUSED K3 must not also flag: a refusal is not a
+        # tracked dark state, and exit 1 must never be softened to 3.
+        r = gk("t1,yes,cls-alpha,K3,fixture/coord.py#SHIPS_LIT,True,\n")
+        check("red control: a REFUSED K3 raises no ships-dark flag",
+              not any(x.startswith("ships-dark:") for x in r["flags"]), str(r["flags"]))
+
         # RED CONTROL — declared dark, ships LIT.
         r = gk("t1,yes,cls-alpha,K3,fixture/coord.py#SHIPS_LIT,True,\n")
         check("red control: a TRUTHY K3 default is dark-not-dark",
@@ -1885,6 +1919,28 @@ def cmd_selftest(args) -> int:
         rc = main(["--root", str(root), "gate-key-check", "demo-goal",
                    "--pass-folder", "pass-demo"])
         check("§7a: exit 3 — flagged-pass, never 2 (argparse owns 2)", rc == 3, str(rc))
+        # § 7a as amended — the ships-dark arm END-TO-END, and UNCONFOUNDED: the
+        # class is COMPUTED from the live source at run time (§ 3c forbids a
+        # literal class name here, test fixtures included), so § 3b's
+        # partition-unverified CANNOT fire and the dark flag is the only one
+        # left. Two flag sources reaching one exit code would measure neither.
+        if lproblem is None and lclasses:
+            live_cls = sorted(lclasses)[0]
+            (pass_dir / "dark_switch.py").write_text("SHIPS_DARK = False\n",
+                                                     encoding="utf-8")
+            decl.write_text(
+                head + f"t1,yes,{live_cls},K3,dark_switch.py#SHIPS_DARK,False,\n",
+                encoding="utf-8")
+            rc = main(["--root", str(root), "gate-key-check", "demo-goal",
+                       "--pass-folder", "pass-demo"])
+            check("§7a: exit 3 — a satisfied K3 flags end-to-end", rc == 3, str(rc))
+            # RED CONTROL — the SAME row, same class, KEYED instead of dark,
+            # exits 0. That is what attributes the 3 above to the dark flag.
+            decl.write_text(head + f"t1,yes,{live_cls},K1,t1,,\n", encoding="utf-8")
+            rc = main(["--root", str(root), "gate-key-check", "demo-goal",
+                       "--pass-folder", "pass-demo"])
+            check("red control: the same row KEYED exits 0 — the 3 was the dark flag",
+                  rc == 0, str(rc))
         decl.write_text(head + "t1,,,,,,\n", encoding="utf-8")
         rc = main(["--root", str(root), "gate-key-check", "demo-goal",
                    "--pass-folder", "pass-demo"])
