@@ -2837,15 +2837,57 @@ def run_dag05_acceptance(check, env: dict) -> None:
                   for k in ("harness", "model", "effort"))
               and rows["alpha"]["ctx-refresh"] == str(afm.get("ctx-refresh")),
               str(dict(rows["alpha"])))
-        for seat in ("alpha", "beta"):
-            cpl = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
-                         "launch", "--dry-run", "--only", seat])
-            check(f"SC-1: coordinate launch --dry-run --only {seat} resolves "
-                  "a harness command",
-                  cpl.returncode == 0
-                  and "claude --model claude-opus-5" in cpl.stdout
-                  and "REFUSED" not in cpl.stdout,
-                  (cpl.stdout + cpl.stderr).strip()[:200])
+        # SC-1's launch coupling, SEQUENCED — and the order is load-bearing in
+        # BOTH directions. `alpha` is a root and admits now; `beta` names it in
+        # `after`, so the launch-admission filter defers `beta` until `alpha`
+        # has checked out `done`. Hoisting that check-out ahead of `alpha`'s own
+        # dry-run does not repair the row — it classes `alpha` `finished` and
+        # defers `alpha`'s arm instead. The dependent arm is kept (rather than
+        # dropped to a root-only arm, which CP-6 already covers) because it is
+        # the suite's ONLY exercise of the materialize -> launch coupling on a
+        # NON-ROOT seat.
+        cpl = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+                     "launch", "--dry-run", "--only", "alpha"])
+        check("SC-1: coordinate launch --dry-run --only alpha resolves "
+              "a harness command (root seat, before its own check-out)",
+              cpl.returncode == 0
+              and "claude --model claude-opus-5" in cpl.stdout
+              and "REFUSED" not in cpl.stdout,
+              (cpl.stdout + cpl.stderr).strip()[:200])
+        # SC-1 control (unmet-predecessor half): while the predecessor has NOT
+        # checked out, the dependent seat is refused BY CLASS — the term that
+        # makes the green arm below a coupling rather than a second root.
+        cpu = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+                     "launch", "--dry-run", "--only", "beta"])
+        check("SC-1 control: with its predecessor not checked out, the "
+              "dependent seat is DEFERRED with class unmet-predecessor",
+              cpu.returncode != 0
+              and "unmet-predecessor" in cpu.stderr
+              and "{'seat': 'alpha', 'state': 'no-check-out'}" in cpu.stderr
+              and "NO pane was opened." in cpu.stderr,
+              (cpu.stdout + cpu.stderr).strip()[:200])
+        # THEN the predecessor checks out `done` — read back from the surviving
+        # artifact, never from checkout's own success line.
+        coord(["--package", fx["pkg"], "--as", "alpha", "checkin", "alpha",
+               "SC-1 fixture predecessor"])
+        coord(["--package", fx["pkg"], "--as", "alpha", "checkout"])
+        # Read DEFENSIVELY: an absent artifact must RED this check, never raise
+        # out of the suite — a check that aborts the run takes every row after
+        # it down with it and reports nothing.
+        acj = pkg / "coordination" / "awaiting-close.json"
+        awaiting = (json.loads(acj.read_text(encoding="utf-8"))
+                    if acj.is_file() else {})
+        check("SC-1 setup: alpha's check-out lands disposition done on disk",
+              awaiting.get("alpha", {}).get("disposition") == "done",
+              str(awaiting)[:200])
+        cpl = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+                     "launch", "--dry-run", "--only", "beta"])
+        check("SC-1: coordinate launch --dry-run --only beta resolves "
+              "a harness command (dependent seat, predecessor done)",
+              cpl.returncode == 0
+              and "claude --model claude-opus-5" in cpl.stdout
+              and "REFUSED" not in cpl.stdout,
+              (cpl.stdout + cpl.stderr).strip()[:200])
         # SC-1 control (check_bindings half): a row that DISAGREES with the
         # descriptor refuses the same dry-run.
         text = tf.read_text(encoding="utf-8")
@@ -3735,7 +3777,8 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "SC-1": (("SC-1: a full-workflow add creates",
               "SC-1: coordinate launch --dry-run --only"),
              ("SC-1 control: a divergent registry row",
-              "SC-1 control: a deleted row")),
+              "SC-1 control: a deleted row",
+              "SC-1 control: with its predecessor not checked out")),
     "SC-2": (("SC-2: descriptor carries seat:",), ("SC-2 red",)),
     "SC-3": (("green: a non-dry run emits descriptors",),
              ("SC-3: a catalog assembling an empty body",)),
