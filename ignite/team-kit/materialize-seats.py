@@ -487,6 +487,24 @@ def effective_binding(bindings: dict, seat: str) -> dict:
     return merged
 
 
+def _manifest_after_ids(raw: str) -> list[str]:
+    """Bare predecessor ids of a manifest `after` cell — the MEMBERSHIP and
+    ordering view only; the frozen copy always writes the raw cell verbatim
+    (Rule 13). A member may carry a `[guard]` suffix and a cell may join
+    alternates with `|` (p-materializer-guard-suffix: the definition is
+    legal; the tool parses it). Bracketed content is removed BEFORE the
+    alternate split, so a `|` inside a guard value never splits — and an
+    alternate after a bracketed guard is never dropped (the check_acyclic
+    strip-then-split defect, #3386, is not replicated here)."""
+    out: list[str] = []
+    for part in raw.split(","):
+        for alt in re.sub(r"\[[^\]]*\]", "", part).split("|"):
+            alt = alt.strip()
+            if alt:
+                out.append(alt)
+    return out
+
+
 def resolve_added(args, catalog_root: Path,
                   seats_catalog: dict) -> tuple[list[str], dict, dict]:
     """Resolve the seat set this run materializes.
@@ -568,7 +586,7 @@ def resolve_added(args, catalog_root: Path,
                     str(mpath),
                 )
             raw = (row.get(MANIFEST_AFTER_COLUMN) or "").strip()
-            preds = [p.strip() for p in raw.split(",") if p.strip()]
+            preds = _manifest_after_ids(raw)
             added.append(seat)
             internal_after[seat] = preds
             internal_after_raw[seat] = raw
@@ -2251,6 +2269,18 @@ def build_fixture(tmp: Path) -> dict:
         "Seat/workflow,after,i/o,Modality\n"
         + "".join(f"s{i},,,agentic\n" for i in range(1, 6)),
         encoding="utf-8")
+    # Guarded/alternate after-cell shapes (p-materializer-guard-suffix): a
+    # guard suffix, both guard arms, and a cell mixing a top-level alternate
+    # with a '|' INSIDE a bracket (which must never split).
+    gwf = wide / "workflows" / "guard-flow"
+    gwf.mkdir(parents=True)
+    gwf.joinpath("guard-flow.csv").write_text(
+        "Seat/workflow,after,i/o,Modality\n"
+        "s1,,,agentic\n"
+        "s2,s1[go=yes],,agentic\n"
+        "s3,s1[go=no],,agentic\n"
+        "s4,\"s2|s3,s1[g=a|b]\",,agentic\n",
+        encoding="utf-8")
 
     taskforce = (
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
@@ -2331,6 +2361,10 @@ def build_fixture(tmp: Path) -> dict:
                  "seats": {"beta": {**seat_binding, "after": []}}}
     bdir.joinpath("beta.json").write_text(json.dumps(beta_only),
                                           encoding="utf-8")
+    guard = {"version": 1, "defaults": both["defaults"],
+             "seats": {f"s{i}": dict(seat_binding) for i in range(1, 5)}}
+    bdir.joinpath("guard.json").write_text(json.dumps(guard),
+                                           encoding="utf-8")
 
     # dag-06 creation inputs — the CALLER-SUPPLIED trio
     # (d-run3-seeds-from-run2-amended). Fixture stand-ins for the amended
@@ -2366,6 +2400,7 @@ def build_fixture(tmp: Path) -> dict:
         "b_extra": str(bdir / "extra.json"),
         "b_badafter": str(bdir / "badafter.json"),
         "b_broken": str(bdir / "broken.json"),
+        "b_guard": str(bdir / "guard.json"),
         "b_scramble": str(bdir / "scramble.json"),
         "b_b2": str(bdir / "b2.json"),
         "b_beta": str(bdir / "beta.json"),
@@ -2441,6 +2476,12 @@ def selftest_scenarios(fx: dict) -> list[tuple[str, list[str], int, str | None]]
          ["--package", fx["pkg9"], "--seat", "alpha", "--catalog-root",
           fx["catalog"], "--after", "chief", "--bindings", fx["b_alpha"],
           "--force-partial", "--json"], 0, None),
+        ("green: guarded + alternate after cells resolve membership — guard "
+         "suffix stripped, alternates split, '|' inside a bracket never "
+         "splits (p-materializer-guard-suffix)",
+         ["--package", fx["pkg"], "--workflow", "guard-flow",
+          "--catalog-root", fx["catalog"], "--bindings", fx["b_guard"],
+          "--root", "--dry-run", "--json"], 0, None),
         ("green: a non-dry run emits descriptors (dag-04) then appends the "
          "registry rows (dag-05)",
          wf(flags=["--root", "--json"]), 0, None),
