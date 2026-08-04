@@ -1056,6 +1056,23 @@ WAKE_PREFIX_LEN = 60
 # (starship-themed shells) sitting anywhere in cooked-mode scrollback.
 _RULE_RUN = "─" * 10  # '──────────'
 
+# P35-ghost (G-master-0804-2200, root-caused 2026-08-04): Claude Code renders a SUGGESTED next
+# prompt inside the composer sandwich as FAINT text (SGR 2 — `ESC[2m…ESC[0m`), regenerated from
+# the session's own context after a turn ends. It LOOKS like a stranded draft in a plain capture
+# and reads like a seat's note-to-self ('check execution-tactical-designer checkout' recurring in
+# the chief-of-staff pane), but it is UI chrome, not input: nothing ever typed it (no injection
+# log, session file, or history entry holds it), Enter does not submit it, and real keystrokes
+# replace it — nudges submitted CLEAN through it while two flush-Enters "failed" against it.
+# Faint is the discriminator: typed input renders at normal intensity, the ghost never does. So
+# composer-emptiness is judged on an ESCAPED capture with faint spans erased first — a plain
+# capture is structurally blind to the one bit that separates a ghost from a draft.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+_FAINT_RE = re.compile(r"\x1b\[2m.*?(?:\x1b\[(?:0|22)m|$)")
+
+
+def _strip_ansi(line):
+    return _ANSI_RE.sub("", line)
+
 # opencode draws its composer inside a '┃'-bordered box: a blank pad line, the composer's own
 # content line, another blank pad, then a 'Build · <model>' status line, in that order — the
 # composer is the FIRST non-blank line in the box's bottom-most run, not the last (that's the
@@ -1075,21 +1092,23 @@ def tmux_send_enter(pane):
     return r.returncode == 0, r.stderr.strip()
 
 
-def tmux_capture_tail(pane, lines=WAKE_TAIL_LINES):
-    """Last N on-screen lines of a pane, soft-wraps rejoined (-J). Returns (text, err)."""
-    r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", pane, "-S", f"-{lines}"],
-                       capture_output=True, text=True)
+def tmux_capture_tail(pane, lines=WAKE_TAIL_LINES, escapes=False):
+    """Last N on-screen lines of a pane, soft-wraps rejoined (-J). Returns (text, err).
+    `escapes` adds -e so SGR styling survives — the one bit that tells a P35-ghost from a draft."""
+    cmd = ["tmux", "capture-pane", "-p", "-J", "-t", pane, "-S", f"-{lines}"]
+    if escapes:
+        cmd.insert(2, "-e")
+    r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         return "", r.stderr.strip()
     return r.stdout, ""
 
 
-def _locate_claude_composer(lines):
-    """Find the bottom-most rule-sandwiched composer and return its TOP-most line — the one a
-    hard-wrapped wake's prefix starts on. Scans from the screen bottom for a rule line (the
-    sandwich's bottom rule), then walks upward collecting composer line(s) until the matching top
-    rule. A sandwich with zero lines between the rules (top rule immediately above the bottom
-    rule) is not a real composer and is skipped."""
+def _locate_claude_composer_idx(lines):
+    """Index of the bottom-most rule-sandwiched composer's TOP line, or None. Scans from the
+    screen bottom for a rule line (the sandwich's bottom rule), then walks upward collecting
+    composer line(s) until the matching top rule. A sandwich with zero lines between the rules
+    (top rule immediately above the bottom rule) is not a real composer and is skipped."""
     for i in range(len(lines) - 1, 1, -1):
         if not lines[i].startswith(_RULE_RUN):
             continue
@@ -1098,8 +1117,14 @@ def _locate_claude_composer(lines):
             j -= 1
         if j < 0 or j == i - 1:
             continue
-        return lines[j + 1]
+        return j + 1
     return None
+
+
+def _locate_claude_composer(lines):
+    """The composer's TOP-most line text — the one a hard-wrapped wake's prefix starts on."""
+    i = _locate_claude_composer_idx(lines)
+    return None if i is None else lines[i]
 
 
 def _locate_opencode_composer(lines):
@@ -1121,10 +1146,12 @@ def _locate_opencode_composer(lines):
 
 
 def _locate_composer_line(tail):
-    """Return the pane's live composer text, or None when the capture matches no known composer
-    structure (an unrecognized TUI, or a cooked-mode pane with no composer at all). Callers MUST
-    treat None as fail-safe: do not retry, do not report failure."""
-    lines = tail.splitlines()
+    """Return the pane's live composer text from an ESCAPED capture, or None when the capture
+    matches no known composer structure (an unrecognized TUI, or a cooked-mode pane with no
+    composer at all). Faint spans are erased and styling stripped BEFORE structure detection, so
+    a P35-ghost never reads as composer content. Callers MUST treat None as fail-safe: do not
+    retry, do not report failure."""
+    lines = [_strip_ansi(_FAINT_RE.sub("", l)) for l in tail.splitlines()]
     return _locate_claude_composer(lines) or _locate_opencode_composer(lines)
 
 
@@ -1143,13 +1170,42 @@ def _wake_unsubmitted(pane, text):
     composer's top-most line (round-3 fix, verifier-tick round-2 re-verification). A capture
     error is likewise treated as submitted: send-keys already reported success and there is
     nothing further to act on."""
-    tail, err = tmux_capture_tail(pane)
+    tail, err = tmux_capture_tail(pane, escapes=True)
     if err:
         return False
     composer = _locate_composer_line(tail)
     if composer is None:
         return False
     return text[:WAKE_PREFIX_LEN] in composer
+
+
+def composer_real_text(tail):
+    """The composer's REAL (typed, non-ghost) visible text from an ESCAPED capture — None when
+    no Claude composer is located, '' when the composer is empty or holds only a P35-ghost.
+    Pure, so the selftest can drive it with captured pane bytes and no tmux. Faint (SGR 2)
+    spans are erased FIRST — they are the harness's own suggestion chrome, never input — then
+    all remaining styling is stripped and the prompt glyph discounted."""
+    raw = tail.splitlines()
+    idx = _locate_claude_composer_idx([_strip_ansi(l) for l in raw])
+    if idx is None:
+        return None
+    text = _strip_ansi(_FAINT_RE.sub("", raw[idx])).strip()
+    return "" if text == "❯" else text
+
+
+def _composer_nonempty(pane):
+    """True when the pane's Claude composer already holds real content BEFORE a wake types into
+    it. Judged on the ESCAPED capture so the harness's faint ghost suggestion is not mistaken
+    for a stranded draft (P35-ghost, G-master-0804-2200: two flush-Enters "failed" against ghost
+    text nothing had typed, and every wake to the pane was refused — while real nudges submitted
+    clean through the same composer). Only the Claude composer is judged: opencode's idle
+    composer renders a placeholder ("Ask anything...") this check cannot tell from a draft, so
+    opencode panes fail safe. Capture error / no composer located → False (fail-safe: proceed
+    exactly as today)."""
+    tail, err = tmux_capture_tail(pane, escapes=True)
+    if err:
+        return False
+    return bool(composer_real_text(tail))
 
 
 def wake(pane, text):
@@ -1166,7 +1222,17 @@ def wake(pane, text):
     a throwaway pane: a closer's markdown prompt sent this way into a bash/ble.sh pane ran its
     `coordinate checkin` line for real and printed its completion line — a seat that reported done
     while no harness had ever started, and wake() returned SUCCESS. Any text long enough to be
-    multi-line goes through a file (prompt_file) so the wake line stays one line."""
+    multi-line goes through a file (prompt_file) so the wake line stays one line.
+
+    REFUSES a pane whose composer already holds content one flush Enter does not clear
+    (P35-draft). A human draft left typed-but-unsubmitted in the chief-of-staff pane's composer
+    silently ate 39 wakes over ~4h (2026-08-04): each wake stacked its text after the draft, its
+    Enter did not submit, and the prefix-verify — which reads only the TOP composer line, held by
+    the draft — reported success. One Enter is sent to flush a submittable draft; a composer
+    still non-empty after that is a loud delivery failure, never a silent stall. The harness's
+    own FAINT ghost suggestion is NOT a draft and never trips this gate (P35-ghost,
+    G-master-0804-2200 — see composer_real_text): it survives Enter by design, so treating it as
+    a draft turned every wake at an idle pane into a refusal."""
     if "\n" in text or "\r" in text:
         # s12-03: RETURNED, not printed — the caller prints it — so it goes through the
         # message-building half of `refuse`. Left as a bare literal it would be the ONE un-layered
@@ -1178,6 +1244,14 @@ def wake(pane, text):
             "Write the text to a file and wake with a one-line command that reads it "
             "(see prompt_file).")
     set_injection_context(action="wake")
+    if _composer_nonempty(pane):
+        ok, err = tmux_send_enter(pane)
+        if not ok:
+            return False, err
+        time.sleep(WAKE_ENTER_VERIFY_DELAY_RETRY)
+        if _composer_nonempty(pane):
+            return False, ("pane composer holds unsubmitted text that one Enter did not flush — "
+                           "wake refused rather than stacking into it (P35-draft)")
     ok, err = tmux_send_text(pane, text)
     if not ok:
         return False, err
@@ -13057,36 +13131,41 @@ def _selftest_checks(args, failures, names):
     tmux_send_text = lambda pane, t: (sent_texts.append(t) or (True, ""))
     tmux_send_enter = lambda pane: (enter_calls.append(pane) or (True, ""))
     capture_sequence = []
-    tmux_capture_tail = lambda pane, lines=WAKE_TAIL_LINES: (
+    tmux_capture_tail = lambda pane, lines=WAKE_TAIL_LINES, escapes=False: (
         capture_sequence.pop(0) if capture_sequence else ("", ""))
 
+    # Every wake() call below prepends ONE capture for the P35-draft pre-send composer check —
+    # it reads the pane once (twice when non-empty) BEFORE tmux_send_text, so the scripted
+    # capture sequences feed it explicitly rather than letting it eat the post-send verifies.
     sent_texts.clear(); enter_calls.clear()
-    capture_sequence[:] = [(CLAUDE_TAIL_IDLE, "")]
+    capture_sequence[:] = [(CLAUDE_TAIL_IDLE, ""), (CLAUDE_TAIL_IDLE, "")]
     ok, terr = wake("%1", "[coord wake] hello")
     check("P35: claude normal path submits on the first Enter, no retry (real idle pane tail)",
           ok and len(enter_calls) == 1 and sent_texts == ["[coord wake] hello"])
 
     sent_texts.clear(); enter_calls.clear()
-    capture_sequence[:] = [(CLAUDE_TAIL_STRANDED, ""), (CLAUDE_TAIL_IDLE, "")]
+    capture_sequence[:] = [(CLAUDE_TAIL_IDLE, ""), (CLAUDE_TAIL_STRANDED, ""),
+                           (CLAUDE_TAIL_IDLE, "")]
     ok, terr = wake("%1", "[coord wake] hello")
     check("P35: claude busy pane (real stranded-composer tail) retries Enter-only, never retypes",
           ok and len(enter_calls) == 2 and sent_texts == ["[coord wake] hello"])
 
     sent_texts.clear(); enter_calls.clear()
-    capture_sequence[:] = [(CLAUDE_TAIL_STRANDED, "")] * WAKE_ENTER_ATTEMPTS
+    capture_sequence[:] = [(CLAUDE_TAIL_IDLE, "")] + [(CLAUDE_TAIL_STRANDED, "")] * WAKE_ENTER_ATTEMPTS
     ok, terr = wake("%1", "[coord wake] hello")
     check("P35: bounded — gives up after WAKE_ENTER_ATTEMPTS, still never retypes, reports failure",
           not ok and len(enter_calls) == WAKE_ENTER_ATTEMPTS
           and sent_texts == ["[coord wake] hello"] and "unsubmitted" in terr)
 
     sent_texts.clear(); enter_calls.clear()
-    capture_sequence[:] = [(OPENCODE_TAIL_STRANDED, ""), (OPENCODE_TAIL_IDLE, "")]
+    capture_sequence[:] = [(OPENCODE_TAIL_IDLE, ""), (OPENCODE_TAIL_STRANDED, ""),
+                           (OPENCODE_TAIL_IDLE, "")]
     ok, terr = wake("%1", "[coord wake] hello")
     check("P35: opencode busy pane (real boxed-composer tail) retries Enter-only, never retypes",
           ok and len(enter_calls) == 2 and sent_texts == ["[coord wake] hello"])
 
     sent_texts.clear(); enter_calls.clear()
-    capture_sequence[:] = [(COOKED_TAIL, "")]
+    capture_sequence[:] = [(COOKED_TAIL, ""), (COOKED_TAIL, "")]
     ok, terr = wake("%1", "[coord wake] hello")
     check("P35: unparseable pane (cooked-mode, PS1 reuses '❯') fails safe — single Enter, no "
           "retry, no reported failure, despite the wake text sitting on-screen",
@@ -13097,14 +13176,15 @@ def _selftest_checks(args, failures, names):
     # tick round-2 re-verification, msg #188: round 2's full-text match against ONE captured line
     # never matches a wrapped composer, so the retry never fired where P35 actually happens).
     sent_texts.clear(); enter_calls.clear()
-    capture_sequence[:] = [(CLAUDE_TAIL_STRANDED_WRAPPED, ""), (CLAUDE_TAIL_IDLE, "")]
+    capture_sequence[:] = [(CLAUDE_TAIL_IDLE, ""), (CLAUDE_TAIL_STRANDED_WRAPPED, ""),
+                           (CLAUDE_TAIL_IDLE, "")]
     ok, terr = wake("%1", REAL_WAKE_TEXT)
     check("P35 round 3: claude busy pane, REAL wrapped composer at REAL wake length (323 chars, "
           "3 wrapped lines) — prefix-matches the sandwich's top line and retries Enter-only",
           ok and len(enter_calls) == 2 and sent_texts == [REAL_WAKE_TEXT])
 
     sent_texts.clear(); enter_calls.clear()
-    capture_sequence[:] = [(CLAUDE_TAIL_STRANDED_WRAPPED, "")] * WAKE_ENTER_ATTEMPTS
+    capture_sequence[:] = [(CLAUDE_TAIL_IDLE, "")] + [(CLAUDE_TAIL_STRANDED_WRAPPED, "")] * WAKE_ENTER_ATTEMPTS
     ok, terr = wake("%1", REAL_WAKE_TEXT)
     check("P35 round 3: bounded at real wake length — still gives up after WAKE_ENTER_ATTEMPTS, "
           "never retypes, reports failure",
@@ -13112,11 +13192,30 @@ def _selftest_checks(args, failures, names):
           and sent_texts == [REAL_WAKE_TEXT] and "unsubmitted" in terr)
 
     sent_texts.clear(); enter_calls.clear()
-    capture_sequence[:] = [(OPENCODE_TAIL_STRANDED_WRAPPED, ""), (OPENCODE_TAIL_IDLE, "")]
+    capture_sequence[:] = [(OPENCODE_TAIL_IDLE, ""), (OPENCODE_TAIL_STRANDED_WRAPPED, ""),
+                           (OPENCODE_TAIL_IDLE, "")]
     ok, terr = wake("%1", REAL_WAKE_TEXT)
     check("P35 round 3: opencode busy pane, REAL wrapped composer at REAL wake length — "
           "prefix-matches the box's first line and retries Enter-only",
           ok and len(enter_calls) == 2 and sent_texts == [REAL_WAKE_TEXT])
+
+    # ---- P35-draft: pre-existing composer content (2026-08-04 incident — a human draft in the
+    # chief-of-staff pane silently ate 39 wakes; the prefix-verify reads only the top composer
+    # line, which the draft held, so every wake reported success).
+    sent_texts.clear(); enter_calls.clear()
+    capture_sequence[:] = [(CLAUDE_TAIL_STRANDED, ""), (CLAUDE_TAIL_STRANDED, "")]
+    ok, terr = wake("%1", "[coord wake] hello")
+    check("P35-draft: composer holds a draft one flush Enter does not clear — wake REFUSES "
+          "loudly BEFORE typing anything into the pane",
+          not ok and len(enter_calls) == 1 and sent_texts == [] and "stacking" in terr)
+
+    sent_texts.clear(); enter_calls.clear()
+    capture_sequence[:] = [(CLAUDE_TAIL_STRANDED, ""), (CLAUDE_TAIL_IDLE, ""),
+                           (CLAUDE_TAIL_IDLE, "")]
+    ok, terr = wake("%1", "[coord wake] hello")
+    check("P35-draft: flushable draft — one flush Enter empties the composer, wake proceeds "
+          "and submits normally",
+          ok and len(enter_calls) == 2 and sent_texts == ["[coord wake] hello"])
 
     tmux_send_text, tmux_send_enter, tmux_capture_tail = real[13], real[14], real[15]
 
@@ -13284,7 +13383,7 @@ def _selftest_checks(args, failures, names):
         tmux_send_text = lambda pane, text: (keys_log.append((pane, text)) or (True, ""))
         tmux_send_enter = lambda pane: (keys_log.append((pane, "<Enter>")) or (True, ""))
         # stub signature/return type MUST match the real fn — a bare string here is what hid F13
-        tmux_capture_tail = lambda pane, lines=WAKE_TAIL_LINES: (f"tail-of-{pane}", "")
+        tmux_capture_tail = lambda pane, lines=WAKE_TAIL_LINES, escapes=False: (f"tail-of-{pane}", "")
         out = run(cmd_approve, target="alpha", keys="1", no_enter=False)
         check("approve: keys + Enter go to the agent's REGISTERED pane, tail echoed as TEXT "
               "(F13: it used to print the (text, err) tuple)",
@@ -23320,6 +23419,32 @@ def _selftest_checks(args, failures, names):
           terr.startswith("refused [coord input]: "))
     ok, terr = wake("%1", "one line\r")
     check("G-11: a bare carriage return is refused too — the same Enter to a shell", not ok)
+
+    # ---- P35-ghost (G-master-0804-2200): the composer-emptiness judgment must tell the
+    # harness's FAINT suggestion chrome from a real typed draft. The ghost tail below is the
+    # LIVE capture shape from pane %13, 2026-08-04 (SGR codes verbatim: colored rules with an
+    # embedded pane title, `ESC[2m` around the ghost, a status line below the sandwich).
+    _rule = "\x1b[38;5;37m" + "─" * 120
+    _ghost = "\n".join((
+        "scrollback",
+        _rule + "\x1b[38;5;16m\x1b[48;5;37m chief-of-staff \x1b[38;5;37m\x1b[49m──",
+        "\x1b[39m❯ \x1b[2mcheck execution-tactical-designer checkout\x1b[0m",
+        _rule,
+        "  \x1b[38;5;246mSonnet 5 | chief-of-staff\x1b[39m"))
+    check("P35-ghost: a faint-rendered suggestion is NOT a draft — it was refusing every wake "
+          "to an idle pane (two flush-Enters 'failed' against text nothing had typed, while "
+          "real nudges submitted clean through it)",
+          composer_real_text(_ghost) == "")
+    _draft = _ghost.replace("\x1b[2mcheck execution-tactical-designer checkout\x1b[0m",
+                            "a real typed draft")
+    check("P35-ghost: normal-intensity composer text IS still a draft — the discriminator is "
+          "the faint styling, not the content", composer_real_text(_draft) != "")
+    _empty = _ghost.replace("\x1b[2mcheck execution-tactical-designer checkout\x1b[0m", "")
+    check("P35-ghost: an empty composer stays empty under the escaped judgment",
+          composer_real_text(_empty) == "")
+    _unreset = _ghost.replace("checkout\x1b[0m", "checkout")
+    check("P35-ghost: a faint span that runs to end-of-line (no reset) is still ghost",
+          composer_real_text(_unreset) == "")
 
     _oc_seat = {"agent": "oc", "harness": "opencode", "model": "deepseek/deepseek-v4-pro",
                 "effort": "high"}
