@@ -342,14 +342,40 @@ def current_run_dir(goal_dir: Path, f: Findings) -> Path | None:
     return folders[-1] if folders else None
 
 
-def check_acyclic(rows: list[dict], f: Findings, path: Path) -> None:
-    """The after-graph MUST be acyclic (taskforce-descriptor; goal-lint rejects a cycle)."""
+def check_acyclic(rows: list[dict], f: Findings, path: Path,
+                  id_col: str = "seat", after_col: str = "after") -> None:
+    """The after-graph MUST be acyclic (taskforce-descriptor; goal-lint rejects a cycle).
+
+    This is the room's ONLY sanctioned acyclicity check (Rule 9 forbids a hand-rolled
+    walk), so a false clean here is invisible everywhere and correctable nowhere.
+
+    An ABSENT COLUMN and an EMPTY CELL are different failures and `row.get()` cannot
+    tell them apart — which is the whole defect this signature exists to close
+    (B1, G-planner-0804-1345). A caller passing `milestones.csv` (`milestone-id`) or a
+    manifest (`Seat/workflow`) used to `continue` past every row and get an EMPTY edge
+    map and a CLEAN verdict on a graph never read. So:
+
+      column absent  -> Refusal. The check CANNOT RUN on this file; saying nothing is
+                        a lie about a graph that was never traversed.
+      cell empty     -> a finding. The file is the right shape; one row is broken.
+    """
+    if rows:
+        for col, what in ((id_col, "id"), (after_col, "after")):
+            if col not in rows[0]:
+                raise Refusal(
+                    f"{path}: no '{col}' column — the {what} column was not found, so the "
+                    f"after-graph cannot be read and NO acyclicity claim can be made about "
+                    f"this file. Columns present: {', '.join(rows[0]) or '(none)'}. "
+                    f"Pass --id-col/--after-col naming this file's own columns."
+                )
     edges: dict[str, list[str]] = {}
     for row in rows:
-        seat = (row.get("seat") or "").strip()
+        seat = (row[id_col] or "").strip()
         if not seat:
+            f.add(f"every row names a {id_col}", str(path),
+                  f"a row carries an empty '{id_col}' and cannot join the graph: {row}")
             continue
-        raw = (row.get("after") or "").strip()
+        raw = (row[after_col] or "").strip()
         preds = []
         for entry in raw.split(","):
             entry = entry.strip()
@@ -364,7 +390,7 @@ def check_acyclic(rows: list[dict], f: Findings, path: Path) -> None:
         for p in preds:
             if p not in edges:
                 f.add("after edge resolves", str(path),
-                      f"seat '{seat}' lists predecessor '{p}', which is not a seat row")
+                      f"{id_col} '{seat}' lists predecessor '{p}', which is not a row of this file")
 
     WHITE, GREY, BLACK = 0, 1, 2
     colour = {s: WHITE for s in edges}
@@ -386,6 +412,67 @@ def check_acyclic(rows: list[dict], f: Findings, path: Path) -> None:
     for seat in edges:
         if colour[seat] == WHITE and visit(seat, []):
             break
+
+
+def read_md_dag(path: Path, after_col: str = "after") -> list[dict]:
+    """Rows off a markdown task DAG, whose edge set lives in prose rather than columns.
+
+    The form this run's DAG documents use, and the only one read here:
+
+        ### 7.342 — `goal-cli-failloud`
+        **`after`: EMPTY (ROOT).**            -> no predecessors
+        **`after`: `7.340, 7.341`** — …       -> two predecessors
+
+    ponytail: one document family, matched against the real artifact. A markdown
+    PIPE TABLE carrying the columns is the other plausible shape and is deliberately
+    not read — no DAG document in this corpus uses one. Add that branch when one does.
+    """
+    rows: list[dict] = []
+    after_re = re.compile(r"\*\*`" + re.escape(after_col) + r"`:\s*(.*?)\*\*", re.DOTALL)
+    for chunk in re.split(r"^#{2,4}\s+", path.read_text(encoding="utf-8"), flags=re.M)[1:]:
+        head, _, body = chunk.partition("\n")
+        ident = head.split("—")[0].strip().strip("`")
+        if not ident:
+            continue
+        m = after_re.search(body)
+        raw = "" if not m or "EMPTY" in m.group(1).upper() else m.group(1).replace("`", "")
+        rows.append({"id": ident, after_col: raw.strip()})
+    if not rows:
+        raise Refusal(
+            f"{path}: no `### <id> — …` section carrying a **`{after_col}`: …** line was "
+            f"found, so this file's edge set could not be read and NO acyclicity claim "
+            f"can be made about it."
+        )
+    return rows
+
+
+def cmd_check_acyclic(args) -> int:
+    path = Path(args.file)
+    if not path.is_file():
+        raise Refusal(f"{path}: missing")
+    if path.suffix.lower() == ".md":
+        rows = read_md_dag(path, args.after_col)
+        id_col = "id"
+    else:
+        rows = read_csv(path)
+        id_col = args.id_col
+    f = Findings()
+    check_acyclic(rows, f, path, id_col=id_col, after_col=args.after_col)
+    # The edge count is REPORTED, not implied. "Clean" over an empty edge map is the
+    # exact false green this subcommand exists to end — a reader must be able to see
+    # that a graph was traversed, not merely that nothing was said about it.
+    edges = sum(len([x for x in (r[args.after_col] or "").replace("|", ",").split(",")
+                     if x.strip()]) for r in rows)
+    print(f"check-acyclic: {path}")
+    print(f"  {len(rows)} row(s) read, keyed on '{id_col}', edges from '{args.after_col}'")
+    print(f"  {edges} edge(s) read" + ("  <-- NOTHING TO CHECK" if not edges else ""))
+    for item in f.items:
+        print(f"  FINDING [{item['check']}] {item['reason']}")
+    if f.items:
+        print(f"  {len(f.items)} finding(s) — NOT clean")
+        return 1
+    print("  clean: the after-graph is acyclic and every edge resolves")
+    return 0
 
 
 def lint_goal(root: Path, name: str) -> Findings:
@@ -1179,9 +1266,17 @@ def index_units(catalog_root: Path) -> dict[str, dict]:
     """
     units: dict[str, dict] = {}
     for path in sorted(catalog_root.rglob("*.md")):
+        # A file under a `cognitive-units/` directory IS a unit and MUST index. Every
+        # other .md under the catalog root (component.md, a workflow.md) is not one and
+        # is skipped quietly. That one structural test is what makes the refusals below
+        # DISCRIMINATING rather than merely loud, and it is measured, not assumed:
+        # all 1314 indexed units live under such a directory and no non-unit file does.
+        is_unit = "cognitive-units" in path.parts
         text = path.read_text(encoding="utf-8")
         m = FRONTMATTER_RE.match(text)
         if not m:
+            if is_unit:
+                raise Refusal(f"{path}: cognitive-unit file has no frontmatter block")
             continue
         try:
             fm = yaml.safe_load(m.group(1)) or {}
@@ -1194,10 +1289,22 @@ def index_units(catalog_root: Path) -> dict[str, dict]:
                 f"{str(exc).strip()}"
             ) from exc
         if not isinstance(fm, dict) or not fm.get("id"):
+            if is_unit:
+                raise Refusal(f"{path}: cognitive-unit frontmatter carries no `id:`")
             continue
         body = text[m.end():]
         tag = re.search(r"<([a-z0-9-]+)>(.*?)</\1>", body, re.DOTALL)
         if not tag:
+            # NEVER `continue` here either — the YAML branch above says so and this
+            # branch used to disagree with it, dropping 20 files (two whole components,
+            # one of them live) with no output at all (7.342, G-planner-0804-1735).
+            if is_unit:
+                raise Refusal(
+                    f"{path}: cognitive-unit body carries no kind-named tag. The settled "
+                    f"form (d-cu-xml-wrapper) wraps the body in `<kind>…</kind>` with no "
+                    f"attributes and keeps the kind OUT of frontmatter; a `kind:` key with "
+                    f"a bare body is the superseded form and does not index."
+                )
             continue
         unit_id = str(fm["id"]).strip()
         if unit_id in units:
@@ -2001,6 +2108,64 @@ def cmd_selftest(args) -> int:
               f"{rc} {buf2.getvalue()[:300]}")
         decl.write_text(decl_body, encoding="utf-8")
 
+        # 7.342 — the two silent skips. Each case is a RED CONTROL kept: the fix is
+        # only evidence if the pre-fix behaviour is shown failing for the right reason,
+        # and a control that lives in an ephemeral seat folder dies with the seat.
+        print("check-acyclic (7.342: the vacuous-clean paths)")
+        ca = tmp / "ca"
+        ca.mkdir()
+        (ca / "cyclic-nonseat.csv").write_text(
+            "milestone-id,after\nm-a,m-b\nm-b,m-a\n", encoding="utf-8")
+        (ca / "acyclic-nonseat.csv").write_text(
+            "milestone-id,after\nm-a,\nm-b,m-a\n", encoding="utf-8")
+        (ca / "dag.md").write_text(
+            "### 9.001 — `alpha`\n**`after`: `9.002`** — one.\n\n"
+            "### 9.002 — `beta`\n**`after`: `9.001`** — closes the loop.\n", encoding="utf-8")
+
+        def ca_run(name: str, **kw) -> int:
+            return cmd_check_acyclic(argparse.Namespace(
+                file=str(ca / name), id_col=kw.get("id_col", "seat"),
+                after_col=kw.get("after_col", "after"), **vars(ns)))
+
+        for label, name, kw in (
+            ("an ABSENT id column REFUSES (was: empty edge map, clean)",
+             "cyclic-nonseat.csv", {}),
+            ("an ABSENT after column REFUSES (a typo cannot read clean)",
+             "cyclic-nonseat.csv", {"id_col": "milestone-id", "after_col": "predecessors"}),
+        ):
+            try:
+                ca_run(name, **kw)
+                check(label, False, "no Refusal raised")
+            except Refusal:
+                check(label, True)
+        check("the same cyclic graph is REPORTED once its columns are named",
+              ca_run("cyclic-nonseat.csv", id_col="milestone-id") == 1)
+        check("red control: an ACYCLIC graph on the same key is still CLEAN",
+              ca_run("acyclic-nonseat.csv", id_col="milestone-id") == 0)
+        check("a markdown task DAG's edge set is read, and its cycle REPORTED",
+              ca_run("dag.md") == 1)
+
+        print("index_units (7.342: the silent tag drop)")
+        cat = tmp / "cat" / "demo" / "prompts" / "cognitive-units" / "roles"
+        cat.mkdir(parents=True)
+        (cat / "good.md").write_text(
+            "---\nid: demo-role\n---\n\n<role>\nbody\n</role>\n", encoding="utf-8")
+        check("a well-formed unit indexes", len(index_units(tmp / "cat")) == 1)
+        (cat / "bare.md").write_text(
+            "---\nid: demo-bare\nkind: role\n---\n\nbody with no wrapper\n", encoding="utf-8")
+        try:
+            index_units(tmp / "cat")
+            check("an untagged UNIT file is REPORTED (was: dropped in silence)", False,
+                  "no Refusal raised")
+        except Refusal as exc:
+            check("an untagged UNIT file is REPORTED (was: dropped in silence)",
+                  "bare.md" in str(exc), str(exc))
+        (cat / "bare.md").unlink()
+        (tmp / "cat" / "demo" / "component.md").write_text(
+            "---\nid: demo\n---\n\nno kind tag here, and none is owed\n", encoding="utf-8")
+        check("red control: a NON-unit file with no tag is still skipped SILENTLY",
+              len(index_units(tmp / "cat")) == 1)
+
         print("reindex")
         rc = cmd_reindex(argparse.Namespace(root=str(root), json=False))
         check("reindex exits 0", rc == 0)
@@ -2096,6 +2261,19 @@ def build_parser() -> argparse.ArgumentParser:
                         "Auditable AFTER, never gated before — it writes "
                         "gate-key-override.md and is never silent")
     p.set_defaults(func=cmd_gate_key_check)
+
+    # The room's ONLY sanctioned acyclicity check, exposed (Rule 9 forbids a hand-rolled
+    # walk, and three ordered callers needed one). Reachable only from `lint` before 7.342.
+    p = add_common(sub.add_parser(
+        "check-acyclic",
+        help="the after-graph of a csv or a markdown task DAG is acyclic (exit 0/1)"))
+    p.add_argument("file", help="a .csv (taskforce, milestones, a manifest) or a .md task DAG")
+    p.add_argument("--id-col", default="seat",
+                   help="the column naming each node (csv only; default: seat). "
+                        "milestones.csv is milestone-id, a manifest is 'Seat/workflow'")
+    p.add_argument("--after-col", default="after",
+                   help="the column (or markdown label) carrying each node's predecessors")
+    p.set_defaults(func=cmd_check_acyclic)
 
     p = add_common(sub.add_parser("selftest", help="end-to-end exercise on a throwaway tree"))
     p.set_defaults(func=cmd_selftest)
