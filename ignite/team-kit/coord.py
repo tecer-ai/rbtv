@@ -11689,13 +11689,37 @@ def cmd_launch(args):
             print(c(CAPACITY_EMPTY_LINE, C_DEAD), file=sys.stderr)
 
     target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
+    # 7.362 (F18, G-m4-demo-workflow-registrar-0803-2307): a DAEMON-FIRED exec holds NEITHER
+    # variable — `runToolLikeExec` passes `envFile: null`, so the exec inherits only the systemd
+    # user manager's environment, measured to contain neither (`systemctl --user
+    # show-environment` -> 0 matches; a real transient unit printed both UNSET). `--tmux-target`
+    # is that exec's only way to name a target, and it is an INPUT to the refusal below, never a
+    # weakening of it: an absent or empty flag leaves `target` exactly as the two variables left
+    # it, and the same refusal fires. THE EMPTY-TARGET DEFAULT IS NEVER WIDENED — tmux resolves
+    # an empty target to the MOST RECENT session (measured: the LIVE room), which is what this
+    # refusal exists to prevent, so the assignment below is GUARDED on a non-empty value and must
+    # never become an unconditional `target = args.tmux_target`.
+    #
+    # ⚠ THE LINE ABOVE IS AN ANCHOR: `7.278`'s static rows slice `cmd_launch`'s own source at the
+    # literal `target = os.environ.get("COORD_LAUNCH_TARGET")`. Everything this row adds sits
+    # AFTER it, so that slice is byte-identical to what those rows already measure.
+    _f18_explicit = str(getattr(args, "tmux_target", "") or "").strip()
+    if _f18_explicit:
+        target = _f18_explicit
     if not target and not args.dry_run:
         refuse(
             "environment",
             "launch opens tmux panes and this shell is not inside tmux (no $TMUX_PANE),"
-            " so there is no window to open them in.\nRun it from leader's tmux pane, or use "
-            "--dry-run to see the commands it would run.",
+            " so there is no window to open them in.\nRun it from leader's tmux pane, pass"
+            " --tmux-target <pane-or-window-id> (what a daemon-fired exec does: it inherits no"
+            " tmux environment at all), or use --dry-run to see the commands it would run.",
             1)
+    if _f18_explicit and not args.dry_run:
+        # The carriage has to be OBSERVABLE, or a capture cannot tell a resolved target from a
+        # refusal that never fired. Printed only when the flag supplied it: an env-resolved
+        # launch prints exactly what it printed before.
+        print(c(f"tmux target: {target} (from --tmux-target; the environment carried none)",
+                C_HINT), file=sys.stderr)
 
     if args.dry_run:
         for cwd in dict.fromkeys(w["cwd"] for w in workers
@@ -20521,6 +20545,64 @@ def _selftest_checks(args, failures, names):
               "satisfied by a term that refused on any bad reading at all, which is precisely the "
               "wrong fail direction this branch is bounded to avoid",
               _c3_r1n_code == 0 and "CAP NOT CONSULTED" in _c3_r1n)
+
+        # ---- 7.362 (F18): THE EXPLICIT TMUX TARGET, AND THE DEFAULT THAT IS NEVER WIDENED ------
+        # `G-m4-demo-workflow-registrar-0803-2307`: a daemon-fired exec inherits NO tmux
+        # environment (`runToolLikeExec` passes `envFile: null`), so it reaches this launch,
+        # prints its admission verdicts, and then refuses to open anything. `--tmux-target`
+        # supplies that missing input. BOTH ARMS RUN HERE BECAUSE ONE PROVES NOTHING: an arm
+        # showing the flag carried would pass just as well against a term that had DEFAULTED an
+        # empty target — and that default is the live-room hazard (tmux resolves an empty target
+        # to the MOST RECENT session; measured, the live room), which is why the empty arm is a
+        # peer row and not a footnote.
+        _c3_budget(cap=5, floors=True)
+        _c3_state()
+        _f18_prior = {_k: os.environ.get(_k) for _k in ("COORD_LAUNCH_TARGET", "TMUX_PANE")}
+        _f18_prior_wake = wake_ok["v"]
+        for _k in _f18_prior:
+            os.environ.pop(_k, None)          # the daemon exec's OWN environment, reproduced
+        wake_ok["v"] = True
+        _f18_splits = len(split_targets)
+        try:
+            _f18_none, _f18_none_code = _c3_run(only="cap1", dry_run=False)
+            _f18_blank, _f18_blank_code = _c3_run(only="cap1", dry_run=False, tmux_target="   ")
+            _f18_mid = len(split_targets)
+            _f18_ok, _f18_ok_code = _c3_run(only="cap1", dry_run=False,
+                                            tmux_target="%f18-explicit")
+        finally:
+            wake_ok["v"] = _f18_prior_wake
+            for _k, _v in _f18_prior.items():
+                if _v is None:
+                    os.environ.pop(_k, None)
+                else:
+                    os.environ[_k] = _v
+        check("7.362 THE TARGET IS CARRIED BY `--tmux-target` INTO PLACEMENT, not merely accepted "
+              "by the parser: with NEITHER `COORD_LAUNCH_TARGET` nor `TMUX_PANE` set — the "
+              "measured environment of a daemon-fired exec — the launch does NOT refuse, names "
+              "the target it resolved, and hands THAT EXACT id to tmux. Asserting only the "
+              "absence of the refusal would pass against a term that resolved some OTHER target, "
+              "which is the one failure mode that reaches a room nobody named",
+              _f18_ok_code == 0
+              and "no $TMUX_PANE" not in _f18_ok
+              and "tmux target: %f18-explicit (from --tmux-target" in _f18_ok
+              and len(split_targets) == _f18_mid + 1
+              and split_targets[-1] == "%f18-explicit")
+        check("7.362 THE DISCRIMINATING CONTROL — THE EMPTY-TARGET DEFAULT IS NEVER WIDENED: the "
+              "SAME launch with the flag ABSENT, and again with the flag present but BLANK, both "
+              "still REFUSE at the `environment` layer and hand tmux nothing at all. An empty "
+              "target must never resolve to 'the most recent session' — that is how a stray "
+              "launch reaches the LIVE room, and it is the refusal this row supplies an input to "
+              "rather than removes. The blank arm is separate from the absent arm on purpose: a "
+              "term that merely tested `tmux_target is None` would pass the first and fail this. "
+              "The refusal must also NAME the remedy this caller can actually use: a daemon-fired "
+              "exec cannot 'run it from leader's tmux pane' and gains nothing from `--dry-run`, "
+              "so a refusal offering only those two teaches it the path is shut when it is not",
+              _f18_none_code == 1 and _f18_blank_code == 1
+              and "no $TMUX_PANE" in _f18_none and "no $TMUX_PANE" in _f18_blank
+              and "tmux target:" not in _f18_none and "tmux target:" not in _f18_blank
+              and "--tmux-target" in _f18_none and "--tmux-target" in _f18_blank
+              and _f18_mid == _f18_splits)
+
         # ---- THE STATIC ROWS: the block's own shape, asserted at the SOURCE ---------------------
         _c3_src = _a3_inspect.getsource(cmd_launch)
         _c3_block = _c3_src[_c3_src.index("_cap_pkg = package_dir("):
@@ -24704,6 +24786,17 @@ def build_parser():
         "next: coordinate workers — every seat must check in; one that does not never booted")
     s.add_argument("--only", help="comma-separated agent names to launch (stages: e.g. --only judge-ux,judge-parity)")
     s.add_argument("--dry-run", action="store_true", help="print the command each seat would start with, open nothing")
+    # 7.362 (F18): NOT an override and NOT a member of the --force family — it overrides no gate
+    # and admits no seat. It SUPPLIES the input the environment refusal already demands, for the
+    # one caller that cannot carry it any other way: a daemon-fired exec inherits no tmux
+    # environment (`runToolLikeExec` passes `envFile: null`). Absent or empty it changes nothing.
+    s.add_argument("--tmux-target", dest="tmux_target", metavar="ID", default="",
+                   help="the tmux pane or window id the new seats are opened relative to, named "
+                        "EXPLICITLY instead of inherited from $COORD_LAUNCH_TARGET/$TMUX_PANE. "
+                        "For a daemon-fired exec, which has neither. NOT an override: empty or "
+                        "absent falls through to those two variables and to the same refusal — "
+                        "an empty target is never defaulted, because tmux resolves one to the "
+                        "MOST RECENT session, which is how a stray launch reaches the live room")
     s.add_argument("--force-memory", action="store_true",
                    help="override the MEMORY gate only (--force does not: it covers the role gate)")
     # 7.251 (C1.2): NOT an override and NOT a member of the --force family. It admits ONE named
