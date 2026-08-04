@@ -549,6 +549,28 @@ tools:
       - --budget-s
       - "120"
 
+  # ── r-restart-daemon-job (owner, 2026-08-04) — the leader-triggerable restart ──
+  # The daemon restart stops requiring an owner's hand. NO THROWAWAY TWIN, and the absence
+  # is reasoned rather than forgotten (elicitation-brief O-3): there is no throwaway daemon
+  # to restart, so a twin would either restart the LIVE daemon — a second live firing, not a
+  # twin — or target a unit that does not exist, which probes nothing.
+  #
+  # ⚠ argv[0] is the ABSOLUTE interpreter + absolute script, never a bare command: a
+  # tool-like exec inherits the systemd --user manager's PATH (runToolLikeExec passes
+  # `envFile: null`), and that PATH does not contain ~/.local/bin.
+  #
+  # ⚠ LANDED IS NOT LIVE. This file is boot-read, so this entry reaches the daemon only
+  # through a restart — today the owner's one arming restart, thereafter this job itself.
+  restart-daemon:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/restart-daemon.py
+      - --unit
+      - rbtv-ignite
+      # The script INVENTS no default for this — it is required there, supplied here.
+      - --budget-s
+      - "120"
+
   # ── G-221 (A) — the IN-DAEMON arm of the verification trigger ──────────────
   # Leader ruling #1373/#1400: A+B. B is the systemd timer (deploy/rbtv-probe-suite.timer).
   #
