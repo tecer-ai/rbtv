@@ -132,6 +132,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -274,7 +275,46 @@ ALLOWED_BINDING_KEYS = frozenset((
     "after", "cwd-mode", "description", "agent_type", "harness", "model",
     "effort", "mode", "ctx-refresh", "window", "senders", "close",
     "auto-wake", "ephemeral", "broadcast", "component", "relays",
+    "pass-folder",
 ))
+
+# ---- pass-folder substitution (B4, B5, G-planner-0804-1502) ----
+
+# The chief-of-staff's pass registry (r-progress-governor): one row per
+# planning pass, `closed` empty while the pass is OPEN.
+PASSES_NAME = "passes.csv"
+
+# The TWO legal pass forms, SIBLINGS directly under `planning/` — a briefing
+# folder is never nested inside a milestone folder:
+#   planning/m{N}-{milestone-name}/  MILESTONE pass (d-milestone-id-and-folder-form)
+#   planning/briefing-<name>/        BRIEFING pass  (r-briefing-pass-planning-home)
+# Both are admitted, and the briefing form is the COMMON case (run-3's planning
+# surface holds 26 folders, 25 of them `briefing-*`). Capture 1/2 is the pass
+# TAG — what the per-pass artifact names are built from (`manifest-<tag>.csv`).
+PASS_FOLDER_RE = re.compile(
+    r"\Aplanning/(?:(m\d+)-[A-Za-z0-9][A-Za-z0-9._-]*"
+    r"|briefing-([a-z0-9][a-z0-9-]*))/\Z")
+
+# The pass-scoped placeholders a unit body carries. LONGEST FIRST: the two path
+# forms contain the bare `m{N}`, so substituting the bare token first would
+# leave a half-rewritten path. A survivor in an emitted descriptor is the
+# defect this substitution exists to close — the executor derives its own write
+# path, which is the hunt P3 forbids.
+PASS_PLACEHOLDERS = (
+    "planning/m{N}-{milestone-name}/",
+    "planning/<pass-folder>/",
+    "m{N}",
+)
+
+# The EXPLICIT opt-out. A substituter cannot tell a placeholder being USED (a
+# write surface the executor must be handed) from one being MENTIONED (a unit
+# whose subject matter IS the placeholder — every unit of this very wave quotes
+# `m{N}` while specifying the substitution). Substituting a mention corrupts
+# the specification; refusing it blocks the seat. So the author DECLARES it,
+# and the declaration is greppable: `pass-folder: none` says "these are
+# mentions, this seat names no pass surface". Silence stays a refusal — the
+# defect being closed is the SILENT placeholder, never the declared one.
+PASS_FOLDER_NONE = "none"
 
 # The assembled projection's shapes this file READS (it never emits a block
 # itself — SK-7): the assembler's frontmatter fence and its attributed
@@ -600,6 +640,51 @@ def validate_milestone(args, package: Path) -> None:
         )
 
 
+def check_repass(package: Path, added: list[str]) -> None:
+    """--repass INVERTS check_collisions: the seat folder AND its registry row
+    must ALREADY exist, because a repass re-renders a descriptor a previous
+    materialize wrote — it never mints a seat.
+
+    This is G-planner-0804-1502's chosen fix (alternative (a), re-materialize
+    the descriptor when a pass opens). Until it existed the act was impossible:
+    check_collisions hard-refuses an existing seat and --force-partial demands
+    a BYTE-MATCH, so an ephemeral seat relaunched into a new pass could only
+    keep booting on the previous pass's render."""
+    rows = {(r.get("seat") or "").strip()
+            for r in _csv_rows(package / TASKFORCE_NAME)}
+    for seat in added:
+        target = package / "seats" / seat / "seat.md"
+        if not target.is_file():
+            raise Refuse(
+                "repass-no-descriptor",
+                f"--repass re-renders an EXISTING descriptor and "
+                f"seats/{seat}/seat.md does not exist — materializing a new "
+                "seat is the plain run, never --repass",
+                str(target),
+            )
+        if seat not in rows:
+            raise Refuse(
+                "repass-no-row",
+                f"--repass leaves the registry untouched and {TASKFORCE_NAME} "
+                f"carries no row for seat '{seat}' — the descriptor and the "
+                "row would disagree from the first launch",
+                str(package / TASKFORCE_NAME),
+            )
+
+
+def repass_descriptors(plan: dict) -> list[str]:
+    """The --repass write: REPLACE each existing seat.md with the freshly
+    rendered one, atomically (tmp in the same directory + os.replace, the
+    discipline every other writer here uses). Nothing else is touched — no
+    registry row, no run register, no package surface."""
+    written: list[str] = []
+    for seat in plan["added_seats"]:
+        target = Path(plan["package"]) / "seats" / seat / "seat.md"
+        _atomic_replace(target, plan["descriptors"][seat])
+        written.append(str(target))
+    return written
+
+
 def check_collisions(package: Path, added: list[str], force_partial: bool) -> None:
     """Materialize never overwrites, never merges. A re-run after a partial
     failure is the deliberate --force-partial (its byte-match completion is
@@ -702,6 +787,87 @@ def _resolve_inline_refs(text: str, units: dict, seat: str) -> str:
         f"inline references in seat '{seat}' did not resolve within 10 "
         "passes — a reference cycle among unit bodies",
     )
+
+
+def _pass_values(seat: str, b: dict, package: str) -> tuple[str, str]:
+    """(pass folder, pass tag) for this seat's binding — ("", "") when the
+    binding declares no `pass-folder`.
+
+    The pass folder is a per-PASS value and a descriptor is a per-SEAT
+    artifact: freezing one into the other at materialization and never
+    refreshing it is the single root cause under B4, B5 and
+    G-planner-0804-1502. So it arrives as a BINDING (per materialize run),
+    is validated against the two legal forms, and is checked against the
+    run's OPEN passes before a single character of it reaches a descriptor.
+    """
+    raw = str(b.get("pass-folder", "") or "").strip()
+    if not raw:
+        return "", ""
+    if raw == PASS_FOLDER_NONE:
+        return PASS_FOLDER_NONE, ""
+    folder = raw if raw.endswith("/") else raw + "/"
+    m = PASS_FOLDER_RE.match(folder)
+    if not m:
+        raise Refuse(
+            "pass-folder-invalid",
+            f"bindings for seat '{seat}' carry pass-folder '{raw}' — the only "
+            "legal forms are 'planning/m{N}-{milestone-name}/' (a MILESTONE "
+            "pass, d-milestone-id-and-folder-form) and 'planning/briefing-"
+            "<name>/' (a BRIEFING pass, r-briefing-pass-planning-home); a "
+            "wrong write path is worse than an absent one, so it is refused, "
+            "never coerced",
+        )
+    pass_id = folder[len("planning/"):-1]
+
+    # G-planner-0804-1502, the staleness half: the pass a descriptor is
+    # rendered FOR must be a pass this run has OPEN. A package carrying no
+    # passes.csv gets NO check (bootstrap-tolerant — the registry was minted
+    # 2026-08-04 and older packages predate it); that absence is a missing
+    # guard, never a silently satisfied one.
+    rows = _csv_rows(Path(package) / PASSES_NAME)
+    if rows:
+        open_ids = [(r.get("pass-id") or "").strip() for r in rows
+                    if not (r.get("closed") or "").strip()]
+        if pass_id not in open_ids:
+            raise Refuse(
+                "pass-not-open",
+                f"seat '{seat}' would be rendered for pass '{pass_id}', which "
+                f"is not an OPEN row of {PASSES_NAME} (open: "
+                + (", ".join(open_ids) or "none")
+                + ") — a descriptor rendered for a closed or unknown pass is "
+                "the stale render G-planner-0804-1502 measured three times, "
+                "the third one behaviorally",
+                str(Path(package) / PASSES_NAME),
+            )
+    return folder, (m.group(1) or m.group(2))
+
+
+def substitute_pass(text: str, seat: str, folder: str, tag: str) -> str:
+    """Substitute the resolved pass folder into a rendered descriptor — and
+    REFUSE when a placeholder would survive with no pass folder bound.
+
+    Silently emitting the placeholder is the current behaviour and it IS the
+    defect: it produces a descriptor that looks complete and hands its reader
+    a hunt. A binding that carries no pass-folder is fine for a seat whose
+    units name no pass surface; it is a refusal the moment one does."""
+    if folder == PASS_FOLDER_NONE:
+        return text
+    if not folder:
+        hit = next((p for p in PASS_PLACEHOLDERS if p in text), None)
+        if hit is None:
+            return text
+        raise Refuse(
+            "pass-folder-missing",
+            f"seat '{seat}' renders the pass placeholder '{hit}' and its "
+            "bindings carry no 'pass-folder' — the executor would derive its "
+            "own write path (the hunt P3 forbids). Declare pass-folder: "
+            "'planning/<pass folder>/' for this pass, or pass-folder: "
+            f"'{PASS_FOLDER_NONE}' when the unit MENTIONS the placeholder "
+            "rather than naming a write surface with it",
+        )
+    for token in PASS_PLACEHOLDERS[:-1]:
+        text = text.replace(token, folder)
+    return text.replace(PASS_PLACEHOLDERS[-1], tag)
 
 
 def _descriptor_frontmatter(seat: str, b: dict, package: str,
@@ -847,6 +1013,15 @@ def _descriptor_frontmatter(seat: str, b: dict, package: str,
         "description": description,
         "cwd": cwd,
         "agent_type": agent_type,
+    }
+    # The pass this descriptor was rendered FOR, present only when the binding
+    # declares it. It is what makes a stale descriptor DETECTABLE by its own
+    # occupant: before this key, "which pass is this seat on?" was inferred
+    # from a description string, and G-planner-0804-1502 is what that costs.
+    pass_folder, _ = _pass_values(seat, b, package)
+    if pass_folder:
+        fm["pass"] = pass_folder
+    fm |= {
         "harness": harness,
         "model": model,
         "effort": effort,
@@ -977,9 +1152,13 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
         header = ("---\n"
                   + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True)
                   + "---\n")
-        plan["descriptors"][seat] = (
+        # B4/B5 — the substitution fires on the WHOLE emitted text, the last
+        # act before it becomes the descriptor: a fix judged at the source
+        # instead of at the render is the failure this exists to prevent.
+        folder, tag = _pass_values(seat, b, package)
+        plan["descriptors"][seat] = substitute_pass(
             header + intro + "\n\n".join(text for _, text in blocks)
-            + "\n" + tail)
+            + "\n" + tail, seat, folder, tag)
 
 
 # ---------------------------------------------------------------- plan
@@ -1032,7 +1211,7 @@ def result_of(plan: dict, dry_run: bool) -> dict:
     appended = plan.get("rows_appended")
     if appended is None:
         appended = len(registry.get("append_lines", plan["added_seats"]))
-    return {
+    result = {
         "ok": True,
         "dry_run": dry_run,
         "package": plan["package"],
@@ -1041,6 +1220,13 @@ def result_of(plan: dict, dry_run: bool) -> dict:
         "taskforce_rows_appended": appended,
         "warnings": plan["warnings"],
     }
+    if dry_run:
+        # The RENDER, not just the write plan. A command that cannot show you
+        # what it would emit forces every review to judge the SOURCE instead
+        # of the render — which is exactly how 43 pass placeholders survived
+        # into every descriptor unnoticed (B4).
+        result["descriptors"] = plan["descriptors"]
+    return result
 
 
 # ------------------------------------------- dag-06 run-package creation
@@ -1727,7 +1913,31 @@ def append_run_register_row(plan: dict) -> int:
 
 def run(args) -> dict:
     package = validate_package(args.package)
+    repass = bool(getattr(args, "repass", False))
+    if repass:
+        if args.after:
+            raise Refuse(
+                "repass-with-after",
+                "--repass never changes an edge — the registry row it "
+                "re-renders against is left byte-untouched; pass --root",
+            )
+        if args.force_partial:
+            raise Refuse(
+                "repass-with-force-partial",
+                "--repass and --force-partial are opposite acts: one REPLACES "
+                "a descriptor deliberately, the other refuses anything that "
+                "does not byte-match",
+            )
     creation = plan_package_creation(package, args)  # dag-06 (plans, no write)
+    if repass and creation:
+        raise Refuse(
+            "repass-incomplete-package",
+            "--repass re-renders inside an EXISTING run package and this one "
+            "is missing "
+            + ", ".join(c["surface"] for c in creation)
+            + " — complete the package with a plain materialize first",
+            str(package),
+        )
     catalog_root = Path(args.catalog_root)
     if not catalog_root.is_dir():
         raise Refuse(
@@ -1743,11 +1953,29 @@ def run(args) -> dict:
     check_bindings_cover(bindings, added)
     attach_after = validate_after(args, package, added)
     validate_milestone(args, package)
-    check_collisions(package, added, args.force_partial)
+    if repass:
+        check_repass(package, added)
+    else:
+        check_collisions(package, added, args.force_partial)
     units = index_units(catalog_root)
     assembled = assemble_all(added, bindings, catalogs, units)
     plan = build_plan(package, added, internal_after, internal_after_raw,
                       attach_after, assembled, bindings, args, creation)
+    if repass:
+        # A repass renders and REPLACES descriptors, nothing else: the
+        # registry row, the run register and every package surface are the
+        # previous materialize's and stay byte-untouched.
+        plan["writes"] = [
+            {"kind": "seat-descriptor-repass", "seat": seat,
+             "path": str(package / "seats" / seat / "seat.md")}
+            for seat in added
+        ]
+        plan["rows_appended"] = 0
+        render_descriptors(plan, catalogs[0], units)
+        if args.dry_run:
+            return result_of(plan, dry_run=True)
+        repass_descriptors(plan)
+        return result_of(plan, dry_run=False)
     # dag-04 + dag-05: EVERY gate fires HERE — the emission gates, then the
     # three registry validations — before the dry-run return and before any
     # write, so a refusal always leaves zero files and zero rows.
@@ -1835,6 +2063,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="complete only the MISSING half of a partial "
                         "materialize failure (asserts the existing half "
                         "matches byte for byte)")
+    p.add_argument("--repass", action="store_true", dest="repass",
+                   help="RE-RENDER the descriptor(s) of seat(s) that already "
+                        "exist, for the pass the bindings now declare — the "
+                        "act a new pass opening on a reused ephemeral seat "
+                        "needs (G-planner-0804-1502). Replaces seat.md and "
+                        "NOTHING else: no registry row, no run register, no "
+                        "package surface. Requires --root.")
     return p
 
 
@@ -3863,6 +4098,10 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "RR-2": (("RR-2 green",), ("RR-2 red",)),
     "AS-2": (("AS-2 green",), ("AS-2 control",)),
     "AS-4": (("SK-4: the whole suite is identical",), ("SK-4 control",)),
+    # The pass-folder substitution rows (B4, B5, G-planner-0804-1502).
+    "PF-1": (("PF-1 green",), ("PF-1 red",)),
+    "PF-2": (("PF-2 green",), ("PF-2 red",)),
+    "PF-3": (("PF-3 green",), ("PF-3 red",)),
 }
 
 
@@ -3895,6 +4134,188 @@ def rollup_rows(records: list[tuple[str, bool]]
         if bad:
             failing[row] = "; ".join(bad)
     return lines, failing
+
+
+def _pf_fixture(root: Path) -> dict:
+    """A hermetic catalog + package for the pass-folder rows. Its OWN tmp tree,
+    deliberately outside the shared fixture's: SK-5 hashes that one and asserts
+    the exact disk delta, and PF-3's green arm legitimately REPLACES a file."""
+    comp = root / "catalog" / "pf-comp"
+
+    def unit(rel: str, uid: str, body: str) -> None:
+        p = comp / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f"---\nid: {uid}\ndescription: {uid}\n---\n\n{body}\n",
+                     encoding="utf-8")
+
+    # The one unit that NAMES a pass surface — every placeholder spelling.
+    unit("prompts/cognitive-units/roles/pf-role.md", "pf-role",
+         "<role>\nYou are the pass seat.\n</role>")
+    unit("prompts/cognitive-units/permissions/pf-permissions.md",
+         "pf-permissions", "<permissions>\nWrite your own outputs.\n"
+                           "</permissions>")
+    unit("prompts/cognitive-units/procedures/pf-procedure.md", "pf-procedure",
+         "<procedure>\nWrite `planning/m{N}-{milestone-name}/brief.md` and "
+         "the manifest `manifest-m{N}.csv`.\nRead "
+         "`planning/<pass-folder>/spine.md`.\n</procedure>")
+    unit("tasks/cognitive-units/task-goals/pf-goal.md", "pf-goal",
+         "<task-goal>\nProve the substitution.\n</task-goal>")
+    unit("tasks/cognitive-units/scopes/pf-scope.md", "pf-scope",
+         "<scope>\nThe fixture tree.\n</scope>")
+    unit("tasks/cognitive-units/done-contracts/pf-done.md", "pf-done",
+         "<done-contract>\nThe brief exists.\n</done-contract>")
+    comp.joinpath("prompts.csv").write_text(
+        "prompt-id,role,permissions,procedure,description\n"
+        "pf-prompt,pf-role,pf-permissions,pf-procedure,pf prompt\n",
+        encoding="utf-8")
+    comp.joinpath("tasks.csv").write_text(
+        "task-id,task goal,scope,done contract,description\n"
+        "pf-task,pf-goal,pf-scope,pf-done,pf task\n", encoding="utf-8")
+    comp.joinpath("seats.csv").write_text(
+        "seat-id,executor,task,staffing-hints,description\n"
+        "pf,pf-prompt,pf-task,,the pass seat\n", encoding="utf-8")
+
+    pkg = root / "goals" / "pf-goal" / "runs" / "run-2"
+    (pkg / "seats").mkdir(parents=True)
+    (pkg / "coordination").mkdir()
+    (pkg / TASKFORCE_NAME).write_text(",".join(TASKFORCE_HEADER) + "\n",
+                                      encoding="utf-8")
+    (pkg / STATE_CSV_NAME).write_text(STATE_CSV_HEADER + "\n",
+                                      encoding="utf-8")
+    (pkg / "conduct.md").write_text("conduct\n", encoding="utf-8")
+    (pkg / "CLAUDE.md").write_text("claude\n", encoding="utf-8")
+    (pkg / "budget.json").write_text(
+        json.dumps({"floors": {"context-floor-pct": 20}}), encoding="utf-8")
+    (pkg / PASSES_NAME).write_text(
+        "pass-id,clause-tag,declared-budget,opened,closed,outcome\n"
+        "m1-first-milestone,PRODUCT,seats=1;rounds=1,2026-01-01 00:00,,\n"
+        "briefing-a-briefing,META,seats=1;rounds=1,2026-01-02 00:00,,\n"
+        "briefing-closed-one,META,seats=1;rounds=1,2026-01-01 00:00,"
+        "2026-01-01 12:00,ACCEPTED\n", encoding="utf-8")
+
+    bdir = root / "bindings"
+    bdir.mkdir()
+    base = {"agent_type": "worker", "harness": "claude",
+            "model": "claude-opus-5", "effort": "high", "mode": "interactive"}
+    paths = {}
+    for name, pf_value in (("ms", "planning/m1-first-milestone/"),
+                           ("br", "planning/briefing-a-briefing/"),
+                           ("none", PASS_FOLDER_NONE),
+                           ("bad", "planning/a-briefing/"),
+                           ("closed", "planning/briefing-closed-one/"),
+                           ("absent", None)):
+        entry = dict(base)
+        if pf_value is not None:
+            entry["pass-folder"] = pf_value
+        p = bdir / f"{name}.json"
+        p.write_text(json.dumps({"defaults": {"cwd-mode": "seat-folder"},
+                                 "seats": {"pf": entry}}), encoding="utf-8")
+        paths[name] = str(p)
+    return {"catalog": str(root / "catalog"), "pkg": pkg, "b": paths}
+
+
+def _pf_run(fx: dict, binding: str, **over):
+    """One in-process materialize against the PF fixture; returns the result
+    dict, or the Refuse it raised."""
+    args = argparse.Namespace(
+        package=str(fx["pkg"]), seat="pf", workflow=None,
+        catalog_root=fx["catalog"], after=None, root=True,
+        bindings=fx["b"][binding], milestone_id=None, conduct=None,
+        claude_md=None, budget_json=None, run_type=None, dry_run=True,
+        as_json=False, force_partial=False, repass=False)
+    for k, v in over.items():
+        setattr(args, k, v)
+    try:
+        return run(args)
+    except Refuse as r:
+        return r
+
+
+def run_pass_substitution_acceptance(check) -> None:
+    """PF-1..PF-3 — B4, B5 and G-planner-0804-1502, both arms each."""
+    root = Path(tempfile.mkdtemp(prefix="ms-pf-"))
+    try:
+        fx = _pf_fixture(root)
+
+        # ---- PF-1: the substitution itself, in BOTH legal pass forms.
+        ms = _pf_run(fx, "ms")["descriptors"]["pf"]
+        br = _pf_run(fx, "br")["descriptors"]["pf"]
+        check("PF-1 green: a MILESTONE-pass render carries the resolved "
+              "folder and ZERO literal m{N}",
+              "planning/m1-first-milestone/brief.md" in ms
+              and "manifest-m1.csv" in ms
+              and "m{N}" not in ms and "{milestone-name}" not in ms, ms[:400])
+        check("PF-1 green: a BRIEFING-pass render resolves the "
+              "briefing-<name>/ write path in both placeholder spellings",
+              "planning/briefing-a-briefing/brief.md" in br
+              and "planning/briefing-a-briefing/spine.md" in br
+              and "manifest-a-briefing.csv" in br
+              and "m{N}" not in br, br[:400])
+        check("PF-1 green: the emitted frontmatter DECLARES the pass it was "
+              "rendered for",
+              "pass: planning/briefing-a-briefing/" in br, br[:200])
+        absent = _pf_run(fx, "absent")
+        check("PF-1 red: a binding that OMITS pass-folder is REFUSED, never "
+              "rendered with the placeholder intact",
+              isinstance(absent, Refuse)
+              and absent.code == "pass-folder-missing", str(absent)[:300])
+
+        # ---- PF-2: the two legal forms are the ONLY ones, and the pass must
+        # be OPEN. The `none` opt-out is the declared mention case.
+        none = _pf_run(fx, "none")["descriptors"]["pf"]
+        check("PF-2 green: pass-folder: none renders, preserving the "
+              "placeholder VERBATIM (a unit that MENTIONS it, declared)",
+              "planning/m{N}-{milestone-name}/brief.md" in none
+              and "pass: none" in none, none[:400])
+        bad, closed = _pf_run(fx, "bad"), _pf_run(fx, "closed")
+        check("PF-2 red: a pass folder in neither legal form is refused, "
+              "never coerced",
+              isinstance(bad, Refuse) and bad.code == "pass-folder-invalid",
+              str(bad)[:300])
+        check("PF-2 red: a pass folder naming a CLOSED pass is refused "
+              "(G-planner-0804-1502's staleness guard)",
+              isinstance(closed, Refuse) and closed.code == "pass-not-open",
+              str(closed)[:300])
+
+        # ---- PF-3: --repass, the chosen G-planner-0804-1502 fix. Materialize
+        # for the milestone pass, CLOSE it, then re-render for the open one.
+        _pf_run(fx, "ms", dry_run=False)
+        smd = fx["pkg"] / "seats" / "pf" / "seat.md"
+        before = smd.read_text(encoding="utf-8")
+        tf_before = (fx["pkg"] / TASKFORCE_NAME).read_text(encoding="utf-8")
+        (fx["pkg"] / PASSES_NAME).write_text(
+            (fx["pkg"] / PASSES_NAME).read_text(encoding="utf-8")
+            .replace("m1-first-milestone,PRODUCT,seats=1;rounds=1,"
+                     "2026-01-01 00:00,,",
+                     "m1-first-milestone,PRODUCT,seats=1;rounds=1,"
+                     "2026-01-01 00:00,2026-01-03 00:00,ACCEPTED"),
+            encoding="utf-8")
+        stale = _pf_run(fx, "ms", dry_run=False, repass=True)
+        check("PF-3 red: --repass carrying the now-CLOSED pass is refused "
+              "and the descriptor on disk is byte-unchanged",
+              isinstance(stale, Refuse) and stale.code == "pass-not-open"
+              and smd.read_text(encoding="utf-8") == before, str(stale)[:300])
+        res = _pf_run(fx, "br", dry_run=False, repass=True)
+        after = smd.read_text(encoding="utf-8")
+        check("PF-3 green: --repass RE-RENDERS the existing descriptor for "
+              "the newly open pass — the stale pass folder is gone",
+              not isinstance(res, Refuse)
+              and "pass: planning/briefing-a-briefing/" in after
+              and "planning/m1-first-milestone/" not in after
+              and [w["kind"] for w in res["writes"]]
+              == ["seat-descriptor-repass"], str(res)[:300])
+        check("PF-3 green: --repass leaves the registry row BYTE-IDENTICAL "
+              "(it re-renders a descriptor, it never re-registers a seat)",
+              (fx["pkg"] / TASKFORCE_NAME).read_text(encoding="utf-8")
+              == tf_before)
+        ghost = _pf_run(fx, "br", dry_run=False, repass=True,
+                        package=str(fx["pkg"]), seat="pf",
+                        after="somebody")
+        check("PF-3 red: --repass never changes an edge — --after is refused",
+              isinstance(ghost, Refuse) and ghost.code == "repass-with-after",
+              str(ghost)[:300])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def run_selftest() -> int:
@@ -3960,6 +4381,10 @@ def run_selftest() -> int:
 
     print("run-register acceptance pass (RR-1/RR-2 — the opening half)")
     run_run_register_acceptance(check, clean_env)
+
+    print("pass-folder acceptance pass (PF-1/PF-2/PF-3 — B4, B5, "
+          "G-planner-0804-1502; both arms each)")
+    run_pass_substitution_acceptance(check)
 
     print("\ndag-07 row rollup — one line per acceptance row; a row passes "
           "only when BOTH arms pass (R-6/AS-2)")
