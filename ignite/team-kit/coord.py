@@ -3414,13 +3414,147 @@ def pane_agent(base, pane):
     return hit[-1]["agent"] if hit else ""
 
 
+# ---- The DAEMON-EXEC identity lane (F16 / store row 7.360; run issue G-planner-0804-1501 arm 1).
+#
+# THE DEFECT THIS CLOSES. This tool and the daemon disagreed about what an identity IS.
+# `resolve_agent` accepted `--as NAME`, and with no tmux pane the contradiction check below cannot
+# fire — so a claim simply STOOD. The daemon's own gate (`server/seat-identity/identity.js`, task
+# 7.11 §4b) was built to refuse exactly that: it consults kernel measurables and says in its own
+# words that "there is no env var, no `--as`, no flag, and no config that can substitute for or
+# override the match", because an asserted `COORD_AGENT` once outranked verified pane resolution
+# and two agents ran under one roster name (G-111). Measured consequence: a daemon-fired
+# `coord.py … launch` could pass the role gate ONLY by writing `--as leader` into
+# `config/spawn-profiles.yaml` — an assertion dressed as configuration.
+#
+# So this lane gives the daemon path an identity it does not have to CLAIM. It follows identity.js
+# link for link: the caller supplies MEASURABLES, never a name, and every link is something the
+# caller cannot write.
+#
+#   1. `/proc/self/cgroup`  -> the transient unit this process is inside. Kernel-maintained; no env
+#                              var, flag or config sets it.
+#   2. `rbtv-ignite.service` -> must be ACTIVE, and its MainPID's `/proc/<pid>/environ` carries the
+#                              daemon's own data root.
+#   3. `heart.db` `jobs_log` -> a LIVE turn row for that unit_name. THIS is the discriminating step,
+#                              and it is why link 1 alone is not enough: any local process can run
+#                              `systemd-run --user --unit=rbtv-worker-<uuid>` and wear the name. The
+#                              unit name is a NAMING convention, not a credential — the same thing
+#                              identity.js says about a seat-folder path.
+#
+# FAILS CLOSED EVERYWHERE. Every unreadable, absent or ambiguous input returns '' (no identity),
+# never a name — because the point of a resolver is to be the thing that says "nobody".
+#
+# AND IT IS PLACED LAST IN `resolve_agent` ON PURPOSE. What stood at that position was
+# `sys.exit(2)`, so this lane can only ADD resolution where there was none: it never displaces a
+# pane's registered roster row, and it does not touch `--as` precedence (that is arm 2's bound, not
+# this one's). Zero behaviour change for every caller that already resolved.
+DAEMON_IDENTITY = "ignite-daemon"
+IGNITE_UNIT = "rbtv-ignite.service"
+DAEMON_DATA_ROOT_DEFAULT = "/var/lib/rbtv-ignite"   # config/spawn-profiles.yaml's seeded data_root
+# `spawn/carrier.js` mints `rbtv-worker-<sessionId>`; systemd renders that as a .service unit and
+# the cgroup line carries it as the path LEAF. Anchored on the separator and on `.service` so a
+# substring appearing anywhere else in the line cannot smuggle a unit name in.
+DAEMON_WORKER_UNIT_RE = re.compile(r"/(rbtv-worker-[0-9A-Za-z][0-9A-Za-z-]{7,63})\.service\b")
+# The TURN statuses that mean "this exec is still alive" (heart schema.sql § jobs_log). A finished
+# turn's unit name must not resolve: the exec it named is gone.
+DAEMON_LIVE_TURN_STATUSES = ("launching", "running")
+
+
+def daemon_worker_unit(cgroup_text):
+    """The daemon-spawned transient unit this cgroup text names, or ''. Pure: measurable in, name
+    out — it holds no policy and reads nothing ambient."""
+    m = DAEMON_WORKER_UNIT_RE.search(cgroup_text or "")
+    return m.group(1) if m else ""
+
+
+def daemon_heart_db():
+    """The LIVE daemon's own `heart.db` path, read off the running unit — or '' when unanswerable.
+
+    ⚠ `--user` IS LOAD-BEARING AND IS NOT A STYLE CHOICE (watch.py `daemon_identity()`'s measured
+    lesson). The unit is user-scoped; the SYSTEM bus answers `LoadState=not-found` / `MainPID=0` /
+    exit 0, byte-identical to a unit that genuinely does not exist. coord cannot import watch
+    (watch imports coord), so this asks for the two properties it needs and treats every answer
+    that is not a determinate `active` as NO IDENTITY — which is the safe direction here, unlike
+    watch's, where the same ambiguity had to be reported rather than resolved."""
+    try:
+        out = subprocess.run(["systemctl", "--user", "show", IGNITE_UNIT,
+                              "--property=ActiveState,MainPID"],
+                             capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if out.returncode != 0:
+        return ""
+    kv = {}
+    for line in (out.stdout or "").splitlines():
+        k, _, v = line.partition("=")
+        kv[k.strip()] = v.strip()
+    if kv.get("ActiveState") != "active":
+        return ""
+    pid = kv.get("MainPID", "")
+    if not pid.isdigit() or int(pid) <= 0:
+        return ""
+    # The RUNNING environment, not the unit's declared `Environment=`: a deploy may carry the data
+    # root in an `EnvironmentFile=`, which `show --property=Environment` does not render at all.
+    root = ""
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as fh:
+            for entry in fh.read().decode("utf-8", "replace").split("\0"):
+                if entry.startswith("RBTV_IGNITE_DATA_ROOT="):
+                    root = entry.split("=", 1)[1]
+    except OSError:
+        return ""
+    return os.path.join(root or DAEMON_DATA_ROOT_DEFAULT, "heart.db")
+
+
+def daemon_exec_identity(cgroup_text=None, db_path=None):
+    """`ignite-daemon` when this process IS a live daemon-fired exec; '' otherwise. Never raises.
+
+    Both inputs are injectable so a probe or a self-test can supply REAL measurables against a
+    throwaway store WITHOUT this function growing an assertion channel — identity.js's own
+    `checkIdentity({cwd, pid})` seam, for identity.js's own reason: a probe supplies measurables,
+    it does not supply a claimed name. Nothing in argv and nothing in the environment reaches
+    either parameter; the only caller in the tool passes neither."""
+    if cgroup_text is None:
+        try:
+            with open("/proc/self/cgroup", "r", encoding="utf-8") as fh:
+                cgroup_text = fh.read()
+        except OSError:
+            return ""
+    unit = daemon_worker_unit(cgroup_text)
+    if not unit:
+        return ""
+    if db_path is None:
+        db_path = daemon_heart_db()
+    if not db_path or not os.path.exists(db_path):
+        return ""
+    import sqlite3  # stdlib; imported HERE because only a daemon exec ever reaches this line
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+        try:
+            # The placeholders are BUILT FROM THE CONSTANT, never hand-counted: a hand-written
+            # `IN (?, ?)` silently decouples from `DAEMON_LIVE_TURN_STATUSES`, and because every
+            # sqlite error here fails CLOSED, the decoupling shows up as "nobody ever resolves"
+            # rather than as an exception. Measured: a mutation that added a third status left the
+            # lane inert instead of reddening its own row, which is how this was found.
+            placeholders = ",".join("?" * len(DAEMON_LIVE_TURN_STATUSES))
+            row = con.execute(
+                f"SELECT 1 FROM jobs_log WHERE unit_name = ? AND status IN ({placeholders}) "
+                f"LIMIT 1",
+                (unit,) + DAEMON_LIVE_TURN_STATUSES).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return ""
+    return DAEMON_IDENTITY if row else ""
+
+
 def resolve_agent(args, required=True):
     """Who is calling, resolved instead of typed (T1 — F1: identity used to be hand-typed into
     every command and never verified; a sender/recipient reversal recorded leader as the sender
     of another seat's message, and impersonation-by-typo was silent).
 
     Order: `--as NAME` > `COORD_AGENT` (injected into every launched/closed/renewed seat's
-    harness command) > the calling pane's registered roster row. An explicit `args.agent`
+    harness command) > the calling pane's registered roster row > the DAEMON-EXEC lane
+    (`daemon_exec_identity`, F16 — see its block above). An explicit `args.agent`
     attribute carries --as semantics — that is the internal API watch.py calls through, and it
     runs outside any pane, so no contradiction can fire there.
 
@@ -3446,10 +3580,18 @@ def resolve_agent(args, required=True):
         return claimed
     if registered:
         return registered
+    # F16 — the daemon-exec lane, LAST. Every line above already failed to resolve, and what stood
+    # at this position was the refusal below, so this can only add an identity where there was
+    # none. It is reached with NO arguments: the measurables come from the kernel and from the
+    # daemon's own store, never from this call.
+    daemon = daemon_exec_identity()
+    if daemon:
+        return daemon
     if not required:
         return ""
     print(f"error: cannot resolve who you are — no --as NAME, no COORD_AGENT in the environment, "
-          f"and this pane ({pane or 'not inside tmux'}) has no active roster row.\n"
+          f"this pane ({pane or 'not inside tmux'}) has no active roster row, and this process is "
+          f"not a live daemon-fired exec.\n"
           f"Check in first: {coord_invocation(args)} checkin <your-agent> \"<what you are working "
           f"on>\" — or pass --as <your-agent>.", file=sys.stderr)
     sys.exit(2)
@@ -14160,6 +14302,70 @@ def _selftest_checks(args, failures, names):
         check("T1: unresolvable identity teaches checkin instead of guessing",
               code == 2 and "checkin" in out and "--as" in out)
         calling_pane["v"] = ""
+
+        # ---- F16 (store row 7.360, G-planner-0804-1501 arm 1): the DAEMON-EXEC identity lane ----
+        #
+        # Every row drives the REAL resolver with injected MEASURABLES — a cgroup text and a store
+        # path — and never with a claimed name, which is the property under test. The store is a
+        # throwaway carrying the ONE column shape the lane reads.
+        import sqlite3 as _f16_sqlite
+        _f16_db = str(pkg / "f16-heart.db")
+        _f16_live = "rbtv-worker-11111111-2222-3333-4444-555555555555"
+        _f16_dead = "rbtv-worker-99999999-8888-7777-6666-555555555555"
+        _f16_con = _f16_sqlite.connect(_f16_db)
+        _f16_con.execute("CREATE TABLE jobs_log (unit_name TEXT, status TEXT)")
+        _f16_con.executemany("INSERT INTO jobs_log VALUES (?, ?)",
+                             [(_f16_live, "running"), (_f16_dead, "done")])
+        _f16_con.commit()
+        _f16_con.close()
+        _f16_cg = ("0::/user.slice/user-1000.slice/user@1000.service/app.slice/"
+                   "{unit}.service\n")
+        check("F16: a daemon-fired exec resolves to a NAMED identity from kernel measurables "
+              "alone — its cgroup names a daemon-spawned unit and the daemon's own store carries a "
+              "LIVE turn row for it. No --as, no COORD_AGENT, no pane, nothing claimed",
+              daemon_exec_identity(cgroup_text=_f16_cg.format(unit=_f16_live),
+                                   db_path=_f16_db) == DAEMON_IDENTITY)
+        check("F16 CONTROL: an exec whose cgroup names NO daemon-spawned unit resolves to NO "
+              "identity — a resolver that names everybody has resolved nothing",
+              daemon_exec_identity(cgroup_text="0::/user.slice/user-1000.slice/session-3.scope\n",
+                                   db_path=_f16_db) == "")
+        check("F16 CONTROL: a worker-SHAPED cgroup with no row at all in the daemon's own store "
+              "resolves to NO identity — the unit name is a naming convention, not a credential, "
+              "and any local process can systemd-run --user --unit=rbtv-worker-<uuid> to wear it",
+              daemon_exec_identity(
+                  cgroup_text=_f16_cg.format(unit="rbtv-worker-dead-beef-cafe-0000-000000000000"),
+                  db_path=_f16_db) == "")
+        check("F16 CONTROL: a unit whose only store row is a FINISHED turn resolves to NO "
+              "identity — the exec that unit named is gone, and its name must not outlive it",
+              daemon_exec_identity(cgroup_text=_f16_cg.format(unit=_f16_dead),
+                                   db_path=_f16_db) == "")
+        # THE SEAM (G-134's lesson: helpers green, the composition never taken). These two are the
+        # rows that fail when the lane is authored but never wired, and when it is wired too early.
+        # ⚠ THE `SystemExit` CATCH IS LOAD-BEARING, not defensive dressing. Un-wired, this exact
+        # call reaches `resolve_agent`'s refusal and EXITS — which aborts the whole suite, and
+        # `--expect-fail` refuses an abort as evidence about any check (G-66). Without the catch
+        # the mutation that deletes the wiring proves nothing; with it, the row simply goes red.
+        # Measured: the first run of this mutation aborted at 837 checks and returned no verdict.
+        _f16_real = globals()["daemon_exec_identity"]
+        globals()["daemon_exec_identity"] = lambda **_kw: DAEMON_IDENTITY
+        try:
+            calling_pane["v"] = "%99"   # a pane no roster row claims
+            try:
+                with redirect_stderr(io.StringIO()):
+                    _f16_wired = resolve_agent(ns())
+            except SystemExit:
+                _f16_wired = "<refused>"
+            calling_pane["v"] = "%3"    # alpha's registered pane
+            _f16_ranked = resolve_agent(ns())
+        finally:
+            globals()["daemon_exec_identity"] = _f16_real
+            calling_pane["v"] = ""
+        check("F16 (wiring): `resolve_agent` ITSELF consults the daemon lane — with no claim, no "
+              "COORD_AGENT and no roster row, the position that used to exit 2 now resolves",
+              _f16_wired == DAEMON_IDENTITY)
+        check("F16: the lane is LAST — a pane's REGISTERED roster row still outranks it, so no "
+              "daemon-side reading can ever displace a verified seat identity",
+              _f16_ranked == "alpha")
 
         # ---- T6: hard role gates (F14 — these commands documented a rule they never enforced) ----
         out, code = refuse(cmd_launch, agent="beta", only="hk-1", dry_run=True)
