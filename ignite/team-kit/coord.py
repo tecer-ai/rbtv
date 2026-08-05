@@ -9603,6 +9603,123 @@ def taskforce_after(pkg):
     return out
 
 
+# ---------- 7.383: the GUARDED `after` MEMBER — its parse, its values, its key ----------
+#
+# THE DEFECT THIS CLOSES, measured before the fix and not inferred. A guarded dependency is written
+# into `taskforce.csv` as `<seat>[<key>=<value>]` — the materializer writes it and
+# `p-materializer-guard-suffix` rules the shape legal. The readiness loop then handed that WHOLE
+# STRING to `terminal_disposition` as a seat name. Nothing stripped the bracket, so the lookup was
+# for a seat that cannot exist, `None` came back, and the member rendered `<no check-out>`.
+# CATEGORICALLY: every guarded edge in every run was permanently unmet no matter what its
+# predecessor did. The control: the leader ruled K3's disposition `done` and the edge still read
+# `<no check-out>` — a roster problem clears on that, a name-lookup problem cannot.
+#
+# ⚠ THE PARSE IS A MIRROR, NOT A SIBLING. `materialize-seats.py`'s `_manifest_after_ids` already
+# reads this grammar, and its ONE non-obvious ordering property is load-bearing: bracketed content
+# is removed BEFORE the alternate split, so a `|` INSIDE a guard value never reads as an alternate
+# (`check_acyclic`'s #3386 strip-then-split defect is what happens when the two are ordered the
+# other way). This function reproduces that order deliberately. Two homes for one grammar is the
+# defect class that BORE this bug; they are kept in step by that order and by the self-test row
+# that drives both.
+#
+# ⚠ A GUARD NEVER AUTO-SATISFIES. That single property is the whole blast-radius argument for
+# changing a term every run's readiness arithmetic reads: no row whose guard is genuinely
+# unsatisfied can be admitted by this change, because admission requires a RECORDED RULING, and a
+# row that has none stays BLOCKED with a guard-honest reason instead of the name-lookup lie.
+# Stripping the bracket WITHOUT evaluating the guard would have been the smaller diff and would
+# have silently admitted exactly those rows.
+
+# The guarded-member grammar: `name[key=value]`, ONE trailing bracket group. `value` admits `|`
+# because the alternate test below runs on the BRACKET-STRIPPED text — a `|` that survives to here
+# is inside a guard value and is not an alternate. A bracketed token that does NOT match this
+# grammar (`name[nokey]`, a second group) is NOT a guarded member and falls to the bare path, where
+# it renders exactly as it does today: unmet, `<no check-out>`. That is the fail-safe direction —
+# an unparseable guard must never become a satisfied one.
+GUARDED_MEMBER_RE = re.compile(r"\A(?P<name>[^\[\]]+)\[(?P<key>[^\[\]=]+)=(?P<value>[^\[\]]*)\]\Z")
+
+
+def parse_after_member(token):
+    """(name, key, value, unsupported) for ONE member of an `after` cell.
+
+    `name`        the CLEAN seat name — what `terminal_disposition` is asked about.
+    `key`/`value` the guard's two halves, or `(None, None)` on a bare member.
+    `unsupported` True for an OR-alternate, whose readiness is a different system entirely.
+
+    THE ALTERNATE ARM FAILS LOUD RATHER THAN PICKING A LIMB. `a[g=y]|b` asks "either of these",
+    and a half-implementation would silently satisfy the edge on whichever arm it happened to
+    resolve — an admission nobody ruled. It renders `<unsupported-alternate>` and blocks."""
+    t = (token or "").strip()
+    # `_manifest_after_ids`' own ordering, reproduced: brackets out FIRST, alternate test SECOND.
+    if "|" in re.sub(r"\[[^\]]*\]", "", t):
+        return None, None, None, True
+    m = GUARDED_MEMBER_RE.match(t)
+    if m:
+        return (m.group("name").strip(), m.group("key").strip(),
+                m.group("value").strip(), False)
+    return t, None, None, False
+
+
+# The guard-value surface. NEW with this change, and deliberately its own file rather than a column
+# on `taskforce.csv`: that file has ONE writer (the materialize command) and a ruling is not a
+# materialization. Append-only, LAST ROW PER `(seat, key)` WINS — a supersession is an append, so
+# the record of what was ruled first survives the ruling that replaced it.
+#
+# ⚠ AN ABSENT FILE MEANS "NO RULINGS YET", NEVER AN ERROR. Every package predating this change has
+# no such file, and the fail-safe direction is that all their guarded edges stay BLOCKED — which is
+# where they already were. The other direction (absent file ⇒ nothing to check ⇒ met) would admit
+# every guarded row in every run in one release.
+GUARD_VALUES_FILE = "guard-values.csv"
+GUARD_VALUES_COLS = ["seat", "key", "value", "source", "ruled-by", "stamp"]
+
+
+def load_guard_values(base):
+    """{(seat, key): {col: cell}} from `coordination/guard-values.csv`. `{}` when absent."""
+    header, rows = read_csv_table(Path(base) / GUARD_VALUES_FILE, [])
+    if not rows or not {"seat", "key", "value"} <= set(header):
+        return {}
+    idx = {c: i for i, c in enumerate(header)}
+    out = {}
+    for r in rows:
+        pad_row(r, header)
+        seat, key = r[idx["seat"]].strip(), r[idx["key"]].strip()
+        if seat and key:
+            out[(seat, key)] = {c: (r[idx[c]].strip() if c in idx else "")
+                                for c in GUARD_VALUES_COLS}
+    return out
+
+
+def guarded_pairs(pkg):
+    """{(seat, key): [raw member tokens]} — every guarded pair a LIVE `after` member references.
+
+    The verb's referenced-pair refusal reads this and nothing else: a ruling on a pair no edge
+    consumes is a typo until proven otherwise, and a typo that writes is folklore."""
+    out = {}
+    for preds in taskforce_after(pkg).values():
+        for p in preds:
+            name, key, _value, unsupported = parse_after_member(p)
+            if unsupported or key is None:
+                continue
+            out.setdefault((name, key), []).append(p)
+    return out
+
+
+def append_guard_value(base, seat, key, value, source, ruled_by):
+    """APPEND one ruling row. Returns the row as written. Creates the file with its header."""
+    path = Path(base) / GUARD_VALUES_FILE
+    header, rows = read_csv_table(path, GUARD_VALUES_COLS)
+    header, widened = widen_header(header, GUARD_VALUES_COLS)
+    if widened:
+        rows = [pad_row(r, header) for r in rows]
+    idx = {c: i for i, c in enumerate(header)}
+    row = ["" for _ in header]
+    for col, val in (("seat", seat), ("key", key), ("value", value),
+                     ("source", source), ("ruled-by", ruled_by), ("stamp", now())):
+        row[idx[col]] = val
+    rows.append(row)
+    write_csv_table(path, header, rows)
+    return {c: row[idx[c]] for c in header}
+
+
 # ---------- U2.1 (7.224): the seat → STORE ROW binding ----------
 #
 # THE DEFECT THIS CLOSES. Until this term existed the seat-radius predicate read NO store input at
@@ -9834,15 +9951,24 @@ def ready_seat_rows(args):
     # 7.224: hoisted ONCE for the same reason `awaiting` and `undeclared` are — N seats must cost
     # one read of the store file, not N. `seat_store_outcomes` caches per resolved path internally.
     outcomes = seat_store_outcomes(pkg)
+    # 7.383: every member token parsed ONCE, here, and the parse is what the loop below reads. The
+    # map is keyed on the RAW token because that is what `preds` carries and what the reason string
+    # must keep rendering — the CLEAN name it yields is what the LOOKUP uses. Those are two
+    # different needs of one token and collapsing them is precisely the defect this closes.
+    parsed = {p: parse_after_member(p) for preds in after.values() for p in preds}
+    # 7.383: hoisted ONCE, for the same reason `awaiting`, `undeclared` and `outcomes` are — N
+    # guarded members must cost one read of the ruling file, not N.
+    guards = load_guard_values(base)
     term = {}
     for seat in after:
         term[seat] = terminal_disposition(pkg, base, seat, awaiting=awaiting)
     # A predecessor named in an `after` set but carrying no row of its own is still a real term of
     # the predicate — resolved here so a dangling edge reads as "no check-out" rather than raising.
-    for preds in after.values():
-        for p in preds:
-            if p not in term:
-                term[p] = terminal_disposition(pkg, base, p, awaiting=awaiting)
+    # 7.383: resolved on the CLEAN name. An OR-alternate resolves NO name — it has more than one,
+    # which is why it is unsupported — and is skipped here rather than looked up as a seat.
+    for _name, _key, _value, _unsupported in parsed.values():
+        if not _unsupported and _name not in term:
+            term[_name] = terminal_disposition(pkg, base, _name, awaiting=awaiting)
 
     out = []
     for seat, preds in after.items():
@@ -9861,18 +9987,71 @@ def ready_seat_rows(args):
         # with carry the same membership, the same order, and the same information.
         unmet = []
         unmet_after = []
+        # 7.383: THE PER-MEMBER RENDERING, COMPUTED ONCE HERE AND READ BY `--explain`. It used to
+        # re-derive its own by looking each member up in the OUTPUT ROWS by name — which is the
+        # SAME name-lookup this task exists to fix, in a second home: a guarded token matches no
+        # output row, so `--explain` printed `<no check-out>` on its own account and would have
+        # kept printing it even after the loop above was fixed. One computation, one home (PRIN-11).
+        render = {}
         for p in preds:
-            pv, psrc, pskew = term[p]
-            if pskew:
-                unmet.append(f"{p}=SKEW({pskew[0]}|{pskew[1]})")
-                unmet_after.append({"seat": p, "state": "skew",
-                                    "skew": [pskew[0], pskew[1]]})
-            elif pv is None:
-                unmet.append(f"{p}=<no check-out>")
-                unmet_after.append({"seat": p, "state": "no-check-out"})
-            elif pv != "done":
-                unmet.append(f"{p}={pv}")
-                unmet_after.append({"seat": p, "state": pv})
+            # 7.383: THE PROSE KEEPS THE RAW TOKEN, THE STRUCTURE CARRIES THE CLEAN NAME. A reader
+            # of the reason must see the guard that held the edge — dropping it renders a guard
+            # failure as an ordinary unfinished predecessor. A CONSUMER resolves a roster by the
+            # seat name, and `name[key=value]` matches no roster row anywhere.
+            #
+            # ONE BRANCH SET PRODUCES BOTH SHAPES. `state` is the rendered value (prose and
+            # `--explain` alike); `entry` is the structured member, or `None` when the member is
+            # MET. Deriving one from the other after the fact means splitting `raw=state` on `=`,
+            # and a guard's own `=` sits inside the raw token — the split would cut in the wrong
+            # place on exactly the members this task is about.
+            pname, gkey, gval, unsupported = parsed[p]
+            if unsupported:
+                # The one entry whose `seat` is the RAW token, because an alternate HAS no single
+                # clean name. Stated rather than papered over: a consumer that resolves this
+                # against a roster finds nothing, which is the honest answer for a member this
+                # release cannot evaluate.
+                state = "<unsupported-alternate>"
+                entry = {"seat": p, "state": "unsupported-alternate"}
+            else:
+                pv, _psrc, pskew = term[pname]
+                if pskew:
+                    state = f"SKEW({pskew[0]}|{pskew[1]})"
+                    entry = {"seat": pname, "state": "skew", "skew": [pskew[0], pskew[1]]}
+                elif pv is None:
+                    state, entry = "<no check-out>", {"seat": pname, "state": "no-check-out"}
+                elif pv != "done":
+                    state, entry = pv, {"seat": pname, "state": pv}
+                elif gkey is None:
+                    # A BARE member, met — rendered exactly as it was before this change existed.
+                    state, entry = "done", None
+                else:
+                    # 7.383: the SECOND term, reached only once the dependency half is `done`. The
+                    # order is the design — a guarded edge whose predecessor never finished must
+                    # read as an unfinished predecessor, not as an unruled guard, or the reason
+                    # names the wrong thing to fix.
+                    ruling = guards.get((pname, gkey))
+                    if ruling is None:
+                        state = f"<guard {gkey} unruled>"
+                        entry = {"seat": pname, "state": "guard-unruled",
+                                 "guard": {"key": gkey, "required": gval}}
+                    elif ruling["value"] != gval:
+                        state = f"<guard {gkey}={ruling['value']}>"
+                        entry = {"seat": pname, "state": "guard-mismatch",
+                                 "guard": {"key": gkey, "required": gval,
+                                           "ruled": ruling["value"]}}
+                    else:
+                        # MET — and `done` alone would say the predecessor finished while saying
+                        # NOTHING about the ruling that actually admitted the edge. Two facts
+                        # carried this member; the met rendering names both.
+                        state, entry = "done+guard-ruled", None
+            # `met` is the branch's OWN answer (an `entry` means unmet), never a re-test of the
+            # rendered word against a literal — a `met` derived by matching `state` against
+            # `("done", "done+guard-ruled")` would be a second copy of this branch set, and would
+            # silently go wrong the day a met rendering gains a third form.
+            render[p] = {"state": state, "met": entry is None}
+            if entry is not None:
+                unmet.append(f"{p}={state}")
+                unmet_after.append(entry)
         rec = {"seat": seat, "after": list(preds), "disposition": value, "source": source,
                "skew": list(skew) if skew else None, "active": active,
                "built": seat in built,
@@ -9899,7 +10078,12 @@ def ready_seat_rows(args):
                # alternative, reconstructing it from `after` in the consumer, is a second home for
                # the readiness arithmetic AND reads a DANGLING predecessor as satisfied, because a
                # predecessor with no `taskforce.csv` row of its own gets no output row here.
-               "unmet-after": unmet_after}
+               "unmet-after": unmet_after,
+               # 7.383: {raw member token -> its rendered state}, present on EVERY row for the
+               # same reason `unmet-after` is — `{}` on a root, never a key that appears only when
+               # it fires. It is what `--explain` prints, so the explain view and the reason
+               # string can no longer disagree about one member: they read one computation.
+               "after-render": render}
         if skew:
             rec["verdict"] = "SKEW"
             rec["reason"] = (f"awaiting-close.json={skew[0]} | sessions.csv={skew[1]}  "
@@ -9957,7 +10141,11 @@ def ready_seat_rows(args):
                 rec["reason"] = "after: " + " ".join(unmet)
             else:
                 rec["verdict"] = "READY"
-                rec["reason"] = ("after: " + " ".join(f"{p}=done" for p in preds)) if preds \
+                # 7.383: rendered from `render`, the SAME per-member computation the unmet prose
+                # spends — never a second `=done` literal that a later branch could contradict. A
+                # bare member still reads `p=done`, byte-identical to before this change.
+                rec["reason"] = ("after: " + " ".join(f"{p}={render[p]['state']}"
+                                                      for p in preds)) if preds \
                     else "after: (root — no predecessors)"
         out.append(rec)
     return out
@@ -10648,6 +10836,104 @@ def cmd_rule_disposition(args):
             f"({coord_invocation(args)} ready-seats).", C_HINT))
 
 
+def cmd_rule_guard(args):
+    """(leader) Record a RULED value for a guarded `after` member's guard. BARE = report; `--go`
+    = write.
+
+    `r-gate-ships-with-its-own-key`: the guard term is a GATE — it refuses READY — and this is its
+    KEY. They ship in one change, because a gate whose key does not exist is not a gate, it is a
+    wall: before this verb, a leader who had investigated and found a guard satisfied had NO
+    mechanism to say so, and the only path left was hand-editing the `after` cell to delete the
+    precondition. That edit destroys the record of a real precondition to silence a display, which
+    is how folklore is manufactured.
+
+    THE COMMAND RECORDS A RULING; IT NEVER MAKES ONE. It reads nothing about the predecessor's
+    work — exactly `rule-disposition`'s shape, and for the same reason: the investigation is the
+    leader's and happens BEFORE this call.
+
+    ⚠ `--source` IS MANDATORY. A guard ruling with no citation of where the value was measured is
+    indistinguishable from a guess, and it is read months later by somebody who was not there.
+    ⚠ THE PAIR MUST BE REFERENCED BY A LIVE EDGE. A ruling on a `(seat, key)` no `after` member
+    consumes is a typo until proven otherwise, and a typo that writes is worse than a refusal."""
+    gate(args, "rule-guard", is_leader,
+         "the leader's alone — admitting a guarded edge is an adjudication, and "
+         "`r-gate-ships-with-its-own-key` grants it to the leader and to no other side. A seat "
+         "does not rule its own predecessor's guard",
+         remedy="ask the leader to run it; bring the citation your value was measured at")
+    pkg = package_dir(args)
+    base = base_dir(args)
+    seat = (args.seat or "").strip()
+    go = bool(getattr(args, "go", False))
+
+    # LAYER 1, `input`: the SHAPE of what was typed. Checked before anything on disk is consulted,
+    # so a malformed invocation never reports on a package it was never going to write to.
+    raw_kv = (args.guard or "").strip()
+    if raw_kv.count("=") != 1 or raw_kv.startswith("=") or raw_kv.endswith("="):
+        refuse("input",
+               f"'{raw_kv}' is not a `<key>=<value>` pair. The guard is TWO halves and both are "
+               f"required — a bare key rules nothing and a bare value rules nothing about what.\n"
+               f"  {coord_invocation(args)} rule-guard {seat or '<seat>'} "
+               f"retirement-safe=yes --source \"<where it was measured>\"", 2)
+    key, value = (x.strip() for x in raw_kv.split("=", 1))
+    source = (getattr(args, "source", None) or "").strip()
+    if not source:
+        refuse("input",
+               "--source is MANDATORY and was not given. It cites WHERE this value was measured "
+               "or ruled — a ledger anchor, a record path, or a message id. A guard ruling with "
+               "no source is folklore: by VALUE it is indistinguishable from a guess, and the "
+               "party that reads it months from now cannot tell which it was.\n"
+               f"  {coord_invocation(args)} rule-guard {seat} {key}={value} "
+               f"--source \"planning/<pass>/<record>.md §N (derived verdict)\"", 2)
+
+    # LAYER 2, `state`: the WORLD. Both terms read the package the ruling would be written beside.
+    rows = taskforce_after(pkg)
+    if seat not in rows:
+        refuse("state",
+               f"'{seat}' has no row in this run's taskforce.csv, so no edge can ever consume a "
+               f"ruling about it. Seats in this run: {', '.join(sorted(rows)) or '(none)'}", 1)
+    pairs = guarded_pairs(pkg)
+    if (seat, key) not in pairs:
+        _have = ", ".join(f"`{s}[{k}=…]`" for s, k in sorted(pairs)) or "(none — this run has no " \
+                                                                        "guarded `after` member)"
+        refuse("state",
+               f"no `after` member of this run references the guard `{seat}[{key}=…]`, so this "
+               f"ruling would be consumed by nothing. A dead ruling is a typo until a live edge "
+               f"reads it.\n  guarded pairs this run actually has: {_have}", 1)
+
+    current = load_guard_values(base).get((seat, key))
+    consumers = ", ".join(f"`{t}`" for t in pairs[(seat, key)])
+    if not go:
+        # The CURRENT row is read off disk and printed, never assumed absent: a leader about to
+        # supersede its own earlier ruling must see the value it is superseding, and the file is
+        # append-only precisely so that value still exists to be shown.
+        if current is None:
+            print(f"{c(seat, C_LABEL)}  `{key}` is UNRULED — nothing is recorded for this pair "
+                  f"yet.")
+        else:
+            print(f"{c(seat, C_LABEL)}  `{key}` currently rules `{current['value']}` "
+                  f"(source: {current['source'] or '(none recorded)'}, "
+                  f"by {current['ruled-by'] or '(unrecorded)'}, {current['stamp'] or '(unstamped)'})"
+                  + ("" if current["value"] != value else " — the SAME value you are about to "
+                                                          "record; the append would be a no-op in "
+                                                          "effect, and a second row on disk"))
+        print(f"    would append: {key}={value}, source `{source}`, ruled-by "
+              f"`{DISPOSITION_WRITER_LEADER}`")
+        print(f"    consumed by: {consumers}")
+        print("    (report only — nothing was written. Re-run with --go to record the ruling.)")
+        return
+    written = append_guard_value(base, seat, key, value, source, DISPOSITION_WRITER_LEADER)
+    print(f"{c(seat, C_LABEL)}  RULED `{key}={value}` by {DISPOSITION_WRITER_LEADER}")
+    print(f"    {GUARD_VALUES_FILE}: appended — source `{written['source']}`, "
+          f"stamp {written['stamp']}")
+    if current is not None and current["value"] != value:
+        print(f"    SUPERSEDES the earlier `{current['value']}` — that row stays on disk; the "
+              f"LAST row per (seat, key) wins, so the record of what was ruled first survives")
+    print(c(f"\nThe ruling is recorded, and the row names the party that made it and the source it "
+            f"was measured at. Advancement follows the ordinary arithmetic "
+            f"({coord_invocation(args)} ready-seats) — the guarded edge now reads this value, and "
+            f"still requires its predecessor's own `done`.", C_HINT))
+
+
 def cmd_ready_seats(args):
     """The ready-SEAT frontier, computed from disk. READ-ONLY: launches nothing, writes nothing,
     messages nobody."""
@@ -10692,11 +10978,16 @@ def cmd_ready_seats(args):
                  "and does NOT suppress)" if _other else ""))
         if not rec["after"]:
             print("  every `after` predecessor is `done`                   -> True (root — none)")
+        # 7.383: READ FROM THE ROW, NOT RE-DERIVED. This loop used to look each member up in the
+        # OUTPUT ROWS BY NAME and read that row's `disposition` — a second home for the readiness
+        # arithmetic, and one carrying the very name-lookup defect 7.383 closes: a guarded token
+        # matches no output row, so this printed `<no check-out>` on its own account regardless of
+        # what the loop above had computed. `after-render` is that computation, and `unmet-after`
+        # is the same pass's verdict on the member.
         for p in rec["after"]:
-            prec = next((r for r in rows if r["seat"] == p), None)
-            pv = prec["disposition"] if prec else None
-            print(f"  after `{p}` = {pv or '<no check-out>'}"
-                  f"   -> {pv == 'done'}")
+            _m = (rec.get("after-render") or {}).get(p) or {"state": "<no check-out>",
+                                                            "met": False}
+            print(f"  after `{p}` = {_m['state']}   -> {_m['met']}")
         print(f"  {c('reason:', C_LABEL)} {rec['reason']}")
         return
     if getattr(args, "json", False):
@@ -19696,14 +19987,19 @@ def _selftest_checks(args, failures, names):
         # roster, and BOTH disposition surfaces — because the predicate has four terms and a row
         # that shares a package with its neighbours cannot isolate which term it moved.
         def _rs_make(name, tf, built=None, active=(), awaiting=(), sessions=(),
-                     store=None, store_ids=None):
+                     store=None, store_ids=None, guards=None):
             """A self-contained run package. `tf` is [(seat, after-cell)]; `awaiting` and
             `sessions` are [(seat, disposition)] on the live and durable surfaces.
 
             7.224: `store` is [(row-id, tag-string)] written as a task-store markdown file inside
             the package, and `store_ids` is {seat: cell} written into a `store-id` REFERENCE column
             on `taskforce.csv`. Both omitted ⇒ NO join column at all, which is what every package
-            predating the binding looks like — the shape the fail-safe arm is asserted on."""
+            predating the binding looks like — the shape the fail-safe arm is asserted on.
+
+            7.383: `guards` is [(seat, key, value)] written to `coordination/guard-values.csv` IN
+            THE GIVEN ORDER, so a row can seed a supersession and assert the last one wins. `None`
+            writes NO FILE AT ALL — the shape every package predating this change has, and the one
+            the "absent means no rulings, never an error" arm is asserted on."""
             p = Path(td) / f"rs-{name}"
             (p / "coordination").mkdir(parents=True)
             (p / "seats").mkdir()
@@ -19745,6 +20041,12 @@ def _selftest_checks(args, failures, names):
                                    "started": "2026-07-29 14:00", "ended": "2026-07-29 15:02",
                                    "disposition": d}.get(_c2, "") for _c2 in SESSIONS_COLS]
                                  for s, d in sessions])
+            if guards is not None:
+                write_csv_table(p / "coordination" / GUARD_VALUES_FILE, GUARD_VALUES_COLS,
+                                [[{"seat": s, "key": k, "value": v, "source": "fixture §1",
+                                   "ruled-by": "leader",
+                                   "stamp": "2026-08-05 05:00"}.get(_c3, "")
+                                  for _c3 in GUARD_VALUES_COLS] for s, k, v in guards])
             return p
 
         def _rs(pkg, **kw):
@@ -20194,6 +20496,209 @@ def _selftest_checks(args, failures, names):
               and _rs_ex_badcode == 2
               and "nobody" in (_rs_ex_bad + _rs_ex_baderr)
               and "a, b, c" in (_rs_ex_bad + _rs_ex_baderr))
+
+        # ============ 7.383: THE GUARDED `after` MEMBER ==========================================
+        # Design of record: `planning/briefing-guard-edge-parser/milestone-task-dag.md` §1.
+        #
+        # ⚠ EVERY ARM BELOW DIFFERS FROM ITS NEIGHBOUR IN ONE CELL. The four rendering cases share
+        # ONE predecessor state (`done`) and ONE successor shape, and vary only the guard record —
+        # absent, mismatched, matched — plus the bare control. Without that the battery could not
+        # tell an implementation that EVALUATES the guard from one that merely STRIPS the bracket,
+        # and the stripping implementation is the smaller diff a reader would reach for first.
+        _rs21_tf = [("a", ""), ("g", "a[safe=yes]"), ("bare", "a")]
+        _rs21_unruled = _rs_make("21u", _rs21_tf, sessions=[("a", "done")])
+        _rs21_mis = _rs_make("21m", _rs21_tf, sessions=[("a", "done")],
+                             guards=[("a", "safe", "no")])
+        _rs21_ok = _rs_make("21k", _rs21_tf, sessions=[("a", "done")],
+                            guards=[("a", "safe", "yes")])
+        # The supersession arm: an EARLIER `no` and a LATER `yes` for one pair — last row wins.
+        _rs21_sup = _rs_make("21s", _rs21_tf, sessions=[("a", "done")],
+                             guards=[("a", "safe", "no"), ("a", "safe", "yes")])
+        # The predecessor-not-done arm: the guard MATCHES and the edge is STILL blocked, on the
+        # dependency half. Two terms, both required — this is the arm that proves it.
+        _rs21_pend = _rs_make("21p", _rs21_tf, sessions=[("a", "renew")],
+                              guards=[("a", "safe", "yes")])
+        _rs21_uv, _ = _rs_v(_rs21_unruled)
+        _rs21_mv, _ = _rs_v(_rs21_mis)
+        _rs21_kv, _ = _rs_v(_rs21_ok)
+        _rs21_sv, _ = _rs_v(_rs21_sup)
+        _rs21_pv, _ = _rs_v(_rs21_pend)
+        _rs21_ujson, _, _ = _rs(_rs21_unruled, json=True)
+        _rs21_mjson, _, _ = _rs(_rs21_mis, json=True)
+        _rs21_kjson, _, _ = _rs(_rs21_ok, json=True)
+        _rs21_urows = {r["seat"]: r for r in json.loads(_rs21_ujson)}
+        _rs21_mrows = {r["seat"]: r for r in json.loads(_rs21_mjson)}
+        _rs21_krows = {r["seat"]: r for r in json.loads(_rs21_kjson)}
+        check("dag-10 RS-21 (7.383) THE FOUR RENDERINGS, AND A GUARD NEVER AUTO-SATISFIES. A "
+              "guarded member `a[safe=yes]` whose predecessor is `done` renders — and BLOCKS — on "
+              "the GUARD: `<guard safe unruled>` with no ruling on record, `<guard safe=no>` "
+              "naming the ACTUAL when a ruling disagrees, and READY only when a recorded ruling "
+              "MATCHES. The bare member `a` beside it is READY in all three packages, which is "
+              "what makes the guard the thing that moved. ⚠ THE `unruled` ARM IS THE BLAST-RADIUS "
+              "PROOF: a package with NO guard-values.csv at all is every package that predates "
+              "this change, and its guarded rows stay blocked — an implementation that merely "
+              "STRIPPED the bracket would green this arm and admit every guarded row in every run "
+              "in one release. ⚠ AND THE REASON NAMES THE GUARD RATHER THAN THE LOOKUP: "
+              "`<no check-out>` on a predecessor that plainly checked out is the lie this task "
+              "exists to end, so its ABSENCE is asserted, not merely the new string's presence",
+              _rs21_uv == {"a": "DONE", "g": "BLOCKED", "bare": "READY"}
+              and _rs21_mv == {"a": "DONE", "g": "BLOCKED", "bare": "READY"}
+              and _rs21_kv == {"a": "DONE", "g": "READY", "bare": "READY"}
+              and "a[safe=yes]=<guard safe unruled>" in _rs21_urows["g"]["reason"]
+              and "a[safe=yes]=<guard safe=no>" in _rs21_mrows["g"]["reason"]
+              and "no check-out" not in _rs21_urows["g"]["reason"]
+              and "no check-out" not in _rs21_mrows["g"]["reason"]
+              # the structured member carries the CLEAN seat name — `a`, never the raw token —
+              # because a consumer resolves a roster by it and no roster row is named `a[safe=yes]`
+              and _rs21_urows["g"]["unmet-after"] == [
+                  {"seat": "a", "state": "guard-unruled",
+                   "guard": {"key": "safe", "required": "yes"}}]
+              and _rs21_mrows["g"]["unmet-after"] == [
+                  {"seat": "a", "state": "guard-mismatch",
+                   "guard": {"key": "safe", "required": "yes", "ruled": "no"}}]
+              and _rs21_krows["g"]["unmet-after"] == []
+              # the BARE member's rendering is BYTE-IDENTICAL to what it was before 7.383 existed
+              and _rs21_krows["bare"]["reason"] == "after: a=done"
+              # ...and the MET GUARDED one is NOT the same string: `done` alone would report the
+              # predecessor finished and say nothing of the ruling that admitted the edge
+              and _rs21_krows["g"]["reason"] == "after: a[safe=yes]=done+guard-ruled")
+        check("dag-10 RS-22 (7.383) BOTH TERMS ARE REQUIRED, AND THE LAST ROW PER (seat, key) "
+              "WINS. A matching ruling does NOT admit an edge whose predecessor never reached "
+              "`done` — the dependency half is checked FIRST and the reason names the unfinished "
+              "predecessor, not the guard, so a reader is sent to the thing that actually needs "
+              "fixing. And a pair ruled twice reads its LAST row: supersession is an APPEND, so "
+              "the record of what was ruled first survives the ruling that replaced it — a "
+              "first-row-wins implementation would freeze every guard at its first, possibly "
+              "wrong, value and could only be corrected by editing history",
+              _rs21_pv == {"a": "DONE", "g": "BLOCKED", "bare": "BLOCKED"}
+              and _rs21_sv == {"a": "DONE", "g": "READY", "bare": "READY"}
+              and "a[safe=yes]=renew" in {r["seat"]: r for r in json.loads(
+                  _rs(_rs21_pend, json=True)[0])}["g"]["reason"])
+        # ---- the OR-alternate: FAIL LOUD, never a limb picked in silence ----
+        _rs23 = _rs_make("23", [("a", ""), ("b", ""), ("alt", "a[safe=yes]|b")],
+                         sessions=[("a", "done"), ("b", "done")],
+                         guards=[("a", "safe", "yes")])
+        _rs23_v, _ = _rs_v(_rs23)
+        _rs23_rows = {r["seat"]: r for r in json.loads(_rs(_rs23, json=True)[0])}
+        check("dag-10 RS-23 (7.383) AN OR-ALTERNATE MEMBER FAILS LOUD AND IS NEVER SATISFIED BY "
+              "ONE LIMB. `a[safe=yes]|b` asks 'either of these', which is a different system: "
+              "readiness over alternates has its own arithmetic and this release does not have "
+              "it. THE FIXTURE IS THE HOSTILE ONE — BOTH limbs are `done` AND the guard on the "
+              "first is ruled MATCHING, so every half-implementation greens: one that picks the "
+              "first limb, one that picks the last, one that strips the bracket and looks up a "
+              "seat named `a|b`. Only a member that REFUSES TO EVALUATE blocks here, and it says "
+              "why rather than reporting a missing check-out. The member's structured entry "
+              "carries the RAW token, because an alternate has no single clean seat name — stated "
+              "rather than papered over with a name that resolves to nothing",
+              _rs23_v == {"a": "DONE", "b": "DONE", "alt": "BLOCKED"}
+              and "a[safe=yes]|b=<unsupported-alternate>" in _rs23_rows["alt"]["reason"]
+              and _rs23_rows["alt"]["unmet-after"] == [
+                  {"seat": "a[safe=yes]|b", "state": "unsupported-alternate"}]
+              # mirrored from `_manifest_after_ids`, whose ONE non-obvious property this asserts:
+              # brackets are stripped BEFORE the alternate test, so a `|` INSIDE a guard value is
+              # never read as an alternate. The two homes stay in step or this row reds.
+              and parse_after_member("s[k=a|b]") == ("s", "k", "a|b", False)
+              and parse_after_member("s[k=v]|t")[3] is True
+              and parse_after_member("s") == ("s", None, None, False))
+        # ---- `--explain` reads the ONE computation, and no longer re-derives its own ----
+        _rs24_out, _, _ = _rs(_rs21_ok, explain="g")
+        _rs24_bout, _, _ = _rs(_rs21_ok, explain="bare")
+        _rs24_uout, _, _ = _rs(_rs21_unruled, explain="g")
+        check("dag-10 RS-24 (7.383) `--explain` PRINTS THE MEMBER STATE THE ROW COMPUTED, NOT ONE "
+              "IT RE-DERIVES. Its `after` loop used to look each member up in the OUTPUT ROWS BY "
+              "NAME and read that row's disposition — a SECOND home for this arithmetic, carrying "
+              "the SAME name-lookup defect: a guarded token matches no output row, so `--explain` "
+              "printed `<no check-out>` on its own account and would have kept printing it with "
+              "the readiness loop beside it fully fixed. This row is what makes the two homes one: "
+              "the explain view and the `reason` string are asserted to agree on the same member "
+              "in the same package, in both the met and the unmet direction",
+              "after `a[safe=yes]` = done+guard-ruled   -> True" in _rs24_out
+              # the BARE control, explained on the seat that HAS a bare member — byte-identical
+              # to what this line printed before 7.383 existed
+              and "after `a` = done   -> True" in _rs24_bout
+              and "after `a[safe=yes]` = <guard safe unruled>   -> False" in _rs24_uout
+              and "<no check-out>" not in _rs24_uout)
+
+        # ---- the VERB: `rule-guard`, the key that ships with the gate ----
+        def _rg_ns(pkg, **kw):
+            _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": "leader",
+                  "force": False, "go": True, "seat": "a", "guard": "safe=yes",
+                  "source": "fixture §1 (derived verdict)"}
+            _d.update(kw)
+            return argparse.Namespace(**_d)
+
+        def _rg_values(pkg):
+            return load_guard_values(Path(pkg) / "coordination")
+
+        _rg_pkg = _rs_make("rg", _rs21_tf, sessions=[("a", "done")])
+        _rg_role_o, _rg_role_e, _rg_role_c = harness_outcome(
+            cmd_rule_guard, _rg_ns(_rg_pkg, as_agent="bare"))
+        _rg_src_o, _rg_src_e, _rg_src_c = harness_outcome(
+            cmd_rule_guard, _rg_ns(_rg_pkg, source=None))
+        _rg_shape_o, _rg_shape_e, _rg_shape_c = harness_outcome(
+            cmd_rule_guard, _rg_ns(_rg_pkg, guard="safe"))
+        _rg_seat_o, _rg_seat_e, _rg_seat_c = harness_outcome(
+            cmd_rule_guard, _rg_ns(_rg_pkg, seat="nobody"))
+        _rg_pair_o, _rg_pair_e, _rg_pair_c = harness_outcome(
+            cmd_rule_guard, _rg_ns(_rg_pkg, guard="unreferenced=yes"))
+        _rg_after_refusals = _rg_values(_rg_pkg)
+        _rg_bare_o, _rg_bare_e, _rg_bare_c = harness_outcome(
+            cmd_rule_guard, _rg_ns(_rg_pkg, go=False))
+        _rg_after_bare = _rg_values(_rg_pkg)
+        _rg_go_o, _rg_go_e, _rg_go_c = harness_outcome(cmd_rule_guard, _rg_ns(_rg_pkg))
+        _rg_after_go = _rg_values(_rg_pkg)
+        _rg_ready, _ = _rs_v(_rg_pkg)
+        check("dag-10 RS-25 (7.383) THE GATE SHIPS WITH ITS KEY, AND EVERY REFUSAL IS LAYERED AND "
+              "WRITES NOTHING. `r-gate-ships-with-its-own-key`: the guard term REFUSES READY, so "
+              "it is a gate, and a gate whose key does not exist is not a gate but a wall — the "
+              "leader's only remaining path would be hand-editing the `after` cell to DELETE the "
+              "precondition. Five refusals, deliberately at TWO layers with TWO exit codes so a "
+              "caller can tell a malformed invocation from a wrong one: `role gate`/2 for a "
+              "non-leader, `input`/2 for a malformed KEY=VALUE and for a missing --source, "
+              "`state`/1 for an unknown seat and for a (seat, key) no live edge references. ⚠ THE "
+              "MANDATORY --source IS A REFUSAL AND NOT AN argparse REQUIREMENT, so it carries a "
+              "layer and a remedy rather than a usage error. ⚠ AND THE FILE IS READ BACK AFTER "
+              "ALL FIVE: a refusal that printed correctly while writing anyway is exactly what a "
+              "success-line assertion cannot see",
+              _rg_role_c == 2 and "refused [coord role gate]" in (_rg_role_o + _rg_role_e)
+              and _rg_src_c == 2 and "refused [coord input]" in (_rg_src_o + _rg_src_e)
+              and "--source is MANDATORY" in (_rg_src_o + _rg_src_e)
+              and _rg_shape_c == 2 and "refused [coord input]" in (_rg_shape_o + _rg_shape_e)
+              and _rg_seat_c == 1 and "refused [coord state]" in (_rg_seat_o + _rg_seat_e)
+              and _rg_pair_c == 1 and "refused [coord state]" in (_rg_pair_o + _rg_pair_e)
+              and "a[safe=…]" in (_rg_pair_o + _rg_pair_e)
+              and _rg_after_refusals == {})
+        check("dag-10 RS-26 (7.383) BARE REPORTS AND WRITES NOTHING; `--go` APPENDS AND THE EDGE "
+              "MOVES. The report pass runs EVERY check the acting pass runs — one function, one "
+              "predicate — so a `--go` run can never record what a bare run refused, and the file "
+              "is read back off disk after the bare call to prove it stayed absent. The `--go` "
+              "call then writes the ruling WITH its source and the party that made it, and the "
+              "guarded successor goes BLOCKED -> READY in the same package: the verb and the gate "
+              "are proven against each other rather than each against its own docstring",
+              _rg_bare_c is None and "report only" in (_rg_bare_o + _rg_bare_e)
+              and "UNRULED" in (_rg_bare_o + _rg_bare_e)
+              and _rg_after_bare == {}
+              and _rg_go_c is None
+              and _rg_after_go[("a", "safe")]["value"] == "yes"
+              and _rg_after_go[("a", "safe")]["ruled-by"] == "leader"
+              and "fixture" in _rg_after_go[("a", "safe")]["source"]
+              and _rg_after_go[("a", "safe")]["stamp"]
+              and _rg_ready == {"a": "DONE", "g": "READY", "bare": "READY"})
+        _rg_help = build_parser().format_help()
+        check("dag-10 RS-27 (7.383) THE VERB IS REGISTERED AND THE INDEX A SEAT READS NAMES IT. "
+              "A command that exists only as a function is unreachable, and a routing line naming "
+              "a verb absent from the top-level index sends its reader hunting. Both are asserted "
+              "here, plus the readiness code's own reference to the ruling file — so renaming "
+              "either without following through reds this row instead of going quiet",
+              "rule-guard" in build_parser().command_parsers
+              and "rule-guard" in _rg_help
+              and GUARD_VALUES_FILE == "guard-values.csv"
+              and "rule-guard" in (_d8_ast.get_source_segment(
+                  Path(__file__).read_text(encoding="utf-8"),
+                  next(n for n in _d8_ast.walk(_d8_ast.parse(
+                      Path(__file__).read_text(encoding="utf-8")))
+                       if isinstance(n, _d8_ast.FunctionDef) and n.name == "cmd_rule_guard"))
+                  or ""))
 
         # ============ 7.274 (A3): THE LAUNCH-ADMISSION FILTER ====================================
         # Spec: `planning/briefing-scoped-launch/launch-admission-spec.md` v5, accepted at
@@ -24811,7 +25316,7 @@ HELP_EPILOG = """everyday
 leader
   launch      open one tmux seat per worker briefing and start its harness
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / current-run / attest-exit / rule-disposition / rule-relaunch  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / current-run / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -25741,6 +26246,33 @@ def build_parser():
                         "entry; without it nothing is written")
     add_identity_flags(s)
     s.set_defaults(func=cmd_rule_disposition)
+
+    s = command(
+        "rule-guard",
+        "(leader) Record a RULED value for a guarded `after` member's guard — the KEY that ships\n"
+        "with the guard GATE (`r-gate-ships-with-its-own-key`). A guarded edge\n"
+        "`<seat>[<key>=<value>]` needs TWO things: its predecessor's own `done` check-out, AND a\n"
+        "recorded ruling that the guard holds. A GUARD NEVER AUTO-SATISFIES — with no ruling on\n"
+        "record the edge stays BLOCKED, which is why admitting one is an act with a name and a\n"
+        "writer. `--source` is MANDATORY: a ruling with no citation of where the value was\n"
+        "measured is indistinguishable from a guess. Refuses a seat with no taskforce.csv row,\n"
+        "and a (seat, key) no live `after` member references. Appends to\n"
+        "coordination/guard-values.csv, last row per (seat, key) wins. BARE = report only.",
+        "example:\n"
+        "  coordinate rule-guard k3 retirement-safe=yes --source \"record.md §1\"        # report\n"
+        "  coordinate rule-guard k3 retirement-safe=yes --source \"record.md §1\" --go   # record\n"
+        "next: coordinate ready-seats — the guarded edge now reads this value, and still requires "
+        "its predecessor's own `done`")
+    s.add_argument("seat", help="the PREDECESSOR seat the guard is about — the name INSIDE the "
+                                "member token, never the successor being unblocked")
+    s.add_argument("guard", metavar="KEY=VALUE",
+                   help="the guard's two halves, e.g. `retirement-safe=yes`")
+    s.add_argument("--source", help="MANDATORY — a ledger anchor, record path or message id "
+                                    "citing where this value was measured or ruled")
+    s.add_argument("--go", action="store_true",
+                   help="ACT: append the ruling to guard-values.csv; without it nothing is written")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_rule_guard)
 
     s = command(
         "ready-seats",
