@@ -30,8 +30,6 @@ const COMMANDS = {
   inspect: require('./commands/inspect'),
   snooze: require('./commands/snooze'),
   status: require('./commands/status'),
-  send: require('./commands/send'),
-  screen: require('./commands/screen'),
   kill: require('./commands/kill'),
 };
 

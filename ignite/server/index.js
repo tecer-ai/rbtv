@@ -12,16 +12,16 @@ const { WARNING_KINDS } = require('./heart/warnings');
 // Task 7.44 — ONE implementation of workflow advancement, TWO attachments (owner ruling
 // decisions.md#d-attached-run-embedded-engine). The daemon no longer composes the store, the spawn
 // manager and the ticker itself: it boots THE SAME library the `rbtv run` verb boots, and adds
-// only what is genuinely daemon-side (gateway, internal-api, pty, cockpit, retention, settings,
-// tailnet bind). Its headed/pty fork rides the decorate hook, unchanged.
+// only what is genuinely daemon-side (gateway, internal-api, cockpit, retention, settings,
+// tailnet bind). Its headed fork rides the decorate hook, which routes headed spawns to the
+// tmux seat path (task 7.29 retired the server-owned pty the hook used to fork to).
 const { createEngine } = require('../engine');
 const { selectCarrier } = require('./spawn/carrier');
+const { SpawnError, E_HEADED_NOT_CAPABLE } = require('./spawn/errors');
 const { createInternalApi } = require('./internal-api/dispatch');
 const { captureLoadedCode, writeCodeMarker } = require('./code-fingerprint');
-const { flushScreenReadRuns } = require('./internal-api/keys-audit');
 const { parseRetentionDays, sweepRetention } = require('./retention');
 const settings = require('./settings');
-const { createPtyHost } = require('./pty');
 const { createGateway } = require('../gateway/gateway');
 const { resolvePeerSeat } = require('./seat-identity/peer-identity');
 const { loadSendersFile } = require('../gateway/sender-auth');
@@ -571,10 +571,6 @@ async function main() {
   // above). CMP-2 § Two store kinds: an attached run passes its OWN run-folder path here and never
   // this one; the daemon never passes anything else.
   //
-  // `ptyHost` is assigned inside the decorate hook rather than after this call, because the pty
-  // decoration has always sat BETWEEN the spawn manager's construction and the ticker's — the hook
-  // is that exact point, so the composition order is byte-for-byte what it was.
-  let ptyHost = null;
   const engine = createEngine({
     dbPath: path.join(dataRoot, 'heart.db'),
     profiles: mergedConfig.profiles || {},
@@ -590,33 +586,42 @@ async function main() {
     logPath: dataRoot ? path.join(dataRoot, 'ticker.log') : null,
     logger: (m) => log(m.level || 'info', m.message, m),
     decorateSpawnManager: (spawnManager, heartStore) => {
-  // ── The headed/pty session surface (task 6.2, session-surface-spec.md Design 1–3) ──────────
+  // ── The headed session surface, after task 7.29 ────────────────────────────────────────────
   //
-  // The pty host is an EXTENSION at the existing spawn/kill/log owner: it OWNS only the headed
-  // spawn path (the in-unit dtach holder + the vt-model screen capture + POST /keys/:id + the
-  // watch-tee), reusing the spawn manager's config + kill/status surface. Headless one-shot stays
-  // the DEFAULT and rides the sole-spawn-path UNCHANGED — the decoration below routes ONLY
-  // session_mode:headed to the pty host and delegates everything else to spawnManager.spawn.
-  // POST /keys/:id and screen capture are the server-core surface (ptyHost methods held here).
-  // ⚑ UPDATED at p6-3a: that Batch-6 seam work (Amendment #2) IS now wired — the pty host is
-  // threaded to the internal API below, where owner ruling D90's two additive intents
-  // (`send-to-session` / `capture-session-screen`) expose it to authenticated senders through
-  // the gateway. The daemon remains the SOLE keystroke mediator: no caller touches a pty.
-  ptyHost = createPtyHost({
-    heartStore,
-    spawnManager,
-    dataRoot,
-    userManager,
-    logger: (m) => log(m.level || 'info', m.message, m),
-  });
+  // This hook used to construct the server-owned pty host and fork headed spawns to it. Task 7.29
+  // deleted that module outright ("keep = nothing dormant"): tmux holds the headed session now,
+  // SSH is the human trust boundary, and the web terminal, its three-gate security model and the
+  // keystroke/screen audit contract are gone with it. What survives is the FORK ITSELF — headless
+  // one-shot is still the DEFAULT and still rides the sole-spawn-path UNCHANGED; the decoration
+  // routes ONLY session_mode:headed elsewhere. Only its TARGET moved, which is exactly how the
+  // settle ledger frames the whole cutover ("DEC-1 is amended in TARGET, never in gate", R28).
   return {
     ...spawnManager,
     spawn: (execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown') => {
       if (sessionMode !== 'headed') {
         return spawnManager.spawn(execId, profileName, sessionMode, prompt, workdir, enqueuedBy);
       }
+      // ⚑ THE ROOM IS NOW REQUIRED FOR A HEADED SPAWN, and that is a real behavior change, not a
+      // tidy-up: `RBTV_IGNITE_TMUX_ROOM` unset used to mean "fall back to the pty path" (the
+      // `r-cutover-gated` posture — the new target OFF unless someone turned it on). There is no
+      // path left to fall back to, so an unset room is refused TYPED here rather than reaching
+      // spawnSeat and failing on an empty tmux target.
+      //
+      // Refused per-spawn, NOT at boot, deliberately: a headless-only deployment never spawns
+      // headed and must not be made to fail to start over a knob it does not use.
+      //
+      // The CODE is the existing E_HEADED_NOT_CAPABLE rather than a newly minted one — no second
+      // classification obligation for a path that is ticker-spawn-only and never wire-triggered.
+      // The message carries what the code alone does not: the refusal is the DAEMON's missing
+      // target, not this profile's shape. DISCLOSED as the seat's own choice, in the 7.29 record;
+      // if a distinct code is wanted, it is a one-row change here plus one NOT_WIRE_REACHABLE row.
       if (!tmuxRoom) {
-        return ptyHost.spawnHeaded(execId, profileName, prompt, workdir, enqueuedBy);
+        throw new SpawnError(
+          E_HEADED_NOT_CAPABLE,
+          'headed spawn requires a tmux room: this daemon has no RBTV_IGNITE_TMUX_ROOM set, and the '
+          + 'server-owned pty fallback was retired by task 7.29 — set the variable on the unit and restart',
+          { profile: profileName, sessionMode, check: 'tmux-room-configured' },
+        );
       }
       // NO `seatName` IS SUPPLIED, and its absence is the point (task 7.11 — G9, verified by
       // execution rather than read). `seatName` does two jobs inside spawnSeat: it is an IDENTITY
@@ -638,35 +643,31 @@ async function main() {
         enqueuedBy,
       });
     },
-    // Headed exit_code sourcing (spec Behavior #8 / Design 2 caveat 1 — wired at the p6-2 review):
-    // for a DEAD headed session the unit's ExecMainStatus is the HOLDER's exit and MASKS the
-    // harness's (M3: child exited 42, unit reported 0) — and the ticker's crash sweep copies
-    // status().exitCode onto the row. Without this override the sweep would write the forbidden
-    // masked 0. The shim-sourced TRUE status replaces it; a non-integer source (status file
-    // absent/malformed, or a signal death) becomes a typed null (honest absence, option ii) —
-    // NEVER the masked ExecMainStatus.
-    status: async (execId) => {
-      const info = await spawnManager.status(execId);
-      if (info.sessionMode === 'headed' && !info.live) {
-        const src = ptyHost.sourceExitCode(execId);
-        info.exitCode = Number.isInteger(src.exit_code) ? src.exit_code : null;
-        info.exitCodeSource = src.source;
-        // Scrub the carrier readout too: consumers fall back to carrierInfo.exitCode (the ticker
-        // crash sweep's `info.exitCode ?? info.carrierInfo?.exitCode` chain), which would
-        // re-introduce the masked ExecMainStatus whenever the shim source is a typed unknown.
-        if (info.carrierInfo) info.carrierInfo = { ...info.carrierInfo, exitCode: info.exitCode };
-      }
-      return info;
-    },
+    // ⚑ THE HEADED exit_code OVERRIDE IS GONE, and what it guarded is stated rather than assumed
+    // away. It existed because the pty path put a dtach HOLDER in the transient unit: for a dead
+    // headed session the unit's ExecMainStatus was the HOLDER's exit and MASKED the harness's
+    // (M3: child exited 42, unit reported 0), and the ticker's crash sweep copies status().exitCode
+    // onto the row — so without the shim the sweep wrote a forbidden masked 0. Both the holder and
+    // the shim that sourced around it are deleted with the pty module (task 7.29), so the override
+    // has nothing left to read and `spawnManager.status` is again the single reading.
+    //
+    // NOT PROVEN BY THIS CHANGE, and named in the 7.29 record rather than left implicit: that the
+    // tmux seat path reports a TRUE harness exit code. Its masking behaviour belongs to the seat
+    // spawn (7.30 / R8), the probe that measured the pty masking died with server/pty/probes/, and
+    // this seat ran no experiment on the tmux carrier. What is claimed here is only that the shim
+    // could not survive its module — never that the problem it solved is known to be absent.
   };
     },
   });
 
-  // The daemon's own handles on the engine it just booted. `spawnManagerWithPty` keeps its name
-  // because it is what the internal API is handed, and it is the SAME decorated object the ticker
-  // above was built with — the decoration is applied once, inside the composition, not twice.
+  // The daemon's own handles on the engine it just booted. `decoratedSpawnManager` is what the
+  // internal API is handed, and it is the SAME decorated object the ticker above was built with —
+  // the decoration is applied once, inside the composition, not twice. (It was
+  // `spawnManagerWithPty` until task 7.29; the name is updated with the thing it names, because a
+  // handle called ...WithPty over a manager that has no pty is the kind of residue this
+  // retirement exists to remove.)
   const { heartStore, ticker } = engine;
-  const spawnManagerWithPty = engine.spawnManager;
+  const decoratedSpawnManager = engine.spawnManager;
 
   // Captured once at boot for `inspect daemon` uptime reporting.
   const daemonStartTime = Date.now();
@@ -701,7 +702,7 @@ async function main() {
   const internalSecret = crypto.randomBytes(32).toString('hex');
   const internalApi = createInternalApi({
     heartStore,
-    spawnManager: spawnManagerWithPty,
+    spawnManager: decoratedSpawnManager,
     secret: internalSecret,
     logger: (m) => log(m.level || 'info', m.message, m),
     daemonStartTime,
@@ -713,12 +714,6 @@ async function main() {
     // cadence edit that is written but not yet restarted into effect. `daemonConfig` above is the
     // value materialized at THIS boot and can never show that.
     readConfiguredTickIntervalMs: () => settings.effectiveBlock(workspaceRoot, 'ticker').tick_interval_ms,
-    // The pty host is threaded to the internal API so the Batch-6 session-surface intents
-    // (`send-to-session` / `capture-session-screen`, owner ruling D90) can reach the headed
-    // session they drive. ADDITIVE: the pty host is unchanged, every other intent is unchanged,
-    // and the DAEMON — not the caller — stays the sole keystroke mediator and audit point.
-    // Their authorization is the D89/D65(B) model, decided in authz.js like every other intent's.
-    ptyHost,
   });
 
   const gateway = createGateway({
@@ -855,24 +850,6 @@ async function main() {
     logger: (m) => log(m.level || 'info', m.message, m),
   });
 
-  // Reconnect any headed sessions that SURVIVED a restart (session-surface-spec.md Behavior #7):
-  // the holder + pty live in the transient unit, so a running row whose holder socket still exists
-  // is re-attached and its vt model repaints on attach. Best-effort + non-fatal — a session that
-  // did not survive is left to the ticker's own crash-sweep, never killed here.
-  try {
-    const runningHeaded = heartStore.listExecutionsByStatus('running').filter((r) => r.session_mode === 'headed');
-    for (const row of runningHeaded) {
-      try {
-        const res = ptyHost.reconnect(row.exec_id);
-        log('info', 'reconnected headed session after restart', { execId: row.exec_id, sock: res.sock });
-      } catch (err) {
-        log('warn', 'could not reconnect headed session (may not have survived)', { execId: row.exec_id, error: err.message });
-      }
-    }
-  } catch (err) {
-    log('warn', 'headed-session reconnect pass failed', { error: err.message });
-  }
-
   // ── Task 7.13: the retention sweep — at boot, then daily ────────────────────
   //
   // Age-based only (NO size cap, by ruling) over the ENUMERATED per-machine artifact classes;
@@ -915,19 +892,6 @@ async function main() {
       log('info', `received ${signal}, shutting down`);
       clearInterval(timer);
       clearInterval(retentionTimer);
-      // Task 7.13: close any open screen-read coalesce runs so their summaries (count +
-      // time range) land in the audit before the daemon exits. Best-effort by design.
-      try { flushScreenReadRuns(); } catch (err) {
-        log('warn', 'screen-read run flush failed at shutdown', { error: err.message });
-      }
-      // Detach the pty readers WITHOUT ending headed sessions: their holders live in their own
-      // transient units, so closing the bridges lets each session survive for the next boot to
-      // reconnect (session-surface-spec.md Behavior #7). NEVER kills a headed session on shutdown.
-      try {
-        ptyHost.shutdown();
-      } catch (err) {
-        log('error', 'error detaching pty host', { error: err.message });
-      }
       // Close the ingress FIRST: a request accepted after the store closes would
       // fault on a dead handle instead of being refused cleanly.
       try {

@@ -1,32 +1,29 @@
 'use strict';
 
-// probe-keys-audit — appendKeystrokeRecord (D92/D93) and appendKillRecord (cli-expansion owner
-// ruling, 2026-07-20) carry the SAME fail-closed guarantee `probe-keys-coalesce.js` already proves
-// for appendScreenReadRecord (D94). Until this probe, NEITHER function was referenced by any probe
-// in the tree (grep across ignite/ for the two names: dispatch.js only). dispatch.js's own
-// send-to-session / kill-session handlers throw un-audited keystrokes and un-audited kills are
-// exactly what D92/D93 exist to prevent — the two write paths that actually gate keystroke
-// delivery and the kill success report had zero coverage of their own.
+// probe-keys-audit — appendKillRecord (cli-expansion owner ruling, 2026-07-20) carries the
+// fail-closed guarantee D93 ruled for the session audit. Until this probe, the function was
+// referenced by no probe in the tree; dispatch.js's kill-session handler gates its success report
+// on this write, and un-audited kills are exactly what the ruling exists to prevent.
+//
+// ⚑ SCOPE SHRANK AT TASK 7.29, and the shrink is the point rather than a trim. This probe also
+// covered appendKeystrokeRecord (D92/D93) and, with `probe-keys-coalesce.js`, the screen-read
+// path (D94). Both functions were deleted with the two pty intents they served, so their checks
+// and that probe went with them — a check whose subject no longer exists cannot go red and is
+// worse than no check. What REMAINS is the kill path, which did not retire.
 //
 // What it proves:
-//   1. appendKeystrokeRecord happy path: one `keys-accepted` record, attributed, `data` carried
-//      verbatim (control bytes intact), `bytes` measured in UTF-8 bytes (not `.length`).
-//   2. appendKeystrokeRecord refuses a missing log_path and an unattributed sender (D93's own two
-//      preconditions).
-//   3. appendKeystrokeRecord is fail-closed: a loosened (0644) audit file REFUSES the write, and
-//      the refusal writes NOTHING to the loosened file.
-//   4. appendKillRecord happy path: one `session-killed` record, attributed, carrying NO
+//   1. appendKillRecord happy path: one `session-killed` record, attributed, carrying NO
 //      data/bytes (a kill has no typed secret to protect).
-//   5. appendKillRecord refuses a missing log_path and an unattributed sender.
-//   6. appendKillRecord is fail-closed: a loosened (0644) audit file REFUSES the write.
-//   7. The three intents share ONE ordered append-only stream in the same session's audit file —
-//      not three independent writers that happen to target the same path.
+//   2. appendKillRecord refuses a missing log_path and an unattributed sender.
+//   3. appendKillRecord is fail-closed: a loosened (0644) audit file REFUSES the write, and the
+//      refusal writes NOTHING to the loosened file.
+//   4. Repeated records land in ONE ordered append-only stream in the same session's audit file —
+//      not independent writers that happen to target the same path.
 //
-// Mutant-checked at authoring time (bars.md 11): a scratch copy of keys-audit.js with both
-// `if (mode & 0o077) throw` guards neutered was required in place of the real module and checks 3
-// and 6 flipped to FAIL against it (no exception, the record landed in the loosened file) — see
-// COMPLETION note for this probe. The mutant is not shipped; this file always requires the real
-// module.
+// Mutant-checked at authoring time (bars.md 11): a scratch copy of keys-audit.js with the
+// `if (mode & 0o077) throw` guard neutered was required in place of the real module and check 3
+// flipped to FAIL against it (no exception, the record landed in the loosened file). The mutant
+// is not shipped; this file always requires the real module.
 //
 // Isolation: throwaway files under os.tmpdir(). Capture truncated at module load (task 7.50).
 
@@ -38,7 +35,7 @@ const start = Date.now();
 const outPath = path.join(__dirname, 'probe-keys-audit.out');
 fs.writeFileSync(outPath, '');
 
-const { appendKeystrokeRecord, appendKillRecord, auditPathFor, KeysAuditError } = require('../keys-audit');
+const { appendKillRecord, auditPathFor, KeysAuditError } = require('../keys-audit');
 
 const checks = [];
 function out(...args) {
@@ -61,47 +58,6 @@ function records(logPath) {
 }
 
 function main() {
-  // === appendKeystrokeRecord (D92/D93) ===
-
-  // --- happy path
-  const ksLog = path.join(dir, 'ks-session.log');
-  // Control bytes (verbatim-carry) AND a multi-byte UTF-8 char ('é', 2 bytes / 1 UTF-16 code
-  // unit) — without the latter, `.length` and `Buffer.byteLength(data, 'utf8')` agree on any
-  // pure-ASCII string and the "bytes is UTF-8, not .length" check below could not discriminate.
-  const data = 'echo café\x07\x1b[K';
-  const ksRes = appendKeystrokeRecord({ logPath: ksLog, execId: 11, sessionId: 'ks-session', sender: SENDER, data });
-  const ksRecords = records(ksLog);
-  check('appendKeystrokeRecord writes exactly one keys-accepted record',
-    ksRecords.length === 1 && ksRecords[0].event === 'keys-accepted', `records=${ksRecords.length}`);
-  check('the record is attributed to the sender',
-    ksRecords[0].sender_id === SENDER.id && ksRecords[0].sender_kind === SENDER.kind);
-  check('data is carried verbatim (control bytes intact)', ksRecords[0].data === data);
-  check('bytes is the UTF-8 byte length, not .length', ksRecords[0].bytes === Buffer.byteLength(data, 'utf8'));
-  check('appendKeystrokeRecord returns the audit path it wrote', ksRes.auditPath === auditPathFor(ksLog));
-
-  // --- refuses on a missing log_path
-  let threw = null;
-  try { appendKeystrokeRecord({ logPath: '', execId: 12, sessionId: 'x', sender: SENDER, data: 'x' }); } catch (e) { threw = e; }
-  check('appendKeystrokeRecord refuses a missing log_path',
-    threw instanceof KeysAuditError, threw ? threw.message.slice(0, 60) : 'no throw');
-
-  // --- refuses on an unattributed sender
-  threw = null;
-  try { appendKeystrokeRecord({ logPath: ksLog, execId: 13, sessionId: 'ks-session', sender: null, data: 'x' }); } catch (e) { threw = e; }
-  check('appendKeystrokeRecord refuses an unattributed (null) sender',
-    threw instanceof KeysAuditError, threw ? threw.message.slice(0, 60) : 'no throw');
-
-  // --- fail-closed: a loosened audit file refuses the write
-  const ksLooseLog = path.join(dir, 'ks-loose-session.log');
-  fs.writeFileSync(auditPathFor(ksLooseLog), '', { mode: 0o600 });
-  fs.chmodSync(auditPathFor(ksLooseLog), 0o644);
-  threw = null;
-  try { appendKeystrokeRecord({ logPath: ksLooseLog, execId: 14, sessionId: 'ks-loose-session', sender: SENDER, data: 'x' }); } catch (e) { threw = e; }
-  check('appendKeystrokeRecord REFUSES a loosened (0644) audit file (fail-closed, D93)',
-    threw instanceof KeysAuditError, threw ? threw.message.slice(0, 60) : 'no throw');
-  check('the refused write left the loosened file untouched (no record laundered through)',
-    records(ksLooseLog).length === 0, `records=${records(ksLooseLog).length}`);
-
   // === appendKillRecord (cli-expansion owner ruling, 2026-07-20) ===
 
   // --- happy path
@@ -116,7 +72,7 @@ function main() {
   check('appendKillRecord returns the audit path it wrote', killRes.auditPath === auditPathFor(killLog));
 
   // --- refuses on a missing log_path
-  threw = null;
+  let threw = null;
   try { appendKillRecord({ logPath: undefined, execId: 22, sessionId: 'x', sender: SENDER }); } catch (e) { threw = e; }
   check('appendKillRecord refuses a missing log_path',
     threw instanceof KeysAuditError, threw ? threw.message.slice(0, 60) : 'no throw');
@@ -139,18 +95,20 @@ function main() {
     records(killLooseLog).length === 0, `records=${records(killLooseLog).length}`);
 
   // === shared file, ordering ===
-  // A session's audit file is ONE append-only stream across all three intents (D93/D94/the kill
-  // ruling all EXTEND the same vocabulary into the SAME file, never parallel it) — prove that,
-  // not just each writer in isolation.
+  // A session's audit file is ONE append-only stream, not a writer that rewrites or replaces
+  // earlier bytes — prove the stream property itself, which is what D93's append-only shape
+  // promises. It was proved across keystrokes AND the kill until task 7.29 retired the keystroke
+  // path; the property under test is unchanged, only the vocabulary available to write it.
   const sharedLog = path.join(dir, 'shared-session.log');
-  appendKeystrokeRecord({ logPath: sharedLog, execId: 31, sessionId: 'shared', sender: SENDER, data: 'a' });
-  appendKeystrokeRecord({ logPath: sharedLog, execId: 31, sessionId: 'shared', sender: SENDER, data: 'b' });
   appendKillRecord({ logPath: sharedLog, execId: 31, sessionId: 'shared', sender: SENDER });
+  appendKillRecord({ logPath: sharedLog, execId: 31, sessionId: 'shared', sender: { ...SENDER, id: 'second-sender' } });
   const sharedRecords = records(sharedLog);
-  check('keystrokes and the kill land in ONE ordered stream in the same file',
-    sharedRecords.length === 3
-      && sharedRecords.map((r) => r.event).join(',') === 'keys-accepted,keys-accepted,session-killed',
-    sharedRecords.map((r) => r.event).join(','));
+  check('successive records land in ONE ordered stream in the same file, earlier bytes intact',
+    sharedRecords.length === 2
+      && sharedRecords.map((r) => r.event).join(',') === 'session-killed,session-killed'
+      && sharedRecords[0].sender_id === SENDER.id
+      && sharedRecords[1].sender_id === 'second-sender',
+    sharedRecords.map((r) => `${r.event}/${r.sender_id}`).join(','));
 }
 
 try {

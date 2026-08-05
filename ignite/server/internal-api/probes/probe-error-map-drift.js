@@ -45,10 +45,15 @@ const { STORE_TO_WIRE, NOT_WIRE_REACHABLE } = require('../dispatch');
 const { WIRE_ERROR_CODES } = require('../errors');
 const { checkClosedSetPartition } = require('./lib/closed-set');
 
-// The typed-code UNIVERSE: every E_* string constant the three error modules export.
+// The typed-code UNIVERSE: every E_* string constant the error modules export.
 // Derived by REQUIRING the modules (never by regex over source) so a code cannot hide
 // behind formatting — if it is exported, it is in scope.
-const ERROR_MODULES = ['../../pty/errors', '../../spawn/errors', '../../heart/errors'];
+//
+// It was THREE modules until task 7.29: `../../pty/errors` was deleted with the rest of
+// server/pty/, and its seven codes left both dispatch.js maps in the same change. The path could
+// not simply be left here — a require of a deleted module THROWS, which takes this probe down
+// rather than shrinking the universe it measures.
+const ERROR_MODULES = ['../../spawn/errors', '../../heart/errors'];
 const defined = new Set();
 for (const mod of ERROR_MODULES) {
   const exp = require(mod);

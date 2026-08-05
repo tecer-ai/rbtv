@@ -19,14 +19,15 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // also routes `spawn-via-named-profile` because a bridge or a later client may name
 // it — the gateway is the internal API's single client and speaks its whole surface.
 //
-// ⚑ `send-to-session` + `capture-session-screen` ADDED by owner ruling D91 (p6-3a). THIS SET IS
-// WHY THEY WERE ADDED HERE AT ALL: the core registered both intents, but this set did not — and
-// handleRequest parses BEFORE it forwards, so an authenticated OWNER driving the real ingress
-// got `UNKNOWN_INTENT` and the whole session surface was unreachable end-to-end. The gateway
-// speaks the internal API's WHOLE surface; a core intent missing from this set is a dead intent.
+// ⚑ `send-to-session` + `capture-session-screen` (owner ruling D91, p6-3a) are RETIRED by task
+// 7.29. The server-owned pty they drove is deleted, tmux holds the headed session, and SSH is
+// the human trust boundary — so both are removed from THIS set, from the core's set, and from
+// the dispatch switch IN LOCKSTEP (probe-intent-drift.js is the guard a half-done edit cannot
+// survive). The reason they were ever added here still binds every future intent: handleRequest
+// parses BEFORE it forwards, so a core intent missing from this set is a dead intent.
 // ⚑ `kill-session` ADDED by the cli-expansion run (ruling D2, ce-4): exposes the spawn
-// module's existing kill surface (TERM → grace → KILL, status → `killed`). Same
-// session-scoped integer id and coercion path as the Batch-6 session-surface intents.
+// module's existing kill surface (TERM → grace → KILL, status → `killed`). Session-scoped
+// integer id, on the same coercion path the retired Batch-6 intents used.
 // ⚑ `register-job` ADDED by owner ruling 2026-07-25 (task 7.12): the NINTH intent —
 // the daemon's first catalogue-WRITE surface. Before it, the only way a job entered
 // the `jobs` catalogue was a direct database write on the box, bypassing this parser,
@@ -37,8 +38,7 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // no CLI path to stop it. Added ADDITIVELY; the envelope version is UNCHANGED.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
-  'send-to-session', 'capture-session-screen', 'kill-session', 'register-job',
-  'deregister-job',
+  'kill-session', 'register-job', 'deregister-job',
 ]);
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
@@ -297,44 +297,23 @@ function parseSnooze(payload) {
   return { kind: payload.kind, subject: payload.subject, minutes };
 }
 
-// The Batch-6 session-surface intents (owner rulings D90/D91) — SHAPE ONLY, like every parse
-// here. The session id is the SAME wire field `inspect` uses for an execution-scoped call, so
-// it gets the SAME numeric-string coercion `remove-job`/`inspect` already apply: the CLI passes
-// `ignite <cmd> <id>` straight from argv, so a numeric string is the normal shape off a
-// terminal, and coercing HERE — at the one place raw sender input is interpreted — means the
-// wire always carries the integer the contract means.
+// The session-scoped id coercion — SHAPE ONLY, like every parse here. The session id is the
+// SAME wire field `inspect` uses for an execution-scoped call, so it gets the SAME numeric-string
+// coercion `remove-job`/`inspect` already apply: the CLI passes `ignite <cmd> <id>` straight from
+// argv, so a numeric string is the normal shape off a terminal, and coercing HERE — at the one
+// place raw sender input is interpreted — means the wire always carries the integer the contract
+// means. Introduced for the Batch-6 session-surface intents (D90/D91, both retired by task 7.29);
+// `kill-session` is its remaining caller and the coercion is unchanged.
 function parseSessionScopedId(raw, intent) {
   const id = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
   if (!Number.isInteger(id) || id <= 0) bad(`${intent} requires an integer session id`, 'id');
   return id;
 }
 
-function parseSendToSession(payload) {
-  requireObject(payload);
-  rejectUnknownKeys(payload, new Set(['id', 'data']), 'send-to-session');
-  const id = parseSessionScopedId(payload.id, 'send-to-session');
-  // Shape only: the keystroke bytes must BE bytes, and an empty burst is not a burst.
-  if (typeof payload.data !== 'string' || payload.data.length === 0) {
-    bad('send-to-session requires a non-empty data string of keystroke bytes', 'data');
-  }
-  // ⚑ The 4096-byte MAX is deliberately NOT duplicated here. It is a SERVER-ENFORCED policy
-  // bound grounded in PIPE_BUF write atomicity — the core's business, re-validated on every
-  // call regardless of what passed the gateway (DEC-3). Restating the number here would create
-  // a SECOND source of truth for it, and the two would drift. Length is bounded meanwhile by
-  // the ingress body cap (gateway.js MAX_BODY_BYTES).
-  return { id, data: payload.data };
-}
-
-function parseCaptureSessionScreen(payload) {
-  requireObject(payload);
-  rejectUnknownKeys(payload, new Set(['id']), 'capture-session-screen');
-  return { id: parseSessionScopedId(payload.id, 'capture-session-screen') };
-}
-
-// `kill-session` (cli-expansion ruling D2) — SHAPE ONLY, like every parse here. The id is
-// the SAME session-scoped integer the Batch-6 intents carry (a `jobs_log` execution id),
-// so it takes the SAME coercion path. Whether the row exists, who may kill it, and whether
-// anything is left to kill are the core's semantic re-validation (DEC-3).
+// `kill-session` (cli-expansion ruling D2) — SHAPE ONLY, like every parse here. The id is a
+// session-scoped integer (a `jobs_log` execution id) on the coercion path above. Whether the row
+// exists, who may kill it, and whether anything is left to kill are the core's semantic
+// re-validation (DEC-3).
 function parseKillSession(payload) {
   requireObject(payload);
   rejectUnknownKeys(payload, new Set(['id']), 'kill-session');
@@ -469,8 +448,6 @@ function parseRequest({ intent, payload }) {
     case 'inspect': return parseInspect(payload);
     case 'spawn-via-named-profile': return parseSpawnViaNamedProfile(payload);
     case 'snooze': return parseSnooze(payload);
-    case 'send-to-session': return parseSendToSession(payload);
-    case 'capture-session-screen': return parseCaptureSessionScreen(payload);
     case 'kill-session': return parseKillSession(payload);
     case 'register-job': return parseRegisterJob(payload);
     case 'deregister-job': return parseDeregisterJob(payload);

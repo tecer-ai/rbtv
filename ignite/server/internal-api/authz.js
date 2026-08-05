@@ -87,7 +87,7 @@ const PRINCIPALS = Object.freeze({
     // WHY: every OTHER query here authorizes with
     //   principals.some(p => PRINCIPALS[p] && PRINCIPALS[p].enforcedInV1)
     // over whatever the RESOLVER CHAIN returned. Marking this entry true would arm it
-    // for canRemoveQueueRow / canDriveSession / canKillSession the moment any resolver
+    // for canRemoveQueueRow / canKillSession the moment any resolver
     // emitted the string — and adding a resolver is exactly what task 7.10 (CMP-13)
     // will do. That would silently widen three authorization decisions the 2026-07-25
     // ruling never touched. The window is real, not theoretical, and a code comment is
@@ -101,7 +101,7 @@ const PRINCIPALS = Object.freeze({
   // typo fix. D65(B) authorized these two all along; they were inert ONLY because no resolver
   // could prove them. `seatPrincipalResolver` now can, so the flag stops being a lie and starts
   // being a gate. Arming it makes master and leader authorized for canRemoveQueueRow /
-  // canDriveSession / canKillSession — which is what the ruling says, and what "the principals the
+  // canKillSession — which is what the ruling says, and what "the principals the
   // shipped policy records but cannot prove become enforceable" asks for.
   //
   // This is NOT the widening the `master-approximation` note above warns against. That warning is
@@ -250,37 +250,6 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     };
   }
 
-  // May this attested sender DRIVE this headed session — inject keystrokes into it
-  // (`send-to-session`) or read its rendered screen (`capture-session-screen`)?
-  //
-  // OWNER RULING D89: both Batch-6 session-surface intents REUSE the D65(B) model — the SAME
-  // model canRemoveQueueRow applies: `kind: owner` OR the creator APPROXIMATION
-  // (`enqueued_by === authenticated sender-id`). NOT owner-only (that is snooze's model,
-  // D45/D71 — a warning is SYSTEM-raised so there is no creator to approximate; a session HAS
-  // one, so removal's model is the fit). The `subject` row here is the jobs_log row, which
-  // carries `enqueued_by` exactly as a queue row does (schema.sql:56).
-  //
-  // ⚑ There is NO second implementation of the model here: the principal resolution lives
-  // ONCE, in the resolver chain (`tokenKindResolver` → `principalsOf`), and this function only
-  // asks the question for this action — the same one-question-per-function shape
-  // canRemoveQueueRow and canSnoozeWarning already use. When the CMP-13 seat-identity resolver
-  // lands it registers in that ONE chain and this call site does not change.
-  //
-  // ⚑ This is a DEVICE-identity approximation of a creator — NOT a seat check. Do not describe
-  // it as seat-based (D65(B)); wherever a token is SHARED it is COARSER than the ruling: every
-  // seat behind a shared `agent` token can drive another seat's session.
-  function canDriveSession({ sender, row }) {
-    const principals = principalsOf(sender, row);
-    const allowed = principals.some((p) => PRINCIPALS[p] && PRINCIPALS[p].enforcedInV1);
-    return {
-      allowed,
-      principals,
-      reason: allowed
-        ? `authorized as: ${principals.join(', ')}`
-        : 'the attested sender is neither the owner nor the sender that enqueued this session',
-    };
-  }
-
   // May this attested sender KILL this session — the spawn module's kill surface
   // (TERM → grace → KILL of the whole tree, status → `killed`)?
   //
@@ -337,14 +306,14 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
   //   return a truthful 'master' and this function keeps its shape.
   //
   // The approximation is asked HERE, in the one policy module, and deliberately NOT
-  // added to `tokenKindResolver`: that resolver feeds canRemoveQueueRow /
-  // canDriveSession / canKillSession too, and widening it would silently loosen three
-  // authorization decisions this ruling never touched. Two mechanisms hold that
-  // confinement — this function tests `sender.kind` directly rather than reading the
-  // PRINCIPALS flag, AND the `master-approximation` entry is `enforcedInV1: false`, so
-  // even a future resolver that emitted the string could not arm the other three
-  // queries. (The flag half was added after adversarial review found the comment alone
-  // was doing the work.)
+  // added to `tokenKindResolver`: that resolver feeds canRemoveQueueRow / canKillSession
+  // too, and widening it would silently loosen authorization decisions this ruling never
+  // touched. Two mechanisms hold that confinement — this function tests `sender.kind`
+  // directly rather than reading the PRINCIPALS flag, AND the `master-approximation` entry
+  // is `enforcedInV1: false`, so even a future resolver that emitted the string could not
+  // arm the other queries. (The flag half was added after adversarial review found the
+  // comment alone was doing the work.) The set was THREE until task 7.29 retired
+  // canDriveSession with the session surface it authorized.
   //
   // ⚑ `verb` (task 7.364) exists ONLY so the refusal can name the command the sender
   // actually typed. `deregister-job` shares this policy BY DESIGN, not by convenience:
@@ -388,7 +357,7 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     return canRegisterJob({ sender, verb: 'deregister-job' });
   }
 
-  return { canRemoveQueueRow, canSnoozeWarning, canDriveSession, canKillSession, canRegisterJob, canDeregisterJob, principalsOf, PRINCIPALS };
+  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, principalsOf, PRINCIPALS };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };

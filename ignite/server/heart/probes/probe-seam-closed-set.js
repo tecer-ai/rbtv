@@ -68,9 +68,13 @@ const PROD_DIRS = ['server', 'capabilities', 'cli'];
 // hazard by construction. `asks` is the question, decided by a human. `row` is required iff they
 // differ, and forbidden when they agree.
 const MANIFEST = [
-  { site: 'server/index.js:main',
-    asks: 'SESSION', reads: 'TURN', row: 'G-228',
-    note: 'headed reconnect after restart — asks which SESSIONS survived, reads running TURNS' },
+  // REMOVED at task 7.29 — `server/index.js:main`, the headed-reconnect crossing (asks SESSION,
+  // reads TURN, row G-228). The pass it described re-attached headed sessions that survived a
+  // restart to the server-owned pty; that module was deleted, so the call site is gone and with
+  // it this crossing. THE PROBE CAUGHT IT: it failed `stale manifest entry ... the site was
+  // deleted or renamed and the manifest was not`, which is exactly the decay this manifest's
+  // symbol-keying exists to make loud. G-228 named a defect at a site that no longer exists —
+  // whether that CLOSES the row is the leader's call, not this deletion's; nothing here rules it.
 
   { site: 'server/index.js:runRetentionSweep',
     asks: 'SESSION', reads: 'TURN', row: 'G-227',

@@ -30,7 +30,7 @@ const { createAuthzPolicy } = require('./authz');
 // The ENABLED-vs-FIREABLE derivation (S-2). Imported rather than reimplemented: it reads the same
 // required-argument set enqueue enforces, so the report and the runtime cannot disagree.
 const { jobFireability } = require('../heart/heart-store');
-const { appendKeystrokeRecord, recordScreenRead, flushScreenReadRuns, appendKillRecord } = require('./keys-audit');
+const { appendKillRecord } = require('./keys-audit');
 
 const ENVELOPE_VERSION = 1;
 
@@ -41,16 +41,14 @@ const ENVELOPE_VERSION = 1;
 // owner ruling D71 (envelope version UNCHANGED) so p4-2's CLI snooze subcommand has
 // a gateway path to wrap.
 //
-// `send-to-session` + `capture-session-screen` are the SIXTH and SEVENTH, added
-// ADDITIVELY by owner ruling D90 (p6-3a) under the SAME §1 extension rule — the
-// Batch-6 session surface. Each carries its OWN complete re-validation clause and its
-// OWN authz decision; the ENVELOPE VERSION IS UNCHANGED (the extension rule is explicit
-// that adding an intent never bumps it), and no existing intent's payload semantics move.
-//
-// ⚑ Screen capture is a SEPARATE INTENT, deliberately — it MUST NOT ride `inspect` as a
-// new `target: screen`. `inspect`'s ratified target set is jobs|queue|status|logs; adding
-// to it would be "widening an existing intent's payload semantics", which the extension
-// rule forbids. A separate intent is the RATIFIED shape (D90), not a style preference.
+// `send-to-session` + `capture-session-screen` were the SIXTH and SEVENTH (owner ruling
+// D90, p6-3a — the Batch-6 session surface). Both are RETIRED by task 7.29: the
+// server-owned pty they drove is deleted, tmux holds the headed session, and SSH is the
+// human trust boundary. Removal is a LOCKSTEP edit across this set, the gateway's
+// `parse.js` INTENTS, and the dispatch switch below — probe-intent-drift.js exists to
+// catch a half-done one. Retiring an intent does NOT bump the ENVELOPE VERSION either:
+// the wire answer for a name no longer in this set is the same UNKNOWN_INTENT any
+// never-registered name gets, which is a refusal the envelope already specifies.
 // `kill-session` is the EIGHTH, added ADDITIVELY by the cli-expansion run (ruling D2,
 // ce-4) under the SAME §1 extension rule: it exposes the spawn module's EXISTING kill
 // surface (TERM → grace → KILL of the whole tree, status → `killed`) on the wire, with
@@ -72,8 +70,7 @@ const ENVELOPE_VERSION = 1;
 // never touches the catalogue, and `--disabled` existed only at registration time.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
-  'send-to-session', 'capture-session-screen', 'kill-session', 'register-job',
-  'deregister-job',
+  'kill-session', 'register-job', 'deregister-job',
 ]);
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
@@ -90,9 +87,10 @@ const REQUIRED_ENVELOPE_KEYS = ['v', 'id', 'ts', 'sender', 'intent', 'payload'];
 
 // ⚑ `messages` ADDED by the cli-expansion run (ruling D3, ce-5): a new read-only TARGET
 // of `inspect`, ruled a target rather than a ninth intent — read-only store queries are
-// what `inspect` is for, and a separate intent would duplicate its plumbing. (Contrast
-// the D90 note above: screen capture is a LIVE pty read, not a store query, which is why
-// IT is a separate intent.) Execution-scoped like `status`/`logs` — the id is a jobs_log
+// what `inspect` is for, and a separate intent would duplicate its plumbing. (The contrast that
+// made the rule legible — screen capture was a LIVE read, not a store query, so IT got its own
+// intent — is history: task 7.29 retired it with the pty. The rule it illustrates is unchanged.)
+// Execution-scoped like `status`/`logs` — the id is a jobs_log
 // exec_id; the handler resolves the execution's chain-stable thread and returns that
 // thread's message rows, paged.
 //
@@ -111,24 +109,6 @@ const EXEC_STATUSES = new Set(['launching', 'running', 'done', 'blocked', 'faile
 // Server-enforced max page (contract § 1, `inspect`: "offset/limit bounded").
 const MAX_PAGE = 500;
 const DEFAULT_PAGE = 200;
-
-// Server-enforced max keystroke payload for `send-to-session` (contract § 1's
-// bounded-payload precedent — the same principle `inspect` applies to a page: the sender
-// does not get to choose how much it pushes through the core in one call).
-//
-// The VALUE is grounded in the mechanism this intent actually drives, not picked round:
-// sendKeys writes to the pty bridge's STDIN, which is a PIPE (pty-host.js attachBridge —
-// stdio ['pipe','pipe','pipe']). POSIX guarantees a write of at most PIPE_BUF bytes to a
-// pipe is ATOMIC, and PIPE_BUF is 4096 on this platform (/usr/include/linux/limits.h:14,
-// `getconf PIPE_BUF` — both verified on the deploy box). At or below it, two concurrent
-// send-to-session calls CANNOT interleave their keystrokes into one live TUI; above it the
-// kernel may split a write and a second sender's bytes can land mid-command.
-//
-// ⚑ REJECTS, never CLAMPS — deliberately UNLIKE `inspect`'s pageBounds. Clamping a READ
-// page is safe: the sender simply pages on via nextOffset, and no state changes. Clamping
-// a WRITE is DESTRUCTIVE: the truncated head of a command still reaches a LIVE tty and
-// executes there. An over-long payload is refused typed, and nothing is written.
-const MAX_KEYS_BYTES = 4096;
 
 const SENDER_KINDS = new Set(['owner', 'agent', 'bridge']);
 
@@ -277,34 +257,16 @@ const STORE_TO_WIRE = new Map([
   ['E_WORKDIR_MISSING', VALIDATION_FAILED],
   ['E_UNKNOWN_REQUEST_KEY', VALIDATION_FAILED],
   ['E_BAD_REQUEST', VALIDATION_FAILED],
-  // The pty host's liveness refusal (server/pty/errors.js) — the ONLY typed code the two
-  // Batch-6 session-surface intents can raise from below. WITHOUT this row the map is a
-  // CLOSED literal Map that does not match it, so toWireError() below degrades it to
-  // { code: INTERNAL, message: 'server-core fault' } — and a sender could not tell "you sent
-  // keys to a session that is no longer live" from "the daemon broke". VALIDATION_FAILED,
-  // not NOT_FOUND: reaching sendKeys/captureScreen means the execution row EXISTS (the
-  // re-validation clause proved it) — what refused is the liveness CHECK, and `details.check`
-  // names it. Same shape as E_BAD_MODE / E_HEADED_NOT_CAPABLE, the other state refusals.
-  ['E_SESSION_NOT_LIVE', VALIDATION_FAILED],
   // The spawn module's carrier refusal — through THIS dispatch it is reachable ONLY from
   // `kill-session` (the one intent that calls into the spawn manager: spawn-via-named-profile
   // is D70-excluded before any spawn call, and inspect status/logs never throw it). spawn.kill
   // raises it for a row with NO usable carrier metadata — a row that never reached spawn, or
   // whose carrier identity was lost — so there is no process to signal. VALIDATION_FAILED, not
   // NOT_FOUND: the execution row EXISTS (the re-validation clause proved it); what refused is a
-  // state check on the row, and `details.check` names it. Same shape as E_SESSION_NOT_LIVE.
+  // state check on the row, and `details.check` names it. It is now the only state refusal of
+  // its family on the map: the pty pair it was written beside (E_SESSION_NOT_LIVE,
+  // E_PTY_BRIDGE) left with their module at task 7.29.
   ['E_CARRIER_FAILED', VALIDATION_FAILED],
-  // The pty ATTACH-BRIDGE wiring fault (server/pty/errors.js) — reachable from `send-to-session`
-  // and `capture-session-screen` through ensureAttached's lazy re-attach: the bridge interpreter
-  // is missing from PATH (pty-host.js attachBridge), or reconnect() resolved without registering
-  // a bridge entry (ensureAttached's post-reconnect wiring-fault throw, task 7.17). INTERNAL,
-  // ruled EXPLICITLY (batch-08 item 7, task 7.18) — this is a daemon-side environmental fault,
-  // nothing the sender can correct, so VALIDATION_FAILED would lie about whose problem it is.
-  // The row still earns its place: a MAPPED code crosses with its real message and
-  // `details.check: 'E_PTY_BRIDGE'`, so a sender (and the owner reading the sender's report) can
-  // tell "the pty bridge could not be wired" from the unmapped fall-through's opaque
-  // "server-core fault" — which is exactly the distinction the ruling exists to create.
-  ['E_PTY_BRIDGE', INTERNAL],
 ]);
 
 // ── The classification's other half: typed codes DELIBERATELY absent from the map ────────────
@@ -314,15 +276,19 @@ const STORE_TO_WIRE = new Map([
 // (the THIRD closed set in that batch with no drift detection). The durable fix is not the rows,
 // it is this invariant, held by probe-error-map-drift.js:
 //
-//   EVERY typed code exported by server/{pty,spawn,heart}/errors.js is either a STORE_TO_WIRE
+//   EVERY typed code exported by server/{spawn,heart}/errors.js is either a STORE_TO_WIRE
 //   key or a NOT_WIRE_REACHABLE key — exactly one, never neither, never both.
+//
+// (`server/pty/errors.js` was the third module in that set until task 7.29 deleted it; its seven
+// codes left both maps in the same change, and probe-error-map-drift.js's ERROR_MODULES lost the
+// path in lockstep. The invariant is unchanged — only its membership shrank.)
 //
 // Adding a new typed code without deciding its wire fate fails the probe NAMING the code. The
 // rationale strings are the reachability ruling of record: each states WHY the code cannot cross
 // toWireError() from a request path (verified at task 7.18 against every dispatch handler's call
-// graph — the eight intents reach heartStore.*, spawnManager.status/logs/kill, and
-// ptyHost.sendKeys/captureScreen ONLY; spawn itself is never wire-triggered, because
-// spawn-via-named-profile is D70-dropped on entry and dispatch never calls spawnManager.spawn).
+// graph — the intents reach heartStore.* and spawnManager.status/logs/kill ONLY; spawn itself is
+// never wire-triggered, because spawn-via-named-profile is D70-dropped on entry and dispatch
+// never calls spawnManager.spawn).
 // If a later change makes one of these codes cross the wire, MOVE it to STORE_TO_WIRE with a
 // ruled wire code — do not widen a rationale.
 const NOT_WIRE_REACHABLE = new Map([
@@ -339,19 +305,14 @@ const NOT_WIRE_REACHABLE = new Map([
   // (batch-08 item 7 ruled it correctly absent; a map row would add nothing but false precision).
   ['E_SECOND_WRITER', 'single-writer invariant breach — a real daemon fault; INTERNAL is honest'],
   // Ticker-spawn-path only (task 7.18 reachability finding, refining the item-7 table): these
-  // fire inside spawnHeaded/spawn/bwrap/carriage, which ONLY the ticker's dispatch phase invokes.
+  // fire inside spawn/spawnSeat/bwrap, which ONLY the ticker's dispatch phase invokes.
   // A spawn failure lands as jobs_log status 'failed' + a spawn-failed feed action — it never
   // crosses toWireError(), so it cannot degrade to the wire's "server-core fault" today.
-  ['E_HOLDER_FAILED', 'ticker-spawn-path only (spawnHeaded dtach holder); spawn is never wire-triggered'],
-  ['E_PROMPT_INJECTION_TIMEOUT', 'ticker-spawn-path only (spawnHeaded keystroke carriage); spawn is never wire-triggered'],
-  ['E_HEADED_PROMPT_REJECTED', 'ticker-spawn-path only (carriage composeHeadedArgv); the QUEUE half of the D85 double gate already refuses the same sender mistake at enqueue as E_BAD_MODE -> VALIDATION_FAILED'],
+  // (E_HOLDER_FAILED, E_PROMPT_INJECTION_TIMEOUT, E_HEADED_PROMPT_REJECTED,
+  // E_HEADED_PROMPT_CARRIAGE and E_HEADED_STDIN_CARRIAGE sat in this class until task 7.29:
+  // every one was raised inside server/pty/, and all five left with the module.)
   ['E_FS_SANDBOX_UNAVAILABLE', 'ticker-spawn-path only (bwrap sandbox resolve); spawn is never wire-triggered'],
   ['E_PROFILE_HALVES_UNSUPPORTED', 'ticker-spawn-path only (the G-144 profile-shape guard, raised by spawn AND spawnSeat immediately after the profile lookup); spawn is never wire-triggered — spawn-via-named-profile is D70-dropped on entry, dispatch never calls spawnManager.spawn/spawnSeat, and the only route to spawnSeat is server/index.js spawnManagerWithPty.spawn, which is the ticker dispatch phase'],
-  // Defense-in-depth behind config-load refusals (task 7.14 collapsed carriage validation to
-  // LOAD time): from a config the daemon actually booted with, these cannot fire — and their
-  // remaining raise sites are on the ticker-spawn path anyway.
-  ['E_HEADED_PROMPT_CARRIAGE', 'refused earlier at config LOAD (task 7.14); residual raise sites are ticker-spawn-path only'],
-  ['E_HEADED_STDIN_CARRIAGE', 'refused earlier at config LOAD (task 7.14); residual raise sites are ticker-spawn-path only'],
   // Task 7.10 — the peer-identity resolver's refusals, classified on a stronger ground than "no
   // handler raises them": they are never THROWN at all. `resolvePeerSeat` returns every refusal as
   // DATA (`{ ok: false, code }`) and its one caller — the gateway's authenticate step — consumes
@@ -444,7 +405,7 @@ function toWireError(err) {
 // `inspect daemon` can report a PENDING edit is to read the file at request time. Absent → the
 // fields report `null`, which means "not readable", never "no pending edit" — the two must not
 // look alike.
-function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonLoadedCode = null, daemonConfig = null, ptyHost = null, readConfiguredTickIntervalMs = null }) {
+function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonLoadedCode = null, daemonConfig = null, readConfiguredTickIntervalMs = null }) {
   if (typeof secret !== 'string' || secret.length === 0) {
     throw new Error('createInternalApi requires a non-empty per-boot client secret');
   }
@@ -1068,264 +1029,6 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     };
   }
 
-  // ── The Batch-6 session surface (owner ruling D90; contract §1 extension rule) ──────
-  //
-  // Two intents that let a SEPARATE process drive a live headed session THROUGH the daemon,
-  // keeping the daemon the sole keystroke mediator and the single audit point. Task 6.3's
-  // attach client is the intended caller. Nothing here streams: the contract's §3 boundary
-  // prohibition forbids a pty handle, a stream, or an emitter crossing in EITHER direction,
-  // so keystroke bytes cross INBOUND as data and the screen crosses OUTBOUND as a detached
-  // value snapshot — the `inspect logs` precedent (a bounded chunk, never a stream handle).
-
-  // The pty host is threaded in by the composition root (index.js). Its absence is a WIRING
-  // fault, never a sender error — fail LOUD as a server-core fault rather than let the
-  // session surface look present-but-broken. (The internal-api probes construct the API
-  // without a pty host; they call neither intent, and this keeps that honest.)
-  function requirePtyHost(intentName) {
-    if (!ptyHost) {
-      throw new InternalApiError(
-        INTERNAL,
-        `${intentName} requires the pty host; the composition root did not thread it into createInternalApi`,
-        { check: 'pty-host-wired' },
-      );
-    }
-  }
-
-  // The COMPLETE session-target re-validation both intents run, server-side, on EVERY call,
-  // regardless of what the gateway already validated (DEC-3: gateway origin is not trust).
-  // Deterministic, no LLM. The single principal RESOLVER lives in authz.js and is reused, so
-  // this is one clause invoked in full by each intent — never a second authorization model.
-  function revalidateSessionTarget(payload, sender, intentName) {
-    // ⚑ THE ID FIELD IS `id` — the SAME wire field `inspect` already uses for an
-    // execution-scoped call, carrying the SAME integer jobs_log.exec_id (one execution = one
-    // session row, D16). D23: the surface already names this thing, so no synonym is minted.
-    // It is NOT `jobId` — that is remove-job's RATIFIED queue-row misnomer (D69), a different
-    // identity space (queue.job_id has no UNIQUE; one slug maps to many rows). It is NOT
-    // `sessionId` — jobs_log.session_id is a distinct TEXT column (schema.sql:62), the
-    // holder/session-id string, not this integer.
-    const id = payload.id;
-    if (!Number.isInteger(id)) {
-      throw new InternalApiError(VALIDATION_FAILED, `${intentName} requires an integer id`, { check: 'id-shape', field: 'id' });
-    }
-    const row = heartStore.getExecution(id);
-    if (!row) {
-      throw new InternalApiError(NOT_FOUND, `execution not found: ${id}`, { check: 'id-exists', id });
-    }
-
-    // Authorization BEFORE the mode/liveness checks — remove-job's own order (existence, then
-    // authorization). An unauthorized sender therefore learns only that the id exists, never
-    // whether the session is headed or live.
-    const decision = authz.canDriveSession({ sender, row });
-    if (!decision.allowed) {
-      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization', id });
-    }
-
-    // Headed-only: JOIN/TAKE-OVER exist only for a session that runs inside a server-owned pty
-    // (D7/D17). A headless session's id is refused by a CHECK, not by a fault.
-    if (row.session_mode !== 'headed') {
-      throw new InternalApiError(
-        VALIDATION_FAILED,
-        `session ${id} is session_mode:${row.session_mode} — the session surface is headed-only (D7/D17)`,
-        { check: 'session-mode', field: 'id', id, session_mode: row.session_mode },
-      );
-    }
-    return row;
-  }
-
-  // Write keystroke bytes into a live headed session's pty — the keystroke rung (CMP-9).
-  function handleSendToSession(payload, sender) {
-    for (const key of Object.keys(payload)) {
-      if (key !== 'id' && key !== 'data') {
-        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
-      }
-    }
-    requirePtyHost('send-to-session');
-
-    // The bytes cross as DATA (§3 prohibition: no pty handle, no stream, no emitter). `data`
-    // is the name pty-host.js's sendKeys already gives this argument — D23: use the existing
-    // term, never an alias.
-    const data = payload.data;
-    if (typeof data !== 'string') {
-      throw new InternalApiError(VALIDATION_FAILED, 'data must be a string of keystroke bytes', { check: 'data-shape', field: 'data' });
-    }
-    const bytes = Buffer.byteLength(data, 'utf8');
-    if (bytes === 0) {
-      throw new InternalApiError(VALIDATION_FAILED, 'data must be a non-empty keystroke payload', { check: 'data-bound', field: 'data', bytes });
-    }
-    if (bytes > MAX_KEYS_BYTES) {
-      throw new InternalApiError(
-        VALIDATION_FAILED,
-        `data is ${bytes} bytes; the server-enforced max keystroke payload is ${MAX_KEYS_BYTES}`,
-        { check: 'data-bound', field: 'data', bytes, max: MAX_KEYS_BYTES },
-      );
-    }
-
-    const row = revalidateSessionTarget(payload, sender, 'send-to-session');
-
-    // ⚑ A row carrying NO log_path NEVER REACHED SPAWN, so it cannot possibly have a live pty.
-    // That is the LIVENESS refusal — answer the SAME typed code the pty host would, never "the
-    // audit could not be written". Without this the audit below (which sits beside that very
-    // log) would fail first and mis-report a dead session as a server fault: found by the C3(b)
-    // check when the audit landed, and fixed here rather than by loosening the check.
-    //
-    // Deliberately NARROW — this is a structural fact about the row (no transcript log ⇒ never
-    // spawned), NOT a general liveness check. Real liveness stays the pty host's ONE authority:
-    // a row that DID spawn and has since died still flows to sendKeys below and gets its
-    // E_SESSION_NOT_LIVE through the STORE_TO_WIRE map. The wire shape is identical either way.
-    if (typeof row.log_path !== 'string' || row.log_path.length === 0) {
-      throw new InternalApiError(
-        VALIDATION_FAILED,
-        `no live headed pty for session ${row.exec_id} (the row never spawned: it carries no transcript log)`,
-        // `id` — the session surface's ratified wire field (see revalidateSessionTarget), matching
-        // every other detail block here; `execId` was the store-side name leaking onto the wire
-        // (naming ride-along, batch-08 item 10 part 4 / task 7.18).
-        { check: 'E_SESSION_NOT_LIVE', id: row.exec_id },
-      );
-    }
-
-    // ── THE KEYSTROKE AUDIT (owner rulings D92/D93) ──────────────────────────────
-    //
-    // ⚑ BEFORE the pty write, and FAIL-CLOSED. The daemon mediates keystrokes rather than
-    // handing out a pty precisely BECAUSE mediation preserves an audit point; delivering a
-    // keystroke this file did not record would void that justification.
-    //
-    // The ORDER is a security property, not a style choice. Auditing AFTER delivery would hand
-    // an attacker a real bypass: fill the disk -> the audit write fails -> but the keystrokes
-    // already landed -> un-audited injection. Written first, a failed audit means NOTHING was
-    // ever delivered.
-    //
-    // ⚑ WHAT AN ENTRY MEANS (D93 leaves this to the build; stated here): an entry records a
-    // burst the daemon ACCEPTED for delivery — D93's own word. A request refused by the strict
-    // schema, the byte bound, the re-validation clause, or authz is NEVER written, so the file
-    // is not a log of attempts. The one over-record this ordering admits: a burst accepted here
-    // and THEN refused by the liveness check below (E_SESSION_NOT_LIVE) leaves an entry for
-    // bytes no TUI received. That trade is deliberate — for an audit, UNDER-recording (a
-    // delivered keystroke with no record) is the fatal direction; an over-record is visible,
-    // harmless, and correlatable against the typed refusal the sender received.
-    let audited;
-    try {
-      audited = appendKeystrokeRecord({
-        logPath: row.log_path,
-        execId: row.exec_id,
-        sessionId: row.session_id,
-        sender,          // the ATTESTED sender — D93: a record without attribution answers nothing
-        data,
-      });
-    } catch (err) {
-      // Loud, and the keystrokes do NOT go through. An InternalApiError carries its own message
-      // to the wire (toWireError passes it verbatim), so the sender learns the daemon refused —
-      // never the opaque generic 'server-core fault' the unmapped path would give.
-      log('error', 'send-to-session REFUSED: the keystroke audit could not be written — no keys were delivered', {
-        execId: row.exec_id, senderId: sender.id, error: err.message,
-      });
-      throw new InternalApiError(
-        INTERNAL,
-        `send-to-session refused: the keystroke audit could not be written (${err.message}). No keystrokes were delivered — ` +
-        `the daemon does not deliver un-audited input (owner rulings D92/D93).`,
-        { check: 'keys-audit' },
-      );
-    }
-
-    // LIVE is the pty host's own check: with no attached/live bridge it raises the TYPED
-    // E_SESSION_NOT_LIVE — never a hang (Behavior #11) — and the STORE_TO_WIRE row above
-    // carries it to the wire AS ITSELF instead of degrading it to INTERNAL.
-    const res = ptyHost.sendKeys(row.exec_id, data);
-    log('info', 'keystrokes delivered to a headed session', { execId: row.exec_id, senderId: sender.id, bytes: res.wrote, audit: audited.auditPath });
-    return { id: row.exec_id, wrote: res.wrote };
-  }
-
-  // Return the session's current rendered screen from the server-side vt model.
-  function handleCaptureSessionScreen(payload, sender) {
-    for (const key of Object.keys(payload)) {
-      if (key !== 'id') {
-        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
-      }
-    }
-    requirePtyHost('capture-session-screen');
-    const row = revalidateSessionTarget(payload, sender, 'capture-session-screen');
-
-    // ⚑ SAME NARROW STRUCTURAL GUARD send-to-session carries, for the SAME reason (the C3(b)
-    // finding): a row with NO log_path never reached spawn, so it has no pty AND no place to put
-    // an audit record. Without this, the audit below would fail FIRST and mis-report a never-
-    // spawned session as an audit fault instead of the liveness refusal it is. Deliberately NARROW
-    // — real liveness stays the pty host's ONE authority (see D96 below).
-    if (typeof row.log_path !== 'string' || row.log_path.length === 0) {
-      throw new InternalApiError(
-        VALIDATION_FAILED,
-        `no live headed pty for session ${row.exec_id} (the row never spawned: it carries no transcript log)`,
-        // `id` — the session surface's ratified wire field (see revalidateSessionTarget), matching
-        // every other detail block here; `execId` was the store-side name leaking onto the wire
-        // (naming ride-along, batch-08 item 10 part 4 / task 7.18).
-        { check: 'E_SESSION_NOT_LIVE', id: row.exec_id },
-      );
-    }
-
-    // ── THE SCREEN-READ AUDIT (owner ruling D94) ─────────────────────────────────
-    //
-    // ⚑ BEFORE the capture, and FAIL-CLOSED — the SAME posture as the keystroke path, but this is
-    // NOT reasoned from symmetry with it. It is reasoned from the BYPASS D94 exists to close:
-    //
-    //   D94 exists because a rendered screen can expose the SAME typed secret the keystroke audit
-    //   attributes, so the cheap way to steal a credential is to READ it, not type it. If the
-    //   audit were written AFTER the capture (or best-effort), an attacker fills the disk -> the
-    //   audit write fails -> the screen is served anyway -> a secret leaves the daemon with NO
-    //   record of who took it. That is precisely, and exactly, the hole D94 was ruled to close —
-    //   re-opened by the ordering. Written first, a failed audit means NO screen was ever served.
-    //
-    // THE TRADE, STATED (it is real, not hypothetical): a full disk — or a loosened audit mode —
-    // now disables READS too, not just writes. The attach client (task 6.3) goes blind rather than
-    // reading un-recorded. That is the correct direction for an ATTRIBUTION record: an audit an
-    // attacker can defeat by filling a disk is not an audit, and availability of a screen-read
-    // surface is worth less than the attributability of every secret that leaves through it.
-    // ⚑ But see the volume note on the audit's growth (D95 leaves it UNBOUNDED and 6.3 will POLL
-    // this intent): fail-closed + unbounded means the audit's OWN growth can eventually disable
-    // the surface. That interaction is SURFACED for tasks 6.3 and 7.5; it is not resolved here,
-    // and it does NOT justify a fail-open read (which would reopen the bypass).
-    //
-    // The over-record this ordering admits: a read audited here and THEN refused by the liveness
-    // check below leaves an entry for a screen no sender received. Deliberate, and the same trade
-    // the keystroke path takes — for an audit, UNDER-recording is the fatal direction; an
-    // over-record is visible, harmless, and correlatable against the typed refusal.
-    //
-    // ⚑ TASK 7.13 (piece 1): the record is COALESCED at source. The first poll of a continuous
-    // attach appends the fail-closed `screen-read` record exactly as before (a throw refuses
-    // the read — D94 unchanged); subsequent polls within the coalesce gap are counted in memory
-    // and closed out by ONE `screen-read-summary` carrying count + time range. See keys-audit.js
-    // § task 7.13 for why fail-closed is preserved where it is load-bearing.
-    try {
-      recordScreenRead({
-        logPath: row.log_path,
-        execId: row.exec_id,
-        sessionId: row.session_id,
-        sender,          // the ATTESTED sender — D93/D94: a record without attribution answers nothing
-      });
-    } catch (err) {
-      log('error', 'capture-session-screen REFUSED: the screen-read audit could not be written — no screen was served', {
-        execId: row.exec_id, senderId: sender.id, error: err.message,
-      });
-      throw new InternalApiError(
-        INTERNAL,
-        `capture-session-screen refused: the screen-read audit could not be written (${err.message}). No screen was served — ` +
-        `the daemon does not serve un-audited screen reads (owner ruling D94).`,
-        { check: 'screen-read-audit' },
-      );
-    }
-
-    const cap = ptyHost.captureScreen(row.exec_id);
-    // A DETACHED VALUE SNAPSHOT: the rendered screen as a plain string plus its dimensions.
-    // NEVER the vt model itself, the bridge, or a stream (§3). `screen` is already a rendered
-    // string — a copy, not a view into vt state — and the outbound round-trip in dispatch()
-    // re-asserts the whole thing is plain data before it crosses.
-    //
-    // `repainting` (D96): true means the vt model has not yet received a byte — the session was
-    // just re-attached and dtach's `-r winch` repaint is still in flight, so `screen` is blank or
-    // partial. It exists because session-surface-spec.md Behavior #7 permits a first capture that
-    // is "momentarily stale" but forbids one that is SILENTLY blank: a lazily re-attached session
-    // would otherwise return an empty screen indistinguishable from a genuinely empty one. A
-    // polling client simply reads again.
-    return { id: row.exec_id, rows: cap.rows, cols: cap.cols, screen: cap.screen, repainting: Boolean(cap.repainting) };
-  }
-
   // Kill a session — expose the spawn module's EXISTING kill surface (TERM → grace →
   // KILL of the whole process tree, status → `killed`) on the wire (cli-expansion ruling
   // D2, ce-4). Kill is NOT headed-only — a session is "killable at any time" regardless
@@ -1405,9 +1108,6 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     // with carrier metadata but no log_path is not a shape the daemon produces, and if one
     // appears the appender's own guard refuses rather than inventing an audit location.
     try {
-      // Task 7.13: close any open screen-read run for this exec FIRST, so its summary lands
-      // ahead of the kill record in the audit's append order (best-effort by design).
-      flushScreenReadRuns({ execId: row.exec_id });
       appendKillRecord({
         logPath: row.log_path,
         execId: row.exec_id,
@@ -1477,8 +1177,6 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'inspect': result = await handleInspect(env.payload); break;
         case 'spawn-via-named-profile': result = await handleSpawnViaNamedProfile(env.payload); break;
         case 'snooze': result = handleSnooze(env.payload, env.sender); break;
-        case 'send-to-session': result = handleSendToSession(env.payload, env.sender); break;
-        case 'capture-session-screen': result = handleCaptureSessionScreen(env.payload, env.sender); break;
         case 'kill-session': result = await handleKillSession(env.payload, env.sender); break;
         case 'register-job': result = handleRegisterJob(env.payload, env.sender); break;
         case 'deregister-job': result = handleDeregisterJob(env.payload, env.sender); break;
