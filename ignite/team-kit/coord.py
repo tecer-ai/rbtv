@@ -11078,6 +11078,33 @@ CAPACITY_EMPTY_LINE = ("  capacity: NO PANE WAS OPENED — every counted candida
                        "capacity-deferred. This is a WAIT, not a refusal: headroom on "
                        "cap.agent_panes returns as seats depart. No override flag carries this "
                        "term, and none may be attached to --force or --force-memory.")
+# ---------- 7.363 (F19): THE CENSUS-FAILURE LINES — G-m4-demo-clause1-driver-0803-2335 ----------
+#
+# 7.278 wrote ONE degrade branch for every bad reading, on the rule that a SENSOR outage must not
+# become a LAUNCH outage. G-2335 measured what that costs: a run whose sensor never starts loses
+# the pane-cap half of its capacity term entirely and keeps launching on the memory floor alone,
+# so the one term that bounds pane count stops binding the moment the sensor does — and says so as
+# one line among twenty in a launch that otherwise reports success.
+#
+# 7.363 splits the branch. Where the census is merely IMPERFECT (D4 incomplete, D5 an in-run
+# `cross_goal` row) it still produced a number, and 7.278's degrade stands unchanged. Where the
+# census is ABSENT or STALE the room cannot count itself at all, and a counted pane is admitted
+# BLIND — that case now DEFERS. It is still not a refusal: exit stays 0, the act names every
+# deferred seat, and it names the PICKUP LANE in the same output, which is the clause that makes
+# the enforcement recoverable rather than a launch outage by another name.
+#
+# ⚠ NO POLICY NUMBER APPEARS IN EITHER STRING, for the same reason as above: the cap is named by
+# FIELD (`cap.agent_panes`) and never by value, and `{pkg}` is the caller's own package path.
+CAPACITY_UNENFORCEABLE_LINE = (
+    "  capacity: CAP UNENFORCEABLE — {reason} | cap.agent_panes cannot be checked at all, so NO "
+    "counted candidate is admitted on the memory floor alone | {stamp}\n"
+    "  capacity: this is a WAIT, not a refusal — the act exits ZERO. PICKUP LANE: restore the census "
+    "(`team_monitor.py once --package {pkg}`, or restart the sensor) and the cadence sweep "
+    "re-admits every deferred seat with no further act (deferred-pickup-lane.md). No override flag "
+    "carries this term, and none may be attached to --force or --force-memory.")
+CAPACITY_CENSUS_DEFER_LINE = (
+    "  {agent}: DEFERRED (capacity) — cap.agent_panes headroom is UNKNOWN for this act: the census "
+    "could not be read, and this act will not admit a counted seat blind. Pickup lane above.")
 # §4.5 — readings worth SAYING that are not worth DEGRADING on. They print on the full-capacity
 # branch only: each one describes how the cap reading was USED, and on the degrade branch it was
 # not used at all, so printing them there would describe a consultation that did not happen.
@@ -11762,11 +11789,52 @@ def cmd_launch(args):
                       if _cap_age is not None
                       else "snapshot age unknown — state.json carries no captured_at")
     _cap_deferred = []
-    if _cap_why:
+    # COUNTED — membership read out of `budget.json` at runtime, the SAME predicate `census()`
+    # classifies on, so the act and the census can never disagree about who spends a slot. The
+    # parked owner door is outside it because `budget.json` says so by name — this POINTS at that
+    # exclusion and MINTS none. 7.363 hoisted it above the branch: BOTH the census-failure branch
+    # and the full-capacity branch decide on it, and computing it twice would be a second home.
+    _cap_counts = set((_cap_b or {}).get("counting", {}).get("counts_toward_cap") or [])
+    # 7.363 (F19): IS THE ROOM COUNTABLE AT ALL? Written on the two readings that mean the census
+    # DESCRIBES NOTHING — it could not be produced (D1), or its snapshot is too old to describe the
+    # room now (D3, which also forces `verdict: UNKNOWN` inside `census()` today). It is
+    # deliberately NOT `_cap_why`: D4 and D5 are IMPERFECT readings, not absent ones — the census
+    # produced a number there and 7.278's degrade still owns them — and an UNDECLARED
+    # `cap.agent_panes` is a `budget.json` configuration gap, not a census failure, so it degrades
+    # too. Reading `_cap_stale` rather than re-deriving it keeps the ruled read order intact.
+    _cap_blind = _cap_c is None or _cap_stale is True
+    if _cap_blind:
+        # ---- THE CENSUS-FAILURE BRANCH — IT DEFERS, AND IT STILL NEVER REFUSES ----------------
+        #
+        # G-2335's answer. The room cannot count itself, so `headroom` is UNKNOWN — not zero, not
+        # large — and admitting a counted seat here is admitting blind. Every counted candidate
+        # WAITS. What keeps this an enforcement and not an outage is the pickup lane printed with
+        # it: the census is restorable by one command, and the cadence sweep re-admits with no
+        # further act. Uncounted seats (the owner door, a descriptor declaring no type) still
+        # proceed — `budget.json` says they spend no slot, so nothing about the cap bears on them,
+        # and blocking them would be enforcing a term they were never under. The exit code is
+        # untouched: a WAIT is not a failure.
+        print(c(CAPACITY_UNENFORCEABLE_LINE.format(reason="; ".join(_cap_why), stamp=_cap_stamp,
+                                                   pkg=str(_cap_pkg)), C_HINT))
+        _cap_final = []
+        for w in workers:
+            if (w.get("agent_type") or "") in _cap_counts:
+                _cap_deferred.append(w)
+            else:
+                _cap_final.append(w)
+        workers = _cap_final
+        # NEVER FILTER SILENTLY — the same bar the full-capacity branch is held to.
+        for w in _cap_deferred:
+            print(c(CAPACITY_CENSUS_DEFER_LINE.format(agent=w["agent"]), C_DEAD), file=sys.stderr)
+    elif _cap_why:
         # ---- THE DEGRADE BRANCH — IT NEVER REFUSES -------------------------------------------
         #
-        # A bad SENSOR reading degrades; refusing on one would mint a LAUNCH OUTAGE out of a
-        # SENSOR OUTAGE, which is the wrong fail direction. `headroom` is not read, no allowance is
+        # An IMPERFECT census reading degrades — since 7.363 this branch owns D4 and D5 only, the
+        # two readings where the census DID produce a number and the number is merely untrustworthy
+        # in a named direction, plus an undeclared cap. Refusing on one would mint a LAUNCH OUTAGE
+        # out of a SENSOR OUTAGE, which is the wrong fail direction. (The readings where the census
+        # describes NOTHING no longer arrive here at all: they take the branch above and DEFER.)
+        # `headroom` is not read, no allowance is
         # computed, every admitted seat proceeds, and the act NAMES on its own output that the cap
         # was not consulted, with every reason that fired and the snapshot stamp. Limb M — the
         # memory floor, read live at the launch gate — stands as the only capacity protection, and
@@ -11790,11 +11858,8 @@ def cmd_launch(args):
         if _cap_cross and not _cap_in_run:                                         # N2
             print(c(CAPACITY_NOTE_CROSS_GOAL.format(k=len(_cap_cross)), C_HINT))
         # COUNTED — the subsequence of ADMITTED, IN ADMITTED'S OWN ORDER, whose DECLARED
-        # `agent_type` is a member of `counting.counts_toward_cap`. The membership predicate is
-        # `budget.json`'s own, the SAME one `census()` classifies on, so the act and the census can
-        # never disagree about who spends a slot. The parked owner door is outside it because
-        # `budget.json` says so by name — this POINTS at that exclusion and MINTS none.
-        _cap_counts = set((_cap_b or {}).get("counting", {}).get("counts_toward_cap") or [])
+        # `agent_type` is a member of `counting.counts_toward_cap` (`_cap_counts`, read once above
+        # the branch since 7.363 — both branches decide on it).
         # ⚠ NO ORDERING IS MINTED. `ADMITTED_FINAL` preserves A3's order exactly: no priority, no
         # reordering, no queue. Consequence, stated rather than left to be discovered: a
         # short-lived unblocking launch can be deferred behind long-running work. That is a WAIT
@@ -20625,35 +20690,94 @@ def _selftest_checks(args, failures, names):
               _c3_empty_code == 0 and len(opened) == _c3_opened_before
               and "capacity: NO PANE WAS OPENED — every counted candidate was capacity-deferred"
               in _c3_empty and "This is a WAIT, not a refusal" in _c3_empty)
-        # ---- THE DEGRADE PATH: a bad SENSOR reading degrades, it never refuses ------------------
+        # ---- 7.363 (F19): THE CENSUS-FAILURE PATH — an UNCOUNTABLE room DEFERS -----------------
+        #
+        # ⚠ THESE ROWS SUPERSEDE 7.278's D1 ROW AND ITS STALE ROW, WHICH ASSERTED THE OPPOSITE
+        # (`cap3` proceeding on the memory floor alone). That was 7.278's ruled design and it is
+        # named here rather than quietly deleted: G-m4-demo-clause1-driver-0803-2335 measured what
+        # it costs, and store row 7.363 rules the census-failure case the other way. 7.278's
+        # degrade branch is NOT gone — the rows below D5 still hold it for every IMPERFECT reading.
         _c3_budget(cap=2)
         _c3_state(drop=True)
         _c3_d1, _c3_d1_code = _c3_run(only="cap1,cap2,cap3")
-        check("7.278 THE DEGRADE PATH (D1 — the census cannot be produced): the act does NOT "
-              "consult the cap, opens every admitted seat on the memory floor alone, and NAMES on "
-              "its own output that the cap was not consulted, with the reason and the snapshot "
-              "stamp. `cap3` — deferred a moment ago under the same headroom — now proceeds, "
-              "which is what proves the cap was genuinely skipped rather than merely unmentioned. "
-              "Refusing here would mint a LAUNCH outage out of a SENSOR outage: the wrong fail "
-              "direction, and the one this file already refuses elsewhere",
-              _c3_d1_code == 0 and "[dry-run] cap3" in _c3_d1
-              and _c3_defer_lines(_c3_d1) == []
-              and "capacity: CAP NOT CONSULTED — the census could not be produced: state.json is "
+        check("7.363 CRITERION 1 (D1 — the census cannot be produced): the act DEFERS every "
+              "counted candidate instead of degrading to the memory floor alone. `cap1` and "
+              "`cap2` — which the full-capacity path admitted a moment ago — do NOT proceed, and "
+              "that is what proves the cap is being enforced rather than merely mentioned: before "
+              "7.363 an absent sensor admitted all three, so the one term bounding pane count "
+              "stopped binding the moment the sensor did. The reason and the snapshot stamp are "
+              "still named, and `CAP NOT CONSULTED` is GONE from this path — asserted absent, "
+              "because a line that said both would be describing two branches at once",
+              _c3_d1_code == 0
+              and "[dry-run] cap1" not in _c3_d1 and "[dry-run] cap2" not in _c3_d1
+              and "[dry-run] cap3" not in _c3_d1
+              and "CAP NOT CONSULTED" not in _c3_d1
+              and "capacity: CAP UNENFORCEABLE — the census could not be produced: state.json is "
                   "ABSENT" in _c3_d1
-              and "admitted 3 seat(s) on the memory floor alone" in _c3_d1
-              and "| no snapshot — state.json is ABSENT" in _c3_d1)
+              and "NO counted candidate is admitted on the memory floor alone" in _c3_d1
+              and "| no snapshot — state.json is ABSENT" in _c3_d1
+              and len(_c3_defer_lines(_c3_d1)) == 3)
+        check("7.363 CRITERION 3 — THE DEFERRED PARTY'S RE-ADMISSION PATH IS IN THE REFUSAL'S OWN "
+              "OUTPUT. This is the clause that separates an enforcement from an outage: a seat "
+              "told only that it was deferred has been stopped, while a seat told HOW the term "
+              "clears has been queued. The lane is A4's own (`deferred-pickup-lane.md`) — the "
+              "cadence sweep re-admits with no further act once the census is restored — and the "
+              "restore command is named beside it. Each deferred seat is ALSO named individually, "
+              "the same never-filter-silently bar the full-capacity branch is held to",
+              "PICKUP LANE: restore the census" in _c3_d1
+              and "deferred-pickup-lane.md" in _c3_d1
+              and "team_monitor.py once --package" in _c3_d1
+              and all(f"{_s}: DEFERRED (capacity) — cap.agent_panes headroom is UNKNOWN"
+                      in _c3_d1 for _s in ("cap1", "cap2", "cap3")))
+        check("7.363 A CENSUS-FAILURE DEFERRAL IS A **WAIT**, NOT A REFUSAL, and NO OVERRIDE FLAG "
+              "CARRIES IT: the act exits 0 with no pane opened, says in its own text that it "
+              "exits ZERO in its own words, and states that none of this may be attached to --force or "
+              "--force-memory. An exit code that read as a refusal would make a wait "
+              "indistinguishable from a denial — and an override flag would hand back exactly the "
+              "blind admission this row exists to stop",
+              _c3_d1_code == 0 and "this is a WAIT, not a refusal — the act exits ZERO" in _c3_d1
+              and "none may be attached to --force or --force-memory" in _c3_d1)
+        _c3_d1u, _c3_d1u_code = _c3_run(only="cap1,capm,capu")
+        check("7.363 THE BOUND THAT KEEPS THIS AN ENFORCEMENT AND NOT AN OUTAGE: an UNCOUNTED seat "
+              "still proceeds under an absent census. `capm` (excluded by `budget.json`'s own "
+              "`counting.never_counts` — the parked owner door) and `capu` (a descriptor "
+              "declaring no `agent_type` at all) spend no cap slot, so no reading of the cap bears "
+              "on them; deferring them would be enforcing a term they were never under, and it "
+              "would shut the owner door on a sensor fault. Only `cap1` waits",
+              _c3_d1u_code == 0
+              and "[dry-run] capm" in _c3_d1u and "[dry-run] capu" in _c3_d1u
+              and "[dry-run] cap1" not in _c3_d1u
+              and _c3_defer_lines(_c3_d1u) == [_ln for _ln in _c3_defer_lines(_c3_d1u)
+                                               if _ln.strip().startswith("cap1:")]
+              and len(_c3_defer_lines(_c3_d1u)) == 1)
+        _c3_state()
+        _c3_ctl, _c3_ctl_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.363 CRITERION 2 — **THE DISCRIMINATING CONTROL**: the SAME launch with a HEALTHY "
+              "census ADMITS. Nothing changed but the snapshot, and `cap1`/`cap2` proceed on the "
+              "cap's own headroom while `cap3` takes the ordinary headroom-exhausted deferral, "
+              "not the census one. Without this row the criterion above would be satisfied by a "
+              "term that deferred unconditionally — which is a new blocker wearing the shape of a "
+              "restored bound, and the outcome map (F19-b) names it as a failure, not a pass",
+              _c3_ctl_code == 0
+              and "[dry-run] cap1" in _c3_ctl and "[dry-run] cap2" in _c3_ctl
+              and "[dry-run] cap3" not in _c3_ctl
+              and "CAP UNENFORCEABLE" not in _c3_ctl and "CAP NOT CONSULTED" not in _c3_ctl
+              and "cap3: DEFERRED (capacity) — cap.agent_panes headroom is exhausted" in _c3_ctl)
         _c3_state(age=99999.0)
         _c3_d234, _c3_d234_code = _c3_run(only="cap1,cap2,cap3")
-        check("7.278 THE DEGRADE REASON NAMES **EVERY** CONDITION THAT FIRED, in the ruled read "
-              "order — not just the first. A stale snapshot fires D2, D3 and D4 together, and a "
-              "line naming only one of them would be a filter that removed a reason without "
-              "saying so. D2 and D3 are tested SEPARATELY even though `stale` forces `UNKNOWN` "
-              "today: they are two different facts, and a consumer that folded them could not "
+        check("7.363 A STALE SNAPSHOT IS A CENSUS FAILURE TOO — it describes the room as it was, "
+              "not as it is, so a counted seat admitted on it is admitted blind exactly as under "
+              "an absent one. AND (7.278's own bar, kept): THE REASON NAMES **EVERY** CONDITION "
+              "THAT FIRED, in the ruled read order — a stale snapshot fires D2, D3 and D4 "
+              "together, and a line naming only one would be a filter that removed a reason "
+              "without saying so. D2 and D3 stay tested SEPARATELY even though `stale` forces "
+              "`UNKNOWN` today: two different facts, and a consumer that folded them could not "
               "survive the day one stops implying the other",
-              _c3_d234_code == 0 and "[dry-run] cap3" in _c3_d234
-              and ("CAP NOT CONSULTED — census verdict UNKNOWN; census reports stale=true; "
+              _c3_d234_code == 0 and "[dry-run] cap3" not in _c3_d234
+              and ("CAP UNENFORCEABLE — census verdict UNKNOWN; census reports stale=true; "
                    "census reports complete=false (0 unclassified row(s))") in _c3_d234
-              and "(stale after " in _c3_d234)
+              and "(stale after " in _c3_d234
+              and len(_c3_defer_lines(_c3_d234)) == 3)
         _c3_state(seats=[{"seat": "ghost", "agent_type": "unclassified",
                           "agent_type_source": "seat", "harness": "claude",
                           "liveness": "live", "cwd": str(_c3l / "seats" / "cap1")}])
@@ -20745,12 +20869,16 @@ def _selftest_checks(args, failures, names):
         _c3_budget(cap=2, floors=True)
         _c3_state(drop=True)
         _c3_r1n, _c3_r1n_code = _c3_run(only="cap1", dry_run=False)
-        check("7.278 THE REFUSE BRANCH REFUSES **ONLY** ON THAT ONE CASE (the discriminating "
+        check("7.278/7.363 THE REFUSE BRANCH REFUSES **ONLY** ON THAT ONE CASE (the discriminating "
               "control): the SAME launch with the floor readable and the SENSOR gone does NOT "
-              "refuse — it degrades and proceeds. Without this pair the refusal row would be "
-              "satisfied by a term that refused on any bad reading at all, which is precisely the "
-              "wrong fail direction this branch is bounded to avoid",
-              _c3_r1n_code == 0 and "CAP NOT CONSULTED" in _c3_r1n)
+              "refuse — since 7.363 it DEFERS, on a WAIT that exits 0 and names its pickup lane, "
+              "which is a different act from a refusal and is asserted as one. Without this pair "
+              "the refusal row would be satisfied by a term that refused on any bad reading at "
+              "all, which is precisely the wrong fail direction this branch is bounded to avoid; "
+              "7.363 changed WHO WAITS on a dead sensor and changed NOTHING about who refuses",
+              _c3_r1n_code == 0 and "CAP UNENFORCEABLE" in _c3_r1n
+              and "PICKUP LANE: restore the census" in _c3_r1n
+              and "declares no floors.launch_refuse_mb" not in _c3_r1n)
 
         # ---- 7.362 (F18): THE EXPLICIT TMUX TARGET, AND THE DEFAULT THAT IS NEVER WIDENED ------
         # `G-m4-demo-workflow-registrar-0803-2307`: a daemon-fired exec inherits NO tmux
@@ -20907,6 +21035,35 @@ def _selftest_checks(args, failures, names):
               "`--force`; a capacity WAIT answers to neither, and the deferral text says so",
               "args.force" not in _c3_block and "force_memory" not in _c3_block
               and "none may be attached to --force or --force-memory" in CAPACITY_EMPTY_LINE)
+
+        # ---- 7.363's own static row: criterion 7, over the new branch's CODE --------------------
+        _f19_branch = _c3_code[_c3_code.index("if _cap_blind:"):_c3_code.index("elif _cap_why:")]
+        check("7.363 CRITERION 7 — NO POLICY NUMBER APPEARS IN THE CHANGE'S OWN SOURCE, IN ARGV, "
+              "OR IN AN ENVIRONMENT VARIABLE (`r-floor-single-source`: a policy number's ONE home "
+              "is `budget.json`, and a copy anywhere else is a second home that drifts silently). "
+              "Asserted as: the census-failure branch's CODE — comments stripped, so the ruling "
+              "ids and issue ids written above it cannot satisfy or break this row — contains NO "
+              "DIGIT AT ALL and reads no environment variable, and both new lines name the cap by "
+              "FIELD (`cap.agent_panes`) while containing no digit either. A digit-level "
+              "assertion is deliberately cruder than a threshold-level one: it cannot be passed "
+              "by a number that merely looks harmless",
+              not any(_ch.isdigit() for _ch in _f19_branch)
+              and "environ" not in _f19_branch and "getenv" not in _f19_branch
+              and "cap.agent_panes" in CAPACITY_UNENFORCEABLE_LINE
+              and "cap.agent_panes" in CAPACITY_CENSUS_DEFER_LINE
+              and not any(_ch.isdigit() for _ch in CAPACITY_UNENFORCEABLE_LINE)
+              and not any(_ch.isdigit() for _ch in CAPACITY_CENSUS_DEFER_LINE))
+        _f19_pred = "_cap_blind = _cap_c is None or _cap_stale is True"
+        check("7.363 THE PREDICATE IS WRITTEN ON THE TWO READINGS THAT MEAN THE ROOM CANNOT BE "
+              "COUNTED — the census absent, or its snapshot STALE — and on nothing else, asserted "
+              "as a SPELLED-OUT LITERAL LINE rather than in terms of the symbol under change (a "
+              "guard written on `_cap_blind` itself would move with any edit to it and pass). The "
+              "behavioural rows above prove WHAT happens on each case; this one proves the branch "
+              "cannot silently widen to swallow the IMPERFECT readings — D4, D5 and an undeclared "
+              "cap — whose whole point is that the census still produced a number. It is defined "
+              "exactly once, and it names neither `headroom` nor `complete`",
+              _c3_code.count("_cap_blind = ") == 1 and _f19_pred in _c3_code
+              and "headroom" not in _f19_pred and "complete" not in _f19_pred)
 
         # ============ F1 (7.317): THE FOURTH LANE — the grant's class widens, the FLIP's does not =
         # Ruled at `runs/run-3/decisions.md#p-fourth-lane-option-A-trade-owned` (leader,
