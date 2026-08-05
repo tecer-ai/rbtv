@@ -31,9 +31,14 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // the daemon's first catalogue-WRITE surface. Before it, the only way a job entered
 // the `jobs` catalogue was a direct database write on the box, bypassing this parser,
 // authorization, validation, and audit entirely.
+// ⚑ `deregister-job` ADDED by task 7.364 (F20, issue G-m4-demo-verdict-assembler-0804-1610):
+// the TENTH intent — the catalogue's first RETIREMENT surface. Before it, `register-job`
+// permanently burnt every id it wrote and a HOMED job outlived the goal tree it names, with
+// no CLI path to stop it. Added ADDITIVELY; the envelope version is UNCHANGED.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'send-to-session', 'capture-session-screen', 'kill-session', 'register-job',
+  'deregister-job',
 ]);
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
@@ -435,6 +440,23 @@ function parseRegisterJob(payload) {
   };
 }
 
+// `deregister-job` (the tenth intent, task 7.364) — SHAPE ONLY, like every parse here.
+// ⚑ `job_id` is a catalogue SLUG and gets NO numeric coercion: `remove-job`'s `jobId`
+// carries a queue-row integer (the ratified D69 misnomer) and coerces for that reason.
+// A catalogue id named "7" is a legitimate string id, so coercing here would turn a
+// valid slug into an integer the store can never match.
+// What the gateway CANNOT check and must not grow a handle to try: whether the id is in
+// the catalogue at all. That is the core's complete re-validation (DEC-3), and it is the
+// discriminating refusal this whole intent exists to have.
+function parseDeregisterJob(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['job_id']), 'deregister-job');
+  if (typeof payload.job_id !== 'string' || payload.job_id.length === 0) {
+    bad('deregister-job requires a non-empty job_id', 'job_id');
+  }
+  return { job_id: payload.job_id };
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -451,6 +473,7 @@ function parseRequest({ intent, payload }) {
     case 'capture-session-screen': return parseCaptureSessionScreen(payload);
     case 'kill-session': return parseKillSession(payload);
     case 'register-job': return parseRegisterJob(payload);
+    case 'deregister-job': return parseDeregisterJob(payload);
   }
 }
 

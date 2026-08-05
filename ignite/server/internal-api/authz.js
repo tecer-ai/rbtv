@@ -345,7 +345,13 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
   // even a future resolver that emitted the string could not arm the other three
   // queries. (The flag half was added after adversarial review found the comment alone
   // was doing the work.)
-  function canRegisterJob({ sender }) {
+  //
+  // ⚑ `verb` (task 7.364) exists ONLY so the refusal can name the command the sender
+  // actually typed. `deregister-job` shares this policy BY DESIGN, not by convenience:
+  // both are catalogue WRITES, and the 2026-07-25 ruling's subject is who may change
+  // what the daemon is ABLE to do — retiring a capability is that same subject. If a
+  // later ruling splits them, split this function; never widen one caller quietly.
+  function canRegisterJob({ sender, verb = 'register-job' }) {
     const principals = principalsOf(sender, null);
     const owner = principals.includes('owner') && PRINCIPALS.owner.enforcedInV1;
     const masterApprox = !!sender && sender.kind === 'agent';
@@ -372,11 +378,17 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
       principals,
       reason: allowed
         ? `authorized as: ${principals.join(', ')}`
-        : `register-job requires the owner or an enrolled AGENT token; you are ${seenAs}`,
+        : `${verb} requires the owner or an enrolled AGENT token; you are ${seenAs}`,
     };
   }
 
-  return { canRemoveQueueRow, canSnoozeWarning, canDriveSession, canKillSession, canRegisterJob, principalsOf, PRINCIPALS };
+  // Task 7.364 — the catalogue's DISABLE arm asks the SAME question as its create arm
+  // (see canRegisterJob's `verb` note); only the name in the refusal differs.
+  function canDeregisterJob({ sender }) {
+    return canRegisterJob({ sender, verb: 'deregister-job' });
+  }
+
+  return { canRemoveQueueRow, canSnoozeWarning, canDriveSession, canKillSession, canRegisterJob, canDeregisterJob, principalsOf, PRINCIPALS };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };

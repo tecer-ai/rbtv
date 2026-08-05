@@ -63,9 +63,17 @@ const ENVELOPE_VERSION = 1;
 // master APPROXIMATION — see authz.canRegisterJob). The ENVELOPE VERSION IS UNCHANGED
 // and no existing intent's payload semantics move. Before it, catalogue rows could only
 // be created by writing the database directly on the box — around this entire pipeline.
+// `deregister-job` is the TENTH, added ADDITIVELY by task 7.364 (F20, issue
+// G-m4-demo-verdict-assembler-0804-1610) under the SAME §1 extension rule: it is the
+// catalogue's first RETIREMENT surface, with its OWN re-validation clause and its OWN
+// authz decision (authz.canDeregisterJob — the same policy as its create arm). The
+// ENVELOPE VERSION IS UNCHANGED and no existing intent's payload semantics move. Before
+// it, a registered definition could never be stopped: `remove-job` takes a QUEUE id and
+// never touches the catalogue, and `--disabled` existed only at registration time.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'send-to-session', 'capture-session-screen', 'kill-session', 'register-job',
+  'deregister-job',
 ]);
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
@@ -150,6 +158,12 @@ const REGISTER_ALLOWED_KEYS = new Set([
   // task 7.12 · the job->seat pointer (owner ruling `r-job-seat-home`, 2026-07-27).
   'goal_name', 'seat_name',
 ]);
+
+// The deregister-job payload's field set (task 7.364) — exactly one key. No `dry_run`:
+// the act is a single idempotent flag flip whose only refusal (unknown id) is decidable
+// by an `inspect jobs` read the sender can already make, so a validate-only mode would
+// add a second code path with nothing to validate.
+const DEREGISTER_ALLOWED_KEYS = new Set(['job_id']);
 
 // ── Boundary serialization ───────────────────────────────────────────────────
 //
@@ -1004,6 +1018,56 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     };
   }
 
+  // `deregister-job` (task 7.364 / F20) — the catalogue's RETIREMENT surface. A MUTATION
+  // intent: it serializes at the store's single-writer connection like its siblings and
+  // writes at most one column of one row. Added ADDITIVELY; the envelope version is
+  // UNCHANGED.
+  //
+  // DISABLE, NOT DELETE — and that is the ruled shape, not a first cut: `queue.job_id`
+  // REFERENCES `jobs(job_id)`, so a delete either fails on a live queue row or orphans
+  // it, and the id would become re-registerable with a different action type while
+  // `jobs_log` history still points at the old one. Disabling STOPS the definition for
+  // real: the ticker defers every due row whose job is not enabled, and enqueue refuses
+  // E_JOB_DISABLED.
+  function handleDeregisterJob(payload, sender) {
+    // STRICT SCHEMA FIRST, matching every sibling handler — and load-bearing for
+    // probe-intent-drift.js, which proves this case exists by sending one unknown field.
+    for (const key of Object.keys(payload)) {
+      if (!DEREGISTER_ALLOWED_KEYS.has(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+
+    // Re-checked here, never trusted from the gateway (DEC-3).
+    if (typeof payload.job_id !== 'string' || payload.job_id.length === 0) {
+      throw new InternalApiError(VALIDATION_FAILED, 'job_id must be a non-empty string', { check: 'job_id-shape', field: 'job_id' });
+    }
+
+    // Authorization BEFORE the store read, so a refused sender learns nothing about the
+    // catalogue — including whether an id exists. Same policy as the create arm.
+    const decision = authz.canDeregisterJob({ sender });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
+    }
+
+    // The store owns existence: an unknown id throws E_UNKNOWN_JOB, which the wire map
+    // renders VALIDATION_FAILED. That refusal is the POINT of this intent — a stop path
+    // that reported success over a job that does not exist would be worse than none.
+    const row = heartStore.deregisterJob({ jobId: payload.job_id });
+
+    // Loud, owner-readable feedback (D21(3)) in the shape remove-job/register-job set.
+    // `pending_queue_rows` is stated because a disable does NOT empty the queue: those
+    // rows stay, deferred every tick, until someone runs `remove-job <queue-id>`.
+    return {
+      deregistered: true,
+      job_id: row.job_id,
+      enabled: row.enabled === 1,
+      was_enabled: row.was_enabled,
+      pending_queue_rows: row.pending_queue_rows,
+      homed: row.goal_name ? { goal: row.goal_name, seat: row.seat_name } : null,
+    };
+  }
+
   // ── The Batch-6 session surface (owner ruling D90; contract §1 extension rule) ──────
   //
   // Two intents that let a SEPARATE process drive a live headed session THROUGH the daemon,
@@ -1417,6 +1481,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'capture-session-screen': result = handleCaptureSessionScreen(env.payload, env.sender); break;
         case 'kill-session': result = await handleKillSession(env.payload, env.sender); break;
         case 'register-job': result = handleRegisterJob(env.payload, env.sender); break;
+        case 'deregister-job': result = handleDeregisterJob(env.payload, env.sender); break;
       }
 
       // Outbound round-trip: the snapshot the gateway receives is DETACHED, so

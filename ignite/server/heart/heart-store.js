@@ -495,10 +495,12 @@ class HeartStore {
   // id would quietly repoint a working job. A duplicate is now refused typed
   // (E_JOB_EXISTS) and the sender picks another id.
   //
-  // UPDATE / REMOVAL / DISABLE have NO v1 surface and that is deliberate, not an
-  // omission: changing or retiring a catalogue row stays an operator action on the
-  // box until a future ruling adds `update-job`/`unregister-job` additively — the
-  // same interim posture kill held before `kill-session` landed.
+  // UPDATE has no v1 surface. DISABLE now does — `deregisterJob` below (task 7.364),
+  // added additively for exactly the reason this comment used to state as acceptable:
+  // with no retirement path at all, every register-job BURNT its id permanently, and a
+  // HOMED job outlived the goal tree it names. Changing a row's action type or schema
+  // is still an operator action on the box, and DELETION is still refused a surface
+  // (queue.job_id REFERENCES jobs(job_id) — a delete orphans or fails on live rows).
   //
   // ⚑ AUTHORIZATION IS NOT ASKED HERE. This is the data layer; the caller (the
   // internal API) owns policy — the D65(B) split p4-0 set for removeQueueRow.
@@ -600,6 +602,52 @@ class HeartStore {
     `);
     stmt.run(jobId, actionType, fn, argsSchema, description, enabled ? 1 : 0, goalName, seatName, now, upd);
     return this.getJob(jobId);
+  }
+
+  // ── The DISABLE arm (task 7.364 / F20; G-m4-demo-verdict-assembler-0804-1610) ──
+  // The catalogue's stop path. It flips `enabled` to 0 and nothing else — the row,
+  // its id, and its audit trail stay. DELIBERATELY NOT A DELETE: `queue.job_id`
+  // REFERENCES `jobs(job_id)`, so a delete either fails on a live queue row or (with
+  // FKs off) orphans it, and `jobs_log` reads back through the id. Disabling is the
+  // arm the storage already admits — no schema change, and it is a REAL stop, not a
+  // cosmetic flag: the ticker's dispatch defers any due queue row whose job is not
+  // enabled (ticker.js, `job-invalid`), and enqueue refuses with E_JOB_DISABLED. So a
+  // definition disabled AFTER its rows were queued still never fires.
+  //
+  // IDEMPOTENT: disabling an already-disabled job is a clean success reporting
+  // `was_enabled: false`, never an error — a teardown must be re-runnable. An UNKNOWN
+  // id is the opposite and is refused typed (E_UNKNOWN_JOB): reporting success over a
+  // job that does not exist is the exact failure a stop path must not have.
+  //
+  // ⚑ AUTHORIZATION IS NOT ASKED HERE — the caller owns policy (the D65(B) split).
+  deregisterJob({ jobId, updatedAt }) {
+    if (typeof jobId !== 'string' || jobId.length === 0) {
+      throw new HeartStoreError(E_BAD_ARGS, 'job_id must be a non-empty string', { field: 'jobId' });
+    }
+    this.db.exec('BEGIN EXCLUSIVE;');
+    try {
+      const row = this.getJob(jobId);
+      if (!row) {
+        this.db.exec('ROLLBACK;');
+        throw new HeartStoreError(E_UNKNOWN_JOB, `unknown job: ${jobId}`, { field: 'jobId', jobId });
+      }
+      const wasEnabled = row.enabled === 1;
+      if (wasEnabled) {
+        this._prepare('UPDATE jobs SET enabled = 0, updated_at = ? WHERE job_id = ?')
+          .run(updatedAt || isoNow(), jobId);
+      }
+      // Counted INSIDE the transaction and reported out loud (D21(3)): a disable leaves
+      // pending rows in the queue, deferred every tick rather than removed. An operator
+      // who wants them gone runs `remove-job <queue-id>` — and cannot learn that from a
+      // bare success line.
+      const pending = this._prepare('SELECT COUNT(*) AS n FROM queue WHERE job_id = ?').get(jobId).n;
+      const after = this.getJob(jobId);
+      this.db.exec('COMMIT;');
+      return { ...after, was_enabled: wasEnabled, pending_queue_rows: pending };
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;'); } catch {}
+      throw err;
+    }
   }
 
   getJob(jobId) {

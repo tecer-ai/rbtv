@@ -22,6 +22,9 @@ const { takeFlag } = require('./lib/args');
 
 const COMMANDS = {
   'register-job': require('./commands/register-job'),
+  // Adjacent to register-job on purpose: the create arm and the retire arm of the one
+  // catalogue surface, so `ignite --help` prints them together (task 7.364).
+  'deregister-job': require('./commands/deregister-job'),
   'add-job': require('./commands/add-job'),
   'remove-job': require('./commands/remove-job'),
   inspect: require('./commands/inspect'),
