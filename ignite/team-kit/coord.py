@@ -11631,6 +11631,57 @@ CAPACITY_NOTE_UNDECLARED = ("  {agent}: capacity — descriptor declares NO `age
                             "named because an unnamed skip is a seat that quietly escaped the cap; "
                             "declare the type in its descriptor to bring it under the cap.")
 
+# ---------- 7.406: COLD-START ADMISSION — G-leader-0805-2036 -----------------------------------
+#
+# 7.363 made an ABSENT-or-STALE census DEFER — correct for a room that has run before and whose
+# sensor died. It also defers a VIRGIN package, one no sensor has EVER run against and no seat has
+# EVER launched into, because the wired entry starts the sensor AFTER the launch loop
+# (`ensure_team_monitor`, called post-loop in this same command) — so a virgin package's `state.json`
+# can never exist at the point this term reads it. The pickup lane 7.363 names ("restore the
+# census") can never fire on a room nothing has ever written to, so every package the wired entry
+# creates launched ZERO seats on its own first act. This section admits exactly that one state, on
+# the empty-room bound, and touches no other reading.
+def _cap_marker_absent(path):
+    """True ONLY on a positively-confirmed absence (`FileNotFoundError`). Present, unreadable, or
+    any other `OSError` (permission denied, a path segment that is a file, ...) all return False —
+    the predicate's one failure direction is toward "not absent", never toward "absent"."""
+    try:
+        os.stat(path)
+        return False
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+
+
+# Carried VERBATIM, same discipline as the lines above: no policy number in the string, `{pkg}` is
+# the caller's own package path.
+CAPACITY_COLDSTART_LINE = (
+    "  capacity: COLD-START — no sensor has ever run against {pkg} and no seat has ever launched "
+    "into it (state.json ABSENT, no coordination/team-monitor.log, no writer-lock, no "
+    "sessions.csv — every marker read fails closed on any other outcome). Admitted on the "
+    "EMPTY-ROOM BOUND: in_use 0, headroom cap.agent_panes, never more.")
+
+
+def _cap_admit_upto(workers, counted_types, allow):
+    """(admitted, deferred, taken) — the SAME admit-up-to-`allow` shape the full-capacity branch
+    below uses inline, factored out here so the cold-start call site carries no digit of its own:
+    `allow` is read from `budget.json` at the call site, never written in this function."""
+    taken = 0
+    admitted = []
+    deferred = []
+    for w in workers:
+        atype = w.get("agent_type") or ""
+        if atype in counted_types:
+            if taken < allow:
+                taken += 1
+                admitted.append(w)
+            else:
+                deferred.append(w)
+        else:
+            admitted.append(w)
+    return admitted, deferred, taken
+
 
 # ---- F17 (store row 7.361; G-planner-0804-1501 arm 2) — THE ASSERTED-IDENTITY LAUNCH BOUND ----
 #
@@ -12322,6 +12373,7 @@ def cmd_launch(args):
     _cap_c = None
     _cap_err = ""
     _cap_why = []          # the degrade reasons that fired, in the §3.1 read order
+    _cap_virgin = False    # 7.406: set True ONLY inside the D1 (census-absent) branch below
     # The module's own loader, exactly as `watch.py` already uses it. RECORDED, NOT HIDDEN: `_load`
     # carries a leading underscore, so this is a private-name coupling. It is nonetheless the ONE
     # loader in the repo; the alternative — a public loader in `budget.py` — would need C2, whose
@@ -12340,6 +12392,19 @@ def cmd_launch(args):
     if _cap_c is None:
         _cap_why.append(f"the census could not be produced: {_cap_err}")            # D1
         _cap_stamp = f"no snapshot — {_cap_err}"
+        # 7.406: VIRGIN vs MISSING SNAPSHOT, positively established, never guessed. `state.json`
+        # ABSENT (never UNREADABLE — `_cap_marker_absent` answers True on a genuine
+        # `FileNotFoundError` only, so a present-but-corrupt state.json leaves `_cap_virgin` False
+        # exactly as `_cap_es`'s own ABSENT/UNREADABLE split would) AND no sensor has ever written
+        # a durable artifact here AND no launch has ever completed here. Every marker read shares
+        # `_cap_marker_absent`'s one failure direction: present, unreadable, or erroring all read
+        # as "not absent", so `_cap_virgin` stays False rather than guessing.
+        _cap_virgin = (
+            _cap_marker_absent(os.path.join(str(_cap_pkg), "state.json"))
+            and _cap_marker_absent(os.path.join(str(_cap_pkg), "coordination", "team-monitor.log"))
+            and _cap_marker_absent(os.path.join(str(_cap_pkg), "coordination", "team-monitor.lock"))
+            and _cap_marker_absent(os.path.join(str(_cap_pkg), "sessions.csv"))
+        )
     else:
         # ---- THE FIVE DECISION FIELDS, READ BEFORE `headroom` IS USED AT ALL (§3.1/§3.2) -------
         #
@@ -12387,6 +12452,13 @@ def cmd_launch(args):
     # exclusion and MINTS none. 7.363 hoisted it above the branch: BOTH the census-failure branch
     # and the full-capacity branch decide on it, and computing it twice would be a second home.
     _cap_counts = set((_cap_b or {}).get("counting", {}).get("counts_toward_cap") or [])
+    # 7.406: THE EMPTY-ROOM BOUND, read from the SAME `_cap_b` load above — never a second home.
+    # An undeclared or non-numeric `cap.agent_panes` cannot bound an admission, so it keeps
+    # `_cap_virgin`'s reading from being usable rather than inventing a number: the branch below
+    # falls back to the byte-for-byte existing defer, exactly as an ordinary D1 does.
+    _cap_agent_panes = (_cap_b or {}).get("cap", {}).get("agent_panes")
+    _cap_coldstart = (_cap_virgin and isinstance(_cap_agent_panes, int)
+                      and not isinstance(_cap_agent_panes, bool) and _cap_agent_panes >= 0)
     # 7.363 (F19): IS THE ROOM COUNTABLE AT ALL? Written on the two readings that mean the census
     # DESCRIBES NOTHING — it could not be produced (D1), or its snapshot is too old to describe the
     # room now (D3, which also forces `verdict: UNKNOWN` inside `census()` today). It is
@@ -12396,28 +12468,46 @@ def cmd_launch(args):
     # too. Reading `_cap_stale` rather than re-deriving it keeps the ruled read order intact.
     _cap_blind = _cap_c is None or _cap_stale is True
     if _cap_blind:
-        # ---- THE CENSUS-FAILURE BRANCH — IT DEFERS, AND IT STILL NEVER REFUSES ----------------
-        #
-        # G-2335's answer. The room cannot count itself, so `headroom` is UNKNOWN — not zero, not
-        # large — and admitting a counted seat here is admitting blind. Every counted candidate
-        # WAITS. What keeps this an enforcement and not an outage is the pickup lane printed with
-        # it: the census is restorable by one command, and the cadence sweep re-admits with no
-        # further act. Uncounted seats (the owner door, a descriptor declaring no type) still
-        # proceed — `budget.json` says they spend no slot, so nothing about the cap bears on them,
-        # and blocking them would be enforcing a term they were never under. The exit code is
-        # untouched: a WAIT is not a failure.
-        print(c(CAPACITY_UNENFORCEABLE_LINE.format(reason="; ".join(_cap_why), stamp=_cap_stamp,
-                                                   pkg=str(_cap_pkg)), C_HINT))
-        _cap_final = []
-        for w in workers:
-            if (w.get("agent_type") or "") in _cap_counts:
-                _cap_deferred.append(w)
-            else:
-                _cap_final.append(w)
-        workers = _cap_final
-        # NEVER FILTER SILENTLY — the same bar the full-capacity branch is held to.
-        for w in _cap_deferred:
-            print(c(CAPACITY_CENSUS_DEFER_LINE.format(agent=w["agent"]), C_DEAD), file=sys.stderr)
+        if _cap_coldstart:
+            # ---- THE COLD-START BRANCH — ADMITS ON THE EMPTY-ROOM BOUND, NEVER MORE -----------
+            #
+            # 7.406. `_cap_virgin` is positively established (above) on markers this same package
+            # carries, never guessed; a room nothing has ever observed has an accurate census of
+            # its own — in_use 0 — and this branch admits exactly that reading, sourced from the
+            # SAME `_cap_b` load every other branch reads `cap.agent_panes` from. Overflow beyond
+            # the bound still WAITS, in the same never-filter-silently shape every other branch
+            # here is held to.
+            print(c(CAPACITY_COLDSTART_LINE.format(pkg=str(_cap_pkg)), C_HINT))
+            _cap_final, _cap_deferred, _cap_taken = _cap_admit_upto(workers, _cap_counts,
+                                                                    _cap_agent_panes)
+            workers = _cap_final
+            for w in _cap_deferred:
+                print(c(CAPACITY_DEFER_LINE.format(agent=w["agent"], k=_cap_taken,
+                                                   m=_cap_taken + len(_cap_deferred)), C_DEAD))
+        else:
+            # ---- THE CENSUS-FAILURE BRANCH — IT DEFERS, AND IT STILL NEVER REFUSES -------------
+            #
+            # G-2335's answer. The room cannot count itself, so `headroom` is UNKNOWN — not zero,
+            # not large — and admitting a counted seat here is admitting blind. Every counted
+            # candidate WAITS. What keeps this an enforcement and not an outage is the pickup lane
+            # printed with it: the census is restorable by one command, and the cadence sweep
+            # re-admits with no further act. Uncounted seats (the owner door, a descriptor
+            # declaring no type) still proceed — `budget.json` says they spend no slot, so nothing
+            # about the cap bears on them, and blocking them would be enforcing a term they were
+            # never under. The exit code is untouched: a WAIT is not a failure.
+            print(c(CAPACITY_UNENFORCEABLE_LINE.format(reason="; ".join(_cap_why), stamp=_cap_stamp,
+                                                       pkg=str(_cap_pkg)), C_HINT))
+            _cap_final = []
+            for w in workers:
+                if (w.get("agent_type") or "") in _cap_counts:
+                    _cap_deferred.append(w)
+                else:
+                    _cap_final.append(w)
+            workers = _cap_final
+            # NEVER FILTER SILENTLY — the same bar the full-capacity branch is held to.
+            for w in _cap_deferred:
+                print(c(CAPACITY_CENSUS_DEFER_LINE.format(agent=w["agent"]), C_DEAD),
+                      file=sys.stderr)
     elif _cap_why:
         # ---- THE DEGRADE BRANCH — IT NEVER REFUSES -------------------------------------------
         #
@@ -21810,6 +21900,101 @@ def _selftest_checks(args, failures, names):
               _c3_r1n_code == 0 and "CAP UNENFORCEABLE" in _c3_r1n
               and "PICKUP LANE: restore the census" in _c3_r1n
               and "declares no floors.launch_refuse_mb" not in _c3_r1n)
+
+        # ============ 7.406: COLD-START ADMISSION — G-leader-0805-2036 ===========================
+        # A FRESH package, deliberately NOT `_c3l`: by this point in the suite `_c3l` has real
+        # panes and session history from the dry_run=False rows above it, so it is no longer
+        # virgin BY CONSTRUCTION — which is exactly why the earlier D1/D3/D4/D5 rows above still
+        # pass unchanged (this fix only widens the ONE reading none of them exercise: a package
+        # nothing has EVER touched). This section needs a package that has genuinely never had a
+        # sensor or a seat, so it builds its own.
+        _c4l = _rs_make("c4-coldstart", [("cs1", ""), ("cs2", "")])
+        for _c4_s in ("cs1", "cs2"):
+            (_c4l / "seats" / _c4_s / "seat.md").write_text(
+                f"---\nagent: {_c4_s}\nmodel: opus\neffort: medium\nctx-refresh: 50\n"
+                "agent_type: worker\n---\nbrief\n", encoding="utf-8")
+
+        def _c4_budget():
+            (_c4l / "budget.json").write_text(json.dumps(
+                {"counting": {"counts_toward_cap": ["staff", "worker", "verifier"],
+                              "never_counts": {"master": "the owner door",
+                                                "no-seat": "no descriptor"}},
+                 "floors": {"launch_refuse_mb": 1, "pressure_warn_mb": 1},
+                 "cap": {"agent_panes": 2}}), encoding="utf-8")
+
+        def _c4_run(**kw):
+            _d = dict(agent="leader", package=str(_c4l), dry_run=True)
+            _d.update(kw)
+            return refuse(cmd_launch, **_d)
+
+        # ---- FIXTURE (a) VIRGIN: real budget.json, NO state.json, NO coordination artifacts,
+        #      NO sessions.csv — the state `_rs_make` leaves every package in until something
+        #      writes to it, which is the point: nothing has, here -----------------------------
+        _c4_budget()
+        _c4a, _c4a_code = _c4_run(only="cs1,cs2")
+        check("7.406 FIXTURE (a) — VIRGIN: a package no sensor has ever run against and no seat "
+              "has ever launched into admits on the EMPTY-ROOM BOUND — in_use 0, headroom "
+              "cap.agent_panes — with ONE visible line naming the cold-start reading, the way "
+              "CAP UNENFORCEABLE names its own. Before this row every package the wired entry "
+              "creates launched ZERO seats on its first act (G-leader-0805-2036, "
+              "JEA2-20260805T203059Z): the only sensor start runs AFTER the launch loop "
+              "(`ensure_team_monitor`), so `state.json` could never exist at the point this term "
+              "reads it, and the consumer ran before its producer on every first launch",
+              _c4a_code == 0 and "[dry-run] cs1" in _c4a and "[dry-run] cs2" in _c4a
+              and "capacity: COLD-START" in _c4a and "EMPTY-ROOM BOUND" in _c4a
+              and "CAP UNENFORCEABLE" not in _c4a)
+
+        # ---- FIXTURE (b) ONE-ARTIFACT — THE GUARD THAT MUST NOT LOOSEN --------------------------
+        (_c4l / "coordination" / "team-monitor.log").write_text("", encoding="utf-8")
+        _c4b, _c4b_code = _c4_run(only="cs1,cs2")
+        check("7.406 FIXTURE (b) — ONE SENSOR ARTIFACT PRESENT: identical to (a) but for an empty "
+              "coordination/team-monitor.log, and the act DEFERS exactly as today (MISSING "
+              "SNAPSHOT, never virgin). This is the row that proves the loosening has a bound: a "
+              "room the sensor has touched even once — however briefly, however long ago — is not "
+              "the empty room this fix admits, and the ordinary CAP UNENFORCEABLE pickup lane "
+              "still owns it",
+              _c4b_code == 0 and "[dry-run] cs1" not in _c4b and "[dry-run] cs2" not in _c4b
+              and "CAP UNENFORCEABLE" in _c4b and "capacity: COLD-START" not in _c4b)
+        (_c4l / "coordination" / "team-monitor.log").unlink()
+
+        # ---- FIXTURE (c) CORRUPT SNAPSHOT — UNREADABLE IS NEVER VIRGIN --------------------------
+        (_c4l / "state.json").write_text("{not json", encoding="utf-8")
+        _c4c, _c4c_code = _c4_run(only="cs1,cs2")
+        check("7.406 FIXTURE (c) — STATE.JSON PRESENT BUT UNPARSEABLE: D1's own error text says "
+              "UNREADABLE, never ABSENT, and the virgin predicate reads that distinction off the "
+              "SAME positive-existence check that decides absence for every marker — never off "
+              "the error string — so a corrupt snapshot defers exactly as today too, with the "
+              "UNREADABLE reason still named",
+              _c4c_code == 0 and "[dry-run] cs1" not in _c4c and "[dry-run] cs2" not in _c4c
+              and "CAP UNENFORCEABLE" in _c4c and "UNREADABLE" in _c4c
+              and "capacity: COLD-START" not in _c4c)
+        (_c4l / "state.json").unlink()
+
+        # ---- FAIL-CLOSED, PROVEN STRUCTURALLY — an erroring marker read yields the DEFER
+        #      reading, never the admit one, even on a package that is otherwise positively
+        #      virgin. `_cap_marker_absent` answers True on a `FileNotFoundError` ONLY; every
+        #      other `OSError` returns False, so the predicate's one failure direction is toward
+        #      NOT virgin. Driven by mutating the READ, not the predicate: `os.stat` itself raises,
+        #      which is the shape a real permission fault or an exotic filesystem takes -------
+        import unittest.mock as _c4_mock
+        _c4_orig_stat = os.stat
+
+        def _c4_bad_stat(path, *a, **kw):
+            if str(path).endswith(os.path.join("coordination", "team-monitor.log")):
+                raise PermissionError(13, "denied (7.406 fail-closed control)")
+            return _c4_orig_stat(path, *a, **kw)
+
+        with _c4_mock.patch("os.stat", side_effect=_c4_bad_stat):
+            _c4e, _c4e_code = _c4_run(only="cs1,cs2")
+        check("7.406 FAIL-CLOSED PROVEN STRUCTURALLY: on a fixture that is positively virgin "
+              "underneath (state.json absent, sessions.csv absent, the lock absent), making ONE "
+              "marker's OWN READ raise a real `OSError` (never `FileNotFoundError`) still defers "
+              "— the predicate never admits on an erroring read, only on a positively confirmed "
+              "absence. Without this row the predicate could pass every fixture above by treating "
+              "'read failed' the same as 'confirmed absent', which is the exact ambiguity §5's "
+              "bound exists to keep closed",
+              _c4e_code == 0 and "[dry-run] cs1" not in _c4e and "[dry-run] cs2" not in _c4e
+              and "CAP UNENFORCEABLE" in _c4e and "capacity: COLD-START" not in _c4e)
 
         # ---- 7.362 (F18): THE EXPLICIT TMUX TARGET, AND THE DEFAULT THAT IS NEVER WIDENED ------
         # `G-m4-demo-workflow-registrar-0803-2307`: a daemon-fired exec inherits NO tmux
