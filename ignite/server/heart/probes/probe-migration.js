@@ -145,6 +145,13 @@ function open(dbPath, extraMigration) {
   return { db, res, fresh };
 }
 
+// ⚠ try/finally, not a bare cleanup call after the last check: every fixture/check below can
+// throw (VACUUM INTO on a locked/full disk, a real migration bug propagating past `open()`), and
+// a throw here used to skip the rmSync entirely — the mkdtemp dir, holding a full VACUUM copy of
+// the live store, was leaked on every non-happy-path exit. The finally arm runs on both paths.
+let exitCode = 1;
+try {
+
 const fx = existingStoreFixture('existing');
 const lg = preVersioningFixture('preversioning');
 // ⚠ A PRISTINE, UNMIGRATED COPY, taken before anything opens `fx.path`. The first version of this
@@ -310,5 +317,9 @@ out(`CHECKS: ${passed}/${checks.length} passed`);
 out(`FIXTURE WAS: G-135 §2-§5 = ${fx.source} (user_version ${fx.version}, ${fx.rows} rows) | adoption §1 = ${lg.source}`);
 out(`EXIT: ${passed === checks.length ? 0 : 1}`);
 out(`WALL_MS: ${Date.now() - started}`);
-fs.rmSync(tmp, { recursive: true, force: true });
-process.exit(passed === checks.length ? 0 : 1);
+exitCode = passed === checks.length ? 0 : 1;
+
+} finally {
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+process.exit(exitCode);
