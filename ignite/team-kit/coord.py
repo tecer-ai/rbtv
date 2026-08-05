@@ -1232,14 +1232,21 @@ def wake(pane, text):
     multi-line goes through a file (prompt_file) so the wake line stays one line.
 
     REFUSES a pane whose composer already holds content one flush Enter does not clear
-    (P35-draft). A human draft left typed-but-unsubmitted in the chief-of-staff pane's composer
-    silently ate 39 wakes over ~4h (2026-08-04): each wake stacked its text after the draft, its
-    Enter did not submit, and the prefix-verify — which reads only the TOP composer line, held by
-    the draft — reported success. One Enter is sent to flush a submittable draft; a composer
-    still non-empty after that is a loud delivery failure, never a silent stall. The harness's
-    own FAINT ghost suggestion is NOT a draft and never trips this gate (P35-ghost,
-    G-master-0804-2200 — see composer_real_text): it survives Enter by design, so treating it as
-    a draft turned every wake at an idle pane into a refusal."""
+    (P35-draft). Pre-existing composer content in the chief-of-staff pane silently ate 39 wakes
+    over ~4h (2026-08-04): each wake stacked its text after that content, its Enter did not
+    submit, and the prefix-verify — which reads only the TOP composer line, held by that content
+    — reported success. WHAT PUT IT THERE was read at the time as a human draft left
+    typed-but-unsubmitted; that attribution NO LONGER STANDS. G-master-0804-2200 (absorbing
+    G-master-0804-2203) found the same-day composer content in that same pane was the harness's
+    own FAINT ghost-suggestion text — regenerated from session context, surviving Enter by
+    design, with nothing typed into the pane at all — so the ghost is the likely culprit for this
+    stall too, and an investigator must not re-derive "someone left a draft" from this history.
+    The stacking mechanism above holds whichever put the content there, and so does this gate:
+    one Enter is sent to flush a submittable draft; a composer still non-empty after that is a
+    loud delivery failure, never a silent stall. The harness's own FAINT ghost suggestion is NOT
+    a draft and never trips this gate (P35-ghost, G-master-0804-2200 — see composer_real_text):
+    it survives Enter by design, so treating it as a draft turned every wake at an idle pane into
+    a refusal."""
     if "\n" in text or "\r" in text:
         # s12-03: RETURNED, not printed — the caller prints it — so it goes through the
         # message-building half of `refuse`. Left as a bare literal it would be the ONE un-layered
@@ -13525,9 +13532,11 @@ def _selftest_checks(args, failures, names):
           "prefix-matches the box's first line and retries Enter-only",
           ok and len(enter_calls) == 2 and sent_texts == [REAL_WAKE_TEXT])
 
-    # ---- P35-draft: pre-existing composer content (2026-08-04 incident — a human draft in the
+    # ---- P35-draft: pre-existing composer content (2026-08-04 incident — content in the
     # chief-of-staff pane silently ate 39 wakes; the prefix-verify reads only the top composer
-    # line, which the draft held, so every wake reported success).
+    # line, which that content held, so every wake reported success. The original "a human draft"
+    # attribution NO LONGER STANDS: G-master-0804-2200 found the harness's FAINT ghost-suggestion
+    # text, not typed input — see wake()'s docstring).
     sent_texts.clear(); enter_calls.clear()
     capture_sequence[:] = [(CLAUDE_TAIL_STRANDED, ""), (CLAUDE_TAIL_STRANDED, "")]
     ok, terr = wake("%1", "[coord wake] hello")
