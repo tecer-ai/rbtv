@@ -63,7 +63,7 @@ const HARNESSES = Object.freeze({
       }),
       keystroke: Object.freeze({
         available: true,
-        basis: 'CMP-19 § Interface (2) — tmux send-keys into the seat pane; daemon pty rung server/pty/pty-host.js',
+        basis: 'CMP-19 § Interface (2) — tmux send-keys into the seat pane (the daemon pty rung was retired at task 7.29)',
       }),
     }),
   }),
@@ -175,7 +175,7 @@ function rungFor(harness, rung) {
 //   needResumable     the caller must be able to reach this session AGAIN after the first turn.
 //                     Refuses opencode's headless rung (one-shot, G-13) — the only place today
 //                     where two harnesses at the same phase resolve to different rungs.
-//   hostSupports      per-rung host capability, e.g. { keystroke: false } on a host with no pty /
+//   hostSupports      per-rung host capability, e.g. { keystroke: false } on a host with no
 //                     no tmux. Absent keys mean "supported"; a FALSE key removes that rung.
 //
 // Returns { harness, rung, phase, entry, skipped[] } — `skipped` names every rung the walk passed

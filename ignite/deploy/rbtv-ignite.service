@@ -85,7 +85,8 @@ Environment="RBTV_IGNITE_WORKDIR_ROOT=@@WORKDIR_ROOT@@"
 Environment="RBTV_IGNITE_DATA_ROOT=%S/rbtv-ignite"
 Environment="RBTV_IGNITE_USER_MANAGER=true"
 # Retention window (days) for the per-machine state root's ENUMERATED artifact classes
-# (logs/, prompts/, exits/, ptys/, ticker.log, feed.jsonl, ttyd.log — never heart.db),
+# (logs/, prompts/, exits/, ticker.log, feed.jsonl — never heart.db; `ptys/` and `ttyd.log`
+# left the enumeration at task 7.29 with the pty module and the ttyd surface),
 # swept at daemon boot and daily (task 7.13). 0 = never delete; values below 7 are
 # REJECTED at boot (a typo must not be able to erase the audit trail). Override via the
 # EnvironmentFile like any RBTV_IGNITE_* knob.

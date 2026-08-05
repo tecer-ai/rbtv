@@ -7,7 +7,8 @@
 // closed the SESSION as TWO SEPARATE STATEMENTS with no transaction around them. A failure or a
 // daemon death between them leaves a TERMINAL TURN UNDER AN `alive` SESSION — precisely the state
 // `G-222`'s crash sweep used to destroy. The five unclosed writers (`spawn.js:786/:799/:808`,
-// `pty-host.js:289/:327`) only ever write `failed`, which is the NOISE direction; THIS window can
+// `pty-host.js:289/:327`, a file deleted at task 7.29) only ever wrote `failed`, which is the
+// NOISE direction; THIS window can
 // leave a `done`, which is the direction that destroys a real outcome.
 //
 // ⚠⚠ WHAT MAKES THIS PROBE EVIDENCE RATHER THAN CEREMONY — read before trusting any green below.

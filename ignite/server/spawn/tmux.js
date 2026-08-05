@@ -4,7 +4,8 @@
 //
 // The substrate change is a change of TARGET, never of GATE: the ignite daemon remains the sole
 // spawn path (DEC-1 R3, R28). What moves is where a headed session lands — a tmux pane in the
-// goal's run-scoped room (R15: one pane per seat), instead of a server-owned pty unit.
+// goal's run-scoped room (R15: one pane per seat), instead of the server-owned pty unit that
+// task 7.30 replaced and task 7.29 deleted.
 //
 // The composed pane command is, in this order (R7/R28):
 //

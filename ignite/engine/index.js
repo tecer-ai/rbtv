@@ -44,7 +44,7 @@ const substrate = require('./substrate');
 //   profiles/tools/workflows/tickIntervalMs   the store's catalogue + snooze conversion inputs.
 //   spawnConfigPath the launch-profile config the fire path resolves NAMED profiles from.
 //   decorateSpawnManager  an OPTIONAL `(spawnManager, heartStore) => spawnManager` wrapper applied
-//                   before the ticker is built. It exists for the daemon's headed/pty fork, which
+//                   before the ticker is built. It exists for the daemon's headed fork, which
 //                   must sit between the two — an attachment-specific decoration, not engine
 //                   behaviour. The store is handed in because the decoration is built DURING
 //                   composition, when the caller does not yet hold the return value.

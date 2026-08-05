@@ -13,7 +13,9 @@
 // ⚠ THE EXPOSED STATE IS NOT A FIXTURE CONTRIVANCE. `updateExecutionStatus()` structurally cannot
 // end a session (7.46's design), and five production sites write a TERMINAL turn status through it
 // while closing nothing: spawn.js orphanRescan (:786/:799/:808 — the daemon's own boot rescan) and
-// pty-host.js (:289/:327 — a headed launch that fails). This probe reaches the state the same way
+// pty-host.js (:289/:327 — a headed launch that fails; the file was deleted at task 7.29, and the
+// citation is kept as the provenance of this probe's construction, not as a live path). This
+// probe reaches the state the same way
 // they do, through that same store call.
 //
 // ⚠⚠ WHAT MAKES THIS PROBE DISCRIMINATE, and it is why the session assertion is here at all: the

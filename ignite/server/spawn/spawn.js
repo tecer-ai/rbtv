@@ -210,8 +210,9 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
   // The former `file` and `argv-last` branches are DELETED (task 7.23): task 7.14 (batch-08
   // item 4 half A) narrowed the loadable headless vocabulary to `stdin` only
   // (KNOWN_PROMPT_VALUES, config.js), making both branches unreachable from any loadable
-  // config. Headed `file` carriage is owned end-to-end by the pty host (composeHeadedArgv,
-  // pty/carriage.js) — it never routes through here.
+  // config. Headed `file` carriage was owned end-to-end by the pty host (composeHeadedArgv,
+  // pty/carriage.js) and never routed through here; task 7.29 deleted that module, so no headed
+  // prompt carriage is composed anywhere today — a seat is driven by its DESCRIPTOR, not by argv.
 
   const argv = resolveTemplateSlots(block.argv, { workdir });
 
@@ -404,7 +405,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // D59: bwrap FS walls nested inside the systemd-run --user unit. The wrapped argv rides the
     // carrier opaquely (both systemd and setsid branches); the walls live in argv, not config.
     // No promptFile bind: the sole headless carriage is stdin (fd 0 opens before the wrap execs);
-    // headed prompt files are bound by the pty host's own buildBwrapArgv call.
+    // headed prompt files were bound by the pty host's own buildBwrapArgv call (module deleted at 7.29).
     const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
     const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, harness: harnessOf(profile), maskPaths });
 
@@ -515,7 +516,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   //
   // The gate does not move: this is still the daemon's own door, reached by profile NAME, and no
   // caller free text reaches argv. What moves is the TARGET — a pane in the goal's run-scoped room
-  // instead of a server-owned pty unit. Composition (and the reasons for each layer) lives in
+  // instead of the server-owned pty unit task 7.29 deleted. Composition (and the reasons for each layer) lives in
   // ./tmux.js; this function is the daemon-side half: resolve, compose, launch, record identity.
   //
   // R7's division of labour, which is the whole point of "profiles stay pure mechanism":

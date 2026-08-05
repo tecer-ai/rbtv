@@ -25,7 +25,7 @@ auth:
 
 spawn:
   data_root: /var/lib/rbtv-ignite   # the PER-MACHINE state root (batch-08 item 10 boundary — ignite/CLAUDE.md
-                                    # § State layout): heart.db, logs/, prompts/, exits/, ptys/, ticker.log,
+                                    # § State layout): heart.db, logs/, prompts/, exits/, ticker.log,
                                     # feed.jsonl live under here. Live deploys override via RBTV_IGNITE_DATA_ROOT
                                     # (the user unit's StateDirectory= path); this seed is the system-service shape.
   carrier: systemd                  # required (D48): containment is non-negotiable. A worker runs under
@@ -115,13 +115,14 @@ profiles:
     # was proven by a real load on a candidate copy BEFORE landing here.
     effort: { inert: true }
     headed:
-      # headed-CAPABLE seam (D17: presence of this block = capable). The pty path is Batch 6's.
+      # headed-CAPABLE seam (D17: presence of this block = capable). The TARGET is a tmux pane
+      # (task 7.30); the server-owned pty this seam once forked to was retired at task 7.29.
       #
       # ⚑ NO prompt carriage is declared — DELIBERATE, and it is the SPEC-COMPLIANT state
       # (conductor ruling D86 at p6-2b's close, backed by verbatim ratified text). Design 3's
       # seed paragraph CONDITIONS the declaration on a precondition NOT YET MET: "6.2 can declare
       # `prompt: argv` with `headed.tui.argv: ["opencode","--prompt","{prompt}"]` ONCE the runtime
-      # behavior (`--prompt` auto-submits vs pre-fills the composer) is verified on a real pty" —
+      # behavior (`--prompt` auto-submits vs pre-fills the composer) is verified on a real terminal" —
       # that verification is still owed (6.3 / p6-checkpoint; the TUI cannot be driven headlessly).
       #
       # Declaring it prematurely also BROKE Behavior #1 (proven by observed state at the p6-2b
@@ -265,9 +266,13 @@ profiles:
       # .rbtv/sessions/, and the rbtv source checkout.
 
   headed-shell:
-    # INERT HEADED TEST PROFILE (session #21, D12 surface test). A plain interactive shell in the
-    # server-owned pty — proves the ttyd JOIN/TAKE-OVER surface (criterion 4) + the FD-1 in-order
-    # keystroke fix WITHOUT a paid, side-effecting LLM harness. bash carries no harness
+    # INERT HEADED TEST PROFILE (session #21, D12 surface test). A plain interactive shell —
+    # a headed target to exercise WITHOUT a paid, side-effecting LLM harness. ⚠ WHAT IT PROVED IS
+    # GONE, THE PROFILE IS NOT: it was written against the ttyd JOIN/TAKE-OVER surface and the FD-1
+    # in-order keystroke fix, both retired at task 7.29. It is KEPT rather than deleted because the
+    # headed-carriage vocabulary is MIGRATED to the tmux target, not deleted (R8 keeps headless
+    # alive and the mode flag survives) — and an inert, unpaid headed profile is exactly what the
+    # tmux seat path will want to exercise against. bash carries no harness
     # (harnessOf -> null), so NO harness-config is materialized: this profile SIDESTEPS the opencode
     # `_note` config bug by construction. NO LLM, NO network; writes confined to its own session
     # workdir by the bwrap mount namespace (same containment as test-sleep).

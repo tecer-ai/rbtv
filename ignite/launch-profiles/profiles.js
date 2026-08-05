@@ -70,9 +70,10 @@ const KNOWN_PROMPT_VALUES = new Set(['stdin']);
 // REMOVED by the same batch-08 item 4 half A ruling — no carriage may put caller text on a
 // command line, and the headed argv path was the one UNGUARDED route there). A DIFFERENT
 // closed set from KNOWN_PROMPT_VALUES above — the two are deliberately not shared:
-// `stdin` is STRUCTURALLY ABSENT here (stdin IS the pty slave; write-then-close =
+// `stdin` is STRUCTURALLY ABSENT here (stdin IS the terminal slave; write-then-close =
 // type-then-hang-up), so declaring it is a config-LOAD failure and not a runtime error.
-// Matches server/pty/carriage.js's KNOWN_CARRIAGES exactly — the profile-LOAD gate, the QUEUE
+// Matched server/pty/carriage.js's KNOWN_CARRIAGES exactly until task 7.29 deleted that file;
+// this is now the SOLE home of the vocabulary. The profile-LOAD gate, the QUEUE
 // gate (heart-store.js) and the SPAWN gate (carriage.js) MUST agree on this vocabulary.
 const KNOWN_HEADED_CARRIAGES = new Set(['file', 'keystroke']);
 const KNOWN_SESSION_REF_SOURCES = new Set([
@@ -234,7 +235,7 @@ function validateHeaded(headed, profileName, filePath) {
       throw new SpawnError(
         E_CONFIG_LOAD,
         `profiles.${profileName}.headed.tui.prompt: stdin is STRUCTURALLY ABSENT from the headed ` +
-        `carriage vocabulary (stdin IS the pty slave; write-then-close would type-then-hang-up the ` +
+        `carriage vocabulary (stdin IS the terminal slave; write-then-close would type-then-hang-up the ` +
         `session) — declaring it is a config-LOAD failure, not a runtime value (known: file|keystroke)`,
         { file: filePath, key: `profiles.${profileName}.headed.tui.prompt`, carriage },
       );
@@ -257,7 +258,7 @@ function validateHeaded(headed, profileName, filePath) {
   }
 
   // Consistency, declared-but-absent direction: a carriage whose slot is missing would compose
-  // no prompt at spawn time. Refuse the profile at LOAD instead (server/pty/carriage.js refuses
+  // no prompt at spawn time. Refuse the profile at LOAD instead (server/pty/carriage.js refused
   // the same shapes at spawn time — the gates agree).
   if (carriage === 'file' && !headed.tui.argv.some((el) => el.includes('{prompt_file}'))) {
     throw new SpawnError(

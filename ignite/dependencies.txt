@@ -13,8 +13,13 @@ systemd + systemd-run — daemon unit + transient-unit spawn carrier (per-profil
 node:sqlite (built-in) — heart-store database engine (DatabaseSync — synchronous, WAL-capable) — resolved at task 2.1: Node 24 built-in module, ZERO external dependencies, no npm install (NEED-3 small-surface budget)
 js-yaml (PINNED 5.2.2) — YAML parser for server-config and launch-profile files; the module's ONLY npm dependency — `npm ci` in this folder. NEVER `npm install js-yaml` unversioned: that resolves whatever is latest that day, which is exactly what task 7.51 closed. 5.2.2 is also the first release OUTSIDE advisory GHSA-pm4m-ph32-ghv5 (high, CVSS 7.5 — denial of service by exponential parse time in flow collections), which covers 5.0.0–5.2.1.
 tailscaled — zero-ingress network posture: tailnet bind + Tailscale Serve (Batch 5) — `apt install tailscale` (per tailscale.com/install)
-ttyd — web-terminal viewer for headed sessions (Batch 6) — `apt install ttyd` (or build from source if the apt version lags)
-dtach (0.9) — in-unit foreground pty holder for headed sessions (Batch 6, D83 OQ-E / D84) — `apt install dtach`; `screen` (4.09) is the fallback holder
-python3 — pty-bridge interpreter for the headed session surface (`dtach -a` cannot be piped, so a `pty.fork` bridge runs it on a pty; system tool, NOT an npm dependency — D84). node-pty is NOT used (the in-unit dtach holder owns the pty).
+python3 — interpreter for the daemon's python-side tooling: the boot cockpit's launcher (server/cockpit.js), the worktree flow (team-kit/worktree-flow.py) and the python probes. System tool, NOT an npm dependency.
+# REMOVED at task 7.29 — `ttyd` (the web-terminal viewer) and `dtach` (the in-unit foreground pty
+# holder), both Batch-6 dependencies of the server-owned pty. That module, the web terminal and
+# its three-gate security model are deleted; tmux (below) is the headed substrate and SSH is the
+# human trust boundary. ⚠ THEY ARE NOT UNINSTALLED FROM ANY BOX by this edit — this file is the
+# inventory of what ignite REQUIRES, and removing a row states that ignite no longer needs the
+# tool, never that an operator should purge it. `python3` stays because it always had consumers
+# beyond the pty bridge; only its justification changed.
 tmux (3.6) — the headed SEAT substrate (task 7.30: one pane per seat in the goal's run-scoped room, settle ledger R15) and the BOOT COCKPIT's session (task 7.36, R6) — `apt install tmux`. COMPOSED since 7.30 (server/spawn/tmux.js is a pure composer that never calls tmux) and EXECUTED by the daemon since 7.36 (server/cockpit.js), which is why the row lands now rather than then. Absence is not fatal: ensureCockpit reports and swallows it, so a tmux-less box runs the control plane with no cockpit rather than refusing to boot.
 bubblewrap (bwrap) — LOAD-BEARING worker filesystem containment: mount-namespace walls nested inside each systemd-run --user unit (D59; systemd's FS sandbox is a no-op under the user manager) — `sudo apt-get install -y bubblewrap` (one-time root provisioning; Ubuntu pre-loads the bwrap-userns-restrict AppArmor profile that grants bwrap user-namespace access)

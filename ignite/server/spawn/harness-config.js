@@ -21,7 +21,7 @@
 // the shared module; the shared module may NEVER import anything under `server/`.
 //
 // `harnessOf` is RE-EXPORTED rather than redefined. Its four other call sites (spawn.js:366/579/622,
-// pty-host.js:249) keep importing it from here, so this re-home changes where the knowledge lives
+// the spawn path) keep importing it from here, so this re-home changes where the knowledge lives
 // and nothing any caller observes.
 
 const fs = require('node:fs');

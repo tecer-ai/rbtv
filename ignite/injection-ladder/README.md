@@ -55,7 +55,7 @@ rung it wanted has exercised everything except the selection; that is
 |-------|---------|
 | `phase` | `launch` (start a session) or `inject` (reach an already-live one). `headless`/`hooks` are launch-only by construction; `keystroke` is inject-only — you cannot type into a session that does not exist yet. |
 | `needResumable` | the caller must reach this session **again** after the first turn. A rung satisfies it only by **declaring** it. |
-| `hostSupports` | per-rung host capability, e.g. `{ keystroke: false }` with no pty/tmux. Absent keys mean supported. |
+| `hostSupports` | per-rung host capability, e.g. `{ keystroke: false }` with no tmux. Absent keys mean supported. |
 
 Exhausting the ladder is `E_NO_RUNG_AVAILABLE` carrying **every rung it passed and why** — never a
 silent fallback. An unknown harness is `E_UNKNOWN_HARNESS`: the ladder does not guess the shape of a
@@ -133,7 +133,9 @@ rather than merely "not headless", which is what makes that mutation visible.
 
 `server/spawn/harness-config.js` is now a **thin adapter**: the per-harness knowledge moved here; the
 filesystem writes and the daemon's log line stayed there. `harnessOf` is re-exported rather than
-redefined, so its four other call sites (`spawn.js:366/579/622`, `pty-host.js:249`) are untouched.
+redefined, so its other call sites in `spawn.js` are untouched. (A fourth site in `pty-host.js` was
+cited here until task 7.29 deleted that module; the line numbers are the original citation's and
+are not re-derived — see the file itself, which is the source of truth for where they are now.)
 
 - **Byte-equivalence** old-vs-new over 10 cases (all three harnesses × editable-path shapes, plus
   four null-harness cases), comparing the returned object *and* the full on-disk tree — paths, bytes

@@ -14,7 +14,7 @@
 //      scope is a POSITIVE enumeration, so an unknown file in the root also survives. If the
 //      exclusion regresses, this probe FAILS.
 //   4. A LIVE session's artifacts are never swept regardless of age.
-//   5. Singleton rotation: ticker.log/feed.jsonl/ttyd.log rotate to dated segments at most
+//   5. Singleton rotation: ticker.log/feed.jsonl rotate to dated segments at most
 //      once per UTC day, and only the SEGMENTS age out.
 //   6. Piece 4's heal pass: a 664 transcript in logs/ is tightened to 0600 — even when
 //      retentionDays is 0 (mode-tightening is not deletion).
@@ -119,7 +119,13 @@ function main() {
   check('date boundary: artifact just INSIDE the window survives', fs.existsSync(youngLog));
   check('prompts/ artifact beyond the window is deleted', !fs.existsSync(oldPrompt));
   check('exits/ artifact beyond the window is deleted', !fs.existsSync(oldExit));
-  check('ptys/ artifact beyond the window is deleted', !fs.existsSync(oldSock));
+  // ⚑ INVERTED AT TASK 7.29, deliberately — this used to assert `ptys/` WAS deleted. The class
+  // left the positive enumeration with the server-owned pty, and because the enumeration is
+  // positive, a dropped class is one the sweep never VISITS. Asserting the SURVIVAL is strictly
+  // stronger than deleting the check: a check removed proves nothing, while this one goes red the
+  // moment `ptys` creeps back into SWEPT_SESSION_DIRS.
+  check('ptys/ artifact SURVIVES at 100 days — the class left the enumeration at 7.29',
+    fs.existsSync(oldSock));
   check('a LIVE session\'s artifacts are never swept, at any age', fs.existsSync(liveLog),
     `skipped_live=${JSON.stringify(res.skipped_live.map((p) => path.basename(p)))}`);
 
@@ -133,7 +139,11 @@ function main() {
   const today = new Date(NOW).toISOString().slice(0, 10);
   check('ticker.log rotated to a dated segment', fs.existsSync(`${tickerLog}.${today}`) && !fs.existsSync(tickerLog));
   check('feed.jsonl rotated to a dated segment', fs.existsSync(`${feedJsonl}.${today}`));
-  check('ttyd.log rotated to a dated segment (D8: INCLUDED in retention)', fs.existsSync(`${ttydLog}.${today}`));
+  // ⚑ INVERTED AT TASK 7.29, same reasoning as ptys/ above: `ttyd.log` was the web terminal's own
+  // log and left SWEPT_SINGLETON_FILES with the ttyd surface. It must now be neither rotated nor
+  // deleted — the sweep does not visit it at all.
+  check('ttyd.log is NOT rotated and NOT deleted — the class left the enumeration at 7.29',
+    fs.existsSync(ttydLog) && !fs.existsSync(`${ttydLog}.${today}`));
   check('an ancient rotated segment is deleted', !fs.existsSync(oldSegment));
 
   check('a 664 transcript in logs/ is tightened to 0600 (piece 4 heal pass)',

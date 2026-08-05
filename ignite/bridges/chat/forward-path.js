@@ -14,7 +14,7 @@
 //        Reply type is PINNED (D105): `answer` when it responds to a pending
 //        `ask`, else `note` — the closed CMP-8 five-type vocabulary (mint nothing).
 //
-// ⚑ NEVER `send-to-session` (D104). That intent's ratified re-validation requires
+// ⚑ NEVER `send-to-session` (D104). That intent's ratified re-validation required
 // the execution to be `session_mode: headed` AND live (the pty keystroke rung —
 // internal-api-contract-spec.md §1), while chat rides the HEADLESS model's turn-
 // boundary ceiling (notes §7b). The follow-up leg is the SAME add-job path as the

@@ -6,7 +6,8 @@
 //
 //   • a follow-up forwards as `add-job` carrying a `send-message` ACTION-TYPE job
 //     addressed to the mapped turn-chain's thread (`exec-<first exec_id>`),
-//   • NEVER `send-to-session` (D104 — that leg is headed-only),
+//   • NEVER `send-to-session` (D104 — that leg was headed-only; the intent itself was retired at
+//     task 7.29, so this is now structurally impossible rather than merely forbidden),
 //   • reply type is `answer` on a pending `ask`, else `note` (D105).
 //
 // The chain thread resolves via the gateway `inspect` intent (D69: job-id → exec-id

@@ -13,7 +13,7 @@
 //
 // THE INVARIANT (the durable half of the ruling — the rows are incidental):
 //
-//   Every typed E_* code exported by server/{pty,spawn,heart}/errors.js is either a
+//   Every typed E_* code exported by server/{spawn,heart}/errors.js is either a
 //   STORE_TO_WIRE key (it crosses the wire AS ITSELF, deliberately) or a
 //   NOT_WIRE_REACHABLE key (its absence is a RULED classification with a stated
 //   rationale) — EXACTLY ONE. Never neither (silent decay), never both (contradiction).
@@ -97,7 +97,7 @@ for (const [code, rationale] of NOT_WIRE_REACHABLE) {
   }
 }
 
-emit(`typed-code universe (server/{pty,spawn,heart}/errors.js exports): ${defined.size}`);
+emit(`typed-code universe (server/{spawn,heart}/errors.js exports): ${defined.size}`);
 emit(`STORE_TO_WIRE rows: ${STORE_TO_WIRE.size}`);
 emit(`NOT_WIRE_REACHABLE classifications: ${NOT_WIRE_REACHABLE.size}`);
 emit(`partition: ${STORE_TO_WIRE.size} + ${NOT_WIRE_REACHABLE.size} = ${STORE_TO_WIRE.size + NOT_WIRE_REACHABLE.size} (universe ${defined.size})`);

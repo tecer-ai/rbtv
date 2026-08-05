@@ -30,7 +30,7 @@ Owner output is delivered outbound via `chat.postMessage` (bot token). Telegram
 `onMessage`/`sendToOwner` shape (DEC-3 "and/or"); not built here.
 
 Turn-boundary ceiling (notes §7b): chat rides the headless model — turn-boundary
-dialogue only, no mid-turn interrupt / live TUI (that is the ttyd surface, Batch 6).
+dialogue only, no mid-turn interrupt / live TUI (that was the ttyd surface, retired at task 7.29 — a live TUI is now a tmux pane reached over SSH, not a daemon intent).
 
 ### Slack event dedupe (at-least-once redelivery guard, D108(C))
 
@@ -111,9 +111,11 @@ exactly one gateway call, always `enqueue-job` (the bridge adds no new intent):
 | **First** message in a new chat thread | `enqueue-job` naming a session-creating **launch-agent** function + a named launch profile (DEC-1 R3). The bridge never spawns; the ticker's Dispatch phase does. |
 | **Follow-up** in a mapped thread | `enqueue-job` carrying a **`send-message`** action-type job addressed to the mapped turn-chain's thread (`exec-<first exec_id>`). Reply type `answer` on a pending `ask`, else `note` (closed CMP-8 vocabulary). |
 
-**NEVER `send-to-session`** (D104): that leg is `session_mode: headed` + live only
+**NEVER `send-to-session`** (D104): that leg was `session_mode: headed` + live only
 (the pty keystroke rung). Chat rides the headless turn-boundary ceiling. There is
-no send-to-session code path in this module, by construction.
+no send-to-session code path in this module, by construction — and since task 7.29
+retired the intent, there is none anywhere: the constraint is now structural rather
+than a discipline this module keeps.
 
 ## The reply leg (D110) — `reply-leg.js`
 

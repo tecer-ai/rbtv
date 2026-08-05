@@ -168,7 +168,7 @@ for (const abs of FILES) {
 
 // ⚠⚠ THE FIRST RUN OF THIS SCRIPT REPORTED 14 CALLER SITES AND SIX OF THEM WERE FALSE.
 // It matched a BARE NAME across every file with no module resolution, so five unrelated `main()`
-// definitions (cli/ignite.js, the pty shim, attach-client, seat-identity/cli, the sub-agent
+// definitions (cli/ignite.js, seat-identity/cli, the sub-agent
 // supervisor) came back as consumers of `index.js:main`. A name is not an identity.
 //
 // The fix is to scope a call to the DEFINING FILE — and that is only valid if no manifest symbol

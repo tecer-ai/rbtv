@@ -708,7 +708,7 @@ class HeartStore {
       // ADDITIVE: the headed-CAPABILITY check above is UNTOUCHED — this is its
       // sibling, not its replacement. The ruling requires a typed rejection at
       // queue time AND spawn time: the SPAWN half already lives in
-      // server/pty/carriage.js (composeHeadedArgv → E_HEADED_PROMPT_REJECTED);
+      // the headed carriage gate (composeHeadedArgv → E_HEADED_PROMPT_REJECTED), retired at 7.29;
       // this is the QUEUE half, so a prompt the profile has no carriage for is
       // refused BEFORE a queue row exists — nothing is enqueued, nothing starts.
       //
@@ -724,7 +724,7 @@ class HeartStore {
       //
       // VOCABULARY: `headed.tui.prompt` ∈ argv | file | keystroke, `stdin`
       // structurally absent. All three gates (profile-LOAD in spawn/config.js,
-      // this one, and the spawn-time one in pty/carriage.js) agree on that set;
+      // this one, and the spawn-time one that lived in pty/carriage.js) agree on that set;
       // presence of a carriage is the test here, never its value.
       //
       // CODE CHOICE — E_BAD_MODE, NOT a new E_HEADED_PROMPT_REJECTED. The store's

@@ -48,8 +48,6 @@ subcommand.
 | `ignite snooze <kind> <subject> --minutes <n>` | `snooze` | OWNER-ONLY. No standing warning is a clean no-op, never an error. There is no dismiss/clear subcommand — snooze never clears a warning (D45). |
 | `ignite inspect executions --status <s> [--offset n] [--limit n]` | `inspect` (`target: executions`) | Read-only. Every execution in ONE `jobs_log` status, paged — `launching\|running\|done\|blocked\|failed\|stalled\|killed`. The only target that is neither a fixed view nor execution-scoped: it takes no id and answers "every failed run", "every stalled worker". `--status` is REQUIRED (no unfiltered dump) and an unknown status is REFUSED naming the valid set, never answered with an empty list — empty and invalid are different answers. Paging is server-bounded; walk `nextOffset` until `eof`. |
 | `ignite status` | `inspect` (`target: daemon`) | Alias for `ignite inspect daemon`. On transport failure (daemon unreachable) prints `daemon: DOWN` instead of a raw connect error. |
-| `ignite send <session-id> --data <string>` | `send-to-session` | Keystroke bytes into a live HEADED session's pty (D92/D93 — audited server-side before delivery). `<session-id>` is the integer execution id. Headless id → typed refusal, never a hang. The 4096-byte max is server-enforced only (never re-checked locally). |
-| `ignite screen <session-id>` | `capture-session-screen` | A live HEADED session's current rendered screen — a detached snapshot with dimensions, never a stream; every read audited server-side first (D94). `repainting: true` means the re-attached pty has not painted yet — capture again. |
 | `ignite kill <session-id>` | `kill-session` | TERM → grace → KILL of the whole process tree; status becomes `killed`. Any session mode (headless or headed). Unknown id → typed not-found; an already-terminal session (`done`/`failed`/`killed`) → typed refusal. |
 
 ## `--json` policy
@@ -101,12 +99,6 @@ ignite inspect logs 42 --tail 50
 
 # Snooze a standing warning for 30 minutes (owner token required)
 ignite snooze seat-blocked-budget-exhausted my-seat --minutes 30
-
-# Send a keystroke burst into a live headed session (execution id 42)
-ignite send 42 --data $'ls -la\n'
-
-# Capture the same session's current rendered screen
-ignite screen 42
 
 # Read the message rows of execution 42's chain-stable thread
 ignite inspect messages 42

@@ -4,17 +4,17 @@
 // registry-reconciliation batch 08 item 2 + item 10 part 5; settles D95 + D97).
 //
 // WHY THIS EXISTS: two artifact families in the per-machine root grow forever with no cleanup
-// path — the keystroke/screen audit + pty transcript (both secret-bearing: a TUI echoes typed
-// input) and the daemon's own ticker.log/feed.jsonl. The audit is FAIL-CLOSED, so an unbounded
-// audit plus a full disk self-disables `send-to-session` — the owner loses the ability to type
-// into any session. Retention is the ruled fix: an AGE-based sweep, run at daemon boot and daily.
+// path — the session audit + session transcripts (secret-bearing: a TUI echoes typed input) and
+// the daemon's own ticker.log/feed.jsonl. The audit is FAIL-CLOSED, so an unbounded audit plus a
+// full disk self-disables the intent that writes it. Retention is the ruled fix: an AGE-based
+// sweep, run at daemon boot and daily.
 //
-// ⚑ NO SIZE CAP, BY RULING. A cap either fires fail-closed and kills `send-to-session` (the very
-// lockout being avoided) or silently discards evidence. Age is the only deletion basis here.
+// ⚑ NO SIZE CAP, BY RULING. A cap either fires fail-closed and kills the intent it audits (the
+// very lockout being avoided) or silently discards evidence. Age is the only deletion basis here.
 //
 // ⚑ THE SCOPE IS A POSITIVE ENUMERATION, NEVER A ROOT-WIDE SWEEP. The swept artifact classes are
-// enumerated below (`logs/`, `prompts/`, `exits/`, `ptys/`, `ticker.log`, `feed.jsonl`, and —
-// per the batch-08 D8 conductor ruling — `ttyd.log`). Everything else in the root is untouched
+// enumerated below (`logs/`, `prompts/`, `exits/`, `ticker.log`, `feed.jsonl`). Everything else
+// in the root is untouched
 // BY CONSTRUCTION: the sweep iterates only the enumerated entries, so `heart.db` (which task
 // 7.20 moved into this exact root) and `.runtime-config/` are never visited, let alone deleted.
 // A denylist would fail OPEN the moment someone adds a new file to the root; this enumeration
@@ -25,7 +25,16 @@
 // LIVE in the store (running/launching/stalled) is never swept regardless of age — the caller
 // passes the live-session predicate.
 //
-// The continuously-appended singletons (ticker.log, feed.jsonl, ttyd.log) can never age out by
+// ⚑ TWO CLASSES LEFT THIS ENUMERATION AT TASK 7.29, and the removal is the point rather than a
+// tidy-up: `ptys/` (holder sockets) and `ttyd.log` (the web terminal's own log) are artifacts of
+// the server-owned pty and the ttyd surface, both deleted. Because this is a POSITIVE
+// enumeration, dropping a class means the sweep no longer VISITS that directory or file at all —
+// so a leftover `ptys/` on an already-deployed box is now never touched, exactly like heart.db.
+// That is the fail-closed direction and it is deliberate: this row's job was to stop sweeping
+// what no longer exists, never to reach out and delete an operator's residue. probe-retention.js
+// asserts the survival directly, so the class cannot creep back in unnoticed.
+//
+// The continuously-appended singletons (ticker.log, feed.jsonl) can never age out by
 // mtime (an active daemon refreshes it every tick), so age-based retention reaches them through
 // DATED ROTATION: at most once per UTC day the live file is renamed to `<name>.<YYYY-MM-DD>` and
 // recreated by its writer's next append (both writers append by PATH, not by held fd), and the
@@ -41,8 +50,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const RETENTION_ENV_VAR = 'RBTV_IGNITE_LOG_RETENTION_DAYS';
 
 // THE enumerated sweep scope (positive enumeration — see the header note).
-const SWEPT_SESSION_DIRS = ['logs', 'prompts', 'exits', 'ptys'];
-const SWEPT_SINGLETON_FILES = ['ticker.log', 'feed.jsonl', 'ttyd.log'];
+const SWEPT_SESSION_DIRS = ['logs', 'prompts', 'exits'];
+const SWEPT_SINGLETON_FILES = ['ticker.log', 'feed.jsonl'];
 
 // The transcript/audit mode the `logs/` class is normalized to (piece 4 of the ruling: the
 // transcript is tightened 664 -> 0600, matching the audit — D97's asymmetry closed).
@@ -71,7 +80,7 @@ function parseRetentionDays(raw) {
   if (n !== 0 && n < MIN_RETENTION_DAYS) {
     throw new RetentionConfigError(
       `${RETENTION_ENV_VAR}=${n} is below the ${MIN_RETENTION_DAYS}-day floor and is REJECTED: ` +
-      `a typo must not be able to erase the keystroke/screen audit trail (task 7.13 ruling). ` +
+      `a typo must not be able to erase the session audit trail (task 7.13 ruling). ` +
       `Use ${MIN_RETENTION_DAYS} or more, or 0 to never delete.`
     );
   }

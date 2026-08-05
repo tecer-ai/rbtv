@@ -9,7 +9,7 @@
 // ONE module — "a second interpreter of the one file is the same drift as a second file".
 //
 // This file survives, unmoved and with its EXACT former export set, for one reason: it is what
-// `server/spawn/spawn.js`, `server/pty/pty-host.js` and the spawn probes require. Keeping the
+// `server/spawn/spawn.js` and the spawn probes require. Keeping the
 // seam means the daemon's behaviour is byte-unchanged — no call site moved, no signature changed,
 // the same `SpawnError` class with the same codes.
 //

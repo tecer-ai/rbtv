@@ -16,7 +16,7 @@
 //
 // ⚑ TURN-BOUNDARY CEILING (notes §7b): the bridge inherits the headless model's
 // ceiling — turn-boundary dialogue only. No mid-turn interrupt / live TUI over
-// chat (that is the ttyd surface, Batch 6).
+// chat (that was the ttyd surface, retired at task 7.29).
 //
 // Telegram (`getUpdates` long-poll) is ADDITIVE later — a second transport behind
 // the same onMessage/sendToOwner shape and the same allowlist/pairing/mapping
