@@ -136,7 +136,9 @@ Pin either state per account with "in_use": true/false.
   ]}
 
 Extra Claude accounts: any ~/.claude-<tag> config dir is auto-discovered as account
-claude:<tag> (statusline file plan-usage-<tag>.json; OAuth credentials from that dir).
+claude:<tag> (statusline file plan-usage-<tag>.json; OAuth credentials from that dir). Only ONE
+Claude account is ever RENDERED — the one in use (or "main" when none is), labelled bare
+"claude"; the others are still polled and cached, just not shown.
 """
 
 DOC_SECURITY = """Security / audit surface — what teamview touches (verify with --audit):
@@ -1199,6 +1201,19 @@ def account_label(acc, multi):
     return (f"{CYAN}{base}{OFF}" if acc.get("in_use") else f"{DIM}{base}{OFF}"), len(base)
 
 
+def current_claude_only(accounts):
+    """Only ONE Claude account is ever shown: the one in use. Several Claude config dirs can
+    exist on a box, but only the account a live session spends is the owner's current plan —
+    the rest are noise, and dropping them also collapses the label back to a bare 'claude'
+    (account_label only tags when a provider has >1 row). With none in use, 'main' stands in."""
+    cl = [a for a in accounts if a["provider"] == "claude"]
+    if len(cl) < 2:
+        return accounts
+    keep = [a for a in cl if a.get("in_use")] or [a for a in cl if a.get("name", "main") == "main"]
+    keep = keep[:1] or cl[:1]
+    return [a for a in accounts if a["provider"] != "claude" or a is keep[0]]
+
+
 def usage_cells(cache, live=None):
     """(bar_cells, note_bits, console_bits): bar cell = (label, label_vis, pct, suffix);
     notes = API-backed facts (balances, errors); console_bits = providers whose usage is NOT
@@ -1211,13 +1226,14 @@ def usage_cells(cache, live=None):
     cells, notes, console = [], [], []
     if not cache:
         return cells, ["providers: no data yet (first poll pending)"], console
+    accounts = [dict(a, in_use=account_in_use(a, live)) if live is not None else a
+                for a in cache.get("accounts", [])]
+    accounts = current_claude_only(accounts)
     multi = {}
-    for a in cache.get("accounts", []):
+    for a in accounts:
         multi[a["provider"]] = multi.get(a["provider"], 0) + 1
     now_ts = datetime.now().timestamp()
-    for a in cache.get("accounts", []):
-        if live is not None:
-            a = dict(a, in_use=account_in_use(a, live))
+    for a in accounts:
         d = a.get("data") or {}
         label, lvis = account_label(a, multi[a["provider"]] > 1)
         plain = a["provider"] if multi[a["provider"]] == 1 else f"{a['provider']}:{a.get('name')}"
@@ -2372,6 +2388,18 @@ def cmd_selftest():
     check("oauth parser: 5h/7d/scoped-model labels, epoch resets, null-pct skipped",
           [w["label"] for w in o] == ["5h", "7d", "7d fable"]
           and o[2]["pct"] == 54.0 and isinstance(o[0]["resets_at"], int))
+    accs = [{"provider": "claude", "name": "main"}, {"provider": "claude", "name": "tecer",
+                                                     "in_use": True},
+            {"provider": "codex", "name": "main"}]
+    kept = current_claude_only(accs)
+    lbl, _lv = account_label([a for a in kept if a["provider"] == "claude"][0],
+                             sum(1 for a in kept if a["provider"] == "claude") > 1)
+    check("claude accounts: only the in-use one, labelled bare 'claude'",
+          [(a["provider"], a["name"]) for a in kept] == [("claude", "tecer"), ("codex", "main")]
+          and re.sub(r"\033\[[0-9;]*m", "", lbl) == "claude")
+    check("claude accounts: none in use -> main stands in",
+          [a["name"] for a in current_claude_only([dict(a, in_use=False) for a in accs])
+           if a["provider"] == "claude"] == ["main"])
     cw = codex_windows_from_rl({"primary": {"used_percent": 3.0, "window_minutes": 10080,
                                             "resets_at": 5}, "secondary": None})
     check("codex windows: 10080min -> 7d", cw == [{"label": "7d", "pct": 3.0, "resets_at": 5}])
