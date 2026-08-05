@@ -532,7 +532,14 @@ def coord_invocation(args):
     cli = "coordinate" if shutil.which("coordinate") else f"python3 {script}"
     if getattr(args, "base", None):
         return f"{cli} --base {Path(args.base).resolve()}"
-    pkg = package_dir(args)
+    # ⚠ `register=False` (F17): this function BUILDS A STRING. Resolving the package normally
+    # (re-)registers the run tag, which is a WRITE — and this builder is called from REFUSAL text,
+    # including F17's entry bound, whose whole claim is that it refused and acted on nothing. A
+    # string builder that writes makes that claim false. The cost is stated rather than hidden: on
+    # a package that has never been registered the advice falls back to the long `--package` form
+    # instead of `--run <tag>`, because there is no tag to offer yet. Every command that actually
+    # READS the package still registers it through `base_dir`.
+    pkg = package_dir(args, register=False)
     if load_runs_index().get(pkg.name) == str(pkg):
         return f"{cli} --run {pkg.name}"
     return f"{cli} --package {pkg}"
@@ -11128,7 +11135,95 @@ CAPACITY_NOTE_UNDECLARED = ("  {agent}: capacity — descriptor declares NO `age
                             "declare the type in its descriptor to bring it under the cap.")
 
 
+# ---- F17 (store row 7.361; G-planner-0804-1501 arm 2) — THE ASSERTED-IDENTITY LAUNCH BOUND ----
+#
+# THE DEFECT. `--as NAME` is an ASSERTION, and `resolve_agent`'s contradiction check can only fire
+# when the calling pane HAS a registered roster row to contradict. With no row there is nothing to
+# check the claim against, so a bare `--as leader` simply STOOD — and `is_authorized_launcher` then
+# read it as the leader and opened panes. That is identity by TYPING, at the one command that
+# spends plan budget and puts sessions on the live room. The daemon's own gate
+# (`server/seat-identity/identity.js`) was built refusing exactly this: "there is no env var, no
+# `--as`, no flag, and no config that can substitute for or override the match".
+#
+# WHAT IT IS KEYED ON, AND WHAT IT IS DELIBERATELY NOT KEYED ON (leader #3520, scope held):
+#   `args.as_agent`  YES — the CLI's `--as` channel, the one an arbitrary process can type.
+#   `args.agent`     NO  — the in-process Namespace attribute watch.py and the self-test call
+#                          through. It never crosses the CLI parser, so it is not a channel an
+#                          external caller reaches; keying on it would refuse the internal API.
+#   `COORD_AGENT`    NO  — injected BY this tool into every launched seat's own harness command.
+#   the F16 lane     NO  — `daemon_exec_identity` resolves from kernel measurables, never a claim,
+#                          and it is THIS BOUND'S KEY (`gate-key-declaration.csv` K1): the bound
+#                          must leave the path F16 establishes untouched, or the gate has captured
+#                          its own key (`r-gate-ships-with-its-own-key`).
+#
+# IT VERIFIES STATE, NEVER SPELLING. A fabricated name and a real-but-unrelated one take the SAME
+# branch, because the test is "does a roster row corroborate this claim", not "does this string
+# look like a seat". A bound that only rejected malformed strings would have verified nothing.
+#
+# `--dry-run` IS ADMITTED, and that is not a hole: a dry run opens no pane, writes no surface and
+# spends no budget, so there is nothing for an uncorroborated claim to spend. It is also the
+# remedy the refusal offers, which is why it must stay open.
+#
+# `--force` DOES NOT CARRY IT. `--force` carries the ROLE gate and nothing else
+# (`p-override-split-is-safety-critical`); re-attaching a second gate to it is barred outright, and
+# an identity that could be forced would be an assertion again by another spelling.
+def asserted_launch_claim(args):
+    """The `--as` claim no roster row corroborates, with the pane it was made from — or ('', pane).
+
+    Reads only STATE: the claim's presence, and whether the calling pane carries an ACTIVE roster
+    row. A pane that IS registered needs no bound here — a matching claim is corroborated and a
+    contradicting one is already refused by `resolve_agent`.
+
+    ⚠ `register=False` IS LOAD-BEARING. Resolving a package normally (re-)registers the run tag,
+    which is a WRITE — and a guard whose whole claim is "it refused and acted on nothing" must not
+    have written a registry entry first (`cmd_lifecycle_exec`'s guard 2 makes the same point in the
+    same words)."""
+    claim = (getattr(args, "as_agent", None) or "").strip()
+    if not claim:
+        return "", ""
+    pane = detect_pane(getattr(args, "pane", None))
+    if pane and pane_agent(base_dir(args, register=False), pane):
+        return "", pane
+    return claim, pane
+
+
+# THE REFUSAL NAMES ALL THREE WAYS OUT, and that is a requirement rather than courtesy (leader
+# #3520): a pane can hold a LIVE process BEFORE its roster row exists — measured on this run,
+# master-path-wirer mid-boot in %82 on 2026-07-30 — and refusing that pane's `--as` is CORRECT,
+# because check-in is the REGISTERING act and does not travel over `--as`. A caller in that state
+# who is only told "no" has no way to tell a bug from a missing step, and that is where this run
+# loses hours.
+ASSERTED_LAUNCH_REFUSAL = (
+    "you passed `--as {claim}` and NOTHING CORROBORATES IT: {pane_state}. `launch` opens panes and "
+    "spends plan budget on the strength of who you are, and the identity contradiction check can "
+    "only fire against a registered roster row — with no row, the claim simply stands. So this is "
+    "identity by typing, and it is refused at the one command where that buys pane-opening "
+    "authority.\n"
+    "Corroborate it, any of three ways:\n"
+    "  1. CHECK IN from this pane first, then re-run with no `--as` at all:\n"
+    "     {invocation} checkin {claim} \"<what you are working on>\"\n"
+    "     (check-in is the REGISTERING act — it does not travel over `--as`. A pane holding a live "
+    "process before its roster row exists lands exactly here, and lands here correctly.)\n"
+    "  2. Run it from the pane already registered to '{claim}', with no `--as`.\n"
+    "  3. Add `--dry-run` to see what the launch would do — it opens nothing and spends nothing, "
+    "so it is admitted on the claim alone.\n"
+    "`--force` does NOT carry this bound: it carries the role gate and nothing else.")
+
+
 def cmd_launch(args):
+    # ---- F17 ENTRY BOUND: refuse an UNCORROBORATED `--as` identity BEFORE anything is read,
+    # resolved or opened. First statement of the command on purpose — the guard's whole claim is
+    # that it acted on nothing, and every statement below it reads the package.
+    if not args.dry_run:
+        _f17_claim, _f17_pane = asserted_launch_claim(args)
+        if _f17_claim:
+            refuse("identity", ASSERTED_LAUNCH_REFUSAL.format(
+                claim=_f17_claim,
+                pane_state=(f"this pane ({_f17_pane}) carries NO active roster row"
+                            if _f17_pane else
+                            "this process is not inside any tmux pane, so there is no roster row "
+                            "to check it against at all"),
+                invocation=coord_invocation(args)), 2)
     role_desc = "leader's and the chief-of-staff's (it opens seats and spends plan budget)"
     # #210: the roster is resolved FIRST because the memory gate is sized by seat COUNT, and both
     # gates must be answered together. Nothing here opens a pane or writes a surface — reading
@@ -14431,6 +14526,108 @@ def _selftest_checks(args, failures, names):
         check("F16: the lane is LAST — a pane's REGISTERED roster row still outranks it, so no "
               "daemon-side reading can ever displace a verified seat identity",
               _f16_ranked == "alpha")
+
+        # ---- F17 (store row 7.361, G-planner-0804-1501 arm 2): THE ASSERTED-IDENTITY BOUND ----
+        #
+        # Placed beside F16 because F16 IS ITS KEY (`gate-key-declaration.csv` K1): the pair only
+        # means anything read together — one ADMITS the daemon path from measurables, the other
+        # REFUSES the asserted one, and the row that proves the bound leaves F16's path alone is
+        # the row that proves the gate did not capture its own key.
+        #
+        # ⚠ EVERY ROW BELOW USES ITS OWN DISTINCT `--as` CLAIM, and that is mutation hygiene, not
+        # decoration. `--expect-fail` is evidence only when a mutant reds EXACTLY ONE row (G-62),
+        # and rows sharing a claim red together under any claim-keyed mutant. One claim per row is
+        # what buys each of them its own single-row mutant.
+        #
+        # `calling_pane["v"] = ""` is the state an arbitrary process outside any pane runs in;
+        # "%99" is the pane-with-no-roster-row state, which this run has actually seen (a seat live
+        # in its pane mid-boot, before its row existed).
+        _f17_mark = "NOTHING CORROBORATES IT"     # this bound's own refusal, by its own words
+        _f17_role = "refused [coord role gate]"   # the DOWNSTREAM gate, distinguished from it
+        calling_pane["v"] = ""
+        _f17_out, _f17_code = refuse(cmd_launch, as_agent="leader", only="hk-1", dry_run=False)
+        check("F17: a role-gated `launch` whose identity came from `--as`, with NO corroborating "
+              "roster row and NO --dry-run, is REFUSED — the identity contradiction check cannot "
+              "fire without a row, so before this bound the claim simply STOOD and bought "
+              "pane-opening authority at the one command that spends plan budget",
+              _f17_code == 2 and _f17_mark in _f17_out)
+        # THE REFUSAL MUST BE ACTIONABLE (leader #3520). Its own call and its own claim, so the
+        # mutant that guts the advice reds THIS row and not the refusal row above it.
+        _f17_rem, _f17_remc = refuse(cmd_launch, as_agent="delta", only="hk-1", dry_run=False)
+        check("F17: the refusal TELLS THE CALLER HOW TO CORROBORATE — check-in is the REGISTERING "
+              "act and does not travel over `--as`, so a seat live in its pane before its row "
+              "exists lands here correctly and must be able to tell a missing step from a bug",
+              _f17_remc == 2 and "checkin delta" in _f17_rem
+              and "registered to 'delta'" in _f17_rem and "--dry-run" in _f17_rem)
+        # THE DISCRIMINATING CONTROL. A FABRICATED name and a REAL but unrelated one must take the
+        # SAME branch: the test is "does a roster row corroborate this", never "does this string
+        # look like a seat". A bound that only rejected malformed strings has verified NOTHING.
+        _f17_fab, _f17_fabc = refuse(cmd_launch, as_agent="xk3-not-a-real-seat", only="hk-1",
+                                     dry_run=False)
+        _f17_real_unrel, _f17_ruc = refuse(cmd_launch, as_agent="alpha", only="hk-1",
+                                           dry_run=False)
+        check("F17 CONTROL: the refusal fires IDENTICALLY on a FABRICATED `--as` value and on a "
+              "REAL but unrelated one — 'alpha' is a checked-in seat of this fixture, registered "
+              "to another pane, and it is refused on the same layer with the same exit code as a "
+              "string no seat ever bore. STATE is what is verified, never spelling",
+              _f17_fabc == _f17_ruc == 2 and _f17_mark in _f17_fab and _f17_mark in _f17_real_unrel)
+        # `--force` CARRIES THE ROLE GATE AND NOTHING ELSE. An identity that could be forced would
+        # be an assertion again under another spelling, and re-attaching a second gate to `--force`
+        # is barred outright (`p-override-split-is-safety-critical`).
+        _f17_forced, _f17_fc = refuse(cmd_launch, as_agent="beta", only="hk-1", dry_run=False,
+                                      force=True)
+        check("F17: `--force` does NOT carry this bound — the flag that overrides the ROLE gate "
+              "leaves the identity bound standing, so no gate is re-attached to it",
+              _f17_fc == 2 and _f17_mark in _f17_forced)
+        # IT ACTS ON NOTHING, and this is the row that MEASURES that rather than asserting it.
+        # Resolving a package normally (re-)REGISTERS the run tag — a WRITE — so the guard reads
+        # the roster with `register=False` and the registry file must not come back into existence.
+        # The pane is "%99" deliberately: with no pane at all the guard never reaches the package,
+        # and a check that cannot fail is not a check.
+        calling_pane["v"] = "%99"
+        RUNS_INDEX.unlink(missing_ok=True)
+        _f17_noop, _f17_noopc = refuse(cmd_launch, as_agent="gamma", only="hk-1", dry_run=False)
+        _f17_registered = RUNS_INDEX.exists()
+        calling_pane["v"] = ""
+        check("F17: the bound refuses and WRITES NOTHING — a caller with no corroborated identity "
+              "does not even get the run tag registered on its way to being refused. `register="
+              "False` is what makes 'it acted on nothing' a measurement instead of a claim",
+              _f17_noopc == 2 and _f17_mark in _f17_noop and not _f17_registered)
+        # ADMITTED (1 of 3): --dry-run. It opens no pane and spends no budget, so an uncorroborated
+        # claim has nothing to spend — and it is one of the three remedies the refusal offers, so
+        # closing it would make the refusal's own advice a lie.
+        # ⚠ CAPTURED THROUGH `refuse()`, THOUGH IT IS EXPECTED TO SUCCEED, and that is mutation
+        # hygiene: `run()` records its own harness/G-215(a) failure row when a command it expected
+        # to succeed refuses, so the mutant that CLOSES `--dry-run` would red two rows and be
+        # evidence about neither (G-62). The capture helper returns the exit code as a VALUE, which
+        # this row asserts explicitly — admission is read, never inferred from silence.
+        _f17_dry, _f17_dryc = refuse(cmd_launch, as_agent="leader", only="hk-1", dry_run=True)
+        check("F17: the same uncorroborated claim under `--dry-run` is ADMITTED and shows what the "
+              "launch would do — it opens nothing, and the refusal above names it as a remedy",
+              _f17_dryc == 0 and "[dry-run] hk-1" in _f17_dry and _f17_mark not in _f17_dry)
+        # ADMITTED (2 of 3): THE KEY'S OWN PATH. The bound must leave F16's lane untouched, or the
+        # gate has captured its own key (`r-gate-ships-with-its-own-key`). The daemon lane is
+        # stubbed exactly as F16's own wiring row stubs it, and NO claim reaches `cmd_launch`.
+        globals()["daemon_exec_identity"] = lambda **_kw: DAEMON_IDENTITY
+        try:
+            _f17_k, _f17_kc = refuse(cmd_launch, only="hk-1", dry_run=False)
+        finally:
+            globals()["daemon_exec_identity"] = _f16_real
+        check("F17: THE F16-RESOLVED PATH IS ADMITTED BY THIS BOUND — an identity resolved from "
+              "kernel measurables carries no `--as`, so the bound never fires on it. What refuses "
+              "it is the ROLE gate, honestly, because 'ignite-daemon' holds no launch grant "
+              "(`is_authorized_launcher` untouched, leader's ruling on F16). Two layers, and this "
+              "row is what proves the gate did not capture its own key",
+              _f17_kc == 2 and _f17_mark not in _f17_k and _f17_role in _f17_k
+              and DAEMON_IDENTITY in _f17_k)
+        # ADMITTED (3 of 3): the corroborated claim, which is the whole point of keying on STATE.
+        calling_pane["v"] = "%3"   # alpha's registered pane
+        _f17_corrob, _f17_cc = refuse(cmd_launch, as_agent="alpha", only="hk-1", dry_run=False)
+        calling_pane["v"] = ""
+        check("F17: a claim the calling pane's ACTIVE roster row CORROBORATES is outside this "
+              "bound — the SAME claim that was refused above is admitted here on the strength of "
+              "the row, and goes to the role gate like any other verified identity",
+              _f17_cc == 2 and _f17_mark not in _f17_corrob and _f17_role in _f17_corrob)
 
         # ---- T6: hard role gates (F14 — these commands documented a rule they never enforced) ----
         out, code = refuse(cmd_launch, agent="beta", only="hk-1", dry_run=True)
@@ -18011,21 +18208,31 @@ def _selftest_checks(args, failures, names):
         # `launch` and nothing else (`d-cos-inbox-is-convention`), which S4-f is the control for.
         _s4_only = "hk-1"     # never the caller's OWN name: the SELF template is not this claim
 
-        _s4b_out, _s4b_code = refuse(cmd_launch, as_agent="gamma", only=_s4_only,
+        _s4b_out, _s4b_code = refuse(cmd_launch, agent="gamma", only=_s4_only,
                                      dry_run=True, force=False, force_memory=False)
-        _s4b2_out, _s4b2_code = refuse(cmd_launch, as_agent="closer-alpha", only=_s4_only,
+        _s4b2_out, _s4b2_code = refuse(cmd_launch, agent="closer-alpha", only=_s4_only,
                                        dry_run=True, force=False, force_memory=False)
-        _s4cos_dry, _s4cos_dry_code = refuse(cmd_launch, as_agent="chief-of-staff", only=_s4_only,
+        _s4cos_dry, _s4cos_dry_code = refuse(cmd_launch, agent="chief-of-staff", only=_s4_only,
                                              dry_run=True, force=False, force_memory=False)
-        _s4gamma_real, _s4gamma_real_code = refuse(cmd_launch, as_agent="gamma", only=_s4_only,
+        # ⚠ EVERY `cmd_launch` CALL IN THIS BLOCK CARRIES `agent=`, NOT `as_agent=`, AND F17 IS WHY.
+        # F17's entry bound refuses a REAL `launch` whose identity is an `--as` claim no roster row
+        # corroborates — which is exactly the shape `as_agent=` builds here, with the suite's
+        # calling pane stubbed to "". Left as `as_agent=`, the real-branch rows would stop reaching
+        # the gate they are ABOUT and would assert F17's refusal instead, silently. `agent=` is the
+        # in-process Namespace channel (watch.py's), which F17 deliberately does not key on, so the
+        # caller still resolves to the same name through the same `resolve_agent` and each row's
+        # subject — the ROLE and MEMORY gates — is unchanged. The DRY-RUN calls move with them so
+        # the block is uniform and `as_agent=` on `cmd_launch` means F17's own rows and nothing
+        # else — which is what lets F17's dry-run mutant red exactly one row.
+        _s4gamma_real, _s4gamma_real_code = refuse(cmd_launch, agent="gamma", only=_s4_only,
                                                    dry_run=False, force=False, force_memory=False)
         # ⚠ S4-d USES ITS OWN REFUSED CALLER, and that is isolation rather than duplication. Read
         # off `gamma`, S4-d and S4-b would go red TOGETHER under the one mutation that admits
         # gamma into the predicate -- and a mutation that reds two rows is evidence about neither
         # (G-62). `beta` is refused for the same reason and by the same gate, and shares nothing.
-        _s4d_dry, _s4d_dry_code = refuse(cmd_launch, as_agent="beta", only=_s4_only,
+        _s4d_dry, _s4d_dry_code = refuse(cmd_launch, agent="beta", only=_s4_only,
                                          dry_run=True, force=False, force_memory=False)
-        _s4d_real, _s4d_real_code = refuse(cmd_launch, as_agent="beta", only=_s4_only,
+        _s4d_real, _s4d_real_code = refuse(cmd_launch, agent="beta", only=_s4_only,
                                            dry_run=False, force=False, force_memory=False)
 
         # ⚠ THE CoS's REAL-BRANCH CALL RUNS ONE MB UNDER THE PACKAGE'S DECLARED FLOOR, and that is
@@ -18035,7 +18242,7 @@ def _selftest_checks(args, failures, names):
         _s4_avail_real = available_mb
         available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
         try:
-            _s4a_out, _s4a_code = refuse(cmd_launch, as_agent="chief-of-staff", only=_s4_only,
+            _s4a_out, _s4a_code = refuse(cmd_launch, agent="chief-of-staff", only=_s4_only,
                                          dry_run=False, force=False, force_memory=False)
         finally:
             available_mb = _s4_avail_real
