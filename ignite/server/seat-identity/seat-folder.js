@@ -59,6 +59,31 @@ function parseSeatPath(absPath) {
   };
 }
 
+// Task 7.75 — GOAL SCOPE, the strictly weaker test parseSeatPath's refusal needs a name for.
+//
+// `parseSeatPath` answers "is this a seat folder?". The dispatch door needs the OTHER half of that
+// question — "is this inside a goal's tree AT ALL?" — because those two answers together are what
+// separate the three cases the door must tell apart: a goal-scoped dispatch naming a seat (admit,
+// and record it), a goal-scoped dispatch naming NO seat (refuse — design-760 §3), and a dispatch
+// that is not goal-scoped at all (the interim `.rbtv/sessions/<exec-id>/` path the sub-agent lane
+// and every machine-lane job use — exempt, design-760 § machine-lane, NEED-3's sub-agent carve-out).
+//
+// It lives HERE, beside parseSeatPath, for this file's own founding reason: two spellings of what a
+// goal tree IS would be two definitions, and the failure that produces is invisible until a
+// dispatch lands somewhere one half recognises and the other does not.
+function parseGoalScope(absPath) {
+  const parts = path.normalize(absPath).split(path.sep);
+  const goalsIdx = parts.lastIndexOf('goals');
+  if (goalsIdx < 1 || parts[goalsIdx - 1] !== '.rbtv') return null;
+  const goal = parts[goalsIdx + 1];
+  if (!goal) return null;
+  return {
+    workspaceRoot: parts.slice(0, goalsIdx - 1).join(path.sep) || path.sep,
+    goal,
+    goalDir: parts.slice(0, goalsIdx + 2).join(path.sep),
+  };
+}
+
 // Walk UP from a starting directory to the nearest enclosing seat folder (§4b step 1). Symlinks
 // are resolved first: a seat reached through a symlink is the same seat, and a `..` segment must
 // not be able to produce a shape the string test accepts and the filesystem does not.
@@ -273,6 +298,7 @@ function checkMaterializedSeat(parsed) {
 
 module.exports = {
   parseSeatPath,
+  parseGoalScope,
   resolveSeatFromCwd,
   openRunsOfGoal,
   resolveSeatHome,

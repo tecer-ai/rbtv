@@ -9,7 +9,7 @@ const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
 const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags } = require('./cage');
-const { parseSeatPath, checkRunLive, checkMaterializedSeat } = require('../seat-identity/seat-folder');
+const { parseSeatPath, parseGoalScope, checkRunLive, checkMaterializedSeat } = require('../seat-identity/seat-folder');
 const { appendRow } = require('../seat-identity/csv');
 const {
   generateSessionId,
@@ -39,6 +39,7 @@ const {
   E_BAD_REQUEST,
   E_RUN_NOT_LIVE,
   E_NOT_A_SEAT_FOLDER,
+  E_SEATLESS_GOAL_DISPATCH,
 } = require('./errors');
 
 const SESSION_MODES = new Set(['headless', 'headed']);
@@ -254,9 +255,11 @@ function ensureExitFile(dataRoot, sessionId) {
 // file reading `gitdir: <repo>/.git/worktrees/<name>`), so the plumbing paths W3 opens are read
 // out of git's own record instead of guessed from a repo list this module would have to be told.
 //
-// ZERO GRANTS IS THE CORRECT ANSWER TODAY and is not a stub: task 7.38 (the worktree flow) is
-// unbuilt, so no seat has one yet, and the cage then simply carries no W2/W3 openings. Nothing
-// here needs revisiting when 7.38 lands — the directories appear and the grants resolve.
+// ZERO GRANTS IS THE CORRECT ANSWER FOR A SEAT WITH NO WORKTREE, and it is not a stub. Task 7.38
+// (the worktree flow) landed 2026-08-05: `team-kit/worktree-flow.py` creates the
+// `{repo}--{goal}--{seat}` directories this resolver reads, so a seat that has one resolves its
+// grants here and a seat that does not carries no W2/W3 openings. Nothing in this function changed
+// when 7.38 landed — the directories simply appeared.
 function resolveSeatGrants(seatPath) {
   const worktreesDir = path.join(seatPath.workspaceRoot, '.rbtv', 'worktrees');
   let entries;
@@ -339,6 +342,46 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
     const resolvedWorkdir = resolveWorkdir(profile, workdir, config.default_workdir_root, configPath, { execId, sessionsRoot, workspaceRoot });
 
+    // ── Task 7.75 · THE DISPATCH DOOR (design-760 §3) ────────────────────────────────────────
+    //
+    // The owner's rider on `r-headless-visibility` — "every headless session attributed to a SEAT,
+    // no seat-less rows in the snapshot" — enforced BY CONSTRUCTION rather than by filtering: a
+    // goal-scoped headless session that names no seat is not hidden downstream, it never comes
+    // into existence. This is the ONE door it would pass. `server/index.js` routes session_mode
+    // `headed` to spawnSeat (which has carried its own §4a gate since 7.11) and EVERYTHING ELSE
+    // here, and the ticker's dispatch phase is the only caller of either — so the two halves of
+    // the daemon's launch surface are now gated, not one.
+    //
+    // ⚑ WHAT IS NOT REFUSED, and it is the load-bearing half of the clause:
+    //   • a dispatch OUTSIDE `.rbtv/goals/` — the interim `.rbtv/sessions/<exec-id>/` path. That
+    //     covers the SUB-AGENT LANE (NEED-3's carve-out: a sub-agent holds no slot in any
+    //     taskforce, and `capabilities/sub-agent-dispatch` independently REFUSES a seat workdir
+    //     at its own boundary 6) and every machine-lane job (design-760 § machine-lane: no goal,
+    //     no run snapshot to enter). Exempt BY CONSTRUCTION, never by a mode flag anyone can set.
+    //   • `fire-tool` / `start-workflow` / `send-message` execs, which never reach this function
+    //     (ticker.js runToolLikeExec goes straight to the carrier). THE RECOVERY PATH IS ONE OF
+    //     THEM — `selfheal-room`, `selfheal-watch`, `restart-daemon` are all `fire-tool` — which
+    //     is why arming this gate cannot disarm the repair (the leader's G-52 mirror-trap rider,
+    //     #465). Stated here so the next reader does not have to re-derive it from the ticker.
+    //
+    // A refusal here is a REAL refusal: it is raised before any harness config, session dir, unit,
+    // pane or store row past `launching` exists — the same absence-proven standard §4a set.
+    const goalScope = parseGoalScope(resolvedWorkdir);
+    const dispatchSeat = goalScope ? parseSeatPath(resolvedWorkdir) : null;
+    if (goalScope && !dispatchSeat) {
+      throw new SpawnError(
+        E_SEATLESS_GOAL_DISPATCH,
+        `refusing a goal-scoped headless dispatch that names no seat: ${resolvedWorkdir} is inside ` +
+        `goal "${goalScope.goal}" but is not a seat folder ` +
+        `(<ws>/.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>/). MISSING FIELD: seat — the ` +
+        'dispatch-time record is the ONLY authority for session->seat attribution (G-31), so a ' +
+        'session with no seat to record could never be attributed at all. Supply a seat-folder ' +
+        'workdir, or home the job at a (goal, seat) pair. Sub-agent and machine-lane dispatches ' +
+        'are seatless and EXEMPT — they launch outside .rbtv/goals/ and never reach this check.',
+        { workdir: resolvedWorkdir, goal: goalScope.goal, missingField: 'seat', profile: profileName, sessionMode },
+      );
+    }
+
     // D58(4): materialize the advisory harness-local write-restraint config into the launch dir.
     // The kernel sandbox (resolveSandbox below) is the LOAD-BEARING layer; this is the second belt.
     const resolvedSandbox = resolveSandbox(profile.sandbox, resolvedWorkdir);
@@ -400,6 +443,53 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     }
     const pidStarttime = await resolvePidStarttime(carrier, pid, unitName);
     const startedAt = new Date();
+
+    // ── Task 7.75 · THE AT-DISPATCH RECORD ───────────────────────────────────────────────────
+    //
+    // The other half of the clause, and the half that makes the refusal above worth having: an
+    // admitted goal-scoped dispatch writes its `sessions.csv` row HERE, in the dispatching act,
+    // keyed by the same `session_id` the `jobs_log` row carries — which is exactly what task
+    // 7.73's join reads. NEVER post-hoc, never inferred: no pane matching, no workdir heuristic,
+    // no reconciliation pass afterwards (G-31, design-760 §3). A row written later, by anyone
+    // else, from anything other than the dispatch itself, is not this record.
+    //
+    // Written by the SAME writer spawnSeat uses (seat-identity/csv.js appendRow, by column name
+    // against the file's own header) — deliberately not a second spelling of the row: two writers
+    // of one schema is how the run-1 and run-2 headers came to disagree. `dropped` columns are
+    // REPORTED, never invented from this side; task 7.37 owns the schema.
+    //
+    // Failure is LOUD and never fatal: a process is already running at this point, so refusing the
+    // launch here would leave a live session with a failed launch record. The warning says the
+    // session will be unattributable, which is precisely the incident 7.73's
+    // `headless_unattributed` field surfaces rather than guesses at.
+    if (dispatchSeat) {
+      try {
+        const written = appendRow(dispatchSeat.sessionsCsv, {
+          seat: dispatchSeat.seat,
+          'session-id': sessionId,
+          harness: harnessOf(profile) || '',
+          workdir: resolvedWorkdir,
+          pid,
+          'pid-starttime': pidStarttime,
+          tty: '',
+          'worktree-path': (resolveSeatGrants(dispatchSeat)[0] || {}).worktree || '',
+          started: isoNow(),
+        });
+        if (!written.appended) {
+          log('warn', 'at-dispatch session row NOT recorded — this headless session will be UNATTRIBUTABLE', {
+            seat: dispatchSeat.seat, sessionsCsv: dispatchSeat.sessionsCsv, sessionId, reason: written.reason,
+          });
+        } else if (written.dropped.length > 0) {
+          log('warn', 'session log lacks columns; they were dropped, not invented (task 7.37 owns the schema)', {
+            seat: dispatchSeat.seat, sessionsCsv: dispatchSeat.sessionsCsv, dropped: written.dropped,
+          });
+        }
+      } catch (err) {
+        log('warn', 'at-dispatch session row append failed — this headless session will be UNATTRIBUTABLE', {
+          seat: dispatchSeat.seat, sessionsCsv: dispatchSeat.sessionsCsv, sessionId, error: err.message,
+        });
+      }
+    }
 
     const updated = heartStore.updateExecutionStatus(execId, {
       status: 'running',

@@ -81,6 +81,15 @@ const E_IDENTITY_MISMATCH = 'E_IDENTITY_MISMATCH';
 // which is exactly why it must be a typed refusal and never a fall-through to allow.
 const E_IDENTITY_SCHEMA = 'E_IDENTITY_SCHEMA';
 
+// ── 7.75 — the DISPATCH DOOR (design-760 §3, the owner rider of r-headless-visibility) ───────
+// A headless spawn resolved INSIDE a goal's tree that is not a seat folder: it names no seat, so
+// the session it would start could never be attributed to one. Refused AT THE DOOR rather than
+// filtered at render time — "a seat-less row cannot come into existence". The refusal names the
+// MISSING FIELD (`seat`), because the remedy is to supply it and a code alone does not say so.
+// NOT raised for a dispatch outside `.rbtv/goals/` — the interim `.rbtv/sessions/<exec-id>/` path
+// the sub-agent lane (NEED-3 carve-out) and the machine-lane jobs use is exempt BY CONSTRUCTION.
+const E_SEATLESS_GOAL_DISPATCH = 'E_SEATLESS_GOAL_DISPATCH';
+
 // ── 7.10 — resolving a caller ACROSS a socket (seat-identity/peer-identity.js, issue G-124) ──
 // The peer is not on this host, so it owns no process here and holds no seat. NOT a failure: it
 // is the handoff to the per-sender TOKEN resolver, which stays the plug for non-seat callers.
@@ -124,6 +133,7 @@ module.exports = {
   E_IDENTITY_NO_SESSION,
   E_IDENTITY_MISMATCH,
   E_IDENTITY_SCHEMA,
+  E_SEATLESS_GOAL_DISPATCH,
   // 7.42 — new codes on the shared surface, re-exported so daemon-side callers can catch them
   // by the same import they already use.
   E_NO_PORTABLE_HALF,

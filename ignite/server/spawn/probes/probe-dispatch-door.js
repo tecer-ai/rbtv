@@ -1,0 +1,216 @@
+'use strict';
+
+// Task 7.75 — THE DISPATCH DOOR (design-760 §3, the owner rider of `r-headless-visibility`).
+//
+// The clause under test is the REFUSAL, not the happy path: "a goal-scoped headless dispatch that
+// names no seat is REFUSED with a typed error naming the missing field; a seat-named dispatch
+// produces the sessions.csv row AT DISPATCH; a sub-agent dispatch is NOT refused."
+//
+// So every leg here is written to DISCRIMINATE — each pair differs in exactly one property of the
+// dispatch and must come out with DIFFERENT verdicts. A probe whose legs all pass a door that
+// refuses everything (or nothing) proves nothing about the door, and D2/D3 exist precisely to
+// deny that:
+//
+//   D1  goal-scoped, no seat   -> REFUSED  E_SEATLESS_GOAL_DISPATCH, and NOTHING was created
+//   D2  goal-scoped, IS a seat -> ADMITTED, and the sessions.csv row is written AT DISPATCH
+//   D3  NOT goal-scoped        -> ADMITTED, and NO session row is written anywhere
+//                                 (the NEED-3 sub-agent carve-out + every machine-lane job)
+//
+// The refusal legs are ABSENCE-PROVEN, not message-proven (the §4a evidence rule): the filesystem
+// and the store are re-read after each refusal and asserted unchanged. A gate that throws loudly
+// after already having mkdir'd a session dir satisfies an error check and fails the actual bar.
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const yaml = require('js-yaml');
+const { capture } = require('./lib');
+const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
+const { createSpawnManager } = require('../spawn');
+
+// A goal tree with a LIVE run and one real, rostered seat — plus the two dispatch targets the door
+// must tell apart from it: the RUN folder itself (goal-scoped, seatless) and the flat interim
+// `.rbtv/sessions/` path (not goal-scoped at all).
+//
+// `workdir_root` is the WORKSPACE root here, not the goals dir, deliberately: it must admit both
+// `.rbtv/goals/…` and `.rbtv/sessions/…` so that the containment gate (E_WORKDIR_ESCAPE) cannot be
+// what refuses D1. If the older boundary answered first, this probe would be green while the 7.75
+// door did not exist — the classic confounded check.
+function fixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'p775-door-'));
+  const ws = path.join(root, 'ws');
+  const goalsDir = path.join(ws, '.rbtv', 'goals');
+  const goalDir = path.join(goalsDir, 'testgoal');
+  const runDir = path.join(goalDir, 'runs', 'run-1');
+  const seatDir = path.join(runDir, 'seats', 'mine');
+  const seatlessDir = path.join(runDir, 'seats');
+  const interimDir = path.join(ws, '.rbtv', 'sessions', 'subagent-1');
+  for (const d of [seatDir, interimDir]) fs.mkdirSync(d, { recursive: true });
+
+  fs.writeFileSync(path.join(goalsDir, 'goals.csv'), 'name,created,due,type,status\ntestgoal,2026-08-05,,one-shot,active\n');
+  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-08-05 01:30,\n');
+  fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,mine\n');
+  // The header task 7.37 settled — written BY COLUMN NAME by the writer under test, so a schema
+  // this probe invented from the writer's side would prove nothing. This is the real one.
+  fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
+  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: mine\n---\n');
+
+  const dataRoot = path.join(root, 'data');
+  fs.mkdirSync(dataRoot, { recursive: true });
+
+  const cfg = {
+    bind: { host: '127.0.0.1', port: 7431 },
+    auth: { senders_file: path.join(root, 'senders.yaml') },
+    spawn: { data_root: dataRoot, carrier: 'auto', kill_grace_seconds: 2 },
+    default_workdir_root: ws,
+    profiles: {
+      // A REAL process (`sleep`), not a dry run: the at-dispatch row carries the launched pid, and
+      // a composition-only check could not see whether the row was written at all.
+      'door-probe': {
+        exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
+        session_ref: { source: 'cwd-implicit' },
+        workdir_root: ws,
+        caps: { memory_max: '64M', runtime_max: '1h' },
+      },
+    },
+  };
+  const cfgPath = path.join(root, 'spawn.yaml');
+  fs.writeFileSync(cfgPath, yaml.dump(cfg));
+
+  const dbPath = path.join(root, '.rbtv', 'heart', 'heart.db');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const store = openHeartStore({ dbPath });
+  const mgr = createSpawnManager({ heartStore: store, configPath: cfgPath, logger: null, userManager: true });
+  return { root, ws, goalDir, runDir, seatDir, seatlessDir, interimDir, sessionsCsv: path.join(runDir, 'sessions.csv'), store, mgr, dataRoot };
+}
+
+let tick = 1;
+function fire(f, workdir) {
+  return f.store.recordExecutionStart({
+    jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({ profile: 'door-probe', workdir }),
+    enqueuedBy: 'probe', sessionMode: 'headless', firedTick: tick++, firedAt: new Date(), profile: 'door-probe', workdir,
+  });
+}
+
+function sessionRows(f) {
+  const raw = fs.readFileSync(f.sessionsCsv, 'utf8').trim().split('\n');
+  const header = raw[0].split(',');
+  return raw.slice(1).filter(Boolean).map((line) => {
+    const cells = line.split(',');
+    return Object.fromEntries(header.map((h, i) => [h, cells[i]]));
+  });
+}
+
+// The absence half — everything a launch would have left behind.
+function world(f) {
+  const ls = (p) => { try { return fs.readdirSync(p).length; } catch { return 0; } };
+  return {
+    csvRows: sessionRows(f).length,
+    logs: ls(path.join(f.dataRoot, 'logs')),
+    prompts: ls(path.join(f.dataRoot, 'prompts')),
+    interimDirs: ls(path.join(f.ws, '.rbtv', 'sessions')),
+  };
+}
+
+capture('probe-dispatch-door', async (lines) => {
+  const f = fixture();
+  const fails = [];
+  const spawned = [];
+  const leg = (id, desc, ok, detail) => {
+    lines.push(`${ok ? 'PASS' : 'FAIL'} ${id} — ${desc}`);
+    lines.push(`       ${detail}`);
+    if (!ok) fails.push(id);
+  };
+
+  const dispatch = async (workdir) => {
+    const row = fire(f, workdir);
+    try {
+      const fresh = await f.mgr.spawn(row.exec_id, 'door-probe', 'headless', null, workdir, 'probe');
+      spawned.push(row.exec_id);
+      return { threw: false, execId: row.exec_id, row: fresh };
+    } catch (err) {
+      const after = f.store.getExecution(row.exec_id);
+      return { threw: true, execId: row.exec_id, code: err.code, message: err.message, status: after && after.status };
+    }
+  };
+
+  try {
+    // ── D1 — GOAL-SCOPED, NAMES NO SEAT. Two shapes, because "not a seat folder" has more than
+    // one way to be true: the run folder itself, and the `seats/` parent (one segment short of a
+    // seat). Both are inside the goal tree; neither names a seat.
+    for (const [label, dir] of [['<run>/', f.runDir], ['<run>/seats/', f.seatlessDir], ['<goal>/', f.goalDir]]) {
+      const before = world(f);
+      const r = await dispatch(dir);
+      const after = world(f);
+      const nothing = JSON.stringify(before) === JSON.stringify(after);
+      const namesField = /MISSING FIELD: seat/.test(r.message || '');
+      leg(`D1[${label}]`, 'REFUSED with a typed error NAMING the missing field, and nothing was created',
+        r.threw && r.code === 'E_SEATLESS_GOAL_DISPATCH' && namesField && nothing && r.status !== 'running',
+        `code=${r.code} names-missing-field=${namesField} store-status=${r.status} world-unchanged=${nothing} `
+        + `(csv rows ${after.csvRows}, logs ${after.logs}, prompts ${after.prompts})`);
+    }
+
+    // ── D2 — GOAL-SCOPED AND NAMES A SEAT: admitted, and THE ROW IS WRITTEN AT DISPATCH.
+    //
+    // This is the leg that makes D1 mean something: same door, same goal tree, one property
+    // changed (the workdir IS a seat folder), OPPOSITE verdict. Without it, a `spawn` that threw
+    // unconditionally would read green above.
+    //
+    // "AT DISPATCH" is asserted as an IDENTITY, not as a coincidence: the row's `session-id` must
+    // equal the `session_id` on this dispatch's OWN jobs_log row. That is the join key task 7.73
+    // reads, so a row written by anything other than this dispatch — later, by hand, by a
+    // reconciliation pass — cannot satisfy it.
+    const beforeD2 = sessionRows(f).length;
+    const d2 = await dispatch(f.seatDir);
+    const rows = sessionRows(f);
+    const added = rows.slice(beforeD2);
+    const execRow = f.store.getExecution(d2.execId);
+    const one = added.length === 1 ? added[0] : null;
+    leg('D2', 'a seat-named goal-scoped dispatch is ADMITTED and writes its sessions.csv row AT DISPATCH',
+      !d2.threw && added.length === 1 && one.seat === 'mine'
+      && one['session-id'] === execRow.session_id && one['session-id'] !== ''
+      // `ended` is EMPTY, not absent: this is the row's OPEN half. The trailing cell of a
+      // 10-column line splits to '' — asserting `undefined` would be asserting a parse artifact.
+      && one.workdir === f.seatDir && one.started !== '' && !one.ended,
+      `refused=${d2.threw} rows-added=${added.length} seat=${one && one.seat} `
+      + `row.session-id=${one && one['session-id']} jobs_log.session_id=${execRow && execRow.session_id} `
+      + `identical=${Boolean(one) && one['session-id'] === execRow.session_id} pid=${one && one.pid}`);
+
+    // ── D3 — NOT GOAL-SCOPED: the NEED-3 sub-agent carve-out and every machine-lane job.
+    //
+    // The sub-agent lane (`capabilities/sub-agent-dispatch`) resolves its workdir to exactly this
+    // shape — `<ws>/.rbtv/sessions/<exec-id>/` — and independently refuses a seat workdir at its
+    // own boundary 6. So the property this leg fixes is the one that lane actually has: outside
+    // `.rbtv/goals/`. It must be ADMITTED, and it must leave NO session row behind — attributing a
+    // seatless dispatch to anyone is the second failure mode (G-31), not a courtesy.
+    const beforeD3 = sessionRows(f).length;
+    const d3 = await dispatch(f.interimDir);
+    const afterD3 = sessionRows(f).length;
+    leg('D3', 'a dispatch OUTSIDE .rbtv/goals/ (the sub-agent + machine lane) is NOT refused, and is attributed to nobody',
+      !d3.threw && afterD3 === beforeD3,
+      `refused=${d3.threw} code=${d3.code || 'none'} session rows before=${beforeD3} after=${afterD3}`);
+
+    // ── D4 — the door reads the PATH, never a caller assertion. A seat-shaped path OUTSIDE any
+    // `.rbtv/goals/` tree is not goal-scoped and is admitted; the goal tree is what makes the
+    // clause apply. This closes the "refuse anything containing the word seats" reading.
+    // Inside the workspace (so the containment gate is not what answers — that would confound the
+    // leg exactly as `workdir_root` would have confounded D1), but outside `.rbtv/goals/`.
+    const decoy = path.join(f.ws, 'decoy', 'runs', 'run-1', 'seats', 'mine');
+    fs.mkdirSync(decoy, { recursive: true });
+    const beforeD4 = sessionRows(f).length;
+    const d4 = await dispatch(decoy);
+    leg('D4', 'a seat-SHAPED path outside .rbtv/goals/ is not goal-scoped — admitted, and writes no row',
+      !d4.threw && sessionRows(f).length === beforeD4,
+      `refused=${d4.threw} code=${d4.code || 'none'} rows unchanged=${sessionRows(f).length === beforeD4}`);
+
+    lines.push('');
+    lines.push(`legs: ${fails.length === 0 ? 'ALL PASS' : `FAILED -> ${fails.join(', ')}`}`);
+    if (fails.length > 0) throw new Error(`dispatch door probes failed: ${fails.join(', ')}`);
+  } finally {
+    for (const execId of spawned) {
+      try { await f.mgr.kill(execId); } catch {}
+    }
+    try { closeHeartStore(); } catch {}
+    try { fs.rmSync(f.root, { recursive: true, force: true }); } catch {}
+  }
+});
