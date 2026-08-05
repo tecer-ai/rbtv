@@ -564,9 +564,208 @@ def dispatch_tokens(package, seats):
     return out
 
 
+# ---------- the second raw source: the daemon's own job records (task 7.73, design-760) ----------
+#
+# A headless session occupies a seat but no pane, so every read above is blind to it. design-760
+# adds a SECOND RAW SOURCE to this one sensor rather than a second sensor: a READ-ONLY connection
+# to the daemon's `heart.db`, whose `jobs_log` is already "one execution = one row = one session
+# record" (CMP-2). Nothing new is recorded anywhere; the record the ruling names already exists.
+#
+# ⚠⚠ TWO BOUNDS, AND THEY ARE THE WHOLE DESIGN:
+#
+#  1. READ-ONLY, ALWAYS. The connection is opened `mode=ro` on a file: URI, so the kernel refuses
+#     a write rather than this module promising not to. CMP-2's E_SECOND_WRITER guards WRITER
+#     opens; a reader writes nothing and does not touch the daemon's single-writer guarantee.
+#     Reading the STORE (not the daemon) is also why a daemon-DOWN state still reports: a sensor
+#     that polled its own subject could not tell "subject down" from "my source down".
+#
+#  2. THE SEAT COMES FROM THE DISPATCH-TIME RECORD AND NOWHERE ELSE (G-31, design-760 §3). The
+#     join key is `session_id`, which `jobs_log` and `sessions.csv` both already carry — no `seat`
+#     column on `jobs_log`, no `mode` column on `sessions.csv` (PRIN-11). A row that will not join
+#     is an INCIDENT (`headless_unattributed`), never a guess: no pane matching, no workdir
+#     heuristic, no post-hoc inference. `workdir` IS read here — for SCOPING ONLY, to decide which
+#     run a row belongs to — and never to name a seat, which is the mis-attribution this field
+#     exists to make impossible rather than unlikely.
+
+# jobs_log.status values that mean the execution has ENDED (heart schema.sql CHECK). Terminal rows
+# are what carry an outcome, and what a daemon-DOWN read must still be able to report.
+HEADLESS_TERMINAL = ("done", "blocked", "failed", "stalled", "killed")
+# Retention defaults (design-760 §5, disclosed there as a design call): a headless one-shot lives
+# seconds, so a live-only view would show it almost never — visibility in principle, invisibility
+# in practice. Keep the last K per (job_id, seat) plus everything younger than T. PARAMETERS, not
+# inline constants: the caller supplies them and the selftest drives other values. The snapshot is
+# a view; the history stays in `jobs_log` itself (PRIN-11).
+HEADLESS_KEEP = 5
+HEADLESS_WINDOW_S = 3600
+
+
+def heart_db_path(explicit=None):
+    """Where the daemon's per-machine store is, or None when unanswerable.
+
+    Explicit (a probe or a fixture) > this process's own RBTV_IGNITE_DATA_ROOT > the LIVE unit's
+    own answer. That last resolution has ONE home — coord.py's `daemon_heart_db`, a protected
+    symbol — and is imported by path rather than re-spelled here: two spellings of "which store is
+    the daemon's" is how a sensor comes to read a store nobody is writing. Never a hardcoded path:
+    reporting rows from the WRONG store is worse than reporting none."""
+    if explicit:
+        return str(explicit)
+    root = os.environ.get("RBTV_IGNITE_DATA_ROOT")
+    if root:
+        return str(Path(root) / "heart.db")
+    coord = HERE.parent.parent.parent / "ignite" / "team-kit" / "coord.py"
+    try:
+        spec = importlib.util.spec_from_file_location("_tm_coord", coord)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.daemon_heart_db() or None
+    except Exception:
+        return None
+
+
+def sessions_seat_index(package):
+    """{session-id: [seat, ...]} from the run's `sessions.csv` — the ONE authority for
+    session->seat (design-760 §3). A list, not a string, because a session-id claimed by two
+    seats is a collision to REPORT (F-R3c/G-31), never a coin to flip."""
+    out = {}
+    p = Path(package) / "sessions.csv"
+    if not p.exists():
+        return out
+    import csv
+    with p.open(newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            sid = (row.get("session-id") or "").strip()
+            seat = (row.get("seat") or "").strip()
+            if sid and seat not in out.setdefault(sid, []):
+                out[sid].append(seat)
+    return out
+
+
+def scoped_execs(db_path, package):
+    """Headless `jobs_log` rows belonging to THIS run, read read-only. Raises OSError-shaped
+    sqlite3.Error to its caller, which reports the source as unreadable rather than swallowing it.
+
+    Scoping is by `workdir` under the run folder — a row's run membership, NOT its seat."""
+    import sqlite3
+    root = str(Path(package).resolve())
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+    try:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT exec_id, parent_exec_id, job_id, action_type, session_mode, status,"
+            "       session_id, pid, exit_code, started_at, ended_at, log_path, workdir,"
+            "       completion_msg_id"
+            "  FROM jobs_log WHERE session_mode = 'headless' AND workdir IS NOT NULL"
+            "  ORDER BY exec_id DESC").fetchall()
+    finally:
+        con.close()
+    return [dict(r) for r in rows
+            if r["workdir"] == root or r["workdir"].startswith(root + os.sep)]
+
+
+def _epoch(stamp):
+    """An ISO stamp from the store as epoch seconds, or None. Never guessed."""
+    if not stamp:
+        return None
+    try:
+        from datetime import datetime, timezone
+        d = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+        return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).timestamp()
+    except ValueError:
+        return None
+
+
+def headless(package, captured_at, db_path=None, keep=HEADLESS_KEEP, window_s=HEADLESS_WINDOW_S):
+    """(rows, unattributed, source) for this run's headless sessions.
+
+    `rows` is design-760 §5's row schema, `seat` REQUIRED — a row cannot be emitted without one.
+    `unattributed` is the incident (§4): scoped rows whose session_id joins NO dispatch-time row,
+    or joins more than one seat. Both wrong answers are refused: dropping the row (the invisibility
+    NEED-3 exists to close) and emitting it seat-less (the owner's rider). `source` states where
+    the store was and whether it could be read, so an empty `headless[]` is never ambiguous.
+
+    ⚠ EVERY SCOPED ROW IS ACCOUNTED FOR IN `source`, and that is a bound the leader set on this
+    landing (#3980, G-leader-0805-1050): the live launch gate already drops a roster row it cannot
+    classify into NOTHING, and this join is the same class of act. So the counts close —
+    `scoped == emitted + retention_dropped + unattributed` — and retention, the one place a row
+    legitimately leaves the view, says HOW MANY it took. A row may be aged out of a view; it may
+    never be silently unclassified."""
+    path = heart_db_path(db_path)
+    source = {"heart_db": path, "readable": False, "reason": "", "scoped": 0,
+              "emitted": 0, "unattributed": 0, "retention_dropped": 0,
+              "keep": keep, "window_s": window_s}
+    if not path:
+        source["reason"] = "no heart.db resolved (no explicit path, no RBTV_IGNITE_DATA_ROOT, no live unit)"
+        return [], None, source
+    if not Path(path).exists():
+        source["reason"] = "heart.db does not exist at the resolved path"
+        return [], None, source
+    try:
+        execs = scoped_execs(path, package)
+    except Exception as e:                                    # a broken source is REPORTED
+        source["reason"] = f"{type(e).__name__}: {e}"
+        return [], None, source
+    source["readable"] = True
+    source["scoped"] = len(execs)
+
+    seats = sessions_seat_index(package)
+    rows, orphans, groups = [], [], {}
+    for e in execs:
+        cand = seats.get((e["session_id"] or "").strip(), [])
+        if len(cand) != 1 or not cand[0]:
+            orphans.append({"exec_id": e["exec_id"], "session_id": e["session_id"],
+                            "job_id": e["job_id"], "workdir": e["workdir"],
+                            "status": e["status"],
+                            "candidate_seats": cand,
+                            "reason": ("session-id claimed by more than one seat — NOT inferred"
+                                       if len(cand) > 1 else
+                                       "no dispatch-time sessions.csv row for this session-id")})
+            continue
+        seat = cand[0]
+        started = _epoch(e["started_at"])
+        # Retention: young rows always; older ones only while inside their group's K newest.
+        key = (e["job_id"], seat)
+        n = groups[key] = groups.get(key, 0) + 1
+        if started is not None and captured_at - started > window_s and n > keep:
+            source["retention_dropped"] += 1        # aged out of the VIEW, and counted saying so
+            continue
+        rows.append({
+            "seat": seat,
+            "session_id": e["session_id"],
+            "exec_id": e["exec_id"],
+            "parent_exec_id": e["parent_exec_id"],
+            "job_id": e["job_id"],
+            "action_type": e["action_type"],
+            "state": e["status"],
+            "started_at": e["started_at"],
+            "started_age_s": (round(captured_at - started, 1) if started is not None else None),
+            "last_activity": _log_mtime(e["log_path"]),
+            "outcome": ({"exit_code": e["exit_code"], "status": e["status"],
+                         "ended_at": e["ended_at"],
+                         "completion_msg_id": e["completion_msg_id"]}
+                        if e["status"] in HEADLESS_TERMINAL else None),
+            "pid": e["pid"],
+            "log_path": e["log_path"] or "",
+        })
+    source["emitted"] = len(rows)
+    source["unattributed"] = len(orphans)
+    incident = ({"count": len(orphans), "exec_ids": [o["exec_id"] for o in orphans],
+                 "rows": orphans} if orphans else None)
+    return rows, incident, source
+
+
+def _log_mtime(log_path):
+    """mtime of the transcript where one exists, else None — NEVER inferred (design-760 §5)."""
+    if not log_path:
+        return None
+    try:
+        return round(Path(log_path).stat().st_mtime, 3)
+    except OSError:
+        return None
+
+
 # ---------- capture ----------
 
-def capture(package, session=None, sensor_path=None):
+def capture(package, session=None, sensor_path=None, heart_db=None):
     """One snapshot. captured_at is stamped BEFORE any raw read and never restamped."""
     captured_at = time.time()
     t0 = time.monotonic()
@@ -628,7 +827,10 @@ def capture(package, session=None, sensor_path=None):
             "roster_active": rost.get(seat, {}).get("active"),
         })
 
-    return {
+    # The second raw source. Added to the ONE sensor, never a second writer of state.json.
+    head_rows, unattributed, head_source = headless(package, captured_at, heart_db)
+
+    snap = {
         "schema": SCHEMA,
         "captured_at": round(captured_at, 3),
         "captured_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(captured_at)),
@@ -642,7 +844,14 @@ def capture(package, session=None, sensor_path=None):
         "roster_absent": absent_rows(rost, panes, seats, decls),
         "messages": messages_tail(package),
         "dispatch_tokens": dispatch_tokens(package, seats),
+        "headless": head_rows,
+        "headless_source": head_source,
     }
+    # NORMALLY ABSENT (design-760 §4): the incident field appears only when there is an incident,
+    # so a consumer that renders it as a warning has nothing to render on a healthy run.
+    if unattributed:
+        snap["headless_unattributed"] = unattributed
+    return snap
 
 
 def absent_rows(rost, panes, seats, decls):
@@ -739,7 +948,7 @@ def cmd_snapshot(args):
     session = session_or_refuse(args)
     if not session:
         return 4
-    print(json.dumps(capture(args.package, session, args.sensor), indent=1))
+    print(json.dumps(capture(args.package, session, args.sensor, args.heart_db), indent=1))
     return 0
 
 
@@ -753,7 +962,7 @@ def cmd_once(args):
               file=sys.stderr)
         return 3
     try:
-        dest = write_snapshot(capture(args.package, session, args.sensor), args.package)
+        dest = write_snapshot(capture(args.package, session, args.sensor, args.heart_db), args.package)
         print(dest)
         return 0
     finally:
@@ -822,7 +1031,7 @@ def cmd_run(args):
                 print(msg, flush=True)
                 return code
             try:
-                write_snapshot(capture(args.package, session, args.sensor), args.package)
+                write_snapshot(capture(args.package, session, args.sensor, args.heart_db), args.package)
             except Exception as e:  # noqa: BLE001 — a bad pass must never kill the sensor
                 print(f"capture failed: {e!r}", file=sys.stderr, flush=True)
             time.sleep(args.interval)
@@ -848,6 +1057,8 @@ def cmd_start(args):
         argv += ["--session", args.session]
     if args.sensor:
         argv += ["--sensor", args.sensor]
+    if args.heart_db:
+        argv += ["--heart-db", args.heart_db]
     p = subprocess.Popen(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
                          start_new_session=True)
     for _ in range(50):
@@ -1263,6 +1474,134 @@ def cmd_selftest(args):
         check("dispatch_tokens: no briefed seat -> avg is None, never a fake zero",
               dispatch_tokens(td, [{"seat": ""}])["avg_tokens"] is None)
 
+    # ---- the non-pane source: jobs_log x sessions.csv -> headless[] (task 7.73, design-760) ----
+    # ⚠ THE FIXTURE IS BUILT SO EVERY CHECK CAN FAIL. The seat asserted below appears ONLY in
+    # sessions.csv — never in the workdir, never in the job id — so a join that quietly inferred
+    # the seat from the path (the G-31 mis-attribution this design exists to make impossible)
+    # cannot pass, and neither can one that dropped the unjoinable row.
+    import sqlite3
+    import tempfile
+
+    def heart_fixture(td, rows):
+        db = str(Path(td) / "heart.db")
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE jobs_log (exec_id INTEGER PRIMARY KEY, parent_exec_id INTEGER,"
+                    " job_id TEXT, action_type TEXT, session_mode TEXT, status TEXT,"
+                    " session_id TEXT, pid INTEGER, exit_code INTEGER, started_at TEXT,"
+                    " ended_at TEXT, log_path TEXT, workdir TEXT, completion_msg_id INTEGER)")
+        con.executemany("INSERT INTO jobs_log (exec_id, job_id, action_type, session_mode, status,"
+                        " session_id, pid, exit_code, started_at, ended_at, workdir)"
+                        " VALUES (:exec_id,:job_id,'launch-agent','headless',:status,:session_id,"
+                        ":pid,:exit_code,:started_at,:ended_at,:workdir)", rows)
+        con.commit()
+        con.close()
+        return db
+
+    with tempfile.TemporaryDirectory() as td:
+        pkg = Path(td) / "pkg"
+        (pkg / "seats" / "worker-a").mkdir(parents=True)
+        iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 30))
+        old = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 86400))
+        wd = str(pkg / "seats" / "worker-a")
+        (pkg / "sessions.csv").write_text(
+            "seat,session-id,harness,workdir,pid,pid-starttime,tty,started,ended\n"
+            f"worker-a,sid-live,claude,{wd},111,1,,{iso},\n"
+            f"worker-a,sid-done,claude,{wd},112,1,,{old},\n"
+            "twin,sid-clash,claude,x,113,1,,,\n"
+            "other,sid-clash,claude,x,114,1,,,\n", encoding="utf-8")
+        base = {"job_id": "hv", "pid": None, "exit_code": None, "ended_at": None, "workdir": wd}
+        db = heart_fixture(td, [
+            {**base, "exec_id": 1, "status": "running", "session_id": "sid-live",
+             "started_at": iso, "pid": 111},
+            {**base, "exec_id": 2, "status": "done", "session_id": "sid-done",
+             "started_at": old, "ended_at": old, "exit_code": 0},
+            {**base, "exec_id": 3, "status": "failed", "session_id": "sid-orphan",
+             "started_at": iso},
+            {**base, "exec_id": 4, "status": "done", "session_id": "sid-clash",
+             "started_at": iso},
+            # scoping control: a real headless row of ANOTHER run must not enter this snapshot
+            {**base, "exec_id": 5, "status": "running", "session_id": "sid-live",
+             "started_at": iso, "workdir": str(Path(td) / "elsewhere" / "seats" / "worker-a")},
+        ])
+        now_ = time.time()
+        rows, inc, src = headless(str(pkg), now_, db)
+        by_exec = {r["exec_id"]: r for r in rows}
+        check("7.73: the joined row carries the seat from the DISPATCH-TIME sessions.csv row",
+              by_exec.get(1, {}).get("seat") == "worker-a")
+        check("7.73: every emitted row HAS a seat — the rider holds by construction, not by filter",
+              all(r["seat"] for r in rows))
+        check("7.73: a terminal row carries exit_code/ended_at/status as its outcome",
+              by_exec.get(2, {}).get("outcome", {}).get("exit_code") == 0
+              and by_exec[2]["outcome"]["ended_at"] == old
+              and by_exec[2]["outcome"]["status"] == "done")
+        check("7.73: a live row carries NO outcome (an outcome is a terminal fact)",
+              by_exec.get(1, {}).get("outcome") is None)
+        check("7.73: a row of ANOTHER run's tree is not scoped into this snapshot",
+              5 not in by_exec and src["scoped"] == 4)
+        # the two incident shapes — neither dropped, neither guessed at
+        orphans = {o["exec_id"]: o for o in (inc or {}).get("rows", [])}
+        check("7.73: an unjoinable row surfaces in headless_unattributed, NOT as a session row",
+              3 in orphans and 3 not in by_exec)
+        check("7.73: a session-id claimed by TWO seats is REPORTED with both, never inferred",
+              4 in orphans and sorted(orphans.get(4, {}).get("candidate_seats", [])) == ["other", "twin"]
+              and 4 not in by_exec)
+        check("7.73: the incident carries count + exec_ids (design-760 §4)",
+              inc["count"] == 2 and sorted(inc["exec_ids"]) == [3, 4])
+        # ⚠ THE LEADER'S #3980 BAR: no row may vanish silently. The counts must CLOSE.
+        check("7.73: every scoped row is accounted for — scoped == emitted + unattributed + "
+              f"retention_dropped (got {src['scoped']} == {src['emitted']} + {src['unattributed']}"
+              f" + {src['retention_dropped']})",
+              src["scoped"] == src["emitted"] + src["unattributed"] + src["retention_dropped"])
+        # retention: an old row outside the window AND outside its group's K newest leaves the
+        # VIEW — and the count says so. Driven at keep=0 so the same fixture answers both ways.
+        rows0, _, src0 = headless(str(pkg), now_, db, keep=0, window_s=60)
+        check("7.73: an aged row leaves the view under retention and is COUNTED, never silent",
+              src0["retention_dropped"] == 1 and 2 not in {r["exec_id"] for r in rows0}
+              and src0["scoped"] == src0["emitted"] + src0["unattributed"] + src0["retention_dropped"])
+        check("7.73: the same row is KEPT when the window covers it — retention is the only "
+              "reason it left (the discriminating half)", 2 in by_exec)
+        # ---- the READ-ONLY bound, checked on THE MODULE and not on sqlite ----
+        # ⚠ WHY THIS IS NOT THE OBVIOUS CHECK. Opening a `mode=ro` connection here and watching
+        # the kernel refuse a write proves that sqlite works; it stays GREEN with `scoped_execs`
+        # switched to read-write, because a reader that never writes is observably identical
+        # either way. There is no runtime symptom to catch — so the subject is the module's OWN
+        # open, captured as it happens, and the assertion is on the mode it asked for. The second
+        # half then shows what that mode BUYS, through the very URI the module built.
+        opened = []
+        real_connect = sqlite3.connect
+
+        def spy(*a, **kw):
+            opened.append(a[0] if a else kw.get("database"))
+            return real_connect(*a, **kw)
+
+        sqlite3.connect = spy
+        try:
+            scoped_execs(db, str(pkg))
+        finally:
+            sqlite3.connect = real_connect
+        uri = opened[0] if opened else ""
+        check(f"7.73: the store is opened READ-ONLY — the module's own connect asked for "
+              f"mode=ro ({uri!r})", "mode=ro" in str(uri))
+        ro = real_connect(str(uri), uri=True)
+        try:
+            ro.execute("UPDATE jobs_log SET status='tampered' WHERE exec_id=1")
+            ro.commit()
+            refused = False
+        except sqlite3.OperationalError:
+            refused = True
+        finally:
+            ro.close()
+        rw = real_connect(db)
+        rw.execute("UPDATE jobs_log SET status='running' WHERE exec_id=1")   # the control
+        rw.commit()
+        rw.close()
+        check("7.73: that connection cannot write — the kernel refuses, while the SAME statement "
+              "succeeds read-write on the same file (so the refusal is the mode's)", refused)
+        # an absent store is REPORTED, never an ambiguous empty list
+        _, _, missing = headless(str(pkg), now_, str(Path(td) / "nope.db"))
+        check("7.73: an absent heart.db reports WHY rather than an ambiguous empty headless[]",
+              missing["readable"] is False and "does not exist" in missing["reason"])
+
     print(f"\n{'PASS' if not failures else 'FAIL'} — {len(failures)} failure(s)")
     return 1 if failures else 0
 
@@ -1280,6 +1619,9 @@ def main():
             p.add_argument("--session", help="tmux session; omitted, it is resolved LIVE from a "
                                              "roster pane and NEVER derived from the path")
             p.add_argument("--sensor", help="override the inherited ctx-monitor path")
+            # A PATH, never a policy value: which store to read. Omitted, it is resolved from
+            # RBTV_IGNITE_DATA_ROOT or from the live daemon unit's own environment.
+            p.add_argument("--heart-db", help="override the resolved heart.db (read-only)")
         return p
 
     add("snapshot", cmd_snapshot, "capture and print JSON; writes nothing, takes no lock")

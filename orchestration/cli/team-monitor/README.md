@@ -72,7 +72,13 @@ take no lock. Every write is `tmp` + `os.replace`, so a reader never sees a part
            liveness, roster_active}],
     roster_absent[{seat, pane, liveness, reason}],
     messages{total, tail[{n, from, to, type, sent, sent_epoch, text}]},
-    dispatch_tokens{avg_tokens, shared_tokens, seats}
+    dispatch_tokens{avg_tokens, shared_tokens, seats},
+    headless[{seat, session_id, exec_id, parent_exec_id, job_id, action_type, state,
+              started_at, started_age_s, last_activity, outcome{exit_code, status,
+              ended_at, completion_msg_id}, pid, log_path}],
+    headless_source{heart_db, readable, reason, scoped, emitted, unattributed,
+                    retention_dropped, keep, window_s},
+    headless_unattributed{count, exec_ids, rows[…]}      # ONLY when there is an incident
 
 `box{}` carries the **same** `captured_at` as the rest of the snapshot — box pressure is
 thresholded continuously by `goal-watcher-job` without a second raw-source reader.
@@ -91,6 +97,42 @@ raw sources (R24).
 `roster_absent` is the GHOSTROW input, and it separates two failures that look alike from a
 distance: a roster row whose **pane left the room**, and a roster row whose **pane is still
 there but holds no harness process**. The second is the one that looks healthy.
+
+## `headless[]` — the sessions that occupy a seat but no pane (task 7.73, design-760)
+
+Every read above this line is pane-based, so a **headless** session is invisible to all of
+them. design-760 closes that by giving the ONE sensor a SECOND RAW SOURCE rather than
+standing up a second sensor: a **read-only** connection to the daemon's `heart.db`, whose
+`jobs_log` is already *"one execution = one row = one session record"*. Nothing new is
+recorded anywhere — the record the ruling names already existed.
+
+Two bounds carry the whole design:
+
+- **Read-only, always.** The connection is opened `mode=ro` on a `file:` URI, so the kernel
+  refuses a write rather than this module promising not to. Reading the **store** rather
+  than the daemon is also why a **daemon-down** state still reports: a sensor that polled
+  its own subject could not tell *"subject down"* from *"my source down"*.
+- **The seat comes from the dispatch-time record and nowhere else** (G-31). The join key is
+  `session_id`, carried by `jobs_log` and by the run's `sessions.csv` (which the dispatch
+  writes AT dispatch) — no `seat` column on `jobs_log`, no `mode` column on `sessions.csv`.
+  `workdir` decides which **run** a row belongs to and never which **seat**. A row that
+  will not join is an INCIDENT, never a guess.
+
+So there are exactly three fates for a scoped row, and `headless_source` counts all three:
+emitted with its seat, aged out of the view by retention (last `keep` per `(job_id, seat)`
+plus everything younger than `window_s`; the history stays in `jobs_log`), or surfaced in
+`headless_unattributed`. **`scoped == emitted + retention_dropped + unattributed` always** —
+a row may leave a view, it may never be silently unclassified.
+
+`headless_unattributed` is normally ABSENT, so a renderer showing it as a warning has
+nothing to show on a healthy run. It carries the count, the `exec_id`s, and per row why it
+did not join — including a `session_id` claimed by two seats, which is reported with both
+candidates rather than resolved.
+
+The store is resolved from `--heart-db`, else `RBTV_IGNITE_DATA_ROOT`, else the live
+daemon unit's own environment (`coord.py`'s `daemon_heart_db`, imported by path so that
+"which store is the daemon's" has one home). Unresolvable or unreadable is REPORTED in
+`headless_source.reason` — an empty `headless[]` is never ambiguous.
 
 ## `agent_type` — declared in the descriptor, only OBSERVED here (task 7.80)
 
