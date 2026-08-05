@@ -51,6 +51,12 @@ VAULT_ROOT = "/home/henri/ht-wkdir/second-brain"
 CLAUDE_BIN = os.environ.get("COORD_CLAUDE_BIN", "claude")
 CODEX_BIN = os.environ.get("COORD_CODEX_BIN", "codex")
 OPENCODE_BIN = os.environ.get("COORD_OPENCODE_BIN", "opencode")
+# T1/7.400: every launched seat's tmp writes (harness captures, session state, startup
+# extraction) redirect here — off the quota'd usr-quota tmpfs backing `/tmp`, onto `/dev/sda1`.
+# Bound into `identity_prefix()`, the one env-prefix door every harness command passes through
+# (`harness_command` AND `resume_command` both build from it) — never `TMUX_TMPDIR`, which binds
+# a process to one tmux SERVER and is untouched by this (coord.py:5502).
+AGENT_TMPDIR = "/home/henri/.cache/agent-tmp"
 DEFAULT_MODEL = "opus"
 DEFAULT_EFFORT = "high"
 HARNESSES = ("claude", "codex", "opencode")
@@ -9728,10 +9734,11 @@ def check_bindings(args, workers, command):
 
 
 def identity_prefix(agent):
-    """The shell-env prefix that gives a launched seat its identity (T1). Every command the
-    seat then runs resolves `COORD_AGENT` — it never types its own name, and cannot mistype
-    another seat's."""
-    return f"COORD_AGENT={shlex.quote(agent)} "
+    """The shell-env prefix that gives a launched seat its identity (T1), plus its `TMPDIR`
+    redirect (7.400) off the quota'd tmpfs. Every command the seat then runs resolves
+    `COORD_AGENT` — it never types its own name, and cannot mistype another seat's — and every
+    tmp write it or its harness makes lands on `/dev/sda1` at AGENT_TMPDIR instead."""
+    return f"COORD_AGENT={shlex.quote(agent)} TMPDIR={shlex.quote(AGENT_TMPDIR)} "
 
 
 CLAUDE_MODEL_ALIASES = ("opus", "sonnet", "haiku", "fable")
@@ -11469,6 +11476,12 @@ def launch_seat(w, args, target, prompt=None, pane=None, resume=None):
     verr = validate_seat(w)  # PROP-8: `close-seat --renew` relaunches single seats through here
     if verr:
         return "", verr
+    # 7.400: created HERE, not inside identity_prefix — this is the one door every boot passes
+    # (`launch` and `close-seat --renew` both arrive here), so the dir exists before the harness
+    # command that names it ever runs. `exist_ok=True`: a seat launched moments earlier already
+    # made it, and that is not an error.
+    os.makedirs(AGENT_TMPDIR, mode=0o700, exist_ok=True)
+    os.chmod(AGENT_TMPDIR, 0o700)
     # Checked HERE because this is the one door every boot passes — `launch` and
     # `close-seat --renew` both arrive here, so a renew cannot drift where a launch is checked.
     # Peers are read from ALL briefings, not from the seats in this wave: a single-seat renew would
@@ -14398,7 +14411,11 @@ def _selftest_checks(args, failures, names):
         cmd, _ = harness_command(by["alpha"], "P")
         check("v2: claude command carries model+effort", "--model fable" in cmd and "--effort xhigh" in cmd)
         check("T1: every harness command is prefixed with the seat's COORD_AGENT identity",
-              cmd.startswith("COORD_AGENT=alpha ") and f"COORD_AGENT=alpha {CLAUDE_BIN}" in cmd)
+              cmd.startswith("COORD_AGENT=alpha ")
+              and f"COORD_AGENT=alpha TMPDIR={AGENT_TMPDIR} {CLAUDE_BIN}" in cmd)
+        check("7.400: the claude command carries TMPDIR ahead of the binary, off the quota'd tmpfs",
+              f"TMPDIR={AGENT_TMPDIR} " in cmd
+              and cmd.index(f"TMPDIR={AGENT_TMPDIR} ") < cmd.index(CLAUDE_BIN))
         cmd, _ = harness_command(by["gamma"], "P")
         # G-13: this asserted the flags `opencode --model X --prompt Y`, which THIS opencode has at
         # no level — the one-shot form is the `run` subcommand. The old string fell through to the
@@ -14409,12 +14426,19 @@ def _selftest_checks(args, failures, names):
               "(`--auto` now sits between `run` and `-m` per the owner-directed fix; the "
               "adjacency of `run` and `-m` was never this check's point, and the flag's own "
               "position is asserted separately and more strictly below)",
-              cmd.startswith(f"COORD_AGENT=gamma {OPENCODE_BIN} run ")
+              cmd.startswith(f"COORD_AGENT=gamma TMPDIR={AGENT_TMPDIR} {OPENCODE_BIN} run ")
               and "-m zai-coding-plan/glm-5.2" in cmd
               and "--prompt" not in cmd and "--model" not in cmd)
+        check("7.400: the opencode command carries TMPDIR ahead of the binary",
+              f"TMPDIR={AGENT_TMPDIR} " in cmd
+              and cmd.index(f"TMPDIR={AGENT_TMPDIR} ") < cmd.index(OPENCODE_BIN))
         cmd, _ = harness_command(by["delta"], "P")
         check("v2: codex command uses plan default when model empty",
-              cmd.startswith(f"COORD_AGENT=delta {CODEX_BIN}") and " -m " not in cmd)
+              cmd.startswith(f"COORD_AGENT=delta TMPDIR={AGENT_TMPDIR} {CODEX_BIN}")
+              and " -m " not in cmd)
+        check("7.400: the codex command carries TMPDIR ahead of the binary",
+              f"TMPDIR={AGENT_TMPDIR} " in cmd
+              and cmd.index(f"TMPDIR={AGENT_TMPDIR} ") < cmd.index(CODEX_BIN))
         bad = dict(by["gamma"], model="")
         cmd, err = harness_command(bad, "P")
         check("v2: opencode without model refused", cmd is None and "require" in err)
@@ -24505,6 +24529,10 @@ def _selftest_checks(args, failures, names):
               and resume_command({"agent": "x"}, {"harness": "zsh", "native-session-id": "",
                                                   "workdir": "/w", "session-id": "s"},
                                  Path("/tmp/p.txt"))[0] is None)
+        check("7.400: a RENEW (resume_command) carries TMPDIR too — identity_prefix is the one "
+              "door both `harness_command` and `resume_command` build from, so a resumed seat's "
+              "tmp writes redirect exactly like a freshly launched one's",
+              all(f"TMPDIR={AGENT_TMPDIR} " in _s732_forms[h] for h in ("claude", "codex", "opencode")))
 
         # ---- (5a)/(5b) THE AWAITING RECORD: ABSENCE IS LEGAL FOR `revive` AND LOUD FOR `renew`.
         # ⚠ THE "ABSENCE IS LEGAL" HALF CANNOT BE ISOLATED BY A MUTATION, and that is stated rather
