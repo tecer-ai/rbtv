@@ -102,6 +102,18 @@ profiles:
       argv: ["opencode", "run", "-m", "sakana/fugu-ultra"]
       prompt: stdin
     session_ref: { source: cwd-implicit }    # opencode resumes per-cwd; the session's workdir IS the ref
+    # ── G-270's ONE LINE (task 7.86 criterion 8). Routing sets an effort for EVERY
+    # dispatch, and a profile with no `effort:` block is refused outright by the shared
+    # resolver (E_UNKNOWN_EFFORT) -- so this pair could not complete a resolver-backed
+    # dispatch at all. `inert: true` is the MEASURED truth, not a silencer: the opencode
+    # manifest records a 2026-07-09 probe finding that opencode forwards `--variant` to
+    # the provider WITHOUT validating it (a bogus level returns identically to high/max/
+    # minimal), so there is no honored effort ladder here. An inert table makes the
+    # resolver ACCEPT a caller's level and report it back as effortInert -- STATED, never
+    # silently dropped. ⚠ ONE LINE IS NOT A RISK CLASS: this file is the live daemon's
+    # armed config, so this edit carries row 7.86's full criteria 4-5 blast radius and
+    # was proven by a real load on a candidate copy BEFORE landing here.
+    effort: { inert: true }
     headed:
       # headed-CAPABLE seam (D17: presence of this block = capable). The pty path is Batch 6's.
       #
@@ -274,6 +286,318 @@ profiles:
       ProtectSystem: strict
       ReadWritePaths: ["{workdir}"]
       PrivateTmp: true
+      NoNewPrivileges: true
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════════
+  # TASK 7.86 — THE CONDUCTOR'S CLI DISPATCH PROFILES. ADDED, NOT SUBSTITUTED.
+  #
+  # One profile per ELECTED CLI (model, variant) pair, closing 7.54's criterion 2. Measured at
+  # authoring time from rbtv.json's elected `model_packages` x each package manifest's variants
+  # (CLI-ness = the manifest declares `permission_rules`, manifest-schema.md l.94 — never a
+  # name-suffix guess): 11 pairs, of which 2 already resolved (claude-code-cli:sonnet,
+  # opencode:sakana) and 9 resolved to nothing at all. Every pair now names ONE profile below in
+  # its manifest's `variants[].launch_profile`.
+  #
+  # ⚠ THE `cli-` PREFIX IS THE LANE, AND THE SIX PROFILES ABOVE ARE DELIBERATELY UNTOUCHED.
+  # These resolve through the SHARED resolver (`ignite/launch-profiles/resolveProfile`) for the
+  # orchestration conductor's CLI-worker dispatch — consumer #3 of launch-profiles/README.md.
+  # They are NOT daemon-spawn profiles and the daemon will REFUSE to spawn one, by name
+  # (`E_PROFILE_HALVES_UNSUPPORTED`, server/spawn/probes/probe-profile-halves-refusal.js): the
+  # daemon's spawn path reads `profile.exec` and does not route through resolveProfile, so a
+  # `command:`-shaped profile is typed-refused there. That refusal is the RULED state (leader
+  # #523), not a defect introduced here.
+  #
+  # ⇒ SO THE SIX ABOVE KEEP THEIR `exec:` SHAPE. `claude-sonnet-tools` and `opencode-sakana`
+  # carry real daemon spawn history (measured in heart.db jobs_log: 18 and 2 rows). Converting
+  # either to halves would have made the daemon refuse a profile it currently spawns — a live
+  # regression traded for a schema tidy. The two lanes cannot share one profile until spawn.js
+  # routes through resolveProfile (the root-cause shape, deliberately 7.43/7.54's, not this
+  # row's). The duplication is DISCLOSED, not hidden.
+  #
+  # ⚠ NO PROFILE BELOW BAKES A POSTURE THE CONDUCTOR CHOOSES PER-DISPATCH (criterion 2). No
+  # `--allowedTools` anywhere: which tools a worker may use is a per-dispatch decision, and
+  # baking it is what made `claude-sonnet-tools` unusable without an override. What IS declared
+  # is the harness's own wall-of-last-resort, and it is HOST-DERIVED rather than baked — that is
+  # what the halves are:
+  #
+  #   caged    — a bubblewrap mount namespace supplies the kernel boundary, so the harness's own
+  #              (weaker, advisory) confinement is relaxed.
+  #   portable — no cage on this host, so the harness's OWN confinement is the only wall and is
+  #              tightened accordingly.
+  #
+  # The half is DETECTED, never chosen (host.js `detectHostCapability()` takes no argument). A
+  # profile declaring no portable half FAILS CLOSED on a cage-less host (`E_NO_PORTABLE_HALF`)
+  # rather than silently running with every wall missing — which is the whole reason opencode and
+  # kimi below declare a caged half ONLY: neither harness carries any sandbox of its own (DEC-2 /
+  # POC Finding 3 for opencode; `kimi --help` declares no sandbox flag at all, measured), so a
+  # "portable" half for them would be a lie that reads like containment.
+  #
+  # ⚠ EFFORT IS TRANSLATED, NEVER BAKED, AND NEVER SILENTLY DROPPED. Routing sets an effort for
+  # EVERY dispatch, so a profile with no `effort:` block is refused outright by the resolver
+  # (`E_UNKNOWN_EFFORT`) — that is G-270, and it is why every profile below carries either a
+  # translation table or an explicit `inert: true`. A harness whose dial does not exist says so.
+  # ═══════════════════════════════════════════════════════════════════════════════════════════
+
+  # ── claude-code-cli (4 elected variants) ─────────────────────────────────────────────────────
+  # HALVES: claude's wall-of-last-resort is its permission MODE. Caged -> bypassPermissions (the
+  # bwrap namespace is the real boundary). Portable -> acceptEdits (harness restraint is the only
+  # boundary). `--allowedTools` appears in NEITHER: that is the conductor's per-dispatch choice.
+  # Effort dialect + values copied from the ladder claude-code-cli's manifest declares
+  # (low|medium|high|xhigh|max); the abstract vocabulary is low|medium|high|max, so `xhigh` has no
+  # abstract level pointing at it and is unreachable — stated rather than left to be discovered.
+  # `stream-json` + `--verbose` + session_ref stdout-json/session_id is the shape the shipped
+  # `claude-sonnet-tools` profile has run 18 real jobs on; reused rather than re-invented.
+
+  cli-claude-fable:
+    command:
+      caged:
+        argv: ["claude", "-p", "--model", "claude-fable-5",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions"]
+        prompt: stdin
+      portable:
+        argv: ["claude", "-p", "--model", "claude-fable-5",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "acceptEdits"]
+        prompt: stdin
+    effort:
+      dialect: effort
+      values: { low: low, medium: medium, high: high, max: max }
+      argv: ["--effort", "{effort}"]
+    session_ref: { source: stdout-json, field: session_id }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
+      NoNewPrivileges: true
+
+  cli-claude-opus:
+    # The manifest's `opus` variant declares NO --model flag, so its headless shape would take
+    # whatever model the ambient install defaults to. A profile that pins no model records a
+    # mapping true on one machine at one moment (the exact reason `codex-git-write` is not any
+    # pair's profile), so the alias is pinned explicitly here — `claude --help` documents
+    # `--model` accepting a latest-model alias, and `opus` is that alias.
+    command:
+      caged:
+        argv: ["claude", "-p", "--model", "opus",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions"]
+        prompt: stdin
+      portable:
+        argv: ["claude", "-p", "--model", "opus",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "acceptEdits"]
+        prompt: stdin
+    effort:
+      dialect: effort
+      values: { low: low, medium: medium, high: high, max: max }
+      argv: ["--effort", "{effort}"]
+    session_ref: { source: stdout-json, field: session_id }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
+      NoNewPrivileges: true
+
+  cli-claude-sonnet:
+    # REPLACES `claude-sonnet-tools` as claude-code-cli:sonnet's launch_profile. The old profile
+    # is NOT deleted (it is a daemon-spawn profile with 18 real jobs) — the manifest simply stops
+    # pointing at it, because it bakes `--allowedTools Bash(git *),Write` and criterion 2 forbids
+    # a pair resolving through a profile the conductor cannot use without overriding it.
+    command:
+      caged:
+        argv: ["claude", "-p", "--model", "sonnet",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions"]
+        prompt: stdin
+      portable:
+        argv: ["claude", "-p", "--model", "sonnet",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "acceptEdits"]
+        prompt: stdin
+    effort:
+      dialect: effort
+      values: { low: low, medium: medium, high: high, max: max }
+      argv: ["--effort", "{effort}"]
+    session_ref: { source: stdout-json, field: session_id }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
+      NoNewPrivileges: true
+
+  cli-claude-haiku:
+    # ⚑ `effort: { inert: true }` IS A MEASUREMENT, NOT A SHORTCUT. The claude-code-cli manifest
+    # gives haiku `reasoning_modes.depths: []` / `invocation: none` — Haiku is single-mode and has
+    # no effort dial. An inert table makes the resolver ACCEPT a caller's level and report it back
+    # as `effortInert: true`; omitting the block entirely would make it refuse the pair (G-270).
+    command:
+      caged:
+        argv: ["claude", "-p", "--model", "haiku",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions"]
+        prompt: stdin
+      portable:
+        argv: ["claude", "-p", "--model", "haiku",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "acceptEdits"]
+        prompt: stdin
+    effort: { inert: true }
+    session_ref: { source: stdout-json, field: session_id }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
+      NoNewPrivileges: true
+
+  # ── codex-cli (2 elected variants) ───────────────────────────────────────────────────────────
+  # THE CANONICAL HALVES CASE, and the one launch-profiles/README.md names by hand: codex's caged
+  # half runs `--sandbox danger-full-access` because bwrap supplies the boundary; reused on a
+  # cage-less host that would run with NO walls and look like a normal run. The portable half is
+  # `workspace-write` — codex's own sandbox doing the work. Both models are PINNED (`-m`): the
+  # shipped `codex-git-write` pins none, which is precisely why it is not any pair's profile.
+  # Effort: codex spells the dial `thinking`, and its manifest declares depths [low, medium,
+  # high] — THREE, not four. The abstract `max` therefore has no distinct codex level to land on
+  # and is mapped to `high`. That is a LOSSY but honest collapse, reported by the resolver as
+  # {level: max, dialect: thinking, value: high} rather than silently dropped. It DIVERGES from
+  # the shipped `codex-git-write`, which maps max -> xhigh; that divergence is reported, not
+  # reconciled — the manifest is this row's declared catalog input and it says three.
+
+  cli-codex-gpt-5-5:
+    command:
+      caged:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.5",
+               "--sandbox", "danger-full-access", "-c", "approval_policy=never", "--json"]
+        prompt: stdin
+      portable:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.5",
+               "--sandbox", "workspace-write", "-c", "approval_policy=never", "--json"]
+        prompt: stdin
+    effort:
+      dialect: thinking
+      values: { low: low, medium: medium, high: high, max: high }
+      argv: ["-c", "model_reasoning_effort={effort}"]
+    session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
+      NoNewPrivileges: true
+
+  cli-codex-gpt-5-4:
+    command:
+      caged:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.4",
+               "--sandbox", "danger-full-access", "-c", "approval_policy=never", "--json"]
+        prompt: stdin
+      portable:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.4",
+               "--sandbox", "workspace-write", "-c", "approval_policy=never", "--json"]
+        prompt: stdin
+    effort:
+      dialect: thinking
+      values: { low: low, medium: medium, high: high, max: high }
+      argv: ["-c", "model_reasoning_effort={effort}"]
+    session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
+      NoNewPrivileges: true
+
+  # ── kimi-code-cli (1 elected variant) ────────────────────────────────────────────────────────
+  # CAGED HALF ONLY, DELIBERATELY. `kimi --help` declares no sandbox and no permission mode
+  # (measured on the installed build) — its only confinement knobs are `--work-dir`/`--add-dir`
+  # scope hints, which are not walls. A portable half would therefore assert containment kimi does
+  # not have, so this profile FAILS CLOSED (`E_NO_PORTABLE_HALF`) on a cage-less host instead.
+  # `--yolo` is deliberately ABSENT: `--quiet` implies `--print`, which already auto-approves tool
+  # calls for the invocation, so `--yolo` would add a standing posture for nothing.
+  # ⚠ THE MODEL PIN IS THE MANIFEST'S, VERIFIED AGAINST THIS BOX, NOT READ OFF IT: the manifest
+  # names the live configured model `kimi-for-coding` (Kimi K2.x) in two places; ~/.kimi/config.toml
+  # on this machine resolves the same model under the id below. A machine whose kimi config does
+  # not carry this id will refuse loudly at dispatch rather than silently run another model.
+  # Effort: the manifest's depths are [no-think, think] — a BINARY dial, not a ladder. The four
+  # abstract levels are collapsed onto it two-and-two. The dial is real, so declaring it `inert`
+  # would be false; the collapse is lossy and is stated here rather than implied.
+
+  cli-kimi:
+    command:
+      caged:
+        argv: ["kimi", "--quiet", "-m", "kimi-code/kimi-for-coding", "--work-dir", "{workdir}"]
+        prompt: stdin
+    effort:
+      dialect: thinking-toggle
+      values: { low: "--no-thinking", medium: "--no-thinking", high: "--thinking", max: "--thinking" }
+      argv: ["{effort}"]
+    session_ref: { source: cwd-implicit }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
+      NoNewPrivileges: true
+
+  # ── opencode (4 elected variants) ────────────────────────────────────────────────────────────
+  # CAGED HALF ONLY, for the reason DEC-2 already records against `opencode-sakana` above:
+  # "OpenCode has NO sandbox of its own (POC Finding 3: it touched the live vault unprompted) --
+  # the profile confines it." A profile whose confinement is entirely the cage's must not run
+  # where there is no cage, and the halves shape is what says so in a form the resolver enforces.
+  # Effort is INERT on all four and that is MEASURED, not assumed: the manifest records a
+  # 2026-07-09 probe finding that opencode forwards `--variant` to the provider without validating
+  # it — a bogus level returns identically to high/max/minimal, so there is no honored ladder.
+
+  cli-opencode-z1:
+    command:
+      caged:
+        argv: ["opencode", "run", "-m", "zai-coding-plan/glm-5.2"]
+        prompt: stdin
+    effort: { inert: true }
+    session_ref: { source: cwd-implicit }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
+      NoNewPrivileges: true
+
+  cli-opencode-sakana:
+    # The conductor-lane twin of `opencode-sakana` above. The shipped one keeps its `exec:` shape
+    # because the daemon spawns it (2 real jobs); this one carries the caged-only halves the
+    # conductor lane needs. Same binary, same model, same session semantics.
+    command:
+      caged:
+        argv: ["opencode", "run", "-m", "sakana/fugu-ultra"]
+        prompt: stdin
+    effort: { inert: true }
+    session_ref: { source: cwd-implicit }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
+      NoNewPrivileges: true
+
+  cli-opencode-deepseek-flash:
+    command:
+      caged:
+        argv: ["opencode", "run", "-m", "deepseek/deepseek-v4-flash"]
+        prompt: stdin
+    effort: { inert: true }
+    session_ref: { source: cwd-implicit }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
+      NoNewPrivileges: true
+
+  cli-opencode-deepseek-pro:
+    command:
+      caged:
+        argv: ["opencode", "run", "-m", "deepseek/deepseek-v4-pro"]
+        prompt: stdin
+    effort: { inert: true }
+    session_ref: { source: cwd-implicit }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "2G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
+    sandbox:
+      ReadWritePaths: ["{workdir}"]
       NoNewPrivileges: true
 
 # ─────────────────────────────────────────────────────────────────────────────
