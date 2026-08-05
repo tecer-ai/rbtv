@@ -1336,6 +1336,27 @@ GHOSTROW_DEBOUNCE_TICKS = REVIVAL_DEBOUNCE_TICKS
 REVIVAL_ROOM_DEAD_LINE = "REVIVAL n/a — room dead; recovery is jobs/recover-room.py (task 7.71)"
 REVIVAL_STALE_LINE = "REVIVAL paused — snapshot stale"
 
+# ---- 7.32 leaf (v): THE STALE-SENSOR TRIPWIRE'S SECOND HALF — THE WAKE. ------------------------
+#
+# The tripwire is TWO behaviours and the row says both are required: *"(1) Enforcement PAUSES …
+# (2) The job WAKES chief-of-staff to RESTART the sensor, and enforcement resumes when the sensor
+# does."* Only (1) landed at Stage 4. Alert-only was the EARLIER wording and was SUPERSEDED by a
+# later owner ruling precisely because it *"raised the incident and left the room unobserved with
+# nothing recovering it"* — a flag naming an incident with no named act is that state exactly.
+#
+# ⚠ THIS IS NOT AN ACTUATION AND MUST NOT BECOME ONE. The loop's one actuator is `fire_revival`
+# and stays one (`r-watch-revival-arm-amends-notify-only`). Restarting a resident service is the
+# chief-of-staff's act (`d-cos-runs-the-scaffolding`; [S6] — a landing whose consumer is resident
+# NAMES the restart and never performs it). What this half adds is that the flag carries the ACT
+# and the EXACT COMMAND, addressed at the recipient who may perform it.
+#
+# ⚠ AND `ensure`, NOT `run` OR `start`: it is the idempotent verb — a sensor that is actually alive
+# must not gain a second writer from a remedy aimed at a stale snapshot, and `state.json` has
+# exactly one writer by construction (task 7.33).
+SENSOR_RESTART_CMD = ("python3 3-resources/tools/rbtv/orchestration/cli/team-monitor/"
+                      "team_monitor.py ensure --package {package}")
+SENSOR_WAKE_LINE = "WAKE chief-of-staff — RESTART THE SENSOR"
+
 # ---- s4-04: the COMPLETED-ONE-SHOT gate's literals ----
 #
 # ⚠⚠ WAY-STATION, NOT A HOME — `decisions.md#d-watch-is-a-way-station` (owner ruling, 2026-07-29),
@@ -2349,12 +2370,21 @@ def check_revival(args, base, snap, snap_err, state, notes):
                            if age is not None else "snapshot carries no captured_at")
         lines.append(f"{'revival':<18} {'PAUSED':<7} {REVIVAL_STALE_LINE} — {why}")
         if room["stale_ticks"] >= REVIVAL_STALE_NOTE_TICKS and not room.get("notified_stale"):
+            # 7.32 leaf (v): the flag carries the ACT and its EXACT COMMAND — a flag that names an
+            # incident and no remedy is the alert-only shape the owner's later ruling superseded.
             notes.append(Flag(None,
                 f"watch: REVIVAL PAUSED — the seat-down detector has had no usable state.json "
                 f"snapshot for {room['stale_ticks']} consecutive passes ({why}). The SENSOR is the "
                 f"incident: while it is stale nothing can tell a crashed seat from a thinking one, "
                 f"so the detector takes no action in either direction and its debounce counters "
-                f"are frozen. Silence from this check is not a green."))
+                f"are frozen. Silence from this check is not a green.\n"
+                f"{SENSOR_WAKE_LINE}: "
+                + SENSOR_RESTART_CMD.format(package=coord.package_dir(args)) +
+                f"\nEnforcement RESUMES BY ITSELF on the first fresh snapshot — the pause is keyed "
+                f"on the snapshot's age, not on anything anyone has to un-set, so nothing needs "
+                f"re-arming after the restart and no second flag will announce the resumption. "
+                f"This is a WAKE, not an act performed here: restarting a resident service is the "
+                f"chief-of-staff's, and this loop's one actuator is the revival fire."))
             room["notified_stale"] = True
         return lines
     room["stale_ticks"] = 0
@@ -4308,6 +4338,47 @@ def cmd_selftest():
               "ticks — the SENSOR is the incident, and it says so",
               p1 == [] and p2 == [] and len(p3) == 1 and p4 == []
               and "REVIVAL PAUSED" in p3[0])
+
+        # ---- 7.32 leaf (v): THE WAKE — the tripwire's SECOND half, which did not land at Stage 4.
+        check("7.32 (v) THE OUTAGE FLAG CARRIES THE ACT AND ITS EXACT COMMAND, not just the "
+              "incident: the one flag names the WAKE, names `team-monitor ensure` with THIS "
+              "package's own path substituted (never a placeholder a reader has to fill), and says "
+              "enforcement resumes by itself on the first fresh snapshot so nobody re-arms "
+              "anything. Alert-only was the EARLIER wording and a later owner ruling superseded it "
+              "for raising an incident that left the room unobserved with nothing recovering it — "
+              "a remedy no reader can execute is that state with more words",
+              SENSOR_WAKE_LINE in p3[0]
+              and SENSOR_RESTART_CMD.format(package=rpkg) in p3[0]
+              and "{package}" not in p3[0]
+              and "RESUMES BY ITSELF" in p3[0])
+        check("⚠ 7.32 (v) IT IS A WAKE, NOT AN ACTUATION, AND THE FLAG SAYS SO — [S6]: the loop's "
+              "ONE actuator stays `fire_revival`. `check_revival` names no subprocess, no tmux and "
+              "no restart call anywhere in its own source; restarting a resident service is the "
+              "chief-of-staff's act. This is asserted off the SOURCE, so adding a quiet "
+              "`subprocess.Popen` beside the flag reds it even while the flag text stays right",
+              "chief-of-staff's" in p3[0]
+              and not any(t in inspect.getsource(check_revival)
+                          for t in ("subprocess.", "Popen", "team_monitor.py ensure", "os.system")))
+        rstate.clear(); rnotes.clear()
+
+        # THE DISCRIMINATING CONTROL FOR THE WHOLE TRIPWIRE — and it is the "enforcement RESUMES"
+        # half, which no amount of reading the flag can establish. Three stale ticks flag; the next
+        # FRESH tick must go back to enforcing, on the SAME state object, with nothing un-set by
+        # hand. A pause that needed re-arming would look identical up to here and diverge exactly
+        # at this line.
+        _, q1 = rev(rsnap(absent=[gone()], age_s=9999))
+        _, q2 = rev(rsnap(absent=[gone()], age_s=9999))
+        _, q3 = rev(rsnap(absent=[gone()], age_s=9999))
+        qflagged = len(q3) == 1
+        qfresh, _ = rev(rsnap(absent=[gone()]))
+        check("7.32 (v) CONTROL — ENFORCEMENT RESUMES WITH NO RE-ARMING: after the outage flag "
+              "fires, the very next FRESH snapshot puts the detector back to classifying (the "
+              "PAUSED line is gone and a real disposition is printed), on the same state object "
+              "and with nothing cleared by hand. That is what makes the flag's own promise true "
+              "rather than merely written; the pause is keyed on the snapshot's AGE, so the sensor "
+              "coming back IS the resumption",
+              qflagged and not any(REVIVAL_STALE_LINE in l for l in qfresh)
+              and any("dseat" in l for l in qfresh))
         rstate.clear(); rnotes.clear()
 
         # (10) MID-RENEWAL uses PLAIN pid+starttime equality, never the harness predicate.

@@ -2714,6 +2714,138 @@ def session_close(args, seat, disposition="", writer=DISPOSITION_WRITER_SEAT):
         return target[idx["session-id"]].strip() if "session-id" in idx else ""
 
 
+# ---- 7.32 leaf (ii)/(iii): HARNESS-NATIVE RESUME, and the restarter fallback -------------------
+#
+# THE ROW ALONE IS THE SOURCE, AND THAT IS THE WHOLE TEST. Task 7.37's criterion 4 —
+# *"`sessions.csv` carries enough to drive task 7.32's native resume with no other source"* — was
+# ruled MET AGAINST THE CONTRACT, NOT PROVEN BY USE (run-2 leader, `#463`/`#466`), because
+# *"enough to DRIVE"* is a SUFFICIENCY claim provable only by driving it. So `sessions_resume_ref`
+# reads the sessions row and NOTHING ELSE: no descriptor, no transcript, no tmux, no harness
+# probe. If a field it needs is missing, the criterion is FALSE and this refuses saying which
+# field — a reader that reached for a second source would make the criterion unfalsifiable.
+#
+# ⚠ WHAT THE DESCRIPTOR STILL SUPPLIES, said plainly so the claim stays honest: the successor's
+# PANE and CWD come from the launch path as they always did (`launch_seat`). The claim under test
+# is narrower and is exactly 7.37's: the RESUME REF — which conversation to re-enter, in which
+# harness's own vocabulary — comes from the row.
+#
+# ⚠ RECOVERY, NOT SURVIVAL (the row's accepted trade, re-scoping CON-1). A resumed session re-enters
+# the recorded conversation; the turn that was in flight when the process died is GONE. Nothing
+# here is built to preserve it and nothing should be.
+
+# The ONE re-orient nudge (`_Restart path (R4):_`, verbatim intent). ONE, and it is the entire
+# prompt of a natively-resumed session: the session already holds its briefing, its history and its
+# own memory — re-sending any of that would be the recreation this path exists to avoid.
+REORIENT_NUDGE = ("You were RESUMED after your session's process died — this is the same "
+                  "conversation, not a new one. Before acting: run `coordinate status`, then "
+                  "re-read whatever your next act touches. The turn you were mid-way through was "
+                  "lost with the process (recovery, not survival) — re-derive it, never assume it "
+                  "landed.")
+
+# The harness's OWN resume vocabulary. Keyed to `ignite/config/spawn-profiles.yaml`'s
+# `session_ref:` source for each harness, verified against the installed CLIs 2026-08-05:
+#   claude   `session_ref: {source: stdout-json, field: session_id}`        -> `--resume <id>`
+#   codex    `session_ref: {source: stdout-json-event, field: thread_id}`   -> `resume <id>`
+#   opencode `session_ref: {source: cwd-implicit}`                         -> `run --continue`
+# ⚠ opencode is the CWD-IMPLICIT case and it takes NO id: its ref IS the workdir, so the row's
+# `workdir` is the field that must be present for it and `native-session-id` legitimately is not.
+# Reading it as "no id -> not resumable" would refuse the one harness whose profile says the
+# workdir is the ref.
+RESUME_NEEDS_ID = {"claude": True, "codex": True, "opencode": False}
+
+
+def sessions_resume_ref(args, seat):
+    """(ref, why) — the resume ref for `seat` from its LAST sessions.csv row AND NOTHING ELSE.
+
+    `ref` is `{"session-id", "harness", "native-session-id", "workdir"}` on success; `None` means
+    NOT RESUMABLE FROM THE ROW, and `why` names the field that is missing or wrong. That refusal is
+    the fallback's trigger (leaf (iii)) and is also 7.37 criterion 4's falsifier — it is never
+    repaired here by consulting anything else.
+
+    THE LAST ROW, not the last OPEN row: a crashed session never gets `ended` stamped, but a seat
+    whose predecessor session closed cleanly and whose CURRENT session then crashed has both shapes
+    in the file. Ordering is the file's own — `sessions.csv` is append-ordered by construction
+    (`session_open` appends), which is the property 7.37 built it on.
+    """
+    path = sessions_csv(package_dir(args))
+    if not path.exists():
+        return None, f"{path} does not exist — this run has no session trace to resume from"
+    header, rows = read_csv_table(path, SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    need = {"seat", "harness", "native-session-id", "workdir", "session-id"}
+    if not need <= set(idx):
+        return None, (f"{path} is missing column(s) {', '.join(sorted(need - set(idx)))} — the "
+                      f"trace cannot carry a resume ref at all")
+    last = None
+    for r in rows:
+        pad_row(r, header)
+        if r[idx["seat"]].strip() == seat:
+            last = r
+    if last is None:
+        return None, f"{path} carries NO row for seat '{seat}' — nothing was ever recorded to resume"
+    ref = {k: last[idx[k]].strip() for k in ("session-id", "harness", "native-session-id", "workdir")}
+    if ref["harness"] not in RESUME_NEEDS_ID:
+        return None, (f"the row's `harness` is {ref['harness']!r}, which has no resume form in this "
+                      f"kit (known: {', '.join(sorted(RESUME_NEEDS_ID))})")
+    if RESUME_NEEDS_ID[ref["harness"]] and not ref["native-session-id"]:
+        return None, (f"the row's `native-session-id` is EMPTY and harness {ref['harness']!r} "
+                      f"resumes BY ID — the trace records no conversation to re-enter")
+    if ref["native-session-id"].startswith("!"):
+        return None, (f"the row's `native-session-id` records a resolution FAILURE "
+                      f"({ref['native-session-id']}), not an id")
+    if not ref["workdir"]:
+        return None, "the row's `workdir` is EMPTY — no launch home is recorded"
+    return ref, (f"row {ref['session-id']} — harness {ref['harness']}, "
+                 f"ref {ref['native-session-id'] or '(cwd-implicit: ' + ref['workdir'] + ')'}")
+
+
+def resume_command(w, ref, prompt_path):
+    """(shell command, '') that RE-ENTERS the recorded conversation, or (None, reason).
+
+    Deliberately a SIBLING of `harness_command` rather than a flag on it: a resume and a boot are
+    different command SHAPES (codex's is a subcommand, opencode's a flag on `run`), and folding
+    them into one function is how the position bug G-13 got in — `opencode --auto run` exits 0 and
+    launches nothing. The identity prefix and the prompt-from-file discipline are shared, and both
+    are read from the same helpers, so neither can drift.
+    """
+    env = identity_prefix(w["agent"])
+    arg = '"$(cat ' + shlex.quote(str(prompt_path)) + ')"'
+    sid = shlex.quote(ref["native-session-id"])
+    if ref["harness"] == "claude":
+        return f"{env}{CLAUDE_BIN} --resume {sid} {arg}", ""
+    if ref["harness"] == "codex":
+        return f"{env}{CODEX_BIN} resume {sid} {arg}", ""
+    if ref["harness"] == "opencode":
+        # `--continue` continues the last session IN THIS CWD, which is exactly what
+        # `session_ref: {source: cwd-implicit}` declares the ref to be. `--auto` after `run` —
+        # G-13's position rule, unchanged.
+        return f"{env}{OPENCODE_BIN} run --auto --continue {arg}", ""
+    return None, f"harness '{ref['harness']}' has no resume form"
+
+
+def restarter_prompt(w, args, why):
+    """The RESTARTER-AGENT fallback prompt (leaf (iii)) — used when the row cannot drive a resume.
+
+    ⚠ READING DISCLOSED, NOT ASSUMED. `_Restart path (R4):_` says *"a restarter AGENT is the
+    FALLBACK ONLY — for a non-resumable harness or a corrupt transcript"*, and `restarter` is BUILD
+    VOCABULARY: `sd-graph show restarter` resolves no record. What is built here is the fallback's
+    substance and not a second launch component — the seat's own harness boots FRESH from its
+    descriptor (the path that already existed) carrying a RESTARTER brief: an agent doing the
+    re-orientation a native resume would have done for free. A separate restarter process would be
+    a second thing that opens panes, which this kit deliberately has exactly one of.
+
+    It NAMES WHY the native resume was refused, because the successor is the reader best placed to
+    notice that the reason is wrong.
+    """
+    return (f"Your prior session DIED and could NOT be resumed natively: {why}. "
+            f"You are a FRESH session of seat '{w['agent']}' standing in for it — the lost "
+            f"session's conversation is gone and is not recoverable. "
+            f"{boot_prompt(w, args)} "
+            f"Before acting, run `coordinate status` and re-read whatever your next act touches: "
+            f"work your predecessor reported may or may not have landed, so VERIFY it on disk "
+            f"rather than trusting any record of intent.")
+
+
 # ---- 7.155: THE RULED FLIP — the second half of `d-exited-row-closure` -----------------------
 #
 # THE RULING, verbatim (`core-build-run-adjustments/decisions.md#d-exited-row-closure`, owner,
@@ -5937,12 +6069,56 @@ def run_lifecycle_sequence(args, base, target):
         # ---- THE RAM GATE, immediately before the spend it gates. ---------------------------
         lifecycle_memory_gate(args, base)
 
-        # ---- STEP 5: RELAUNCH THE SUCCESSOR FROM THE DESCRIPTOR. --------------------------------
+        # ---- STEP 5: RELAUNCH THE SUCCESSOR. -----------------------------------------------------
         # The deterministic keystroke path — `prompt_file` -> `harness_command` -> `wake` (which
-        # refuses multi-line) -> `wait_harness_up`. No boot-prompt change is needed: `boot_prompt`
-        # already tells a non-ephemeral seat to read its `memory.md` as its memory from prior
-        # sessions of this seat, which is where the checkout's handoff block landed.
-        new_pane, lerr = launch_seat(descriptor, args, target, pane=same_cell)
+        # refuses multi-line) -> `wait_harness_up`. On a RENEW no boot-prompt change is needed:
+        # `boot_prompt` already tells a non-ephemeral seat to read its `memory.md` as its memory
+        # from prior sessions of this seat, which is where the checkout's handoff block landed.
+        #
+        # ---- 7.32 leaves (ii)+(iii): A REVIVE TRIES THE HARNESS'S OWN RESUME FIRST. --------------
+        # A renew followed a CHECKOUT, so its predecessor wrote a handoff and recreation is the
+        # correct act. A REVIVE follows a CRASH: there is no handoff, and the conversation the dead
+        # process was holding still exists in the harness's own store. Recreating from `seat.md`
+        # there discards it — CMP-21 invariant 4's "recreation, not resurrection", which is what
+        # 7.32 leaf (ii) exists to close. So: resume from the sessions row when the ROW ALONE can
+        # drive it, else the restarter-agent fallback (leaf (iii)). The step recorded says WHICH,
+        # because "the seat came back" is true of both and they are different facts.
+        resume_ref, resume_why = (sessions_resume_ref(args, seat_name) if not checked_out
+                                  else (None, "renew: the predecessor checked out and handed off"))
+        boot = None
+        if resume_ref:
+            boot = REORIENT_NUDGE
+        elif not checked_out:
+            boot = restarter_prompt(descriptor, args, resume_why)
+        lifecycle_record_step(base, seat_name,
+                              (f"resume-native:{resume_ref['harness']}:"
+                               f"{resume_ref['native-session-id'] or 'cwd-implicit'}") if resume_ref
+                              else (f"resume-REFUSED-fallback-restarter: {resume_why}"
+                                    if not checked_out else "renew-recreates-from-descriptor"))
+        new_pane, lerr = launch_seat(descriptor, args, target, prompt=boot, pane=same_cell,
+                                     resume=resume_ref)
+        # ---- 7.32 leaf (iii), THE SECOND TRIGGER: A CORRUPT TRANSCRIPT. -------------------------
+        # `_Restart path (R4):_` names TWO fallback triggers — *"a non-resumable harness OR a
+        # CORRUPT TRANSCRIPT"* — and `sessions_resume_ref` can only see the first: it reads the ROW
+        # and nothing else BY CONSTRUCTION (that is 7.37 criterion 4's whole test), so a row that
+        # names a conversation the harness can no longer open looks perfect to it. That failure
+        # therefore surfaces where it actually happens — the harness refusing to come up — and it
+        # falls back HERE rather than stranding the seat on a broken resume. Validating the
+        # transcript in the reader instead would consult a second source and destroy the claim.
+        #
+        # ⚠ ONE RETRY, AND ONLY OFF THE RESUME PATH. `same_cell` is dropped: the resume attempt may
+        # have consumed the in-place respawn, so the fallback re-places rather than assuming a cell
+        # it no longer owns. A fallback that itself fails takes the normal alarm below — this is a
+        # second CHANCE, never a loop.
+        if resume_ref and (lerr or not new_pane):
+            lifecycle_record_step(base, seat_name,
+                                  f"resume-FAILED-at-harness-fallback-restarter: "
+                                  f"{lerr or 'launch_seat returned no pane'}")
+            new_pane, lerr = launch_seat(
+                descriptor, args, target,
+                prompt=restarter_prompt(descriptor, args,
+                                        f"the recorded session {resume_ref['native-session-id'] or 'in this workdir'} "
+                                        f"would not reopen — {lerr or 'the harness did not come up'}"))
         if lerr or not new_pane:
             lifecycle_alarm(
                 "state",
@@ -11277,12 +11453,19 @@ def seat_placement(w):
     return "pane", None
 
 
-def launch_seat(w, args, target, prompt=None, pane=None):
+def launch_seat(w, args, target, prompt=None, pane=None, resume=None):
     """Open a pane/window for one seat and start its harness. Returns (pane_id, err).
 
     `pane` reuses an EXISTING pane (a renew respawned in place — G-12) instead of placing a new
     one. Never returns success on a pane where no harness came up: G-11's whole failure was a
-    start line that the pane's shell swallowed while the roster went on believing the seat live."""
+    start line that the pane's shell swallowed while the roster went on believing the seat live.
+
+    `resume` is a `sessions_resume_ref` ref (7.32 leaf (ii)): the harness re-enters that recorded
+    conversation instead of booting fresh. EVERYTHING ELSE on this path is unchanged — the pane,
+    the placement, the statusline, the harness-up wait and the new sessions.csv row are the same
+    acts, so a resumed seat is observed exactly like a booted one. A resumed session is still a NEW
+    session of the seat and gets its own row: the process is new even though the conversation is
+    not, and the row is what the NEXT crash resumes from."""
     verr = validate_seat(w)  # PROP-8: `close-seat --renew` relaunches single seats through here
     if verr:
         return "", verr
@@ -11294,8 +11477,11 @@ def launch_seat(w, args, target, prompt=None, pane=None):
         derr = window_drift(w, peer_windows(discover_workers(workers_dir(args)), w["agent"]))
         if derr:
             return "", derr
-    cmd, err = harness_command(w, prompt_path=prompt_file(args, w["agent"],
-                                                          prompt or boot_prompt(w, args)))
+    ppath = prompt_file(args, w["agent"], prompt or boot_prompt(w, args))
+    if resume:
+        cmd, err = resume_command(w, resume, ppath)
+    else:
+        cmd, err = harness_command(w, prompt_path=ppath)
     if cmd is None:
         return "", err
     if pane:
@@ -23723,12 +23909,20 @@ def _selftest_checks(args, failures, names):
         # harness command -> wake -> wait_harness_up -> session row); row 3 asserts it was never
         # called and row 4 forces its failure. A wholesale stub would make "the relaunch happened"
         # a claim about the stub.
+        # `resume` (7.32 leaf (ii)) is CAPTURED, not dropped: the spy's signature must track
+        # `launch_seat`'s or the revive rows below assert against a call that never happened.
         _s6_launches, _s6_launch_fail = [], {"v": ""}
-        def _s6_launch(w, a, target, prompt=None, pane=None):
-            _s6_launches.append((w["agent"], target, pane))
+        def _s6_launch(w, a, target, prompt=None, pane=None, resume=None):
+            _s6_launches.append((w["agent"], target, pane, resume, prompt))
+            # `once` fails the RESUME attempt only and then clears itself — 7.32 leaf (iii)'s
+            # corrupt-transcript trigger, which is a harness refusal on the first call and a
+            # healthy launch on the fallback. A permanently-failing spy could not tell them apart.
+            if _s6_launch_fail.get("once") and resume is not None:
+                _s6_launch_fail["once"] = ""
+                return "", "pane opened but harness start FAILED: selftest-corrupt-transcript"
             if _s6_launch_fail["v"]:
                 return "", _s6_launch_fail["v"]
-            return _s6_real_launch(w, a, target, prompt=prompt, pane=pane)
+            return _s6_real_launch(w, a, target, prompt=prompt, pane=pane, resume=resume)
         launch_seat = _s6_launch
 
         def _s6_make(name, seats=("renewer",), floors=True, budget_text=None):
@@ -23870,7 +24064,7 @@ def _selftest_checks(args, failures, names):
               and "%62" in killed[_s6_kills_before:]
               and not any(p == "%62" for p, _ in _s6_respawned)
               and _s6_splits and _s6_splits[-1][0] == "%61"
-              and _s6_launches[-1] == ("renewer", "%61", None))
+              and _s6_launches[-1][:3] == ("renewer", "%61", None))
 
         # ---- (3) CLOSE PERFORMS NO RELAUNCH.
         # ⚠ THIS ROW DRIVES `run_lifecycle_sequence` DIRECTLY, AND THE REASON IS ISOLATION, NOT
@@ -24154,20 +24348,163 @@ def _selftest_checks(args, failures, names):
         check("s3-07 (4) `revive` RUNS THE RENEW SEQUENCE, NOT A COPY OF IT: two green runs of the "
               "SAME fixture shape — one `renew`, one `revive` — produce step lists that are "
               "IDENTICAL ACT FOR ACT AND POSITION FOR POSITION once revive's leading "
-              "`revive-no-checkout` entry is dropped, diverging at EXACTLY ONE position, which is "
-              "the checkout-derived transcript step. Equal length is half the claim: a `revive` "
-              "implemented as its own branch that quietly omits one verification shortens the list "
-              "and reds this row. The four acts that must survive any such branch — the relaunch "
-              "and all three verifications — are asserted present on the revive side by name, so "
-              "an omission from BOTH sides cannot pass either. No index and no length is hardcoded",
+              "`revive-no-checkout` entry is dropped, diverging at EXACTLY TWO positions, and both "
+              "divergences are CHECKOUT-DERIVED: the transcript step (a crash exports nothing) and "
+              "the RELAUNCH-MODE step (7.32 leaf (ii) — a renew recreates from the descriptor "
+              "because its predecessor handed off; a revive tries the harness's own resume first "
+              "because its predecessor did not). ⚠ THIS ROW READ `EXACTLY ONE` UNTIL 7.32 LANDED "
+              "leaf (ii); the second divergence is the new act and is asserted BY PAIR rather than "
+              "by loosening the count, so a THIRD divergence still reds this row. Equal length is "
+              "half the claim: a `revive` implemented as its own branch that quietly omits one "
+              "verification shortens the list and reds this row. The four acts that must survive "
+              "any such branch — the relaunch and all three verifications — are asserted present "
+              "on the revive side by name, so an omission from BOTH sides cannot pass either. No "
+              "index and no length is hardcoded",
               _s7_cr_c == 0 and _s7_cv_c == 0
               and _s7_rr.get("state") == "done" and _s7_rv.get("state") == "done"
               and _s7_sv and _s7_sv[0] == "revive-no-checkout"
               and len(_s7_kr) == len(_s7_kv)
-              and [_s7_kr[i] for i in _s7_div] == ["transcript-verified"]
-              and [_s7_kv[i] for i in _s7_div] == ["no-checkout-no-transcript-to-verify"]
+              and [_s7_kr[i] for i in _s7_div] == ["renew-recreates-from-descriptor",
+                                                   "transcript-verified"]
+              and [_s7_kv[i] for i in _s7_div] == ["resume-REFUSED-fallback-restarter",
+                                                   "no-checkout-no-transcript-to-verify"]
               and {"relaunched", "roster-verified", "successor-alive",
                    "awaiting-and-closing-cleared"} <= set(_s7_kv))
+
+        # ---- 7.32 leaves (ii)/(iii): HARNESS-NATIVE RESUME, AND THE RESTARTER FALLBACK ----------
+        #
+        # ⚠ THE PAIR (a)/(a-control) IS THE WHOLE ROW AND IT TURNS ON ONE CELL. The two fixtures are
+        # byte-identical but for `native-session-id`, so the verdicts CANNOT both be produced by a
+        # path that ignores the sessions row — which is exactly 7.37 criterion 4's sufficiency
+        # claim, the one ruled MET AGAINST THE CONTRACT and never proven by use.
+        def _s732_row(pkg, seat="renewer", harness="claude", native="sess-abc-123", workdir=None):
+            """One sessions.csv row, written through THIS MODULE'S OWN writer and column list, so a
+            schema change reaches these rows instead of passing them by."""
+            path = sessions_csv(pkg)
+            row = dict.fromkeys(SESSIONS_COLS, "")
+            row.update({"session-id": "s-1", "seat": seat, "harness": harness,
+                        "native-session-id": native, "workdir": str(workdir or pkg),
+                        "started": "2026-08-05 10:00"})
+            write_csv_table(path, list(SESSIONS_COLS), [[row[c] for c in SESSIONS_COLS]])
+            return path
+
+        _s732_pa, _s732_ba = _s6_make("s732-resume-native")
+        _s732_row(_s732_pa)
+        _s6_live["v"] = {"%61", "%86"}
+        _s6_idents["%86"] = [(7041, "stamp-7041")]
+        _s732_launch_at = len(_s6_launches)
+        # ⚠ RESOLVED BEFORE THE EXEC, DELIBERATELY. A successful revive OPENS A NEW SESSION ROW for
+        # the same seat, so after the run the LAST row is the successor's — whose `native-session-id`
+        # a fixture cannot resolve. That is correct behaviour (a live run backfills it at the
+        # successor's own checkin) and it is exactly what this row must not read: the ref under test
+        # is the one the sequence saw, at the instant it saw it.
+        _s732_ref, _s732_why = sessions_resume_ref(
+            argparse.Namespace(package=str(_s732_pa), base=None, workers_dir=None), "renewer")
+        _s732_oa, _s732_ca = _s6_exec(_s732_pa, disposition="revive", pane="%86")
+        _s732_ra, _s732_sa = _s6_steps(_s732_ba, "renewer")
+        _s732_calla = _s6_launches[-1] if len(_s6_launches) > _s732_launch_at else None
+        check("7.32 (a) leaf (ii) — A REVIVE RESUMES FROM THE SESSIONS ROW, AND FROM NOTHING ELSE: "
+              "with one `sessions.csv` row present the sequence records `resume-native:claude:"
+              "sess-abc-123`, hands `launch_seat` that ref, and gives the resumed session the ONE "
+              "re-orient nudge (leaf (iii)) as its ENTIRE prompt — not a boot prompt, because the "
+              "conversation being re-entered already holds its briefing and its history. The "
+              "command actually built is the harness's OWN resume form, asserted through "
+              "`resume_command` rather than by reading the step text back",
+              _s732_ca == 0 and _s732_ra.get("state") == "done"
+              and any(s.startswith("resume-native:claude:sess-abc-123") for s in _s732_sa)
+              and _s732_calla is not None
+              and (_s732_calla[3] or {}).get("native-session-id") == "sess-abc-123"
+              and _s732_calla[4] == REORIENT_NUDGE
+              and _s732_ref and _s732_ref["native-session-id"] == "sess-abc-123"
+              and "--resume sess-abc-123" in resume_command(
+                  {"agent": "renewer"}, _s732_ref, Path("/tmp/p.txt"))[0])
+
+        _s732_pb, _s732_bb = _s6_make("s732-resume-refused")
+        _s732_row(_s732_pb, native="")          # ← THE ONE CELL THAT DIFFERS
+        _s6_live["v"] = {"%61", "%87"}
+        _s6_idents["%87"] = [(7042, "stamp-7042")]
+        _s732_launch_bt = len(_s6_launches)
+        _s732_refb, _s732_whyb = sessions_resume_ref(
+            argparse.Namespace(package=str(_s732_pb), base=None, workers_dir=None), "renewer")
+        _s732_ob, _s732_cb = _s6_exec(_s732_pb, disposition="revive", pane="%87")
+        _s732_rb, _s732_sb = _s6_steps(_s732_bb, "renewer")
+        _s732_callb = _s6_launches[-1] if len(_s6_launches) > _s732_launch_bt else None
+        check("7.32 (a-control) leaf (iii) — THE DISCRIMINATING CONTROL, AND IT IS ONE EMPTIED "
+              "CELL: the same fixture with `native-session-id` blank REFUSES the native resume, "
+              "NAMES the field it is missing (never a generic failure), falls back to the "
+              "RESTARTER-AGENT path — `launch_seat` gets `resume=None` and a prompt that tells the "
+              "successor its predecessor's conversation is GONE and to verify on disk rather than "
+              "trust a record of intent — and the seat still comes back `done`. A resume path that "
+              "ignored the row would produce the SAME verdict here as in (a); these differ, which "
+              "is what makes (a) evidence about the row rather than about the launcher",
+              _s732_cb == 0 and _s732_rb.get("state") == "done"
+              and _s732_refb is None and "`native-session-id` is EMPTY" in _s732_whyb
+              and any(s.startswith("resume-REFUSED-fallback-restarter") for s in _s732_sb)
+              and _s732_callb is not None and _s732_callb[3] is None
+              and "could NOT be resumed natively" in str(_s732_callb[4])
+              and "VERIFY it on disk" in str(_s732_callb[4]))
+
+        _s732_pc, _s732_bc = _s6_make("s732-resume-corrupt")
+        _s732_row(_s732_pc)
+        _s6_live["v"] = {"%61", "%88"}
+        _s6_idents["%88"] = [(7043, "stamp-7043")]
+        _s6_launch_fail["once"] = "1"
+        _s732_launch_ct = len(_s6_launches)
+        _s732_oc, _s732_cc = _s6_exec(_s732_pc, disposition="revive", pane="%88")
+        _s732_rc, _s732_sc = _s6_steps(_s732_bc, "renewer")
+        _s732_callsc = _s6_launches[_s732_launch_ct:]
+        _s6_launch_fail["once"] = ""
+        check("7.32 (d) leaf (iii) SECOND TRIGGER — A CORRUPT TRANSCRIPT FALLS BACK INSTEAD OF "
+              "STRANDING THE SEAT: the row is PERFECT (it names a session id) and the harness "
+              "still refuses to reopen it, which is the failure `sessions_resume_ref` cannot see "
+              "BY CONSTRUCTION — it reads the row and nothing else, and that is 7.37 criterion 4's "
+              "whole test. So it surfaces where it happens: TWO launch attempts, the first "
+              "carrying the resume ref and the second carrying NONE and the restarter brief, the "
+              "step list records both, and the seat ends `done` rather than closed-and-not-back. "
+              "Validating the transcript in the reader instead would consult a second source and "
+              "destroy the sufficiency claim every green above rests on",
+              _s732_cc == 0 and _s732_rc.get("state") == "done"
+              and len(_s732_callsc) == 2
+              and _s732_callsc[0][3] is not None and _s732_callsc[1][3] is None
+              and "could NOT be resumed natively" in str(_s732_callsc[1][4])
+              and any(x.startswith("resume-native:") for x in _s732_sc)
+              and any(x.startswith("resume-FAILED-at-harness-fallback-restarter")
+                      for x in _s732_sc))
+
+        import inspect as _s732_inspect
+        _s732_src = _s732_inspect.getsource(sessions_resume_ref)
+        _s732_second = [n for n in ("discover_workers", "claude_native_session_id", "live_panes",
+                                    "tmux_", "seat_placement", "load_workers", "briefing")
+                        if n in _s732_src]
+        check("7.32 (b) THE SUFFICIENCY CLAIM IS STRUCTURAL, NOT INCIDENTAL: `sessions_resume_ref` "
+              "reads `sessions_csv` and NOTHING that could stand in for it — no descriptor parser, "
+              "no transcript resolver, no tmux, no roster. 7.37 criterion 4 asks whether the ROW "
+              "carries enough; a reader that quietly consulted a second source would make that "
+              "question unfalsifiable and every green above meaningless. Refusals name the FIELD, "
+              "which is what turns a failure here into a report against 7.37 rather than a bug",
+              "sessions_csv" in _s732_src and _s732_second == []
+              and "native-session-id" in _s732_src and "workdir" in _s732_src)
+
+        _s732_forms = {h: resume_command({"agent": "renewer"},
+                                         {"harness": h, "native-session-id": "ID9",
+                                          "workdir": "/w", "session-id": "s"},
+                                         Path("/tmp/p.txt"))[0]
+                       for h in ("claude", "codex", "opencode")}
+        check("7.32 (c) EACH HARNESS'S OWN RESUME VOCABULARY, POSITION INCLUDED: claude takes the "
+              "id on `--resume`, codex on its `resume` SUBCOMMAND, and opencode takes NO id at all "
+              "— its profile declares `session_ref: {source: cwd-implicit}`, so the workdir IS the "
+              "ref and `--continue` is the form. ⚠ `--auto` sits AFTER `run` (G-13): the other "
+              "order PRINTS THE BANNER AND EXITS 0, which passes any check that only asserts the "
+              "flag is present and launches nothing. An unknown harness returns None, not a guess",
+              "--resume ID9" in _s732_forms["claude"]
+              and " resume ID9" in _s732_forms["codex"]
+              and "ID9" not in _s732_forms["opencode"]
+              and _s732_forms["opencode"].index(" run ")
+                  < _s732_forms["opencode"].index("--auto")
+              and "--continue" in _s732_forms["opencode"]
+              and resume_command({"agent": "x"}, {"harness": "zsh", "native-session-id": "",
+                                                  "workdir": "/w", "session-id": "s"},
+                                 Path("/tmp/p.txt"))[0] is None)
 
         # ---- (5a)/(5b) THE AWAITING RECORD: ABSENCE IS LEGAL FOR `revive` AND LOUD FOR `renew`.
         # ⚠ THE "ABSENCE IS LEGAL" HALF CANNOT BE ISOLATED BY A MUTATION, and that is stated rather
