@@ -34,10 +34,12 @@ The agent supplies the judgment — which files belong together, what each messa
 Resolve `{rbtv_path}` from `rbtv.json` (at the WORKSPACE root) to an ABSOLUTE path BEFORE invoking — its value is recorded relative to the workspace root, NOT to `{repo}`. The script runs with the working directory INSIDE `{repo}` (which is often a repo nested below the workspace root; the script locates the repo root itself), so a bare relative `{rbtv_path}/core/...` resolves against the repo's cwd and fails. Build the absolute path by joining the workspace root (the directory that contains `rbtv.json`) with `rbtv_path`, then invoke `commit.py` by that absolute path. NEVER build the path relative to the current working directory, and NEVER open `rbtv.json` by a cwd-relative path from inside `{repo}` (it lives at the workspace root, not the repo root). For each confirmed cluster, in plan order:
 
 ```
-python "{rbtv_path}/core/workflows/commit/commit.py" -m "<message>" -f <path> [-f <path> ...] [--push]
+<py> "{rbtv_path}/core/workflows/commit/commit.py" -m "<message>" -f <path> [-f <path> ...] [--push]
 ```
 
 (`{rbtv_path}` above is the ABSOLUTE workspace-root-anchored path resolved here. The `-f` paths, by contrast, stay repo-root-relative — the script's cwd is inside `{repo}`.)
+
+`<py>` is this machine's Python 3 launcher: `python3` on macOS/Linux (bare `python` was removed in macOS 12.3), `py` on Windows. The script is stdlib-only, so any Python 3 runs it — never hardcode an absolute interpreter path here.
 
 - **Message passing — pick by shape:**
   - **Single-line message** → inline `-m "<message>"`.
