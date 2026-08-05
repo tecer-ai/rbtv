@@ -75,6 +75,7 @@ special-casing; a seat with no match on either path stays unmeasured, never a cr
   python3 watch.py --selftest    # temp dir, no tmux needed — exit 0 must gate any edit here
 """
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -228,6 +229,123 @@ def system_pressure():
     except (OSError, ValueError, IndexError):
         return None
     return {"avail_mb": avail_kb // 1024, "load1": load1, "cores": os.cpu_count() or 1}
+
+
+# ---------- /tmp uid-quota canary (7.401) ----------
+#
+# TRIP 4 (elicitation-brief.md §1b, leader ruling #4246): `df`/`statvfs` read 775 MB free on
+# `/tmp` at the SAME instant a 1 KB uid-1000 write failed EDQUOT. The per-uid quota sits BELOW
+# the tmpfs size, so a free-space threshold — however configured — can never see this edge; it
+# is ruled OUT as the flag key. The only honest reading is a canary WRITE.
+#
+# Leader ruling #4268 (answering this seat's custody claim): size the canary at the SMALLEST
+# write that discriminates, never at a configured floor's MB value — the reclaim's own inventory
+# (#4256) measured a 4 KB write already EDQUOTing at the moment it mattered, and a gauge writing
+# megabytes every cadence would itself consume the headroom it exists to guard.
+TMP_CANARY_BYTES = 4096
+_TMP_QUOTA_ERRNOS = (errno.EDQUOT, errno.ENOSPC)
+
+
+def tmp_canary_write():
+    """Attempt open/write/unlink of TMP_CANARY_BYTES under /tmp, in-process. NO subprocess, NO
+    os.system anywhere in this function (asserted here, provable by grep).
+
+    Returns (refused, errno_or_None):
+      refused=True   the write hit EDQUOT/ENOSPC — the quota signal itself.
+      refused=False  a clean write (cleanup best-effort; its own failure is not the signal).
+      refused=None   any OTHER OSError (permission denied, read-only fs, ...) — a different
+                     failure, reported by the caller, never mistaken for the quota edge.
+
+    ⚠ THE CANARY MUST NOT BECOME THE SECOND CASUALTY (leader #4268) — a write failure IS the
+    signal this function exists to report, so it is caught here and returned, never raised. A
+    detector that dies exactly when its condition is true is indistinguishable from one that
+    never fired; that was true of every instrument on this box through all four trips.
+    """
+    probe = Path("/tmp") / f".watch-tmp-canary-{os.getpid()}.tmp"
+    refused, eno = False, None
+    try:
+        with open(probe, "wb") as f:
+            f.write(b"0" * TMP_CANARY_BYTES)
+    except OSError as e:
+        eno = e.errno
+        refused = True if e.errno in _TMP_QUOTA_ERRNOS else None
+    finally:
+        try:
+            probe.unlink()
+        except OSError:
+            pass
+    return refused, eno
+
+
+def tmp_quota_gauge():
+    """Direct-invocation reading (7.401 done-contract b): {"refused", "errno", "trend_mb"}.
+    In-process only — no subprocess, no os.system anywhere in this function or in
+    `tmp_canary_write` (grep-provable)."""
+    refused, eno = tmp_canary_write()
+    try:
+        st = os.statvfs("/tmp")
+        trend_mb = (st.f_bavail * st.f_frsize) // (1024 * 1024)
+    except OSError:
+        trend_mb = None
+    return {"refused": refused, "errno": eno, "trend_mb": trend_mb}
+
+
+def tmp_floor_reading(run_root):
+    """Resolve floors.tmp_free_warn_mb via the SAME generic loader budget.py already exposes
+    (`budget_mod._load` — the lane `check_budget` uses for this run's budget.json). No new key
+    is added to budget.py's FLOOR_FIELDS: that file is a separate custody this seat did not
+    claim, and this row's own commit carries watch.py alone.
+
+    Returns (value, why): value is None with why stating absence/unreadable/invalid — the caller
+    renders 'tmp-gauge: unconfigured' on None, NEVER a default (r-floor-single-source)."""
+    bpath = Path(run_root) / "budget.json"
+    b, err = budget_mod._load(str(bpath), "budget.json")
+    if err:
+        return None, err
+    floors = (b or {}).get("floors") or {}
+    if "tmp_free_warn_mb" not in floors:
+        return None, f"budget.json at {bpath} declares no floors.tmp_free_warn_mb"
+    v = floors["tmp_free_warn_mb"]
+    if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
+        return None, (f"budget.json at {bpath} has floors.tmp_free_warn_mb={v!r}, not a "
+                       f"positive integer number of MB")
+    return v, None
+
+
+def check_tmp_quota(args, sysstate, notes, run_root):
+    """uid-quota /tmp gauge (7.401). Flags on a REAL canary-write refusal, never on statvfs —
+    trip 4 measured df/statvfs read 775MB free at the instant a 1KB write EDQUOTed (leader
+    #4246): a free-space threshold would not have fired for ANY of the four trips this run hit.
+    statvfs rides along ONLY as a labeled trend below, never the flag key.
+
+    Re-arm mirrors check_system: fires once per episode, re-arms only when the canary write
+    clears. State lives in sysstate (watch-system.json) — box-scoped, like system pressure,
+    because this condition describes the BOX, not any one seat."""
+    g = tmp_quota_gauge()
+    trend = (f"{g['trend_mb']}MB free (statvfs, TREND ONLY — never the flag key)"
+             if g["trend_mb"] is not None else "statvfs unavailable")
+    floor, floor_why = tmp_floor_reading(run_root)
+    floor_note = f"tmp-gauge: unconfigured — {floor_why}" if floor is None else f"warn floor {floor}MB"
+
+    if g["refused"] is None:
+        return (f"{'tmp-quota':<18} {'ERROR':<7} canary write failed with errno {g['errno']} "
+                f"(not EDQUOT/ENOSPC) — {trend}")
+
+    if g["refused"]:
+        if not sysstate.get("notified_tmp_quota"):
+            notes.append(
+                f"watch: TMP QUOTA EXHAUSTED — a {TMP_CANARY_BYTES}-byte in-process canary "
+                f"write to /tmp was refused (errno {g['errno']}). {floor_note}. {trend}. "
+                f"statvfs free-space alone read healthy during this run's actual exhaustion "
+                f"(trip 4, leader #4246) — do not trust it here either.")
+            sysstate["notified_tmp_quota"] = True
+        status = "FLAG"
+    else:
+        sysstate.pop("notified_tmp_quota", None)
+        status = "ok"
+
+    return (f"{'tmp-quota':<18} {status:<7} canary={'REFUSED' if g['refused'] else 'ok'}  "
+            f"{trend}  {floor_note}")
 
 
 # ---------- claude transcript matching ----------
@@ -3021,6 +3139,8 @@ def run_pass(args):
     # leftover dead window is invisible to the per-seat loop (its seats have no active row).
     sysstate = load_sys_state(base)
     sysline = check_system(args, sysstate, notes)
+    # 7.401: box-level too, same reasoning as check_system above — /tmp quota belongs to the box.
+    tmpline = check_tmp_quota(args, sysstate, notes, base.parent)
     # ONE state.json snapshot, taken now and reused by both check_budget below and check_revival
     # (s4-03) — the single reading s4-02 hoists so a second consumer never gets a second load of
     # the same fact. THE RUN ROOT, NOT `base` — see the hazard note inside check_budget.
@@ -3341,6 +3461,8 @@ def run_pass(args):
     print(f"watch pass {stamp} — {len(report)} active seat(s), {len(notes)} new flag(s)")
     if sysline:
         print("  " + sysline)
+    if tmpline:
+        print("  " + tmpline)
     if daemonline:
         print("  " + daemonline)
     if budgetline:
@@ -3372,7 +3494,7 @@ def cmd_selftest():
         if not cond:
             failures.append(name)
 
-    global pane_tail, live_panes, pane_cwd, system_pressure, window_panes
+    global pane_tail, live_panes, pane_cwd, system_pressure, window_panes, tmp_canary_write
     coord.wake = lambda pane, text: (False, "stub")
     # coord's identity resolution (T1) reads the calling pane: stub it, or a selftest run from
     # inside a tmux pane would talk to the real server and could inherit a live seat's identity.
@@ -3392,12 +3514,17 @@ def cmd_selftest():
           real_sp is None or {"avail_mb", "load1", "cores"} <= set(real_sp))
     check("PROP-10: real window_panes() returns a dict, never raises (graceful without tmux)",
           isinstance(window_panes(), dict))
+    real_refused, real_eno = tmp_canary_write()
+    check("7.401: real tmp_canary_write() returns a (refused, errno) pair and never raises",
+          real_refused in (True, False, None))
 
     tails = {}
     pane_tail = lambda pane: tails.get(pane)
     live_panes = lambda: {"%1", "%2", "%3", "%4", "%5", "%6", "%7", "%40", "%41"}
     sys_reading = {"v": {"avail_mb": 4000, "load1": 0.4, "cores": 4}}
     system_pressure = lambda: sys_reading["v"]
+    tmp_probe = {"v": (False, None)}
+    tmp_canary_write = lambda: tmp_probe["v"]
     win_map = {}
     window_panes = lambda: dict(win_map)
     pane_cwds = {}
@@ -3834,6 +3961,90 @@ def cmd_selftest():
               not any(ln.strip().startswith("system") for ln in buf.getvalue().splitlines())
               and not any("SYSTEM PRESSURE" in n for n in notes))
         sys_reading["v"] = {"avail_mb": 4000, "load1": 0.4, "cores": 4}
+
+        # ---- 7.401: /tmp uid-quota canary — THE DISCRIMINATING TEST ----
+        #
+        # Fixture reproducing trip 4's measured state exactly (elicitation-brief.md §1b): a
+        # canary write refusal that is REAL at this function's own call (stubbed EDQUOT, per the
+        # design's own permitted fixture shapes — "a monkeypatched write refusal ... the refusal
+        # must be real at the write call") WHILE the box's REAL statvfs reading (whatever this
+        # machine's /tmp free space is right now) rides along completely unchanged.
+        import inspect
+        check("7.401: unconfigured — no budget.json in this fixture declares "
+              "floors.tmp_free_warn_mb (true today, per elicitation-brief.md)",
+              tmp_floor_reading(pkg)[0] is None)
+        tmp_probe["v"] = (True, errno.EDQUOT)
+        g = tmp_quota_gauge()
+        check("7.401 THE DISCRIMINATING TEST, direct: refused=True and statvfs trend_mb is a "
+              "real positive free-space reading AT THE SAME TIME — the exact trip-4 shape. A "
+              "gauge keyed on `trend_mb < floor` could NEVER trip here; this one is keyed on "
+              "`refused` alone and does",
+              g["refused"] is True and (g["trend_mb"] is None or g["trend_mb"] > 0))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            notes = run_pass(ns(context_pct=90))
+        out = buf.getvalue()
+        check("7.401 THE DISCRIMINATING TEST, through the loop: CURRENT-CODE BLINDNESS is what "
+              "this row exists to end — against the SAME fixture this flag now fires; before "
+              "this change no code path here read a canary at all, so nothing could have fired",
+              any("TMP QUOTA EXHAUSTED" in n for n in notes))
+        check("7.401: the report line prints the FLAG on every tick, never mute",
+              any(ln.strip().startswith("tmp-quota") and "FLAG" in ln
+                  for ln in out.splitlines()))
+        check("7.401: the flag names the canary size and the errno, and states the unconfigured "
+              "floor explicitly rather than staying silent about it",
+              any("TMP QUOTA EXHAUSTED" in n and f"{TMP_CANARY_BYTES}-byte" in n
+                  and "unconfigured" in n for n in notes))
+        check("7.401: no subprocess / os.system CALL anywhere in the gauge's own functions "
+              "(asserted over the live source's call sites, not trusted from memory; matched "
+              "on the call shape 'subprocess.'/'os.system(' so the docstring's own prose "
+              "disclaiming them — which necessarily contains those words — cannot false-fire "
+              "this control)",
+              all("subprocess." not in inspect.getsource(fn) and "os.system(" not in inspect.getsource(fn)
+                  for fn in (tmp_canary_write, tmp_quota_gauge, check_tmp_quota)))
+
+        notes = run_pass(ns(context_pct=90))
+        check("7.401: does not re-fire while the refusal persists (once per episode, like "
+              "check_system's own convention)",
+              not any("TMP QUOTA EXHAUSTED" in n for n in notes))
+
+        tmp_probe["v"] = (False, None)
+        notes = run_pass(ns(context_pct=90))
+        check("7.401: the flag re-arms the moment the canary write clears",
+              not any("TMP QUOTA EXHAUSTED" in n for n in notes)
+              and "notified_tmp_quota" not in load_sys_state(base))
+        tmp_probe["v"] = (True, errno.ENOSPC)
+        notes = run_pass(ns(context_pct=90))
+        check("7.401: and it fires again on the next refusal, ENOSPC included alongside EDQUOT",
+              any("TMP QUOTA EXHAUSTED" in n for n in notes))
+        tmp_probe["v"] = (False, None)
+        run_pass(ns(context_pct=90))
+
+        tmp_probe["v"] = (None, errno.EACCES)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            notes = run_pass(ns(context_pct=90))
+        out = buf.getvalue()
+        check("7.401: a non-quota OSError renders ERROR, not FLAG, and never a TMP QUOTA note",
+              any(ln.strip().startswith("tmp-quota") and "ERROR" in ln for ln in out.splitlines())
+              and not any("TMP QUOTA EXHAUSTED" in n for n in notes))
+        tmp_probe["v"] = (False, None)
+        run_pass(ns(context_pct=90))
+
+        # ---- 7.401: the configured-threshold path — named in the flag text, never the flag key ----
+        (pkg / "budget.json").write_text(json.dumps({"floors": {"tmp_free_warn_mb": 250}}))
+        check("7.401: with a floor declared, tmp_floor_reading reads it back off budget.json "
+              "via the SAME generic loader check_budget already uses — no new FLOOR_FIELDS key, "
+              "budget.py untouched by this seat",
+              tmp_floor_reading(pkg) == (250, None))
+        tmp_probe["v"] = (True, errno.EDQUOT)
+        notes = run_pass(ns(context_pct=90))
+        check("7.401: once configured, the flag names the declared warn floor instead of "
+              "'unconfigured' — statvfs still rides along as trend only, never the flag key",
+              any("TMP QUOTA EXHAUSTED" in n and "warn floor 250MB" in n for n in notes))
+        tmp_probe["v"] = (False, None)
+        run_pass(ns(context_pct=90))
+        (pkg / "budget.json").unlink()  # restore the "true today" unconfigured state for the rest of the suite
 
         # ---- PROP-10: a briefing-declared wave window left with NO active seat ----
         (wdir / "wv1").mkdir()
