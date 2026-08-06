@@ -886,6 +886,104 @@ def snapshot_stale(snap, now=None, stale_after=SNAPSHOT_STALE_S):
     return age is None or age >= stale_after
 
 
+# ---------- headless rows: the snapshot's SECOND source (design-760 §1/§4, task 7.74) ----------
+#
+# A headless session occupies a SEAT but no pane, so the pane tree is blind to it by construction.
+# team-monitor joins the daemon's `jobs_log` to the run's `sessions.csv` and writes the result
+# into the same snapshot as `headless[]` (plus `headless_unattributed` when that join fails);
+# teamview renders it as ONE MORE trailing pseudo-window, the exact shape `roster_absent` already
+# uses — same pane cells, same grid, same rotation, every layout for free. A second rendering
+# path for a second source is how two blocks of one dashboard come to disagree.
+#
+# ⚠ SNAPSHOT ONLY, and that is design-760's criterion (1): nothing below opens heart.db, reads
+# sessions.csv, or looks at a pane. `started_age_s` IS design-760 §5's `taken_at − started_at`,
+# computed ONCE by the writer — like every other age this file renders (see fmt_age, fed the
+# sensor's precomputed `last_activity_age_s`). Recomputing it here would put one quantity in two
+# homes (PRIN-11) and let the two drift apart.
+
+# A non-terminal row quiet this long renders as a WARNING. A DISPLAY design call, disclosed here
+# because design-760 fixes no number: a headless one-shot lives seconds (§5), so a row still
+# claiming to run five minutes on is the state worth seeing. Deliberately NOT SNAPSHOT_STALE_S —
+# that number means "the sensor may be dead", and equal values would be a coincidence of value,
+# never of meaning. A PARAMETER, not an inline constant: the selftest drives other values.
+HEADLESS_STALE_S = 300.0
+
+
+def headless_cell(name, state="", outcome="", age=""):
+    """One headless row in the pane-cell shape every layout already renders. The slots are the
+    seat row's, REUSED rather than re-specified: `harness` carries the job's state and `model`
+    its outcome, so pane_agent_bits renders 'state:outcome' exactly where a seat renders
+    'harness:model'. ctx stays None — a headless session has no pane and therefore no context
+    reading, and a fabricated 0% would enter the alarm rollup as health."""
+    return {"name": name, "active": False, "shell": False, "busy": False, "awaiting": False,
+            "harness": state, "model": outcome, "ctx": None, "approx": False,
+            "ctx_over": False, "cls": "", "age": age}
+
+
+def headless_quiet_s(row, taken_at):
+    """Seconds since this row last showed life — its transcript's mtime where it has one, else
+    the row's own age. None when the snapshot cannot say, which is never read as health."""
+    last = row.get("last_activity")
+    if isinstance(last, (int, float)) and not isinstance(last, bool) \
+            and isinstance(taken_at, (int, float)):
+        return max(0.0, taken_at - last)
+    age = row.get("started_age_s")
+    return age if isinstance(age, (int, float)) and not isinstance(age, bool) else None
+
+
+def headless_panes(snap, stale_after=HEADLESS_STALE_S):
+    """`headless[]` as pane cells: seat + state + age on EVERY row, `outcome` on the terminal
+    ones, a quiet non-terminal row RED and labelled `stale`.
+
+    Terminal-ness is read off the PRESENCE of `outcome` — the sensor emits that field on exactly
+    the terminal statuses and nowhere else, so teamview needs no copy of the status vocabulary
+    (the same reason agent_type_bit refuses to hold a value list).
+
+    ⚠ A ROW WITHOUT A SEAT IS FLAGGED — never dropped, never shown as a session row. `seat` is
+    REQUIRED by the row schema and guaranteed at the dispatch door (design-760 §3), so a seatless
+    row means that guarantee broke upstream. Both quiet answers are the ones design-760 §4
+    forbids: hiding it is the invisibility NEED-3 exists to close, and rendering it as a nameless
+    session row is the owner's rider violated. It renders as neither."""
+    rows = (snap or {}).get("headless")
+    if not isinstance(rows, list):
+        return []
+    taken = (snap or {}).get("captured_at")
+    out = []
+    for r in rows:
+        seat = (r.get("seat") or "").strip() if isinstance(r, dict) else ""
+        if not seat:
+            ref = (str(r.get("exec_id"))
+                   if isinstance(r, dict) and r.get("exec_id") is not None else "?")
+            out.append(headless_cell(f"{RED}MALFORMED ROW exec {ref} — no seat{OFF}"))
+            continue
+        outcome = r.get("outcome")
+        code = outcome.get("exit_code") if isinstance(outcome, dict) else None
+        quiet = headless_quiet_s(r, taken)
+        out.append(headless_cell(
+            f"{RED}{seat} stale{OFF}"
+            if (not outcome and quiet is not None and quiet >= stale_after) else seat,
+            state=str(r.get("state") or "?"),
+            outcome=("" if not outcome else f"exit{code}" if code is not None else "ended"),
+            age=fmt_age(r.get("started_age_s")) or "?"))
+    return out
+
+
+def headless_window_name(snap):
+    """The headless block's header — and the ONE place `headless_unattributed` renders.
+
+    ⚠ A WARNING, NEVER A ROW (design-760 §4). A `jobs_log` row whose session_id joins no
+    dispatch-time record cannot be shown as a session — that is the mis-attribution the incident
+    field exists to make impossible — and it cannot be silent either. So it rides the BLOCK'S OWN
+    HEADER as a count: unmistakably not a seat, unmissable while the block is on screen."""
+    inc = (snap or {}).get("headless_unattributed")
+    if not isinstance(inc, dict):
+        return "headless"
+    n = inc.get("count")
+    if not isinstance(n, int) or isinstance(n, bool):
+        n = len(inc.get("exec_ids") or inc.get("rows") or [])
+    return f"headless {RED}{BOLD}!! {n} UNATTRIBUTED{OFF}" if n else "headless"
+
+
 def snapshot_tree(snap, now=None):
     """([{idx, name, active, panes:[pane-dict]}], nwin, npane) built ONLY from the snapshot.
 
@@ -905,7 +1003,11 @@ def snapshot_tree(snap, now=None):
 
     `roster_absent` — the GHOSTROW input — renders as its own trailing pseudo-window. Dropping it
     would be the exact failure this run keeps paying for: a seat whose pane left the room would
-    render as nothing, and absence would be indistinguishable from health."""
+    render as nothing, and absence would be indistinguishable from health.
+
+    `headless[]` / `headless_unattributed` (design-760) render as one more trailing pseudo-window,
+    for the same reason and in the same shape — see the section above. BOTH FIELDS ABSENT INVENTS
+    NOTHING: a pre-design-760 snapshot renders byte-for-byte as it always did."""
     order, by_idx = [], {}
     for s in (snap or {}).get("seats") or []:
         idx = str(s.get("window") or "?")
@@ -940,6 +1042,10 @@ def snapshot_tree(snap, now=None):
              "ctx": None, "approx": False, "ctx_over": False,
              "cls": (a.get("agent_type") or "").strip(),
              "age": str(a.get("reason") or "")[:12]} for a in absent]})
+    hpanes = headless_panes(snap)
+    if hpanes or (snap or {}).get("headless_unattributed"):
+        wins.append({"idx": "-", "name": headless_window_name(snap),
+                     "active": False, "panes": hpanes})
     return wins, len(wins), sum(len(w["panes"]) for w in wins)
 
 
@@ -3434,6 +3540,142 @@ def cmd_selftest():
           and "absent" in strip_sgr(g_wins[-1]["name"]))
     check("R24: no roster_absent rows -> no pseudo-window invented",
           snapshot_tree(fresh, NOW)[1] == 1)
+
+    # design-760 §1/§4 (task 7.74) — headless[] and headless_unattributed. A headless session
+    # holds a seat and no pane, so every pane read above is blind to it; these pin that the
+    # snapshot's second source reaches the screen with its fields intact, that an unjoinable row
+    # is LOUD rather than a nameless session row, and that a snapshot without either key renders
+    # exactly as it did before the field existed.
+    h_rows = [{"seat": "drain-1", "session_id": "s1", "exec_id": 11, "job_id": "j1",
+               "state": "running", "started_at": "(iso)", "started_age_s": 240.0,
+               "last_activity": NOW - 33.0, "outcome": None, "pid": 4242, "log_path": "/l/1"},
+              {"seat": "drain-2", "session_id": "s2", "exec_id": 12, "job_id": "j1",
+               "state": "done", "started_at": "(iso)", "started_age_s": 3600.0,
+               "last_activity": NOW - 1800.0, "pid": 99, "log_path": "/l/2",
+               "outcome": {"exit_code": 0, "status": "done", "ended_at": "(iso)",
+                           "completion_msg_id": "m7"}},
+              {"seat": "drain-3", "session_id": "s3", "exec_id": 13, "job_id": "j2",
+               "state": "running", "started_at": "(iso)", "started_age_s": 900.0,
+               "last_activity": NOW - 900.0, "outcome": None, "pid": 7, "log_path": ""}]
+    h_snap = snap_at(3, headless=h_rows)
+    h_wins, h_nw, h_np = snapshot_tree(h_snap, NOW)
+    h_block = h_wins[-1]
+    hp = h_block["panes"]
+    check("760: headless[] renders as its own trailing pseudo-window and counts toward the pane "
+          "total — a session with a seat and no pane is never invisible",
+          h_nw == 2 and h_np == 4 and strip_sgr(h_block["name"]) == "headless" and len(hp) == 3)
+    check("760 §5: EVERY headless row carries seat + state + age, and the age is the snapshot's "
+          "own taken_at-started_at (started_age_s), not a second derivation",
+          [strip_sgr(p["name"]) for p in hp] == ["drain-1", "drain-2", "drain-3 stale"]
+          and [p["harness"] for p in hp] == ["running", "done", "running"]
+          and [p["age"] for p in hp] == [fmt_age(240.0), fmt_age(3600.0), fmt_age(900.0)]
+          and all(p["age"] for p in hp))
+    check("760 §5: outcome renders on TERMINAL rows only — read off the presence of the sensor's "
+          "`outcome` field, so teamview holds no copy of the status vocabulary",
+          [p["model"] for p in hp] == ["", "exit0", ""])
+    check("760 §1: a quiet NON-terminal row is a WARNING (red + the word stale); a terminal row "
+          "idle far longer is history, not an alarm, and stays plain",
+          RED in hp[2]["name"] and "stale" in strip_sgr(hp[2]["name"])
+          and RED not in hp[0]["name"] and RED not in hp[1]["name"]
+          and headless_quiet_s(h_rows[2], h_snap["captured_at"]) >= HEADLESS_STALE_S)
+    check("760: the stale marker is threshold-driven, not hardcoded to one row — raising the "
+          "threshold past the quiet row clears it, lowering it past a live row fires it "
+          "(a marker that cannot move is a decoration)",
+          RED not in headless_panes(h_snap, stale_after=10_000.0)[2]["name"]
+          and RED in headless_panes(h_snap, stale_after=1.0)[0]["name"])
+    check("760: a headless row is a session, NOT a context reading — no ctx%, no agent-type "
+          "term, never a pinned-critical pane; a fabricated 0% would enter the rollup as health",
+          all(p["ctx"] is None and p["cls"] == "" and not is_critical_pane(p) for p in hp))
+
+    # C-3 RED ARM. `seat` is REQUIRED by design-760 §3 and guaranteed at the dispatch door, so a
+    # seatless row means that guarantee broke upstream. The two answers design-760 §4 forbids are
+    # exactly the two a careless renderer gives: drop it, or show it as a nameless session row.
+    mal = headless_panes(snap_at(3, headless=[
+        {"session_id": "s9", "exec_id": 91, "state": "running", "started_age_s": 5.0},
+        {"seat": "   ", "exec_id": 92, "state": "running", "started_age_s": 5.0},
+        "not-a-row"]), NOW)
+    check("760 §4 RED ARM: a malformed headless row (no seat / blank seat / not a mapping) is "
+          "FLAGGED and counted — never dropped, and never rendered as a nameless session row",
+          len(mal) == 3
+          and all("MALFORMED" in strip_sgr(p["name"]) and RED in p["name"] for p in mal)
+          and "exec 91" in strip_sgr(mal[0]["name"]) and "exec ?" in strip_sgr(mal[2]["name"]))
+    check("760 §4 RED ARM control: the same rows WITH a seat render plainly — the flag tracks the "
+          "missing field, not the code path (a flag that always fires proves nothing)",
+          not any("MALFORMED" in strip_sgr(p["name"]) for p in hp))
+
+    # §4's incident field: LOUD, and never a row. It rides the block's own header.
+    u_snap = snap_at(3, headless=h_rows[:1], headless_unattributed={
+        "count": 2, "exec_ids": [77, 78],
+        "rows": [{"exec_id": 77, "session_id": "sx", "reason": "no dispatch-time row"},
+                 {"exec_id": 78, "session_id": "sy", "reason": "no dispatch-time row"}]})
+    u_wins, _u_nw, u_np = snapshot_tree(u_snap, NOW)
+    u_block = u_wins[-1]
+    check("760 §4: headless_unattributed renders as a WARNING on the block header — the count is "
+          "loud and RED, and it is NEVER a row: the pane total is unchanged by the incident",
+          "UNATTRIBUTED" in strip_sgr(u_block["name"]) and "2" in strip_sgr(u_block["name"])
+          and RED in u_block["name"] and len(u_block["panes"]) == 1 and u_np == 2
+          and not any("UNATTRIBUTED" in strip_sgr(p["name"]) for p in u_block["panes"]))
+    check("760 §4: the incident surfaces even when the join left NO renderable row at all — the "
+          "block appears with the warning and no session rows (an empty headless[] must not "
+          "swallow the reason it is empty)",
+          "UNATTRIBUTED" in strip_sgr(snapshot_tree(
+              snap_at(3, headless=[], headless_unattributed={"count": 1, "exec_ids": [5]}),
+              NOW)[0][-1]["name"]))
+    check("760 §4: a count-less incident payload still renders a count from its own rows — a "
+          "warning that degrades to a bare label would read as a formatting quirk",
+          "1" in strip_sgr(headless_window_name(
+              {"headless_unattributed": {"exec_ids": [5]}})))
+
+    # Criterion (3): BOTH FIELDS ABSENT -> UNCHANGED, and criterion (2) at the FRAME, not just in
+    # a return value. Both sweep every layout x width, and the ORACLE for the second one is the
+    # roster_absent block that has shipped since R24: design-760 §1 says headless[] renders
+    # "exactly as seats[] does", so the claim under test is EQUIVALENCE WITH THAT PRECEDENT, not
+    # omnipresence. Measured here and stated rather than papered over: at strip/80x20 the grid has
+    # room for ONE bank, and the trailing pseudo-window — absent or headless, identically — does
+    # not make the frame. Asserting "always visible" would have been a check written to pass.
+    check("760: a snapshot carrying NEITHER key invents no pseudo-window and no pane",
+          snapshot_tree(fresh, NOW)[1] == 1 and headless_panes(fresh) == []
+          and headless_window_name(fresh) == "headless")
+    base_wins, base_nw, base_np = snapshot_tree(fresh, NOW)
+
+    def frame_text(fn, needs_cache, wins_, npane_, snap_, w, h):
+        lines = fn(*(["kg-views", wins_, len(wins_), npane_, cells, [], []]
+                     + ([fake_cache] if needs_cache else []) + [w, h]),
+                   cue=False, now=NOW, cycle=False, snap=snap_)
+        return strip_sgr("\n".join(clip_line(l, w) for l in lines))
+
+    LAYOUTS = ((render_full, True), (render_strip, False),
+               (render_narrow, False), (render_tiny, False))
+    # 60x12 is deliberately NOT in this sweep and the omission is not a convenience: at that size
+    # the full layout PAGINATES the two windows, and render_full's non-cycle path calls
+    # window_grid WITHOUT `now`, so which page renders is wall-clock dependent. An assertion there
+    # would pass or fail by the second. The state itself is covered by the rotation check below.
+    SIZES = ((220, 50), (120, 24), (80, 20))
+    leaked, hl_gap, hl_seen = [], [], 0
+    for fn, needs_cache in LAYOUTS:
+        for w, h in SIZES + ((60, 12),):
+            if any(t in frame_text(fn, needs_cache, base_wins, base_np, fresh, w, h)
+                   for t in ("headless", "UNATTRIBUTED")):
+                leaked.append((fn.__name__, w, h))
+            if (w, h) not in SIZES:
+                continue
+            shown = "UNATTRIBUTED" in frame_text(fn, needs_cache, u_wins, u_np, u_snap, w, h)
+            hl_seen += bool(shown)
+            if shown != ("vanished" in frame_text(fn, needs_cache, g_wins, g_np, ghost, w, h)):
+                hl_gap.append((fn.__name__, w, h))
+    check("760: with both keys absent NO layout at any width grows a headless block — a snapshot "
+          "that predates the field renders as it always did, and does not crash",
+          not leaked)
+    check("760 §4: the unattributed warning reaches the RENDERED frame wherever the established "
+          "roster_absent block reaches it, at every layout x width — same grid, same fate, no "
+          "special pleading (and it does reach most of them, so the equivalence is not vacuous)",
+          not hl_gap and hl_seen >= len(LAYOUTS) * len(SIZES) - 1)
+    cramped = [strip_sgr("\n".join(window_grid(u_wins, 58, 3, dashes=True, now=NOW + t)))
+               for t in (0, 10, 20)]
+    check("760 §4: where the grid must PAGINATE the block away (the 60-col full frame), the "
+          "warning is ROTATED, not lost — it returns on its own page like any other window",
+          any("UNATTRIBUTED" in c for c in cramped)
+          and any("UNATTRIBUTED" not in c for c in cramped))
 
     # The snapshot's own field mapping, pinned so a sensor-side rename cannot pass silently.
     mapped = snapshot_tree(snap_at(3, seats=[
