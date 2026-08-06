@@ -33,7 +33,15 @@ const { detectHostCapability, CAGED, PORTABLE } = require('./host');
 // shape: caged/portable halves, the effort parameter slot, and the raw-flag bound.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 
-const KNOWN_TOP_KEYS = new Set(['bind', 'auth', 'spawn', 'profiles', 'default_workdir_root']);
+// r-seats-only-architecture (1)/(2): profiles collapse to harness+model, with the shared blocks
+// declared ONCE at the top level and merged into every profile by this resolver — one seat-cage
+// template (`cage:`, carrying SeatBinds — the committed config's spelling; `sandbox_default` is
+// accepted as a synonym), one global caps block (`caps:` / `caps_default`, rare per-profile
+// overrides only by ruling), and the CLOSED `toolsets` enum.
+const KNOWN_TOP_KEYS = new Set([
+  'bind', 'auth', 'spawn', 'profiles', 'default_workdir_root',
+  'cage', 'caps', 'sandbox_default', 'caps_default', 'toolsets',
+]);
 
 // ⚠ 7.42 — measured, not assumed: the COMMITTED `config/spawn-profiles.yaml` carries root keys
 // that are NOT the profile surface's. `server/index.js` (DAEMON_ONLY_ROOT_KEYS) strips them and
@@ -57,7 +65,17 @@ const DAEMON_ONLY_ROOT_KEYS = new Set(['ticker', 'tools', 'workflows', 'network'
 // which is what makes the daemon's behaviour byte-unchanged rather than merely "tested to be".
 const KNOWN_PROFILE_KEYS = new Set([
   'exec', 'session_ref', 'headed', 'workdir_root', 'caps', 'sandbox', 'env', 'command', 'effort',
+  'toolset_ceiling',
 ]);
+
+// ── r-seats-only-architecture (2) — the CLOSED toolset enum, in WIDENING order ───────────────
+// Tool rights are named tiers, not per-profile flag soup. The ORDER is the clamp's law: a
+// dispatch (or a child) may only ever NARROW its profile's `toolset_ceiling`, never widen it.
+const TOOLSET_ORDER = ['read-only', 'git-write', 'full'];
+// Local to this module deliberately: this resolver owns the toolset surface, and the shared
+// errors module is not widened as a side effect of this change.
+const E_UNKNOWN_TOOLSET = 'E_UNKNOWN_TOOLSET';
+const E_TOOLSET_WIDENING = 'E_TOOLSET_WIDENING';
 const KNOWN_EXEC_KEYS = new Set(['argv', 'prompt']);
 const KNOWN_HEADED_KEYS = new Set(['tui']);
 const KNOWN_TUI_KEYS = new Set(['argv', 'prompt', 'keystroke']);
@@ -176,6 +194,30 @@ function validateCaps(caps, profileName, filePath) {
       }
     }
   }
+}
+
+// r-seats-only-architecture (2): `toolsets:` declares which of the CLOSED enum's tiers this
+// install speaks. Tolerant of shape (a list of names, or a mapping keyed by name whose values a
+// consumer may attach tool definitions to) but closed on VOCABULARY: a name outside TOOLSET_ORDER
+// is a load failure, never a fourth tier minted in config.
+function validateToolsets(toolsets, filePath) {
+  const names = Array.isArray(toolsets)
+    ? toolsets
+    : (toolsets !== null && typeof toolsets === 'object' ? Object.keys(toolsets) : null);
+  if (!names || names.some((n) => typeof n !== 'string')) {
+    throw new SpawnError(E_CONFIG_LOAD, 'toolsets must be a list of names or a mapping keyed by name', { file: filePath, key: 'toolsets' });
+  }
+  for (const n of names) {
+    if (!TOOLSET_ORDER.includes(n)) {
+      throw new SpawnError(
+        E_CONFIG_LOAD,
+        `toolsets declares "${n}", outside the CLOSED enum ${TOOLSET_ORDER.join('|')} ` +
+        '(r-seats-only-architecture (2): tool rights are a closed enum of named toolsets)',
+        { file: filePath, key: 'toolsets', toolset: n },
+      );
+    }
+  }
+  return names;
 }
 
 function validateSandbox(sandbox, profileName, filePath, seatBindValidator) {
@@ -372,9 +414,30 @@ function validateEffort(effort, profileName, filePath) {
   }
 }
 
-function validateProfile(profile, name, filePath, seatBindValidator) {
+function validateProfile(profile, name, filePath, seatBindValidator, toolsetNames = null) {
   assertObject(profile, `profiles.${name}`, filePath);
   checkUnknownKeys(profile, KNOWN_PROFILE_KEYS, `profiles.${name}`, filePath);
+
+  // r-seats-only-architecture (2): the per-profile toolset CEILING — the widest tier a dispatch
+  // of this profile may ask for. Must name a tier of the closed enum, and (when the install
+  // declares a `toolsets:` block) one that block actually speaks.
+  if (profile.toolset_ceiling !== undefined) {
+    if (!TOOLSET_ORDER.includes(profile.toolset_ceiling)) {
+      throw new SpawnError(
+        E_CONFIG_LOAD,
+        `profiles.${name}.toolset_ceiling must be one of ${TOOLSET_ORDER.join('|')}, got: ${profile.toolset_ceiling}`,
+        { file: filePath, key: `profiles.${name}.toolset_ceiling` },
+      );
+    }
+    if (toolsetNames && !toolsetNames.includes(profile.toolset_ceiling)) {
+      throw new SpawnError(
+        E_CONFIG_LOAD,
+        `profiles.${name}.toolset_ceiling names "${profile.toolset_ceiling}", which the toolsets block does not declare ` +
+        `(declared: ${toolsetNames.join(', ')})`,
+        { file: filePath, key: `profiles.${name}.toolset_ceiling` },
+      );
+    }
+  }
 
   const hasExec = Boolean(profile.exec);
   const hasHalves = Boolean(profile.command);
@@ -482,13 +545,37 @@ function loadConfig(filePath, opts = {}) {
     throw new SpawnError(E_MISSING_KEY, 'profiles must be a mapping', { file: filePath, key: 'profiles' });
   }
 
+  // ── r-seats-only-architecture (1)/(2): merge the SHARED blocks into every profile ──────────
+  //
+  // `cage:` (the one seat-cage template, SeatBinds included — merged as each profile's sandbox)
+  // and the top-level `caps:` (the one global caps block) are declared ONCE; each profile
+  // receives them here, with the profile's OWN keys winning — the "rare per-profile overrides
+  // only by ruling" seam. `sandbox_default`/`caps_default` are accepted synonyms so the resolver
+  // does not break on a spelling. Merged BEFORE per-profile validation so the merged shape is
+  // what gets validated (caps is a required key, and under the shared block a profile
+  // legitimately declares none of its own). A config with the blocks already expanded per
+  // profile via YAML anchors needs no merge and passes through this loop unchanged.
+  const toolsetNames = parsed.toolsets !== undefined ? validateToolsets(parsed.toolsets, filePath) : null;
+  const capsDefault = parsed.caps ?? parsed.caps_default ?? null;
+  const sandboxDefault = parsed.cage ?? parsed.sandbox_default ?? null;
+  if (capsDefault !== null) assertObject(capsDefault, 'caps_default', filePath);
+  if (sandboxDefault !== null) assertObject(sandboxDefault, 'sandbox_default', filePath);
+  if (capsDefault || sandboxDefault) {
+    for (const name of Object.keys(parsed.profiles)) {
+      const p = parsed.profiles[name];
+      if (p === null || typeof p !== 'object' || Array.isArray(p)) continue; // validateProfile refuses it below
+      if (capsDefault) p.caps = { ...capsDefault, ...(p.caps || {}) };
+      if (sandboxDefault) p.sandbox = { ...sandboxDefault, ...(p.sandbox || {}) };
+    }
+  }
+
   const seen = new Set();
   for (const name of Object.keys(parsed.profiles)) {
     if (seen.has(name)) {
       throw new SpawnError(E_DUPLICATE_PROFILE, `duplicate profile: ${name}`, { file: filePath, key: `profiles.${name}` });
     }
     seen.add(name);
-    validateProfile(parsed.profiles[name], name, filePath, seatBindValidator);
+    validateProfile(parsed.profiles[name], name, filePath, seatBindValidator, toolsetNames);
   }
 
   const config = {
@@ -501,6 +588,10 @@ function loadConfig(filePath, opts = {}) {
     },
     default_workdir_root: parsed.default_workdir_root,
     profiles: parsed.profiles,
+    // r-seats-only-architecture (2): the declared toolsets block, RAW (a mapping may attach
+    // per-harness tier definitions its consumers read); null when the config predates the
+    // block. The vocabulary is validated above; the ORDER is TOOLSET_ORDER's, exported.
+    toolsets: parsed.toolsets ?? null,
   };
 
   return config;
@@ -624,7 +715,7 @@ function resolveWorkdir(profile, requestedWorkdir, defaultWorkdirRoot, filePath,
 // caller-supplied string onto argv as its own element.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 function resolveProfile(config, name, opts = {}) {
-  const { effort = null, slots = {}, hostCapability = null } = opts;
+  const { effort = null, slots = {}, hostCapability = null, toolset = null } = opts;
 
   if (!config || !config.profiles || !Object.prototype.hasOwnProperty.call(config.profiles, name)) {
     throw new SpawnError(E_UNKNOWN_PROFILE, `unknown profile: ${name}`, {
@@ -752,6 +843,42 @@ function resolveProfile(config, name, opts = {}) {
     );
   }
 
+  // ── toolset: a per-dispatch parameter CLAMPED to the profile's ceiling (narrowing only) ────
+  // r-seats-only-architecture (2): tool rights are per-dispatch, drawn from the closed enum, and
+  // a dispatch may only NARROW its profile's `toolset_ceiling` — asking for a wider tier is a
+  // LOUD refusal, never a silent clamp-down (a silently narrowed dispatch would read as granted).
+  // No requested toolset resolves to the ceiling itself; a profile with no ceiling refuses a
+  // toolset request outright — the same stated-not-dropped posture the effort table takes.
+  const toolsetCeiling = profile.toolset_ceiling ?? null;
+  let resolvedToolset = toolsetCeiling;
+  if (toolset !== null && toolset !== undefined) {
+    if (!TOOLSET_ORDER.includes(toolset)) {
+      throw new SpawnError(
+        E_UNKNOWN_TOOLSET,
+        `toolset must be one of ${TOOLSET_ORDER.join('|')} (closed enum), got: ${toolset}`,
+        { profile: name, toolset },
+      );
+    }
+    if (!toolsetCeiling) {
+      throw new SpawnError(
+        E_UNKNOWN_TOOLSET,
+        `profile ${name} declares no toolset_ceiling — it cannot honor a toolset request. ` +
+        'Declare a ceiling on the profile so the clamp has a law to apply.',
+        { profile: name, toolset },
+      );
+    }
+    if (TOOLSET_ORDER.indexOf(toolset) > TOOLSET_ORDER.indexOf(toolsetCeiling)) {
+      throw new SpawnError(
+        E_TOOLSET_WIDENING,
+        `REFUSING TOOLSET WIDENING: dispatch asks for "${toolset}" but profile ${name}'s ` +
+        `toolset_ceiling is "${toolsetCeiling}" — a dispatch may only NARROW its profile's ` +
+        'ceiling, never widen it (r-seats-only-architecture (2))',
+        { profile: name, toolset, ceiling: toolsetCeiling },
+      );
+    }
+    resolvedToolset = toolset;
+  }
+
   return {
     name,
     half,
@@ -760,6 +887,8 @@ function resolveProfile(config, name, opts = {}) {
     prompt: execBlock.prompt,
     effort: effortApplied,
     effortInert,
+    toolset: resolvedToolset,
+    toolset_ceiling: toolsetCeiling,
     session_ref: profile.session_ref,
     workdir_root: profile.workdir_root,
     caps: profile.caps,
@@ -779,4 +908,8 @@ module.exports = {
   CLOSED_SLOTS,
   DAEMON_ONLY_ROOT_KEYS,
   KNOWN_EFFORT_LEVELS,
+  // r-seats-only-architecture (2) — the toolset surface, owned here.
+  TOOLSET_ORDER,
+  E_UNKNOWN_TOOLSET,
+  E_TOOLSET_WIDENING,
 };

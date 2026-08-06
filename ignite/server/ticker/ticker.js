@@ -492,20 +492,36 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   // ── Task 7.12 · where a job's action RUNS (owner ruling `r-job-seat-home`, 2026-07-27) ────────
   //
   // "A job's action is always homed as a SEAT in a goal; the job itself is only the trigger." A
-  // catalogue row carrying `goal_name`/`seat_name` launches into that seat's folder; a row without
-  // them keeps the interim `<ws>/.rbtv/sessions/<exec-id>/` path. That is the staged retirement
-  // `r-711-staged-retirement` ruled and `G-122` tracks: seat spawns left the interim path at 7.11,
-  // and THIS is the ticker/job branch finally leaving it too — for homed jobs.
+  // catalogue row carrying `goal_name`/`seat_name` launches into that seat's folder.
+  //
+  // ⚠ THE INTERIM `<ws>/.rbtv/sessions/<exec-id>/` BRANCH IS RETIRED (`r-seats-only-architecture`
+  // (3), completing `r-711-staged-retirement` / `G-122`): a row WITHOUT goal/seat no longer falls
+  // through to a flat dir. Either the queue args name a home (a workdir, judged by the spawn door's
+  // own seat-folder gate), or the dispatch is REFUSED here, naming the missing fields. A job-born
+  // seat whose folder does not yet exist is auto-materialized to the minimal valid shape by
+  // resolveSeatHome (folder + generated seat.md), so the cage's ro-bind of seat.md has a target.
   //
   // ⚠ A FAILURE HERE IS LOUD AND NEVER A FALLBACK. If a row says it is homed and the seat cannot
-  // be resolved, this THROWS — it does not quietly launch into the interim path instead. A silent
+  // be resolved, this THROWS — there is no interim path left to quietly launch into. A silent
   // fallback would undo the homing at the one moment nobody is watching, and would look identical
   // in the log to a job that was never homed at all. Thrown inside the caller's existing try, so it
   // lands as `spawn-failed` against a REAL `jobs_log` row with the reason attached, rather than as
   // a `defer` that retries every tick forever (the `unknown-tool` shape task 7.70 exists to fix).
   function resolveJobHome(queueRow, argsWorkdir) {
     const job = heartStore.getJob(queueRow.job_id);
-    if (!job || !job.goal_name || !job.seat_name) return argsWorkdir; // UNHOMED — interim path
+    if (!job || !job.goal_name || !job.seat_name) {
+      // Not homed by the catalogue row. A caller-named workdir is still a home candidate — the
+      // spawn door verifies it is a canonical seat folder and refuses anything else. NO workdir
+      // at all is a seatless dispatch, refused (r-seats-only-architecture: "a dispatch with no
+      // home is a refusal, not a flat dir").
+      if (argsWorkdir) return argsWorkdir;
+      const jobId = (job && job.job_id) || queueRow.job_id || '(row-less dispatch)';
+      throw new Error(
+        `REFUSING SEATLESS DISPATCH: job "${jobId}" names no home — MISSING FIELDS: goal_name/seat_name `
+        + '(jobs table) and no workdir in the queue args. The flat .rbtv/sessions/<exec-id>/ launch '
+        + 'branch is RETIRED (r-seats-only-architecture); home the job at a (goal, seat) pair.',
+      );
+    }
     if (argsWorkdir) {
       // The catalogue row and the enqueue disagree about where this runs. Refused, not ranked:
       // preferring either one silently would let an enqueue-time argument move a job out of the
@@ -523,7 +539,10 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         + 'resolvable from the heart store path',
       );
     }
-    const home = resolveSeatHome({ workspaceRoot, goal: job.goal_name, seat: job.seat_name });
+    // r-seats-only-architecture: `materialize` makes a first-fire job-born seat's folder exist
+    // (minimal shape: folder + generated seat.md naming seat/goal/spawning-job) instead of
+    // refusing it as un-materialized. Descriptor agreement is still enforced inside.
+    const home = resolveSeatHome({ workspaceRoot, goal: job.goal_name, seat: job.seat_name, materialize: { jobId: job.job_id } });
     if (!home.ok) {
       throw new Error(
         `job "${job.job_id}" is homed at ${job.goal_name}/${job.seat_name} but that seat cannot be `

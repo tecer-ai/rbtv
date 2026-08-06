@@ -10,8 +10,9 @@
 //   (4) headed  `tui.prompt: stdin`    -> config-LOAD failure (structurally absent, unchanged)
 //   (5) a {prompt} slot in headed.tui.argv -> config-LOAD failure (E_UNKNOWN_SLOT — the slot
 //       itself is retired)
-//   (6) POSITIVE: the SHIPPED config/spawn-profiles.yaml still loads cleanly — five profiles,
-//       every one `prompt: stdin`, none declaring a headed carriage.
+//   (6) POSITIVE: the SHIPPED config/spawn-profiles.yaml still loads cleanly — the 14-profile
+//       exec-only roster (r-seats-only-architecture: one profile per harness+model), every one
+//       `prompt: stdin`, none declaring a headed prompt carriage.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -98,40 +99,22 @@ capture('probe-carriage-vocab', async (lines) => {
     fs.writeFileSync(shippedStripped, yaml.dump(raw));
     const cfg = loadConfig(shippedStripped);
     const names = Object.keys(cfg.profiles);
-    // ── TASK 7.86 — LANE SPLIT. The shipped config now carries TWO lanes, and this leg's
-    // population is the FIRST one only.
-    //
-    //   exec lane     — `exec:`-shaped. The DAEMON's spawn profiles. This leg's subject: the
-    //                   headless carriage vocabulary is a daemon-spawn property.
-    //   command lane  — `command: { caged, portable }`-shaped. The orchestration conductor's CLI
-    //                   dispatch profiles (7.86), resolved by launch-profiles/resolveProfile.
-    //                   The daemon does not spawn these — it typed-refuses them
-    //                   (E_PROFILE_HALVES_UNSUPPORTED, probe-profile-halves-refusal.js).
-    //
-    // The unguarded `cfg.profiles[n].exec.prompt` below USED to be safe because every shipped
-    // profile was exec-shaped; the first command-lane profile turned it into a TypeError. That is
-    // G-144's shape one layer up, and the filter — not a `?.` — is the fix: a command-lane profile
-    // is not a profile this leg has an opinion about, so it is EXCLUDED, never leniently skipped.
+    // ── r-seats-only-architecture (2) — ONE PROFILE PER HARNESS+MODEL, EXEC LANE ONLY. The
+    // 7.86 command lane (`command: { caged, portable }`) RETIRED with the daemon's sub-agent
+    // dispatch lane; the shipped roster is the owner-ruled 14 (2026-08-06): claude fable/opus/
+    // sonnet/haiku, codex-gpt-5-5, kimi, opencode glm-5-2/deepseek-flash/deepseek-pro/fugu/
+    // fugu-ultra/gemini-flash/gemini-pro, plus test-sleep (D52). The lane filter is kept so a
+    // command-lane profile REAPPEARING is caught by the equality below, never TypeError'd.
     const execLane = names.filter((n) => cfg.profiles[n].exec);
     const commandLane = names.filter((n) => !cfg.profiles[n].exec);
     const carriages = execLane.map((n) => `${n}=${cfg.profiles[n].exec.prompt}`);
     lines.push(`(6) shipped config loads cleanly: ${names.length} profiles = ${execLane.length} exec-lane [${carriages.join(', ')}] + ${commandLane.length} command-lane [${commandLane.join(', ')}]`);
-    // Task 7.11 added `claude-seat` (the seat launch profile) — ADDITIVELY, leaving every
-    // pre-existing profile untouched. The count moved 5 -> 6. It is still asserted rather than
-    // relaxed to a `>=`: this leg exists to notice a profile appearing in the shipped config, and
-    // a floor would stop noticing exactly what it was written to catch.
-    // ⚠ 7.86 DID NOT MOVE THIS NUMBER, and that is the point of the lane split rather than a
-    // count bump: 7.86 added 11 profiles and ALL ELEVEN are command-lane, so the exec lane is
-    // still exactly the same six. The day it is not, this fires — which is what it is for.
-    // ⚠⚠ DO NOT RELAX EITHER COUNT TO A `>=`. That is the one edit that looks like a fix and
-    // silently destroys what these legs exist to catch (the comment above says so; heed it).
-    if (execLane.length !== 6) throw new Error(`(6) expected 6 exec-lane shipped profiles, found ${execLane.length}: ${execLane.join(', ')}`);
-    // The command lane gets its OWN equality for the same reason the exec lane has one — without
-    // it, 11 of the 17 shipped profiles could change in number unnoticed, and "notice a profile
-    // appearing in the shipped config" would hold for a third of the file. 11 = the elected CLI
-    // (model, variant) pairs task 7.86 authored one profile each for.
-    if (commandLane.length !== 11) throw new Error(`(6) expected 11 command-lane shipped profiles, found ${commandLane.length}: ${commandLane.join(', ')}`);
-    if (!names.includes('claude-seat')) throw new Error('(6) the 7.11 seat profile claude-seat is missing from the shipped config');
+    // ⚠⚠ DO NOT RELAX EITHER COUNT TO A `>=`. This leg exists to notice a profile appearing in
+    // (or vanishing from) the shipped config; a floor would stop noticing exactly that.
+    if (execLane.length !== 14) throw new Error(`(6) expected the 14 exec-lane shipped profiles, found ${execLane.length}: ${execLane.join(', ')}`);
+    // Zero command-lane profiles is a POSITIVE assertion, not an omission: the command lane
+    // retired with the daemon's sub-agent lane, and one reappearing must fire this leg.
+    if (commandLane.length !== 0) throw new Error(`(6) expected 0 command-lane shipped profiles (lane retired, r-seats-only-architecture (4)), found ${commandLane.length}: ${commandLane.join(', ')}`);
     // UNWEAKENED, and applied to the exec lane exactly as before: `stdin` is the only headless
     // carriage, and a shipped profile declares no headed carriage.
     for (const n of execLane) {
@@ -139,10 +122,7 @@ capture('probe-carriage-vocab', async (lines) => {
       const headedCarriage = cfg.profiles[n].headed?.tui?.prompt;
       if (headedCarriage !== undefined && headedCarriage !== null) throw new Error(`(6) shipped profile ${n} declares a headed carriage: ${headedCarriage}`);
     }
-    // The command lane's halves carry their own `prompt`, validated at config LOAD by the same
-    // closed vocabulary (profiles.js validateExec, called per half) — so it is already covered by
-    // legs (1)/(2) above, which is why this leg asserts the exec lane and not both.
-    lines.push(`RESULT: file/argv-last/argv (and the {prompt} slot) all fail config load LOUDLY; the six shipped exec-lane stdin profiles load cleanly, and the ${commandLane.length} command-lane profiles are excluded by lane, not skipped by leniency.`);
+    lines.push(`RESULT: file/argv-last/argv (and the {prompt} slot) all fail config load LOUDLY; the ${execLane.length} shipped exec-lane stdin profiles load cleanly, and the command lane is asserted EMPTY (retired with the sub-agent lane).`);
   } finally {
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* fine */ }
   }

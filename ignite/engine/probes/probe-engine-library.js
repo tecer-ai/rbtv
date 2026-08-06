@@ -24,7 +24,7 @@
 //     nothing here may be read as evidence about it.
 //   · THE SEATS IT LAUNCHES ARE `sleep`, NOT HARNESSES. The wave/resume/exit mechanics are
 //     exercised against the REAL ticker, the REAL spawn path and a REAL store; the WORK is a
-//     throwaway profile. The six committed profiles are still loaded through the daemon's own
+//     throwaway profile. The committed profiles (the 14-profile r-seats-only-architecture roster) are still loaded through the daemon's own
 //     config module, so the pinned-and-named property is exercised against the real file.
 //
 // ⚠ EVERY NEGATIVE HERE CARRIES A POSITIVE CONTROL IN THE SAME RUN (`bars.md` 11 second half):
@@ -85,7 +85,7 @@ fs.writeFileSync(path.join(runFolder, 'taskforce.csv'), [
   '',
 ].join('\n'));
 
-// The throwaway config is the COMMITTED one plus one harmless profile, so the six real profiles
+// The throwaway config is the COMMITTED one plus one harmless profile, so the real profiles
 // are still loaded through the daemon's own config module (the route that clears G-211) while the
 // work a "seat" does is `sleep`.
 const yaml = require(path.join(IGNITE_SRC, 'node_modules', 'js-yaml'));
@@ -178,7 +178,7 @@ async function main() {
   const { createEngine } = require(path.join(IGNITE_SRC, 'engine'));
   const { loadConfig } = require(path.join(IGNITE_SRC, 'server', 'spawn', 'config'));
   const spawnConfig = loadConfig(configPath);
-  check('C1 the six committed profiles load through the daemon\'s own config module',
+  check('C1 the committed profiles (14-profile roster) load through the daemon\'s own config module',
     committedProfileNames.every((n) => spawnConfig.profiles[n]),
     `pinned + named: ${committedProfileNames.join(', ')}`);
 

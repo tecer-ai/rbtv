@@ -37,10 +37,10 @@ const {
 // ENFORCEMENT. The deny-list below is what converts it back to enforcement — which is why the stub
 // and the deny-list are one mechanism and neither ships without the other.
 //
-// (The sibling consumer `ignite/capabilities/sub-agent-dispatch` — task 7.43 — takes the OTHER
-// branch and imports the real validator read-only. That is available to it because it lives inside
-// `ignite/`; it is not available here without an orchestration -> daemon dependency. Recorded so a
-// reader does not mistake the two answers for a contradiction.)
+// (A FORMER sibling consumer, `ignite/capabilities/sub-agent-dispatch` — task 7.43, retired by
+// `r-seats-only-architecture` 2026-08-06 — took the OTHER branch and imported the real validator
+// read-only, which was available to it because it lived inside `ignite/`. Recorded as history so
+// a reader does not mistake the two answers for a contradiction.)
 function nonInterpretingSeatBindValidator() {
   // Deliberately returns without inspecting the template. Interpreting a bind vocabulary this
   // module does not own would be a SECOND interpreter — the exact drift 7.42 exists to prevent.

@@ -6,8 +6,8 @@ capture('probe-killtree', async (lines) => {
   const ctx = setup();
   try {
     lines.push('action: fire row, spawn forker worker, kill it, verify whole tree gone');
-    const fired = fire(ctx, { profile: 'test-forker', sessionMode: 'headless', workdir: ctx.defaultWorkdir });
-    const row = await ctx.mgr.spawn(fired.exec_id, 'test-forker', 'headless', null, null, 'probe');
+    const fired = fire(ctx, { profile: 'test-forker', sessionMode: 'headless', workdir: ctx.seatDir });
+    const row = await ctx.mgr.spawn(fired.exec_id, 'test-forker', 'headless', null, ctx.seatDir, 'probe');
     lines.push(`spawned session_id=${row.session_id} unit=${row.unit_name} pid=${row.pid}`);
 
     const { execFileSync } = require('node:child_process');

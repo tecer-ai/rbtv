@@ -120,8 +120,8 @@ capture('probe-spawn', async (lines) => {
 
     // --- exit-marker LIVE: a worker that exits 0 on its own leaves the real exit status in
     // <data_root>/exits/<session-id>.exit, written by the unit's own ExecStopPost hook ---
-    const quickFired = fire(ctx, { profile: 'test-quick', sessionMode: 'headless', workdir: ctx.defaultWorkdir });
-    const quickRow = await ctx.mgr.spawn(quickFired.exec_id, 'test-quick', 'headless', 'exit-marker live probe', null, 'probe');
+    const quickFired = fire(ctx, { profile: 'test-quick', sessionMode: 'headless', workdir: ctx.seatDir });
+    const quickRow = await ctx.mgr.spawn(quickFired.exec_id, 'test-quick', 'headless', 'exit-marker live probe', ctx.seatDir, 'probe');
     const markerPath = path.join(ctx.dataRoot, 'exits', `${quickRow.session_id}.exit`);
     let markerRaw = null;
     for (let i = 0; i < 20; i++) {
@@ -133,12 +133,14 @@ capture('probe-spawn', async (lines) => {
     }
     lines.push(`exit-marker live PASS: ${markerPath} carries exit status 0 after clean worker exit`);
 
-    lines.push('action: fire row then spawn trivial worker via test-sleep profile (prompt: stdin) with a real prompt');
+    // r-seats-only-architecture (3): live spawns home in the fixture's canonical seat folder —
+    // the retired flat/default branch is asserted as a refusal at the end of this probe.
+    lines.push('action: fire row then spawn trivial worker via test-sleep profile (prompt: stdin) with a real prompt, homed in the fixture seat folder');
     const STDIN_PROMPT = 'p7-stdin-carriage probe prompt: bytes then EOF';
-    const fired = fire(ctx, { profile: 'test-sleep', sessionMode: 'headless', workdir: ctx.defaultWorkdir });
+    const fired = fire(ctx, { profile: 'test-sleep', sessionMode: 'headless', workdir: ctx.seatDir });
     lines.push(`exec_id before spawn: ${fired.exec_id}, status: ${fired.status}`);
 
-    const row = await ctx.mgr.spawn(fired.exec_id, 'test-sleep', 'headless', STDIN_PROMPT, null, 'probe');
+    const row = await ctx.mgr.spawn(fired.exec_id, 'test-sleep', 'headless', STDIN_PROMPT, ctx.seatDir, 'probe');
     lines.push(`exec_id after spawn: ${row.exec_id}`);
     lines.push(`session_id: ${row.session_id}`);
     lines.push(`pid: ${row.pid}`);
@@ -184,6 +186,17 @@ capture('probe-spawn', async (lines) => {
 
     // Clean up.
     await ctx.mgr.kill(row.exec_id);
+
+    // --- FINAL: the retired flat branch (r-seats-only-architecture (3)). A spawn naming no
+    // workdir used to materialize the flat .rbtv/sessions/<exec-id>/ launch dir; it is now a
+    // typed refusal, raised before anything is created ---
+    try {
+      await ctx.mgr.spawn(0, 'test-sleep', 'headless', null, null, 'probe');
+      throw new Error('no-workdir spawn: UNEXPECTED PASS — the retired flat branch admitted a homeless dispatch');
+    } catch (err) {
+      if (err.code !== 'E_SEATLESS_GOAL_DISPATCH' || !/REFUSING SEATLESS DISPATCH/.test(err.message)) throw err;
+      lines.push(`no-workdir spawn REFUSED: ${err.code} (REFUSING SEATLESS DISPATCH — flat .rbtv/sessions/ branch retired)`);
+    }
   } finally {
     teardown(ctx);
   }

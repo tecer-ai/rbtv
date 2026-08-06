@@ -205,7 +205,46 @@ function openRunsOfGoal({ workspaceRoot, goal }) {
   };
 }
 
-function resolveSeatHome({ workspaceRoot, goal, seat }) {
+// ── r-seats-only-architecture — auto-materialize a JOB-BORN seat's MINIMAL valid shape ─────────
+//
+// Every daemon-spawned agent is a seat, and a job's seat folder may not exist yet the first time
+// the job fires. The minimal valid shape is the FOLDER plus a generated `seat.md` stating
+// identity — enough for the cage's `ro-bind:{seatDir}/seat.md` to have a real target and for the
+// descriptor-agreement check below to hold. A staffed descriptor replacing this file is the
+// staffing stage's act, never this function's: this writes ONLY when `seat.md` is absent, and the
+// `wx` flag makes a racing writer's file win rather than be overwritten.
+function materializeSeatFolder(parsed, { jobId = null } = {}) {
+  const seatMd = path.join(parsed.seatDir, 'seat.md');
+  if (fs.existsSync(seatMd)) return { created: false, seatMd };
+  fs.mkdirSync(parsed.seatDir, { recursive: true, mode: 0o700 });
+  const created = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const body = [
+    '---',
+    `seat: ${parsed.seat}`,
+    `goal: ${parsed.goal}`,
+    `spawning-job: ${jobId || 'unknown'}`,
+    `created: ${created}`,
+    'auto-materialized: by the daemon spawn path under r-seats-only-architecture',
+    '---',
+    '',
+    `# ${parsed.seat} — job-born seat of ${parsed.goal}`,
+    '',
+    `Auto-materialized at spawn by the daemon (spawning job \`${jobId || 'unknown'}\`, ${created})`,
+    'under `r-seats-only-architecture`: every daemon-spawned agent is a seat, and a job-born seat',
+    'whose folder does not yet exist gets this MINIMAL shape — the folder plus this descriptor —',
+    'never a flat launch dir. A staffed descriptor replacing this file is the staffing stage\'s.',
+    '',
+  ].join('\n');
+  try {
+    fs.writeFileSync(seatMd, body, { mode: 0o600, flag: 'wx' });
+  } catch (err) {
+    if (err.code === 'EEXIST') return { created: false, seatMd }; // a racing writer's descriptor wins
+    throw err;
+  }
+  return { created: true, seatMd };
+}
+
+function resolveSeatHome({ workspaceRoot, goal, seat, materialize = null }) {
   if (!workspaceRoot || !goal || !seat) {
     return { ok: false, reason: 'resolveSeatHome requires workspaceRoot, goal and seat' };
   }
@@ -237,8 +276,26 @@ function resolveSeatHome({ workspaceRoot, goal, seat }) {
   }
   const live = checkRunLive(parsed);
   if (!live.ok) return { ok: false, reason: live.reason };
-  const materialized = checkMaterializedSeat(parsed);
-  if (!materialized.ok) return { ok: false, reason: materialized.reason };
+
+  if (materialize) {
+    // r-seats-only-architecture: a JOB-BORN seat. The folder is materialized when absent (minimal
+    // shape above), and the descriptor-agreement half of checkMaterializedSeat still applies — a
+    // folder and a seat.md that disagree stay a refusal. The TASKFORCE-ROSTER half deliberately
+    // does not: a job-born seat is not a rostered taskforce member, its dispatch record is the
+    // jobs table row itself (goal_name/seat_name), and requiring a roster row here would refuse
+    // every job the architecture just homed. spawnSeat's L3 gate (rostered seats) is untouched.
+    materializeSeatFolder(parsed, materialize);
+    const desc = readSeatDescriptorName(path.join(parsed.seatDir, 'seat.md'));
+    if (!desc.present) return { ok: false, reason: `no seat.md in ${parsed.seatDir} after materialization — not a seat folder` };
+    if (!desc.frontmatter) return { ok: false, reason: `seat.md in ${parsed.seatDir} carries no frontmatter block` };
+    if (!desc.seat) return { ok: false, reason: `seat.md in ${parsed.seatDir} declares no seat: key` };
+    if (desc.seat !== parsed.seat) {
+      return { ok: false, reason: `seat.md declares seat "${desc.seat}" but the folder is "${parsed.seat}" — descriptor and folder disagree` };
+    }
+  } else {
+    const materialized = checkMaterializedSeat(parsed);
+    if (!materialized.ok) return { ok: false, reason: materialized.reason };
+  }
 
   return { ok: true, seatDir, parsed, run };
 }
@@ -301,6 +358,7 @@ module.exports = {
   parseGoalScope,
   resolveSeatFromCwd,
   openRunsOfGoal,
+  materializeSeatFolder,
   resolveSeatHome,
   checkRunLive,
   checkMaterializedSeat,

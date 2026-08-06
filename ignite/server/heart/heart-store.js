@@ -544,7 +544,7 @@ class HeartStore {
         `${given} was given without ${missing} — the job->seat pointer is both or neither. `
         + 'A half-pointer resolves to nothing and would fail at FIRE time, which is the one moment '
         + 'no operator is watching; it is refused here instead. Omit both to leave the job unhomed '
-        + '(it then uses the interim .rbtv/sessions/<exec-id>/ path).',
+        + '(firing an unhomed launch is a refusal — r-seats-only-architecture retired the flat path).',
         { field: missing, goalName, seatName },
       );
     }

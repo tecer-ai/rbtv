@@ -30,10 +30,14 @@ const log = (s) => lines.push(s);
 const now = () => new Date().toISOString();
 function portable(p) { if (p == null) return p; const s = String(p); const h = os.homedir(); if (s.startsWith(VAULT_ROOT)) return '{VAULT}' + s.slice(VAULT_ROOT.length); if (h && s.startsWith(h)) return '{HOME}' + s.slice(h.length); return s; }
 
+// Profiles repointed to the r-seats-only-architecture roster (2026-08-06): the retired
+// claude-sonnet-tools / codex-git-write / opencode-sakana names map to the live harness+model
+// profiles of the same lineage. The dated .out files beside this runner are historical records
+// of runs against the retired names, left untouched.
 const HARNESSES = [
-  { name: 'claude', bin: 'claude', profile: 'claude-sonnet-tools' },
-  { name: 'codex', bin: 'codex', profile: 'codex-git-write' },
-  { name: 'opencode', bin: 'opencode', profile: 'opencode-sakana' },
+  { name: 'claude', bin: 'claude', profile: 'claude-sonnet' },
+  { name: 'codex', bin: 'codex', profile: 'codex-gpt-5-5' },
+  { name: 'opencode', bin: 'opencode', profile: 'opencode-fugu-ultra' },
 ];
 
 function which(bin) { try { return execFileSync('which', [bin], { encoding: 'utf8' }).trim(); } catch { return null; } }

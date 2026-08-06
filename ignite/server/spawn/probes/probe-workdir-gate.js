@@ -27,13 +27,26 @@ capture('probe-workdir-gate', async (lines) => {
       }
     }
 
-    // Omitted workdir: fire a real row and spawn.
-    const fired = fire(ctx, { profile: 'test-sleep', sessionMode: 'headless', workdir: ctx.defaultWorkdir });
-    const row = await ctx.mgr.spawn(fired.exec_id, 'test-sleep', 'headless', null, null, 'probe');
-    lines.push(`workdir omitted: status=${row.status}, workdir=${row.workdir}`);
-    lines.push(`workdir equals default_workdir_root: ${row.workdir === ctx.defaultWorkdir}`);
-    await ctx.mgr.kill(row.exec_id);
-    lines.push('result: escapes rejected; omitted workdir defaults to configured root');
+    // Omitted workdir: REFUSED (r-seats-only-architecture (3)). The default branch used to
+    // fall back to default_workdir_root / materialize the flat .rbtv/sessions/ dir; a dispatch
+    // with no home is now a refusal, not a flat dir.
+    const fired = fire(ctx, { profile: 'test-sleep', sessionMode: 'headless', workdir: null });
+    try {
+      await ctx.mgr.spawn(fired.exec_id, 'test-sleep', 'headless', null, null, 'probe');
+      throw new Error('workdir omitted: UNEXPECTED PASS — the retired flat/default branch admitted a homeless dispatch');
+    } catch (err) {
+      if (err.code !== 'E_SEATLESS_GOAL_DISPATCH' || !/REFUSING SEATLESS DISPATCH/.test(err.message)) throw err;
+      lines.push(`workdir omitted: ${err.code} (REFUSING SEATLESS DISPATCH)`);
+    }
+    // A flat non-seat workdir inside the root: refused by the same door.
+    try {
+      await ctx.mgr.spawn(0, 'test-sleep', 'headless', null, ctx.workRoot, 'probe');
+      throw new Error('flat workdir: UNEXPECTED PASS — a non-seat workdir was admitted');
+    } catch (err) {
+      if (err.code !== 'E_SEATLESS_GOAL_DISPATCH') throw err;
+      lines.push(`flat non-seat workdir inside root: ${err.code}`);
+    }
+    lines.push('result: escapes rejected; omitted and non-seat workdirs are REFUSED (no flat fallback remains)');
   } finally {
     teardown(ctx);
   }

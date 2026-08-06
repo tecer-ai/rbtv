@@ -35,8 +35,8 @@ capture('probe-survive-close', async (lines) => {
     const { setup, fire } = require(${JSON.stringify(libPath)});
     (async () => {
       const ctx = setup();
-      const fired = fire(ctx, { profile: 'test-sleep', sessionMode: 'headless', workdir: ctx.defaultWorkdir });
-      const row = await ctx.mgr.spawn(fired.exec_id, 'test-sleep', 'headless', null, null, 'probe');
+      const fired = fire(ctx, { profile: 'test-sleep', sessionMode: 'headless', workdir: ctx.seatDir });
+      const row = await ctx.mgr.spawn(fired.exec_id, 'test-sleep', 'headless', null, ctx.seatDir, 'probe');
       process.stdout.write(JSON.stringify({ unit: row.unit_name, pid: row.pid, tmp: ctx.tmp, launcherPid: process.pid }));
       // Deliberately DO NOT teardown: leave the worker running and exit the launcher.
       process.exit(0);

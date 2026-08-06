@@ -3,13 +3,13 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn: childSpawn } = require('node:child_process');
-const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, sessionsRootFor } = require('./config');
+const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot } = require('./config');
 const { materializeHarnessConfig, harnessOf } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
 const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags } = require('./cage');
-const { parseSeatPath, parseGoalScope, checkRunLive, checkMaterializedSeat } = require('../seat-identity/seat-folder');
+const { parseSeatPath, checkRunLive, checkMaterializedSeat } = require('../seat-identity/seat-folder');
 const { appendRow } = require('../seat-identity/csv');
 const {
   generateSessionId,
@@ -274,7 +274,10 @@ function resolveSeatGrants(seatPath) {
   for (const entry of entries) {
     if (!entry.isDirectory() || !entry.name.endsWith(suffix)) continue;
     const worktree = path.join(worktreesDir, entry.name);
-    const grant = { worktree, worktreeName: entry.name };
+    // repoGit/worktreeGitDir start EXPLICITLY null: since r-seats-only-architecture (5) the grant
+    // list is heterogeneous and cage.js skips a grant that does not DECLARE an entry's field — so
+    // a worktree grant must declare these keys even when degraded, to keep the loud path below.
+    const grant = { worktree, worktreeName: entry.name, repoGit: null, worktreeGitDir: null };
     try {
       const dotGit = fs.readFileSync(path.join(worktree, '.git'), 'utf8').trim();
       const m = /^gitdir:\s*(.+)$/.exec(dotGit);
@@ -289,12 +292,82 @@ function resolveSeatGrants(seatPath) {
         }
       }
     } catch {
-      // A worktree whose `.git` is unreadable yields NO repoGit, so every `{grant:repoGit}` entry
+      // A worktree whose `.git` is unreadable keeps repoGit null, so every `{grant:repoGit}` entry
       // for it fails loudly at compose time rather than opening a path derived from a guess.
     }
     grants.push(grant);
   }
   return grants;
+}
+
+// ── r-seats-only-architecture (5) — HARNESS-CREDENTIAL grants ────────────────────────────────
+//
+// Read-only mounts for the harness credentials/config a seat is entitled to DISPATCH WITH — its
+// delegation children (the orchestration skill's headless CLI workers, which run INSIDE the
+// seat's cage and would otherwise find every other harness's credentials simply absent under the
+// HOME tmpfs). Grant-gated exactly like the worktree grants above: no grant, no mount. The seat's
+// OWN harness needs no grant here — bwrap.js binds its state back over the HOME tmpfs on every
+// spawn (harnessStateBinds), read-WRITE, because a harness must write its own session state.
+//
+// The path table MIRRORS bwrap.js's harnessStateBinds (not exported from that module; converging
+// the two is a one-line export in a file outside this change's set) — a PRIN-11 residual,
+// DISCLOSED rather than hidden.
+//
+// ZERO GRANTS IS THE CORRECT ANSWER TODAY, and it is not a stub — the same posture the worktree
+// resolver held before task 7.38 landed. No entitlement record names which harnesses a seat may
+// dispatch with yet: that producer is the delegation lane's (r-seats-only-architecture (4), the
+// orchestration skill's routing). When it lands, it hands harness NAMES here and the mounts
+// simply appear; until then a template's `ro-bind:{grant:harnessCreds}` line composes to nothing.
+const HARNESS_CRED_PATHS = {
+  claude: (home) => [path.join(home, '.claude'), path.join(home, '.claude.json')],
+  codex: (home) => [path.join(home, '.codex')],
+  opencode: (home) => [
+    path.join(home, '.config', 'opencode'),
+    path.join(home, '.local', 'share', 'opencode'),
+    path.join(home, '.cache', 'opencode'),
+  ],
+};
+
+function resolveHarnessCredGrants(entitledHarnesses = []) {
+  const home = require('node:os').homedir();
+  const grants = [];
+  for (const harness of entitledHarnesses) {
+    const paths = HARNESS_CRED_PATHS[harness];
+    if (!paths) continue; // an unknown harness has no known credential paths — nothing to mount
+    for (const p of paths(home)) {
+      if (fs.existsSync(p)) grants.push({ harness, harnessCreds: p });
+    }
+  }
+  return grants;
+}
+
+// ── r-seats-only-architecture (1) — ONE cage composer for BOTH spawn doors ───────────────────
+//
+// The seat cage (task 7.11's SeatBinds stack) is now the ONE sandbox shape for every daemon
+// spawn — the flat worker cage (workdir-only RW, nothing mounted) retires with the flat launch
+// branch. Both `spawn` (headless/job) and `spawnSeat` (headed/room) compose through this single
+// point, from the SEAT'S OWN records: the folder gives goal/run/seat, the grants come from the
+// seat's records (worktrees + harness-credential entitlements), never from caller input (CMP-17).
+//
+// `assertGroundTruthUnwritable` REFUSES any composition in which the run-level sessions.csv —
+// the file the identity gate reads to decide who is sitting here — would be writable from
+// inside. Checked on EVERY spawn rather than once in a probe: a probe proves one composition
+// sound, an assertion proves all of them (design §1).
+function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir) {
+  const template = resolvedSandbox && resolvedSandbox.SeatBinds;
+  if (!template || template.length === 0) return null;
+  const spec = composeSeatCage({
+    seatBinds: template,
+    values: {
+      workdir: resolvedWorkdir,
+      seatDir: seatPath.seatDir,
+      goalDir: seatPath.goalDir,
+      runDir: seatPath.runDir,
+    },
+    grants: [...resolveSeatGrants(seatPath), ...resolveHarnessCredGrants()],
+  });
+  assertGroundTruthUnwritable(spec, seatPath.sessionsCsv);
+  return specToBwrapFlags(spec);
 }
 
 function createSpawnManager({ heartStore, configPath, logger = null, userManager = true }) {
@@ -304,12 +377,12 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     throw new SpawnError(E_MISSING_KEY, 'spawn.data_root is required', { key: 'spawn.data_root' });
   }
 
-  // D58(1): the default (ticker) launch branch materializes `<workspaceRoot>/.rbtv/sessions/<exec-id>/`.
-  // The sessions root is derived once, from the heart store's own `.rbtv/` location (guaranteeing the
-  // session dir is a SIBLING of `.rbtv/heart/`, never a parent of it — D58(3)). index.js is frozen for
-  // this task and does not pass the workspace root, so the module sources it here the same way.
+  // The workspace root is derived once, from the heart store's own `.rbtv/` location. It resolves
+  // machine-agnostic (workspace-relative) profile workdir_roots. The D58(1) sessions root that was
+  // also derived here is GONE: the flat `.rbtv/sessions/<exec-id>/` launch branch is retired
+  // (r-seats-only-architecture (3) — a dispatch with no home is a refusal, not a flat dir), so
+  // nothing on this module materializes a per-execution dir outside a seat folder any more.
   const workspaceRoot = resolveWorkspaceRoot(heartStore && heartStore.dbPath);
-  const sessionsRoot = sessionsRootFor(workspaceRoot);
 
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -341,45 +414,59 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // parentheses). The workdir guard above stays UNCONDITIONAL: a workdir always rides
     // argv/unit properties.
 
-    const resolvedWorkdir = resolveWorkdir(profile, workdir, config.default_workdir_root, configPath, { execId, sessionsRoot, workspaceRoot });
+    // ── r-seats-only-architecture (3) · NO HOME, NO SPAWN ────────────────────────────────────
+    //
+    // A launch with NO workdir used to fall through to resolveWorkdir's default branch, which
+    // MATERIALIZED the flat `.rbtv/sessions/<exec-id>/` launch dir. That branch is RETIRED for
+    // every daemon spawn: "a dispatch with no home is a refusal, not a flat dir". Refused HERE,
+    // before resolveWorkdir, because the default branch's side effect is the very dir this
+    // ruling removes — a refusal after it would leave the flat dir on disk anyway.
+    if (workdir === undefined || workdir === null) {
+      throw new SpawnError(
+        E_SEATLESS_GOAL_DISPATCH,
+        `REFUSING SEATLESS DISPATCH: launch of profile ${profileName} names no home — ` +
+        'MISSING FIELD: workdir (a canonical seat folder ' +
+        '<ws>/.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>/, resolved from the job row\'s ' +
+        'goal_name/seat_name or the dispatch args). The flat .rbtv/sessions/<exec-id>/ launch ' +
+        'branch is RETIRED (r-seats-only-architecture: every daemon-spawned agent is a seat).',
+        { profile: profileName, missingField: 'workdir', sessionMode },
+      );
+    }
 
-    // ── Task 7.75 · THE DISPATCH DOOR (design-760 §3) ────────────────────────────────────────
+    const resolvedWorkdir = resolveWorkdir(profile, workdir, config.default_workdir_root, configPath, { execId, workspaceRoot });
+
+    // ── THE DISPATCH DOOR (task 7.75, WIDENED by r-seats-only-architecture (3)) ──────────────
     //
     // The owner's rider on `r-headless-visibility` — "every headless session attributed to a SEAT,
     // no seat-less rows in the snapshot" — enforced BY CONSTRUCTION rather than by filtering: a
-    // goal-scoped headless session that names no seat is not hidden downstream, it never comes
-    // into existence. This is the ONE door it would pass. `server/index.js` routes session_mode
+    // headless session that names no seat is not hidden downstream, it never comes into
+    // existence. This is the ONE door it would pass. `server/index.js` routes session_mode
     // `headed` to spawnSeat (which has carried its own §4a gate since 7.11) and EVERYTHING ELSE
     // here, and the ticker's dispatch phase is the only caller of either — so the two halves of
-    // the daemon's launch surface are now gated, not one.
+    // the daemon's launch surface are gated, not one.
     //
-    // ⚑ WHAT IS NOT REFUSED, and it is the load-bearing half of the clause:
-    //   • a dispatch OUTSIDE `.rbtv/goals/` — the interim `.rbtv/sessions/<exec-id>/` path. That
-    //     covers the SUB-AGENT LANE (NEED-3's carve-out: a sub-agent holds no slot in any
-    //     taskforce, and `capabilities/sub-agent-dispatch` independently REFUSES a seat workdir
-    //     at its own boundary 6) and every machine-lane job (design-760 § machine-lane: no goal,
-    //     no run snapshot to enter). Exempt BY CONSTRUCTION, never by a mode flag anyone can set.
-    //   • `fire-tool` / `start-workflow` / `send-message` execs, which never reach this function
-    //     (ticker.js runToolLikeExec goes straight to the carrier). THE RECOVERY PATH IS ONE OF
-    //     THEM — `selfheal-room`, `selfheal-watch`, `restart-daemon` are all `fire-tool` — which
-    //     is why arming this gate cannot disarm the repair (the leader's G-52 mirror-trap rider,
-    //     #465). Stated here so the next reader does not have to re-derive it from the ticker.
+    // 7.75's gate fired only INSIDE `.rbtv/goals/`; the exemptions it carried — the sub-agent
+    // lane and the machine-lane flat dispatches — RETIRE with the lane and the flat branch
+    // (r-seats-only-architecture (3)/(4)): delegation is seat-side now, and every daemon spawn
+    // resolves a seat folder or is refused. What still never reaches this function:
+    // `fire-tool` / `start-workflow` / `send-message` execs (ticker.js runToolLikeExec goes
+    // straight to the carrier). THE RECOVERY PATH IS ONE OF THEM — `selfheal-room`,
+    // `selfheal-watch`, `restart-daemon` are all `fire-tool` — which is why arming this gate
+    // cannot disarm the repair (the leader's G-52 mirror-trap rider, #465).
     //
     // A refusal here is a REAL refusal: it is raised before any harness config, session dir, unit,
     // pane or store row past `launching` exists — the same absence-proven standard §4a set.
-    const goalScope = parseGoalScope(resolvedWorkdir);
-    const dispatchSeat = goalScope ? parseSeatPath(resolvedWorkdir) : null;
-    if (goalScope && !dispatchSeat) {
+    const dispatchSeat = parseSeatPath(resolvedWorkdir);
+    if (!dispatchSeat) {
       throw new SpawnError(
         E_SEATLESS_GOAL_DISPATCH,
-        `refusing a goal-scoped headless dispatch that names no seat: ${resolvedWorkdir} is inside ` +
-        `goal "${goalScope.goal}" but is not a seat folder ` +
+        `REFUSING SEATLESS DISPATCH: ${resolvedWorkdir} is not a canonical seat folder ` +
         `(<ws>/.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>/). MISSING FIELD: seat — the ` +
         'dispatch-time record is the ONLY authority for session->seat attribution (G-31), so a ' +
         'session with no seat to record could never be attributed at all. Supply a seat-folder ' +
-        'workdir, or home the job at a (goal, seat) pair. Sub-agent and machine-lane dispatches ' +
-        'are seatless and EXEMPT — they launch outside .rbtv/goals/ and never reach this check.',
-        { workdir: resolvedWorkdir, goal: goalScope.goal, missingField: 'seat', profile: profileName, sessionMode },
+        'workdir, or home the job at a (goal, seat) pair (r-seats-only-architecture: a dispatch ' +
+        'with no home is a refusal, not a flat dir).',
+        { workdir: resolvedWorkdir, missingField: 'seat', profile: profileName, sessionMode },
       );
     }
 
@@ -406,8 +493,15 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // carrier opaquely (both systemd and setsid branches); the walls live in argv, not config.
     // No promptFile bind: the sole headless carriage is stdin (fd 0 opens before the wrap execs);
     // headed prompt files were bound by the pty host's own buildBwrapArgv call (module deleted at 7.29).
+    //
+    // r-seats-only-architecture (1): the SEAT CAGE is the one sandbox for this door too. When the
+    // profile's (config-shared) SeatBinds template is present it REPLACES the flat workdir opening
+    // inside buildBwrapArgv, composed around THIS dispatch's seat by the same single composer
+    // spawnSeat uses. A profile with no template still gets the v1 workdir-only wall — a config
+    // state, not a code branch kept on purpose.
     const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
-    const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, harness: harnessOf(profile), maskPaths });
+    const seatCage = composeCageFor(resolvedSandbox, dispatchSeat, resolvedWorkdir);
+    const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, harness: harnessOf(profile), maskPaths, seatBinds: seatCage });
 
     const carrier = selectCarrier(config.spawn.carrier, userManager);
 
@@ -544,7 +638,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // ruling `r-711-write-bounds` pre-binds it to own seat folder + own worktree + git plumbing),
     // a seat folder living outside that root cannot be spawned into. That is a need to SURFACE,
     // which is exactly what the ruling's rider asks for — never a boundary to widen here.
-    const resolvedWorkdir = resolveWorkdir(profile, seatDir, config.default_workdir_root, configPath, { execId, sessionsRoot, workspaceRoot });
+    const resolvedWorkdir = resolveWorkdir(profile, seatDir, config.default_workdir_root, configPath, { execId, workspaceRoot });
 
     // ── Task 7.11 §4a — THE LAUNCH-TIME IDENTITY GATE ───────────────────────────────────────
     //
@@ -553,9 +647,10 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // acceptance bars ask for (P1/P2/P3): a refusal MESSAGE only shows the tool said no, never
     // that nothing happened.
     //
-    // These run on the SEAT path only. The ticker/job branch (`spawn`, above) is untouched — §5's
-    // staged retirement: seat spawns leave `.rbtv/sessions/` now, the ticker branch keeps it and
-    // says so, rather than one half being silently inconsistent with the other.
+    // These run on the SEAT path only — but the divergence they once marked is closed: the
+    // ticker/job branch (`spawn`, above) left `.rbtv/sessions/` too (r-seats-only-architecture
+    // completed 7.11 §5's staged retirement). What stays seat-door-only is L2/L3's rostered-seat
+    // strictness; the job door materializes job-born seats instead (resolveSeatHome, ticker.js).
     //
     // L1 — canonical seat-folder shape. `resolveWorkdir` above already refused anything outside
     // the profile's workdir_root (E_WORKDIR_ESCAPE, the mechanism REUSED not relaxed); this adds
@@ -618,33 +713,11 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     const sessionId = generateSessionId();
     const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
 
-    // ── Task 7.11 §2 — the SEAT CAGE ────────────────────────────────────────────────────────
-    //
-    // Slots resolve from the SEAT'S OWN RECORDS — the folder gives goal/run/seat, the grants come
-    // from the seat's records. Nothing here reads caller input, which is CMP-17's interface
-    // ("callers can never inject paths at request time") carried unchanged into a wider writable
-    // set: the set grew, the door did not.
-    //
-    // `assertGroundTruthUnwritable` then REFUSES any composition in which the run-level
-    // sessions.csv — the file the identity gate reads to decide who is sitting here — would be
-    // writable from inside. It is checked on EVERY spawn rather than once in a probe, because a
-    // probe proves one composition sound and an assertion proves all of them (design §1).
-    const seatCage = (() => {
-      const template = resolvedSandbox && resolvedSandbox.SeatBinds;
-      if (!template || template.length === 0) return null;
-      const spec = composeSeatCage({
-        seatBinds: template,
-        values: {
-          workdir: resolvedWorkdir,
-          seatDir: seatPath.seatDir,
-          goalDir: seatPath.goalDir,
-          runDir: seatPath.runDir,
-        },
-        grants: resolveSeatGrants(seatPath),
-      });
-      assertGroundTruthUnwritable(spec, seatPath.sessionsCsv);
-      return specToBwrapFlags(spec);
-    })();
+    // ── Task 7.11 §2 — the SEAT CAGE, via the ONE composer both doors share ─────────────────
+    // (composeCageFor above — r-seats-only-architecture (1)). Slots resolve from the SEAT'S OWN
+    // RECORDS; nothing here reads caller input (CMP-17), and the ground-truth assertion runs on
+    // every spawn.
+    const seatCage = composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir);
 
     // Composition FIRST — and this ordering is the fail-closed guarantee, not a style choice.
     // composeSeatSpawn runs buildBwrapArgv before it builds any tmux argv, so on a box without

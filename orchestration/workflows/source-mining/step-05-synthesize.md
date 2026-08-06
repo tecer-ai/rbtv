@@ -31,6 +31,11 @@ Mode-branched synthesis. Reconcile produces a delta + open questions list (HALT 
 
 ## HEADLESS HAND-BACK PROCEDURE (dispatched runs only — interactive behavior is never touched)
 
+> ⚠ SUPERSEDED IN PART — `r-seats-only-architecture` (2026-08-06): the `rbtv-subagent` CLI-lane
+> dispatcher (`ignite/capabilities/sub-agent-dispatch/`) is RETIRED; headless dispatch now arrives
+> seat-side via the orchestration skill's CLI-worker lane. The hand-back PROPERTY below survives,
+> but the `RBTV_SUBAGENT_DEPTH` detection has no live stamper until that lane stamps an equivalent.
+
 Fires at 2A.5 / 2B.3 only. Orthogonal to `yolo` (`workflow.md` § YOLO MODE): a headless run without
 `yolo` never reaches this step at all (the menus/approvals in earlier steps still halt); a `yolo` run
 with an interactive user still uses the HALT below, unchanged. Headless means "no interactive user is

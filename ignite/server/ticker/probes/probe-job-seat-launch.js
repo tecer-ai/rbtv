@@ -12,8 +12,10 @@
 //      interim `.rbtv/sessions/<exec-id>/` path. A silent fallback is the dangerous outcome: it
 //      looks identical in the log to a job that was never homed, so the homing would evaporate
 //      exactly where nobody is watching;
-//   3. an UNHOMED job still uses the interim path — the positive control that keeps claim 2 from
-//      being satisfied by a resolver that simply refuses everything.
+//   3. an UNHOMED job does NOT spawn — firing it is a refusal. Rewritten per
+//      `r-seats-only-architecture` (2026-08-06): the flat `.rbtv/sessions/` launch path is
+//      retired; every daemon spawn homes as a seat. The former positive control (unhomed →
+//      interim path) protected the retired mechanism.
 //
 // `RBTV_IGNITE_WORKSPACE_ROOT` is set because the probe's store lives under a tmp dir with no
 // `.rbtv/` ancestor — it is `resolveWorkspaceRoot`'s own documented fallback, not a test backdoor.
@@ -104,7 +106,12 @@ async function run(lines) {
     try { await ctx.mgr.kill(execRow.exec_id); } catch { /* best effort */ }
 
     // ── 2 · HOMED BUT UNRESOLVABLE → FAIL LOUD, never the interim path ───────────────────────
-    makeSeatTree(wsRoot, { goal: 'broken-goal', seat: 'ghost-seat', materialize: false });
+    // A merely-ABSENT seat.md is no longer unresolvable: r-seats-only-architecture auto-
+    // materializes a job-born seat's minimal shape at spawn (resolveSeatHome's materialize
+    // branch). What stays a refusal is a descriptor that DISAGREES with its folder — so that is
+    // the unresolvable case this scenario stages.
+    const ghostDir = makeSeatTree(wsRoot, { goal: 'broken-goal', seat: 'ghost-seat', materialize: false });
+    fs.writeFileSync(path.join(ghostDir, 'seat.md'), '---\nseat: somebody-else\n---\n');
     registerHomed(ctx, { jobId: 'broken-job', goalName: 'broken-goal', seatName: 'ghost-seat' });
     enqueue(ctx, 'broken-job', new Date(Date.now() - 1000));
 
@@ -121,7 +128,7 @@ async function run(lines) {
     }
     lines.push(`PASS  an unresolvable homed job FAILED LOUD, no interim fallback: ${failedAction.error}`);
 
-    // ── 3 · POSITIVE CONTROL · UNHOMED still works, and uses the interim path ────────────────
+    // ── 3 · UNHOMED → REFUSAL, never a flat-path spawn (r-seats-only-architecture) ───────────
     ctx.store.registerJob({
       jobId: 'unhomed-job',
       actionType: 'launch-agent',
@@ -131,15 +138,14 @@ async function run(lines) {
     enqueue(ctx, 'unhomed-job', new Date(Date.now() - 1000));
 
     r = await ctx.ticker.tick(new Date());
-    const plain = r.actions.find((a) => a.action === 'spawn');
     lines.push(`unhomed tick actions: ${JSON.stringify(r.actions)}`);
-    if (!plain) throw new Error(`unhomed job did not spawn: ${JSON.stringify(r.actions)}`);
-    if (plain.homed !== undefined) {
-      throw new Error(`an unhomed job reported a home: ${plain.homed}`);
+    const flatSpawn = r.actions.find((a) => a.action === 'spawn');
+    if (flatSpawn) {
+      const row = ctx.store.dump().jobs_log.find((x) => x.job_id === 'unhomed-job');
+      try { if (row) await ctx.mgr.kill(row.exec_id); } catch { /* best effort */ }
+      throw new Error(`an unhomed launch SPAWNED — the retired flat path is live: ${JSON.stringify(flatSpawn)}`);
     }
-    lines.push('PASS  an unhomed job still launches, with no home reported (interim path intact)');
-    const unhomedRow = ctx.store.dump().jobs_log.find((x) => x.job_id === 'unhomed-job');
-    try { await ctx.mgr.kill(unhomedRow.exec_id); } catch { /* best effort */ }
+    lines.push('PASS  an unhomed launch did not spawn — refusal, not a flat dir (r-seats-only-architecture)');
 
     lines.push('');
     lines.push('CHECKS: 3/3 scenarios passed');

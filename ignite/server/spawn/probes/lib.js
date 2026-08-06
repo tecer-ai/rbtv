@@ -18,6 +18,16 @@ function setup() {
   fs.mkdirSync(defaultWorkdir, { recursive: true });
   fs.mkdirSync(escapedir, { recursive: true });
 
+  // r-seats-only-architecture (3): every daemon spawn resolves a canonical seat folder or is
+  // refused, so the fixture provides one INSIDE workdir_root for the probes' live-spawn legs.
+  // The run-level sessions.csv carries the real 7.37 header so the at-dispatch row appends
+  // cleanly rather than warning.
+  const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal', 'runs', 'run-1');
+  const seatDir = path.join(runDir, 'seats', 'probe-seat');
+  fs.mkdirSync(seatDir, { recursive: true });
+  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\n---\n');
+  fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
+
   const cfg = {
     bind: { host: '127.0.0.1', port: 7431 },
     auth: { senders_file: path.join(tmp, 'senders.yaml') },
@@ -62,7 +72,7 @@ function setup() {
   const dbPath = path.join(tmp, 'heart.db');
   const store = openHeartStore({ dbPath });
   const mgr = createSpawnManager({ heartStore: store, configPath: cfgPath, logger: null, userManager: true });
-  return { tmp, dataRoot, workRoot, defaultWorkdir, escapedir, cfgPath, store, mgr, dbPath };
+  return { tmp, dataRoot, workRoot, defaultWorkdir, escapedir, seatDir, runDir, cfgPath, store, mgr, dbPath };
 }
 
 function teardown(ctx) {

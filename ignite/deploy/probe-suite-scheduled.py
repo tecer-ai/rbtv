@@ -83,11 +83,9 @@ RUNTIME_DIR = os.path.join(WORKSPACE_ROOT, '.rbtv', 'runtime', 'probe-suite')
 LATEST = os.path.join(RUNTIME_DIR, 'latest.json')
 
 # ⚠ EXCLUDED BY CONSTRUCTION, WITH ITS REASON IN THE SAME PLACE AS THE EXCLUSION (leader ratified).
-# Not a flag someone remembers to pass: this probe makes real PAID `claude` calls on every run
-# (G-213), and a scheduled trigger would bill them on every fire, unattended, forever.
-EXCLUDED_DIRS = {
-    'capabilities/sub-agent-dispatch/probes': 'makes real PAID claude API calls on every run (G-213)',
-}
+# Empty since `r-seats-only-architecture` (2026-08-06) deleted capabilities/sub-agent-dispatch/
+# (its probes made real PAID claude calls, G-213); the mechanism stays for the next paid probe.
+EXCLUDED_DIRS = {}
 
 DEFAULT_INTERVAL_SECONDS = 3600
 # How long after a fire the artifact should be considered stale. Deliberately > interval so a single

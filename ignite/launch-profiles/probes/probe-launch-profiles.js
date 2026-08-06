@@ -174,21 +174,21 @@ check('(7) a portable-LESS profile FAILS CLOSED on a cage-less host', () => {
 
 // ── 8/9/10/11 · the effort slot, against the SHIPPED file ────────────────────────────────────
 check('(8) effort round-trips through the claude dialect', () => {
-  const r = lp.resolveProfile(shipped, 'claude-sonnet-tools', { effort: 'high' });
+  const r = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'high' });
   if (!r.argv.includes('--effort') || !r.argv.includes('high')) throw new Error(r.argv.join(' '));
   return `dialect=${r.effort.dialect} argv-tail=${r.argv.slice(-2).join(' ')}`;
 });
 check('(9) …and through a SECOND, differently-spelled dialect (codex)', () => {
-  const r = lp.resolveProfile(shipped, 'codex-git-write', { effort: 'high', slots: { workdir: '/tmp' } });
+  const r = lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 'high', slots: { workdir: '/tmp' } });
   const tail = r.argv.slice(-2).join(' ');
   if (!tail.includes('model_reasoning_effort=high')) throw new Error(tail);
   if (r.effort.dialect !== 'thinking') throw new Error(`dialect=${r.effort.dialect}`);
   return `dialect=${r.effort.dialect} argv-tail=${tail}`;
 });
-check('(9b) the table TRANSLATES rather than passes through (max -> xhigh on codex, max on claude)', () => {
-  const cx = lp.resolveProfile(shipped, 'codex-git-write', { effort: 'max', slots: { workdir: '/tmp' } });
-  const cl = lp.resolveProfile(shipped, 'claude-sonnet-tools', { effort: 'max' });
-  if (cx.effort.value !== 'xhigh') throw new Error(`codex max -> ${cx.effort.value}`);
+check('(9b) the table TRANSLATES rather than passes through (max -> high on codex [3-depth dial, lossy stated collapse], max on claude)', () => {
+  const cx = lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 'max', slots: { workdir: '/tmp' } });
+  const cl = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'max' });
+  if (cx.effort.value !== 'high') throw new Error(`codex max -> ${cx.effort.value}`);
   if (cl.effort.value !== 'max') throw new Error(`claude max -> ${cl.effort.value}`);
   return 'ONE abstract level, two different rendered values — translation, not passthrough';
 });
@@ -213,7 +213,7 @@ check('(10) an INERT dial is STATED, never silently dropped', () => {
   return 'effortInert=true reported to the caller; argv unchanged';
 });
 check('(11) an effort level outside the abstract vocabulary is refused', () => {
-  const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveProfile(shipped, 'claude-sonnet-tools', { effort: 'turbo' }));
+  const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'turbo' }));
   return err.code;
 });
 

@@ -29,10 +29,10 @@ harness's own one-shot invocation; hooks reaches the harness through its harness
 | # | Consumer | State |
 |---|----------|-------|
 | 1 | the daemon's spawn path (`server/spawn/harness-config.js`, a thin adapter over this) | **LIVE** |
-| 2 | the attached dispatch surface — the rbtv CLI run verb + the sub-agent dispatch capability | tasks **7.44 / 7.43** — NOT BUILT |
+| 2 | the attached dispatch surface — the rbtv CLI run verb | task **7.44** — NOT BUILT. Its former other half, the sub-agent dispatch capability (7.43), is **RETIRED** per `r-seats-only-architecture` (2026-08-06): the daemon's sub-agent lane is gone; delegation is seat-side |
 | 3 | the orchestration conductor's CLI-worker dispatch | task **7.54** — NOT BUILT |
 
-⚠ **All three unbuilt consumers carry `_Depends:_ 7.42, 7.45` in their own task rows.** So this
+⚠ **The unbuilt consumers carry `_Depends:_ 7.42, 7.45` in their own task rows.** So this
 module ships with one live consumer not because the work stopped short, but because **the other two
 cannot be built before it**. The same disclosure 7.42 made for `resolveProfile()`, for the same
 structural reason. Stated plainly so no reader infers more completeness than exists.

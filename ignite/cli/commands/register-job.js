@@ -30,7 +30,9 @@ const HELP = `ignite register-job <job-id> --action-type <${ACTION_TYPES.join('|
   runs as a SEAT in a goal (r-job-seat-home). The RUN is not named here — it is
   resolved to the goal's LIVE run each time the job fires, so a homed job follows
   the goal forward instead of pinning to a run that later closes. Omit both and the
-  job is UNHOMED: it still fires, into the interim .rbtv/sessions/<exec-id>/ path.`;
+  job is UNHOMED: registration is accepted, but FIRING an unhomed launch is a
+  refusal — every daemon spawn homes as a seat; the flat .rbtv/sessions/ path is
+  retired (r-seats-only-architecture).`;
 
 function build(argv) {
   const jobId = argv.shift();
@@ -110,7 +112,7 @@ async function run(argv, ctx) {
         // out loud is what stops a forgotten --goal/--seat from looking identical to a decision.
         const home = result.homed
           ? `homed at ${result.homed.goal}/${result.homed.seat}`
-          : 'UNHOMED — fires into the interim .rbtv/sessions/ path';
+          : 'UNHOMED — firing it is a refusal until homed (r-seats-only-architecture: every daemon spawn is a seat)';
         console.log(`registered: job "${result.job_id}" (${result.action_type}, ${result.enabled ? 'enabled' : 'disabled'}) — ${home}`);
       }
     },

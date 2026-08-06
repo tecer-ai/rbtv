@@ -13,8 +13,8 @@
 //
 //   D1  goal-scoped, no seat   -> REFUSED  E_SEATLESS_GOAL_DISPATCH, and NOTHING was created
 //   D2  goal-scoped, IS a seat -> ADMITTED, and the sessions.csv row is written AT DISPATCH
-//   D3  NOT goal-scoped        -> ADMITTED, and NO session row is written anywhere
-//                                 (the NEED-3 sub-agent carve-out + every machine-lane job)
+//   D3  NOT goal-scoped        -> REFUSED too (r-seats-only-architecture (3): the 7.75 sub-agent /
+//                                 machine-lane exemption retired with the flat launch branch)
 //
 // The refusal legs are ABSENCE-PROVEN, not message-proven (the §4a evidence rule): the filesystem
 // and the store are re-read after each refusal and asserted unchanged. A gate that throws loudly
@@ -176,32 +176,35 @@ capture('probe-dispatch-door', async (lines) => {
       + `row.session-id=${one && one['session-id']} jobs_log.session_id=${execRow && execRow.session_id} `
       + `identical=${Boolean(one) && one['session-id'] === execRow.session_id} pid=${one && one.pid}`);
 
-    // ── D3 — NOT GOAL-SCOPED: the NEED-3 sub-agent carve-out and every machine-lane job.
-    //
-    // The sub-agent lane (`capabilities/sub-agent-dispatch`) resolves its workdir to exactly this
-    // shape — `<ws>/.rbtv/sessions/<exec-id>/` — and independently refuses a seat workdir at its
-    // own boundary 6. So the property this leg fixes is the one that lane actually has: outside
-    // `.rbtv/goals/`. It must be ADMITTED, and it must leave NO session row behind — attributing a
-    // seatless dispatch to anyone is the second failure mode (G-31), not a courtesy.
-    const beforeD3 = sessionRows(f).length;
+    // ── D3 — THE RETIRED FLAT PATH IS REFUSED (r-seats-only-architecture (3)/(4)). The 7.75
+    // door carried an exemption here: a dispatch outside `.rbtv/goals/` (the sub-agent lane's
+    // `<ws>/.rbtv/sessions/<exec-id>/` shape, machine-lane jobs) was ADMITTED. The lane retired
+    // with the daemon's delegation broker and the flat launch branch retired with it — a dispatch
+    // with no home is a refusal, not a flat dir. Absence-proven like D1: nothing created.
+    const beforeD3 = world(f);
     const d3 = await dispatch(f.interimDir);
-    const afterD3 = sessionRows(f).length;
-    leg('D3', 'a dispatch OUTSIDE .rbtv/goals/ (the sub-agent + machine lane) is NOT refused, and is attributed to nobody',
-      !d3.threw && afterD3 === beforeD3,
-      `refused=${d3.threw} code=${d3.code || 'none'} session rows before=${beforeD3} after=${afterD3}`);
+    const afterD3 = world(f);
+    const d3nothing = JSON.stringify(beforeD3) === JSON.stringify(afterD3);
+    leg('D3', 'a dispatch into the RETIRED flat .rbtv/sessions/ path is REFUSED (REFUSING SEATLESS DISPATCH), and nothing was created',
+      d3.threw && d3.code === 'E_SEATLESS_GOAL_DISPATCH' && /REFUSING SEATLESS DISPATCH/.test(d3.message || '')
+      && d3nothing && d3.status !== 'running',
+      `refused=${d3.threw} code=${d3.code || 'none'} store-status=${d3.status} world-unchanged=${d3nothing}`);
 
-    // ── D4 — the door reads the PATH, never a caller assertion. A seat-shaped path OUTSIDE any
-    // `.rbtv/goals/` tree is not goal-scoped and is admitted; the goal tree is what makes the
-    // clause apply. This closes the "refuse anything containing the word seats" reading.
-    // Inside the workspace (so the containment gate is not what answers — that would confound the
-    // leg exactly as `workdir_root` would have confounded D1), but outside `.rbtv/goals/`.
+    // ── D4 — a seat-SHAPED path outside any `.rbtv/goals/` tree is NOT a seat folder and is
+    // REFUSED too. Under 7.75 this leg proved the goal tree was what armed the gate; under
+    // r-seats-only-architecture the gate is armed everywhere — parseSeatPath requires the full
+    // canonical shape (`.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>`), so a decoy `seats/`
+    // segment outside the goal tree cannot buy admission. Inside the workspace, deliberately, so
+    // the containment gate is not what answers (the confounding D1's fixture note warns about).
     const decoy = path.join(f.ws, 'decoy', 'runs', 'run-1', 'seats', 'mine');
     fs.mkdirSync(decoy, { recursive: true });
-    const beforeD4 = sessionRows(f).length;
+    const beforeD4 = world(f);
     const d4 = await dispatch(decoy);
-    leg('D4', 'a seat-SHAPED path outside .rbtv/goals/ is not goal-scoped — admitted, and writes no row',
-      !d4.threw && sessionRows(f).length === beforeD4,
-      `refused=${d4.threw} code=${d4.code || 'none'} rows unchanged=${sessionRows(f).length === beforeD4}`);
+    const afterD4 = world(f);
+    const d4nothing = JSON.stringify(beforeD4) === JSON.stringify(afterD4);
+    leg('D4', 'a seat-SHAPED path outside .rbtv/goals/ is not a seat folder — REFUSED, and nothing was created',
+      d4.threw && d4.code === 'E_SEATLESS_GOAL_DISPATCH' && d4nothing && d4.status !== 'running',
+      `refused=${d4.threw} code=${d4.code || 'none'} store-status=${d4.status} world-unchanged=${d4nothing}`);
 
     lines.push('');
     lines.push(`legs: ${fails.length === 0 ? 'ALL PASS' : `FAILED -> ${fails.join(', ')}`}`);

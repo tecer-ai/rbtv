@@ -18,9 +18,10 @@ capture('probe-mode-gate', async (lines) => {
       }
     }
 
-    // Headed-capable profile: fire a real row and spawn.
-    const fired = fire(ctx, { profile: 'test-headed', sessionMode: 'headed', workdir: ctx.defaultWorkdir });
-    const row = await ctx.mgr.spawn(fired.exec_id, 'test-headed', 'headed', null, null, 'probe');
+    // Headed-capable profile: fire a real row and spawn (homed in the fixture seat folder —
+    // r-seats-only-architecture refuses homeless dispatches on this door too).
+    const fired = fire(ctx, { profile: 'test-headed', sessionMode: 'headed', workdir: ctx.seatDir });
+    const row = await ctx.mgr.spawn(fired.exec_id, 'test-headed', 'headed', null, ctx.seatDir, 'probe');
     lines.push(`headed on headed-capable profile: spawned, status=${row.status}`);
     await ctx.mgr.kill(row.exec_id);
     lines.push('result: invalid modes rejected; headed profile spawns successfully');

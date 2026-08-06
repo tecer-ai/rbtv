@@ -104,7 +104,8 @@ function substituteGrant(template, grant, index) {
     if (typeof value !== 'string' || value.length === 0) {
       throw new SpawnError(
         E_CAGE_TEMPLATE,
-        `sandbox.SeatBinds[${index}] slot ${match} is absent from the grant (grant fields: ${Object.keys(grant).join(', ') || 'none'})`,
+        `sandbox.SeatBinds[${index}] slot ${match} has no usable value on this grant — declared-but-null ` +
+        `is a degraded grant refusing loudly, never a silent skip (grant fields: ${Object.keys(grant).join(', ') || 'none'})`,
         { index, slot: match, field },
       );
     }
@@ -117,11 +118,19 @@ function substituteGrant(template, grant, index) {
 //   composeSeatCage({ seatBinds, values, grants })
 //     -> [{ verb, path }, ...]
 //
-// `grants` is the seat's OWN records (worktree + repo plumbing), resolved by the daemon from the
-// seat's records and never from caller input (CMP-17: callers can never inject paths at request
-// time). A template entry with no `{grant:…}` slot appears exactly once regardless of how many
-// grants exist; an entry WITH one appears once per grant, in grant order. Zero grants therefore
-// yields zero worktree openings — the correct answer, and reached without a special case.
+// `grants` is the seat's OWN records (worktree + repo plumbing, and — under
+// `r-seats-only-architecture` (5) — harness-credential entitlements), resolved by the daemon from
+// the seat's records and never from caller input (CMP-17: callers can never inject paths at
+// request time). A template entry with no `{grant:…}` slot appears exactly once regardless of how
+// many grants exist; an entry WITH one appears once per grant, in grant order. Zero grants
+// therefore yields zero worktree openings — the correct answer, and reached without a special case.
+//
+// GRANTS ARE HETEROGENEOUS since `r-seats-only-architecture` (5): one grant list carries worktree
+// grants AND harness-credential grants, and the shared template carries a line class for each. A
+// grant that DECLARES none of an entry's fields is simply not that entry's kind — skipped, never
+// an error. A grant that declares the field as a KEY with a null/empty value still fails loudly in
+// substituteGrant: that is the unreadable-`.git` case (resolveSeatGrants writes `repoGit: null`),
+// where the degraded worktree must refuse at compose time rather than silently lose its plumbing.
 function composeSeatCage({ seatBinds = [], values = {}, grants = [] } = {}) {
   if (!Array.isArray(seatBinds)) {
     throw new SpawnError(E_CAGE_TEMPLATE, 'sandbox.SeatBinds must be an array of strings', {});
@@ -131,13 +140,13 @@ function composeSeatCage({ seatBinds = [], values = {}, grants = [] } = {}) {
     const { verb, template } = parseEntry(seatBinds[i], i);
     const scalarResolved = substituteScalars(template, values, i);
     GRANT_SLOT_RE.lastIndex = 0;
-    const isPerGrant = GRANT_SLOT_RE.test(scalarResolved);
-    GRANT_SLOT_RE.lastIndex = 0;
-    if (!isPerGrant) {
+    const grantFields = [...scalarResolved.matchAll(GRANT_SLOT_RE)].map((m) => m[1]);
+    if (grantFields.length === 0) {
       spec.push({ verb, path: normalize(scalarResolved, i) });
       continue;
     }
     for (const grant of grants) {
+      if (!grantFields.some((f) => f in grant)) continue; // not this entry's grant kind
       spec.push({ verb, path: normalize(substituteGrant(scalarResolved, grant, i), i) });
     }
   }

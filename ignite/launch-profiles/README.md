@@ -19,7 +19,7 @@ skill, or a test with no daemon in the picture.
 | # | Consumer | State |
 |---|----------|-------|
 | 1 | the daemon's spawn path (`server/spawn/config.js`, a thin adapter over this) | **LIVE** |
-| 2 | the attached dispatch capability | task **7.43** — NOT BUILT |
+| 2 | the sub-agent dispatch capability | task **7.43** — built, then **RETIRED** per `r-seats-only-architecture` (2026-08-06): the daemon's sub-agent lane is gone; delegation is seat-side |
 | 3 | the orchestration conductor's CLI-worker dispatch | task **7.54** — NOT BUILT |
 
 **Shipping with one live consumer is 7.42's correct outcome, not an unfinished one.** Stated
@@ -61,7 +61,7 @@ string onto argv as its own element — values only fill positions the profile a
   detected containment capability. A profile with **no portable half fails closed**
   (`E_NO_PORTABLE_HALF`) on a cage-less host.
 
-  The hazard that shape encodes, from the ruling: `codex-git-write` disables codex's OWN sandbox
+  The hazard that shape encodes, from the ruling: the codex profile (`codex-gpt-5-5`) disables codex's OWN sandbox
   because bwrap covers it. Reused on a cage-less desktop, a "fall back to the caged half" resolver
   would run it with no walls at all — and it would look like a normal run.
 
@@ -79,11 +79,14 @@ consumers' act (7.43 / 7.54) or a follow-on.
 **Measured against the really-installed CLIs (2026-07-27), which found two defects in the
 pre-flight itself before any consumer wired it:**
 
+(Profile names below are the live r-seats-only-architecture roster, 2026-08-06 — the measurement
+was made against the retired same-harness predecessors and the pinned flags are unchanged.)
+
 | profile | result |
 |---------|--------|
-| `claude-sonnet-tools` | VERIFIED — `-p --model --output-format --verbose --allowedTools --effort` all present |
-| `codex-git-write` | VERIFIED — `--cd --sandbox -c --json` (needed the subcommand fix) |
-| `opencode-sakana` | `E_PREFLIGHT_UNAVAILABLE(empty-help)` — see below |
+| `claude-fable` / `claude-opus` / `claude-sonnet` / `claude-haiku` | VERIFIED — `-p --model --output-format --verbose --effort` all present |
+| `codex-gpt-5-5` | VERIFIED — `--cd --sandbox -c --json` (needed the subcommand fix) |
+| `opencode-*` (glm-5-2, deepseek-flash, deepseek-pro, fugu, fugu-ultra, gemini-flash, gemini-pro) | `E_PREFLIGHT_UNAVAILABLE(empty-help)` — see below |
 
 1. **Help is per-SUBCOMMAND.** `--json` is on `codex exec --help` and absent from `codex --help`.
    Asking the top-level binary refused 2 of the 3 real profiles — a bar that fires on valid input

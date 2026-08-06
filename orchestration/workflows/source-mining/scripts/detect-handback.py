@@ -6,9 +6,10 @@ The DETECT half of the EMIT/DETECT split: step-05-synthesize.md's § Headless Ha
 
     ##RBTV-SOURCE-MINING-HANDBACK## <absolute path to handback.json>
 
-`rbtv-subagent dispatch` reports back only `workdir` (its OWN session dir, e.g.
-`<workspace-root>/.rbtv/sessions/<exec-id>/` — NOT the workflow's `<runtime_root>`, a different,
-unrelated path tree). supervisor.js persists that session's full stdout to `<workdir>/stdout.log`
+HISTORY (`r-seats-only-architecture`, 2026-08-06): the `rbtv-subagent` dispatcher and its flat
+`.rbtv/sessions/<exec-id>/` workdirs are RETIRED; a headless worker's `workdir` is now whatever
+launch dir the orchestration skill's CLI-worker lane gives it — this script only needs that dir's
+`stdout.log`. The retired dispatcher's supervisor persisted the session's full stdout to `<workdir>/stdout.log`
 (stream-json events, one per line; the final text is the `type":"result"` event's `result` field,
 also echoed inside the last `type":"assistant"` message). This script bridges the gap: given only
 `workdir`, it finds the marker in the persisted log and follows it to the hand-back record.
@@ -40,7 +41,7 @@ MARKER_RE = re.compile(re.escape(MARKER) + r'\s+([^\s"]+)')
 
 def parse_args():
     p = argparse.ArgumentParser(description="Detect a source-mining headless hand-back.")
-    p.add_argument("--workdir", required=True, help="workdir path reported by rbtv-subagent dispatch")
+    p.add_argument("--workdir", required=True, help="the headless worker's launch dir (holds stdout.log)")
     return p.parse_args()
 
 

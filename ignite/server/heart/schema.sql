@@ -15,8 +15,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   -- the goal and the seat and DELIBERATELY NOT THE RUN: goal-serving jobs are seats of the goal's
   -- LIVE run and retire with it, so the run is resolved at FIRE time. Storing it would pin the
   -- pointer to a run that later closes.
-  -- Both NULL = the interim `.rbtv/sessions/<exec-id>/` path, which is still what the ticker
-  -- branch uses for an unhomed job (the staged retirement of `r-711-staged-retirement` / G-122).
+  -- Both NULL = UNHOMED. Firing an unhomed launch-agent is a refusal: the flat
+  -- `.rbtv/sessions/<exec-id>/` path is retired and every daemon spawn homes as a seat
+  -- (`r-seats-only-architecture`, completing `r-711-staged-retirement` / G-122).
   goal_name    TEXT,
   seat_name    TEXT,
   -- Both or neither. A half-pointer resolves to nothing and would fail at fire time — the one

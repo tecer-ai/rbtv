@@ -6,11 +6,12 @@
 // Three consumers read this module and no other (CMP-9 § Interface (1)):
 //   1. the daemon's spawn path                            — LIVE (server/spawn/harness-config.js
 //                                                            is a thin adapter over this)
-//   2. the attached dispatch surface (rbtv CLI run verb + the sub-agent dispatch capability)
-//                                                          — tasks 7.44 / 7.43, NOT BUILT
+//   2. the attached dispatch surface (rbtv CLI run verb)   — task 7.44, NOT BUILT. Its former
+//      other half, the sub-agent dispatch capability (7.43), is RETIRED — the daemon's sub-agent
+//      lane is gone; delegation is seat-side (r-seats-only-architecture, 2026-08-06)
 //   3. the orchestration conductor's CLI-worker dispatch   — task 7.54, NOT BUILT
 //
-// ⚠ ALL THREE unbuilt consumers list 7.45 in their own `_Depends:_`. So this module ships with ONE
+// ⚠ The unbuilt consumers list 7.45 in their own `_Depends:_`. So this module ships with ONE
 // live consumer not because the work stopped short but because the other two CANNOT be built before
 // it. Said plainly here so no reader infers more completeness than exists — the same disclosure
 // 7.42 made for `resolveProfile()`, for the same structural reason.

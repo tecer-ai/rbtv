@@ -18,6 +18,15 @@ function setup(configOverrides = {}, extraProfiles = {}) {
   fs.mkdirSync(workRoot, { recursive: true });
   fs.mkdirSync(defaultWorkdir, { recursive: true });
 
+  // r-seats-only-architecture (3): every daemon spawn resolves a canonical seat folder or is
+  // refused, so the fixture provides one INSIDE workdir_root; enqueueLaunchAgent defaults its
+  // queue args' workdir to it (the caller-named-workdir home lane the ticker admits).
+  const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal', 'runs', 'run-1');
+  const seatDir = path.join(runDir, 'seats', 'probe-seat');
+  fs.mkdirSync(seatDir, { recursive: true });
+  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\n---\n');
+  fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
+
   const cfg = {
     bind: { host: '127.0.0.1', port: 7432 },
     auth: { senders_file: path.join(tmp, 'senders.yaml') },
@@ -61,7 +70,7 @@ function setup(configOverrides = {}, extraProfiles = {}) {
     logPath,
   });
 
-  return { tmp, dataRoot, workRoot, defaultWorkdir, cfgPath, store, mgr, ticker, dbPath, feedPath, logPath };
+  return { tmp, dataRoot, workRoot, defaultWorkdir, seatDir, runDir, cfgPath, store, mgr, ticker, dbPath, feedPath, logPath };
 }
 
 // Forcibly reap a transient user unit spawned by this probe, clearing any
@@ -121,7 +130,11 @@ function registerLaunchAgentJob(ctx, jobId = 'launch-agent') {
 function enqueueLaunchAgent(ctx, { jobId = 'launch-agent', profile, prompt = null, workdir = null, runAt, triggerKind = 'scheduled', intervalSeconds = null, maxFires = null, enqueuedBy = 'probe' }) {
   const args = { profile };
   if (prompt !== null && prompt !== undefined) args.prompt = prompt;
+  // Default the home to the fixture's canonical seat folder (r-seats-only-architecture: an
+  // unhomed launch is a refusal, and these probes test ticker mechanics, not the door — the
+  // door has its own probes). An explicit workdir still wins.
   if (workdir !== null && workdir !== undefined) args.workdir = workdir;
+  else if (ctx.seatDir) args.workdir = ctx.seatDir;
   return ctx.store.enqueue({
     jobId,
     args: JSON.stringify(args),

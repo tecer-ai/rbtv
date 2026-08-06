@@ -22,7 +22,7 @@
 // containment, and invoking a real model in a proof script would be both slow and unsafe.
 // That substitution is DISCLOSED in the capture rather than hidden.
 //
-// Usage:  node deploy/p3-2b-containment.js [profile-name]        (default: opencode-sakana)
+// Usage:  node deploy/p3-2b-containment.js [profile-name]        (default: opencode-fugu-ultra)
 //         node deploy/p3-2b-containment.js --all                 (every production profile)
 // Writes deploy/p3-2b-containment.out and exits 0 (PASS) / 1 (FAIL).
 // Needs no privilege: `systemd-run --user` is the whole point of D46.
@@ -387,7 +387,7 @@ async function main() {
   const arg = process.argv[2];
   const targets = arg === '--all'
     ? Object.keys(realCfg.profiles).filter((p) => realCfg.profiles[p].caps)
-    : [arg || 'opencode-sakana'];
+    : [arg || 'opencode-fugu-ultra'];
 
   // A profile that cannot even spawn is a containment FAILURE, not a reason to abort the
   // suite: the remaining profiles still have to be reported.

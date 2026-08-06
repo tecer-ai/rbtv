@@ -5,9 +5,10 @@
 // probe-seat-cage.js (task 7.11) proved the cage over FAKE worktrees — plain directories with the
 // right names. This probe proves it over REAL ones: a real git repo, real linked worktrees created
 // by team-kit/worktree-flow.py, and the real `.git/worktrees/<name>` plumbing that a commit needs.
-// It composes the cage from the SHIPPED template — profiles.claude-seat.sandbox.SeatBinds, read
-// out of config/spawn-profiles.yaml at run time — so what is proven is the thing that launches
-// seats, not a copy of it pasted into a probe.
+// It composes the cage from the SHIPPED template — the top-level shared cage.SeatBinds block
+// (r-seats-only-architecture (1): the one sandbox shape, absorbed from the retired claude-seat
+// profile), read out of config/spawn-profiles.yaml at run time — so what is proven is the thing
+// that launches seats, not a copy of it pasted into a probe.
 //
 // THE EVIDENCE RULE (D51, and the row's own `_Criteria:_`): every wall claim is proven ON DISK
 // from OUTSIDE the cage, by the target being unchanged or the file being ABSENT. The in-cage exit
@@ -52,9 +53,9 @@ function sh(cmd, args, cwd) {
 // would keep passing after someone edited the real one.
 function shippedSeatBinds() {
   const cfg = yaml.load(fs.readFileSync(PROFILES, 'utf8'));
-  const binds = cfg?.profiles?.['claude-seat']?.sandbox?.SeatBinds;
+  const binds = cfg?.cage?.SeatBinds;
   if (!Array.isArray(binds) || binds.length === 0) {
-    throw new Error('profiles.claude-seat.sandbox.SeatBinds absent from ' + PROFILES);
+    throw new Error('cage.SeatBinds (the shared seat-cage template, r-seats-only-architecture) absent from ' + PROFILES);
   }
   return binds;
 }
@@ -170,7 +171,7 @@ capture('probe-worktree-flow', async (lines) => {
 
   try {
     const { spec } = cageFlags(f);
-    lines.push('composed cage (shipped profiles.claude-seat.sandbox.SeatBinds, real grants):');
+    lines.push('composed cage (shipped shared cage.SeatBinds template, real grants):');
     for (const e of spec) lines.push(`       ${e.verb} ${e.path}`);
     lines.push('');
 
