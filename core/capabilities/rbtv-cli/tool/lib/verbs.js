@@ -22,6 +22,9 @@ const TICKER_SETTINGS = path.join(
 const ATTACHED_RUN = path.join(
   RBTV_ROOT, 'ignite', 'capabilities', 'attached-run', 'tool', 'rbtv-run',
 );
+const TEAMBUILD = path.join(
+  RBTV_ROOT, 'core', 'capabilities', 'teambuild', 'tool', 'rbtv-teambuild',
+);
 
 // Task 7.66 built the cadence-edit surface, so the namespace that previously refused now routes.
 // `set-interval` is the DESIGN's verb name (operator-surface design § 2.3), not coined here — the
@@ -45,6 +48,12 @@ const GATEWAY_COMMANDS = [
 ];
 
 const GOAL_VERBS = ['scaffold', 'reindex', 'lint', 'materialize', 'selftest'];
+
+// Core-build task 7.433. The staffing-discovery browse — one database per verb.
+// `search` is deliberately ABSENT: the semantic ranking is built behind its own
+// provider-module boundary and rides teambuild's corpus enumerator, so naming the
+// verb here before that module exists would register a route to nothing.
+const TEAMBUILD_VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'selftest'];
 
 // Routes are matched by their token PREFIX, longest first, so `ignite daemon kill`
 // (the unit) can never be shadowed by `ignite kill` (a gateway session). Both
@@ -89,6 +98,13 @@ const ROUTES = [
     verbs: [],
     summary: 'run a goal ATTACHED to this terminal — the daemon\'s own engine, in-process, resumable from the run folder',
   },
+  {
+    prefix: ['teambuild'],
+    target: TEAMBUILD,
+    exec: 'direct',
+    verbs: TEAMBUILD_VERBS,
+    summary: 'browse the component databases blurb-first — agent cards, kind-filtered cognitive units, seats, tasks, workflows (read-only; binds nothing)',
+  },
 ];
 
 // The tokens that, at position 1, belong to the verb namespace rather than the
@@ -120,6 +136,8 @@ module.exports = {
   DAEMON_VERBS,
   GATEWAY_COMMANDS,
   GOAL_VERBS,
+  TEAMBUILD,
+  TEAMBUILD_VERBS,
   verbNamespaceTokens,
   matchRoute,
 };

@@ -1,0 +1,198 @@
+#!/usr/bin/env node
+'use strict';
+
+// `rbtv teambuild` — the staffing-discovery browse over the component databases
+// (registry `concepts/teambuild.md`, decisions.md#d-teambuild-discovery).
+// Mounted as ONE row in the rbtv CLI's delegation-only route registry
+// (core/capabilities/rbtv-cli/tool/lib/verbs.js); this file is the implementation.
+//
+// ⚠ THE PARITY CONSTRAINT, and it is a constraint rather than a preference:
+// this is the ONE code path for the browse. The console's disconnected scaffolding
+// browse and any future panel client RIDE THIS COMMAND — they call it, they do not
+// reimplement it. Nothing panel-shaped is built here and no second enumerator
+// exists anywhere; if one appears, it is the defect, not a variant.
+//
+// SCOPE. Browse only. `teambuild search` — the embedding-backed semantic ranking
+// over these same descriptions — is deliberately NOT registered here: it is built
+// behind its own provider-module boundary and rides this file's `lib/corpus.js`
+// enumerator rather than a second corpus reader.
+//
+// Built for core-build task 7.433 (design W10-teambuild-browse).
+
+const path = require('path');
+const corpus = require('./lib/corpus');
+
+// Same renderer as the drill, on purpose: `rbtv <module>` and `rbtv teambuild …`
+// are the same blurb-first listing and must not drift into two house styles.
+// Same module (`core`, always installed), so this crosses no install boundary.
+const { table, blurb, json, refusal, suggest, paint } = require(
+  path.join(__dirname, '..', '..', 'rbtv-cli', 'tool', 'lib', 'render'),
+);
+
+const VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'selftest'];
+
+function help() {
+  return [
+    'rbtv teambuild — browse the component databases, blurb-first (read-only; binds nothing).',
+    '',
+    'BROWSE',
+    '  rbtv teambuild agents          the agent cards — prompt rows + their staffing recommendations',
+    '  rbtv teambuild units           cognitive units; --kind <k> filters (role, persona, procedure, …)',
+    '  rbtv teambuild seats           seat rows (seats.csv — the settled catalog shape)',
+    '  rbtv teambuild tasks           task rows',
+    '  rbtv teambuild workflows       workflows, blurbed from their entry point',
+    '  rbtv teambuild selftest        exercise this browse\'s own mechanics, red arm included',
+    '',
+    'FLAGS',
+    '  --root <dir>   the mirror root (default: nearest .rbtv/mirror walking up from cwd)',
+    '  --kind <k>     units only — filter by unit kind; singular and plural both match',
+    '  --module <m> / --component <c>   narrow the corpus',
+    '  --json         machine output      --pretty   colour + alignment (never TTY-derived)',
+    '',
+    'The blurb is the EXISTING description field — a catalog row\'s `description` column, a',
+    'file\'s frontmatter `description`. No blurb field was added anywhere. A component that',
+    'carries none reads `(no description)`; that is the corpus reporting itself, not a bug.',
+    '',
+    'Exit codes: 0 success · 1 refusal · 2 usage error.',
+    'next: rbtv teambuild agents',
+  ].join('\n');
+}
+
+function parse(argv) {
+  const opts = { json: false, pretty: Boolean(process.env.RBTV_PRETTY), root: null, kind: null, module: null, component: null };
+  const rest = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === '--json') opts.json = true;
+    else if (a === '--pretty') opts.pretty = true;
+    else if (a === '--help' || a === '-h') opts.help = true;
+    else if (a === '--root' || a === '--kind' || a === '--module' || a === '--component') {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('-')) {
+        return { usage: `\`${a}\` needs a value` };
+      }
+      opts[a.slice(2)] = value;
+      i += 1;
+    } else if (a.startsWith('-')) return { usage: `\`${a}\` is not a teambuild flag` };
+    else rest.push(a);
+  }
+  return { opts, rest };
+}
+
+function main(argv) {
+  const parsed = parse(argv);
+  if (parsed.usage) {
+    console.error(refusal({
+      what: parsed.usage,
+      why: 'a mistyped flag would otherwise be read as a database name and list the wrong thing.',
+      fix: 'known: --root <dir> --kind <k> --module <m> --component <c> --json --pretty. Run `rbtv teambuild --help`.',
+    }));
+    return 2;
+  }
+  const { opts, rest } = parsed;
+  if (opts.help || rest.length === 0) { console.log(help()); return 0; }
+
+  const verb = rest[0];
+  if (verb === 'selftest') return require('./lib/selftest')(opts);
+  if (!corpus.KINDS.includes(verb)) {
+    const near = suggest(verb, VERBS);
+    console.error(refusal({
+      what: `\`${verb}\` is not a teambuild database`,
+      why: near ? `Did you mean \`${near}\`?` : 'nothing under teambuild carries this name.',
+      fix: `known: ${VERBS.join(', ')}. Run \`rbtv teambuild --help\`.`,
+    }));
+    return 1;
+  }
+  if (opts.kind && verb !== 'units') {
+    console.error(refusal({
+      what: `\`--kind\` does not apply to \`${verb}\``,
+      why: 'only cognitive units are kind-filtered; accepting it elsewhere would silently ignore your filter.',
+      fix: `drop --kind, or run \`rbtv teambuild units --kind ${opts.kind}\`.`,
+    }));
+    return 2;
+  }
+
+  let root;
+  let rows;
+  try {
+    root = corpus.resolveRoot(opts.root, process.cwd());
+    rows = corpus.entries(root, verb);
+  } catch (err) {
+    console.error(refusalFor(err, opts));
+    return 1;
+  }
+
+  if (opts.module) rows = rows.filter((r) => r.module === opts.module);
+  if (opts.component) rows = rows.filter((r) => r.component === opts.component);
+
+  let kindNote = '';
+  if (verb === 'units' && opts.kind) {
+    const before = rows;
+    rows = rows.filter((r) => corpus.kindMatches(opts.kind, r.unit_kind));
+    if (!rows.length) {
+      const known = [...new Set(before.map((r) => r.unit_kind))].sort();
+      console.error(refusal({
+        what: `no cognitive unit of kind \`${opts.kind}\` in ${root}`,
+        why: `the corpus carries ${before.length} unit(s) across ${known.length} kind(s), none matching.`,
+        fix: `kinds present: ${known.join(', ') || '(none)'}`,
+      }));
+      return 1;
+    }
+    kindNote = ` · kind=${opts.kind}`;
+  }
+
+  rows.sort((a, b) => a.module.localeCompare(b.module)
+    || a.component.localeCompare(b.component) || a.id.localeCompare(b.id));
+
+  if (opts.json) { json({ database: verb, root, count: rows.length, entries: rows }); return 0; }
+
+  console.log(paint(opts.pretty, 'bold', `${verb} — ${rows.length} entr${rows.length === 1 ? 'y' : 'ies'} in ${root}${kindNote}`));
+  if (rows.length) console.log(table(rows.flatMap(cardRows), opts.pretty).join('\n'));
+  console.log(`\nblurb source: existing \`description\` field · read-only, binds nothing`);
+  console.log(`next: rbtv teambuild ${nextVerb(verb)}`);
+  return 0;
+}
+
+// The agent card is description PLUS the row's staffing recommendations
+// (`concepts/agent-card.md`) — hints for the binding, never a binding. Every other
+// database is one line per entry. This is the card renderer.
+function cardRows(r) {
+  const label = `${r.component}/${r.id}${r.unit_kind ? ` (${r.unit_kind})` : ''}`;
+  const out = [[label, blurb(r.blurb)]];
+  if (r.staffing) out.push(['  ↳ staffing', blurb(r.staffing)]);
+  return out;
+}
+
+function nextVerb(verb) {
+  const i = corpus.KINDS.indexOf(verb);
+  return corpus.KINDS[(i + 1) % corpus.KINDS.length];
+}
+
+// The red arm's voice. A missing mirror and a malformed catalog are different
+// failures with different fixes, and each names the exact file it choked on —
+// an agent has to recover from this text alone.
+function refusalFor(err, opts) {
+  if (err.rbtvCode === 'NO_MIRROR') {
+    return refusal({
+      what: 'the component-database mirror is not readable, so nothing can be browsed',
+      why: err.message,
+      fix: 'run this from inside a workspace that carries `.rbtv/mirror`, or name the root:',
+      escape: 'rbtv teambuild agents --root /path/to/.rbtv/mirror',
+    });
+  }
+  if (err.rbtvCode === 'BAD_CATALOG') {
+    return refusal({
+      what: 'a component database is MALFORMED — the browse stops rather than listing part of it',
+      why: `${err.message}\n       reading it positionally would report every field as whatever sat at that index.`,
+      fix: 'repair that catalog\'s header, or exclude its component with --component/--module.',
+    });
+  }
+  return refusal({ what: 'the browse failed', why: err.message, fix: 'rerun with --root naming the mirror explicitly.' });
+}
+
+try {
+  process.exitCode = main(process.argv.slice(2));
+} catch (err) {
+  console.error(`INTERNAL: ${err.stack || err.message}`);
+  process.exitCode = 1;
+}
