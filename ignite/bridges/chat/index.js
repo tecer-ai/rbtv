@@ -38,7 +38,7 @@ function jsonLog(entry) {
 // builds the transport around a callback that resolves the (by-then-assigned)
 // bridge. `makeTransport` is injectable so a probe can substitute a mock
 // Socket-Mode transport.
-function buildBridge(config, { logger = jsonLog, makeTransport = null, forwarderImpl = null, replyLegOptions = {} } = {}) {
+function buildBridge(config, { logger = jsonLog, makeTransport = null, forwarderImpl = null, replyLegOptions = {}, busFerryOptions = {} } = {}) {
   const forwarder = forwarderImpl || createGatewayForwarder({ gatewayAddr: config.gatewayAddr, token: config.bridgeToken });
   const allowlist = createAllowlist({ allowed: config.allowlist, logger });
   const threadMap = createThreadMap({ logger });
@@ -65,7 +65,7 @@ function buildBridge(config, { logger = jsonLog, makeTransport = null, forwarder
     : null;
   if (!goalChannels) log_noGoalChannels(logger);
 
-  bridge = createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels, logger, replyLegOptions });
+  bridge = createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels, logger, replyLegOptions, busFerryOptions });
 
   return { bridge, forwarder, allowlist, threadMap, transport, goalChannels };
 }

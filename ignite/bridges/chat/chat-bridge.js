@@ -17,10 +17,11 @@ const path = require('node:path');
 
 const { createForwardPath } = require('./forward-path');
 const { createReplyLeg } = require('./reply-leg');
+const { createBusFerry } = require('./bus-ferry');
 
 const STATE_VERSION = 1;
 
-function createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels = null, logger = null, replyLegOptions = {} }) {
+function createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels = null, logger = null, replyLegOptions = {}, busFerryOptions = {} }) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
@@ -39,6 +40,19 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     deliver: (args) => deliverToOwner(args),
     logger,
     ...replyLegOptions,
+  });
+
+  // The bus ferry (bus-ferry.js): coordination bus → owner DM, opt-in via `bus_ferry`.
+  // Constructed always, STARTED only when enabled — so `busFerry.toJSON()` has a stable
+  // shape in the state file whether or not the ferry ran. It holds no forwarder and no
+  // thread map: it reads workspace files and posts through the transport, nothing else.
+  const busFerry = createBusFerry({
+    workspaceRoot: (config && config.workspaceRoot) || null,
+    transport,
+    dmUserId: (config && config.busFerryDmUser) || null,
+    logger,
+    onMutate: () => saveState(),
+    ...busFerryOptions,
   });
 
   // THE SURFACE ROUTE (task 7.58 d-channel-per-goal; mention route added by the
@@ -201,6 +215,10 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       savedAt: new Date().toISOString(),
       threads: threadMap.toJSON(),
       replyAddr: Object.fromEntries(replyAddr),
+      // ADDITIVE, never restructuring: a version-1 loader that knows nothing of the
+      // ferry reads this file exactly as before and ignores the extra key. That is why
+      // STATE_VERSION does not move — the shape is extended, not changed.
+      busFerry: busFerry.toJSON(),
     };
     // Atomic: temp file in the SAME directory (rename is only atomic within a
     // filesystem) + rename over the target. A reader never sees a half-written file,
@@ -239,8 +257,11 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     for (const [id, a] of Object.entries(doc.replyAddr || {})) {
       if (a && typeof a === 'object' && a.channel) replyAddr.set(String(id), { channel: a.channel, threadTs: a.threadTs ?? null });
     }
-    log('info', 'chat bridge conversation state restored', { stateFile, threads, replyAddresses: replyAddr.size, savedAt: doc.savedAt || null });
-    return { loaded: true, threads, replyAddresses: replyAddr.size };
+    // The ferry's cursors ride the same file. Restoring them is what stops a restart
+    // from re-arming the first-sight flood on every open run.
+    const busCursors = busFerry.load(doc.busFerry);
+    log('info', 'chat bridge conversation state restored', { stateFile, threads, replyAddresses: replyAddr.size, busCursors, savedAt: doc.savedAt || null });
+    return { loaded: true, threads, replyAddresses: replyAddr.size, busCursors };
   }
 
   // Every thread-map mutation persists — including the ones resolveChainThread makes
@@ -328,12 +349,18 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       }
     }
     replyLeg.start();
-    log('info', 'chat bridge started', { transport: 'slack-socket-mode', goalChannelsBound: recovered && recovered.bound, stateRestored: restored, ...r });
+    // Opt-in and fail-closed: `bus_ferry` off → never started; on but unable to resolve
+    // the owner DM or the workspace → the ferry logs loudly and stays disabled, and
+    // nothing else about the bridge changes.
+    let ferry = { enabled: false, reason: 'not-configured' };
+    if (config && config.busFerry) ferry = await busFerry.start();
+    log('info', 'chat bridge started', { transport: 'slack-socket-mode', goalChannelsBound: recovered && recovered.bound, stateRestored: restored, busFerry: ferry, ...r });
     return r;
   }
 
   function stop() {
     replyLeg.stop();
+    busFerry.stop();
     transport.stop();
     log('info', 'chat bridge stopped');
   }
@@ -341,7 +368,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   return {
     onChatMessage, deliverToOwner, start, stop,
     registerGoal, closeGoal, routeOf,
-    _replyAddr: replyAddr, forwardPath, replyLeg, goalChannels,
+    _replyAddr: replyAddr, forwardPath, replyLeg, busFerry, goalChannels,
     _saveState: saveState, _loadState: loadState, stateFile,
   };
 }

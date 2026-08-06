@@ -276,6 +276,22 @@ function createSlackSocketMode({
     return { ok: true, userId: resp.user_id };
   }
 
+  // Open (or fetch) the 1:1 DM channel with a user — `conversations.open` is
+  // idempotent and returns the same `D…` id every time. The bus ferry (bus-ferry.js)
+  // resolves it ONCE at start and caches it; posting then goes through the same
+  // `sendToOwner` as everything else. Another outbound POST on the bot token — the
+  // outbound-only property is untouched.
+  async function openDm(userId) {
+    if (!botToken) return { ok: false, error: 'no-bot-token' };
+    if (!userId) return { ok: false, error: 'no-user-id' };
+    const resp = await slackPost('conversations.open', botToken, { users: userId });
+    if (!resp || !resp.ok || !resp.channel || !resp.channel.id) {
+      log('warn', 'conversations.open failed', { userId, error: resp && resp.error });
+      return { ok: false, error: (resp && resp.error) || 'open-dm-failed' };
+    }
+    return { ok: true, channel: resp.channel.id };
+  }
+
   // ── The goal-channel ADMIN surface (task 7.58) ──────────────────────────────
   //
   // Three calls, and deliberately only three: create, list, archive. All are
@@ -338,7 +354,7 @@ function createSlackSocketMode({
   }
 
   return {
-    start, stop, sendToOwner, react, authTest, openConnection, toChatMessage,
+    start, stop, sendToOwner, react, authTest, openDm, openConnection, toChatMessage,
     createChannel, listChannels, archiveChannel,
   };
 }

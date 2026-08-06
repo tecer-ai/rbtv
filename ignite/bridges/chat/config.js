@@ -48,6 +48,8 @@ const DEFAULT_SLACK_API_BASE = 'https://slack.com/api';
 //     "master_profile": "master",          // profile for DM (master) traffic; defaults to session_profile
 //     "goal_profile": "worker",            // profile for goal-channel traffic; defaults to session_profile
 //     "state_file": "/abs/path/chat-state.json", // conversation state across restarts (opt-in; see below)
+//     "bus_ferry": false,                  // push coordination-bus rows addressed to `master` to the owner DM
+//     "bus_ferry_dm_user": "U0123ABC",     // whose DM (default: the FIRST allowlist entry)
 //     "allowlist": ["U0123ABC", "U0456DEF"] // Slack user IDs allowed to drive the bridge
 //   }
 function readConfigFile(filePath) {
@@ -126,6 +128,15 @@ function resolveConfig(overrides = {}) {
     ? overrides.allowlist
     : (Array.isArray(file.allowlist) ? file.allowlist : []);
 
+  // The bus ferry (bus-ferry.js): coordination bus → owner DM, one way. OPT-IN and
+  // NON-SECRET, so it lives in the config file. It needs `workspace_root` to know what
+  // to enumerate; enabled without one it logs loudly and stays disabled rather than
+  // guessing a tree. The DM target defaults to the FIRST allowlist entry — the owner is
+  // who the allowlist exists for, and a ferry with no addressee is a no-op.
+  const busFerry = overrides.busFerry != null ? Boolean(overrides.busFerry) : Boolean(file.bus_ferry);
+  const busFerryDmUser =
+    overrides.busFerryDmUser || file.bus_ferry_dm_user || (allowlist.length ? allowlist[0] : null);
+
   const slackApiBase =
     overrides.slackApiBase || env[ENV.slackApiBase] || file.slack_api_base || DEFAULT_SLACK_API_BASE;
   const slackAppToken = overrides.slackAppToken || env[ENV.slackAppToken] || null;
@@ -143,6 +154,8 @@ function resolveConfig(overrides = {}) {
     masterProfile,
     goalProfile,
     stateFile,
+    busFerry,
+    busFerryDmUser,
     allowlist,
     slack: {
       apiBase: slackApiBase,
