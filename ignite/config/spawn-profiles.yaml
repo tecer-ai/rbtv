@@ -487,8 +487,8 @@ profiles:
 # for a fired tool carries no MemoryMax, no TasksMax, no bwrap.
 #
 # So, unlike every SEAT (whose containment task 7.30 proves at the kernel), a tool here
-# can read and write anywhere this daemon's user can — the vault, ~/ht-wkdir/.env/, the
-# heart store, ~/.ssh — for as long and as large as it likes.
+# can read and write anywhere this daemon's user can — the vault, the credential surface
+# at .rbtv/config/.env, the heart store, ~/.ssh — for as long and as large as it likes.
 #
 # EVERY ENTRY MUST THEREFORE CONTAIN ITSELF. The script you point `argv` at must:
 #   1. cap its own address space (RLIMIT_AS) and its own wall clock;

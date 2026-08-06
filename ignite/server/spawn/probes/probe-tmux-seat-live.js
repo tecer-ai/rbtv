@@ -61,7 +61,7 @@ const SEAT_SCRIPT = [
   // Absence checks. ENOENT is the kernel saying the path is not there — that is the whole point,
   // and it is why this records PRESENT paths rather than error strings: an error message proves
   // the tool said no, a missing file proves the kernel did.
-  'for p in /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv /home/henri/ht-wkdir/.env /home/henri/.ssh /home/henri/.local/state/rbtv-ignite /home/henri/ht-wkdir/second-brain/CLAUDE.md; do',
+  'for p in /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv /home/henri/ht-wkdir/second-brain/.rbtv/config /home/henri/.ssh /home/henri/.local/state/rbtv-ignite /home/henri/ht-wkdir/second-brain/CLAUDE.md; do',
   '  if [ -e "$p" ]; then echo "PRESENT=$p" >> a4-report.txt; else echo "absent=$p" >> a4-report.txt; fi',
   'done',
   'ls -A /home/henri/ht-wkdir/second-brain > a4-vault-listing.txt 2>&1',
