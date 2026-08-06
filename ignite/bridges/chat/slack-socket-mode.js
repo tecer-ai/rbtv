@@ -122,6 +122,7 @@ function createSlackSocketMode({
       // Kept for the outbound reply address (chat.postMessage channel + thread_ts).
       _channel: event.channel,
       _threadTs: rootTs,
+      _msgTs: event.ts,                          // the MESSAGE's own ts (reactions.add target)
       _channelType: event.channel_type || null,  // 'im' | 'channel' | 'group' | 'mpim'
       _inThread: Boolean(event.thread_ts),       // did the human post inside a Slack thread?
     };
@@ -246,6 +247,22 @@ function createSlackSocketMode({
     return { delivered: true, ts: resp.ts };
   }
 
+  // React to a message (owner-directed 2026-08-06): the read-receipt 🤖 the bridge
+  // stamps when a message is ACCEPTED for processing. Best-effort — a failed
+  // reaction never blocks the forward; needs the `reactions:write` bot scope.
+  async function react({ channel, ts, name = 'robot_face' }) {
+    if (!botToken || !channel || !ts) return { reacted: false };
+    const resp = await slackPost('reactions.add', botToken, { channel, timestamp: ts, name });
+    if (!resp || !resp.ok) {
+      // already_reacted is fine (Slack redelivery); anything else is worth one log line.
+      if (!resp || resp.error !== 'already_reacted') {
+        log('warn', 'reactions.add failed', { channel, error: resp && resp.error });
+      }
+      return { reacted: false, error: resp && resp.error };
+    }
+    return { reacted: true };
+  }
+
   // ── The goal-channel ADMIN surface (task 7.58) ──────────────────────────────
   //
   // Three calls, and deliberately only three: create, list, archive. All are
@@ -308,7 +325,7 @@ function createSlackSocketMode({
   }
 
   return {
-    start, stop, sendToOwner, openConnection, toChatMessage,
+    start, stop, sendToOwner, react, openConnection, toChatMessage,
     createChannel, listChannels, archiveChannel,
   };
 }

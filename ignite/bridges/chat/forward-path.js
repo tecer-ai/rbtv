@@ -71,6 +71,19 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     return config.masterProfile || config.sessionProfile;
   }
 
+  // Speed charter for MASTER (DM) sessions (owner-directed 2026-08-06, measured: a bare
+  // question cost ~20 model turns of self-invented thoroughness). Prepended by the BRIDGE
+  // on session-create only — follow-ups ride the existing chain and pay it once.
+  const MASTER_CHARTER = [
+    'You are the channel-master: the owner\'s Slack-side master seat, with his vault',
+    'mounted READ-ONLY at /home/henri/ht-wkdir/second-brain. ANSWER FAST AND DIRECT:',
+    'simple questions in <=3 tool calls; prefer rg/direct reads; do not double-verify;',
+    'reply with the answer only, no preamble, sized for a Slack message.',
+    'Map: tasks in 1-projects/*/{name}-tasks.md and 2-areas/*/{name}-tasks.md; goal/run',
+    'state under .rbtv/goals/; reference content in 3-resources/; periodic notes in',
+    '0-periodic-notes/. The owner\'s question follows.',
+  ].join(' ');
+
   // A first message that STARTS work → a session-creating launch-agent job.
   async function forwardSessionCreate({ chatThreadId, text, route }) {
     const profile = profileFor(route);
@@ -81,7 +94,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     }
     const payload = {
       job_id: config.sessionJobId,
-      args: { profile, prompt: text },
+      args: { profile, prompt: (route && route.kind === 'goal') ? text : `${MASTER_CHARTER}\n\n${text}` },
       session_mode: 'headless',                 // chat rides the headless model (notes §7b)
       trigger_kind: 'scheduled',
       run_at: nowIsoUtc(),                      // due now: the next tick dispatches it

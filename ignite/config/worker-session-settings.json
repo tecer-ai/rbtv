@@ -1,0 +1,8 @@
+{
+  "_comment": "WORKER-lane seat sessions (daemon-spawned coding/build seats): same CLAUDE.md/rules trim, but hooks ON so plugin modes (ponytail) and per-tool hooks fire. Owner-directed 2026-08-06.",
+  "claudeMdExcludes": [
+    "/home/henri/ht-wkdir/second-brain/CLAUDE.md",
+    "**/.claude/rules/**"
+  ],
+  "disableAllHooks": false
+}

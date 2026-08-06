@@ -67,6 +67,13 @@ cage:
   # repo's git plumbing, and NOTHING else). ORDER IS LOAD-BEARING — each line deliberately
   # shadows the one above it, and cage.js emits them in exactly this sequence.
   SeatBinds:
+    # READ-EVERYTHING grant (r-seats-only-architecture; the master role's read-everything
+    # mandate): the whole workspace READ-ONLY, GRANT-GATED — produced only for a seat whose
+    # seat.md declares `read-root: true` (ro-bound below; its writers are the materializer
+    # and the master, never the occupant). No grant -> line skipped -> the vault stays
+    # ABSENT for ordinary seats, exactly as the pre-registered probes assert.
+    # FIRST deliberately: every later line layers its narrower opening over this ro floor.
+    - "ro-bind:{grant:readRoot}"
     # READ the goal's own record — decisions.md, issues.md, doubts.md.
     - "ro-bind:{goalDir}"
     # Every OTHER run: ABSENT. Not denied — never bound.
@@ -169,7 +176,8 @@ profiles:
     exec:
       argv: ["claude", "-p", "--model", "claude-fable-5",
              "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions"]
+             "--permission-mode", "bypassPermissions",
+             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
       prompt: stdin
     headed:
       tui: { argv: ["claude"] }
@@ -188,7 +196,8 @@ profiles:
     exec:
       argv: ["claude", "-p", "--model", "opus",
              "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions"]
+             "--permission-mode", "bypassPermissions",
+             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
       prompt: stdin
     headed:
       tui: { argv: ["claude"] }
@@ -204,7 +213,8 @@ profiles:
     exec:
       argv: ["claude", "-p", "--model", "sonnet",
              "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions"]
+             "--permission-mode", "bypassPermissions",
+             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
       prompt: stdin
     headed:
       tui: { argv: ["claude"] }
@@ -224,7 +234,8 @@ profiles:
     exec:
       argv: ["claude", "-p", "--model", "haiku",
              "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions"]
+             "--permission-mode", "bypassPermissions",
+             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
       prompt: stdin
     headed:
       tui: { argv: ["claude"] }

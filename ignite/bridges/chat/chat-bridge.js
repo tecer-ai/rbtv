@@ -112,6 +112,12 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // leg then watches for the spawn, awaits turn-end, and delivers the reply.
     if (outcome && outcome.forwarded && chatMsg && chatMsg.chatThreadId) {
       replyLeg.arm(chatMsg.chatThreadId);
+      // Read-receipt 🤖 (owner-directed 2026-08-06): stamped by the BRIDGE the moment the
+      // message is accepted for processing — transparent to the agent, best-effort,
+      // fire-and-forget so a Slack hiccup never delays the forward.
+      if (typeof transport.react === 'function' && chatMsg._channel && chatMsg._msgTs) {
+        transport.react({ channel: chatMsg._channel, ts: chatMsg._msgTs }).catch(() => {});
+      }
     }
     log('info', 'chat message handled', { chatThreadId: chatMsg && chatMsg.chatThreadId, ...outcome });
     return outcome;

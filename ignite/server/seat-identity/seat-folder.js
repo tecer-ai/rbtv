@@ -24,6 +24,29 @@ const { readCsv } = require('./csv');
 // seat folder — the caller decides which typed refusal that becomes, because "you launched into
 // a non-seat folder" and "you ran a CLI from a non-seat folder" are different failures with
 // different remedies even though they share this test.
+// r-master-seat-homes (owner, 2026-08-06): a SERVICE SEAT — a seat-shaped folder directly
+// under .rbtv/goals/ named _<seat>, with NO goal apparatus (no goal.md, no runs, no taskforce):
+// one seat, many sessions (the channel-master is the first). goalDir/runDir/seatDir all resolve
+// to the folder itself; the seat name is the folder name WITHOUT its underscore, which is what
+// its seat.md declares (descriptor-agreement unchanged).
+const SERVICE_SEAT_RE = /[\\/]\.rbtv[\\/]goals[\\/](_[a-z0-9-]+)$/;
+function parseServiceSeatPath(absPath) {
+  if (!absPath || typeof absPath !== 'string') return null;
+  const norm = path.normalize(absPath).replace(/[\\/]+$/, '');
+  const m = SERVICE_SEAT_RE.exec(norm);
+  if (!m) return null;
+  const parts = norm.split(path.sep);
+  return {
+    workspaceRoot: parts.slice(0, parts.length - 3).join(path.sep),
+    goal: m[1],
+    seat: m[1].slice(1),
+    goalDir: norm, runDir: norm, seatDir: norm,
+    sessionsCsv: path.join(norm, 'sessions.csv'),
+    runsCsv: null,
+    service: true,
+  };
+}
+
 function parseSeatPath(absPath) {
   const parts = path.normalize(absPath).split(path.sep);
   // …/.rbtv/goals/<goal>/runs/<run>/seats/<seat>
@@ -355,6 +378,7 @@ function checkMaterializedSeat(parsed) {
 
 module.exports = {
   parseSeatPath,
+  parseServiceSeatPath,
   parseGoalScope,
   resolveSeatFromCwd,
   openRunsOfGoal,

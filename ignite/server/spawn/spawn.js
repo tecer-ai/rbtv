@@ -9,7 +9,7 @@ const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
 const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags } = require('./cage');
-const { parseSeatPath, checkRunLive, checkMaterializedSeat } = require('../seat-identity/seat-folder');
+const { parseServiceSeatPath, parseSeatPath, checkRunLive, checkMaterializedSeat } = require('../seat-identity/seat-folder');
 const { appendRow } = require('../seat-identity/csv');
 const {
   generateSessionId,
@@ -261,6 +261,23 @@ function ensureExitFile(dataRoot, sessionId) {
 // `{repo}--{goal}--{seat}` directories this resolver reads, so a seat that has one resolves its
 // grants here and a seat that does not carries no W2/W3 openings. Nothing in this function changed
 // when 7.38 landed — the directories simply appeared.
+// READ-ROOT grant (owner-directed, 2026-08-06): a seat whose seat.md frontmatter declares
+// `read-root: true` gets the workspace root mounted READ-ONLY (the cage template's
+// `ro-bind:{grant:readRoot}` line). The declaration surface is seat.md — ro-bound inside the
+// cage, written by the materializer/master — so an occupant cannot grant itself the vault.
+function resolveReadRootGrant(seatPath) {
+  try {
+    const md = fs.readFileSync(path.join(seatPath.seatDir, 'seat.md'), 'utf8');
+    const fm = /^---\n([\s\S]*?)\n---/.exec(md);
+    if (fm && /^read-root:\s*true\s*$/m.test(fm[1])) {
+      return [{ readRoot: seatPath.workspaceRoot }];
+    }
+  } catch {
+    // no seat.md yet (pre-materialization probe paths): no grant, fail closed
+  }
+  return [];
+}
+
 function resolveSeatGrants(seatPath) {
   const worktreesDir = path.join(seatPath.workspaceRoot, '.rbtv', 'worktrees');
   let entries;
@@ -354,8 +371,24 @@ function resolveHarnessCredGrants(entitledHarnesses = []) {
 // inside. Checked on EVERY spawn rather than once in a probe: a probe proves one composition
 // sound, an assertion proves all of them (design §1).
 function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir) {
-  const template = resolvedSandbox && resolvedSandbox.SeatBinds;
+  let template = resolvedSandbox && resolvedSandbox.SeatBinds;
   if (!template || template.length === 0) return null;
+  if (seatPath.service) {
+    // Service-seat home (r-master-seat-homes): goalDir==runDir==seatDir. Pre-create the bind
+    // sources the template expects of a run folder, and carve the IN-FOLDER ground truth
+    // read-only — an ordinary seat's sessions.csv lives outside its rw seatDir; here it is
+    // inside, and without this carve assertGroundTruthUnwritable below correctly refuses.
+    // Appended LAST so it shadows the rw {seatDir} bind (order is the mechanism, as in the
+    // template's own seat.md carve).
+    fs.mkdirSync(path.join(seatPath.runDir, 'coordination'), { recursive: true });
+    // …and the tmpfs MOUNTPOINTS: bwrap cannot mkdir them once the read-root grant has made
+    // the folder ro (measured: exec 19427). tmpfs over an existing empty dir is the same
+    // absence the template intends.
+    fs.mkdirSync(path.join(seatPath.goalDir, 'runs'), { recursive: true });
+    fs.mkdirSync(path.join(seatPath.runDir, 'seats'), { recursive: true });
+    if (!fs.existsSync(seatPath.sessionsCsv)) fs.writeFileSync(seatPath.sessionsCsv, '');
+    template = [...template, 'ro-bind:{seatDir}/sessions.csv'];
+  }
   const spec = composeSeatCage({
     seatBinds: template,
     values: {
@@ -364,7 +397,7 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir) {
       goalDir: seatPath.goalDir,
       runDir: seatPath.runDir,
     },
-    grants: [...resolveSeatGrants(seatPath), ...resolveHarnessCredGrants()],
+    grants: [...resolveSeatGrants(seatPath), ...resolveHarnessCredGrants(), ...resolveReadRootGrant(seatPath)],
   });
   assertGroundTruthUnwritable(spec, seatPath.sessionsCsv);
   return specToBwrapFlags(spec);
@@ -456,7 +489,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     //
     // A refusal here is a REAL refusal: it is raised before any harness config, session dir, unit,
     // pane or store row past `launching` exists — the same absence-proven standard §4a set.
-    const dispatchSeat = parseSeatPath(resolvedWorkdir);
+    const dispatchSeat = parseSeatPath(resolvedWorkdir) || parseServiceSeatPath(resolvedWorkdir);
     if (!dispatchSeat) {
       throw new SpawnError(
         E_SEATLESS_GOAL_DISPATCH,
