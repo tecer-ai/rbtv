@@ -182,6 +182,7 @@ function catalogRows(c, kind) {
   const spec = CATALOGS[kind];
   const file = path.join(c.dir, spec.file);
   if (!fs.existsSync(file)) return [];
+  const paired = kind === 'agents' ? pairings(c) : null;
   return readCatalog(file, spec.id).map((row) => ({
     kind,
     id: row[spec.id],
@@ -194,7 +195,53 @@ function catalogRows(c, kind) {
     // never a binding. Absent in older catalogs; absent means absent.
     staffing: kind === 'agents' ? (row['staffing-recommendations'] || '') : '',
     executor: kind === 'seats' ? (row.executor || '') : '',
+    pairings: paired
+      ? overrides(paired.get(row[spec.id]) || [], row['staffing-recommendations'] || '')
+      : undefined,
   }));
+}
+
+// The PER-PAIRING OVERRIDE, and it is per PAIRING rather than per prompt on
+// purpose: `concepts/seat-catalog.md` — a seats.csv row MINTS a seat by joining
+// ONE executor definition to ONE task, and a prompt may be joined by several
+// rows (the live mirror carries one such prompt). Each join may carry its own
+// `staffing-hints`, so the effective recommendation is a property of the JOIN,
+// never of the prompt alone. Precedence is settled: seat over prompt
+// (`concepts/agent-card.md`, decisions.md#d-teambuild-discovery).
+//
+// NEITHER SIDE BINDS. Both columns are hints a staffer carries into the
+// executor binding; the binding itself is `taskforce.csv`'s harness/model/
+// effort/ctx-refresh (goal_cli.py `BINDING_COLUMNS`), which never reads either
+// column. Nothing here was added to any catalog — both columns already exist.
+function overrides(rows, promptStaffing) {
+  return rows.map((p) => ({
+    seat: p.seat,
+    // A pairing whose hints cell is EMPTY does not override with emptiness — it
+    // simply does not override, and the prompt's recommendation stands for it.
+    staffing: p.hints || promptStaffing,
+    source: p.hints ? 'seat' : 'prompt',
+  }));
+}
+
+// executor-id -> the seats.csv rows that name it, within THIS component. A seat
+// catalog that is absent means no pairings (a component need not carry one); a
+// seat catalog that is MALFORMED refuses through the same guard the browse
+// already applies to it — joining a positionally-misread seats.csv would attach
+// whatever sat at that index to the card as a staffing recommendation.
+function pairings(c) {
+  const file = path.join(c.dir, CATALOGS.seats.file);
+  const out = new Map();
+  if (!fs.existsSync(file)) return out;
+  for (const row of readCatalog(file, CATALOGS.seats.id)) {
+    const executor = (row.executor || '').trim();
+    if (!executor) continue;
+    if (!out.has(executor)) out.set(executor, []);
+    out.get(executor).push({
+      seat: row[CATALOGS.seats.id],
+      hints: (row['staffing-hints'] || '').trim(),
+    });
+  }
+  return out;
 }
 
 // Cognitive units live at <component>/{prompts,tasks}/cognitive-units/<kind>/*.md.
