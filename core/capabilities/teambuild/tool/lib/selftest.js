@@ -126,10 +126,37 @@ const CHECKS = [
     // The parity constraint, asserted rather than asserted-in-prose: a second
     // reader landing beside this one is what the constraint forbids, and only a
     // check catches it the day it lands.
+    //
+    // The instrument is the PROPERTY, not a file count. It counted files until
+    // 7.434, when provider.js (the vendor boundary) and search.js (the index
+    // lifecycle) landed in this directory: the count went red while the
+    // constraint they were accused of breaking still held — neither walks the
+    // corpus, and search.js takes every entry from require('./corpus'). A check
+    // that cannot pass a correct change stops being read, and being read is the
+    // suite's whole value. Repaired under the leader's grant
+    // `p-w11-selftest-check6-repair-granted`; same name, same intent.
+    //
+    // ⚠ WHAT THIS CHECK CANNOT SEE, stated here because a guard that hides its
+    // blind spot is how the next silent blindness ships with a green tick beside
+    // it: it greps four literal idioms. `fs.promises.readdir`, `fs.opendir`, a
+    // dynamic `fs[name]()` call, a third-party glob, and a directory listing
+    // shelled out to a child process ALL pass it. Every module in this directory
+    // already requires `fs`, so that surface is open today, not hypothetically.
+    // Reviewing a new lib module still means reading it.
     const lib = path.join(__dirname);
-    const readers = fs.readdirSync(lib).filter((f) => f.endsWith('.js') && f !== 'selftest.js');
-    if (readers.length !== 1 || readers[0] !== 'corpus.js') {
-      throw new Error(`expected exactly one enumerator (corpus.js), found: ${readers.join(', ') || '(none)'}`);
+    if (!fs.existsSync(path.join(lib, 'corpus.js'))) throw new Error('corpus.js — the one enumerator — is missing');
+    const ENUMERATES = /\breaddirSync\s*\(|\breaddir\s*\(|\bglobSync\s*\(|\bglob\s*\(/;
+    for (const f of fs.readdirSync(lib).filter((n) => n.endsWith('.js') && n !== 'selftest.js' && n !== 'corpus.js')) {
+      if (ENUMERATES.test(fs.readFileSync(path.join(lib, f), 'utf8'))) {
+        throw new Error(`${f} walks a directory itself — that is a SECOND enumerator; it must take its entries from require('./corpus')`);
+      }
+    }
+    // The positive half: the search must TAKE its entries from the enumerator.
+    // Both spellings of the require pass — a check that reds on `./corpus.js`
+    // vs `./corpus` would be the same kind of proxy defect this repair removed.
+    const search = path.join(lib, 'search.js');
+    if (fs.existsSync(search) && !/require\(['"]\.\/corpus(\.js)?['"]\)/.test(fs.readFileSync(search, 'utf8'))) {
+      throw new Error('search.js does not require the corpus module — the search must ride the one enumerator, not its own');
     }
   }],
 ];

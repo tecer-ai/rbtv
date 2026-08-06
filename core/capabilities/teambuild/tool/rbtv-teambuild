@@ -12,12 +12,13 @@
 // reimplement it. Nothing panel-shaped is built here and no second enumerator
 // exists anywhere; if one appears, it is the defect, not a variant.
 //
-// SCOPE. Browse only. `teambuild search` — the embedding-backed semantic ranking
-// over these same descriptions — is deliberately NOT registered here: it is built
-// behind its own provider-module boundary and rides this file's `lib/corpus.js`
-// enumerator rather than a second corpus reader.
+// SCOPE. Browse, plus `teambuild search` — the embedding-backed semantic ranking
+// over these same descriptions. The search rides this file's `lib/corpus.js`
+// enumerator (no second corpus reader) and reaches its vendor through exactly one
+// module, `lib/provider.js`. Its index lifecycle is `mrd-w9-refresh-story.md` §3.4.
 //
-// Built for core-build task 7.433 (design W10-teambuild-browse).
+// Built for core-build tasks 7.433 (W10-teambuild-browse) and 7.434
+// (W11-semantic-search-provider-module).
 
 const path = require('path');
 const corpus = require('./lib/corpus');
@@ -29,7 +30,7 @@ const { table, blurb, json, refusal, suggest, paint } = require(
   path.join(__dirname, '..', '..', 'rbtv-cli', 'tool', 'lib', 'render'),
 );
 
-const VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'selftest'];
+const VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'search', 'selftest'];
 
 function help() {
   return [
@@ -43,10 +44,16 @@ function help() {
     '  rbtv teambuild workflows       workflows, blurbed from their entry point',
     '  rbtv teambuild selftest        exercise this browse\'s own mechanics, red arm included',
     '',
+    'SEARCH',
+    '  rbtv teambuild search "<need>"   rank every database by meaning, not by keyword',
+    '  rbtv teambuild search --preamble the key preamble alone: file → sourcing → variable',
+    '',
     'FLAGS',
     '  --root <dir>   the mirror root (default: nearest .rbtv/mirror walking up from cwd)',
     '  --kind <k>     units only — filter by unit kind; singular and plural both match',
     '  --module <m> / --component <c>   narrow the corpus',
+    '  --top <n>      search only — how many ranked entries to return (default 10)',
+    '  --index <f>    search only — index file (default <workspace>/.rbtv/runtime/teambuild/index.json)',
     '  --json         machine output      --pretty   colour + alignment (never TTY-derived)',
     '',
     'The blurb is the EXISTING description field — a catalog row\'s `description` column, a',
@@ -59,14 +66,20 @@ function help() {
 }
 
 function parse(argv) {
-  const opts = { json: false, pretty: Boolean(process.env.RBTV_PRETTY), root: null, kind: null, module: null, component: null };
+  const opts = { json: false, pretty: Boolean(process.env.RBTV_PRETTY), root: null, kind: null, module: null, component: null, top: 10 };
   const rest = [];
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--json') opts.json = true;
     else if (a === '--pretty') opts.pretty = true;
+    else if (a === '--preamble') opts.preamble = true;
     else if (a === '--help' || a === '-h') opts.help = true;
-    else if (a === '--root' || a === '--kind' || a === '--module' || a === '--component') {
+    else if (a === '--top') {
+      const n = Number(argv[i + 1]);
+      if (!Number.isInteger(n) || n < 1) return { usage: '`--top` needs a positive whole number' };
+      opts.top = n;
+      i += 1;
+    } else if (a === '--root' || a === '--kind' || a === '--module' || a === '--component' || a === '--index') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('-')) {
         return { usage: `\`${a}\` needs a value` };
@@ -94,6 +107,7 @@ function main(argv) {
 
   const verb = rest[0];
   if (verb === 'selftest') return require('./lib/selftest')(opts);
+  if (verb === 'search') return searchMain(rest.slice(1), opts);
   if (!corpus.KINDS.includes(verb)) {
     const near = suggest(verb, VERBS);
     console.error(refusal({
@@ -149,8 +163,120 @@ function main(argv) {
   console.log(paint(opts.pretty, 'bold', `${verb} — ${rows.length} entr${rows.length === 1 ? 'y' : 'ies'} in ${root}${kindNote}`));
   if (rows.length) console.log(table(rows.flatMap(cardRows), opts.pretty).join('\n'));
   console.log(`\nblurb source: existing \`description\` field · read-only, binds nothing`);
+  // Said where the override is READ, not only where it is documented: a staffer
+  // seeing `overrides` has to be told in the same breath that the winner is
+  // still only a hint. The executor binding is `taskforce.csv`'s harness/model/
+  // effort/ctx-refresh, and no code path reads either of these columns into it.
+  if (verb === 'agents') {
+    console.log('staffing: HINTS ONLY — seat `staffing-hints` override prompt `staffing-recommendations`'
+      + ' per pairing; neither binds. The binding is taskforce.csv (harness/model/effort/ctx-refresh).');
+  }
   console.log(`next: rbtv teambuild ${nextVerb(verb)}`);
   return 0;
+}
+
+// ------------------------------------------------------------------- search
+//
+// Returns a PROMISE — the only async verb. Every failure here is a refusal (1),
+// never a partial ranking dressed as success, and never a keyword fallback.
+async function searchMain(args, opts) {
+  const provider = require('./lib/provider');
+  const search = require('./lib/search');
+
+  // `--preamble` runs the key asserts and stops. It is the discriminator: an
+  // absent FILE is a supply question for the owner, an empty VARIABLE after
+  // sourcing is a wiring defect in this module. They are different findings.
+  if (opts.preamble) {
+    let p;
+    try { p = provider.preamble(process.cwd()); } catch (err) { return keyRefusal(err, opts); }
+    if (opts.json) { json(p); return p.ok ? 0 : 1; }
+    console.log(provider.renderPreamble(p));
+    if (p.ok) return 0;
+    return keyRefusal(Object.assign(new Error(provider.renderPreamble(p)), { rbtvCode: p.class, preamble: p }), opts);
+  }
+
+  const query = args.join(' ').trim();
+  if (!query) {
+    console.error(refusal({
+      what: 'search needs a natural-language need to rank against',
+      why: 'an empty query would rank the corpus against nothing and return an arbitrary order.',
+      fix: 'quote the need as one argument.',
+      escape: 'rbtv teambuild search "who can review a plan before it is dispatched"',
+    }));
+    return 2;
+  }
+
+  let prov;
+  try { prov = provider.voyage(process.cwd()); } catch (err) { return keyRefusal(err, opts); }
+
+  let out;
+  try {
+    out = await search.run(prov, { query, root: opts.root, cwd: process.cwd(), top: opts.top, indexFile: opts.index });
+  } catch (err) {
+    if (err.rbtvCode === 'NO_MIRROR' || err.rbtvCode === 'BAD_CATALOG') { console.error(refusalFor(err, opts)); return 1; }
+    console.error(refusal({
+      what: `the ranking could not be produced — ${err.rbtvCode || 'error'}`,
+      why: `${err.message}\n       the query vector is what a ranking is computed against; without it there is no ranking, and this command does NOT fall back to keyword matching.`,
+      fix: 'retry when the provider answers; the index on disk was left exactly as it was.',
+    }));
+    return 1;
+  }
+
+  if (opts.module) out.results = out.results.filter((r) => r.entry.module === opts.module);
+  if (opts.component) out.results = out.results.filter((r) => r.entry.component === opts.component);
+
+  const usage = prov.usage();
+  // `entry_id` is the INDEX key (a path, or `<csv>#<row-id>`); `id` stays the
+  // entry's own id, as every other verb reports it. Folding one onto the other
+  // would make the JSON disagree with the browse about what a thing is called.
+  if (opts.json) { json({ ...out, usage, results: out.results.map((r) => ({ ...r.entry, entry_id: r.id, score: r.score })) }); return 0; }
+
+  console.log(paint(opts.pretty, 'bold', `search — ${out.results.length} of ${out.corpus_entries} blurbs in ${out.root}`));
+  console.log(table(out.results.flatMap((r) => {
+    const rows = [[`${r.score.toFixed(3)}  ${r.entry.component}/${r.entry.id}${r.entry.unit_kind ? ` (${r.entry.unit_kind})` : ''}`, blurb(r.entry.blurb)]];
+    if (r.entry.staffing) rows.push(['  ↳ staffing', blurb(r.entry.staffing)]);
+    return rows;
+  }), opts.pretty).join('\n'));
+  console.log(`\nindex: ${out.index_file} · ${out.provider.provider}/${out.provider.model}/${out.provider.dim}d`
+    + ` · walk ${out.walk_ms}ms · embedded ${out.embedded}, reused ${out.reused}, deleted ${out.deleted}`
+    + ` · ${usage.requests} request(s), ${usage.tokens} tokens`);
+  // The one residual of a zero staleness bound, enumerated rather than implied:
+  // a reader who sees no `unindexed` line knows the ranking covered the corpus as
+  // it stood at invocation.
+  if (out.unindexed.length) {
+    console.log(paint(opts.pretty, 'bold', `\nunindexed — ${out.unindexed.length} entr(ies) are NOT in this ranking:`));
+    out.unindexed.forEach((id) => console.log(`  ${id}`));
+    out.failures.forEach((f) => console.log(`  why: ${f.class} — ${f.message}`));
+  }
+  console.log('next: rbtv teambuild agents --component <the component you found>');
+  return 0;
+}
+
+// The preamble is already err.message — printing it separately would show the
+// failing assert twice and let a reader think two things failed.
+function keyRefusal(err, opts) {
+  if (err.rbtvCode === 'key-file-absent') {
+    console.error(refusal({
+      what: 'the embedding key file is ABSENT — this is a SUPPLY question, not a wiring defect',
+      why: `${err.message}\n       nothing this command can repair produces a key; the file has to be supplied.`,
+      fix: 'ask the owner to place VOYAGE_API_KEY in the file named by `env_file` in rbtv.json, mode 0600.',
+    }));
+    return 1;
+  }
+  if (err.rbtvCode === 'key-missing-after-sourcing') {
+    console.error(refusal({
+      what: 'the key file is present but carries no VOYAGE_API_KEY — this is a WIRING defect, not a missing key',
+      why: `${err.message}\n       the file exists and was sourced; the variable is simply not in it under that name.`,
+      fix: 'check the variable NAME in that file (never its value), then rerun `rbtv teambuild search --preamble`.',
+    }));
+    return 1;
+  }
+  console.error(refusal({
+    what: `the embedding key could not be resolved — ${err.rbtvCode || 'error'}`,
+    why: err.message,
+    fix: 'run `rbtv teambuild search --preamble` to see which of the three asserts fails.',
+  }));
+  return 1;
 }
 
 // The agent card is description PLUS the row's staffing recommendations
@@ -160,6 +286,14 @@ function cardRows(r) {
   const label = `${r.component}/${r.id}${r.unit_kind ? ` (${r.unit_kind})` : ''}`;
   const out = [[label, blurb(r.blurb)]];
   if (r.staffing) out.push(['  ↳ staffing', blurb(r.staffing)]);
+  // Then the per-pairing overrides, each naming the SEAT it belongs to. The
+  // prompt's own line stays above rather than being replaced: a reader has to be
+  // able to see what the override won against, and the same prompt can be joined
+  // by several seats carrying several different answers. A pairing that does NOT
+  // override prints nothing — the line above already IS its effective value.
+  for (const p of r.pairings || []) {
+    if (p.source === 'seat') out.push([`  ↳ staffing · seat ${p.seat} overrides`, blurb(p.staffing)]);
+  }
   return out;
 }
 
@@ -190,8 +324,16 @@ function refusalFor(err, opts) {
   return refusal({ what: 'the browse failed', why: err.message, fix: 'rerun with --root naming the mirror explicitly.' });
 }
 
+// `search` is the one async verb, so main may return a promise. Both shapes take
+// the same exit path — a rejected promise must not become a silent 0.
 try {
-  process.exitCode = main(process.argv.slice(2));
+  const rc = main(process.argv.slice(2));
+  if (rc && typeof rc.then === 'function') {
+    rc.then((code) => { process.exitCode = code; }, (err) => {
+      console.error(`INTERNAL: ${err.stack || err.message}`);
+      process.exitCode = 1;
+    });
+  } else process.exitCode = rc;
 } catch (err) {
   console.error(`INTERNAL: ${err.stack || err.message}`);
   process.exitCode = 1;

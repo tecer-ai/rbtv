@@ -50,10 +50,10 @@ const GATEWAY_COMMANDS = [
 const GOAL_VERBS = ['scaffold', 'reindex', 'lint', 'materialize', 'selftest'];
 
 // Core-build task 7.433. The staffing-discovery browse — one database per verb.
-// `search` is deliberately ABSENT: the semantic ranking is built behind its own
-// provider-module boundary and rides teambuild's corpus enumerator, so naming the
-// verb here before that module exists would register a route to nothing.
-const TEAMBUILD_VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'selftest'];
+// `search` joins them at 7.434: the semantic ranking now exists behind its own
+// provider-module boundary (teambuild's lib/provider.js) and rides that same corpus
+// enumerator, so the route no longer points at nothing.
+const TEAMBUILD_VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'search', 'selftest'];
 
 // Routes are matched by their token PREFIX, longest first, so `ignite daemon kill`
 // (the unit) can never be shadowed by `ignite kill` (a gateway session). Both
@@ -103,7 +103,7 @@ const ROUTES = [
     target: TEAMBUILD,
     exec: 'direct',
     verbs: TEAMBUILD_VERBS,
-    summary: 'browse the component databases blurb-first — agent cards, kind-filtered cognitive units, seats, tasks, workflows (read-only; binds nothing)',
+    summary: 'browse the component databases blurb-first — agent cards, kind-filtered cognitive units, seats, tasks, workflows — or `search` them by meaning (read-only; binds nothing)',
   },
 ];
 
