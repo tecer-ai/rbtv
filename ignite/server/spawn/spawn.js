@@ -8,7 +8,7 @@ const { materializeHarnessConfig, harnessOf } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
-const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags } = require('./cage');
+const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags, contains } = require('./cage');
 const { parseServiceSeatPath, parseSeatPath, checkRunLive, checkMaterializedSeat, openRunsOfGoal } = require('../seat-identity/seat-folder');
 const { appendRow } = require('../seat-identity/csv');
 const {
@@ -281,6 +281,75 @@ function seatDeclares(seatDir, key) {
   }
 }
 
+// The LIST half of the one declaration reader. Same surface (seat.md frontmatter, ro-bound inside
+// the cage), same lightweight parse — a YAML-style block list, read without pulling a parser into
+// the spawn path. The block ends at the first line that is not a `- item`, so a malformed or
+// mis-indented entry ends the list rather than swallowing the keys after it. `key` is always a
+// literal from THIS module — never caller input.
+function seatDeclaresList(seatDir, key) {
+  let fm;
+  try {
+    const md = fs.readFileSync(path.join(seatDir, 'seat.md'), 'utf8');
+    const m = /^---\n([\s\S]*?)\n---/.exec(md);
+    if (!m) return [];
+    fm = m[1];
+  } catch {
+    return []; // no seat.md yet: not declared, fail closed
+  }
+  const items = [];
+  let inBlock = false;
+  for (const line of fm.split('\n')) {
+    if (!inBlock) {
+      if (new RegExp(`^${key}:\\s*$`).test(line)) inBlock = true;
+      continue;
+    }
+    const item = /^\s*-\s*(.*)$/.exec(line);
+    if (!item) break;
+    items.push(item[1].trim().replace(/^["']|["']$/g, ''));
+  }
+  return items;
+}
+
+// ── `rw-paths:` — the seat-declared READ-WRITE workspace paths (owner ruling "a", 2026-08-06) ──
+//
+// Motivating case: the channel-master holds the whole workspace under `read-root: true`, so an
+// in-workspace CLI that must rewrite its own state (gtools refreshing an OAuth token) meets EROFS
+// and its reads die when the token expires. The generic answer is a declared, validated list of
+// workspace-relative paths punched back through the read-only floor.
+//
+// FAIL-CLOSED, PER ENTRY. A bad entry is SKIPPED and LOGGED — never guessed at, never repaired,
+// and never fatal to the spawn: one typo in a seat descriptor must not take a seat offline. The
+// four refusals, in the order they are cheapest to answer:
+//
+//   1. empty / absolute            — the key's vocabulary is workspace-RELATIVE, only
+//   2. escapes the workspace root  — checked AFTER `..` normalization, so `a/../../etc` is caught
+//   3. overlaps `<ws>/.rbtv/goals` — in EITHER direction. Every `sessions.csv` and every `seat.md`
+//      lives under that subtree, so one containment test covers rule 3 without walking the tree:
+//      an entry INSIDE it could be, or contain, one of those files; an entry that CONTAINS it
+//      contains all of them. This is also what keeps the seat.md ro-carve winning — an entry
+//      covering the seat's own folder is inside `.rbtv/goals` and is refused here, so it never
+//      reaches the ordering question at all (refused under rule 3's spirit, as ruled).
+//   4. does not exist              — skipped; this resolver NEVER creates a path.
+function resolveRwPathGrants(seatPath, log) {
+  const root = seatPath.workspaceRoot;
+  const goals = path.join(root, '.rbtv', 'goals');
+  const grants = [];
+  for (const entry of seatDeclaresList(seatPath.seatDir, 'rw-paths')) {
+    const refuse = (reason) => log('warn', `rw-paths entry REFUSED: ${reason}`, { seat: seatPath.seat, seatDir: seatPath.seatDir, entry });
+    if (!entry) { refuse('empty entry'); continue; }
+    if (path.isAbsolute(entry)) { refuse('absolute path — rw-paths entries are workspace-relative'); continue; }
+    const target = path.resolve(root, entry);
+    if (!contains(root, target) || target === root) { refuse(`resolves outside the workspace root: ${target}`); continue; }
+    if (contains(goals, target) || contains(target, goals)) {
+      refuse(`overlaps ${goals} — the identity/ground-truth surfaces (sessions.csv, seat.md) stay unwritable: ${target}`);
+      continue;
+    }
+    if (!fs.existsSync(target)) { refuse(`does not exist (never created from here): ${target}`); continue; }
+    grants.push({ rwPath: target });
+  }
+  return grants;
+}
+
 function resolveReadRootGrant(seatPath) {
   return seatDeclares(seatPath.seatDir, 'read-root') ? [{ readRoot: seatPath.workspaceRoot }] : [];
 }
@@ -427,7 +496,11 @@ function resolveHarnessCredGrants(entitledHarnesses = []) {
 // `--setenv` on the same flag list, because bwrap is the only layer both doors share — the headed
 // door never touches the carrier's EnvironmentFile. NO TOKEN rides it; token distribution stays
 // owner-out-of-band (the workspace `.env` is already readable under the read-root grant).
-function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr = null) {
+//
+// `log` is threaded in for ONE reason: the `rw-paths` grant class refuses per entry rather than
+// per spawn, and a refusal nobody can hear is a silent narrowing of a seat's declared walls. It
+// defaults to a no-op so a caller with no logger still composes.
+function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr = null, log = () => {}) {
   let template = resolvedSandbox && resolvedSandbox.SeatBinds;
   if (!template || template.length === 0) return null;
   if (seatPath.service) {
@@ -460,6 +533,7 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       ...resolveReadRootGrant(seatPath),
       ...resolveBusWriteGrants(seatPath),
       ...resolveLocalBinGrant(seatPath),
+      ...resolveRwPathGrants(seatPath, log),
     ],
   });
   assertGroundTruthUnwritable(spec, seatPath.sessionsCsv);
@@ -606,7 +680,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // spawnSeat uses. A profile with no template still gets the v1 workdir-only wall — a config
     // state, not a code branch kept on purpose.
     const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
-    const seatCage = composeCageFor(resolvedSandbox, dispatchSeat, resolvedWorkdir, gatewayAddr);
+    const seatCage = composeCageFor(resolvedSandbox, dispatchSeat, resolvedWorkdir, gatewayAddr, log);
     const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, harness: harnessOf(profile), maskPaths, seatBinds: seatCage });
 
     const carrier = selectCarrier(config.spawn.carrier, userManager);
@@ -823,7 +897,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // (composeCageFor above — r-seats-only-architecture (1)). Slots resolve from the SEAT'S OWN
     // RECORDS; nothing here reads caller input (CMP-17), and the ground-truth assertion runs on
     // every spawn.
-    const seatCage = composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr);
+    const seatCage = composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr, log);
 
     // Composition FIRST — and this ordering is the fail-closed guarantee, not a style choice.
     // composeSeatSpawn runs buildBwrapArgv before it builds any tmux argv, so on a box without

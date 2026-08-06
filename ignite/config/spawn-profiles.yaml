@@ -66,6 +66,20 @@ default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every s
 #   local-bin: true    ro-bind the invoking user's ~/.local/bin (the user-local CLIs)
 #   gateway-env: true  NOT a mount — passes IGNITE_GATEWAY_ADDR into the session's environment
 #                      (a `--setenv`, composed beside these binds; no token, ever)
+#   rw-paths:          a BLOCK LIST of workspace-relative paths bound READ-WRITE (owner ruling
+#                      "a", 2026-08-06). The generic answer to an in-workspace CLI that must
+#                      rewrite its own state under the `read-root` floor — the motivating case
+#                      is gtools refreshing an OAuth token into its credentials dir.
+#                        rw-paths:
+#                          - 3-resources/tools/google/credentials
+#                      VALIDATED PER ENTRY, refuse-loudly: a bad entry is SKIPPED and LOGGED,
+#                      never guessed at and never fatal to the spawn. An entry is refused when
+#                      it is empty or ABSOLUTE (the vocabulary is workspace-relative only), when
+#                      it ESCAPES the workspace root after `..` normalization, or when it
+#                      OVERLAPS `<ws>/.rbtv/goals` in either direction — every sessions.csv and
+#                      every seat.md lives under that subtree, so the identity/ground-truth
+#                      surfaces stay unwritable and the seat.md ro-carve keeps winning. A
+#                      nonexistent path is skipped; nothing is ever created.
 cage:
   NoNewPrivileges: true
   # Retained as the declarative source of the harness-local advisory write-restraint config
@@ -136,6 +150,15 @@ cage:
     # harnessCreds because it is the same kind of opening — a path under the HOME tmpfs bwrap
     # lays down before this stack, punched back through it. Nothing later covers it.
     - "ro-bind:{grant:localBin}"
+    # RW-PATHS grant (owner ruling "a"): the seat's declared in-workspace read-write paths,
+    # one opening per entry. LAST deliberately, and the placement is the mechanism: every
+    # entry lies inside the workspace root, which `ro-bind:{grant:readRoot}` covers read-only
+    # at the top of this stack — so an opening placed anywhere above that floor would be
+    # re-covered by it and compose to nothing observable. Nothing below it needs to shadow it
+    # back: the two lines that could (the seat.md ro-carve and the run-folder tmpfs erasures)
+    # both live under `.rbtv/goals`, and the resolver REFUSES any entry overlapping that
+    # subtree — so the carves win by never meeting an rw-paths entry, not by ordering.
+    - "bind:{grant:rwPath}"
   # ⚑ ABSENT BY CONSTRUCTION, each one a pre-registered probe: the run folder's files for
   # WRITE (the identity gate's ground truth — refused at compose time by cage.js, not merely
   # unlisted here), peer seat folders even for READ, other seats' worktrees, the goal

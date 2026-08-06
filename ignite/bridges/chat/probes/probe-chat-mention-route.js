@@ -62,7 +62,16 @@ function makeFakeForwarder() {
       enqueued.push({ intent, payload, jobId });
       return { ok: true, result: { jobId } };
     },
-    async inspect() { return { ok: true, result: { live_sessions: [], recent_ticks: [] } }; },
+    // Every session-creating enqueue reads back as a LIVE session on its own queue row
+    // (the D108(B) tier-1 shape), so a follow-up leg can resolve its chain thread. The
+    // mint-vs-continue checks need a resolvable chain; the routing claims they make are
+    // upstream of it, so a resolvable chain is exactly the right amount of daemon here.
+    async inspect() {
+      const live = enqueued
+        .filter((e) => e.payload.job_id === 'chat-launch')
+        .map((e) => ({ queue_id: e.jobId, exec_id: e.jobId, thread: `exec-${e.jobId}` }));
+      return { ok: true, result: { live_sessions: live, recent_ticks: [] } };
+    },
   };
 }
 
@@ -266,6 +275,47 @@ async function main() {
       }
     }
     check('bridge source carries no instance path and no hardcoded charter', hits.length === 0, { scanned: runtime, hits });
+  }
+
+  // 8 — MINT vs CONTINUE (owner-observed 2026-08-06). A mention MINTS the conversation;
+  //     a reply INSIDE that thread continues it with NO re-mention. Everything else in
+  //     an unmapped channel stays refused — an unknown thread, and any top-level
+  //     message (whose conversation id is its own ts, always brand new).
+  {
+    const { bridge, forwarder } = makeBridge();
+    await bridge.start();
+
+    const mint = await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '8.1', channelType: 'channel', text: `<@${BOT}> start` }));
+    const cont = await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '8.2', threadTs: '8.1', channelType: 'channel', text: 'and one more thing' }));
+    check('mention still MINTS the conversation (session-create)',
+      mint.forwarded === true && mint.leg === 'session-create', { mint });
+    check('un-mentioned reply in a KNOWN thread CONTINUES it as a follow-up on that conversation',
+      cont.forwarded === true && cont.route === 'master' && cont.leg === 'follow-up'
+      && forwarder.enqueued.length === 2
+      && forwarder.enqueued[1].payload.job_id === 'send-message',
+      { cont, enqueued: forwarder.enqueued.length });
+
+    // Each refusal below is measured against the enqueue count IMMEDIATELY BEFORE it, so
+    // it fails for its OWN claim rather than inheriting the continuation's counter.
+    let base = forwarder.enqueued.length;
+    const unknownThread = await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '8.4', threadTs: '8.3', channelType: 'channel', text: 'reply in a thread nobody minted' }));
+    check('un-mentioned reply in an UNKNOWN thread stays refused — nothing enqueued',
+      unknownThread.forwarded === false && unknownThread.reason === 'unroutable-surface' && forwarder.enqueued.length === base,
+      { unknownThread, base, enqueued: forwarder.enqueued.length });
+
+    base = forwarder.enqueued.length;
+    const topLevel = await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '8.5', channelType: 'channel', text: 'top-level chatter' }));
+    check('un-mentioned TOP-LEVEL message stays refused even in a channel that has a live sitting',
+      topLevel.forwarded === false && topLevel.reason === 'unroutable-surface' && forwarder.enqueued.length === base,
+      { topLevel, base, enqueued: forwarder.enqueued.length });
+
+    // A DIFFERENT unmapped channel's thread is not this one's — the id is channel-scoped.
+    base = forwarder.enqueued.length;
+    const otherChannel = await bridge.onChatMessage(msg({ channel: 'C_OTHER', ts: '8.6', threadTs: '8.1', channelType: 'channel', text: 'same ts, other channel' }));
+    check('the continuation is channel-scoped — the same thread_ts in another channel is refused',
+      otherChannel.forwarded === false && otherChannel.reason === 'unroutable-surface' && forwarder.enqueued.length === base,
+      { otherChannel, base });
+    bridge.stop();
   }
 
   const pass = checks.every((c) => c.pass);

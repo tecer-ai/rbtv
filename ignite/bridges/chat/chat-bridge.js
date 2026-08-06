@@ -42,7 +42,9 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   //
   //   'master' — EITHER a DM to the bot identity (cold-contact MASTER traffic,
   //              explicitly UNCHANGED by the channel-per-goal ruling) OR a message in
-  //              an unmapped channel/group that MENTIONS the bot (`<@BOTID>`). Both
+  //              an unmapped channel/group that MENTIONS the bot (`<@BOTID>`) or that
+  //              lands in a thread ALREADY known to the thread map (a mention MINTS a
+  //              conversation, membership CONTINUES it — no re-mention per reply). Both
   //              carry the same conversation shape — the Slack thread
   //              `channel:thread_ts` — so a mention starts a per-thread sitting and a
   //              new thread is a new sitting. NEVER goal traffic: neither surface can
@@ -51,7 +53,8 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   //              the channel, so the CONVERSATION IS THE CHANNEL — sharding it by
   //              `thread_ts` would split one goal thread into many and break the 1:1
   //              the ruling exists to establish.
-  //   null     — an UNMENTIONED message in a channel that maps to no goal. REFUSED,
+  //   null     — an UNMENTIONED message in a channel that maps to no goal, in no
+  //              already-known conversation thread. REFUSED,
   //              nothing enqueued: unattributable traffic must never mint work. The
   //              mention is what makes it attributable — without one, the bot sitting
   //              in an ordinary channel would mint work from every passing sentence.
@@ -92,9 +95,22 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     }
     const goalId = goalChannels ? goalChannels.goalForChannel(channel) : null;
     if (!goalId) {
-      // Unmapped channel: a mention makes it master traffic, thread-scoped. Anything
-      // else stays refused.
-      if (mentionsBot(chatMsg)) {
+      // Unmapped channel: a mention MINTS a conversation; MEMBERSHIP in one already
+      // minted CONTINUES it. Anything else stays refused.
+      //
+      // The continuation check is `threadMap.has(<the same conversation id the mention
+      // route would assign>)` — `channel:thread_ts`. It is self-limiting by
+      // construction: a TOP-LEVEL message's conversation id is its own `ts`, always
+      // brand new, so it can never be in the map — only replies inside a thread that
+      // already IS a sitting continue without a mention. Without this, the owner had to
+      // re-mention the bot on every single reply in a thread it had already answered
+      // in (owner-observed 2026-08-06).
+      //
+      // ponytail: the thread map is IN-MEMORY, so a bridge restart forgets every
+      // sitting and un-mentioned replies in old threads go back to refused until the
+      // owner re-mentions (which re-mints). Accepted limit, disclosed in the README;
+      // persist the map if restarts become common.
+      if (mentionsBot(chatMsg) || (threadMap && threadMap.has(chatMsg.chatThreadId))) {
         return { kind: 'master', goalId: null, conversationId: chatMsg.chatThreadId };
       }
       return null;

@@ -163,6 +163,9 @@ function normalize(p, index) {
   return path.normalize(p);
 }
 
+// Ancestor-or-self containment, exported because the ground-truth assertion below and the
+// `rw-paths` grant resolver (spawn.js) must answer the SAME question the same way — a second
+// spelling of "is this path inside that one" is a second place the wall can drift.
 function contains(dir, file) {
   const d = path.normalize(dir);
   const f = path.normalize(file);
@@ -248,6 +251,7 @@ function validateSeatBindTemplate(seatBinds, profileName, filePath) {
 }
 
 module.exports = {
+  contains,
   composeSeatCage,
   assertGroundTruthUnwritable,
   specToBwrapFlags,
