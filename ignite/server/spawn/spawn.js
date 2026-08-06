@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawn: childSpawn } = require('node:child_process');
+const { spawn: childSpawn, execFileSync } = require('node:child_process');
 const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot } = require('./config');
 const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCagedSettings } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
@@ -10,7 +10,7 @@ const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
 const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags, contains } = require('./cage');
 const { parseServiceSeatPath, parseSeatPath, checkRunLive, checkMaterializedSeat, openRunsOfGoal } = require('../seat-identity/seat-folder');
-const { appendRow } = require('../seat-identity/csv');
+const { appendRow, readCsv } = require('../seat-identity/csv');
 const {
   generateSessionId,
   selectCarrier,
@@ -243,6 +243,61 @@ function ensureExitFile(dataRoot, sessionId) {
   const exitDir = path.join(dataRoot, 'exits');
   fs.mkdirSync(exitDir, { recursive: true, mode: 0o700 });
   return exitFilePath(dataRoot, sessionId);
+}
+
+// ── Task 7.449 (MC7) — THE TRACE PRECONDITION, for both doors below ─────────────────────────────
+//
+// The daemon already reaches a trace-creating act twice — the at-dispatch door in `spawn` and the
+// seat door in `spawnSeat`, both through `appendRow`. What it lacks is the PRECONDITION that act
+// needs: `appendRow` refuses an absent-or-headerless file ("refusing to invent a schema") and
+// NOTHING creates that file. Package creation deliberately does not — `materialize-seats.py` plans
+// `taskforce.csv` and `state.csv`, and the capability's own doc says "sessions.csv is born at
+// LAUNCH, not at create". So on a package the kit never launched into, both doors no-op into a warn
+// line, the run has no trace at all, and the edge-runner's gate 3 refuses the whole package.
+//
+// SO THE FIX IS THE PRECONDITION, NOT A SECOND WRITER, and that distinction is the whole design.
+// Calling coord.py's `session-open` on top of a door that already appends yields TWO ROWS PER
+// LAUNCH, and the extra row carries a FOREIGN session-id — breaking the at-dispatch identity task
+// 7.73's join reads, and losing the real pid/pid-starttime pair the seat-identity gate decides on.
+// Guaranteeing the header instead lets the door's OWN row land, unchanged, with both intact.
+//
+// THE HEADER IS NOT SPELLED HERE, DELIBERATELY. `coord.py` owns this schema (`SESSIONS_COLS`, task
+// 7.37). A second spelling on the write side is exactly how the run-1 and run-2 headers came to
+// disagree — the argument `seat-identity/csv.js` is built on — so the owner is ASKED, at run time,
+// and only on the path where the append has ALREADY refused. A normal launch into a live package
+// pays nothing: no subprocess, no python, no change in behaviour at all.
+//
+// AND IT IS WRITTEN IN PLACE. `writeFileSync` truncates an existing file; it does not replace the
+// inode. That matters because `composeCageFor` pre-creates this file for a SERVICE seat and then
+// RO-BINDS it into the cage: a header written by replacing the inode would be correct outside the
+// cage and invisible inside it, which no row-level check could see.
+const SESSIONS_HEADER_ARGV = ['-c',
+  'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))'];
+
+function appendRowEnsuringHeader(csvPath, values, log) {
+  const written = appendRow(csvPath, values);
+  if (written.appended) return written;
+  // Answer ONLY the missing-header refusal, and decide that STRUCTURALLY rather than by matching
+  // the refusal's text: if the file already carries a header, this refusal is not ours and the
+  // file is not ours to touch. It also bounds what can be lost — `appendRow` refuses here exactly
+  // when the file has no non-empty line, so there is no content to overwrite.
+  const before = readCsv(csvPath);
+  if (before.exists && before.header.length > 0) return written;
+  try {
+    const kit = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'), 'team-kit');
+    const header = execFileSync('python3', [...SESSIONS_HEADER_ARGV, kit],
+      { encoding: 'utf8', timeout: 30000 }).trim();
+    if (!header.includes(',')) throw new Error(`the schema owner returned no header: ${JSON.stringify(header)}`);
+    fs.writeFileSync(csvPath, `${header}\n`, 'utf8');
+    log('info', 'session trace had no header; created it from coord.py SESSIONS_COLS so this launch could record itself', { sessionsCsv: csvPath, header });
+  } catch (err) {
+    // Never fatal, for the same reason the callers' own catch is not: a process is already running
+    // at this point. The caller's existing warn arm then reports the unrecorded row as it always
+    // did — this path can leave the launch no worse off than it was before this function existed.
+    log('warn', 'session trace has no header and one could not be created — this launch will be UNATTRIBUTABLE', { sessionsCsv: csvPath, error: err.message });
+    return written;
+  }
+  return appendRow(csvPath, values);
 }
 
 // Task 7.11 §2 W2/W3 — the seat's worktree grants, DERIVED from the seat's own identity.
@@ -747,7 +802,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // `headless_unattributed` field surfaces rather than guesses at.
     if (dispatchSeat) {
       try {
-        const written = appendRow(dispatchSeat.sessionsCsv, {
+        const written = appendRowEnsuringHeader(dispatchSeat.sessionsCsv, {
           seat: dispatchSeat.seat,
           'session-id': sessionId,
           harness: harnessOf(profile) || '',
@@ -757,7 +812,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
           tty: '',
           'worktree-path': (resolveSeatGrants(dispatchSeat)[0] || {}).worktree || '',
           started: isoNow(),
-        });
+        }, log);
         if (!written.appended) {
           log('warn', 'at-dispatch session row NOT recorded — this headless session will be UNATTRIBUTABLE', {
             seat: dispatchSeat.seat, sessionsCsv: dispatchSeat.sessionsCsv, sessionId, reason: written.reason,
@@ -981,7 +1036,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // the gate's own answer to a log that cannot name an occupant is a typed refusal — a loud
     // failure later, never a silent pass.
     try {
-      const written = appendRow(seatPath.sessionsCsv, {
+      const written = appendRowEnsuringHeader(seatPath.sessionsCsv, {
         seat: seatPath.seat,
         'session-id': sessionId,
         harness: harnessOf(profile) || '',
@@ -991,7 +1046,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
         tty: '',
         'worktree-path': (resolveSeatGrants(seatPath)[0] || {}).worktree || '',
         started: isoNow(),
-      });
+      }, log);
       if (!written.appended) {
         log('warn', 'session row NOT recorded — the identity gate will refuse commands from this seat', {
           seat: seatPath.seat, sessionsCsv: seatPath.sessionsCsv, reason: written.reason,
