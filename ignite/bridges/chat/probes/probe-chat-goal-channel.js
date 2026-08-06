@@ -12,6 +12,7 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const { makeCapture, nowMs } = require('./lib');
 const { buildBridge } = require('../index');
 const { channelNameForGoal, goalIdFromChannelName } = require('../goal-channel-map');
@@ -90,7 +91,25 @@ function makeFakeForwarder() {
   };
 }
 
-function makeBridge({ existing = [] } = {}) {
+// A workspace whose `.rbtv/goals/<goal>/` carries an OPEN run with a goal-master seat —
+// what the forward path resolves a goal session's workdir from (2026-08-06 ruling). Every
+// goal this probe drives traffic for must be seated, or the session-create is refused
+// (which is itself asserted, in the mention-route probe).
+function seedWorkspace(goalIds) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-goalws-'));
+  for (const goalId of goalIds) {
+    const goalDir = path.join(root, '.rbtv', 'goals', goalId);
+    fs.mkdirSync(path.join(goalDir, 'runs', 'run-1', 'seats', 'goal-master'), { recursive: true });
+    fs.writeFileSync(path.join(goalDir, 'runs.csv'),
+      'run-id,type,state,taskforce-ids,opened,closed\n' +
+      'run-0,fresh,closed,tf-0,2026-08-01 00:00,2026-08-02 00:00\n' +
+      'run-1,fresh,open,tf-1,2026-08-03 00:00,\n');
+  }
+  return root;
+}
+
+function makeBridge({ existing = [], goals = [] } = {}) {
+  const workspaceRoot = seedWorkspace(goals);
   const slack = makeFakeSlack({ existing });
   const forwarder = makeFakeForwarder();
   const config = {
@@ -102,6 +121,7 @@ function makeBridge({ existing = [] } = {}) {
     goalProfile: 'goal-profile',
     sendMessageJobId: 'send-message',
     workdir: null,
+    workspaceRoot,
     channelPrefix: PREFIX,
     allowlist: [USER],
     slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
@@ -112,7 +132,7 @@ function makeBridge({ existing = [] } = {}) {
     forwarderImpl: forwarder,
     replyLegOptions: { pollMs: 3600000 }, // the reply leg is not under test here
   });
-  return { ...built, slack, forwarder, config };
+  return { ...built, slack, forwarder, config, workspaceRoot };
 }
 
 // A Slack message event as the transport shapes it.
@@ -185,7 +205,7 @@ async function main() {
   // 5 — ROUTING (criteria 2 + 3). A DM is master traffic; a mapped channel is goal
   //     traffic; anything else is refused with NOTHING enqueued.
   {
-    const { bridge, forwarder } = makeBridge();
+    const { bridge, forwarder } = makeBridge({ goals: ['goal-three'] });
     const reg = await bridge.registerGoal('goal-three');
     const chan = reg.channelId;
 
@@ -209,7 +229,7 @@ async function main() {
   //     `thread_ts` this would open a SECOND session instead of a follow-up — the
   //     precise failure d-channel-per-goal exists to prevent.
   {
-    const { bridge, forwarder } = makeBridge();
+    const { bridge, forwarder } = makeBridge({ goals: ['goal-four'] });
     const reg = await bridge.registerGoal('goal-four');
     const chan = reg.channelId;
     const one = await bridge.onChatMessage(msg({ channel: chan, ts: '10.1', channelType: 'channel' }));
@@ -228,7 +248,7 @@ async function main() {
   //     is visible where the owner is looking; a threaded question is answered in
   //     its thread.
   {
-    const { bridge, slack } = makeBridge();
+    const { bridge, slack } = makeBridge({ goals: ['goal-five'] });
     const reg = await bridge.registerGoal('goal-five');
     const chan = reg.channelId;
     await bridge.onChatMessage(msg({ channel: chan, ts: '20.1', channelType: 'channel' }));

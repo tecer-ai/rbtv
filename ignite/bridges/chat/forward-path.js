@@ -21,6 +21,16 @@
 // first leg — a send-message job on the chain's thread — consumed at the next turn
 // boundary. There is no send-to-session code path in this file, by construction.
 
+//
+// ⚑ THE BRIDGE CARRIES NO BEHAVIOURAL TEXT (owner ruling 2026-08-06). A session-create
+// prompt is the user's BARE MESSAGE. Who the session is and how it behaves travel with
+// the seat it is homed at — its `seat.md` and the auto-injected CLAUDE.md chain above
+// it — so identity lives in one place that the seat's owner edits, not in a constant
+// inside a transport. A charter here would also be an instance-specific path in repo
+// source, which this repo forbids.
+
+const fs = require('node:fs');
+const path = require('node:path');
 const { nowIsoUtc } = require('./config');
 
 // The five CMP-8 message types (closed vocabulary — mint nothing). Only `answer`
@@ -34,21 +44,56 @@ const CMP8_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note']);
 // NO internals (never leak a reason / thread / queue id into chat).
 const DECLINE_NOTICE = "⚠ couldn't route your reply to the running work — please try again shortly";
 
+// The same mechanics for the OTHER honest refusal: goal-channel traffic that has no
+// goal-master seat to land in. Fixed string, no internals — it names the human act that
+// fixes it, because the owner reading it in Slack is the one who can.
+const NO_GOAL_SEAT_NOTICE = "⚠ no goal-master seat is open for this goal — ask the run's owner to seat one";
+
+// Where a goal-channel session is HOMED: the goal-master seat of that goal's OPEN run.
+//   <workspaceRoot>/.rbtv/goals/<goalId>/runs.csv  → the row with state=open
+//   <workspaceRoot>/.rbtv/goals/<goalId>/runs/<run-id>/seats/goal-master
+// Every step is a refusal point, and each returns a REASON rather than a fallback: an
+// unresolvable seat must never degrade into launching at some default workdir, where the
+// session would run with no descriptor and no goal identity at all.
+// ponytail: plain split on ',' — runs.csv columns are ids and timestamps, no quoted
+// fields; if a column ever needs escaping this needs a real CSV reader.
+function resolveGoalMasterSeat(workspaceRoot, goalId) {
+  if (!workspaceRoot) return { ok: false, reason: 'no-workspace-root-configured' };
+  const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', String(goalId));
+  const runsCsv = path.join(goalDir, 'runs.csv');
+  let raw;
+  try { raw = fs.readFileSync(runsCsv, 'utf8'); } catch { return { ok: false, reason: 'runs-csv-unreadable' }; }
+  const rows = raw.split('\n').map((l) => l.trim()).filter(Boolean).slice(1); // drop the header
+  const open = rows.map((l) => l.split(',')).find((c) => (c[2] || '').trim() === 'open');
+  if (!open) return { ok: false, reason: 'no-open-run' };
+  const runId = (open[0] || '').trim();
+  if (!runId) return { ok: false, reason: 'no-open-run' };
+  const seatDir = path.join(goalDir, 'runs', runId, 'seats', 'goal-master');
+  // The seat must EXIST — a run can be open with no goal-master seated, and launching
+  // at a path that is not there is the failure this check exists to make visible.
+  try {
+    if (!fs.statSync(seatDir).isDirectory()) return { ok: false, reason: 'goal-master-seat-missing', seatDir };
+  } catch { return { ok: false, reason: 'goal-master-seat-missing', seatDir }; }
+  return { ok: true, runId, seatDir };
+}
+
 function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null, deliver = null }) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
 
-  // Best-effort owner notice on a DROPPED reply path (D111 part 2). Called ONLY from
-  // the follow-up leg — i.e. a MAPPED conversation. Delivery is best-effort: when no
-  // reply address exists deliverToOwner returns delivered:false and we drop; a failed
-  // post is logged and dropped, NEVER retried (no notice loop). Notices are NEVER
-  // posted on allowlist/pairing refusals — that path returns before the follow-up leg
-  // (unpaired users get nothing, by security posture, not a gap).
-  async function postDeclineNotice(chatThreadId) {
+  // Best-effort owner notice on a refusal the owner can act on (D111 part 2): a DROPPED
+  // reply path in the follow-up leg, or a goal channel with no goal-master seat. Both
+  // are ROUTABLE conversations — the human is addressing real work and deserves a line
+  // instead of silence. Delivery is best-effort: when no reply address exists
+  // deliverToOwner returns delivered:false and we drop; a failed post is logged and
+  // dropped, NEVER retried (no notice loop). Notices are NEVER posted on
+  // allowlist/pairing or unroutable-surface refusals — those return before either leg
+  // (unadmitted or unattributable traffic gets nothing, by security posture, not a gap).
+  async function postDeclineNotice(chatThreadId, text = DECLINE_NOTICE) {
     if (typeof deliver !== 'function') return;
     try {
-      const d = await deliver({ chatThreadId, text: DECLINE_NOTICE, markAsk: false });
+      const d = await deliver({ chatThreadId, text, markAsk: false });
       if (d && d.delivered === false) {
         log('warn', 'decline notice not delivered (best-effort, dropped)', { chatThreadId, reason: d.reason || d.error || 'unknown' });
       } else {
@@ -71,18 +116,17 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     return config.masterProfile || config.sessionProfile;
   }
 
-  // Speed charter for MASTER (DM) sessions (owner-directed 2026-08-06, measured: a bare
-  // question cost ~20 model turns of self-invented thoroughness). Prepended by the BRIDGE
-  // on session-create only — follow-ups ride the existing chain and pay it once.
-  const MASTER_CHARTER = [
-    'You are the channel-master: the owner\'s Slack-side master seat, with his vault',
-    'mounted READ-ONLY at /home/henri/ht-wkdir/second-brain. ANSWER FAST AND DIRECT:',
-    'simple questions in <=3 tool calls; prefer rg/direct reads; do not double-verify;',
-    'reply with the answer only, no preamble, sized for a Slack message.',
-    'Map: tasks in 1-projects/*/{name}-tasks.md and 2-areas/*/{name}-tasks.md; goal/run',
-    'state under .rbtv/goals/; reference content in 3-resources/; periodic notes in',
-    '0-periodic-notes/. The owner\'s question follows.',
-  ].join(' ');
+  // WHERE the session runs, by surface. Master/mention traffic uses the configured
+  // `workdir` as it always has. GOAL traffic is homed at that goal's OPEN run's
+  // goal-master seat, so the session boots inside the seat folder whose descriptor
+  // chain IS its identity — the reason the prompt can be the bare user text.
+  // Returns { ok, workdir } or { ok: false, reason } — never a fallback.
+  function workdirFor(route) {
+    if (!route || route.kind !== 'goal') return { ok: true, workdir: config.workdir || null };
+    const seat = resolveGoalMasterSeat(config.workspaceRoot, route.goalId);
+    if (!seat.ok) return seat;
+    return { ok: true, workdir: seat.seatDir, runId: seat.runId };
+  }
 
   // A first message that STARTS work → a session-creating launch-agent job.
   async function forwardSessionCreate({ chatThreadId, text, route }) {
@@ -92,14 +136,23 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       // exists). Missing config is a loud refusal, never a silent malformed forward.
       return { forwarded: false, leg: 'session-create', reason: 'no-session-profile-configured' };
     }
+    const home = workdirFor(route);
+    if (!home.ok) {
+      // Nothing is enqueued. The owner gets the fixed notice on the goal's own channel,
+      // because the fix — seating a goal-master on the open run — is a human act.
+      log('warn', 'goal session-create refused: no goal-master seat resolved', { chatThreadId, goalId: route && route.goalId, reason: home.reason });
+      await postDeclineNotice(chatThreadId, NO_GOAL_SEAT_NOTICE);
+      return { forwarded: false, leg: 'session-create', reason: `no-goal-master-seat:${home.reason}`, goalId: (route && route.goalId) || null };
+    }
     const payload = {
       job_id: config.sessionJobId,
-      args: { profile, prompt: (route && route.kind === 'goal') ? text : `${MASTER_CHARTER}\n\n${text}` },
+      // The BARE user text — the seat's descriptor carries behaviour (see the header).
+      args: { profile, prompt: text },
       session_mode: 'headless',                 // chat rides the headless model (notes §7b)
       trigger_kind: 'scheduled',
       run_at: nowIsoUtc(),                      // due now: the next tick dispatches it
     };
-    if (config.workdir) payload.args.workdir = config.workdir;
+    if (home.workdir) payload.args.workdir = home.workdir;
 
     const res = await forwarder.forward('enqueue-job', payload);
     if (!res.ok) {
@@ -108,7 +161,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     }
     const queueId = res.result && res.result.jobId;
     threadMap.create(chatThreadId, { queueId });
-    log('info', 'session-create job enqueued', { chatThreadId, queueId, route: route && route.kind, goalId: route && route.goalId, profile });
+    log('info', 'session-create job enqueued', { chatThreadId, queueId, route: route && route.kind, goalId: route && route.goalId, profile, workdir: home.workdir || null });
     return { forwarded: true, leg: 'session-create', intent: 'enqueue-job', queueId, route: route && route.kind, goalId: (route && route.goalId) || null };
   }
 
@@ -157,10 +210,11 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // by whether the conversation already exists.
   //
   // `route` (task 7.58) is resolved by the bridge and says which surface the message
-  // arrived on — 'master' (a DM) or 'goal' (a mapped goal channel). It never changes
-  // the ADMISSION decision (DEC-6's gate is per-principal, not per-surface) and it
-  // never changes the forward CONTRACT (still exactly two enqueue-job legs). It
-  // selects the launch profile and is logged, so a goal's traffic is attributable.
+  // arrived on — 'master' (a DM, or a mention in an unmapped channel) or 'goal' (a
+  // mapped goal channel). It never changes the ADMISSION decision (DEC-6's gate is
+  // per-principal, not per-surface) and it never changes the forward CONTRACT (still
+  // exactly two enqueue-job legs). It selects the launch profile AND the session's
+  // workdir, and is logged, so a goal's traffic is attributable.
   //
   // THREE-VALUED, deliberately: an explicit `null` means the bridge RESOLVED the
   // surface and found it unattributable → refuse. `undefined` means no caller
@@ -187,4 +241,4 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   return { onChatMessage, forwardSessionCreate, forwardFollowUp, CMP8_TYPES };
 }
 
-module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE };
+module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, resolveGoalMasterSeat };

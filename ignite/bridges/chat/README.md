@@ -57,7 +57,17 @@ that first (`chat-bridge.js` `routeOf`):
 |---------|-------|-----------------|
 | **DM** to the bot (`channel_type: 'im'`) | **master** traffic — cold contact, unchanged by the ruling. A DM has no goal, so it can never be attributed to one. | the Slack thread `channel:thread_ts` |
 | Message in a **mapped goal channel** | **goal** traffic | the **channel id** — the goal thread IS the channel; sharding by `thread_ts` would split one goal thread into many |
-| A channel mapping to no goal, or a group DM (`mpim`) | **refused**, nothing enqueued | — |
+| Message **mentioning the bot** (`<@BOTID>`) in an **unmapped** channel or group | **master** traffic (the *mention route*, owner ruling 2026-08-06). Replies always post **in-thread**, so each thread is its own parallel sitting and a new thread is a new sitting. | the Slack thread `channel:thread_ts` |
+| An **unmentioned** message in a channel mapping to no goal, or a group DM (`mpim`) | **refused**, nothing enqueued | — |
+
+The mention route **fails closed**. The bot's own user id is resolved once at `start()`
+via Slack `auth.test` on the bot token; if that fails the route is never armed and an
+unmapped channel behaves exactly as it did before the ruling (refused) — a bot that
+cannot say who it is must not guess who was meant. `app_mention` events stay ignored:
+member-channel `message` events already carry the traffic, so **the bot must be a member
+of the channel** for a mention there to reach the bridge. `mpim` (group DM) stays
+refused even when mentioned — it is neither a goal channel nor the 1:1 owner DM the
+master path assumes.
 
 The surface gate runs **after** admission, not before: refusing earlier is no weaker,
 but it would stop a non-admitted principal from ever reaching the allowlist's pairing
@@ -117,6 +127,31 @@ no send-to-session code path in this module, by construction — and since task 
 retired the intent, there is none anywhere: the constraint is now structural rather
 than a discipline this module keeps.
 
+### The prompt is the bare user text (owner ruling 2026-08-06)
+
+A session-create carries `args: { profile, prompt, workdir }` where **`prompt` is the
+user's message, verbatim** — on the master, mention and goal legs alike. The bridge
+ships **zero behavioural text**: who a session is and how it answers travel with the
+seat it is homed at, through that seat's `seat.md` and the auto-injected `CLAUDE.md`
+chain above it. That keeps identity in one place its owner edits, and keeps
+instance-specific paths out of repo source (the retired `MASTER_CHARTER` constant
+carried an absolute `/home/…` path). `probe-chat-mention-route` asserts both — the
+verbatim prompt, and the absence of any instance path in the runtime source.
+
+### Where a session runs
+
+| Leg | `args.workdir` |
+|-----|----------------|
+| master (DM) and mention | `config.workdir`, unchanged |
+| **goal channel** | the goal's **`goal-master` seat**: `<workspace_root>/.rbtv/goals/<goalId>/runs/<open run-id>/seats/goal-master`, resolved per message from that goal's `runs.csv` row with `state=open` |
+
+If `workspace_root` is unset, `runs.csv` is missing, no run is open, or the
+`goal-master` seat directory does not exist, the bridge enqueues **nothing** and posts
+the fixed notice `⚠ no goal-master seat is open for this goal — ask the run's owner to
+seat one` on the goal's channel. There is deliberately **no fallback workdir**: a
+session launched outside its seat would run with no descriptor and no goal identity at
+all, which is worse than not running.
+
 ## The reply leg (D110) — `reply-leg.js`
 
 The outbound production driver that closes Behavior #3. On every FORWARDED turn the
@@ -168,7 +203,8 @@ The bridge never drops an owner-visible reply path in **silence** on a MAPPED
 conversation. When a follow-up cannot reach the running work — chain unresolved
 (`exec-id-unknown`) or the gateway refused the enqueue — the forward path posts a
 fixed decline notice (`⚠ couldn't route your reply to the running work — please try
-again shortly`) via `deliverToOwner`. When the reply leg retires an exec undelivered
+again shortly`) via `deliverToOwner`. The same mechanics carry the goal-channel
+no-seat notice above. When the reply leg retires an exec undelivered
 at its attempt cap, it posts a fixed give-up notice (`⚠ the agent finished but its
 reply couldn't be delivered`). Notices carry NO internals, are **best-effort** (a
 failed post is logged and dropped, never retried into a loop), and are posted ONLY
@@ -206,7 +242,13 @@ HTTP interface. `probes/` is test harness and MAY reach siblings.
 | `IGNITE_CHAT_BRIDGE_CONFIG` | path to the non-secret JSON config (allowlist, job/profile names) |
 
 Non-secret JSON config shape: `{ gateway_addr, session_job_id, session_profile,
-send_message_job_id, workdir, allowlist: [chat-user-ids] }`.
+send_message_job_id, workdir, workspace_root, channel_prefix, master_profile,
+goal_profile, allowlist: [chat-user-ids] }`.
+
+`workspace_root` is the workspace whose `.rbtv/goals/` holds the goal runs — it is what
+a goal-channel session's workdir is resolved from (below). Leaving it unset does not
+affect DM or mention traffic; goal traffic then refuses loudly instead of launching
+somewhere arbitrary.
 
 ## Validation (STAGED — ADX-33(2) / D106)
 
@@ -217,7 +259,10 @@ in-process daemon (heart store + internal API + gateway) on an ephemeral loopbac
 port — never the live daemon, never port 7431. The real-transport round-trip
 (Test Plan rows 1/2/4/6 at the real floor) runs at **p7-checkpoint** with the owner.
 
-Run the probes: `node probes/probe-chat-<name>.js` (evidence → `probe-chat-<name>.out`).
+Run the probes through the counting runner — `node ../../deploy/probe-suite.js --dir
+bridges/chat/probes` (or `--only probe-chat-<name>` for one). Never invoke a probe file
+directly: that rewrites its capture with pure noise and the run is neither counted nor
+graded for staleness (`ignite/CLAUDE.md` § probes). Evidence → `probe-chat-<name>.out`.
 
 | Probe | Test Plan | Proves |
 |-------|-----------|--------|
@@ -226,6 +271,7 @@ Run the probes: `node probes/probe-chat-<name>.js` (evidence → `probe-chat-<na
 | `probe-chat-outbound` | #3 | starting the bridge adds NO new inbound listener (`ss -tlnp` delta) |
 | `probe-chat-outbound-msg` | #4 | owner output delivered outbound via `chat.postMessage` |
 | `probe-chat-reply-leg` | #4 | the D110 driver, armed through the REAL inbound wiring (Slack event → forward path → arm): spawn captured from `recent_ticks` → `live:false` → LAST stream-json result line extracted (multi-page logs paged to the end) → posted to the conversation's channel+thread, text-EQUAL to the result string; no-result log delivers the fixed fallback (never the raw log); no exec delivered twice; a follow-up turn (new exec, same queue) delivers a second reply; a transient logs failure or refused post is retried (nothing burned), persistent failure retires the exec undelivered at a bounded attempt cap AND posts the honest give-up notice (D111 part 2) |
+| `probe-chat-mention-route` | — | the 2026-08-06 rulings: a mention in an unmapped channel routes as master with a thread-scoped conversation and an in-thread reply address; an unmentioned (or someone-else-mentioning) message there stays refused with nothing enqueued; `mpim` stays refused even when mentioned; a failed `auth.test` DISABLES the mention route while the DM path keeps working; a goal session-create is homed at the open run's `goal-master` seat; each of the four unresolvable-seat states (no open run · run open but unseated · goal absent · `workspace_root` unset) enqueues nothing and posts the fixed no-seat notice; every session-create prompt equals the user text verbatim; and the runtime source carries no instance path and no `MASTER_CHARTER` |
 | `probe-chat-boundary` | #5 | bridge source holds no spawn/queue handle, opens no server, imports no sibling |
 | `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; **exec KNOWN but NOT live → derives `exec-<firstExecId>`** (D111 convention fallback); **first-exec immutability** (a later exec-id bind is ignored); **exec-id-unknown DECLINES** (nothing enqueued) and posts the exact decline notice to the mapped thread while an allowlist-refused user gets nothing; a failed notice post is logged and dropped (no retry loop) |
 

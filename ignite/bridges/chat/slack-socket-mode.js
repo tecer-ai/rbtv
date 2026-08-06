@@ -263,6 +263,19 @@ function createSlackSocketMode({
     return { reacted: true };
   }
 
+  // Who am I? `auth.test` on the bot token returns this bot's own user id, which is
+  // what a human's `<@U…>` mention resolves to in message text. The bridge needs it to
+  // recognise a mention in a channel it does not otherwise route (chat-bridge.js
+  // routeOf, mention route). One outbound POST at start; the caller caches the result.
+  async function authTest() {
+    if (!botToken) return { ok: false, error: 'no-bot-token' };
+    const resp = await slackPost('auth.test', botToken, {});
+    if (!resp || !resp.ok || !resp.user_id) {
+      return { ok: false, error: (resp && resp.error) || 'auth-test-failed' };
+    }
+    return { ok: true, userId: resp.user_id };
+  }
+
   // ── The goal-channel ADMIN surface (task 7.58) ──────────────────────────────
   //
   // Three calls, and deliberately only three: create, list, archive. All are
@@ -325,7 +338,7 @@ function createSlackSocketMode({
   }
 
   return {
-    start, stop, sendToOwner, react, openConnection, toChatMessage,
+    start, stop, sendToOwner, react, authTest, openConnection, toChatMessage,
     createChannel, listChannels, archiveChannel,
   };
 }

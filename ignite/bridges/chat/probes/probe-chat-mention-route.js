@@ -1,0 +1,280 @@
+'use strict';
+
+// OWNER RULINGS 2026-08-06 — the mention route (ruling 3c), descriptor-driven prompts
+// (ruling 2), and goal-channel sessions homed at the goal-master seat (ruling 3a).
+//
+// Same posture as probe-chat-goal-channel: no daemon. Every claim here is about the
+// bridge's own routing and payload shaping, so the gateway is a stub that RECORDS EVERY
+// enqueue and Slack is a fake that records every post. That makes the negative claims —
+// "nothing enqueued", "no charter in the prompt", "no instance path in source" — checkable
+// as call-log and source assertions rather than as the absence of an error.
+
+const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
+const { makeCapture, nowMs } = require('./lib');
+const { buildBridge } = require('../index');
+const { NO_GOAL_SEAT_NOTICE } = require('../forward-path');
+
+const OUT = path.join(__dirname, 'probe-chat-mention-route.out');
+const SRC_DIR = path.join(__dirname, '..');
+
+const USER = 'U_OWNER';
+const BOT = 'U_BOT';
+const PREFIX = 'test-';
+
+// ── fakes ────────────────────────────────────────────────────────────────────
+
+// A Slack transport with the narrow admin surface plus `auth.test`. `authOk: false`
+// models the failure the mention route must FAIL CLOSED on (a bot that cannot say who
+// it is must not guess who was meant).
+function makeFakeSlack({ existing = [], authOk = true } = {}) {
+  const channels = existing.map((c) => ({ ...c }));
+  const posted = [];
+  let nextId = 1;
+  return {
+    channels, posted,
+    async authTest() { return authOk ? { ok: true, userId: BOT } : { ok: false, error: 'invalid_auth' }; },
+    async createChannel({ name }) {
+      if (channels.some((c) => c.name === name && !c.is_archived)) return { ok: false, error: 'name_taken' };
+      const ch = { id: `C${String(nextId++).padStart(4, '0')}`, name, is_archived: false };
+      channels.push(ch);
+      return { ok: true, channel: { id: ch.id, name: ch.name } };
+    },
+    async listChannels({ excludeArchived = true } = {}) {
+      const visible = channels.filter((c) => (excludeArchived ? !c.is_archived : true));
+      return { ok: true, channels: visible.map((c) => ({ id: c.id, name: c.name, is_archived: c.is_archived })), nextCursor: null };
+    },
+    async archiveChannel() { return { ok: true }; },
+    async sendToOwner({ channel, threadTs, text }) { posted.push({ channel, threadTs, text }); return { delivered: true, ts: '1.0' }; },
+    async start() { return { connected: true }; },
+    stop() {},
+  };
+}
+
+function makeFakeForwarder() {
+  const enqueued = [];
+  let nextQueueId = 100;
+  return {
+    enqueued,
+    async forward(intent, payload) {
+      const jobId = nextQueueId++;
+      enqueued.push({ intent, payload, jobId });
+      return { ok: true, result: { jobId } };
+    },
+    async inspect() { return { ok: true, result: { live_sessions: [], recent_ticks: [] } }; },
+  };
+}
+
+// A workspace root shaped like the real one. `seat` and `open` are independently
+// controllable, because the two refusal reasons they produce (no open run, seat missing)
+// are different failures the owner fixes differently.
+function seedWorkspace(goals) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-mention-'));
+  for (const [goalId, opts] of Object.entries(goals)) {
+    const { open = true, seat = true } = opts || {};
+    const goalDir = path.join(root, '.rbtv', 'goals', goalId);
+    fs.mkdirSync(path.join(goalDir, 'runs', 'run-1'), { recursive: true });
+    if (seat) fs.mkdirSync(path.join(goalDir, 'runs', 'run-1', 'seats', 'goal-master'), { recursive: true });
+    fs.writeFileSync(path.join(goalDir, 'runs.csv'),
+      'run-id,type,state,taskforce-ids,opened,closed\n' +
+      `run-1,fresh,${open ? 'open' : 'closed'},tf-1,2026-08-03 00:00,${open ? '' : '2026-08-04 00:00'}\n`);
+  }
+  return root;
+}
+
+function makeBridge({ goals = {}, authOk = true, workspaceRoot = undefined } = {}) {
+  const root = workspaceRoot === undefined ? seedWorkspace(goals) : workspaceRoot;
+  const slack = makeFakeSlack({ authOk });
+  const forwarder = makeFakeForwarder();
+  const config = {
+    gatewayAddr: '127.0.0.1:0',
+    bridgeToken: 'stub',
+    sessionJobId: 'chat-launch',
+    sessionProfile: 'fallback-profile',
+    masterProfile: 'master-profile',
+    goalProfile: 'goal-profile',
+    sendMessageJobId: 'send-message',
+    workdir: '/configured/master/workdir',
+    workspaceRoot: root,
+    channelPrefix: PREFIX,
+    allowlist: [USER],
+    slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
+  };
+  const built = buildBridge(config, {
+    logger: () => {},
+    makeTransport: () => slack,
+    forwarderImpl: forwarder,
+    replyLegOptions: { pollMs: 3600000 },
+  });
+  return { ...built, slack, forwarder, config, workspaceRoot: root };
+}
+
+function msg({ channel, ts, threadTs = null, channelType, text = 'hello', user = USER }) {
+  return {
+    chatUserId: user,
+    chatThreadId: `${channel}:${threadTs || ts}`,
+    text,
+    _channel: channel,
+    _threadTs: threadTs || ts,
+    _channelType: channelType,
+    _inThread: Boolean(threadTs),
+  };
+}
+
+// ── the probe ────────────────────────────────────────────────────────────────
+
+async function main() {
+  const cap = makeCapture(OUT);
+  const t0 = nowMs();
+  const checks = [];
+  const check = (name, pass, detail = {}) => { checks.push({ name, pass, ...detail }); cap.log({ check: name, pass, ...detail }); };
+
+  // 1 — THE MENTION ROUTE. A mention in an UNMAPPED channel is master traffic, scoped to
+  //     the Slack thread, and answered IN-THREAD. Two different threads in the SAME
+  //     channel are two sittings — the property that makes parallel mentions safe.
+  {
+    const { bridge, forwarder, slack } = makeBridge();
+    await bridge.start();
+
+    const one = await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '1.1', channelType: 'channel', text: `<@${BOT}> what is the plan?` }));
+    const two = await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '2.1', channelType: 'channel', text: `hey <@${BOT}> again` }));
+
+    check('mention in an unmapped channel routes as MASTER traffic',
+      one.forwarded === true && one.route === 'master' && one.goalId === null && one.leg === 'session-create', { one });
+    check('mention conversation is thread-scoped (channel:thread_ts), not the channel',
+      forwarder.enqueued.length === 2 && one.leg === 'session-create' && two.leg === 'session-create', { legs: [one.leg, two.leg] });
+    check('mention session uses the MASTER profile and the configured workdir',
+      forwarder.enqueued.every((e) => e.payload.args.profile === 'master-profile' && e.payload.args.workdir === '/configured/master/workdir'),
+      { args: forwarder.enqueued.map((e) => e.payload.args) });
+
+    await bridge.deliverToOwner({ chatThreadId: 'C_RANDOM:1.1', text: 'answer' });
+    const post = slack.posted[slack.posted.length - 1];
+    check('mention reply posts IN-THREAD, not at channel top level',
+      Boolean(post) && post.channel === 'C_RANDOM' && post.threadTs === '1.1', { post });
+    bridge.stop();
+  }
+
+  // 2 — UNMENTIONED traffic in an unmapped channel stays REFUSED, nothing enqueued. The
+  //     mention is what makes the message attributable; without it the bot sitting in an
+  //     ordinary channel would mint work from every passing sentence.
+  {
+    const { bridge, forwarder } = makeBridge();
+    await bridge.start();
+    const stray = await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '3.1', channelType: 'channel', text: 'just chatting' }));
+    const nearMiss = await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '3.2', channelType: 'channel', text: '<@U_SOMEONE_ELSE> ping' }));
+    const mpim = await bridge.onChatMessage(msg({ channel: 'G_MPIM', ts: '3.3', channelType: 'mpim', text: `<@${BOT}> hi` }));
+    check('unmentioned message in an unmapped channel refused — NOTHING enqueued',
+      stray.forwarded === false && stray.reason === 'unroutable-surface' && forwarder.enqueued.length === 0, { stray });
+    check('a mention of SOMEONE ELSE is not a mention of the bot', nearMiss.forwarded === false && nearMiss.reason === 'unroutable-surface', { nearMiss });
+    check('group DM (mpim) stays refused even when the bot is mentioned',
+      mpim.forwarded === false && mpim.reason === 'unroutable-surface' && forwarder.enqueued.length === 0, { mpim });
+    bridge.stop();
+  }
+
+  // 3 — FAIL CLOSED. When `auth.test` cannot resolve the bot's own user id, the mention
+  //     route is not armed and an unmapped channel behaves exactly as it did before the
+  //     ruling. A DM on the same bridge still works — the failure is scoped, not fatal.
+  {
+    const { bridge, forwarder } = makeBridge({ authOk: false });
+    await bridge.start();
+    const mention = await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '4.1', channelType: 'channel', text: `<@${BOT}> hello` }));
+    const dm = await bridge.onChatMessage(msg({ channel: 'D_IM', ts: '4.2', channelType: 'im', text: 'hello' }));
+    check('bot-id resolution failure DISABLES the mention route (refused, nothing enqueued)',
+      mention.forwarded === false && mention.reason === 'unroutable-surface', { mention });
+    check('the DM path is unaffected by a failed bot-id resolution',
+      dm.forwarded === true && dm.route === 'master' && forwarder.enqueued.length === 1, { dm, enqueued: forwarder.enqueued.length });
+    bridge.stop();
+  }
+
+  // 4 — GOAL SESSIONS ARE HOMED AT THE GOAL-MASTER SEAT of the goal's OPEN run — the
+  //     workdir whose descriptor chain supplies the session's identity.
+  {
+    const { bridge, forwarder, workspaceRoot } = makeBridge({ goals: { 'goal-seated': {} } });
+    await bridge.start();
+    const reg = await bridge.registerGoal('goal-seated');
+    const res = await bridge.onChatMessage(msg({ channel: reg.channelId, ts: '5.1', channelType: 'channel', text: 'status?' }));
+    const expected = path.join(workspaceRoot, '.rbtv', 'goals', 'goal-seated', 'runs', 'run-1', 'seats', 'goal-master');
+    const args = forwarder.enqueued[0] && forwarder.enqueued[0].payload.args;
+    check('goal session-create is homed at the open run\'s goal-master seat',
+      res.forwarded === true && Boolean(args) && args.workdir === expected, { workdir: args && args.workdir, expected });
+    check('goal session-create keeps the goal profile', Boolean(args) && args.profile === 'goal-profile', { profile: args && args.profile });
+    bridge.stop();
+  }
+
+  // 5 — NO SEAT, NO WORK. Each of the three unresolvable states enqueues NOTHING and
+  //     posts the ONE fixed notice on the goal's own channel. Silence here would read as
+  //     the goal-master ignoring the owner.
+  {
+    const cases = [
+      { label: 'no open run', goals: { 'goal-closed': { open: false } }, goalId: 'goal-closed' },
+      { label: 'open run with no goal-master seat', goals: { 'goal-unseated': { seat: false } }, goalId: 'goal-unseated' },
+      { label: 'goal absent from the workspace', goals: {}, goalId: 'goal-absent' },
+    ];
+    for (const c of cases) {
+      const { bridge, forwarder, slack } = makeBridge({ goals: c.goals });
+      await bridge.start();
+      const reg = await bridge.registerGoal(c.goalId);
+      const res = await bridge.onChatMessage(msg({ channel: reg.channelId, ts: '6.1', channelType: 'channel', text: 'status?' }));
+      const post = slack.posted[slack.posted.length - 1];
+      check(`goal traffic refused when ${c.label} — nothing enqueued, honest notice posted`,
+        res.forwarded === false && String(res.reason).startsWith('no-goal-master-seat:')
+        && forwarder.enqueued.length === 0
+        && Boolean(post) && post.text === NO_GOAL_SEAT_NOTICE && post.channel === reg.channelId,
+        { reason: res.reason, enqueued: forwarder.enqueued.length, post });
+      bridge.stop();
+    }
+
+    // And with no workspace_root configured at all — the deployment that never set the key.
+    const { bridge, forwarder, slack } = makeBridge({ workspaceRoot: null });
+    await bridge.start();
+    const reg = await bridge.registerGoal('goal-nowhere');
+    const res = await bridge.onChatMessage(msg({ channel: reg.channelId, ts: '6.2', channelType: 'channel', text: 'status?' }));
+    check('unconfigured workspace_root refuses goal traffic loudly, master traffic unaffected',
+      res.reason === 'no-goal-master-seat:no-workspace-root-configured' && forwarder.enqueued.length === 0
+      && slack.posted.some((p) => p.text === NO_GOAL_SEAT_NOTICE),
+      { reason: res.reason });
+    bridge.stop();
+  }
+
+  // 6 — THE PROMPT IS THE BARE USER TEXT (ruling 2). Behaviour travels with the seat
+  //     descriptor, so the bridge ships zero behavioural text on EITHER leg.
+  {
+    const { bridge, forwarder } = makeBridge({ goals: { 'goal-prompt': {} } });
+    await bridge.start();
+    const reg = await bridge.registerGoal('goal-prompt');
+    await bridge.onChatMessage(msg({ channel: 'D_IM', ts: '7.1', channelType: 'im', text: 'what is the plan?' }));
+    await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '7.2', channelType: 'channel', text: `<@${BOT}> mention text` }));
+    await bridge.onChatMessage(msg({ channel: reg.channelId, ts: '7.3', channelType: 'channel', text: 'goal text' }));
+    const prompts = forwarder.enqueued.map((e) => e.payload.args.prompt);
+    check('every session-create prompt is EXACTLY the user text — no charter on any leg',
+      prompts.length === 3 && prompts[0] === 'what is the plan?' && prompts[1] === `<@${BOT}> mention text` && prompts[2] === 'goal text',
+      { prompts });
+    bridge.stop();
+  }
+
+  // 7 — NO INSTANCE-SPECIFIC PATH IN REPO SOURCE. The charter carried an absolute
+  //     /home/… path; the ruling removed it and this keeps it removed. Enforced as an
+  //     absence in the runtime source, which no one can forget under pressure.
+  {
+    const runtime = fs.readdirSync(SRC_DIR).filter((f) => f.endsWith('.js')).sort();
+    const hits = [];
+    for (const f of runtime) {
+      const code = fs.readFileSync(path.join(SRC_DIR, f), 'utf8');
+      for (const re of [/\/home\/[a-z]/i, /\/Users\/[a-z]/i, /MASTER_CHARTER/]) {
+        if (re.test(code)) hits.push({ file: f, pattern: String(re) });
+      }
+    }
+    check('bridge source carries no instance path and no hardcoded charter', hits.length === 0, { scanned: runtime, hits });
+  }
+
+  const pass = checks.every((c) => c.pass);
+  const wallMs = nowMs() - t0;
+  const exit = pass ? 0 : 1;
+  cap.flush({ probe: 'probe-chat-mention-route', pass, checks: checks.length, failed: checks.filter((c) => !c.pass).map((c) => c.name), EXIT: exit, WALL_MS: wallMs, SKIPPED_COUNT: 0 });
+  process.stdout.write(`PROBE probe-chat-mention-route EXIT=${exit} WALL_MS=${wallMs} PASS=${pass} CHECKS=${checks.length}\n`);
+  if (!pass) process.stdout.write(`FAILED: ${checks.filter((c) => !c.pass).map((c) => c.name).join(' | ')}\n`);
+  process.exit(exit);
+}
+
+main();

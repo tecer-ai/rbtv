@@ -9,7 +9,7 @@ const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
 const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags } = require('./cage');
-const { parseServiceSeatPath, parseSeatPath, checkRunLive, checkMaterializedSeat } = require('../seat-identity/seat-folder');
+const { parseServiceSeatPath, parseSeatPath, checkRunLive, checkMaterializedSeat, openRunsOfGoal } = require('../seat-identity/seat-folder');
 const { appendRow } = require('../seat-identity/csv');
 const {
   generateSessionId,
@@ -265,17 +265,69 @@ function ensureExitFile(dataRoot, sessionId) {
 // `read-root: true` gets the workspace root mounted READ-ONLY (the cage template's
 // `ro-bind:{grant:readRoot}` line). The declaration surface is seat.md — ro-bound inside the
 // cage, written by the materializer/master — so an occupant cannot grant itself the vault.
-function resolveReadRootGrant(seatPath) {
+//
+// THE ONE DECLARATION READER for every seat-declared grant class (read-root, and the three the
+// owner's "1a" ruling adds below). One reader because one surface: a second parse of seat.md
+// would be a second definition of what "declared" means, and the two would disagree the first
+// time either gained a case. `key` is always a literal from THIS module — never caller input.
+function seatDeclares(seatDir, key) {
   try {
-    const md = fs.readFileSync(path.join(seatPath.seatDir, 'seat.md'), 'utf8');
+    const md = fs.readFileSync(path.join(seatDir, 'seat.md'), 'utf8');
     const fm = /^---\n([\s\S]*?)\n---/.exec(md);
-    if (fm && /^read-root:\s*true\s*$/m.test(fm[1])) {
-      return [{ readRoot: seatPath.workspaceRoot }];
-    }
+    return !!fm && new RegExp(`^${key}:\\s*true\\s*$`, 'm').test(fm[1]);
   } catch {
-    // no seat.md yet (pre-materialization probe paths): no grant, fail closed
+    // no seat.md yet (pre-materialization probe paths): not declared, fail closed
+    return false;
   }
-  return [];
+}
+
+function resolveReadRootGrant(seatPath) {
+  return seatDeclares(seatPath.seatDir, 'read-root') ? [{ readRoot: seatPath.workspaceRoot }] : [];
+}
+
+// ── Owner ruling "1a" (2026-08-06) — the three CROSS-GOAL INSTRUMENT grants ──────────────────
+//
+// A service seat (the channel-master is the first) is promised instruments the cage blocks: the
+// coordination CLI writing into ANOTHER goal's run (read-only under the read-root grant -> EROFS,
+// measured), the user-local CLIs (HOME is a tmpfs), and the gateway address (no env reaches the
+// session). Each is a grant class declared in seat.md — ro-bound inside the cage, written by the
+// materializer/master, never the occupant — so no seat can widen its own walls, exactly as
+// `read-root` above. Absent key -> empty grant list -> the template line composes to nothing.
+
+// `bus-write: true` — RW on the coordination dir of every goal's OPEN run. Read through the ONE
+// daemon-side reader of runs.csv (`openRunsOfGoal`), so "open" means here exactly what it means to
+// the ticker's one-live-run invariant. A goal with no open run, an unreadable runs.csv, or a run
+// with no coordination dir contributes NOTHING — this never creates a directory. Goal order is
+// readdirSync's, sorted, so the composed spec is deterministic across runs.
+function resolveBusWriteGrants(seatPath) {
+  if (!seatDeclares(seatPath.seatDir, 'bus-write')) return [];
+  const goalsDir = path.join(seatPath.workspaceRoot, '.rbtv', 'goals');
+  let goals;
+  try {
+    goals = fs.readdirSync(goalsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  } catch {
+    return [];
+  }
+  const grants = [];
+  for (const goal of goals) {
+    const register = openRunsOfGoal({ workspaceRoot: seatPath.workspaceRoot, goal });
+    if (!register.ok) continue; // a service-seat folder or a goal with no run log — not a bus
+    for (const row of register.open) {
+      const run = row[register.runCol];
+      if (!run) continue;
+      const coordination = path.join(register.goalDir, 'runs', run, 'coordination');
+      if (fs.existsSync(coordination)) grants.push({ busWrite: coordination, busGoal: goal, busRun: run });
+    }
+  }
+  return grants;
+}
+
+// `local-bin: true` — the invoking user's ~/.local/bin, READ-ONLY (D26: os.homedir(), never a
+// literal). It is under the HOME tmpfs bwrap.js lays down, so this bind punches it back through.
+function resolveLocalBinGrant(seatPath) {
+  if (!seatDeclares(seatPath.seatDir, 'local-bin')) return [];
+  const localBin = path.join(require('node:os').homedir(), '.local', 'bin');
+  return fs.existsSync(localBin) ? [{ localBin }] : [];
 }
 
 function resolveSeatGrants(seatPath) {
@@ -370,7 +422,12 @@ function resolveHarnessCredGrants(entitledHarnesses = []) {
 // the file the identity gate reads to decide who is sitting here — would be writable from
 // inside. Checked on EVERY spawn rather than once in a probe: a probe proves one composition
 // sound, an assertion proves all of them (design §1).
-function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir) {
+//
+// `gatewayAddr` (owner ruling "1a", `gateway-env: true`) is NOT a mount: it is emitted as a bwrap
+// `--setenv` on the same flag list, because bwrap is the only layer both doors share — the headed
+// door never touches the carrier's EnvironmentFile. NO TOKEN rides it; token distribution stays
+// owner-out-of-band (the workspace `.env` is already readable under the read-root grant).
+function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr = null) {
   let template = resolvedSandbox && resolvedSandbox.SeatBinds;
   if (!template || template.length === 0) return null;
   if (seatPath.service) {
@@ -397,10 +454,20 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir) {
       goalDir: seatPath.goalDir,
       runDir: seatPath.runDir,
     },
-    grants: [...resolveSeatGrants(seatPath), ...resolveHarnessCredGrants(), ...resolveReadRootGrant(seatPath)],
+    grants: [
+      ...resolveSeatGrants(seatPath),
+      ...resolveHarnessCredGrants(),
+      ...resolveReadRootGrant(seatPath),
+      ...resolveBusWriteGrants(seatPath),
+      ...resolveLocalBinGrant(seatPath),
+    ],
   });
   assertGroundTruthUnwritable(spec, seatPath.sessionsCsv);
-  return specToBwrapFlags(spec);
+  const flags = specToBwrapFlags(spec);
+  if (gatewayAddr && seatDeclares(seatPath.seatDir, 'gateway-env')) {
+    flags.push('--setenv', 'IGNITE_GATEWAY_ADDR', gatewayAddr);
+  }
+  return flags;
 }
 
 function createSpawnManager({ heartStore, configPath, logger = null, userManager = true }) {
@@ -416,6 +483,12 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   // (r-seats-only-architecture (3) — a dispatch with no home is a refusal, not a flat dir), so
   // nothing on this module materializes a per-execution dir outside a seat folder any more.
   const workspaceRoot = resolveWorkspaceRoot(heartStore && heartStore.dbPath);
+
+  // The daemon's OWN gateway address, derived exactly as server/index.js derives its bind (same
+  // env overrides, same config keys, same defaults) — a seat declaring `gateway-env: true` gets it
+  // as IGNITE_GATEWAY_ADDR. Loopback is reachable inside the cage: bwrap keeps `--share-net`.
+  const gatewayAddr = `${process.env.RBTV_IGNITE_BIND_HOST || config.bind?.host || '127.0.0.1'}:`
+    + `${Number(process.env.RBTV_IGNITE_BIND_PORT || config.bind?.port) || 7431}`;
 
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -533,7 +606,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // spawnSeat uses. A profile with no template still gets the v1 workdir-only wall — a config
     // state, not a code branch kept on purpose.
     const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
-    const seatCage = composeCageFor(resolvedSandbox, dispatchSeat, resolvedWorkdir);
+    const seatCage = composeCageFor(resolvedSandbox, dispatchSeat, resolvedWorkdir, gatewayAddr);
     const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, harness: harnessOf(profile), maskPaths, seatBinds: seatCage });
 
     const carrier = selectCarrier(config.spawn.carrier, userManager);
@@ -750,7 +823,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // (composeCageFor above — r-seats-only-architecture (1)). Slots resolve from the SEAT'S OWN
     // RECORDS; nothing here reads caller input (CMP-17), and the ground-truth assertion runs on
     // every spawn.
-    const seatCage = composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir);
+    const seatCage = composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr);
 
     // Composition FIRST — and this ordering is the fail-closed guarantee, not a style choice.
     // composeSeatSpawn runs buildBwrapArgv before it builds any tmux argv, so on a box without
@@ -1047,7 +1120,10 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   };
 }
 
-module.exports = { createSpawnManager, validateSpawnRequest, exitFilePath, ensureExitFile };
+// composeCageFor is exported for the cage probes ONLY — they drive the real resolvers off a real
+// seat folder on disk, which is the only way a grant-class check tests the integration rather
+// than a hand-typed grant list. Nothing in the daemon calls it from outside this module.
+module.exports = { createSpawnManager, validateSpawnRequest, exitFilePath, ensureExitFile, composeCageFor };
 
 function validateSpawnRequest(req) {
   if (req === null || typeof req !== 'object' || Array.isArray(req)) {

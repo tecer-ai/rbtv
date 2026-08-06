@@ -43,6 +43,7 @@ const DEFAULT_SLACK_API_BASE = 'https://slack.com/api';
 //     "session_profile": "worker",         // named launch profile the session runs
 //     "send_message_job_id": "send-message", // catalogue slug: a send-message action-type job
 //     "workdir": "/abs/path",              // optional workdir for the session
+//     "workspace_root": "/abs/path",       // workspace whose .rbtv/goals/ homes goal-master seats
 //     "channel_prefix": "goal-",           // goal↔channel name derivation (task 7.58)
 //     "master_profile": "master",          // profile for DM (master) traffic; defaults to session_profile
 //     "goal_profile": "worker",            // profile for goal-channel traffic; defaults to session_profile
@@ -90,6 +91,12 @@ function resolveConfig(overrides = {}) {
   const sendMessageJobId =
     overrides.sendMessageJobId || file.send_message_job_id || 'send-message';
   const workdir = overrides.workdir || file.workdir || null;
+  // The workspace whose `.rbtv/goals/` holds the goal runs. A goal-channel session is
+  // homed at that goal's OPEN run's `goal-master` seat (forward-path.js), so the seat's
+  // own descriptor chain carries its identity — the bridge ships no behavioural text.
+  // Unconfigured is not fatal: master/mention traffic is unaffected, and goal traffic
+  // refuses loudly with an owner-facing notice rather than launching somewhere arbitrary.
+  const workspaceRoot = overrides.workspaceRoot || file.workspace_root || null;
 
   // Task 7.58 — the goal↔channel surface. `channelPrefix` is what makes the
   // goal→channel name a BIJECTION (goal-channel-map.js); it also bounds which
@@ -118,6 +125,7 @@ function resolveConfig(overrides = {}) {
     sessionProfile,
     sendMessageJobId,
     workdir,
+    workspaceRoot,
     channelPrefix,
     masterProfile,
     goalProfile,

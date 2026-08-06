@@ -57,6 +57,15 @@ default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every s
 # Absorbed from the retired 7.11 `claude-seat` profile: the SeatBinds template below is that
 # profile's VERBATIM, plus the one new line class part (5) of the ruling adds (harnessCreds).
 # Per-dispatch parameters supply the paths ({goalDir}/{runDir}/{seatDir}) and the grants.
+#
+# GRANT CLASSES (owner ruling "1a", 2026-08-06 — the instrument set a service seat is promised).
+# Every one is declared in the seat's OWN `seat.md` frontmatter, which the cage ro-binds, so an
+# occupant can never widen its own walls; an absent key composes the line to NOTHING.
+#   read-root: true    ro-bind the workspace root (the master role's read-everything mandate)
+#   bus-write: true    RW the coordination dir of EVERY goal's OPEN run (the coordination CLI)
+#   local-bin: true    ro-bind the invoking user's ~/.local/bin (the user-local CLIs)
+#   gateway-env: true  NOT a mount — passes IGNITE_GATEWAY_ADDR into the session's environment
+#                      (a `--setenv`, composed beside these binds; no token, ever)
 cage:
   NoNewPrivileges: true
   # Retained as the declarative source of the harness-local advisory write-restraint config
@@ -98,6 +107,15 @@ cage:
     # target model routes that through the gateway (7.57/7.59, unbuilt). Nothing wider: the
     # goal-root ledgers and vault task files stay OUT, routed through uncaged stewards.
     - "bind:{runDir}/coordination"
+    # BUS-WRITE grant (owner ruling "1a"): the coordination dir of every goal's OPEN run,
+    # READ-WRITE, one opening per grant. Placed HERE, immediately after the line above, for
+    # two ordering reasons: it must come AFTER `tmpfs:{goalDir}/runs` (which erases this
+    # goal's runs subtree, own coordination dir included) and AFTER the read-root ro floor
+    # (which would otherwise re-cover it read-only). A grant for the seat's OWN run resolves
+    # to the same path as the line above — deliberately NOT deduped: two identical RW binds
+    # in sequence are harmless under the same shadow rule that makes this whole stack work,
+    # and a dedupe would be a second place where bind order is reasoned about.
+    - "bind:{grant:busWrite}"
     # W2 — the seat's own worktree(s), one opening per grant (task 7.38). No grants -> no
     # openings; another seat's worktree is never a grant of this seat.
     - "bind:{grant:worktree}"
@@ -114,6 +132,10 @@ cage:
     # credential/config paths a seat is entitled to dispatch with. Grant-gated exactly like
     # worktrees — no grants -> no openings; a seat never sees credentials it was not granted.
     - "ro-bind:{grant:harnessCreds}"
+    # LOCAL-BIN grant (owner ruling "1a"): the invoking user's ~/.local/bin, READ-ONLY. Beside
+    # harnessCreds because it is the same kind of opening — a path under the HOME tmpfs bwrap
+    # lays down before this stack, punched back through it. Nothing later covers it.
+    - "ro-bind:{grant:localBin}"
   # ⚑ ABSENT BY CONSTRUCTION, each one a pre-registered probe: the run folder's files for
   # WRITE (the identity gate's ground truth — refused at compose time by cage.js, not merely
   # unlisted here), peer seat folders even for READ, other seats' worktrees, the goal

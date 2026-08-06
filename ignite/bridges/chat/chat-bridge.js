@@ -36,21 +36,25 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     ...replyLegOptions,
   });
 
-  // THE SURFACE ROUTE (task 7.58, owner ruling d-channel-per-goal). Every inbound
-  // message is exactly one of three things, and the difference is decided HERE,
-  // before admission or forwarding:
+  // THE SURFACE ROUTE (task 7.58 d-channel-per-goal; mention route added by the
+  // 2026-08-06 owner ruling). Every inbound message is exactly one of three things,
+  // and the difference is decided HERE, before admission or forwarding:
   //
-  //   'master' — a DM to the bot identity. Cold-contact MASTER traffic, explicitly
-  //              UNCHANGED by the channel-per-goal ruling. Conversation stays the
-  //              Slack thread `channel:thread_ts`. NEVER goal traffic: a DM has no
-  //              goal, so it can never be attributed to one.
+  //   'master' — EITHER a DM to the bot identity (cold-contact MASTER traffic,
+  //              explicitly UNCHANGED by the channel-per-goal ruling) OR a message in
+  //              an unmapped channel/group that MENTIONS the bot (`<@BOTID>`). Both
+  //              carry the same conversation shape — the Slack thread
+  //              `channel:thread_ts` — so a mention starts a per-thread sitting and a
+  //              new thread is a new sitting. NEVER goal traffic: neither surface can
+  //              be attributed to a goal.
   //   'goal'   — a message in a MAPPED goal channel. The goal thread maps 1:1 onto
   //              the channel, so the CONVERSATION IS THE CHANNEL — sharding it by
   //              `thread_ts` would split one goal thread into many and break the 1:1
   //              the ruling exists to establish.
-  //   null     — a channel that maps to no goal (the bot may sit in ordinary
-  //              channels, and a human may @ it anywhere). REFUSED, nothing
-  //              enqueued: unattributable traffic must never mint work.
+  //   null     — an UNMENTIONED message in a channel that maps to no goal. REFUSED,
+  //              nothing enqueued: unattributable traffic must never mint work. The
+  //              mention is what makes it attributable — without one, the bot sitting
+  //              in an ordinary channel would mint work from every passing sentence.
   //
   // `mpim` (group DM) routes as neither: it is not a goal channel and it is not the
   // 1:1 owner DM the master path assumes. Refused, deliberately.
@@ -64,7 +68,18 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   //     the field must never fall through to master traffic.
   //   • anything else (a `D…` IM id, or no channel at all) → master, the exact
   //     pre-7.58 semantics. Refusing here would silently kill the master path.
+  //
+  // ⚑ THE MENTION ROUTE FAILS CLOSED. It is armed only once `botUserId` is known
+  // (resolved from the transport at start — see start()). Until then, and forever if
+  // resolution failed, an unmapped channel behaves exactly as it did before this
+  // ruling: refused. A bridge that cannot say who it is must not guess who was meant.
   const CHANNEL_ID_RE = /^[CG]/;
+  let botUserId = null;
+
+  function mentionsBot(chatMsg) {
+    return Boolean(botUserId) && typeof chatMsg.text === 'string' && chatMsg.text.includes(`<@${botUserId}>`);
+  }
+
   function routeOf(chatMsg) {
     if (!chatMsg) return null;
     const kind = chatMsg._channelType;
@@ -76,7 +91,14 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       return { kind: 'master', goalId: null, conversationId: chatMsg.chatThreadId };
     }
     const goalId = goalChannels ? goalChannels.goalForChannel(channel) : null;
-    if (!goalId) return null;
+    if (!goalId) {
+      // Unmapped channel: a mention makes it master traffic, thread-scoped. Anything
+      // else stays refused.
+      if (mentionsBot(chatMsg)) {
+        return { kind: 'master', goalId: null, conversationId: chatMsg.chatThreadId };
+      }
+      return null;
+    }
     return { kind: 'goal', goalId, conversationId: String(channel) };
   }
 
@@ -99,7 +121,10 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // Remember the Slack reply address for outbound delivery on this conversation.
     // Goal traffic replies IN-CHANNEL (top level) unless the human posted inside a
     // Slack thread — the goal's surface is the channel, so burying every reply in a
-    // thread would hide the goal's own conversation from the owner.
+    // thread would hide the goal's own conversation from the owner. Master traffic —
+    // DM *and* mention — always carries `_threadTs` (the transport defaults it to the
+    // message's own ts), so a mention in a busy channel is answered IN-THREAD and one
+    // sitting never bleeds into another's.
     if (route && chatMsg.chatThreadId && chatMsg._channel) {
       const threadTs = route.kind === 'goal'
         ? (chatMsg._inThread ? chatMsg._threadTs : null)
@@ -167,6 +192,25 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
 
   async function start() {
     const r = await transport.start();
+    // Resolve THIS bot's user id — the mention route needs it and nothing else can
+    // supply it (the id is a property of the installed app, not of config). Failure is
+    // loud but not fatal: the mention route simply stays disabled, which is exactly
+    // the pre-ruling behaviour, and DM + goal traffic are untouched.
+    if (typeof transport.authTest === 'function') {
+      try {
+        const who = await transport.authTest();
+        if (who && who.ok && who.userId) {
+          botUserId = who.userId;
+          log('info', 'bot identity resolved — mention route armed', { botUserId });
+        } else {
+          log('error', 'auth.test did not return a bot user id — MENTION ROUTE DISABLED (unmapped channels stay refused)', { error: who && who.error });
+        }
+      } catch (err) {
+        log('error', 'auth.test threw — MENTION ROUTE DISABLED (unmapped channels stay refused)', { error: err.message });
+      }
+    } else {
+      log('warn', 'transport exposes no auth.test — mention route disabled');
+    }
     // Rebuild goal↔channel from the workspace BEFORE listening: the bridge's map is
     // in-memory, and name-derivation is what lets a restart recover it with no
     // persistence. A recovery failure is not fatal — the bridge still serves master
