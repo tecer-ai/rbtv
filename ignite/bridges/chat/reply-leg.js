@@ -12,9 +12,17 @@
 // no spawn path, no new intent, no new inbound listener. It is pure polling over
 // `inspect ticker | status | logs` plus a call to the bridge's own delivery.
 //
-// ⚑ IN-MEMORY, v1 (D110 floor). Per-conversation driver state lives in this
-// process only — a restart forgets it (owner-known caveat, matches the existing
-// thread-map / replyAddr). Sessions are cattle; no persistence.
+// ⚑ THE WATCH STATE IS DELIBERATELY NOT PERSISTED — unlike the thread map and the
+// reply addresses, which DO survive a restart when `state_file` is set (chat-bridge.js
+// § conversation state, owner ruling 2026-08-06). Every field in `pending` below is
+// TIME-BOUND: `armedAt` bounds a 10-minute spawn wait, and `watching` holds execs
+// whose turn-end we expect imminently. Restored after an arbitrary downtime those
+// windows are stale — a restored `armedAt` would disarm a conversation the instant the
+// bridge came back, and a restored `watching` would poll execs whose logs the retention
+// sweep may already have taken. Nothing is lost by dropping them: the owner's next
+// follow-up on a RESTORED conversation goes through the forward path, which re-arms
+// this leg via the existing arm() call, with fresh windows. Sessions are cattle; the
+// conversation is what has to survive, and it does.
 //
 // ⚑ `live` FLAG, NEVER `status`, is the turn-finished signal. The daemon's crash
 // sweep marks EVERY exited detached (`systemd --collect`) execution `failed`, so a

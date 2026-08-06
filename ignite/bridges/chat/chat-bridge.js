@@ -12,8 +12,13 @@
 // Behavior #5): its only outbound dependencies are the transport and the gateway
 // forwarder, both injected here.
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const { createForwardPath } = require('./forward-path');
 const { createReplyLeg } = require('./reply-leg');
+
+const STATE_VERSION = 1;
 
 function createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels = null, logger = null, replyLegOptions = {} }) {
   function log(level, message, extra = {}) {
@@ -106,10 +111,11 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       // re-mention the bot on every single reply in a thread it had already answered
       // in (owner-observed 2026-08-06).
       //
-      // ponytail: the thread map is IN-MEMORY, so a bridge restart forgets every
-      // sitting and un-mentioned replies in old threads go back to refused until the
-      // owner re-mentions (which re-mints). Accepted limit, disclosed in the README;
-      // persist the map if restarts become common.
+      // The continuation therefore depends entirely on the thread map still holding
+      // the sitting. It SURVIVES A RESTART when `state_file` is configured (see
+      // § conversation state below) — the owner hit the amnesia twice on 2026-08-06,
+      // which is why the key exists. WITHOUT the key the map is in-memory only and a
+      // restart sends un-mentioned replies back to refused until a re-mention re-mints.
       if (mentionsBot(chatMsg) || (threadMap && threadMap.has(chatMsg.chatThreadId))) {
         return { kind: 'master', goalId: null, conversationId: chatMsg.chatThreadId };
       }
@@ -146,6 +152,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         ? (chatMsg._inThread ? chatMsg._threadTs : null)
         : chatMsg._threadTs;
       replyAddr.set(chatMsg.chatThreadId, { channel: chatMsg._channel, threadTs });
+      saveState();
     }
     const outcome = await forwardPath.onChatMessage(chatMsg);
     // Arm the reply leg on every FORWARDED turn — a session-create (new conversation)
@@ -166,6 +173,81 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
 
   // conversation → { channel, threadTs } — where to post owner output back.
   const replyAddr = new Map();
+
+  // ── CONVERSATION STATE ACROSS RESTARTS (owner ruling 2026-08-06) ────────────
+  //
+  // The bridge is a systemd unit with Restart=on-failure, so restarts happen
+  // unattended. Both conversation tables — the thread map and the reply addresses —
+  // used to die with the process, and the owner hit the consequence twice in one day:
+  // an un-mentioned reply in a live thread fell into the unmapped-channel refusal and
+  // got SILENCE, and DM follow-ups minted fresh chains. With `state_file` set, both
+  // tables are written on every mutation and rebuilt before the transport listens.
+  //
+  // OPT-IN: no `state_file` → no reads, no writes, no file — byte-identical to the
+  // pre-ruling behaviour for every embedder and probe that passes no key.
+  //
+  // WRITE-PER-MUTATION, no debounce. Chat volume is a handful of messages a minute;
+  // a scheduler here would be machinery guarding against a load that does not exist.
+  //
+  // A write failure is LOGGED AND SWALLOWED. Persistence is a convenience over an
+  // already-correct in-memory path: a full disk must degrade the bridge to its old
+  // amnesia, never take the conversation down with it.
+  const stateFile = (config && config.stateFile) || null;
+
+  function saveState() {
+    if (!stateFile) return;
+    const doc = {
+      version: STATE_VERSION,
+      savedAt: new Date().toISOString(),
+      threads: threadMap.toJSON(),
+      replyAddr: Object.fromEntries(replyAddr),
+    };
+    // Atomic: temp file in the SAME directory (rename is only atomic within a
+    // filesystem) + rename over the target. A reader never sees a half-written file,
+    // and a crash mid-write leaves the previous good state intact. 0600 — the file
+    // holds no secret, but it does hold who talks to this bridge and where.
+    const tmp = `${stateFile}.tmp-${process.pid}`;
+    try {
+      fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+      fs.writeFileSync(tmp, JSON.stringify(doc), { mode: 0o600 });
+      fs.renameSync(tmp, stateFile);
+    } catch (err) {
+      try { fs.unlinkSync(tmp); } catch {}
+      log('error', 'chat bridge state write failed — conversations will not survive a restart', { stateFile, error: err.message });
+    }
+  }
+
+  // Rebuild both tables from disk. Called at start() BEFORE the transport listens, so
+  // no inbound message can ever race the load. A corrupt file is renamed ASIDE and the
+  // bridge starts EMPTY: crash-looping a systemd unit on unparseable state would take
+  // the whole chat surface down over a convenience cache, and the aside copy keeps the
+  // evidence for whoever looks.
+  function loadState() {
+    if (!stateFile || !fs.existsSync(stateFile)) return { loaded: false, reason: stateFile ? 'no-state-file-yet' : 'not-configured' };
+    let doc;
+    try {
+      doc = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw new Error('state is not a JSON object');
+    } catch (err) {
+      const aside = `${stateFile}.corrupt-${Date.now()}`;
+      try { fs.renameSync(stateFile, aside); } catch {}
+      log('error', 'chat bridge state file unparseable — renamed aside, starting with EMPTY conversation state', { stateFile, aside, error: err.message });
+      return { loaded: false, reason: 'corrupt', aside };
+    }
+    const threads = threadMap.load(doc.threads);
+    replyAddr.clear();
+    for (const [id, a] of Object.entries(doc.replyAddr || {})) {
+      if (a && typeof a === 'object' && a.channel) replyAddr.set(String(id), { channel: a.channel, threadTs: a.threadTs ?? null });
+    }
+    log('info', 'chat bridge conversation state restored', { stateFile, threads, replyAddresses: replyAddr.size, savedAt: doc.savedAt || null });
+    return { loaded: true, threads, replyAddresses: replyAddr.size };
+  }
+
+  // Every thread-map mutation persists — including the ones resolveChainThread makes
+  // in place. The reply-address map has two mutation sites — set on inbound, delete on
+  // closeGoal — each calling saveState() directly. (The load path rebuilds both tables
+  // and deliberately does NOT persist: reading the file is not a change to it.)
+  threadMap.setOnMutate(saveState);
 
   // Outbound: deliver worker/leader output addressed to the owner (chat-bridge-spec.md
   // Behavior #3), at the TURN BOUNDARY (notes §7b — never mid-turn). `markAsk`
@@ -202,11 +284,15 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     if (!goalChannels) return { ok: false, error: 'no-goal-channel-map-configured' };
     const channelId = goalChannels.channelForGoal(goalId);
     const res = await goalChannels.retire(goalId);
-    if (res.ok && channelId) replyAddr.delete(String(channelId));
+    if (res.ok && channelId) { replyAddr.delete(String(channelId)); saveState(); }
     return res;
   }
 
   async function start() {
+    // FIRST, before anything can listen: rebuild the conversation tables from disk.
+    // Ordering is the whole point — a message arriving against an empty map is the
+    // amnesia bug, and it would be indistinguishable from the pre-restart behaviour.
+    const restored = loadState();
     const r = await transport.start();
     // Resolve THIS bot's user id — the mention route needs it and nothing else can
     // supply it (the id is a property of the installed app, not of config). Failure is
@@ -242,7 +328,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       }
     }
     replyLeg.start();
-    log('info', 'chat bridge started', { transport: 'slack-socket-mode', goalChannelsBound: recovered && recovered.bound, ...r });
+    log('info', 'chat bridge started', { transport: 'slack-socket-mode', goalChannelsBound: recovered && recovered.bound, stateRestored: restored, ...r });
     return r;
   }
 
@@ -256,6 +342,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     onChatMessage, deliverToOwner, start, stop,
     registerGoal, closeGoal, routeOf,
     _replyAddr: replyAddr, forwardPath, replyLeg, goalChannels,
+    _saveState: saveState, _loadState: loadState, stateFile,
   };
 }
 

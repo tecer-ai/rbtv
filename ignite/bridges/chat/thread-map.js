@@ -21,8 +21,14 @@
 // channel → (1:1) goal thread → per-slot sub-thread → session. v1 maps
 // chat-thread ↔ turn-chain directly ONLY because the v1 core has no goal /
 // threads-store / slot machinery yet. This table is that v1 stand-in.
+//
+// ⚑ PERSISTENCE (owner ruling 2026-08-06). The table is in-memory, but this module
+// OWNS ITS SERIALIZATION (`toJSON` / `load`) and calls `onMutate` on EVERY write, so
+// a composer holding a state file can write the table out on each mutation and
+// rebuild it at start. Unwired (no `onMutate`) the behaviour is unchanged — a
+// restart then forgets every conversation, which is what it always did.
 
-function createThreadMap({ logger = null } = {}) {
+function createThreadMap({ logger = null, onMutate = null } = {}) {
   // chatThreadId -> {
   //   queueId,        // the queue-row id enqueue-job returned for the FIRST message
   //   sessionExecId,  // the first execution's exec_id, once learned (D69 nav step)
@@ -35,6 +41,13 @@ function createThreadMap({ logger = null } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
+
+  // Called after EVERY mutation of `byChat` (including the ones resolveChainThread
+  // performs on an entry in place). A composer wires it to its persister; a throwing
+  // or slow hook is the composer's problem, never this module's.
+  let mutateHook = onMutate;
+  function setOnMutate(fn) { mutateHook = fn; }
+  function touch() { if (mutateHook) mutateHook(); }
 
   function has(chatThreadId) {
     return byChat.has(String(chatThreadId));
@@ -58,6 +71,7 @@ function createThreadMap({ logger = null } = {}) {
     };
     byChat.set(id, entry);
     log('info', 'chat thread mapped to a new conversation', { chatThreadId: id, queueId: entry.queueId });
+    touch();
     return entry;
   }
 
@@ -78,6 +92,7 @@ function createThreadMap({ logger = null } = {}) {
       return entry;
     }
     entry.sessionExecId = Number(execId);
+    touch();
     return entry;
   }
 
@@ -88,6 +103,7 @@ function createThreadMap({ logger = null } = {}) {
     if (!entry) return null;
     entry.chainThread = String(chainThread);
     log('info', 'chat thread bound to chain thread', { chatThreadId: String(chatThreadId), chainThread: entry.chainThread });
+    touch();
     return entry;
   }
 
@@ -96,7 +112,7 @@ function createThreadMap({ logger = null } = {}) {
   // owner; the follow-up path reads it and clears it once answered.
   function setPendingAsk(chatThreadId, value) {
     const entry = get(chatThreadId);
-    if (entry) entry.pendingAsk = Boolean(value);
+    if (entry) { entry.pendingAsk = Boolean(value); touch(); }
     return entry;
   }
 
@@ -176,8 +192,10 @@ function createThreadMap({ logger = null } = {}) {
         if (typeof qMatch.thread === 'string' && qMatch.thread.length > 0) {
           entry.chainThread = qMatch.thread;
           log('info', 'chain thread resolved via live-session queue-id match', { chatThreadId: String(chatThreadId), execId: entry.sessionExecId, chainThread: qMatch.thread });
+          touch();
           return { resolved: true, chainThread: qMatch.thread, reason: 'inspect-ticker-queue' };
         }
+        touch();
       }
     }
 
@@ -190,6 +208,7 @@ function createThreadMap({ logger = null } = {}) {
         if (fired) {
           entry.sessionExecId = Number(fired.execId);
           log('info', 'exec-id learned from ticker dispatch actions', { chatThreadId: String(chatThreadId), queueId: entry.queueId, execId: entry.sessionExecId });
+          touch();
           break;
         }
       }
@@ -204,6 +223,7 @@ function createThreadMap({ logger = null } = {}) {
     if (match && typeof match.thread === 'string' && match.thread.length > 0) {
       entry.chainThread = match.thread;
       log('info', 'chain thread resolved via inspect', { chatThreadId: String(chatThreadId), execId: entry.sessionExecId, chainThread: match.thread });
+      touch();
       return { resolved: true, chainThread: match.thread, reason: 'inspect-ticker' };
     }
 
@@ -215,6 +235,7 @@ function createThreadMap({ logger = null } = {}) {
     const derived = `exec-${entry.sessionExecId}`;
     entry.chainThread = derived;
     log('info', 'chain thread derived from first exec-id (convention fallback; session not live)', { chatThreadId: String(chatThreadId), execId: entry.sessionExecId, chainThread: derived });
+    touch();
     return { resolved: true, chainThread: derived, reason: 'derived-convention' };
   }
 
@@ -222,10 +243,34 @@ function createThreadMap({ logger = null } = {}) {
     return byChat.size;
   }
 
+  // Serialization (this module owns its own shape). `toJSON` is a plain object keyed
+  // by conversation id; `load` replaces the table from one. Loading NEVER fires
+  // `onMutate` — rebuilding from the file is not a mutation of it.
+  function toJSON() {
+    return Object.fromEntries(byChat);
+  }
+
+  function load(obj) {
+    byChat.clear();
+    if (!obj || typeof obj !== 'object') return 0;
+    for (const [id, e] of Object.entries(obj)) {
+      if (!e || typeof e !== 'object') continue;
+      byChat.set(String(id), {
+        queueId: e.queueId ?? null,
+        sessionExecId: e.sessionExecId ?? null,
+        chainThread: e.chainThread ?? null,
+        pendingAsk: Boolean(e.pendingAsk),
+        createdAt: e.createdAt || null,
+      });
+    }
+    return byChat.size;
+  }
+
   return {
     has, get, create,
     bindSessionExecId, bindChainThread, setPendingAsk,
     resolveChainThread, size,
+    toJSON, load, setOnMutate,
   };
 }
 

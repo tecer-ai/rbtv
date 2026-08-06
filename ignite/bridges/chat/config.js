@@ -47,6 +47,7 @@ const DEFAULT_SLACK_API_BASE = 'https://slack.com/api';
 //     "channel_prefix": "goal-",           // goal↔channel name derivation (task 7.58)
 //     "master_profile": "master",          // profile for DM (master) traffic; defaults to session_profile
 //     "goal_profile": "worker",            // profile for goal-channel traffic; defaults to session_profile
+//     "state_file": "/abs/path/chat-state.json", // conversation state across restarts (opt-in; see below)
 //     "allowlist": ["U0123ABC", "U0456DEF"] // Slack user IDs allowed to drive the bridge
 //   }
 function readConfigFile(filePath) {
@@ -109,6 +110,18 @@ function resolveConfig(overrides = {}) {
   const masterProfile = overrides.masterProfile || file.master_profile || null;
   const goalProfile = overrides.goalProfile || file.goal_profile || null;
 
+  // Conversation state across restarts (chat-bridge.js § persistence). NON-SECRET
+  // (conversation ids and Slack channel/thread ids only — never a token), so it may
+  // come from the config file. UNSET is the default and means exactly today's
+  // in-memory behaviour: persistence is strictly opt-in. MUST be absolute — a
+  // relative path would resolve against the daemon's cwd, so the same config would
+  // read a different file depending on how the unit was started; that is a silent
+  // amnesia, which is the exact bug this key exists to fix. Refused loudly instead.
+  const stateFile = overrides.stateFile || file.state_file || null;
+  if (stateFile && !path.isAbsolute(stateFile)) {
+    throw new Error(`chat-bridge state_file must be an absolute path, got: ${stateFile}`);
+  }
+
   const allowlist = Array.isArray(overrides.allowlist)
     ? overrides.allowlist
     : (Array.isArray(file.allowlist) ? file.allowlist : []);
@@ -129,6 +142,7 @@ function resolveConfig(overrides = {}) {
     channelPrefix,
     masterProfile,
     goalProfile,
+    stateFile,
     allowlist,
     slack: {
       apiBase: slackApiBase,

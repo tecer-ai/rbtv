@@ -72,10 +72,13 @@ own `ts`, always brand new, so it can never match. Only replies inside a thread 
 already IS a sitting continue without a mention; an unknown thread, a top-level message,
 and the same `thread_ts` in a different channel all stay refused.
 
-> ⚠ **Accepted limit — restart forgets the sittings.** The thread map is **in-memory**.
-> After a bridge restart an un-mentioned reply in a pre-restart thread is **refused**
-> until the owner re-mentions the bot, which re-mints the conversation. Not fixed by
-> design: persisting the map is the upgrade path if restarts become frequent.
+> ✅ **Sittings survive a restart when `state_file` is set** (owner ruling 2026-08-06;
+> see *Conversation state across restarts* below). The thread map and the reply
+> addresses are written to that file on every mutation and rebuilt before the transport
+> listens, so an un-mentioned reply in a pre-restart thread still **continues** its
+> sitting. The re-mention-after-restart caveat is **retired for deployments that set the
+> key**. With `state_file` unset the old limit stands unchanged: the map is in-memory,
+> and after a restart such a reply is refused until a re-mention re-mints it.
 
 The mention route **fails closed**. The bot's own user id is resolved once at `start()`
 via Slack `auth.test` on the bot token; if that fails the route is never armed and an
@@ -194,7 +197,11 @@ bridge arms a per-conversation PENDING-REPLY state; a single driver loop (defaul
    fixed give-up notice to the owner (D111 part 2 — honest non-delivery, never a
    silent success or a fallback posted over a blip).
 
-In-memory v1 (D110 floor): a restart forgets pending state, matching the thread-map.
+The reply leg's `pending` watch state is **deliberately not persisted**, even when
+`state_file` is set: every field in it is time-bound (a 10-minute spawn window, execs
+awaiting an imminent turn-end), so restoring it after arbitrary downtime would restore
+*stale* windows. Nothing is lost — a follow-up on a restored conversation re-arms the
+leg through the normal `arm()` path, with fresh windows.
 A pending conversation whose spawn never appears within a bounded window, or whose
 status polling errors persistently, is disarmed with a warn (no crash, no unbounded
 retry, no unbounded state growth).
@@ -260,12 +267,38 @@ HTTP interface. `probes/` is test harness and MAY reach siblings.
 
 Non-secret JSON config shape: `{ gateway_addr, session_job_id, session_profile,
 send_message_job_id, workdir, workspace_root, channel_prefix, master_profile,
-goal_profile, allowlist: [chat-user-ids] }`.
+goal_profile, state_file, allowlist: [chat-user-ids] }`.
 
 `workspace_root` is the workspace whose `.rbtv/goals/` holds the goal runs — it is what
 a goal-channel session's workdir is resolved from (below). Leaving it unset does not
 affect DM or mention traffic; goal traffic then refuses loudly instead of launching
 somewhere arbitrary.
+
+### Conversation state across restarts — `state_file` (owner ruling 2026-08-06)
+
+The bridge runs as a systemd unit with `Restart=on-failure`, so restarts happen
+unattended. Set `state_file` to an **absolute** path and the two conversation tables —
+the **thread map** (`queueId` / `sessionExecId` / `chainThread` / `pendingAsk`) and the
+**reply-address map** (conversation → `{ channel, threadTs }`) — survive one.
+
+| Property | Behaviour |
+|----------|-----------|
+| **Unset (default)** | No reads, no writes, no file. Byte-identical to the pre-ruling in-memory behaviour. Persistence is strictly **opt-in**. |
+| **Write** | On **every** mutation of either table, including deletes (`closeGoal` drops a goal's reply address, and the file reflects it). Write-per-mutation, no debounce — chat volume is tiny. |
+| **Atomicity** | Temp file in the same directory + `rename` over the target, mode `0600`. A reader never sees a half-written file; a crash mid-write leaves the previous good state. |
+| **Load** | At `start()`, **before the transport listens** — no inbound message can race the rebuild. |
+| **Corrupt file** | Renamed aside to `<state_file>.corrupt-<ms>` with an `error` log, and the bridge starts **empty**. Never a crash loop: unparseable state must not take the chat surface down, and the aside copy keeps the evidence. |
+| **Write failure** | Logged at `error`, swallowed. The bridge degrades to its old amnesia rather than dropping the conversation. |
+| **Not persisted** | The reply leg's `pending` watch state (see above) — its windows would be stale. |
+
+Relative paths are **refused at config resolution**, not silently resolved: a relative
+path resolves against the daemon's cwd, so the same config would read a different file
+depending on how the unit was started — a silent amnesia, which is the bug this key
+exists to fix.
+
+The file is non-secret (conversation ids and Slack channel/thread ids, never a token),
+so it belongs in the machine's own state root, e.g.
+`{state_root}/chat-bridge-state.json`.
 
 ## Validation (STAGED — ADX-33(2) / D106)
 
@@ -289,6 +322,7 @@ graded for staleness (`ignite/CLAUDE.md` § probes). Evidence → `probe-chat-<n
 | `probe-chat-outbound-msg` | #4 | owner output delivered outbound via `chat.postMessage` |
 | `probe-chat-reply-leg` | #4 | the D110 driver, armed through the REAL inbound wiring (Slack event → forward path → arm): spawn captured from `recent_ticks` → `live:false` → LAST stream-json result line extracted (multi-page logs paged to the end) → posted to the conversation's channel+thread, text-EQUAL to the result string; no-result log delivers the fixed fallback (never the raw log); no exec delivered twice; a follow-up turn (new exec, same queue) delivers a second reply; a transient logs failure or refused post is retried (nothing burned), persistent failure retires the exec undelivered at a bounded attempt cap AND posts the honest give-up notice (D111 part 2) |
 | `probe-chat-mention-route` | — | the 2026-08-06 rulings: a mention in an unmapped channel routes as master with a thread-scoped conversation and an in-thread reply address; an unmentioned (or someone-else-mentioning) message there stays refused with nothing enqueued; `mpim` stays refused even when mentioned; a failed `auth.test` DISABLES the mention route while the DM path keeps working; a goal session-create is homed at the open run's `goal-master` seat; each of the four unresolvable-seat states (no open run · run open but unseated · goal absent · `workspace_root` unset) enqueues nothing and posts the fixed no-seat notice; every session-create prompt equals the user text verbatim; the runtime source carries no instance path and no `MASTER_CHARTER`; and the **mint-vs-continue** rule — a mention mints, an un-mentioned reply in a KNOWN thread continues as a follow-up `send-message`, while an unknown thread, a top-level message, and the same `thread_ts` in another channel each stay refused with nothing enqueued |
+| `probe-chat-state-persistence` | — | the 2026-08-06 `state_file` ruling, modelled as a real restart (a SECOND `buildBridge` on the same file, fresh maps, the same still-running daemon): a mutation writes the file (0600, directory created) carrying BOTH tables; the restarted bridge starts empty, restores at `start()`, and an **un-mentioned reply in the restored thread CONTINUES** — the owner's amnesia repro, now green — with the restored reply address still addressing the original channel+thread; the CONTROL run with no `state_file` refuses that same reply; with no `state_file` **nothing is written anywhere** (asserted against an empty cwd); a corrupt file is renamed aside `.corrupt-<ts>`, logged at `error`, starts EMPTY without crashing, and still mints and re-persists afterwards; `closeGoal`'s reply-address DELETE is persisted; a relative `state_file` is refused at config resolution while unset stays `null` |
 | `probe-chat-boundary` | #5 | bridge source holds no spawn/queue handle, opens no server, imports no sibling |
 | `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; **exec KNOWN but NOT live → derives `exec-<firstExecId>`** (D111 convention fallback); **first-exec immutability** (a later exec-id bind is ignored); **exec-id-unknown DECLINES** (nothing enqueued) and posts the exact decline notice to the mapped thread while an allowlist-refused user gets nothing; a failed notice post is logged and dropped (no retry loop) |
 
