@@ -135,10 +135,15 @@ ROSTER = "{RUN}/coordination/workers.md"
 # grade), this one answers "what does it say". Both resolve to the SAME audited row — audit row 14
 # names the site as "`{RUN}/seats/*/seat.md` `<io-spec>` Outputs + THE ARTIFACT PATHS IT NAMES",
 # field `null`, so a guard field has no column to be audited under and is covered where its paths
-# are. ⚠ AUDIT ROW 15 IS NOW STALE and is NOT edited by this file: it reads "`skipped` — resolves
-# to NO column … M4-09 builds no guard evaluator, and nothing can produce it". 7.425 builds one, so
-# the state is reachable. Reported to the `leader`, never reconciled here — the audit is the
-# auditor's surface.
+# are. AUDIT ROW 15 WAS STALE for exactly the reason 7.425's seat recorded here: it still read
+# "`skipped` — resolves to NO column … M4-09 builds no guard evaluator, and nothing can produce it"
+# after 7.425 had built one. That seat reported it to the `leader` rather than editing another
+# seat's surface, and it then sat. RECONCILED 2026-08-06 by task 7.454, which gave
+# `run-state-job.py` the arm that EMITS the state and corrected both of the audit's sites under a
+# claim-shaped grant (run-3 `decisions.md#p-mc12-granted-the-audit-row-claim-not-the-folder`).
+# Row 15 now reads the state as DERIVED from this file's third verdict list; its `null` field
+# verdict never moved. Nothing in THIS file's behaviour changed with that correction — only this
+# comment, which had itself become the last carrier of the retired claim.
 DECLARED_ARTIFACTS = "{RUN}/seats/*/seat.md <io-spec> Outputs -> the artifact paths it names"
 
 READS = [
@@ -889,7 +894,7 @@ def default_submitter(argv):
     return res.returncode, res.stdout, res.stderr
 
 
-def _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run):
+def _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run, prompt):
     """THE ONLY PLACE AN ENQUEUE COMMAND IS BUILT IN THIS TREE.
 
     `check_single_enqueue_call_site` asserts by source inspection that the door's verb appears in
@@ -897,15 +902,30 @@ def _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run):
     daemon REQUIRES of a launch-agent job, so it is a required parameter here rather than a
     default this stage invents.
 
-    THE ARGS OBJECT CARRIES EXACTLY THE TWO REGISTERED KEYS `{profile, workdir}` (M4-38). It once
-    carried `{profile, seat, package, seed}`; `seat`, `package` and `seed` are in no registered
-    `args_schema`, and the door refuses the object by NAME on the first of them (`E_BAD_ARGS`),
-    which masked a second refusal on a placeholder profile behind it. THE SEED NO LONGER RIDES IN
-    ARGV AND MUST NOT BE PUT BACK: a seat is driven by its DESCRIPTOR and by the room, never by
-    argv text, so predecessor-output addresses reach a seat through its own `seat.md`
-    (milestone-spine part iii). `seed` stays a parameter here and stays in the RESULT rows — it is
-    what the failure and exclusion arms report on — it simply is not submitted."""
-    args_obj = {"profile": profile, "workdir": str((Path(pkg) / "seats" / seat).resolve())}
+    THE ARGS OBJECT CARRIES EXACTLY THE THREE REGISTERED KEYS `{profile, prompt, workdir}` (M4-38,
+    extended by 7.445). It once carried `{profile, seat, package, seed}`; `seat`, `package` and
+    `seed` are in no registered `args_schema`, and the door refuses the object by NAME on the first
+    of them (`E_BAD_ARGS`), which masked a second refusal on a placeholder profile behind it. THE
+    SEED NO LONGER RIDES IN ARGV AND MUST NOT BE PUT BACK: a seat is driven by its DESCRIPTOR and
+    by the room, never by argv text, so predecessor-output addresses reach a seat through its own
+    `seat.md` (milestone-spine part iii). `seed` stays a parameter here and stays in the RESULT
+    rows — it is what the failure and exclusion arms report on — it simply is not submitted.
+
+    ⚠ `prompt` IS A REGISTERED KEY AND IS NOT THE SEED RETURNING. It is the seat's BOOT PROMPT —
+    the message `ticker.launchAgent` reads off `args.prompt` and `spawn.ensurePromptFile` writes to
+    the 0600 file the harness receives as stdin. Absent, that file is written `''` and a harness
+    that requires a message dies promptless (finding D). It is declared `optional: {prompt:
+    'string'}` in every launch-agent `args_schema` this tree registers (`engine/attached-run.js`,
+    the ticker and chat probes) and is a KNOWN request key at the spawn door (`spawn.js`
+    `validateRequestKeys`). It carries no free text: batch-08 item 4 half A collapsed the headless
+    vocabulary to `{stdin}`, and this value never becomes argv of the harness — only of the door.
+
+    ⚠⚠ SCOPE, NAMED: a catalogue row registered OUT OF BAND whose `args_schema` omits `prompt`
+    refuses this object with `unknown argument: prompt`, and registration is create-only. This
+    stage cannot read that schema, so the refusal is reported as a `failed` row carrying the door's
+    own text — never swallowed."""
+    args_obj = {"profile": profile, "prompt": prompt,
+                "workdir": str((Path(pkg) / "seats" / seat).resolve())}
     argv = [IGNITE_BIN, _ENQUEUE_VERB,
             "--fn", job_id,
             "--args-json", json.dumps(args_obj, sort_keys=True),
@@ -914,6 +934,56 @@ def _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run):
     if dry_run:
         argv.append("--dry-run")
     return argv
+
+
+def seat_prompts(coord, pkg):
+    """{seat -> descriptor dict} for every seat the kit can DISCOVER under this package.
+
+    One read of the roster surface per enqueue pass, through `coord.discover_workers` — the kit's
+    own descriptor reader. A private frontmatter parse here would be a second reading of the same
+    surface, and the two would drift the day a descriptor key moves (7.445 exists because a value
+    the launch path composes never reached the queue).
+
+    `launch_candidates` admits a seat on its descriptor's EXISTENCE; discovery additionally needs
+    the identity key (`seat:`/`agent:`). The two are deliberately not the same test, so a seat can
+    be a candidate and still be absent here — `seat_boot_prompt` turns that into a refusal."""
+    return {w["agent"]: w for w in coord.discover_workers(coord.workers_dir(_coord_args(pkg)))}
+
+
+def _coord_args(pkg):
+    """The namespace coord's resolvers read a package out of. Every one of them uses `getattr`
+    with a default, so naming `package` is enough and no other key is invented here."""
+    return argparse.Namespace(package=str(pkg))
+
+
+def seat_boot_prompt(coord, pkg, seats, seat):
+    """(prompt, error) — the seat's boot prompt from THE KIT'S ONE COMPOSER, `coord.boot_prompt`.
+
+    ⚠ THIS FUNCTION COMPOSES NOTHING. It calls the composer the live launch path calls
+    (`coord.launch_seat` -> `prompt_file(args, w["agent"], prompt or boot_prompt(w, args))`) so a
+    daemon-launched seat and a hand-launched one boot from the SAME bytes. Copying the composition
+    here would make this file a second source of a seat's first instruction, and the two would
+    disagree silently — the seat that read the stale one would look launched and be wrong.
+
+    Returns the error instead of raising: a composition that fails must REFUSE ITS OWN enqueue and
+    leave every other candidate of the pass untouched. An empty prompt is a failure, not a value:
+    it is exactly what the defect produced, and queueing it would reproduce the defect through the
+    fix."""
+    w = seats.get(seat)
+    if w is None:
+        return None, ("no DISCOVERABLE descriptor: {RUN}/seats/%s/seat.md exists (that is why this "
+                      "seat is a candidate) but carries no `seat:`/`agent:` frontmatter key, so "
+                      "the kit's own reader cannot name it and no prompt can be composed for it. "
+                      "Enqueuing it would queue a launch with an empty stdin." % seat)
+    try:
+        prompt = coord.boot_prompt(w, _coord_args(pkg))
+    except Exception as exc:                                    # noqa: BLE001 — reported as data
+        return None, ("composing the boot prompt raised %s: %s. A launch is not queued on a prompt "
+                      "that could not be built." % (type(exc).__name__, exc))
+    if not (prompt or "").strip():
+        return None, ("the composer returned an EMPTY prompt. An empty prompt is what this stage "
+                      "exists to stop reaching the queue, not a value to submit.")
+    return prompt, ""
 
 
 def launch_candidates(coord, pkg, ready, self_marks):
@@ -1038,7 +1108,13 @@ def _seed_member(pkg, seed, missing, seen, pred, resolvable, absent):
 def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=None,
             dry_run=False):
     """THE enqueue interface. Turn every LAUNCH CANDIDATE into a daemon job seeded with its
-    predecessors' declared outputs.
+    predecessors' declared outputs AND with its own boot prompt.
+
+    7.445: the queue row carries `prompt`, composed by CALLING `coord.boot_prompt` — the one
+    composer the hand-launch path already calls. `ticker.launchAgent` reads that key and
+    `spawn.ensurePromptFile` writes it to the file the harness gets as stdin; before this it read
+    nothing, wrote `''`, and the seat booted with an empty message. A candidate whose prompt cannot
+    be composed is REFUSED into `failed` rather than queued promptless.
 
     Returns `{enqueued: [{seat, job-id, seed}], validated, excluded, failed, caveats}`.
 
@@ -1049,8 +1125,9 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
                  "validated" and "enqueued" are two different claims about the queue.
       excluded    every ready seat the self-state intersection excluded, with the term and value.
                  Present even when empty.
-      failed     every candidate whose enqueue did not happen, with the cause named — a missing
-                 seed path or a non-zero return from the door.
+      failed     every candidate whose enqueue did not happen, with the cause named — a prompt
+                 that could not be composed, a missing seed path, or a non-zero return from the
+                 door.
 
     `readiness_result` is STEP 3's output; omit it and it is computed by running STEP 3, which is
     the same code path rather than a second reading. `submit` is `(argv) -> (rc, stdout, stderr)`
@@ -1062,9 +1139,15 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
     after = coord.taskforce_after(pkg)
 
     candidates, excluded = launch_candidates(coord, pkg, res["ready"], res["self-marks"])
+    seats = seat_prompts(coord, pkg)
 
     enqueued, validated, failed = [], [], []
     for seat in candidates:
+        prompt, perr = seat_boot_prompt(coord, pkg, seats, seat)
+        if perr:
+            failed.append({"seat": seat, "missing-seed-paths": [], "detail": [],
+                           "reason": "PROMPT COMPOSITION FAILED: %s" % perr})
+            continue
         seed, missing = seed_for(coord, pkg, seat, after)
         if missing:
             failed.append({"seat": seat, "missing-seed-paths": [m["path"] for m in missing],
@@ -1073,7 +1156,7 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
                                      "would schedule a seat that fails on its first read."
                                      % ", ".join(m["path"] for m in missing)})
             continue
-        argv = _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run)
+        argv = _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run, prompt)
         rc, out, err = submit(argv)
         if rc != 0:
             failed.append({"seat": seat, "missing-seed-paths": [], "detail": [],
@@ -1143,6 +1226,21 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
 # because a hook that quietly gained a second call site would double-enqueue every advancement.
 
 ARM_FILENAME = "edge-fastpath.json"
+
+# 7.445: A FIXTURE SEAT'S DESCRIPTOR MUST BE DISCOVERABLE, NOT MERELY PRESENT. Two fastpath
+# fixtures wrote a bare `fixture seat\n` and relied on `launch_candidates`, which admits a seat on
+# its descriptor's EXISTENCE. The enqueue interface now also COMPOSES that seat's boot prompt
+# through `coord.discover_workers`, which needs the identity key — so a keyless descriptor is
+# refused before the door and those fixtures stopped reaching it.
+#
+# ⚠ THIS IS WHY IT IS A CONSTANT AND NOT TWO INLINE STRINGS: when it was two, ONE of the two checks
+# caught the drift (`check_fastpath_never_raises`, whose `must_reach_guard` arm asserts the door was
+# reached) and the OTHER went silently vacuous — `check_fastpath_refuses_traceless_pkg` kept
+# printing "reached the door 0 time(s)" in a PASSING line, because it printed the discriminating
+# number without asserting it. Both arms then reached the door 0 times and the control measured
+# nothing. One constant means the next precondition added to the enqueue path breaks both fixtures
+# at once, where at least one check is guaranteed to say so.
+FIXTURE_SEAT_MD = "---\nseat: %s\n---\nfixture seat\n"
 
 # REQUIRED, with no defaults, because M4-10's interface has none: the catalogue id belongs to
 # whoever armed the queue, and the daemon requires a profile of every launch-agent job.
@@ -2659,7 +2757,7 @@ def check_fastpath_refuses_a_traceless_package(coord):
         (pkg / "taskforce.csv").write_text("seat,after\nfx-a,\n", encoding="utf-8")
         (pkg / "coordination" / "workers.md").write_text("", encoding="utf-8")
         (pkg / "seats" / "fx-a").mkdir(parents=True)
-        (pkg / "seats" / "fx-a" / "seat.md").write_text("fixture seat\n", encoding="utf-8")
+        (pkg / "seats" / "fx-a" / "seat.md").write_text(FIXTURE_SEAT_MD % "fx-a", encoding="utf-8")
         if with_trace:
             # Header only: a well-formed trace surface asserting nothing about any session. Its
             # PRESENCE is the whole variable.
@@ -2712,6 +2810,16 @@ def check_fastpath_refuses_a_traceless_package(coord):
             return False, ("the SAME package WITH a trace did not fire, so the two arms differ in "
                            "more than the trace and this check controls nothing: %r"
                            % green["why-not"])
+        # 7.445: ASSERTED, not merely printed. The closing line has always reported this count, and
+        # a passing line reading "reached the door 0 time(s)" is what it looked like when the arm
+        # went vacuous — both arms at 0, one variable controlling nothing, still green. `fired` is
+        # NOT this claim: the hook fires when it RUNS the enqueue, whether or not any candidate
+        # survived to the door. Measured on this file, not anticipated.
+        if not gcalls:
+            return False, ("the trace-carrying arm FIRED but reached the door 0 times, so both "
+                           "arms now reach it 0 times and the trace is no longer the variable "
+                           "under control. This check would be green while measuring nothing. "
+                           "enqueue result: %r" % (green["enqueue"],))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return True, ("gate 3: an armed TRACELESS package reached the door 0 times, named %s in a "
@@ -2748,7 +2856,8 @@ def check_fastpath_never_raises(coord):
             "session-id,seat,started,ended,disposition,writer\n", encoding="utf-8")
         (armed / "coordination" / "workers.md").write_text("", encoding="utf-8")
         (armed / "seats" / "fx-a").mkdir(parents=True)
-        (armed / "seats" / "fx-a" / "seat.md").write_text("fixture seat\n", encoding="utf-8")
+        (armed / "seats" / "fx-a" / "seat.md").write_text(FIXTURE_SEAT_MD % "fx-a",
+                                                          encoding="utf-8")
         _write_arm(armed, FASTPATH_FIXTURE_ARM)
         cases = [
             ("a package that does not exist", Path("/nonexistent/edge-runner/m4-11/run-x"),
