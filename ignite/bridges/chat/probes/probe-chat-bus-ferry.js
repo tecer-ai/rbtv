@@ -232,6 +232,22 @@ async function main() {
     check('malformed headers are skipped, the surrounding rows still ferry, and the warn fires ONCE (the rest at debug)',
       a.slack.posted.length === 3 && warns.length === 1 && debugs.length === 1,
       { posted: a.slack.posted.length, warns: warns.length, debugs: debugs.length });
+
+    // The header grammar is ADDITIVE — coord.py inserts `from-pkg:` BETWEEN `from:` and
+    // `to:`. A positional parser reads such a row as malformed and drops it, which is a
+    // SILENT loss of exactly the cross-package send the ferry exists for. Observed live
+    // on build-core-daemon-mvp/run-3 #2366. `re:`/`why:` ride along to hold the tail too.
+    fs.appendFileSync(file,
+      '## 5 | from: fixture-seat-a | from-pkg: throwaway-fixture | to: master | type: completion'
+      + ' | re: 3 | why: the cross-package answer | 2026-08-06 14:23\n\nfrom outside the package\n\n');
+    await b.bridge.busFerry.tick();
+    // Assert on THIS line, not on a count: the two junk headers above stay in the file and
+    // are re-reported on every re-read pass, so a delta count is not the discriminator.
+    const pkgMalformed = logs.filter((l) => /malformed/.test(l.message) && /from-pkg/.test(String(l.line)));
+    check('a header carrying the OPTIONAL from-pkg/re/why fields parses and ferries — not dropped as malformed',
+      a.slack.posted.length === 4 && pkgMalformed.length === 0
+      && a.slack.posted[3].text === '*bus → you* — goal-c/run-1 · from fixture-seat-a · completion · #5\nfrom outside the package',
+      { posted: a.slack.posted.length, pkgMalformed: pkgMalformed.length, text: a.slack.posted[3] && a.slack.posted[3].text });
     a.bridge.stop(); b.bridge.stop();
   }
 

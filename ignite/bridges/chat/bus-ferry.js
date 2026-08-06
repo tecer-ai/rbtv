@@ -33,7 +33,29 @@ const DEFAULT_MAX_ATTEMPTS = 20;      // per-row post retries before skipping it
 const DEFAULT_MAX_BODY_CHARS = 3000;  // phone-first: a bus row can be an essay
 
 // `## 4774 | from: master | to: leader | type: note | 2026-08-06 14:23`
-const HEADER_RE = /^## (\d+) \| from: ([^|]*)\| to: ([^|]*)\| type: ([^|]*)\|/;
+//
+// Read the fields BY KEY, never by position. The bus header grammar is deliberately
+// ADDITIVE (coord.py `MSG_HEADER`): a new optional field may be inserted BETWEEN two
+// existing ones, and `from-pkg:` already sits between `from:` and `to:`. A positional
+// regex reads such a row as MALFORMED and drops it — silently, and precisely for the
+// cross-package sends this ferry exists to surface. Observed live on
+// build-core-daemon-mvp/run-3 #2366, 2026-08-06.
+const HEADER_ID_RE = /^## (\d+) \| (.+)$/;
+
+// The header, or null if the line is not one. Only `from` / `to` / `type` are required;
+// every other field (`from-pkg`, `re`, `why`, `supersedes`, the trailing timestamp) is
+// carried by the grammar and ignored here.
+function parseHeader(line) {
+  const m = line.match(HEADER_ID_RE);
+  if (!m) return null;
+  const f = {};
+  for (const part of m[2].split(' | ')) {
+    const i = part.indexOf(': ');
+    if (i > 0) f[part.slice(0, i)] = part.slice(i + 2).trim();
+  }
+  if (!f.from || !f.to || !f.type) return null;
+  return { id: Number(m[1]), from: f.from, to: f.to, type: f.type, body: [] };
+}
 
 // `to:` is comma/space tolerant — `master`, `master, leader`, `leader master` all match
 // the TOKEN `master`, while `goal-master` / `master-goal` do not.
@@ -59,13 +81,8 @@ function parseMessages(text, onMalformed) {
       if (cur) rows.push(cur);
       // `line.match(re)`, never `re.exec(line)` — probe-chat-boundary's spawn guard
       // matches the literal `.exec(`, and a regex call must not read as a process spawn.
-      const m = line.match(HEADER_RE);
-      if (!m) {
-        cur = null;
-        if (onMalformed) onMalformed(line);
-        continue;
-      }
-      cur = { id: Number(m[1]), from: m[2].trim(), to: m[3].trim(), type: m[4].trim(), body: [] };
+      cur = parseHeader(line);
+      if (!cur && onMalformed) onMalformed(line);
       continue;
     }
     if (cur) cur.body.push(line);
