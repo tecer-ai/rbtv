@@ -1,0 +1,46 @@
+# rbtv-chat-bridge.service — machine-agnostic systemd USER unit template for the chat bridge.
+#
+# The bridge runs in place from the ignite module source tree, exactly like the daemon
+# (rbtv-ignite.service beside this file — its header carries the shared conventions).
+# Before this unit existed the bridge ran as a bare nohup'd process whose secrets were
+# hand-sourced at launch: a reboot or crash left the Slack door dead until the owner
+# relaunched by hand, and no operator surface could restart it.
+#
+# Install-time substitution points (replace each @@NAME@@ with the instance value):
+#   @@NODE_BIN@@          - absolute path to the Node.js 24 binary
+#   @@IGNITE_SRC@@        - absolute path to the ignite module source root
+#   @@ENVIRONMENT_FILE@@  - REQUIRED here (unlike the daemon's optional one): the file
+#                           carrying the bridge's credentials and addresses —
+#                           SLACK_APP_TOKEN, SLACK_BOT_TOKEN, IGNITE_BRIDGE_TOKEN,
+#                           IGNITE_GATEWAY_ADDR, IGNITE_CHAT_BRIDGE_CONFIG. Secrets
+#                           NEVER travel in git (D27) — the file lives in the owner's
+#                           gitignored env surface, mode 0600.
+#
+# Install location for the user manager:
+#   ~/.config/systemd/user/rbtv-chat-bridge.service
+#
+# After installing and substituting:
+#   systemctl --user daemon-reload
+#   systemctl --user enable rbtv-chat-bridge
+#   systemctl --user start rbtv-chat-bridge
+#
+# Verify: the journal shows "bot identity resolved — mention route armed" and
+# "Socket Mode connection established (hello)" within a few seconds of start.
+#
+# Do NOT commit a substituted version of this file.
+
+[Unit]
+Description=RBTV ignite chat bridge (Slack Socket Mode)
+
+[Service]
+Type=simple
+WorkingDirectory=@@IGNITE_SRC@@
+EnvironmentFile=@@ENVIRONMENT_FILE@@
+ExecStart=@@NODE_BIN@@ @@IGNITE_SRC@@/bridges/chat/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

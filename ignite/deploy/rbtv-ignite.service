@@ -41,8 +41,8 @@
 # ── The boot cockpit (task 7.36, settle ledger R6/R15) ────────────────────────────────
 # At boot the daemon spawns a tmux session named `rbtv-cockpit`: teamview plus a LAZY
 # master pane (cd'd to place, harness NOT launched — the owner attaches and types).
-# It is a tmux session, NOT a second systemd unit — the daemon stays the sole systemd
-# citizen. It is IDEMPOTENT (an existing cockpit is left untouched, so Restart=on-failure
+# It is a tmux session, NOT a second systemd unit (the chat bridge — rbtv-chat-bridge.service
+# beside this file — is the one other systemd citizen of this module). It is IDEMPOTENT (an existing cockpit is left untouched, so Restart=on-failure
 # never destroys what the owner had open) and FAIL-SOFT (no tmux, no teamview, or a
 # refusing tmux server logs a reason and the daemon boots normally).
 # Optional EnvironmentFile knobs, none required:
