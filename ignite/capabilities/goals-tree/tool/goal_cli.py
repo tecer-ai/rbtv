@@ -342,6 +342,164 @@ def current_run_dir(goal_dir: Path, f: Findings) -> Path | None:
     return folders[-1] if folders else None
 
 
+# ------------------------------------- the `after` MEMBER grammar (7.426 / W3)
+#
+# ⚠ THE PROOF SURFACE OF THIS ARM IS THE TEST GOAL, AND NOTHING HERE IS WIRED INTO
+# THE LIVE ROOM. `check_after_grammar` runs where a VERB invokes it (`lint`,
+# `check-acyclic`) — no daemon lane, no job, no watcher calls it. Live-room
+# adoption is a separate, later act behind `r-cutover-gated`. See README.md
+# § "The guard-grammar arm (7.426) and its carve-out" for the full statement.
+#
+# ⚠ ONE DECOMPOSITION, IMPORTED. The member grammar `<seat>[<key>=<value>]` is
+# decomposed in exactly one place in this system — `coord.py`'s
+# `parse_after_member` (7.424/W1 collapsed the two readings that used to exist).
+# This module IMPORTS it. A copy here would be the third reading, and the defect
+# W1 closed is precisely "which parse a consumer got depended on which function it
+# called". `_module_level_literals` reads coord.py by AST for a different reason —
+# it needs module-level LITERALS, which do not require execution; a grammar does.
+
+_AFTER_GRAMMAR = None
+
+
+def after_member_grammar():
+    """`coord.py`'s `parse_after_member`, imported. Refuses rather than degrading.
+
+    `coord.py` imports `budget` from its own directory, so that directory goes on
+    `sys.path` for the exec and comes straight back off — the "not importable from
+    an arbitrary cwd" this module records elsewhere is a CWD problem, not an
+    importability one (measured: 0.13s, no side effects; it launches nothing,
+    writes nothing, messages nobody).
+
+    Every failure to reach the grammar is a `Refusal`. A grammar arm that silently
+    passed when it could not read the grammar would report CLEAN over a file whose
+    guards were never checked — the vacuous-clean class `check_acyclic` exists to
+    close, rebuilt one layer up.
+    """
+    global _AFTER_GRAMMAR
+    if _AFTER_GRAMMAR is not None:
+        return _AFTER_GRAMMAR
+    import importlib.util
+
+    coord_path = coord_source_path()
+    if not coord_path.is_file():
+        raise Refusal(
+            f"{coord_path}: the after-member grammar source is absent, so NO guard-grammar "
+            f"claim can be made about any manifest. This check imports "
+            f"`parse_after_member` (7.424) and never re-implements it.")
+    spec = importlib.util.spec_from_file_location("_coord_after_grammar", coord_path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(coord_path.parent))
+    # `lint` WRITES NOTHING, EVER, and an import is otherwise a write: measured, a
+    # plain exec_module drops three `.pyc` files into `team-kit/__pycache__/`. They
+    # are gitignored and harmless, and that is exactly the argument that erodes a
+    # read-only contract one exception at a time. Suppressed, then restored.
+    bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(mod)
+    except Exception as exc:  # any import-time failure of a 20k-line module
+        raise Refusal(
+            f"{coord_path}: the after-member grammar source did not import "
+            f"({exc.__class__.__name__}: {exc}), so NO guard-grammar claim can be made.")
+    finally:
+        sys.dont_write_bytecode = bytecode
+        sys.path.remove(str(coord_path.parent))
+    fn = getattr(mod, "parse_after_member", None)
+    if not callable(fn):
+        raise Refusal(
+            f"{coord_path}: `parse_after_member` is absent or not callable — the grammar "
+            f"this check imports has moved or been renamed; NO claim can be made.")
+    _AFTER_GRAMMAR = fn
+    return fn
+
+
+def after_cell_members(raw: str) -> list[str]:
+    """The CELL grammar: comma-separated members, exactly as `taskforce_after` splits."""
+    return [p.strip() for p in (raw or "").split(",") if p.strip()]
+
+
+def after_member_limbs(member: str) -> list[str]:
+    """The alternates of ONE member: `a|b` -> `['a', 'b']`, `a[g=y]` -> `['a[g=y]']`.
+
+    ⚠ THE ORDER IS LOAD-BEARING and is `_manifest_after_ids`' own: bracketed content
+    is neutralised BEFORE the alternate split, so a `|` INSIDE a guard value never
+    reads as an alternate. Cutting the other way round is the strip-then-split defect
+    (#3386) this file used to carry: `a[g=y]|b` truncated at the first `[` and limb
+    `b` vanished from the graph — an edge never traversed, reported clean.
+
+    Blanked positionally rather than removed, so each limb is sliced from the
+    ORIGINAL text and keeps its own guard for the member-grammar read below.
+    """
+    blanked = re.sub(r"\[[^\]]*\]", lambda m: "\0" * len(m.group(0)), member)
+    limbs, start = [], 0
+    for i, ch in enumerate(blanked):
+        if ch == "|":
+            limbs.append(member[start:i])
+            start = i + 1
+    limbs.append(member[start:])
+    return limbs
+
+
+def after_pred_names(raw: str) -> list[str]:
+    """Every predecessor NAME an `after` cell declares — guards stripped, alternates
+    expanded, through the imported grammar. The one edge-extraction of this module.
+
+    A limb whose guard is malformed keeps its WHOLE token as the name, so it lands as
+    an unresolvable edge rather than being silently dropped. `check_after_grammar`
+    names the grammar rule it broke; this one refuses to pretend the graph was read.
+    """
+    parse = after_member_grammar()
+    names = []
+    for member in after_cell_members(raw):
+        for limb in after_member_limbs(member):
+            if not limb.strip():
+                continue
+            names.append(parse(limb)[0] or limb.strip())
+    return names
+
+
+# The rules, stated once. A refusal message NAMES the rule it violated: the `check`
+# string IS the rule, and the reason carries the offending token.
+RULE_GUARD_GRAMMAR = "guard grammar `ref[field=value]`"
+RULE_ALTERNATE_GRAMMAR = "alternate grammar `a|b`"
+
+
+def check_after_grammar(rows: list[dict], f: Findings, path: Path,
+                        id_col: str = "seat", after_col: str = "after") -> None:
+    """Guard grammar + alternates, validated ON TOP OF acyclicity (7.426 / W3).
+
+    `check_acyclic` answers "is this graph acyclic and do its edges resolve". It says
+    nothing about whether a guard is ADMISSIBLE: `a[nokey]` is not a guarded member at
+    all — `parse_after_member` hands it back whole and the edge-runner treats it as a
+    seat name that cannot exist, so the edge is permanently unmet and nothing says why.
+    This arm refuses it at registration instead, naming the rule.
+
+    Grammar-only. It rules on ADMISSIBILITY, never on whether a guard is satisfied —
+    that is the edge-runner's evaluation (CMP-25) against the predecessor's validated
+    output, and no verdict about it is implied here.
+    """
+    parse = after_member_grammar()
+    for row in rows:
+        node = (row.get(id_col) or "").strip()
+        for member in after_cell_members(row.get(after_col) or ""):
+            limbs = after_member_limbs(member)
+            for limb in limbs:
+                if not limb.strip():
+                    f.add(RULE_ALTERNATE_GRAMMAR, str(path),
+                          f"{id_col} '{node}': `after` member {member!r} has an EMPTY "
+                          f"alternate limb — `a|b` joins two named predecessors, and an "
+                          f"empty limb names none")
+                    continue
+                name, key, _value, _unsupported = parse(limb)
+                if key is None and ("[" in limb or "]" in limb):
+                    f.add(RULE_GUARD_GRAMMAR, str(path),
+                          f"{id_col} '{node}': `after` member {limb.strip()!r} carries "
+                          f"brackets but is not a guard — the grammar is exactly "
+                          f"`ref[field=value]`: ONE trailing bracket group, a non-empty "
+                          f"field, no bracket inside either half. As written it reads as a "
+                          f"predecessor literally named {name!r}, which no row can be")
+
+
 def check_acyclic(rows: list[dict], f: Findings, path: Path,
                   id_col: str = "seat", after_col: str = "after") -> None:
     """The after-graph MUST be acyclic (taskforce-descriptor; goal-lint rejects a cycle).
@@ -375,16 +533,10 @@ def check_acyclic(rows: list[dict], f: Findings, path: Path,
             f.add(f"every row names a {id_col}", str(path),
                   f"a row carries an empty '{id_col}' and cannot join the graph: {row}")
             continue
-        raw = (row[after_col] or "").strip()
-        preds = []
-        for entry in raw.split(","):
-            entry = entry.strip()
-            if not entry:
-                continue
-            # strip a guard `ref[field=value]`; alternates a|b are a whichever-ran join
-            entry = entry.split("[", 1)[0]
-            preds.extend(p.strip() for p in entry.split("|") if p.strip())
-        edges[seat] = preds
+        # 7.426: through `after_pred_names` — the imported grammar, one reading.
+        # It replaces a local `entry.split("[", 1)[0]` that truncated at the first
+        # bracket, so `a[g=y]|b` lost limb `b` and a cycle through it was invisible.
+        edges[seat] = after_pred_names(row[after_col])
 
     for seat, preds in edges.items():
         for p in preds:
@@ -458,11 +610,13 @@ def cmd_check_acyclic(args) -> int:
         id_col = args.id_col
     f = Findings()
     check_acyclic(rows, f, path, id_col=id_col, after_col=args.after_col)
+    check_after_grammar(rows, f, path, id_col=id_col, after_col=args.after_col)
     # The edge count is REPORTED, not implied. "Clean" over an empty edge map is the
     # exact false green this subcommand exists to end — a reader must be able to see
     # that a graph was traversed, not merely that nothing was said about it.
-    edges = sum(len([x for x in (r[args.after_col] or "").replace("|", ",").split(",")
-                     if x.strip()]) for r in rows)
+    # Counted through the SAME extraction the traversal used (7.426) — a count from a
+    # second reading is a number about a different graph than the one walked.
+    edges = sum(len(after_pred_names(r[args.after_col])) for r in rows)
     print(f"check-acyclic: {path}")
     print(f"  {len(rows)} row(s) read, keyed on '{id_col}', edges from '{args.after_col}'")
     print(f"  {edges} edge(s) read" + ("  <-- NOTHING TO CHECK" if not edges else ""))
@@ -471,7 +625,8 @@ def cmd_check_acyclic(args) -> int:
     if f.items:
         print(f"  {len(f.items)} finding(s) — NOT clean")
         return 1
-    print("  clean: the after-graph is acyclic and every edge resolves")
+    print("  clean: the after-graph is acyclic, every edge resolves, and every guard "
+          "and alternate is well-formed")
     return 0
 
 
@@ -565,6 +720,7 @@ def lint_goal(root: Path, name: str) -> Findings:
         return f
 
     check_acyclic(rows, f, tf_path)
+    check_after_grammar(rows, f, tf_path)
 
     seats_dir = run_dir / "seats"
     for row in rows:
@@ -2144,6 +2300,57 @@ def cmd_selftest(args) -> int:
               ca_run("acyclic-nonseat.csv", id_col="milestone-id") == 0)
         check("a markdown task DAG's edge set is read, and its cycle REPORTED",
               ca_run("dag.md") == 1)
+
+        # 7.426 (W3) — the guard-grammar arm, on the surface a manifest is registered
+        # through. Each row is paired with the control that makes it discriminating:
+        # a green over a file the arm could not have refused proves nothing.
+        print("after-member grammar (7.426: guards and alternates at registration)")
+        (ca / "guards-ok.csv").write_text(
+            "Seat/workflow,after\n"
+            "a,\n"
+            "b,\n"
+            "c,a[verdict=accepted]\n"          # a guard
+            "d,a|b\n"                          # an alternate join
+            "e,\"c, d[ok=y|n]\"\n",            # a `|` INSIDE a guard value
+            encoding="utf-8")
+        (ca / "guard-malformed.csv").write_text(
+            "Seat/workflow,after\na,\nb,a[nokey]\n", encoding="utf-8")
+        (ca / "alt-empty-limb.csv").write_text(
+            "Seat/workflow,after\na,\nb,a|\n", encoding="utf-8")
+        (ca / "cycle-via-limb.csv").write_text(
+            "Seat/workflow,after\na,b[g=y]|c\nb,\nc,a\n", encoding="utf-8")
+
+        def ca_out(name: str, **kw) -> tuple[int, str]:
+            buf, _o = io.StringIO(), sys.stdout
+            sys.stdout = buf
+            try:
+                rc = ca_run(name, id_col="Seat/workflow", **kw)
+            finally:
+                sys.stdout = _o
+            return rc, buf.getvalue()
+
+        rc, out = ca_out("guards-ok.csv")
+        # 5 edges, computed from the file before running it: c<-a, d<-a, d<-b, e<-c,
+        # e<-d. The `|` inside `d[ok=y|n]` is a guard VALUE and contributes ONE edge,
+        # not two — a strip-then-split reading would report 6.
+        check("a well-formed guarded manifest validates CLEAN", rc == 0 and "clean" in out,
+              f"{rc} {out}")
+        check("a `|` inside a guard VALUE is not an alternate (5 edges, not 6)",
+              "5 edge(s) read" in out, out)
+        rc, out = ca_out("guard-malformed.csv")
+        check("a MALFORMED guard is refused, naming the guard-grammar rule",
+              rc == 1 and RULE_GUARD_GRAMMAR in out and "a[nokey]" in out, f"{rc} {out}")
+        rc, out = ca_out("alt-empty-limb.csv")
+        check("an EMPTY alternate limb is refused, naming the alternate rule",
+              rc == 1 and RULE_ALTERNATE_GRAMMAR in out, f"{rc} {out}")
+        rc, out = ca_out("cycle-via-limb.csv")
+        # The strip-then-split control: the ONLY path from a back to a runs through
+        # limb `c` of `b[g=y]|c`. Truncating at the first bracket loses it and this
+        # file reads CLEAN — which is what this row would have said before 7.426.
+        check("a cycle through an ALTERNATE LIMB is reported (strip-then-split closed)",
+              rc == 1 and "after graph acyclic" in out, f"{rc} {out}")
+        check("red control: the grammar arm is not firing on the clean file",
+              RULE_GUARD_GRAMMAR not in ca_out("guards-ok.csv")[1])
 
         print("index_units (7.342: the silent tag drop)")
         cat = tmp / "cat" / "demo" / "prompts" / "cognitive-units" / "roles"

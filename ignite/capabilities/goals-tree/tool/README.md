@@ -47,10 +47,42 @@ state and type in their enums · the goal-radius contract body is non-empty · C
 layout · `runs.csv` / `milestones.csv` / `taskforce.csv` parse · one live run per goal · every
 taskforce row resolves to a REAL seat with a parseable `seat.md` · the `after` graph is acyclic
 (guards `ref[field=value]` stripped, alternates `a|b` split) and every predecessor names a real
-seat row · each seat's binding matches the `taskforce.csv` row it was copied from · every
+seat row · **every guard and alternate is well-formed** (below) · each seat's binding matches the
+`taskforce.csv` row it was copied from · every
 frontmatter cognitive-unit reference has its assembled block in the body · permissions well-formed
 · dry-run dispatch emulation (would this seat launch under its resolved harness+model+effort — no
 launch, no LLM call).
+
+### The guard-grammar arm (7.426) and its carve-out
+
+`lint <goal>` and `check-acyclic <file>` validate the `after` member grammar **on top of**
+acyclicity. Two rules, and a refusal names the one it broke:
+
+| Rule (the finding's `check` string) | Refuses |
+|---|---|
+| ``guard grammar `ref[field=value]` `` | a member carrying brackets that is not a guard — `a[nokey]`, `a[k=v]x`, an unclosed `a[k=v`. `parse_after_member` hands such a token back WHOLE, so the edge-runner looks up a seat literally named `a[nokey]`, finds nothing, and the edge is permanently unmet with no reason given. Refused at registration instead. |
+| ``alternate grammar `a|b` `` | an empty alternate limb — `a|`, `|b`, `a||b`. An alternate joins two NAMED predecessors. |
+
+**Grammar only.** The arm rules on ADMISSIBILITY, never on whether a guard is satisfied — that
+evaluation is the edge-runner's (CMP-25), against the predecessor's validated output. A clean
+verdict here says the manifest is well-formed, nothing about how it will route.
+
+**One decomposition, imported.** The member grammar is decomposed in exactly one place in this
+system — `coord.py`'s `parse_after_member` (7.424/W1 collapsed the two readings that used to
+exist). `after_member_grammar()` imports it; there is no copy of the grammar in this file, and if
+the import fails the check REFUSES rather than reading clean. The same import backs
+`check_acyclic`'s edge extraction, which previously truncated a member at its first `[` — under
+that reading `a[g=y]|b` lost limb `b`, and a cycle through it was reported clean (the
+strip-then-split defect #3386, closed here; the selftest keeps the control).
+
+> **⚠ CARVE-OUT — the proof surface of this arm is the TEST GOAL, and nothing here is wired into
+> the live room.** The arm activates only where a verb invokes it (`lint`, `check-acyclic`); no
+> daemon lane, job or watcher calls it, and 7.426 performed **no live-room wiring**. Live-room
+> adoption is a separate, later act behind `r-cutover-gated`
+> (`.rbtv/goals/build-core-daemon-mvp/decisions.md`). What was measured, not assumed: the live
+> `build-core-daemon-mvp` run-3 `taskforce.csv` (356 rows, 331 members, 6 guarded, 0 alternates)
+> yields the SAME two lint findings before and after this change — the arm adds none there. That
+> is a measurement of one package, not a licence to adopt.
 
 ### How `materialize` assembles a seat
 
@@ -112,8 +144,15 @@ rbtv-goal selftest        # end-to-end on a throwaway tree; exit 0 / 1
 `selftest` exercises scaffold (+ its three refusals), the read-only property of lint, name/layout
 violation rejection, cycle rejection, the full assembly (frozen assembled refs, `@latest` invoked
 refs, stamped XML blocks, loader stubs not inlined), refuse-without-`--force`, `--force`,
-refuse-without-`--catalog-root`, and reindex's fail-loud-and-leave-untouched behaviour. Run it after
+refuse-without-`--catalog-root`, reindex's fail-loud-and-leave-untouched behaviour, and the
+guard-grammar arm (clean guarded manifest, malformed guard, empty alternate limb, a cycle through
+an alternate limb, and the control that the arm stays silent on a clean file). Run it after
 ANY edit to `goal_cli.py` — it must exit 0.
+
+The one row the selftest CANNOT carry is that the grammar is imported rather than copied: it would
+have to mutate `coord.py`. That control runs on a mirrored scratch tree — mutate
+`GUARDED_MEMBER_RE` there and a manifest that validated clean must go red. Recorded for 7.426 in
+`runs/run-3/planning/briefing-m6-remainder-drain/mrd-w3-lint-arm-record.md`.
 
 A selftest sits inside its own blast radius, so it is not sufficient evidence on its own: vary the
 invocation (bare, under `timeout`, via `sh -c`, from another cwd, absolute path, piped/no-tty) and
