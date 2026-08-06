@@ -31,11 +31,14 @@ it and relays judgment). One pass checks every ACTIVE roster seat and reports:
              overrides it deliberately) or 1-min load at/over cores x --load-per-core
              flags SYSTEM PRESSURE. Read from /proc/meminfo + /proc/loadavg; on a box without
              /proc the check skips honestly (never a fake reading).
-  leftover   a briefing-declared wave window whose panes are ALL agent-dead — no active roster
-             seat left in it (PROP-10, tv-ux-review): either its wave closed leaving bash-only
-             shells, or its seats died at model-init before ever checking in. Flagged once with
-             the sanctioned teardown (`tmux kill-window` — bash ignores SIGTERM, kill-pane is
-             classifier-blocked).
+  leftover   a briefing-declared wave window in which EVERY pane is SHELL-ONLY — no harness
+             process under any of them, read per pane from the process table, held for
+             LEFTOVER_DEBOUNCE_TICKS consecutive passes (PROP-10, tv-ux-review): either its wave
+             closed leaving bare shells, or a launch died at model-init before ever registering,
+             which is the failure no other detector sees. One pane holding a live process
+             suppresses the window. REPORT ONLY — no teardown is recommended and none is owed
+             (run-3 `decisions.md` `p-NOBODY-TEARS-DOWN-A-STALE-EMPTY-WINDOW-…`); a bare shell is
+             not an agent pane and consumes none of the room's capacity.
 
 Every pass stamps `<package>/coordination/watch-heartbeat.json` (P32 — nothing watched the
 watcher: this loop runs detached, so a dead loop is indistinguishable from a quiet run). `coordinate
@@ -208,6 +211,35 @@ def window_panes():
         win, pane = ln.split("\t", 1)
         out.setdefault(win, []).append(pane.strip())
     return out
+
+
+def pane_occupancy(pane):
+    """PROP-10's predicate core, per PANE: "OCCUPIED" | "SHELL-ONLY" | "UNKNOWN".
+
+    OCCUPIED   a live harness process runs at or below this pane's pid — mid-boot, working, or
+               orphaned. All three are somebody's live work.
+    SHELL-ONLY the process table was read and holds no harness under this pane: its shell and
+               nothing else, or nothing at all.
+    UNKNOWN    the process table or the pane's pid could not be read. `cannot tell` is NOT
+               `nothing is running`, and this arm treats it as such (a window carrying an
+               UNKNOWN pane is never a leftover candidate).
+
+    ⚠ THIS IS A MIRROR, NOT A SIBLING PARSE. It reads through `coord.pane_harness_pids` — the
+    SAME call the GHOSTROW arm makes, which is why the two can never disagree about what a live
+    harness is, and why the selftest's existing `pane_harness` stub covers this arm for free. A
+    second ps/ppid parse here would be the shape of defect this whole change removes: two readings
+    of one physical fact, free to drift.
+
+    ⚠ WHY THE PROCESS AND NOT THE ROSTER. The predicate this replaced asked the ROSTER whether a
+    window held an active seat, and the roster LAGS at boot (a launched seat has no active row
+    until it checks in) and LEADS at shutdown (the row goes before the process does). At least
+    twenty recorded firings were wrong, every checked one of them, and one landed in the same
+    minute a seat launched into the window it named (`issues.md#G-leader-0730-0604`,
+    `#G-leader-0806-0355`). The pane's process is the evidence; the roster row never was."""
+    hp, verifiable = coord.pane_harness_pids(pane)
+    if not verifiable:
+        return "UNKNOWN"
+    return "OCCUPIED" if hp else "SHELL-ONLY"
 
 
 # ---------- system pressure (stubbable) ----------
@@ -1251,14 +1283,14 @@ def pressure_remedy(mem_low, load_high):
         return ("Memory AND load both fired; MEMORY is the one that kills — an OOM cascade takes "
                 "the seats AND this watcher itself, the one process that would report it. Read "
                 "the box first (`free -m`, `uptime`, then the per-seat census) and treat the RAM "
-                "as the emergency: close out idle/done seats, tear down leftover dead wave "
-                "windows (tmux kill-window), and pause further launches until this clears. The "
+                "as the emergency: close out idle/done seats through their OWN lifecycle, and "
+                "pause further launches until this clears. The "
                 "load may well drain on its own once the memory picture is dealt with.")
     if mem_low:
         return ("An OOM cascade kills seats AND this watcher itself, the one process that would "
                 "report it. Read the box first (`free -m`, then the per-seat census) to see what "
-                "is holding the RAM, then free it: close out idle/done seats, tear down leftover "
-                "dead wave windows (tmux kill-window), and pause further launches until this "
+                "is holding the RAM, then free it: close out idle/done seats through their OWN "
+                "lifecycle, and pause further launches until this "
                 "clears.")
     return ("This is LOAD, not memory: RAM is ABOVE the floor, nothing here says an OOM is "
             "coming, and no seat needs closing on this flag's account. Read what is actually "
@@ -1448,6 +1480,15 @@ REVIVAL_STALE_NOTE_TICKS = 3    # consecutive stale ticks before the sensor outa
 # debounce convention, which the row that added this was told not to introduce. Anyone who wants
 # them to differ changes THIS line and says why; the default is that they cannot drift apart.
 GHOSTROW_DEBOUNCE_TICKS = REVIVAL_DEBOUNCE_TICKS
+
+# 7.414 (PROP-10): consecutive passes a declared window must show EVERY pane SHELL-ONLY before the
+# leftover note fires. DERIVED FROM `REVIVAL_DEBOUNCE_TICKS` for the same reason the line above is,
+# and refusing a second literal is the same discipline — but the CONDITION it debounces is this
+# arm's own: a pane that has just been created is shell-only for the seconds between the pane
+# existing and the harness process appearing under it. A single-sample flag there re-imports, at a
+# smaller timescale, exactly the launch-window bug this whole change exists to remove. Anyone who
+# wants the three to differ changes THIS line and says why.
+LEFTOVER_DEBOUNCE_TICKS = REVIVAL_DEBOUNCE_TICKS
 
 # Report-line literals. Kept as constants because the acceptance controls (task s4-03 § Acceptance
 # 4, 6, 8, 9) grep for the EXACT strings — a reworded line is a silently-failing control.
@@ -3073,13 +3114,39 @@ def check_stalled_blocking(args, base, snap, snap_err, state, notes):
 
 
 def check_leftover_windows(rows, seats, sysstate, notes):
-    """PROP-10 — a briefing-declared window whose panes are ALL agent-dead: no ACTIVE roster
-    seat's pane is in it. Covers both halves of the incident: a closed wave leaving bash-only
-    shells, AND a wave whose seats died at model-init before ever checking in (which is also
-    the runtime residue PROP-8's pre-flight cannot catch locally). Keyed to windows the
-    briefings declare (`window: NAME`, or the agent's own name for `window: yes`), so the
-    control panel and unrelated tmux windows never false-fire. Flags once per window; re-arms
-    when the window disappears or an active seat (re)appears in it. Returns report lines."""
+    """PROP-10 — a briefing-declared window in which EVERY pane is SHELL-ONLY, held for
+    `LEFTOVER_DEBOUNCE_TICKS` consecutive passes. It still covers the population nothing else
+    detects: a seat that died at model-init BEFORE ever checking in leaves no cause visible in
+    any roster (PROP-8's runtime residue, `G-leader-0731-1536`) — and a closed wave's leftover
+    bash shells. Keyed to windows the briefings declare (`window: NAME`, or the agent's own name
+    for `window: yes`), so the control panel and unrelated tmux windows never false-fire.
+    Returns report lines.
+
+    ⚠ THE PREDICATE IS THE PANE'S PROCESS, PER PANE — NOT THE ROSTER, AND NOT THE WINDOW. Three
+    things changed here at once and each is load-bearing (7.414, design of record
+    `runs/run-3/planning/briefing-dead-window-flag/milestone-task-dag.md` §1):
+
+      (i)  EVIDENCE. `pane_occupancy` decides; a roster read never does. The old predicate flagged
+           a window in which no ACTIVE roster row held a pane, which collapsed three populations
+           into one: a seat booting (roster LAGS — no active row until check-in), a seat live AND
+           registered whose row somehow missed `active_panes`, and a departed seat whose process
+           still runs (roster LEADS at shutdown). At least twenty recorded firings, wrong every
+           checked time. The roster read below survives ONLY as a cheap short-circuit — an active
+           seat's window is never leftover, so skip the process reads — never as the deciding
+           evidence.
+      (ii) GRANULARITY. A window is a candidate only when EVERY pane is shell-only. One OCCUPIED
+           pane suppresses the whole window, because post-placement-fix a MIXED window is the
+           NORMAL state at every stage handoff (`G-leader-0730-1900`) and no timing rule makes a
+           window-level verdict correct on one.
+      (iii) DEBOUNCE. The state must hold `LEFTOVER_DEBOUNCE_TICKS` passes — a just-created pane is
+           shell-only for the seconds before its harness appears.
+
+    ⚠ AND IT RECOMMENDS NOTHING DESTRUCTIVE, BY RULING. The note this emits used to end in
+    `tmux kill-window`, aimed at live work every time it was checked. `p-NOBODY-TEARS-DOWN-A-
+    STALE-EMPTY-WINDOW-because-THE-ACT-HAS-NO-LEGITIMATE-PERFORMER-and-COSTS-NOTHING-TO-SKIP`
+    (run-3 `decisions.md`) rules the act out: the pane cap counts AGENT panes and a bare shell is
+    not one, so a genuinely leftover window costs the room nothing. This arm REPORTS. Anyone
+    adding a destructive verb back here amends that ruling first."""
     declared = set()
     for s in seats.values():
         w = s.get("window")
@@ -3101,17 +3168,47 @@ def check_leftover_windows(rows, seats, sysstate, notes):
         if name not in declared or not panes:
             continue
         if any(p in active_panes for p in panes):
+            continue          # cheap short-circuit only — see (i) above
+        classes = {p: pane_occupancy(p) for p in panes}
+        occupied = sorted(p for p, c in classes.items() if c == "OCCUPIED")
+        unknown = sorted(p for p, c in classes.items() if c == "UNKNOWN")
+        if occupied:
+            # ⚠ REPORTED, NOT MUTED. This is the state ≥21 recorded firings called leftover, and
+            # the reap backlog is real work — it stays VISIBLE, with no flag and no remedy, so
+            # that removing the false flag does not create a blind spot (`G-leader-0730-0817`).
+            lines.append(f"{name:<18} '{full}': {len(occupied)}/{len(panes)} pane(s) hold a live "
+                         f"process, no active row — booting, or the reap lane's business; not "
+                         f"leftover ({', '.join(occupied)})")
             continue
-        lines.append(f"{name:<18} LEFTOVER window '{full}': {len(panes)} pane(s), no active seat")
-        leftover[full] = True
-        if not prior.get(full):
+        if unknown:
+            lines.append(f"{name:<18} '{full}': pane process table UNREADABLE for "
+                         f"{len(unknown)}/{len(panes)} pane(s) — unmeasurable, not leftover "
+                         f"({', '.join(unknown)})")
+            continue
+        ticks = int(prior.get(full) or 0) + 1
+        leftover[full] = ticks
+        if ticks < LEFTOVER_DEBOUNCE_TICKS:
+            # Printed every pass, like the GHOSTROW pending line: a condition being debounced must
+            # never read as a condition gone quiet.
+            lines.append(f"{name:<18} LEFTOVER pending — {ticks}/{LEFTOVER_DEBOUNCE_TICKS} "
+                         f"consecutive passes with all {len(panes)} pane(s) shell-only in '{full}'")
+            continue
+        lines.append(f"{name:<18} LEFTOVER window '{full}': {len(panes)} pane(s), ALL shell-only "
+                     f"({ticks} consecutive passes)")
+        if ticks == LEFTOVER_DEBOUNCE_TICKS:
             notes.append(
-                f"watch: window '{full}' still holds {len(panes)} pane(s) but NO active seat — "
-                f"either its wave closed leaving dead shells, or its seats died before checkin "
-                f"(a config error kills a seat at model-init, before it ever registers). Inspect "
-                f"it, then tear the whole window down: tmux kill-window -t '{full}' — the "
-                f"sanctioned teardown: an interactive bash ignores SIGTERM, and kill-pane is "
-                f"blocked by the harness automation classifier.")
+                f"watch: window '{full}' holds {len(panes)} pane(s) and EVERY ONE of them is "
+                f"shell-only — no harness process under any of them, measured per pane through "
+                f"the same process read the GHOSTROW arm uses, held {ticks} consecutive passes. "
+                f"Two things look like this and the tail of `sessions.csv` tells them apart: its "
+                f"wave CLOSED and left bare shells (the window's seats have close rows), or a "
+                f"launch DIED AT MODEL-INIT before ever registering (a seat was launched into "
+                f"this window and has no row at all — that is the failure no other detector "
+                f"sees). NO ACTION IS OWED EITHER WAY, and none is recommended: nobody tears down "
+                f"a stale empty window on this flag's account (run-3 `decisions.md` "
+                f"`p-NOBODY-TEARS-DOWN-A-STALE-EMPTY-WINDOW-because-THE-ACT-HAS-NO-LEGITIMATE-"
+                f"PERFORMER-and-COSTS-NOTHING-TO-SKIP`), and a bare shell is not an agent pane, so "
+                f"it consumes none of the room's declared capacity. This is a REPORT.")
     if leftover:
         sysstate["windows"] = leftover
     else:
@@ -4046,31 +4143,120 @@ def cmd_selftest():
         run_pass(ns(context_pct=90))
         (pkg / "budget.json").unlink()  # restore the "true today" unconfigured state for the rest of the suite
 
-        # ---- PROP-10: a briefing-declared wave window left with NO active seat ----
+        # ---- PROP-10 (7.414): a declared window in which EVERY pane is SHELL-ONLY ----
+        # ⚠ THE CONTROL THAT MAKES THIS BLOCK EVIDENCE IS THE FIRST ONE, AND IT IS A MUTATION
+        # TARGET. Against the pre-7.414 predicate — flag when no ACTIVE roster row holds a pane —
+        # a booting seat's window (live harness, no row yet) WAS flagged, so `LEFTOVER-A` below
+        # goes RED the moment the predicate is reverted. That is the whole reason it is written
+        # this way round: ≥21 recorded firings got exactly this case wrong, and a block that only
+        # asserted the fixed behaviour of the OTHER states would pass with or without the fix.
+        # The `pane_harness` stub is the SAME one PROP-11 uses — one process read, one stub.
         (wdir / "wv1").mkdir()
         (wdir / "wv1" / "agent.md").write_text(
             "---\nagent: wv1\nharness: claude\nwindow: wave-x\nephemeral: yes\n---\nb\n")
         win_map["testsess:wave-x"] = ["%40", "%41"]
-        notes = run_pass(ns(context_pct=90))
-        check("PROP-10: a wave window with panes but no active seat is flagged once with the "
-              "kill-window remedy — covers seats that died at model-init before ever checking "
-              "in, AND a closed wave's leftover bash shells",
-              any("wave-x" in n and "kill-window" in n for n in notes))
-        notes = run_pass(ns(context_pct=90))
-        check("PROP-10: does not re-fire while the leftover window persists",
-              not any("kill-window" in n for n in notes))
+
+        def leftover_pass():
+            """(notes, printed report lines) for one pass — the report line is PRINTED, and this
+            arm's pending/suppressed classifications live only there."""
+            b = io.StringIO()
+            with contextlib.redirect_stdout(b):
+                nts = run_pass(ns(context_pct=90))
+            return nts, [ln.strip() for ln in b.getvalue().splitlines()]
+
+        # 1f.1 THE STATE-A CONTROL (the discriminator): a pane holding a live harness, and NO
+        # active roster row anywhere. This is a seat that launched and has not checked in yet.
+        pane_harness["%40"] = [4242]
+        pane_harness["%41"] = []
+        notes, rlines = leftover_pass()
+        check("⚠ PROP-10 LEFTOVER-A (THE RED CONTROL): a declared window whose pane holds a LIVE "
+              "harness and has NO active roster row emits NO flag. The roster LAGS at boot — it "
+              "has no active row until check-in — so the pre-7.414 roster predicate flagged this "
+              "case, wrongly, in at least twenty recorded firings including one in the same "
+              "minute a seat launched into the window it named. Revert the predicate and this "
+              "row goes RED; that is what makes the rest of this block evidence. NOT A CANDIDATE "
+              "AT ALL, not merely a deferred one — the debounce must not be what saves this case, "
+              "or the mutation would still pass on its first sample and discriminate nothing",
+              not any("wave-x" in n for n in notes)
+              and not any("LEFTOVER" in ln for ln in rlines))
+        # 1f.4 and the same state must still be SEEN — removing a false flag must not create a
+        # blind spot over the reap backlog (`G-leader-0730-0817`).
+        check("PROP-10: ...and the suppressed window is REPORTED, not muted: one line naming the "
+              "live-process/no-active-row state, no flag and no remedy",
+              any("wave-x" in ln and "hold a live process, no active row" in ln
+                  and "not leftover" in ln for ln in rlines))
+        # 1f.2 the all-shells state, and the derived debounce. One sample is not enough.
+        pane_harness["%40"] = []
+        notes, rlines = leftover_pass()
+        check(f"PROP-10: all panes shell-only for ONE sample does NOT fire — the state must hold "
+              f"{LEFTOVER_DEBOUNCE_TICKS} consecutive passes (a just-created pane is shell-only "
+              f"for the seconds before its harness appears), and the pending line prints meanwhile",
+              not any("wave-x" in n for n in notes)
+              and any("LEFTOVER pending" in ln and f"1/{LEFTOVER_DEBOUNCE_TICKS}" in ln
+                      for ln in rlines))
+        notes, rlines = leftover_pass()
+        check("PROP-10: the note fires at the derived threshold, names BOTH truthful causes and "
+              "how to tell them apart, and states that no action is owed",
+              any("wave-x" in n and "EVERY ONE of them is shell-only" in n
+                  and "sessions.csv" in n and "DIED AT MODEL-INIT" in n
+                  and "NO ACTION IS OWED" in n for n in notes))
+        notes, _ = leftover_pass()
+        check("PROP-10: does not re-fire while the leftover state persists",
+              not any("wave-x" in n for n in notes))
+        # re-arm through the OCCUPIED path — a pane that becomes live re-arms the window even
+        # though no roster row ever appeared.
+        pane_harness["%40"] = [4242]
+        notes, _ = leftover_pass()
+        check("PROP-10: a pane becoming OCCUPIED re-arms the window — no flag, and the debounce "
+              "restarts from zero rather than resuming where it left off",
+              not any("wave-x" in n for n in notes))
+        pane_harness["%40"] = []
+        notes, rlines = leftover_pass()
+        check("PROP-10: ...proven by the pending line reading 1 again after the re-arm, not 3",
+              any("LEFTOVER pending" in ln and f"1/{LEFTOVER_DEBOUNCE_TICKS}" in ln
+                  for ln in rlines))
+        # The roster read survives as a short-circuit ONLY, and this isolates it: an ACTIVE row
+        # over a SHELL-ONLY pane, which the process predicate alone would call a candidate.
+        # ⚠ The harness stub goes live for the check-in itself and only for it — `coord` REFUSES
+        # to register a row over a pane with no harness behind it (G-11), which is the same
+        # fail-closed instinct this arm now applies from the other side.
+        pane_harness["%40"] = [4242]
         coord.cmd_checkin(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
                                              agent="wv1", summary="w", pane="%40"))
         tails["%40"] = "wv1-tail"
-        notes = run_pass(ns(context_pct=90))
-        check("PROP-10: an active seat in the window clears the flag (re-arm) — a live wave is "
-              "never reported as leftover",
-              not any("kill-window" in n for n in notes))
+        pane_harness["%40"] = []
+        notes, _ = leftover_pass()
+        check("PROP-10: an active seat in the window suppresses it (the cheap short-circuit) — a "
+              "live wave is never reported as leftover",
+              not any("wave-x" in n for n in notes))
         coord.cmd_checkout(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
                                               agent="wv1", no_export=True))
-        notes = run_pass(ns(context_pct=90))
-        check("PROP-10: fires again once the wave has closed and its window still holds panes",
-              any("wave-x" in n and "kill-window" in n for n in notes))
+        leftover_pass()
+        notes, _ = leftover_pass()
+        check("PROP-10: fires again once the wave has closed and its window still holds "
+              "shell-only panes",
+              any("wave-x" in n for n in notes))
+        # 1f.3 THE DESTRUCTIVE STRING, over everything this block emitted, and over the arm's own
+        # source. `p-NOBODY-TEARS-DOWN-A-STALE-EMPTY-WINDOW-…` rules the act out; before 7.414
+        # this note ENDED in it, and the pressure arms one screen away prescribed the same act.
+        _pressure_texts = [pressure_remedy(True, True), pressure_remedy(True, False),
+                           pressure_remedy(False, True)]
+        check("⚠ PROP-10/PROP-9 (1f.3): NO string this loop can emit names a destructive tmux "
+              "verb — not the leftover note, not its report lines, not any of the three pressure "
+              "remedy arms, and not `--help` (the module docstring IS argparse's description). "
+              "The act has no legitimate performer and a bare shell consumes no capacity, so the "
+              "remedy's entire value was cosmetic against a downside of destroying live work",
+              not any("kill-window" in s or "kill-pane" in s
+                      for s in list(notes) + rlines + _pressure_texts + [__doc__ or ""]))
+        # UNKNOWN is not SHELL-ONLY: `cannot tell` must never become a flag (fail-safe, the same
+        # distinction `coord.pane_harness_pids` forces on every caller).
+        pane_harness.pop("%40", None)
+        notes, rlines = leftover_pass()
+        check("PROP-10: an UNREADABLE process table suppresses the window rather than flagging it "
+              "— `cannot tell` is not `nothing is running`, and it is reported as unmeasurable",
+              not any("wave-x" in n for n in notes)
+              and any("UNREADABLE" in ln and "not leftover" in ln for ln in rlines))
+        pane_harness.pop("%41", None)
         win_map.clear()
 
         # ---- PROP-11: roster-ACTIVE rows reconciled against the process table (leader #125) ----
