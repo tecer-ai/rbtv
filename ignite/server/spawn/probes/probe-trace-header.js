@@ -252,6 +252,26 @@ capture('probe-trace-header', async (lines) => {
         if (roomUp) { try { execFileSync('tmux', ['kill-session', '-t', ROOM]); } catch { /* teardown */ } }
       }
     }
+    // ── T6 — THE FAILURE ARM AT THE SEAT DOOR. T4 proves it at the at-dispatch door only, and the
+    // two doors fail at different calls (the carrier vs `runTmux`), so one does not stand in for the
+    // other. Here the room does not exist, so `tmux new-window` fails and `spawnSeat` throws BEFORE
+    // its append is reached: no row, and no trace file brought into existence by the attempt.
+    {
+      const f = make({ headed: { tui: { argv: ['sleep', '90'] } } });
+      const row = f.store.recordExecutionStart({
+        jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({ profile: 'trace-probe' }),
+        enqueuedBy: 'probe', sessionMode: 'headed', firedTick: 1, firedAt: new Date(),
+        profile: 'trace-probe', workdir: f.seatDir,
+      });
+      let threw = null;
+      try {
+        await f.mgr.spawnSeat(row.exec_id, 'trace-probe', { room: `${ROOM}-absent`, seatName: 'tracer', seatDir: f.seatDir, enqueuedBy: 'probe' });
+      } catch (err) { threw = err.code || err.message; }
+      const t = rows(f.sessionsCsv);
+      leg('T6', 'FAILURE ARM AT THE SEAT DOOR — a seat spawn into a room that does not exist leaves NO row and NO trace file',
+        !!threw && t === null,
+        `threw=${threw} sessions.csv exists=${fs.existsSync(f.sessionsCsv)} rows=${t ? t.data.length : 'n/a'}`);
+    }
   } finally {
     try { closeHeartStore(); } catch { /* teardown */ }
     for (const f of fixtures) { try { fs.rmSync(f.root, { recursive: true, force: true }); } catch { /* teardown */ } }
