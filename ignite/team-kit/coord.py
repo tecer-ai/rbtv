@@ -9770,7 +9770,16 @@ def taskforce_after(pkg):
     The `after` cell is COMMA-separated, parsed exactly as `materialize-seats.py` WRITES it
     (`preds = [p.strip() for p in raw.split(",") if p.strip()]`). One producer, one parse — a
     reader that invented its own separator would silently see one predecessor named
-    "a,b" and mark a seat ready that has two unfinished parents."""
+    "a,b" and mark a seat ready that has two unfinished parents.
+
+    ⚠ 7.424 (W1): EACH MEMBER IS AN `AfterMember`, WHICH IS THE RAW TOKEN AND CARRIES ITS
+    DECOMPOSITION. This function is the SOLE producer of the run's `after` members, and it is
+    where the member grammar is decomposed — by delegating to `parse_after_member`, which holds
+    the ONLY decomposition of that grammar in this module. Before this, `taskforce_after` handed
+    out RAW tokens and `parse_after_member` sat beside it as a second reading a consumer had to
+    know to ask for: every consumer that did not (`edge-runner-job.py`, `run-state-job.py`,
+    `watch.py`) saw a guarded member as a literal seat name. The two readings are now one, and a
+    consumer cannot obtain a member that has not been through it."""
     header, rows = read_csv_table(pkg / "taskforce.csv", [])
     if not rows or "seat" not in header:
         return {}
@@ -9782,7 +9791,11 @@ def taskforce_after(pkg):
         if not seat:
             continue
         raw = r[idx["after"]].strip() if "after" in idx else ""
-        out[seat] = [p.strip() for p in raw.split(",") if p.strip()]
+        # 7.424: the comma split is unchanged — the CELL grammar. Each member it yields is then
+        # handed to the one MEMBER-grammar reading (`AfterMember` -> `parse_after_member`, both
+        # defined below; resolved at call time). The token itself is untouched: `AfterMember` IS
+        # the string, so every consumer's comparison, lookup, join and rendering is byte-identical.
+        out[seat] = [AfterMember(p.strip()) for p in raw.split(",") if p.strip()]
     return out
 
 
@@ -9842,6 +9855,67 @@ def parse_after_member(token):
     return t, None, None, False
 
 
+# ---------- 7.424 (W1): the COLLAPSE — one decomposition site, reached by every member ----------
+#
+# THE DIVERGENCE THIS CLOSES, verified at source before the fix (design D-6, this pass's §1 row 28).
+# `taskforce_after` returned the `after` cell's members RAW and `parse_after_member` — added later,
+# beside it — decomposed the same grammar. Two readings of one surface, and which one a consumer got
+# depended on which function it happened to call: `edge-runner-job.py` (4 sites), `run-state-job.py`
+# and `watch.py` all call `taskforce_after` and so all read `a[safe=yes]` as a SEAT NAME. Building a
+# guard evaluator on top of that (W2) would have inherited whichever parser it reached.
+#
+# ⚠ THE COLLAPSE IS DIRECTIONAL: the PRODUCER routes through the READER, never the other way. There
+# is exactly one decomposition of the member grammar in this module — `parse_after_member`, above,
+# holding the only match of the guarded-member regex and the only bracket-strip-then-alternate — and
+# `taskforce_after` is now its only production caller. A consumer cannot obtain a member that
+# skipped it, which is what makes this a collapse rather than a third reading.
+#
+# ⚠ WHY A `str` SUBCLASS AND NOT A TUPLE OR A DATACLASS. Six consumer sites across three files are
+# outside this change's grant and MUST keep comparing, hashing, joining and printing the member as
+# the string it always was — a return-type change would have to land in all four files at once or
+# break the room. This carries the decomposition WITHOUT changing what the token IS.
+#
+# ⚠⚠ AND THE PRICE OF THAT, STATED WHERE IT IS PAID: the attributes ride on the OBJECT, not on the
+# text. Any ordinary string operation — a slice, `"".join(...)`, `str(x)`, a json round-trip, a
+# re-read from disk — yields a PLAIN `str` that has silently lost them. Nothing raises at the loss
+# site. That is why `after_member_parts` below REFUSES a plain `str` instead of falling back: a
+# fallback reading "no attributes, therefore no key" would render a guarded member exactly like a
+# bare one, which is this task's own defect rebuilt one layer down.
+
+
+class AfterMember(str):
+    """ONE member of an `after` cell: the raw token, carrying `parse_after_member`'s reading.
+
+    It IS the string (`AfterMember("a") == "a"`, same hash, same repr through `str()`), so no
+    consumer of `taskforce_after` sees a changed value. `name`/`key`/`value`/`unsupported` are
+    exactly `parse_after_member`'s four, computed ONCE at construction — the single site."""
+
+    def __new__(cls, token):
+        member = super().__new__(cls, token)
+        (member.name, member.key,
+         member.value, member.unsupported) = parse_after_member(token)
+        return member
+
+
+def after_member_parts(member):
+    """`(name, key, value, unsupported)` for one member — the ONE way a consumer reads it.
+
+    REFUSES a plain `str` LOUDLY. A member that reaches a consumer without its decomposition has
+    lost it somewhere between `taskforce_after` and here (a slice, a `join`, a json round-trip),
+    and the failure is invisible at the loss site — so it is made visible at the READ site, which
+    is the only place left that can see it. Never a fallback: `getattr(m, "key", None)` would read
+    a lost decomposition as "this member has no guard", and a guarded member would render exactly
+    like a bare one."""
+    if not isinstance(member, AfterMember):
+        raise TypeError(
+            f"after member {member!r} is a plain {type(member).__name__}, not an AfterMember — "
+            f"its decomposition was lost after `taskforce_after` produced it (a slice, a join, a "
+            f"json round-trip and a re-read from disk all do this). Read members straight off "
+            f"`taskforce_after`, or re-make one with `AfterMember(token)`. This refuses rather "
+            f"than defaulting, because defaulting renders a guarded member as a bare one.")
+    return member.name, member.key, member.value, member.unsupported
+
+
 # The guard-value surface. NEW with this change, and deliberately its own file rather than a column
 # on `taskforce.csv`: that file has ONE writer (the materialize command) and a ruling is not a
 # materialization. Append-only, LAST ROW PER `(seat, key)` WINS — a supersession is an append, so
@@ -9879,7 +9953,11 @@ def guarded_pairs(pkg):
     out = {}
     for preds in taskforce_after(pkg).values():
         for p in preds:
-            name, key, _value, unsupported = parse_after_member(p)
+            # 7.424: the decomposition is READ off the member, not re-derived. It was computed at
+            # the one site when `taskforce_after` produced the member; a second
+            # `parse_after_member(p)` here would be a second CALL of the one site — harmless — but
+            # reading it off the object is what keeps the site single by construction.
+            name, key, _value, unsupported = after_member_parts(p)
             if unsupported or key is None:
                 continue
             out.setdefault((name, key), []).append(p)
@@ -10134,11 +10212,13 @@ def ready_seat_rows(args):
     # 7.224: hoisted ONCE for the same reason `awaiting` and `undeclared` are — N seats must cost
     # one read of the store file, not N. `seat_store_outcomes` caches per resolved path internally.
     outcomes = seat_store_outcomes(pkg)
-    # 7.383: every member token parsed ONCE, here, and the parse is what the loop below reads. The
-    # map is keyed on the RAW token because that is what `preds` carries and what the reason string
-    # must keep rendering — the CLEAN name it yields is what the LOOKUP uses. Those are two
-    # different needs of one token and collapsing them is precisely the defect this closes.
-    parsed = {p: parse_after_member(p) for preds in after.values() for p in preds}
+    # 7.383: every member token parsed ONCE — and as of 7.424 that ONCE happens where the member is
+    # PRODUCED (`taskforce_after` -> `AfterMember` -> `parse_after_member`), not in a map built
+    # here. The member still carries the RAW token, which is what `preds` holds and what the reason
+    # string must keep rendering, AND its decomposition, whose CLEAN name is what the LOOKUP uses.
+    # Those are two different needs of one token; collapsing them is the defect 7.383 closed, and
+    # having two places that decompose the token is the one 7.424 closes.
+    members = [p for preds in after.values() for p in preds]
     # 7.383: hoisted ONCE, for the same reason `awaiting`, `undeclared` and `outcomes` are — N
     # guarded members must cost one read of the ruling file, not N.
     guards = load_guard_values(base)
@@ -10149,7 +10229,8 @@ def ready_seat_rows(args):
     # the predicate — resolved here so a dangling edge reads as "no check-out" rather than raising.
     # 7.383: resolved on the CLEAN name. An OR-alternate resolves NO name — it has more than one,
     # which is why it is unsupported — and is skipped here rather than looked up as a seat.
-    for _name, _key, _value, _unsupported in parsed.values():
+    for _member in members:
+        _name, _key, _value, _unsupported = after_member_parts(_member)
         if not _unsupported and _name not in term:
             term[_name] = terminal_disposition(pkg, base, _name, awaiting=awaiting)
 
@@ -10187,7 +10268,7 @@ def ready_seat_rows(args):
             # MET. Deriving one from the other after the fact means splitting `raw=state` on `=`,
             # and a guard's own `=` sits inside the raw token — the split would cut in the wrong
             # place on exactly the members this task is about.
-            pname, gkey, gval, unsupported = parsed[p]
+            pname, gkey, gval, unsupported = after_member_parts(p)
             if unsupported:
                 # The one entry whose `seat` is the RAW token, because an alternate HAS no single
                 # clean name. Stated rather than papered over: a consumer that resolves this
@@ -20918,6 +20999,74 @@ def _selftest_checks(args, failures, names):
               and "after `a` = done   -> True" in _rs24_bout
               and "after `a[safe=yes]` = <guard safe unruled>   -> False" in _rs24_uout
               and "<no check-out>" not in _rs24_uout)
+
+        # ---- W1 (7.424): THE COLLAPSE — one decomposition site, reached by every member ----
+        _w1_pkg = _rs_make("w1", _rs21_tf)
+        _w1_after = taskforce_after(_w1_pkg)
+        _w1_g = _w1_after["g"][0]
+        _w1_bare = _w1_after["bare"][0]
+        check("dag-10 W1-1 (7.424) `taskforce_after` HANDS OUT MEMBERS THAT ARE ALREADY DECOMPOSED, "
+              "AND THE TOKEN ITSELF IS UNCHANGED. Before this, the producer returned the RAW token "
+              "and `parse_after_member` sat beside it as a SECOND reading a consumer had to know to "
+              "ask for — so every consumer that did not (`edge-runner-job.py` x4, "
+              "`run-state-job.py`, `watch.py`, all outside this change) read `a[safe=yes]` as a "
+              "SEAT NAME. Both halves are asserted here because either alone is passable while the "
+              "defect stands: the decomposition must ARRIVE at the consumer, and the string it "
+              "arrives as must still be `==` the cell's own text, or the six untouched consumers "
+              "break",
+              _w1_g == "a[safe=yes]" and str(_w1_g) == "a[safe=yes]"
+              and after_member_parts(_w1_g) == ("a", "safe", "yes", False)
+              # the BARE control — a plain member is decomposed to itself and nothing else, which
+              # is the `no behavior change for plain members` half of this task's contract
+              and _w1_bare == "a" and after_member_parts(_w1_bare) == ("a", None, None, False)
+              # and it is still a str everywhere a consumer treats it as one: dict key, set member,
+              # join, format. This is the property the six untouched call sites rest on.
+              and {"a[safe=yes]": 1}.get(_w1_g) == 1 and _w1_g in {"a[safe=yes]"}
+              and ",".join(_w1_after["g"]) == "a[safe=yes]"
+              and json.loads(json.dumps({"after": list(_w1_after["g"])}))["after"]
+              == ["a[safe=yes]"])
+        # THE LOSS IS REAL AND IS MADE LOUD AT THE READ SITE. `json.dumps`/`loads` above is exactly
+        # the operation that strips the decomposition — asserted here as a REFUSAL, not a fallback.
+        _w1_lost = json.loads(json.dumps(_w1_g))
+        try:
+            after_member_parts(_w1_lost)
+            _w1_refused = False
+        except TypeError as _w1_err:
+            _w1_refused = "plain str" in str(_w1_err)
+        check("dag-10 W1-2 (7.424) A MEMBER THAT LOST ITS DECOMPOSITION REFUSES AT THE READ SITE "
+              "INSTEAD OF READING AS UNGUARDED. The decomposition rides on the OBJECT, so a slice, "
+              "a `join`, a `str()` or a json round-trip yields a plain `str` that has silently "
+              "dropped it and nothing raises where the loss happened. A `getattr(m, 'key', None)` "
+              "fallback would read that loss as `this member has no guard` — rendering a guarded "
+              "member EXACTLY like a bare one, which is the defect this task closes, rebuilt one "
+              "layer down. The round-tripped token is byte-identical to the live one, so only the "
+              "refusal distinguishes them",
+              _w1_lost == _w1_g and _w1_refused
+              # and the live member on the same path does NOT refuse — a check that refused
+              # everything would pass this row while breaking the command
+              and after_member_parts(_w1_g)[1] == "safe")
+        _w1_src = Path(__file__).read_text(encoding="utf-8")
+        import inspect as _w1_inspect
+        _w1_body = _w1_inspect.getsource(parse_after_member)
+        # Needles ASSEMBLED from fragments so this check's own source is not a hit for its own
+        # search — the `run-state-job.py` criterion-3 precedent, for the same reason.
+        _w1_re_tok = "GUARDED_" + "MEMBER_RE"
+        _w1_strip = "re.sub(r" + '"' + "\\[[^\\]]*\\]" + '"'
+        check("dag-10 W1-3 (7.424) THE MEMBER GRAMMAR IS DECOMPOSED IN EXACTLY ONE PLACE IN THIS "
+              "MODULE, AND THAT PLACE IS `parse_after_member`. This is the row that measures the "
+              "COLLAPSE rather than its consequences: W1-1 and W1-2 would both stay green with a "
+              "second parser still live beside the first, because they only assert what arrives at "
+              "a consumer. This one counts the SITES. The guarded-member regex may appear exactly "
+              "twice — its module-level definition and its ONE match, inside `parse_after_member` "
+              "— and the bracket-strip that must precede the alternate test exactly once, also "
+              "inside it. Re-inline either into a consumer (which is what `taskforce_after` and "
+              "`guarded_pairs` did before this change) and this row REDS. It cannot see a "
+              "hand-rolled parse that avoids both idioms; that bound is stated, not covered",
+              _w1_src.count(_w1_re_tok) == 2 and _w1_body.count(_w1_re_tok) == 1
+              and _w1_src.count(_w1_strip) == 1 and _w1_body.count(_w1_strip) == 1
+              # the definition is the other of the two, at module level — named so a future reader
+              # knows WHICH two occurrences this row admits
+              and _w1_src.count(_w1_re_tok + " = re.compile(") == 1)
 
         # ---- the VERB: `rule-guard`, the key that ships with the gate ----
         def _rg_ns(pkg, **kw):
