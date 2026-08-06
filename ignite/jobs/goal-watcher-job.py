@@ -10,14 +10,18 @@ single-sensor invariant is the whole architecture; a second raw reader is exactl
 sensors, one of them fixed" failure the design exists to prevent. The absence of raw sensing
 is grep-provable and a verifier greps it.
 
-The three non-sensing inputs, enumerated so nobody has to grep for them:
+The four non-sensing inputs, enumerated so nobody has to grep for them:
 
   1. `{run}/taskforce.csv` — DECLARED executor bindings (see below).
   2. `{run}/coordination/messages.md` — the room's own message log, read to avoid repeating a
      flag it has already said (see the debounce, below).
   3. its own dedup-state file — what it wrote on its previous pass.
+  4. `{run}/sessions.csv` — the run's own session trace, read through `coord.session_disposition`
+     for ONE thing: whether a seat that is no longer in the room checked out CLEANLY. It is the
+     SHADOW BACKSTOP's only added input (see THE SHADOW BACKSTOP, below). It was THREE inputs
+     before that arm landed, and this count is part of the claim rather than decoration.
 
-None senses anything; all three are files the run wrote about itself. **This wording is
+None senses anything; all four are files the run wrote about itself. **This wording is
 deliberate and replaces an earlier "and NOTHING else", which was true about the sensing and
 false about the file list — one grep falsifies it, and the accurate version cannot be.** Found
 by this job's own mechanical verifier; the same shape as the recipient defect below, where a
@@ -136,11 +140,51 @@ owner; it does not perform the restart, and no line here should be read as evide
 live crash+restart has been exercised. Task 7.32's criterion on that is a SEPARATE build and
 is reported UNMET rather than folded into this one's green.
 
+THE SHADOW BACKSTOP — IT COMPUTES THE ENQUEUE AND DOES NOT PERFORM IT (task 7.430 / W7)
+---------------------------------------------------------------------------------------
+CMP-21's layout carries one row this job does NOT have: *seat finished/dead, no clean check-out
+→ enqueue its `workflow-edge` job in FAILURE MODE (CMP-25) — the backstop to the check-out fast
+path.* That enqueue is an ACTUATION, and rider 1 of `p-756-edge-consumption-true` bars it: the
+rider is OWNER-CLASS and is not the run's to reverse, and `r-cutover-gated` stands beside it.
+So the row is built SHADOW, which is the sanctioned design that rider names:
+
+  DETECT  a seat in the snapshot's `roster_absent` — finished or dead, out of the room
+  DECIDE  read its DURABLE disposition off `sessions.csv` (`coord.session_disposition`) and
+          COMPUTE the would-be decision: `done` → WOULD-NOT-ENQUEUE, anything else including
+          UNKNOWN → WOULD-ENQUEUE (failure mode)
+  EMIT    one probe-trail record per detected seat at
+          `{package}/coordination/goal-watcher-shadow-trail.jsonl`, carrying the three fields
+          the design orders — the INPUTS READ, the DECISION REACHED, and the ACT NOT TAKEN
+
+**THE ACT IS NOT PERFORMED, AND THAT IS AN ACT-IDENTITY CLAIM, NOT A LABEL.** The barred act's
+side-effect set, read at `edge-runner-job.py:enqueue` → `default_submitter`, is: spawn
+`ignite add-job` through `subprocess.run`, which reaches the daemon's gateway `enqueue-job`
+intent, which writes a durable queue row, which later launches a seat. This arm's side-effect
+set is: append lines to the trail file above, and print. THE INTERSECTION IS EMPTY, and it is
+grep-provable in the direction that matters — this file imports no `subprocess`, imports
+`edge-runner-job` not at all, and contains no enqueue verb and no queue call. A shadow that
+enqueued to a side queue would still be the barred act (D-3's act-identity test); the bar
+attaches to the side-effect set, never to the word on the branch.
+
+**TRAIL GREENS NEVER RIPEN INTO AUTHORITY.** No accumulation of records here — none, at any
+count, however long they agree with the predicted decisions — authorizes performing the act.
+The REAL enqueue arrives one way only: a FRESH authorization from the bar's owner, which is
+OWNER-CLASS and travels through the `master`. It is not queued by this wave and no line here
+asks for it.
+
+NOTE FOR THE SHADOW WINDOW: `SHADOW-BACKSTOP` is a decision class the OLD layer cannot emit,
+declared here as a DIVERGENCE the same way `COMPLETED` and `STANDBY` are above — filed before
+the window rather than discovered inside it. It is REPORTED and never DELIVERED: its action
+begins `none`, which is the existing suppression the STANDBY row already relies on. Nobody is
+woken about a decision nobody may act on.
+
 WHAT IT WRITES
 --------------
 stdout/stderr (captured by `fire-tool` into `{data_root}/logs/`, bounded by task 7.13's age
-sweep) plus ONE small dedup-state file at `{package}/coordination/goal-watcher-state.json`
-— `coordination/` is script-owned by the run's surface map. No new unbounded artifact class.
+sweep), ONE small dedup-state file at `{package}/coordination/goal-watcher-state.json`, and the
+shadow trail at `{package}/coordination/goal-watcher-shadow-trail.jsonl` — capped at
+`SHADOW_TRAIL_KEEP` records, so it is bounded rather than a new unbounded artifact class.
+`coordination/` is script-owned by the run's surface map.
 It never writes `state.json`: task 7.33 has exactly one writer and this is a reader.
 """
 
@@ -172,6 +216,23 @@ DEFAULT_QUIET_MIN = 30
 # `--mem-floor-mb` survives ONLY as a deliberate operator override. No fallback number lives here.
 DEFAULT_LOAD_PER_CORE = 1.5
 SWAP_RISE_READS = 3
+
+# ---- the SHADOW BACKSTOP's constants (task 7.430 / W7). See the docstring section.
+SHADOW_TRAIL_FILENAME = "goal-watcher-shadow-trail.jsonl"
+SHADOW_TRAIL_KEEP = 500
+# The ONE value that is a clean check-out. Equality against one value — never a truthiness test,
+# never "not renew" — the same gate `edge-runner-job.py`'s ADVANCES_EDGE holds, for the same
+# reason: `renew`, `revive` and `exited` each name a seat that has NOT finished.
+CLEAN_CHECKOUT = "done"
+# The act this arm COMPUTES and DOES NOT PERFORM, written out in full because the record's
+# `act_not_taken` field is this constant and nothing else — there is deliberately no code path
+# by which a trail record can carry an act that WAS performed.
+BARRED_ACT = ("enqueue this seat's `workflow-edge` job in FAILURE MODE (closer-first, CMP-25) "
+              "through the daemon's enqueue door — barred as autonomous actuation by rider 1 of "
+              "`p-756-edge-consumption-true` (OWNER-CLASS, not the run's to reverse) and by "
+              "`r-cutover-gated`. NOT PERFORMED. No accumulation of these records authorizes "
+              "performing it; the real act needs a FRESH owner-class authorization through the "
+              "`master`.")
 
 
 # ---------------------------------------------------------------- snapshot
@@ -247,9 +308,104 @@ def decision(cls, subject, action, detail, remedy=""):
             "detail": detail, "remedy": remedy}
 
 
-def evaluate(snap, args, state, now):
-    """Snapshot -> (decisions, paused, notes). PURE: reads the snapshot dict and nothing else."""
+# ---------------------------------------------------------------- shadow backstop
+
+def declared_dispositions(args, seats):
+    """seat -> DURABLE check-out disposition, from the run's own `sessions.csv`. Declaration,
+    not sensing — the run's record of what a seat said on the way out.
+
+    ONE READER, and it is `coord.session_disposition`, imported from the `--coord` path this job
+    already requires. A second implementation here would be free to disagree with coord's own
+    asymmetry — `None` means UNKNOWN and NEVER means `done` — and a disagreement about whether a
+    seat checked out cleanly is the whole decision this arm makes.
+
+    An unreadable trace yields UNKNOWN for every seat, which decides WOULD-ENQUEUE. That is the
+    conservative direction and it is deliberate: the backstop exists for the seat that did NOT
+    check out, so an absent record must never read as a clean one."""
+    try:
+        sys.path.insert(0, str(Path(args.coord).resolve().parent))
+        import coord  # noqa: E402 — the trace's single reader; see this docstring
+        pkg = Path(args.package)
+        return {s: coord.session_disposition(pkg, s) for s in seats}
+    except Exception:                                             # noqa: BLE001
+        return {s: None for s in seats}
+
+
+def shadow_decide(disposition):
+    """PURE. (decision, why) — the would-be FAILURE-MODE enqueue, COMPUTED, never performed.
+
+    This function is the detection predicate's decision half and it is the thing a C-3 red arm
+    mutates: with it neutered the trail goes silent, which is what proves the trail is driven by
+    the reading rather than by the pass happening at all."""
+    if disposition == CLEAN_CHECKOUT:
+        return "WOULD-NOT-ENQUEUE", (
+            f"durable disposition is `{CLEAN_CHECKOUT}` — this seat checked out CLEANLY, so the "
+            f"check-out fast path already advanced its edges. The backstop is the backstop TO "
+            f"that path and has nothing to do here.")
+    shown = "UNKNOWN (no ended row, no disposition column, or an empty cell)" \
+        if disposition is None else f"`{disposition}`"
+    return "WOULD-ENQUEUE", (
+        f"the seat is out of the room and its durable disposition is {shown} — NOT "
+        f"`{CLEAN_CHECKOUT}`. UNKNOWN is never read as clean (coord's own asymmetry), and "
+        f"`renew`/`revive`/`exited` each name a seat that has NOT finished. This is the "
+        f"finished-or-dead-WITHOUT-clean-check-out condition CMP-21's backstop row keys on.")
+
+
+def shadow_record(seat, cls, pane, disposition, decision, why, snap):
+    """One probe-trail record. THREE FIELDS by contract — the inputs read, the decision reached,
+    and the act NOT taken — plus enough identity to compare it against a predicted decision.
+
+    `act_not_taken` is the module constant and is written by no other expression: there is no
+    code path here that can put a PERFORMED act in a record, because nothing here performs one."""
+    return {
+        "layer": "goal-watcher-job/shadow-backstop",
+        "subject": seat,
+        "captured_at_iso": snap.get("captured_at_iso"),
+        "inputs_read": {
+            "snapshot.roster_absent": {"seat": seat, "pane": pane, "class": cls},
+            "sessions.csv:session_disposition": disposition,
+        },
+        "decision": decision,
+        "decision_why": why,
+        "act_not_taken": BARRED_ACT,
+    }
+
+
+def append_trail(path, records):
+    """Append this pass's records, then trim to the last SHADOW_TRAIL_KEEP. Returns the count."""
+    if not records:
+        return 0
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        for r in records:
+            fh.write(json.dumps(r, sort_keys=True) + "\n")
+    # ponytail: trim by read-and-rewrite, which is fine against a 500-line cap. Real rotation
+    # belongs here only if the trail ever outgrows one file.
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return len(records)
+    if len(lines) > SHADOW_TRAIL_KEEP:
+        tmp = f"{path}.tmp.{os.getpid()}"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines[-SHADOW_TRAIL_KEEP:]) + "\n")
+        os.replace(tmp, path)
+    return len(records)
+
+
+# ---------------------------------------------------------------- decisions
+
+def evaluate(snap, args, state, dispositions, now):
+    """Snapshot -> (decisions, paused, trail). PURE: reads its arguments and nothing else.
+
+    `dispositions` is the seat -> durable-check-out map the caller read off `sessions.csv`; it is
+    a REQUIRED parameter rather than something this function fetches, so the purity above stays
+    true and so a caller cannot silently skip the shadow arm by leaving a default in place.
+
+    The third return value is the SHADOW BACKSTOP's probe trail — the records this pass computed
+    and did not act on. It was an always-empty `notes` slot before."""
     decisions = []
+    trail = []
     coord_cmd = f"python3 {args.coord} --package {args.package}"
 
     # ---- ROW 5 (FIRST, and it gates every other row): the staleness tripwire.
@@ -264,7 +420,10 @@ def evaluate(snap, args, state, now):
             f"PAUSED — no threshold acts off a frozen snapshot, and box{{}} pressure is "
             f"UNOBSERVED for as long as this lasts.",
             f"python3 {args.team_monitor} ensure --package {args.package}"))
-        return decisions, True, []
+        # The shadow arm is gated by the SAME tripwire as every threshold: a would-be decision
+        # computed off a frozen snapshot is a would-be decision about a room that no longer
+        # exists, and a trail of those is worse than an empty trail.
+        return decisions, True, trail
 
     # ---- ROW 4: the room itself.
     if snap.get("session_alive") is False:
@@ -318,6 +477,26 @@ def evaluate(snap, args, state, now):
         pane = r.get("pane") or "?"
         absent[name] = True
         harness = declared.get(name, "")
+
+        # ---- THE SHADOW BACKSTOP (CMP-21's enqueue row, task 7.430). A `roster_absent` row IS
+        # the finished-or-dead half of the detection condition; the durable disposition is the
+        # WITHOUT-CLEAN-CHECK-OUT half. The would-be act is COMPUTED here and performed nowhere.
+        #
+        # The NEGATIVE is recorded too, and deliberately: a trail carrying only WOULD-ENQUEUE
+        # rows cannot be told apart from a trail that is blind, and telling those apart is the
+        # entire point of the comparison the window runs against the predicted decisions.
+        s_cls = "DEAD" if r.get("liveness") == "absent" else (
+            "COMPLETED" if harness and harness in one_shot else "GHOSTROW")
+        s_disp = dispositions.get(name)
+        s_decision, s_why = shadow_decide(s_disp)
+        trail.append(shadow_record(name, s_cls, pane, s_disp, s_decision, s_why, snap))
+        decisions.append(decision(
+            "SHADOW-BACKSTOP", name, f"none — SHADOW: {s_decision}, the act is NOT taken",
+            f"{s_why} Trail record emitted; no enqueue, to any queue, under any name. Trail "
+            f"greens never ripen into authority — the real act needs a fresh OWNER-CLASS "
+            f"authorization through the `master` (rider 1 of `p-756-edge-consumption-true`).",
+            ""))
+
         if r.get("liveness") == "absent":
             decisions.append(decision(
                 "DEAD", name, "wake chief-of-staff: pane gone",
@@ -412,7 +591,7 @@ def evaluate(snap, args, state, now):
                 f"AT A TURN BOUNDARY — nothing is killed mid-turn.",
                 f"{coord_cmd} close {name} --renew"))
 
-    return decisions, False, []
+    return decisions, False, trail
 
 
 # ---------------------------------------------------------------- delivery
@@ -619,6 +798,11 @@ def main():
                    help="deliver flags; without it the pass is a dry run")
     p.add_argument("--json", action="store_true", help="print the decision set as JSON")
     p.add_argument("--state-file", default=None)
+    p.add_argument("--shadow-trail", default=None,
+                   help="override the SHADOW BACKSTOP's probe-trail path (default: "
+                        "{--package}/coordination/" + SHADOW_TRAIL_FILENAME + "). The trail is "
+                        "the record of enqueues COMPUTED AND NOT PERFORMED — nothing here "
+                        "reaches a queue, and no flag can make it.")
     p.add_argument("--reflag-min", type=int, default=30,
                    help="refuse to repeat an identical flag to the room inside this many "
                         "minutes, checked against the run's own message log so it survives "
@@ -660,6 +844,7 @@ def main():
     print("goal-watcher-job: floor %s" % floor_why, file=sys.stderr)
     snap_path = args.state_json or str(pkg / "state.json")
     state_path = args.state_file or str(pkg / "coordination" / "goal-watcher-state.json")
+    trail_path = args.shadow_trail or str(pkg / "coordination" / SHADOW_TRAIL_FILENAME)
     lock = jobcontain.single_instance(str(pkg / "coordination" / "goal-watcher-job.lock"))
     if lock is None:
         print("goal-watcher-job: another instance holds the lock — this pass exits.")
@@ -677,10 +862,15 @@ def main():
                               "wake chief-of-staff: restart the sensor", err,
                               f"python3 {args.team_monitor} ensure --package {args.package}")]
         paused = True
+        trail = []
         state = load_state(state_path)
     else:
         state = load_state(state_path)
-        decisions, paused, _ = evaluate(snap, args, state, now)
+        # Read the durable dispositions of exactly the seats the snapshot says are out of the
+        # room — the shadow arm's one added input, and it is asked ONLY about those seats.
+        absent_seats = [r.get("seat") for r in (snap.get("roster_absent") or []) if r.get("seat")]
+        decisions, paused, trail = evaluate(
+            snap, args, state, declared_dispositions(args, absent_seats), now)
 
     # Flag once per episode; re-arm when the condition clears — the same discipline the kit
     # layer uses, so a per-pass comparison is not swamped by repeats of one crossing.
@@ -749,6 +939,10 @@ def main():
         print("  (dry: --notify not set — flags NOT delivered)")
 
     save_state(state_path, state)
+    trailed = append_trail(trail_path, trail)
+    if trailed:
+        print(f"  shadow: {trailed} probe-trail record(s) -> {trail_path} "
+              f"(COMPUTED, NOT ENQUEUED — no queue was reached)")
 
     if args.json:
         print(json.dumps({
@@ -761,6 +955,8 @@ def main():
             "delivered": sent, "delivery_failed": failed,
             "suppressed_as_repeat": suppressed,
             "delivery": delivery_note,
+            "shadow_trail": trail,
+            "shadow_trail_path": trail_path,
         }, indent=1))
 
     del lock
