@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn: childSpawn } = require('node:child_process');
 const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot } = require('./config');
-const { materializeHarnessConfig, harnessOf } = require('./harness-config');
+const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCagedSettings } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
@@ -667,7 +667,15 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
     const sessionId = generateSessionId();
     const logPath = ensureLogPath(dataRoot, sessionId);
-    const { argv, stdinFile } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot);
+    const { argv: composedArgv, stdinFile } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot);
+
+    // Task 7.444 (MC2) — carry the profile's `--settings` file INTO the cage. See harness-config.js
+    // for why this is a materialization rather than a widened SeatBinds template. Done here, after
+    // composition and before the argv is wrapped, so the bwrap wall below sees the final paths.
+    const settings = planCagedSettings(composedArgv, resolvedWorkdir);
+    const argv = settings.argv;
+    materializeCagedSettings(settings.copies);
+    for (const c of settings.copies) log('info', 'settings materialized into the launch dir', { from: c.src, to: c.dest });
 
     // D59: bwrap FS walls nested inside the systemd-run --user unit. The wrapped argv rides the
     // carrier opaquely (both systemd and setsid branches); the walls live in argv, not config.
@@ -889,7 +897,16 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
     // Headed argv when the profile is headed-capable, else its plain exec argv (R8: one door, the
     // existing mode flag). No prompt carriage: a seat is driven by its descriptor and by the room.
-    const harnessArgv = (profile.headed && profile.headed.tui && profile.headed.tui.argv) || profile.exec.argv;
+    // Task 7.444 (MC2) — the SAME carry-into-the-cage step as the headless door above, swept here
+    // in the same change: this door's fallback composes `profile.exec.argv`, so any profile with
+    // no `headed:` block that names a `--settings` file meets the identical wall. No claude
+    // profile reaches the fallback today (all four declare a TUI, and the TUI argv names no
+    // settings file) — which is exactly why leaving this door out would have been a latent defect
+    // rather than an observable one. PLANNED here and COPIED past the dryRun return below: the
+    // probe must see the real argv without this composition leaving a file behind.
+    const harnessArgvRaw = (profile.headed && profile.headed.tui && profile.headed.tui.argv) || profile.exec.argv;
+    const settings = planCagedSettings(harnessArgvRaw, resolvedWorkdir);
+    const harnessArgv = settings.argv;
     const sessionId = generateSessionId();
     const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
 
@@ -930,6 +947,10 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // That is what makes it safe to point a probe at a live package: composition is the half that
     // is checkable off a live room, and it must leave no trace to be worth checking.
     if (dryRun) return { dryRun: true, sessionId, ...composed, workdir: resolvedWorkdir, seatCage, seat: seatPath.seat };
+
+    // Past the dryRun return: NOW the planned settings copies may touch disk (task 7.444).
+    materializeCagedSettings(settings.copies);
+    for (const c of settings.copies) log('info', 'settings materialized into the launch dir', { from: c.src, to: c.dest });
 
     // §4a on pass — the session artifact scratchpad, under the seat folder (task 7.11 criteria:
     // "session artifacts land in sessions/{session-id}/ under it").
