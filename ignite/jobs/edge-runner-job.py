@@ -129,6 +129,17 @@ SESSIONS = "{RUN}/sessions.csv"
 SEAT_MD_OUTPUTS = "{RUN}/seats/*/seat.md"
 TASKFORCE = "{RUN}/taskforce.csv"
 ROSTER = "{RUN}/coordination/workers.md"
+# 7.425 (W2): the guard's field is read INSIDE a declared output — the artifact, not the seat.md
+# that names it. Declared as its own site rather than folded into `SEAT_MD_OUTPUTS`, because the
+# two are read at different DEPTHS: the outputs section answers "does it exist" (PRIN-5's third
+# grade), this one answers "what does it say". Both resolve to the SAME audited row — audit row 14
+# names the site as "`{RUN}/seats/*/seat.md` `<io-spec>` Outputs + THE ARTIFACT PATHS IT NAMES",
+# field `null`, so a guard field has no column to be audited under and is covered where its paths
+# are. ⚠ AUDIT ROW 15 IS NOW STALE and is NOT edited by this file: it reads "`skipped` — resolves
+# to NO column … M4-09 builds no guard evaluator, and nothing can produce it". 7.425 builds one, so
+# the state is reachable. Reported to the `leader`, never reconciled here — the audit is the
+# auditor's surface.
+DECLARED_ARTIFACTS = "{RUN}/seats/*/seat.md <io-spec> Outputs -> the artifact paths it names"
 
 READS = [
     (SESSIONS, "seat"),          # which rows belong to the seat under verification
@@ -146,6 +157,10 @@ READS = [
     # roster readers (`load_workers` / `current_row`), never with a private parser.
     (ROSTER, "agent"),           # which roster row belongs to the seat
     (ROSTER, "active"),          # whether it is occupying a pane right now — a double-launch guard
+    # STEP 3b (7.425 / W2) adds exactly this one, and it is audited at row 14 — see the constant.
+    # The FIELD is `None` because the guard NAMES its own field (`ref[field=value]`), so no fixed
+    # column resolves the site; that is the same reason row 14 carries `field: null`.
+    (DECLARED_ARTIFACTS, None),  # the guard's field, read off the predecessor's VALIDATED OUTPUT
 ]
 
 # coord's closed enum, restated here ONLY as the literal this file's checks compare against, so a
@@ -379,24 +394,31 @@ def run_stage(coord, pkg, explicit=()):
 # A seat is READY when every predecessor named in its `after` cell carries the mark `done`, and
 # BLOCKED otherwise with each unmet predecessor NAMED. That is the whole predicate.
 #
-# ⚠⚠ SCOPE BOUND, DELIBERATE AND NAMED — NO CONDITIONAL-EDGE EVALUATOR, AND NO THIRD VERDICT.
-# `VERDICTS` below is closed at two values. The state a reader might expect as a third — the one
-# the registry defines for a row excluded by a conditional edge — IS DEFINED AND UNREACHABLE
-# (trace-field-audit.md row 15: "resolves to NO column"; DAG §M4-12; issues.md G-301, G-308).
-# Saying so here is required rather than tidy: a value that silently never appears reads as "this
-# case did not arise", when the truth is "this case cannot arise", and those are different claims.
-# Whether the conditional mechanism should be BUILT is the `leader`'s call on those two ledger
-# rows, not this stage's.
+# ⚠⚠ THE SCOPE BOUND MOVED (7.425 / W2): THE THIRD VERDICT NOW EXISTS AND IS REACHED.
+# Until 7.425 `VERDICTS` was closed at two values and the registry's state for a row excluded by a
+# conditional edge was DEFINED AND UNREACHABLE — nothing could produce it, because nothing
+# evaluated a guard. 7.424 (W1) collapsed the two `after`-member parsers so a consumer receives a
+# member's DECOMPOSITION, and this task builds the evaluator on top of it. The third verdict is
+# therefore produced, not merely named, and `check_skipped_is_produced_not_merely_named` asserts it
+# FIRES on the fixture rather than asserting it is absent — the inverse of the check it replaces,
+# for the inverse reason: a state that appears in a vocabulary but never in an output is the claim
+# this file used to refuse, and the fix for it is to make it reachable, not to keep it out.
+# ⚠ WHAT DID NOT MOVE: `issues.md` G-301/G-308 (the lint and the runtime reading one `after` cell
+# differently) is NOT closed by this task — it is a GOAL-LINT defect, W3's surface, not this file's.
 #
-# WHY THE PARSE IS `coord.taskforce_after` AND NOT A LOCAL SPLIT. The `after` cell has exactly one
-# producer (`materialize-seats.py`) and one runtime parse (`coord.taskforce_after`, coord.py:8667,
-# `raw.split(",")`, comma ONLY — it strips no conditional token and splits no alternate). A second
-# parse here is G-301 rebuilt at a new seam: today `goal_cli.check_acyclic` DOES split those forms
-# and reports NO finding while the runtime blocks the seat forever, and one of the two disagreeing
-# readers says everything is fine. This stage therefore reads what the RUNTIME reads, by calling
-# it. A conditional-shaped or alternate-shaped token is consequently ONE predecessor name, taken
-# verbatim, that resolves to nothing and holds its seat blocked — and `unresolvable_shape_note`
-# makes that visible in the reason instead of leaving it as a silent forever-block.
+# WHY THE CELL PARSE IS STILL `coord.taskforce_after` AND NEVER A LOCAL SPLIT. The `after` cell has
+# exactly one producer (`materialize-seats.py`) and one runtime parse (`coord.taskforce_after`,
+# `raw.split(",")`, comma ONLY). A second parse here is G-301 rebuilt at a new seam: today
+# `goal_cli.check_acyclic` DOES split those forms and reports NO finding while the runtime blocks
+# the seat forever, and one of the two disagreeing readers says everything is fine. This stage
+# reads what the RUNTIME reads, by calling it — and since 7.424 that call also carries the MEMBER
+# grammar's decomposition, which this file consumes through `coord.after_member_parts` and
+# decomposes NOWHERE of its own (`check_no_second_grammar_decomposition`).
+#
+# A bracketed token that does NOT decompose (`name[nokey]`, a second bracket group) is still ONE
+# predecessor name taken verbatim, resolving to nothing and holding its seat blocked — that is
+# `parse_after_member`'s own fail-safe direction, and `unresolvable_shape_note` makes it visible in
+# the reason instead of leaving it as a silent forever-block.
 #
 # ⚠ READINESS IS NOT LAUNCH CANDIDACY, AND STEP 4 MUST NOT TREAT IT AS SUCH. This predicate has
 # NO term for the seat's OWN state. `coord.ready_seat_rows` carries three more terms before it
@@ -405,7 +427,7 @@ def run_stage(coord, pkg, explicit=()):
 # thing to launch. The `self-marks` key and the `caveats` list below carry that bound in the
 # output itself so the enqueue stage cannot miss it.
 
-VERDICTS = ("ready", "blocked")          # closed, spelled out, and compared against literally
+VERDICTS = ("ready", "blocked", "skipped")   # closed, spelled out, and compared against literally
 
 NO_MARK = None                           # a predecessor nothing has marked. NEVER read as `done`.
 
@@ -413,19 +435,313 @@ _UNRESOLVABLE_SHAPE = re.compile(r"[\[\]|]")
 
 
 def unresolvable_shape_note(name):
-    """A note for an unmet predecessor whose NAME carries a conditional-edge or alternate
-    character. The note changes NO verdict and evaluates nothing — it reports that the whole
-    token is one uninterpreted name, which is why it can never resolve."""
+    """A note for an unmet predecessor whose token carries guard or alternate characters and yet
+    did NOT decompose — `parse_after_member` handed it back as a bare name with those characters
+    still in it (`name[nokey]`, a second bracket group, an unbalanced bracket).
+
+    The note changes NO verdict and evaluates nothing. It reports that the whole token is one
+    uninterpreted predecessor NAME, which is why it can never resolve: the MALFORMED-REF arm.
+    Called only where the decomposition came back bare — a well-formed `ref[field=value]` and a
+    well-formed alternate are EVALUATED (7.425), and neither reaches here."""
     if not _UNRESOLVABLE_SHAPE.search(name):
         return None
-    return ("this whole token is ONE predecessor name — the runtime parse splits the cell on "
-            "COMMA only, so it is neither reduced nor split. It resolves to no seat and holds "
-            "this row blocked permanently. See issues.md G-301/G-308; this stage evaluates "
-            "nothing and reports the shape instead.")
+    return ("this token carries guard/alternate characters but did NOT decompose — the one member "
+            "parse (`coord.parse_after_member`, reached through `after_member_parts`) handed it "
+            "back as a BARE name with the brackets still in it, which is its fail-safe direction: "
+            "an unparseable guard must never become a satisfied one. It therefore resolves to no "
+            "seat and holds this row blocked. Fix the cell, not this stage.")
+
+
+# ---- STEP 3b (task 7.425 / W2): THE GUARD EVALUATOR ------------------------------------------
+#
+# WHAT A GUARD IS HERE, AND WHAT IT IS NOT. `ref[field=value]` on an `after` member is evaluated
+# DETERMINISTICALLY against `ref`'s VALIDATED OUTPUT — the artifacts its own `<io-spec> Outputs`
+# declares, which STEP 1-2 already resolved on disk before marking it `done`. No judgment routes
+# here and none may: a guard whose satisfaction needs a reading of prose is a DESIGN DEFECT
+# upstream (Rule 10), reported to the `leader`, never built into this file.
+#
+# ⚠⚠ THIS IS NOT `coord`'s GUARD, AND THE TWO ANSWER DIFFERENT QUESTIONS. `coord.ready_seat_rows`
+# discharges the SAME syntax against `coordination/guard-values.csv` — a LEADER'S RULING, the
+# execution-strategy's B-2 lane. This stage reads the predecessor's OUTPUT FIELD, which B-2 itself
+# routes here: "REFUSE [the ruled lane] when the condition IS machine-derivable from a
+# predecessor's validated output field — then it is a plain deterministic guard on that field".
+# So one grammar now has two evaluators consuming two different surfaces, and on an UNRULED but
+# field-satisfied guard this stage READIES a row `coord` blocks. That direction is the one
+# `p-edge-runner-strictness-is-ONE-DIRECTIONAL` forbids — a ruling that predates any guard
+# evaluator and whose stated subject is the declared-artifact STRICTNESS ordering. It is NOT
+# reconciled here (conforming down would delete this task) and it is NOT waved at:
+# `check_agrees_with_coord_ready_seats` now compares the BARE-member rows, where the ordering still
+# binds and is still measured, and NAMES the guarded rows it excluded with their count and cause.
+# The amendment is the `leader`'s; the divergence is reported, not settled, by this file.
+#
+# THE FIELD SURFACE IS JSON, AND THE REASON IS DETERMINISM, NOT TASTE. A guard must resolve to one
+# value or to none, off disk, with no interpretation. A declared `.json` output whose top level is
+# an object gives exactly that; a markdown record does not. Every other declared artifact
+# contributes NO field, so a guard over a run that declares no JSON is UNEVALUABLE — blocked and
+# named — never satisfied and never excluded. The three verdicts are kept apart deliberately:
+#   satisfied    the field is there and equals the guard's value          -> the edge admits
+#   excluded     the field is there and DIFFERS                           -> the edge is SKIPPED
+#   unevaluable  no field, unreadable, ambiguous, or a non-scalar value    -> the row stays BLOCKED
+# Collapsing `unevaluable` into `excluded` would mark a row SKIPPED because nobody could read its
+# guard, which is a silent branch death; collapsing it into `satisfied` admits an unruled edge.
+GUARD_VERDICTS = ("satisfied", "excluded", "unevaluable")
+
+# The join separator. The ALTERNATE grammar is the CELL's, one level ABOVE the member grammar —
+# the same layering `coord.taskforce_after` already uses when it splits the cell on comma and
+# hands each member to the one member parse. Splitting here is therefore not a second member
+# decomposition, and every limb is re-made through `coord.AfterMember` so its guard is read by
+# the ONE parse and never by this file (`check_no_second_grammar_decomposition`).
+ALTERNATE_SEP = "|"
+
+
+def _canonical_field(value):
+    """The guard-comparable TEXT of a JSON value, or None when it is not comparable to one.
+
+    A guard's right-hand side is text from a csv cell, so the comparison is text-to-text and the
+    JSON side is rendered ONCE, here, in JSON's own spelling (`true`, `null`, `1.5`). An object or
+    an array renders None — a guard cannot mean "equals this whole structure", and pretending it
+    could would compare two arbitrary reprs and call the result a routing decision."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "null"
+    if isinstance(value, (int, float)):
+        return json.dumps(value)
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def validated_output_fields(pkg, pred):
+    """({field: text}, [sources], [notes]) — the FIELD SURFACE of `pred`'s validated output.
+
+    The artifacts are exactly the ones `declared_outputs` resolved: a seat's own `<io-spec>
+    Outputs` paths, present on disk. `.json` artifacts whose top level is an object contribute
+    their scalar fields; everything else contributes none and says so in `notes`.
+
+    TWO ARTIFACTS DECLARING THE SAME FIELD WITH DIFFERENT VALUES DROP IT rather than picking one:
+    an ambiguous field is not a routing input, and 'first file wins' makes the routing depend on
+    the ORDER of a prose section. The dropped field then reads UNEVALUABLE at the guard, which is
+    the fail-safe direction."""
+    declared, resolvable, _missing, why = declared_outputs(pkg, pred)
+    if declared is None:
+        return {}, [], ["no declared-output site for `%s`: %s" % (pred, why)]
+    fields, sources, notes, seen_at = {}, [], [], {}
+    for tok in resolvable:
+        path = resolve_declared_path(pkg, tok)
+        if path is None or path.suffix.lower() != ".json":
+            notes.append("`%s` contributes no field (not a `.json` declared output)" % tok)
+            continue
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            notes.append("`%s` did not read as JSON (%s: %s) — it contributes NO field rather "
+                         "than a guessed one" % (tok, type(exc).__name__, exc))
+            continue
+        if not isinstance(doc, dict):
+            notes.append("`%s` parsed as %s, not an object — no top-level fields"
+                         % (tok, type(doc).__name__))
+            continue
+        sources.append(str(path))
+        for key, raw in doc.items():
+            text = _canonical_field(raw)
+            if text is None:
+                notes.append("`%s`.%s is a %s — not comparable to a guard's text value"
+                             % (tok, key, type(raw).__name__))
+                continue
+            if key in fields and fields[key] != text:
+                notes.append("field `%s` is declared twice with different values (%r in %s, %r in "
+                             "%s) — DROPPED, because an ambiguous field is not a routing input"
+                             % (key, fields[key], seen_at[key], text, tok))
+                fields.pop(key)
+                seen_at[key] = None
+                continue
+            if seen_at.get(key, "") is None:      # already dropped as ambiguous; stay dropped
+                continue
+            fields[key], seen_at[key] = text, tok
+    return fields, sources, notes
+
+
+def evaluate_guard(pkg, pred, key, required, cache=None):
+    """(verdict, detail) for ONE guard, where `pred` is ALREADY marked `done`.
+
+    The `done` precondition is the caller's and it is the ordering CMP-25 states: a guarded edge
+    whose predecessor never finished must read as an unfinished predecessor, not as a failed
+    guard, or the reason names the wrong thing to fix. It is also what makes the output VALIDATED —
+    STEP 1-2 marks `done` only once every declared path resolved on disk.
+
+    `cache` is `{pred: (fields, sources, notes)}`, so N guards over one predecessor cost one read
+    of its artifacts. Omit it and the read happens per call."""
+    if cache is None:
+        cache = {}
+    if pred not in cache:
+        cache[pred] = validated_output_fields(pkg, pred)
+    fields, sources, notes = cache[pred]
+    if key not in fields:
+        return "unevaluable", {
+            "guard": {"key": key, "required": required}, "found": None, "sources": sources,
+            "notes": notes,
+            "reason": "`%s`'s validated output declares NO field `%s` (%d field(s) readable from "
+                      "%d source(s)). The guard is UNEVALUABLE, so this edge stays BLOCKED — it is "
+                      "neither satisfied nor excluded, because nobody could read it."
+                      % (pred, key, len(fields), len(sources))}
+    found = fields[key]
+    if found == required:
+        return "satisfied", {
+            "guard": {"key": key, "required": required}, "found": found, "sources": sources,
+            "notes": notes,
+            "reason": "`%s`.%s == %r in its validated output — the guard admits this edge."
+                      % (pred, key, required)}
+    return "excluded", {
+        "guard": {"key": key, "required": required}, "found": found, "sources": sources,
+        "notes": notes,
+        "reason": "`%s`.%s is %r, and this edge requires %r — the guard EXCLUDES it, so the edge "
+                  "is SKIPPED and no join waits on it." % (pred, key, found, required)}
+
+
+def member_limbs(coord, member):
+    """([limb], None) for an alternate member, ([member], None) for an ordinary one, or
+    (None, reason) when the token cannot be split into well-formed limbs.
+
+    WHAT DECIDES THAT A MEMBER IS AN ALTERNATE IS NOT THIS FUNCTION. `coord.parse_after_member`
+    answers it — it strips bracketed content BEFORE testing for the separator, so a separator
+    inside a guard VALUE is never read as a join — and this function splits only what it already
+    called an alternate. Each limb is then re-made through `coord.AfterMember`, so the guard inside
+    a limb is decomposed by the one parse site and never here.
+
+    THE BALANCE TEST IS THE ONE CASE THE SPLIT CANNOT GET RIGHT: a token carrying a separator
+    INSIDE a guard value AND one between limbs (`a[x=y|z]|b`) is cut in the wrong place by a text
+    split, which leaves the fragment `a[x=y`. That is detected by bracket balance and REFUSED
+    whole rather than evaluated on the fragments — a fragment parses as an ordinary bare name, so
+    guessing here would silently route on a predecessor nobody named."""
+    _name, _key, _value, unsupported = coord.after_member_parts(member)
+    if not unsupported:
+        return [member], None
+    limbs = []
+    for token in str(member).split(ALTERNATE_SEP):
+        token = token.strip()
+        if not token:
+            continue
+        if token.count("[") != token.count("]"):
+            return None, ("this alternate carries `%s` both inside a guard value and between "
+                          "limbs, so splitting it produces the unbalanced fragment %r. REFUSED "
+                          "whole: a fragment parses as an ordinary seat name, and routing on one "
+                          "would advance an edge nobody authored." % (ALTERNATE_SEP, token))
+        limb = coord.AfterMember(token)
+        if coord.after_member_parts(limb)[3]:
+            return None, ("limb %r is itself unsupported after the split — the token is not a "
+                          "flat alternate and this stage refuses to interpret it." % token)
+        limbs.append(limb)
+    if len(limbs) < 2:
+        return None, ("the token reads as an alternate but yields %d limb(s) — refusing to "
+                      "evaluate a join with nothing to join." % len(limbs))
+    return limbs, None
+
+
+def _simple_member_state(coord, pkg, member, marks, skipped, cache):
+    """(state, detail) for ONE non-alternate member. state is `met`, `excluded` or `unmet`.
+
+    `excluded` is the guard-false answer AND the transitive one: a predecessor whose OWN row this
+    pass marked SKIPPED took no branch, so an edge out of it is dead too. Without that, the row
+    after an untaken branch blocks forever and the join CMP-25 says must not wait, waits."""
+    name, key, value, _unsupported = coord.after_member_parts(member)
+    if name in skipped:
+        return "excluded", {"seat": name, "state": "predecessor-skipped",
+                            "reason": "`%s` is itself SKIPPED — its branch was not taken, so this "
+                                      "edge out of it is dead. Exclusion propagates along the "
+                                      "branch; it does not stop at the guarded edge." % name}
+    mark = marks.get(name, NO_MARK)
+    if mark != ADVANCES_EDGE:
+        entry = {"seat": name, "state": mark if mark is not None else "no-mark",
+                 "mark": mark, "raw": str(member)}
+        note = unresolvable_shape_note(str(member))
+        if key is None and note:
+            entry["shape-note"] = note
+        if key is not None:
+            entry["guard"] = {"key": key, "required": value}
+            entry["reason"] = ("`%s` is not marked `%s` (mark: %s). The guard `%s` was NOT "
+                               "evaluated: the dependency half comes first, so an unfinished "
+                               "predecessor reads as unfinished and not as a failed guard."
+                               % (name, ADVANCES_EDGE, mark, key))
+        return "unmet", entry
+    if key is None:
+        return "met", None
+    verdict, detail = evaluate_guard(pkg, name, key, value, cache)
+    detail = dict(detail, seat=name, state="guard-" + verdict, raw=str(member))
+    if verdict == "satisfied":
+        return "met", detail
+    if verdict == "excluded":
+        return "excluded", detail
+    return "unmet", detail
+
+
+def member_state(coord, pkg, member, marks, skipped, cache):
+    """(state, detail) for ONE `after` member, alternates included. `met` | `excluded` | `unmet`.
+
+    THE JOIN IS `whichever ran`: an alternate is MET as soon as ONE limb is met, which is what
+    lets a fork's join complete over the branch that was taken while the other is SKIPPED. It is
+    EXCLUDED only when EVERY limb is excluded — no branch was taken at all — and UNMET while any
+    limb is still merely unfinished, because that limb may yet run."""
+    limbs, why = member_limbs(coord, member)
+    if limbs is None:
+        return "unmet", {"seat": str(member), "state": "malformed-alternate", "raw": str(member),
+                         "shape-note": why, "reason": why}
+    if len(limbs) == 1:
+        return _simple_member_state(coord, pkg, limbs[0], marks, skipped, cache)
+    states = [_simple_member_state(coord, pkg, limb, marks, skipped, cache) for limb in limbs]
+    limb_detail = [{"limb": str(limb), "state": st, "detail": d}
+                   for limb, (st, d) in zip(limbs, states)]
+    kinds = [st for st, _ in states]
+    if "met" in kinds:
+        return "met", {"seat": str(member), "state": "alternate-join-met", "limbs": limb_detail,
+                       "reason": "%d of %d alternates is MET — the join completes on whichever "
+                                 "ran." % (kinds.count("met"), len(kinds))}
+    if all(k == "excluded" for k in kinds):
+        return "excluded", {"seat": str(member), "state": "alternate-join-excluded",
+                            "limbs": limb_detail, "raw": str(member),
+                            "reason": "every one of the %d alternates is excluded — no branch was "
+                                      "taken, so this join is dead too." % len(kinds)}
+    return "unmet", {"seat": str(member), "state": "alternate-join-unmet", "limbs": limb_detail,
+                     "raw": str(member),
+                     "reason": "no alternate is met yet and %d is still unfinished — the join "
+                               "waits on a limb that may still run." % kinds.count("unmet")}
+
+
+def _row_state(coord, pkg, seat, preds, marks, skipped, cache):
+    """One row's verdict over its own `after` members. PRECEDENCE, and the order is the design:
+    BLOCKED before SKIPPED. A row with one unmet member and one excluded member is not settled —
+    calling it SKIPPED would kill a branch on an edge nobody has finished evaluating."""
+    unmet, unmet_marks, notes, excluded, render = [], {}, {}, [], {}
+    for p in preds:
+        state, detail = member_state(coord, pkg, p, marks, skipped, cache)
+        render[str(p)] = {"state": state, "detail": detail}
+        if state == "unmet":
+            unmet.append(str(p))
+            unmet_marks[str(p)] = detail.get("mark", detail.get("state"))
+            for key in ("shape-note", "reason"):
+                if detail.get(key):
+                    notes[str(p)] = detail[key]
+                    break
+        elif state == "excluded":
+            excluded.append({"member": str(p), "detail": detail})
+    if unmet:
+        return {"verdict": "blocked", "seat": seat, "unmet": unmet, "unmet-marks": unmet_marks,
+                "after": [str(p) for p in preds], "notes": notes, "after-render": render,
+                "reason": "after: " + " ".join(
+                    "%s=%s" % (p, unmet_marks[p] if unmet_marks[p] is not None else "<no mark>")
+                    for p in unmet)}
+    if excluded:
+        return {"verdict": "skipped", "seat": seat, "excluded-by": excluded,
+                "after": [str(p) for p in preds], "after-render": render,
+                "reason": "guard-excluded: " + " ".join(
+                    "%s — %s" % (e["member"], e["detail"].get("reason", "")) for e in excluded)}
+    return {"verdict": "ready", "seat": seat, "after": [str(p) for p in preds],
+            "after-render": render}
 
 
 def readiness(coord, pkg, marks=None):
-    """`{ready: [seat], blocked: [{seat, unmet: [pred], ...}], ...}` for every `taskforce.csv` row.
+    """`{ready: [seat], blocked: [{seat, unmet: [pred], ...}], skipped: [{seat, excluded-by, ...}],
+    ...}` for every `taskforce.csv` row.
 
     `marks` is `{seat: disposition}` as STEP 1-2 emits it (`done` | `failed` | None). Omit it and
     it is computed by running that stage — the same code path, never a second reading of the
@@ -433,36 +749,40 @@ def readiness(coord, pkg, marks=None):
 
     Only the literal mark `done` satisfies an edge. `failed` does NOT, and neither does an absent
     mark: `failed` is terminal, and reading terminal as "finished, therefore satisfied" is the
-    plausible wrong reading that would advance a workflow past work that did not pass."""
+    plausible wrong reading that would advance a workflow past work that did not pass.
+
+    7.425: guards are EVALUATED and `skipped` is a third verdict. It is computed to a FIXPOINT
+    because exclusion propagates along a branch — the row after a skipped row is skipped too — and
+    `taskforce.csv` file order is not guaranteed to be topological. The iteration is monotone (the
+    skipped set only grows: a member's exclusion is never withdrawn by another row becoming
+    skipped), so it settles in at most one round per row; the bound is spelled out rather than
+    trusted, and the final round is the one that changed nothing."""
     if marks is None:
         marks = {r["seat"]: r["disposition"] for r in run_stage(coord, pkg)}
     after = coord.taskforce_after(pkg)
 
-    ready, blocked = [], []
-    for seat, preds in after.items():
-        unmet, unmet_marks, notes = [], {}, {}
-        for p in preds:
-            mark = marks.get(p, NO_MARK)
-            if mark != ADVANCES_EDGE:
-                unmet.append(p)
-                unmet_marks[p] = mark
-                note = unresolvable_shape_note(p)
-                if note:
-                    notes[p] = note
-        if unmet:
-            blocked.append({
-                "seat": seat, "unmet": unmet, "unmet-marks": unmet_marks,
-                "after": list(preds), "notes": notes,
-                "reason": "after: " + " ".join(
-                    "%s=%s" % (p, unmet_marks[p] if unmet_marks[p] is not None else "<no mark>")
-                    for p in unmet),
-            })
-        else:
-            ready.append(seat)
+    cache, skipped_seats, rows = {}, set(), []
+    for _round in range(len(after) + 1):
+        rows = [_row_state(coord, pkg, seat, preds, marks, skipped_seats, cache)
+                for seat, preds in after.items()]
+        now = {r["seat"] for r in rows if r["verdict"] == "skipped"}
+        if now == skipped_seats:
+            break
+        skipped_seats = now
+
+    ready = [r["seat"] for r in rows if r["verdict"] == "ready"]
+    blocked = [{k: v for k, v in r.items() if k != "verdict"}
+               for r in rows if r["verdict"] == "blocked"]
+    skipped = [{k: v for k, v in r.items() if k != "verdict"}
+               for r in rows if r["verdict"] == "skipped"]
 
     return {
         "ready": ready,
         "blocked": blocked,
+        # 7.425: the guard-excluded rows, in DERIVED state ONLY — nothing is written anywhere, and
+        # `check_no_status_column_written` runs this pass too. Present even when EMPTY: an empty
+        # list says "no edge was excluded", an absent key says nothing at all.
+        "skipped": skipped,
         # The seat's OWN mark, for every seat this predicate calls ready. Carried because the
         # predicate has no self-state term and a consumer that launched on `ready` alone would
         # relaunch a finished seat.
@@ -471,9 +791,19 @@ def readiness(coord, pkg, marks=None):
             "readiness is the `after`-set term ONLY. Launch candidacy additionally requires "
             "terminal(self) is None, no ACTIVE roster row, and a descriptor on disk — the three "
             "terms coord.ready_seat_rows carries and this predicate does not.",
-            "the verdict vocabulary is closed at %s. A row excluded by a conditional edge has no "
-            "verdict here because no conditional edge can be authored: the cell is parsed on "
-            "comma alone (issues.md G-301/G-308)." % (list(VERDICTS),),
+            "the verdict vocabulary is closed at %s. `skipped` is a GUARD-EXCLUDED row — its "
+            "guard was read off a predecessor's validated output and did not match, or its whole "
+            "branch was excluded upstream. It is DERIVED state: no column, anywhere (Rule 14)."
+            % (list(VERDICTS),),
+            "a guard whose field could not be READ is UNEVALUABLE and leaves its row BLOCKED — "
+            "never skipped and never satisfied. `skipped` therefore means an edge was evaluated "
+            "and excluded, and never means an edge nobody could evaluate.",
+            "this stage's guard reads the predecessor's validated OUTPUT FIELD; "
+            "coord.ready_seat_rows discharges the same syntax against a LEADER'S RULING in "
+            "coordination/guard-values.csv. Two evaluators, two surfaces, one grammar — on an "
+            "unruled but field-satisfied guard the two DISAGREE, and this one readies. Reported "
+            "to the leader against `p-edge-runner-strictness-is-ONE-DIRECTIONAL`, not settled "
+            "here.",
         ],
     }
 
@@ -642,27 +972,67 @@ def seed_for(coord, pkg, seat, after):
     looks like the guard, but is not the guard, is how a mutation test passes green — measured: a
     mutation that removed it left every check green, which is what sent this comment here."""
     seed, missing, seen = [], [], set()
-    for pred in after.get(seat, []):
-        declared, resolvable, absent, err = declared_outputs(pkg, pred)
-        for tok in absent:
-            # THE enqueue-time guard: `declared_outputs` re-resolved this token a line ago and it
-            # is not on disk. Its check is `check_missing_seed_path_fails_loudly`, proven red by
-            # mutating THIS loop.
-            missing.append({"predecessor": pred, "path": tok, "tried": _tried_paths(pkg, tok),
-                            "reason": "declared by `%s`, absent at enqueue time — it resolves "
-                                      "against neither the run package nor the goal root" % pred})
-        for tok in resolvable:
-            path = resolve_declared_path(pkg, tok)
-            if path is None:                                   # the residual same-pass race; see above
-                missing.append({"predecessor": pred, "path": tok, "tried": _tried_paths(pkg, tok),
-                                "reason": "declared by `%s` and present two resolutions ago, ABSENT "
-                                          "now — it vanished DURING this pass" % pred})
-                continue
-            key = str(path)
-            if key not in seen:
-                seen.add(key)
-                seed.append(key)
+    for member in after.get(seat, []):
+        # 7.425: THE SEED RESOLVES THE CLEAN PREDECESSOR NAME, NEVER THE RAW MEMBER TOKEN. Before
+        # the guard evaluator existed, no guarded row could become ready, so this loop only ever
+        # saw bare tokens and `{RUN}/seats/<token>/seat.md` happened to resolve. A guarded row now
+        # reaches it, and `seats/fx-route[risk=high]/seat.md` is a directory that cannot exist —
+        # the seat would be launched with a SILENTLY EMPTY seed, which is the same name-lookup
+        # defect 7.383 closed at the readiness loop, one stage downstream. The clean name comes off
+        # the member itself (W1's decomposition), never from a second parse here. For a BARE member
+        # the clean name IS the token, so no plain row's seed changes.
+        for pred, alternate in _seed_predecessors(coord, member):
+            declared, resolvable, absent, err = declared_outputs(pkg, pred)
+            if alternate:
+                # AN UNTAKEN ALTERNATE PRODUCED NOTHING, AND THAT IS NOT A FAILURE. A join is
+                # seeded from the limbs that RAN; a limb whose declared artifact is absent is the
+                # branch that did not run, so it contributes nothing instead of failing the
+                # enqueue. ⚠ SCOPE, NAMED: which limb ran is the readiness pass's knowledge and is
+                # NOT threaded here — this stage seeds the UNION of what the limbs left on disk.
+                # Two limbs that both ran therefore seed both artifacts. Sharpening that is
+                # M4-10's, not this arm's, and it is reported rather than assumed correct.
+                absent = []
+            _seed_member(pkg, seed, missing, seen, pred, resolvable, absent)
     return seed, missing
+
+
+def _seed_predecessors(coord, member):
+    """[(clean predecessor name, is-an-alternate-limb)] for ONE `after` member.
+
+    A bare or guarded member yields exactly one name — its own. An alternate yields one per limb.
+    A member that does not decompose at all yields its RAW token, which resolves to no seat and is
+    reported as such rather than dropped."""
+    limbs, _why = member_limbs(coord, member)
+    if limbs is None:
+        return [(str(member), False)]
+    if len(limbs) == 1:
+        name = coord.after_member_parts(limbs[0])[0]
+        return [(name or str(member), False)]
+    return [(coord.after_member_parts(limb)[0] or str(limb), True) for limb in limbs]
+
+
+def _seed_member(pkg, seed, missing, seen, pred, resolvable, absent):
+    """Fold ONE predecessor's declared outputs into `seed`/`missing` IN PLACE. Split out of
+    `seed_for` only so the per-member loop above stays readable; the behaviour is unchanged from
+    the inline form it replaced."""
+    for tok in absent:
+        # THE enqueue-time guard: `declared_outputs` re-resolved this token a line ago and it
+        # is not on disk. Its check is `check_missing_seed_path_fails_loudly`, proven red by
+        # mutating THIS loop.
+        missing.append({"predecessor": pred, "path": tok, "tried": _tried_paths(pkg, tok),
+                        "reason": "declared by `%s`, absent at enqueue time — it resolves "
+                                  "against neither the run package nor the goal root" % pred})
+    for tok in resolvable:
+        path = resolve_declared_path(pkg, tok)
+        if path is None:                                   # the residual same-pass race; see above
+            missing.append({"predecessor": pred, "path": tok, "tried": _tried_paths(pkg, tok),
+                            "reason": "declared by `%s` and present two resolutions ago, ABSENT "
+                                      "now — it vanished DURING this pass" % pred})
+            continue
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            seed.append(key)
 
 
 def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=None,
@@ -986,6 +1356,9 @@ EXPECT = {
     "fx-no-row": None,
     "fx-renewed-then-done": "done",
     "fx-no-iospec": "done",
+    # 7.425: the guarded rows' predecessor. It checks out `done` and its ONE declared output is a
+    # `.json` object — the VALIDATED OUTPUT every guard below is evaluated against.
+    "fx-route": "done",
 }
 
 
@@ -1007,6 +1380,21 @@ READY_AFTER = {
     "fx-r-conditional":     "fx-done-outputs-present[state=ok]",
     "fx-r-alternate":       "fx-done-outputs-present|fx-renewed-then-done",
     "fx-r-artifact-strict": "fx-done-output-missing",
+    # 7.425 (W2) — one row per shape the GUARD evaluator must get right. The predecessor
+    # `fx-route` declares `outputs/route.json` = {"risk": "high", "count": 2, "ok": true}, so every
+    # expectation below is computed from THAT object and from the guard's own text, by hand.
+    "fx-r-guard-hit":       "fx-route[risk=high]",
+    "fx-r-guard-miss":      "fx-route[risk=low]",
+    "fx-r-guard-bool":      "fx-route[ok=true]",
+    "fx-r-guard-number":    "fx-route[count=2]",
+    "fx-r-guard-nofield":   "fx-route[colour=blue]",
+    "fx-r-guard-unfinished": "fx-renew[risk=high]",
+    "fx-r-malformed-guard": "fx-route[nokey]",
+    "fx-r-join-one-taken":  "fx-route[risk=high]|fx-route[risk=low]",
+    "fx-r-join-none-taken": "fx-route[risk=mid]|fx-route[risk=low]",
+    "fx-r-join-malformed":  "fx-route[risk=a|b]|fx-route",
+    "fx-r-skip-propagates": "fx-r-guard-miss",
+    "fx-r-block-beats-skip": "fx-route[risk=low],fx-open-sitting",
 }
 
 # The expected verdict and the expected UNMET SET for every fixture row, written out by hand.
@@ -1023,9 +1411,27 @@ EXPECT_READY = {
     "fx-r-undecided-pred":  ("blocked", ["fx-open-sitting"]),
     "fx-r-mixed":           ("blocked", ["fx-exited"]),
     "fx-r-dangling":        ("blocked", ["fx-nobody-by-that-name"]),
+    # 7.425 — WAS blocked-as-one-uninterpreted-name; the guard is now EVALUATED. Its predecessor
+    # is `done` and declares `outputs/present.md`, which is not a field surface, so the guard is
+    # UNEVALUABLE: blocked, and deliberately NOT skipped.
     "fx-r-conditional":     ("blocked", ["fx-done-outputs-present[state=ok]"]),
-    "fx-r-alternate":       ("blocked", ["fx-done-outputs-present|fx-renewed-then-done"]),
+    # 7.425 — WAS blocked; both alternates are `done`, so the join is met on whichever ran.
+    "fx-r-alternate":       ("ready",   []),
     "fx-r-artifact-strict": ("blocked", ["fx-done-output-missing"]),
+    # 7.425 — the guard shapes. For a `skipped` row the second element is its EXCLUDED members.
+    "fx-r-guard-hit":       ("ready",   []),
+    "fx-r-guard-miss":      ("skipped", ["fx-route[risk=low]"]),
+    "fx-r-guard-bool":      ("ready",   []),
+    "fx-r-guard-number":    ("ready",   []),
+    "fx-r-guard-nofield":   ("blocked", ["fx-route[colour=blue]"]),
+    "fx-r-guard-unfinished": ("blocked", ["fx-renew[risk=high]"]),
+    "fx-r-malformed-guard": ("blocked", ["fx-route[nokey]"]),
+    "fx-r-join-one-taken":  ("ready",   []),
+    "fx-r-join-none-taken": ("skipped", ["fx-route[risk=mid]|fx-route[risk=low]"]),
+    "fx-r-join-malformed":  ("blocked", ["fx-route[risk=a|b]|fx-route"]),
+    "fx-r-skip-propagates": ("skipped", ["fx-r-guard-miss"]),
+    "fx-r-block-beats-skip": ("blocked", ["fx-open-sitting"]),
+    "fx-route":                ("ready", []),
     "fx-done-outputs-present": ("ready", []),
     "fx-done-output-missing":  ("ready", []),
     "fx-renew":                ("ready", []),
@@ -1220,6 +1626,9 @@ def check_no_status_column_written(coord, pkg):
         return out
     before = headers()
     run_stage(coord, pkg)
+    # 7.425: the guard pass runs inside the window too, so the third verdict is proven DERIVED —
+    # a `skipped` mark that reached disk would show up here as a changed header.
+    readiness(coord, pkg)
     after = headers()
     if before != after:
         changed = [k for k in set(before) | set(after) if before.get(k) != after.get(k)]
@@ -1240,7 +1649,7 @@ def check_no_status_column_written(coord, pkg):
 # search it performs. Spelling it out inline would make the check pass or fail on its own text.
 EXCLUDED_STATE = "skip" + "ped"
 
-READINESS_KEYS = ("ready", "blocked", "self-marks", "caveats")   # literal, not derived
+READINESS_KEYS = ("ready", "blocked", "skipped", "self-marks", "caveats")  # literal, not derived
 
 
 def _readiness_verdicts(res):
@@ -1248,6 +1657,16 @@ def _readiness_verdicts(res):
     out = {s: "ready" for s in res["ready"]}
     for b in res["blocked"]:
         out[b["seat"]] = "blocked"
+    for s in res["skipped"]:
+        out[s["seat"]] = "skipped"
+    return out
+
+
+def _readiness_members(res):
+    """{seat: [the members its verdict NAMES]} — the unmet set for a blocked row, the EXCLUDING
+    members for a skipped one. One accessor, so the expectation table can carry one column."""
+    out = {b["seat"]: list(b["unmet"]) for b in res["blocked"]}
+    out.update({s["seat"]: [e["member"] for e in s["excluded-by"]] for s in res["skipped"]})
     return out
 
 
@@ -1258,26 +1677,29 @@ def check_readiness_verdicts(coord, pkg):
     "finished, therefore satisfied" is the plausible wrong reading and it is checked explicitly."""
     res = readiness(coord, pkg)
     got = _readiness_verdicts(res)
-    unmet = {b["seat"]: b["unmet"] for b in res["blocked"]}
+    members = _readiness_members(res)
     bad = []
-    for seat, (want_verdict, want_unmet) in EXPECT_READY.items():
+    for seat, (want_verdict, want_members) in EXPECT_READY.items():
         if seat not in got:
             bad.append("%s: no verdict at all" % seat)
             continue
         if got[seat] != want_verdict:
             bad.append("%s: expected %s, got %s" % (seat, want_verdict, got[seat]))
-        elif want_verdict == "blocked" and unmet.get(seat) != want_unmet:
-            bad.append("%s: expected unmet %s, got %s" % (seat, want_unmet, unmet.get(seat)))
+        elif want_verdict != "ready" and members.get(seat) != want_members:
+            bad.append("%s: expected members %s, got %s" % (seat, want_members,
+                                                            members.get(seat)))
     extra = sorted(set(got) - set(EXPECT_READY))
     if extra:
         bad.append("rows with no expectation in the table: %s" % extra)
     if bad:
         return False, "criterion 1/4: %d wrong readiness row(s): %s" % (len(bad), "; ".join(bad))
-    return True, ("criterion 1/4: all %d rows correct (ready=%d, blocked=%d), every blocked row's "
-                  "unmet set matches by name" % (
+    return True, ("criterion 1/4: all %d rows correct (ready=%d, blocked=%d, skipped=%d), every "
+                  "blocked row's unmet set and every skipped row's excluding member(s) match by "
+                  "name" % (
                       len(EXPECT_READY),
                       sum(1 for v, _ in EXPECT_READY.values() if v == "ready"),
-                      sum(1 for v, _ in EXPECT_READY.values() if v == "blocked")))
+                      sum(1 for v, _ in EXPECT_READY.values() if v == "blocked"),
+                      sum(1 for v, _ in EXPECT_READY.values() if v == "skipped")))
 
 
 def check_after_split_is_comma_only(coord, pkg):
@@ -1302,65 +1724,147 @@ def check_after_split_is_comma_only(coord, pkg):
                            "split on something other than comma" % (seat, after.get(seat), want))
     res = readiness(coord, pkg)
     blocked = {b["seat"]: b for b in res["blocked"]}
-    for seat, want in (("fx-r-conditional", "fx-done-outputs-present[state=ok]"),
-                       ("fx-r-alternate", "fx-done-outputs-present|fx-renewed-then-done")):
-        b = blocked.get(seat)
-        if b is None:
-            return False, ("criterion 2: %s is NOT blocked — the uninterpretable token was "
-                           "resolved to something, which is how a row is readied off a "
-                           "predecessor nobody named" % seat)
-        if b["unmet"] != [want]:
-            return False, ("criterion 2: %s unmet is %r, expected exactly [%r]"
-                           % (seat, b["unmet"], want))
-        if not b["notes"].get(want):
-            return False, ("criterion 2: %s carries no note explaining that the token is one "
-                           "uninterpreted name — a permanent block with no stated cause" % seat)
-    return True, ("criterion 2: comma-only split confirmed on 5 cells; both uninterpretable "
-                  "tokens survive whole, block their row, and carry a stated cause")
+    # 7.425: the guarded and alternate tokens are now EVALUATED, so the row that must still survive
+    # whole as ONE uninterpreted name is the MALFORMED one — the shape `parse_after_member` hands
+    # back bare. It is asserted here in place of the two that used to be, because it is the case
+    # the fail-safe direction still owns.
+    want = "fx-route[nokey]"
+    b = blocked.get("fx-r-malformed-guard")
+    if b is None:
+        return False, ("criterion 2: fx-r-malformed-guard is NOT blocked — a token that did not "
+                       "decompose was resolved to something, which is how a row is readied off a "
+                       "predecessor nobody named")
+    if b["unmet"] != [want]:
+        return False, ("criterion 2: fx-r-malformed-guard unmet is %r, expected exactly [%r]"
+                       % (b["unmet"], want))
+    if not b["notes"].get(want):
+        return False, ("criterion 2: fx-r-malformed-guard carries no note explaining that the "
+                       "token is one uninterpreted name — a permanent block with no stated cause")
+    return True, ("criterion 2: comma-only split confirmed on 5 cells; the guarded and alternate "
+                  "tokens survive the CELL split whole and are then evaluated (7.425), and the "
+                  "malformed token blocks its row with a stated cause")
 
 
-def check_no_conditional_evaluator_or_third_verdict():
-    """CRITERION 3 — no conditional-edge evaluator and no third verdict exist in this file.
+def check_skipped_is_produced_not_merely_named():
+    """7.425 CRITERION 1 — the third verdict is PRODUCED, not merely present in a vocabulary.
 
-    A SEARCH, and it is recorded: the excluded state's name must not occur anywhere in the source,
-    the verdict tuple must be exactly the two values spelled out, and the shape-note helper must
-    have exactly one call site (its return value annotates a reason; it decides nothing)."""
-    src = Path(__file__).read_text(encoding="utf-8")
-    hits = [i + 1 for i, ln in enumerate(src.splitlines())
-            if EXCLUDED_STATE in ln.lower()]
-    if hits:
-        return False, ("criterion 3: the excluded state's name occurs at line(s) %s — a third "
-                       "verdict is being introduced" % hits)
-    if VERDICTS != ("ready", "blocked"):
-        return False, "criterion 3: VERDICTS is %r, expected exactly ('ready', 'blocked')" % (
-            VERDICTS,)
-    # The shape-note helper must be called from `readiness` ONCE and from nowhere else, so it
-    # cannot be reaching a verdict decision. Counted over function SOURCES rather than over the
-    # whole file: this check's own text names the helper, and a whole-file count would be
-    # measuring itself. This function is excluded BY NAME for exactly that reason.
-    inside = inspect.getsource(readiness).count("unresolvable_shape_note(")
-    if inside != 1:
-        return False, ("criterion 3: `readiness` calls the shape-note helper %d time(s), "
-                       "expected exactly 1" % inside)
-    me = "check_no_conditional_evaluator_or_third_verdict"
-    elsewhere = []
-    for name, obj in sorted(globals().items()):
-        if not callable(obj) or name in ("readiness", me):
+    ⚠ THIS CHECK IS THE INVERSE OF THE ONE IT REPLACES, ON PURPOSE. Until 7.425,
+    `check_no_conditional_evaluator_or_third_verdict` asserted the excluded state's name occurred
+    NOWHERE in this file, because nothing could produce it and a named-but-unreachable state reads
+    as "this case did not arise" when the truth is "this case cannot arise". The evaluator makes it
+    reachable, so the guard against that same confusion inverts: the state must now appear in the
+    OUTPUT, on the fixture, and not only in the vocabulary. An empty `skipped` list with the word
+    in `VERDICTS` is exactly the shape the old check refused.
+
+    The shape-note helper is still asserted to have ONE call site — it annotates a reason and
+    decides nothing — because the malformed-ref arm is the one place a token is still uninterpreted.
+    """
+    if VERDICTS != ("ready", "blocked", EXCLUDED_STATE):
+        return False, ("7.425 criterion 1: VERDICTS is %r, expected exactly ('ready', 'blocked', "
+                       "'%s')" % (VERDICTS, EXCLUDED_STATE))
+    coord = load_coord()
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-skipped-"))
+    try:
+        res = readiness(coord, build_fixture(tmp))
+        produced = [r["seat"] for r in res[EXCLUDED_STATE]]
+        if not produced:
+            return False, ("7.425 criterion 1: the vocabulary carries `%s` but the fixture "
+                           "produced ZERO such rows — a verdict that never appears in an output "
+                           "is the state this check exists to refuse" % EXCLUDED_STATE)
+        for row in res[EXCLUDED_STATE]:
+            if not row.get("excluded-by"):
+                return False, ("7.425 criterion 1: %s is %s but NAMES no excluding member — an "
+                               "unexplained exclusion is a silent branch death"
+                               % (row["seat"], EXCLUDED_STATE))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    calls = inspect.getsource(_simple_member_state).count("unresolvable_shape_note(")
+    if calls != 1:
+        return False, ("7.425 criterion 1: the shape-note helper is called %d time(s) from "
+                       "`_simple_member_state`, expected exactly 1" % calls)
+    return True, ("7.425 criterion 1: VERDICTS == %r and the fixture PRODUCES %d %s row(s) (%s), "
+                  "each naming its excluding member(s)"
+                  % (list(VERDICTS), len(produced), EXCLUDED_STATE, ", ".join(sorted(produced))))
+
+
+# The member-grammar idioms this file must NOT contain, each assembled from fragments so that this
+# check's own source is not a hit for the search it performs. They are the CONCRETE idioms of
+# `coord.parse_after_member` — its key character class and its bracket strip — plus the two ways a
+# hand-rolled decomposition is written. A needle naming the ABSTRACT idea ("guard", "parse") would
+# fire on every comment in this file and on the sentence forbidding it.
+_GRAMMAR_NEEDLES = {
+    "the guarded-member key class": "[^\\" + "[\\]=]",
+    "a bracket strip": "sub(r\"\\" + "[[^\\]]*\\]\"",
+    "a direct call to the member parser": "parse_after_" + "member(",
+}
+
+# The bracket used as a SEPARATOR argument to any string method — `.split("[")`, `.partition("[")`,
+# `.rsplit("[")` — which is how a hand-rolled decomposition is written without a regex. `.count(`
+# is excluded BY NAME: `member_limbs` counts brackets to REFUSE a bad split, which is the opposite
+# act. ⚠ MEASURED, NOT ANTICIPATED: this pattern exists because the first needle set listed
+# `.split("[")` alone, and a planted mutant that used `.partition("[")` walked straight past it —
+# a blind spot found by mutating the check rather than by reading it.
+_BRACKET_SEPARATOR = re.compile(r"\.(?!count\b)\w+\(\"\\?\[\"\)")
+
+
+def check_no_second_grammar_decomposition():
+    """7.425 CRITERION 3 — the member grammar is decomposed by W1's ONE parse site and NOWHERE
+    here (C-4 / A-3, import-not-copy).
+
+    Two arms, and both are needed. NEGATIVE: none of `parse_after_member`'s own idioms appears in
+    this file, so no second decomposition was written. POSITIVE: the evaluator actually reaches
+    coord's reader — an absent needle set would also be satisfied by a file that evaluates no guard
+    at all, which is the vacuous pass this arm exists to close.
+
+    ⚠ ITS STATED BOUND, inherited from W1-3's: it detects a decomposition written with these
+    idioms. One avoiding all of them — a hand-rolled scanner over the characters — is invisible to
+    it. Named here rather than left for a reader to discover."""
+    src_lines = Path(__file__).read_text(encoding="utf-8").splitlines()
+    mine = set(inspect.getsource(check_no_second_grammar_decomposition).splitlines())
+    mine |= set(inspect.getsource(load_coord).splitlines())
+    found = []
+    for i, line in enumerate(src_lines, 1):
+        # PURE COMMENT LINES ARE SKIPPED, and the reason is measured: the comment that DOCUMENTS
+        # the separator pattern spells the idiom out, so the check fired on the sentence forbidding
+        # it — the search must match the binding VALUE, never its own statement. A comment
+        # decomposes nothing, so skipping it removes no coverage.
+        if line.lstrip().startswith("#"):
             continue
-        if getattr(obj, "__module__", None) != __name__:
+        if line in mine or "_GRAMMAR_NEEDLES" in line or "_BRACKET_SEPARATOR" in line:
             continue
-        try:
-            body = inspect.getsource(obj)
-        except (OSError, TypeError):
-            continue
-        if name != "unresolvable_shape_note" and "unresolvable_shape_note(" in body:
-            elsewhere.append(name)
-    if elsewhere:
-        return False, ("criterion 3: the shape-note helper is also called from %s — it may be "
-                       "reaching a verdict decision there" % elsewhere)
-    return True, ("criterion 3: excluded state's name absent from all %d lines; VERDICTS == "
-                  "('ready', 'blocked'); the shape-note helper has exactly ONE call site, in "
-                  "`readiness`, and none elsewhere" % len(src.splitlines()))
+        for what, needle in _GRAMMAR_NEEDLES.items():
+            if needle in line:
+                found.append("line %d: %s (%r)" % (i, what, line.strip()[:70]))
+        if _BRACKET_SEPARATOR.search(line):
+            found.append("line %d: a bracket used as a separator (%r)" % (i, line.strip()[:70]))
+    if found:
+        return False, ("7.425 criterion 3: a SECOND decomposition of the member grammar is "
+                       "present — %s. Route it through W1's site (coord.after_member_parts) "
+                       "instead." % "; ".join(found))
+    reader = "after_member" + "_parts("
+    sites = [name for name, obj in sorted(globals().items())
+             if callable(obj) and getattr(obj, "__module__", None) == __name__
+             and name != "check_no_second_grammar_decomposition"
+             and reader in _safe_source(obj)]
+    if not sites:
+        return False, ("7.425 criterion 3: NO function in this file reads a member through coord's "
+                       "one reader — the needle set would pass vacuously over a file that "
+                       "decomposes nothing because it evaluates nothing")
+    if "member_limbs" not in sites or "_simple_member_state" not in sites:
+        return False, ("7.425 criterion 3: the reader is called from %s, but the two functions "
+                       "that MUST read a member through it (`member_limbs`, "
+                       "`_simple_member_state`) are not both there" % sites)
+    return True, ("7.425 criterion 3: none of the %d member-grammar idioms (nor a bracket used as "
+                  "a separator) occurs in this file's %d lines, and the decomposition is read "
+                  "through coord's one reader at %d site(s) (%s)"
+                  % (len(_GRAMMAR_NEEDLES), len(src_lines), len(sites), ", ".join(sites)))
+
+
+def _safe_source(obj):
+    try:
+        return inspect.getsource(obj)
+    except (OSError, TypeError):
+        return ""
 
 
 def check_readiness_schema(coord, pkg):
@@ -1378,10 +1882,20 @@ def check_readiness_schema(coord, pkg):
             return False, ("schema: %s's `unmet` is %r — every blocked row must NAME at least one "
                            "unmet predecessor, so a stalled wave reports WHICH edge holds it"
                            % (b["seat"], b["unmet"]))
+    for s in res[EXCLUDED_STATE]:
+        if not {"seat", "excluded-by"} <= set(s):
+            return False, "schema: a %s row lacks `seat`/`excluded-by`: %r" % (EXCLUDED_STATE,
+                                                                                sorted(s))
+        for e in s["excluded-by"]:
+            if not e.get("member") or not e.get("detail", {}).get("reason"):
+                return False, ("schema: %s's exclusion %r names no member or carries no reason — "
+                               "an exclusion is auditable or it is folklore" % (s["seat"], e))
     if set(res["self-marks"]) != set(res["ready"]):
         return False, "schema: `self-marks` must cover exactly the ready set"
-    return True, ("schema: keys %r; %d ready, %d blocked, every blocked row names >=1 unmet "
-                  "predecessor" % (list(READINESS_KEYS), len(res["ready"]), len(res["blocked"])))
+    return True, ("schema: keys %r; %d ready, %d blocked, %d %s; every blocked row names >=1 unmet "
+                  "predecessor and every excluded row names its member and reason"
+                  % (list(READINESS_KEYS), len(res["ready"]), len(res["blocked"]),
+                     len(res[EXCLUDED_STATE]), EXCLUDED_STATE))
 
 
 def _fixture_args(pkg):
@@ -1409,7 +1923,19 @@ def check_agrees_with_coord_ready_seats(coord, pkg):
 
     Two readers of one graph that disagree is the defect class this wave is bounded against, so a
     divergence outside `EXPECTED_DIVERGENCES` is RED, and an UNSOUND divergence — this stage
-    readying a row coord blocks — is red even if it were listed."""
+    readying a row coord blocks — is red even if it were listed.
+
+    ⚠⚠ 7.425 NARROWED THE COMPARED SET TO BARE-MEMBER ROWS, and the narrowing is the finding, not
+    a convenience. A GUARDED row's two answers are computed from two different surfaces by design:
+    coord discharges `ref[field=value]` against a LEADER'S RULING in `guard-values.csv`, this stage
+    against the predecessor's VALIDATED OUTPUT FIELD (execution-strategy B-2's own refusal clause
+    routes a machine-derivable condition here rather than through a ruling). On a guard that is
+    unruled but field-satisfied, this stage READIES what coord blocks — the direction
+    `p-edge-runner-strictness-is-ONE-DIRECTIONAL` forbids, in a ruling that predates any guard
+    evaluator and whose stated subject is the declared-artifact strictness ordering. Comparing
+    those rows here would report a defect this task was ordered to create; SILENTLY dropping them
+    would hide it. So they are excluded BY THE ROW'S SHAPE, COUNTED, and NAMED in the return, and
+    the amendment is asked of the `leader` rather than taken by this file."""
     theirs_rows = coord.ready_seat_rows(_fixture_args(pkg))
     theirs_disp = {r["seat"]: r["disposition"] for r in theirs_rows}
     after = coord.taskforce_after(pkg)
@@ -1420,8 +1946,20 @@ def check_agrees_with_coord_ready_seats(coord, pkg):
         return False, ("criterion 7: coord.ready_seat_rows returned ZERO rows for the fixture — "
                        "an empty comparison would agree vacuously")
 
+    def _bare(preds):
+        """True when every member is a plain seat name — no guard, no alternate. The one class on
+        which the two stages consume the SAME inputs and the ordering ruling still binds."""
+        for p in preds:
+            _n, key, _v, unsupported = coord.after_member_parts(p)
+            if key is not None or unsupported:
+                return False
+        return True
+
+    guarded_rows = [s for s, preds in after.items() if not _bare(preds)]
     diverged, unsound = [], []
     for seat, preds in after.items():
+        if seat in guarded_rows:
+            continue
         theirs_ready = all(theirs_disp.get(p) == "done" for p in preds)
         mine_ready = mine.get(seat) == "ready"
         if mine_ready == theirs_ready:
@@ -1445,11 +1983,213 @@ def check_agrees_with_coord_ready_seats(coord, pkg):
         return False, ("criterion 7: divergence set is %s, expected exactly %s — a new row "
                        "started disagreeing, or the named one stopped"
                        % (sorted(diverged), sorted(EXPECTED_DIVERGENCES)))
-    return True, ("criterion 7: %d rows compared term-by-term against coord.ready_seat_rows; "
-                  "agreement on %d, and the %d named divergence %s is one-directional and "
-                  "explained by the declared-artifact grade"
-                  % (len(after), len(after) - len(diverged), len(diverged),
-                     sorted(EXPECTED_DIVERGENCES)))
+    compared = len(after) - len(guarded_rows)
+    if compared < 2:
+        return False, ("criterion 7: only %d bare-member row(s) remained to compare — a "
+                       "comparison this narrow agrees vacuously" % compared)
+    return True, ("criterion 7: %d BARE-member rows compared term-by-term against "
+                  "coord.ready_seat_rows; agreement on %d, and the %d named divergence %s is "
+                  "one-directional and explained by the declared-artifact grade. %d GUARDED row(s) "
+                  "were EXCLUDED from the comparison and are named: %s — the two stages evaluate a "
+                  "guard against different surfaces (coord: guard-values.csv rulings; this stage: "
+                  "the predecessor's validated output), which is reported to the leader against "
+                  "`p-edge-runner-strictness-is-ONE-DIRECTIONAL`, not settled here"
+                  % (compared, compared - len(diverged), len(diverged),
+                     sorted(EXPECTED_DIVERGENCES), len(guarded_rows), sorted(guarded_rows)))
+
+
+# ---- STEP 3b's checks (task 7.425 / W2) -------------------------------------------------------
+#
+# Every expectation is PRE-COMPUTED from the fixture's own JSON object and from the guard's text,
+# written out by hand below. Not one is read from `evaluate_guard`, from `READY_AFTER`, or from
+# `EXPECT_READY` — a check whose expectation comes from the value under test moves with it.
+
+# `fx-route`'s validated output, restated as the literal the checks compare against. It is written
+# by `build_fixture` from the same three pairs; stating it twice is deliberate, and the pair is
+# asserted equal at the top of `check_guard_admits_and_excludes` so a drift reds instead of
+# silently re-basing every guard expectation on whatever the fixture happens to contain.
+FX_ROUTE_OUTPUT = {"risk": "high", "count": 2, "ok": True}
+FX_ROUTE_ARTIFACT = "outputs/route.json"
+
+# The guarded rows, their guard, and the verdict each MUST reach — computed by hand from the object
+# above: `risk` is the string "high"; `ok` is JSON true, which renders `true`; `count` is 2, which
+# renders `2`; `colour` is not there at all.
+EXPECT_GUARD = {
+    "fx-r-guard-hit":        ("satisfied",   "risk",   "high",  "ready"),
+    "fx-r-guard-miss":       ("excluded",    "risk",   "low",   EXCLUDED_STATE),
+    "fx-r-guard-bool":       ("satisfied",   "ok",     "true",  "ready"),
+    "fx-r-guard-number":     ("satisfied",   "count",  "2",     "ready"),
+    "fx-r-guard-nofield":    ("unevaluable", "colour", "blue",  "blocked"),
+}
+
+
+def _fixture_readiness(coord, mutate=None):
+    """(readiness result, pkg) over a FRESH fixture in its own temp tree, optionally mutated first.
+
+    Every red arm below runs here — on a scratch copy built for that arm — so no arm ever mutates
+    the fixture another check is reading (C-3: the red is planted on a copy, never on the artifact
+    under test)."""
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-guard-"))
+    try:
+        pkg = build_fixture(tmp)
+        if mutate is not None:
+            mutate(pkg)
+        return readiness(coord, pkg), pkg
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_guard_admits_and_excludes(coord, pkg):
+    """7.425 CRITERION 1 — a satisfied guard ADMITS and an unsatisfied one yields the excluded
+    state; a guard whose field cannot be read is UNEVALUABLE and blocks.
+
+    The three are asserted apart on purpose: collapsing `unevaluable` into the excluded state kills
+    a branch because nobody could read its guard, and collapsing it into `satisfied` admits an edge
+    nothing evaluated."""
+    on_disk = json.loads((pkg / FX_ROUTE_ARTIFACT).read_text(encoding="utf-8"))
+    if on_disk != FX_ROUTE_OUTPUT:
+        return False, ("7.425 criterion 1: the fixture's validated output is %r but every "
+                       "expectation here was computed from %r — re-base the expectations by hand, "
+                       "never by reading the artifact" % (on_disk, FX_ROUTE_OUTPUT))
+    verdicts = _readiness_verdicts(readiness(coord, pkg))
+    bad = []
+    cache = {}
+    for seat, (want_guard, key, required, want_row) in EXPECT_GUARD.items():
+        got_guard, detail = evaluate_guard(pkg, "fx-route", key, required, cache)
+        if got_guard != want_guard:
+            bad.append("%s: guard %s=%r expected %s, got %s (%s)"
+                       % (seat, key, required, want_guard, got_guard, detail["reason"]))
+        if verdicts.get(seat) != want_row:
+            bad.append("%s: row verdict expected %s, got %s" % (seat, want_row,
+                                                                verdicts.get(seat)))
+        if want_guard != "unevaluable" and detail["found"] is None:
+            bad.append("%s: the guard decided without naming the value it FOUND" % seat)
+    if bad:
+        return False, "7.425 criterion 1: %d wrong guard outcome(s): %s" % (len(bad),
+                                                                             "; ".join(bad))
+    return True, ("7.425 criterion 1: %d guards evaluated against `%s` on disk — %d satisfied "
+                  "(row ready), %d excluded (row %s), %d unevaluable (row blocked); each names the "
+                  "value it found"
+                  % (len(EXPECT_GUARD), FX_ROUTE_ARTIFACT,
+                     sum(1 for v in EXPECT_GUARD.values() if v[0] == "satisfied"),
+                     sum(1 for v in EXPECT_GUARD.values() if v[0] == "excluded"), EXCLUDED_STATE,
+                     sum(1 for v in EXPECT_GUARD.values() if v[0] == "unevaluable")))
+
+
+def check_guard_reads_the_validated_output(coord, pkg):
+    """7.425 — F-W2a's arm: the guard is evaluated against THE PREDECESSOR'S VALIDATED OUTPUT and
+    against nothing else.
+
+    ⚠ A CHECK THAT ONLY ASSERTED THE RIGHT VERDICTS WOULD BE CONFOUNDED — the fixture's guard
+    values and its artifact agree, so a stage that read the guard's own text and ignored the
+    artifact entirely would pass it. This one MEASURES AT THE DECISION: it plants the OPPOSITE
+    value in a scratch copy of the artifact, changing nothing else, and requires both rows to
+    SWAP. A verdict that tracks the artifact's content is read from the artifact's content.
+
+    The second arm removes the artifact instead: with the declared output gone, the predecessor's
+    own mark falls to `failed` (STEP 1-2's declared-artifact grade) and the guarded row blocks —
+    never admits. Two mutations, one variable each."""
+    live = _readiness_verdicts(readiness(coord, pkg))
+    if (live.get("fx-r-guard-hit"), live.get("fx-r-guard-miss")) != ("ready", EXCLUDED_STATE):
+        return False, ("F-W2a: the unmutated control is already wrong (hit=%s, miss=%s) — a "
+                       "mutation result would mean nothing"
+                       % (live.get("fx-r-guard-hit"), live.get("fx-r-guard-miss")))
+
+    def flip(scratch):
+        doc = json.loads((scratch / FX_ROUTE_ARTIFACT).read_text(encoding="utf-8"))
+        doc["risk"] = "low"
+        (scratch / FX_ROUTE_ARTIFACT).write_text(json.dumps(doc, indent=2) + "\n")
+
+    flipped, _ = _fixture_readiness(coord, flip)
+    got = _readiness_verdicts(flipped)
+    if (got.get("fx-r-guard-hit"), got.get("fx-r-guard-miss")) != (EXCLUDED_STATE, "ready"):
+        return False, ("F-W2a: the artifact's `risk` was flipped high->low on a scratch copy and "
+                       "the rows did NOT swap (hit=%s, miss=%s, expected %s/ready). The verdict is "
+                       "not being read from the predecessor's validated output — redesign the read "
+                       "point and re-run." % (got.get("fx-r-guard-hit"), got.get("fx-r-guard-miss"),
+                                              EXCLUDED_STATE))
+
+    def remove(scratch):
+        (scratch / FX_ROUTE_ARTIFACT).unlink()
+
+    gone, _ = _fixture_readiness(coord, remove)
+    got2 = _readiness_verdicts(gone)
+    if got2.get("fx-r-guard-hit") != "blocked":
+        return False, ("F-W2a: with the declared output DELETED on a scratch copy, fx-r-guard-hit "
+                       "is %s — expected blocked. A guard must never be satisfied by an output "
+                       "that is not there." % got2.get("fx-r-guard-hit"))
+    return True, ("F-W2a: flipping `risk` high->low inside %s on a scratch copy SWAPS the two rows "
+                  "(ready<->%s), and deleting the artifact blocks the admitting row. The read "
+                  "point is the predecessor's validated output"
+                  % (FX_ROUTE_ARTIFACT, EXCLUDED_STATE))
+
+
+def check_alternate_join_whichever_ran(coord, pkg):
+    """7.425 CRITERION 2 — a join over `a|b` completes when exactly one alternate ran, and does not
+    complete when none did.
+
+    The second half is the DISCRIMINATING CONTROL: a join that completed on any input at all would
+    pass the first half alone, and "the join fired" would then say nothing about which branch was
+    taken."""
+    res = readiness(coord, pkg)
+    verdicts = _readiness_verdicts(res)
+    if verdicts.get("fx-r-join-one-taken") != "ready":
+        return False, ("7.425 criterion 2: a join whose first alternate is satisfied and whose "
+                       "second is excluded is %s, expected ready — the join is waiting on the "
+                       "branch that was NOT taken" % verdicts.get("fx-r-join-one-taken"))
+    if verdicts.get("fx-r-join-none-taken") != EXCLUDED_STATE:
+        return False, ("7.425 criterion 2 control: a join whose alternates are BOTH excluded is "
+                       "%s, expected %s — a join that completes with no branch taken completes on "
+                       "anything" % (verdicts.get("fx-r-join-none-taken"), EXCLUDED_STATE))
+    # THE ROW VERDICT IS NOT ENOUGH: a join met because BOTH limbs were met would pass the two
+    # assertions above while proving nothing about "whichever ran". The limb states are therefore
+    # read at the decision itself.
+    marks = {r["seat"]: r["disposition"] for r in run_stage(coord, pkg)}
+    member = coord.taskforce_after(pkg)["fx-r-join-one-taken"][0]
+    state, detail = member_state(coord, pkg, member,
+                                 marks, {r["seat"] for r in res[EXCLUDED_STATE]}, {})
+    kinds = [limb["state"] for limb in detail.get("limbs", [])]
+    if (state, kinds) != ("met", ["met", "excluded"]):
+        return False, ("7.425 criterion 2: the join member is %s with limbs %r, expected met with "
+                       "exactly one met limb and one excluded one" % (state, kinds))
+    return True, ("7.425 criterion 2: the join over one taken branch is READY, its limbs are %r "
+                  "(exactly one ran), and the control join with NO branch taken is %s"
+                  % (kinds, EXCLUDED_STATE))
+
+
+def check_guard_red_arms_fire(coord, pkg):
+    """7.425 CRITERION 4 — the three red arms the contract names FIRE, each on the fixture, each
+    with the wrong outcome named as what it would have been.
+
+      guard mismatch    the excluded state is reached, and the row is NOT readied
+      malformed ref     a bracketed token that did not decompose blocks and is NAMED
+      join over one taken branch   the join completes on the taken limb while the other is excluded
+
+    A fourth arm rides here because it is the one a reader assumes rather than checks: BLOCKED
+    BEATS the excluded state. A row with one excluded member AND one unfinished member is blocked —
+    calling it excluded would kill a branch over an edge nobody has finished evaluating."""
+    verdicts = _readiness_verdicts(readiness(coord, pkg))
+    arms = [
+        ("guard mismatch", "fx-r-guard-miss", EXCLUDED_STATE,
+         "an unsatisfied guard would have ADMITTED its row"),
+        ("malformed ref", "fx-r-malformed-guard", "blocked",
+         "an unparseable guard would have become a satisfied one"),
+        ("malformed alternate", "fx-r-join-malformed", "blocked",
+         "a join split in the wrong place would have routed on a fragment"),
+        ("join over one taken branch", "fx-r-join-one-taken", "ready",
+         "the join would have waited on the branch that was not taken"),
+        ("blocked beats %s" % EXCLUDED_STATE, "fx-r-block-beats-skip", "blocked",
+         "a half-evaluated row would have been declared a dead branch"),
+        ("exclusion propagates", "fx-r-skip-propagates", EXCLUDED_STATE,
+         "the row after an untaken branch would have blocked forever"),
+    ]
+    bad = [("%s: %s is %s, expected %s — %s" % (name, seat, verdicts.get(seat), want, harm))
+           for name, seat, want, harm in arms if verdicts.get(seat) != want]
+    if bad:
+        return False, "7.425 criterion 4: %d red arm(s) did NOT fire: %s" % (len(bad),
+                                                                             "; ".join(bad))
+    return True, ("7.425 criterion 4: all %d red arms fired — %s"
+                  % (len(arms), "; ".join("%s -> %s" % (n, verdicts[s]) for n, s, _w, _h in arms)))
 
 
 # ---- STEP 4's checks (task 7.125 / M4-10) -----------------------------------------------------
@@ -1465,7 +2205,7 @@ FX_JOB_ID = "fx-launch-seat"
 FX_PROFILE = "fx-profile"
 
 # Every ready seat the self-state intersection MUST exclude, with the mark that excludes it. All
-# eight are `ready` on the `after` term — their `after` cells are empty — and all eight are the
+# nine are `ready` on the `after` term — their `after` cells are empty — and all nine are the
 # wrong thing to launch. This is the leader's bar, spelled out row by row.
 EXPECT_ENQUEUE_EXCLUDED = {
     "fx-done-outputs-present": "done",
@@ -1476,6 +2216,7 @@ EXPECT_ENQUEUE_EXCLUDED = {
     "fx-empty-disposition":    "failed",
     "fx-renewed-then-done":    "done",
     "fx-no-iospec":            "done",
+    "fx-route":                "done",      # 7.425's guard predecessor — finished, never relaunched
 }
 
 # The seat -> seed the stage must produce, as paths RELATIVE to the fixture package (the check
@@ -1489,6 +2230,15 @@ EXPECT_ENQUEUE_SEED = {
     "fx-r-spaces":     ["outputs/present.md"],
     "fx-open-sitting": [],
     "fx-no-row":       [],
+    # 7.425: the rows the guard evaluator makes ready. Their `after` member is a GUARDED token, so
+    # the seed is the CLEAN predecessor's artifact — the same de-duplication, over a name the raw
+    # token does not carry. `fx-r-alternate`'s two limbs declare the same artifact; the join's two
+    # limbs name the same predecessor twice.
+    "fx-r-guard-hit":      ["outputs/route.json"],
+    "fx-r-guard-bool":     ["outputs/route.json"],
+    "fx-r-guard-number":   ["outputs/route.json"],
+    "fx-r-join-one-taken": ["outputs/route.json"],
+    "fx-r-alternate":      ["outputs/present.md"],
 }
 
 # The interface signature three later seats call. Spelled out as a literal, and asserted against
@@ -2117,6 +2867,11 @@ def build_fixture(root):
     pkg = root / "run-fx"
     (pkg / "outputs").mkdir(parents=True, exist_ok=True)
     (pkg / "outputs" / "present.md").write_text("fixture artifact — exists on disk\n")
+    # 7.425: `fx-route`'s VALIDATED OUTPUT — the object every guard in READY_AFTER is evaluated
+    # against. Three scalar kinds on purpose: a string, a number and a bool, because the guard's
+    # right-hand side is always TEXT and `_canonical_field` is what makes the comparison decidable.
+    (pkg / "outputs" / "route.json").write_text(
+        json.dumps({"risk": "high", "count": 2, "ok": True}, indent=2) + "\n")
     (pkg / "sessions.csv").write_text(
         "session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,"
         "pid-starttime,tty,disposition\n"
@@ -2129,7 +2884,8 @@ def build_fixture(root):
         "s-07,fx-open-sitting,claude,n-07,/fx,,2026-07-30 06:00,,107,1000,/dev/pts/7,\n"
         "s-08,fx-renewed-then-done,claude,n-08,/fx,,2026-07-30 05:00,2026-07-30 05:30,108,1000,/dev/pts/8,renew\n"
         "s-09,fx-renewed-then-done,claude,n-09,/fx,,2026-07-30 05:31,2026-07-30 06:10,109,1000,/dev/pts/9,done\n"
-        "s-10,fx-no-iospec,claude,n-10,/fx,,2026-07-30 06:00,2026-07-30 06:10,110,1000,/dev/pts/10,done\n")
+        "s-10,fx-no-iospec,claude,n-10,/fx,,2026-07-30 06:00,2026-07-30 06:10,110,1000,/dev/pts/10,done\n"
+        "s-11,fx-route,claude,n-11,/fx,,2026-07-30 06:00,2026-07-30 06:10,111,1000,/dev/pts/11,done\n")
     # The ROSTER half of `seats_of` is load-bearing, not decoration: `fx-no-row` has no session row
     # at all and is discoverable ONLY here. Without this file the stage silently never verifies it,
     # which is exactly how an un-launched seat becomes invisible instead of undecided — the first
@@ -2154,7 +2910,8 @@ def build_fixture(root):
         d.joinpath("seat.md").write_text(
             "---\nseat: %s\nharness: claude\n---\n<role id=\"fx-role\" version=\"latest\">\n"
             "A step-3 fixture row: it exists to carry an `after` cell.\n</role>\n" % seat)
-    iospec = {"fx-done-output-missing": "outputs/absent.md"}
+    iospec = {"fx-done-output-missing": "outputs/absent.md",
+              "fx-route": "outputs/route.json"}
     for seat in EXPECT:
         d = pkg / "seats" / seat
         d.mkdir(parents=True, exist_ok=True)
@@ -2195,9 +2952,16 @@ def cmd_selftest(fixture):
         # STEP 3 (M4-09)
         ("readiness-verdicts", lambda: check_readiness_verdicts(coord, pkg)),
         ("after-split-comma-only", lambda: check_after_split_is_comma_only(coord, pkg)),
-        ("no-conditional-evaluator", lambda: check_no_conditional_evaluator_or_third_verdict()),
         ("readiness-schema", lambda: check_readiness_schema(coord, pkg)),
         ("agrees-with-coord-ready-seats", lambda: check_agrees_with_coord_ready_seats(coord, pkg)),
+        # STEP 3b (7.425 / W2) — the guard evaluator and the third verdict
+        ("skipped-is-produced", lambda: check_skipped_is_produced_not_merely_named()),
+        ("no-second-grammar-decomposition", lambda: check_no_second_grammar_decomposition()),
+        ("guard-admits-and-excludes", lambda: check_guard_admits_and_excludes(coord, pkg)),
+        ("guard-reads-validated-output", lambda: check_guard_reads_the_validated_output(coord,
+                                                                                        pkg)),
+        ("alternate-join-whichever-ran", lambda: check_alternate_join_whichever_ran(coord, pkg)),
+        ("guard-red-arms-fire", lambda: check_guard_red_arms_fire(coord, pkg)),
         # STEP 4 (M4-10)
         ("enqueue-schema", lambda: check_enqueue_schema(coord, pkg)),
         ("enqueue-excludes-self-marked", lambda: check_enqueue_excludes_self_marked(coord, pkg)),
@@ -2242,11 +3006,12 @@ def main():
                         "or the roster")
     p.add_argument("--json", action="store_true", help="emit the marks as JSON")
     p.add_argument("--readiness", action="store_true",
-                   help="STEP 3: after marking, print which seats are ready and which are "
-                        "blocked, each blocked row naming its unmet predecessors. Readiness is "
-                        "the `after`-set term ONLY — it is not launch candidacy, and the "
-                        "verdict vocabulary is closed at ready/blocked because no conditional "
-                        "edge can be authored (issues.md G-301/G-308)")
+                   help="STEP 3: after marking, print which seats are ready, which are blocked "
+                        "(each naming its unmet predecessors) and which are SKIPPED (each naming "
+                        "the guard that excluded it). Readiness is the `after`-set term ONLY — it "
+                        "is not launch candidacy. A guard is evaluated against its predecessor's "
+                        "VALIDATED OUTPUT; a guard nobody can read leaves its row BLOCKED, never "
+                        "skipped")
     p.add_argument("--enqueue", action="store_true",
                    help="STEP 4: after marking and readiness, enqueue every LAUNCH CANDIDATE as a "
                         "daemon job seeded with its predecessors' declared outputs. Requires "
@@ -2344,6 +3109,10 @@ def main():
                 print("BLOCKED  %-28s %s" % (b["seat"], b["reason"]))
                 for p, note in b["notes"].items():
                     print("%-37s ⚠ `%s` — %s" % ("", p, note))
+            # 7.425: printed, never only in the JSON. A guard-excluded row that appears in no
+            # human-readable output is a branch that died where nobody was told.
+            for s in res["skipped"]:
+                print("SKIPPED  %-28s %s" % (s["seat"], s["reason"]))
             for c in res["caveats"]:
                 print("\ncaveat: %s" % c)
         return 0
