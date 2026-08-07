@@ -313,6 +313,11 @@ const NOT_WIRE_REACHABLE = new Map([
   // every one was raised inside server/pty/, and all five left with the module.)
   ['E_FS_SANDBOX_UNAVAILABLE', 'ticker-spawn-path only (bwrap sandbox resolve); spawn is never wire-triggered'],
   ['E_PROFILE_HALVES_UNSUPPORTED', 'ticker-spawn-path only (the G-144 profile-shape guard, raised by spawn AND spawnSeat immediately after the profile lookup); spawn is never wire-triggered — spawn-via-named-profile is D70-dropped on entry, dispatch never calls spawnManager.spawn/spawnSeat, and the only route to spawnSeat is server/index.js spawnManagerWithPty.spawn, which is the ticker dispatch phase'],
+  // Task 7.75 / r-seats-only-architecture (3) — the DISPATCH DOOR's two raise sites, both inside
+  // spawn() (no workdir at all, and a resolved workdir that is no seat folder). Same ticker-only
+  // ground as the two rows above, measured not inherited: spawn()'s ONLY caller is the decorated
+  // spawn at server/index.js:602, whose only caller is ticker.js's dispatch phase.
+  ['E_SEATLESS_GOAL_DISPATCH', 'ticker-spawn-path only (the task 7.75 dispatch door, raised at both sites inside spawn — no workdir, and a resolved workdir that is not a seat folder); spawn is never wire-triggered — spawn-via-named-profile is D70-dropped on entry before any spawn call, dispatch reaches the spawn manager only via status/logs/kill, and spawn()\'s sole caller is the ticker dispatch phase'],
   // Task 7.10 — the peer-identity resolver's refusals, classified on a stronger ground than "no
   // handler raises them": they are never THROWN at all. `resolvePeerSeat` returns every refusal as
   // DATA (`{ ok: false, code }`) and its one caller — the gateway's authenticate step — consumes
