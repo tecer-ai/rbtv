@@ -197,6 +197,25 @@ function resolveSeatFromCwd(startDir) {
 // live: the one-live-run invariant is maintained by hand tonight (7.77 has not landed), so a
 // missing row means the record does not say this run is open, and an identity gate may not
 // supply an optimistic default for a fact the record declines to state.
+//
+// Task 7.481 (BSC2) — WHICH REGISTER, AND WHICH ROW IN IT. BSC1 already pointed `parsed.runsCsv`
+// at the innermost COMPARTMENT's own register (a branch carries its own `runs.csv`; the goal's has
+// no row for it). What that left wrong is the ROW: this looked up `parsed.run`, and `parsed.run`
+// is deliberately the PARENT RUN for a branch seat — so a branch was looked up under `run-1` in a
+// register whose only row is `branch-1`, and every branch seat refused as "not provably live".
+// Measured on disk: `throwaway-cw15/runs/run-1/branches/branch-1/runs.csv` carries `run-id
+// branch-1`, and branch-shape-arms/arm2-out.json's D block measured the two verdicts this gate
+// must be able to tell apart.
+//
+// The lookup follows the COMPARTMENT, never the parent: the INNERMOST branch when there is one,
+// the run otherwise. Innermost rather than outermost is load-bearing at depth ≥2 — a `branch-2`
+// register states `branch-2`'s liveness and says nothing about `branch-1` — and the probe's
+// depth-2 arm is what separates the two choices rather than a comment claiming they differ.
+// `parsed.run` itself is NOT rewritten here: a branch is not a run, and folding one into the
+// other is the identity lie BSC1 refused (see the `branch` slot's note above).
+//
+// The refusal STRINGS are untouched, byte for byte, because callers match on them; only the
+// identity substituted into them follows the compartment.
 function checkRunLive(parsed) {
   const goals = readCsv(parsed.goalsCsv);
   if (!goals.exists) return { ok: false, reason: `goals.csv unreadable at ${parsed.goalsCsv}` };
@@ -218,17 +237,20 @@ function checkRunLive(parsed) {
     return { ok: false, reason: `goal ${parsed.goal} is not in ${parsed.goalsCsv}` };
   }
 
+  const branch = Array.isArray(parsed.branch) ? parsed.branch : [];
+  const compartment = branch.length ? branch[branch.length - 1] : parsed.run;
+
   const runs = readCsv(parsed.runsCsv);
   if (!runs.exists) return { ok: false, reason: `runs.csv unreadable at ${parsed.runsCsv}` };
   const runCol = runs.header.includes('run-id') ? 'run-id' : (runs.header.includes('run') ? 'run' : null);
   if (!runCol) return { ok: false, reason: `runs.csv carries no run-id/run column (header: ${runs.header.join(',')})` };
-  const row = runs.rows.find((r) => r[runCol] === parsed.run);
-  if (!row) return { ok: false, reason: `run ${parsed.run} has no row in ${parsed.runsCsv} — not provably live` };
+  const row = runs.rows.find((r) => r[runCol] === compartment);
+  if (!row) return { ok: false, reason: `run ${compartment} has no row in ${parsed.runsCsv} — not provably live` };
   if (!runs.header.includes('state')) {
     return { ok: false, reason: `runs.csv carries no state column (header: ${runs.header.join(',')})` };
   }
   if (row.state !== 'open') {
-    return { ok: false, reason: `run ${parsed.run} state is "${row.state}", not open` };
+    return { ok: false, reason: `run ${compartment} state is "${row.state}", not open` };
   }
   return { ok: true };
 }
