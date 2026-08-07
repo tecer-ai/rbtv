@@ -30,6 +30,8 @@
 // "turn finished" on `status === 'done'` would miss every real reply. We key on
 // the `live` flag transitioning to false (dispatch.js inspect status → `live`).
 
+const { toMrkdwn } = require('./mrkdwn');
+
 // Fixed fallback delivered when a run ends with no parseable reply line — the raw
 // log is NEVER dumped into Slack (D110 step 4).
 const FALLBACK_TEXT = '⚠ agent run ended without a parseable reply';
@@ -238,7 +240,12 @@ function createReplyLeg({
             if (!read.fetched) {
               failure = 'logs-fetch-failed';
             } else {
-              const text = read.text != null ? read.text : FALLBACK_TEXT;
+              // Markdown → mrkdwn on the AGENT'S text only (the fixed notices are already mrkdwn
+              // and must never be rewritten). The seat is told the rules; twice measured it sent
+              // markdown anyway, so the conversion happens at the one place every reply passes.
+              // No-op on a reply that already followed the rules. See mrkdwn.js's header for why
+              // this is output normalization, not the behavioural text the bridge may not carry.
+              const text = read.text != null ? toMrkdwn(read.text) : FALLBACK_TEXT;
               if (read.text == null) log('warn', 'reply leg found no parseable result line — delivering fallback', { chatThreadId: id, execId });
               const d = await deliver({ chatThreadId: id, text, markAsk: false }); // plain agent output (D105 note; ask-detection out of scope v1)
               if (d && d.delivered === false) {

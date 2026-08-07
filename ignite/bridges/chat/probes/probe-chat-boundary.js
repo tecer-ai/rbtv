@@ -26,7 +26,13 @@ const RUNTIME_FILES = fs.readdirSync(SRC_DIR)
 const FORBIDDEN = [
   { name: 'store-driver (node:sqlite)', re: /node:sqlite|DatabaseSync/ },
   { name: 'store-open (heart store)', re: /openHeartStore|heart-store/ },
-  { name: 'child process / spawn', re: /child_process|\bspawn\s*\(|execFile|execSync|\.exec\s*\(/ },
+  // `\.exec\s*\(` was an alternative here until 2026-08-07: it cannot tell `cp.exec(cmd)` from
+  // `SOME_REGEX.exec(line)`, and it fired on the latter in mrkdwn.js. Dropped rather than worked
+  // around, and nothing is lost — a child process cannot be started without `child_process`
+  // reaching the file, which the FIRST alternative matches in every import form. Keeping a
+  // pattern whose hits are dominated by false positives trains the next reader to wave them off,
+  // which is how a real hit gets waved off too.
+  { name: 'child process / spawn', re: /child_process|\bspawn\s*\(|execFile|execSync/ },
   { name: 'inbound listener (server)', re: /createServer|WebSocketServer|\.listen\s*\(/ },
   { name: 'sibling reach-out (server/gateway/cli)', re: /require\(['"]\.\.\/\.\.\/(server|gateway|cli)\b|require\(['"]\.\.\/(server|gateway|cli)\b/ },
   { name: 'raw queue/store write', re: /INSERT INTO|BEGIN EXCLUSIVE|\.enqueue\s*\(|removeQueueRow|fireQueueRow/ },
