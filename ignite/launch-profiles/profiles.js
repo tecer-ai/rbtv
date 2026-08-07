@@ -614,13 +614,20 @@ function resolveTemplateSlots(template, values) {
   });
 }
 
-function canonicalizeWorkdir(requested, filePath) {
+// A RELATIVE requested workdir is anchored on the WORKSPACE ROOT, never on the daemon's own
+// process.cwd() — the SAME constraint resolveWorkdir already applies to a workspace-relative
+// `workdir_root` below (D58 repoint, D26(3)). cwd is "a convenience default for dev runs"
+// (server/index.js's own comment on its root resolution), so anchoring a workdir on it makes the
+// resolution a function of the START DIRECTORY: the identical job row lands in a different folder,
+// or fails realpath outright, purely by how the unit was started. An ABSOLUTE workdir is
+// UNCHANGED — path.resolve ignores every preceding segment once one is absolute.
+function canonicalizeWorkdir(requested, filePath, workspaceRoot = null) {
   if (requested === undefined || requested === null) return null;
   if (typeof requested !== 'string' || requested.length === 0) {
     throw new SpawnError(E_CONFIG_LOAD, 'workdir must be a non-empty string', { file: filePath });
   }
   try {
-    const resolved = fs.realpathSync(path.resolve(requested));
+    const resolved = fs.realpathSync(path.resolve(workspaceRoot || process.cwd(), requested));
     return resolved;
   } catch (err) {
     throw new SpawnError(E_CONFIG_LOAD, `workdir does not exist or is not resolvable: ${requested}`, { workdir: requested });
@@ -687,7 +694,7 @@ function resolveWorkdir(profile, requestedWorkdir, defaultWorkdirRoot, filePath,
     return resolved;
   }
 
-  const resolved = canonicalizeWorkdir(requestedWorkdir, filePath);
+  const resolved = canonicalizeWorkdir(requestedWorkdir, filePath, workspaceRoot);
   const allowedRoot = fs.realpathSync(workdirRootAbs);
   if (resolved !== allowedRoot && !resolved.startsWith(allowedRoot + path.sep)) {
     throw new SpawnError(E_WORKDIR_ESCAPE, `workdir ${resolved} is outside profile workdir_root ${allowedRoot}`, { workdir: resolved, allowedRoot });
