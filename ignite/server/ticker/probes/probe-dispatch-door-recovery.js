@@ -61,8 +61,18 @@ async function run(lines) {
     // A recovery-SHAPED tool: a real subprocess, launched by the carrier, with its target in argv
     // exactly as the live `selfheal-room` / `recover-room.py` entries carry theirs. What matters
     // for this probe is the LANE, not the payload.
+    //
+    // ⚠ THE PAYLOAD MUST OUTLIVE THE TICK (G-console-master-0807-2331). Dispatch and enforce are
+    // phases of the SAME tick, so an instant tool (`bash -c 'echo recovered'`) has already exited
+    // by the time the crash sweep looks — and M3's verdict then hangs on whether the carrier's
+    // exit marker has landed yet: marker present -> `done`, marker not yet written -> `failed`.
+    // Measured 1/5 solo and 3/10 under a concurrent `--dir server` suite, same code, same
+    // selection — a `crash-sweep` on an exit-0 tool. A long-lived child fixes the ORDERING
+    // M3 asserts (the process is still live when the sweep runs, so the row is `running`), which
+    // is the only thing this leg is about; teardown() reaps the unit on PASS or FAIL. The
+    // marker-vs-sweep window itself is a PRODUCTION race, filed separately — never probe-side.
     ctx.store.config.tools = {
-      'recover-room-probe': { argv: ['bash', '-c', 'echo recovered'] },
+      'recover-room-probe': { argv: ['sleep', '3600'] },
     };
 
     // The required-argument set is the ACTION TYPE'S, and the store enforces it at registration
