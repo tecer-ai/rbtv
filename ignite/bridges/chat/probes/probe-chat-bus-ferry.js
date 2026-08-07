@@ -390,6 +390,172 @@ async function main() {
       { def: { busFerry: def.busFerry, dm: def.busFerryDmUser }, on: on.busFerryDmUser, explicit: explicit.busFerryDmUser });
   }
 
+  // 11 — THE ROLE ROUTE (owner ruling 2026-08-07). Two defects, one seam:
+  //      (a) a row addressed to the ROLE reached the OWNER even when a live seat held the
+  //          role and was about to read it;
+  //      (b) the owner's reply in the ferry's own thread opened a sitting that could NOT
+  //          see the row that started it — the ferry's post was never a conversation.
+  //
+  //      ⚑ EVERY LEG HERE IS KEYED ON `relays:`, NEVER ON A SEAT NAME. The fixture seat is
+  //      deliberately called `goal-master` — a name the ferry's `to:` matcher does NOT match
+  //      — so a fix that keyed on the name would fail leg (a) instead of passing it.
+  {
+    const root = mkroot();
+    const { file } = seedRun(root, 'goal-r', 'run-1', { backlogRows: 1 });
+    const runDir = path.join(root, '.rbtv', 'goals', 'goal-r', 'runs', 'run-1');
+    const roster = path.join(runDir, 'coordination', 'workers.md');
+    const seatMd = (seat) => path.join(runDir, 'seats', seat, 'seat.md');
+    const writeSeat = (seat, relays) => {
+      fs.mkdirSync(path.dirname(seatMd(seat)), { recursive: true });
+      fs.writeFileSync(seatMd(seat), `---\nseat: ${seat}\n${relays ? `relays: ${relays}\n` : ''}---\nbody\n`);
+    };
+    const writeRoster = (rows) => fs.writeFileSync(roster,
+      '# workers — agent sessions (script-managed, do not edit by hand)\n\n'
+      + '| agent | active | tmux pane | working on | checked in | checked out | last-read |\n'
+      + '|-------|--------|-----------|------------|------------|-------------|-----------|\n'
+      + rows.map(([a, live]) => `| ${a} | ${live ? 'yes' : 'no'} | %1 | w | t1 | ${live ? '' : 't2'} | 0 |\n`).join(''));
+
+    // (a) A LIVE role holder → the row is NOT ferried at all, and the cursor still advances.
+    writeSeat('goal-master', 'master');
+    writeSeat('leader', null);
+    writeRoster([['leader', true], ['goal-master', true]]);
+    const held = makeBridge({ workspaceRoot: root });
+    await held.bridge.start();
+    await held.bridge.busFerry.tick();                  // first sight → cursor at tail
+    append(file, msgRow(2, 'leader', 'master', 'ask', 'ruling needed on the branch shape'));
+    await held.bridge.busFerry.tick();
+    check('a LIVE seat declaring relays:master stands the ferry down — nothing posted, cursor advanced',
+      held.slack.posted.length === 0 && held.bridge.busFerry._cursors.get('goal-r/run-1') === 2,
+      { posted: held.slack.posted.length, cursor: held.bridge.busFerry._cursors.get('goal-r/run-1') });
+
+    // MUTATION 1 — the same seat CHECKED OUT must flip the decision to route.
+    writeRoster([['leader', true], ['goal-master', false]]);
+    append(file, msgRow(3, 'leader', 'master', 'note', 'seat parked — nobody is reading'));
+    await held.bridge.busFerry.tick();
+    check('MUTATION: the role holder checked out → the row IS routed (fail toward delivery)',
+      held.slack.posted.length === 1 && /#3/.test(held.slack.posted[0].text),
+      { posted: held.slack.posted.length, text: held.slack.posted[0] && held.slack.posted[0].text });
+
+    // MUTATION 2 — live, but the descriptor declares no `relays:` → route. Proves the
+    // decision reads the DECLARATION and not merely "some seat is alive".
+    writeSeat('goal-master', null);
+    writeRoster([['leader', true], ['goal-master', true]]);
+    append(file, msgRow(4, 'leader', 'master', 'note', 'live seat, no relays declaration'));
+    await held.bridge.busFerry.tick();
+    check('MUTATION: a LIVE seat with no relays: declaration does NOT stand the ferry down',
+      held.slack.posted.length === 2 && /#4/.test(held.slack.posted[1].text),
+      { posted: held.slack.posted.length });
+    held.bridge.stop();
+
+    // (b) NO role holder → the post MINTS a sitting, and the owner's un-mentioned reply in
+    //     that thread CONTINUES it as a follow-up. This is the Slack transcript defect: the
+    //     sitting must now hold the bus row that opened its thread.
+    const root2 = mkroot();
+    const { file: file2 } = seedRun(root2, 'goal-s', 'run-1', { backlogRows: 1 });
+    const forwards = [];
+    // The minted session-create's queue row is 7; its session is live on chain thread
+    // `exec-7`, so the follow-up's chain resolution (thread-map tier 1) succeeds and the
+    // reply leg below asserts the FULL path rather than a decline.
+    const spyForwarder = {
+      async forward(intent, payload) { forwards.push({ intent, payload }); return { ok: true, result: { jobId: 7 } }; },
+      async inspect() {
+        return { ok: true, result: { live_sessions: [{ queue_id: 7, exec_id: 7, thread: 'exec-7' }], recent_ticks: [] } };
+      },
+    };
+    const slack2 = makeFakeSlack();
+    const b2 = buildBridge({
+      gatewayAddr: '127.0.0.1:0', bridgeToken: 'stub', sessionJobId: 'chat-launch',
+      sessionProfile: 'p', sendMessageJobId: 'send-message', workdir: null,
+      workspaceRoot: root2, channelPrefix: 'test-', stateFile: null, busFerry: true,
+      busFerryDmUser: USER, allowlist: [USER],
+      slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
+    }, {
+      logger: () => {}, makeTransport: () => slack2, forwarderImpl: spyForwarder,
+      replyLegOptions: { pollMs: 3600000 }, busFerryOptions: { pollMs: 3600000 },
+    });
+    await b2.bridge.start();
+    await b2.bridge.busFerry.tick();
+    append(file2, msgRow(2, 'leader', 'master', 'note', 'the owner-review doc is ready'));
+    await b2.bridge.busFerry.tick();
+
+    const rowText = slack2.posted[0] && slack2.posted[0].text;
+    const minted = `${DM}:1.0`;                          // the fake's post ts
+    const create = forwards.find((f) => f.payload && f.payload.job_id === 'chat-launch');
+    check('with NO role holder the row is posted AND mints a channel-master session-create',
+      slack2.posted.length === 1 && Boolean(create) && create.intent === 'enqueue-job',
+      { posted: slack2.posted.length, forwards: forwards.map((f) => f.payload && f.payload.job_id) });
+    // NARROWED 2026-08-07 (owner amendment `r-bare-prompt-admits-one-correlation-id`): the
+    // prompt may carry ONE leading `chat-thread: <channel>:<ts>` line — the sitting's own
+    // thread, so it can stamp a bus relay with where the answer belongs. Behind that line the
+    // row must STILL be byte-identical: no second rendering, no charter.
+    const CORRELATION_PREFIX = /^chat-thread: [A-Z][A-Z0-9_]{2,}(?::\d+\.\d+)?\n\n/;
+    const mintedPrompt = create && String(create.payload.args.prompt);
+    check('the minted session-create prompt IS the posted row byte-for-byte, behind at most the one correlation line',
+      Boolean(create) && mintedPrompt.replace(CORRELATION_PREFIX, '') === rowText,
+      { prompt: mintedPrompt, posted: rowText });
+    check('and that correlation line names the thread the sitting was minted on',
+      Boolean(create) && mintedPrompt.startsWith(`chat-thread: ${minted}\n\n`),
+      { prompt: mintedPrompt, minted });
+    check('the ferry post is now a CONVERSATION keyed on its own ts — the owner can reply into it',
+      b2.threadMap.has(minted), { minted, mapped: b2.threadMap.has(minted) });
+
+    // THE REPRO: an un-mentioned DM reply inside the minted thread. Before this change the
+    // thread was unknown, so it minted a SECOND session that had never seen the bus row.
+    const before = forwards.length;
+    await b2.bridge.onChatMessage({
+      chatUserId: USER, chatThreadId: minted, text: 'anybody there?',
+      _channel: DM, _channelType: 'im', _threadTs: '1.0', _msgTs: '2.0', _inThread: true,
+    });
+    const after = forwards.slice(before);
+    check("the owner's reply in that thread CONTINUES the sitting — send-message on the row's own chain, never a second session",
+      after.length === 1 && after[0].payload.job_id === 'send-message'
+      && after[0].payload.args.thread === 'exec-7'
+      && after[0].payload.args.corpus === 'anybody there?',
+      { jobs: after.map((f) => f.payload && f.payload.job_id), thread: after[0] && after[0].payload.args.thread });
+    b2.bridge.stop();
+
+    // (b2) THE SENDER USED THE SEAT'S NAME INSTEAD OF THE ROLE ADDRESS — measured live on
+    //      2026-08-07: within two hours of the rename the leader was writing `to: goal-master`
+    //      (#5585/#5606/#5616). coord.py delivers those, so nothing looks wrong WHILE the seat
+    //      is checked in — and the moment it checks out they reach nobody, which is the exact
+    //      failure this module exists to prevent. The name must travel like the role address.
+    const rootN = mkroot();
+    const { file: fileN } = seedRun(rootN, 'goal-n', 'run-1', { backlogRows: 1 });
+    const runDirN = path.join(rootN, '.rbtv', 'goals', 'goal-n', 'runs', 'run-1');
+    fs.mkdirSync(path.join(runDirN, 'seats', 'goal-master'), { recursive: true });
+    fs.writeFileSync(path.join(runDirN, 'seats', 'goal-master', 'seat.md'),
+      '---\nseat: goal-master\nrelays: master\n---\nbody\n');
+    fs.writeFileSync(path.join(runDirN, 'coordination', 'workers.md'),
+      '| agent | active | tmux pane | working on | checked in | checked out | last-read |\n'
+      + '|-------|--------|-----------|------------|------------|-------------|-----------|\n'
+      + '| goal-master | no | %1 | parked | t1 | t2 | 0 |\n');
+    const byName = makeBridge({ workspaceRoot: rootN });
+    await byName.bridge.start();
+    await byName.bridge.busFerry.tick();
+    append(fileN, msgRow(2, 'leader', 'goal-master', 'verdict', 'addressed to the SEAT, not the role'));
+    append(fileN, msgRow(3, 'leader', 'some-worker', 'note', 'a seat that does NOT hold the role'));
+    await byName.bridge.busFerry.tick();
+    check('a row addressed to the HOLDER SEAT BY NAME travels when that seat is checked out',
+      byName.slack.posted.length === 1 && /#2/.test(byName.slack.posted[0].text),
+      { posted: byName.slack.posted.map((p) => p.text.slice(0, 60)) });
+    check('a row addressed to a seat that does NOT declare the role is still ignored (no over-match)',
+      !byName.slack.posted.some((p) => /#3/.test(p.text)),
+      { posted: byName.slack.posted.length });
+    byName.bridge.stop();
+
+    // (c) CANNOT TELL — no roster at all → route, never swallow.
+    const root3 = mkroot();
+    const { file: file3 } = seedRun(root3, 'goal-t', 'run-1', { backlogRows: 1 });
+    const b3 = makeBridge({ workspaceRoot: root3 });
+    await b3.bridge.start();
+    await b3.bridge.busFerry.tick();
+    append(file3, msgRow(2, 'leader', 'master', 'note', 'no roster on disk'));
+    await b3.bridge.busFerry.tick();
+    check('an ABSENT roster is cannot-tell and routes the row (never silence)',
+      b3.slack.posted.length === 1, { posted: b3.slack.posted.length });
+    b3.bridge.stop();
+  }
+
   for (const r of roots) { try { fs.rmSync(r, { recursive: true, force: true }); } catch {} }
 
   const pass = checks.every((c) => c.pass);

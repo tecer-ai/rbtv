@@ -147,7 +147,7 @@ no send-to-session code path in this module, by construction — and since task 
 retired the intent, there is none anywhere: the constraint is now structural rather
 than a discipline this module keeps.
 
-### The prompt is the bare user text (owner ruling 2026-08-06)
+### The prompt is the bare user text, plus at most one correlation line (owner ruling 2026-08-06, amended 2026-08-07)
 
 A session-create carries `args: { profile, prompt, workdir }` where **`prompt` is the
 user's message, verbatim** — on the master, mention and goal legs alike. The bridge
@@ -155,8 +155,25 @@ ships **zero behavioural text**: who a session is and how it answers travel with
 seat it is homed at, through that seat's `seat.md` and the auto-injected `CLAUDE.md`
 chain above it. That keeps identity in one place its owner edits, and keeps
 instance-specific paths out of repo source (the retired `MASTER_CHARTER` constant
-carried an absolute `/home/…` path). `probe-chat-mention-route` asserts both — the
-verbatim prompt, and the absence of any instance path in the runtime source.
+carried an absolute `/home/…` path).
+
+**THE ONE ADMITTED PREFIX (owner amendment 2026-08-07, goal ledger
+`r-bare-prompt-admits-one-correlation-id`).** The prompt may begin with exactly ONE line,
+`chat-thread: <channel>:<ts>`, followed by a blank line — the sitting's own thread id, so a
+sitting that relays a question onto the coordination bus can say where the answer belongs.
+Before the amendment nothing could tell a sitting which thread it was, which left the
+master→channel-master return leg with no producer for its routing token.
+
+**The ban on behaviour is unchanged and total** — no charter, no identity, no instructions,
+no instance paths — and this admits ONE addressed FACT, on the chat legs only. The probes
+were NARROWED, not relaxed: `probe-chat-mention-route` and `probe-chat-bus-ferry` strip at
+most one line of that exact shape and assert the remainder is the user text verbatim, so a
+charter is still caught. Any other prefix is still a failure.
+
+⚠ **Plain here, BRACKETED on the way back.** Only `[chat-thread: …]` routes a bus row to a
+thread (`bus-ferry.js`). The plain form is deliberately inert: if a relay carried the
+bracketed form, the ferry would read an outbound question as an inbound answer and mint a
+sitting from it — the question returning to its own thread.
 
 ### Where a session runs
 
@@ -235,7 +252,7 @@ failed post is logged and dropped, never retried into a loop), and are posted ON
 for mapped conversations — never on an allowlist/pairing refusal (unpaired users get
 nothing, by security posture).
 
-## Bus ferry (`bus-ferry.js`) — coordination bus → your DM, one way
+## Bus ferry (`bus-ferry.js`) — coordination bus → the master's seat, whichever one is live
 
 Run agents answer the master over the team-kit **coordination bus**
 (`<goal>/runs/<run>/coordination/messages.md`). The channel-master's Slack sittings are
@@ -243,9 +260,47 @@ Run agents answer the master over the team-kit **coordination bus**
 question, a blocked report — sat unread until somebody opened the file. The ferry is the
 missing push.
 
+**`master` is an ADDRESS, not a seat name** (owner ruling 2026-08-07). A sender always
+writes `to: master` and never learns which seat received it — the bus resolves the role word
+through `relays:` on the seat descriptors (coord.py `relay_seats`), and the daemon decides
+which of the master's three seats the row reaches. The seat holding the role is `goal-master`
+in a run and may be named otherwise in the next one, so no rung of this module may key on a
+name it hardcodes.
+
+⚠ **But the ferry DOES match the holder seat's own name — because senders drift, measured.**
+Within two hours of that seat being renamed `master` → `goal-master`, the leader was writing
+`to: goal-master` (rows #5585 / #5606 / #5616, 2026-08-07). coord.py delivers those fine — it is
+a real roster name — so nothing looks wrong **while the seat is checked in**, and the moment it
+checks out they reach nobody: no seat reading them, no fallback, nothing in the owner's DM. That
+is the 2026-08-06 failure returning through the new name. So `addressesMaster` matches the role
+token **plus any seat whose descriptor declares it**, resolved lazily (one descriptor read per
+distinct `to:` name, memoized per pass, zero when senders use the role address as they should).
+The convention still stands; it is simply no longer what the fallback depends on.
+
 **Scope is one way, deliberately: bus → Slack only.** Slack → bus stays the sittings'
 job. The ferry adds no gateway capability, no store handle, no listener and never writes
 to the bus; it reads workspace files and posts outbound through the transport.
+
+### Where a role-addressed row goes — the two branches
+
+| The run's roster says | The row |
+|---|---|
+| a seat is **checked in** (`workers.md` `active=yes`, last row per agent wins) **and declares `relays: master`** | is **not ferried at all** — that seat's own inbox and wake already deliver it. The cursor still advances: the row was disposed of by a better-placed reader, and re-offering it when that seat checks out would deliver it twice. |
+| **nobody** holds the role — or the roster cannot be read at all | is **routed to the standing `channel master`**: posted to the owner's DM, and that post's own thread is **minted as a sitting** (`chat-bridge.js` `routeBusRowToMaster`), so an agent handles the row and the owner reads the handling instead of triaging the raw row. |
+
+**Cannot-tell routes.** A missing roster, an unreadable one and a roster where nobody holds
+the role are one branch, not three: the failure this module exists to fix was a row nobody
+read, so ambiguity always resolves toward delivery.
+
+**The minted sitting is why the owner can reply at all.** `sendToOwner` already returns the
+post's `ts`; the bridge keys the conversation `<dmChannel>:<ts>`, which is exactly the id
+`routeOf`'s DM branch assigns to a reply in that thread. So an un-mentioned reply is a
+FOLLOW-UP on the sitting that already holds the bus row — before this, the ferry's post was
+never a conversation, the reply minted a SECOND session, and that session had never seen the
+row that started its thread (owner-hit 2026-08-07: *"did u send the message in the beginning
+of this conversation?"* → *"No"*, truthfully). The minted session's prompt is the SAME TEXT
+that was posted, byte-for-byte — the relayed row with its provenance header, not behavioural
+text authored here; the 2026-08-06 bare-prompt ruling is untouched.
 
 | Config key | Meaning |
 |------------|---------|
@@ -288,7 +343,7 @@ Bodies over ~3000 chars are cut at a **line boundary** and end
 | `chat-bridge.js` | wires transport + allowlist + thread-map + forward-path + reply-leg; inbound + outbound |
 | `forward-path.js` | the D104/D105 forward contract (session-create / follow-up / reply type) |
 | `reply-leg.js` | the D110 outbound driver: worker turn finishes → fetch its answer via `inspect` → `deliverToOwner` into the Slack thread |
-| `bus-ferry.js` | the bus ferry: coordination-bus rows addressed to `master` → the owner's Slack DM (one way; cursor-at-tail, persisted) |
+| `bus-ferry.js` | the bus ferry: coordination-bus rows addressed to the `master` ROLE → the live role-holding seat (stand down) or the channel master (post + mint a sitting). One way; cursor-at-tail, persisted |
 | `slack-socket-mode.js` | Slack Socket Mode transport (outbound WS + chat.postMessage) |
 | `allowlist.js` | chat-user allowlist + DM pairing (admission control) |
 | `thread-map.js` | chat-thread ↔ turn-chain map + two-tier chain-thread resolution (live_sessions, else the `exec-<first exec_id>` convention derivation; first-wins immutable exec-id) |
@@ -369,7 +424,7 @@ graded for staleness (`ignite/CLAUDE.md` § probes). Evidence → `probe-chat-<n
 | `probe-chat-reply-leg` | #4 | the D110 driver, armed through the REAL inbound wiring (Slack event → forward path → arm): spawn captured from `recent_ticks` → `live:false` → LAST stream-json result line extracted (multi-page logs paged to the end) → posted to the conversation's channel+thread, text-EQUAL to the result string; no-result log delivers the fixed fallback (never the raw log); no exec delivered twice; a follow-up turn (new exec, same queue) delivers a second reply; a transient logs failure or refused post is retried (nothing burned), persistent failure retires the exec undelivered at a bounded attempt cap AND posts the honest give-up notice (D111 part 2) |
 | `probe-chat-mention-route` | — | the 2026-08-06 rulings: a mention in an unmapped channel routes as master with a thread-scoped conversation and an in-thread reply address; an unmentioned (or someone-else-mentioning) message there stays refused with nothing enqueued; `mpim` stays refused even when mentioned; a failed `auth.test` DISABLES the mention route while the DM path keeps working; a goal session-create is homed at the open run's `goal-master` seat; each of the four unresolvable-seat states (no open run · run open but unseated · goal absent · `workspace_root` unset) enqueues nothing and posts the fixed no-seat notice; every session-create prompt equals the user text verbatim; the runtime source carries no instance path and no `MASTER_CHARTER`; and the **mint-vs-continue** rule — a mention mints, an un-mentioned reply in a KNOWN thread continues as a follow-up `send-message`, while an unknown thread, a top-level message, and the same `thread_ts` in another channel each stay refused with nothing enqueued |
 | `probe-chat-state-persistence` | — | the 2026-08-06 `state_file` ruling, modelled as a real restart (a SECOND `buildBridge` on the same file, fresh maps, the same still-running daemon): a mutation writes the file (0600, directory created) carrying BOTH tables; the restarted bridge starts empty, restores at `start()`, and an **un-mentioned reply in the restored thread CONTINUES** — the owner's amnesia repro, now green — with the restored reply address still addressing the original channel+thread; the CONTROL run with no `state_file` refuses that same reply; with no `state_file` **nothing is written anywhere** (asserted against an empty cwd); a corrupt file is renamed aside `.corrupt-<ts>`, logged at `error`, starts EMPTY without crashing, and still mints and re-persists afterwards; `closeGoal`'s reply-address DELETE is persisted; a relative `state_file` is refused at config resolution while unset stays `null` |
-| `probe-chat-bus-ferry` | — | the bus ferry: a 50-row `to: master` backlog is NOT ferried at first sight and the cursor lands at the tail; a row appended after IS ferried once with the exact header; `to: leader` is ignored while `to: master, leader` ferries and `goal-master` does not; an over-long body truncates at a line boundary naming the workspace-relative source; a torn trailing row is left unposted until it completes; malformed headers warn once then drop to debug without stopping the rows around them; a failed post is retried without advancing the cursor and without letting the next row jump it, then is skipped loudly at the attempt cap leaving the ferry UNWEDGED; the cursor survives a real restart (second `buildBridge`, same `state_file` → no double-post, no re-flood) with the state file EXTENDED not restructured; a `state=closed` run is never enumerated; and the fail-closed set — off by default, on-without-`workspace_root`, and a failed `conversations.open` — each disables the ferry loudly while the bridge starts fine |
+| `probe-chat-bus-ferry` | — | the bus ferry: a 50-row `to: master` backlog is NOT ferried at first sight and the cursor lands at the tail; a row appended after IS ferried once with the exact header; `to: leader` is ignored while `to: master, leader` ferries and `goal-master` does not; an over-long body truncates at a line boundary naming the workspace-relative source; a torn trailing row is left unposted until it completes; malformed headers warn once then drop to debug without stopping the rows around them; a failed post is retried without advancing the cursor and without letting the next row jump it, then is skipped loudly at the attempt cap leaving the ferry UNWEDGED; the cursor survives a real restart (second `buildBridge`, same `state_file` → no double-post, no re-flood) with the state file EXTENDED not restructured; a `state=closed` run is never enumerated; and the fail-closed set — off by default, on-without-`workspace_root`, and a failed `conversations.open` — each disables the ferry loudly while the bridge starts fine. **The 2026-08-07 role route:** a LIVE roster seat declaring `relays: master` stands the ferry down with nothing posted and the cursor advanced, while the same seat CHECKED OUT routes and a LIVE seat with NO `relays:` declaration also routes (so the decision reads the DECLARATION, not "some seat is alive" — the fixture seat is named `goal-master`, a name the `to:` matcher does not match, so keying on the name fails these legs); with no holder the post MINTS a sitting whose session-create prompt equals the posted row byte-for-byte, the conversation is keyed on the post's own `ts`, and an un-mentioned reply in that thread CONTINUES it as a `send-message` on the row's own chain instead of minting a second session; an ABSENT roster routes. Every leg mutation-tested (3 mutations, 3 red on exactly their own legs) |
 | `probe-chat-boundary` | #5 | bridge source holds no spawn/queue handle, opens no server, imports no sibling |
 | `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; **exec KNOWN but NOT live → derives `exec-<firstExecId>`** (D111 convention fallback); **first-exec immutability** (a later exec-id bind is ignored); **exec-id-unknown DECLINES** (nothing enqueued) and posts the exact decline notice to the mapped thread while an allowlist-refused user gets nothing; a failed notice post is logged and dropped (no retry loop) |
 

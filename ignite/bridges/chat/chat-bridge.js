@@ -46,12 +46,83 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // Constructed always, STARTED only when enabled — so `busFerry.toJSON()` has a stable
   // shape in the state file whether or not the ferry ran. It holds no forwarder and no
   // thread map: it reads workspace files and posts through the transport, nothing else.
+  //
+  // ⚑ WHERE A ROLE-ADDRESSED ROW GOES WHEN NOBODY HOLDS THE ROLE (owner ruling 2026-08-07).
+  // The ferry decides WHETHER a row travels (its roster check); this decides WHERE. Both
+  // halves of the owner's two complaints are one seam:
+  //   (1) the row reached the OWNER as work instead of reaching an AGENT — so the post is
+  //       followed by a session-create at the channel-master seat, and the owner reads the
+  //       agent's handling rather than triaging the raw row;
+  //   (2) the owner's reply in that thread opened a sitting that could not see the row that
+  //       started it — because the ferry's post was never a conversation. `sendToOwner`
+  //       already returns the post's `ts` and the ferry discarded it; minting
+  //       `<dmChannel>:<ts>` here makes the owner's reply a FOLLOW-UP on this sitting
+  //       (routeOf's DM branch keys on exactly that id), so the row is in its history.
+  // The prompt is the SAME TEXT that was posted — no second rendering, and no behavioural
+  // text authored by the transport (the 2026-08-06 bare-prompt ruling is untouched: this is
+  // the relayed row itself, provenance header included, not a charter).
+  // ⚑ THE RETURN LEG (owner ruling 2026-08-07, doubts-queue discussion at the goal-master
+  // door). A row that NAMES its own chat thread needs no post at all: the post above exists
+  // ONLY to manufacture a `ts` to key a sitting on, and a named thread already is one. So
+  // this branch mints the sitting DIRECTLY and posts NOTHING — which is the whole point of
+  // the ruling: the owner asked that the answer reach the CHANNEL-MASTER, not that a raw bus
+  // row be pushed at him. He sees the agent's message in the thread he asked in, and never
+  // the plumbing.
+  //
+  // ⚑ IT FALLS THROUGH, NEVER DROPS. If the mint fails for any reason the row continues to
+  // the posting path below and the owner gets it raw — degraded, but never lost. That is the
+  // same "the row IS delivered either way" discipline the post-first path already keeps.
+  async function routeBusRowToMaster({ channel, text, chatThread = null }) {
+    if (chatThread) {
+      // The reply leg posts by CHAT THREAD ID, so a thread this process has never seen (a
+      // bridge restart, or the first return row of a conversation minted before the state
+      // file existed) needs its reply address derived. `<channel>:<ts>` is the id's grammar.
+      if (!replyAddr.has(chatThread)) {
+        const cut = chatThread.lastIndexOf(':');
+        if (cut > 0) replyAddr.set(chatThread, { channel: chatThread.slice(0, cut), threadTs: chatThread.slice(cut + 1) });
+      }
+      const back = await forwardPath.forwardSessionCreate({
+        chatThreadId: chatThread, text, route: { kind: 'master', goalId: null },
+      });
+      if (back && back.forwarded) {
+        replyLeg.arm(chatThread);
+        saveState();
+        log('info', 'bus row minted a channel-master sitting on its own named thread — nothing posted', { chatThreadId: chatThread, queueId: back.queueId });
+        return { delivered: true, ts: null };
+      }
+      log('warn', 'bus row named a chat thread but no sitting was minted — falling back to the owner DM post', { chatThreadId: chatThread, reason: (back && (back.reason || back.error)) || 'unknown' });
+    }
+    const posted = await transport.sendToOwner({ channel, threadTs: null, text });
+    if (!posted || !posted.delivered) return posted; // ferry retries; nothing minted
+    if (!posted.ts) {
+      // Delivered but unthreadable: keep the delivery (the owner has the row) and say so.
+      // Minting a conversation on a missing ts would key a sitting nothing can reply into.
+      log('warn', 'bus row posted but no ts returned — no channel-master sitting minted', { channel });
+      return posted;
+    }
+    const chatThreadId = `${channel}:${posted.ts}`;
+    replyAddr.set(chatThreadId, { channel, threadTs: posted.ts });
+    const outcome = await forwardPath.forwardSessionCreate({
+      chatThreadId, text, route: { kind: 'master', goalId: null },
+    });
+    if (outcome && outcome.forwarded) {
+      replyLeg.arm(chatThreadId);
+      log('info', 'bus row minted a channel-master sitting', { chatThreadId, queueId: outcome.queueId });
+    } else {
+      // The row IS delivered to the owner either way — that is why the post comes first.
+      log('warn', 'bus row delivered to the owner but no sitting was minted', { chatThreadId, reason: (outcome && (outcome.reason || outcome.error)) || 'unknown' });
+    }
+    saveState();
+    return posted;
+  }
+
   const busFerry = createBusFerry({
     workspaceRoot: (config && config.workspaceRoot) || null,
     transport,
     dmUserId: (config && config.busFerryDmUser) || null,
     logger,
     onMutate: () => saveState(),
+    routeToMaster: (args) => routeBusRowToMaster(args),
     ...busFerryOptions,
   });
 

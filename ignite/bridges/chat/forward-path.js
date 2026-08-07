@@ -144,10 +144,29 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       await postDeclineNotice(chatThreadId, NO_GOAL_SEAT_NOTICE);
       return { forwarded: false, leg: 'session-create', reason: `no-goal-master-seat:${home.reason}`, goalId: (route && route.goalId) || null };
     }
+    // WHICH CHAT THREAD THIS SITTING IS — the ONE prefix the bare-prompt ruling admits
+    // (owner amendment 2026-08-07, goal ledger `r-bare-prompt-admits-one-correlation-id`;
+    // README § The prompt is the bare user text). The reply leg already routes a sitting's
+    // ANSWER by thread id without the agent knowing one, and that is untouched. This exists
+    // for the OTHER direction: a sitting relaying a question onto the coordination bus must
+    // be able to say where the answer belongs, and it cannot say what it was never told.
+    //
+    // ⚑ ONE ADDRESSED FACT, NEVER BEHAVIOUR. The ban above is unchanged and total — no
+    // charter, no identity, no instructions, no instance paths. The first attempt at this
+    // line (2026-08-07, before the amendment) correctly turned two probes red; they are now
+    // NARROWED to strip exactly this shape and still assert the remainder is the user text
+    // verbatim, so a charter is caught exactly as before.
+    //
+    // ⚑ PLAIN HERE, BRACKETED ON THE WAY BACK — a LOOP GUARD, not formatting. Only
+    // `[chat-thread: …]` routes a row (`bus-ferry.js`). If a relay carried the bracketed
+    // form, the ferry would read the outbound question as an inbound answer and mint a
+    // sitting from it — the question returning to its own thread.
+    const prompt = chatThreadId ? `chat-thread: ${chatThreadId}\n\n${text}` : text;
     const payload = {
       job_id: config.sessionJobId,
-      // The BARE user text — the seat's descriptor carries behaviour (see the header).
-      args: { profile, prompt: text },
+      // The user text, behind at most the one correlation line above — the seat's descriptor
+      // carries behaviour (see the header).
+      args: { profile, prompt },
       session_mode: 'headless',                 // chat rides the headless model (notes §7b)
       trigger_kind: 'scheduled',
       run_at: nowIsoUtc(),                      // due now: the next tick dispatches it

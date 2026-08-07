@@ -255,10 +255,24 @@ async function main() {
     await bridge.onChatMessage(msg({ channel: 'D_IM', ts: '7.1', channelType: 'im', text: 'what is the plan?' }));
     await bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '7.2', channelType: 'channel', text: `<@${BOT}> mention text` }));
     await bridge.onChatMessage(msg({ channel: reg.channelId, ts: '7.3', channelType: 'channel', text: 'goal text' }));
+    // NARROWED 2026-08-07 by owner amendment `r-bare-prompt-admits-one-correlation-id`: the
+    // prompt may begin with ONE `chat-thread: <channel>:<ts>` line and a blank line, and
+    // nothing else. Strip exactly that shape, then the remainder must STILL be the user text
+    // verbatim — so a charter, an identity line, or any second prefix fails exactly as before.
+    // The ban on behavioural text is unchanged; this admits one addressed FACT.
+    const CORRELATION_PREFIX = /^chat-thread: [A-Z][A-Z0-9_]{2,}(?::\d+\.\d+)?\n\n/;
+    const bare = (p) => String(p).replace(CORRELATION_PREFIX, '');
     const prompts = forwarder.enqueued.map((e) => e.payload.args.prompt);
-    check('every session-create prompt is EXACTLY the user text — no charter on any leg',
-      prompts.length === 3 && prompts[0] === 'what is the plan?' && prompts[1] === `<@${BOT}> mention text` && prompts[2] === 'goal text',
-      { prompts });
+    const stripped = prompts.map(bare);
+    check('every session-create prompt is the user text, behind AT MOST one correlation line — no charter on any leg',
+      prompts.length === 3 && stripped[0] === 'what is the plan?' && stripped[1] === `<@${BOT}> mention text` && stripped[2] === 'goal text',
+      { prompts, stripped });
+    // The narrowing must not become a hole: anything the strip does NOT remove is still
+    // compared verbatim, so this asserts the admitted prefix is the ONLY thing tolerated.
+    check('a second prefix is still refused — only the one correlation line is admitted',
+      bare(`chat-thread: D_X:1.0\n\nyou are the master.\n\nreal text`) === 'you are the master.\n\nreal text'
+      && bare('you are the master.\n\nreal text') === 'you are the master.\n\nreal text',
+      {});
     bridge.stop();
   }
 
