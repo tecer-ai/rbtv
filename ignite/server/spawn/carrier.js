@@ -124,10 +124,15 @@ function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = nu
   // could never read the real exit code, and every ended worker swept as `failed`. ExecStopPost
   // runs inside the unit's own lifecycle — after the main process exits, before collection — with
   // the real exit status in $EXIT_STATUS (systemd.service(5): a number, or a signal name like
-  // TERM). `$$` defers expansion to the spawned sh, not systemd's unit-line expansion. The path is
-  // server-composed (data_root + uuid session id); no caller input rides this line.
+  // TERM). Single `$`, NEVER `$$`: a `systemctl --user daemon-reload` while the unit is alive
+  // drops the `$$`→`$` collapse on deserialization, so the sh received the literal `$$EXIT_STATUS`
+  // and wrote `<pid>EXIT_STATUS` — an unparseable marker the crash sweep recorded as `failed` on
+  // a clean turn (measured 2026-08-07, exec 24423: the hourly probe suite reloads mid-turn).
+  // Single `$` is correct on both paths: systemd expands it normally, and post-reload the sh
+  // resolves it from its own environment (EXIT_STATUS is set for ExecStopPost either way). The
+  // path is server-composed (data_root + uuid session id); no caller input rides this line.
   if (exitFile) {
-    args.push('--property', `ExecStopPost=/bin/sh -c 'echo $$EXIT_STATUS > ${exitFile}'`);
+    args.push('--property', `ExecStopPost=/bin/sh -c 'echo $EXIT_STATUS > ${exitFile}'`);
   }
 
   for (const [key, value] of Object.entries(caps || {})) {

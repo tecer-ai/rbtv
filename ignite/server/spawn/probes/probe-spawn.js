@@ -104,7 +104,7 @@ capture('probe-spawn', async (lines) => {
     // exit observation for a --collect unit (post-collection `systemctl show` returns defaults) ---
     const exitProbeFile = path.join(ctx.dataRoot, 'exits', 'exit-compose-probe.exit');
     const { args: withExit } = buildSystemdRunArgs({ ...stdinArgsIn, exitFile: exitProbeFile });
-    const wantExecStopPost = `ExecStopPost=/bin/sh -c 'echo $$EXIT_STATUS > ${exitProbeFile}'`;
+    const wantExecStopPost = `ExecStopPost=/bin/sh -c 'echo $EXIT_STATUS > ${exitProbeFile}'`;
     if (!withExit.some((a, k) => a === '--property' && withExit[k + 1] === wantExecStopPost)) {
       throw new Error(`exit-marker: unit args carry no '--property ${wantExecStopPost}'`);
     }
