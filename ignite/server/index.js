@@ -714,6 +714,11 @@ async function main() {
     // cadence edit that is written but not yet restarted into effect. `daemonConfig` above is the
     // value materialized at THIS boot and can never show that.
     readConfiguredTickIntervalMs: () => settings.effectiveBlock(workspaceRoot, 'ticker').tick_interval_ms,
+    // New EXTERNAL work does not wait out the cadence: a successful enqueue (the path the chat
+    // bridge uses) runs one extra, debounced tick. The `setInterval` below is untouched — this is
+    // an additional tick, never a rescheduled one. Wired HERE because the composition root is the
+    // only place holding both the ticker and the internal API.
+    onEnqueue: () => ticker.nudge('enqueue'),
   });
 
   const gateway = createGateway({

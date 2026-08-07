@@ -116,6 +116,67 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   let wakeWatermark = null;
   const pendingWakeThreads = new Set();
 
+  // ── Nudge · the cadence is a FLOOR on latency, and new work does not have to wait it out ─────
+  //
+  // The loop runs every `tick_interval_ms` (10 s). An owner chat message arriving over the
+  // internal API therefore cost up to two-plus cadence intervals before its agent spawned
+  // (measured live: enqueued 22:03:28, spawned 22:03:59). `nudge()` runs ONE extra tick soon
+  // after new EXTERNAL work lands. The cadence timer lives in the daemon boot and is never
+  // touched here — a nudge is an EXTRA tick, never a rescheduled one.
+  //
+  // WHO MAY CALL IT: the enqueue path only (server/index.js wires it to the internal API's
+  // enqueue-job success). The ticker's own writes NEVER call it directly — that would be a
+  // self-trigger — which is why the follow-on below is scoped to ticks that were themselves
+  // nudged and to the five actions that leave real work for the very next tick.
+  const NUDGE_DEBOUNCE_MS = 250;
+  // A queue row the ticker inserts is dated `now + 1000 ms` (every insertQueueRow call site), so
+  // the follow-on tick that fires it MUST land after that — at the 250 ms debounce the row is
+  // not yet due and the nudge chain would break exactly where it matters.
+  // ponytail: this constant is COUPLED to the `now + 1000` literal at the insertQueueRow call
+  // sites; change that offset and the follow-on fires early and the chain silently degrades to
+  // cadence. Upgrade path if it ever moves: derive the delay from the row's own run_at.
+  const NUDGE_FOLLOWON_MS = 1200;
+  // The chat pipeline, as actions: a `send-message` row lands an owner message the wake scan has
+  // not seen yet (it already ran this tick, before dispatch); the four re-dispatch actions insert
+  // a queue row after this tick's dispatch phase is past. Everything else — `spawn`, `defer`,
+  // `end`, the deferred wakes — leaves nothing for the next tick, so the chain terminates there.
+  const NUDGE_AFTER = new Set([
+    'send-message', 'wake-redispatch', 'blocked-redispatch', 'recycle', 'compaction-recycle',
+  ]);
+
+  let nudgeTimer = null;
+  let nudgeDueAt = 0;
+  let nudgePending = null; // { reason, delayMs } — the one nudge waiting on its timer or on the running tick
+  let nudgedWith = null;   // reason the tick about to start was nudged with (consumed by tick())
+
+  function nudge(reason = 'enqueue', delayMs = NUDGE_DEBOUNCE_MS) {
+    const dueAt = Date.now() + delayMs;
+    if (nudgeTimer) {
+      // Debounce: a burst of enqueues coalesces into the pending nudge. A LATER-due request
+      // EXTENDS it rather than folding into it — firing at the earlier time would run the tick
+      // before the row the later request was scheduled for is due, and drop it.
+      if (dueAt <= nudgeDueAt) return;
+      clearTimeout(nudgeTimer);
+    }
+    nudgePending = { reason, delayMs };
+    nudgeDueAt = dueAt;
+    nudgeTimer = setTimeout(fireNudge, delayMs);
+    if (typeof nudgeTimer.unref === 'function') nudgeTimer.unref();
+  }
+
+  function fireNudge() {
+    nudgeTimer = null;
+    if (!nudgePending) return;
+    // Re-entrancy: never a second concurrent tick. `nudgePending` stays set and the running
+    // tick's `finally` re-arms exactly ONE follow-on — one slot, so N nudges during one tick
+    // still produce one tick after it.
+    if (ticking) return;
+    const { reason } = nudgePending;
+    nudgePending = null;
+    nudgedWith = reason;
+    Promise.resolve(tick()).catch((err) => log('error', 'nudged tick failed', { error: err.message }));
+  }
+
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
@@ -1351,15 +1412,34 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       return { tick: getTickNumber(), skipped: true, actions: [skipped] };
     }
     ticking = true;
+    const nudgedWithThisTick = nudgedWith;
+    nudgedWith = null;
     const actions = [];
     try {
       const tick = setNextTickNumber();
-      log('info', `tick ${tick} start`, { tick });
+      log('info', `tick ${tick} start${nudgedWithThisTick ? ` (nudged: ${nudgedWithThisTick})` : ''}`, { tick, nudged: nudgedWithThisTick });
 
       actions.push({ phase: 'apply-events', skipped: true });
       await advance(now, tick, actions);
       await dispatch(now, tick, actions);
-      actions.push({ phase: 'nudge', skipped: true });
+      // Phase 4 · nudge — the declared no-op placeholder is now the loop's latency valve, and it
+      // sits here because both producers have already run: Advance's wake/recycle inserts and
+      // Dispatch's send-message fire are both in `actions` by this point.
+      //
+      // LOOP GUARD, in one line: only a tick that was ITSELF nudged may schedule another. A
+      // cadence tick never chains, and a nudged tick that produced none of NUDGE_AFTER stops
+      // dead. The chain that does run is the chat pipeline and it converges in three:
+      // send-message -> wake-redispatch -> spawn (not in the set).
+      const nudgeAction = { phase: 'nudge' };
+      if (nudgedWithThisTick) nudgeAction.nudged = nudgedWithThisTick;
+      const follow = nudgedWithThisTick ? actions.find(a => NUDGE_AFTER.has(a.action)) : null;
+      if (follow) {
+        nudgeAction.scheduled = follow.action;
+        nudge(`tick-${tick}:${follow.action}`, NUDGE_FOLLOWON_MS);
+      } else {
+        nudgeAction.skipped = true;
+      }
+      actions.push(nudgeAction);
       await enforce(now, tick, actions);
       const preWarnActionCount = actions.length;
       runWarningCheck({ heartStore, tick, now, slotMaxRepeats: cfg.slot_max_repeats, tickIntervalMs: cfg.tick_interval_ms, actions });
@@ -1384,10 +1464,12 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       return { tick, actions };
     } finally {
       ticking = false;
+      // A nudge whose timer fired mid-tick is re-armed here, ONCE — never a concurrent tick.
+      if (nudgePending && !nudgeTimer) nudge(nudgePending.reason, nudgePending.delayMs);
     }
   }
 
-  return { tick, getTickNumber };
+  return { tick, getTickNumber, nudge };
 }
 
 module.exports = { createTicker };

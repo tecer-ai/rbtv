@@ -405,7 +405,11 @@ function toWireError(err) {
 // `inspect daemon` can report a PENDING edit is to read the file at request time. Absent → the
 // fields report `null`, which means "not readable", never "no pending edit" — the two must not
 // look alike.
-function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonLoadedCode = null, daemonConfig = null, readConfiguredTickIntervalMs = null }) {
+// `onEnqueue` is the ticker's latency valve, injected at the composition root (server/index.js).
+// It is called ONLY after a real queue row is minted — never on a dry run, never on a validation
+// failure — and it is the one external-work signal the ticker is allowed to react to. Absent →
+// the enqueue behaves exactly as before and the row waits out the cadence.
+function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonLoadedCode = null, daemonConfig = null, readConfiguredTickIntervalMs = null, onEnqueue = null }) {
   if (typeof secret !== 'string' || secret.length === 0) {
     throw new Error('createInternalApi requires a non-empty per-boot client secret');
   }
@@ -459,6 +463,12 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     // `jobId` here is the QUEUE-ROW id — see the note on handleRemoveJob. This is
     // the id gateway-cli-spec.md:26 calls "the NEW job id" and feeds straight into
     // remove-job at its test 5.
+    // The row exists now, so the ticker may run early for it. Best-effort and non-fatal: a
+    // scheduling hiccup must never turn a COMMITTED enqueue into a wire error — the row is
+    // already banked and the cadence still fires it.
+    if (onEnqueue) {
+      try { onEnqueue(); } catch (err) { log('warn', 'enqueue nudge failed', { error: err.message }); }
+    }
     return { jobId: result.queue_id };
   }
 
