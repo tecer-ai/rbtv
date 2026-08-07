@@ -47,38 +47,103 @@ function parseServiceSeatPath(absPath) {
   };
 }
 
+// Task 7.480 (BSC1) — a BRANCH seat, and why the offsets had to go.
+//
+// The branch shape (concepts/branch.md, settled-by d-branch-family; the Python spelling of the
+// same rule is `goal_cli.py#branch_parent_kind`): a branch homes under a RUN folder or,
+// recursively, under another BRANCH folder, and it is a run-like COMPARTMENT of its own — it
+// carries its own `runs.csv`, `sessions.csv`, `taskforce.csv`, `coordination/` and `seats/`:
+//
+//     <ws>/.rbtv/goals/<goal>/runs/run-{n}/branches/branch-{m}/…/branches/branch-{k}/seats/<seat>/
+//
+// WHY A WALK RATHER THAN PATCHED ARITHMETIC. The old body derived five anchors as FIXED negative
+// offsets from `seats`. A branch level inserts TWO segments between the run folder and `seats`, so
+// all five point two segments too shallow — and the depth is not a constant, so no offset is the
+// right one. Measured (branch-shape-arms/arm2-out.json, partition exact): of the twelve fields the
+// old body returned, NINE shift with those anchors and THREE — `seat`, `seatsDir`, `seatDir` — are
+// anchored on `seats` itself and do not.
+//
+// TWO OF THE NINE ARE IDENTITY SCALARS, which is the part a path-only check cannot see. A fix that
+// re-derived only the PATH fields would return `goal:"run-1", run:"branch-1"` for a branch seat —
+// not a mis-path, a silently wrong IDENTITY (decisions.md
+// #p-TASK-DAG-ACCEPTED-my-Q2-RULING-IS-AMENDED-NINE-NOT-EIGHT-and-TWO-OF-THEM-ARE-IDENTITY-SCALARS).
+//
+// WHERE `branch` LIVES — the shape decision this change had to make, stated here because the truth
+// object carries FOUR identity components (goal, run, branch, seat) and the old return had three
+// slots. `branch` gets its OWN slot and is an ORDERED CHAIN, outermost first — `['branch-1',
+// 'branch-2']` at depth 2, `[]` for a run seat — with `branchDir` naming the innermost branch home
+// (null for a run seat). Nothing is folded into anything: `run` stays the PARENT RUN, because a
+// branch is not a run and renaming one into the other is the same identity lie by another door.
+// The addition is purely additive, so no existing requirer's field disappears (sweeping the
+// requirers to USE the new fields is task BSC3's, not this one's).
+//
+// THE COMPARTMENT-SCOPED FIELDS FOLLOW THE COMPARTMENT. `sessionsCsv` and `taskforceCsv` name the
+// branch home's own for a branch seat (measured on disk: the branch root carries both), and
+// `runsCsv` names the branch's OWN register — the branch's liveness is stated there, never in the
+// goal's `runs.csv`, which has no row for it. `goalsCsv` stays goal-level: a branch's goal is
+// still the goal.
+//
+// THE WALK GOES UP FROM `seats`, NOT DOWN FROM `.rbtv/goals`, and that is deliberate rather than
+// incidental: a downward walk from the anchor admits `…/seats/<seat>/seats/x`, which the offset
+// resolver refused, and widening the admission predicate is no part of this change. The
+// `.rbtv`/`goals` anchor is still checked — it is where the walk must land — and the probe's red
+// arm removes it to prove it is load-bearing. Both facts are measured in the probe's
+// non-regression block, not asserted here.
+const BRANCHES_DIR = 'branches';
+const BRANCH_NAME_RE = /^branch-\d+$/;
+const RUN_NAME_RE = /^run-\d+$/;
+
 function parseSeatPath(absPath) {
   const parts = path.normalize(absPath).split(path.sep);
-  // …/.rbtv/goals/<goal>/runs/<run>/seats/<seat>
+  // …/.rbtv/goals/<goal>/runs/<run>/[branches/<branch>/]*seats/<seat>
   const seatsIdx = parts.lastIndexOf('seats');
   if (seatsIdx < 0 || seatsIdx + 1 >= parts.length) return null;
   const seat = parts[seatsIdx + 1];
   if (!seat) return null;
-  const runIdx = seatsIdx - 1;
-  const runsIdx = seatsIdx - 2;
-  const goalIdx = seatsIdx - 3;
-  const goalsIdx = seatsIdx - 4;
-  const rbtvIdx = seatsIdx - 5;
+
+  // Walk up through zero or more `branches/branch-{m}` levels. Zero levels IS the run-seat case
+  // and the loop simply does not run, which is why the run-seat path through this function is
+  // unchanged rather than re-implemented.
+  const branch = [];
+  let cursor = seatsIdx - 1;
+  while (cursor >= 1 && parts[cursor - 1] === BRANCHES_DIR && BRANCH_NAME_RE.test(parts[cursor])) {
+    branch.unshift(parts[cursor]);
+    cursor -= 2;
+  }
+
+  const runIdx = cursor;
+  const runsIdx = runIdx - 1;
+  const goalIdx = runIdx - 2;
+  const goalsIdx = runIdx - 3;
+  const rbtvIdx = runIdx - 4;
   if (rbtvIdx < 1) return null;
   if (parts[runsIdx] !== 'runs' || parts[goalsIdx] !== 'goals' || parts[rbtvIdx] !== '.rbtv') return null;
-  if (!/^run-\d+$/.test(parts[runIdx])) return null;
+  if (!RUN_NAME_RE.test(parts[runIdx])) return null;
   const goal = parts[goalIdx];
   if (!goal) return null;
+
   const workspaceRoot = parts.slice(0, rbtvIdx).join(path.sep) || path.sep;
+  const goalDir = parts.slice(0, goalIdx + 1).join(path.sep);
+  const runDir = parts.slice(0, runIdx + 1).join(path.sep);
+  // `seats` sits directly under the innermost compartment, whichever kind it is.
+  const branchDir = branch.length ? parts.slice(0, seatsIdx).join(path.sep) : null;
+  const compartmentDir = branchDir || runDir;
   const seatDir = parts.slice(0, seatsIdx + 2).join(path.sep);
   return {
     workspaceRoot,
-    goal,
+    goal: parts[goalIdx],
     run: parts[runIdx],
+    branch,
     seat,
-    goalDir: parts.slice(0, goalIdx + 1).join(path.sep),
-    runDir: parts.slice(0, runIdx + 1).join(path.sep),
+    goalDir,
+    runDir,
+    branchDir,
     seatsDir: parts.slice(0, seatsIdx + 1).join(path.sep),
     seatDir,
-    sessionsCsv: path.join(parts.slice(0, runIdx + 1).join(path.sep), 'sessions.csv'),
+    sessionsCsv: path.join(compartmentDir, 'sessions.csv'),
     goalsCsv: path.join(parts.slice(0, goalsIdx + 1).join(path.sep), 'goals.csv'),
-    runsCsv: path.join(parts.slice(0, goalIdx + 1).join(path.sep), 'runs.csv'),
-    taskforceCsv: path.join(parts.slice(0, runIdx + 1).join(path.sep), 'taskforce.csv'),
+    runsCsv: path.join(branchDir || goalDir, 'runs.csv'),
+    taskforceCsv: path.join(compartmentDir, 'taskforce.csv'),
   };
 }
 
