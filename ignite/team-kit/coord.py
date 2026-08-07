@@ -518,10 +518,14 @@ def base_dir(args, register=True):
     return base
 
 
-def workers_dir(args):
+def workers_dir(args, register=True):
+    # `register` exists for the SAME reason `base_dir`'s does (dag-10, see its note): resolving a
+    # package normally (re-)registers the run tag, which is a WRITE, and a command whose whole
+    # contract is "this writes nothing" cannot make one. DEFAULT TRUE so every existing caller
+    # keeps registering exactly as before; only a read-only caller passes False.
     if getattr(args, "workers_dir", None):
         return Path(args.workers_dir).resolve()
-    pkg = package_dir(args)
+    pkg = package_dir(args, register=register)
     seats = pkg / "seats"  # KG run-folder form wins when present; legacy workers/ otherwise
     if seats.is_dir():
         return seats
@@ -9684,6 +9688,15 @@ def discover_workers(wdir):
         mc = FM_KEY["cwd"].search(fm)
         mr = FM_KEY["ctx-refresh"].search(fm)
         harness = mh.group(1) if mh else "claude"
+        # A RELATIVE `cwd:` reaches `tmux -c` VERBATIM, and tmux resolves it against nothing —
+        # it silently falls back to $HOME and the seat boots in the wrong tree, reporting
+        # success. Absolutized HERE, at the ONE parse point every consumer reads (respawn,
+        # new-window, split), so no consumer needs its own guard. An ABSOLUTE value passes
+        # through BYTE-IDENTICAL — deliberately NOT normalized, because other code compares
+        # these strings. Measured: one hand-edited descriptor of 408 carried a relative value.
+        cwd = mc.group(1) if mc else (str(folder) if folder else VAULT_ROOT)
+        if not os.path.isabs(cwd):
+            cwd = os.path.join(VAULT_ROOT, cwd)
         found.append({
             "agent": m.group(1), "briefing": p, "harness": harness,
             # 7.278 (C3): "" means the descriptor DECLARED NOTHING. Kept distinguishable from a
@@ -9691,7 +9704,7 @@ def discover_workers(wdir):
             "agent_type": mt.group(1) if mt else "",
             "model": mm.group(1) if mm else (DEFAULT_MODEL if harness == "claude" else ""),
             "effort": me.group(1) if me else DEFAULT_EFFORT,
-            "cwd": mc.group(1) if mc else (str(folder) if folder else VAULT_ROOT),
+            "cwd": cwd,
             "window": _fm_window(fm),
             "ephemeral": _fm_yes(fm, "ephemeral"),
             "ctx_refresh": int(mr.group(1)) if mr else None,
@@ -10422,13 +10435,46 @@ def ready_seat_rows(args):
     base = base_dir(args, register=False)
     after = taskforce_after(pkg)
     _, _, roster = load_workers(base)
-    built = {w["agent"] for w in discover_workers(workers_dir(args))}
+    # `register=False`, for the same reason `package_dir`/`base_dir` above carry it: this command's
+    # docstring says it writes nothing, and `workers_dir`'s default resolution (re-)registers the
+    # run tag — a WRITE, in `~/.config/rbtv/coordinate-runs.json`. Resolved ONCE into a local: the
+    # UNBUILT reason below spends the same value, and re-resolving it there was a second door onto
+    # the same registration.
+    wdir = workers_dir(args, register=False)
+    built = {w["agent"] for w in discover_workers(wdir)}
     awaiting = load_awaiting(base)
     # 7.237: hoisted ONCE, for the same reason `awaiting` above is — N seats must cost one read of
     # `sessions.csv`, not N. The map feeds `undeclared_endings` directly so the undeclared term and
     # `session_disposition` are answering about THE SAME selected row rather than two reads that
     # could straddle a concurrent append.
-    undeclared = undeclared_endings(pkg, last_ended=sessions_last_ended(pkg))
+    last_ended = sessions_last_ended(pkg)
+    undeclared = undeclared_endings(pkg, last_ended=last_ended)
+    # THE LEADER'S UNSPENT RELAUNCH GRANTS, hoisted ONCE for the same reason `awaiting`,
+    # `undeclared` and `outcomes` are — N seats must cost one read of the grant file, not N.
+    #
+    # WHY THIS SURFACE NEEDS THEM AT ALL. `DONE` is ABSORBING: once a seat's last ENDED row carries
+    # a terminal disposition, every later sweep reports `DONE` forever, and the grant that AUTHORIZES
+    # that seat's relaunch was written to a file NO read-side instrument opened — `read_relaunch_grants`
+    # was called only by the mint's own dup check and by `launch`'s spend. So a minted, unspent grant
+    # was invisible to every sweep. Measured on run-3: seat `execution-tactical-designer`, grant minted
+    # 17:54, launchable 18:24, launched 19:24.
+    #
+    # THE MATCH KEY IS (seat, session-id), BECAUSE THAT IS THE SPEND PATH'S OWN KEY
+    # (`match_relaunch_grant`, launch's P5): a grant naming a superseded session refuses there as
+    # `stale-session`, so surfacing one would advertise an authorization that CANNOT be spent — the
+    # exact false offer this whole surface exists to avoid. A grant record carrying NO session-id
+    # cell is surfaced unconditionally: the tool asserted no binding, so this reports rather than
+    # infers one. FIRST unspent match in file order wins, which is `match_relaunch_grant`'s rule too.
+    #
+    # ⚠ REPORT-ONLY. It changes NO verdict and admits NO seat: the READY admission logic below is
+    # untouched, and spending a grant remains `launch --relaunch-ruled`'s act alone.
+    grants = {}
+    for _gi, _g in read_relaunch_grants(base):
+        if _g["spent-at"]:
+            continue
+        if _g["session-id"] and _g["session-id"] != (last_ended.get(_g["seat"]) or ("", ""))[0]:
+            continue
+        grants.setdefault(_g["seat"], _g)
     # 7.224: hoisted ONCE for the same reason `awaiting` and `undeclared` are — N seats must cost
     # one read of the store file, not N. `seat_store_outcomes` caches per resolved path internally.
     outcomes = seat_store_outcomes(pkg)
@@ -10563,6 +10609,12 @@ def ready_seat_rows(args):
                # the readiness arithmetic AND reads a DANGLING predecessor as satisfied, because a
                # predecessor with no `taskforce.csv` row of its own gets no output row here.
                "unmet-after": unmet_after,
+               # THE UNSPENT GRANT, present on EVERY row (`None` when there is none), never only on
+               # the rows it fires on — same rule and same reason as `undeclared-session`,
+               # `row-outcome` and `unmet-after` above. It is the grant ROW as the file carries it,
+               # so a consumer reads the anchor and mint stamp rather than re-parsing the reason
+               # string. ⚠ IT CARRIES NO VERDICT AND LIFTS NOTHING.
+               "relaunch-grant": grants.get(seat),
                # 7.383: {raw member token -> its rendered state}, present on EVERY row for the
                # same reason `unmet-after` is — `{}` on a root, never a key that appears only when
                # it fires. It is what `--explain` prints, so the explain view and the reason
@@ -10583,12 +10635,27 @@ def ready_seat_rows(args):
                                   "established. Routes to the leader, which investigates and "
                                   "either relaunches or flips the row to `done`. It advances "
                                   "NO edge meanwhile")
+            # THE WARNING BESIDE THE VERDICT, NOT INSTEAD OF IT. The verdict stays `DONE` — this
+            # row IS terminal and is NOT a launch candidate on any ordinary shape — but a grant the
+            # `leader` already minted for it is an authorization sitting unspent, and `DONE` being
+            # absorbing means no later sweep would ever have said so. Naming the anchor, the mint
+            # time and the EXACT invocation is the whole value: a reader who has to reconstruct the
+            # spend command is the reader who leaves it unspent for 90 minutes.
+            _rg = grants.get(seat)
+            if _rg:
+                rec["reason"] += (
+                    f"  ⚠ UNSPENT RELAUNCH GRANT — the `leader` minted one for this seat at "
+                    f"{_rg['minted-at'] or '(unstamped)'} under anchor `{_rg['anchor']}` and "
+                    f"nothing has spent it. This DONE verdict is ABSORBING and does not see it; "
+                    f"the grant is single-use and session-bound. Spend it: "
+                    f"{coord_invocation(args)} launch --only {seat} "
+                    f"--relaunch-ruled {shlex.quote(_rg['anchor'])}")
         elif active:
             rec["verdict"] = "RUNNING"
             rec["reason"] = f"roster: active since {row.get('checkin') or '(unstamped)'}"
         elif seat not in built:
             rec["verdict"] = "UNBUILT"
-            rec["reason"] = f"no descriptor under {workers_dir(args) / seat}"
+            rec["reason"] = f"no descriptor under {wdir / seat}"
         elif seat in undeclared:
             # 7.237. `terminal(self)` is None here, and this branch is the ONE place that None is
             # read as something other than "has not finished yet" — because an ENDED row says the
@@ -11460,6 +11527,16 @@ def cmd_ready_seats(args):
               + (f"   (also carries `row-outcome/"
                  + "`, `row-outcome/".join(_other) + "`, which is not an enumerated stop-state "
                  "and does NOT suppress)" if _other else ""))
+        # THE GRANT, printed where present. Unlike the lines above this one is NOT a term of the
+        # predicate — it decides nothing and is rendered only when it exists, because a
+        # `-> True` line for "no grant is outstanding" would read as a term that held the seat.
+        _rg = rec.get("relaunch-grant")
+        if _rg:
+            print(f"  ⚠ UNSPENT RELAUNCH GRANT — anchor `{_rg['anchor']}`, minted "
+                  f"{_rg['minted-at'] or '(unstamped)'} by {_rg['minted-by'] or '(unrecorded)'}, "
+                  f"session `{_rg['session-id'] or '(unbound)'}`. Decides NO term above; spend it: "
+                  f"{coord_invocation(args)} launch --only {rec['seat']} "
+                  f"--relaunch-ruled {shlex.quote(_rg['anchor'])}")
         if not rec["after"]:
             print("  every `after` predecessor is `done`                   -> True (root — none)")
         # 7.383: READ FROM THE ROW, NOT RE-DERIVED. This loop used to look each member up in the
@@ -11485,6 +11562,15 @@ def cmd_ready_seats(args):
             counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
         print(f"\n{len(rows)} seat(s): "
               + " · ".join(f"{k}={counts[k]}" for k in sorted(counts)))
+        # NAMED, and OMITTED when zero — exactly as `counts` above omits a verdict no seat holds.
+        # It is a second line rather than a term of the verdict census because it is NOT a verdict:
+        # a granted seat is also counted in `DONE`, and folding it in would make the census sum
+        # wrong. The names are the point — a bare count sends the reader back through 400 rows.
+        _granted = [r["seat"] for r in rows if r.get("relaunch-grant")]
+        if _granted:
+            print(f"granted={len(_granted)}: {', '.join(_granted)}"
+                  f"   ⚠ unspent relaunch grant(s) — each seat's reason names its anchor and the "
+                  f"exact spend command")
     if any(r["verdict"] == "SKEW" for r in rows):
         # NON-ZERO, and it is the only non-zero this command has. A skew is the one outcome a
         # caller must not be able to sweep past on exit status alone.
