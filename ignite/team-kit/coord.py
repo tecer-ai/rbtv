@@ -6888,9 +6888,13 @@ def unread_for(args, base, agent, start, blocks=None, gmap=None, observers=None,
         observers, _ = observer_sets(args)
     if closing is None:
         closing = closing_seats(base)
+    # Hoisted OUT of the comprehension: `inbox_decls` re-reads every seat descriptor in the
+    # package (a glob + N file reads), and inside the filter it ran once PER MESSAGE BLOCK — on a
+    # 61k-line log with 409 seats that is millions of reads for one identical dict. Same value,
+    # computed once. (Measured: `workers` on run-3 spent 229s of 230s here.)
+    decls = inbox_decls(args)
     return [b for b in blocks if b["num"] > start
-            and shows_in_inbox(b, agent, gmap, observers, "any", closing,
-                               inbox_decls(args))]
+            and shows_in_inbox(b, agent, gmap, observers, "any", closing, decls)]
 
 
 def cmd_checkin(args):
@@ -9454,8 +9458,10 @@ def cmd_status(args):
     # addressed_to` is no longer re-spelled here — this was the FIFTH site to derive that pair by
     # hand, and re-deriving one predicate in five places is exactly the drift that let the wake half
     # and the read half disagree for two fixes without either being wrong on its own.
+    # Same hoist as in `unread_for`: both are per-block re-reads of the whole descriptor set.
+    _closing, _decls = closing_seats(base), inbox_decls(args)
     mine = [b for b in open_asks(blocks)
-            if shows_in_inbox(b, me, gmap, set(), "any", closing_seats(base), inbox_decls(args))]
+            if shows_in_inbox(b, me, gmap, set(), "any", _closing, _decls)]
     # A narrowed inbox must never be invisible to the seat living in it: a seat that sees fewer
     # messages than the room is sending has to be able to tell "filtered by design" from "the
     # wakes are broken", and the second is a real failure mode this run has already hit.
