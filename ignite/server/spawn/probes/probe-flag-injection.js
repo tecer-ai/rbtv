@@ -1,7 +1,11 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
+const yaml = require('js-yaml');
 const { setup, teardown, capture, fire } = require('./lib');
-const { validateSpawnRequest } = require('../spawn');
+const { validateSpawnRequest, composeArgv } = require('../spawn');
+const { loadConfig } = require('../config');
 
 capture('probe-flag-injection', async (lines) => {
   const ctx = setup();
@@ -45,6 +49,61 @@ capture('probe-flag-injection', async (lines) => {
     const transcript = '[owner] what is 17*23? (exactly)\n\n[assistant] 391\n\n[owner] now add 9 & say "$done"';
     const row = await ctx.mgr.spawn(fired.exec_id, 'test-quick', 'headless', transcript, ctx.seatDir, 'probe');
     lines.push(`stdin-carriage transcript prompt ACCEPTED: exec ${row.exec_id} spawned (session ${row.session_id})`);
+
+    // ── THE SEAT DESCRIPTOR ON THE COMMAND LINE (owner ruling 2026-08-07) ──────────────────
+    //
+    // The ONE flag this path adds that the profile did not write, so it belongs in the probe
+    // that owns what reaches argv. Three legs, because the interesting property is the
+    // CONDITION, not the flag: `claude --append-system-prompt-file <missing>` runs NOTHING
+    // (measured, 2.1.224), so a fix that appended it unconditionally would kill every spawn at
+    // a seat with no descriptor — the leg below is what stands between that and the daemon.
+    //
+    // The profile is loaded from a real yaml through the real loader and the descriptor is read
+    // off the fixture's real seat folder: nothing here is hand-fed a profile object.
+    const claudeCfgPath = path.join(ctx.tmp, 'spawn-claude.yaml');
+    fs.writeFileSync(claudeCfgPath, yaml.dump({
+      bind: { host: '127.0.0.1', port: 7431 },
+      auth: { senders_file: path.join(ctx.tmp, 'senders.yaml') },
+      spawn: { data_root: ctx.dataRoot, carrier: 'auto', kill_grace_seconds: 2 },
+      default_workdir_root: ctx.defaultWorkdir,
+      profiles: {
+        // argv[0] IS the harness classifier (`harnessOf` → `harnessFromBinary`). Never spawned.
+        'test-claude': {
+          exec: { argv: ['claude', '-p'], prompt: 'stdin' },
+          session_ref: { source: 'cwd-implicit' },
+          workdir_root: ctx.workRoot,
+          caps: { memory_max: '64M', runtime_max: '1h' },
+        },
+      },
+    }));
+    const claudeCfg = loadConfig(claudeCfgPath);
+    const claudeProfile = claudeCfg.profiles['test-claude'];
+    const sleepProfile = loadConfig(ctx.cfgPath).profiles['test-sleep'];
+    const descriptor = path.join(ctx.seatDir, 'seat.md');
+    if (!fs.existsSync(descriptor)) throw new Error('fixture premise broken: the seat folder has no seat.md');
+
+    const withSeat = composeArgv(claudeProfile, 'headless', 'sid-1', ctx.seatDir, 'p', ctx.dataRoot).argv;
+    const i = withSeat.indexOf('--append-system-prompt-file');
+    if (i < 0 || withSeat[i + 1] !== descriptor) {
+      throw new Error(`claude + seat.md present: descriptor NOT on argv — ${JSON.stringify(withSeat)}`);
+    }
+    lines.push(`claude + seat.md present: --append-system-prompt-file ${path.basename(descriptor)} appended`);
+
+    // No descriptor → the flag MUST be absent. This is the fatal case.
+    const bareSeat = path.join(ctx.workRoot, '.rbtv', 'goals', 'probe-goal', 'runs', 'run-1', 'seats', 'no-descriptor');
+    fs.mkdirSync(bareSeat, { recursive: true });
+    const withoutSeat = composeArgv(claudeProfile, 'headless', 'sid-2', bareSeat, 'p', ctx.dataRoot).argv;
+    if (withoutSeat.includes('--append-system-prompt-file')) {
+      throw new Error(`claude + NO seat.md: flag appended anyway — would refuse to run: ${JSON.stringify(withoutSeat)}`);
+    }
+    lines.push('claude + NO seat.md: flag correctly ABSENT (an unreadable file makes claude run nothing)');
+
+    // A non-claude harness never receives a claude flag, even with a descriptor sitting there.
+    const otherHarness = composeArgv(sleepProfile, 'headless', 'sid-3', ctx.seatDir, 'p', ctx.dataRoot).argv;
+    if (otherHarness.includes('--append-system-prompt-file')) {
+      throw new Error(`non-claude harness got a claude flag: ${JSON.stringify(otherHarness)}`);
+    }
+    lines.push('non-claude harness + seat.md present: no claude flag (harness-gated)');
   } finally {
     teardown(ctx);
   }

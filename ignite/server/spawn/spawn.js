@@ -216,6 +216,31 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
 
   const argv = resolveTemplateSlots(block.argv, { workdir });
 
+  // ⚑ THE DESCRIPTOR NOW ACTUALLY ARRIVES (owner ruling 2026-08-07). The comment above says a
+  // seat is driven by its DESCRIPTOR — and nothing delivered one. The auto-injected CLAUDE.md
+  // chain DOES reach a seat session (measured 2026-08-07 on the channel master: its own
+  // CLAUDE.md was in context and the model quoted the "read seat.md and FOLLOW it" sentence
+  // back on demand), but `seat.md` sat behind that sentence as a POINTER — one voluntary tool
+  // call the seat had to make BEFORE its first word. A one-turn headless sitting against a
+  // six-word question does not make it: the channel master answered as a generic assistant and
+  // listed the harness's tools instead of the seat's instruments. Not a delivery failure — a
+  // compliance failure, cured by removing the voluntary step: the descriptor rides the SYSTEM
+  // PROMPT, which needs no compliance to arrive, and it costs nothing on later turns of the
+  // same chain (a system prompt is re-sent, not re-read into the conversation).
+  //
+  // ⚠ CONDITIONAL ON THE FILE EXISTING, and that is not politeness: `claude
+  // --append-system-prompt-file <missing>` prints "Append system prompt file not found" and
+  // RUNS NOTHING (measured, 2.1.224). Unconditional, this flag would kill every spawn at a seat
+  // that has no descriptor yet — which includes every seat between scaffold and materialize.
+  //
+  // Claude-only because the flag is claude's. Another harness gains this when someone MEASURES
+  // its equivalent; guessing one would put unverified launch knowledge back in this file, which
+  // is what `injection-ladder/` exists to prevent.
+  const descriptor = workdir ? path.join(workdir, 'seat.md') : null;
+  if (descriptor && harnessOf(profile) === 'claude' && fs.existsSync(descriptor)) {
+    argv.push('--append-system-prompt-file', descriptor);
+  }
+
   return { argv, stdinFile, promptCarriage };
 }
 
@@ -1364,7 +1389,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 // composeCageFor is exported for the cage probes ONLY — they drive the real resolvers off a real
 // seat folder on disk, which is the only way a grant-class check tests the integration rather
 // than a hand-typed grant list. Nothing in the daemon calls it from outside this module.
-module.exports = { createSpawnManager, validateSpawnRequest, exitFilePath, ensureExitFile, composeCageFor };
+module.exports = { createSpawnManager, validateSpawnRequest, exitFilePath, ensureExitFile, composeCageFor, composeArgv };
 
 function validateSpawnRequest(req) {
   if (req === null || typeof req !== 'object' || Array.isArray(req)) {

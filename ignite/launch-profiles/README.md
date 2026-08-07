@@ -136,3 +136,26 @@ node launch-profiles/probes/probe-launch-profiles.js
 20 checks. Self-contained — requires only this module and node builtins. Its bars were
 **mutation-tested**: breaking half selection, the raw-flag bound, the effort translation, and the
 fail-closed branch each turns the intended leg red.
+
+## ⚠ ONE argv element this module does not author (owner ruling 2026-08-07)
+
+`server/spawn/spawn.js` `composeArgv` appends `--append-system-prompt-file <workdir>/seat.md`
+after slot resolution — `claude` profiles only, and **only when that file exists**. It is
+disclosed here because it is the single exception to "the profile writes the command line", and
+the reason it cannot live in a profile argv is measured, not stylistic: `claude
+--append-system-prompt-file <missing>` prints *"Append system prompt file not found"* and runs
+NOTHING (2.1.224), so an unconditional flag would kill every spawn at a seat sitting between
+scaffold and materialize. The condition needs the filesystem; this resolver is deliberately
+filesystem-free apart from its workdir guard.
+
+WHY the flag exists at all: the auto-injected CLAUDE.md chain does reach a seat session, but
+`seat.md` sat behind it as a POINTER — a voluntary tool call the seat had to make before its
+first word, which a one-turn headless sitting does not make (measured on the channel master,
+2026-08-07: the "read seat.md and FOLLOW it" sentence was in context and was skipped; the seat
+answered as a generic assistant). The descriptor now rides the system prompt, which needs no
+compliance to arrive.
+
+Guarded by `server/spawn/probes/probe-flag-injection.js` — present / absent / non-claude, each
+mutation-tested (3 mutations, 3 red). Folding it in properly means a profile-level opt-in key
+with its own validation; worth doing when a second harness gains a MEASURED equivalent, never
+on a guessed one.
