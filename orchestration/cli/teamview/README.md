@@ -1,7 +1,13 @@
 # `teamview` — responsive team-run dashboard CLI
 
 One live screen for a multi-agent tmux run: the session's windows/panes with agent names, plus
-plan-limit bars for every AI provider account on the machine.
+the coordination log's last sends.
+
+> **Plan limits are not here any more.** The provider plan-limit bars moved OUT of teamview to
+> the **`acct`** CLI (`acct usage`, `acct usage --posh` for the live bar view). Accounts and
+> their plan windows are a property of the BOX; teamview renders ONE RUN. Keeping both in one
+> screen also cost teamview its entire credential-reading, network-calling and process-scanning
+> surface — see [Proving the boundary](#proving-the-boundary), which is one lane shorter for it.
 
 > **teamview RENDERS the run's state; it no longer SENSES it** (settle ledger R24, task 7.34).
 > `team-monitor` is the run's one raw-source sensor — it reads the tmux panes, the harness session
@@ -10,15 +16,14 @@ plan-limit bars for every AI provider account on the machine.
 > snapshot renders as a visible WARNING** rather than as silently-current data. See
 > [Proving the boundary](#proving-the-boundary) for what is deliberately outside it, and
 > [What changed in R24](#what-changed-in-r24) for the two behaviour changes this cost. Below the constant first line, the
-body renders the COMBINED view (limits + every window/pane) statically whenever the measured
-frame is large enough to show everything at once; only when it is too small does the body CYCLE
-every ~10s instead — the windows/panes view (itself paged into as many views as the height
-needs), then the plan-limits view, then the messages view (the coordination log's last sends,
-off the snapshot), then back around. `--view {auto,limits,panes,messages,combined}` pins
+body renders the COMBINED view (every window/pane, plus messages) statically whenever the
+measured frame is large enough to show everything at once; only when it is too small does the
+body CYCLE every ~10s instead — the windows/panes view (itself paged into as many views as the
+height needs), then the messages view (the coordination log's last sends, off the snapshot),
+then back around. `--view {auto,panes,messages,combined}` pins
 one body instead of the adaptive default. An orchestration-module component (runnable CLI,
 python3 stdlib-only — no install step). Generalized: nothing user-, workspace-, or
-machine-specific is baked in; accounts come from a config file or auto-discovery of whatever
-harness credential stores exist.
+machine-specific is baked in.
 
 Origin: promoted 2026-07-24 from a workspace team-kit's overview tooling after it proved
 out on a live multi-agent run.
@@ -32,25 +37,22 @@ python3 .../teamview.py --package <run-folder>                  # or name the ru
                                                                 #   (the canonical form)
 python3 .../teamview.py <session>                               # a name is CHECKED against the
 python3 .../teamview.py session <session>                       #   snapshot's own `session` field
-python3 .../teamview.py --once | --interval 5 | --refresh       # snapshot / cadence / poll now
+python3 .../teamview.py --once | --interval 5                   # one snapshot / repaint cadence
 python3 .../teamview.py --once --no-rotate                      # COMPLETE combined snapshot:
-                                                                #   limits + every window/pane,
+                                                                #   every window/pane + messages,
                                                                 #   no view cycle (can exceed
                                                                 #   terminal height)
-python3 .../teamview.py --view limits | panes | messages         # pin one body: bars only /
-                                                                #   windows+panes only / last
-                                                                #   coordination sends only, no
-                                                                #   alternation ever (auto is
+python3 .../teamview.py --view panes | messages                 # pin one body: windows+panes only
+                                                                #   / last coordination sends only,
+                                                                #   no alternation ever (auto is
                                                                 #   the fit-based default;
                                                                 #   combined = --no-rotate)
-python3 .../teamview.py --help-providers | --help-config        # reference: usage sources /
-                                                                #   accounts schema (-h stays short)
-python3 .../teamview.py --help-security | --help-panes          # audit surface (writes/endpoints/
+python3 .../teamview.py --help-security | --help-panes          # audit surface (what is read,
                                                                 #   never-touches-tmux) / pane states
-python3 .../teamview.py --audit                                 # resolved accounts -> source kind ->
-                                                                #   redacted path -> last poll result
-                                                                #   (never prints a key or full path)
 python3 .../teamview.py --selftest                              # must exit 0 after ANY edit here
+
+acct usage --posh                                               # the plan-limit bars, now their
+                                                                #   own CLI (see acct --help)
 ```
 
 **Nothing resolves to a guess.** With no `--package` and no `state.json` in any parent
@@ -64,13 +66,8 @@ Every failure to READ the snapshot — missing, corrupt, wrong-shaped, or listin
 renders as a loud error frame naming the cause, never as an empty dashboard. An empty dashboard
 reads as a quiet room, and that mistake has a number in this project (G-153).
 
-An explicit `--config` path that does not exist warns on stderr before falling back to
-account auto-discovery — the fallback is never silent.
-
-`--interval` is the DISPLAY repaint cadence only — it never re-polls providers; provider
-data refreshes via `--provider-ttl` (background) or `--refresh` (poll NOW — codex excepted,
-whose usage is a local session-file parse with no endpoint to re-poll; pair `--refresh`
-with `--once` for a one-shot fresh frame, since without `--once` it enters the live loop).
+`--interval` is the DISPLAY repaint cadence. The snapshot is RE-READ every frame, which is
+what makes the age advance and the STALE warning fire while teamview keeps running.
 
 Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by git):
 `ln -s <abs>/teamview.py ~/.local/bin/teamview && chmod +x ~/.local/bin/teamview`.
@@ -94,15 +91,15 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   markers throughout — no arrow or box-drawing glyphs (ambiguous-width characters break column
   alignment in some terminal fonts). Narrow/tiny layouts render each window as its own flowed
   line block (`*name:` then panes), wrapping between panes. The BODY renders the COMBINED
-  view (limits + every window/pane) STATICALLY whenever the measured frame is large enough to
+  view (every window/pane + messages) STATICALLY whenever the measured frame is large enough to
   show everything at once; only when it is too small does the view CYCLE every ~10s instead
   (stateless — derived from wall clock, so the refresh loop cycles naturally and `--once`
   shows whichever page is current): the windows view — paged into as many views as the height
-  needs, with a `(windows N-M/T - rotating)` note — then ONE plan-limits view, then ONE
+  needs, with a `(windows N-M/T - rotating)` note — then ONE
   messages view (see below; the slot exists only when the snapshot carries a message tail),
   then back around; nothing is permanently hidden, and the first line stays constant across
-  every phase. `--view {auto,limits,panes,messages,combined}` pins one body instead of this
-  adaptive default: `limits`, `panes`, or `messages` show only that body at every tick (never
+  every phase. `--view {auto,panes,messages,combined}` pins one body instead of this
+  adaptive default: `panes` or `messages` show only that body at every tick (never
   alternating), `combined` forces the static
   combined frame (= `--no-rotate`), and `auto` (default) is the fit-based behavior above.
   The WINDOWS header carries the run's average dispatch payload — `dispatch ~N tok avg/seat`,
@@ -124,12 +121,12 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   CRITICAL pane — past its own ctx-refresh threshold, at/above 85% context regardless of
   `--package`, or stuck awaiting approval — is PINNED into every rotation page instead of
   cycling out of view (the note gains a `· pinned` tag when this holds a page steady); the
-  pin holds the WHOLE cycle on that windows page — the limits view waits until the pane is
+  pin holds the WHOLE cycle on that windows page — the messages view waits until the pane is
   dealt with, while the alarm-rollup header line keeps every phase honest. The pin only
   matters while CYCLING: a frame that fits the static combined view renders every window and
   pane regardless, so nothing is hidden for the pin to hold open.
   `--no-rotate` (= `--view combined`) disables the cycle entirely for a COMPLETE combined
-  snapshot in one frame — the limits block plus every window and every pane at once, best
+  snapshot in one frame — every window and every pane at once, plus the messages block, best
   paired with `--once` (the output can grow taller than the terminal). A seat stuck at a
   permission or trust prompt renders its name RED
   with a trailing `?!` (detected in the same busy-sampling capture — claude's numbered
@@ -144,9 +141,9 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   green `ctxN%` is never mistaken for "confirmed under threshold" when it really means "never
   checked" (an operator made a wrong renewal call on exactly this silent gap).
 - **Graceful degradation at every width** — the no-package cue, every rotation footer, and
-  every PLAN LIMITS/ctx VALUE shrink to a shorter but still-COMPLETE form as the pane
+  every ctx VALUE shrink to a shorter but still-COMPLETE form as the pane
   narrows (down to ~60 cols) instead of relying on the outer hard clip's blind mid-word cut.
-  A bar and its suffix drop before the percent number does; a seat's harness/age drop before
+  A seat's harness/age drop before
   its ctx% (and any past-threshold `!`) does; a rotation footer shrinks from
   `(windows 2-3/5 - rotating)` down to a bare `(2-3/5)` or `+3` before disappearing
   entirely — it is never shown at a length that would need cutting mid-value.
@@ -179,10 +176,7 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   every pane state with its cause and remedy. Truncation glyphs are split: `…` marks EVERY text cut
   (names, titles, clipped lines); `~` means ONLY ctx-match uncertainty, never truncation.
   Color-band thresholds are explicit everywhere: green <60, yellow <85, red ≥85 (plain red
-  = high value; red with `!` = past this seat's own threshold). The console-only PROVIDER group (Sakana /
-  Google / Kimi — no readable usage endpoint) is word-wrapped the same way in the `full` and
-  `narrow` layouts, so a long provider list never hard-clips mid-word either (e.g. cutting
-  "google (key present; aistudio.google.com)" down to "...google (ke~").
+  = high value; red with `!` = past this seat's own threshold).
 - **Per-pane agent info** — every pane row also carries the agent running in it:
   `seat+ harness:model ctxN% age` — harness (the pane command, dim), model, context-window
   used % (colored green <60 / yellow <85 / red ≥85), and last-activity age (`now`, `Nm`,
@@ -191,27 +185,22 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   session record — claude transcript (exact pid→transcript map when the team-kit statusline
   is installed), codex rollout, opencode db, kimi wire, argv/TUI fallbacks — see its README.
   Without ctx-monitor the rows degrade to seat + pane command.
-- **Plan-limit bars** — one bar per usage window per account, colored by headroom (green <60%,
-  yellow <85%, red ≥85%); money-balance and console-only providers render as footer notes;
-  stale local snapshots carry `as of <time>`, and the full layout's `providers polled Nm
-  ago` header adds `— some bars older, see per-bar 'as of'` whenever any bar carries such
-  a stamp, so the poll age never over-claims a local-parse bar's freshness. A model-scoped
-  weekly like `7d fable` is a SUBSET of the plain `7d` window (that model's usage counts
-  against both bars — see `--help-providers`). The account each harness ACTUALLY uses renders
-  CYAN (bold alone proved invisible in some terminal themes); extra accounts render dim.
-  Window headers in the session grid are bold+underlined to separate them from pane rows.
-
-Every layout leads with two fixed rows: the **session-stats line** (windows · panes · time) on its own — constant across the whole cycle — then the current view's own bold+underlined header (`WINDOWS · PANES` or `PLAN LIMITS`), carrying the alarm rollup, scoped over the body beneath. So the session stats are never misread as a table header, and every cycle phase names itself. (`--no-rotate` renders both headers in its one combined frame.)
+Every layout leads with two fixed rows: the **session-stats line** (windows · panes · time) on its own — constant across the whole cycle — then the current view's own bold+underlined header (`WINDOWS · PANES` or `MESSAGES`), carrying the alarm rollup, scoped over the body beneath. So the session stats are never misread as a table header, and every cycle phase names itself. (`--no-rotate` renders both headers in its one combined frame.)
 
 ## Proving the boundary
 
-The R24 criterion is that **no raw-source read remains** in teamview. Two lanes are deliberately
-outside that boundary, and they are NAMED rather than quietly scoped out — a proof that passes
+The R24 criterion is that **no raw-source read remains** in teamview. ONE lane is deliberately
+outside that boundary, and it is NAMED rather than quietly scoped out — a proof that passes
 because someone narrowed it, without saying what was narrowed away, is theatre.
+
+⚠ **This list SHRANK; it was not widened.** The provider plan-limit lane used to be the second
+row here — task 7.34's own `_Note:_` ordered it left in place (*"do not 'purify' them out while
+refactoring"*), which was right at the time. It has now left teamview ENTIRELY for the `acct`
+CLI, taking `ps_processes`, `claude_account_of` (`/proc/<pid>/environ`), `opencode_store`, the
+OAuth/statusline readers and every network call with it. The exemption was retired, not relaxed.
 
 | Lane | Why it is outside | Its reads |
 |---|---|---|
-| **Provider plan-limit bars** | They read PROVIDER ACCOUNTS, not run state. Task 7.34's own `_Note:_` orders them left exactly as they are: *"do not 'purify' them out while refactoring."* | `ps_processes` (`ps -eo pid=,args=`), `claude_account_of` (`/proc/<pid>/environ`, for `CLAUDE_CONFIG_DIR` only), `opencode_store`, `claude_oauth_windows` / `parse_claude_statusline`, `codex_windows_from_rl` |
 | **Box CPU usage %** | `state.json`'s `box{}` carries RAM, swap, load, cores and memory pressure — and NO cpu field. Ruled PROVISIONAL by the run-2 leader (2026-07-27), extending the `_Note:_`'s own classification to a second named lane. | `cpu_usage_pct` (`/proc/stat`) |
 
 ⚠ **Box CPU is not a field to "just move" into `box{}` later.** `cpu_usage_pct` is a
@@ -279,76 +268,9 @@ health.
 | <70 cols, tall | **narrow** — stacked mini-bars + window list |
 | <70 cols, <18 rows (≈1/6 screen) | **tiny** — token summary lines, no bars. Plan-usage limits render ONE `label: N%` per line (never two flowed onto the same line) so a percent can never visually read as belonging to a neighboring label at this width — and the percent KEEPS its green/yellow/red urgency color (color costs zero columns; a bare `97%` rendering identically to `12%` was a verified false all-clear) |
 
-## Providers and sources (read-only; keys never printed, sent ONLY to their own provider's documented endpoint)
+## Where the plan limits went
 
-| Provider | Source | Shows |
-|----------|--------|-------|
-| claude | per-account OAuth usage endpoint — `GET api.anthropic.com/api/oauth/usage` with the STORED `accessToken` from that account's `{config_dir}/.credentials.json` (the same call the Claude Code `/usage` screen makes; read-only, owner-sanctioned — see Hard rule below; tokens are never refreshed, an expired one falls back to the statusline-persisted `rate_limits` JSON until that account runs a real session) | 5h/7d bars PLUS every model-scoped weekly window the plan carries (e.g. `7d fable`); which Claude ACCOUNT is in use comes from the live processes' own `CLAUDE_CONFIG_DIR`, never from statusline recency |
-| codex | LOCAL `~/.codex/sessions/**/rollout-*.jsonl` `payload.rate_limits` (no API call) | plan bars; "as of <time>" when the snapshot is stale |
-| zai | `GET https://api.z.ai/api/monitor/usage/quota/limit` (`Authorization: <key>`, no Bearer) | 5h + weekly used-% bars, plan tier |
-| deepseek | `GET https://api.deepseek.com/user/balance` (Bearer) | money balance |
-| kimi | subscription OAuth login: no usage endpoint → console-only group. Opt-in: an `sk-kimi` key (mint at kimi.com/code/console, supply via an `env`/`file` source) polls `GET api.kimi.com/coding/v1/usages` — community-verified, not officially documented. A Moonshot platform key instead uses the documented `GET /v1/users/me/balance` | login note / per-model plan bars / balance |
-| google | no usage-read endpoint for an AI Studio API key (verified 2026-07-24; project-level quota IS readable via gcloud OAuth + Cloud Monitoring — out of scope for key polling) | console-only group |
-| sakana | no balance/usage endpoint (verified 2026-07-24: chat/responses/models only, no rate-limit headers documented) | console-only group |
-
-Providers with no readable usage nest under one visually distinct footer line —
-`no usage API > sakana (key present; console.sakana.ai) · google (…) · kimi (…)` — yellow-
-prefixed and separate from the API-backed facts (balances) above it.
-
-**Auditor surface:** `--help-security` prints the complete write-set (only the provider
-cache file), the complete endpoint list, and the never-mutates-tmux guarantee (every tmux
-call is read-only); `--audit` dumps each resolved account as
-`provider:name -> source kind -> redacted path -> last poll result` — paths redact to
-`…/basename`, env vars show their NAME only, and no key, token, or full path is ever
-printed.
-
-**Hard rule:** never add a probe of an undocumented endpoint with stored keys — verify the
-endpoint in the provider's official docs first, read-only GETs only. **One owner-sanctioned
-exception (2026-07-24):** the read-only `GET api.anthropic.com/api/oauth/usage` call with a
-Claude account's stored access token — it is the exact call the Claude Code `/usage` screen
-makes and the only source of the model-scoped weekly windows the owner asked for. The
-sanction covers that single read-only GET and nothing more: teamview MUST NOT refresh,
-rotate, or write tokens (an expired token means statusline fallback until that account runs
-a real session).
-
-## Accounts config (optional — multiple accounts per provider)
-
-`~/.config/rbtv/teamview.json` (or `--config` / `RBTV_TEAMVIEW_CONFIG`):
-
-```json
-{"accounts": [
-  {"provider": "zai",      "name": "main", "source": {"type": "opencode"}},
-  {"provider": "zai",      "name": "alt",  "source": {"type": "env", "var": "ZAI_KEY_ALT"}},
-  {"provider": "deepseek", "name": "main", "source": {"type": "opencode"}},
-  {"provider": "claude",   "name": "main", "source": {"type": "statusline",
-                            "path": "~/.claude/rbtv-runtime/plan-usage.json"}},
-  {"provider": "codex",    "name": "main", "source": {"type": "codex-local"}},
-  {"provider": "kimi",     "name": "api",  "source": {"type": "env", "var": "MOONSHOT_API_KEY"}}
-]}
-```
-
-`source.type`: `opencode` (that harness's credential store; optional `store_key` override) ·
-`env` · `file` · `statusline` · `codex-local` · `kimi-local`. An account is marked **IN USE**
-(cyan) only while a LIVE agent process on this box spends it — claude resolved through each
-process's own `CLAUDE_CONFIG_DIR`, opencode through its `--model <provider>/<id>` prefix,
-codex/kimi by process name; recomputed every frame, since in-use flips far faster than the
-provider poll. An account whose credential exists with nothing running is **CONFIGURED**
-(dim) — a distinct state, not a weaker one. Source type no longer implies in-use: keying on
-"a credential exists" marked six idle providers in use while dimming the two Claude accounts
-a whole run was burning (`issues.md` G-17). Pin either state per account with
-`"in_use": true/false`. With no config, accounts are auto-discovered from the stores present
-on the machine.
-
-**Multiple Claude accounts** — one config dir per account, discovered automatically: any
-`~/.claude-<tag>` directory becomes account `claude:<tag>` reading
-`~/.claude/rbtv-runtime/plan-usage-<tag>.json`. The companion statusline script keys its output
-file by `CLAUDE_CONFIG_DIR`, so a session launched as
-`CLAUDE_CONFIG_DIR=~/.claude-<tag> claude` (wrap it in a tiny launcher, e.g. `claude-<tag>`)
-tracks that account's windows separately; the default `~/.claude` account is untouched. An
-account with no sessions yet reports "no data file yet" rather than vanishing.
-
-## Caching
-
-Provider data caches at `$XDG_CACHE_HOME/rbtv/teamview-providers.json` (default
-`~/.cache/rbtv/`), re-polled in a detached background process when older than
-`--provider-ttl` (default 600 s) so render frames never block on the network.
+`acct` — `orchestration/cli/acct/`, on PATH as `acct`. It owns provider accounts end to end:
+parking logins in named slots and switching between them (`acct claude use rbtv`), and reading
+each account's plan windows (`acct usage`, or `acct usage --posh` for the live bar view this
+dashboard used to render). Its own `acct providers` documents every usage source and endpoint.

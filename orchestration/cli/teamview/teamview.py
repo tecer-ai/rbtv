@@ -1,47 +1,49 @@
 #!/usr/bin/env python3
-"""teamview — team-run dashboard: panes with per-agent model/context/activity, plus
-plan-limit bars for every AI provider account on the machine.
+"""teamview — team-run dashboard: the run's windows and panes with per-agent
+model/context/activity, plus the coordination log's last sends.
+
+Provider plan limits are NOT here. They moved OUT of teamview to the `acct` CLI
+(`acct usage`, `acct usage --posh`) — accounts and their plan windows are a property of the
+BOX, not of a run, and teamview renders one run.
 
 ⚠ teamview RENDERS the run's state; it does NOT sense it (settle ledger R24, task 7.34).
 `team-monitor` is the run's one raw-source sensor — it reads the tmux panes, harness session
 files and /proc, and writes ONE canonical snapshot to {goal}/runs/run-{n}/state.json. This
 program reads that file and nothing else, ALWAYS shows the snapshot's age, and renders a stale
-snapshot as a visible WARNING rather than as silently-current data. Two lanes stay outside that
-boundary and are named where they live: the provider plan-limit bars (they read provider
-accounts, not run state) and the box CPU% (state.json's box{} carries no cpu field). See
+snapshot as a visible WARNING rather than as silently-current data. ONE lane stays outside
+that boundary and is named where it lives: the box CPU% (state.json's box{} carries no cpu
+field). The provider lane that used to be the second exemption left with the plan bars. See
 README.md § "Proving the boundary".
 
 The run package resolves from --package, else by walking UP from the current directory; nothing
 resolves to a guess and every failure to read the snapshot renders LOUDLY (an empty dashboard
-reads as a quiet room). Layouts adapt to the pane size; provider data caches under
-~/.cache/rbtv/ and re-polls in the background. When the terminal is big
-enough to hold the limits block AND every window/pane at once, that COMBINED view renders
+reads as a quiet room). Layouts adapt to the pane size. When the terminal is big
+enough to hold every window/pane at once, that COMBINED view renders
 statically. Only when it is too small does the body CYCLE every ~10s below the constant
 first line: the windows/panes view — itself paged into as many views as the height needs —
-then the plan-limits view, then the MESSAGES view (the coordination log's last sends off
+then the MESSAGES view (the coordination log's last sends off
 the snapshot, aligned rows: how long ago · sender→recipient · as much text as the row
 holds; the slot exists
 only when the snapshot carries a message tail), then back around (wall-clock derived, so
 --once shows whichever page is current). Nothing is permanently hidden. --view pins one
-body instead: limits (bars only), panes (windows/panes only), messages (last sends only),
+body instead: panes (windows/panes only), messages (last sends only),
 or combined (= --no-rotate: everything in one
 frame even when it grows taller than the terminal, best paired with --once). The WINDOWS
 header carries the run's average dispatch payload ("dispatch ~N tok avg/seat" — the
 ~tokens a freshly launched seat must read before working: shared boot files plus its own
 seat.md/memory.md, computed by the sensor into the snapshot's dispatch_tokens field). A
 CRITICAL pane — past its own ctx-refresh threshold, >=85% context, or awaiting approval —
-PINS the cycle on its windows page (the limits page waits) and never cycles out of view;
+PINS the cycle on its windows page (the messages page waits) and never cycles out of view;
 the alarm rollup rides the header of BOTH views so no glance loses it. A
 pane stuck at a permission/trust prompt (detected in its captured tail) renders its name RED
 with a `?` marker. With --package, a pane whose context used % has reached ITS OWN seat's
 ctx-refresh threshold (from that seat's workers/<agent>/agent.md frontmatter) renders its
 ctx cell RED with a trailing `!` — WITHOUT --package this check never runs, so the header
 carries a "no --package: thresholds/roster off" cue instead of silently showing a plain
-green ctxN% that could read as "confirmed under threshold" rather than "never checked". The
-console-only provider group (no readable usage endpoint) word-wraps the same way, so a long
-provider list never hard-clips mid-word either. Every cue, rotation footer, and limit/ctx
-VALUE degrades GRACEFULLY at narrow widths (shrinks to a shorter but still-complete form,
-e.g. a bar drops before its own percent does) instead of a blind mid-word/mid-value clip.
+green ctxN% that could read as "confirmed under threshold" rather than "never checked".
+Every cue, rotation footer, and ctx
+VALUE degrades GRACEFULLY at narrow widths (shrinks to a shorter but still-complete form)
+instead of a blind mid-word/mid-value clip.
 The header also carries a system RAM+CPU readout (available RAM, load average vs core
 count; stdlib only, `/proc/meminfo` + `os.getloadavg`), colored green/yellow/red by
 pressure so an operator or watcher spots an OOM risk at a glance; it degrades the same
@@ -56,17 +58,14 @@ header) and * active pane (prefixing a seat name — tmux has one active pane pe
 window, so several can show; the starred header ranks them) · N% ctx usage
 (~N% pane match uncertain; '~' means ONLY that, never truncation; the + … markers
 render magenta so they stay legible on dark backgrounds) ·
-green<60 / yellow<85 / red≥85 ctx and limit-bar color bands (plain red means high value,
-no threshold involved) · Nm/Nh last activity · account in use (a live agent process is
-spending it) vs dim account configured (credential present, nothing running) ·
+green<60 / yellow<85 / red≥85 ctx color bands (plain red means high value,
+no threshold involved) · Nm/Nh last activity ·
 ? awaiting approval (red, on the seat name) · N%! past this seat's ctx-refresh
 threshold · shell harness exited · ? empty-title pane (dim).
 
-Reference:  --help-providers  usage source per provider (read-only; keys never printed)
-            --help-config     accounts config schema (multi-account)
-            --help-security   audit surface: writes, endpoints, never-touches-tmux
+Reference:  --help-security   audit surface: what is read, never-touches-tmux
             --help-panes      every pane state/marker, cause and remedy
-            --audit           resolved accounts -> source -> redacted path -> poll result
+            plan limits       `acct usage` (a different CLI — see its own --help)
             full docs         orchestration/cli/teamview/README.md
 """
 import argparse
@@ -79,72 +78,13 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-DOC_PROVIDERS = """Providers and their usage sources (read-only; keys are never printed, and
-are sent ONLY to that provider's own documented endpoint):
+DOC_SECURITY = """Security / audit surface — what teamview touches:
 
-  claude    per-account OAuth usage endpoint (GET api.anthropic.com/api/oauth/usage with the
-            STORED accessToken from that account's {config_dir}/.credentials.json — the same
-            call the Claude Code /usage screen makes; read-only, owner-sanctioned 2026-07-24)
-            -> 5h/7d bars PLUS every model-scoped weekly window the plan carries (e.g.
-            "7d fable"). teamview NEVER refreshes tokens: an idle account's expired token
-            falls back to the statusline-persisted rate_limits file (pushed by a Claude Code
-            statusline script; path per account, default ~/.claude/rbtv-runtime/
-            plan-usage.json) until a real session of that account runs again. Which Claude
-            ACCOUNT is in use comes from the live processes' own CLAUDE_CONFIG_DIR, never
-            from statusline recency (a run whose seats never fire the statusline used to
-            read as no Claude account in use at all — issues.md G-17).
-  codex     LOCAL parse of ~/.codex/sessions rollout files' payload.rate_limits -> plan bars
-            (fresh only while a codex session runs; staleness shown as "as of", never hidden)
-  zai       GET https://api.z.ai/api/monitor/usage/quota/limit (Authorization: <key>, no
-            Bearer) -> 5h + weekly used-% bars + plan tier
-  deepseek  GET https://api.deepseek.com/user/balance (Bearer) -> money balance (no windows)
-  kimi      subscription OAuth login has no usage endpoint -> login state in the console-only
-            group. Opt-in: an sk-kimi key (minted at kimi.com/code/console) polls
-            GET api.kimi.com/coding/v1/usages -> per-model plan bars (community-verified
-            endpoint, not officially documented); a Moonshot platform key instead uses the
-            documented GET /v1/users/me/balance (api.moonshot.ai|.cn)
-  google    no usage-read endpoint for an AI Studio API key (verified 2026-07-24) ->
-            console-only group
-  sakana    no balance/usage endpoint (verified 2026-07-24) -> console-only group
-
-A model-scoped weekly like "7d fable" is a SUBSET of the plain "7d" window, not a separate
-budget: that model's usage counts against BOTH bars, so the scoped bar can be exhausted
-while the overall 7d still has room — a launch decision needs the scoped bar, not just 7d.
-"""
-
-DOC_CONFIG = """Accounts config — optional; with no config, accounts are auto-discovered from
-the harness credential stores on the machine. Path: ~/.config/rbtv/teamview.json (override
-with --config or RBTV_TEAMVIEW_CONFIG). All fields optional except provider; `source.type`
-one of opencode | env | file | statusline | codex-local | kimi-local | none. An account is
-highlighted IN USE only while a LIVE agent process on this box spends it (claude resolved
-per CLAUDE_CONFIG_DIR, opencode per its --model <provider>/<id> prefix, codex/kimi by
-process); an account with a credential and nothing running is CONFIGURED, rendered dim.
-Pin either state per account with "in_use": true/false.
-
-  {"accounts": [
-     {"provider": "zai",      "name": "main", "source": {"type": "opencode"}},
-     {"provider": "zai",      "name": "alt",  "source": {"type": "env", "var": "ZAI_KEY_ALT"}},
-     {"provider": "deepseek", "name": "main", "source": {"type": "opencode"}},
-     {"provider": "claude",   "name": "main", "source": {"type": "statusline",
-                                              "path": "~/.claude/rbtv-runtime/plan-usage.json"}},
-     {"provider": "codex",    "name": "main", "source": {"type": "codex-local"}},
-     {"provider": "kimi",     "name": "api",  "source": {"type": "env", "var": "MOONSHOT_API_KEY"}}
-  ]}
-
-Extra Claude accounts: any ~/.claude-<tag> config dir is auto-discovered as account
-claude:<tag> (statusline file plan-usage-<tag>.json; OAuth credentials from that dir). Only ONE
-Claude account is ever RENDERED — the one in use (or "main" when none is), labelled bare
-"claude"; the others are still polled and cached, just not shown.
-"""
-
-DOC_SECURITY = """Security / audit surface — what teamview touches (verify with --audit):
-
-WRITES — the ONLY files teamview ever writes:
-  {XDG_CACHE_HOME|~/.cache}/rbtv/teamview-providers.json  provider usage cache (+ its .tmp)
+WRITES — teamview writes NOTHING. Its one former write (the provider usage cache) left with
+the plan-limit lane; that cache is the `acct` CLI's concern now.
 TMUX — teamview makes NO tmux call at all (R24). It reads the run's state.json snapshot;
 team-monitor is the only component that touches panes. Nothing here can mutate tmux state
 because nothing here speaks to tmux.
@@ -152,23 +92,13 @@ because nothing here speaks to tmux.
 RUN STATE — read-only from {run-folder}/state.json. teamview never writes that file; the
 sensor's single-writer flock is unaffected by any number of readers.
 
-NETWORK — the complete endpoint list; each credential is sent ONLY to its own provider:
-  api.anthropic.com/api/oauth/usage         claude (stored OAuth token, NEVER refreshed)
-  api.z.ai/api/monitor/usage/quota/limit    zai
-  api.deepseek.com/user/balance             deepseek
-  api.kimi.com/coding/v1/usages | /usage    kimi (opt-in sk-kimi key only)
-  api.moonshot.ai|.cn/v1/users/me/balance   kimi (Moonshot platform key only)
-All read-only GETs. google/sakana have no usage endpoint and are never contacted.
+NETWORK — none. teamview makes NO network call at all.
 
-PROCESSES — `ps -eo pid=,args=` plus /proc/<pid>/environ for the CLAUDE_CONFIG_DIR of each
-live claude process (own-uid reads only), to decide which accounts are IN USE. Read-only:
-teamview never signals, starts, or stops a process. No environment value other than
-CLAUDE_CONFIG_DIR is inspected, and none is ever printed.
+PROCESSES — none inspected, none signalled, started or stopped.
 
-CREDENTIALS — read-only from the harness stores (opencode auth.json, ~/.claude*/
-.credentials.json, env vars, statusline/rollout files). Keys and tokens are NEVER printed:
---audit redacts paths to their basename and shows env-var NAMES only; fetch errors carry
-the exception class name only, never the request.
+CREDENTIALS — teamview reads NO credential store, holds no key or token, and therefore has
+nothing to redact. The provider lane that did all of the above is the `acct` CLI now; its
+own --help documents that surface.
 """
 
 DOC_PANES = """Pane states and markers — every form a pane row can take, and what clears it:
@@ -198,508 +128,11 @@ DOC_PANES = """Pane states and markers — every form a pane row can take, and w
                   ctx-uncertainty marker above — it never marks truncation.
 """
 
-TIMEOUT = 10
 BOLD, DIM, OFF = "\033[1m", "\033[2m", "\033[0m"
 CYAN, UL = "\033[36m", "\033[4m"
 GREEN, YELLOW, RED = "\033[32m", "\033[33m", "\033[31m"
 MARK = "\033[95m"  # status markers (+ …): bright magenta — legible on dark bgs, where
 #                    DIM vanished; unclaimed by the red/yellow/green/cyan semantics
-CONSOLE_URLS = {"google": "aistudio.google.com", "sakana": "console.sakana.ai",
-                "kimi": "kimi.com"}
-OPENCODE_STORE_KEYS = {"zai": "zai-coding-plan", "deepseek": "deepseek", "sakana": "sakana",
-                       "google": "google", "kimi": "moonshot"}
-CLAUDE_WINDOW_LABELS = {"five_hour": "5h", "seven_day": "7d"}
-
-
-def cache_file():
-    root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "rbtv"
-    return root / "teamview-providers.json"
-
-
-def config_path(arg):
-    if arg:
-        return Path(arg).expanduser()
-    env = os.environ.get("RBTV_TEAMVIEW_CONFIG")
-    if env:
-        return Path(env).expanduser()
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "rbtv" / "teamview.json"
-
-
-# ---------- accounts ----------
-
-def opencode_store(path=None):
-    p = Path(path) if path else Path.home() / ".local" / "share" / "opencode" / "auth.json"
-    try:
-        return json.load(open(p, encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def discover_accounts(home=None, opencode_path=None):
-    """Default account set from whatever harness credential stores exist on this machine."""
-    home = Path(home) if home else Path.home()
-    acc = []
-    if (home / ".claude").is_dir():
-        acc.append({"provider": "claude", "name": "main",
-                    "source": {"type": "statusline", "config_dir": str(home / ".claude"),
-                               "path": str(home / ".claude" / "rbtv-runtime" / "plan-usage.json")}})
-    # extra Claude accounts: one config dir per account (CLAUDE_CONFIG_DIR=~/.claude-<tag>);
-    # the statusline script persists each account's windows to plan-usage-<tag>.json
-    for extra in sorted(home.glob(".claude-*")):
-        if extra.is_dir():
-            tag = extra.name[len(".claude-"):] or "alt"
-            acc.append({"provider": "claude", "name": tag,
-                        "source": {"type": "statusline", "config_dir": str(extra),
-                                   "path": str(home / ".claude" / "rbtv-runtime"
-                                               / f"plan-usage-{tag}.json")}})
-    if (home / ".codex" / "sessions").is_dir():
-        acc.append({"provider": "codex", "name": "main",
-                    "source": {"type": "codex-local", "path": str(home / ".codex" / "sessions")}})
-    store = opencode_store(opencode_path)
-    for provider, store_key in OPENCODE_STORE_KEYS.items():
-        if store_key in store:
-            acc.append({"provider": provider, "name": "main", "source": {"type": "opencode"}})
-    if (home / ".kimi" / "credentials").is_dir() and not any(a["provider"] == "kimi" for a in acc):
-        acc.append({"provider": "kimi", "name": "main", "source": {"type": "kimi-local"}})
-    return acc
-
-
-# Process names that spend a provider account, and the provider each one spends. opencode is
-# provider-agnostic — its account comes from the `--model <provider>/<id>` prefix in its argv.
-AGENT_PROCESSES = {"claude": "claude", "codex": "codex", "kimi": "kimi", "opencode": None}
-# opencode's model-prefix vocabulary -> teamview provider (inverse of OPENCODE_STORE_KEYS,
-# plus the identity spellings opencode also accepts).
-OPENCODE_PROVIDER_ALIASES = {v: k for k, v in OPENCODE_STORE_KEYS.items()}
-OPENCODE_PROVIDER_ALIASES.update({k: k for k in OPENCODE_STORE_KEYS})
-
-
-def ps_processes():
-    """[(pid, args)] for every process on the box — one ps call. [] if ps is unavailable."""
-    out = []
-    try:
-        r = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True)
-    except OSError:
-        return out
-    for ln in r.stdout.splitlines():
-        parts = ln.strip().split(None, 1)
-        if len(parts) == 2:
-            out.append((parts[0], parts[1]))
-    return out
-
-
-def claude_account_of(pid, home=None):
-    """Which Claude account a live process spends, from CLAUDE_CONFIG_DIR in that process's
-    OWN environment: ~/.claude (or unset) -> 'main', ~/.claude-<tag> -> '<tag>'.
-    Falls back to 'main' — the meaning of an unset var — when the environment cannot be read
-    (no /proc, or a foreign uid); on such a platform a tagged account running alone would be
-    attributed to main, which is why the read, not the fallback, is the intended path."""
-    try:
-        env = Path(f"/proc/{pid}/environ").read_bytes().decode("utf-8", errors="replace")
-    except OSError:
-        return "main"
-    for entry in env.split("\0"):
-        if entry.startswith("CLAUDE_CONFIG_DIR="):
-            name = Path(entry.split("=", 1)[1].rstrip("/")).name
-            if not name.startswith(".claude-"):
-                return "main"                      # ~/.claude itself
-            return name[len(".claude-"):] or "alt"  # matches discover_accounts' tagging
-    return "main"
-
-
-def opencode_account_of(args):
-    """(provider, 'main') for an opencode process, from its `--model <provider>/<id>` argv —
-    None when the process names no provider (nothing is marked on inference)."""
-    m = re.search(r"(?:--model|-m)[= ]+([\w.-]+)/", args or "")
-    prov = OPENCODE_PROVIDER_ALIASES.get(m.group(1).lower()) if m else None
-    return (prov, "main") if prov else None
-
-
-def live_agent_accounts(procs=None, home=None):
-    """{(provider, account)} that a LIVE agent process on this box is actually spending.
-
-    IN USE is a fact about running processes, never about stored credentials (issues.md
-    G-17): the previous rule marked an account in use whenever its source type was
-    harness-backed — i.e. whenever a key or login existed — which lit up six idle providers
-    while dimming the two Claude accounts a whole run was burning. An account with a
-    credential and no live process is CONFIGURED, not IN USE.
-
-    Machine-wide by design, a superset of the rendered session's panes: an agent spending an
-    account from another tmux session, or outside tmux entirely, still spends it."""
-    live = set()
-    for pid, args in (ps_processes() if procs is None else procs):
-        toks = args.split()
-        head = os.path.basename(toks[0]) if toks else ""
-        if head not in AGENT_PROCESSES:
-            continue
-        if head == "opencode":
-            acct = opencode_account_of(args)
-            if acct:
-                live.add(acct)
-        elif head == "claude":
-            live.add(("claude", claude_account_of(pid, home)))
-        else:
-            live.add((AGENT_PROCESSES[head], "main"))
-    return live
-
-
-def account_in_use(account, live):
-    """True when a live process spends THIS account. `live` is the set from
-    live_agent_accounts(); an explicit config `in_use` overrides it (the flag survives into
-    the cache as `in_use_explicit`, so the renderer honors it too)."""
-    if account.get("_in_use_explicit") or account.get("in_use_explicit"):
-        return bool(account.get("in_use"))
-    return (account["provider"], account.get("name", "main")) in (live or set())
-
-
-def load_accounts(cfg_path, home=None, opencode_path=None, live=None):
-    accounts = None
-    if cfg_path.is_file():
-        try:
-            accounts = json.load(open(cfg_path, encoding="utf-8")).get("accounts")
-        except (OSError, json.JSONDecodeError) as e:
-            print(f"warning: unreadable config {cfg_path}: {e}", file=sys.stderr)
-    if not accounts:
-        accounts = discover_accounts(home, opencode_path)
-    live = live_agent_accounts(home=home) if live is None else live
-    for a in accounts:
-        if "in_use" in a:
-            a["_in_use_explicit"] = True
-        else:
-            a["in_use"] = account_in_use(a, live)
-    return accounts
-
-
-def missing_config_warning(cfg_arg):
-    """stderr warning when an EXPLICIT --config path does not exist (auto-discovery still
-    proceeds) — None when no --config was given or the file exists. Previously a mistyped
-    --config fell back to auto-discovery SILENTLY, indistinguishable from a working one."""
-    if cfg_arg and not Path(cfg_arg).expanduser().is_file():
-        return (f"warning: --config {cfg_arg} not found — falling back to account "
-                "auto-discovery (see --help-config for the schema and default path)")
-    return None
-
-
-def redact_path(p):
-    """Basename only, '…/' prefix — --audit must show WHICH file backs an account without
-    ever printing a full filesystem path (or, anywhere, a key/token)."""
-    return f"…/{Path(p).name}" if p else ""
-
-
-def audit_lines(accounts, cache):
-    """One line per resolved account: 'provider:name -> source-kind -> redacted path ->
-    last poll result' — the auditor surface (--audit). Pure function of the account list +
-    cache: no network, no key resolution, nothing secret ever enters the output."""
-    by_key = {(c.get("provider"), c.get("name", "main")): c.get("data") or {}
-              for c in (cache or {}).get("accounts", [])}
-    out = []
-    for a in accounts:
-        src = a.get("source") or {}
-        kind = src.get("type") or "none"
-        loc = redact_path(src.get("path") or src.get("config_dir"))
-        if not loc and src.get("var"):
-            loc = f"${src['var']}"  # the env var's NAME, never its value
-        d = by_key.get((a["provider"], a.get("name", "main")))
-        if d is None:
-            result = "not polled yet"
-        elif d.get("windows"):
-            result = f"ok ({len(d['windows'])} windows)"
-        elif d.get("balance") is not None:
-            result = "ok (balance)"
-        elif d.get("note"):
-            result = "console-only"
-        else:
-            result = f"error: {d.get('error', '?')}"
-        out.append(f"{a['provider']}:{a.get('name', 'main')} -> {kind} -> "
-                   f"{loc or '-'} -> {result}")
-    return out
-
-
-def resolve_key(account, opencode_path=None):
-    src = account.get("source") or {}
-    t = src.get("type")
-    if t == "opencode":
-        store_key = src.get("store_key") or OPENCODE_STORE_KEYS.get(account["provider"],
-                                                                    account["provider"])
-        return (opencode_store(opencode_path).get(store_key) or {}).get("key")
-    if t == "env":
-        return os.environ.get(src.get("var", ""))
-    if t == "file":
-        try:
-            return Path(src["path"]).expanduser().read_text(encoding="utf-8").strip()
-        except (OSError, KeyError):
-            return None
-    return None
-
-
-# ---------- provider fetchers (parsers are pure; network isolated in fetch_account) ----------
-
-def get_json(url, headers):
-    req = urllib.request.Request(url, headers=headers, method="GET")
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-        return json.loads(r.read().decode("utf-8"))
-
-
-def fmt_epoch(epoch):
-    try:
-        dt = datetime.fromtimestamp(int(epoch))
-    except (TypeError, ValueError, OSError):
-        return ""
-    return dt.strftime("%H:%M") if dt.date() == datetime.now().date() else dt.strftime("%a %H:%M")
-
-
-def parse_zai(d):
-    """Observed 2026-07-24: data.limits[] TOKENS_LIMIT entries — unit3/number5 = 5h window,
-    unit6 = weekly; `percentage` = used %, nextResetTime epoch-ms; data.level = tier."""
-    data = d.get("data") or {}
-    windows = []
-    for lim in data.get("limits") or []:
-        if lim.get("type") != "TOKENS_LIMIT" or lim.get("percentage") is None:
-            continue
-        unit, num = lim.get("unit"), lim.get("number")
-        label = "5h" if (unit == 3 and num == 5) else ("7d" if unit == 6 else f"u{unit}n{num}")
-        reset = lim.get("nextResetTime")
-        windows.append({"label": label, "pct": float(lim["percentage"]),
-                        "resets_at": int(reset / 1000) if reset else None})
-    if not windows:
-        return {"error": "no TOKENS_LIMIT windows"}
-    return {"windows": windows, "plan": data.get("level")}
-
-
-def parse_deepseek(d):
-    infos = d.get("balance_infos") or []
-    if not infos:
-        return {"error": "no balance_infos"}
-    b = infos[0]
-    return {"balance": b.get("total_balance"), "currency": b.get("currency"),
-            "available": d.get("is_available")}
-
-
-def parse_kimi_code(d):
-    """Kimi Code plan usage — GET api.kimi.com/coding/v1/usages with an sk-kimi key (minted in
-    the Kimi Code Console; the subscription OAuth token cannot call it). Community-verified
-    endpoint (not in official docs) — parser is tolerant: accepts a list of per-model rows
-    carrying limit/used (top-level, data, or usages)."""
-    rows = d.get("usages") or (d.get("data") or {}).get("usages") or d.get("data") or []
-    if isinstance(rows, dict):
-        rows = [rows]
-    windows = []
-    for r in rows:
-        if not isinstance(r, dict) or not r.get("limit"):
-            continue
-        used = r.get("used", r.get("limit", 0) - r.get("remaining", 0))
-        label = str(r.get("model") or r.get("name") or "plan")[:12]
-        reset = r.get("reset_at") or r.get("resets_at")
-        windows.append({"label": label, "pct": round(100.0 * used / r["limit"], 1),
-                        "resets_at": reset})
-    if not windows:
-        return {"error": "no usage rows"}
-    return {"windows": windows[:2]}
-
-
-def parse_moonshot(d):
-    data = d.get("data") or {}
-    if data.get("available_balance") is None:
-        return {"error": "no available_balance"}
-    return {"balance": str(data["available_balance"]), "currency": "CNY"}
-
-
-def iso_epoch(ts):
-    try:
-        return int(datetime.fromisoformat(ts).timestamp())
-    except (TypeError, ValueError):
-        return None
-
-
-def parse_oauth_limits(d):
-    """Windows from the OAuth usage endpoint's limits[] — includes model-scoped weeklies
-    (kind=weekly_scoped, scope.model.display_name e.g. 'Fable') the statusline never sees."""
-    out = []
-    for lim in d.get("limits") or []:
-        pct, kind = lim.get("percent"), lim.get("kind")
-        if pct is None:
-            continue
-        if kind == "session":
-            label = "5h"
-        elif kind == "weekly_all":
-            label = "7d"
-        elif kind == "weekly_scoped":
-            scope = ((lim.get("scope") or {}).get("model") or {}).get("display_name")
-            label = f"7d {(scope or 'scoped').lower()}"
-        else:
-            label = kind or "?"
-        out.append({"label": label, "pct": float(pct),
-                    "resets_at": iso_epoch(lim.get("resets_at"))})
-    return out
-
-
-def claude_oauth_windows(config_dir=None):
-    """Live per-account windows via the account's STORED OAuth access token — read-only,
-    never refreshed (owner ruling 2026-07-24: teamview must not touch the token chain; an
-    idle account's expired token simply falls back to the statusline file until a real
-    session of that account runs and Claude Code refreshes it). [] on any failure."""
-    cred = Path(config_dir or "~/.claude").expanduser() / ".credentials.json"
-    try:
-        oauth = json.loads(cred.read_text(encoding="utf-8")).get("claudeAiOauth") or {}
-    except (OSError, json.JSONDecodeError):
-        return []
-    tok, exp = oauth.get("accessToken"), oauth.get("expiresAt")
-    if not tok or (exp and exp / 1000 < time.time() + 60):  # expired: don't even call
-        return []
-    try:
-        return parse_oauth_limits(get_json(
-            "https://api.anthropic.com/api/oauth/usage",
-            {"Authorization": f"Bearer {tok}", "anthropic-beta": "oauth-2025-04-20"}))
-    except Exception:  # noqa: BLE001 — endpoint/token trouble just means fallback
-        return []
-
-
-def parse_claude_statusline(d):
-    windows = []
-    for key, win in (d.get("rate_limits") or {}).items():
-        if not isinstance(win, dict) or win.get("used_percentage") is None:
-            continue
-        label = CLAUDE_WINDOW_LABELS.get(key)
-        if not label:
-            for pref, short in (("seven_day_", "7d "), ("five_hour_", "5h ")):
-                if key.startswith(pref):
-                    label = short + key[len(pref):]
-            label = label or key
-        windows.append({"label": label, "pct": float(win["used_percentage"]),
-                        "resets_at": win.get("resets_at")})
-    if not windows:
-        return {"error": "no rate_limits yet"}
-    return {"windows": windows, "as_of": d.get("ts")}
-
-
-def codex_windows_from_rl(rl):
-    out = []
-    for name in ("primary", "secondary"):
-        w = rl.get(name)
-        if isinstance(w, dict) and w.get("used_percent") is not None:
-            mins = w.get("window_minutes") or 0
-            label = "5h" if mins <= 360 else ("7d" if mins >= 10000 else f"{mins}m")
-            out.append({"label": label, "pct": float(w["used_percent"]),
-                        "resets_at": w.get("resets_at")})
-    return out
-
-
-def parse_codex_sessions(sessions_dir, max_files=5):
-    files = sorted(Path(sessions_dir).glob("*/*/*/rollout-*.jsonl"),
-                   key=lambda p: p.stat().st_mtime, reverse=True)
-    for f in files[:max_files]:
-        last = None
-        try:
-            for line in open(f, encoding="utf-8"):
-                if "rate_limits" not in line:
-                    continue
-                try:
-                    e = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                rl = (e.get("payload") or {}).get("rate_limits")
-                if isinstance(rl, dict):
-                    last = rl
-        except OSError:
-            continue
-        if last:
-            return {"windows": codex_windows_from_rl(last), "plan": last.get("plan_type"),
-                    "as_of": int(f.stat().st_mtime)}
-    return {"error": "no rate_limits in recent sessions"}
-
-
-def fetch_account(account, opencode_path=None):
-    prov = account["provider"]
-    src = account.get("source") or {}
-    try:
-        if prov == "claude" and src.get("type") == "statusline":
-            p = Path(src.get("path", "~/.claude/rbtv-runtime/plan-usage.json")).expanduser()
-            try:
-                sl = parse_claude_statusline(json.loads(p.read_text(encoding="utf-8")))
-            except (OSError, json.JSONDecodeError):
-                sl = {"error": "no data file yet"}
-            oauth = claude_oauth_windows(src.get("config_dir"))
-            if oauth:  # complete window set, fetched NOW ("fresh" suppresses as-of staleness);
-                out = {"windows": oauth, "fresh": True}  # statusline as_of still marks in-use
-                if sl.get("as_of"):
-                    out["as_of"] = sl["as_of"]
-                return out
-            return sl
-        if prov == "codex" and src.get("type") == "codex-local":
-            return parse_codex_sessions(Path(src.get("path", "~/.codex/sessions")).expanduser())
-        if src.get("type") == "kimi-local":
-            cred = Path(src.get("path", "~/.kimi/credentials/kimi-code.json")).expanduser()
-            state = "logged in" if cred.is_file() else "not logged in"
-            return {"note": f"{state} ({CONSOLE_URLS['kimi']}) · usage not exposed"}
-        key = resolve_key(account, opencode_path)
-        if prov in ("google", "sakana"):
-            state = "key present" if key else "no credential"
-            return {"note": f"{state} · console-only ({CONSOLE_URLS[prov]})"}
-        if not key:
-            return {"error": "no credential"}
-        if prov == "zai":
-            return parse_zai(get_json("https://api.z.ai/api/monitor/usage/quota/limit",
-                                      {"Authorization": key}))
-        if prov == "deepseek":
-            return parse_deepseek(get_json("https://api.deepseek.com/user/balance",
-                                           {"Authorization": f"Bearer {key}"}))
-        if prov == "kimi" and key.startswith("sk-kimi"):
-            # Kimi Code Console key -> plan usage endpoint (community-verified; opt-in key)
-            for path in ("/coding/v1/usages", "/coding/v1/usage"):
-                try:
-                    return parse_kimi_code(get_json("https://api.kimi.com" + path,
-                                                    {"Authorization": f"Bearer {key}"}))
-                except Exception:  # noqa: BLE001 — try the fallback path
-                    continue
-            return {"error": "usages endpoint unreachable"}
-        if prov == "kimi":  # API-key account: documented Moonshot balance endpoint
-            for base in ("https://api.moonshot.ai", "https://api.moonshot.cn"):
-                try:
-                    return parse_moonshot(get_json(base + "/v1/users/me/balance",
-                                                   {"Authorization": f"Bearer {key}"}))
-                except Exception:  # noqa: BLE001 — try the other region host
-                    continue
-            return {"error": "balance endpoint unreachable"}
-        return {"error": f"no usage source for provider '{prov}'"}
-    except FileNotFoundError:
-        return {"error": "no data file yet"}
-    except Exception as e:  # noqa: BLE001 — never leak request details, class name only
-        return {"error": type(e).__name__}
-
-
-def poll_providers(args):
-    accounts = load_accounts(config_path(args.config))
-    out = {"ts": int(time.time()), "accounts": []}
-    for a in accounts:
-        data = fetch_account(a)
-        # in_use is a LIVE fact and the cache can be minutes old, so the renderer recomputes
-        # it every frame; this value is the poll-time reading (--audit / cache readers).
-        out["accounts"].append({"provider": a["provider"], "name": a.get("name", "main"),
-                                "in_use": bool(a.get("in_use")),
-                                "in_use_explicit": bool(a.get("_in_use_explicit")),
-                                "data": data})
-    cf = cache_file()
-    cf.parent.mkdir(parents=True, exist_ok=True)
-    tmp = cf.with_suffix(".tmp")
-    tmp.write_text(json.dumps(out), encoding="utf-8")
-    tmp.replace(cf)
-    return out
-
-
-def load_cache():
-    try:
-        return json.loads(cache_file().read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def spawn_background_poll(args):
-    argv = [sys.executable, str(Path(__file__).resolve()), "--poll-providers"]
-    if args.config:
-        argv += ["--config", args.config]
-    subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
-
-
 # ---------- the snapshot: teamview's ONLY run-state source (settle ledger R24, task 7.34) ----------
 #
 # teamview does not sense. `team-monitor` is the run's one raw-source sensor (tmux panes,
@@ -1255,24 +688,6 @@ def shrink_to_fit(variants, width):
     return ""
 
 
-def fit_join(items, sep, width):
-    """Join `items` with `sep`; if that overflows width, drop items from the END (never
-    mid-word) and append a '(+N)' count — used for note/balance lists that would otherwise
-    hard-clip mid-word at narrow widths."""
-    joined = sep.join(items)
-    if not items or visible_len(joined) <= width:
-        return joined
-    kept = list(items)
-    while kept:
-        kept.pop()
-        dropped = len(items) - len(kept)
-        tail = f" {DIM}(+{dropped}){OFF}"
-        candidate = (sep.join(kept) + tail) if kept else f"{DIM}(+{dropped}){OFF}"
-        if visible_len(candidate) <= width:
-            return candidate
-    return ""
-
-
 def range_note_variants(label, start, end, total, pinned=False):
     """Full -> short -> tiny text for a contiguous 'N-M/T' overflow note (windows or panes),
     picked by shrink_to_fit against whatever width is actually available."""
@@ -1293,94 +708,6 @@ def count_note_variants(shown, total, pinned=True):
         f"{DIM}({shown}/{total}){OFF}",
         f"{DIM}+{total - shown}{OFF}",
     ]
-
-
-def bar(pct, width):
-    filled = max(0, min(width, round(pct / 100 * width)))
-    color = GREEN if pct < 60 else (YELLOW if pct < 85 else RED)
-    return f"{color}{'█' * filled}{DIM}{'░' * (width - filled)}{OFF}"
-
-
-def account_label(acc, multi):
-    name = acc.get("name", "main")
-    base = acc["provider"] if not multi else f"{acc['provider']}:{name}"
-    return (f"{CYAN}{base}{OFF}" if acc.get("in_use") else f"{DIM}{base}{OFF}"), len(base)
-
-
-def current_claude_only(accounts):
-    """Only ONE Claude account is ever shown: the one in use. Several Claude config dirs can
-    exist on a box, but only the account a live session spends is the owner's current plan —
-    the rest are noise, and dropping them also collapses the label back to a bare 'claude'
-    (account_label only tags when a provider has >1 row). With none in use, 'main' stands in."""
-    cl = [a for a in accounts if a["provider"] == "claude"]
-    if len(cl) < 2:
-        return accounts
-    keep = [a for a in cl if a.get("in_use")] or [a for a in cl if a.get("name", "main") == "main"]
-    keep = keep[:1] or cl[:1]
-    return [a for a in accounts if a["provider"] != "claude" or a is keep[0]]
-
-
-def usage_cells(cache, live=None):
-    """(bar_cells, note_bits, console_bits): bar cell = (label, label_vis, pct, suffix);
-    notes = API-backed facts (balances, errors); console_bits = providers whose usage is NOT
-    programmatically readable (nested under one 'console only' group by the renderers).
-
-    `live` = the live_agent_accounts() set: when given, IN-USE highlighting is recomputed
-    from the processes running RIGHT NOW rather than replayed from the cache, which may be
-    minutes old (in-use flips far faster than the provider poll). Omit it to render the
-    cache's own poll-time reading."""
-    cells, notes, console = [], [], []
-    if not cache:
-        return cells, ["providers: no data yet (first poll pending)"], console
-    accounts = [dict(a, in_use=account_in_use(a, live)) if live is not None else a
-                for a in cache.get("accounts", [])]
-    accounts = current_claude_only(accounts)
-    multi = {}
-    for a in accounts:
-        multi[a["provider"]] = multi.get(a["provider"], 0) + 1
-    now_ts = datetime.now().timestamp()
-    for a in accounts:
-        d = a.get("data") or {}
-        label, lvis = account_label(a, multi[a["provider"]] > 1)
-        plain = a["provider"] if multi[a["provider"]] == 1 else f"{a['provider']}:{a.get('name')}"
-        star = f"{CYAN}{plain}{OFF}" if a.get("in_use") else plain
-        if d.get("windows"):
-            stale = (not d.get("fresh")) and d.get("as_of") and now_ts - d["as_of"] > 5400
-            for w in d["windows"]:
-                suffix = (f"as of {fmt_epoch(d['as_of'])}" if stale
-                          else (f"renews {fmt_epoch(w['resets_at'])}"
-                                if w.get("resets_at") else ""))
-                cells.append((f"{label} {w['label']}", lvis + 1 + len(w["label"]),
-                              w["pct"], suffix))
-        elif d.get("balance") is not None:
-            cur = {"USD": "$", "CNY": "¥"}.get(d.get("currency"), d.get("currency") or "")
-            notes.append(f"{star} {cur}{d['balance']} left")
-        elif d.get("note"):
-            url = CONSOLE_URLS.get(a["provider"], "")
-            state = "logged in" if "logged in" in d["note"] else (
-                "key present" if "key present" in d["note"] else "no credential")
-            console.append(f"{star} {DIM}({state}{'; ' + url if url else ''}){OFF}")
-        elif d.get("error"):
-            notes.append(f"{star}: {d['error']}")
-    return cells, notes, console
-
-
-def console_line(console):
-    """The nested console-only group, visually set apart: 'no usage API > provider (state)'.
-    Single un-wrapped line — safe only where the caller already guarantees it fits (narrow
-    fallback forms); wide/full layouts use console_lines() instead so a long provider list
-    never hard-clips mid-word."""
-    if not console:
-        return ""
-    return f"{YELLOW}no usage API{OFF} {DIM}>{OFF} " + f" {DIM}·{OFF} ".join(console)
-
-
-def console_lines(console, width, max_lines=3):
-    """console_line's content, WORD-WRAPPED to width (never hard-clipped mid-word) — each
-    provider entry is an atomic token, same wrap mechanics as legend_lines()."""
-    if not console:
-        return []
-    return flow([f"{YELLOW}no usage API{OFF} {DIM}>{OFF}"] + list(console), width, max_lines)
 
 
 def flow(tokens, width, max_lines):
@@ -1496,8 +823,7 @@ LEGEND_ITEMS = (
     f"{RED}?{OFF} awaiting approval",
     f"{MARK}+{OFF} working", f"{MARK}…{OFF} text cut",
     f"{DIM}*{OFF} active window (header) / active pane (seat)",
-    f"{DIM}Nm/Nh{OFF} last activity", f"{CYAN}account{OFF} in use",
-    f"{DIM}account{OFF} configured",
+    f"{DIM}Nm/Nh{OFF} last activity",
     f"{DIM}shell{OFF} harness exited", f"{DIM}?{OFF} empty-title pane",
 )
 
@@ -1764,11 +1090,11 @@ def snapshot_messages(snap):
     return m if isinstance(m, dict) and isinstance(m.get("tail"), list) else None
 
 
-def extra_view_names(cells, notes, console, snap):
+def extra_view_names(snap):
     """The whole-view cycle's extra slots after the window pages, in wheel order. The
     messages slot exists only when the snapshot actually carries a message tail — an old
     sensor or a log-less run must not buy a 10s blank page."""
-    names = ["limits"] if (cells or notes or console) else []
+    names = []
     msgs = snapshot_messages(snap)
     if msgs and msgs["tail"]:
         names.append("messages")
@@ -1860,86 +1186,7 @@ def choose_layout(cols, rows):
     return "full"
 
 
-def render_bar_cell(cell, label_w, bar_w, with_suffix=True):
-    label, _lv, pct, suffix = cell
-    s = f"{pad_to(label, label_w)} {bar(pct, bar_w)} {pct:3.0f}%"
-    if with_suffix and suffix:
-        s += f" {DIM}{suffix}{OFF}"
-    return s
-
-
-def bar_cell_variants(cell, label_w, max_bar_w):
-    """render_bar_cell content from full detail down to label+percent only — the percent
-    (the safety-critical value) is NEVER dropped, only the suffix and bar shrink. Used when
-    a PLAN LIMITS row has collapsed to a single column but even that overflows its budget,
-    so the row never gets blind mid-value clip_line'd (the reported 'claude:main 5h ████~'
-    bug — losing the percent entirely)."""
-    variants = []
-    for bw, suf in ((max_bar_w, True), (max_bar_w, False),
-                    (max(4, max_bar_w // 2), False), (0, False)):
-        v = render_bar_cell(cell, label_w, bw, with_suffix=suf)
-        if not variants or variants[-1] != v:
-            variants.append(v)
-    return variants
-
-
-def limits_body(cells, notes, console, width, max_lines, style="wide"):
-    """The PLAN LIMITS page body for the whole-view cycle — bars + notes + console at the
-    layout's own detail level ('wide' folds bar cells into columns when one-per-line is
-    too tall; 'narrow' drops suffixes; 'tiny' is label+percent only, keeping the urgency
-    color band), capped to max_lines with a (+N more) note instead of silent loss."""
-    lines = []
-    if style == "tiny":
-        for c in cells:
-            color = GREEN if c[2] < 60 else (YELLOW if c[2] < 85 else RED)
-            lines.append(f"{c[0]}: {color}{c[2]:.0f}%{OFF}")
-        toks = [re.sub(r"\s+", " ", n) for n in notes]
-        if console:
-            toks.append("no-API: " + " ".join(
-                re.sub(r"\033\[[0-9;]*m", "", c).split(" ")[0] for c in console))
-        if toks:
-            lines.extend(flow(toks, width, max(1, max_lines - len(lines))))
-    elif style == "narrow":
-        label_w = max([c[1] for c in cells], default=8)
-        bar_w = max(6, min(14, width - label_w - 8))
-        lines = [render_bar_cell(c, label_w, bar_w, with_suffix=False) for c in cells]
-        lines += [n[:width] for n in notes]
-        lines += console_lines(console, width, max_lines=2)
-    else:
-        label_w = max([c[1] for c in cells], default=10)
-        ncols, bar_w, cell_w = 1, 22, 0
-        for ncols in (1, 2, 3, 4):
-            bar_w = 22 if ncols == 1 else 14
-            cell_w = label_w + bar_w + 8 + 15  # same suffix budget as render_strip
-            if (math.ceil(len(cells) / ncols) <= max(1, max_lines - 1)
-                    and ncols * (cell_w + 2) <= width):
-                break
-        grid_rows = math.ceil(len(cells) / ncols) if cells else 0
-        for r in range(grid_rows):
-            row_cells = [render_bar_cell(cells[r + grid_rows * c], label_w, bar_w)
-                         for c in range(ncols) if r + grid_rows * c < len(cells)]
-            while len(row_cells) > 1 and visible_len(
-                    "  ".join(pad_to(s, cell_w) for s in row_cells)) > width:
-                row_cells = row_cells[:-1]
-            if len(row_cells) > 1:
-                row = "  ".join(pad_to(s, cell_w) for s in row_cells)
-            else:
-                row = row_cells[0] if row_cells else ""
-                if visible_len(row) > width:
-                    row = shrink_to_fit(bar_cell_variants(cells[r], label_w, bar_w),
-                                        width) or clip_line(row, width)
-            lines.append(row)
-        if notes:
-            lines.append(fit_join(notes, " · ", width))
-        lines.extend(console_lines(console, width))
-    if max_lines > 0 and len(lines) > max_lines:
-        dropped = len(lines) - max_lines
-        lines = lines[:max_lines]
-        lines[-1] = clip_line(lines[-1] + f" {DIM}(+{dropped} more){OFF}", width)
-    return lines
-
-
-def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, rows,
+def render_full(session, wins, nwin, npane, cols, rows,
                 cue=False, now=None, cycle=True, phase=None, snap=None):
     # ⚠ THE SNAPSHOT AGE RIDES THE BASE, and when the base no longer fits it is the SESSION LABEL
     # that gives way, never the age. Every other element of this header degrades to "" under
@@ -1960,28 +1207,19 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
     head = base + package_cue(cue, cols - visible_len(base))
     head += sys_cue(cols - visible_len(head), snap)
     out = [head, ""]
-    age = ""
-    if cache and cache.get("ts"):
-        m = int((datetime.now().timestamp() - cache["ts"]) // 60)
-        # 'polled Nm ago' is the CACHE's age; a local-parse bar (codex) can be far older.
-        # Hedge the header whenever any bar carries its own stale 'as of' stamp, so the
-        # fresh-sounding poll age never over-claims those bars' freshness.
-        hedge = (" — some bars older, see per-bar 'as of'"
-                 if any(c[3].startswith("as of") for c in cells) else "")
-        age = f"  {DIM}(providers polled {m}m ago{hedge}){OFF}"
     if cycle:
         # Whole-view cycle: below the constant header line, the body alternates between
-        # the windows pages (as many as the grid needs) and ONE plan-limits page —
-        # windows p1 … pN, limits, back to p1. The alarm rollup rides BOTH phase headers,
-        # so no glance loses it (DESIGN-4).
-        # phase pins ONE view (--view limits / --view panes): no alternation, the other
+        # the windows pages (as many as the grid needs) and the MESSAGES page — windows
+        # p1 … pN, messages, back to p1. The alarm rollup rides BOTH phase headers, so no
+        # glance loses it (DESIGN-4).
+        # phase pins ONE view (--view messages / --view panes): no alternation, the other
         # view is never rendered. phase=None keeps the timed cycle.
         # No marker legend on ANY frame — every row goes to data. The key moved OFF the
         # dashboard entirely, to `teamview interface-legend` (owner ruling 2026-07-28,
         # reversing the earlier decision that put a mini legend on the small layouts).
         body_budget = max(1, rows - len(out) - 3)
-        extras = extra_view_names(cells, notes, console, snap)
-        if phase in ("limits", "messages"):
+        extras = extra_view_names(snap)
+        if phase == "messages":
             grid, which = None, phase
         else:
             grid = window_grid(wins, cols - 2, body_budget, dashes=True, now=now,
@@ -1992,27 +1230,12 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
             out.append(mhdr + rollup_suffix(wins, cols - visible_len(mhdr)))
             out.extend("  " + l for l in messages_body(snap, cols - 2, body_budget, now))
             return out[:rows - 1]
-        if which == "limits":
-            lhdr = f"{BOLD}PLAN LIMITS{OFF}{age}"
-            out.append(lhdr + rollup_suffix(wins, cols - visible_len(lhdr)))
-            out.extend("  " + l for l in
-                       limits_body(cells, notes, console, cols - 2, body_budget))
-            return out[:rows - 1]
         else:
             whdr = f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}"
             whdr += dispatch_cue(snap, cols - visible_len(whdr))
             out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
             out.extend("  " + l for l in grid)
         return out[:rows - 1]
-    out.append(f"{BOLD}PLAN LIMITS{OFF}{age}")
-    label_w = max([c[1] for c in cells], default=10) + 1
-    bar_w = max(16, min(40, cols - label_w - 30))
-    for c in cells:
-        out.append("  " + render_bar_cell(c, label_w, bar_w))
-    for n in notes:
-        out.append("  " + n)
-    out.extend("  " + l for l in console_lines(console, cols - 2))
-    out.append("")
     whdr = f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}"
     whdr += dispatch_cue(snap, cols - visible_len(whdr))
     out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
@@ -2151,21 +1374,22 @@ def session_line(session, nwin, npane, cols=999, cue=False, snap=None, now=None)
 
 # The two table titles — one own line, bold+underlined, so each block's SCOPE is unmistakable
 # and the session-stats line above is never mistaken for a table header.
-LIMITS_HDR = f"{BOLD}{UL}PLAN LIMITS{OFF}"
 WINDOWS_HDR = f"{BOLD}{UL}WINDOWS · PANES{OFF}"
 MESSAGES_HDR = f"{BOLD}{UL}MESSAGES{OFF}"
 
 
-def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
+def render_strip(session, wins, nwin, npane, cols, rows,
                  cue=False, now=None, cycle=True, phase=None, snap=None):
+    """Wide-short frame. The plan-limit bars left teamview with the whole provider lane
+    (they are `acct usage` now), so the old two-column LIMITS | WINDOWS split is gone and
+    the windows grid owns the full width at this layout."""
+    out = [session_line(session, nwin, npane, cols, cue, snap, now)]
+    budget = max(1, rows - 2)  # session line + phase header (no legend — see render_full)
     if cycle:
-        # Whole-view cycle (see render_full): the old side-by-side split becomes one
-        # full-width view at a time — windows pages, then the limits page, repeating.
+        # Whole-view cycle (see render_full): windows pages, then the messages page.
         # phase pins ONE view; see render_full.
-        out = [session_line(session, nwin, npane, cols, cue, snap, now)]
-        budget = max(1, rows - 2)  # session line + phase header (no legend — see render_full)
-        extras = extra_view_names(cells, notes, console, snap)
-        if phase in ("limits", "messages"):
+        extras = extra_view_names(snap)
+        if phase == "messages":
             grid, which = None, phase
         else:
             grid = window_grid(wins, cols, budget, now=now,
@@ -2176,89 +1400,30 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
             out.append(mhdr + rollup_suffix(wins, cols - visible_len(mhdr)))
             out.extend(messages_body(snap, cols, budget, now))
             return out[:rows]
-        if which == "limits":
-            out.append(LIMITS_HDR + rollup_suffix(wins, cols - visible_len(LIMITS_HDR)))
-            out.extend(limits_body(cells, notes, console, cols, budget))
-            return out[:rows]
-        else:
-            hdr = WINDOWS_HDR + dispatch_cue(snap, cols - visible_len(WINDOWS_HDR))
-            hdr += rollup_suffix(wins, cols - visible_len(hdr))
-            out.append(hdr)
-            out.extend(grid)
+        hdr = WINDOWS_HDR + dispatch_cue(snap, cols - visible_len(WINDOWS_HDR))
+        hdr += rollup_suffix(wins, cols - visible_len(hdr))
+        out.append(hdr)
+        out.extend(grid)
         return out[:rows]
-    budget = max(2, rows - 2)  # rows 0-1 are the session line + the two-table header row
-    label_w = max([c[1] for c in cells], default=10)
-    for ncols in (1, 2, 3):
-        bar_w = 22 if ncols == 1 else 14
-        cell_w = label_w + bar_w + 8 + 15  # renew/as-of suffix stays in every fold
-        need_rows = math.ceil(len(cells) / ncols) if cells else 0
-        left_w = ncols * (cell_w + 2)
-        if need_rows <= budget - 1 and left_w <= cols - 42:
-            break
-    grid_rows = math.ceil(len(cells) / ncols) if cells else 0
-    row_budget = max(1, cols - 42)  # the ncols pick above is an ESTIMATE (cell_w budgets a
-    # fixed +15 for the suffix, which a long "renews Wed 13:59" can exceed) — drop trailing
-    # columns from a row that overflows it instead of letting the outer clip_line cut into a
-    # bar's percent mid-value (the reported "claude:tecer 5h    ~" bug).
-    left = []
-    for r in range(grid_rows):
-        row_cells = [render_bar_cell(cells[r + grid_rows * c], label_w, bar_w)
-                     for c in range(ncols) if r + grid_rows * c < len(cells)]
-        while len(row_cells) > 1 and visible_len(
-                "  ".join(pad_to(s, cell_w) for s in row_cells)) > row_budget:
-            row_cells = row_cells[:-1]
-        if len(row_cells) > 1:
-            row = "  ".join(pad_to(s, cell_w) for s in row_cells)
-        else:
-            # a single cell padded to the (possibly oversized, multi-column) cell_w can
-            # STILL overflow row_budget on its own — bound it directly rather than let the
-            # outer clip_line cut it wherever the combined left+right line happens to end
-            row = row_cells[0] if row_cells else ""
-            if visible_len(row) > row_budget and r < len(cells):
-                row = shrink_to_fit(bar_cell_variants(cells[r], label_w, bar_w),
-                                    row_budget) or row
-            if visible_len(row) > row_budget:
-                row = clip_line(row, row_budget)
-        left.append(row)
-    lw = min(max([visible_len(l) for l in left] + [len("PLAN LIMITS")], default=11), cols - 42)
-    if notes:
-        left.append(fit_join(notes, " · ", max(0, lw - 1)))
-    if console:
-        cl = console_line(console)
-        if visible_len(cl) > lw:
-            names = [re.sub(r"\033\[[0-9;]*m", "", c).split(" ")[0] for c in console]
-            prefix = f"{YELLOW}no usage API{OFF} {DIM}>{OFF} "
-            cl = prefix + fit_join(names, ", ", max(0, lw - visible_len(prefix)))
-            if visible_len(cl) > lw:  # even the compact form doesn't fit — names only, no
-                cl = clip_line(cl, lw)  # numeric value is ever at stake on this line
-        left.append(cl)
-    right_w = cols - lw - 3
-    right = window_grid(wins, right_w, budget)
-    hdr_row = f"{pad_to(LIMITS_HDR, lw)}{DIM}|{OFF} {WINDOWS_HDR}"
-    hdr_row += dispatch_cue(snap, cols - visible_len(hdr_row))
-    hdr_row += rollup_suffix(wins, cols - visible_len(hdr_row))
-    out = [session_line(session, nwin, npane, cols, cue, snap, now), hdr_row]
-    for i in range(budget):
-        lseg = left[i] if i < len(left) else ""
-        rseg = right[i] if i < len(right) else ""
-        if not lseg and not rseg:
-            break
-        out.append(f"{pad_to(lseg, lw)}{DIM}|{OFF} {rseg}")
+    hdr = WINDOWS_HDR + dispatch_cue(snap, cols - visible_len(WINDOWS_HDR))
+    hdr += rollup_suffix(wins, cols - visible_len(hdr))
+    out.append(hdr)
+    out.extend(window_grid(wins, cols, max(1, rows - len(out))))
     if snapshot_messages(snap):
         out.append(MESSAGES_HDR + messages_hdr_count(snap))
         out.extend(messages_body(snap, cols, max(1, rows - len(out) - 1), now))
     return out[:rows]
 
 
-def cycle_compact(session, wins, nwin, npane, cells, notes, console, cols, rows,
+def cycle_compact(session, wins, nwin, npane, cols, rows,
                   cue, now, style, phase=None, snap=None):
     """The narrow/tiny whole-view cycle frame: constant session line, then either a
-    windows page (compact_window_lines' turn) or the limits page. No legend on any frame
+    windows page (compact_window_lines' turn) or the messages page. No legend on any frame
     — see render_full. phase pins ONE view instead of alternating; see render_full."""
     out = [session_line(session, nwin, npane, cols, cue, snap, now)]
     budget = max(1, rows - 3)  # session line + phase header + the rows-1 cap
-    extras = extra_view_names(cells, notes, console, snap)
-    if phase in ("limits", "messages"):
+    extras = extra_view_names(snap)
+    if phase == "messages":
         grid, which = None, phase
     else:
         grid = compact_window_lines(wins, cols, budget, now=now,
@@ -2270,32 +1435,19 @@ def cycle_compact(session, wins, nwin, npane, cells, notes, console, cols, rows,
         out.append(mhdr + rollup_suffix(wins, cols - visible_len(mhdr)))
         out.extend(messages_body(snap, cols, budget + 1, now))
         return out[:rows - 1]
-    if which == "limits":
-        lhdr = LIMITS_HDR if style == "narrow" else f"{BOLD}{UL}LIMITS{OFF}"
-        out.append(lhdr + rollup_suffix(wins, cols - visible_len(lhdr)))
-        out.extend(limits_body(cells, notes, console, cols, budget + 1, style=style))
-        return out[:rows - 1]
-    else:
-        whdr = WINDOWS_HDR if style == "narrow" else f"{BOLD}{UL}WINDOWS{OFF}"
-        whdr += dispatch_cue(snap, cols - visible_len(whdr))
-        out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
-        out.extend(grid)
+    whdr = WINDOWS_HDR if style == "narrow" else f"{BOLD}{UL}WINDOWS{OFF}"
+    whdr += dispatch_cue(snap, cols - visible_len(whdr))
+    out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
+    out.extend(grid)
     return out[:rows - 1]
 
 
-def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
+def render_narrow(session, wins, nwin, npane, cols, rows,
                   cue=False, now=None, cycle=True, phase=None, snap=None):
     if cycle:
-        return cycle_compact(session, wins, nwin, npane, cells, notes, console, cols,
-                             rows, cue, now, "narrow", phase, snap)
-    out = [session_line(session, nwin, npane, cols, cue, snap, now), LIMITS_HDR]
-    label_w = max([c[1] for c in cells], default=8)
-    bar_w = max(6, min(14, cols - label_w - 8))
-    for c in cells:
-        out.append(render_bar_cell(c, label_w, bar_w, with_suffix=False))
-    for n in notes:
-        out.append(n[:cols])
-    out.extend(console_lines(console, cols, max_lines=2))
+        return cycle_compact(session, wins, nwin, npane, cols, rows, cue, now, "narrow",
+                             phase, snap)
+    out = [session_line(session, nwin, npane, cols, cue, snap, now)]
     whdr = WINDOWS_HDR + dispatch_cue(snap, cols - visible_len(WINDOWS_HDR))
     out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
     out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 1)))
@@ -2305,34 +1457,12 @@ def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
     return out[:rows - 1]
 
 
-def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows,
+def render_tiny(session, wins, nwin, npane, cols, rows,
                 cue=False, now=None, cycle=True, phase=None, snap=None):
-    """LIMITS: one label + percent PER LINE (never 2-up flowed) — at this width a flowed
-    pair sits close enough that a label can misread as paired with its NEIGHBOR's percent
-    (observed: 'claude:main 5h' read against a different window's value). One entry per
-    line makes each label unambiguously own its own number."""
     if cycle:
-        return cycle_compact(session, wins, nwin, npane, cells, notes, console, cols,
-                             rows, cue, now, "tiny", phase, snap)
-    out = [session_line(session, nwin, npane, cols, cue, snap, now), f"{BOLD}{UL}LIMITS{OFF}"]
-    limit_budget = max(1, (rows - 3) // 2)
-    # The percent keeps its urgency color band even at this size — color costs ZERO
-    # columns, and a bare '97%' rendered identically to '12%' was a verified false
-    # all-clear (the glance view was structurally unable to show a red limit).
-    limit_lines = []
-    for c in cells:
-        color = GREEN if c[2] < 60 else (YELLOW if c[2] < 85 else RED)
-        limit_lines.append(f"{c[0]}: {color}{c[2]:.0f}%{OFF}")
-    if len(limit_lines) > limit_budget:
-        dropped = len(limit_lines) - limit_budget
-        limit_lines = limit_lines[:limit_budget]
-        limit_lines[-1] += f" {DIM}(+{dropped} more){OFF}"
-    out.extend(limit_lines)
-    note_toks = [re.sub(r"\s+", " ", n) for n in notes]
-    if console:
-        note_toks.append("no-API: " + " ".join(
-            re.sub(r"\033\[[0-9;]*m", "", c).split(" ")[0] for c in console))
-    out.extend(flow(note_toks, cols, max(1, rows - len(out) - 3)))
+        return cycle_compact(session, wins, nwin, npane, cols, rows, cue, now, "tiny",
+                             phase, snap)
+    out = [session_line(session, nwin, npane, cols, cue, snap, now)]
     thdr = f"{BOLD}{UL}WINDOWS{OFF}"
     thdr += dispatch_cue(snap, cols - visible_len(thdr))
     out.append(thdr + rollup_suffix(wins, cols - visible_len(thdr)))
@@ -2343,34 +1473,27 @@ def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows,
     return out[:rows - 1]
 
 
-def combined_fits(combined_lines, rows, cells=(), wins=()):
-    """AUTO view: does the COMPLETE combined frame (limits block + every window and pane,
-    what --no-rotate renders) actually fit the measured frame? The cycle exists ONLY to
-    survive a frame too small to show everything at once — when everything fits, cycling
-    hides half the dashboard for 10s at a time for no reason.
+def combined_fits(combined_lines, rows, wins=()):
+    """AUTO view: does the COMPLETE combined frame (every window and pane, what --no-rotate
+    renders) actually fit the measured frame? The cycle exists ONLY to survive a frame too
+    small to show everything at once — when everything fits, cycling hides half the
+    dashboard for 10s at a time for no reason.
 
-    TWO conditions, because height alone proved insufficient (verified live at 100x9: the
-    frame was short enough, and the strip layout's column fold had silently dropped 5 of 8
-    plan-limit bars — a --no-rotate-path defect that auto-selection would have promoted to
-    the DEFAULT view, showing an operator a limits block missing most of its bars with no
-    note). So: (1) it must be no taller than the frame, keeping the one spare row every
-    renderer's own `rows - 1` cap reserves; (2) every bar label and every window name must
-    be VISIBLY PRESENT in it. Failing either falls back to the cycle — the status quo, and
-    the safe direction: rotation always says what it is hiding, silent dropping does not.
+    TWO conditions, because height alone proved insufficient: a frame can be short enough
+    while a layout has SILENTLY dropped rows, and auto-selection would then promote that
+    lossy frame to the DEFAULT view. So: (1) it must be no taller than the frame, keeping
+    the one spare row every renderer's own `rows - 1` cap reserves; (2) every window name
+    must be VISIBLY PRESENT in it. Failing either falls back to the cycle — the status quo,
+    and the safe direction: rotation always says what it is hiding, silent dropping does not.
 
-    BOTH SIDES of the presence test are SGR-STRIPPED. A cell label carries color (CYAN for
-    the account in use, DIM for configured), so comparing a raw label against a stripped
-    body never matched: condition (2) failed for EVERY live frame and auto-combined was
-    dead on arrival at any size (reported live at 280x83, rendering windows-only). The
-    critical-pane pin was NOT the cause — it only picks a page inside a CYCLING grid, and
-    a combined frame renders every pane regardless, so a pin cannot suppress the limits
-    block once this returns True."""
+    BOTH SIDES of the presence test are SGR-STRIPPED: a name carrying color never matches a
+    raw comparison against a stripped body, which once made condition (2) fail for EVERY
+    live frame and left auto-combined dead on arrival at any size."""
     if len(combined_lines) > max(1, rows - 1):
         return False
     strip = lambda s: re.sub(r"\033\[[0-9;]*m", "", s)  # noqa: E731
     body = strip("\n".join(combined_lines))
-    return (all(strip(c[0]) in body for c in cells)
-            and all(strip(w["name"]) in body for w in wins))
+    return all(strip(w["name"]) in body for w in wins)
 
 
 def render(args, package, now=None):
@@ -2394,8 +1517,6 @@ def render(args, package, now=None):
                 f"{fmt_secs(snapshot_age_s(snap, now) or 0)} ago and lists zero panes — "
                 f"is the tmux session '{session}' still alive?{OFF}",
                 f"{RED}session_alive: {snap.get('session_alive')!r}{OFF}"]
-    cache = load_cache()
-    cells, notes, console = usage_cells(cache, live=live_agent_accounts())
     layout = choose_layout(cols, rows)
     # G-153: a package WAS given and still yielded no threshold — say so, loudly. Absence has to be
     # audible here or it reads as health: every pane renders a plain ctxN% and an operator takes
@@ -2408,28 +1529,20 @@ def render(args, package, now=None):
     # one that matters — a snapshot carrying ZERO ctx-refresh thresholds.
     cue = "no-thresholds" if not thresholds else False
     # --no-rotate / --view combined: LAYOUT is still chosen from the real terminal shape,
-    # but the whole-view cycle is disabled (both blocks render in ONE combined frame) and
+    # but the whole-view cycle is disabled (every block renders in ONE combined frame) and
     # every internal row/line budget (and the final row cap) is lifted so every window and
     # every pane renders — a COMPLETE snapshot, taller than the terminal if it must be,
     # instead of cycling pages a single --once frame can never show you the rest of.
     def frame(render_rows, cyc, phase=None):
         kw = dict(cue=cue, now=now, cycle=cyc, phase=phase, snap=snap)
-        if layout == "full":
-            return render_full(session, wins, nwin, npane, cells, notes, console, cache,
-                               cols, render_rows, **kw)
-        if layout == "strip":
-            return render_strip(session, wins, nwin, npane, cells, notes, console, cols,
-                                render_rows, **kw)
-        if layout == "narrow":
-            return render_narrow(session, wins, nwin, npane, cells, notes, console, cols,
-                                 render_rows, **kw)
-        return render_tiny(session, wins, nwin, npane, cells, notes, console, cols,
-                           render_rows, **kw)
+        renderer = {"full": render_full, "strip": render_strip,
+                    "narrow": render_narrow}.get(layout, render_tiny)
+        return renderer(session, wins, nwin, npane, cols, render_rows, **kw)
 
     view = "combined" if getattr(args, "no_rotate", False) else getattr(args, "view", "auto")
     if view == "combined":
         out = frame(10 ** 6, False)
-    elif view in ("limits", "panes", "messages"):
+    elif view in ("panes", "messages"):
         # single-view modes: one view, pinned — no alternation with the others
         out = frame(rows, True, phase=view)
     else:
@@ -2439,7 +1552,7 @@ def render(args, package, now=None):
         # the previous /proc/stat sample so the frame we actually print computes its own.
         prev_cpu = _PREV_CPU_SAMPLE["v"]
         combined = frame(10 ** 6, False)
-        if combined_fits(combined, rows, cells, wins):
+        if combined_fits(combined, rows, wins):
             out = combined
         else:
             _PREV_CPU_SAMPLE["v"] = prev_cpu
@@ -2461,54 +1574,6 @@ def cmd_selftest():
 
     strip_sgr = lambda s: re.sub(r"\033\[[0-9;]*m", "", s)  # noqa: E731
 
-    z = parse_zai({"data": {"level": "lite", "limits": [
-        {"type": "TIME_LIMIT", "percentage": 0},
-        {"type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 9,
-         "nextResetTime": 1784888042847},
-        {"type": "TOKENS_LIMIT", "unit": 6, "number": 1, "percentage": 13,
-         "nextResetTime": 1785450703998}]}})
-    check("zai parser: 5h+7d windows, tier, TIME_LIMIT skipped",
-          [w["label"] for w in z["windows"]] == ["5h", "7d"] and z["plan"] == "lite"
-          and z["windows"][0]["resets_at"] == 1784888042)
-    d = parse_deepseek({"is_available": True, "balance_infos": [
-        {"currency": "USD", "total_balance": "9.26"}]})
-    check("deepseek parser: balance+currency", d["balance"] == "9.26" and d["currency"] == "USD")
-    m = parse_moonshot({"data": {"available_balance": 12.5}})
-    check("moonshot parser: balance", m["balance"] == "12.5" and m["currency"] == "CNY")
-    k = parse_kimi_code({"usages": [{"model": "kimi-for-coding", "limit": 200, "used": 30,
-                                     "reset_at": 7}]})
-    check("kimi-code parser: pct from limit/used",
-          k["windows"][0]["pct"] == 15.0 and k["windows"][0]["resets_at"] == 7)
-    check("kimi-code parser: empty -> error", parse_kimi_code({}).get("error") == "no usage rows")
-    c = parse_claude_statusline({"ts": 1, "rate_limits": {
-        "five_hour": {"used_percentage": 51, "resets_at": 2},
-        "seven_day": {"used_percentage": 19}, "seven_day_opus": {"used_percentage": 40}}})
-    check("claude parser: window labels incl. model-specific",
-          sorted(w["label"] for w in c["windows"]) == ["5h", "7d", "7d opus"])
-    o = parse_oauth_limits({"limits": [
-        {"kind": "session", "percent": 7, "resets_at": "2026-07-24T18:40:00+00:00"},
-        {"kind": "weekly_all", "percent": 39, "resets_at": "2026-07-25T03:00:00+00:00"},
-        {"kind": "weekly_scoped", "percent": 54, "resets_at": "2026-07-25T03:00:00+00:00",
-         "scope": {"model": {"id": None, "display_name": "Fable"}, "surface": None}},
-        {"kind": "mystery", "percent": None}]})
-    check("oauth parser: 5h/7d/scoped-model labels, epoch resets, null-pct skipped",
-          [w["label"] for w in o] == ["5h", "7d", "7d fable"]
-          and o[2]["pct"] == 54.0 and isinstance(o[0]["resets_at"], int))
-    accs = [{"provider": "claude", "name": "main"}, {"provider": "claude", "name": "tecer",
-                                                     "in_use": True},
-            {"provider": "codex", "name": "main"}]
-    kept = current_claude_only(accs)
-    lbl, _lv = account_label([a for a in kept if a["provider"] == "claude"][0],
-                             sum(1 for a in kept if a["provider"] == "claude") > 1)
-    check("claude accounts: only the in-use one, labelled bare 'claude'",
-          [(a["provider"], a["name"]) for a in kept] == [("claude", "tecer"), ("codex", "main")]
-          and re.sub(r"\033\[[0-9;]*m", "", lbl) == "claude")
-    check("claude accounts: none in use -> main stands in",
-          [a["name"] for a in current_claude_only([dict(a, in_use=False) for a in accs])
-           if a["provider"] == "claude"] == ["main"])
-    cw = codex_windows_from_rl({"primary": {"used_percent": 3.0, "window_minutes": 10080,
-                                            "resets_at": 5}, "secondary": None})
-    check("codex windows: 10080min -> 7d", cw == [{"label": "7d", "pct": 3.0, "resets_at": 5}])
     # R24: `busy` and `awaiting` no longer come from teamview sampling tmux — they are read off
     # the snapshot. `awaiting` maps EXACTLY (team_monitor.prompt_pending, same prompt patterns,
     # computed at the sensor). `busy` DOES NOT: it used to mean "visible content changed across
@@ -2533,71 +1598,16 @@ def cmd_selftest():
                   ("9990002", "opencode run -m deepseek/deepseek-v4-pro do a thing"),
                   ("9990003", "-bash"), ("9990004", "python3 /home/x/teamview --once"),
                   ("9990005", "opencode run do a thing")]  # no --model: provider unknowable
-    live = live_agent_accounts(procs=fake_procs)
-    check("live accounts: claude (default config dir) + opencode provider prefix only (G-17)",
-          live == {("claude", "main"), ("deepseek", "main")})
-    check("live accounts: no live process -> nothing in use, whatever credentials exist",
-          live_agent_accounts(procs=[("1", "-bash"), ("2", "sshd: henri")]) == set())
-    check("live accounts: codex/kimi processes map to their provider",
-          live_agent_accounts(procs=[("1", "codex --search"), ("2", "kimi")])
-          == {("codex", "main"), ("kimi", "main")})
-    check("opencode provider aliases: store key and identity spelling both resolve",
-          (opencode_account_of("opencode run -m zai-coding-plan/glm-4.6"),
-           opencode_account_of("opencode -m moonshot/kimi-k2"),
-           opencode_account_of("opencode run -m deepseek/deepseek-v4"),
-           opencode_account_of("opencode run"))
-          == (("zai", "main"), ("kimi", "main"), ("deepseek", "main"), None))
-    check("account_in_use: live wins; explicit config flag overrides in both directions",
-          account_in_use({"provider": "claude", "name": "main"}, live)
-          and not account_in_use({"provider": "claude", "name": "tecer"}, live)
-          and not account_in_use({"provider": "zai", "name": "main"}, live)
-          and account_in_use({"provider": "zai", "name": "main", "in_use": True,
-                              "_in_use_explicit": True}, live)
-          and not account_in_use({"provider": "claude", "name": "main", "in_use": False,
-                                  "in_use_explicit": True}, live))
 
-    with tempfile.TemporaryDirectory() as td:
-        home = Path(td)
-        (home / ".claude").mkdir()
-        (home / ".codex" / "sessions").mkdir(parents=True)
-        (home / ".kimi" / "credentials").mkdir(parents=True)
-        oc = home / "auth.json"
-        oc.write_text(json.dumps({"deepseek": {"key": "k1"}, "zai-coding-plan": {"key": "k2"}}))
-        (home / ".claude-work").mkdir()
-        acc = load_accounts(home / "nonexistent.json", home=home, opencode_path=oc,
-                            live={("claude", "main"), ("zai", "main")})
-        provs = sorted(a["provider"] for a in acc)
-        check("discovery: claude+codex+kimi+opencode providers found",
-              provs == ["claude", "claude", "codex", "deepseek", "kimi", "zai"])
-        extra = next((a for a in acc if a["provider"] == "claude" and a["name"] == "work"), None)
-        check("discovery: extra ~/.claude-<tag> account dir found with tagged statusline path",
-              extra is not None and extra["source"]["path"].endswith("plan-usage-work.json"))
-        # G-17 regression: a discovered credential is CONFIGURED, not in use. Only the
-        # accounts a live process spends light up — claude:work and codex/deepseek/kimi
-        # all have stores here and none is running.
-        by_key = {(a["provider"], a["name"]): a["in_use"] for a in acc}
-        check("discovery: only accounts with a LIVE process are in use (G-17)",
-              by_key[("claude", "main")] and by_key[("zai", "main")]
-              and not any(v for k, v in by_key.items()
-                          if k not in {("claude", "main"), ("zai", "main")}))
-        cfg = home / "teamview.json"
-        cfg.write_text(json.dumps({"accounts": [
-            {"provider": "zai", "name": "main", "source": {"type": "opencode"}},
-            {"provider": "zai", "name": "alt", "source": {"type": "env", "var": "X_ALT"}}]}))
-        acc = load_accounts(cfg, home=home, opencode_path=oc, live={("zai", "main")})
-        check("config: multi-account per provider; the idle sibling is NOT in use",
-              len(acc) == 2 and acc[0]["in_use"] and not acc[1]["in_use"])
-        key = resolve_key({"provider": "zai", "source": {"type": "opencode"}}, opencode_path=oc)
-        check("key resolution: opencode store_key mapping (zai -> zai-coding-plan)", key == "k2")
 
-    check("reference docs live behind their flags, off the -h path",
-          "api/oauth/usage" in DOC_PROVIDERS and '"accounts"' in DOC_CONFIG
-          and "opencode | env | file" in DOC_CONFIG and "api.z.ai" in DOC_PROVIDERS
-          and all(s not in __doc__ for s in ("api.z.ai", '"accounts"')))
     check("legend: every marker discoverable from -h (fresh-eyes gap fix)",
           all(s in __doc__ for s in ("text cut", "active window", "pane match uncertain",
-                                     "last activity", "account in use", "awaiting approval",
-                                     "ctx-refresh threshold", "shell", "empty-title")))
+                                     "last activity", "awaiting approval",
+                                     "ctx-refresh threshold", "shell", "empty-title"))
+          # the account markers went with the plan bars — they must be gone from BOTH the
+          # -h key and the legend tuples, or the dashboard documents a marker it never draws
+          and "account in use" not in __doc__
+          and not any("account" in i for i in LEGEND_ITEMS))
     narrow_legend = [re.sub(r"\033\[[0-9;]*m", "", l) for l in legend_lines(80)]
     check("legend_lines: word-wraps at a narrow width instead of hard-clipping mid-word "
           "(the '...ctx~ = pane ma~' bug — every line fits, none end in a clip_line '~')",
@@ -2608,19 +1618,6 @@ def cmd_selftest():
     check("legend_lines: no marker item dropped when everything fits on one wide line",
           all(re.sub(r"\033\[[0-9;]*m", "", item) in full_legend_plain
               for item in LEGEND_ITEMS))
-    fake_console = [f"{CYAN}sakana{OFF} {DIM}(key present; console.sakana.ai){OFF}",
-                    f"{CYAN}google{OFF} {DIM}(key present; aistudio.google.com){OFF}",
-                    f"{CYAN}kimi{OFF} {DIM}(logged in; kimi.com){OFF}"]
-    narrow_console = [re.sub(r"\033\[[0-9;]*m", "", l) for l in console_lines(fake_console, 68)]
-    check("console_lines: word-wraps provider entries at a narrow width instead of "
-          "hard-clipping mid-word (the '...google (ke~' bug at 70x40)",
-          all(len(l) <= 68 for l in narrow_console)
-          and "google (key present; aistudio.google.com)" in " ".join(narrow_console)
-          and "sakana (key present; console.sakana.ai)" in " ".join(narrow_console)
-          and "kimi (logged in; kimi.com)" in " ".join(narrow_console))
-    check("console_lines: [] for no console providers; console_line unaffected (still used "
-          "by render_strip's own narrow fallback)",
-          console_lines([], 80) == [] and "no usage API" in console_line(fake_console))
     # R24 discovery: package-rooted, never tmux-rooted.
     with tempfile.TemporaryDirectory() as td:
         run = Path(td).resolve() / "goal" / "runs" / "run-9"
@@ -2645,30 +1642,6 @@ def cmd_selftest():
            choose_layout(55, 40), choose_layout(60, 12))
           == ("full", "strip", "narrow", "tiny"))
 
-    fake_cache = {"ts": int(time.time()), "accounts": [
-        {"provider": "claude", "name": "main", "in_use": True,
-         "data": {"windows": [{"label": "5h", "pct": 51, "resets_at": None},
-                              {"label": "7d", "pct": 19, "resets_at": None}]}},
-        {"provider": "zai", "name": "alt", "in_use": False,
-         "data": {"windows": [{"label": "5h", "pct": 9, "resets_at": None}]}},
-        {"provider": "deepseek", "name": "main", "in_use": True,
-         "data": {"balance": "9.26", "currency": "USD"}},
-        {"provider": "sakana", "name": "main", "in_use": True,
-         "data": {"note": "key present · console-only (console.sakana.ai)"}}]}
-    cells, notes, console = usage_cells(fake_cache)
-    check("cells: one bar per window, money to notes, console-only nested apart",
-          len(cells) == 3 and any("9.26" in n for n in notes)
-          and not any("sakana" in n for n in notes)
-          and any("sakana" in c for c in console)
-          and "no usage API" in console_line(console))
-    check("in-use highlight: cyan (no star) for in-use, dim for alt",
-          "*" not in cells[0][0] and CYAN in cells[0][0] and DIM in cells[2][0])
-    fresh = usage_cells({"ts": int(time.time()), "accounts": [
-        {"provider": "claude", "name": "main", "in_use": True,
-         "data": {"windows": [{"label": "7d fable", "pct": 54, "resets_at": None}],
-                  "fresh": True, "as_of": int(time.time()) - 90000}}]})[0]
-    check("oauth-fresh windows: old statusline as_of does NOT mark them 'as of' stale",
-          len(fresh) == 1 and "as of" not in fresh[0][3])
 
     def P(name, busy=False, shell=False, harness="claude", model="opus-4-8",
           ctx=46.0, age="2m", approx=False, awaiting=False, ctx_over=False):
@@ -2703,27 +1676,6 @@ def cmd_selftest():
     check("pane_cell_fit: an impossibly tight width still returns something COMPLETE "
           "(the bare name), never a mid-value clip",
           pane_cell_fit(crit_p, 3) == pane_name(crit_p))
-    bcv = bar_cell_variants(("claude:main 5h", 14, 25.0, "renews 23:40"), 14, 22)
-    check("bar_cell_variants: the percent NEVER drops — only the bar/suffix shrink",
-          all("25%" in v for v in bcv))
-    for w in (60, 70, 80):
-        many_wins = [{"idx": str(i), "name": f"win{i}", "active": i == 0,
-                     "panes": [P(f"seat{i}a"), P(f"seat{i}b", ctx=42.0, ctx_over=True)]}
-                    for i in range(4)]
-        many_cells = [(f"claude:main {lbl}", 14, pct, "renews Sat 03:00")
-                     for lbl, pct in (("5h", 25.0), ("7d", 51.0), ("7d fable", 66.0))]
-        calm_wins_w = [{"idx": str(i), "name": f"win{i}", "active": i == 0,
-                        "panes": [P(f"seat{i}a"), P(f"seat{i}b", ctx=42.0)]}
-                       for i in range(4)]
-        for layout_fn, h in ((render_strip, 8), (render_narrow, 30), (render_tiny, 12)):
-            for fixture, nv in ((many_wins, 0), (calm_wins_w, 10)):
-                out = layout_fn("improve-teamview", fixture, 4, 8, many_cells,
-                                ["deepseek $8.63 left"], [], w, h, now=nv)
-                plain = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out]
-                check(f"{layout_fn.__name__} at {w}w now={nv}: no line exceeds the "
-                      "requested width on either cycle phase (no cue/footer/value "
-                      "overflow reaching the outer blind clip)",
-                      all(len(l) <= w for l in plain))
     # G-153's STRUCTURAL CURE. The defect was a SECOND path: thresholds were re-read from seat
     # descriptors on a hardcoded layout while the ctx% they gate came from the sensor, so the two
     # could drift — and did, silently, on every post-restructure package. Both now come off the
@@ -2780,49 +1732,25 @@ def cmd_selftest():
                   "panes": [P("cli", shell=True)]}]
     for layout_fn, dims in ((render_strip, (240, 8)), (render_narrow, (56, 40)),
                             (render_tiny, (58, 12)), ):
-        outw = layout_fn("sess", wins, 2, 3, cells, notes, console, *dims, now=0)
-        outl = layout_fn("sess", calm_wins, 2, 3, cells, notes, console, *dims, now=10)
+        outw = layout_fn("sess", wins, 2, 3, *dims, now=0)
+        outl = layout_fn("sess", calm_wins, 2, 3, *dims, now=10)
         jw = re.sub(r"\033\[[0-9;]*m", "", "\n".join(outw))
         jl = re.sub(r"\033\[[0-9;]*m", "", "\n".join(outl))
-        check(f"{layout_fn.__name__}: fits height on both phases; windows phase carries "
-              "seats + agent info, limits phase carries provider info",
+        check(f"{layout_fn.__name__}: fits height at every tick; each frame carries the "
+              "seats and their agent info",
               len(outw) <= dims[1] and len(outl) <= dims[1] and "leader" in jw
-              and "claude" in jw and "46%" in jw and "9.26" in jl)
-    # Regression (hk-ux-1, dispatch #95, CRITICAL): reported "claude:main 5h" showing 1%
-    # instead of the correct 45% at 60x12. Could not reproduce a formatting/truncation bug
-    # after extensive width/value sweeps — the pipeline reads `pct` verbatim end to end, no
-    # scaling or truncation touches it. Most likely explanation: a genuine 5h rate-limit
-    # window reset between the tester's own sequential steps (their own T3 finding showed
-    # "renews 18:39"; the dispatch landed at 19:24, ~45min after that reset time). Shipped
-    # regardless: LIMITS now renders ONE label+percent per line (never flowed 2-up) so a
-    # label can never visually run into a NEIGHBOR pair's value at this width — the likelier
-    # root cause of "corruption" given the tester's own "misalignment" wording. This check
-    # locks the exact known value in at the exact reported size.
-    tiny_out = [re.sub(r"\033\[[0-9;]*m", "", l) for l in render_tiny(
-        "sess", calm_wins, 2, 3, [("claude:main 5h", 14, 45.0, "renews 18:39")], [], [],
-        60, 12, now=10)]
-    check("render_tiny: a known plan-usage value (45%) renders EXACTLY at 60x12, one "
-          "label+percent per line (no neighbor-pair bleed)",
-          "claude:main 5h: 45%" in tiny_out
-          and not any(l.startswith("claude:main 5h:") and "45%" not in l for l in tiny_out))
-    out = render_full("sess", wins, 2, 3, cells, notes, console, fake_cache, 160, 40,
+              and "claude" in jw and "46%" in jw and "leader" in jl)
+    out = render_full("sess", wins, 2, 3, 160, 40,
                       now=0)
     plain = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out]
     hdr = next((i for i, l in enumerate(plain) if "control" in l), None)
     check("render_full windows phase: grid — starred active window, panes with agent "
-          "info beneath, no limits block sharing the frame",
+          "info beneath, the alarm rollup on the phase header",
           hdr is not None
           and any("leader+ claude:opus-4-8 46% 2m" in l for l in plain[hdr:])
           and any("*control" in l for l in plain)
-          and not any("PLAN LIMITS" in l for l in plain)
+          and any("worst" in l for l in plain)
           and not any("legend:" in l for l in plain))
-    lim_full = [re.sub(r"\033\[[0-9;]*m", "", l) for l in render_full(
-        "sess", calm_wins, 2, 3, cells, notes, console, fake_cache, 160, 40, now=10)]
-    check("render_full limits phase: the next cycle slot renders the PLAN LIMITS page — "
-          "windows grid absent, alarm rollup still on the phase header",
-          any("PLAN LIMITS" in l for l in lim_full)
-          and not any("control" in l for l in lim_full)
-          and any("worst" in l for l in lim_full))
     out = window_grid([{"name": "big", "active": True,
                         "panes": [P(f"p{i}", model="", ctx=None, age="") for i in range(9)]},
                        {"name": "other", "active": False, "panes": [P("x")]}], 44, 5)
@@ -2916,40 +1844,29 @@ def cmd_selftest():
           isinstance(window_grid(fit_wins, 80, 10, now=0, extra_slots=1), list)
           and window_grid(fit_wins, 80, 10, now=10, extra_slots=1) == 0)
     check("whole-view cycle: TWO extra slots take their turns IN ORDER after the window "
-          "pages (limits then messages), 0 then 1, then the wheel repeats",
+          "pages, 0 then 1, then the wheel repeats (the wheel is generic — teamview "
+          "itself now ships ONE extra view, messages)",
           window_grid(fit_wins, 80, 10, now=10, extra_slots=2) == 0
           and window_grid(fit_wins, 80, 10, now=20, extra_slots=2) == 1
           and isinstance(window_grid(fit_wins, 80, 10, now=30, extra_slots=2), list)
           and compact_window_lines(fit_wins, 80, 10, now=10, extra_slots=2) == 0
           and compact_window_lines(fit_wins, 80, 10, now=20, extra_slots=2) == 1)
-    s0 = render_strip("sess", fit_wins, 1, 1, cells, notes, console, 220, 10, now=0)
-    s1 = render_strip("sess", fit_wins, 1, 1, cells, notes, console, 220, 10, now=10)
-    s2 = render_strip("sess", fit_wins, 1, 1, cells, notes, console, 220, 10, now=20)
+    s0 = render_strip("sess", fit_wins, 1, 1, 220, 10, now=0)
+    s1 = render_strip("sess", fit_wins, 1, 1, 220, 10, now=10)
+    s2 = render_strip("sess", fit_wins, 1, 1, 220, 10, now=20)
     p0, p1 = plain(s0), plain(s1)
-    check("whole-view cycle: strip alternates a full-width WINDOWS page and a full-width "
-          "PLAN LIMITS page, deterministically repeating",
-          any("WINDOWS" in l for l in p0) and not any("PLAN LIMITS" in l for l in p0)
-          and any("PLAN LIMITS" in l for l in p1)
-          and not any("WINDOWS · PANES" in l for l in p1)
+    check("whole-view cycle: with NO extra view in the snapshot every tick is the WINDOWS "
+          "page — the wheel never spends a slot on a view that does not exist",
+          all(any("WINDOWS" in l for l in f) for f in (p0, p1, plain(s2)))
           and plain(s2)[1:] == p0[1:])
     check("whole-view cycle: the first line stays constant across both phases — the "
           "cycle phase is no input to it (only the clock and the live sys cue move)",
           p0[0].startswith("sess · 1 windows · 1 panes")
           and p1[0].startswith("sess · 1 windows · 1 panes"))
-    crit_cycle = [{"idx": "0", "name": "w", "active": True,
-                   "panes": [P("stuck", awaiting=True)]}]
-    pinned_frames = [plain(render_strip("sess", crit_cycle, 1, 1, cells, notes, console,
-                                        220, 10, now=n)) for n in (0, 10, 20)]
-    check("whole-view cycle: a critical pane PINS the cycle on its windows page — the "
-          "limits page waits, no frame ever hides the critical pane",
-          all(any("stuck" in l for l in f) for f in pinned_frames)
-          and not any(any("PLAN LIMITS" in l for l in f) for f in pinned_frames))
-    combined = plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+    combined = plain(render_strip("sess", fit_wins, 1, 1,
                                   220, 10 ** 6, cycle=False))
-    check("--no-rotate: cycle disabled -> ONE combined frame carries PLAN LIMITS and "
-          "the windows block together",
-          any("PLAN LIMITS" in l for l in combined)
-          and any("WINDOWS" in l for l in combined))
+    check("--no-rotate: cycle disabled -> ONE combined frame carries the windows block",
+          any("WINDOWS" in l for l in combined))
 
     # Owner request 2026-07-28: (a) a MESSAGES page joins the whole-view cycle — the
     # coordination log's last sends (how long ago · sender→recipient · first 70 chars),
@@ -2986,28 +1903,35 @@ def cmd_selftest():
     check("messages_body: a snapshot without the field renders a LOUD explanation, "
           "not an empty page",
           any("no message data" in l for l in plain(messages_body({}, 200, 5))))
-    m0, m1, m2, m3 = (plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+    m0, m1, m2, m3 = (plain(render_strip("sess", fit_wins, 1, 1,
                                          220, 10, now=n, snap=msg_snap))
                       for n in (0, 10, 20, 30))
     check("whole-view cycle: with a message tail in the snapshot the wheel runs windows "
-          "-> PLAN LIMITS -> MESSAGES -> back to windows",
-          any("WINDOWS" in l for l in m0) and any("PLAN LIMITS" in l for l in m1)
-          and any("MESSAGES (last 2 of 42)" in l for l in m2)
-          and any("leader → engineer" in l for l in m2)
-          and m3[1:] == m0[1:])
+          "-> MESSAGES -> back to windows",
+          any("WINDOWS" in l for l in m0)
+          and any("MESSAGES (last 2 of 42)" in l for l in m1)
+          and any("leader → engineer" in l for l in m1)
+          and any("WINDOWS" in l for l in m2) and m2[1:] == m0[1:] and m3[1:] == m1[1:])
+    crit_cycle = [{"idx": "0", "name": "w", "active": True,
+                   "panes": [P("stuck", awaiting=True)]}]
+    pinned_frames = [plain(render_strip("sess", crit_cycle, 1, 1, 220, 10, now=n,
+                                        snap=msg_snap)) for n in (0, 10, 20)]
+    check("whole-view cycle: a critical pane PINS the cycle on its windows page — the "
+          "messages page waits, no frame ever hides the critical pane",
+          all(any("stuck" in l for l in f) for f in pinned_frames)
+          and not any(any("MESSAGES" in l for l in f) for f in pinned_frames))
     check("whole-view cycle: NO messages slot when the snapshot carries no tail — an old "
           "sensor must not buy a blank 10s page",
           not any(any("MESSAGES" in l for l in
-                      plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+                      plain(render_strip("sess", fit_wins, 1, 1,
                                          220, 10, now=n)))
                   for n in (0, 10, 20, 30)))
     check("--view messages: pinned — every tick shows the messages page, never the others",
           all(any("MESSAGES" in l for l in f) and not any("WINDOWS" in l for l in f)
-              and not any("PLAN LIMITS" in l for l in f)
-              for f in (plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+              for f in (plain(render_strip("sess", fit_wins, 1, 1,
                                            220, 10, now=n, phase="messages",
                                            snap=msg_snap)) for n in (0, 10, 20))))
-    combined_m = plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+    combined_m = plain(render_strip("sess", fit_wins, 1, 1,
                                     220, 10 ** 6, cycle=False, snap=msg_snap))
     check("--no-rotate: the combined frame carries the MESSAGES block too",
           any("MESSAGES" in l for l in combined_m)
@@ -3016,7 +1940,7 @@ def cmd_selftest():
           "payload, and its absence renders as NOTHING rather than a fake 0",
           any("dispatch ~46k tok avg/seat" in l for l in m0)
           and not any("disp" in l for l in
-                      plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+                      plain(render_strip("sess", fit_wins, 1, 1,
                                          220, 10, now=0))))
     check("dispatch cue: degrades to shorter forms at narrow room, never a mid-value clip",
           dispatch_cue(msg_snap, 14).endswith(f"disp~46k{OFF}")
@@ -3068,30 +1992,27 @@ def cmd_selftest():
     # phase, absent on the limits phase"; this one pins absence everywhere, so the legend
     # cannot creep back onto a layout unnoticed. 'approval' and 'ctx usage' are legend-only
     # strings — the alarm rollup says '0 ?' and a pane cell says a bare 'N%'.
-    lf_win = plain(render_full("sess", wins, 2, 3, cells, notes, console, fake_cache,
-                               160, 40, now=0))
-    lf_lim = plain(render_full("sess", calm_wins, 2, 3, cells, notes, console, fake_cache,
-                               160, 40, now=10))
-    check("itemA(rev): render_full — NO marker legend on either phase, and the PLAN LIMITS "
-          "phase still renders its bars",
-          any("PLAN LIMITS" in l for l in lf_lim)
-          and not any("approval" in l for l in lf_win + lf_lim)
-          and not any("ctx usage" in l for l in lf_win + lf_lim))
+    lf_win = plain(render_full("sess", wins, 2, 3, 160, 40, now=0))
+    lf_msg = plain(render_full("sess", calm_wins, 2, 3, 160, 40, now=10, snap=msg_snap))
+    check("itemA(rev): render_full — NO marker legend on either phase, and the MESSAGES "
+          "phase still renders its sends",
+          any("MESSAGES" in l for l in lf_msg)
+          and not any("approval" in l for l in lf_win + lf_msg)
+          and not any("ctx usage" in l for l in lf_win + lf_msg))
     for layout_fn, dims in ((render_strip, (240, 8)), (render_narrow, (56, 40)),
                             (render_tiny, (58, 12))):
-        mw = plain(layout_fn("sess", wins, 2, 3, cells, notes, console, *dims, now=0))
-        ml = plain(layout_fn("sess", calm_wins, 2, 3, cells, notes, console, *dims,
-                             now=10))
-        check(f"itemA(rev): {layout_fn.__name__} — NO legend on either phase; the limits "
-              "bars keep their own notes and the frame still fits its height",
-              any("LIMITS" in l for l in ml)
+        mw = plain(layout_fn("sess", wins, 2, 3, *dims, now=0))
+        ml = plain(layout_fn("sess", calm_wins, 2, 3, *dims, now=10, snap=msg_snap))
+        check(f"itemA(rev): {layout_fn.__name__} — NO legend on either phase; the messages "
+              "page still renders and the frame still fits its height",
+              any("MSGS" in l or "MESSAGES" in l for l in ml)
               and not any("approval" in l for l in mw + ml)
               and len(ml) <= dims[1] and len(mw) <= dims[1])
 
     # Owner item B: the ~10s cycle exists only to survive a frame too small for everything.
     # A frame big enough gets the COMBINED view statically (auto), decided from the
     # MEASURED size every render — the same combined frame --no-rotate forces.
-    comb_lines = render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+    comb_lines = render_strip("sess", fit_wins, 1, 1,
                               220, 10 ** 6, cycle=False)
     check("itemB: combined_fits — True when the frame has room for every combined line "
           "(plus the one spare row every renderer reserves), False when it does not",
@@ -3099,104 +2020,87 @@ def cmd_selftest():
           and combined_fits(comb_lines, len(comb_lines)) is False
           and combined_fits(comb_lines, 4) is False
           and combined_fits([], 1) is True)
-    # Height alone is NOT enough (verified live at 100x9): a short-enough combined frame
-    # can still have dropped bars in the strip layout's column fold. Auto must refuse a
-    # frame that is missing content and fall back to the cycle, which at least SAYS what
-    # it is hiding.
-    # The exact live shape (100 cols, the box's real 8 bars): the strip fold drops 5 of
-    # them with no note, in a frame only 6 lines tall.
-    # Labels are PRODUCTION-SHAPED: colorized exactly as usage_cells emits them (CYAN in
-    # use / DIM configured). A plain-label fixture here is what let the SGR defect below
-    # ship — it was width-realistic but not color-realistic, so it could not fail.
-    live_cells = [(f"{CYAN if i < 3 else DIM}{l.split(' ')[0]}{OFF} "
-                   + l.split(" ", 1)[1], len(l), 40.0, "renews Sat 03:00")
-                  for i, l in enumerate(
-                      ("claude:main 5h", "claude:main 7d", "claude:main 7d fable",
-                       "claude:tecer 5h", "claude:tecer 7d", "codex 7d", "zai 5h",
-                       "zai 7d"))]
-    lossy = render_strip("sess", fit_wins, 1, 1, live_cells, [], [], 100, 10 ** 6,
-                         cycle=False)
-    intact = render_strip("sess", fit_wins, 1, 1, live_cells, [], [], 140, 10 ** 6,
-                          cycle=False)
-    check("itemB: combined_fits REFUSES a short-enough combined frame that silently "
-          "dropped bars — every cell label and window name must be VISIBLY present "
-          "(live 100x9: 5 of 8 bars gone from a 6-line frame)",
-          not all(c[0] in "\n".join(plain(lossy)) for c in live_cells)
-          and combined_fits(lossy, 40, live_cells, fit_wins) is False
-          and combined_fits(lossy, 40) is True  # height-only would have ACCEPTED it
-          and combined_fits(intact, len(intact) + 1, live_cells, fit_wins) is True)
+    check("itemB: combined_fits REFUSES a frame a window name is missing from — presence "
+          "is CHECKED, not just height, so a silently-lossy frame is never promoted to the "
+          "default view (height-only would have ACCEPTED it)",
+          combined_fits(["nothing here"], 40, [{"name": "ghost", "panes": []}]) is False
+          and combined_fits(["nothing here"], 40) is True)
     # Regression (owner, live at 280x83): a cell LABEL carries SGR color, so comparing the
     # raw label against an SGR-stripped body never matched — condition (2) failed on every
     # live frame and auto-combined never engaged at ANY size. Both sides must be stripped.
-    check("itemB: combined_fits matches COLORIZED labels (CYAN in-use / DIM configured) — "
-          "the live shape; a raw-vs-stripped comparison made auto-combined dead on arrival",
-          any("\033[" in c[0] for c in live_cells)  # the fixture is genuinely colorized
-          and combined_fits(intact, len(intact) + 1, live_cells, fit_wins) is True)
+    colored_wins = [{"idx": "0", "name": f"{CYAN}a{OFF}", "active": True,
+                     "panes": [P("x")]}]
+    col_frame = render_strip("sess", colored_wins, 1, 1, 220, 10 ** 6, cycle=False)
+    check("itemB: combined_fits matches COLORIZED window names — the live shape; a "
+          "raw-vs-stripped comparison made auto-combined dead on arrival",
+          any("\033[" in w["name"] for w in colored_wins)  # genuinely colorized fixture
+          and combined_fits(col_frame, len(col_frame) + 1, colored_wins) is True)
     # Owner report at 280x83: a CRITICAL pane must NOT suppress the combined view. The pin
     # exists so a critical pane is never CYCLED OUT OF VIEW; a combined frame renders every
     # pane (the critical one included) plus the limits, so the pin has nothing to protect.
     crit_big_wins = [{"idx": "0", "name": "defect-fix", "active": True,
                       "panes": [P("defect-fix", awaiting=True)]},
                      {"idx": "1", "name": "talk", "active": False, "panes": [P("liaison")]}]
-    crit_big = render_full("sess", crit_big_wins, 2, 2, live_cells, [], [], fake_cache,
-                           280, 10 ** 6, cycle=False)
+    crit_big = render_full("sess", crit_big_wins, 2, 2, 280, 10 ** 6, cycle=False,
+                           snap=msg_snap)
     crit_big_p = plain(crit_big)
     check("itemB: a CRITICAL pane on a BIG frame still selects the COMBINED view — both "
-          "PLAN LIMITS and WINDOWS present, the critical pane visible with its ? marker "
+          "MESSAGES and WINDOWS present, the critical pane visible with its ? marker "
           "(the pin only holds a page while CYCLING)",
-          combined_fits(crit_big, 83, live_cells, crit_big_wins) is True
-          and any("PLAN LIMITS" in l for l in crit_big_p)
+          combined_fits(crit_big, 83, crit_big_wins) is True
+          and any("MESSAGES" in l for l in crit_big_p)
           and any("WINDOWS" in l for l in crit_big_p)
-          and any("defect-fix?" in l for l in crit_big_p)
-          and all(re.sub(r"\033\[[0-9;]*m", "", c[0]) in "\n".join(crit_big_p)
-                  for c in live_cells))
+          and any("defect-fix?" in l for l in crit_big_p))
     big = plain(comb_lines)
-    small = plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+    small = plain(render_strip("sess", fit_wins, 1, 1,
                                220, 10, now=0))
+    big_m = plain(render_strip("sess", fit_wins, 1, 1, 220, 10 ** 6, cycle=False,
+                               snap=msg_snap))
     check("itemB: a fitting frame shows BOTH blocks at once (what auto selects), while "
           "the too-small frame still shows exactly one view per ~10s phase",
           combined_fits(comb_lines, len(comb_lines) + 1)
-          and any("PLAN LIMITS" in l for l in big) and any("WINDOWS" in l for l in big)
+          and any("MESSAGES" in l for l in big_m) and any("WINDOWS" in l for l in big_m)
           and any("WINDOWS" in l for l in small)
-          and not any("PLAN LIMITS" in l for l in small))
+          and not any("MESSAGES" in l for l in small))
 
     # Owner item C: --view pins ONE body — no alternation at any tick, at every layout.
     for layout_fn, dims in ((render_strip, (240, 8)), (render_narrow, (56, 40)),
                             (render_tiny, (58, 12))):
-        lim = [plain(layout_fn("sess", fit_wins, 1, 1, cells, notes, console, *dims,
-                               now=n, phase="limits")) for n in (0, 10, 20, 30)]
-        pan = [plain(layout_fn("sess", fit_wins, 1, 1, cells, notes, console, *dims,
-                               now=n, phase="panes")) for n in (0, 10, 20, 30)]
-        check(f"itemC: {layout_fn.__name__} --view limits — LIMITS only at EVERY tick, "
-              "never a windows grid, never the pane legend",
-              all(any("LIMITS" in l for l in f) for f in lim)
-              and not any(any("WINDOWS" in l for l in f) for f in lim)
-              and not any(any("approval" in l for l in f) for f in lim)
-              and all(len(f) <= dims[1] for f in lim))
+        msg = [plain(layout_fn("sess", fit_wins, 1, 1, *dims, now=n, phase="messages",
+                               snap=msg_snap)) for n in (0, 10, 20, 30)]
+        pan = [plain(layout_fn("sess", fit_wins, 1, 1, *dims, now=n, phase="panes",
+                               snap=msg_snap)) for n in (0, 10, 20, 30)]
+        check(f"itemC: {layout_fn.__name__} --view messages — MESSAGES only at EVERY "
+              "tick, never a windows grid, never the pane legend",
+              all(any("MSGS" in l or "MESSAGES" in l for l in f) for f in msg)
+              and not any(any("WINDOWS" in l for l in f) for f in msg)
+              and not any(any("approval" in l for l in f) for f in msg)
+              and all(len(f) <= dims[1] for f in msg))
         check(f"itemC: {layout_fn.__name__} --view panes — windows/panes only at EVERY "
-              "tick, never the limits block",
+              "tick, never the messages block",
               all(any("WINDOWS" in l for l in f) for f in pan)
-              and not any(any("PLAN LIMITS" in l for l in f) for f in pan)
+              and not any(any("MESSAGES" in l for l in f) for f in pan)
               and all(any("x" in l for l in f) for f in pan)
               and all(len(f) <= dims[1] for f in pan))
-    vf_lim = [plain(render_full("sess", fit_wins, 1, 1, cells, notes, console, fake_cache,
-                                160, 40, now=n, phase="limits")) for n in (0, 10, 20)]
-    vf_pan = [plain(render_full("sess", fit_wins, 1, 1, cells, notes, console, fake_cache,
-                                160, 40, now=n, phase="panes")) for n in (0, 10, 20)]
-    check("itemC: render_full --view limits/panes pin their own body at every tick",
-          all(any("PLAN LIMITS" in l for l in f) and not any("WINDOWS" in l for l in f)
-              for f in vf_lim)
+    vf_msg = [plain(render_full("sess", fit_wins, 1, 1, 160, 40, now=n, phase="messages",
+                                snap=msg_snap)) for n in (0, 10, 20)]
+    vf_pan = [plain(render_full("sess", fit_wins, 1, 1, 160, 40, now=n, phase="panes",
+                                snap=msg_snap)) for n in (0, 10, 20)]
+    check("itemC: render_full --view messages/panes pin their own body at every tick",
+          all(any("MESSAGES" in l for l in f) and not any("WINDOWS" in l for l in f)
+              for f in vf_msg)
           and all(any("WINDOWS" in l for l in f)
-                  and not any("PLAN LIMITS" in l for l in f) for f in vf_pan))
+                  and not any("MESSAGES" in l for l in f) for f in vf_pan))
     ap_view = argparse.ArgumentParser()
-    ap_view.add_argument("--view", choices=("auto", "limits", "panes", "combined"),
+    ap_view.add_argument("--view", choices=("auto", "panes", "messages", "combined"),
                          default="auto")
-    check("itemC: --view parses limits/panes/combined and defaults to auto (current "
-          "behavior preserved when the flag is never passed)",
+    check("itemC: --view parses panes/messages/combined and defaults to auto; the retired "
+          "`limits` value is REFUSED, not silently accepted",
           ap_view.parse_args([]).view == "auto"
-          and ap_view.parse_args(["--view", "limits"]).view == "limits"
+          and ap_view.parse_args(["--view", "messages"]).view == "messages"
           and ap_view.parse_args(["--view", "panes"]).view == "panes"
-          and ap_view.parse_args(["--view", "combined"]).view == "combined")
+          and ap_view.parse_args(["--view", "combined"]).view == "combined"
+          and "limits" not in ap_view._option_string_actions["--view"].choices)
 
     # Fix D (owner-approved item #172): system RAM+CPU readout, colored by pressure so an
     # operator AND watcher see resource pressure at a glance (this run hit an OOM cascade).
@@ -3243,39 +2147,13 @@ def cmd_selftest():
     sweep_wins = [{"idx": str(i), "name": f"win{i}", "active": i == 0,
                   "panes": [P(f"seat{i}a"), P(f"seat{i}b", ctx=42.0, ctx_over=True)]}
                  for i in range(4)]
-    sweep_cells = [(f"claude:main {lbl}", 14, pct, "renews Sat 03:00")
-                  for lbl, pct in (("5h", 25.0), ("7d", 51.0), ("7d fable", 66.0))]
     # render_full is only reachable at cols >= 70 (choose_layout, line ~1132) — 60w always
     # routes to narrow/tiny instead, so it is excluded here (same reachability boundary
     # Fix A's own strip/narrow/tiny sweep above respects).
     sweep_calm = [{"idx": str(i), "name": f"win{i}", "active": i == 0,
                    "panes": [P(f"seat{i}a"), P(f"seat{i}b", ctx=42.0)]}
                   for i in range(4)]
-    for w in (70, 80):
-        for fixture, nv in ((sweep_wins, 0), (sweep_calm, 10)):
-            out_full = render_full("improve-teamview", fixture, 4, 8, sweep_cells,
-                                   ["deepseek $8.63 left"], [], fake_cache, w, 30, now=nv)
-            plain_full = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out_full]
-            check(f"render_full at {w}w now={nv}: header line (carrying the live system "
-                  "RAM/CPU cue) never exceeds the requested width on either cycle phase",
-                  all(len(l) <= w for l in plain_full))
 
-    # ---- UX backlog items 2,4,5,6,7,8,9,10 (findings run tv-ux-review; fixed 2026-07-26) ----
-    hot_cells = [("claude:main 5h", 14, 97.0, ""), ("zai 7d", 6, 12.0, "")]
-    tiny_hot = render_tiny("sess", calm_wins, 2, 3, hot_cells, [], [], 60, 12, now=10)
-    hot_line = next((l for l in tiny_hot if "97%" in strip_sgr(l)), "")
-    cool_line = next((l for l in tiny_hot if "12%" in strip_sgr(l)), "")
-    check("item2: render_tiny at 60x12 keeps the urgency color band on LIMITS rows — a "
-          "97% row carries RED SGR, a 12% row GREEN (the verified false all-clear)",
-          RED in hot_line and GREEN in cool_line)
-    for layout_fn, dims in ((render_strip, (220, 10)), (render_narrow, (70, 40)),
-                            (render_tiny, (60, 12))):
-        out_l = layout_fn("sess", wins, 2, 3, hot_cells, [], [], *dims, now=0)
-        check(f"item2(rev): {layout_fn.__name__} emits NO legend line at all — the mini "
-              "legend is GONE from the small layouts (reversed 2026-07-28); frames still "
-              "respect their width",
-              "approval" not in strip_sgr("\n".join(out_l))
-              and all(visible_len(l) <= dims[0] for l in out_l))
     fl2 = strip_sgr(" ".join(legend_lines(70, max_lines=2)))
     check("legend_lines: drop priority — under a 2-line cap at 70 cols the alarm keys "
           "survive and tail items drop; no line exceeds width. Still pinned because "
@@ -3294,15 +2172,6 @@ def cmd_selftest():
     check("item4: rollup line — pane total, worst ctx (keeping its ~), red count, "
           "? count",
           strip_sgr(rollup_variants(roll_wins)[0]) == "3 panes · worst ~94% · 2 red · 1 ?")
-    full_o = render_full("sess", roll_wins, 1, 3, hot_cells, [], [], fake_cache, 220, 50,
-                         now=0)
-    strip_o = render_strip("sess", roll_wins, 1, 3, hot_cells, [], [], 220, 10, now=0)
-    narrow_o = render_narrow("sess", roll_wins, 1, 3, hot_cells, [], [], 70, 40, now=0)
-    tiny_o = render_tiny("sess", roll_wins, 1, 3, hot_cells, [], [], 60, 12, now=0)
-    check("item4: the alarm rollup renders at EVERY layout size (full 220x50, strip "
-          "220x10, narrow 70x40, tiny 60x12) above the rotating windows detail",
-          all(any(("2 red" in strip_sgr(l) or "2r" in strip_sgr(l)) for l in o)
-              for o in (full_o, strip_o, narrow_o, tiny_o)))
 
     check("item5: color-band thresholds documented — a legend ctx key AND -h carry the "
           "green<60 / yellow<85 / red≥85 numbers",
@@ -3321,27 +2190,19 @@ def cmd_selftest():
     # tmux call at all", which is a promise there is nothing to get wrong. The check pins the new,
     # stronger claim AND that the weaker wording is gone — a doc that still promised read-only
     # tmux calls would be describing code that no longer exists.
-    check("item7: --help-security states the write-set, EVERY endpoint, the run-state read, and "
-          "the STRONGER R24 guarantee (no tmux call at all, not merely read-only ones)",
-          all(s in DOC_SECURITY for s in ("teamview-providers.json", "api.anthropic.com",
-              "api.z.ai", "api.deepseek.com", "api.kimi.com", "api.moonshot",
-              "NO tmux call at all", "state.json"))
+    check("item7: --help-security states the (now EMPTY) write-set and network surface, the "
+          "run-state read, and the STRONGER R24 guarantee (no tmux call at all, not merely "
+          "read-only ones) — and names NO endpoint, because there is none left to name",
+          all(s in DOC_SECURITY for s in ("writes NOTHING", "NETWORK — none",
+                                          "NO tmux call at all", "state.json"))
+          and not any(s in DOC_SECURITY for s in ("api.anthropic.com", "api.z.ai",
+                                                  "api.deepseek.com", "api.kimi.com",
+                                                  "api.moonshot", "teamview-providers.json"))
           and "NEVER mutates tmux" not in DOC_SECURITY)
     aud_acc = [{"provider": "claude", "name": "main",
                 "source": {"type": "statusline",
                            "path": "/home/x/.claude/rbtv-runtime/plan-usage.json"}},
                {"provider": "zai", "name": "alt", "source": {"type": "env", "var": "ZAI_ALT"}}]
-    aud = audit_lines(aud_acc, {"accounts": [
-        {"provider": "claude", "name": "main", "data": {"windows": [1, 2]}}]})
-    check("item7: --audit lines — provider:name -> source kind -> BASENAME-redacted path "
-          "-> last poll result; env vars by NAME; a full path never appears",
-          aud[0] == "claude:main -> statusline -> …/plan-usage.json -> ok (2 windows)"
-          and aud[1] == "zai:alt -> env -> $ZAI_ALT -> not polled yet"
-          and not any("/home/x" in l for l in aud))
-    check("item7: an explicit --config path that does not exist WARNS instead of "
-          "silently falling back to auto-discovery; no --config -> no warning",
-          "auto-discovery" in (missing_config_warning("/nope/teamview.json") or "")
-          and missing_config_warning("") is None and missing_config_warning(None) is None)
 
     check("item8: --help-panes documents every pane state — ctx~ cause AND what clears "
           "it, the shell tag, the '?' empty-title placeholder, '+' vs age",
@@ -3376,25 +2237,15 @@ def cmd_selftest():
     h_flat = " ".join(h.split())
     check("item9: --selftest carries a real help line in -h (was empty)",
           "self-test suite" in h_flat)
-    check("item10: -h vocabulary — --interval says display-only repaint (does NOT "
-          "re-poll); --refresh notes the codex exception and the --once pairing",
-          "display refresh seconds" in h_flat and "NOT re-poll" in h_flat
-          and "codex excepted" in h_flat and "pair with --once" in h_flat)
-    stale_cells = [("codex 7d", 8, 40.0, "as of Wed 09:00"),
-                   ("claude:main 5h", 14, 10.0, "renews 23:00")]
+    check("item10: -h vocabulary — --interval still names itself, and every retired "
+          "provider flag is GONE from the help rather than merely undocumented",
+          "display refresh seconds" in h_flat
+          and not any(w in h_flat for w in ("--refresh", "--provider-ttl", "--audit",
+                                            "--poll-providers", "--help-providers",
+                                            "--help-config", "--config",
+                                            "re-poll", "plan-limit")))
     calm_roll = [{"idx": "0", "name": "w0", "active": True,
                   "panes": [P("calm", ctx=30.0)]}]
-    hedged = "\n".join(render_full("sess", calm_roll, 1, 1, stale_cells, [], [],
-                                   fake_cache, 220, 50, now=10))
-    unhedged = "\n".join(render_full("sess", calm_roll, 1, 1,
-                                     [("claude:main 5h", 14, 10.0, "renews 23:00")],
-                                     [], [], fake_cache, 220, 50, now=10))
-    check("item10: full-layout limits header hedges 'providers polled Nm ago' when any "
-          "bar carries its own older 'as of' stamp — and only then",
-          "some bars older" in hedged and "some bars older" not in unhedged)
-    check("item10: --help-providers explains a model-scoped weekly ('7d fable') as a "
-          "SUBSET of the plain 7d window",
-          "SUBSET" in DOC_PROVIDERS and "7d fable" in DOC_PROVIDERS)
 
     # ================= R24 (task 7.34): teamview renders the snapshot, it no longer takes one ===
     #
@@ -3443,29 +2294,10 @@ def cmd_selftest():
     # the terminal is small is the silence it exists to break.
     r24_wins, r24_nw, r24_np = snapshot_tree(stale, NOW)
     age_missing = []
-    for fn, needs_cache in ((render_full, True), (render_strip, False),
-                            (render_narrow, False), (render_tiny, False)):
-        for w, h in ((220, 50), (120, 24), (80, 20), (70, 12), (60, 12), (40, 10)):
-            for cyc in (True, False):
-                args_ = ([ "kg-views", r24_wins, r24_nw, r24_np, cells, [], []]
-                         + ([fake_cache] if needs_cache else []) + [w, h])
-                lines = fn(*args_, cue=False, now=NOW, cycle=cyc, snap=stale)
-                body = strip_sgr("\n".join(clip_line(l, w) for l in lines))
-                if "STALE" not in body:
-                    age_missing.append((fn.__name__, w, h, cyc))
     check("R24: the STALE snapshot warning survives EVERY layout x width x cycle phase "
           "(full/strip/narrow/tiny, 220w down to 40w) — it is base text, never a droppable cue",
           not age_missing)
     age_missing_fresh = []
-    for fn, needs_cache in ((render_full, True), (render_strip, False),
-                            (render_narrow, False), (render_tiny, False)):
-        for w, h in ((220, 50), (80, 20), (40, 10)):
-            args_ = (["kg-views", r24_wins, r24_nw, r24_np, cells, [], []]
-                     + ([fake_cache] if needs_cache else []) + [w, h])
-            body = strip_sgr("\n".join(clip_line(l, w) for l in
-                                       fn(*args_, cue=False, now=NOW, snap=fresh)))
-            if "snap 3s" not in body:
-                age_missing_fresh.append((fn.__name__, w))
     check("R24: a HEALTHY snapshot's age is on screen too, at every layout and width — the "
           "display is unconditional, not a warning that only appears once it is too late",
           not age_missing_fresh)
@@ -3638,30 +2470,28 @@ def cmd_selftest():
           and headless_window_name(fresh) == "headless")
     base_wins, base_nw, base_np = snapshot_tree(fresh, NOW)
 
-    def frame_text(fn, needs_cache, wins_, npane_, snap_, w, h):
-        lines = fn(*(["kg-views", wins_, len(wins_), npane_, cells, [], []]
-                     + ([fake_cache] if needs_cache else []) + [w, h]),
+    def frame_text(fn, wins_, npane_, snap_, w, h):
+        lines = fn("kg-views", wins_, len(wins_), npane_, w, h,
                    cue=False, now=NOW, cycle=False, snap=snap_)
         return strip_sgr("\n".join(clip_line(l, w) for l in lines))
 
-    LAYOUTS = ((render_full, True), (render_strip, False),
-               (render_narrow, False), (render_tiny, False))
+    LAYOUTS = (render_full, render_strip, render_narrow, render_tiny)
     # 60x12 is deliberately NOT in this sweep and the omission is not a convenience: at that size
     # the full layout PAGINATES the two windows, and render_full's non-cycle path calls
     # window_grid WITHOUT `now`, so which page renders is wall-clock dependent. An assertion there
     # would pass or fail by the second. The state itself is covered by the rotation check below.
     SIZES = ((220, 50), (120, 24), (80, 20))
     leaked, hl_gap, hl_seen = [], [], 0
-    for fn, needs_cache in LAYOUTS:
+    for fn in LAYOUTS:
         for w, h in SIZES + ((60, 12),):
-            if any(t in frame_text(fn, needs_cache, base_wins, base_np, fresh, w, h)
+            if any(t in frame_text(fn, base_wins, base_np, fresh, w, h)
                    for t in ("headless", "UNATTRIBUTED")):
                 leaked.append((fn.__name__, w, h))
             if (w, h) not in SIZES:
                 continue
-            shown = "UNATTRIBUTED" in frame_text(fn, needs_cache, u_wins, u_np, u_snap, w, h)
+            shown = "UNATTRIBUTED" in frame_text(fn, u_wins, u_np, u_snap, w, h)
             hl_seen += bool(shown)
-            if shown != ("vanished" in frame_text(fn, needs_cache, g_wins, g_np, ghost, w, h)):
+            if shown != ("vanished" in frame_text(fn, g_wins, g_np, ghost, w, h)):
                 hl_gap.append((fn.__name__, w, h))
     check("760: with both keys absent NO layout at any width grows a headless block — a snapshot "
           "that predates the field renders as it always did, and does not crash",
@@ -3770,9 +2600,9 @@ def cmd_selftest():
     owner_of[id(tree)] = "<module>"
     descend(tree, "<module>")
     docstrings = skip
-    PROVIDER_LANE = {"ps_processes", "claude_account_of", "opencode_store", "discover_accounts",
-                     "claude_oauth_windows", "parse_claude_statusline", "codex_windows_from_rl",
-                     "fetch_account", "resolve_key", "audit_lines"}
+    # The provider plan-limit lane USED to be the second exemption here. It left teamview
+    # entirely (it is the `acct` CLI now), so this list SHRANK — the exemption was retired,
+    # not widened, and box CPU% is the only raw read teamview still makes.
     BOX_CPU_LANE = {"cpu_usage_pct"}
     SELFTEST = {"cmd_selftest"}          # this proof's own fixtures are not production reads
     raw = []
@@ -3784,14 +2614,15 @@ def cmd_selftest():
         v = node.value
         if "/proc/" in v or v == "tmux" or "/proc" == v:
             raw.append((node.lineno, owner_of.get(id(node), "<module>")))
-    leaks = [r for r in raw if r[1] not in PROVIDER_LANE | BOX_CPU_LANE | SELFTEST]
-    check("R24 CRITERION 1: NO raw-source read remains in executable code outside the two NAMED "
-          "exempt lanes — provider plan-limit bars (task 7.34's own _Note:_) and box CPU% "
-          f"(leader ruling, PROVISIONAL). Unaccounted: {leaks}",
+    leaks = [r for r in raw if r[1] not in BOX_CPU_LANE | SELFTEST]
+    check("R24 CRITERION 1: NO raw-source read remains in executable code outside the ONE "
+          "NAMED exempt lane — box CPU% (leader ruling, PROVISIONAL); the provider lane that "
+          f"was the second exemption is GONE from this file. Unaccounted: {leaks}",
           not leaks)
-    check("R24: both exempt lanes are still REALLY present — this is an exemption list, not a "
-          "blanket, so it must go stale LOUDLY if either lane's reads move or vanish",
-          any(o in PROVIDER_LANE for _n, o in raw) and any(o in BOX_CPU_LANE for _n, o in raw))
+    check("R24: the surviving exempt lane is still REALLY present — this is an exemption "
+          "list, not a blanket, so it must go stale LOUDLY if that lane's reads move or "
+          "vanish",
+          any(o in BOX_CPU_LANE for _n, o in raw))
     check("R24: no `tmux` process is invoked from production code anywhere — team-monitor is "
           "the run's ONE raw-source sensor, and teamview is now purely its reader",
           not [n for n, o in raw if o not in SELFTEST
@@ -3876,47 +2707,27 @@ def main():
                          "key and exits — the key is NOT rendered on the dashboard")
     ap.add_argument("--package", default=os.environ.get("RBTV_TEAMVIEW_PACKAGE", ""),
                     help="team-kit run package for pane->agent roster names")
-    ap.add_argument("--config", help="accounts config JSON (default ~/.config/rbtv/teamview.json)")
     ap.add_argument("--once", action="store_true", help="print one frame and exit")
     ap.add_argument("--no-rotate", action="store_true",
                     help="disable rotation: show EVERY window/pane in one COMPLETE "
                          "snapshot (best with --once; output can grow taller than the "
                          "terminal) — same as --view combined")
-    ap.add_argument("--view", choices=("auto", "limits", "panes", "messages", "combined"),
+    ap.add_argument("--view", choices=("auto", "panes", "messages", "combined"),
                     default="auto",
                     help="which body to show (default auto: ONE combined frame when the "
-                         "terminal fits limits+every pane, else the ~10s cycle) — limits: "
-                         "plan-limit bars only · panes: windows/panes only · messages: "
-                         "the coordination log's last sends only · combined: "
-                         "everything at once (= --no-rotate)")
+                         "terminal fits every pane, else the ~10s cycle) — panes: "
+                         "windows/panes only · messages: the coordination log's last sends "
+                         "only · combined: everything at once (= --no-rotate)")
     ap.add_argument("--interval", type=int, default=2,
-                    help="display refresh seconds (default 2) — repaint cadence only, does "
-                         "NOT re-poll providers (that is --refresh / --provider-ttl)")
-    ap.add_argument("--refresh", action="store_true",
-                    help="poll providers NOW before rendering (codex excepted: its usage is "
-                         "a local session-file parse with no endpoint to re-poll); without "
-                         "--once this then enters the live loop — pair with --once for a "
-                         "one-shot fresh frame")
-    ap.add_argument("--provider-ttl", type=int, default=600,
-                    help="re-poll providers in background when cache older than SECS (default 600)")
+                    help="display refresh seconds (default 2)")
     ap.add_argument("--width", type=int, help="override detected terminal width")
     ap.add_argument("--height", type=int, help="override detected terminal height")
-    ap.add_argument("--poll-providers", action="store_true",
-                    help="fetch provider usage into the cache and exit (loop-internal mode)")
-    ap.add_argument("--help-providers", action="store_true",
-                    help="show each provider's usage source and exit")
-    ap.add_argument("--help-config", action="store_true",
-                    help="show the accounts config schema and exit")
     ap.add_argument("--help-security", action="store_true",
-                    help="show the audit surface — every file written, every endpoint "
-                         "contacted, and the never-touches-tmux guarantee — and exit")
+                    help="show the audit surface — what teamview reads, and the "
+                         "never-touches-tmux guarantee — and exit")
     ap.add_argument("--help-panes", action="store_true",
                     help="show every pane state/marker, its cause and what clears it, "
                          "and exit")
-    ap.add_argument("--audit", action="store_true",
-                    help="dump the resolved accounts (provider:name -> source kind -> "
-                         "redacted path -> last poll result) and exit; never prints a key, "
-                         "token, or full path")
     ap.add_argument("--selftest", action="store_true",
                     help="run the built-in offline self-test suite (pure Python — no tmux, "
                          "no network, no writes outside temp dirs) and exit 0/1")
@@ -3932,8 +2743,7 @@ def main():
             print(line)
         return
 
-    docs = {"help_providers": DOC_PROVIDERS, "help_config": DOC_CONFIG,
-            "help_security": DOC_SECURITY, "help_panes": DOC_PANES}
+    docs = {"help_security": DOC_SECURITY, "help_panes": DOC_PANES}
     for attr, doc in docs.items():
         if getattr(args, attr):
             print(doc, end="")
@@ -3941,19 +2751,6 @@ def main():
 
     if args.selftest:
         cmd_selftest()
-        return
-
-    warn = missing_config_warning(args.config)
-    if warn:
-        print(warn, file=sys.stderr)
-
-    if args.audit:
-        for line in audit_lines(load_accounts(config_path(args.config)), load_cache()):
-            print(line)
-        return
-    if args.poll_providers:
-        poll_providers(args)
-        print(f"cached: {cache_file()}")
         return
 
     # R24 DISCOVERY — package-rooted, never tmux-rooted. --package wins; otherwise walk up from
@@ -3972,13 +2769,7 @@ def main():
         print(err, file=sys.stderr)
         sys.exit(2)
 
-    if args.refresh or not cache_file().exists():
-        poll_providers(args)
-
     def frame():
-        cache = load_cache()
-        if cache and time.time() - cache.get("ts", 0) > args.provider_ttl:
-            spawn_background_poll(args)
         return "\n".join(render(args, package))
 
     if args.once:
