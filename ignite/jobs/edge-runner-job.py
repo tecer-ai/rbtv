@@ -1421,6 +1421,329 @@ def fastpath_lines(res):
     return lines
 
 
+# ---- STEP 5 (MC11 / task 7.453): THE BRANCH ARM ----------------------------------------------
+#
+# WHAT A NESTED-WORKFLOW ROW IS. A manifest row's reference names a seat-id "or, instead of a
+# seat, a nested workflow" (registry `workflow manifest`; workflows call workflows). Both are the
+# same SHAPE — a lowercase-kebab id — so nothing in the cell separates them; the two NAMESPACES
+# do, and MC9's `classify_manifest_reference` is the one reading of that. THIS FILE CLASSIFIES
+# NOTHING: it calls that function, and `check_branch_arm_reaches_the_classifier` asserts at source
+# that no second resolution rule exists here.
+#
+# WHAT WAS BROKEN, MEASURED BEFORE THE FIX. A ready nested row fell straight through STEP 4's
+# third self-state term as `no-descriptor` — correctly, there IS no `seats/<workflow>/seat.md` —
+# and nothing else looked at it. Its successor then blocked on `<no mark>` forever, because a row
+# nobody launches is a row nobody ever marks. `branches/` appeared nowhere in this file.
+#
+# THE TWO HALVES, AND WHY THEY ARE SEPARATE. Launching (`branch_stage`) and advancing
+# (`branch_marks`) are two different acts on two different surfaces, and the parent's advance must
+# survive a process that never ran the launch: `branch_marks` derives its answer from the branch's
+# OWN trace on disk, so a parent driven by one process and a branch driven by another still agree.
+#
+# ⚠ RULE 14 HOLDS THROUGH BOTH. No status column, no state file, no marker: the parent row's mark
+# is COMPUTED from the branch's terminal rows every pass, exactly as every other mark in this file
+# is computed from a check-out record. `check_no_status_column_written` runs the branch arm inside
+# its before/after window and hashes BOTH packages' csv headers.
+#
+# ⚠ WHICH BRANCH BELONGS TO WHICH ROW IS DERIVED, NOT RECORDED. A branch home is `branch-M` by the
+# settled numbering rule (MC8) — the name cannot carry the row. Rather than write a provenance
+# file (a new artifact in a run-folder shape, which is not this task's to introduce), the mapping
+# is derived from what materialization already guarantees: the branch's taskforce rows ARE the
+# nested manifest's rows (Rule 13's frozen copy, MC10 criterion 2). So a branch belongs to the row
+# whose workflow manifest has that seat set. TWO ROWS NAMING THE SAME WORKFLOW under one parent
+# are therefore INDISTINGUISHABLE, and both are REFUSED with the reason named rather than one of
+# them guessed — the fail-safe direction, and a stated limit of this arm.
+#
+# THE CATALOG IS NOT A TRACE SURFACE, so it is deliberately absent from `READS`: that inventory is
+# the trace-field audit's subject, and the catalog carries no trace field. The same is already
+# true of `coordination/edge-fastpath.json`, which STEP 4b reads and READS does not list.
+
+MATERIALIZE_PATH = HERE.parent / "team-kit" / "materialize-seats.py"
+
+# The settled folder name (`concepts/branch.md`, d-branch-family). Spelled here as the literal this
+# file's paths use, and asserted equal to goal_cli's own `BRANCHES_DIR_NAME` by
+# `check_branch_dir_matches_the_registry` — so drift makes a check red rather than silent.
+BRANCHES_DIR = "branches"
+
+BRANCH_MARKS = ("done", "failed", None)   # the SAME vocabulary `verify` emits. No fourth value.
+
+BRANCH_STAGE_KEYS = ("launched", "existing", "refused", "caveats")
+
+
+def load_materialize():
+    """Import the kit's `materialize-seats.py` as a module. LAZY — called inside the arm, never at
+    module import — because it pulls `yaml` and `goal_cli`, and a job that does not use the branch
+    arm must not acquire those dependencies to run at all.
+
+    importlib rather than `import`: the filename carries a hyphen."""
+    import importlib.util                                        # noqa: PLC0415 — lazy on purpose
+    spec = importlib.util.spec_from_file_location("materialize_seats", MATERIALIZE_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("materialize_seats", mod)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def nested_rows(coord, pkg, catalog_root, ms=None):
+    """`({seat: ManifestReference}, [refused])` — every `taskforce.csv` row whose reference
+    classifies as a NESTED WORKFLOW, decided by CALLING MC9's classifier.
+
+    A row that classifies as a `seat`, and a row the classifier REFUSES, are both simply not
+    nested rows here — but the refusals are CARRIED rather than dropped: an unresolvable reference
+    is exactly the input a launch must never be guessed from, and reporting it is how a reader
+    sees the difference between "no nested rows" and "one nobody could read"."""
+    ms = ms or load_materialize()
+    catalog_root = Path(catalog_root)
+    seats_catalog = ms.load_catalogs(catalog_root)[0]
+    nested, refused = {}, []
+    for seat in coord.taskforce_after(pkg):
+        try:
+            ref = ms.classify_manifest_reference(seat, catalog_root, seats_catalog)
+        except ms.Refuse as r:
+            # `reference-unresolvable` is the ORDINARY case for a live run whose seats are not in
+            # the catalog, so it is reported and never raised: this arm's question is "is this row
+            # a nested workflow", and "it resolves to nothing" answers NO.
+            refused.append({"seat": seat, "code": r.code, "message": r.message})
+            continue
+        if ref.kind == "nested_workflow":
+            nested[seat] = ref
+    return nested, refused
+
+
+def manifest_seat_set(ms, manifest_path):
+    """The seat ids a workflow manifest declares, as a set. A MEMBERSHIP view over one column —
+    the command's own `MANIFEST_SEAT_COLUMN` — and not a second reading of any grammar."""
+    with Path(manifest_path).open(encoding="utf-8", newline="") as fh:
+        return {(r.get(ms.MANIFEST_SEAT_COLUMN) or "").strip()
+                for r in csv.DictReader(fh)
+                if (r.get(ms.MANIFEST_SEAT_COLUMN) or "").strip()}
+
+
+def branch_home_for(coord, ms, pkg, ref):
+    """`(home, note)` — the EXISTING branch home under `pkg` that materialized `ref`'s workflow,
+    or `(None, note)` when there is none.
+
+    Matched on the frozen copy: the branch's taskforce seat set IS the manifest's (Rule 13). Two
+    homes matching is refused with both named, never resolved by picking one."""
+    want = manifest_seat_set(ms, ref.source)
+    hits = []
+    for home in sorted((pkg / BRANCHES_DIR).glob("branch-*")):
+        tf = home / "taskforce.csv"
+        if not tf.is_file():
+            continue
+        if set(coord.taskforce_after(home)) == want:
+            hits.append(home)
+    if not hits:
+        return None, "no branch under %s/ carries this workflow's seat set" % BRANCHES_DIR
+    if len(hits) > 1:
+        return None, ("AMBIGUOUS: %d branch homes carry this workflow's seat set (%s). Nothing is "
+                      "launched and nothing is advanced from an ambiguous home."
+                      % (len(hits), ", ".join(h.name for h in hits)))
+    return hits[0], "branch %s carries this workflow's seat set" % hits[0].name
+
+
+def terminal_seats(coord, pkg):
+    """The rows no other row depends on — the ones whose completion IS the package's completion.
+
+    Predecessor names come off `_seed_predecessors`, which routes through the ONE member parse
+    (`coord.after_member_parts`) and handles alternates; this function decomposes nothing."""
+    after = coord.taskforce_after(pkg)
+    named = {name
+             for members in after.values()
+             for member in members
+             for name, _alt in _seed_predecessors(coord, member)}
+    return [seat for seat in after if seat not in named]
+
+
+def branch_terminal_mark(coord, home):
+    """`(mark, detail)` — the branch's completion, DERIVED from its own trace on disk.
+
+    `done` only when every TERMINAL row is `done`, or `skipped` with at least one terminal `done`:
+    a guard-excluded terminal took no branch, and waiting on a row that can never run is the
+    forever-block `_simple_member_state` already refuses one level down. `failed` as soon as ANY
+    row of the branch is `failed` — its successors can never complete, so the branch is dead and
+    saying so beats leaving the parent undecided forever. Otherwise `None`: still running.
+
+    ⚠ NO VALUE HERE IS READ FROM A COLUMN. The marks come from `run_stage` over the branch — the
+    same check-out-record + declared-outputs pass every other mark in this file comes from."""
+    marks = {r["seat"]: r["disposition"] for r in run_stage(coord, home)}
+    res = readiness(coord, home, marks=marks)
+    skipped = {s["seat"] for s in res["skipped"]}
+    terminals = terminal_seats(coord, home)
+    detail = {"home": str(home), "terminal-rows": terminals,
+              "marks": {s: marks.get(s, NO_MARK) for s in terminals},
+              "skipped": sorted(skipped)}
+    failed = sorted(s for s, m in marks.items() if m == "failed")
+    if failed:
+        detail["reason"] = ("%d row(s) of the branch are `failed` (%s) — every row after them can "
+                            "never complete, so the branch is dead. The parent does NOT advance."
+                            % (len(failed), ", ".join(failed)))
+        return "failed", detail
+    if not terminals:
+        detail["reason"] = ("the branch has NO terminal row — every row is named as somebody's "
+                            "predecessor, which is a cycle or an empty taskforce. Nothing is "
+                            "derived from it.")
+        return None, detail
+    unfinished = [s for s in terminals if marks.get(s) != ADVANCES_EDGE and s not in skipped]
+    if unfinished:
+        detail["reason"] = ("%d terminal row(s) are not `%s`: %s. The parent row does NOT advance."
+                            % (len(unfinished), ADVANCES_EDGE,
+                               ", ".join("%s=%s" % (s, marks.get(s) or "<no mark>")
+                                         for s in unfinished)))
+        return None, detail
+    if not [s for s in terminals if marks.get(s) == ADVANCES_EDGE]:
+        detail["reason"] = ("every terminal row is SKIPPED — the branch took no terminal path at "
+                            "all, so there is no completion to derive an advance from. Reported, "
+                            "never defaulted to done.")
+        return None, detail
+    detail["reason"] = ("every terminal row is `%s` or guard-skipped, with at least one `%s` — the "
+                        "branch completed." % (ADVANCES_EDGE, ADVANCES_EDGE))
+    return ADVANCES_EDGE, detail
+
+
+def branch_marks(coord, pkg, catalog_root, ms=None):
+    """`{nested row: {mark, detail}}` — one entry per nested-workflow row of `pkg`, its mark
+    derived from its branch's terminal state. A row with no branch yet gets `None` and says so."""
+    ms = ms or load_materialize()
+    nested, _refused = nested_rows(coord, pkg, catalog_root, ms)
+    out = {}
+    for seat, ref in nested.items():
+        home, note = branch_home_for(coord, ms, pkg, ref)
+        if home is None:
+            out[seat] = {"mark": None, "detail": {"home": None, "reason":
+                         "no branch to derive an advance from — %s" % note}}
+            continue
+        mark, detail = branch_terminal_mark(coord, home)
+        out[seat] = {"mark": mark, "detail": detail}
+    return out
+
+
+def marks_with_branches(coord, pkg, catalog_root, ms=None):
+    """STEP 1-2's marks, with every nested-workflow row's mark REPLACED by its branch's derived
+    one. This is what `readiness` must be handed on a package carrying nested rows: without it a
+    nested row has no check-out record of its own and reads `<no mark>` forever."""
+    marks = {r["seat"]: r["disposition"] for r in run_stage(coord, pkg)}
+    for seat, entry in branch_marks(coord, pkg, catalog_root, ms).items():
+        marks[seat] = entry["mark"]
+    return marks
+
+
+def _materialize_argv(pkg, ref, catalog_root, bindings, creation_inputs, milestone_id):
+    """The materialize command's OWN argv for one branch. Built as an argv list and parsed by that
+    command's `build_parser`, so the Namespace `materialize_branch` receives is the command's and
+    not a shape this file invented."""
+    argv = ["--branch-of", str(pkg), "--workflow", ref.name,
+            "--catalog-root", str(catalog_root), "--bindings", str(bindings), "--root"]
+    for opt, key in (("--conduct", "conduct"), ("--claude-md", "claude_md"),
+                     ("--budget-json", "budget_json")):
+        value = (creation_inputs or {}).get(key)
+        if value:
+            argv += [opt, str(value)]
+    if milestone_id:
+        argv += ["--milestone-id", milestone_id]
+    return argv
+
+
+def branch_stage(coord, pkg, catalog_root, job_id, profile, bindings, submit=None, at=None,
+                 dry_run=False, creation_inputs=None, milestone_id=None, readiness_result=None):
+    """Launch every READY nested-workflow row as a branch, and enqueue that branch's ROOTS.
+
+    `{launched, existing, refused, caveats}`:
+      launched   one row per branch materialized THIS pass, with its home and the enqueue result
+                 for the branch's own ready roots
+      existing   a ready nested row that ALREADY has a branch — the idempotence arm. Nothing is
+                 materialized twice, and the row says which home it found
+      refused    a nested row that was not launched, with the cause named: an ambiguous home, a
+                 materialize refusal, or a classifier refusal. NEVER a silent skip
+      caveats    the standing bounds a reader needs to not over-read the result
+
+    The branch's roots reach the queue through `enqueue` — THIS wave's one enqueue interface,
+    called on the branch package. No second enqueue is written here (G-301's shape)."""
+    ms = load_materialize()
+    res = readiness_result if readiness_result is not None else readiness(
+        coord, pkg, marks=marks_with_branches(coord, pkg, catalog_root, ms))
+    nested, classifier_refusals = nested_rows(coord, pkg, catalog_root, ms)
+
+    launched, existing, refused = [], [], []
+    for r in classifier_refusals:
+        # Carried, never launched — the K1 arm: a row whose reference does not resolve is refused
+        # with its code, and a refusal is not an absence.
+        #
+        # ⚠ `ready` IS ON THE ROW BECAUSE MOST REFUSALS ARE ORDINARY. A live run's seats are not in
+        # the catalog the branch arm is pointed at, so nearly every row refuses `reference-
+        # unresolvable` and that says nothing. The ones that MATTER are the READY rows: there a
+        # refusal is the difference between a launch and no launch. Every refusal stays in the
+        # data; the flag is what lets a caller shout about the consequential ones only.
+        # A READY row with a descriptor on disk is an ORDINARY SEAT — STEP 4's own third
+        # self-state term already tells the two apart, and it is reused here rather than a second
+        # rule invented. So the consequential population is: ready, and NOT a seat anybody could
+        # launch. Everything else stays in the data and out of the shouting.
+        pending = (r["seat"] in res["ready"]
+                   and not (pkg / "seats" / r["seat"] / "seat.md").exists())
+        refused.append({"seat": r["seat"], "ready": pending,
+                        "reason": "classifier refused (%s): %s" % (r["code"], r["message"])})
+    # Two ready rows naming ONE workflow cannot be told apart by the derived mapping, so neither
+    # is launched. Detected before any materialize runs, so the first one does not win by order.
+    by_workflow = {}
+    for seat, ref in nested.items():
+        by_workflow.setdefault(ref.name, []).append(seat)
+
+    for seat in res["ready"]:
+        ref = nested.get(seat)
+        if ref is None:
+            continue
+        siblings = by_workflow[ref.name]
+        if len(siblings) > 1:
+            refused.append({"seat": seat, "ready": True, "reason":
+                            "%d rows of this parent name the SAME workflow `%s` (%s). A branch is "
+                            "matched to its row by the manifest's seat set, which cannot tell them "
+                            "apart, so NEITHER is launched." % (len(siblings), ref.name,
+                                                                ", ".join(siblings))})
+            continue
+        home, note = branch_home_for(coord, ms, pkg, ref)
+        if home is not None:
+            existing.append({"seat": seat, "home": str(home), "reason":
+                             "already materialized — %s. Nothing was materialized twice." % note})
+            continue
+        if "AMBIGUOUS" in note:
+            refused.append({"seat": seat, "ready": True, "reason": note})
+            continue
+        argv = _materialize_argv(pkg, ref, catalog_root, bindings, creation_inputs, milestone_id)
+        try:
+            result = ms.materialize_branch(ms.build_parser().parse_args(argv))
+        except (ms.Refuse, ms.CatalogRefusal) as exc:
+            code = getattr(exc, "code", "catalog")
+            refused.append({"seat": seat, "ready": True, "argv": argv,
+                            "reason": "materialize refused (%s): %s" % (code, exc)})
+            continue
+        home = Path(result["branch"]["home"])
+        launched.append({"seat": seat, "workflow": ref.name, "home": str(home),
+                         "warnings": result.get("warnings", []),
+                         "enqueue": enqueue(coord, home, job_id, profile, at=at, submit=submit,
+                                            dry_run=dry_run)})
+
+    return {
+        "launched": launched,
+        "existing": existing,
+        "refused": refused,
+        "caveats": [
+            "a branch is matched to its row by the frozen-copy property (the branch's taskforce "
+            "seat set IS the nested manifest's, Rule 13). Nothing records the mapping, and two "
+            "rows naming one workflow are refused rather than guessed.",
+            "the parent row's advance is NOT written here. It is derived every pass by "
+            "`branch_marks` from the branch's own terminal rows — no status column, anywhere "
+            "(Rule 14).",
+            "the branch's roots reach the queue through `enqueue`, this wave's ONE enqueue "
+            "interface, applied to the branch package. Its own three self-state terms still hold "
+            "there: readiness is not launch candidacy.",
+            "the check-out fast path (STEP 4b) does NOT fire this arm: its arm file carries a "
+            "job-id and a profile and no catalog root or bindings, and extending the arming "
+            "mechanism is not this stage's. The arm is reached by `--branch-arm` and by calling "
+            "`branch_stage`.",
+        ],
+    }
+
+
 # ---- checks -----------------------------------------------------------------------------------
 #
 # Every expectation below is spelled out LITERALLY. Not one is read from the value under test: a
@@ -2970,6 +3293,319 @@ def check_this_run_is_not_armed():
                   % (THIS_RUN_PACKAGE, scope.split(". A package arms")[0]))
 
 
+# ---- STEP 5's checks (MC11 / task 7.453) ------------------------------------------------------
+#
+# THE FIXTURE IS THE MATERIALIZE COMMAND'S OWN. Building a second catalog here would be a second
+# statement of what a catalog is, and the two would drift the day a column moves. `build_fixture`
+# from `materialize-seats.py` already ships a catalog carrying the `demo-flow` workflow manifest
+# and a run package to home a branch under — so this section BUILDS a parent taskforce over that
+# package and nothing else.
+
+FX_BRANCH_JOB_ID = "fx-branch-job"
+FX_BRANCH_PROFILE = "fx-branch-profile"
+
+# The parent's three rows, spelled out literally: a real seat, the NESTED-WORKFLOW row, and a row
+# that depends on it — the one whose verdict answers "did the parent advance?".
+FX_PARENT_ROWS = (("parent-root", ""), ("demo-flow", "parent-root"), ("post-nested", "demo-flow"))
+FX_NESTED_ROW = "demo-flow"
+FX_PARENT_SUCCESSOR = "post-nested"
+
+# The branch this fixture's `demo-flow` manifest materializes: `beta` is its ONE terminal row.
+FX_BRANCH_TERMINAL = "beta"
+
+
+class _RecordingDoor:
+    """The enqueue door as a recorder: every argv kept, a real queue id returned. `enqueue` only
+    writes an `enqueued` row when the door names an id, so a launch that reached 'the queue' here
+    is a launch this object was actually handed."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, argv):
+        self.calls.append(argv)
+        return 0, "accepted: queue id fxq-%d\n" % (len(self.calls),), ""
+
+
+def _branch_fixture(ms, root):
+    """(pkg, fx) — materialize-seats' own catalog + run package, with a parent taskforce carrying a
+    nested-workflow row. `parent-root` has checked out clean, so the nested row is READY."""
+    fx = ms.build_fixture(Path(root))
+    pkg = Path(fx["pkg"])
+    with (pkg / "taskforce.csv").open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(list(ms.TASKFORCE_HEADER))
+        for seat, after in FX_PARENT_ROWS:
+            w.writerow(["tf-1", seat, after, "claude", "claude-opus-5", "high", "65", "m1"])
+    for seat, _after in FX_PARENT_ROWS:
+        if seat == FX_NESTED_ROW:
+            continue          # a nested row has NO descriptor — that is the whole point of it
+        d = pkg / "seats" / seat
+        d.mkdir(parents=True, exist_ok=True)
+        d.joinpath("seat.md").write_text(
+            "---\nseat: %s\n---\n<io-spec id=\"fx-io\" version=\"latest\">\n## Outputs\n\n- none "
+            "declared.\n</io-spec>\n" % seat, encoding="utf-8")
+    (pkg / "sessions.csv").write_text(
+        "started,ended,seat,session-id,disposition,note\n"
+        "2026-01-01 00:00,2026-01-01 01:00,parent-root,s-1,done,\n", encoding="utf-8")
+    (pkg / "coordination").mkdir(exist_ok=True)
+    return pkg, fx
+
+
+def _branch_creation_inputs(fx):
+    return {"conduct": fx["src_conduct"], "claude_md": fx["src_claude"],
+            "budget_json": fx["src_budget"]}
+
+
+def _finish_branch(home, seats):
+    """Write a branch trace where each named seat checked out `done`. Nothing else is touched — the
+    parent's own trace stays exactly as the fixture wrote it, so an advance can only come from
+    HERE."""
+    lines = ["started,ended,seat,session-id,disposition,note"]
+    for i, seat in enumerate(seats):
+        lines.append("2026-01-02 00:00,2026-01-02 01:00,%s,b-%d,done," % (seat, i))
+    (home / "sessions.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def check_branch_dir_matches_the_registry():
+    """`BRANCHES_DIR` is the registry's own folder name, not a second spelling of it."""
+    ms = load_materialize()
+    if BRANCHES_DIR != ms.BRANCHES_DIR_NAME:
+        return False, ("this file spells the branch folder %r while goal_cli spells it %r — one of "
+                       "the two writes somewhere nothing reads" % (BRANCHES_DIR,
+                                                                   ms.BRANCHES_DIR_NAME))
+    return True, "BRANCHES_DIR == goal_cli.BRANCHES_DIR_NAME == %r" % BRANCHES_DIR
+
+
+def check_branch_arm_launches_a_ready_nested_row(coord):
+    """CRITERION 1 — a ready nested row produces a branch under `branches/` and its ROOTS reach the
+    queue, read back FROM THE QUEUE (the door's own recorded argv), never from the result dict."""
+    ms = load_materialize()
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-mc11-c1-"))
+    try:
+        pkg, fx = _branch_fixture(ms, tmp)
+        door = _RecordingDoor()
+        res = branch_stage(coord, pkg, Path(fx["catalog"]), FX_BRANCH_JOB_ID, FX_BRANCH_PROFILE,
+                           fx["b_both"], submit=door,
+                           creation_inputs=_branch_creation_inputs(fx))
+        if len(res["launched"]) != 1 or res["launched"][0]["seat"] != FX_NESTED_ROW:
+            return False, ("criterion 1: the ready nested row did not launch — launched=%s "
+                           "refused=%s" % (res["launched"], res["refused"]))
+        home = Path(res["launched"][0]["home"])
+        if home.parent.name != BRANCHES_DIR or not (home / "taskforce.csv").is_file():
+            return False, "criterion 1: %s is not a branch home under %s/" % (home, BRANCHES_DIR)
+        # READ BACK FROM THE QUEUE: the branch's root seat is the workdir of a submitted argv.
+        roots = [s for s, preds in coord.taskforce_after(home).items() if not preds]
+        queued = set()
+        for argv in door.calls:
+            payload = json.loads(argv[argv.index("--args-json") + 1])
+            queued.add(Path(payload["workdir"]).name)
+            if not str(payload["workdir"]).startswith(str(home)):
+                return False, ("criterion 1: a submitted job's workdir %s is OUTSIDE the branch "
+                               "home %s" % (payload["workdir"], home))
+        if not roots or set(roots) - queued:
+            return False, ("criterion 1: branch roots %s did not all reach the queue (queued: %s)"
+                           % (roots, sorted(queued)))
+        return True, ("criterion 1: %s -> %s/%s; %d root(s) %s read back off the door's own argv"
+                      % (FX_NESTED_ROW, BRANCHES_DIR, home.name, len(roots), sorted(roots)))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_branch_advance_is_derived_from_the_branch(coord):
+    """CRITERION 2 — the parent row advances ONLY when the branch's terminal rows are done, and the
+    verdict is derived from the branch's disk.
+
+    BOTH ARMS, on two fixtures built identically and differing in ONE fact: whether the branch's
+    terminal row checked out. If the parent advanced in both, the advance was never derived from
+    the branch — which is F-11a, the silent auto-advance this criterion exists to catch."""
+    ms = load_materialize()
+    verdicts = {}
+    for arm, finish in (("complete", True), ("incomplete", False)):
+        tmp = Path(tempfile.mkdtemp(prefix="edge-runner-mc11-c2-%s-" % arm))
+        try:
+            pkg, fx = _branch_fixture(ms, tmp)
+            res = branch_stage(coord, pkg, Path(fx["catalog"]), FX_BRANCH_JOB_ID,
+                               FX_BRANCH_PROFILE, fx["b_both"], submit=_RecordingDoor(),
+                               creation_inputs=_branch_creation_inputs(fx))
+            if not res["launched"]:
+                return False, "criterion 2: no branch launched for the %s arm (%s)" % (arm, res)
+            home = Path(res["launched"][0]["home"])
+            branch_seats = list(coord.taskforce_after(home))
+            if FX_BRANCH_TERMINAL not in branch_seats:
+                return False, ("criterion 2: the fixture branch's terminal row %r is absent from "
+                               "%s — the two arms would differ in nothing"
+                               % (FX_BRANCH_TERMINAL, branch_seats))
+            _finish_branch(home, branch_seats if finish
+                           else [s for s in branch_seats if s != FX_BRANCH_TERMINAL])
+            marks = marks_with_branches(coord, pkg, Path(fx["catalog"]), ms)
+            after = readiness(coord, pkg, marks=marks)
+            verdicts[arm] = {
+                "mark": marks.get(FX_NESTED_ROW),
+                "successor-ready": FX_PARENT_SUCCESSOR in after["ready"],
+                "detail": branch_marks(coord, pkg, Path(fx["catalog"]), ms)[FX_NESTED_ROW],
+            }
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+    ok = (verdicts["complete"]["mark"] == ADVANCES_EDGE
+          and verdicts["complete"]["successor-ready"]
+          and verdicts["incomplete"]["mark"] is None
+          and not verdicts["incomplete"]["successor-ready"])
+    if not ok:
+        return False, ("criterion 2: the advance is NOT derived from the branch — %s"
+                       % json.dumps({k: {kk: vv for kk, vv in v.items() if kk != "detail"}
+                                     for k, v in verdicts.items()}))
+    return True, ("criterion 2: complete branch -> parent `%s`, %s READY; incomplete branch -> "
+                  "parent <no mark>, %s BLOCKED. The control fired."
+                  % (ADVANCES_EDGE, FX_PARENT_SUCCESSOR, FX_PARENT_SUCCESSOR))
+
+
+def check_branch_arm_is_idempotent(coord):
+    """A SECOND pass over a package whose nested row already has a branch materializes NOTHING.
+
+    Without this the arm mints `branch-2`, `branch-3`, … on every sweep — and each new branch is
+    EMPTY of check-outs, so the parent would never advance again either."""
+    ms = load_materialize()
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-mc11-idem-"))
+    try:
+        pkg, fx = _branch_fixture(ms, tmp)
+        kw = dict(submit=_RecordingDoor(), creation_inputs=_branch_creation_inputs(fx))
+        first = branch_stage(coord, pkg, Path(fx["catalog"]), FX_BRANCH_JOB_ID, FX_BRANCH_PROFILE,
+                             fx["b_both"], **kw)
+        second = branch_stage(coord, pkg, Path(fx["catalog"]), FX_BRANCH_JOB_ID, FX_BRANCH_PROFILE,
+                              fx["b_both"], **kw)
+        homes = sorted(p.name for p in (pkg / BRANCHES_DIR).glob("branch-*"))
+        if len(first["launched"]) != 1 or second["launched"] or len(homes) != 1:
+            return False, ("the second pass was not a no-op: launched=%s homes=%s"
+                           % (second["launched"], homes))
+        if not second["existing"] or second["existing"][0]["seat"] != FX_NESTED_ROW:
+            return False, "the second pass did not REPORT the existing branch: %s" % second
+        return True, ("a second pass materialized nothing and reported the existing home; %s/ "
+                      "holds exactly %s" % (BRANCHES_DIR, homes))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_branch_arm_writes_no_status_column(coord):
+    """CRITERION 3 — Rule 14 over BOTH csv sets: the parent's and the branch's. Every csv header
+    under both packages is read before and after a full branch pass INCLUDING the advance."""
+    ms = load_materialize()
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-mc11-rule14-"))
+    try:
+        pkg, fx = _branch_fixture(ms, tmp)
+        res = branch_stage(coord, pkg, Path(fx["catalog"]), FX_BRANCH_JOB_ID, FX_BRANCH_PROFILE,
+                           fx["b_both"], submit=_RecordingDoor(),
+                           creation_inputs=_branch_creation_inputs(fx))
+        home = Path(res["launched"][0]["home"])
+        _finish_branch(home, list(coord.taskforce_after(home)))
+
+        def headers():
+            out = {}
+            for p in sorted(pkg.rglob("*.csv")):
+                with p.open(encoding="utf-8", errors="replace") as fh:
+                    out[str(p.relative_to(pkg))] = fh.readline().rstrip("\n")
+            return out
+
+        before = headers()
+        marks = marks_with_branches(coord, pkg, Path(fx["catalog"]), ms)
+        readiness(coord, pkg, marks=marks)
+        branch_marks(coord, pkg, Path(fx["catalog"]), ms)
+        after = headers()
+        if before != after:
+            return False, ("criterion 3: a branch pass CHANGED csv header(s): %s"
+                           % [k for k in set(before) | set(after) if before.get(k) != after.get(k)])
+        # THE NAME TEST IS SCOPED TO THE REGISTRY Rule 14 GOVERNS — `taskforce.csv`, the file
+        # whose run-state must stay derived. `milestones.csv` legitimately carries a milestone
+        # `status` column and always has; flagging it would make this check fail on a fixture
+        # nobody changed, which is how a real assertion gets deleted for being noisy. The
+        # byte-identical header comparison above still covers EVERY csv under both packages, so a
+        # column added to any of them anywhere is caught there.
+        registries = [n for n in after if Path(n).name == "taskforce.csv"]
+        for name in registries:
+            for col in after[name].split(","):
+                if col.strip().lower() in ("status", "state", "branch-state", "disposition-cache"):
+                    return False, "criterion 3: %s carries a status-like column %r" % (name, col)
+        both = [k for k in registries if k.startswith(BRANCHES_DIR + "/")]
+        if len(registries) < 2 or not both:
+            return False, ("criterion 3: no branch csv was in the window at all — the assertion "
+                           "would hold vacuously over the parent alone")
+        if marks.get(FX_NESTED_ROW) != ADVANCES_EDGE:
+            return False, ("criterion 3: the window did not contain an ADVANCE (%s=%s), so a "
+                           "column written on advance would not have been seen"
+                           % (FX_NESTED_ROW, marks.get(FX_NESTED_ROW)))
+        return True, ("criterion 3: %d csv header(s) across BOTH packages byte-identical across a "
+                      "pass that DID advance the parent, and neither taskforce.csv (%s) carries a "
+                      "status-like column" % (len(after), ", ".join(sorted(registries))))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# Assembled from fragments so this check's own source is never a hit for the search it performs.
+_CLASSIFIER = "classify_manifest" + "_reference"
+_WORKFLOW_GLOB = "/work" + "flows/"
+_SEAT_CATALOG = "seats" + ".csv"
+
+
+def check_branch_arm_reaches_the_classifier():
+    """CRITERION 4 — the arm REACHES MC9's classifier rather than re-classifying. Proven at source,
+    both directions:
+
+      (a) `nested_rows` CALLS the classifier — its own source carries the call;
+      (b) this file contains NO second resolution of what a reference names: neither the workflow-
+          manifest glob nor the seat-catalog filename appears anywhere in it.
+
+    (b) alone would pass on a file that never classifies at all, and (a) alone would pass on a file
+    that calls the classifier and then overrides it — so both are asserted. The needles are
+    positively controlled against `materialize-seats.py`, where they ARE present: a search that
+    finds nothing because it was looking for the wrong string reports the same clean 'absent'."""
+    here = Path(__file__).read_text(encoding="utf-8")
+    if _CLASSIFIER not in _safe_source(nested_rows):
+        return False, "criterion 4: `nested_rows` does not call %s" % _CLASSIFIER
+    local = [n for n in (_WORKFLOW_GLOB, _SEAT_CATALOG) if n in here]
+    if local:
+        return False, ("criterion 4: this file resolves a reference ITSELF — %s appears in its "
+                       "source, which is a second reading of what MC9's classifier owns" % local)
+    control = MATERIALIZE_PATH.read_text(encoding="utf-8")
+    missing = [n for n in (_WORKFLOW_GLOB, _SEAT_CATALOG) if n not in control]
+    if missing:
+        return False, ("criterion 4 CONTROL FAILED: %s is absent from %s too, so the clean result "
+                       "above is not evidence of absence" % (missing, MATERIALIZE_PATH.name))
+    return True, ("criterion 4: `nested_rows` calls %s and this file carries no second resolution "
+                  "rule (both needles positively controlled in %s)"
+                  % (_CLASSIFIER, MATERIALIZE_PATH.name))
+
+
+def check_branch_arm_refuses_an_unresolvable_reference(coord):
+    """THE GATE KEY (K1, self) — a nested-workflow row whose reference does not resolve is REFUSED
+    with its cause named, never launched and never defaulted to a seat. Driven, not asserted from
+    the source: a row naming a workflow that is not in the catalog is added to the parent."""
+    ms = load_materialize()
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-mc11-k1-"))
+    try:
+        pkg, fx = _branch_fixture(ms, tmp)
+        with (pkg / "taskforce.csv").open("a", newline="", encoding="utf-8") as fh:
+            csv.writer(fh).writerow(["tf-1", "no-such-flow", "parent-root", "claude",
+                                     "claude-opus-5", "high", "65", "m1"])
+        res = branch_stage(coord, pkg, Path(fx["catalog"]), FX_BRANCH_JOB_ID, FX_BRANCH_PROFILE,
+                           fx["b_both"], submit=_RecordingDoor(),
+                           creation_inputs=_branch_creation_inputs(fx))
+        row = [r for r in res["refused"] if r["seat"] == "no-such-flow"]
+        launched = [r["seat"] for r in res["launched"]]
+        if not row or "reference-unresolvable" not in row[0]["reason"]:
+            return False, "K1: the unresolvable row was not refused with its cause: %s" % res
+        if "no-such-flow" in launched:
+            return False, "K1: the unresolvable row was LAUNCHED: %s" % launched
+        if FX_NESTED_ROW not in launched:
+            return False, ("K1: the resolvable row did NOT launch alongside it (%s) — the refusal "
+                           "arm would be indistinguishable from a stage that launches nothing"
+                           % launched)
+        return True, ("K1: `no-such-flow` refused (reference-unresolvable) while `%s` launched in "
+                      "the same pass — the accept arm proves the refusal is a decision"
+                      % FX_NESTED_ROW)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def build_fixture(root):
     """Write the fixture tree. Identical in content to the on-disk fixture the probe record drives,
     so `--selftest --fixture <DIR>` runs the same assertions against real disk."""
@@ -3091,6 +3727,18 @@ def cmd_selftest(fixture):
         ("fastpath-calls-the-one-interface", lambda: check_fastpath_calls_the_one_interface()),
         ("fastpath-call-site-in-coord", lambda: check_fastpath_call_site_in_coord()),
         ("this-run-is-NOT-armed", lambda: check_this_run_is_not_armed()),
+        # STEP 5 (MC11 / 7.453) — the branch arm. These build their OWN fixture (the materialize
+        # command's catalog + package), so they do not read `pkg` and are unaffected by --fixture.
+        ("branch-dir-matches-registry", lambda: check_branch_dir_matches_the_registry()),
+        ("branch-arm-launches-nested-row",
+         lambda: check_branch_arm_launches_a_ready_nested_row(coord)),
+        ("branch-advance-is-derived",
+         lambda: check_branch_advance_is_derived_from_the_branch(coord)),
+        ("branch-arm-is-idempotent", lambda: check_branch_arm_is_idempotent(coord)),
+        ("branch-arm-no-status-column", lambda: check_branch_arm_writes_no_status_column(coord)),
+        ("branch-arm-reaches-classifier", lambda: check_branch_arm_reaches_the_classifier()),
+        ("branch-arm-refuses-unresolvable",
+         lambda: check_branch_arm_refuses_an_unresolvable_reference(coord)),
     ]
     failed = 0
     for name, fn in checks:
@@ -3138,6 +3786,30 @@ def main():
     p.add_argument("--dry-run", action="store_true",
                    help="with --enqueue: validate at the door and write nothing. Rows land under "
                         "`validated`, never `enqueued` — the two are different claims")
+    p.add_argument("--branch-arm", action="store_true", dest="branch_arm",
+                   help="STEP 5: launch every READY nested-workflow row as a BRANCH under "
+                        "branches/, enqueue that branch's own roots, and report each nested row's "
+                        "mark as DERIVED from its branch's terminal rows. Requires --job-id, "
+                        "--profile, --catalog-root and --bindings — the classifier needs a catalog "
+                        "and the materialize command needs an executor binding, and this stage "
+                        "invents neither")
+    p.add_argument("--catalog-root", default=None, dest="catalog_root",
+                   help="with --branch-arm: the component catalog root a manifest reference is "
+                        "classified against (MC9) and materialized from (MC10)")
+    p.add_argument("--bindings", default=None,
+                   help="with --branch-arm: the JSON bindings file the branch's seats are "
+                        "materialized with")
+    p.add_argument("--milestone-id", default=None, dest="milestone_id",
+                   help="with --branch-arm: passed through to the materialize command")
+    p.add_argument("--conduct", default=None,
+                   help="with --branch-arm: conduct.md base text for the created branch package; "
+                        "omitted, the parent's own is inherited")
+    p.add_argument("--claude-md", default=None, dest="claude_md",
+                   help="with --branch-arm: run CLAUDE.md base text for the created branch "
+                        "package; omitted, the parent's own is inherited")
+    p.add_argument("--budget-json", default=None, dest="budget_json",
+                   help="with --branch-arm: budget.json for the created branch package; omitted, "
+                        "the parent's own is inherited. A PATH, never a value (R-10)")
     p.add_argument("--arming-scope", action="store_true",
                    help="M4-11 (C4): print whether --package is armed for the check-out fast path, "
                         "the mechanism that scopes it, and — always, whatever --package is — "
@@ -3156,7 +3828,8 @@ def main():
     if args.signature:
         print("edge-runner-job STEP 4 — the ONE enqueue interface of the m4 wave (task 7.125).")
         print("Called by: the check-out fast path (M4-11), the created goal's first workflow "
-              "(M4-20), the C1 rehearsal (M4-22).")
+              "(M4-20), the C1 rehearsal (M4-22), and STEP 5's branch arm (MC11 / 7.453), which "
+              "applies it to a BRANCH package.")
         print("\n  from edge_runner_job import enqueue")
         print("  enqueue%s" % (inspect.signature(enqueue),))
         print("\n  -> {%s}" % ", ".join(ENQUEUE_RESULT_KEYS))
@@ -3225,6 +3898,57 @@ def main():
             for c in res["caveats"]:
                 print("\ncaveat: %s" % c)
         return 0
+
+    if args.branch_arm:
+        missing = [o for o, v in (("--job-id", args.job_id), ("--profile", args.profile),
+                                  ("--catalog-root", args.catalog_root),
+                                  ("--bindings", args.bindings)) if not v]
+        if missing:
+            p.error("--branch-arm requires %s: the catalogue id and profile belong to whoever "
+                    "armed the queue, and the classifier and the materialize command need a "
+                    "catalog root and a bindings file. This stage invents none of them."
+                    % ", ".join(missing))
+        # The marks a nested row carries are its BRANCH's, so readiness is computed over
+        # `marks_with_branches` — the whole point of the stage. A plain `run_stage` here would
+        # read every nested row as `<no mark>` and block its successors forever.
+        res3 = readiness(coord, pkg, marks=marks_with_branches(coord, pkg, args.catalog_root))
+        res = branch_stage(coord, pkg, args.catalog_root, args.job_id, args.profile,
+                           args.bindings, at=args.at, dry_run=args.dry_run,
+                           milestone_id=args.milestone_id, readiness_result=res3,
+                           creation_inputs={"conduct": args.conduct,
+                                            "claude_md": args.claude_md,
+                                            "budget_json": args.budget_json})
+        derived = branch_marks(coord, pkg, args.catalog_root)
+        if args.json:
+            print(json.dumps({"branch-stage": res, "derived-marks": derived}, indent=2))
+        else:
+            for r in res["launched"]:
+                print("BRANCHED  %-28s -> %s" % (r["seat"], r["home"]))
+                for q in r["enqueue"]["enqueued"]:
+                    print("  QUEUED    %-26s job %s" % (q["seat"], q["job-id"]))
+                for q in r["enqueue"]["validated"]:
+                    print("  VALIDATED %-26s (dry run — the door wrote nothing)" % q["seat"])
+            for r in res["existing"]:
+                print("existing   %-28s %s" % (r["seat"], r["reason"]))
+            for seat, entry in derived.items():
+                print("DERIVED   %-28s mark: %-8s %s"
+                      % (seat, entry["mark"] or "<none>", entry["detail"].get("reason", "")))
+            for c in res["caveats"]:
+                print("\ncaveat: %s" % c)
+        # FAIL LOUD: a refusal and a candidate that did not reach the queue both go to stderr.
+        failed = [f for r in res["launched"] for f in r["enqueue"]["failed"]]
+        loud = [r for r in res["refused"] if r.get("ready")]
+        for r in loud:
+            print("NOT BRANCHED  %s — %s" % (r["seat"], r["reason"]), file=sys.stderr)
+        quiet = len(res["refused"]) - len(loud)
+        if quiet:
+            # Counted, never listed: a run's own seats are not in this catalog and refuse by the
+            # dozen. The count is here so the silence is a MEASURED silence, not an omission.
+            print("(%d further row(s) did not classify as a nested workflow and were not ready — "
+                  "see `refused` in --json)" % quiet, file=sys.stderr)
+        for f in failed:
+            print("NOT ENQUEUED  %s — %s" % (f["seat"], f["reason"]), file=sys.stderr)
+        return 1 if failed else 0
 
     if args.enqueue:
         if not args.job_id or not args.profile:
