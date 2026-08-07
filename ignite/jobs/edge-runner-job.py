@@ -1105,6 +1105,309 @@ def _seed_member(pkg, seed, missing, seen, pred, resolvable, absent):
             seed.append(key)
 
 
+# ---- STEP 4a (task 7.469 / CW5): THE DECLARED-OUTPUT ADMISSION CHECK --------------------------
+#
+# WHAT IT REFUSES, AND WHY THE REFUSAL BELONGS AT THE QUEUE. A seat that launches CAGED writes
+# inside bwrap walls composed from `cage.SeatBinds`; everything outside them is read-only or simply
+# absent. A row whose `<io-spec> ## Outputs` declares a token in such a place is a row that WILL
+# fail on its own first write — and today it fails at the FAR end, after a launch, as a missing
+# artifact that STEP 1-2 marks `failed`. That reads as "the seat did not do its work" when the
+# truth is "the declaration named a place the seat was never able to write". This check moves the
+# failure to the one door every queued caged launch passes (task 7.468 computed that `enqueue` is
+# that door), where it costs one refusal instead of one wasted seat and one misattributed mark.
+#
+# ⚠ IT IS SCOPED TO CAGED LAUNCHES, AND THAT SCOPE IS THE DESIGN, NOT A SHORTCUT. Task 7.470
+# converts 11 tokens now and the remaining 228 as each component is next materialized
+# (milestone-task-dag §2.4, arm 2). Those 228 belong to seats that launch into tmux UNCAGED, where
+# nothing is broken. Refusing them here would silently convert a ruled deferral into a forced
+# 251-token migration. So an UNCAGED row is NOT refused — and this check is precisely the mechanism
+# that makes that deferral honest rather than a promise (`r-gate-ships-with-its-own-key`, K1).
+#
+# ⚠⚠ THE CAGE CLASSIFICATION IS A MEASURED SNAPSHOT, NOT A LIVE COMPOSITION, and every refusal says
+# so on its own face rather than in this comment. No Python frame on this path holds a composed
+# cage spec and none can: composing one here would be a SECOND cage composer in a second language,
+# against `r-seats-only-architecture (1)`. So the wall was measured ONCE, from INSIDE real composed
+# cages with real writes and real reads, by task 7.466 — and the table below is that measurement,
+# transcribed. If `cage.SeatBinds` changes, this table goes stale WHILE STILL REFUSING
+# CONFIDENTLY. That is the one failure mode a reader cannot see from a refusal alone, which is why
+# the provenance travels IN the refusal text: a refusal that cannot be dated cannot be trusted.
+#
+# ⚠⚠ AND THE TABLE IS INCOMPLETE, WHICH IS A DIFFERENT DEFECT FROM STALE. It carries no row for
+# `branches/<b>/coordination/`. An unmapped subtree is `undecided`, and `undecided` REFUSES — it is
+# NEVER admitted and never passed through (leader bar, 2026-08-07). A branch-relative token that
+# reads admissible on paper may be unwritable in fact: `composeCageFor` passes `runDir` straight
+# through, and the one construction site found builds a PARENT-run path. Fail-closed here is
+# load-bearing, not defensive tidiness.
+
+_ADMISSIBLE = "admissible"
+_INADMISSIBLE = "inadmissible"
+_UNDECIDED = "undecided"
+
+# THE RULE, verbatim from its ONE home — the docstring and refusal texts of task 7.467's
+# `token_admissible` (sha256:f89c6b7abece83e9). There is no separate convention document, so this
+# text is not a summary of the rule: it IS the rule, and it is carried into every refusal so a
+# reader who hits one needs no second document.
+_ADMISSION_RULE = (
+    "A declared-output token is ADMISSIBLE iff its subtree is WRITABLE in the producing seat's "
+    "composed cage AND -- where any successor reads it -- READABLE in that successor's composed "
+    "cage. The discriminator is per ROW (\"does a successor read it\"), never per subtree.")
+
+_ADMISSION_HOMES = (
+    "WHERE AN ADMISSIBLE TOKEN LIVES: no successor reads it -> `seats/<self>/...`; a successor "
+    "reads it -> `coordination/<producer>-<artifact>`; `outputs/` and `branches/.../outputs/` are "
+    "INADMISSIBLE for a caged producer. The `coordination/` home is an INTERIM and retires at task "
+    "7.57, when the gateway path supersedes it.")
+
+_CAGE_MAP_PROVENANCE = (
+    "PROVENANCE OF THE CAGE CLASSIFICATION (task 7.466 / CW2, 2026-08-07, VANTAGE: DISK): composed "
+    "and executed OUT-OF-PROCESS against `server/spawn/cage.js` and `config/spawn-profiles.yaml` "
+    "as they sat on disk -- `composeSeatCage` + `specToBwrapFlags` DRIVEN (never the YAML read in "
+    "place of the emitter), the flags handed to `bwrap.buildBwrapArgv`, and a REAL write from a "
+    "producer cage plus a REAL read from a DISTINCT successor cage attempted per row; `os.access` "
+    "never consulted; grants NONE (the ordinary-seat case). Record `cage-subtree-map.csv` "
+    "sha256:c36a11b409238eb7, asserting composed-flag digests producer 1c8ef7c433259527, successor "
+    "0507cfef2345526e, templates 21. THIS IS A SNAPSHOT, NOT A LIVE SPEC: if `cage.SeatBinds` has "
+    "changed since, this refusal is STALE and not current -- re-run 7.466's driver before trusting "
+    "it. It is also INCOMPLETE: there is no `branches/<b>/coordination/` row, so a token there is "
+    "`undecided` and refused rather than admitted.")
+
+# subtree -> (writable-by-producer, readable-by-peer, deciding-entry), transcribed from CW2's
+# record. Keys are patterns over a RUN-PACKAGE-RELATIVE token; `<x>` matches one path segment. The
+# record's sixth row is its NEGATIVE CONTROL (`{goalDir}/runs/run-decoy/`) and is deliberately not
+# transcribed: it is a control on the instrument, not a subtree any package token can name.
+_CAGE_SUBTREES = {
+    "outputs/":              (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
+    "branches/<b>/outputs/": (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
+    "seats/<self>/":         (True,  False, "W bind:{seatDir} | R tmpfs:{runDir}/seats"),
+    "coordination/":         (True,  True,  "W bind:{runDir}/coordination | "
+                                            "R bind:{runDir}/coordination"),
+    "{runDir} root":         (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
+}
+
+
+def _cage_key_pattern(key):
+    """A cage-map key as a regex over a token. `<x>` matches exactly one path segment."""
+    if key == "{runDir} root":
+        return re.compile(r"[^/]+\Z")
+    parts = [r"[^/]+" if re.fullmatch(r"<[^>]+>", p) else re.escape(p)
+             for p in key.rstrip("/").split("/")]
+    return re.compile("/".join(parts) + "/")
+
+
+def cage_subtree_of(token):
+    """The cage-map subtree covering `token`, longest key wins; None when NO row covers it.
+
+    None is not "no restriction" — it is the F1 shape, and its caller refuses on it."""
+    hits = [k for k in _CAGE_SUBTREES if _cage_key_pattern(k).match(token)]
+    return max(hits, key=len) if hits else None
+
+
+def token_admissible(token, successor_reads_verdict):
+    """(verdict, reason) for ONE declared-output token. THE RULE, as code.
+
+    `token` is run-package-relative; `successor_reads_verdict` is that row's discriminator — `yes`,
+    `no`, or anything else, which is treated as undecided. An undecided operand is CARRIED THROUGH,
+    never past: this function never picks a side on an upstream absence, because an unmapped
+    subtree that defaulted to admissible would admit exactly the write the cage will refuse.
+
+    ⚠ THE DISCRIMINATOR IS CONSULTED ONLY WHERE IT DECIDES, AND THAT ORDER IS THE RULING, NOT AN
+    OPTIMISATION (run `decisions.md`
+    `#p-take-b-evaluate-the-discriminator-only-where-it-DECIDES-and-MOVE-CW3s-function-so-ONE-reading-survives`).
+    The formula is `writable AND (no successor reads it OR readable)`. Where `readable` is true the
+    parenthesis is true for EVERY discriminator value, unknown included — so testing the
+    discriminator's VALIDITY first computes an artifact of statement order rather than the rule,
+    and it refused 2 of the 11 tokens task 7.470 migrates TO. The 8-row yes/no truth table is
+    UNCHANGED by this order; only undecided inputs move, and only where the subtree already
+    decides. `undecided` still refuses wherever the discriminator genuinely decides — an own-seat
+    token with an undecidable discriminator is refused, exactly as before."""
+    subtree = cage_subtree_of(token)
+    if subtree is None:
+        return (_UNDECIDED,
+                "undecided: no cage-map row covers `%s`, and an unmapped subtree NEVER defaults to "
+                "admissible -- the missing row is task 7.466's to measure from inside a composed "
+                "cage" % token)
+    writable, readable, entry = _CAGE_SUBTREES[subtree]
+    if not writable:
+        return (_INADMISSIBLE,
+                "producer-cannot-write: subtree `%s` is not writable in the producing seat's "
+                "composed cage (deciding entry: %s)" % (subtree, entry))
+    if readable:
+        return (_ADMISSIBLE,
+                "admissible: subtree `%s` is writable in the producer's cage AND readable from a "
+                "successor's, so no value of the successor-read discriminator can change this "
+                "(deciding entry: %s)" % (subtree, entry))
+    sr = str(successor_reads_verdict).strip().lower()
+    if sr not in ("yes", "no"):
+        return (_UNDECIDED,
+                "undecided: subtree `%s` is writable by the producer but NOT readable from a "
+                "successor's cage, so the verdict turns on whether a successor reads `%s` -- and "
+                "that discriminator is `%s`, not yes/no. Here it genuinely decides, so it is "
+                "carried through rather than resolved (deciding entry: %s)"
+                % (subtree, token, successor_reads_verdict, entry))
+    if sr == "yes":
+        return (_INADMISSIBLE,
+                "successor-cannot-read: subtree `%s` is writable by the producer but not readable "
+                "from a successor's composed cage, and this row IS read by a successor (deciding "
+                "entry: %s)" % (subtree, entry))
+    return (_ADMISSIBLE,
+            "admissible: subtree `%s` is writable in the producer's cage and no successor reads "
+            "this row (deciding entry: %s)" % (subtree, entry))
+
+
+def successor_reads(coord, seat, after):
+    """`yes` / `no` / `undecided` — does any row of this package read `seat`'s declared output?
+
+    Computed from `after` alone, which is what makes it answerable BEFORE the row runs. A row
+    declares its inputs indirectly, as "the validated output of every predecessor its `after` cell
+    names", so a successor naming this seat IS a read of this seat's declared output.
+
+    ⚠ THE ALTERNATE ARM RETURNS `undecided`, AND THAT DIVERGES FROM TASK 7.465's CENSUS ON TWO
+    FIXTURE ROWS — deliberately, in the fail-closed direction, and the leader ruled the divergence
+    correct rather than in need of reconciliation (run `decisions.md`
+    `#p-the-after-parser-divergence-needs-NO-settlement-because-each-consumers-SAFE-DIRECTION-is-set-by-its-ROLE`).
+    An OR-alternate member (`a|b`) is `unsupported` to `parse_after_member`, which yields
+    `name=None`: this reader cannot see whose name is inside it. Splitting it here to find out
+    would be a SECOND decomposition of the after-member grammar — the exact defect task 7.424
+    collapsed into one site. A CENSUS' safe direction is to keep the row in scope (`yes`, a
+    redundant check); a REFUSAL's safe direction is the opposite, because undecided can only
+    OVER-refuse. The two consumers therefore disagree BY ROLE, and neither is waiting on the open
+    question of which `after` parser is authoritative.
+
+    ⚠ THE UNDECIDABILITY IS BOUNDED BY A CONTAINMENT TEST, AND THE BOUND IS SOUND WITHOUT PARSING
+    ANYTHING. An alternate poisons only the seats whose NAME OCCURS IN ITS RAW TEXT. This is not a
+    reading of the grammar and makes no claim about it: it rests only on the fact that a member
+    which names `seat` must contain `seat`'s characters, whatever the grammar turns out to be. So
+    a false NEGATIVE is impossible (a member that truly names the seat always contains it), and a
+    false POSITIVE — a name that occurs without being named, e.g. `x-terminal-2|y` for `terminal`
+    — resolves to `undecided`, which refuses. Both error directions therefore stay on the safe
+    side. Without this bound a single unrelated alternate anywhere in the package makes EVERY
+    unnamed seat undecided, which refused 3 of the 11 tokens task 7.470 migrates TO — a check
+    refusing the migration it exists to enable.
+
+    `undecided` is returned only where it could still CHANGE the answer: a supported member naming
+    this seat settles it `yes` regardless of any alternate elsewhere."""
+    undecidable = False
+    for members in after.values():
+        for member in members:
+            name, _key, _value, unsupported = coord.after_member_parts(member)
+            if unsupported:
+                if seat in str(member):
+                    undecidable = True
+            elif name == seat:
+                return "yes"
+    return "undecided" if undecidable else "no"
+
+
+# The caged-ness predicate is the DAEMON'S OWN, asked of the daemon's own config loader rather
+# than reproduced here. `spawn.js#composeCageFor` returns null — no cage — for exactly
+# `!template || template.length === 0`, where `template` is the RESOLVED profile's
+# `sandbox.SeatBinds`. Two facts make a Python re-read of the YAML wrong rather than merely
+# redundant: the top-level `cage:` block is merged into every profile's sandbox by
+# `launch-profiles/profiles.js`, so the answer is not visible in a profile's own stanza at all;
+# and a second parse would be free to disagree with the emitter about whether a seat is caged,
+# which is the two-readers shape this file is bounded against. `node` is not a new dependency on
+# this path — the enqueue door (`IGNITE_BIN`) is itself a node program.
+_CAGE_PROBE_JS = (
+    "const {loadConfig} = require(process.argv[1]);\n"
+    "const prof = (loadConfig(process.argv[2]).profiles || {})[process.argv[3]];\n"
+    "if (!prof) { console.log('unknown'); process.exit(0); }\n"
+    "const t = prof.sandbox && prof.sandbox.SeatBinds;\n"
+    "console.log(Array.isArray(t) && t.length ? 'caged' : 'uncaged');\n")
+
+_IGNITE_ROOT = Path(__file__).resolve().parent.parent
+_CAGE_LOADER_JS = _IGNITE_ROOT / "server" / "spawn" / "config.js"
+_CAGE_CONFIG_YAML = _IGNITE_ROOT / "config" / "spawn-profiles.yaml"
+_CAGED_CACHE = {}
+
+
+def profile_launches_caged(profile, config=None):
+    """True / False / None — would a row launched under `profile` be CAGED? None = UNDECIDABLE.
+
+    None is returned for an unknown profile, an unreadable config, an absent `node`, or a probe
+    that does not answer in time. **None NEVER refuses and never admits by default**: task 7.469's
+    F1 arm forbids defaulting an undecidable caged-ness in either direction, so the caller records
+    it as a NAMED caveat and leaves the row alone. A silent skip here would disarm the whole check
+    on one typo'd profile name, so the caveat names the profile it could not resolve.
+
+    `config` overrides the config file, and exists for ONE reason: every profile in the committed
+    config carries the shared `cage:` block, so the UNCAGED verdict is unreachable against it. A
+    check that could never observe `False` would leave this predicate's scoping arm — the arm the
+    whole §2.4 deferral rests on — asserted rather than driven. The override drives the SAME
+    loader against a fixture config; it never substitutes a second reading."""
+    key = (profile, str(config or _CAGE_CONFIG_YAML))
+    if key in _CAGED_CACHE:
+        return _CAGED_CACHE[key]
+    verdict = None
+    try:
+        p = subprocess.run(["node", "-e", _CAGE_PROBE_JS, str(_CAGE_LOADER_JS),
+                            str(config or _CAGE_CONFIG_YAML), str(profile)],
+                           capture_output=True, text=True, timeout=30)
+        answer = ((p.stdout or "").strip().splitlines() or [""])[-1]
+        if p.returncode == 0 and answer in ("caged", "uncaged"):
+            verdict = answer == "caged"
+    except (OSError, subprocess.SubprocessError):
+        verdict = None
+    _CAGED_CACHE[key] = verdict
+    return verdict
+
+
+def admission_scope_caveat(profile, caged):
+    """The one line STEP 4a says about ITSELF on every pass, whichever way it went.
+
+    A check whose absence is silent is indistinguishable from a check that ran and found nothing —
+    and this one is absent on two of its three verdicts by design. So the scope is reported, never
+    inferred from an empty `failed` list."""
+    if caged is True:
+        return ("STEP 4a RAN: profile `%s` resolves to a composed seat cage, so every candidate "
+                "above had its OWN declared-output tokens admitted against task 7.466's MEASURED "
+                "cage map (`cage-subtree-map.csv` sha256:c36a11b409238eb7, VANTAGE: DISK). That "
+                "map is a SNAPSHOT: a `cage.SeatBinds` change since 2026-08-07 makes these "
+                "verdicts stale while they still read confidently." % profile)
+    if caged is False:
+        return ("STEP 4a DID NOT RUN: profile `%s` resolves to NO seat cage, and an uncaged row is "
+                "deliberately not refused (milestone-task-dag §2.4, arm 2 — refusing it would "
+                "convert a ruled deferral into a forced 251-token migration). Nothing above was "
+                "checked for declared-output admissibility." % profile)
+    return ("⚠ STEP 4a COULD NOT RUN: caged-ness is UNDECIDABLE for profile `%s` — an unknown "
+            "profile, an unreadable `config/spawn-profiles.yaml`, or no `node`. It defaulted "
+            "NEITHER way (task 7.469 F1): nothing was refused and nothing was cleared. Every row "
+            "above is UNCHECKED for declared-output admissibility." % profile)
+
+
+def declared_output_admission(coord, pkg, seat, after, caged):
+    """`(bad, reason)` refusing `seat`'s OWN declared-output tokens, or None to admit.
+
+    `caged` is `profile_launches_caged`'s verdict: **only True refuses.** False is the ruled §2.4
+    scope (an uncaged row is not refused) and None is undecidable, which defaults neither way.
+
+    The tokens come from `declared_outputs` — the ONE existing reader of the `<io-spec> ## Outputs`
+    grammar, of which this is the third caller. A reader authored here instead would be free to
+    disagree with the artifact GRADE about what a token means, at a new column, which is `G-301`'s
+    shape. Every non-admissible verdict refuses, `undecided` included."""
+    if caged is not True:
+        return None
+    declared, resolvable, missing, _why = declared_outputs(pkg, seat)
+    if not declared:
+        return None                      # no seat.md, no <io-spec>, or no path-shaped token
+    sr = successor_reads(coord, seat, after)
+    bad = []
+    for tok in list(resolvable) + list(missing):
+        verdict, why = token_admissible(tok, sr)
+        if verdict != _ADMISSIBLE:
+            bad.append({"token": tok, "verdict": verdict, "why": why,
+                        "subtree": cage_subtree_of(tok), "successor-reads": sr})
+    if not bad:
+        return None
+    return bad, (
+        "DECLARED-OUTPUT TOKEN NOT ADMISSIBLE FOR A CAGED LAUNCH: %s. THE RULE: %s %s %s This "
+        "launch was refused BEFORE it was queued, because the seat could not have written the "
+        "token once caged: the failure would otherwise have surfaced at the far end as an absent "
+        "artifact and been marked against the seat's work rather than against its declaration. An "
+        "UNCAGED row is NOT refused; this row's profile resolves to a composed seat cage." % (
+            "; ".join("`%s` -- %s" % (b["token"], b["why"]) for b in bad),
+            _ADMISSION_RULE, _ADMISSION_HOMES, _CAGE_MAP_PROVENANCE))
+
+
 def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=None,
             dry_run=False):
     """THE enqueue interface. Turn every LAUNCH CANDIDATE into a daemon job seeded with its
@@ -1140,6 +1443,9 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
 
     candidates, excluded = launch_candidates(coord, pkg, res["ready"], res["self-marks"])
     seats = seat_prompts(coord, pkg)
+    # STEP 4a: ONE resolution per pass — the whole call shares one `profile`, so caged-ness is one
+    # boolean for every candidate below, not a per-seat question.
+    caged = profile_launches_caged(profile)
 
     enqueued, validated, failed = [], [], []
     for seat in candidates:
@@ -1155,6 +1461,15 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
                            "reason": "SEED PATH ABSENT AT ENQUEUE TIME: %s. Enqueuing this launch "
                                      "would schedule a seat that fails on its first read."
                                      % ", ".join(m["path"] for m in missing)})
+            continue
+        # STEP 4a (7.469): LAST of the pre-queue refusals, deliberately. Every existing refusal
+        # reason still fires first, so no candidate that failed before this change fails for a new
+        # reason now — only a candidate that WOULD have been queued can be refused here.
+        admission = declared_output_admission(coord, pkg, seat, after, caged)
+        if admission:
+            bad, why = admission
+            failed.append({"seat": seat, "missing-seed-paths": [], "detail": bad,
+                           "reason": why})
             continue
         argv = _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run, prompt)
         rc, out, err = submit(argv)
@@ -1189,6 +1504,7 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
             "artifact was deleted between the marking pass and this one — never a routine outcome.",
             "the artifact GRADE this seeds from is existence, not content: `grades-not-afforded` "
             "still holds, so a seed path being present is not a claim that its content is right.",
+            admission_scope_caveat(profile, caged),
         ],
     }
 
@@ -2894,6 +3210,262 @@ def check_enqueue_signature_is_recorded():
                   "%s" % (live, PROBE_RECORD.name))
 
 
+# ---- STEP 4a's checks (task 7.469 / CW5) ------------------------------------------------------
+#
+# ⚠ THE ACCEPT ARM IS NOT DECORATION. A refusal that refuses everything is not a refusal, it is an
+# outage, and it passes a "does it refuse?" check perfectly. So every arm below moves ONE variable
+# against the same fixture and asserts BOTH outcomes: refuse and admit, caged and uncaged.
+
+_FX_CAGED_PROFILE = "claude-opus"     # a REAL profile of the committed config, resolved by the
+                                      # daemon's own loader — not a name this file invents
+
+
+def _fx_declare(pkg, seat, token):
+    """Rewrite `seat`'s descriptor so its `<io-spec> ## Outputs` declares exactly `token`.
+
+    The token is NOT created on disk: admissibility is a question about a token's LOCATION, which
+    is answerable before the seat has written anything — that is the whole point of refusing at the
+    queue instead of grading at the far end."""
+    (pkg / "seats" / seat).mkdir(parents=True, exist_ok=True)
+    (pkg / "seats" / seat / "seat.md").write_text(
+        "---\nseat: %s\n---\n<io-spec id=\"fx-io\" version=\"latest\">\n## Inputs\n\n- nothing.\n\n"
+        "## Outputs\n\n- `%s` — the declared artifact.\n</io-spec>\n" % (seat, token),
+        encoding="utf-8")
+
+
+def _fx_own_package(prefix):
+    """A FRESH fixture package these checks own outright, plus its temp root to remove.
+
+    Every check below REWRITES a seat's declared output, and the selftest's shared package is read
+    by every later check — including ones that seed from this seat as a predecessor. Mutating the
+    shared fixture and restoring it afterwards would make each check's green depend on the
+    restoration of the one before it. A package of one's own removes the coupling instead of
+    managing it."""
+    tmp = Path(tempfile.mkdtemp(prefix=prefix))
+    return build_fixture(tmp), tmp
+
+
+def _fx_uncaged_config(tmp):
+    """The committed config with its `cage:` block REMOVED, and nothing else changed.
+
+    Every profile in the committed config carries the shared `cage:` block, so `uncaged` is
+    unreachable against it and the scoping arm could only ever be asserted. This copy moves exactly
+    ONE variable, and the SAME loader reads it — a hand-written stand-in profile would test a
+    config this daemon never has."""
+    src = _CAGE_CONFIG_YAML.read_text(encoding="utf-8")
+    out, skip = [], False
+    for line in src.splitlines(True):
+        if re.match(r"^cage:", line):
+            skip = True
+            continue
+        if skip and re.match(r"^[A-Za-z_]", line):
+            skip = False
+        if not skip:
+            out.append(line)
+    path = Path(tmp) / "no-cage-spawn-profiles.yaml"
+    path.write_text("".join(out), encoding="utf-8")
+    return path
+
+
+def check_caged_predicate_is_the_daemons(_coord, _pkg):
+    """The caged-ness predicate is DRIVEN through the daemon's own config loader, both ways.
+
+    Inputs are not hand-supplied: one arm reads the committed config, the other the same config
+    with only `cage:` removed. A predicate that answered from a fixture dict would prove that the
+    fixture dict was read."""
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-cage-probe-"))
+    try:
+        live = profile_launches_caged(_FX_CAGED_PROFILE)
+        none_cage = profile_launches_caged(_FX_CAGED_PROFILE, _fx_uncaged_config(tmp))
+        unknown = profile_launches_caged("fx-no-such-profile-exists")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if live is not True:
+        return False, ("the committed config resolves `%s` to %r, not True — either every profile "
+                       "lost its cage or the probe is not reaching the loader"
+                       % (_FX_CAGED_PROFILE, live))
+    if none_cage is not False:
+        return False, ("with `cage:` removed the loader still answers %r for `%s` — the UNCAGED "
+                       "verdict is unreachable, so the §2.4 scoping arm is asserted, not driven"
+                       % (none_cage, _FX_CAGED_PROFILE))
+    if unknown is not None:
+        return False, ("an unknown profile answered %r, not None — an undecidable caged-ness must "
+                       "default NEITHER way (7.469 F1)" % (unknown,))
+    return True, ("7.469 scope: the daemon's own loader answers caged=True on the committed config "
+                  "and caged=False on the same config with only `cage:` removed (one variable, "
+                  "both arms); an unknown profile answers None and defaults neither way")
+
+
+def check_admission_refuses_and_admits(coord, _pkg):
+    """The REFUSE arm and the ACCEPT arm, one variable apart, on one caged fixture seat.
+
+    `outputs/…` is inadmissible (CW2 measured `{runDir}` ro-bind for the producer);
+    `coordination/…` is admissible (measured writable by the producer AND readable by a peer).
+    Same seat, same profile, same package — only the declared token moves."""
+    seat = "fx-r-root"
+    pkg, tmp = _fx_own_package("edge-runner-admission-")
+    try:
+        _fx_declare(pkg, seat, "outputs/refused-by-7469.json")
+        submit, _calls = _stub_door()
+        bad = enqueue(coord, pkg, FX_JOB_ID, _FX_CAGED_PROFILE, submit=submit)
+        refused = [f for f in bad["failed"] if f["seat"] == seat]
+        if not refused:
+            return False, ("the REFUSE arm did not fire: `%s` declaring `outputs/…` reached the "
+                           "queue under caged profile `%s`" % (seat, _FX_CAGED_PROFILE))
+        if any(r["seat"] == seat for r in bad["enqueued"]):
+            return False, "`%s` was BOTH refused and enqueued" % seat
+
+        _fx_declare(pkg, seat, "coordination/%s-admitted.json" % seat)
+        submit, _calls = _stub_door()
+        good = enqueue(coord, pkg, FX_JOB_ID, _FX_CAGED_PROFILE, submit=submit)
+        if any(f["seat"] == seat for f in good["failed"]):
+            why = [f["reason"] for f in good["failed"] if f["seat"] == seat][0]
+            return False, ("the ACCEPT arm did not fire: `%s` declaring `coordination/…` was "
+                           "REFUSED under the same profile — a check that refuses everything is an "
+                           "outage, not a refusal. Reason given: %s" % (seat, why[:200]))
+        if not any(r["seat"] == seat for r in good["enqueued"]):
+            return False, "`%s` neither refused nor enqueued on the accept arm" % seat
+        return True, ("both arms on one seat, one variable: `outputs/refused-by-7469.json` REFUSED "
+                      "(%s) and `coordination/%s-admitted.json` ENQUEUED, under the same caged "
+                      "profile `%s`" % (refused[0]["detail"][0]["verdict"], seat,
+                                        _FX_CAGED_PROFILE))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_admission_carries_the_rule(coord, _pkg):
+    """The refusal states the rule WORD FOR WORD, plus the provenance of the map it consulted.
+
+    A refusal that names a violation without stating the rule sends its reader looking for a
+    second document; a refusal that cites a MEASURED snapshot without dating it cannot be told
+    from a current one."""
+    seat = "fx-r-root"
+    pkg, tmp = _fx_own_package("edge-runner-rule-text-")
+    try:
+        _fx_declare(pkg, seat, "outputs/rule-text-probe.json")
+        submit, _calls = _stub_door()
+        res = enqueue(coord, pkg, FX_JOB_ID, _FX_CAGED_PROFILE, submit=submit)
+        hit = [f for f in res["failed"] if f["seat"] == seat]
+        if not hit:
+            return False, "no refusal to inspect — the refuse arm did not fire"
+        text = hit[0]["reason"]
+        for needle, what in ((_ADMISSION_RULE, "the rule verbatim"),
+                             (_ADMISSION_HOMES, "the admissible-home table"),
+                             ("sha256:c36a11b409238eb7", "the cage map's digest"),
+                             ("SNAPSHOT, NOT A LIVE SPEC", "the staleness disclosure"),
+                             ("`branches/<b>/coordination/` row", "the incompleteness disclosure")):
+            if needle not in text:
+                return False, "the refusal omits %s" % what
+        return True, ("the refusal carries the rule verbatim, the home table, the cage map's "
+                      "digest sha256:c36a11b409238eb7, and BOTH disclosures (snapshot + "
+                      "incomplete) — %d chars, no second document needed" % len(text))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_admission_is_scoped_to_caged(coord, _pkg):
+    """An UNCAGED row is NOT refused, and an UNDECIDABLE one is not refused either.
+
+    This is the arm that makes task 7.470's deferral of 228 tokens a deferral rather than a forced
+    251-token migration, so it is driven, never assumed. The caged arm in the same body is the
+    control that keeps this from passing because nothing ever refuses."""
+    seat = "fx-r-root"
+    pkg, tmp = _fx_own_package("edge-runner-scope-")
+    try:
+        _fx_declare(pkg, seat, "outputs/uncaged-must-pass.json")
+        after = coord.taskforce_after(pkg)
+        uncaged = profile_launches_caged(_FX_CAGED_PROFILE, _fx_uncaged_config(tmp))
+        if uncaged is not False:
+            return False, "could not obtain an UNCAGED verdict to test with (%r)" % (uncaged,)
+        if declared_output_admission(coord, pkg, seat, after, False):
+            return False, ("an UNCAGED row declaring `outputs/…` was REFUSED — that converts a "
+                           "ruled deferral into a forced 251-token migration")
+        if declared_output_admission(coord, pkg, seat, after, None):
+            return False, ("an UNDECIDABLE caged-ness REFUSED — 7.469's F1 arm forbids defaulting "
+                           "in either direction")
+        if not declared_output_admission(coord, pkg, seat, after, True):
+            return False, ("the same seat and token was ADMITTED when caged — the two arms above "
+                           "would then pass for the wrong reason")
+        submit, _calls = _stub_door()
+        res = enqueue(coord, pkg, FX_JOB_ID, "fx-no-such-profile-exists", submit=submit)
+        if any(f["seat"] == seat for f in res["failed"]):
+            return False, "an unresolvable profile refused a row rather than defaulting neither way"
+        if "COULD NOT RUN" not in res["caveats"][-1]:
+            return False, ("the undecidable pass did not SAY it could not run — a check whose "
+                           "absence is silent reads exactly like one that ran and found nothing")
+        return True, ("one token, three caged-ness verdicts: caged=True REFUSES, caged=False does "
+                      "NOT (§2.4 arm 2), caged=None does NOT and says so in its caveat")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_admission_undecided_refuses(_coord, _pkg):
+    """An UNMAPPED subtree is `undecided`, and `undecided` REFUSES — it is never admitted.
+
+    The cage map carries no `branches/<b>/coordination/` row. A branch-relative token may be
+    unwritable in fact, so admitting it on the strength of a missing measurement is the one
+    direction that turns a gap into a green (leader bar, 2026-08-07)."""
+    unmapped = "branches/branch-1/coordination/nested.json"
+    if cage_subtree_of(unmapped) is not None:
+        return False, ("`%s` is now MAPPED — this check's premise is gone and its green would be "
+                       "vacuous" % unmapped)
+    for sr in ("yes", "no", "undecided"):
+        verdict, why = token_admissible(unmapped, sr)
+        if verdict != _UNDECIDED:
+            return False, "unmapped subtree returned %s (%s) at successor-reads=%s" % (verdict,
+                                                                                       why, sr)
+    if token_admissible("coordination/mapped.json", "no")[0] != _ADMISSIBLE:
+        return False, ("the MAPPED sibling `coordination/…` is not admissible either — this check "
+                       "would then pass because everything is refused")
+    if token_admissible("seats/self/x.json", "undecided")[0] != _UNDECIDED:
+        return False, ("an undecided discriminator did not carry through on `seats/<self>/`, where "
+                       "it GENUINELY decides — that is the half of the leader bar option (b) does "
+                       "not touch")
+    return True, ("`branches/branch-1/coordination/nested.json` is unmapped and refuses at all "
+                  "three discriminator values, while its MAPPED sibling `coordination/…` is "
+                  "admitted — the refusal is a decision, not a stuck red")
+
+
+def check_admission_truth_table(_coord, _pkg):
+    """The rule's 8-row truth table, SPELLED OUT here rather than read back from the code.
+
+    A check whose expectation is computed by the thing under test moves with it and passes any
+    change to it. These verdicts are literals. The last three rows are option (b)'s whole subject:
+    an undecided discriminator is carried through ONLY where it decides."""
+    cases = [
+        # (subtree key, discriminator, expected verdict, why this row exists)
+        ("coordination/",         "yes",       _ADMISSIBLE,   "writable+readable"),
+        ("coordination/",         "no",        _ADMISSIBLE,   "writable+readable"),
+        ("seats/<self>/",         "yes",       _INADMISSIBLE, "writable, unreadable, read"),
+        ("seats/<self>/",         "no",        _ADMISSIBLE,   "writable, unreadable, unread"),
+        ("outputs/",              "yes",       _INADMISSIBLE, "unwritable"),
+        ("outputs/",              "no",        _INADMISSIBLE, "unwritable"),
+        ("branches/<b>/outputs/", "yes",       _INADMISSIBLE, "unwritable"),
+        ("branches/<b>/outputs/", "no",        _INADMISSIBLE, "unwritable"),
+        # option (b): the discriminator is consulted only where it can change the answer
+        ("coordination/",         "undecided", _ADMISSIBLE,   "(b): readable, so unknown cannot "
+                                                              "change the answer"),
+        ("outputs/",              "undecided", _INADMISSIBLE, "(b): unwritable decides alone"),
+        ("seats/<self>/",         "undecided", _UNDECIDED,    "(b): here it GENUINELY decides"),
+    ]
+    tokens = {"coordination/": "coordination/p-a.json", "seats/<self>/": "seats/s/a.json",
+              "outputs/": "outputs/a.json",
+              "branches/<b>/outputs/": "branches/b1/outputs/a.json"}
+    for key, sr, want, why in cases:
+        tok = tokens[key]
+        if cage_subtree_of(tok) != key:
+            return False, "`%s` no longer classifies as `%s` — the row is testing nothing" % (tok,
+                                                                                              key)
+        got, reason = token_admissible(tok, sr)
+        if got != want:
+            return False, "%s at successor-reads=%s: got %s, want %s (%s) -- %s" % (key, sr, got,
+                                                                                    want, why,
+                                                                                    reason)
+    return True, ("all %d rows of the rule hold as literals: the 8 yes/no rows UNCHANGED by the "
+                  "(b) ordering, and the 3 undecided rows carrying through only where the "
+                  "discriminator decides" % len(cases))
+
+
 # ---- STEP 4b's checks (M4-11) -----------------------------------------------------------------
 
 # The four values of coord's closed disposition enum, spelled out as LITERALS. Not one is read from
@@ -3715,6 +4287,13 @@ def cmd_selftest(fixture):
         ("missing-seed-path-fails", lambda: check_missing_seed_path_fails_loudly(coord, pkg)),
         ("single-enqueue-call-site", lambda: check_single_enqueue_call_site()),
         ("enqueue-signature-recorded", lambda: check_enqueue_signature_is_recorded()),
+        # STEP 4a (7.469) — the declared-output admission check
+        ("admission-truth-table", lambda: check_admission_truth_table(coord, pkg)),
+        ("admission-undecided-refuses", lambda: check_admission_undecided_refuses(coord, pkg)),
+        ("admission-caged-predicate", lambda: check_caged_predicate_is_the_daemons(coord, pkg)),
+        ("admission-refuses-and-admits", lambda: check_admission_refuses_and_admits(coord, pkg)),
+        ("admission-carries-the-rule", lambda: check_admission_carries_the_rule(coord, pkg)),
+        ("admission-scoped-to-caged", lambda: check_admission_is_scoped_to_caged(coord, pkg)),
         # STEP 4b (M4-11) — the check-out fast path
         ("fastpath-only-done-advances", lambda: check_fastpath_only_done_advances(coord, pkg)),
         ("fastpath-unarmed-is-a-no-op", lambda: check_fastpath_unarmed_is_a_no_op(coord, pkg)),

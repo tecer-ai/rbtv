@@ -2598,6 +2598,38 @@ def session_open(args, w, since=None, wait=None, pane=None):
     return sid, note
 
 
+def session_open_id(pkg, seat):
+    """The session-id of `seat`'s LAST OPEN row (`ended` empty), or "" when it has none.
+
+    The guard `session_open` itself does not carry: `session_open` APPENDS unconditionally, which
+    is right on the launch path (a renew is a new session of the same seat) and wrong for a
+    launcher that RETRIES — a second spawn attempt would leave the seat two open rows and the
+    trace would say two sessions ran. `cmd_session_open` reads this first and no-ops on a hit.
+
+    ⚠ NOT `session_open_started`, which answers the same question and is NOT usable here: it
+    returns None both for "no open row" and for an open row whose `started` stamp will not parse,
+    and this caller must not read the second as the first — that reading is what appends the
+    duplicate. It reports the ID, so an unparseable stamp still says "a row is open".
+
+    Same reason an open row with a BLANK `session-id` reports `(open row, blank session-id)`: ""
+    is this function's "no open row" answer, and giving it to a row that IS open would reopen the
+    duplicate one field over.
+    """
+    path = sessions_csv(pkg)
+    if not path.exists():
+        return ""
+    header, rows = read_csv_table(path, SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if not {"seat", "ended", "session-id"} <= set(idx):
+        return ""
+    found = ""
+    for r in rows:
+        pad_row(r, header)
+        if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
+            found = r[idx["session-id"]].strip() or "(open row, blank session-id)"
+    return found
+
+
 def session_backfill_native(args, seat):
     """Fill a live session row's `native-session-id` from the seat's OWN checkin. Returns the id
     filled, or ''.
@@ -3056,6 +3088,44 @@ def sessions_last_ended(pkg):
     return out
 
 
+def sessions_open_ids(pkg):
+    """{seat: session-id} — every seat's LAST OPEN `sessions.csv` row, in ONE read.
+
+    THE OPEN-ROW TWIN OF `sessions_last_ended`, and it is one function for the same reason that
+    one is: TWO questions now select a seat's open row — which session a handoff belongs to
+    (`session_id_open`) and which session a seat-side disposition record is allowed to speak for
+    (`session_disposition`'s 7.475 fallback). Selecting it twice is exactly how the two would come
+    to describe DIFFERENT sessions while reading as though they agreed.
+
+    LAST IN FILE ORDER — preserved verbatim from `session_id_open`, which has always done this and
+    whose behaviour must not move: rows are APPENDED in open order, so a seat's last open row is
+    its newest. Deliberately NOT re-sorted by the `started` cell; a sort would be a second, subtly
+    different selection rule reaching the same readers.
+
+    Returns {} on every surface that cannot answer — no `sessions.csv`, or a header missing any of
+    `seat`/`ended`/`session-id` — which keeps an absent seat meaning UNKNOWN in both callers rather
+    than manufacturing a match no file asserted. NEVER RAISES: both callers are read-only paths
+    whose contract is a value, and `session_id_open`'s never-fatal guarantee is preserved HERE
+    rather than only at its own call, so the second caller inherits it instead of re-stating it."""
+    try:
+        path = sessions_csv(pkg)
+        if not path.exists():
+            return {}
+        header, rows = read_csv_table(path, SESSIONS_COLS)
+        idx = {c: i for i, c in enumerate(header)}
+        if not {"seat", "ended", "session-id"} <= set(idx):
+            return {}
+        out = {}
+        for r in rows:
+            pad_row(r, header)
+            seat = r[idx["seat"]].strip()
+            if seat and not r[idx["ended"]].strip():
+                out[seat] = r[idx["session-id"]].strip()
+        return out
+    except (OSError, ValueError, csv.Error):
+        return {}
+
+
 def undeclared_endings(pkg, last_ended=None):
     """{seat: session-id} for every seat whose LAST ENDED row DECLARES NO DISPOSITION.
 
@@ -3114,8 +3184,58 @@ def session_disposition(pkg, seat):
     WHAT THIS FUNCTION RETURNS DID NOT CHANGE — same row, same file order, same `or None`, and an
     empty cell still reads UNKNOWN. What changed is that `undeclared_endings` can now ask a SECOND
     question about the SAME selected row (was an ending declared AT ALL?) without a second copy of
-    the selection drifting away from this one."""
-    return (sessions_last_ended(pkg).get(seat) or ("", ""))[1] or None
+    the selection drifting away from this one.
+
+    7.475 (CW11): WIDENED TO A SECOND SURFACE, AND STILL ONE READER. Where `sessions.csv` is
+    SILENT — no ended row for this seat, or an ended row whose cell is empty — this now consults
+    the seat's OWN durable record on `coordination/` (`write_seat_disposition`, 7.474), the one
+    surface a CAGED seat can write when its `sessions.csv` write is refused by the sandbox. The
+    widening is here, INSIDE the one reader, and nowhere else: a sibling function answering the
+    same question on a different surface is the two-readers-disagree shape (`G-301`) that this
+    file's `sessions_last_ended` comment already argues against, and `edge-runner-job.py` calls
+    THIS symbol rather than re-implementing it.
+
+    ⚠ `sessions.csv` IS STILL FIRST AND THE RECORD NEVER OVERRIDES IT. The fallback is reached
+    ONLY on the `or None` branch above. A CONSEQUENCE, stated rather than buried: a seat whose LAST
+    ENDED row carries a stale non-empty value (it renewed, then a later caged session failed to
+    close) reads as that STALE value and its fresh record is never consulted — the record is a
+    fallback for SILENCE, not a freshness rule. Making it a freshness rule would be an override,
+    which this task's contract forbids and which would move existing verdicts.
+    ponytail: stale-ended-row beats fresh-record; revisit when 7.57 rebuilds this surface.
+
+    ⚠ THE GUARD IS NOT A FORGERY-PROOF AUTHENTICATOR AND CANNOT BE ON THIS SURFACE. `coordination/`
+    is shared and unsigned; any party that can write it can write this file, exactly as it can
+    already write `awaiting-close.json` — whose reader treats an ABSENT disposition key as `done`,
+    a strictly weaker bar than the four checks below. What the guard DOES bound is every failure
+    this fallback can produce by accident: a record for another seat, a record whose declared
+    writer is not the seat, a value outside what `RECORD_DISPOSITION_WRITER` admits FROM a seat
+    (so `exited` and `revive` are refused by construction, and the closed enum is not widened), and
+    — the load-bearing one — a record from a session that is not the seat's currently OPEN one. A
+    caged check-out leaves its row OPEN because `session_close` never completed
+    (`p-the-caged-checkout-leaves-NO-ended-row-at-all-which-is-worse-than-an-empty-cell`), so
+    "matches an open row" is precisely the state this fallback exists for; every other state — a
+    closed session, a superseded session, no session — falls through to `None`.
+
+    EVERY refusal below returns `None`, never a value: the asymmetry above is the whole safety
+    argument and the fallback does not get to weaken it."""
+    durable = (sessions_last_ended(pkg).get(seat) or ("", ""))[1] or None
+    if durable is not None:
+        return durable
+    # ---- 7.475 (CW11): the fallback, reached ONLY where `sessions.csv` said nothing ----
+    try:
+        rec = json.loads(seat_disposition_path(Path(pkg) / "coordination", seat)
+                         .read_text(encoding="utf-8"))
+    except (OSError, ValueError):     # absent, unreadable, or not JSON — all UNKNOWN
+        return None
+    if not isinstance(rec, dict) or rec.get("seat") != seat:
+        return None
+    if rec.get("disposition-writer") != DISPOSITION_WRITER_SEAT:
+        return None
+    value = (rec.get("disposition") or "").strip()
+    if DISPOSITION_WRITER_SEAT not in RECORD_DISPOSITION_WRITER.get(value, frozenset()):
+        return None
+    sid = str(rec.get("session-id") or "").strip()
+    return value if sid and sid == sessions_open_ids(pkg).get(seat, "") else None
 
 
 # ---------- per-seat statusline (task 7.69, statusline half) ----------
@@ -4649,6 +4769,86 @@ def clear_closing(base, seat):
                 return False
             del data[seat]
             atomic_write(closing_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+# ---- 7.474 (CW10): the SEAT-SIDE DURABLE DISPOSITION RECORD ------------------------------------
+#
+# ⚠ WHY A THIRD SURFACE EXISTS AT ALL — MEASURED, not reasoned. `CW9` (7.473, 2026-08-07) ran a
+# REAL `checkout` inside a REAL composed cage: a caged seat cannot write `{runDir}/sessions.csv` AT
+# ALL. `write_csv_table` is temp-file + `os.replace`, and the CREATE of `sessions.csv.tmp` in the
+# read-only run dir is REFUSED `errno 30 EROFS` — so the refusal is TOTAL, never partial.
+# `session_close` therefore takes `session_trace_safe`'s except arm and THE ROW IS NEVER STAMPED
+# `ended`. Not an empty cell — NO ENDED ROW AT ALL, which is worse than the empty cell in three
+# ways: `None` is not terminal so nothing advances and nothing is refused; `undeclared_endings`
+# keys on ENDED rows and is BLIND to it, so the one detector built for exactly this cannot see it;
+# and the declared-output check is never reached, so the OTHER wall cannot even be measured until
+# this one is closed.
+#
+# ⚠ IT CARRIES `ended`, AND THAT IS THE WHOLE POINT OF THE FIELD. `session_disposition` reads
+# `sessions_last_ended`, which selects on the ENDED cell FIRST. A record carrying a disposition and
+# no ending is UNREACHABLE by the one reader that exists — it would sit on disk, correct and
+# ignored (leader, run `decisions.md`
+# `#p-the-caged-checkout-leaves-NO-ended-row-at-all-which-is-worse-than-an-empty-cell`).
+#
+# ⚠ S1 INTERIM, AND THE RETIREMENT IS IN THE RECORD, NOT ONLY IN THIS COMMENT. `coordination/` is
+# the one write-opening a caged seat has, and that opening is scheduled to RETIRE AT 7.57. A
+# retirement recorded only beside the WRITER is invisible to everyone who only ever READS, so
+# `surface` carries it in every file this writes.
+#
+# ⚠ IT REPLACES NOTHING. `sessions.csv` stays the FIRST source and is still attempted first; this
+# is the fallback for the one case that write cannot reach. Both surfaces take their disposition
+# from the SAME variable at the SAME call site (`cmd_checkout`'s `checkout_disposition`) — computing
+# it twice is precisely the skew the comment block above `set_awaiting`'s call site names, and it is
+# not re-introduced here.
+SEAT_DISPOSITION_SURFACE_NOTE = (
+    "S1 INTERIM — this record sits on the `coordination/` write-opening, which RETIRES AT 7.57. "
+    "`sessions.csv` remains the first source; this is the fallback a caged seat can actually write.")
+
+
+def seat_disposition_path(base, seat):
+    """`{coordination}/disposition-{seat}.json` — the address, DERIVED FROM THE SEAT'S NAME ALONE.
+
+    No peer folder is read, and none could be: a cage `tmpfs`s away `{runDir}/seats` and the seat
+    sees only its own (`CW9` §4 listed it: `["mc-w17-root"]`). Same shape as the
+    `lifecycle-exec-{seat}-{stamp}.log` written beside it — one naming rule on this surface, not
+    two."""
+    return Path(base) / f"disposition-{seat}.json"
+
+
+def write_seat_disposition(base, seat, session_id, disposition, ended,
+                           writer=DISPOSITION_WRITER_SEAT):
+    """Write the seat's OWN durable disposition record. Returns True when it landed.
+
+    Best-effort in the same sense `set_awaiting` is — bookkeeping ABOUT a checkout must never become
+    a gate ON it (7.37's ruling) — but its failure is ANNOUNCED by the caller rather than swallowed,
+    because on the caged path this is the ONLY surface left and a silent miss loses the seat's
+    ending outright.
+
+    `validate_disposition` is called OUTSIDE the try for the reason `set_awaiting` states in full:
+    an out-of-enum value, or a writer reaching across the bound, is a CALLER CONTRACT BREACH that
+    only an edit to this file can introduce, and swallowing it into a `False` would make it read
+    exactly like a full disk. `exited` is refused here by construction on the seat's own path, the
+    same way it is on the two surfaces above.
+
+    ⚠ `ended` IS THE CALLER'S CLOCK READING AND NOT A COPY OF THE `sessions.csv` CELL. The two are
+    independent readings at minute precision and can disagree by a minute when they straddle a
+    boundary. Stated rather than buried: on the path this record MATTERS there is no cell to copy —
+    `session_close` never ran to completion. Unifying them would mean widening `session_close`'s
+    signature, and this task's contract requires that write to stay unchanged.
+    ponytail: two clock readings, minute precision; unify when 7.57 rebuilds this surface.
+
+    NO `coord_lock`. This file is keyed by seat and its only writer is that seat's own check-out, so
+    there is no read-modify-write to serialize — unlike `awaiting-close.json`, one shared dict every
+    seat mutates. It is also why the address needs no peer read: one seat, one file, one writer."""
+    validate_disposition(disposition, writer)
+    try:
+        atomic_write(seat_disposition_path(base, seat), json.dumps(
+            {"seat": seat, "session-id": str(session_id or ""), "ended": ended,
+             "disposition": disposition, "disposition-writer": writer,
+             "surface": SEAT_DISPOSITION_SURFACE_NOTE}, indent=2, sort_keys=True) + "\n")
         return True
     except (OSError, ValueError):
         return False
@@ -6938,21 +7138,17 @@ def session_id_open(args, seat):
     the handoff must name the session that WROTE it, not a row already closed out from under it.
     LAST open row wins, the same rule `session_close` itself applies. `''` becomes `session=unknown`
     at the block rather than a dropped attribute.
+
+    7.475: the row selection moved OUT to `sessions_open_ids` and is not reimplemented here — the
+    same move `session_disposition` made to `sessions_last_ended` at 7.237, for the same reason:
+    a second question now asks about this same open row (7.475's fallback guard) and two copies of
+    the selection would drift. WHAT THIS FUNCTION RETURNS DID NOT CHANGE — same rows, same file
+    order, same last-wins, same `''` on every surface that cannot answer. The `try` stays because
+    `package_dir` itself can raise on an unresolvable package, which is BEFORE the reader is
+    reached and so outside what `sessions_open_ids` can catch.
     """
     try:
-        path = sessions_csv(package_dir(args))
-        if not path.exists():
-            return ""
-        header, rows = read_csv_table(path, SESSIONS_COLS)
-        idx = {c: i for i, c in enumerate(header)}
-        if not {"seat", "ended", "session-id"} <= set(idx):
-            return ""
-        found = ""
-        for r in rows:
-            pad_row(r, header)
-            if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
-                found = r[idx["session-id"]].strip()
-        return found
+        return sessions_open_ids(package_dir(args)).get(seat, "")
     except (OSError, ValueError, csv.Error):
         return ""
 
@@ -7461,6 +7657,30 @@ def cmd_checkout(args):
                 C_DEAD), file=sys.stderr)
     elif sid:
         print(f"sessions.csv: {sid} ended")
+    # 7.474 (CW10): THE SEAT-SIDE DURABLE RECORD. It is written AFTER the two lines above ON
+    # PURPOSE — `sessions.csv` is the FIRST source, is still attempted first exactly as it was, and
+    # its warning still prints. Nothing above this line moved.
+    #
+    # ⚠ IT RUNS ON BOTH OUTCOMES, NEVER ONLY ON `cerr`, and that is a correctness choice rather than
+    # a simplification. Keyed on the failure, the record would become a FAILURE MARKER whose ABSENCE
+    # a reader cannot tell from a package written before this writer existed — and the write path
+    # would then be exercised ONLY inside a cage, the one place no verifier in this system can watch
+    # it. Unconditional, it is the same path every uncaged check-out already walks.
+    #
+    # `checkout_disposition` is the SAME variable the two surfaces above took — never recomputed
+    # (the `dag-09` argument, applied to a third surface). The session-id is the row `session_close`
+    # just closed; when that write FAILED the row is still OPEN, so `session_id_open` names that
+    # same row — both apply the last-open-row rule, so the two arms cannot select different
+    # sessions. `''` when neither can answer: an empty id is honest and a reader can see it, where a
+    # fabricated one binds this record to the wrong session.
+    if not write_seat_disposition(base, me, sid or session_id_open(args, me),
+                                  checkout_disposition, now()):
+        print(c(f"WARNING seat disposition record NOT written — "
+                f"{seat_disposition_path(base, me)}. The close itself stands, but if the "
+                f"sessions.csv line above also warned, this seat's ending is now recorded on NO "
+                f"durable surface: tell leader.", C_DEAD), file=sys.stderr)
+    else:
+        print(f"disposition record: {seat_disposition_path(base, me)}")
     if renew:
         # ---- STAGE 3 (s3-09): THE FORK. The seam s12-06 left greppable here is DISCHARGED. -----
         # Everything above ran in-pane and is safe in-pane; the renewal is not, so it leaves with a
@@ -11837,6 +12057,64 @@ ASSERTED_LAUNCH_REFUSAL = (
     "  3. Add `--dry-run` to see what the launch would do — it opens nothing and spends nothing, "
     "so it is admitted on the claim alone.\n"
     "`--force` does NOT carry this bound: it carries the role gate and nothing else.")
+
+
+def cmd_session_open(args):
+    """Open the named seat's session-trace row — `session_open` as a CALLABLE VERB.
+
+    WHY IT EXISTS (7.446 / MC4, finding A of briefing-m6-missing-capabilities). `session_open` is
+    the ONLY function that CREATES a row in a package's `sessions.csv`, and production reached it
+    from exactly ONE site — `launch_seat:11613`, inside this file. Every other trace call is a
+    MUTATOR that requires the row to already exist. So a launcher that is not `launch_seat` — the
+    daemon's own spawn path — could not create a trace at all, and the edge-runner's gate 3
+    correctly refuses a package with no trace: no edge advances on the daemon. This verb is the
+    act that path can invoke. It CALLS `session_open`; it does not reimplement it, and it changes
+    neither `session_open` nor any of the six mutators.
+
+    ⚠ IT IS NOT A LICENCE TO HAND-WRITE THE TRACE, which gate 3's own refusal text forbids. The
+    row it writes is `session_open`'s row, written by the kit, for a seat that has a descriptor in
+    THIS package — and the caller is expected to have just brought that seat up. A row for a seat
+    that never booted is the G-11 lie; the ORDERING is the caller's to get right (`launch_seat`
+    writes only after `wait_harness_up` returns), and this verb cannot check it for them.
+
+    Two refusals and one no-op, all three of them the caller's contract:
+      - no descriptor for the named seat in this package -> REFUSE. There is nothing to build a
+        row from: `session_open` reads the seat's harness and cwd off its descriptor, and inventing
+        them would fabricate a session's identity.
+      - the seat already has an OPEN row -> NO-OP, exit 0, the existing session-id printed. A
+        launcher that retries must not leave two open rows for one seat.
+      - anything `session_open` raises -> reported, exit 1. The trace is bookkeeping about the
+        run, so `launch_seat` swallows its failures (`session_trace_safe`) rather than fail a live
+        seat. HERE the write IS the whole act: a caller that asked for a row and got none must
+        learn it, or it will believe a trace exists that does not.
+    """
+    pkg = package_dir(args)
+    seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.seat]
+    if not seats:
+        known = ", ".join(sorted(w["agent"] for w in discover_workers(workers_dir(args)))) or "(none)"
+        refuse("state",
+               f"no seat descriptor carries `agent: {args.seat}` in {workers_dir(args)}, so this "
+               f"package has no such seat and there is nothing to open a session for. A trace row "
+               f"is NEVER fabricated for a name the package does not know — that is the "
+               f"hand-written trace the edge-runner's gate 3 exists to refuse.\n"
+               f"seats in this package: {known}", 1)
+    already = session_open_id(pkg, args.seat)
+    if already:
+        print(f"{args.seat}: session {already} is ALREADY OPEN — nothing written. "
+              f"(A second call for a live seat is a no-op, so a retrying launcher cannot "
+              f"double-write the trace. Close it first if this is a NEW session: "
+              f"`{coord_invocation(args)} close-seat {args.seat}`.)")
+        return
+    res, terr = session_trace_safe(session_open, args, seats[0],
+                                   since=time.time(), wait=args.wait, pane=args.pane)
+    if terr:
+        refuse("environment",
+               f"the session row for {args.seat} was NOT written — {terr}. NOTHING was recorded, "
+               f"so do not treat this package as traced.", 1)
+    sid, note = res
+    print(f"{args.seat}: session {sid} opened in {sessions_csv(pkg)}")
+    if note:
+        print(c(f"  {note}", C_HINT))
 
 
 def cmd_launch(args):
@@ -18087,6 +18365,36 @@ def _selftest_checks(args, failures, names):
                       _bcode == 0 and "sessions.csv row NOT completed" in _bout
                       and "The close itself stands" in _bout
                       and current_row(_rows_b, _seat)["active"] == "no")
+                # 7.474 (CW10): and the SEAT-SIDE record is on the writable surface ANYWAY. This
+                # rides the boom arm deliberately — `_sc_boom` raises the exact exception a caged
+                # `sessions.csv` write raises, so this is the closest UNCAGED analogue of the state
+                # CW9 measured, and it is the only state in which this record is the seat's only
+                # ending. `ended` and `session-id` are asserted individually because they are the
+                # two the reader binds on and an absent one reads as a truthful blank, not an error.
+                # ⚠ Its vantage is UNCAGED — it establishes that the writer runs and what it writes,
+                # NEVER that a caged seat can land it. That claim is CW12's, from inside a cage.
+                if _verb == "checkout":
+                    _dp = seat_disposition_path(base_g, _seat)
+                    _drec = json.loads(_dp.read_text(encoding="utf-8")) if _dp.exists() else {}
+                    check("7.474 (CW10): when the sessions.csv write fails, the SEAT-SIDE durable "
+                          "disposition record still lands on the writable coordination surface, "
+                          "carrying `ended` — without which `session_disposition` (which selects on "
+                          "sessions_last_ENDED) can never reach it — plus the session-id it binds "
+                          "to and `disposition-writer` declaring the SEAT wrote it. Addressed from "
+                          "the seat's NAME alone, so nothing under `seats/` is read to compose it",
+                          _dp.name == f"disposition-{_seat}.json"
+                          and _drec.get("seat") == _seat
+                          and _drec.get("disposition") == "done"
+                          and _drec.get("disposition-writer") == DISPOSITION_WRITER_SEAT
+                          and bool(_drec.get("ended"))
+                          and _drec.get("session-id", "") != ""
+                          and "7.57" in _drec.get("surface", ""))
+                    # `missing_ok` because the RED arm of this row is a candidate that does not
+                    # write the file at all: a bare `unlink` there raises INSIDE the suite and
+                    # turns a clean FAIL into an ABORT, which marks every one of the ~450 checks
+                    # after it UNKNOWN. Measured — the first mutant run did exactly that. A control
+                    # that takes the suite down when it goes red is a control nobody can read.
+                    _dp.unlink(missing_ok=True)
                 clear_awaiting(base_g, _seat)
                 _sh_sc.rmtree(pkg / "workers" / _seat)
         finally:
@@ -19956,6 +20264,96 @@ def _selftest_checks(args, failures, names):
               "is `dag-10`'s arithmetic and is exercised in its rows, not restated here.)",
               _d9_legacy is None and _d9_filled == "done"
               and session_disposition(pkg, "no-such-seat-anywhere") is None)
+
+        # ---- 7.475 (CW11): THE ONE READER, WIDENED TO THE SEAT-SIDE RECORD ----
+        # SIX ROWS, ONE FIXTURE FAMILY, and each row is a SEPARATE `check` so each one is provable
+        # RED on its own mutant — a single conjunction would go red on any mutation and so could
+        # not tell which guard did the refusing.
+        #
+        # ⚠ THIS SUITE BRINGS ITS OWN DISCRIMINATOR ON PURPOSE (leader,
+        # `#p-a-guard-STUCK-RED-is-as-uninformative-as-one-stuck-GREEN-and-CW11-must-bring-its-own-discriminator`).
+        # `edge-runner-job.py`'s `check_reads_match_coord_reader` — the standing guard over exactly
+        # this drift — has been STUCK RED since 7.237 moved the row selection out of
+        # `session_disposition` (it greps `idx["<col>"]` from that function's own bytes and finds
+        # none), so it reads identically before and after this change and can signal nothing about
+        # it. A check that cannot change state is not evidence. These rows can change state.
+        _d9_cbase = Path(pkg) / "coordination"
+        _d9_cbase.mkdir(parents=True, exist_ok=True)
+
+        # (a) THE STATE THIS EXISTS FOR: a caged check-out whose `sessions.csv` write was refused,
+        #     so its row is still OPEN and its only ending is the record on `coordination/`.
+        _d9_seed("d9caged")
+        write_seat_disposition(_d9_cbase, "d9caged", "d9caged-sid", "done", now())
+        check("7.475 (CW11): where `sessions.csv` is SILENT for a seat — no ended row at all, the "
+              "state a CAGED check-out leaves because `session_close` never completed — the ONE "
+              "reader now resolves from that seat's OWN durable record on `coordination/`, the "
+              "single surface a caged seat can write. Before this row the seat's ending was "
+              "unreadable: written, correct, and invisible to every caller",
+              session_disposition(pkg, "d9caged") == "done")
+
+        # (b) `sessions.csv` STAYS FIRST — and the control is DISCRIMINATING, not decorative: this
+        #     seat's record is fully VALID (right seat, right writer, sid matching its open row) so
+        #     the fallback WOULD fire if it were ever reached. It is not reached, because the
+        #     ended row answered. An order swap turns this row red on its own.
+        _d9_seed("d9first", ended=now(), disposition="renew")
+        _d9_seed("d9first")
+        write_seat_disposition(_d9_cbase, "d9first", "d9first-sid", "done", now())
+        check("7.475 (CW11): `sessions.csv` REMAINS THE FIRST SOURCE and the record NEVER "
+              "overrides it — a seat whose ended row says `renew` still reads `renew`, with a "
+              "valid record beside it saying `done` that the reader must not reach. The fallback "
+              "is for SILENCE, never a freshness rule: a rule that preferred the newer surface "
+              "would MOVE existing verdicts, which is a different change than this one",
+              session_disposition(pkg, "d9first") == "renew")
+
+        # (c) RED 1 — the WRITER guard. Emitted by the real writer at a writer the enum admits
+        #     (`leader` may record `done`), so this is a LEGITIMATE record that is simply not the
+        #     seat's own. Hand-forging it would prove less: the arm must refuse a record the kit
+        #     itself can produce.
+        _d9_seed("d9wwriter")
+        write_seat_disposition(_d9_cbase, "d9wwriter", "d9wwriter-sid", "done", now(),
+                               writer=DISPOSITION_WRITER_LEADER)
+        check("7.475 (CW11) RED 1/3 — WRONG WRITER: a record whose `disposition-writer` is not "
+              "the SEAT reads `unknown`, never `done`. The fallback speaks only for the seat's "
+              "own declaration; any other party's ending reaches the DAG through the surface that "
+              "party writes, not through this one",
+              session_disposition(pkg, "d9wwriter") is None)
+
+        # (d) RED 2 — the SESSION guard. The record names a session that is not this seat's open
+        #     one: a leftover from a session already superseded, or a value naming nothing at all.
+        _d9_seed("d9badsid")
+        write_seat_disposition(_d9_cbase, "d9badsid", "some-other-session", "done", now())
+        check("7.475 (CW11) RED 2/3 — UNKNOWN SESSION-ID: a record whose `session-id` matches no "
+              "open row for this seat reads `unknown`. A by-seat key with no session check reads a "
+              "STALE record as the current ending — the seat renews, the old record survives, and "
+              "the DAG advances on a session that ended long ago",
+              session_disposition(pkg, "d9badsid") is None)
+
+        # (e) RED 3 — NO OPEN ROW AT ALL. This is also the F1-protective arm: it is state (b) from
+        #     `undeclared_endings` (ended, cell empty) with a record beside it, and the entire
+        #     back-catalogue of every existing run package sits in a shape like it.
+        _d9_seed("d9noopen", ended=now(), disposition="")
+        write_seat_disposition(_d9_cbase, "d9noopen", "d9noopen-sid", "done", now())
+        check("7.475 (CW11) RED 3/3 — NO MATCHING OPEN ROW: a seat whose sessions are ALL closed "
+              "reads `unknown` even with a record on disk naming its own last session-id. The "
+              "record speaks for a session still OPEN — the caged state — and for no other; a "
+              "seat that ended with an empty cell stays the DEFECT `undeclared_endings` reports "
+              "and is not converted into a clean `done` by this widening",
+              session_disposition(pkg, "d9noopen") is None)
+
+        # (f) THE CLOSED ENUM IS NOT WIDENED. `write_seat_disposition` refuses `exited` from a
+        #     seat by construction, so this record can only exist as a FORGERY — written here by
+        #     hand for exactly that reason, since no kit path emits it.
+        _d9_seed("d9exited")
+        atomic_write(seat_disposition_path(_d9_cbase, "d9exited"), json.dumps(
+            {"seat": "d9exited", "session-id": "d9exited-sid", "ended": now(),
+             "disposition": "exited", "disposition-writer": DISPOSITION_WRITER_SEAT,
+             "surface": SEAT_DISPOSITION_SURFACE_NOTE}, indent=2, sort_keys=True) + "\n")
+        check("7.475 (CW11): the CLOSED enum is not widened at the read either — a record "
+              "carrying a value `RECORD_DISPOSITION_WRITER` does not admit FROM a seat (`exited` "
+              "is the kit's alone) reads `unknown`, even though every other guard passes. The "
+              "reader re-asks the WRITE-boundary question at the READ boundary rather than "
+              "trusting that only the writer ever produced the file",
+              session_disposition(pkg, "d9exited") is None)
 
         # ---- LG-9: the two surfaces are written from ONE value ----
         # STRUCTURAL, off the module's own AST, and that is deliberate: the BEHAVIOURAL twin is
@@ -25932,6 +26330,69 @@ def _selftest_checks(args, failures, names):
         check("7.57: IGNITE_GATEWAY_ADDR parses a full https URL, defaulting to port 443",
               gateway_client._parse_addr("https://addr-host") == ("addr-host", 443))
 
+    # ---- MC4 / 7.446: `session-open` — session_open as a CALLABLE VERB ------------------------
+    #
+    # Every row here drives `cmd_session_open` through its own args namespace and NEVER calls
+    # `session_open` directly. The creator already had a caller inside this file (`launch_seat`)
+    # and the 7.37 block above proves it writes; what was missing, and what these rows are for, is
+    # the half a launcher OUTSIDE python can reach. A row that called the creator would go green
+    # with the verb deleted.
+    with tempfile.TemporaryDirectory() as td5:
+        pkg5 = Path(td5) / "goal" / "runs" / "run-1"
+        (pkg5 / "coordination").mkdir(parents=True)
+        for _s5 in ("alpha5", "beta5"):
+            (pkg5 / "seats" / _s5).mkdir(parents=True)
+            (pkg5 / "seats" / _s5 / "seat.md").write_text(
+                f"---\nagent: {_s5}\nharness: codex\ncwd: {pkg5 / 'seats' / _s5}\n---\nbrief\n",
+                encoding="utf-8")
+
+        def so5(seat):
+            """The verb as a non-Python launcher reaches it: (stdout+stderr, exit code)."""
+            out, err, code = harness_outcome(
+                cmd_session_open,
+                argparse.Namespace(package=str(pkg5), base=None, workers_dir=None, run=None,
+                                   as_agent=None, force=False, seat=seat, pane=None, wait=0.0))
+            return out + err, (0 if code is None else code)
+
+        _pre5 = sessions_csv(pkg5).exists()
+        _o5a, _c5a = so5("alpha5")
+        _h5, _r5 = read_csv_table(sessions_csv(pkg5), SESSIONS_COLS)
+        _i5 = {c: n for n, c in enumerate(_h5)}
+        check("MC4/7.446: THE VERB CREATES THE ROW — one `session-open` on a package with no "
+              "trace at all leaves EXACTLY ONE row, carrying the harness and cwd read off that "
+              "seat's own descriptor, under a header equal to SESSIONS_COLS field-for-field",
+              not _pre5 and _c5a == 0 and len(_r5) == 1 and _h5 == SESSIONS_COLS
+              and _r5[0][_i5["seat"]] == "alpha5" and _r5[0][_i5["harness"]] == "codex"
+              and _r5[0][_i5["ended"]] == "")
+
+        _bytes5 = sessions_csv(pkg5).read_bytes()
+        _o5b, _c5b = so5("alpha5")
+        check("MC4/7.446: a SECOND call for the same LIVE seat is a NO-OP — the file is "
+              "byte-identical afterwards and the command still exits 0, so a launcher that "
+              "RETRIES cannot leave one seat two open rows. A duplicate would make the trace "
+              "claim two sessions ran, and `session_disposition` answers off the wrong one",
+              _c5b == 0 and sessions_csv(pkg5).read_bytes() == _bytes5 and "ALREADY OPEN" in _o5b)
+
+        session_close(argparse.Namespace(package=str(pkg5), base=None, workers_dir=None,
+                                         as_agent=None, force=False), "alpha5")
+        _o5c, _c5c = so5("alpha5")
+        _r5c = read_csv_table(sessions_csv(pkg5), SESSIONS_COLS)[1]
+        check("MC4/7.446: and the no-op keys on an OPEN row, NOT on any row ever seen — once the "
+              "seat's row is CLOSED the same call appends a second session. Without this control "
+              "the row above passes just as well for a guard that refuses every seat it has seen "
+              "before, which would break the renew case the KG names (one seat, several sessions "
+              "within one run)",
+              _c5c == 0 and len(_r5c) == 2)
+
+        _o5d, _c5d = so5("nobody5")
+        _r5d = read_csv_table(sessions_csv(pkg5), SESSIONS_COLS)[1]
+        check("MC4/7.446: RED ARM — a seat this package holds no descriptor for is REFUSED, exit "
+              "non-zero, and NOTHING is appended. Its positive control is the three rows above, "
+              "fired on the SAME package inside this block: the refusal is the unknown NAME, not "
+              "an unwritable package. A row fabricated for a name the package does not know is "
+              "the hand-written trace the edge-runner's gate 3 exists to refuse",
+              _c5d != 0 and "refused [coord state]" in _o5d and len(_r5d) == 2)
+
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
 
@@ -26013,7 +26474,7 @@ HELP_EPILOG = """everyday
   checkout    end your session (exports your transcript first) · --renew --handoff hands this seat to your own next session
 
 leader
-  launch      open one tmux seat per worker briefing and start its harness
+  launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
   close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / current-run / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
@@ -26555,6 +27016,27 @@ def build_parser():
     s.add_argument("--note", default="", help="optional context, e.g. 'back in 2h'")
     add_identity_flags(s)
     s.set_defaults(func=cmd_owner)
+
+    s = command(
+        "session-open",
+        "Open a seat's session-trace row — the row `sessions.csv` gets when the kit launches a\n"
+        "seat, exposed as a verb for a launcher that is NOT this file's own `launch`. The daemon's\n"
+        "spawn path is that launcher: without this, a daemon-launched package has no trace at all\n"
+        "and the edge-runner's fast path refuses it wholesale, so no edge advances.\n"
+        "\n"
+        "CALL IT ONLY AFTER THE SEAT IS VERIFIED UP — a row for a seat that never booted is the\n"
+        "lie the trace exists to prevent, and this command cannot check that for you. Refused for\n"
+        "a seat this package has no descriptor for; a no-op (exit 0) when the seat already has an\n"
+        "open row, so a retrying launcher cannot double-write.",
+        "example:\n"
+        "  coordinate --package /abs/run-3 session-open builder\n"
+        "next: coordinate workers — the seat must still CHECK IN; the trace row is not a check-in")
+    s.add_argument("seat", help="the TARGET seat whose session row is opened, as in its descriptor's `agent:` key — never the caller")
+    s.add_argument("--pane", default=None,
+                   help="the seat's tmux pane id, whose pid/starttime/tty become the row's identity pair (the pane's, never this process's). Omit it off tmux: the identity cells stay blank, which is honest — a fabricated one authenticates an impostor")
+    s.add_argument("--wait", type=float, default=None,
+                   help="seconds to wait for a claude seat's transcript before recording its native-session-id UNRESOLVED (default: the module's own budget). 0 records it unresolved immediately — checkin backfills it either way")
+    s.set_defaults(func=cmd_session_open)
 
     s = command(
         "launch",
