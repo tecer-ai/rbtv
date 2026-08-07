@@ -33,7 +33,11 @@
 //       the next pass retries and delivers;
 //   (j) PERSISTENT fetch failure gives up at the bounded attempt cap: the exec is
 //       retired undelivered (honest non-delivery), and the HONEST GIVE-UP NOTICE
-//       (D111 part 2) is posted to the owner — no silent success, no unbounded retry.
+//       (D111 part 2) is posted to the owner — no silent success, no unbounded retry;
+//   (m) the ⏳ PENDING MARKER (owner-directed 2026-08-07 — the dead-air fix): the
+//       owner's own message wears ⏳ from accept until its answer lands, in THAT
+//       ORDER (the calls are recorded by the mock in arrival order), each forwarded
+//       turn marks its OWN message, and no marker is ever left behind.
 //
 // MUTATION EVIDENCE (validation #2): each guard is provable by this probe —
 //   • comment the `deliver(...)` call in reply-leg.js _runOnce → b/c/e/g fail;
@@ -44,7 +48,12 @@
 //   • drop the attempt cap → (j) fails (unbounded retry);
 //   • break the paging loop after page 0 → (g) fails;
 //   • remove the give-up notice deliver at the attempt cap (M4) → (j) fails
-//     (no notice posted; sent stays 6 and lastText ≠ GIVE_UP_NOTICE).
+//     (no notice posted; sent stays 6 and lastText ≠ GIVE_UP_NOTICE);
+//   • drop the `clearPending(...)` call in chat-bridge.js deliverToOwner → (m1)
+//     fails (the ⏳ never comes off);
+//   • replace `queueReaction(...)` with a bare fire-and-forget call in
+//     chat-bridge.js markPending/clearPending → the add/remove order is no longer
+//     guaranteed and (m1) fails whenever the remove wins the race.
 // Run each mutation → probe FAILS → restore byte-exact → passes.
 //
 // ⚑ Timing uses Node `Date.now()` — `date +%s%3N` is broken on this box (D64).
@@ -183,6 +192,20 @@ async function main() {
       sent.length === 1 && postedTo(sent[0]) && sent[0].text === 'the answer is 42',
       { sentCount: sent.length, posted: postedTo(sent[0]), text: sent[0] && sent[0].text });
 
+    // ── (m1) THE ⏳ PENDING MARKER AND ITS ORDER (owner-directed 2026-08-07) ──────
+    // The dead-air fix: the owner's own message wears ⏳ from the moment its turn is
+    // accepted until its answer lands. The ORDER is the guard — two independent
+    // fire-and-forget reactions could arrive reversed (owner-observed: the marker
+    // landing after the answer), which is why the bridge serializes them and why this
+    // asserts positions, not just presence.
+    const rx = mock.reactionCalls;
+    const marked = await waitFor(() => rx.length >= 2);
+    record('m1:⏳ added to the owner message at accept and removed when its reply lands — in that order, never reversed',
+      marked && rx.length === 2
+      && rx[0].method === 'reactions.add' && rx[0].name === 'hourglass_flowing_sand' && rx[0].channel === CHANNEL && rx[0].ts === ROOT_TS
+      && rx[1].method === 'reactions.remove' && rx[1].name === 'hourglass_flowing_sand' && rx[1].ts === ROOT_TS,
+      { calls: rx.slice() });
+
     // ── (d) same exec never delivered twice (spawn still present, still live:false) ─
     await leg().tick();
     record('d:same exec not redelivered', sent.length === 1, { sentCount: sent.length });
@@ -317,6 +340,21 @@ async function main() {
       pend().delivered.size === 8 && [26, 27, 28, 29, 30, 31, 32, 33].every((e) => pend().delivered.has(e))
       && pend().watching.size === 0 && sent.length === 8,
       { delivered: [...pend().delivered], watching: [...pend().watching.keys()], sentCount: sent.length });
+
+    // ── (m2) the SECOND turn marks its OWN message, and NOTHING is left wearing ⏳ ─
+    // Only the two forwarded turns mark (leg a's root message, leg e's follow-up);
+    // every later delivery finds no marker and issues no call. Balanced add/remove
+    // counts are the "no ⏳ left behind after the answer" guarantee.
+    const marked2 = await waitFor(() => rx.length >= 4);
+    const adds = rx.filter((c) => c.method === 'reactions.add');
+    const removes = rx.filter((c) => c.method === 'reactions.remove');
+    record('m2:the follow-up turn marks its OWN message; every ⏳ is removed by its own answer and none is left behind',
+      marked2 && rx.length === 4
+      && rx[2].method === 'reactions.add' && rx[2].ts === '1700000000.000200'
+      && rx[3].method === 'reactions.remove' && rx[3].ts === '1700000000.000200'
+      && adds.length === removes.length
+      && adds.every((c) => c.name === 'hourglass_flowing_sand') && removes.every((c) => c.name === 'hourglass_flowing_sand'),
+      { calls: rx.slice(), adds: adds.length, removes: removes.length });
   } catch (err) {
     cap.log({ error: err.message, stack: err.stack });
     checks.push({ name: 'no-exception', ok: false, error: err.message });

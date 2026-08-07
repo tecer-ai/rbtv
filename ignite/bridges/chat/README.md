@@ -129,7 +129,11 @@ than by an event.
 
 **Required Slack bot scopes:** `channels:manage` (create + archive), `channels:read`
 (+ `groups:read`, for list/members), `chat:write`, `channels:history`, `im:history`.
-Deliberately **not** required: any invite scope.
+Deliberately **not** required: any invite scope. **Optional:** `reactions:write` — the ⏳
+pending marker the bridge puts on an owner message while its turn runs and removes when
+the answer lands (chat-bridge.js § pending marker). Without it every reaction call fails,
+one info line is logged for the whole run, and nothing else changes: message handling and
+reply delivery never read the result.
 
 ## The forward contract (D104/D105) — `forward-path.js`
 

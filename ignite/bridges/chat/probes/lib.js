@@ -220,6 +220,7 @@ function decodeFrames(buf) {
 // on the SAME port that serves the WS upgrade. Returns handles the probe drives.
 async function startMockSlack({ logger = null } = {}) {
   const sentMessages = [];   // captured chat.postMessage bodies (SUCCESSFUL posts only)
+  const reactionCalls = [];  // ORDERED reactions.add/remove calls — the ⏳ marker's ordering
   let failPosts = 0;         // opt-in: fail the next N chat.postMessage calls (ok:false)
   let wsSocket = null;       // the connected bridge client socket
   const acks = new Map();    // envelope_id -> resolver
@@ -245,6 +246,12 @@ async function startMockSlack({ logger = null } = {}) {
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ ok: true, ts: `${Date.now() / 1000}` }));
         }
+      } else if (req.url.endsWith('/reactions.add') || req.url.endsWith('/reactions.remove')) {
+        // Recorded IN ARRIVAL ORDER — the ⏳ pending marker's whole correctness is
+        // that a remove never lands before its own add (chat-bridge.js § pending marker).
+        reactionCalls.push({ method: req.url.split('/').pop(), name: json.name, channel: json.channel, ts: json.timestamp });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
       } else {
         res.writeHead(404); res.end('{}');
       }
@@ -308,7 +315,7 @@ async function startMockSlack({ logger = null } = {}) {
   }
 
   return {
-    apiBase, connected, pushMessage, sentMessages,
+    apiBase, connected, pushMessage, sentMessages, reactionCalls,
     failNextPostMessage(n = 1) { failPosts = n; },
     port: server.address().port,
     close() { try { if (wsSocket) wsSocket.destroy(); } catch {} try { server.close(); } catch {} },

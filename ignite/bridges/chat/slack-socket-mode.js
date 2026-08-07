@@ -247,20 +247,39 @@ function createSlackSocketMode({
     return { delivered: true, ts: resp.ts };
   }
 
-  // React to a message (owner-directed 2026-08-06): the read-receipt 🤖 the bridge
-  // stamps when a message is ACCEPTED for processing. Best-effort — a failed
-  // reaction never blocks the forward; needs the `reactions:write` bot scope.
-  async function react({ channel, ts, name = 'robot_face' }) {
+  // React to / un-react a message: the ⏳ pending marker the bridge puts on an owner
+  // message when its turn is accepted and takes off when the answer lands
+  // (chat-bridge.js § pending marker; owner-directed 2026-08-06, one-marker
+  // convergence 2026-08-07). Best-effort — a failed reaction never blocks the forward
+  // or the reply; needs the `reactions:write` bot scope. `name` is always the
+  // caller's: there is no default marker for this transport to assume.
+  //
+  // ⚑ ONE LOG LINE PER RUN, AT INFO. A missing scope fails EVERY reaction on EVERY
+  // message, so a per-call warn would fill an unattended log with the same line and
+  // read as a fault — reactions are cosmetic, and their absence degrades nothing.
+  let reactionErrorLogged = false;
+  async function reactCall(method, { channel, ts, name }) {
     if (!botToken || !channel || !ts) return { reacted: false };
-    const resp = await slackPost('reactions.add', botToken, { channel, timestamp: ts, name });
+    const resp = await slackPost(method, botToken, { channel, timestamp: ts, name });
     if (!resp || !resp.ok) {
-      // already_reacted is fine (Slack redelivery); anything else is worth one log line.
-      if (!resp || resp.error !== 'already_reacted') {
-        log('warn', 'reactions.add failed', { channel, error: resp && resp.error });
+      // already_reacted / no_reaction are expected no-ops (Slack redelivery, or a
+      // marker already cleared); anything else is worth exactly one log line.
+      const error = (resp && resp.error) || null;
+      if (error !== 'already_reacted' && error !== 'no_reaction' && !reactionErrorLogged) {
+        reactionErrorLogged = true;
+        log('info', 'slack reaction call failed — reactions are cosmetic and best-effort; not logged again this run', { method, channel, error });
       }
-      return { reacted: false, error: resp && resp.error };
+      return { reacted: false, error };
     }
     return { reacted: true };
+  }
+
+  function react({ channel, ts, name }) {
+    return reactCall('reactions.add', { channel, ts, name });
+  }
+
+  function unreact({ channel, ts, name }) {
+    return reactCall('reactions.remove', { channel, ts, name });
   }
 
   // Who am I? `auth.test` on the bot token returns this bot's own user id, which is
@@ -354,7 +373,7 @@ function createSlackSocketMode({
   }
 
   return {
-    start, stop, sendToOwner, react, authTest, openDm, openConnection, toChatMessage,
+    start, stop, sendToOwner, react, unreact, authTest, openDm, openConnection, toChatMessage,
     createChannel, listChannels, archiveChannel,
   };
 }

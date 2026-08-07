@@ -245,12 +245,11 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // leg then watches for the spawn, awaits turn-end, and delivers the reply.
     if (outcome && outcome.forwarded && chatMsg && chatMsg.chatThreadId) {
       replyLeg.arm(chatMsg.chatThreadId);
-      // Read-receipt 🤖 (owner-directed 2026-08-06): stamped by the BRIDGE the moment the
-      // message is accepted for processing — transparent to the agent, best-effort,
-      // fire-and-forget so a Slack hiccup never delays the forward.
-      if (typeof transport.react === 'function' && chatMsg._channel && chatMsg._msgTs) {
-        transport.react({ channel: chatMsg._channel, ts: chatMsg._msgTs }).catch(() => {});
-      }
+      // The read-receipt: ONE marker, stamped the moment the message is accepted for
+      // processing and taken off when its answer lands (§ pending marker below). It
+      // REPLACES the fire-and-forget 🤖 of 2026-08-06 — see that section for why two
+      // independent indicators could not be ordered against each other.
+      markPending(chatMsg.chatThreadId, chatMsg._channel, chatMsg._msgTs);
     }
     log('info', 'chat message handled', { chatThreadId: chatMsg && chatMsg.chatThreadId, ...outcome });
     return outcome;
@@ -258,6 +257,67 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
 
   // conversation → { channel, threadTs } — where to post owner output back.
   const replyAddr = new Map();
+
+  // ── THE ⏳ PENDING MARKER (owner-directed 2026-08-07) ────────────────────────
+  //
+  // Between the forward and the reply the owner saw NOTHING for minutes: a real
+  // three-minute turn and a stalled bridge are indistinguishable. So the bridge
+  // stamps ⏳ on the owner's OWN message the moment a turn is accepted for
+  // processing, and takes it off when that conversation's reply lands in the thread.
+  //
+  // ⚑ ONE MARKER, NOT TWO (owner-observed 2026-08-07: "the hourglass can appear
+  // before the answer and the robot after it"). The 🤖 read-receipt this replaces was
+  // a SECOND, independent fire-and-forget reaction: two un-ordered HTTP calls whose
+  // arrival order Slack decides, so the acknowledgement could surface after the
+  // answer it acknowledged. One marker with a defined lifetime — added at accept,
+  // removed at delivery — is the only shape that has an order to guarantee.
+  //
+  // ⚑ THE CALLS ARE SERIALIZED, which is what makes the order REAL rather than
+  // hoped-for. Add and remove are separate Slack calls; on a fast turn the remove can
+  // be issued while the add is still in flight, and if they land out of order the ⏳
+  // is stuck on the message FOREVER — dead air's exact twin. Chaining every reaction
+  // call onto one promise means a remove is never even sent before its own add has
+  // returned.
+  // ponytail: ONE global chain, not one per conversation — chat is a handful of
+  // messages a minute, so a slow reaction call briefly delays another conversation's
+  // marker and nothing else. Key the chain by conversation if that ever bites.
+  //
+  // FAIL-OPEN BY CONSTRUCTION: nothing here is awaited by the handling or delivery
+  // path and no result is read, so a missing `reactions:write` scope — or any other
+  // Slack error — costs a single info line and changes nothing else.
+  //
+  // ONE ts PER CONVERSATION, the LATEST wins. If several owner messages queue up in
+  // one thread, marking the newest and clearing the previous one is enough; a set of
+  // live markers would be state to expire and reconcile for a decoration.
+  //
+  // NOT PERSISTED, deliberately — same reasoning as the reply leg's watch state
+  // (reply-leg.js header): it is time-bound. A restart drops the in-flight turn's
+  // reply anyway, and a restored entry would only let the bridge remove a ⏳ from a
+  // message whose answer never came.
+  const HOURGLASS = 'hourglass_flowing_sand';
+  const hourglassAt = new Map(); // conversation → { channel, ts } of the marked message
+  let reactionChain = Promise.resolve();
+
+  function queueReaction(call) {
+    // `.then(call, call)` — a previous failure must never stop the next call, and the
+    // trailing catch keeps the chain from ever rejecting (fail-open, always).
+    reactionChain = reactionChain.then(call, call).catch(() => {});
+  }
+
+  function markPending(chatThreadId, channel, ts) {
+    if (!chatThreadId || !channel || !ts || typeof transport.react !== 'function') return;
+    clearPending(chatThreadId); // the previous turn's ⏳ never outlives its successor
+    hourglassAt.set(chatThreadId, { channel, ts });
+    queueReaction(() => transport.react({ channel, ts, name: HOURGLASS }));
+  }
+
+  function clearPending(chatThreadId) {
+    const at = hourglassAt.get(chatThreadId);
+    if (!at) return;
+    hourglassAt.delete(chatThreadId);
+    if (typeof transport.unreact !== 'function') return;
+    queueReaction(() => transport.unreact({ channel: at.channel, ts: at.ts, name: HOURGLASS }));
+  }
 
   // ── CONVERSATION STATE ACROSS RESTARTS (owner ruling 2026-08-06) ────────────
   //
@@ -352,7 +412,13 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       return { delivered: false, reason: 'no-reply-address' };
     }
     if (markAsk) threadMap.setPendingAsk(chatThreadId, true);
-    return transport.sendToOwner({ channel: addr.channel, threadTs: addr.threadTs, text });
+    const posted = await transport.sendToOwner({ channel: addr.channel, threadTs: addr.threadTs, text });
+    // Something owner-facing landed in the thread — the reply, or the honest
+    // give-up notice. Either way the wait is over, so the ⏳ comes off. This is the
+    // ONE place every conversation-addressed post passes through, which is why the
+    // clear hangs here and not in the reply leg.
+    if (posted && posted.delivered !== false) clearPending(chatThreadId);
+    return posted;
   }
 
   // ── The goal lifecycle (task 7.58, both settled open points) ────────────────
