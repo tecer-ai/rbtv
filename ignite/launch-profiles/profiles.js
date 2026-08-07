@@ -63,8 +63,13 @@ const DAEMON_ONLY_ROOT_KEYS = new Set(['ticker', 'tools', 'workflows', 'network'
 // `command` (the caged/portable halves) and `effort` (the translation table) are ADDITIVE and
 // OPTIONAL at 7.42. Every profile shipped before this task declares neither and is unaffected —
 // which is what makes the daemon's behaviour byte-unchanged rather than merely "tested to be".
+// `resume` is the OTHER command template a launch profile has always been defined to carry
+// (ignite/CLAUDE.md § Terminology: "a named, config-pinned command-template set
+// (exec/resume/caps/sandbox)") and that nothing had yet declared. Same shape and same validator as
+// `exec` — argv + carriage — and OPTIONAL: a profile without one simply never resumes
+// (r-chat-chain-resumes-session's declared fallback).
 const KNOWN_PROFILE_KEYS = new Set([
-  'exec', 'session_ref', 'headed', 'workdir_root', 'caps', 'sandbox', 'env', 'command', 'effort',
+  'exec', 'resume', 'session_ref', 'headed', 'workdir_root', 'caps', 'sandbox', 'env', 'command', 'effort',
   'toolset_ceiling',
 ]);
 
@@ -94,8 +99,14 @@ const KNOWN_PROMPT_VALUES = new Set(['stdin']);
 // this is now the SOLE home of the vocabulary. The profile-LOAD gate, the QUEUE
 // gate (heart-store.js) and the SPAWN gate (carriage.js) MUST agree on this vocabulary.
 const KNOWN_HEADED_CARRIAGES = new Set(['file', 'keystroke']);
+// `assigned` — the daemon MINTS the ref and pins it into the launch itself through the
+// `{session_ref}` slot (claude: `--session-id <uuid>`), so the ref is known before the worker has
+// produced a byte and survives a turn that dies without ever writing a result line. The three
+// OBSERVED sources read the ref back out of the worker; `assigned` is the one that does not have
+// to. Measured on claude 2.1.224 (2026-08-07): `-p --session-id <uuid>` reports that exact uuid as
+// its own `session_id`, and `-p --resume <uuid>` keeps it.
 const KNOWN_SESSION_REF_SOURCES = new Set([
-  'stdout-json', 'stdout-json-event', 'cwd-implicit',
+  'stdout-json', 'stdout-json-event', 'cwd-implicit', 'assigned',
 ]);
 const KNOWN_CAPS_KEYS = new Set(['memory_max', 'cpu_quota', 'runtime_max', 'tasks_max']);
 // `SeatBinds` (task 7.11) is NOT a systemd property — it is the seat cage's ordered bind
@@ -453,6 +464,20 @@ function validateProfile(profile, name, filePath, seatBindValidator, toolsetName
   }
   if (hasExec) validateExec(profile.exec, name, filePath);
   else validateCommandHalves(profile.command, name, filePath);
+
+  // The resume template: same block shape as `exec`, validated by the same function (one
+  // definition of what a command block is). A resume argv with no `{session_ref}` slot would
+  // resume nothing in particular, so it is refused rather than launched.
+  if (profile.resume !== undefined) {
+    validateExec(profile.resume, name, filePath, 'resume');
+    if (!JSON.stringify(profile.resume.argv).includes('{session_ref}')) {
+      throw new SpawnError(
+        E_MISSING_KEY,
+        `profiles.${name}.resume.argv carries no {session_ref} slot — it would resume no particular session`,
+        { file: filePath, key: `profiles.${name}.resume.argv` },
+      );
+    }
+  }
 
   if (profile.effort !== undefined) validateEffort(profile.effort, name, filePath);
 
@@ -897,6 +922,10 @@ function resolveProfile(config, name, opts = {}) {
     toolset: resolvedToolset,
     toolset_ceiling: toolsetCeiling,
     session_ref: profile.session_ref,
+    // Reported unresolved (the ref belongs to a PREDECESSOR session this call knows nothing
+    // about) — but never dropped: a declared template silently missing from the resolver's own
+    // output is how a consumer concludes the profile cannot resume.
+    resume: profile.resume,
     workdir_root: profile.workdir_root,
     caps: profile.caps,
     sandbox: profile.sandbox,

@@ -246,13 +246,31 @@ profiles:
   # ═════════════════════════════════════════════════════════════════════════════════════════════
 
   # ── claude (4 models) ────────────────────────────────────────────────────────────────────────
-  # `stream-json` + `--verbose` + session_ref stdout-json/session_id is the shape 18 real jobs
-  # ran on. Headed: seats are headed by construction where the owner joins; no prompt carriage —
-  # a seat is driven by its DESCRIPTOR and by the room, never by argv text (R7, D86).
+  # `stream-json` + `--verbose` is the shape 18 real jobs ran on. Headed: seats are headed by
+  # construction where the owner joins; no prompt carriage — a seat is driven by its DESCRIPTOR
+  # and by the room, never by argv text (R7, D86).
+  #
+  # ⚑ exec/resume ARE A PAIR (r-chat-chain-resumes-session, owner 2026-08-07). The exec ASSIGNS
+  # the harness session id (`--session-id {session_ref}`, so the rbtv session id and the harness
+  # session id are ONE value and `session_ref: { source: assigned }` needs to read nothing back);
+  # a chained turn then launches the resume argv with the PREDECESSOR's ref and a prompt carrying
+  # only the owner's new message(s). Measured on claude 2.1.224: `-p --resume <id>` keeps the same
+  # session id and its context (cache_creation 8843 -> 92 tokens on the second turn).
+  # ponytail: the two argvs are spelled out in full and must be kept in step by hand — a
+  # `--settings` change applied to one only would run two different postures on one profile. A
+  # shared-core/two-templates config shape is the upgrade path if that ever bites.
 
   claude-fable:
     exec:
       argv: ["claude", "-p", "--model", "claude-fable-5",
+             "--session-id", "{session_ref}",
+             "--output-format", "stream-json", "--verbose",
+             "--permission-mode", "bypassPermissions",
+             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+      prompt: stdin
+    resume:
+      argv: ["claude", "-p", "--resume", "{session_ref}",
+             "--model", "claude-fable-5",
              "--output-format", "stream-json", "--verbose",
              "--permission-mode", "bypassPermissions",
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
@@ -263,7 +281,7 @@ profiles:
       dialect: effort
       values: { low: low, medium: medium, high: high, max: max }
       argv: ["--effort", "{effort}"]
-    session_ref: { source: stdout-json, field: session_id }
+    session_ref: { source: assigned }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
 
@@ -273,6 +291,14 @@ profiles:
     # at one moment.
     exec:
       argv: ["claude", "-p", "--model", "opus",
+             "--session-id", "{session_ref}",
+             "--output-format", "stream-json", "--verbose",
+             "--permission-mode", "bypassPermissions",
+             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+      prompt: stdin
+    resume:
+      argv: ["claude", "-p", "--resume", "{session_ref}",
+             "--model", "opus",
              "--output-format", "stream-json", "--verbose",
              "--permission-mode", "bypassPermissions",
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
@@ -283,13 +309,21 @@ profiles:
       dialect: effort
       values: { low: low, medium: medium, high: high, max: max }
       argv: ["--effort", "{effort}"]
-    session_ref: { source: stdout-json, field: session_id }
+    session_ref: { source: assigned }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
 
   claude-sonnet:
     exec:
       argv: ["claude", "-p", "--model", "sonnet",
+             "--session-id", "{session_ref}",
+             "--output-format", "stream-json", "--verbose",
+             "--permission-mode", "bypassPermissions",
+             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+      prompt: stdin
+    resume:
+      argv: ["claude", "-p", "--resume", "{session_ref}",
+             "--model", "sonnet",
              "--output-format", "stream-json", "--verbose",
              "--permission-mode", "bypassPermissions",
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
@@ -300,7 +334,7 @@ profiles:
       dialect: effort
       values: { low: low, medium: medium, high: high, max: max }
       argv: ["--effort", "{effort}"]
-    session_ref: { source: stdout-json, field: session_id }
+    session_ref: { source: assigned }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
 
@@ -311,6 +345,14 @@ profiles:
     # it back as `effortInert: true`; omitting the block would refuse the pair (G-270).
     exec:
       argv: ["claude", "-p", "--model", "haiku",
+             "--session-id", "{session_ref}",
+             "--output-format", "stream-json", "--verbose",
+             "--permission-mode", "bypassPermissions",
+             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+      prompt: stdin
+    resume:
+      argv: ["claude", "-p", "--resume", "{session_ref}",
+             "--model", "haiku",
              "--output-format", "stream-json", "--verbose",
              "--permission-mode", "bypassPermissions",
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
@@ -318,7 +360,7 @@ profiles:
     headed:
       tui: { argv: ["claude"] }
     effort: { inert: true }
-    session_ref: { source: stdout-json, field: session_id }
+    session_ref: { source: assigned }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
 

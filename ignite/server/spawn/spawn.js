@@ -48,9 +48,14 @@ function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-function captureSessionRef(profile, launchResult, workdir) {
+function captureSessionRef(profile, launchResult, workdir, sessionRefSlot) {
   const rule = profile.session_ref;
   if (!rule) return null;
+  // `assigned` (r-chat-chain-resumes-session): the ref is what this spawn PUT on the command line
+  // — this session's id on a fresh launch, the predecessor's ref on a resume (the resumed session
+  // keeps its id, so the chain's ref stays one value). Nothing is read back out of the worker, so
+  // the ref is on record before the process emits anything and survives a turn that never does.
+  if (rule.source === 'assigned') return sessionRefSlot;
   if (rule.source === 'cwd-implicit') return workdir;
   // stdout-json / stdout-json-event require reading the worker's stdout, which is
   // redirected to the log file. For long-running agents the ref arrives later;
@@ -193,9 +198,12 @@ function requireExecShape(profile, profileName) {
   );
 }
 
-function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
+// `resumeRef` (r-chat-chain-resumes-session): non-null selects the profile's RESUME template
+// instead of `exec` — same block shape, same carriage, one extra slot value. The caller has
+// already established the profile carries one; this function does not decide policy.
+function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot, resumeRef = null) {
   const isHeaded = mode === 'headed';
-  const block = isHeaded ? profile.headed.tui : profile.exec;
+  const block = isHeaded ? profile.headed.tui : (resumeRef ? profile.resume : profile.exec);
   const promptCarriage = block.prompt;
 
   let stdinFile = null;
@@ -214,7 +222,9 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
   // pty/carriage.js) and never routed through here; task 7.29 deleted that module, so no headed
   // prompt carriage is composed anywhere today — a seat is driven by its DESCRIPTOR, not by argv.
 
-  const argv = resolveTemplateSlots(block.argv, { workdir });
+  // `{session_ref}` resolves to the ref this launch OWNS: the predecessor's on a resume, this
+  // session's own id on a fresh launch (which is what pins them equal for the next turn).
+  const argv = resolveTemplateSlots(block.argv, { workdir, session_ref: resumeRef || sessionId });
 
   // ⚑ THE DESCRIPTOR NOW ACTUALLY ARRIVES (owner ruling 2026-08-07). The comment above says a
   // seat is driven by its DESCRIPTOR — and nothing delivered one. The auto-injected CLAUDE.md
@@ -739,7 +749,10 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     if (logger) logger({ level, message, ...extra });
   }
 
-  async function spawn(execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown') {
+  // `resumeRef` is DAEMON-INTERNAL (r-chat-chain-resumes-session): it is never a request key —
+  // no gateway caller supplies it — so it stays out of validateRequestKeys below. The ticker
+  // passes the predecessor turn's `jobs_log.session_ref`; every other caller passes nothing.
+  async function spawn(execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown', resumeRef = null) {
     // Strict request-key validation for object-style callers (gateway path).
     validateRequestKeys({ profile: profileName, session_mode: sessionMode, prompt, workdir });
 
@@ -750,6 +763,14 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     }
     const profile = config.profiles[profileName];
     requireExecShape(profile, profileName); // G-144 — door 1 (composeArgv's `profile.exec`)
+
+    // A resume asked of a profile that declares no resume template is REFUSED, not silently
+    // downgraded to a fresh spawn: the caller composed a new-messages-only prompt for it, and
+    // launching that prompt against an empty session would drop the conversation. The ticker
+    // checks the template before it composes; this is the door saying so on its own authority.
+    if (resumeRef && !profile.resume) {
+      throw new SpawnError(E_UNKNOWN_MODE, `profile ${profileName} declares no resume template`, { profile: profileName });
+    }
 
     if (!SESSION_MODES.has(sessionMode)) {
       throw new SpawnError(E_UNKNOWN_MODE, `invalid session_mode: ${sessionMode}`, { sessionMode });
@@ -838,7 +859,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
     const sessionId = generateSessionId();
     const logPath = ensureLogPath(dataRoot, sessionId);
-    const { argv: composedArgv, stdinFile } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot);
+    const { argv: composedArgv, stdinFile } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot, resumeRef);
 
     // Task 7.444 (MC2) — carry the profile's `--settings` file INTO the cage. See harness-config.js
     // for why this is a materialization rather than a widened SeatBinds template. Done here, after
@@ -888,7 +909,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       throw new SpawnError(E_CARRIER_FAILED, `spawn failed for profile ${profileName}: ${err.message}`, { profile: profileName, execId, cause: err.code });
     }
 
-    const sessionRef = captureSessionRef(profile, launchResult, resolvedWorkdir);
+    const sessionRef = captureSessionRef(profile, launchResult, resolvedWorkdir, resumeRef || sessionId);
     let pid = launchResult.pid || null;
     const unitName = launchResult.unitName || null;
     if (carrier === 'systemd' && unitName && !pid) {

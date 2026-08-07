@@ -65,6 +65,28 @@ string onto argv as its own element — values only fill positions the profile a
   because bwrap covers it. Reused on a cage-less desktop, a "fall back to the caged half" resolver
   would run it with no walls at all — and it would look like a normal run.
 
+## `resume:` — the second command template (r-chat-chain-resumes-session, owner 2026-08-07)
+
+A launch profile has always been *defined* as carrying exec **and resume** templates; nothing
+declared one until this ruling. `resume:` is OPTIONAL and has the SAME shape and the SAME
+validator as `exec:` (argv + `prompt: stdin`), plus one bound: its argv MUST carry the
+`{session_ref}` slot, or it would resume no particular session (`E_MISSING_KEY`). A profile
+without a `resume:` block simply never resumes — that is the ruling's declared fallback, not a gap.
+
+Paired with it, a fourth `session_ref.source`: **`assigned`**. The three older sources READ the ref
+back out of the worker; `assigned` means the launcher MINTS it and pins it into the command line
+through the same `{session_ref}` slot (claude: `--session-id {session_ref}`), so the ref is on
+record before the worker emits a byte and survives a turn that never emits one. Measured on claude
+2.1.224 (2026-08-07): `-p --session-id <uuid>` reports that exact uuid as its own `session_id`, and
+`-p --resume <uuid>` keeps both the id and the context (second-turn cache_creation 8843 → 92
+tokens).
+
+⚠ **A caller of `resolveProfile()` must now supply a `session_ref` slot value for the shipped
+claude profiles** — a declared slot with no value is `E_MISSING_KEY` by construction, because this
+module never emits a literal `{slot}` onto a command line. The daemon's own path
+(`server/spawn/spawn.js` `composeArgv`) supplies it: the predecessor's ref on a resume, this
+session's id on a fresh launch.
+
 ## Pinned-flag pre-flight
 
 `preflightPinnedFlags()` verifies every flag a profile pins against the installed CLI's **live

@@ -550,6 +550,21 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     return effective.map((i) => `[${i.label}] ${i.text}`).join('\n\n');
   }
 
+  // The owner's NEW message(s) since the predecessor turn ended — the same rows
+  // composeChainTranscript appends at the end of a chained prompt, selected by the same predicate
+  // the wake test uses (`hasNewSenderInputSinceEnd`): thread rows past the predecessor's own
+  // completion, no ticker rows, no completions. This IS the whole prompt of a RESUMED turn
+  // (r-chat-chain-resumes-session): the conversation is already in the session, so re-sending it
+  // is the cost the ruling removes. Several queued messages join blank-line separated, in
+  // msg_id order — the same order and the same text the transcript path would have shown.
+  function composeNewSenderMessages(parentExecRow) {
+    if (!parentExecRow || !parentExecRow.thread || !parentExecRow.completion_msg_id) return '';
+    return allSql(
+      "SELECT corpus FROM messages WHERE thread = ? AND msg_id > ? AND sender != 'ticker' AND type != 'completion' ORDER BY msg_id",
+      parentExecRow.thread, parentExecRow.completion_msg_id,
+    ).map((r) => r.corpus).join('\n\n');
+  }
+
   // ── Task 7.12 · where a job's action RUNS (owner ruling `r-job-seat-home`, 2026-07-27) ────────
   //
   // "A job's action is always homed as a SEAT in a goal; the job itself is only the trigger." A
@@ -654,6 +669,13 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // fact Advance and composition must see.
     let spawnPrompt = prompt;
     let compactTurn = false;
+    // ── r-chat-chain-resumes-session (owner, 2026-08-07) ─────────────────────────────────────
+    // A chained turn RESUMES the predecessor's harness session and carries only the new
+    // message(s); transcript-embed respawn is the FALLBACK. `resumeRef` non-null selects it, and
+    // `chainPath` records WHICH path ran and WHY, per launch, in the tick log.
+    let resumeRef = null;
+    let chainPath = null;   // 'resume' | 'transcript' — null on a first (unchained) execution
+    let chainReason = null;
     if (parentExecId) {
       const transcript = composeChainTranscript(parentExecId);
       if (transcript.length > cfg.history_compact_chars) {
@@ -664,24 +686,77 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         const cutoff = (parentRow && parentRow.completion_msg_id) || null;
         spawnPrompt = COMPACT_PROMPT_HEADER + composeChainTranscript(parentExecId, { upToMsgId: cutoff });
         compactTurn = true;
+        // A compaction turn's INPUT *is* the transcript — never resumed (the ruling says so).
+        chainPath = 'transcript';
+        chainReason = 'compaction-turn';
         updateArgs(exec.exec_id, JSON.stringify({ ...args, [COMPACT_MARKER]: true }));
       } else {
         spawnPrompt = CONTINUE_PROMPT_HEADER + transcript + CONTINUE_PROMPT_FOOTER;
+        const parentRow = heartStore.getExecution(parentExecId);
+        const profile = (heartStore.config.profiles || {})[profileName];
+        const newMessages = composeNewSenderMessages(parentRow);
+        // Every condition is a REASON, so a fallback in the journal names what was missing rather
+        // than only that it fell back. `parent-compaction`: the predecessor is a compaction turn,
+        // whose session only ever saw a summarize instruction — resuming THAT session would
+        // continue the summarizer, not the conversation, and would throw away the summary splice
+        // this branch's transcript composition performs correctly.
+        const why = !parentRow ? 'no-parent-row'
+          : !parentRow.session_ref ? 'no-session-ref'
+          : !(profile && profile.resume) ? 'no-resume-template'
+          : safeJsonParse(parentRow.args, {})[COMPACT_MARKER] === true ? 'parent-compaction'
+          : !newMessages ? 'no-new-messages'
+          : null;
+        if (why === null) {
+          resumeRef = parentRow.session_ref;
+          spawnPrompt = newMessages;
+          chainPath = 'resume';
+          chainReason = 'predecessor-session-resumable';
+        } else {
+          chainPath = 'transcript';
+          chainReason = why;
+        }
         updateArgs(exec.exec_id, cleanedArgs);
       }
     }
 
-    try {
-      // Task 7.12 — resolved INSIDE the try so a homed job whose seat cannot be resolved fails
-      // loud against this exec's own jobs_log row (see resolveJobHome above).
-      const homedWorkdir = resolveJobHome(queueRow, workdir);
-      await spawnManager.spawn(exec.exec_id, profileName, queueRow.session_mode, spawnPrompt, homedWorkdir, queueRow.enqueued_by);
-      const spawnAction = { phase: 'dispatch', action: 'spawn', execId: exec.exec_id, queueId: queueRow.queue_id, profile: profileName, thread: exec.thread };
-      if (homedWorkdir !== workdir) spawnAction.homed = homedWorkdir;
-      if (compactTurn) spawnAction.compact = true;
-      actions.push(spawnAction);
-    } catch (err) {
-      actions.push({ phase: 'dispatch', action: 'spawn-failed', execId: exec.exec_id, error: err.message });
+    // A resume that fails AT THE CARRIER retries ONCE as the fallback it displaced — the fresh
+    // transcript spawn that would have run had the ref been absent. Without it a chat chain dies
+    // on a stale/purged harness session (`--resume <gone>` exits non-zero), and dies in the state
+    // nothing re-dispatches: a `failed` tail is owner-halted, so the NEXT owner message wakes
+    // nothing. One retry, then the normal spawn-failed path.
+    // ponytail: covers the CARRIER-level failure only. A resume that launches and then dies is
+    // swept `failed` like any crash and halts the chain — same as today's behaviour for any
+    // crashed turn. Upgrade path if that turns out to bite: on the crash sweep, re-dispatch a
+    // chain whose failed turn carried a resumeRef, once.
+    const attempts = resumeRef
+      ? [{ ref: resumeRef, prompt: spawnPrompt, path: 'resume', reason: chainReason },
+         { ref: null, prompt: CONTINUE_PROMPT_HEADER + composeChainTranscript(parentExecId) + CONTINUE_PROMPT_FOOTER,
+           path: 'transcript', reason: 'resume-spawn-failed' }]
+      : [{ ref: null, prompt: spawnPrompt, path: chainPath, reason: chainReason }];
+
+    for (let i = 0; i < attempts.length; i++) {
+      const attempt = attempts[i];
+      try {
+        // Task 7.12 — resolved INSIDE the try so a homed job whose seat cannot be resolved fails
+        // loud against this exec's own jobs_log row (see resolveJobHome above).
+        const homedWorkdir = resolveJobHome(queueRow, workdir);
+        await spawnManager.spawn(exec.exec_id, profileName, queueRow.session_mode, attempt.prompt, homedWorkdir, queueRow.enqueued_by, attempt.ref);
+        const spawnAction = { phase: 'dispatch', action: 'spawn', execId: exec.exec_id, queueId: queueRow.queue_id, profile: profileName, thread: exec.thread };
+        if (homedWorkdir !== workdir) spawnAction.homed = homedWorkdir;
+        if (compactTurn) spawnAction.compact = true;
+        if (attempt.path) { spawnAction.chain = attempt.path; spawnAction.chainReason = attempt.reason; }
+        actions.push(spawnAction);
+        return;
+      } catch (err) {
+        const last = i === attempts.length - 1;
+        actions.push({
+          phase: 'dispatch',
+          action: last ? 'spawn-failed' : 'resume-spawn-failed',
+          execId: exec.exec_id,
+          chain: attempt.path,
+          error: err.message,
+        });
+      }
     }
   }
 

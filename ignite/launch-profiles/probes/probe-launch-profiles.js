@@ -91,6 +91,11 @@ function writeFixture() {
 const fixture = writeFixture();
 const fx = lp.loadConfig(fixture);
 const shipped = lp.loadConfig(SHIPPED, { seatBindValidator: () => {} });
+// r-chat-chain-resumes-session: the shipped claude profiles DECLARE the `{session_ref}` slot
+// (`--session-id {session_ref}`), and a declared slot with no value is E_MISSING_KEY by design —
+// the resolver refuses to emit a literal `{session_ref}` onto a command line. The effort legs
+// below therefore supply one, exactly as the codex legs already supply `{workdir}`.
+const SESSION_REF = '00000000-0000-4000-8000-000000000000';
 
 // ── 1 · resolve by NAME ──────────────────────────────────────────────────────────────────────
 check('(1) unknown profile name is refused typed', () => {
@@ -174,7 +179,7 @@ check('(7) a portable-LESS profile FAILS CLOSED on a cage-less host', () => {
 
 // ── 8/9/10/11 · the effort slot, against the SHIPPED file ────────────────────────────────────
 check('(8) effort round-trips through the claude dialect', () => {
-  const r = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'high' });
+  const r = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'high', slots: { session_ref: SESSION_REF } });
   if (!r.argv.includes('--effort') || !r.argv.includes('high')) throw new Error(r.argv.join(' '));
   return `dialect=${r.effort.dialect} argv-tail=${r.argv.slice(-2).join(' ')}`;
 });
@@ -187,7 +192,7 @@ check('(9) …and through a SECOND, differently-spelled dialect (codex)', () => 
 });
 check('(9b) the table TRANSLATES rather than passes through (max -> high on codex [3-depth dial, lossy stated collapse], max on claude)', () => {
   const cx = lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 'max', slots: { workdir: '/tmp' } });
-  const cl = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'max' });
+  const cl = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'max', slots: { session_ref: SESSION_REF } });
   if (cx.effort.value !== 'high') throw new Error(`codex max -> ${cx.effort.value}`);
   if (cl.effort.value !== 'max') throw new Error(`claude max -> ${cl.effort.value}`);
   return 'ONE abstract level, two different rendered values — translation, not passthrough';
@@ -213,7 +218,7 @@ check('(10) an INERT dial is STATED, never silently dropped', () => {
   return 'effortInert=true reported to the caller; argv unchanged';
 });
 check('(11) an effort level outside the abstract vocabulary is refused', () => {
-  const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'turbo' }));
+  const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'turbo', slots: { session_ref: SESSION_REF } }));
   return err.code;
 });
 
