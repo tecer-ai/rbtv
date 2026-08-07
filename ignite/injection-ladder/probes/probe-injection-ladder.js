@@ -38,11 +38,12 @@ function main() {
   // ── 1 · the closed vocabulary, and its ORDER ───────────────────────────────────────────────
   assert.deepStrictEqual(ladder.RUNGS, ['headless', 'hooks', 'keystroke']);
   ok('1  RUNGS is the ladder order headless -> hooks -> keystroke (CMP-9 § layout)');
-  assert.deepStrictEqual(ladder.KNOWN_HARNESSES.slice().sort(), ['claude', 'codex', 'opencode']);
+  assert.deepStrictEqual(ladder.KNOWN_HARNESSES.slice().sort(), ['claude', 'codex', 'kimi', 'opencode']);
   ok(`1b harness vocabulary is closed: ${ladder.KNOWN_HARNESSES.join('|')}`);
 
   // ── 2 · harness identification from the profile's OWN argv[0] (D23) ─────────────────────────
   for (const [argv0, want] of [['claude', 'claude'], ['codex', 'codex'], ['opencode', 'opencode'],
+    ['kimi', 'kimi'],
     ['sleep', null], ['bash', null], ['claude-code', null], [undefined, null]]) {
     assert.strictEqual(ladder.harnessFromBinary(argv0), want, `harnessFromBinary(${argv0})`);
   }
@@ -50,16 +51,19 @@ function main() {
   assert.strictEqual(ladder.harnessOf({ exec: { argv: ['sleep', '3600'] } }), null);
   assert.strictEqual(ladder.harnessOf(null), null);
   assert.strictEqual(ladder.harnessOf({}), null);
-  ok('2  harnessOf/harnessFromBinary: the three harnesses resolve; sleep/bash/absent/null -> null');
+  ok('2  harnessOf/harnessFromBinary: the four harnesses resolve; sleep/bash/absent/null -> null');
 
   // ── 3 · an unknown harness is a TYPED refusal, never a guess and never a TypeError ──────────
-  const e3 = expectThrow('unknown harness', () => ladder.resolveRung('kimi', { phase: 'launch' }), 'E_UNKNOWN_HARNESS');
+  // `kimi` was this leg's stand-in until 2026-08-07, when it gained a MEASURED row and stopped
+  // being unknown. The leg asserts a PROPERTY (an unnamed harness is refused, never guessed), so it
+  // needs a name that is genuinely absent from the table — not the one that just joined it.
+  const e3 = expectThrow('unknown harness', () => ladder.resolveRung('aider', { phase: 'launch' }), 'E_UNKNOWN_HARNESS');
   assert.ok(/does not guess/.test(e3.message), 'unknown-harness refusal must say it does not guess');
   expectThrow('unknown rung', () => ladder.rungFor('claude', 'telepathy'), 'E_UNKNOWN_RUNG');
   ok('3  unknown harness -> E_UNKNOWN_HARNESS; unknown rung -> E_UNKNOWN_RUNG (both typed)');
 
   // ── 4 · the WALK at phase launch — the caller names NO rung ─────────────────────────────────
-  for (const h of ['claude', 'codex', 'opencode']) {
+  for (const h of ['claude', 'codex', 'opencode', 'kimi']) {
     const r = ladder.resolveRung(h, { phase: 'launch' });
     assert.strictEqual(r.rung, 'headless', `${h} at launch should take the top rung`);
   }
@@ -153,6 +157,26 @@ function main() {
   assert.deepStrictEqual(fs.readdirSync(dir), []);
   fs.rmSync(dir, { recursive: true, force: true });
   ok('8  hooksConfigFor returns a DESCRIPTOR and touches the filesystem zero times, for all 4 cases');
+
+  // ── 8b · A HARNESS WITH NO MEASURED HOOKS RUNG PLANS NOTHING — AND PLANS NOTHING OF ANOTHER
+  //          HARNESS'S. Until 2026-08-07 this function ended in a bare fallthrough that ASSUMED
+  //          opencode, so the first harness added to the table would have had `opencode.json`
+  //          planned into its seat dir — and opencode strict-validates that file, so the
+  //          contamination is a startup kill wherever it lands. The guard is the DECLARED rung, so
+  //          it is asserted through the declaration and against the neighbour it would have leaked.
+  const kimiPlan = ladder.hooksConfigFor('kimi', { sessionDir: '/tmp/kimi-seat', editablePaths: ['/tmp/kimi-seat'] });
+  assert.strictEqual(ladder.rungFor('kimi', 'hooks').available, false,
+    'kimi declares no measured hooks rung — that declaration is what makes 8b meaningful');
+  assert.deepStrictEqual([kimiPlan.dirs.length, kimiPlan.files.length], [0, 0],
+    `a hooks-less harness must plan no files, planned: ${kimiPlan.files.map((f) => f.path).join(', ')}`);
+  assert.strictEqual(kimiPlan.result.written, null);
+  assert.strictEqual(kimiPlan.harness, 'kimi', 'the descriptor must still name its own harness');
+  // The neighbour it would have leaked from still plans its own two files — so 8b is a real
+  // discrimination, not a function that stopped planning for everyone.
+  const ocPlan = ladder.hooksConfigFor('opencode', { sessionDir: '/tmp/oc-seat' });
+  assert.deepStrictEqual(ocPlan.files.map((f) => path.basename(f.path)).sort(),
+    ['.ignite-sandbox-note.txt', 'opencode.json']);
+  ok('8b a hooks-less harness (kimi) plans ZERO files and never inherits opencode\'s — while opencode still plans both of its own');
 
   // ── 9 · the module reaches nothing under server/ (the dropped `uses -> server` edge) ────────
   const own = ['index.js', 'ladder.js', 'errors.js'];

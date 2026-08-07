@@ -91,6 +91,13 @@ function harnessStateBinds(harness, home) {
         path.join(home, '.local', 'share', 'opencode'),
         path.join(home, '.cache', 'opencode'),
       ];
+    // kimi keeps everything in ONE dir — measured 2026-08-07 on the ignite VPS: `~/.kimi/`
+    // holds config.toml, credentials, device_id, kimi.json and logs, and no `~/.config/kimi`,
+    // `~/.local/share/kimi` or `~/.cache/kimi` exists. Without this bind a caged kimi seat sees
+    // the throwaway HOME tmpfs and has no credentials at all — which is what it saw while the
+    // ladder returned a null harness for kimi, so this lands WITH the table row, not after it.
+    case 'kimi':
+      return [path.join(home, '.kimi')];
     default:
       return [];
   }

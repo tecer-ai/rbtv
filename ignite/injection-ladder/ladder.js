@@ -121,6 +121,39 @@ const HARNESSES = Object.freeze({
       }),
     }),
   }),
+
+  // kimi — added 2026-08-07, closing this module's README residual 3 ("adding it is the job of
+  // whoever first drives kimi through a consumer, WITH A MEASURED BASIS PER RUNG"). It was in the
+  // owner-ruled spawn-profile roster while absent here, so `harnessOf` returned null for it and the
+  // harness the daemon was actually spawning had no name in the one place that holds harness facts.
+  kimi: Object.freeze({
+    binary: 'kimi',
+    rungs: Object.freeze({
+      headless: Object.freeze({
+        available: true,
+        // Resumable, and NOT by inference: the run prints its own resume line,
+        // `To resume this session: kimi -r <uuid>`.
+        resumable: true,
+        basis: 'measured 2026-08-07, ignite VPS, kimi 1.48.0: `kimi -p "<prompt>"` ran headless and emitted `kimi -r <session-id>`',
+      }),
+      // ⚑ DECLARED UNAVAILABLE BECAUSE IT WAS NOT MEASURED — not because it was ruled out. kimi
+      // takes `--config`/`--config-file` (TOML/JSON, default `~/.kimi/config.toml`), so a hooks
+      // rung MAY exist; whether any key there RESTRAINS anything is unknown, and this table's
+      // contract is that a rung claim cites where the fact was measured. An unavailable rung is
+      // honest and costs nothing here: the walk satisfies every launch case at `headless` above.
+      // Whoever measures it fills this in — and `hooksConfigFor` gains a real branch then.
+      hooks: Object.freeze({
+        available: false,
+        basis: 'NOT MEASURED — `kimi --help` shows --config/--config-file, but no restraining key has been verified; the ladder declares rather than guesses',
+      }),
+      keystroke: Object.freeze({
+        available: true,
+        // Same citation as the other three: send-keys is a property of tmux and the pane, not of
+        // the harness, so this rung is not a per-harness measurement for any of them.
+        basis: 'CMP-19 § Interface (2) — tmux send-keys into the seat pane',
+      }),
+    }),
+  }),
 });
 
 const KNOWN_HARNESSES = Object.freeze(Object.keys(HARNESSES));
@@ -274,6 +307,17 @@ function hooksConfigFor(harness, { sessionDir, editablePaths = [] } = {}) {
         note: 'danger-full-access — kernel is sole enforcement',
       },
     };
+  }
+
+  // ⚑ A HARNESS WITH NO MEASURED HOOKS RUNG GETS AN EMPTY DESCRIPTOR — the same no-I/O shape as a
+  // null harness, and it must be an EXPLICIT branch. Until 2026-08-07 the tail of this function was
+  // a bare fallthrough that ASSUMED opencode, so naming any fourth harness in the table above would
+  // have written an `opencode.json` into that harness's seat dir — and opencode STRICT-VALIDATES
+  // that file, so the contamination would have been a startup kill in whichever direction it landed.
+  // The guard is the declared rung, not the harness name: anything whose `hooks` rung is
+  // unavailable writes nothing.
+  if (!HARNESSES[harness].rungs.hooks.available) {
+    return { harness, dirs: [], files: [], result: { harness, written: null, enforceable: false, note: 'no measured hooks rung — nothing written' } };
   }
 
   // opencode. The advisory MUST NOT ride in the config opencode parses (strictValidates above).

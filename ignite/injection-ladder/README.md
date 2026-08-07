@@ -71,6 +71,22 @@ Every entry carries a `basis` citing where the fact was **measured**, never pros
 | `claude` | `claude -p`, resumable by session id | **enforceable** — `.claude/settings.json` `permissions.additionalDirectories` | yes |
 | `codex` | `codex exec`, resumable | advisory only — `.codex/config.toml`; the profile runs `--sandbox danger-full-access`, so codex's own sandbox is off | yes |
 | `opencode` | `opencode run` — ⚠ **ONE-SHOT, not resumable** | advisory only, and **strict-validating**: an unrecognized key in `opencode.json` kills the session at startup, so the advisory rides a sidecar file | yes |
+| `kimi` | `kimi -p`, resumable — the run prints its own `kimi -r <id>` line | **UNAVAILABLE — not measured.** `--config`/`--config-file` exist (`~/.kimi/config.toml`), so a rung may well exist; no key there has been verified to restrain anything, and this table declares rather than guesses | yes |
+
+⚠ **An unavailable hooks rung is a REAL branch, not a gap to fall through.** `hooksConfigFor`
+returns an empty descriptor for any harness whose `hooks` rung is unavailable. Before 2026-08-07 the
+tail of that function was a bare fallthrough that ASSUMED opencode, so the first harness added to
+the table would have had `opencode.json` planned into its seat dir — and opencode strict-validates
+that file, so the contamination would have been a startup kill. Guarded by the probe's leg **8b**,
+which asserts the hooks-less harness plans zero files *and* that opencode still plans both of its
+own (a discrimination, not a function that stopped planning for everyone).
+
+⚠ **Naming a harness also gives it its credential bind.** `harnessOf` returning `null` meant a kimi
+seat got the `default: return []` arm of `server/spawn/bwrap.js` `harnessStateBinds` — no state bound
+back over the throwaway HOME tmpfs, so a caged kimi seat had no credentials at all. `~/.kimi/` (the
+one dir: `config.toml`, `credentials`, `device_id`, `kimi.json`, `logs` — measured; no
+`~/.config/kimi`, `~/.local/share/kimi` or `~/.cache/kimi` exists) lands in that table WITH the row
+here, never after it.
 
 ⚠ **opencode's one-shot rung is the difference that makes this a walk and not a lookup.** The seat
 executes its prompt and **exits**, so it can never be woken; a wake aimed at its pane afterwards
@@ -164,10 +180,13 @@ are not re-derived — see the file itself, which is the source of truth for whe
    claim the whole-repo one-copy property; `ignite/team-kit/coord.py`'s `harness_command()` is
    **`G-146`**, explicitly carved out of 7.45's scope. Neither was retired here — a grep made clean
    by deleting another task's work is a falsified criterion, not a met one. See § One copy below.
-3. **`kimi` is in the orchestration model catalog but NOT in this table.** It has no daemon spawn
-   profile and no measured rung set in this repo's daemon lane, and the ladder refuses rather than
-   guesses (`E_UNKNOWN_HARNESS`). Adding it is the job of whoever first drives kimi through a
-   consumer, with a measured basis per rung.
+3. ~~**`kimi` is in the orchestration model catalog but NOT in this table.**~~ **CLOSED 2026-08-07**
+   — kimi was driven through a consumer and added with a measured basis per rung (see the table
+   above): headless verified live on kimi 1.48.0, hooks declared UNAVAILABLE-because-unmeasured
+   rather than guessed, keystroke on the same CMP-19 citation the other three carry. Its credential
+   bind landed in `harnessStateBinds` in the same change. What closing this residual exposed is
+   recorded above and is the more useful artifact: naming a fourth harness was a latent
+   cross-harness write, because the hooks descriptor's tail assumed the third one.
 4. **The `hooks` rung is modelled as launch-only.** A harness that re-reads its config mid-session
    would be a fourth case this table does not carry. None of the three does today; if one gains it,
    `RUNG_PHASES.hooks` is where it changes, not a consumer.
