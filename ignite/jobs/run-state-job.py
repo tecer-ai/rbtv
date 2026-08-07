@@ -62,20 +62,27 @@ CLI **REPORTS** the row instead of silently normalizing it. Both fields are pres
 blind either way. Every divergence is printed to STDERR as well as carried in the JSON, so it cannot
 be missed by a reader who did not opt in.
 
-⚠⚠ `skipped` IS DEFINED AND CURRENTLY UNREACHABLE — SAYING SO IS HALF THIS FILE'S JOB
--------------------------------------------------------------------------------------
+⚠⚠ `skipped` IS REACHABLE — THE UNREACHABILITY CLAIM IS RETIRED (task 7.454 / MC12)
+------------------------------------------------------------------------------------
 `skipped` is the DAG-authoring Rule 10 marking for a row excluded by a guard, so that a join never
-waits on an un-taken branch. **No guard evaluator exists, so nothing can ever produce it.** The
-state is carried in the vocabulary because the vocabulary is the contract, and its unreachability is
-stated in this file's OUTPUT and `--help` — never only in a comment — because a value that silently
-never appears reads as *"no rows were skipped"* when the truth is *"skipping cannot happen"*, and
-those are two different claims. See `UNREACHABLE_NOTE`, and `issues.md` G-301 / G-308.
+waits on an un-taken branch. It was carried in the vocabulary and reported unreachable for exactly
+as long as no guard evaluator existed. **Task 7.425 built one.** `edge-runner-job.readiness` now
+returns the guard-excluded rows as a THIRD verdict list beside `ready` and `blocked`, and this CLI
+routes that list into the state, so a guard-excluded row is reported `skipped`.
+
+The claim was retired in the SAME change that made the state emittable, because a file that prints
+*"skipping cannot happen"* while emitting the state is worse than a file that says nothing: a
+reader who believes the note reads every emitted row as a bug in the CLI. What the OUTPUT says now
+is the honest successor claim — an absence of `skipped` rows means NO ROW WAS GUARD-EXCLUDED on
+this package, which is a measurement about this graph, where the retired claim was about the
+machinery. See `GUARD_EXCLUDED_NOTE`.
 
 ⚠ ONE WORD, TWO MEANINGS IN THIS WAVE — DO NOT CONFLATE THEM. `edge-runner-job.py`'s enqueue stage
 (M4-10) also has a `skipped`, and it means *"a ready seat the self-state intersection excluded from
-enqueueing"*. That one is REACHABLE and fires on real rows. **This file's `skipped` is the
-guard-excluded RUN STATE and is unreachable.** Same word, opposite reachability. The collision was
-reported to the `leader` (message #275) rather than resolved here — M4-10 owns that surface.
+enqueueing"*. **This file's `skipped` is the guard-excluded RUN STATE.** Same word, two surfaces,
+and both fire on real rows now — which makes the collision matter MORE than when it was reported to
+the `leader` (message #275), not less. M4-10 owns that surface; this file names the collision and
+does not resolve it.
 
 THE REGISTRATION — DECLARED, AUTHORED VERBATIM, AND *NOT* PERFORMED
 ------------------------------------------------------------------
@@ -128,24 +135,33 @@ EDGE_RUNNER_PATH = HERE / "edge-runner-job.py"
 #     conclude "no rows are blocked" when the truth is "blocked rows were not printed".
 STATES = ("done", "ready", "running", "skipped", "failed", "blocked")
 
-# The one state no input can produce. Held as its own constant so the unreachability check cannot
-# be satisfied by a coincidence of wording elsewhere.
-UNREACHABLE_STATE = "skipped"
+# The guard-excluded state, held as its own constant so the check over it cannot be satisfied by a
+# coincidence of wording elsewhere. It was `UNREACHABLE_STATE` until task 7.454: the NAME asserted a
+# property the code no longer has, and the next agent reads a constant's name long before it reads
+# any comment under it.
+GUARD_EXCLUDED_STATE = "skipped"
 
-# Printed on EVERY run and in `--help`. Criterion 5 is checkable by RUNNING the CLI, so this text
-# must never retreat into a comment. Spelled out literally here and asserted literally by the check
-# — a check that read its expectation from this constant would move with it and prove nothing.
-UNREACHABLE_NOTE = (
-    "`skipped` is DEFINED AND CURRENTLY UNREACHABLE. It is the guard-excluded verdict (DAG-authoring "
-    "Rule 10: a row excluded by a guard is marked skipped so a join never waits on an un-taken "
-    "branch), and NO guard evaluator exists to produce it — so no seat can ever be reported "
-    "skipped. Read an absence of `skipped` rows as \"skipping CANNOT happen\", never as \"no rows "
-    "were skipped\": those are different claims. Cause, both halves: issues.md G-301 — "
-    "`taskforce_after()` splits the `after` cell on COMMA ONLY, so a guarded cell fails CLOSED and "
-    "blocks its seat forever while `check_acyclic` reports no finding; issues.md G-308 — the task "
-    "store's `_Depends:_` fails OPEN in the opposite polarity, deleting the ref so the edge fires "
-    "past an open predecessor. Whether the evaluator is built is the leader's call on those two "
-    "rows, not this CLI's."
+# Printed on EVERY run and in `--help`. The claim is checkable by RUNNING the CLI, so this text must
+# never retreat into a comment. Spelled out literally here and asserted literally by the check — a
+# check that read its expectation from this constant would move with it and prove nothing.
+#
+# SUPERSEDES the retired `UNREACHABLE_NOTE` (task 7.454). What it said, kept so the change is
+# legible and nobody re-derives the old claim from its absence: "`skipped` is DEFINED AND CURRENTLY
+# UNREACHABLE … NO guard evaluator exists to produce it — so no seat can ever be reported skipped.
+# Read an absence of `skipped` rows as \"skipping CANNOT happen\" …". That was true of M4-09's
+# world and is FALSE of this one: task 7.425 built the evaluator. Its two cited causes, issues.md
+# G-301 and G-308, are NOT thereby closed — whether either is closed is the leader's call on those
+# rows, not this CLI's; they simply stopped being the reason this state could not be produced.
+GUARD_EXCLUDED_NOTE = (
+    "`skipped` is the GUARD-EXCLUDED verdict, and it is REACHABLE. It is DAG-authoring Rule 10's "
+    "marking for a row whose guard was EVALUATED and did not match — the row is excluded so a join "
+    "never waits on an un-taken branch — and it is produced by readiness()'s third verdict list, "
+    "which task 7.425 built. Read an absence of `skipped` rows as \"NO ROW WAS GUARD-EXCLUDED on "
+    "this package\": that is a measurement about THIS graph. It is no longer a statement about the "
+    "machinery — the earlier claim of unreachability was RETIRED by task 7.454, in the same change "
+    "that made the state emittable. A guard that could not be READ is a third answer again: such a "
+    "row is UNEVALUABLE and stays `blocked`, never `skipped`. So `skipped` always means an edge was "
+    "evaluated and excluded, and never means an edge nobody could evaluate."
 )
 
 # ---- THE DECLARED READ INVENTORY — closed, and asserted against the audit off disk ------------
@@ -169,16 +185,30 @@ READS = [
     (SEAT_MD_OUTPUTS, None),     # audit row 14 — declared outputs; no column resolves this site
 ]
 
-# Audit row 15 is the `skipped` site, and it audits to NO COLUMN AND NO SURFACE on purpose: the
-# state is unreachable, so there is nothing to read. Carried here as a declared NON-read so the
-# absence is a recorded fact rather than an omission, and the check asserts row 15 still says so.
-UNREACHABLE_SITE_AUDIT_ROW = 15
+# Audit row 15 is the `skipped` site. It audits to NO COLUMN — the state is DERIVED, computed from
+# `readiness()`'s third verdict list (task 7.425), so there is no column anywhere to read (Rule 14)
+# — but it is NOT a no-surface site any more, and the audit's own reason clause said it was.
+# Carried here as a declared NON-read so the absence of a column is a recorded fact rather than an
+# omission, and the check below asserts BOTH halves: that row 15 still resolves to no column, and
+# that it no longer claims the state is unreachable. The second half is what makes the audit
+# correction load-bearing instead of cosmetic (leader ruling, run-3 decisions.md
+# #p-mc12-granted-the-audit-row-claim-not-the-folder, rider 2).
+SKIPPED_SITE_AUDIT_ROW = 15
+
+# The literal the retired claim is recognised by, at the audit. Spelled out here so the check keys
+# on the CLAIM and not on the word "unreachable", which the audit's own SUPERSEDED-by note has to
+# use in order to say what it retired — a check that matched the abstract word would fire on the
+# sentence retiring it.
+RETIRED_AUDIT_CLAIM = "no guard evaluator is built"
 
 # The state precedence, spelled out as data so the check can assert the ORDER and not merely the
-# outcomes. It matches `coord.ready_seat_rows`' own order (terminal before occupied before the
-# `after` term), which is what keeps the two surfaces from disagreeing on a finished-but-still-
-# rostered seat.
-PRECEDENCE = ("done", "failed", "running", "ready", "blocked")
+# outcomes. Its first three terms match `coord.ready_seat_rows`' own order (terminal before occupied
+# before the `after` term), which is what keeps the two surfaces from disagreeing on a
+# finished-but-still-rostered seat. The last THREE are not competitors at all: `ready`, `blocked`
+# and `skipped` are the three disjoint outcomes of the one `after` term, and they appear here in
+# the order the branch chain writes them, which is `readiness()`'s own return order. `skipped`
+# joined this tuple with the arm, in the same change (task 7.454).
+PRECEDENCE = ("done", "failed", "running", "ready", "blocked", "skipped")
 
 
 def load_module(path, name):
@@ -249,6 +279,10 @@ def run_state(coord, er, pkg):
     ready_res = er.readiness(coord, pkg, {s: m["disposition"] for s, m in marks.items()})
     ready_set = set(ready_res["ready"])
     blocked_by_seat = {b["seat"]: b for b in ready_res["blocked"]}
+    # 7.454: the THIRD verdict list, taken from the producer's own return exactly like the other
+    # two. This CLI decides no exclusion for itself — the guard evaluator is `readiness()`'s
+    # (task 7.425), and a second one here would be issues.md G-301 rebuilt at a new seam.
+    skipped_by_seat = {s["seat"]: s for s in ready_res["skipped"]}
 
     # The ROSTER term, taken from the kit's own predicate rather than by re-reading workers.md.
     coord_rows = {r["seat"]: r for r in coord.ready_seat_rows(_args_for(pkg))}
@@ -278,9 +312,15 @@ def run_state(coord, er, pkg):
                                   "every `after` predecessor is `done`"
         elif seat in blocked_by_seat:
             state, why = "blocked", blocked_by_seat[seat]["reason"]
+        elif seat in skipped_by_seat:
+            # 7.454 — THE GUARD-EXCLUDED ARM. Before it, a row in `readiness()`'s third list matched
+            # no branch and fell to the refusal below, so the CLI printed `NO-STATE` for a row the
+            # producer had answered perfectly well. The reason is the producer's own, not a sentence
+            # composed here: it names the excluded member and the field values that excluded it.
+            state, why = "skipped", skipped_by_seat[seat]["reason"]
         else:
             # Unreachable by construction: `readiness` returns every graph row in exactly one of
-            # its two lists. Carried as a LOUD refusal rather than a silent fallthrough, because a
+            # its THREE lists. Carried as a LOUD refusal rather than a silent fallthrough, because a
             # quiet else-branch here would be indistinguishable from a real state.
             state, why = None, ("NO STATE COMPUTED — this seat is in `taskforce.csv` but in "
                                 "neither list `readiness` returned. That is impossible by "
@@ -321,7 +361,9 @@ def run_state(coord, er, pkg):
         "rows": rows,
         "divergences": divergences,
         "not-in-graph": not_in_graph,
-        "unreachable": {"state": UNREACHABLE_STATE, "statement": UNREACHABLE_NOTE},
+        # Renamed from `unreachable` with the arm (task 7.454) — the key asserted the property the
+        # change removed. No consumer outside this file read it (swept at HEAD 3e9493d9).
+        "skipped-state": {"state": GUARD_EXCLUDED_STATE, "statement": GUARD_EXCLUDED_NOTE},
         "caveats": [
             "every state here is COMPUTED from disk at the instant of this call. No status column "
             "is read and none exists; there is no cache to go stale.",
@@ -332,6 +374,10 @@ def run_state(coord, er, pkg):
             "of one graph that disagree is issues.md G-301, which this task exists to not repeat.",
             "a `not-in-graph` seat has a trace row and no `taskforce.csv` row, so it has no `after` "
             "set and is given NO graph state — it is listed, never dropped.",
+            "`skipped` is the GUARD-EXCLUDED verdict, routed from readiness()'s third list "
+            "(task 7.425). An absence of `skipped` rows means no row was guard-excluded on THIS "
+            "package; the machinery-level claim that the state could not be produced at all was "
+            "retired by task 7.454, in the change that made it emittable.",
         ],
     }
 
@@ -375,8 +421,35 @@ EXPECT_STATE = {
     "fx-r-mixed": "blocked",
     "fx-r-dangling": "blocked",
     "fx-r-conditional": "blocked",
-    "fx-r-alternate": "blocked",
+    # AMENDED by 7.454, and it is the one entry in this table that MOVED rather than being added.
+    # Its cell is `fx-done-outputs-present|fx-renewed-then-done` and both alternates mark `done`.
+    # This entry read `blocked` because it was written against M4-09's reader, which treated the
+    # whole cell as ONE uninterpreted predecessor name that no seat answered to. 7.425 evaluates
+    # `|`, so the join is met on whichever alternate ran. Derived from the cell and the mark table,
+    # not from a run: the corroboration is that edge-runner-job.EXPECT_READY — a hand table in
+    # another file — records the same move with the same rationale at its own line.
+    "fx-r-alternate": "ready",
     "fx-r-artifact-strict": "blocked",
+    # 7.425's guard rows, given expectations by 7.454. Every one is derived from the fixture's own
+    # shape: the `after` cell's text, `fx-route`'s validated output `{"risk": "high", "count": 2,
+    # "ok": true}`, and the mark table. None has a roster row and only `fx-route` has a session row,
+    # so each falls to the `after` term. The rule that separates the two non-ready outcomes is
+    # `readiness()`'s own and is stated in its caveats: a guard EVALUATED and not matched excludes
+    # the row (`skipped`); a guard that could not be READ leaves it UNEVALUABLE (`blocked`).
+    "fx-route": "done",                    # checked out `done`; declares route.json, and it exists
+    "fx-r-guard-hit": "ready",             # [risk=high] — risk IS high
+    "fx-r-guard-miss": "skipped",          # [risk=low] — risk is high; evaluated and EXCLUDED
+    "fx-r-guard-bool": "ready",            # [ok=true] — ok is true; the RHS is always text
+    "fx-r-guard-number": "ready",          # [count=2] — count is 2
+    "fx-r-guard-nofield": "blocked",       # [colour=blue] — no such field: UNEVALUABLE
+    "fx-r-guard-unfinished": "blocked",    # fx-renew marks `failed` — no validated output to read
+    "fx-r-malformed-guard": "blocked",     # [nokey] — no `=`: UNEVALUABLE
+    "fx-r-join-one-taken": "ready",        # one alternate admitted — the join is met
+    "fx-r-join-none-taken": "skipped",     # both evaluated, neither matched — the join is excluded
+    "fx-r-join-malformed": "blocked",      # [risk=a|b] — malformed guard text: UNEVALUABLE
+    "fx-r-skip-propagates": "skipped",     # its predecessor is skipped — exclusion propagates
+    "fx-r-block-beats-skip": "blocked",    # conjunction: one member excluded, one still UNDECIDED —
+                                           # a live unmet predecessor outranks an excluded one
     # roster-driven rows this fixture adds on top of M4-09's graph
     "fx-active-clean": "running",          # active roster row, no terminal mark
     "fx-crashed": "blocked",               # OPEN trace row + INACTIVE roster -> the rider's shape
@@ -534,57 +607,160 @@ def check_uses_existing_predicate(coord, er, pkg):
 def check_agrees_with_readiness_surface(coord, er, pkg):
     """CRITERION 4 — the CLI and the existing readiness surface give the SAME per-seat answer.
 
-    Compared on the term they SHARE, which is the `after` term: for a seat with no terminal mark
-    and no active roster row, `state == "ready"` must hold exactly when `readiness()` readies it,
-    and `state == "blocked"` exactly when it blocks it. Seats excluded by a terminal mark or an
-    active roster row are excluded from the comparison rather than silently swallowed — those are
-    this CLI's extra terms, not disagreements.
+    THE IDENTITY, stated as `readiness()`'s OWN schema declares it — over THREE lists, not two.
+    That predicate returns a TOTAL PARTITION of the graph across its closed verdict vocabulary
+    `edge-runner-job.VERDICTS`: every `taskforce.csv` row lands in exactly one of its verdict
+    lists. So for a seat with no terminal mark and no active roster row, this CLI's `state` must
+    equal THE NAME OF THE LIST THAT HOLDS IT. Seats excluded by a terminal mark or an active roster
+    row are excluded from the comparison rather than silently swallowed — those are this CLI's
+    extra terms, not disagreements — and both exclusion sets are counted and named below.
 
-    The comparison is COMPUTED here, per seat, and the count is reported. A vacuous comparison
-    (zero comparable seats) is RED."""
+    Task 7.455 / MC13 rewrote this arm. It built its expectation from `ready` + `blocked` ONLY,
+    enumerated by hand. A guard-excluded seat is in neither, so the surface side read `None`; and
+    before task 7.454's `skipped` arm this CLI also said `None` for those rows, so `None == None`
+    and the arm passed VACUOUSLY ON EXACTLY THE ROWS IT EXISTS TO COMPARE — it reported "26
+    comparable seat(s), agree on every one" in a run whose sibling arm found three guard-excluded
+    rows. The defect was the hand enumeration itself, so the fix is SHAPED against its recurrence:
+
+      (a) the expectation is driven off `er.VERDICTS` and read out of `readiness()`'s own return,
+          so a verdict added to the producer extends this comparison instead of escaping it;
+      (b) a verdict declared with no list, or a per-seat list the vocabulary does not declare, is
+          REPORTED (MC13 F-13b) — never compared around;
+      (c) the lists are asserted to be a PARTITION: a seat in two of them is red, because the
+          identity above presupposes exactly one verdict per row;
+      (d) ⚠ AN UNCLASSIFIED ROW IS RED, NEVER AGREEMENT. A compared seat in NO verdict list makes
+          both sides `None`, and `None == None` is the vacuity this rewrite exists to end — in the
+          general form, not only for `skipped`.
+
+    The expectation is built from the PRODUCER (`edge-runner-job`), never from this file, which is
+    the code under test: a guard that reads its own constant moves with the code and proves nothing.
+
+    The comparison is COMPUTED here, per seat, and the count is reported WITH its per-verdict
+    breakdown — so a run that compares many rows while exercising a verdict zero times is visible
+    rather than hidden inside a healthy-looking total. A vacuous comparison (zero comparable
+    seats) is RED."""
     res = run_state(coord, er, pkg)
     marks = {r["seat"]: r["disposition"] for r in er.run_stage(coord, pkg)}
     ready_res = er.readiness(coord, pkg, marks)
-    theirs = {s: "ready" for s in ready_res["ready"]}
-    for b in ready_res["blocked"]:
-        theirs[b["seat"]] = "blocked"
+
+    # (a) + (c) — the expectation, off the producer's own vocabulary and its own return. Nothing is
+    # enumerated by hand: `ready` is a list of seat names, `blocked`/`skipped` lists of rows keyed
+    # `seat`, and both shapes are read the same way.
+    theirs, double = {}, []
+    for verdict in er.VERDICTS:
+        if verdict not in ready_res:
+            return False, ("criterion 4: `readiness()` declares the verdict `%s` in VERDICTS %r "
+                           "but its return carries NO SUCH LIST — the producer and its own closed "
+                           "vocabulary disagree, so no expectation can be built over it (MC13 "
+                           "F-13b)" % (verdict, list(er.VERDICTS)))
+        for row in ready_res[verdict]:
+            seat = row if isinstance(row, str) else row["seat"]
+            if seat in theirs:
+                double.append("%s: %s and %s" % (seat, theirs[seat], verdict))
+            theirs[seat] = verdict
+    if double:
+        return False, ("criterion 4: `readiness()`'s verdict lists are NOT a partition — %d seat(s) "
+                       "appear in two of them: %s. The identity this arm asserts presupposes "
+                       "exactly one verdict per row." % (len(double), "; ".join(double)))
+    # (b) — a per-seat list outside the declared vocabulary would be compared against nothing at
+    # all, which is the hand-enumeration defect returning under a new name.
+    strays = sorted(k for k, v in ready_res.items()
+                    if k not in er.VERDICTS and isinstance(v, list) and v
+                    and all(isinstance(e, dict) and "seat" in e for e in v))
+    if strays:
+        return False, ("criterion 4: `readiness()` returns per-seat list(s) %s that VERDICTS %r "
+                       "does not declare — an undeclared verdict list is exactly the drift this "
+                       "arm was rewritten to catch (MC13 F-13b). Report it to the leader; do not "
+                       "compare around it." % (strays, list(er.VERDICTS)))
 
     coord_rows = {r["seat"]: r for r in coord.ready_seat_rows(_args_for(pkg))}
-    compared, disagree = 0, []
+    per_verdict = dict.fromkeys(er.VERDICTS, 0)
+    by_terminal, by_roster, unclassified, disagree = [], [], [], []
+    compared = 0
     for r in res["rows"]:
         seat = r["seat"]
         if marks.get(seat) is not None:
-            continue                      # terminal mark — this CLI's own extra term
+            by_terminal.append(seat)      # terminal mark — this CLI's own extra term
+            continue
         if coord_rows.get(seat, {}).get("active"):
-            continue                      # occupied — likewise
+            by_roster.append(seat)        # occupied — likewise
+            continue
         compared += 1
-        if r["state"] != theirs.get(seat):
-            disagree.append("%s: cli=%s surface=%s" % (seat, r["state"], theirs.get(seat)))
+        expected = theirs.get(seat)
+        if expected is None:              # (d) — never let `None == None` read as agreement
+            unclassified.append("%s: cli=%s" % (seat, r["state"]))
+            continue
+        per_verdict[expected] += 1
+        if r["state"] != expected:
+            disagree.append("%s: cli=%s surface=%s" % (seat, r["state"], expected))
     if not compared:
         return False, ("criterion 4: ZERO comparable seats — every row was excluded, so agreement "
                        "would be vacuous")
+    if unclassified:
+        return False, ("criterion 4: %d comparable seat(s) are in the graph but in NONE of "
+                       "`readiness()`'s %d verdict lists: %s. Both sides are then `None` and the "
+                       "comparison would PASS on rows nobody classified — that vacuity is red "
+                       "here, never agreement." % (len(unclassified), len(er.VERDICTS),
+                                                   "; ".join(unclassified)))
     if disagree:
         return False, ("criterion 4: %d seat(s) DISAGREE with the readiness surface: %s. STOP — do "
                        "not adjust either reader to match; a disagreement between two readers of "
                        "one graph is a finding for the leader."
                        % (len(disagree), "; ".join(disagree)))
-    return True, ("criterion 4: %d comparable seat(s) compared against readiness(); the CLI and "
-                  "the surface agree on every one (%d rows excluded by this CLI's own terminal/"
-                  "roster terms, named not swallowed)"
-                  % (compared, len(res["rows"]) - compared))
+    # The exclusion sets are NAMED, and where naming them all would bury the counts they are named
+    # up to a cap WITH THE ELISION STATED. The COUNT is never elided and never approximate: on the
+    # live run-3 package the terminal-mark term excludes 363 seats, and one line of 363 names is
+    # how a reported number becomes unreadable — which is the same failure as swallowing it.
+    def named(seats, cap=12):
+        s = sorted(seats)
+        if not s:
+            return "none"
+        if len(s) <= cap:
+            return ", ".join(s)
+        return "%s, … +%d more NOT LISTED (count above is exact)" % (", ".join(s[:cap]), len(s) - cap)
+    return True, ("criterion 4: %d comparable seat(s) compared against readiness() over ALL %d of "
+                  "its verdict lists %r, broken down %s — the CLI and the surface agree on every "
+                  "one. EXCLUDED AND NAMED, not swallowed: %d by this CLI's terminal-mark term "
+                  "(%s), %d by its active-roster term (%s); %d compared + %d excluded = %d "
+                  "taskforce row(s)."
+                  % (compared, len(er.VERDICTS), list(er.VERDICTS),
+                     ", ".join("%s=%d" % (v, per_verdict[v]) for v in er.VERDICTS),
+                     len(by_terminal), named(by_terminal),
+                     len(by_roster), named(by_roster),
+                     compared, len(by_terminal) + len(by_roster), len(res["rows"])))
 
 
-def check_unreachability_is_stated_in_output(coord, er, pkg):
-    """CRITERION 5 — the CLI STATES `skipped`'s unreachability in its own OUTPUT and in `--help`,
-    citing both ledger rows, and no seat is ever reported skipped.
+def check_skipped_is_emitted_and_explained(coord, er, pkg):
+    """CRITERION 5, SUCCEEDING the retired unreachability check (task 7.454) — the CLI EMITS the
+    guard-excluded state, emits exactly the rows `readiness()` excluded, explains the state in its
+    own OUTPUT, and no longer prints the retired claim anywhere.
 
-    Checked by RUNNING this file as a subprocess, not by inspecting the constant: criterion 5 is
-    about what a reader sees. The expected phrases are spelled out literally below, so rewording
-    the note red-flags here instead of silently dropping the claim."""
-    must_appear = ("DEFINED AND CURRENTLY UNREACHABLE",
-                   "no seat can ever be reported",
-                   "skipping CANNOT happen",
-                   "G-301", "G-308")
+    The predecessor asserted that no row is ever reported `skipped`. The arm makes that false, so
+    the check is REPLACED rather than deleted: the state's vocabulary keeps a check over it, and
+    the successor is strictly stronger — the old one passed on a CLI that could not produce the
+    state at all, this one fails on exactly that CLI.
+
+    Five assertions, because "emits the third state" has five failure modes:
+      (a) the emitted `skipped` set is EXACTLY `readiness()`'s third verdict list, read off the
+          producer's own return. This CLI owns no predicate, so agreement with the producer is
+          what correct MEANS here — an emitted set of this CLI's own devising would be G-301;
+      (b) that list is NON-EMPTY on this fixture, or the set equality in (a) holds vacuously;
+      (c) each excluded seat is printed as `SKIPPED` in the PLAIN run's stdout, not only inside a
+          JSON a reader has to opt into;
+      (d) a normal run and `--help` both explain what the state means, on literal phrases, so
+          rewording the note red-flags here instead of silently dropping the claim;
+      (e) neither prints the RETIRED claim. A file that emits `skipped` while telling its reader
+          that skipping cannot happen is worse than one that says nothing, so the retirement is
+          CHECKED and not merely intended."""
+    must_appear = ("the GUARD-EXCLUDED verdict",
+                   "readiness()'s third verdict list",
+                   "NO ROW WAS GUARD-EXCLUDED")
+    # The retired claim's own literal sentences. Matched on the CLAIM, never on the word
+    # "unreachability" — which the retirement note itself must use to say what it retired, so a
+    # check keyed on the abstract word would fire on the sentence that does the retiring.
+    must_not_appear = ("DEFINED AND CURRENTLY UNREACHABLE",
+                       "no seat can ever be reported",
+                       "skipping CANNOT happen")
     for flags, label in ((["--package", str(pkg)], "a normal run's output"),
                          (["--help"], "--help")):
         proc = subprocess.run([sys.executable, str(Path(__file__).resolve())] + flags,
@@ -592,24 +768,54 @@ def check_unreachability_is_stated_in_output(coord, er, pkg):
         blob = proc.stdout + proc.stderr
         missing = [p for p in must_appear if p not in blob]
         if missing:
-            return False, ("criterion 5: %s does not state the unreachability — missing %s. A "
-                           "vocabulary entry that silently never occurs reads as \"no rows were "
-                           "skipped\"." % (label, missing))
+            return False, ("criterion 5: %s does not explain `%s` — missing %s. A vocabulary entry "
+                           "a reader cannot interpret is one they will misread."
+                           % (label, GUARD_EXCLUDED_STATE, missing))
+        retired = [p for p in must_not_appear if p in blob]
+        if retired:
+            return False, ("criterion 5: %s still prints the RETIRED unreachability claim %s while "
+                           "this CLI emits the state — a file that does is worse than silent"
+                           % (label, retired))
     res = run_state(coord, er, pkg)
-    skipped = [r["seat"] for r in res["rows"] if r["state"] == UNREACHABLE_STATE]
-    if skipped:
-        return False, ("criterion 5: %d seat(s) were reported `%s`, which nothing can produce — "
-                       "either a guard evaluator appeared or this CLI invented a state: %s"
-                       % (len(skipped), UNREACHABLE_STATE, skipped))
-    return True, ("criterion 5: both a normal run and --help state the unreachability and cite "
-                  "G-301 and G-308; 0 of %d rows were reported `%s`"
-                  % (len(res["rows"]), UNREACHABLE_STATE))
+    emitted = {r["seat"] for r in res["rows"] if r["state"] == GUARD_EXCLUDED_STATE}
+    theirs = {s["seat"] for s in er.readiness(
+        coord, pkg, {r["seat"]: r["disposition"] for r in er.run_stage(coord, pkg)})["skipped"]}
+    if not theirs:
+        return False, ("criterion 5: `readiness()` excluded ZERO rows on this fixture, so the set "
+                       "comparison below would hold vacuously — the fixture must carry at least "
+                       "one guard-excluded row for this check to mean anything")
+    if emitted != theirs:
+        return False, ("criterion 5: the emitted `%s` set is not `readiness()`'s third list — "
+                       "only in the CLI: %s; only in the surface: %s"
+                       % (GUARD_EXCLUDED_STATE, sorted(emitted - theirs), sorted(theirs - emitted)))
+    proc = subprocess.run([sys.executable, str(Path(__file__).resolve()),
+                           "--package", str(pkg)], capture_output=True, text=True)
+    lines = [ln.split()[:2] for ln in proc.stdout.splitlines() if ln.split()]
+    unseen = [s for s in sorted(theirs) if [GUARD_EXCLUDED_STATE.upper(), s] not in lines]
+    if unseen:
+        return False, ("criterion 5: %d excluded seat(s) never appear as `%s` in the plain run's "
+                       "stdout: %s — a state only in a data structure is one nobody sees"
+                       % (len(unseen), GUARD_EXCLUDED_STATE.upper(), unseen))
+    return True, ("criterion 5: %d row(s) emitted `%s` and the set is EXACTLY readiness()'s third "
+                  "list (%s); each is printed as %s in the plain run; both a normal run and --help "
+                  "explain the state, and neither carries the retired unreachability claim"
+                  % (len(emitted), GUARD_EXCLUDED_STATE, ", ".join(sorted(emitted)),
+                     GUARD_EXCLUDED_STATE.upper()))
 
 
 def check_reads_subset_of_audit():
     """CRITERION 2 (reads) — every field this CLI reads was audited, by set arithmetic against the
     audit file ON DISK. A field added to READS but never audited fails here rather than being read
-    silently in production. Row 15 (`skipped`) must still audit to NO column."""
+    silently in production.
+
+    Row 15 (`skipped`) carries TWO assertions since task 7.454, and the second is the point:
+      * it must still audit to NO column — `skipped` is derived state and no column resolves it
+        (Rule 14), which the guard evaluator did not change;
+      * it must NOT still say the state is unreachable. That clause was measured false the moment
+        7.425 built the evaluator, and this check ASSERTED it, so the green outlived the fact it
+        stood for. Retired here in the same change that corrects the audit itself (leader ruling,
+        run-3 decisions.md #p-mc12-granted-the-audit-row-claim-not-the-folder, rider 2), and proven
+        able to go RED against an audit copy carrying the old clause."""
     if not AUDIT.exists():
         return False, "reads: the audit file is absent at %s — cannot verify" % AUDIT
     er = load_edge_runner()
@@ -627,20 +833,28 @@ def check_reads_subset_of_audit():
     if unaudited:
         return False, ("reads: %d read site(s) are NOT in the audit's reads[]: %s. Report the "
                        "field to the leader; do not read it." % (len(unaudited), ", ".join(unaudited)))
-    # Row 15 — the unreachable state's site. Its whole content is that no column resolves it.
+    # Row 15 — the guard-excluded state's site. It resolves to no column, and (7.454) it must no
+    # longer carry the retired claim.
     row15 = [ln for ln in AUDIT.read_text(encoding="utf-8").splitlines()
-             if ln.startswith("| %d " % UNREACHABLE_SITE_AUDIT_ROW)]
+             if ln.startswith("| %d " % SKIPPED_SITE_AUDIT_ROW)]
     if not row15:
-        return False, ("reads: audit row %d (the `%s` site) is absent — the unreachability has no "
-                       "audited record" % (UNREACHABLE_SITE_AUDIT_ROW, UNREACHABLE_STATE))
-    if UNREACHABLE_STATE not in row15[0] or "unreachable" not in row15[0]:
-        return False, ("reads: audit row %d no longer records `%s` as unreachable — it now reads: "
-                       "%s" % (UNREACHABLE_SITE_AUDIT_ROW, UNREACHABLE_STATE, row15[0][:160]))
+        return False, ("reads: audit row %d (the `%s` site) is absent — this declared NON-read has "
+                       "no audited record" % (SKIPPED_SITE_AUDIT_ROW, GUARD_EXCLUDED_STATE))
+    if GUARD_EXCLUDED_STATE not in row15[0] or "no column resolves this site" not in row15[0]:
+        return False, ("reads: audit row %d no longer records `%s` as a site no column resolves — "
+                       "it now reads: %s"
+                       % (SKIPPED_SITE_AUDIT_ROW, GUARD_EXCLUDED_STATE, row15[0][:200]))
+    if RETIRED_AUDIT_CLAIM in row15[0]:
+        return False, ("reads: audit row %d still asserts %r, which task 7.425 made false when it "
+                       "built the guard evaluator. This CLI now EMITS `%s`, so an audit saying the "
+                       "state cannot be produced disagrees with the code it audits. Row reads: %s"
+                       % (SKIPPED_SITE_AUDIT_ROW, RETIRED_AUDIT_CLAIM, GUARD_EXCLUDED_STATE,
+                          row15[0][:200]))
     return True, ("reads: all %d declared read sites appear in the audit's reads[] (%d audited "
-                  "field rows, %d null-field rows), and row %d still records `%s` as unreachable "
-                  "with no resolving column"
-                  % (len(READS), len(pairs), len(nulls), UNREACHABLE_SITE_AUDIT_ROW,
-                     UNREACHABLE_STATE))
+                  "field rows, %d null-field rows); row %d still records `%s` as a site no column "
+                  "resolves, and no longer claims the state is unproducible"
+                  % (len(READS), len(pairs), len(nulls), SKIPPED_SITE_AUDIT_ROW,
+                     GUARD_EXCLUDED_STATE))
 
 
 def check_divergences_are_reported(coord, er, pkg):
@@ -684,8 +898,9 @@ def check_precedence_is_ordered(coord, er, pkg):
     neither and falls to the `after` term. If the order were roster-first, the first would read
     `running` — which is what coord.ready_seat_rows would NOT say, so the two surfaces would then
     disagree on a finished seat."""
-    if PRECEDENCE != ("done", "failed", "running", "ready", "blocked"):
-        return False, "precedence: PRECEDENCE is %r, expected the five in order" % (PRECEDENCE,)
+    if PRECEDENCE != ("done", "failed", "running", "ready", "blocked", "skipped"):
+        return False, ("precedence: PRECEDENCE is %r, expected the six in order — the three "
+                       "`after`-term outcomes included" % (PRECEDENCE,))
     res = run_state(coord, er, pkg)
     got = {r["seat"]: r["state"] for r in res["rows"]}
     if got.get("fx-done-but-active") != "done":
@@ -711,10 +926,31 @@ CHECKS = [
     ("no-stored-state-is-read", check_no_stored_state_is_read),
     ("uses-existing-predicate", check_uses_existing_predicate),
     ("agrees-with-readiness-surface", check_agrees_with_readiness_surface),
-    ("unreachability-stated-in-output", check_unreachability_is_stated_in_output),
+    ("skipped-is-emitted-and-explained", check_skipped_is_emitted_and_explained),
     ("divergences-are-reported", check_divergences_are_reported),
     ("precedence-is-ordered", check_precedence_is_ordered),
 ]
+
+
+# ---- ARMS EXPECTED RED, and why this file's tally is not 9/9 ---------------------------------
+#
+# A check left red with no explanation is read by the next reader — a seat, a commit gate, a
+# regression sweep — as "broken", and the plausible wrong response is to WEAKEN THE ARM until the
+# number goes up. That is the failure this table exists to prevent, so each entry states three
+# things at the arm itself: that the red is EXPECTED, what CAUSED it, and WHO consumes it.
+#
+# A red documented only in a message log shares the fate of any claim whose provenance nobody can
+# resolve. Leader ruling, run-3 `decisions.md`
+# `#p-mc12-completes-at-8-of-9-with-the-red-named-on-the-artifact` (task 7.454).
+#
+# SELF-RETIRING: an entry whose arm has gone GREEN says so on sight, every run, until it is
+# deleted. The seat that fixes an arm deletes its entry in the SAME change.
+# EMPTY, and that is a RESULT rather than an oversight: task 7.454 entered exactly one arm here —
+# `agrees-with-readiness-surface` — and task 7.455 / MC13 fixed that arm and DELETED its entry in
+# the same change, as both the entry and the ruling required. The table itself stays: it is the
+# ruled medium for naming a red on the artifact, and the next seat that must leave one red adds a
+# row rather than re-inventing the mechanism.
+EXPECTED_RED = {}
 
 
 def build_fixture(root):
@@ -782,15 +1018,29 @@ def cmd_selftest(fixture, only):
             print("error: no check named %r — known: %s"
                   % (only, ", ".join(n for n, _ in CHECKS)), file=sys.stderr)
             return 2
-        passed = 0
+        passed, failed_names = 0, []
         for name, fn in selected:
             try:
                 ok, msg = fn(coord, er, pkg)
             except Exception as exc:                       # a raising check is a FAILING check
                 ok, msg = False, "raised %s: %s" % (type(exc).__name__, exc)
             print("  %-34s %s  %s" % (name, "PASS" if ok else "FAIL", msg))
+            # The red is named AT THE ARM, where a reader who stops at the first FAIL still meets
+            # it — never only in the tally, and never only in a message log.
+            if name in EXPECTED_RED:
+                print("      %s" % (EXPECTED_RED[name] if not ok else
+                                    "⚠ STALE `EXPECTED_RED` ENTRY: this arm is GREEN now, so its "
+                                    "entry no longer describes anything. Delete it."))
             passed += 1 if ok else 0
+            if not ok:
+                failed_names.append(name)
         print("%d/%d checks passed" % (passed, len(selected)))
+        expected = [n for n in failed_names if n in EXPECTED_RED]
+        if expected:
+            print("NOT a clean run BY DESIGN: %d of the %d failing arm(s) are EXPECTED RED and "
+                  "documented at the arm above — %s. Each names its cause and the task that owns "
+                  "it. Do NOT weaken an arm to raise this tally."
+                  % (len(expected), len(failed_names), ", ".join(expected)))
         return 0 if passed == len(selected) else 1
     finally:
         if tmp:
@@ -834,7 +1084,7 @@ def main():
         description=("Recompute every seat's run state from disk, on demand (task 7.127 / M4-12). "
                      "It COMPUTES; it never reads a stored state, because there is none."),
         epilog=("THE STATE VOCABULARY: " + ", ".join("`%s`" % s for s in STATES) + ".\n\n"
-                + UNREACHABLE_NOTE + "\n\n"
+                + GUARD_EXCLUDED_NOTE + "\n\n"
                 "`running` is the ROSTER reading — an ACTIVE roster row via ready_seat_rows() — "
                 "ruled at decisions.md#p-recompute-cli-reads-RUNNING-from-the-ROSTER, not the "
                 "trace's empty `ended` cell. Rows where the two readings disagree (the "
@@ -880,7 +1130,7 @@ def main():
         for c in res["caveats"]:
             print("\ncaveat: %s" % c)
         # Criterion 5 — stated on EVERY run, not only in --help.
-        print("\n⚠ %s" % UNREACHABLE_NOTE)
+        print("\n⚠ %s" % GUARD_EXCLUDED_NOTE)
 
     # FAIL LOUD: divergences go to stderr too, so a reader who did not ask for JSON still sees
     # them. The rider's whole point is that these rows are never silently normalized.
