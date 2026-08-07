@@ -63,14 +63,25 @@ function fixture() {
 
   // The DECLARING seat — the channel-master's shape (read-root plus the three new keys).
   fs.writeFileSync(path.join(runDir, 'seats', 'mine', 'seat.md'),
-    '---\nseat: mine\nread-root: true\nbus-write: true\nlocal-bin: true\ngateway-env: true\n---\nbriefing\n');
+    '---\nseat: mine\nread-root: true\nbus-write: true\ngoals-write: true\nlocal-bin: true\ngateway-env: true\n---\nbriefing\n');
   // The seat that declares NOTHING — the fail-closed control.
   fs.writeFileSync(path.join(runDir, 'seats', 'plain', 'seat.md'), '---\nseat: plain\n---\nbriefing\n');
 
   fs.writeFileSync(path.join(beta, 'runs', 'run-1', 'coordination', 'messages.md'), 'peer goal bus\n');
+  // The goals-write target: a peer goal's open run with the two surfaces the materializer writes
+  // (a seats/ dir, a taskforce.csv) AND the ground truth the grant must carve back read-only.
+  fs.mkdirSync(path.join(beta, 'runs', 'run-1', 'seats'), { recursive: true });
+  fs.writeFileSync(path.join(beta, 'runs', 'run-1', 'taskforce.csv'), 'taskforce-id,seat\n');
+  fs.writeFileSync(path.join(beta, 'runs', 'run-1', 'sessions.csv'), 'seat,session-id,pid,pid-starttime\nthem,s9,9,9\n');
 
   return {
     root, ws, runDir,
+    betaRun: path.join(beta, 'runs', 'run-1'),
+    betaSessions: path.join(beta, 'runs', 'run-1', 'sessions.csv'),
+    betaTaskforce: path.join(beta, 'runs', 'run-1', 'taskforce.csv'),
+    betaSeats: path.join(beta, 'runs', 'run-1', 'seats'),
+    deltaRun: path.join(delta, 'runs', 'run-1'),
+    alphaClosedRun: path.join(alpha, 'runs', 'run-0'),
     mineDir: path.join(runDir, 'seats', 'mine'),
     plainDir: path.join(runDir, 'seats', 'plain'),
     sessionsCsv: path.join(runDir, 'sessions.csv'),
@@ -96,10 +107,19 @@ function hasFlag(flags, verb, p) {
   return false;
 }
 
+// bwrap does NOT clear the environment, so a caged child inherits the SPAWNER's PATH. In
+// production that spawner is the daemon under the systemd --user manager, whose PATH has no
+// ~/.local/bin — that absence is the whole reason the PATH setenv exists. This probe runs from an
+// interactive shell whose PATH usually DOES have it, which would let the local-bin resolution leg
+// pass with the grant removed (measured: it did). So the child env is pinned to the manager-shaped
+// PATH here, and only the composed `--setenv PATH` can put ~/.local/bin back.
+const MANAGER_PATH = '/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin';
+
 function inCage(seatDir, flags, script) {
   const argv = buildBwrapArgv({ argv: ['bash', '-c', script], workdir: seatDir, harness: null, seatBinds: flags });
+  const env = { ...process.env, PATH: MANAGER_PATH };
   try {
-    const stdout = execFileSync(argv[0], argv.slice(1), { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000, encoding: 'utf8' });
+    const stdout = execFileSync(argv[0], argv.slice(1), { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000, encoding: 'utf8', env });
     return { exit: 0, stdout: stdout.trim() };
   } catch (err) {
     return { exit: err.status === undefined ? -1 : err.status, stdout: (err.stdout || '').toString().trim() };
@@ -131,9 +151,12 @@ capture('probe-seat-grant-classes', async (lines) => {
       `own-coordination --bind count ${granted.filter((a, i) => a === '--bind' && granted[i + 1] === f.ownCoord).length}`);
     leg('G1c', 'a CLOSED run of the same goal is NOT bound at all',
       !granted.includes(f.closedCoord), `closed-run coordination present in flags: ${granted.includes(f.closedCoord)}`);
-    leg('G1d', 'a goal whose open run has NO coordination dir contributes nothing (never created)',
-      !granted.some((a) => a.startsWith(f.gammaRun)) && !fs.existsSync(path.join(f.gammaRun, 'coordination')),
-      `flags mention gamma run: ${granted.some((a) => a.startsWith(f.gammaRun))}; dir created on disk: ${fs.existsSync(path.join(f.gammaRun, 'coordination'))}`);
+    // Class-specific by construction: the claim is that BUS-WRITE contributes nothing for a run
+    // with no coordination dir, so it is asserted on that dir — not on "no flag mentions this
+    // run", which another grant class over the same run folder (goals-write) legitimately does.
+    leg('G1d', 'a goal whose open run has NO coordination dir contributes no bus opening (never created)',
+      !granted.includes(path.join(f.gammaRun, 'coordination')) && !fs.existsSync(path.join(f.gammaRun, 'coordination')),
+      `gamma coordination in flags: ${granted.includes(path.join(f.gammaRun, 'coordination'))}; dir created on disk: ${fs.existsSync(path.join(f.gammaRun, 'coordination'))}`);
     leg('G1e', 'a goal with no OPEN run contributes nothing',
       !granted.includes(f.deltaCoord), `delta (closed-only) coordination present: ${granted.includes(f.deltaCoord)}`);
 
@@ -149,12 +172,44 @@ capture('probe-seat-grant-classes', async (lines) => {
         !granted.includes(LOCAL_BIN), `${LOCAL_BIN} does not exist; flags mention it: ${granted.includes(LOCAL_BIN)}`);
     }
 
+    // ── G2b/G2c — the bind is only half the grant: the CLIs must resolve BY NAME. A caged
+    // session inherits the systemd user manager's PATH, which has no ~/.local/bin, so before the
+    // PATH setenv every promised CLI was "command not found" with its directory mounted.
+    if (fs.existsSync(LOCAL_BIN)) {
+      const pathIdx = granted.indexOf('PATH');
+      leg('G2b', 'local-bin also puts ~/.local/bin FIRST on the caged PATH',
+        pathIdx > 0 && granted[pathIdx - 1] === '--setenv' && granted[pathIdx + 1].startsWith(`${LOCAL_BIN}:`),
+        `setenv PATH = ${JSON.stringify(pathIdx > 0 ? granted[pathIdx + 1] : null)}`);
+
+      // A REGULAR-FILE executable, never a symlink: most ~/.local/bin entries point at targets
+      // outside the mounted set (the real workspace, or `claude` under the HOME tmpfs), and a
+      // dangling target fails `command -v` for a reason that has nothing to do with PATH. This
+      // leg's claim is name RESOLUTION, so it is asserted on an entry whose bytes are right there.
+      const exe = fs.readdirSync(LOCAL_BIN).find((n) => {
+        try {
+          const st = fs.lstatSync(path.join(LOCAL_BIN, n));
+          return st.isFile() && (st.mode & 0o111);
+        } catch { return false; }
+      });
+      if (exe) {
+        const resolved = inCage(f.mineDir, granted, `command -v ${exe} || echo NOT-FOUND`);
+        leg('G2c', 'a user-local CLI resolves by NAME inside the cage (the grant is reachable, not just mounted)',
+          resolved.stdout === path.join(LOCAL_BIN, exe), `command -v ${exe} -> ${JSON.stringify(resolved.stdout)}`);
+      } else {
+        leg('G2c', '~/.local/bin holds no executable to resolve — nothing to assert', true, `${LOCAL_BIN} has no executable file`);
+      }
+    }
+
     // ── G3 — gateway-env is an env var, not a mount, and carries NO token.
     const setenvIdx = granted.indexOf('--setenv');
-    leg('G3', 'gateway-env passes IGNITE_GATEWAY_ADDR and nothing else',
+    // The claim is that NO TOKEN rides this list — so it is asserted as a whitelist of variable
+    // NAMES, not as a count. A count breaks the moment another grant class legitimately sets one
+    // (PATH did), and "the count changed" is not the failure anyone cares about here.
+    const setenvNames = granted.filter((a, i) => granted[i - 1] === '--setenv');
+    leg('G3', 'gateway-env passes IGNITE_GATEWAY_ADDR, and the only other var set is PATH — no token ever rides',
       setenvIdx >= 0 && granted[setenvIdx + 1] === 'IGNITE_GATEWAY_ADDR' && granted[setenvIdx + 2] === GATEWAY_ADDR
-      && granted.filter((a) => a === '--setenv').length === 1,
-      `setenv triple: ${JSON.stringify(granted.slice(setenvIdx, setenvIdx + 3))}; setenv count ${granted.filter((a) => a === '--setenv').length}`);
+      && setenvNames.every((n) => n === 'IGNITE_GATEWAY_ADDR' || n === 'PATH'),
+      `setenv triple: ${JSON.stringify(granted.slice(setenvIdx, setenvIdx + 3))}; all setenv names ${JSON.stringify(setenvNames)}`);
 
     // ── G4 — THE FAIL-CLOSED CONTROL. A seat declaring none of the keys gets none of it.
     leg('G4', 'a seat declaring NO keys gets no bus-write, no local-bin, no gateway env',
@@ -174,6 +229,51 @@ capture('probe-seat-grant-classes', async (lines) => {
     inCage(f.mineDir, granted, `echo "a cross-goal message" >> ${peerFile}`);
     leg('G5b', "another goal's open-run coordination dir is genuinely writable from inside the cage",
       bytes(peerFile).includes('a cross-goal message'), `peer bus file now: ${JSON.stringify(bytes(peerFile).trim())}`);
+
+    // ── G6 — goals-write: the seat materializer's write set, and the two narrowings that bound it.
+    leg('G6a', "a declaring seat gets RW on another goal's OPEN RUN FOLDER (not just its coordination dir)",
+      hasFlag(granted, '--bind', f.betaRun), `--bind ${f.betaRun}: ${hasFlag(granted, '--bind', f.betaRun)}`);
+    leg('G6b', "the seat's OWN run folder is NEVER granted — the peer-seat tmpfs and seat.md carve stay unshadowed",
+      !hasFlag(granted, '--bind', f.runDir), `--bind own runDir: ${hasFlag(granted, '--bind', f.runDir)}`);
+    leg('G6c', "each granted run's sessions.csv is carved back READ-ONLY, after the rw opening",
+      hasFlag(granted, '--ro-bind', f.betaSessions)
+      && granted.lastIndexOf(f.betaSessions) > granted.lastIndexOf(f.betaRun),
+      `--ro-bind ${f.betaSessions}: ${hasFlag(granted, '--ro-bind', f.betaSessions)}; carve after bind: ${granted.lastIndexOf(f.betaSessions) > granted.lastIndexOf(f.betaRun)}`);
+    // THE SET, not a spot check. Asserting "beta is present" cannot tell an open-run resolver
+    // from an every-run one — beta has a single run. The exact set can: it fails if a CLOSED run
+    // is granted (alpha/run-0, delta/run-1), if the OWN run leaks in (alpha/run-1), or if an open
+    // run is missed (gamma, whose run folder has no coordination dir — a goals-write grant does
+    // not depend on one). Derived from the composed flags, compared against the fixture's own
+    // declared open runs.
+    const grantedRunDirs = [];
+    for (let i = 0; i < granted.length; i++) {
+      if (granted[i] === '--bind' && /[\\/]runs[\\/]run-\d+$/.test(granted[i + 1] || '')) grantedRunDirs.push(granted[i + 1]);
+    }
+    const expected = [f.betaRun, f.gammaRun].sort();
+    leg('G6d', 'the granted RUN-FOLDER set is exactly the OPEN runs of other goals — no closed run, no own run',
+      JSON.stringify([...new Set(grantedRunDirs)].sort()) === JSON.stringify(expected),
+      `granted ${JSON.stringify([...new Set(grantedRunDirs)].sort())} vs expected ${JSON.stringify(expected)} `
+      + `(alpha/run-0 closed, alpha/run-1 own, delta/run-1 closed all absent)`);
+    leg('G6h', 'a seat declaring nothing gets no run folder at all',
+      !plain.includes(f.betaRun) && !plain.includes(f.gammaRun) && !plain.includes(f.deltaRun) && !plain.includes(f.alphaClosedRun),
+      `plain seat run-folder openings: ${JSON.stringify(plain.filter((a) => /[\\/]runs[\\/]run-\d+$/.test(a)))}`);
+
+    // The materializer's two writes, proven ON DISK from outside the cage — and the carve proven
+    // the same way, by the bytes of the file the grant must NOT have opened.
+    inCage(f.mineDir, granted, `mkdir -p ${f.betaSeats}/seated && echo "seat: seated" > ${f.betaSeats}/seated/seat.md`);
+    leg('G6e', "a seat descriptor can be materialized into another goal's open run",
+      bytes(path.join(f.betaSeats, 'seated', 'seat.md')).includes('seat: seated'),
+      `seated seat.md: ${JSON.stringify(bytes(path.join(f.betaSeats, 'seated', 'seat.md')).trim())}`);
+    // The atomic append shape materialize-seats.py actually uses: tmp file in the SAME dir + rename.
+    inCage(f.mineDir, granted,
+      `cp ${f.betaTaskforce} ${f.betaRun}/.tf.tmp && echo "tf-1,seated" >> ${f.betaRun}/.tf.tmp && mv ${f.betaRun}/.tf.tmp ${f.betaTaskforce}`);
+    leg('G6f', 'taskforce.csv appends via tmp-file-plus-rename IN the run dir (why the grant is the run dir)',
+      bytes(f.betaTaskforce).includes('tf-1,seated'), `taskforce.csv now: ${JSON.stringify(bytes(f.betaTaskforce).trim())}`);
+    const betaBefore = bytes(f.betaSessions);
+    const spoof = inCage(f.mineDir, granted, `echo "imposter,999,999,999" >> ${f.betaSessions}`);
+    leg('G6g', "the GRANTED run's sessions.csv is still unwritable — no cross-goal identity spoofing",
+      bytes(f.betaSessions) === betaBefore,
+      `on-disk bytes ${bytes(f.betaSessions) === betaBefore ? 'UNCHANGED' : 'CHANGED — WALL BREACHED'} (in-cage exit ${spoof.exit}, not the evidence)`);
 
     const envRead = inCage(f.mineDir, granted, 'printf %s "$IGNITE_GATEWAY_ADDR"');
     leg('G5c', 'IGNITE_GATEWAY_ADDR arrives in the caged session',

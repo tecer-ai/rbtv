@@ -446,6 +446,53 @@ function resolveBusWriteGrants(seatPath) {
   return grants;
 }
 
+// `goals-write: true` — RW on the RUN FOLDER of every goal's OPEN run, so a seat holding the
+// materializer (`team-kit/materialize-seats.py`) can seat a cataloged seat into a live run: it
+// writes `seats/<seat>/seat.md` and appends `taskforce.csv`, and that append is an atomic
+// tmp-file-plus-rename IN THE RUN DIR — which is why the grant is the run dir and not `seats/`
+// alone. Same open-run scoping as `bus-write` above, through the same one reader of runs.csv.
+//
+// TWO NARROWINGS, both load-bearing:
+//
+//   1. THE SEAT'S OWN RUN IS NEVER GRANTED. A run-seated seat would otherwise re-open its own
+//      run dir read-write ON TOP of `tmpfs:{runDir}/seats` and the `ro-bind:{seatDir}/seat.md`
+//      carve — un-erasing peer seat folders and handing the occupant its own permission record.
+//      (The ground-truth assertion would then refuse the whole spawn; failing closed is correct
+//      but useless. Excluding the own run keeps the grant usable AND the carves intact.)
+//   2. EVERY GRANTED RUN'S `sessions.csv` IS CARVED BACK READ-ONLY, by the second grant field
+//      below and the template line that consumes it. The identity gate reads that file to decide
+//      who is sitting in a run; a cross-goal writer of it could spoof any seat's identity.
+//      `assertGroundTruthUnwritable` only guards THIS seat's own sessions.csv — it cannot see the
+//      other runs this grant opens, so the carve is what keeps them shut.
+function resolveGoalsWriteGrants(seatPath) {
+  if (!seatDeclares(seatPath.seatDir, 'goals-write')) return [];
+  const goalsDir = path.join(seatPath.workspaceRoot, '.rbtv', 'goals');
+  let goals;
+  try {
+    goals = fs.readdirSync(goalsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  } catch {
+    return [];
+  }
+  const grants = [];
+  for (const goal of goals) {
+    const register = openRunsOfGoal({ workspaceRoot: seatPath.workspaceRoot, goal });
+    if (!register.ok) continue; // a service-seat folder or a goal with no run log — nothing to seat into
+    for (const row of register.open) {
+      const run = row[register.runCol];
+      if (!run) continue;
+      const runDir = path.join(register.goalDir, 'runs', run);
+      if (!fs.existsSync(runDir)) continue;        // never created from here
+      if (contains(runDir, seatPath.seatDir)) continue; // narrowing 1 — never the seat's own run
+      grants.push({ goalsWrite: runDir });
+      const sessions = path.join(runDir, 'sessions.csv');
+      // narrowing 2 — a SEPARATE grant so the carve line composes only where the file exists;
+      // a run with no sessions.csv yet has no ground truth to carve back.
+      if (fs.existsSync(sessions)) grants.push({ goalsWriteGroundTruth: sessions });
+    }
+  }
+  return grants;
+}
+
 // `local-bin: true` — the invoking user's ~/.local/bin, READ-ONLY (D26: os.homedir(), never a
 // literal). It is under the HOME tmpfs bwrap.js lays down, so this bind punches it back through.
 function resolveLocalBinGrant(seatPath) {
@@ -574,6 +621,9 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
     if (!fs.existsSync(seatPath.sessionsCsv)) fs.writeFileSync(seatPath.sessionsCsv, '');
     template = [...template, 'ro-bind:{seatDir}/sessions.csv'];
   }
+  // Resolved ONCE: the same grant decides the mount below and the PATH entry after it. Two
+  // resolutions would be two answers the first time either gained a case.
+  const localBin = resolveLocalBinGrant(seatPath);
   const spec = composeSeatCage({
     seatBinds: template,
     values: {
@@ -587,7 +637,8 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       ...resolveHarnessCredGrants(),
       ...resolveReadRootGrant(seatPath),
       ...resolveBusWriteGrants(seatPath),
-      ...resolveLocalBinGrant(seatPath),
+      ...resolveGoalsWriteGrants(seatPath),
+      ...localBin,
       ...resolveRwPathGrants(seatPath, log),
     ],
   });
@@ -595,6 +646,21 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   const flags = specToBwrapFlags(spec);
   if (gatewayAddr && seatDeclares(seatPath.seatDir, 'gateway-env')) {
     flags.push('--setenv', 'IGNITE_GATEWAY_ADDR', gatewayAddr);
+  }
+  // …and PATH, for the same reason the bind exists. A caged session inherits the systemd --user
+  // manager's PATH, which does NOT contain ~/.local/bin (the same fact the restart-daemon job
+  // notes in spawn-profiles.yaml). So `local-bin: true` mounted the user CLIs at a path nothing
+  // would ever look in: the seat is PROMISED `coordinate`, `teamview`, `gtools`, `sb-task`,
+  // `ignite`, `scaffold-seats` by name, and every one of them resolved to "command not found" —
+  // measured in a live channel-master sitting, 2026-08-06. A mount the occupant cannot NAME is
+  // not a grant. Emitted only WITH the grant, so a seat without it sees no PATH change at all.
+  if (localBin.length > 0) {
+    const base = process.env.PATH || '/usr/local/bin:/usr/bin:/bin';
+    // Prepend, then DEDUPE preserving first-seen order: the daemon's own PATH may already carry
+    // ~/.local/bin (or repeat entries from a shell that sourced a profile twice), and a caged
+    // session should not inherit that noise in a variable this module is now the author of.
+    const dirs = [...new Set([localBin[0].localBin, ...base.split(':').filter(Boolean)])];
+    flags.push('--setenv', 'PATH', dirs.join(':'));
   }
   return flags;
 }

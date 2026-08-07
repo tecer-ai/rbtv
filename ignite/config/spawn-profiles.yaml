@@ -63,6 +63,11 @@ default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every s
 # occupant can never widen its own walls; an absent key composes the line to NOTHING.
 #   read-root: true    ro-bind the workspace root (the master role's read-everything mandate)
 #   bus-write: true    RW the coordination dir of EVERY goal's OPEN run (the coordination CLI)
+#   goals-write: true  RW the RUN FOLDER of every goal's OPEN run, EXCEPT the seat's own run,
+#                      with each granted run's sessions.csv carved back read-only (the seat
+#                      materializer: seats/<seat>/seat.md + the taskforce.csv append). Creates
+#                      nothing: a run folder that is not there is not opened, so materializing a
+#                      NEW run package stays outside this grant.
 #   local-bin: true    ro-bind the invoking user's ~/.local/bin (the user-local CLIs)
 #   gateway-env: true  NOT a mount — passes IGNITE_GATEWAY_ADDR into the session's environment
 #                      (a `--setenv`, composed beside these binds; no token, ever)
@@ -130,6 +135,18 @@ cage:
     # in sequence are harmless under the same shadow rule that makes this whole stack work,
     # and a dedupe would be a second place where bind order is reasoned about.
     - "bind:{grant:busWrite}"
+    # GOALS-WRITE grant (owner ruling, 2026-08-07): the RUN FOLDER of every goal's OPEN run,
+    # READ-WRITE, one opening per grant — the materializer's write set (seats/<seat>/seat.md,
+    # plus the atomic tmp-and-rename that appends taskforce.csv IN the run dir). Same placement
+    # reasoning as busWrite: after the runs tmpfs and after the read-root ro floor. The seat's
+    # OWN run is never a grant (resolveGoalsWriteGrants excludes it), so the two carves above —
+    # peer-seat tmpfs and the seat.md ro-bind — are never shadowed by this line.
+    - "bind:{grant:goalsWrite}"
+    # …and the CARVE that makes it safe: each granted run's sessions.csv back to READ-ONLY.
+    # It is the identity gate's ground truth for the seats of THAT run; the compose-time
+    # assertion guards only the spawning seat's own copy, so this line is the wall for the
+    # others. Immediately after, because order is what makes a carve win.
+    - "ro-bind:{grant:goalsWriteGroundTruth}"
     # W2 — the seat's own worktree(s), one opening per grant (task 7.38). No grants -> no
     # openings; another seat's worktree is never a grant of this seat.
     - "bind:{grant:worktree}"
