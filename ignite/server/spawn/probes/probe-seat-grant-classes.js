@@ -1,10 +1,12 @@
 'use strict';
 
-// Owner ruling "1a" (2026-08-06) — the three CROSS-GOAL INSTRUMENT grant classes:
+// Owner ruling "1a" (2026-08-06) — the CROSS-GOAL INSTRUMENT grant classes:
 //
 //   bus-write: true    RW the coordination dir of EVERY goal's OPEN run
 //   local-bin: true    ro-bind the invoking user's ~/.local/bin
 //   gateway-env: true  IGNITE_GATEWAY_ADDR in the session's environment (a --setenv, not a mount)
+//   tmux-socket: true  ro-bind tmux's socket dir back through bwrap's `--tmpfs /tmp`, so the
+//                      coordination CLI's WAKE leg can reach a pane (owner-directed 2026-08-07)
 //
 // This probe drives `composeCageFor` — the ONE composer both spawn doors use — against a real goal
 // tree on disk and against the SHIPPED template (`config/spawn-profiles.yaml`'s `cage.SeatBinds`,
@@ -25,6 +27,10 @@ const { buildBwrapArgv } = require('../bwrap');
 
 const GATEWAY_ADDR = '127.0.0.1:7431';
 const LOCAL_BIN = path.join(os.homedir(), '.local', 'bin');
+// tmux's OWN default socket dir, derived exactly as resolveTmuxSocketGrant derives it — the same
+// second-spelling the LOCAL_BIN line above accepts, and for the same reason: a probe that imported
+// the resolver's answer could not tell a right answer from a resolver agreeing with itself.
+const TMUX_SOCK_DIR = path.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`);
 
 // The SHIPPED cage template.
 function shippedSeatBinds() {
@@ -63,7 +69,7 @@ function fixture() {
 
   // The DECLARING seat — the channel-master's shape (read-root plus the three new keys).
   fs.writeFileSync(path.join(runDir, 'seats', 'mine', 'seat.md'),
-    '---\nseat: mine\nread-root: true\nbus-write: true\ngoals-write: true\nlocal-bin: true\ngateway-env: true\n---\nbriefing\n');
+    '---\nseat: mine\nread-root: true\nbus-write: true\ngoals-write: true\nlocal-bin: true\ngateway-env: true\ntmux-socket: true\n---\nbriefing\n');
   // The seat that declares NOTHING — the fail-closed control.
   fs.writeFileSync(path.join(runDir, 'seats', 'plain', 'seat.md'), '---\nseat: plain\n---\nbriefing\n');
 
@@ -279,10 +285,61 @@ capture('probe-seat-grant-classes', async (lines) => {
     leg('G5c', 'IGNITE_GATEWAY_ADDR arrives in the caged session',
       envRead.stdout === GATEWAY_ADDR, `in-cage value ${JSON.stringify(envRead.stdout)}`);
 
+    // ── G7 — tmux-socket. The bind is only half the grant here too (G2c's lesson): bwrap lays a
+    // `--tmpfs /tmp` over this path on EVERY spawn, so what has to be shown is that a tmux CLIENT
+    // COMMAND reaches a live server through the opening — not that a path appears in the flags.
+    //
+    // The server is a PRIVATE one on its own `-L` socket, which lands in the very directory the
+    // grant binds, so the leg exercises the real opening without ever addressing a live room
+    // (G-163: a probe must not touch tracked state). It is killed in the finally block.
+    const probeSocket = `grantprobe-${process.pid}`;
+    let tmuxUp = false;
+    try {
+      execFileSync('tmux', ['-L', probeSocket, 'new-session', '-d', '-s', 'p', 'cat'], { stdio: 'ignore', timeout: 15000 });
+      tmuxUp = true;
+    } catch {}
+
+    if (!tmuxUp) {
+      leg('G7', 'tmux unavailable on this box — the grant cannot be exercised here', true,
+        'no tmux server could be started; G7a-d skipped rather than passed for the wrong reason');
+    } else {
+      leg('G7a', "tmux's socket dir is bound READ-ONLY (never rw)",
+        hasFlag(granted, '--ro-bind', TMUX_SOCK_DIR) && !hasFlag(granted, '--bind', TMUX_SOCK_DIR),
+        `--ro-bind ${TMUX_SOCK_DIR}: ${hasFlag(granted, '--ro-bind', TMUX_SOCK_DIR)}; --bind: ${hasFlag(granted, '--bind', TMUX_SOCK_DIR)}`);
+
+      // THE REACHABILITY LEG — the one that would have caught the live defect. A read-only mount
+      // does not refuse connect(2) on a unix socket, which is the whole reason ro is sufficient;
+      // if that ever stopped holding, this goes red while G7a stays green.
+      const listed = inCage(f.mineDir, granted, `tmux -L ${probeSocket} list-sessions -F '#{session_name}' 2>&1 || echo UNREACHABLE`);
+      leg('G7b', 'a caged seat REACHES a live tmux server through the ro opening (connect(2) is not refused by a ro mount)',
+        listed.stdout === 'p', `in-cage list-sessions -> ${JSON.stringify(listed.stdout)}`);
+
+      // The wake leg's own primitives, not a proxy for them: coord.py drives panes with exactly
+      // send-keys/capture-pane, and it is those that died on the masked socket.
+      const woke = inCage(f.mineDir, granted,
+        `tmux -L ${probeSocket} send-keys -t p -l wake-probe && tmux -L ${probeSocket} capture-pane -p -t p | tr -d '\\n'`);
+      leg('G7c', "the WAKE primitives work through it — send-keys types and capture-pane reads it back",
+        woke.stdout.includes('wake-probe'), `in-cage capture after send-keys -> ${JSON.stringify(woke.stdout)}`);
+
+      // …and the BOUND that read-only buys: the seat drives rooms that exist, it mints none.
+      // Proven ON DISK from outside the cage (design §6, D51) — the socket file's absence, not
+      // the in-cage exit status.
+      const mintSocket = path.join(TMUX_SOCK_DIR, `grantprobe-mint-${process.pid}`);
+      const mint = inCage(f.mineDir, granted, `tmux -L grantprobe-mint-${process.pid} new-session -d -s m true 2>&1 || echo REFUSED`);
+      leg('G7d', 'read-only is a real bound: a caged seat cannot MINT a tmux server in that dir',
+        !fs.existsSync(mintSocket),
+        `socket on disk after the attempt: ${fs.existsSync(mintSocket) ? 'CREATED — WALL BREACHED' : 'ABSENT'} (in-cage output ${JSON.stringify(mint.stdout)}, not the evidence)`);
+    }
+
+    // ── G7e — the fail-closed control for this class, on the seat that declares nothing.
+    leg('G7e', 'a seat declaring no tmux-socket key gets no tmux opening at all',
+      !plain.includes(TMUX_SOCK_DIR), `plain seat mentions ${TMUX_SOCK_DIR}: ${plain.includes(TMUX_SOCK_DIR)}`);
+
     lines.push('');
     lines.push(`legs: ${fails.length === 0 ? 'ALL PASS' : `FAILED -> ${fails.join(', ')}`}`);
     if (fails.length > 0) throw new Error(`grant-class probes failed: ${fails.join(', ')}`);
   } finally {
+    try { execFileSync('tmux', ['-L', `grantprobe-${process.pid}`, 'kill-server'], { stdio: 'ignore', timeout: 15000 }); } catch {}
     try { fs.rmSync(f.root, { recursive: true, force: true }); } catch {}
   }
 });

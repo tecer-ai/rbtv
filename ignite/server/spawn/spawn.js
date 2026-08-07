@@ -501,6 +501,30 @@ function resolveLocalBinGrant(seatPath) {
   return fs.existsSync(localBin) ? [{ localBin }] : [];
 }
 
+// `tmux-socket: true` — the tmux server's socket DIRECTORY, READ-ONLY (owner-directed 2026-08-07).
+//
+// bwrap lays a `--tmpfs /tmp` on EVERY spawn, which masks that directory. So a caged seat holding
+// the coordination CLI can log a message but its WAKE leg dies on
+// `error connecting to /tmp/tmux-<uid>/default (No such file or directory)`: the recipient is never
+// nudged, and the sender reports the socket as "not wired to this seat" — which reads as a missing
+// per-seat wiring rather than the one tmpfs that hides the socket from every seat alike. Measured
+// in a live channel-master sitting on 2026-08-07, and reproduced against the shipped cage.
+//
+// READ-ONLY IS THE WHOLE GRANT, and it is not a half-measure. `connect(2)` on a unix socket is NOT
+// refused by a read-only mount — the kernel's `sb_permission` returns EROFS only for regular files,
+// directories and symlinks — so `send-keys`, `capture-pane`, `display-message` and `list-panes` all
+// work through it, while CREATING or DELETING a socket does not. The seat drives the rooms that
+// already exist; it can neither mint nor destroy one. Both halves measured on this box, 2026-08-07.
+//
+// The path is tmux's OWN default — `$TMUX_TMPDIR/tmux-<uid>`, else `/tmp/tmux-<uid>` — derived from
+// the daemon's environment and uid rather than named in config, for the reason D26 gives for
+// `local-bin` above: a literal would write an instance path into the code tree.
+function resolveTmuxSocketGrant(seatPath) {
+  if (!seatDeclares(seatPath.seatDir, 'tmux-socket')) return [];
+  const dir = path.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`);
+  return fs.existsSync(dir) ? [{ tmuxSocketDir: dir }] : [];
+}
+
 function resolveSeatGrants(seatPath) {
   const worktreesDir = path.join(seatPath.workspaceRoot, '.rbtv', 'worktrees');
   let entries;
@@ -639,6 +663,7 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       ...resolveBusWriteGrants(seatPath),
       ...resolveGoalsWriteGrants(seatPath),
       ...localBin,
+      ...resolveTmuxSocketGrant(seatPath),
       ...resolveRwPathGrants(seatPath, log),
     ],
   });

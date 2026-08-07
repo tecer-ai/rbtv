@@ -13,9 +13,11 @@
 //      out of the gateway-API-wrapping charter this task builds to) — it
 //      prints the exact command instead.
 //
-// The sender token is UNCHANGED by any of this — resolved only from the
-// untracked env surface (IGNITE_SENDER_TOKEN), never from server.json
-// (credentials never travel in git, D27).
+// The sender token resolves only from the UNTRACKED env surface, never from
+// server.json (credentials never travel in git, D27). That surface has two
+// spellings of the same thing: the IGNITE_SENDER_TOKEN variable, and — for a
+// caller that cannot be handed an environment, such as a caged seat — the
+// workspace's gitignored `.rbtv/config/.env`. See resolveToken below.
 //
 // Field names/shape mirror server/index.js's OWN resolution verbatim
 // (resolveWorkspaceRoot / ensureInstallState / isServerJsonValid) so the CLI
@@ -137,13 +139,61 @@ function resolveGatewayAddr() {
 }
 
 // ⚑ The token NEVER appears in argv or a URL (gateway-cli-spec.md § Client
-// config — process lists and access logs leak both): env only. A missing
-// token is deliberately NOT a local error here — the request still goes out
-// with no credential so the gateway's real AUTH_REFUSED path is the one that
-// answers (gateway-cli-spec.md behavior row 6), never a client-side fake.
+// config — process lists and access logs leak both). A missing token is
+// deliberately NOT a local error here — the request still goes out with no
+// credential so the gateway's real AUTH_REFUSED path is the one that answers
+// (gateway-cli-spec.md behavior row 6), never a client-side fake.
+//
+// Resolution order:
+//   1. IGNITE_SENDER_TOKEN in the environment — the explicit surface.
+//   2. The workspace's GITIGNORED `.rbtv/config/.env`, walking up from the
+//      cwd. Same untracked env surface, read instead of inherited.
+//
+// (2) exists because (1) reaches nobody in a CAGED session. bwrap does not
+// clear the environment, so a caged seat inherits the daemon's — and the
+// daemon's unit ships `EnvironmentFile=-/dev/null`, so the token is not in
+// it. Every seat promised the `ignite` CLI therefore met AUTH_REFUSED on its
+// first call (measured against the shipped cage, 2026-08-07). The `.env` was
+// ALREADY the ruled distribution channel for this token — ignite/CLAUDE.md
+// § Installation model ("distributed out-of-band into a gitignored env
+// surface"), and spawn.js's own note that it "is already readable under the
+// read-root grant" — it simply had no reader. This is that reader.
+//
+// It stays a FILE READ, never a mount or a `--setenv`: a token emitted onto
+// the daemon's composed bwrap flag list would sit in a process list, which is
+// the one place this whole rule exists to keep it out of. `server.json` is
+// still never consulted — that file is COMMITTED, and credentials never
+// travel in git (D27).
 function resolveToken() {
   const t = process.env.IGNITE_SENDER_TOKEN;
-  return typeof t === 'string' && t.length > 0 ? t : null;
+  if (typeof t === 'string' && t.length > 0) return t;
+  return readEnvFileToken(resolveWorkspaceRoot());
+}
+
+// Walk up from `start` for `.rbtv/config/.env` and read IGNITE_SENDER_TOKEN
+// out of it. The walk is what makes this work from a SEAT FOLDER — a caged
+// session's cwd is its own seat dir, several levels below the workspace root,
+// and the root is not otherwise knowable in there. Unreadable, absent, or
+// key-less file -> null, exactly like an unset env var: this function never
+// throws, so a workspace with no `.env` still reaches the gateway's own
+// AUTH_REFUSED rather than dying locally.
+function readEnvFileToken(start) {
+  for (let dir = path.resolve(start); ; dir = path.dirname(dir)) {
+    let raw;
+    try {
+      raw = fs.readFileSync(path.join(dir, '.rbtv', 'config', '.env'), 'utf8');
+    } catch {
+      if (dir === path.dirname(dir)) return null;
+      continue;
+    }
+    // Deliberately not a dotenv parser: one key, `KEY=value` to end of line,
+    // surrounding quotes stripped. A `export ` prefix and leading whitespace
+    // are tolerated because both appear in hand-maintained env files.
+    const m = /^[ \t]*(?:export[ \t]+)?IGNITE_SENDER_TOKEN[ \t]*=[ \t]*(.*)$/m.exec(raw);
+    if (!m) return null;
+    const value = m[1].trim().replace(/^(['"])(.*)\1$/, '$2');
+    return value.length > 0 ? value : null;
+  }
 }
 
 module.exports = {

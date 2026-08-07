@@ -69,8 +69,16 @@ default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every s
 #                      nothing: a run folder that is not there is not opened, so materializing a
 #                      NEW run package stays outside this grant.
 #   local-bin: true    ro-bind the invoking user's ~/.local/bin (the user-local CLIs)
+#   tmux-socket: true  ro-bind tmux's socket dir ($TMUX_TMPDIR|/tmp)/tmux-<uid>, punched back
+#                      through bwrap's `--tmpfs /tmp` (owner-directed 2026-08-07). Without it
+#                      the coordination CLI can LOG a message but its WAKE leg cannot reach any
+#                      pane — the recipient is never nudged. READ-ONLY is sufficient AND is the
+#                      bound: connect(2) on a unix socket is not refused by a read-only mount,
+#                      so the seat drives the rooms that exist and can mint or destroy none.
 #   gateway-env: true  NOT a mount — passes IGNITE_GATEWAY_ADDR into the session's environment
-#                      (a `--setenv`, composed beside these binds; no token, ever)
+#                      (a `--setenv`, composed beside these binds; no token, ever — the sender
+#                      token reaches a CLI from the workspace's gitignored `.rbtv/config/.env`,
+#                      read there by `cli/lib/config.js` resolveToken)
 #   rw-paths:          a BLOCK LIST of workspace-relative paths bound READ-WRITE (owner ruling
 #                      "a", 2026-08-06). The generic answer to an in-workspace CLI that must
 #                      rewrite its own state under the `read-root` floor — the motivating case
@@ -167,6 +175,14 @@ cage:
     # harnessCreds because it is the same kind of opening — a path under the HOME tmpfs bwrap
     # lays down before this stack, punched back through it. Nothing later covers it.
     - "ro-bind:{grant:localBin}"
+    # TMUX-SOCKET grant (owner-directed 2026-08-07): tmux's socket DIRECTORY, READ-ONLY — the
+    # same kind of opening again, this time punched back through bwrap's `--tmpfs /tmp`, which
+    # is what hid the socket from every caged seat alike and killed the coordination CLI's wake
+    # leg. READ-ONLY is the whole grant and it is sufficient: `connect(2)` on a unix socket is
+    # not refused by a read-only mount, so send-keys/capture-pane/display-message work while
+    # creating or deleting a socket does not. Placement is free — the path is outside the
+    # workspace root, so no line in this stack covers it.
+    - "ro-bind:{grant:tmuxSocketDir}"
     # RW-PATHS grant (owner ruling "a"): the seat's declared in-workspace read-write paths,
     # one opening per entry. LAST deliberately, and the placement is the mechanism: every
     # entry lies inside the workspace root, which `ro-bind:{grant:readRoot}` covers read-only

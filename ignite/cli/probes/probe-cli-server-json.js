@@ -8,6 +8,13 @@
 // machine. Covers: own-hostname selection end-to-end against a REAL throwaway
 // daemon with NO IGNITE_GATEWAY_ADDR set; remote single-server selection;
 // multi-server ambiguity; and the legacy flat-shape fallback.
+//
+// It also covers the CLI's OTHER config half — SENDER-TOKEN resolution, and
+// specifically its fallback to the workspace's gitignored `.rbtv/config/.env`
+// (owner-directed 2026-08-07). The two belong in one probe because they are
+// one question — "how does this CLI find out who and where to call" — and
+// because the token half's whole point is the case the address half already
+// handles: a caller running deep inside a workspace with no environment.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -17,7 +24,7 @@ const {
 } = require('./lib/fixtures');
 
 const IGNITE_SRC = path.resolve(__dirname, '..', '..');
-const { selectMachineEntry, resolveGatewayAddr } = require(path.join(IGNITE_SRC, 'cli', 'lib', 'config'));
+const { selectMachineEntry, resolveGatewayAddr, resolveToken } = require(path.join(IGNITE_SRC, 'cli', 'lib', 'config'));
 const { CliUsageError } = require(path.join(IGNITE_SRC, 'cli', 'lib', 'errors'));
 
 const start = Date.now();
@@ -64,6 +71,70 @@ async function main() {
   sel = selectMachineEntry(flat, 'x');
   check('legacy flat shape (no machines map) passes through unchanged',
     sel === flat, `selected=${sel && sel.tailnet_host}`);
+
+  // ── Unit checks on TOKEN resolution (owner-directed 2026-08-07) ───────────
+  // The env var reaches nobody in a CAGED session — the daemon's unit ships
+  // `EnvironmentFile=-/dev/null`, and bwrap passes on the environment it has —
+  // so every caged seat promised the `ignite` CLI met AUTH_REFUSED. The
+  // gitignored `.rbtv/config/.env` was already the RULED distribution channel
+  // for this token; it just had no reader. These drive the reader off a real
+  // temp tree, and the WALK leg is the one the caged case depends on.
+  const tokRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'p720-token-'));
+  const tokDeep = path.join(tokRoot, '.rbtv', 'goals', '_svc');
+  fs.mkdirSync(tokDeep, { recursive: true });
+  fs.mkdirSync(path.join(tokRoot, '.rbtv', 'config'), { recursive: true });
+  const envFile = path.join(tokRoot, '.rbtv', 'config', '.env');
+  const prevTok = process.env.IGNITE_SENDER_TOKEN;
+  const prevTokWs = process.env.RBTV_IGNITE_WORKSPACE_ROOT;
+  try {
+    fs.writeFileSync(envFile, 'SLACK_BOT_TOKEN=xoxb-decoy\nIGNITE_SENDER_TOKEN=from-file\nOTHER=z\n');
+
+    process.env.RBTV_IGNITE_WORKSPACE_ROOT = tokRoot;
+    process.env.IGNITE_SENDER_TOKEN = 'from-env';
+    check('the environment variable still WINS over the file', resolveToken() === 'from-env',
+      `resolveToken()=${JSON.stringify(resolveToken())}`);
+
+    delete process.env.IGNITE_SENDER_TOKEN;
+    check('with no env var, the token is read from the gitignored .rbtv/config/.env',
+      resolveToken() === 'from-file', `resolveToken()=${JSON.stringify(resolveToken())}`);
+
+    // THE CAGED LEG. A seat's cwd is its own folder, several levels below the
+    // workspace root, and the root is not otherwise knowable in there.
+    process.env.RBTV_IGNITE_WORKSPACE_ROOT = tokDeep;
+    check('resolution WALKS UP from a seat folder to the workspace .env (the caged case)',
+      resolveToken() === 'from-file', `from ${tokDeep} -> ${JSON.stringify(resolveToken())}`);
+
+    process.env.RBTV_IGNITE_WORKSPACE_ROOT = tokRoot;
+    fs.writeFileSync(envFile, '  export IGNITE_SENDER_TOKEN = "quoted-value"  \n');
+    check('an `export `-prefixed, quoted, padded value parses to its bare value',
+      resolveToken() === 'quoted-value', `resolveToken()=${JSON.stringify(resolveToken())}`);
+
+    fs.writeFileSync(envFile, 'IGNITE_SENDER_TOKEN=\n');
+    check('a present-but-EMPTY key resolves to null, exactly like an unset var',
+      resolveToken() === null, `resolveToken()=${JSON.stringify(resolveToken())}`);
+
+    fs.rmSync(envFile);
+    let threw = null;
+    let noFile;
+    try { noFile = resolveToken(); } catch (err) { threw = err; }
+    check('an ABSENT .env is null and never throws — the gateway\'s own AUTH_REFUSED still answers',
+      threw === null && noFile === null, `threw=${threw && threw.message}; value=${JSON.stringify(noFile)}`);
+
+    // …and the file is never a SECOND source of the address: server.json owns
+    // that, and this reader must not have quietly become a general env loader.
+    fs.writeFileSync(envFile, 'IGNITE_GATEWAY_ADDR=10.9.9.9:1\nIGNITE_SENDER_TOKEN=t\n');
+    const prevAddrEnv = process.env.IGNITE_GATEWAY_ADDR;
+    delete process.env.IGNITE_GATEWAY_ADDR;
+    let addrFromFile = null;
+    try { addrFromFile = resolveGatewayAddr(); } catch (err) { addrFromFile = err.constructor.name; }
+    check('the .env reader takes ONLY the token — the gateway address is not loaded from it',
+      addrFromFile === 'CliUsageError', `resolveGatewayAddr() -> ${JSON.stringify(addrFromFile)}`);
+    if (prevAddrEnv !== undefined) process.env.IGNITE_GATEWAY_ADDR = prevAddrEnv;
+  } finally {
+    if (prevTok === undefined) delete process.env.IGNITE_SENDER_TOKEN; else process.env.IGNITE_SENDER_TOKEN = prevTok;
+    if (prevTokWs === undefined) delete process.env.RBTV_IGNITE_WORKSPACE_ROOT; else process.env.RBTV_IGNITE_WORKSPACE_ROOT = prevTokWs;
+    try { fs.rmSync(tokRoot, { recursive: true, force: true }); } catch {}
+  }
 
   // ── End-to-end: real CLI resolves a REAL daemon through the map ──────────
   const ws = makeWorkspace('p720-cli-serverjson');
