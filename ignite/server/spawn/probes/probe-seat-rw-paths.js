@@ -152,8 +152,11 @@ capture('probe-seat-rw-paths', async (lines) => {
 
     // ── R4 — THE FAIL-CLOSED CONTROL. A seat without the key gets no rw opening at all.
     leg('R4', 'a seat with NO rw-paths key gets nothing (and no refusal log)',
-      !hasFlag(plain, '--bind', f.creds) && plainLogs.length === 0,
-      `--bind ${f.creds}: ${hasFlag(plain, '--bind', f.creds)}; log lines ${plainLogs.length}`);
+      // Counts REFUSALS, not log lines: composeCageFor logs one unconditional info line per spawn
+      // (the ancestor-mask policy), so a bare line count would make this leg fail on any future
+      // logging the cage adds — and pass for the wrong reason if rw-paths ever went silent.
+      !hasFlag(plain, '--bind', f.creds) && plainLogs.filter((l) => l.includes('rw-paths entry REFUSED')).length === 0,
+      `--bind ${f.creds}: ${hasFlag(plain, '--bind', f.creds)}; rw-paths refusals ${plainLogs.filter((l) => l.includes('rw-paths entry REFUSED')).length} (all logs: ${JSON.stringify(plainLogs)})`);
 
     // ── R5 — measured ON DISK from outside the cage: the opening is real, the wall still holds.
     const w1 = inCage(f.mineDir, granted, `printf '{"fresh":true}\\n' > ${token}`);

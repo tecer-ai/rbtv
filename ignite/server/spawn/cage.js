@@ -30,6 +30,8 @@
 // from an observed outcome: G-107's lesson is that checking an outcome and concluding a property
 // is how a guard comes to be enforced by nothing but the operator's habits.
 
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { SpawnError, E_CAGE_TEMPLATE, E_CAGE_GROUND_TRUTH } = require('./errors');
 
@@ -250,8 +252,107 @@ function validateSeatBindTemplate(seatBinds, profileName, filePath) {
   return true;
 }
 
+// ── r-seat-context-cut-at-launch-folder (owner, 2026-08-07) ─────────────────────────────────
+//
+// A seat inherits NO harness artifacts from the path ABOVE its launch folder. Enforced in the
+// cage rather than requested of the agent: a directory artifact gets a `--tmpfs` over it, a file
+// artifact gets `/dev/null` ro-bound over it. Both are bwrap-native — nothing on the vault is
+// edited, and the mask exists only inside this one namespace.
+//
+// THE SET, declared ONCE, by NAME. Every harness in the roster discovers instruction files and
+// project config by walking up from its cwd, so masking a name masks it for whichever harness
+// reads it; masking a name a given harness ignores costs nothing. The union is therefore the
+// right shape and a per-harness table (which would need a verified up-tree behaviour measured
+// for each of the four) is not.
+const MASK_INSTRUCTION_FILES = ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', 'AGENT.md'];
+const MASK_CONFIG_DIRS = ['.claude', '.codex', '.opencode', '.agents', '.kimi'];
+
+// The ruling's bound (i): CLAUDE.md/AGENTS.md INSIDE the goals tree stay inherited — the run
+// folder's roster, run rules and THIS-RUN-IS-CLOSED banner are the seat's actual conduct.
+const GOALS_SUBTREE = path.join('.rbtv', 'goals');
+
+// What the caged process ACTUALLY sees at a path is decided by the LAST spec entry covering it —
+// the same reading assertGroundTruthUnwritable takes, and for the same reason. Nothing covering
+// it means the path is already absent (no read-root grant, no vault), so masking it would only
+// make bwrap mkdir a mountpoint into a namespace where nothing was there to hide.
+function lastCovering(spec, target) {
+  let hit = null;
+  for (const entry of spec) if (contains(entry.path, target)) hit = entry;
+  return hit;
+}
+
+// The auto-memory store. The harness keys it on a project slug derived from the workdir, and the
+// slug the harness picks is not knowable from here without reimplementing its derivation — so
+// every existing `memory` dir under the project store is masked and the derivation question never
+// arises. The SIBLING session `.jsonl` transcripts are deliberately untouched: `--resume` reads
+// them, and the ruling's scope line requires resume to survive the memory mask.
+// ponytail: one readdir of the project store per spawn (601 entries today, sub-ms). Derive the
+// slug instead only if this ever shows up on a spawn-latency measurement.
+function memoryMaskPaths(home) {
+  const projects = path.join(home, '.claude', 'projects');
+  let entries;
+  try {
+    entries = fs.readdirSync(projects);
+  } catch {
+    return [];
+  }
+  return entries.map((e) => path.join(projects, e, 'memory')).filter((p) => fs.existsSync(p));
+}
+
+// Compose the mask FLAGS to append after a seat cage's own openings (last = wins).
+//
+//   composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructionFiles })
+//     -> { flags, masked: { instructionFiles, configDirs, memory }, policy }
+//
+// Returns flags rather than spec entries because a file mask is `--ro-bind /dev/null <file>` —
+// SRC != DEST, which the spec vocabulary (SRC == DEST throughout) cannot express.
+//
+// `keepInstructionFiles` is the CHANNEL policy (ruling bound (ii)): that seat additionally keeps
+// the path-up `CLAUDE.md`/`AGENTS.md` but NOT `.claude/`. It is a per-seat declaration, not a
+// path special-case — a second seat needing the same posture declares it and gets it.
+function composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructionFiles = false, home = os.homedir() } = {}) {
+  const flags = [];
+  const masked = { instructionFiles: 0, configDirs: 0, memory: 0 };
+  const policy = keepInstructionFiles ? 'keep-instruction-files' : 'cut-all';
+
+  const maskDir = (p) => { flags.push('--tmpfs', p); };
+  const maskFile = (p) => { flags.push('--ro-bind', '/dev/null', p); };
+
+  if (workspaceRoot && launchFolder && contains(workspaceRoot, launchFolder)) {
+    const goals = path.join(workspaceRoot, GOALS_SUBTREE);
+    // The walk starts at the launch folder's PARENT: the launch folder's own artifacts are never
+    // masked (a seat may carry its own `.claude/` with skills — the capability is kept).
+    let dir = path.dirname(path.normalize(launchFolder));
+    for (; contains(workspaceRoot, dir); dir = path.dirname(dir)) {
+      const inGoals = contains(goals, dir);
+      const names = [
+        ...(keepInstructionFiles || inGoals ? [] : MASK_INSTRUCTION_FILES),
+        ...MASK_CONFIG_DIRS,
+      ];
+      for (const name of names) {
+        const p = path.join(dir, name);
+        let st;
+        try { st = fs.statSync(p); } catch { continue; }
+        const cover = lastCovering(spec, p);
+        if (!cover || cover.verb === 'tmpfs') continue; // already absent in-namespace
+        if (st.isDirectory()) { maskDir(p); masked.configDirs++; }
+        else { maskFile(p); masked.instructionFiles++; }
+      }
+      if (dir === path.normalize(workspaceRoot)) break;
+    }
+  }
+
+  // Bound (iii): auto-memory is dropped for ALL seat spawns, channel seat included.
+  for (const p of memoryMaskPaths(home)) { maskDir(p); masked.memory++; }
+
+  return { flags, masked, policy };
+}
+
 module.exports = {
   contains,
+  composeAncestorMasks,
+  MASK_INSTRUCTION_FILES,
+  MASK_CONFIG_DIRS,
   composeSeatCage,
   assertGroundTruthUnwritable,
   specToBwrapFlags,

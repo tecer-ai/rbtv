@@ -75,6 +75,19 @@ default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every s
 #                      pane — the recipient is never nudged. READ-ONLY is sufficient AND is the
 #                      bound: connect(2) on a unix socket is not refused by a read-only mount,
 #                      so the seat drives the rooms that exist and can mint or destroy none.
+#   keep-instruction-files: true
+#                      NOT a mount either — it RELAXES the ancestor mask
+#                      (r-seat-context-cut-at-launch-folder). Every seat spawn masks the harness
+#                      artifacts on the path BETWEEN the workspace root and the launch folder
+#                      (CLAUDE.md/AGENTS.md over /dev/null, .claude/.codex/.opencode/.agents/
+#                      .kimi under a tmpfs) plus the auto-memory dir; this key keeps the path-up
+#                      INSTRUCTION FILES while the config dirs and auto-memory stay masked — the
+#                      CHANNEL seat's posture, ruled as a policy so a second seat needing it
+#                      declares it rather than being special-cased by path. The set and the walk
+#                      live in ONE place: `server/spawn/cage.js` composeAncestorMasks.
+#                      ⚠ CLAUDE.md/AGENTS.md INSIDE `.rbtv/goals/` are NEVER masked for any seat
+#                      (the goal + run folders must keep injecting), and the LAUNCH FOLDER'S OWN
+#                      artifacts are never masked — a seat may carry its own `.claude/`.
 #   gateway-env: true  NOT a mount — passes IGNITE_GATEWAY_ADDR into the session's environment
 #                      (a `--setenv`, composed beside these binds; no token, ever — the sender
 #                      token reaches a CLI from the workspace's gitignored `.rbtv/config/.env`,

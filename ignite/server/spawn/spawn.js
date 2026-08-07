@@ -8,7 +8,7 @@ const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCaged
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
-const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags, contains } = require('./cage');
+const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags, contains, composeAncestorMasks } = require('./cage');
 const { parseServiceSeatPath, parseSeatPath, checkRunLive, checkMaterializedSeat, openRunsOfGoal } = require('../seat-identity/seat-folder');
 const { appendRow, readCsv } = require('../seat-identity/csv');
 const {
@@ -704,6 +704,19 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   });
   assertGroundTruthUnwritable(spec, seatPath.sessionsCsv);
   const flags = specToBwrapFlags(spec);
+  // ── r-seat-context-cut-at-launch-folder — the ANCESTOR MASK, appended LAST ────────────────
+  // Last is the mechanism, exactly as it is for every other line of this stack: the mask must
+  // shadow the read-root ro floor and the goal/run ro-binds that made those ancestors visible in
+  // the first place. Composed for BOTH doors here because both compose through this function.
+  // `keep-instruction-files: true` is the channel policy (ruling bound (ii)) — a seat.md
+  // declaration read by the same one declaration reader every other grant class uses.
+  const mask = composeAncestorMasks(spec, {
+    workspaceRoot: seatPath.workspaceRoot,
+    launchFolder: resolvedWorkdir,
+    keepInstructionFiles: seatDeclares(seatPath.seatDir, 'keep-instruction-files'),
+  });
+  flags.push(...mask.flags);
+  log('info', 'ancestor harness artifacts masked', { policy: mask.policy, ...mask.masked });
   if (gatewayAddr && seatDeclares(seatPath.seatDir, 'gateway-env')) {
     flags.push('--setenv', 'IGNITE_GATEWAY_ADDR', gatewayAddr);
   }
