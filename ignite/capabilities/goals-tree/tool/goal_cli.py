@@ -9,6 +9,7 @@ the daemon down, which is why they live on the rbtv side and never on ignite):
     rbtv-goal lint <goal-name>
     rbtv-goal materialize <goal-name> [--catalog-root DIR] [--force] [--dry-run]
     rbtv-goal gate-key-check <goal-name> --pass-folder NAME [--override ANCHOR]
+    rbtv-goal branch-home <goal-name> [--parent REL] [--branch branch-M] [--dry-run]
 
 Grammar is owner-ruled (r-763-grammar-ruled, all four items at their recommended
 defaults) and is implemented here, not re-derived. Exit codes follow the sd-graph
@@ -342,12 +343,148 @@ def current_run_dir(goal_dir: Path, f: Findings) -> Path | None:
     return folders[-1] if folders else None
 
 
+# ---------------------------------------------------------------- branch home (MC8 / 7.450)
+#
+# The registry SETTLES this shape; nothing here invents it. `concepts/branch.md`
+# (settled-by d-branch-family): *"their files live under the parent run's branches
+# folder (`runs/run-{n}/branches/branch-{m}/`), each branch folder shaped exactly
+# like a run folder, recursively — a branch may carry its own `branches/`"*.
+#
+# THE NUMBERING RULE, stated before it runs: `branch-{M+1}` where M is the largest
+# integer suffix among the entries directly under this parent's `branches/` whose
+# NAME matches `branch-<digits>` exactly, and M = 0 when none exists. It is a
+# pure function of that listing — two calls over the same state return the same
+# name — and it never reuses a number while the higher-numbered folder is present.
+#
+# This resolver MINTS THE HOME AND NOTHING ELSE. Filling that home with a run
+# folder's contents (taskforce.csv, seat folders) is the materialization step's
+# (MC10), which is why nothing here writes a file.
+
+BRANCHES_DIR_NAME = "branches"
+BRANCH_NAME_RE = re.compile(r"^branch-(\d+)$")
+RUN_NAME_RE = re.compile(r"^run-(\d+)$")
+
+
+def branch_parent_kind(parent: Path) -> str | None:
+    """`"run"`, `"branch"`, or None — what the path itself says the parent is.
+
+    A branch homes under a RUN folder (`runs/run-{n}`) or, recursively, under
+    another BRANCH folder (`branches/branch-{m}`). Both the folder name and its
+    holder are checked: a bare directory called `run-1` sitting outside a `runs/`
+    layout is not a run folder, and admitting it would put `branches/` somewhere
+    the registry's path never reaches.
+    """
+    holder = parent.parent.name
+    if RUN_NAME_RE.match(parent.name) and holder == "runs":
+        return "run"
+    if BRANCH_NAME_RE.match(parent.name) and holder == BRANCHES_DIR_NAME:
+        return "branch"
+    return None
+
+
+def next_branch_name(branches_dir: Path) -> str:
+    """The numbering rule above, over one directory listing.
+
+    A matching NAME counts whatever the entry is. Counting only directories would
+    let a stray `branches/branch-4` FILE stay invisible to the numbering and then
+    block the mint as a collision several branches later.
+    """
+    used = []
+    if branches_dir.is_dir():
+        for p in branches_dir.iterdir():
+            m = BRANCH_NAME_RE.match(p.name)
+            if m:
+                used.append(int(m.group(1)))
+    return f"branch-{max(used, default=0) + 1}"
+
+
+def resolve_branch_home(parent: Path, branch: str | None = None,
+                        create: bool = True) -> Path:
+    """The branch home under `parent`, minted create-only. Returns its path.
+
+    `branch` names the folder explicitly (a caller that already knows the id);
+    omitted, it is auto-numbered. CREATE-ONLY: an existing home is REFUSED, never
+    reused and never written into — `mkdir` runs without `exist_ok`, so the refusal
+    holds even against a folder that appears between the check and the create.
+    """
+    parent = parent.resolve()
+    if not parent.is_dir():
+        raise Refusal(f"{parent}: no such parent run/branch folder")
+    kind = branch_parent_kind(parent)
+    if kind is None:
+        raise Refusal(
+            f"{parent}: not a run folder or a branch folder — a branch homes under "
+            f"`runs/run-{{n}}/` or, recursively, under `{BRANCHES_DIR_NAME}/branch-{{m}}/` "
+            "(concepts/branch.md, settled-by d-branch-family). Nothing was created."
+        )
+    branches_dir = parent / BRANCHES_DIR_NAME
+    if branch is None:
+        branch = next_branch_name(branches_dir)
+    elif not BRANCH_NAME_RE.match(branch):
+        raise Refusal(
+            f"branch name '{branch}' violates the settled form `branch-{{m}}` "
+            "(concepts/branch.md) — m is an integer"
+        )
+    home = branches_dir / branch
+    if home.exists():
+        raise Refusal(
+            f"{home}: already exists — minting a branch home is create-only and "
+            "never overwrites, reuses or writes into an existing home"
+        )
+    if create:
+        home.mkdir(parents=True)   # no exist_ok: the create IS the collision check
+    return home
+
+
+def cmd_branch_home(args) -> int:
+    root = resolve_goals_root(args.root)
+    goal_dir = resolve_goal_dir(root, args.goal_name)
+    if not goal_dir.is_dir():
+        raise Refusal(f"{goal_dir}: no such goal folder")
+
+    if args.parent:
+        # Same hazard resolve_goal_dir guards: an absolute right operand discards
+        # the left one, and `..` walks out — either would mint outside the goal.
+        parent = (goal_dir / args.parent).resolve()
+        if not parent.is_relative_to(goal_dir) or parent == goal_dir:
+            raise Refusal(
+                f"--parent '{args.parent}' resolves to {parent}, outside the goal folder "
+                f"{goal_dir} — it is a path RELATIVE to the goal folder, never an escape"
+            )
+    else:
+        f = Findings()
+        parent = current_run_dir(goal_dir, f)
+        if parent is None:
+            raise Refusal(f"{goal_dir}: no run compartment — nothing to home a branch under")
+
+    home = resolve_branch_home(parent, args.branch, create=not args.dry_run)
+    payload = {
+        "ok": True,
+        "goal": args.goal_name,
+        "parent": str(parent),
+        "parent_kind": branch_parent_kind(parent),
+        "branch": home.name,
+        "home": str(home),
+    }
+    if args.dry_run:
+        payload["dry_run"] = True
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    elif args.dry_run:
+        print(f"dry-run: would mint {home}")
+    else:
+        print(f"minted {home}")
+    return 0
+
+
 # ------------------------------------- the `after` MEMBER grammar (7.426 / W3)
 #
 # ⚠ THE PROOF SURFACE OF THIS ARM IS THE TEST GOAL, AND NOTHING HERE IS WIRED INTO
-# THE LIVE ROOM. `check_after_grammar` runs where a VERB invokes it (`lint`,
-# `check-acyclic`) — no daemon lane, no job, no watcher calls it. Live-room
-# adoption is a separate, later act behind `r-cutover-gated`. See README.md
+# THE LIVE ROOM. `check_after_grammar` runs where a VERB invokes it — the two
+# no-act verbs `lint` and `check-acyclic`, and, since 7.456/MC14, the `materialize`
+# ACT itself, which now REFUSES rather than reporting. No daemon lane, no job and no
+# watcher calls it, and materializing a live-room goal remains an authored act.
+# Live-room adoption is a separate, later act behind `r-cutover-gated`. See README.md
 # § "The guard-grammar arm (7.426) and its carve-out" for the full statement.
 #
 # ⚠ ONE DECOMPOSITION, IMPORTED. The member grammar `<seat>[<key>=<value>]` is
@@ -1706,6 +1843,33 @@ def cmd_materialize(args) -> int:
     if not seats:
         raise Refusal(f"{catalog_root}: no seats.csv rows found — nothing can be assembled")
 
+    # 7.456 / MC14 — THE GUARD-GRAMMAR ARM FIRES AS PART OF THE REGISTRATION ACT.
+    # Before this, the arm ran only where an AUTHOR remembered to run `lint` or
+    # `check-acyclic`; a materialize of a manifest whose guards are inadmissible
+    # succeeded and wrote every seat (measured at HEAD over four mutation classes).
+    # A validation nothing makes unskippable is not a validation at registration.
+    #
+    # The SAME two functions `lint` and `check-acyclic` call, in the same order, on
+    # the same rows: no copy, no new rule, no changed semantics — only this
+    # invocation point is new. Both are needed and neither is redundant: an
+    # inadmissible guard is `check_after_grammar`'s, a well-formed guard naming a
+    # row that does not exist is `check_acyclic`'s resolution rule alone.
+    #
+    # A FRESH `Findings`: `f` above already passed through `current_run_dir`, which
+    # adds findings of its own (e.g. "one live run per goal"), and a refusal must
+    # name only the rules THIS manifest broke.
+    #
+    # Placed LAST in the refusal set deliberately — every pre-existing refusal keeps
+    # its precedence, and this one is additive.
+    graph = Findings()
+    check_acyclic(rows, graph, tf_path)
+    check_after_grammar(rows, graph, tf_path)
+    if graph:
+        raise Refusal(
+            f"{tf_path}: the after-graph does not validate, so nothing is materialized "
+            f"from it ({len(graph.items)} finding(s)):\n"
+            + "\n".join(f"  [{i['check']}] {i['reason']}" for i in graph.items))
+
     # Assemble everything in memory FIRST: a mid-assembly failure must never
     # leave a half-materialized run on disk.
     assembled: dict[str, str] = {}
@@ -1972,6 +2136,53 @@ def cmd_selftest(args) -> int:
         f5 = lint_goal(root, "demo-goal")
         check("lint rejects a cyclic after-graph",
               any(i["check"] == "after graph acyclic" for i in f5.items))
+
+        # ------------------------------- the arm fires at the ACT (7.456 / MC14)
+        # The four mutation classes the prior wave pre-computed, each ONE token off
+        # a WELL-FORMED guarded manifest, driven through `materialize` itself.
+        #
+        # ⚠ EVERY ARM ASSERTS THE RULE NAME, never merely "it refused". Measured:
+        # with these two rows unassemblable, the mutant that removes the wiring
+        # ALSO refuses — on `seat 'p-demo' resolves to no row in any seats.csv` —
+        # and an arm that accepted any `Refusal` passed under the mutant. So
+        # `p-demo` is a seats.csv row BEFORE the loop: the manifest is assemblable,
+        # and the ONLY thing left to refuse is the after-graph.
+        print("materialize refuses a manifest whose after-graph does not validate")
+        (comp / "seats.csv").write_text(
+            "seat-id,prompt-id,task-id,description\n"
+            "w-demo,prompt-demo,task-demo,the demo seat\n"
+            "p-demo,prompt-demo,task-demo,the predecessor seat\n", encoding="utf-8")
+        tf = run / "taskforce.csv"
+        HEAD_ROW = "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+        BODY = ("tf-1,p-demo,,claude,claude-opus-5,medium,50,m1\n"
+                "tf-1,w-demo,{cell},claude,claude-opus-5,medium,50,m1\n")
+        for label, cell, rule in (
+            ("`p-demo[verdict]` (no =value)", "p-demo[verdict]", RULE_GUARD_GRAMMAR),
+            ("`p-demo|` (empty limb)", "p-demo|", RULE_ALTERNATE_GRAMMAR),
+            ("`p-demo[verdict=pass` (unclosed)", "p-demo[verdict=pass", RULE_GUARD_GRAMMAR),
+            ("`ghost[verdict=pass]` (well-formed, unresolvable)", "ghost[verdict=pass]",
+             "after edge resolves"),
+        ):
+            tf.write_text(HEAD_ROW + BODY.format(cell=cell), encoding="utf-8")
+            # the ACT, and the no-write path: both unskippable, both naming the rule
+            for dry in (False, True):
+                arm = "--dry-run" if dry else "materialize"
+                try:
+                    cmd_materialize(argparse.Namespace(dry_run=dry, **forced))
+                    check(f"{arm} refuses {label}", False, "did not refuse")
+                except Refusal as exc:
+                    check(f"{arm} refuses {label}, naming [{rule}]",
+                          rule in str(exc), str(exc))
+
+        # THE KEY, in the same change (`r-gate-ships-with-its-own-key`): the SAME
+        # cell shape, well-formed and resolvable, still materializes. Without this
+        # arm the eight above are satisfied by a materialize that refuses everything.
+        tf.write_text(HEAD_ROW + BODY.format(cell="p-demo[verdict=pass]"), encoding="utf-8")
+        rc = cmd_materialize(argparse.Namespace(dry_run=False, **forced))
+        check("a WELL-FORMED guarded manifest still materializes", rc == 0)
+        check("both seats written",
+              (run / "seats" / "w-demo" / "seat.md").is_file()
+              and (run / "seats" / "p-demo" / "seat.md").is_file())
 
         # ------------------------------------------------ gate-key check
         # Spec: runs/run-3/planning/briefing-gate-ships-with-its-own-key-check/
@@ -2481,6 +2692,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--after-col", default="after",
                    help="the column (or markdown label) carrying each node's predecessors")
     p.set_defaults(func=cmd_check_acyclic)
+
+    # MC8 / 7.450 — mint a branch's home at the registry's settled path. Create-only:
+    # it makes the folder and nothing else; MC10's materialization fills it.
+    p = add_common(sub.add_parser(
+        "branch-home",
+        help="mint a branch home under a run (or under another branch), create-only"))
+    p.add_argument("goal_name")
+    p.add_argument("--parent", default=None,
+                   help="the parent run or branch folder, as a path RELATIVE to the goal "
+                        "folder (e.g. runs/run-1/branches/branch-1). Default: the goal's "
+                        "current run, resolved through runs.csv")
+    p.add_argument("--branch", default=None,
+                   help="name the branch folder explicitly (`branch-<m>`). Default: the "
+                        "next number under the parent's branches/")
+    p.add_argument("--dry-run", action="store_true",
+                   help="report the path the numbering rule returns; create nothing")
+    p.set_defaults(func=cmd_branch_home)
 
     p = add_common(sub.add_parser("selftest", help="end-to-end exercise on a throwaway tree"))
     p.set_defaults(func=cmd_selftest)

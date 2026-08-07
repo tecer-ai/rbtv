@@ -38,7 +38,7 @@ stand-in pattern, no contract change at fold-in.
 | `scaffold` | Creates the goal root: `goal.md` (identity frontmatter + the contract body), empty `decisions.md`, `runs.csv` (header), `threads.sql` (empty schema) — then reindexes. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes `runs/` compartments or seat folders — run birth is task 7.37's step |
 | `reindex` | Rebuilds `goals.csv` whole from every `goal.md` frontmatter. Always the full projection; a partial one would leave silent staleness. Fails loud on an unparseable descriptor, naming the file, and leaves `goals.csv` **untouched** — a projection that silently drops a goal is corruption. | Touches any goal folder |
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
-| `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
+| `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
 
 ### What `lint` checks
 
@@ -55,8 +55,8 @@ launch, no LLM call).
 
 ### The guard-grammar arm (7.426) and its carve-out
 
-`lint <goal>` and `check-acyclic <file>` validate the `after` member grammar **on top of**
-acyclicity. Two rules, and a refusal names the one it broke:
+`lint <goal>`, `check-acyclic <file>` and — since **7.456 / MC14** — the `materialize` ACT validate
+the `after` member grammar **on top of** acyclicity. Two rules, and a refusal names the one it broke:
 
 | Rule (the finding's `check` string) | Refuses |
 |---|---|
@@ -76,7 +76,8 @@ that reading `a[g=y]|b` lost limb `b`, and a cycle through it was reported clean
 strip-then-split defect #3386, closed here; the selftest keeps the control).
 
 > **⚠ CARVE-OUT — the proof surface of this arm is the TEST GOAL, and nothing here is wired into
-> the live room.** The arm activates only where a verb invokes it (`lint`, `check-acyclic`); no
+> the live room.** The arm activates only where a verb invokes it (`lint`, `check-acyclic`, and
+> since 7.456/MC14 `materialize`, where it REFUSES the act rather than reporting on it); no
 > daemon lane, job or watcher calls it, and 7.426 performed **no live-room wiring**. Live-room
 > adoption is a separate, later act behind `r-cutover-gated`
 > (`.rbtv/goals/build-core-daemon-mvp/decisions.md`). What was measured, not assumed: the live

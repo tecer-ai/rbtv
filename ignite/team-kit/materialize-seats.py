@@ -125,6 +125,7 @@ invocation through the symlink resolves the kit dir, not ~/.local/bin.
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import datetime
 import hashlib
@@ -148,12 +149,17 @@ if str(_GOAL_CLI_DIR) not in sys.path:
 
 from goal_cli import (  # noqa: E402 — path bound just above
     BINDING_COLUMNS,
+    BRANCHES_DIR_NAME,
+    BRANCH_NAME_RE,
     Findings,
     Refusal as CatalogRefusal,
+    after_member_grammar,
     assemble_seat,
+    branch_parent_kind,
     check_acyclic,
     index_units,
     load_catalogs,
+    resolve_branch_home,
 )
 
 # ---------------------------------------------------------------- constants
@@ -373,8 +379,56 @@ def _csv_rows(path: Path) -> list[dict]:
 # ---------------------------------------------------------------- validation
 
 
+# ------------------------------------------- branch packages (MC10 / 7.452)
+#
+# A BRANCH is SHAPED like a run and is NEVER one. `concepts/branch.md`
+# (settled-by d-branch-family): a branch is the role a workflow plays when a
+# step of another workflow's run launches it — "their files live under the
+# parent run's branches folder (`runs/run-{n}/branches/branch-{m}/`), each
+# branch folder shaped exactly like a run folder, recursively".
+#
+# Shaped like one, so it materializes through the SAME path with every gate
+# unchanged — a second materializer for branches would be the duplication
+# PRIN-11 forbids. Never one, so it never enters the goal's `runs.csv`: that
+# file is the ONE home of a RUN's state (.rbtv/goals/CLAUDE.md) and a branch
+# has no goal lifecycle of its own.
+
+
+def package_kind(package: Path) -> str | None:
+    """`"run"` for a runs/run-N compartment, `"branch"` for a
+    branches/branch-M home under a run or (recursively) another branch, else
+    None. The branch half defers to goal_cli's own `branch_parent_kind` — the
+    layout rule has ONE home (MC8 / 7.450) and this is not a second reading."""
+    if package.parent.name == "runs" and RUN_NAME_RE.match(package.name):
+        return "run"
+    if (package.parent.name == BRANCHES_DIR_NAME
+            and BRANCH_NAME_RE.match(package.name)
+            and branch_parent_kind(package.parent.parent) is not None):
+        return "branch"
+    return None
+
+
+def derive_taskforce_id(package: Path) -> str:
+    """The taskforce-id a freshly created (zero-data-row) registry carries — a
+    pure function of the package path, never argv, identical at creation and on
+    every later empty-registry call. `runs/run-3` -> `tf-3`; a branch appends
+    its own ordinal to its parent's id, `runs/run-3/branches/branch-1` ->
+    `tf-3-b1`, recursively (`…/branch-1/branches/branch-2` -> `tf-3-b1-b2`), so
+    a branch taskforce is unique inside the goal and its id reads its lineage.
+
+    UNSETTLED AND DISCLOSED, never assumed: the registry settles no id form for
+    a BRANCH taskforce (`sd-graph show taskforce` carries none, 2026-08-06).
+    The branch half is MC10's own call, stated here so a later ruling replaces
+    one function instead of hunting id strings across a tree."""
+    if package_kind(package) == "branch":
+        return (derive_taskforce_id(package.parent.parent)
+                + "-b" + BRANCH_NAME_RE.match(package.name).group(1))
+    return "tf-" + package.name[len("run-"):]
+
+
 def validate_package(raw: str) -> Path:
-    """The absolute runs/run-N compartment this command materializes into."""
+    """The absolute runs/run-N compartment — or branch home under one — this
+    command materializes into."""
     package = Path(raw)
     if not package.is_absolute():
         raise Refuse(
@@ -382,12 +436,14 @@ def validate_package(raw: str) -> Path:
             "--package must be an ABSOLUTE run-package path — never inferred",
             raw,
         )
-    if package.parent.name != "runs" or not RUN_NAME_RE.match(package.name):
+    if package_kind(package) is None:
         raise Refuse(
             "package-not-a-run",
-            "--package must resolve to a runs/run-N compartment — seats "
-            "materialize into the run folder, never beside their definitions "
-            "(d-all-seats-in-run-folder)",
+            "--package must resolve to a runs/run-N compartment, or to a "
+            f"{BRANCHES_DIR_NAME}/branch-M home under one (a branch folder is "
+            "shaped exactly like a run folder — concepts/branch.md, "
+            "d-branch-family) — seats materialize into the run folder, never "
+            "beside their definitions (d-all-seats-in-run-folder)",
             str(package),
         )
     # An ABSENT package no longer refuses here: dag-06's creation step plans
@@ -503,6 +559,99 @@ def _manifest_after_ids(raw: str) -> list[str]:
             if alt:
                 out.append(alt)
     return out
+
+
+# ------------------------------------------- MC9 / 7.451: the row classifier
+#
+# A manifest row's `Seat/workflow` cell names a seat-id "or, instead of a seat, a
+# nested workflow" (registry concept `workflow manifest`; workflows can call
+# workflows). The two are THE SAME SHAPE — a lowercase-kebab id — so nothing in
+# the member GRAMMAR separates them, and this file has until now read every row
+# as a seat (`resolve_added` below: `ID_RE.match(seat)` then straight into the
+# added set).
+#
+# ⚠ THAT IS NOT F-9a, AND THE DISTINCTION IS THE WHOLE RULE. The design's F-9a
+# arm — "the grammar cannot distinguish the two kinds without a new manifest
+# column" — reads the shape as the discriminator. It is not: the two kinds live
+# in two different NAMESPACES, both already resolved a few lines below, and
+# RESOLUTION decides what the shape cannot. Seat catalog only -> `seat`. Workflow
+# manifest only -> `nested_workflow`. NEITHER -> refuse. BOTH -> refuse, and THAT
+# input is the one a column would settle (F-9a's real radius: one colliding id,
+# not the form).
+#
+# ⚠ THE BARE NAME COMES FROM THE ONE DECOMPOSITION, NEVER FROM A LOCAL STRIP.
+# `after_member_grammar()` is goal_cli's import bridge to `coord.parse_after_member`
+# (7.424/W1, the only reading of `name[key=value]` in this system). A guard does not
+# change WHAT a reference names, so the guard is read and carried, never
+# interpreted here. `_manifest_after_ids` above predates this and still strips
+# brackets locally — it is a MEMBERSHIP view over an `after` cell, not a
+# classification, and collapsing it is outside this task's grant; it stands as a
+# finding, and it is this classifier's own copy-detector control (SK-9).
+
+ManifestReference = collections.namedtuple(
+    "ManifestReference", "kind name key value source")
+
+
+def classify_manifest_reference(token: str, catalog_root: Path,
+                                seats_catalog: dict | None = None
+                                ) -> ManifestReference:
+    """Classify ONE manifest row reference: `seat` or `nested_workflow`.
+
+    REFUSES rather than defaulting to either class. An unresolvable reference read
+    as a seat materializes a seat folder for a workflow that was never expanded;
+    read as a workflow it globs for a manifest that does not exist. Both fail late,
+    somewhere else, and neither says why — so the refusal happens here, named.
+    """
+    name, key, value, unsupported = after_member_grammar()(token)
+    if unsupported:
+        raise Refuse(
+            "reference-alternate",
+            f"manifest reference {token!r} is an OR-alternate — a row names ONE "
+            "seat or ONE nested workflow, and `a|b` names neither. Alternates are "
+            "an `after`-cell join, not a reference",
+            str(catalog_root))
+    if not name or not ID_RE.match(name):
+        raise Refuse(
+            "reference-invalid",
+            f"manifest reference {token!r} decomposes to {name!r}, which is not a "
+            "legal id (lowercase kebab-case). A bracketed token that is not the "
+            "guard grammar `ref[field=value]` comes back whole and lands here — "
+            "unparseable, never classified",
+            str(catalog_root))
+    if seats_catalog is None:
+        seats_catalog = load_catalogs(catalog_root)[0]
+    # The SAME resolution `resolve_added` performs for --seat and --workflow —
+    # one namespace each, no second lookup rule invented for classification.
+    seat_row = seats_catalog.get(name)
+    manifests = sorted(catalog_root.glob(f"*/workflows/{name}/{name}.csv"))
+    if seat_row is not None and manifests:
+        raise Refuse(
+            "reference-ambiguous",
+            f"manifest reference {name!r} resolves BOTH as a seat-id "
+            f"({seat_row.get('__source__')}) and as a workflow manifest "
+            f"({manifests[0]}) — one column, two namespaces, and nothing in the "
+            "row says which. This is the input a new manifest column would "
+            "settle; a column is a registry shape change and is not this "
+            "classifier's to introduce",
+            str(catalog_root))
+    if seat_row is not None:
+        return ManifestReference("seat", name, key, value,
+                                 str(seat_row.get("__source__") or ""))
+    if len(manifests) > 1:
+        raise Refuse(
+            "workflow-ambiguous",
+            f"manifest reference {name!r} resolves to {len(manifests)} workflow "
+            "manifests: " + ", ".join(str(m) for m in manifests),
+            str(catalog_root))
+    if manifests:
+        return ManifestReference("nested_workflow", name, key, value,
+                                 str(manifests[0]))
+    raise Refuse(
+        "reference-unresolvable",
+        f"manifest reference {name!r} resolves to NO seats.csv row and NO "
+        f"<component>/workflows/{name}/{name}.csv under {catalog_root} — refused "
+        "rather than defaulted to either class",
+        str(catalog_root))
 
 
 def resolve_added(args, catalog_root: Path,
@@ -1595,8 +1744,9 @@ def render_taskforce_rows(plan: dict) -> None:
     # dag-06 bootstrap story: a registry with ZERO data rows (a freshly
     # created, header-only taskforce.csv — first materialize into a created
     # package) carries no id to read, so the id is DERIVED from the
-    # runs/run-N compartment name the package bar already proved: run-N ->
-    # tf-N. Deterministic — a pure function of the package path, the same at
+    # compartment name the package bar already proved: run-N -> tf-N, and a
+    # branch home -> its parent's id plus its own ordinal (derive_taskforce_id).
+    # Deterministic — a pure function of the package path, the same at
     # creation and on every later empty-registry call — never argv, never
     # guessed per call. The derivation fires ONLY on zero data rows: a
     # registry that HAS rows but no readable id still refuses (red arm), and
@@ -1604,7 +1754,7 @@ def render_taskforce_rows(plan: dict) -> None:
     ids = {(r.get("taskforce-id") or "").strip() for r in existing_rows}
     ids.discard("")
     if not existing_rows:
-        tf_id = "tf-" + Path(plan["package"]).name[len("run-"):]
+        tf_id = derive_taskforce_id(Path(plan["package"]))
     elif len(ids) != 1:
         raise Refuse(
             "taskforce-id-unreadable",
@@ -1826,6 +1976,20 @@ def render_run_register(plan: dict, args) -> None:
     if not creating_tf:
         return
     package = Path(plan["package"])
+    # A BRANCH is never a run (concepts/branch.md, d-branch-family): it has no
+    # goal lifecycle of its own, so it takes no row in the goal's run register.
+    # Registering one would also put a non-run id in front of
+    # `goal_cli.current_run_dir` and `team_monitor.run_closed()`, which resolve
+    # THE RUN from that file. Reported, never silent — a branch is discovered
+    # as an entry of its parent's branches/ folder and nowhere else (MC10).
+    if package_kind(package) == "branch":
+        plan["warnings"].append(
+            f"{package.name} is a BRANCH home under {package.parent.parent}, "
+            f"not a run — NO {RUNS_CSV_NAME} row is written (a branch has no "
+            "goal lifecycle of its own; concepts/branch.md, d-branch-family). "
+            f"It is discoverable as an entry of its parent's "
+            f"{BRANCHES_DIR_NAME}/ folder")
+        return
     runs_csv = package.parent.parent / RUNS_CSV_NAME
     if not runs_csv.is_file():
         raise Refuse(
@@ -1929,7 +2093,114 @@ def append_run_register_row(plan: dict) -> int:
 # ---------------------------------------------------------------- run
 
 
+def materialize_branch(args) -> dict:
+    """MC10 (7.452) — materialize a nested-workflow row into its OWN branch
+    taskforce, homed under the parent run's `branches/`.
+
+    A manifest row names a seat-id "or, instead of a seat, a nested workflow"
+    (registry concept `workflow manifest`). When it names a workflow, the
+    executing instance the registry rules for it is a TASKFORCE homed under the
+    parent's `branches/` (`concepts/branch.md`, d-branch-family). This is that
+    act, and it composes three landed pieces rather than reimplementing any:
+
+      classify_manifest_reference   MC9 / 7.451 — is the row a seat or a
+                                    workflow? A seat is refused here.
+      goal_cli.resolve_branch_home  MC8 / 7.450 — the settled path, the
+                                    numbering rule, the create-only refusal.
+      run(args)                     THIS command's ordinary path — every gate,
+                                    every write, unchanged. The branch's rows
+                                    and seat folders are written by the
+                                    materialize command, never hand-written.
+
+    Bounds, all of them: nothing is launched; the PARENT's own taskforce.csv is
+    not rewired (that edge is the edge-runner's, MC11); and every write lands
+    inside the branch home — the run register is skipped for a branch
+    (render_run_register) and the parent's surfaces are only READ."""
+    parent = Path(args.branch_of)
+    if not parent.is_absolute():
+        raise Refuse(
+            "branch-parent-not-absolute",
+            "--branch-of must be an ABSOLUTE run-or-branch package path — "
+            "never inferred",
+            args.branch_of,
+        )
+    if package_kind(parent) is None:
+        raise Refuse(
+            "branch-parent-not-a-package",
+            "--branch-of must resolve to a runs/run-N compartment or to a "
+            f"{BRANCHES_DIR_NAME}/branch-M home — a branch homes under a run "
+            "or, recursively, under another branch (concepts/branch.md)",
+            str(parent),
+        )
+    if args.seat:
+        raise Refuse(
+            "branch-of-with-seat",
+            "--branch-of materializes a nested WORKFLOW as a branch taskforce "
+            "— a single cataloged seat materializes into a run package with "
+            "--package, and is not a branch",
+        )
+    if args.after:
+        raise Refuse(
+            "branch-of-with-after",
+            "--branch-of mints a FRESH branch home, so its rows attach to "
+            "nothing inside it: pass --root. The parent row the branch runs "
+            "for is the edge-runner's to advance, never an --after cell here",
+        )
+    catalog_root = Path(args.catalog_root)
+    if not catalog_root.is_dir():
+        raise Refuse(
+            "catalog-root-missing",
+            "--catalog-root is not a directory — no catalog to materialize from",
+            str(catalog_root),
+        )
+    # MC9's classifier, reached by call — this path authors no second reading
+    # of what a manifest reference names.
+    ref = classify_manifest_reference(args.workflow, catalog_root)
+    if ref.kind != "nested_workflow":
+        raise Refuse(
+            "branch-not-a-workflow",
+            f"'{args.workflow}' classifies as {ref.kind}, not a nested "
+            "workflow — a branch is a WORKFLOW launched by a step of another "
+            "workflow's run (concepts/branch.md); nothing materialized",
+            str(catalog_root),
+        )
+    try:
+        home = resolve_branch_home(parent, args.branch, create=False)
+    except CatalogRefusal as exc:
+        raise Refuse("branch-home-refused", str(exc), str(parent)) from exc
+
+    # The created branch's content surfaces are the PARENT's own, byte-copied,
+    # unless the caller named a file — a branch folder is shaped exactly like
+    # the run folder it lives under, and this command still invents nothing
+    # (d-run3-seeds-from-run2-amended). A parent missing one, with no caller
+    # option, reaches plan_package_creation's own create-inputs-missing refusal.
+    inherited = []
+    for surface, _opt, attr in CREATION_INPUTS:
+        if getattr(args, attr, None) is None and (parent / surface).is_file():
+            setattr(args, attr, str(parent / surface))
+            inherited.append(surface)
+
+    args.package = str(home)
+    args.branch_of = None          # the branch is resolved; run() sees a package
+    result = run(args)
+    result["branch"] = {
+        "parent": str(parent),
+        "parent_kind": package_kind(parent),
+        "home": str(home),
+        "workflow": ref.name,
+        "manifest_reference": ref.kind,
+    }
+    if inherited:
+        result["warnings"].append(
+            "branch content surfaces INHERITED from the parent package "
+            f"({', '.join(inherited)}) — byte-copies of {parent}'s own; pass "
+            "--conduct/--claude-md/--budget-json to override")
+    return result
+
+
 def run(args) -> dict:
+    if getattr(args, "branch_of", None):
+        return materialize_branch(args)
     package = validate_package(args.package)
     repass = bool(getattr(args, "repass", False))
     if repass:
@@ -2028,9 +2299,20 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="materialize-seats.py --selftest materializes only against a "
                "throwaway fixture and exits 0/1.",
     )
-    p.add_argument("--package", required=True,
-                   help="absolute run-package path to materialize into "
-                        "(runs/run-N). Required, never inferred.")
+    into = p.add_mutually_exclusive_group(required=True)
+    into.add_argument("--package",
+                      help="absolute run-package path to materialize into "
+                           "(runs/run-N, or a branches/branch-M home under "
+                           "one). Required, never inferred.")
+    into.add_argument("--branch-of", dest="branch_of",
+                      help="absolute path of the PARENT run (or branch) "
+                           "package: mint a branch home under its "
+                           f"{BRANCHES_DIR_NAME}/ and materialize --workflow "
+                           "into it as its own taskforce (MC10). Requires "
+                           "--root; the parent is only read.")
+    p.add_argument("--branch",
+                   help="name the branch home explicitly (branch-M); omitted, "
+                        "it is auto-numbered by the settled rule (MC8)")
     what = p.add_mutually_exclusive_group(required=True)
     what.add_argument("--seat",
                       help="materialize ONE cataloged seat (seats.csv row)")
@@ -4410,6 +4692,147 @@ def run_selftest() -> int:
           and load_catalogs.__module__ == "goal_cli")
     check("F6: validate_seat is imported from coord, never re-implemented",
           _coord_validate_seat().__module__ == "coord")
+
+    print("SK-9 manifest-reference classifier pass (MC9 / 7.451)")
+    import inspect as _mc9_inspect
+    # The copy-detector: the two textual idioms of every LOCAL reading of the
+    # member grammar in this repo — the bracket strip and the alternate split.
+    mc9_copy = re.compile("|".join(re.escape(s) for s in (
+        r"[^\]]*", '.split("|")', 'split("[", 1)')))
+    check("SK-9: the classifier authors no second reading of the member grammar",
+          mc9_copy.search(
+              _mc9_inspect.getsource(classify_manifest_reference)) is None)
+    check("SK-9 control: the detector fires on this file's own local strip "
+          "(_manifest_after_ids) — an absence proven by a detector that can fire",
+          mc9_copy.search(_mc9_inspect.getsource(_manifest_after_ids)) is not None)
+    check("SK-9: the classifier reaches the ONE decomposition by import "
+          "(goal_cli.after_member_grammar -> coord.parse_after_member)",
+          after_member_grammar.__module__ == "goal_cli"
+          and after_member_grammar()("a[k=v]") == ("a", "k", "v", False))
+    # Driven off the REAL fixture catalog, never off hand-typed namespaces: the
+    # seat ids and workflow names below are `build_fixture`'s own, read back
+    # through `load_catalogs` and the same glob `resolve_added` uses.
+    with tempfile.TemporaryDirectory() as mc9_td:
+        mc9_root = Path(build_fixture(Path(mc9_td))["catalog"])
+        mc9_seats = load_catalogs(mc9_root)[0]
+        check("SK-9 control: the fixture supplies BOTH namespaces non-empty",
+              {"alpha", "s3"} <= set(mc9_seats)
+              and {p.parent.name for p in mc9_root.glob("*/workflows/*/*.csv")}
+              >= {"demo-flow", "guard-flow"})
+        for token, kind in (("alpha", "seat"), ("s3", "seat"),
+                            ("demo-flow", "nested_workflow"),
+                            ("guard-flow", "nested_workflow"),
+                            ("alpha[go=yes]", "seat"),
+                            ("demo-flow[go=yes]", "nested_workflow")):
+            ref = classify_manifest_reference(token, mc9_root, mc9_seats)
+            check(f"SK-9: {token!r} classifies as {kind}", ref.kind == kind,
+                  f"got {ref.kind} (name={ref.name!r})")
+        check("SK-9: a guard does not change the classification",
+              classify_manifest_reference("alpha", mc9_root, mc9_seats).kind
+              == classify_manifest_reference("alpha[go=yes]", mc9_root,
+                                             mc9_seats).kind)
+        for token, code in (("no-such-thing", "reference-unresolvable"),
+                            ("alpha|demo-flow", "reference-alternate"),
+                            ("alpha[nokey]", "reference-invalid"),
+                            ("Alpha", "reference-invalid")):
+            try:
+                got = classify_manifest_reference(
+                    token, mc9_root, mc9_seats).kind
+            except Refuse as exc:
+                got = exc.code
+            check(f"SK-9: {token!r} is REFUSED as {code}, never defaulted",
+                  got == code, f"got {got}")
+        # The one input a new manifest column would settle (design F-9a): ONE id
+        # minted into BOTH namespaces. Built here rather than in `build_fixture`,
+        # which no other arm may see a collision in.
+        (mc9_root / "demo-comp" / "workflows" / "alpha").mkdir(parents=True)
+        (mc9_root / "demo-comp" / "workflows" / "alpha" / "alpha.csv").write_text(
+            "Seat/workflow,after,i/o,Modality\nbeta,,,agentic\n", encoding="utf-8")
+        try:
+            got = classify_manifest_reference("alpha", mc9_root, mc9_seats).kind
+        except Refuse as exc:
+            got = exc.code
+        check("SK-9: an id in BOTH namespaces is REFUSED as reference-ambiguous "
+              "(F-9a's real radius — one colliding id, not the manifest form)",
+              got == "reference-ambiguous", f"got {got}")
+
+    print("SK-10 branch materialization pass (MC10 / 7.452)")
+    with tempfile.TemporaryDirectory() as mc10_td:
+        fx10 = build_fixture(Path(mc10_td))
+        parent10 = Path(fx10["pkg"])
+        seeds10 = ["--conduct", fx10["src_conduct"],
+                   "--claude-md", fx10["src_claude"],
+                   "--budget-json", fx10["src_budget"]]
+        common10 = ["--catalog-root", fx10["catalog"],
+                    "--bindings", fx10["b_both"], "--root", "--json"]
+        outside_before = _hash_tree(Path(mc10_td) / "goals")
+        p10 = _invoke(["--branch-of", str(parent10), "--workflow", "demo-flow"]
+                      + common10 + seeds10, clean_env)
+        home10 = parent10 / BRANCHES_DIR_NAME / "branch-1"
+        res10 = json.loads(p10.stdout) if p10.stdout.strip() else {}
+        check("SK-10: a nested-workflow row materializes into a branch home "
+              "under the parent's branches/",
+              p10.returncode == 0 and (home10 / TASKFORCE_NAME).is_file(),
+              p10.stderr.strip()[:300])
+        # RED ARM — the same act against a path that is NOT a run or branch
+        # compartment: the package bar still refuses, so the admission above is
+        # a decision this command MADE, not a bar it lost.
+        stray = Path(mc10_td) / "goals" / "demo-goal" / "runs" / "run-1" / "seats"
+        p10r = _invoke(["--package", str(stray), "--workflow", "demo-flow"]
+                       + common10 + seeds10, clean_env)
+        check("SK-10 RED: an off-compartment --package is still refused "
+              "package-not-a-run (the branch admission widened nothing else)",
+              p10r.returncode == 1 and "package-not-a-run" in p10r.stderr,
+              p10r.stderr.strip()[:200])
+        # The frozen copy (Rule 13), compared as BYTES against the manifest.
+        manifest10 = sorted(Path(fx10["catalog"]).glob(
+            "*/workflows/demo-flow/demo-flow.csv"))[0]
+        with manifest10.open(encoding="utf-8", newline="") as fh:
+            man10 = {r[MANIFEST_SEAT_COLUMN].strip(): r[MANIFEST_AFTER_COLUMN]
+                     for r in csv.DictReader(fh)}
+        got10 = {r["seat"]: r["after"]
+                 for r in _csv_rows(home10 / TASKFORCE_NAME)}
+        check("SK-10: every branch `after` cell is byte-identical to the "
+              "nested manifest's own (Rule 13, frozen copy)",
+              all(v.encode() == (got10.get(k) or "").encode()
+                  for k, v in man10.items()),
+              json.dumps({k: [v, got10.get(k)] for k, v in man10.items()}))
+        check("SK-10 control: that comparison reports UNEQUAL on a one-byte "
+              "mutation of the same cells",
+              not all((v + "x").encode() == (got10.get(k) or "").encode()
+                      for k, v in man10.items()))
+        check("SK-10: the branch's taskforce-id is derived from the package "
+              "path (tf-1-b1 under runs/run-1)",
+              {r["taskforce-id"] for r in _csv_rows(home10 / TASKFORCE_NAME)}
+              == {"tf-1-b1"},
+              str({r["taskforce-id"]
+                   for r in _csv_rows(home10 / TASKFORCE_NAME)}))
+        # A branch takes NO run-register row, and the skip is reported.
+        check("SK-10: a branch materialize plans no run-register write and "
+              "SAYS so (a branch is never a run — concepts/branch.md)",
+              not any(w["kind"] == "run-register-append"
+                      for w in res10.get("writes", []))
+              and any("BRANCH home" in w for w in res10.get("warnings", [])),
+              json.dumps(res10.get("warnings")))
+        # RED ARM for that skip: the SAME creation act against a RUN package
+        # demands the register and refuses without it — so the branch's
+        # exemption is this command's decision and not a dead code path.
+        p10n = _invoke(["--package", str(parent10.parent / "run-7"),
+                        "--workflow", "demo-flow", "--run-type", "fresh"]
+                       + common10 + seeds10, clean_env)
+        check("SK-10 RED: creating a RUN package still REFUSES without the "
+              "goal's runs.csv (run-register-absent) — the branch skip is a "
+              "decision, not a lost gate",
+              p10n.returncode == 1 and "run-register-absent" in p10n.stderr,
+              p10n.stderr.strip()[:200])
+        check("SK-10: nothing outside the branch home changed — the parent's "
+              "own registry and every goal file are byte-identical",
+              {k: v for k, v in _hash_tree(Path(mc10_td) / "goals").items()
+               if BRANCHES_DIR_NAME + "/" not in k} == outside_before)
+        check("SK-10: a SEAT reference is refused by the branch path "
+              "(branch-not-a-workflow) — it reaches MC9's classifier",
+              _invoke(["--branch-of", str(parent10), "--workflow", "alpha"]
+                      + common10 + seeds10, clean_env).returncode == 1)
 
     print("dag-04 acceptance pass (SC rows, each with its failing control)")
     run_dag04_acceptance(check, clean_env)
