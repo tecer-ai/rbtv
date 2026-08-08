@@ -42,7 +42,11 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   name `scaffold-seats`, and `tool/workflow_launcher.py` opens that run's own per-run detached tmux
   room before handing the launch to `coordinate` with an explicit target. That first fire DOES open
   the entry seat — `coordinate launch`'s cold-start admission (team-kit 7.406) admits a virgin
-  package on the empty-room bound — and the launcher's exit code IS the store record: `0` means a
+  package on the empty-room bound — **subject to the RAM floor, which the launcher deliberately
+  leaves binding** (it passes `--force`, never `--force-memory`: this is a NEW launch and that floor
+  is sized for exactly it), so under memory pressure the first fire opens nothing and exits
+  non-zero. Cold-start clears the CAPACITY gate; it is not a guarantee that a seat opens. And the
+  launcher's exit code IS the store record: `0` means a
   seat pane opened and nothing else, `3` means the launch ran and admitted nobody (recorded
   `failed`, never a false `done`; the row is one-shot, so that failure has no cadence to recur on).
   Task 7.548 measured both and corrected the contrary claim this doc, the launcher and

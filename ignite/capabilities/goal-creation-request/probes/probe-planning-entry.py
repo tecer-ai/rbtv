@@ -20,6 +20,19 @@ tempdir; `ignite` is a STUB that records its argv and exits 0 (`--ignite-bin` is
 so no code is bent to be testable); and every tmux act runs on a PRIVATE `-L` socket, never the
 socket live rooms are on. No real goal is created and no queue row is ever enqueued.
 
+⚠⚠ AND NO PAID AGENT BOOTS — ASSERTED BY ARM `P5c`, NOT CLAIMED (task 7.553). Until 7.553 this file
+called itself hermetic "by PATH only" and every single run booted a REAL `claude --effort max` with
+a full seat prompt into the seat pane, then killed the room out from under it: a PATH shim binds
+only what inherits the launcher's environment, and tmux starts a pane's shell as a LOGIN shell whose
+profile RE-PREPENDS the real `~/.local/bin` (§2 review of `73823ab`, finding F1 — measured three
+times). It survived in three documents for one reason: NOTHING CHECKED IT. Both halves of the fix
+are measurements from task 7.552, not guesses — (i) the seat's pane must be a NON-LOGIN shell, which
+is `default-command` set on THIS probe's own private socket, and (ii) that socket's SERVER must
+itself carry the shimmed PATH, since a non-login pane inherits the server's environment. A `HOME`
+redirect does NOT help (the prepended path is a literal) and is ruled out rather than retried. The
+stub records its argv in a marker file and `P5c` reads it back, so the day the binding breaks this
+probe goes RED instead of going quietly expensive.
+
 BOUNDARY, STATED RATHER THAN IMPLIED: this probe does not fire the row through a live ticker. The
 real-fire path is `probe-argv-template.js`'s (scratch store, real `fireQueueRow`, real expansion).
 What is proven here instead is that the composed argv is ACCEPTED BY THE REAL PROGRAM — the exact
@@ -124,8 +137,8 @@ def tmux(*a):
     return subprocess.run([exe, "-L", SOCKET, *a], capture_output=True, text=True) if exe else None
 
 
-def make_shims(d):
-    """The hermetic fixture for the REAL-fire arms (P5/P6), built out of PATH and nothing else.
+def make_shims(d, marker):
+    """The fixture for the REAL-fire arms (P5/P6), built out of PATH and nothing else.
 
     ⚠ WHY A `tmux` SHIM AND NOT A FLAG. The launcher takes `--tmux-socket`, but it does NOT pass one
     to the `coordinate launch` it delegates to — and coord.py has no socket option at all (it calls
@@ -134,18 +147,29 @@ def make_shims(d):
     seam that isolates the whole composed act, and it is the same seam the F1 arms below already
     use. NOTHING in the product is bent to be testable.
 
-    `claude` is stubbed for the same reason the `ignite` stub exists above: this probe proves that a
-    SEAT PANE OPENS, which is the launcher's claim. Whether a real agent then boots is that agent's
-    business and is not provable in a probe.
+    ⚠ THE `claude` STUB'S SHAPE IS `acceptance-room.py`'s `STUB_BODY`, NOT AN INVENTION — a bash
+    COPY used as the script's SHEBANG INTERPRETER. `coord.py`'s `wait_harness_up` polls
+    `pane_harness_pids`, which matches a HARNESS process under the pane, so a stub that `exec
+    sleep`s is POSITIVE ABSENCE ("only its shell is there", G-11): the seat is refused and the
+    launch exits 1 (measured on 7.552's fixture). `printf` and `read` are builtins, so the stub
+    itself stays the pane's foreground process. PATH ALONE DOES NOT MAKE IT BIND — see the module
+    docstring; the caller must also put the pane on a non-login shell and hand the tmux server this
+    PATH. The `marker` is the other half: the stub records that it ran, and `P5c` reads it back.
     """
     d.mkdir(parents=True, exist_ok=True)
     real = shutil.which("tmux")
     t = d / "tmux"
     t.write_text(f'#!/bin/sh\nexec {real} -L {SOCKET} "$@"\n', encoding="utf-8")
-    t.chmod(0o755)
-    cl = d / "claude"
-    cl.write_text('#!/bin/sh\necho "probe stub seat pane: $*"\nexec sleep 120\n', encoding="utf-8")
-    cl.chmod(0o755)
+    hb = d / ".hb"
+    hb.mkdir(exist_ok=True)
+    shutil.copy2("/bin/bash", hb / "claude")
+    (d / "claude").write_text(
+        f"#!{hb / 'claude'}\n"
+        "# stub harness — no model, no network, no cost. Flags are deliberately ignored.\n"
+        f'printf "%s\\n" "$*" >> {marker}\n'
+        "while :; do read -rt 3600 _ || true; done\n", encoding="utf-8")
+    for f in ("tmux", "claude"):
+        (d / f).chmod(0o755)
     return d
 
 
@@ -419,7 +443,8 @@ def main():
         # entry seat — was guarded by nothing, and the launcher, this capability's contract doc and
         # `spawn-profiles.yaml` all asserted the OPPOSITE ("opens the room and NO SEAT, and exits
         # 0") until 7.548 measured it. Both arms run the SHIPPED launcher for real.
-        shims = make_shims(tmpdir / "shims")
+        marker = tmpdir / "claude-stub-ran.txt"
+        shims = make_shims(tmpdir / "shims", marker)
         fire_env = dict(os.environ)
         fire_env["PATH"] = f"{shims}{os.pathsep}{os.environ.get('PATH', '')}"
         fire_env.pop("TMUX", None)            # a fired exec inherits neither; neither does this
@@ -428,6 +453,22 @@ def main():
         _, calls5, root5 = drain(tmpdir / "c", flags, goal="probe-firstfire")
         pkg5 = root5 / "probe-firstfire" / "runs" / "run-1"
         room = "probe-firstfire-run-1"
+
+        # ⚠ THE STUB BINDS ONLY IF BOTH OF THESE HOLD, and neither is optional (task 7.553):
+        #   (1) the seat's pane is a NON-LOGIN shell — `default-command`, which is a SERVER option,
+        #       so it must be set BEFORE that pane opens; and
+        #   (2) the tmux SERVER itself carries the shimmed PATH, because a non-login pane inherits
+        #       the SERVER's environment — and this socket's server was started back at P3/P4,
+        #       before the shims existed. Setting only (1) leaves the pane inheriting a shim-free
+        #       PATH; setting only (2) leaves the login shell re-prepending the real `~/.local/bin`
+        #       over it. Either one alone boots a real paid agent, which is why F1 was invisible.
+        # The room is therefore pre-created HERE rather than by the launcher. `ensure_session` is
+        # idempotent by design and joins it ("existing session"), and session CREATION is P4's
+        # claim above, not this arm's — the same boundary `probe-sensor-start.py` draws.
+        kill_socket()
+        os.environ["PATH"] = fire_env["PATH"]   # so the server started below carries the shims
+        tmux("new-session", "-d", "-s", room, "-c", str(pkg5))
+        tmux("set-option", "-g", "default-command", "bash --noprofile --norc")
         fire = [sys.executable, str(LAUNCHER), "--package", str(pkg5), "--goal", "probe-firstfire",
                 "--entry-seat", flags["--entry-seat"],
                 "--coord", str(IGNITE / "team-kit" / "coord.py")]
@@ -449,6 +490,17 @@ def main():
         report("P5 a SEAT PANE actually opened", "green",
                len(panes5) >= 2 and any("claude" in p for p in panes5), True,
                f"{len(panes5)} pane(s): {panes5}")
+
+        # ---- P5c · THE HARNESS IN THAT PANE IS THE STUB, so nothing here booted a paid agent ----
+        # The arm that did not exist while the claim was false. It reads a marker the stub itself
+        # appends to on execution: an EMPTY marker beside an open seat pane means the pane is
+        # running the REAL `claude --effort max`, which is exactly the pre-7.553 state. Note what
+        # this pins and what it does not: a green here says the probe is free, NOT that a real
+        # agent would boot — that is the launcher's own boundary (exit 0 = a seat pane opened).
+        ran = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
+        report("P5c the `claude` stub ACTUALLY EXECUTED (no paid agent booted)", "green",
+               bool(ran), True,
+               (ran.splitlines() or [""])[0][:150] or "MARKER EMPTY — a REAL agent booted instead")
 
         # ---- P5b · THE SENSOR IS UP (task 7.552) --------------------------------------------
         # `coordinate launch` now hands `team_monitor.py ensure` the ROOM'S SESSION — the one it
@@ -525,7 +577,10 @@ def main():
           f"fired. Boundary: firing the QUEUE ROW through a live ticker is probe-argv-template.js's; "
           f"here P3 executes the composed argv with --dry-run appended, and P5/P6 run the shipped "
           f"launcher FOR REAL (no --dry-run) against a scaffolded fixture, on a private tmux socket "
-          f"with a stubbed harness — so the seat's pane is asserted, not the agent that boots in it.")
+          f"whose panes are NON-LOGIN shells so the `claude` stub actually binds — ASSERTED by P5c "
+          f"from a marker the stub writes, never claimed (until task 7.553 the stub was inert and "
+          f"every run of this file booted a real paid agent). What P5 proves is therefore the SEAT'S "
+          f"PANE and a harness coming up in it, never the agent that would boot for real.")
     return 0
 
 

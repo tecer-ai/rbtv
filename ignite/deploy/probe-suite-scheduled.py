@@ -83,16 +83,19 @@ RUNTIME_DIR = os.path.join(WORKSPACE_ROOT, '.rbtv', 'runtime', 'probe-suite')
 LATEST = os.path.join(RUNTIME_DIR, 'latest.json')
 
 # ⚠ EXCLUDED BY CONSTRUCTION, WITH ITS REASON IN THE SAME PLACE AS THE EXCLUSION (leader ratified).
-# The mechanism's precedent: `r-seats-only-architecture` (2026-08-06) deleted the previous entry
-# (capabilities/sub-agent-dispatch/ — its probes made real PAID claude calls, G-213).
+# ⚠ THE SHAPE IS A DICT, `{dir: why}` — the `why` is read below into `latest.json`'s `excluded`
+# block, so an exclusion carries its reason to the artifact's reader and not only to this file.
+# Written out because the shape was NOT stated here and the next author wrote a SET: subscripting it
+# raised `TypeError: 'set' object is not subscriptable` inside the payload build, the whole hourly
+# run reported `verdict: ERROR`, and the exclusion meant to drop ONE directory from coverage dropped
+# the VERDICT for every probe on the box (measured on the 2026-08-08T20:00:13Z fire).
 #
-# goal-creation-request/probes: INTERIM exclusion, owner-approved 2026-08-08 — probe-planning-entry's
-# `claude` PATH-shim stub never binds (tmux login shell rebuilds PATH), so each run BOOTS A REAL
-# `claude --effort max` agent (the G-213 paid-call class again; §2 review of rbtv 73823ab, F1).
-# Task 7.553 fixes the stub-or-discloses and REVERTS this exclusion — its criterion (3). Cost while
-# excluded: probe-goal-creation-request.py also drops from hourly coverage (both still run in
-# on-demand suites).
-EXCLUDED_DIRS = {'capabilities/goal-creation-request/probes'}
+# Empty since `r-seats-only-architecture` (2026-08-06) deleted capabilities/sub-agent-dispatch/
+# (its probes made real PAID claude calls, G-213); the mechanism stays for the next paid probe.
+# capabilities/goal-creation-request/probes was excluded on 2026-08-08 for the same paid-call class
+# and is RESTORED here (task 7.553 criterion 3): `probe-planning-entry.py`'s `claude` stub now
+# actually binds — its own arm P5c goes RED if it ever stops — so the hourly run boots nothing.
+EXCLUDED_DIRS = {}
 
 DEFAULT_INTERVAL_SECONDS = 3600
 # How long after a fire the artifact should be considered stale. Deliberately > interval so a single

@@ -225,10 +225,15 @@ hands the launch to `coordinate` with an explicit `--tmux-target`. Properties wo
   is a NEW launch, exactly what that floor is sized for. `jobs/recover-room.py` does override it,
   correctly, on a premise that is false here — a recovery replaces a seat that already died and is
   load-neutral. Reusing that program as this launcher was considered and REJECTED for that reason.
-- ✅ **First fire on a brand-new package OPENS THE ENTRY SEAT.** `coordinate launch` carries a
+- ✅ **First fire on a brand-new package OPENS THE ENTRY SEAT — the CAPACITY gate is what
+  cold-start clears, and the RAM floor above is still binding.** `coordinate launch` carries a
   COLD-START admission (team-kit task 7.406): a package no sensor has ever run against and no seat
   has ever launched into is recognised on its own markers and admitted on the EMPTY-ROOM BOUND
-  (`in_use` 0). Proven end to end against a fixture built by the shipped create path —
+  (`in_use` 0). ⚠ That is an admission, not a guarantee: the MEMORY gate is left binding on purpose
+  (the bullet above — `--force` yes, `--force-memory` no), and every launch prints the floor it is
+  measured against (`floors.launch_refuse_mb` vs the per-seat spike). Under memory pressure the
+  first fire on a brand-new package opens NOTHING and exits non-zero. Proven end to end against a
+  fixture built by the shipped create path —
   `probes/probe-planning-entry.py` **P5**, which fires the real launcher with no `--dry-run` and
   asserts the seat's pane. This **corrects** the earlier claim (carried here, in the launcher and in
   `spawn-profiles.yaml` until task 7.548) that the first fire opens nothing and that whoever arms
