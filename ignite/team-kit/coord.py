@@ -3388,7 +3388,7 @@ def team_monitor_last_seen(base):
     return iso, pid
 
 
-def ensure_team_monitor(args):
+def ensure_team_monitor(args, session=""):
     """Start the run's team-monitor, deterministically WITH THE ROOM rather than by hand.
 
     `ensure` is idempotent by construction (flock: a second writer exits 3), detaches immediately,
@@ -3400,6 +3400,21 @@ def ensure_team_monitor(args):
     that starts first sees no session on its first pass and exits cleanly, leaving no lock and no
     monitor. It is called from `launch`, which already refuses outside tmux, and only after the
     seats are up.
+
+    ⚠⚠ TASK 7.552. THE ROOM'S SESSION IS HANDED OVER, NOT LEFT TO BE RESOLVED — and the ordering
+    above is exactly why it has to be. `team_monitor.py` resolves the room FROM THE ROSTER, and a
+    roster row's pane is written at the seat's own CHECK-IN, which has not happened at the instant
+    this runs. So on a package no seat has ever checked into, the sensor refused ("the roster
+    carries no pane at all", exit 4), NO `state.json` was ever produced, and every SUBSEQUENT
+    launch read `CAP UNENFORCEABLE` and deferred every counted candidate — the cold-start bound
+    (7.406) admits the FIRST launch of a fresh package and, before this, nothing admitted the
+    second. `launch` already knows the room, because it just launched into it, so it says so.
+
+    ASKED OF THE ROOM, NEVER DERIVED FROM A PATH — the caller reads it with `tmux_session_name` off
+    the pane this launch actually used, which is the same discipline `resolve_session` states for
+    itself (`G-296`: a derived session name can only be right by coincidence). An EMPTY `session`
+    means "I could not ask", and the sensor then falls back to its own roster resolution exactly as
+    before — this widens what can start the sensor, it never narrows it.
 
     Never blocks or fails a launch: an unstarted monitor is a run with a weaker sensor; a launch
     that died starting one is a run with fewer seats.
@@ -3426,7 +3441,8 @@ def ensure_team_monitor(args):
     last_seen = team_monitor_last_seen(base) if before is None else None
     try:
         subprocess.run([sys.executable, str(script), "ensure",
-                        "--package", str(package_dir(args))],
+                        "--package", str(package_dir(args))]
+                       + (["--session", session] if session else []),
                        capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError) as exc:
         return "fail", {"why": str(exc)}
@@ -13150,7 +13166,10 @@ def cmd_launch(args):
         else:
             print(f"launched {label} in {pane}"
                   + (" (session /rename scheduled)" if w["harness"] == "claude" else ""))
-    status, detail = ensure_team_monitor(args)   # after the seats: the room is up by now
+    # 7.552: the room's session travels WITH the call — see `ensure_team_monitor`. Read off the
+    # pane this launch used, so it is a measurement of the room and not a derivation from its path.
+    status, detail = ensure_team_monitor(args, session=tmux_session_name(target))
+    # ^ after the seats: the room is up by now
     # 7.88: ONE renderer for every outcome, so "already up" and "was dead, restarted" cannot drift
     # back into printing the same thing — which is the defect this row exists to fix.
     text, tone, to_stderr = render_monitor_report(status, detail)

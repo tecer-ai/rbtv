@@ -37,6 +37,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import yaml
@@ -48,6 +49,7 @@ LAUNCHER = CAP / "tool" / "workflow_launcher.py"
 CONFIG = IGNITE / "config" / "spawn-profiles.yaml"
 ARGV_TEMPLATE = IGNITE / "server" / "heart" / "argv-template.js"
 CARRIER = IGNITE / "server" / "spawn" / "carrier.js"
+TEAM_MONITOR = IGNITE.parent / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
 
 SOCKET = "probe-planning-entry"          # a PRIVATE tmux socket; never the default one
 
@@ -216,6 +218,7 @@ def main():
 
     tmpdir = Path(tempfile.mkdtemp(prefix="probe-planning-entry-"))
     args = None
+    pkg5 = None          # bound at the real-fire arms; read by the teardown
     try:
         # ---- P1 · the goal is born WITH a run package and an open register row -----
         out, calls, root = drain(tmpdir / "a", flags)
@@ -447,15 +450,49 @@ def main():
                len(panes5) >= 2 and any("claude" in p for p in panes5), True,
                f"{len(panes5)} pane(s): {panes5}")
 
-        # P6 · THE SAME FIRE AGAIN, and this is the DISCRIMINATING arm. The first fire left
-        # `sessions.csv` and a `team-monitor.log` behind, so the package is no longer VIRGIN — and
-        # the sensor never started (it resolves the room's session FROM THE ROSTER and refuses while
-        # no seat has checked in), so there is still no `state.json`. That is exactly the state
-        # `coordinate launch` defers on: CAP UNENFORCEABLE, every counted candidate deferred, EXIT 0.
-        # ⚠ THE ROOM NOW HOLDS 2 PANES, so the pre-7.548 verdict — `len(panes) <= 1` — would have
-        # read "LAUNCHED" and exited 0, writing a `done` completion for a fire that opened NOTHING
+        # ---- P5b · THE SENSOR IS UP (task 7.552) --------------------------------------------
+        # `coordinate launch` now hands `team_monitor.py ensure` the ROOM'S SESSION — the one it
+        # just launched into — so the census sensor starts with the room's first seat instead of
+        # refusing on a roster no seat has checked into yet. ASSERTED from the lock slot and the
+        # snapshot on disk, never inferred from the launch having exited 0. Until 7.552 every fire
+        # here ended with `WARNING team-monitor start FAILED … the room runs UNOBSERVED`.
+        def mon_pid():
+            try:
+                pid = int((pkg5 / "coordination" / "team-monitor.lock")
+                          .read_text(encoding="utf-8").strip())
+            except (OSError, ValueError):
+                return None
+            return pid if pid and Path(f"/proc/{pid}").exists() else None
+
+        for _ in range(60):
+            if mon_pid() and (pkg5 / "state.json").is_file():
+                break
+            time.sleep(0.25)
+        report("P5b the census sensor STARTED with the room's first seat", "green",
+               bool(mon_pid()) and (pkg5 / "state.json").is_file(), True,
+               f"lock pid={mon_pid()}, state.json="
+               f"{'present' if (pkg5 / 'state.json').is_file() else 'ABSENT'}")
+
+        # P6 · THE SAME FIRE AGAIN WITH THE SENSOR KILLED, and this is the DISCRIMINATING arm. The
+        # first fire left `sessions.csv` behind, so the package is no longer VIRGIN and the
+        # cold-start bound cannot fire twice; killing the sensor and its snapshot removes the only
+        # other way to count the room. That is exactly the state `coordinate launch` defers on:
+        # CAP UNENFORCEABLE, every counted candidate deferred, EXIT 0 — and it is precisely the
+        # state the launcher's own WAIT text names ("a package whose team-monitor sensor is down").
+        # ⚠ IT IS REACHED DELIBERATELY BECAUSE IT NO LONGER ARRIVES ON ITS OWN. Before 7.552 the
+        # sensor never started at all, so the second fire hit this state by default; the honesty
+        # semantics of `73823ab` must still hold when the census is genuinely gone, and that is what
+        # this arm — now a CONTROL rather than an observation — exists to keep pinned.
+        # ⚠ THE ROOM HOLDS 2 PANES, so the pre-7.548 verdict — `len(panes) <= 1` — would have read
+        # "LAUNCHED" and exited 0, writing a `done` completion for a fire that opened NOTHING
         # (C5E-review C1). This arm goes RED against that rule and green only against a verdict
         # computed from the panes THIS fire added.
+        subprocess.run([sys.executable, str(TEAM_MONITOR), "stop", "--package", str(pkg5)],
+                       capture_output=True, text=True, env=fire_env, timeout=60)
+        (pkg5 / "state.json").unlink(missing_ok=True)
+        report("P6 the census is genuinely gone before this fire (the arm's premise)", "green",
+               mon_pid() is None and not (pkg5 / "state.json").exists(), True,
+               "sensor stopped, state.json removed")
         r6 = subprocess.run(fire, capture_output=True, text=True, env=fire_env, timeout=600)
         o6, panes6 = r6.stdout + r6.stderr, room_panes()
         report("P6 a fire that opens no seat EXITS NON-ZERO (never a false `done`)", "green",
@@ -468,6 +505,11 @@ def main():
                len(panes6) == len(panes5) and len(panes6) > 1, True,
                f"{len(panes6)} pane(s), unchanged — a count-based verdict would have said LAUNCHED")
     finally:
+        # The sensor this run started is a DETACHED process; it exits on its own once the room is
+        # gone, but stopping it here means no probe run ever leaves one polling a deleted package.
+        if pkg5 is not None:
+            subprocess.run([sys.executable, str(TEAM_MONITOR), "stop", "--package", str(pkg5)],
+                           capture_output=True, text=True)
         kill_socket()
         shutil.rmtree(tmpdir, ignore_errors=True)
 

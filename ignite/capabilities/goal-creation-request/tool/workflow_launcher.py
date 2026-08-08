@@ -267,6 +267,12 @@ def main(argv=None):
     #    carries no pane at all", exit 4) — it cannot run before the first launch, by construction.
     #    Cold-start admission exists precisely because a virgin room's census is unobtainable and
     #    its true reading is nonetheless known.
+    #  · WHAT THE LAUNCH ITSELF NOW CARRIES (team-kit task 7.552). `coordinate launch` hands
+    #    `team_monitor.py ensure` the room's session it just launched into, so the sensor STARTS
+    #    with the first seat rather than refusing on an empty roster. That is what makes a SECOND
+    #    fire possible at all: the cold-start bound is spent ONCE, so before 7.552 every fire after
+    #    the first hit the WAIT below — and Wave D's advancement launch is exactly that second fire.
+    #    `probes/probe-sensor-start.py` pins the chain end to end.
     #
     # So a WAIT here is NOT the expected first-fire outcome. It is a package that is no longer
     # virgin and has no census — its sensor died — which is the state 7.363 defers on. That is a

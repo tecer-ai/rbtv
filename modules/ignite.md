@@ -48,7 +48,13 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   Task 7.548 measured both and corrected the contrary claim this doc, the launcher and
   `spawn-profiles.yaml` had carried — including its instruction to put the team-monitor census
   sensor in the arming sequence, which is impossible: the sensor refuses until a seat has checked
-  in. The ruled bare name now
+  in. Task **7.552** then closed what that left open — `coordinate launch` now hands
+  `team_monitor.py ensure` the room's session, the one it just launched into, so the census sensor
+  STARTS with the room's first seat instead of refusing on a roster nobody has checked into yet.
+  Without it the cold-start bound was spent ONCE and every SUBSEQUENT fire read `CAP UNENFORCEABLE`
+  and deferred every counted candidate — and the second fire is exactly Wave D's advancement, so a
+  run's first fire worked and the run then stalled (`capabilities/goal-creation-request/probes/probe-sensor-start.py`).
+  The ruled bare name now
   RESOLVES under the daemon: a fired tool used to inherit the systemd `--user` MANAGER's PATH, which
   carries no `~/.local/bin`, so `scaffold-seats` exited 127 and every daemon-fired creation refused
   after scaffolding — fixed at the CARRIER for the whole class, not at this call site

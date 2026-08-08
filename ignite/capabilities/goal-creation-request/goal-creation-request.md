@@ -237,6 +237,16 @@ hands the launch to `coordinate` with an explicit `--tmux-target`. Properties wo
   impossible anyway: `team_monitor.py` resolves the room's session FROM THE ROSTER and refuses while
   no seat has checked in (exit 4), so it cannot run before the first launch. **Nothing about the
   census belongs in the arming sequence.**
+- ✅ **The census sensor starts WITH the room's first seat** (task **7.552**). What no arming
+  sequence could carry, the LAUNCH does: `coordinate launch` hands `team_monitor.py ensure` the
+  session it just launched into (`--session`, read off the pane it used — asked of the room, never
+  derived from a path, `G-296`), so the sensor no longer refuses on an empty roster. This is what
+  makes the SECOND fire possible: the cold-start bound above is spent ONCE — it fires only while the
+  package is virgin — so before 7.552 every subsequent fire read `CAP UNENFORCEABLE` and deferred
+  every counted candidate, and Wave D's advancement launch IS that second fire. Proven end to end by
+  `probes/probe-sensor-start.py`: virgin package → first fire opens the entry seat → the sensor is
+  RUNNING (live lock holder + a `state.json` naming the room) → the second fire ADMITS and opens
+  another seat pane.
 - ⚠ **Exit codes: `0` means A SEAT OPENED, and nothing else.** `recordToolCompletion` maps a fired
   tool's `0` to completion `done` and every non-zero to `failed`, so this program's exit code *is*
   the store record. It proves the claim from the pane set THIS fire added (never an absolute count,
@@ -248,8 +258,11 @@ hands the launch to `coordinate` with an explicit `--tmux-target`. Properties wo
   | `3` | the delegated launch exited 0 and opened NO seat pane — or the room could not be read, so nothing proves one opened | `failed` |
   | `1` / `2` | refusal — unresolvable target, absent package, bad name, delegated launch failed | `failed` |
 
-  A `3` is a package that is **no longer virgin and has no census** (its sensor died), which is the
-  state `coordinate launch` defers on. It is loud and typed, never a silent success. It does **not**
+  A `3` is a package that is **no longer virgin and has no census**, which is the state
+  `coordinate launch` defers on. Since 7.552 that means a sensor that **STOPPED** — the first launch
+  starts one, so it is no longer the fresh-package default it was when this table was written (the
+  sensor then never lived at all, and every fire ended with `WARNING team-monitor start FAILED …
+  the room runs UNOBSERVED`). It is loud and typed, never a silent success. It does **not**
   mint the failure-per-cadence pattern: the row this program runs under is **one-shot** (enqueued
   `--trigger scheduled --at <t>` with no repeat rule; `fireQueueRow` deletes it at fire), so there is
   no cadence for a failure to recur on — one fire, one honest record. Probe **P7** pins that, because
