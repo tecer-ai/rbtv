@@ -94,6 +94,15 @@ topo-order, tf-id, creation-partial, AS-2/AS-4) reports ONE line naming both
 arms, and the suite exits 0 only when every row passes BOTH arms — a row whose
 red arm is missing or failing is a suite failure, never a green (R-6, AS-2).
 
+The plugin/MCP REGISTRATION SURFACE is landed (d-mcp-registration-is-config,
+2026-08-08) — render_harness_configs/emit_harness_configs: a component's
+exposure.csv row (`method: config`, entry-point → an `mcpServers`-shape
+declaration file) materializes per seat as the three supported harnesses'
+registration files (`.mcp.json` + `.claude/settings.json` approval flag ·
+`.codex/config.toml` `[mcp_servers.*]` · `opencode.json` `"mcp"`), realization
+per CMP-12 § config. Derived files, regenerated freely; a broken declaration
+refuses pre-write. Acceptance row MCP-1.
+
 Assembly is goal_cli's — `index_units` / `load_catalogs` / `assemble_seat`
 imported from the goals-tree tool. ONE assembler; this file must never grow a
 local unit emitter (SK-7).
@@ -1643,6 +1652,191 @@ def _write_seat_agents_md(folder: Path, seat: str) -> str | None:
     return str(target)
 
 
+# ── plugin/MCP registration files — the `config` method (d-mcp-registration-is-config) ──
+#
+# A component declares a plugin/MCP registration ONCE, as an exposure.csv row
+# (`method: config`) whose entry-point names a server-declaration file in the
+# `mcpServers` JSON shape — rbtv's neutral schema (owner ruling 2026-08-08).
+# Materializing a seat realizes that declaration for EVERY supported harness
+# (CON-2: claude, codex, opencode) in the seat folder, per CMP-12 § config:
+#
+#   .mcp.json               claude — the neutral shape verbatim, PLUS
+#   .claude/settings.json   "enableAllProjectMcpServers": true (measured
+#                           2026-08-08, claude 2.1.226: without the flag every
+#                           project server sits "Pending approval")
+#   .codex/config.toml      codex 0.144.5 — [mcp_servers.<name>] tables;
+#                           url= for http/sse, command/args/env for stdio
+#   opencode.json           opencode 1.17.18 — "mcp" key; remote/url ·
+#                           local/command+environment
+#
+# All three harnesses read these PROJECT-LOCALLY from the seat's working root
+# (cwd-scoping control-verified on codex). Registration is NOT authentication:
+# an OAuth server still needs a one-time human login per harness per box
+# (`codex mcp login` / `opencode mcp auth` / claude's own flow) — the caveat
+# lives on the KG `harness config` schema key.
+#
+# The generated files are DERIVED and per-run content-free, so like AGENTS.md
+# they are regenerated freely (byte-identical → skipped) — never a collision
+# refusal. A component with no exposure.csv, or none of its rows `config`,
+# generates nothing: absence is normal.
+
+EXPOSURE_NAME = "exposure.csv"
+
+
+def load_mcp_servers(comp_dir: Path) -> dict:
+    """The component's merged plugin/MCP declaration: every exposure.csv row
+    with `method: config` whose entry-point file carries an `mcpServers`
+    object. {} when the component declares none. A config row whose payload
+    parses but carries NO `mcpServers` key is another config payload kind and
+    is skipped here; an unreadable/unparseable payload REFUSES (pre-write)."""
+    exposure = comp_dir / EXPOSURE_NAME
+    if not exposure.is_file():
+        return {}
+    servers: dict = {}
+    with exposure.open(encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            if (row.get("method") or "").strip() != "config":
+                continue
+            entry = (row.get("entry-point") or "").strip()
+            if not entry:
+                raise Refuse(
+                    "mcp-entry-point-missing",
+                    f"exposure.csv row '{(row.get('part-id') or '').strip()}' "
+                    "declares method `config` with an empty entry-point — the "
+                    "entry-point names the declaration file the generated "
+                    "harness config carries, so there is nothing to realize",
+                    str(exposure))
+            path = comp_dir / entry
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise Refuse(
+                    "mcp-declaration-invalid",
+                    f"config entry-point {entry!r} is not readable JSON "
+                    f"({exc}) — refusing before any write; a seat folder "
+                    "carrying a half-generated registration set would look "
+                    "materialized and fail at launch",
+                    str(path)) from exc
+            decl = data.get("mcpServers") if isinstance(data, dict) else None
+            if decl is None:
+                continue
+            if not isinstance(decl, dict) or not all(
+                    isinstance(v, dict) for v in decl.values()):
+                raise Refuse(
+                    "mcp-declaration-invalid",
+                    f"config entry-point {entry!r} carries an `mcpServers` "
+                    "that is not an object of server objects — not the "
+                    "neutral schema (d-mcp-registration-is-config)",
+                    str(path))
+            for name, spec in decl.items():
+                if name in servers:
+                    raise Refuse(
+                        "mcp-server-duplicate",
+                        f"server {name!r} is declared by more than one "
+                        "config row of this component — one registration, "
+                        "one home",
+                        str(exposure))
+                servers[name] = spec
+    return servers
+
+
+def _codex_mcp_toml(servers: dict) -> str:
+    """`.codex/config.toml` [mcp_servers.*] tables from the neutral shape.
+    json.dumps of a str/list is valid TOML for both, so no TOML writer is
+    needed (stdlib has none)."""
+    lines = ["# Generated by materialize-seats.py from the component's "
+             "plugin/MCP declaration", "# (exposure.csv `method: config`) — "
+             "regenerated freely, never hand-edited.", ""]
+    for name in sorted(servers):
+        spec = servers[name]
+        lines.append(f"[mcp_servers.{name}]")
+        if spec.get("url"):
+            lines.append(f"url = {json.dumps(str(spec['url']))}")
+        else:
+            lines.append(f"command = {json.dumps(str(spec.get('command', '')))}")
+            if spec.get("args"):
+                lines.append(
+                    "args = "
+                    + json.dumps([str(a) for a in spec["args"]]))
+            env = spec.get("env") or {}
+            if env:
+                lines.append("")
+                lines.append(f"[mcp_servers.{name}.env]")
+                for k in sorted(env):
+                    lines.append(f"{k} = {json.dumps(str(env[k]))}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _opencode_mcp_json(servers: dict) -> str:
+    """`opencode.json` from the neutral shape: url → remote, else local
+    (command array = command + args; env key is `environment`)."""
+    mcp: dict = {}
+    for name, spec in servers.items():
+        if spec.get("url"):
+            mcp[name] = {"type": "remote", "url": str(spec["url"]),
+                         "enabled": True}
+        else:
+            entry: dict = {
+                "type": "local",
+                "command": [str(spec.get("command", ""))]
+                + [str(a) for a in (spec.get("args") or [])],
+                "enabled": True,
+            }
+            env = spec.get("env") or {}
+            if env:
+                entry["environment"] = {k: str(v) for k, v in env.items()}
+            mcp[name] = entry
+    return json.dumps({"$schema": "https://opencode.ai/config.json",
+                       "mcp": mcp}, indent=2, sort_keys=True) + "\n"
+
+
+def render_harness_configs(plan: dict, seats_cat: dict) -> None:
+    """Plan the per-seat harness registration files (all gates fire HERE,
+    before the dry-run return and before any write) and DECLARE them in
+    writes[] — an undisclosed write is the --dry-run under-report failure the
+    plan exists to refuse."""
+    configs: dict[str, dict[str, str]] = {}
+    for seat in plan["added_seats"]:
+        source = str((seats_cat.get(seat) or {}).get("__source__") or "")
+        if not source:
+            continue
+        servers = load_mcp_servers(Path(source).parent)
+        if not servers:
+            continue
+        files = {
+            ".mcp.json": json.dumps({"mcpServers": servers}, indent=2,
+                                    sort_keys=True) + "\n",
+            ".claude/settings.json": json.dumps(
+                {"enableAllProjectMcpServers": True}, indent=2) + "\n",
+            ".codex/config.toml": _codex_mcp_toml(servers),
+            "opencode.json": _opencode_mcp_json(servers),
+        }
+        configs[seat] = files
+        for rel in files:
+            plan["writes"].append({
+                "kind": "seat-harness-config", "seat": seat,
+                "path": str(Path(plan["package"]) / "seats" / seat / rel)})
+    plan["harness_configs"] = configs
+
+
+def emit_harness_configs(plan: dict) -> list[str]:
+    """Write the planned registration files — AGENTS.md semantics (derived,
+    deterministic, regenerated freely; byte-identical → skipped)."""
+    written: list[str] = []
+    for seat, files in (plan.get("harness_configs") or {}).items():
+        folder = Path(plan["package"]) / "seats" / seat
+        for rel, text in files.items():
+            target = folder / rel
+            if target.exists() and target.read_text(encoding="utf-8") == text:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8", newline="\n")
+            target.chmod(0o644)
+            written.append(str(target))
+    return written
+
+
 def emit_seat_descriptors(plan: dict) -> list[str]:
     """dag-04 — write the rendered descriptors: file mode 0644, folder 0755.
     Every gate already fired in render_descriptors (before any write); under
@@ -2348,6 +2542,7 @@ def run(args) -> dict:
     # three registry validations — before the dry-run return and before any
     # write, so a refusal always leaves zero files and zero rows.
     render_descriptors(plan, catalogs[0], units)
+    render_harness_configs(plan, catalogs[0])  # plugin/MCP config files
     render_taskforce_rows(plan)
     render_run_register(plan, args)
     if args.dry_run:
@@ -2363,6 +2558,7 @@ def run(args) -> dict:
     create_run_package(package, creation)  # dag-06
     append_run_register_row(plan)  # the run register's opening half
     emit_seat_descriptors(plan)   # dag-04
+    emit_harness_configs(plan)    # plugin/MCP config files
     append_taskforce_rows(plan)   # dag-05
     return result_of(plan, dry_run=False)
 
@@ -2681,6 +2877,24 @@ def build_fixture(tmp: Path) -> dict:
         + "".join(f"m{i},milestone {i},pending\n" for i in range(3, 8)),
         encoding="utf-8")
 
+    # A third component carrying a plugin/MCP declaration (MCP-1): its own
+    # component so no other arm's write set changes; its seat reuses
+    # demo-comp's prompt/task units (catalogs merge across the catalog root).
+    mcpc = tmp / "catalog" / "mcp-comp"
+    mcpc.mkdir(parents=True)
+    mcpc.joinpath("seats.csv").write_text(
+        "seat-id,executor,task,staffing-hints,description\n"
+        "mcp-seat,alpha-prompt,alpha-task,,the mcp seat\n", encoding="utf-8")
+    mcpc.joinpath("exposure.csv").write_text(
+        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+        "demo-mcp,plugin/MCP,config,,mcp.json,demo MCP declaration\n",
+        encoding="utf-8")
+    mcpc.joinpath("mcp.json").write_text(json.dumps({"mcpServers": {
+        "demo-http": {"type": "http", "url": "https://mcp.example.test"},
+        "demo-stdio": {"command": "demo-mcp-server", "args": ["--flag"],
+                       "env": {"DEMO_KEY": "x"}},
+    }}, indent=2) + "\n", encoding="utf-8")
+
     bdir = tmp / "bindings"
     bdir.mkdir()
     seat_binding = {
@@ -2722,6 +2936,10 @@ def build_fixture(tmp: Path) -> dict:
                  "seats": {"beta": {**seat_binding, "after": []}}}
     bdir.joinpath("beta.json").write_text(json.dumps(beta_only),
                                           encoding="utf-8")
+    mcp_only = {"version": 1, "defaults": both["defaults"],
+                "seats": {"mcp-seat": {**seat_binding, "after": []}}}
+    bdir.joinpath("mcp-seat.json").write_text(json.dumps(mcp_only),
+                                              encoding="utf-8")
     guard = {"version": 1, "defaults": both["defaults"],
              "seats": {f"s{i}": dict(seat_binding) for i in range(1, 5)}}
     bdir.joinpath("guard.json").write_text(json.dumps(guard),
@@ -2765,6 +2983,8 @@ def build_fixture(tmp: Path) -> dict:
         "b_scramble": str(bdir / "scramble.json"),
         "b_b2": str(bdir / "b2.json"),
         "b_beta": str(bdir / "beta.json"),
+        "b_mcp": str(bdir / "mcp-seat.json"),
+        "mcp_decl": str(mcpc / "mcp.json"),
         "src_conduct": str(seeds / "conduct.md"),
         "src_claude": str(seeds / "CLAUDE.md"),
         "src_budget": str(seeds / "budget.json"),
@@ -4514,6 +4734,8 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "RR-2": (("RR-2 green",), ("RR-2 red",)),
     "AS-2": (("AS-2 green",), ("AS-2 control",)),
     "AS-4": (("SK-4: the whole suite is identical",), ("SK-4 control",)),
+    # The plugin/MCP registration row (d-mcp-registration-is-config).
+    "MCP-1": (("MCP-1 green",), ("MCP-1 red",)),
     # The pass-folder substitution rows (B4, B5, G-planner-0804-1502).
     "PF-1": (("PF-1 green",), ("PF-1 red",)),
     "PF-2": (("PF-2 green",), ("PF-2 red",)),
@@ -4926,6 +5148,74 @@ def run_selftest() -> int:
               "(branch-not-a-workflow) — it reaches MC9's classifier",
               _invoke(["--branch-of", str(parent10), "--workflow", "alpha"]
                       + common10 + seeds10, clean_env).returncode == 1)
+
+    print("MCP-1 plugin/MCP registration pass (d-mcp-registration-is-config)")
+    with tempfile.TemporaryDirectory() as mcp_td:
+        fxm = build_fixture(Path(mcp_td))
+        common_m = ["--catalog-root", fxm["catalog"], "--root", "--json"]
+        pm = _invoke(["--package", fxm["pkg"], "--seat", "mcp-seat",
+                      "--bindings", fxm["b_mcp"]] + common_m, clean_env)
+        seat_dir = Path(fxm["pkg"]) / "seats" / "mcp-seat"
+        gen = {rel: seat_dir / rel for rel in
+               (".mcp.json", ".claude/settings.json", ".codex/config.toml",
+                "opencode.json")}
+        check("MCP-1 green: a config-declaring component materializes all "
+              "FOUR harness registration files",
+              pm.returncode == 0 and all(p.is_file() for p in gen.values()),
+              pm.stderr.strip()[:300])
+        decl = json.loads(Path(fxm["mcp_decl"]).read_text(encoding="utf-8"))
+        check("MCP-1 green: .mcp.json carries the declaration's mcpServers "
+              "verbatim (the neutral shape is claude's)",
+              json.loads(gen[".mcp.json"].read_text(encoding="utf-8"))
+              == {"mcpServers": decl["mcpServers"]})
+        check("MCP-1 green: .claude/settings.json carries the approval flag",
+              json.loads(gen[".claude/settings.json"].read_text(
+                  encoding="utf-8")).get("enableAllProjectMcpServers") is True)
+        toml_text = gen[".codex/config.toml"].read_text(encoding="utf-8")
+        check("MCP-1 green: .codex/config.toml carries the http server as "
+              "url= and the stdio server as command/args/env",
+              "[mcp_servers.demo-http]" in toml_text
+              and 'url = "https://mcp.example.test"' in toml_text
+              and "[mcp_servers.demo-stdio]" in toml_text
+              and 'command = "demo-mcp-server"' in toml_text
+              and 'args = ["--flag"]' in toml_text
+              and "[mcp_servers.demo-stdio.env]" in toml_text
+              and 'DEMO_KEY = "x"' in toml_text, toml_text[:400])
+        oc = json.loads(gen["opencode.json"].read_text(encoding="utf-8"))
+        check("MCP-1 green: opencode.json maps url -> remote and "
+              "command -> local with `environment`",
+              oc.get("mcp", {}).get("demo-http")
+              == {"type": "remote", "url": "https://mcp.example.test",
+                  "enabled": True}
+              and oc.get("mcp", {}).get("demo-stdio")
+              == {"type": "local",
+                  "command": ["demo-mcp-server", "--flag"],
+                  "environment": {"DEMO_KEY": "x"}, "enabled": True},
+              json.dumps(oc)[:300])
+        res_m = json.loads(pm.stdout) if pm.stdout.strip() else {}
+        check("MCP-1 green: every generated file is DECLARED in writes[] "
+              "(kind seat-harness-config) — no undisclosed write",
+              {w["path"] for w in res_m.get("writes", [])
+               if w.get("kind") == "seat-harness-config"}
+              == {str(p) for p in gen.values()})
+        pa = _invoke(["--package", fxm["pkg"], "--seat", "alpha",
+                      "--bindings", fxm["b_alpha"]] + common_m, clean_env)
+        check("MCP-1 green: a component with NO config declaration "
+              "generates nothing (absence is normal)",
+              pa.returncode == 0
+              and not (Path(fxm["pkg"]) / "seats" / "alpha"
+                       / ".mcp.json").exists(),
+              pa.stderr.strip()[:200])
+        # RED ARM — a broken declaration REFUSES pre-write: rc 1, the named
+        # code, and NO seat surface materialized (zero-files refusal).
+        Path(fxm["mcp_decl"]).write_text("{not json", encoding="utf-8")
+        pr = _invoke(["--package", fxm["pkg9"], "--seat", "mcp-seat",
+                      "--bindings", fxm["b_mcp"]] + common_m, clean_env)
+        check("MCP-1 red: an unparseable declaration refuses "
+              "mcp-declaration-invalid and writes NOTHING",
+              pr.returncode == 1 and "mcp-declaration-invalid" in pr.stderr
+              and not (Path(fxm["pkg9"]) / "seats" / "mcp-seat").exists(),
+              pr.stderr.strip()[:200])
 
     print("dag-04 acceptance pass (SC rows, each with its failing control)")
     run_dag04_acceptance(check, clean_env)
