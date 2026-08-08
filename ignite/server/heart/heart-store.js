@@ -118,6 +118,45 @@ function sessionStatusForEndedTurn(turnStatus) {
   return turnStatus === 'failed' ? 'crashed' : 'closed';
 }
 
+// ── Task Q9 · THE IDEMPOTENT DOOR's key (owner-authorized ruling `d-q9-door`, 2026-08-08) ────────
+//
+// The (run, seat) a queue row DECLARES, as a comparable string — or null when the row names no
+// seat at all. It is deliberately THE SAME DISJUNCTION the fire path resolves a home with
+// (`ticker.js` resolveJobHome), minus the filesystem: a catalogue-homed job carries the pointer on
+// `jobs.goal_name`/`jobs.seat_name`, an unhomed one carries it as `args.workdir`, and supplying
+// BOTH is already a refusal at fire — so exactly one of them identifies the seat. Keying on
+// anything else would let the door dedupe one seat while the ticker launched another.
+//
+// ⚠ THE RUN IS NOT IN THE `goal:` KEY, AND THAT IS THE POINT — not an omission. `r-job-seat-home`
+// stores goal+seat and NEVER the run, because a goal-serving job is a seat of the goal's LIVE run
+// and the run is resolved at FIRE time; pinning a run here would key the door to a run that later
+// closes. Two pending rows for one homed job therefore resolve to the same run by construction,
+// which is exactly the (run, seat) pair the ruling names. The `workdir:` arm carries the run
+// explicitly in its path (`…/goals/<goal>/runs/<run>/seats/<seat>`).
+//
+// ⚠ NEVER a hash of `args`. C5 templates per-row argv out of these rows, so an args-content key
+// would change the moment a prompt or an argument did, and the door would stop recognising a seat
+// it had already queued. `workdir` is read as the seat's ADDRESS, not as row content.
+//
+// Trailing separators are stripped so `…/seats/x` and `…/seats/x/` are one seat. No path
+// resolution beyond that: every producer in this tree submits an already-resolved absolute path
+// (edge-runner-job.py resolves it, attached-run.js path.join's it), and resolving a relative path
+// HERE would resolve it against the daemon's CWD, which is not the caller's.
+// ⚠ LAUNCH-AGENT ONLY, and this bound is load-bearing rather than cautious. Occupying a seat is
+// what an AGENT SESSION does — the ruling's hazard is "a seat that has not yet REGISTERED ITSELF",
+// and registration is an agent-seat act. A `fire-tool` / `start-workflow` / `send-message` job
+// homed at a (goal, seat) is a one-shot process running OUT OF that home, not a claim on it, and
+// firing one twice is ordinary. Keying those too would gate the EDGE-RUNNER ITSELF — it is a
+// homed fire-tool job — and would make the door forbid the very cadence it exists to serve.
+function seatKeyOf(job, args) {
+  if (!job || job.action_type !== 'launch-agent') return null;
+  if (job.goal_name && job.seat_name) return `goal:${job.goal_name}/seat:${job.seat_name}`;
+  const workdir = args && typeof args.workdir === 'string' ? args.workdir : null;
+  if (!workdir) return null;
+  const trimmed = workdir.replace(/\/+$/, '');
+  return trimmed ? `workdir:${trimmed}` : null;
+}
+
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const VALID_PRIMITIVE_TYPES = new Set(['string', 'integer', 'number', 'boolean', 'object', 'array']);
 
@@ -660,6 +699,51 @@ class HeartStore {
     return stmt.all();
   }
 
+  // ── Task Q9 · THE IDEMPOTENT DOOR's lookup (ruling `d-q9-door`) ─────────────────────────────
+  //
+  // Who currently HOLDS this (run, seat), or null. TWO surfaces, and both are required — this is
+  // the `engine/attached-run.js` enqueueEligible grammar (pending row OR prior execution), read
+  // against the ruled non-terminal set rather than "ever ran".
+  //
+  // ⚠ THE SECOND SURFACE IS THE WHOLE FIX. A queue-only check is VACUOUS in the configuration
+  // this exists for: the edge-runner enqueues `--trigger scheduled --at now`, fireQueueRow DELETES
+  // such a row at fire, the ticker cadence is 10s and the shipped edge-runner recipe is
+  // `--every 300` — so the pending row exists for ~3% of the cycle and the re-fire almost always
+  // lands when the seat is held by a LIVE TURN and nothing is pending. A door that only read
+  // `queue` would look exactly like this one and suppress almost nothing.
+  //
+  // NON-TERMINAL is the store's own TERMINAL_TURN_STATUSES, negated — never a second list here.
+  // So `launching`/`running`/`stalled` hold the seat; `done`/`blocked`/`failed`/`killed` release
+  // it, which is what keeps crash-retry alive (ruling: escalation of a crash-looping seat is the
+  // goal-watcher's stall row, not the door's).
+  //
+  // ORDERING: a holder that carries an ORIGINATING queue id wins over one that does not, then the
+  // most recent. The ruled return is that originating id, so a turn born outside the queue (a
+  // direct recordExecutionStart, as probes do) must never mask a turn that has one.
+  _findSeatHolder(seatKey) {
+    for (const row of this.listQueue()) {
+      let args;
+      try { args = JSON.parse(row.args); } catch { args = {}; }
+      if (seatKeyOf(this.getJob(row.job_id), args) === seatKey) {
+        return { because: 'pending-queue-row', queueId: row.queue_id, execId: null, status: null };
+      }
+    }
+    const nonTerminal = [...TURN_STATUSES].filter((s) => !TERMINAL_TURN_STATUSES.has(s));
+    const rows = this._prepare(`
+      SELECT exec_id, queue_id, job_id, args, status FROM jobs_log
+      WHERE status IN (${nonTerminal.map(() => '?').join(',')})
+      ORDER BY (queue_id IS NULL), exec_id DESC
+    `).all(...nonTerminal);
+    for (const row of rows) {
+      let args;
+      try { args = JSON.parse(row.args); } catch { args = {}; }
+      if (seatKeyOf(this.getJob(row.job_id), args) === seatKey) {
+        return { because: 'live-turn', queueId: row.queue_id, execId: row.exec_id, status: row.status };
+      }
+    }
+    return null;
+  }
+
   enqueue(req) {
     const job = this.getJob(req.jobId);
     if (!job) {
@@ -761,6 +845,38 @@ class HeartStore {
     // UNCHANGED — this branch is the ONLY addition (narrow single-round grant).
     if (req.dryRun) {
       return { dryRun: true, valid: true };
+    }
+
+    // ── Task Q9 · THE IDEMPOTENT DOOR (owner-authorized ruling `d-q9-door`, 2026-08-08) ────────
+    //
+    // A second add-job for a (run, seat) still held is a NO-OP that RETURNS THE HELD OPERATION'S
+    // ID — idempotent-return-of-the-existing-operation, not a refusal. The caller this exists for
+    // is a PERIODIC edge-runner pass, and its door contract is exit 0 plus a parseable queue id
+    // (`edge-runner-job.py` _QUEUE_ID); a typed refusal here would record that productive pass
+    // `failed` on every fire while any seat is booting — rebirthing the recorded-failure-each-
+    // cadence noise this run exists to remove. So: pending hold returns the REAL pending row;
+    // live-turn hold returns the ORIGINATING queue id (the row whose fire produced that turn).
+    //
+    // PLACED AFTER THE DRY-RUN RETURN, deliberately: `--dry-run` keeps its certified meaning
+    // ("the complete re-validation passed, nothing was written") byte-identically, and the door
+    // governs only acts that would actually mint a row.
+    //
+    // NOT A GUARD ON THE RECYCLE PATH: the ticker's own `insertQueueRow` is a raw INSERT that
+    // never reaches this method, so a turn chain's recycle is untouched by construction (it has
+    // its own `slot-live-session` defer). That is the ruled split, not an oversight.
+    const seatKey = seatKeyOf(job, parsedArgs);
+    if (seatKey) {
+      const holder = this._findSeatHolder(seatKey);
+      if (holder) {
+        return {
+          deduped: true,
+          seat_key: seatKey,
+          because: holder.because,
+          queue_id: holder.queueId,
+          exec_id: holder.execId,
+          held_status: holder.status,
+        };
+      }
     }
 
     const enqueuedAt = req.enqueuedAt || isoNow();

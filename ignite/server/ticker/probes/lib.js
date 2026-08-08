@@ -127,14 +127,34 @@ function registerLaunchAgentJob(ctx, jobId = 'launch-agent') {
   });
 }
 
+// The next never-yet-used seat home under the fixture's run, materialized to the minimal valid
+// shape (folder + seat.md) the launch door demands. Counter lives on ctx, so seats stay distinct
+// across every enqueue of one scenario and reset with the fixture.
+function nextSeatHome(ctx) {
+  ctx._seatSeq = (ctx._seatSeq || 0) + 1;
+  const seat = `probe-seat-${ctx._seatSeq}`;
+  const dir = path.join(ctx.runDir, 'seats', seat);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'seat.md'), `---\nseat: ${seat}\n---\n`);
+  return dir;
+}
+
 function enqueueLaunchAgent(ctx, { jobId = 'launch-agent', profile, prompt = null, workdir = null, runAt, triggerKind = 'scheduled', intervalSeconds = null, maxFires = null, enqueuedBy = 'probe' }) {
   const args = { profile };
   if (prompt !== null && prompt !== undefined) args.prompt = prompt;
-  // Default the home to the fixture's canonical seat folder (r-seats-only-architecture: an
-  // unhomed launch is a refusal, and these probes test ticker mechanics, not the door — the
-  // door has its own probes). An explicit workdir still wins.
+  // Default the home to a canonical seat folder (r-seats-only-architecture: an unhomed launch is
+  // a refusal, and these probes test ticker mechanics, not the door — the door has its own
+  // probes). An explicit workdir still wins.
+  //
+  // ⚠ A DISTINCT SEAT PER CALL, since task Q9 (`d-q9-door`). These probes enqueue SEVERAL
+  // launches to exercise ticker mechanics (the agent cap, the recycle budget), and the idempotent
+  // door now collapses repeat launches of ONE (run, seat) into the first — so a shared default
+  // home silently turned "3 due launches" into 1 and the cap could never be reached. One seat per
+  // launch is also the shape the mechanics actually meet in a run: a cap counts live sessions
+  // ACROSS seats. A probe that means to re-launch ONE seat passes `workdir` explicitly and gets
+  // the door's real behaviour.
   if (workdir !== null && workdir !== undefined) args.workdir = workdir;
-  else if (ctx.seatDir) args.workdir = ctx.seatDir;
+  else if (ctx.seatDir) args.workdir = nextSeatHome(ctx);
   return ctx.store.enqueue({
     jobId,
     args: JSON.stringify(args),

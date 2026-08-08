@@ -465,6 +465,33 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     if (dryRun) {
       return { dry_run: true, valid: true };
     }
+
+    // ── Task Q9 · the idempotent door's AUDIT SURFACE (ruling `d-q9-door`) ───────────────────
+    // The store suppressed this enqueue because the (run, seat) is already held. It is a NO-OP,
+    // so the ticker is NOT nudged — there is no new row to serve. The suppression MUST be
+    // observable or it is indistinguishable from a real enqueue on the wire: the caller gets a
+    // valid queue id either way, by design (that is what keeps the periodic edge-runner's pass
+    // green instead of recording `failed` every cadence). This line is that observability, and
+    // `idempotent-suppress` is the marker probes and log greps key on.
+    // The daemon log is the operator's view; `deduped` on the result is the machine's.
+    if (result.deduped) {
+      log('info', 'idempotent-suppress', {
+        seatKey: result.seat_key,
+        heldBy: result.because,
+        heldStatus: result.held_status,
+        originatingQueueId: result.queue_id,
+        execId: result.exec_id,
+        jobId: payload.job_id,
+        senderId: sender.id,
+      });
+      return {
+        jobId: result.queue_id,
+        deduped: true,
+        because: result.because,
+        seat_key: result.seat_key,
+        exec_id: result.exec_id,
+      };
+    }
     // `jobId` here is the QUEUE-ROW id — see the note on handleRemoveJob. This is
     // the id gateway-cli-spec.md:26 calls "the NEW job id" and feeds straight into
     // remove-job at its test 5.

@@ -99,19 +99,27 @@ whole resolution, and its CWD is `args.workdir` falling back to `default_workdir
 (`ticker.js` `launchFireTool`). Passing `workdir` explicitly is what stops the door's credentials
 from depending on an unrelated config key that happens to hold the right value today.
 
-⚠⚠ **A RE-FIRE RE-ENQUEUES EVERY SEAT THAT HAS NOT BOOTED YET, AND THE INTERVAL IS THE ONLY BOUND.**
-This job holds no memory between fires and reads no queue: `launch_candidates` suppresses a seat on
-a terminal mark or an `active: yes` roster row, **and a roster row is written by the SEAT ITSELF
-after it boots and registers** — so between `add-job` and that registration a candidate is invisible
-to the guard and a second fire enqueues it again. Two consequences, and the second is the one to
-plan around:
+⚠ **A RE-FIRE STILL ASKS FOR EVERY SEAT THAT HAS NOT BOOTED YET — THE DOOR IS WHAT MAKES THAT
+HARMLESS** (task Q9, ruling `d-q9-door`). This job holds no memory between fires and reads no
+queue: `launch_candidates` suppresses a seat on a terminal mark or an `active: yes` roster row,
+**and a roster row is written by the SEAT ITSELF after it boots and registers** — so between
+`add-job` and that registration a candidate is still invisible to THIS file's guard and a second
+fire still submits it. What changed is the other side: `heartStore.enqueue` is now IDEMPOTENT per
+(run, seat), so the second submission mints no row.
 
-- **Pick an interval longer than a seat's worst-case boot-to-register latency.** `--every 60` is
-  shorter than a cold harness takes to come up; `300` is the conservative default above. This is a
-  bound chosen by the operator, not a guarantee the job makes.
-- **A seat whose spawn never registers re-enqueues on EVERY fire, without limit.** An unhomed or
-  refused launch job never produces a roster row, so nothing ever suppresses it. Watch `inspect
-  queue` after arming a run; a growing count of the same seat is this, not a stuck ticker.
+- **The duplicate is absorbed at the door, not here** — and deliberately so: this file speaks to
+  the queue only through `submit` and must never read it back. A repeat submission for a (run,
+  seat) already held — by a pending row OR by a live turn — returns the ORIGINATING queue id, so
+  the pass sees an ordinary success and stays green. The daemon log names each one
+  (`idempotent-suppress`, with the originating id); the queue does not grow.
+- **A seat whose spawn never registers no longer re-enqueues without limit.** It re-submits on
+  every fire and is absorbed every time, so `inspect queue` no longer grows. The seat is released
+  the moment its turn reaches a TERMINAL outcome (`done`/`blocked`/`failed`/`killed`) — which is
+  what keeps crash-retry working; a seat that crash-loops is the goal-watcher's stall row to
+  escalate, not the door's.
+- **The interval is now a cost choice, not a correctness bound.** A shorter interval means more
+  absorbed submissions and more log lines, never duplicate launches. `300` remains the default
+  above because a pass is not free, not because a shorter one would double-launch a seat.
 
 ⚠ **A PRODUCTIVE PASS IS RECORDED `failed` WHENEVER ANY CANDIDATE WAS REFUSED**, and that is the
 file's own pre-existing fail-loud contract (`return 1 if res["failed"]`), deliberately not changed
