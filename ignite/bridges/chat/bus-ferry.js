@@ -21,6 +21,11 @@
 // after that are the owner's business. The cursor is persisted through the bridge's
 // state file, so a restart does not re-arm a flood either.
 //
+// ⚑ ONE EXCEPTION, AND ONLY ONE (7.546): a run this process watched BE BORN — enumerated
+// open while its messages.md did not exist yet — has no history, so its cursor seeds at 0
+// and its first rows DO travel. That first row is a fresh goal's first escalation, and a
+// newly scaffolded goal rosters no authority seat to read it.
+//
 // ⚑ A ROW IS FERRIED ONLY AFTER A CONFIRMED DELIVERY. The cursor advances on
 // `delivered: true` — a failed post is retried next pass, bounded, then skipped loudly.
 // One undeliverable row must never wedge the ferry behind it forever.
@@ -275,6 +280,9 @@ function createBusFerry({
   const attempts = new Map();   // `<key>#<msgId>` -> failed post count
   const warned = new Set();
   const sizes = new Map();      // `<key>` -> last seen byte size (skip an unchanged file)
+  // Runs this PROCESS watched be born: enumerated as open with no messages.md on disk yet.
+  // Deliberately NOT persisted — see the born-watched block in `_runOnce` for why.
+  const bornWatched = new Set();
 
   let dmChannel = null;
   let enabled = false;
@@ -292,7 +300,12 @@ function createBusFerry({
         const relPath = path.join('.rbtv', 'goals', goalId, 'runs', runId, 'coordination', 'messages.md');
         const file = path.join(workspaceRoot, relPath);
         let st;
-        try { st = fs.statSync(file); } catch { continue; }
+        // NO LOG YET = WE WATCHED THIS RUN BE BORN. The run is registered open and its
+        // coordination folder is created EMPTY (`materialize-seats.py`); the log appears only
+        // when somebody first writes to it (`coord.py append_message`). Seeing that state is the
+        // one moment the ferry can know a run has NO history — which is what the first-sight
+        // rule below is protecting against. Recorded here, consumed there.
+        try { st = fs.statSync(file); } catch { bornWatched.add(key); continue; }
         if (cursors.has(key) && sizes.get(key) === st.size) continue; // nothing appended
         let text;
         // ponytail: whole-file read on every size change. 6 MB / few ms on a local
@@ -310,12 +323,35 @@ function createBusFerry({
         sizes.set(key, st.size);
 
         // FIRST SIGHT — cursor at the tail, ferry NOTHING. The run's backlog is history.
+        //
+        // ⚑ UNLESS WE WATCHED IT BE BORN (7.546). A run whose log did not exist on an earlier
+        // pass of THIS process has no history to protect — the flood rule then costs everything
+        // and protects nothing, and what it swallows is a fresh goal's FIRST escalation. A newly
+        // scaffolded goal rosters only the planning DAG, so that first message is exactly the one
+        // with nobody in the room to read it. Seed at ZERO and FALL THROUGH, so the row travels on
+        // the pass that sees it: `continue`-ing here would set the cursor and then skip this run
+        // on every later pass via the unchanged-size short-circuit above, until some SECOND
+        // message happened to arrive.
+        //
+        // ⚑ THIS DOES NOT COVER A GOAL BORN WHILE THE BRIDGE IS DOWN, and the marker is not
+        // persisted precisely because persisting it would imply that it does. In that case the log
+        // already exists when the bridge returns, no pass ever observed the empty state, and the
+        // backlog is (correctly, by this rule) treated as history. The durable record for that
+        // case is the goal's own `doubts.md` park — tier 1 of the escalation ladder, kept for
+        // exactly this reason.
         if (!cursors.has(key)) {
-          const tail = rows.length ? rows[rows.length - 1].id : 0;
-          cursors.set(key, tail);
-          persist();
-          log('info', 'bus ferry saw a run for the first time — cursor set at tail, backlog NOT ferried', { key, cursor: tail, rows: rows.length });
-          continue;
+          if (bornWatched.has(key)) {
+            bornWatched.delete(key);
+            cursors.set(key, 0);
+            persist();
+            log('info', 'bus ferry watched this run be born — cursor seeded at 0, its first rows ARE the owner\'s business', { key, rows: rows.length });
+          } else {
+            const tail = rows.length ? rows[rows.length - 1].id : 0;
+            cursors.set(key, tail);
+            persist();
+            log('info', 'bus ferry saw a run for the first time — cursor set at tail, backlog NOT ferried', { key, cursor: tail, rows: rows.length });
+            continue;
+          }
         }
 
         // WHO HOLDS THE ROLE, resolved ONCE per pass per run — not per row. The roster does

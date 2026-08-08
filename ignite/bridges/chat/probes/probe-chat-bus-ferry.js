@@ -20,7 +20,7 @@ const os = require('node:os');
 const { makeCapture, nowMs } = require('./lib');
 const { buildBridge } = require('../index');
 const { resolveConfig } = require('../config');
-const { DEFAULT_MAX_BODY_CHARS } = require('../bus-ferry');
+const { DEFAULT_MAX_BODY_CHARS, ROLE_TOKEN } = require('../bus-ferry');
 
 const OUT = path.join(__dirname, 'probe-chat-bus-ferry.out');
 
@@ -118,6 +118,8 @@ async function main() {
   const t0 = nowMs();
   const checks = [];
   const check = (name, pass, detail = {}) => { checks.push({ name, pass, ...detail }); cap.log({ check: name, pass, ...detail }); };
+
+  const skipped = [];
 
   const roots = [];
   const mkroot = () => { const r = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-busferry-')); roots.push(r); return r; };
@@ -556,12 +558,94 @@ async function main() {
     b3.bridge.stop();
   }
 
+  // 9 (7.546) — BORN-WATCHED. The first-sight rule protects a run's HISTORY, and a run this
+  //     process watched be born has none: it was enumerated open while its messages.md did not
+  //     exist yet. Seeding at the tail there swallowed exactly one row — a newly scaffolded
+  //     goal's FIRST escalation, raised by a planning seat in a run that rosters no authority
+  //     seat to read it. Measured 0-delivered before this change.
+  {
+    const root = mkroot();
+    // Birth order byte for byte, as `materialize-seats.py` births a package: the run register
+    // row is `open` and `coordination/` is created EMPTY — no messages.md until somebody writes.
+    const goalDir = path.join(root, '.rbtv', 'goals', 'goal-newborn');
+    const newRun = path.join(goalDir, 'runs', 'run-1');
+    fs.mkdirSync(path.join(newRun, 'coordination'), { recursive: true });
+    fs.writeFileSync(path.join(goalDir, 'runs.csv'),
+      'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-08-08 22:00,\n');
+    // THE CONTROL, in the same workspace and the same passes: a second run that already HAS a
+    // 40-row backlog. The flood rule must be untouched for it — the exception is "we watched it
+    // be born", never "the ferry started recently".
+    const { file: oldFile } = seedRun(root, 'goal-elderly', 'run-1', { backlogRows: 40 });
+
+    const a = makeBridge({ workspaceRoot: root });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick();               // the birth observation
+    check('7.546: a run enumerated open with NO messages.md yet takes no cursor on that pass, while a run that HAS one is seeded at its tail on the same pass',
+      a.bridge.busFerry._cursors.has('goal-newborn/run-1') === false
+      && a.bridge.busFerry._cursors.get('goal-elderly/run-1') === 40,
+      { cursors: [...a.bridge.busFerry._cursors.entries()] });
+
+    fs.writeFileSync(path.join(newRun, 'coordination', 'messages.md'),
+      '# messages — append-only coordination log (script-managed, do not edit by hand)\n\n'
+      + msgRow(1, 'planning-strategist', 'master', 'note', 'ESCALATION: this run rosters no authority seat'));
+    await a.bridge.busFerry.tick();
+    check("7.546 BORN-WATCHED: the newborn run's FIRST row IS ferried, on the very pass that first reads it — not held for a second message that may never come",
+      a.slack.posted.length === 1 && /ESCALATION/.test(a.slack.posted[0].text)
+      && a.bridge.busFerry._cursors.get('goal-newborn/run-1') === 1,
+      { posted: a.slack.posted.map((p) => p.text.slice(0, 70)),
+        cursor: a.bridge.busFerry._cursors.get('goal-newborn/run-1') });
+
+    append(oldFile, msgRow(41, 'leader', 'master', 'note', 'the elderly run keeps the tail rule'));
+    await a.bridge.busFerry.tick();
+    check('7.546 CONTROL: the run that was NOT watched being born still ferries nothing of its 40-row backlog — only the row appended after first sight travels',
+      a.slack.posted.length === 2 && /#41/.test(a.slack.posted[1].text)
+      && !a.slack.posted.some((p) => /historical row/.test(p.text)),
+      { posted: a.slack.posted.map((p) => p.text.split('\n')[0]) });
+    a.bridge.stop();
+  }
+
+  // 10 (7.546) — THE LIVE DESCRIPTOR, NOT A FIXTURE. Every arm above writes its own seat files,
+  //     so all of them stay green while the REAL standing correspondent declares no role at all —
+  //     which is the state this workspace was actually in when 7.546 was built
+  //     (`.rbtv/goals/_channel-master/seat.md` carried `addressable: non-member` and NO `relays:`
+  //     line, so `coord.py` refused `to: master` and the route was inert end to end). A
+  //     fixture-only green is precisely the failure this check exists to prevent, so it reads the
+  //     workspace on disk. The workspace is RESOLVED by walking up from this file — never a path
+  //     written here — and the claim is conditional on there being a standing door at all, so a
+  //     checkout with no workspace, or a workspace with no correspondent, SKIPS with its reason
+  //     rather than reporting a red for something this repo does not own.
+  {
+    let ws = path.resolve(__dirname);
+    while (ws !== path.dirname(ws) && !fs.existsSync(path.join(ws, '.rbtv', 'goals'))) ws = path.dirname(ws);
+    const goalsDir = path.join(ws, '.rbtv', 'goals');
+    let entries = [];
+    try { entries = fs.readdirSync(goalsDir, { withFileTypes: true }); } catch {}
+    const doors = [];
+    const holders = [];
+    for (const d of entries) {
+      if (!d.isDirectory()) continue;
+      let fm;
+      try { fm = fs.readFileSync(path.join(goalsDir, d.name, 'seat.md'), 'utf8'); } catch { continue; }
+      if (!/^addressable:[ \t]*non-member[ \t]*$/m.test(fm)) continue;
+      doors.push(d.name);
+      const m = fm.match(/^relays:[ \t]*(.+?)[ \t]*$/m);
+      if (m && m[1].split(/[,\s]+/).some((t) => t.toLowerCase() === ROLE_TOKEN)) holders.push(d.name);
+    }
+    if (!doors.length) {
+      skipped.push(`live descriptor: no workspace correspondent declaring 'addressable: non-member' found under ${goalsDir} — nothing real to exercise in this checkout`);
+      cap.log({ skip: skipped[skipped.length - 1] });
+    } else {
+      check(`7.546 LIVE DESCRIPTOR: a standing correspondent of this workspace declares \`relays: ${ROLE_TOKEN}\` — the half no fixture can prove. Without it every arm above passes and the real route carries nothing, because coord.py admits the correspondent's NAME and this ferry delivers only the ROLE WORD`,
+        holders.length > 0, { goalsDir, doors, holders });
+    }
+  }
+
   for (const r of roots) { try { fs.rmSync(r, { recursive: true, force: true }); } catch {} }
 
   const pass = checks.every((c) => c.pass);
   const wallMs = nowMs() - t0;
   const exit = pass ? 0 : 1;
-  cap.flush({ probe: 'probe-chat-bus-ferry', pass, checks: checks.length, failed: checks.filter((c) => !c.pass).map((c) => c.name), EXIT: exit, WALL_MS: wallMs, SKIPPED_COUNT: 0 });
+  cap.flush({ probe: 'probe-chat-bus-ferry', pass, checks: checks.length, failed: checks.filter((c) => !c.pass).map((c) => c.name), EXIT: exit, WALL_MS: wallMs, SKIPPED_COUNT: skipped.length, skipped });
   process.stdout.write(`PROBE probe-chat-bus-ferry EXIT=${exit} WALL_MS=${wallMs} PASS=${pass} CHECKS=${checks.length}\n`);
   if (!pass) process.stdout.write(`FAILED: ${checks.filter((c) => !c.pass).map((c) => c.name).join(' | ')}\n`);
   process.exit(exit);

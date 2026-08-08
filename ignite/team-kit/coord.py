@@ -3579,7 +3579,10 @@ ADDRESSABLE_COLS = ["descriptor", "admitted-by", "admitted"]
 
 
 def load_addressable(args):
-    """({name: descriptor-path}, [error, ...]) for this package's addressable non-members.
+    """({address: descriptor-path}, [error, ...]) for this package's addressable non-members.
+
+    An ADDRESS is the correspondent's own name, plus every ROLE TOKEN its descriptor declares in
+    `relays:` (7.546) — both read from the descriptor, never from the register.
 
     DERIVED, NEVER A KIT-SIDE NAME LIST (constraint 1). `SPECIAL_CASE_SEATS` was demoted to a
     default table on exactly this ground, and the engineer refused to validate `window:` against
@@ -3636,15 +3639,46 @@ def load_addressable(args):
                           f"descriptor — a package cannot grant this on another agent's behalf")
             continue
         out[name] = str(p)
+        # THE ROLE WORD IS AN ADDRESS TOO (7.546). A correspondent that declares `relays:` beside
+        # its opt-in is reachable by that ROLE TOKEN as well as by its name — which is what the
+        # bus ferry actually carries (`bridges/chat/bus-ferry.js` ROLE_TOKEN), so a fresh run's
+        # escalation has a legal address before anybody holds the role locally. Admitting only the
+        # NAME left the two halves missing each other by one word: `to: channel-master` resolved
+        # here and was invisible to the ferry, `to: master` was refused here.
+        #
+        # BOTH HALVES STILL AGREE, and this is why the read is HERE rather than in a second parse:
+        # the token is read off the SAME frontmatter that already proved it accepts outside mail,
+        # so a descriptor declaring `relays:` alone grants nothing and a register cannot invent a
+        # role word for somebody. The token joins `out` as an ordinary key, so it rides the
+        # G-111 local-collision refusal in `addressable_nonmembers` exactly as the name does.
+        for tok in (_fm_list(fm, "relays") or []):
+            t = tok.lower()
+            if out.get(t) == str(p):
+                continue      # the correspondent's own name — already admitted, nothing to add
+            if t in out:
+                # FAILS LOUD (constraint 3). Two correspondents claiming one role word is an
+                # ambiguity, and the register's ORDER settles it: the earlier grant stands and the
+                # later one is refused IN WRITING. Silently overwriting would re-point an
+                # escalation at a terminus the sender never chose, with nothing on disk saying so.
+                errors.append(f"{raw}: '{name}' declares `relays: {t}`, but that address is "
+                              f"already admitted by an EARLIER register row — refused; the "
+                              f"earlier grant stands and this one adds nothing")
+                continue
+            out[t] = str(p)
     return out, errors
 
 
 def addressable_nonmembers(args, base):
-    """Names admitted after the LOCAL-COLLISION check, plus every error to report.
+    """Addresses admitted after the LOCAL-COLLISION check, plus every error to report.
 
     Split from `load_addressable` because the collision test needs this package's local names,
     and a resolver that reached for them would make the register's own parse depend on roster
-    state. Local always wins: a foreign descriptor never shadows a seat of this run."""
+    state. Local always wins: a foreign descriptor never shadows a seat of this run.
+
+    ⚠ A DECLARED ROLE TOKEN IS AN ADDRESS AND RIDES THIS SAME REFUSAL (7.546) — it is a key of
+    `found` like any name, so a correspondent declaring `relays: leader` in a run that HAS a
+    `leader` seat is refused that word and stays reachable by its own name. Local wins for the
+    token for the same reason it wins for the name: G-111 is about the address, not its origin."""
     found, errors = load_addressable(args)
     _, _, rows = load_workers(base)
     local = {r["agent"] for r in rows} | set(briefing_frontmatters(workers_dir(args))) \
@@ -8849,6 +8883,12 @@ def known_recipients(args, base):
     """Every name `send` can deliver to: roster rows ∪ briefing `agent:` names (a seat that
     exists but has not launched yet) ∪ group names ∪ RELAY TOKENS that resolve ∪ 'all'.
 
+    A relay token resolves from EITHER side of the room (7.546): a local seat declaring `relays:`
+    (`inbox_decls`, below) or an addressable non-member declaring it in its own descriptor
+    (`load_addressable`, folded into the one grant at the end of this function). The second source
+    is what gives a FRESH run a legal `master` address at all — its nine planning seats declare no
+    role, so before it the rulebook told a stuck seat to say so on a bus that would refuse it.
+
     A relay token is admitted ONLY while some seat declares it. That asymmetry is deliberate: an
     unresolved `master` stays an unknown recipient and is refused with the near-match hint, which
     is the right answer — accepting an address nobody holds is how `S-7` opens a thread with no
@@ -9102,7 +9142,13 @@ def cmd_send(args):
     # addressed a non-member and would otherwise wait for a reply that no wake will ever prompt.
     # The ruling is explicit that leaving this implicit is the defect — silence would be read as
     # "considering" rather than "never delivered".
-    if args.to in nonmembers:
+    # ⚠ `and not resolved` (7.546). Since a correspondent's declared ROLE TOKEN became an address,
+    # a token can be BOTH admitted by the register and held by a live seat of this run — and then
+    # the wake really does fire (`deliver_wakes` takes its `relayed` branch and nudges that seat).
+    # Printing "no pane, never woken" beside a delivered wake would tell the sender the opposite
+    # of what just happened. The hint belongs to the case it was written for: the address resolved
+    # to NOBODY in this room.
+    if args.to in nonmembers and not resolved:
         print(c(f"-- delivery is PULL, not push: '{args.to}' is an addressable NON-MEMBER — it has "
                 f"no pane in this run and is NEVER woken. The message is in the log addressed to "
                 f"it, and it must read the log itself. Silence from it means NOT YET READ, never "
@@ -17453,6 +17499,95 @@ def _selftest_checks(args, failures, names):
         check("addressable: removing the register removes the name — nothing lingers in state, so "
               "the grant is exactly as revocable as it is grantable",
               "outsider" not in known_recipients(ns(), base_an))
+
+        # ---- 7.546: A CORRESPONDENT'S DECLARED ROLE WORD IS AN ADDRESS ----------------------
+        # The measured gap: the bus ferry delivers on a ROLE TOKEN (`bridges/chat/bus-ferry.js`
+        # ROLE_TOKEN) and this register admitted the correspondent's NAME only — so the row that
+        # resolved here was invisible to the ferry and the row the ferry carries was refused here
+        # (arm D of the 7.546 experiment: 0 delivered). A freshly scaffolded run holds the planning
+        # DAG's seats and NO role, so its escalation had no legal address at all.
+        #
+        # THE TOKEN UNDER TEST IS `owner-door`, NOT `master`, and that is not decoration: a seat of
+        # THIS fixture package already declares `relays: master` (stage 5's `rly`), so every
+        # assertion below written against `master` would pass off the LOCAL declaration whether the
+        # register admitted anything or not — a check that cannot tell its own subject from the
+        # confound beside it. The pre-assertion pins that the word is unresolvable before the
+        # register exists, which is what makes the admission afterwards attributable.
+        check("7.546 / THE CONTROL: the token is unknown BEFORE any register admits it, so every "
+              "assertion below is attributable to the register and not to some seat of this "
+              "package that happens to declare the same word",
+              "owner-door" not in known_recipients(ns(), base_an))
+        (out_home / "relay.md").write_text(
+            "---\nseat: outsider\nharness: claude\naddressable: non-member\nrelays: owner-door\n"
+            "---\nb\n", encoding="utf-8")
+        reg.write_text(f"descriptor,admitted-by,admitted\n{out_home / 'relay.md'},leader,now\n",
+                       encoding="utf-8")
+        r_names, r_errs = addressable_nonmembers(ns(), base_an)
+        r_send = sd("alpha", "owner-door", "escalation: this run rosters no authority seat",
+                    type="note")
+        check("7.546 / THE ROLE WORD RESOLVES: a correspondent declaring `relays:` beside its "
+              "opt-in is addressable BY THE ROLE TOKEN as well as by its own name, so a run that "
+              "holds the role NOWHERE locally can still address it — and the send is ACCEPTED, "
+              "not forced through with --force",
+              set(r_names) == {"outsider", "owner-door"} and r_errs == []
+              and "owner-door" in known_recipients(ns(), base_an)
+              and "sent message #" in r_send)
+        (out_home / "relay2.md").write_text(
+            "---\nseat: second\nharness: claude\naddressable: non-member\nrelays: owner-door\n"
+            "---\nb\n", encoding="utf-8")
+        reg.write_text(f"descriptor,admitted-by,admitted\n{out_home / 'relay.md'},leader,now\n"
+                       f"{out_home / 'relay2.md'},leader,now\n", encoding="utf-8")
+        d_names, d_errs = addressable_nonmembers(ns(), base_an)
+        check("7.546 / ONE ROLE WORD, ONE TERMINUS: when two correspondents claim the same token "
+              "the EARLIER register row keeps it and the later one is refused IN WRITING — never "
+              "silently overwritten, which would re-point an escalation at a terminus nobody "
+              "chose. Both keep their own names (constraint 4: a name-addressed message lands)",
+              set(d_names) == {"outsider", "second", "owner-door"}
+              and d_names["owner-door"] == d_names["outsider"]
+              and any("already admitted by an EARLIER register row" in e for e in d_errs))
+        (out_home / "relayonly.md").write_text(
+            "---\nseat: solo\nharness: claude\nrelays: owner-door\n---\nb\n", encoding="utf-8")
+        reg.write_text(f"descriptor,admitted-by,admitted\n{out_home / 'relayonly.md'},leader,now\n",
+                       encoding="utf-8")
+        b_names, b_errs = addressable_nonmembers(ns(), base_an)
+        check("7.546 / BOTH HALVES STILL AGREE: `relays:` WITHOUT `addressable: non-member` admits "
+              "NOTHING — not the name and not the token. The token is read off the very "
+              "frontmatter that carries the opt-in, so no register can mint a role word for an "
+              "agent that never accepted outside mail",
+              b_names == {} and "owner-door" not in known_recipients(ns(), base_an)
+              and any("does not declare" in e for e in b_errs))
+        (out_home / "clashtok.md").write_text(
+            "---\nseat: outsider\nharness: claude\naddressable: non-member\nrelays: alpha\n"
+            "---\nb\n", encoding="utf-8")
+        reg.write_text(f"descriptor,admitted-by,admitted\n{out_home / 'clashtok.md'},leader,now\n",
+                       encoding="utf-8")
+        c_names, c_errs = addressable_nonmembers(ns(), base_an)
+        check("7.546 / G-111 RIDES THE TOKEN: a declared role word COLLIDING with a local seat is "
+              "refused with the LOCAL name winning, and the correspondent stays reachable by its "
+              "own name — the refusal is on the ADDRESS, never on where the address came from",
+              set(c_names) == {"outsider"} and any("COLLIDES" in e for e in c_errs))
+        # BOTH SIDES CAN HOLD ONE TOKEN, and the sender must be told which one answered. `rly`
+        # (stage 5) declares `relays: master` in THIS package, so admitting a correspondent that
+        # declares the same word makes the token resolvable from both sides at once — the state a
+        # live run is in the moment a role-holding seat is rostered while the standing door stays
+        # registered. The wake goes to the LIVE seat (`deliver_wakes`'s relayed branch), so the
+        # PULL warning must NOT fire: telling a sender "no pane, never woken" beside a delivered
+        # wake is the two computations disagreeing about one message.
+        (out_home / "dual.md").write_text(
+            "---\nseat: outsider\nharness: claude\naddressable: non-member\nrelays: master\n"
+            "---\nb\n", encoding="utf-8")
+        reg.write_text(f"descriptor,admitted-by,admitted\n{out_home / 'dual.md'},leader,now\n",
+                       encoding="utf-8")
+        dual_send = sd("alpha", "master", "a role a LIVE seat also carries", type="note")
+        check("7.546 / A LIVE HOLDER IS NOT A PULL CORRESPONDENT: when the token resolves to a "
+              "seat of this run as well as to the register, the send names the seat it resolved "
+              "to and the PULL-delivery warning is SUPPRESSED — that warning is about an address "
+              "nobody in the room holds, and printing it beside a delivered wake would say the "
+              "opposite of what happened",
+              "master" in addressable_nonmembers(ns(), base_an)[0]
+              and "[master -> rly]" in dual_send
+              and "delivery is PULL, not push" not in dual_send)
+        reg.unlink()
 
         # G-21 — the STATE half. `close` sets it; this asserts the state's semantics directly so a
         # failure names the rule that broke rather than the ceremony around it.

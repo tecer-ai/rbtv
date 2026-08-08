@@ -93,9 +93,16 @@ anchor you resolve.
 - **Resolve the escalation addressee from the ROSTER, never from memory or from this file.** A seat
   holding run authority is resolved from `taskforce.csv` / `coordinate workers` at the instant of use.
   **A freshly scaffolded run carries the planning DAG's seats and NO authority seat** — when no such
-  row exists, the call is neither yours to make nor to improvise: file it in the goal's
-  owner-decision queue `../../doubts.md`, say so on the bus, and stop the dependent work. Inventing an
-  addressee and self-authorizing are the same failure.
+  row exists, the call is neither yours to make nor to improvise, and you do all THREE of these, in
+  order: **(1) file it in the goal's owner-decision queue `../../doubts.md`** — the durable record,
+  which survives a bridge outage, a restart and a phone that is off; **(2) send it to `master`** —
+  `coordinate send master "<the escalation>" --type note` — the ROLE ADDRESS of the standing owner
+  door, which resolves through this run's `addressable.csv` and is carried to the owner from there;
+  **(3) stop the dependent work.** Tier 2 is a ROUTE and tier 1 is the RECORD — the record is kept,
+  never retired, and it is the whole answer whenever the route is down. Delivery on tier 2 is PULL:
+  nothing wakes, and silence means NOT YET READ, never "considering". If `master` is refused as an
+  unknown recipient, this run's register is missing or one-sided — say so on tier 1 and DO NOT invent
+  another addressee. Inventing an addressee and self-authorizing are the same failure.
 - ⚠ **AN APPROVAL AND ITS OPERATIONAL ORDER ARE ONE ACT.** When an authority approves something only
   another seat can execute — a close, a launch, a kill, a descriptor line — the order to the EXECUTOR
   goes out in the same turn as the answer to the ASKER, or the approval is not finished. Answering the

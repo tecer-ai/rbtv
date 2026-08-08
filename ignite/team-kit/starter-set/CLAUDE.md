@@ -51,6 +51,7 @@ absent file below is NORMAL at run birth, not a defect.
 | `state.csv` | yes, HEADER-ONLY — `stamped-at,run-state,seat,session-id,note` | the run authority — the run cursor: **APPEND-ONLY, one row per run-state ADVANCE**, never per turn or per commit. Position only; narrative goes elsewhere |
 | `seats/<seat>/` | yes, empty | the materialize command only |
 | `coordination/` | yes, empty | scripts only — `coord.py` state lands here on demand |
+| `addressable.csv` | yes (caller-supplied) — the register that makes the standing owner door a legal address before any authority seat is rostered, so `conduct.md`'s tier-2 escalation resolves. Carries a PATH ONLY, relative to this folder; the name and the role word come from the descriptor the correspondent itself owns, which must declare `addressable: non-member` AND `relays:`. ⚠ **It is not yet plumbed as a scaffold creation input** — a run created by `scaffold-seats` today does not get it, and `coordinate send master` is refused until this file is placed | the run authority; a row added here is a ruling |
 | `sessions.csv` · `state.json` | no | script-managed — `coord.py`'s launch/close hooks and the `team-monitor` sensor. **Never hand-edited** |
 | `./decisions.md` | no | the run authority (PROVISIONAL `p-*` rulings) |
 | `milestones.csv` · `planning/` | no | the planning DAG's seats — see the roster below |
