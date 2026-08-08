@@ -83,9 +83,16 @@ RUNTIME_DIR = os.path.join(WORKSPACE_ROOT, '.rbtv', 'runtime', 'probe-suite')
 LATEST = os.path.join(RUNTIME_DIR, 'latest.json')
 
 # ⚠ EXCLUDED BY CONSTRUCTION, WITH ITS REASON IN THE SAME PLACE AS THE EXCLUSION (leader ratified).
-# Empty since `r-seats-only-architecture` (2026-08-06) deleted capabilities/sub-agent-dispatch/
-# (its probes made real PAID claude calls, G-213); the mechanism stays for the next paid probe.
-EXCLUDED_DIRS = {}
+# The mechanism's precedent: `r-seats-only-architecture` (2026-08-06) deleted the previous entry
+# (capabilities/sub-agent-dispatch/ — its probes made real PAID claude calls, G-213).
+#
+# goal-creation-request/probes: INTERIM exclusion, owner-approved 2026-08-08 — probe-planning-entry's
+# `claude` PATH-shim stub never binds (tmux login shell rebuilds PATH), so each run BOOTS A REAL
+# `claude --effort max` agent (the G-213 paid-call class again; §2 review of rbtv 73823ab, F1).
+# Task 7.553 fixes the stub-or-discloses and REVERTS this exclusion — its criterion (3). Cost while
+# excluded: probe-goal-creation-request.py also drops from hourly coverage (both still run in
+# on-demand suites).
+EXCLUDED_DIRS = {'capabilities/goal-creation-request/probes'}
 
 DEFAULT_INTERVAL_SECONDS = 3600
 # How long after a fire the artifact should be considered stale. Deliberately > interval so a single
