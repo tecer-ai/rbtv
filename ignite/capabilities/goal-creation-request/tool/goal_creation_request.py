@@ -49,11 +49,17 @@ nothing. Where §6.2 stops evaluation at the first class in which any member mat
 RETURNS there — it does not evaluate a later class and then filter, because `V2`/`V3` reach the
 filesystem and "evaluated but suppressed" is not what the schema says.
 
-⚠ `goal-kind` IS VALIDATED AND DELIBERATELY NOT PERSISTED. The request schema declares the field
-and states explicitly that it does NOT say where the kind is stored, because choosing a carrier is
-a structural convention and owner-gated. `goal.md` frontmatter carries no such field and the
-creation verb has no flag for it. So this handler checks the value and stops there; inventing a
-carrier would be a convention nobody ruled. Named in the result as `kind-carrier: NONE`.
+`goal-kind` IS VALIDATED AND NOW PERSISTED — the carrier is `goal.md` FRONTMATTER (owner ruling
+`d-owner-batch1` (2), 2026-08-08). The structural convention this file once declined to invent has
+been ruled, so the creation verb carries `--kind` and this handler FORWARDS the value it validated
+instead of dropping it. Named in the result as `kind-carrier: goal.md frontmatter`.
+
+⚠ The two halves of "optional" are not the same half. In THIS request schema `goal-kind` stays
+REQUIRED (§1: four required fields; `P4` refuses an absent one) — a requester asking for a goal
+must say which kind it wants. What the ruling made optional is the FRONTMATTER KEY, so that goals
+scaffolded before the field existed stay valid and read as `interactive`. Relaxing `P4` on the
+strength of the frontmatter default would be reading a ruling about stored goals as a ruling about
+incoming requests, and would silently drop a field the requester is answerable for.
 """
 
 import argparse
@@ -75,13 +81,20 @@ REQUIRED_FIELDS = ("goal-name", "goal-type", "goal-contract", "goal-kind")
 OPTIONAL_FIELDS = ("due-date",)
 ALL_FIELDS = REQUIRED_FIELDS + OPTIONAL_FIELDS
 
-# §1.1 — the same expression the creation verb enforces (`goal_cli.py:36`), not a second spelling
-# of it. Kept as a literal here on purpose: importing it would couple the request layer's contract
-# to a tool's internals, and the schema names the constraint, not the import.
+# §1.1 — the same expression the creation verb enforces (`goal_cli.py#GOAL_NAME_RE`), not a second
+# spelling of it. Kept as a literal here on purpose: importing it would couple the request layer's
+# contract to a tool's internals, and the schema names the constraint, not the import.
+#
+# The anchor is the SYMBOL, not a line number. It read `goal_cli.py:36` until 2026-08-08, by which
+# time the definition had moved to line 42 — a citation that drifts silently is worse than none,
+# because it still looks precise. Symbol anchors are already this repo's idiom for the same reason
+# (`seat-folder.js` cites `goal_cli.py#branch_parent_kind`).
 GOAL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 GOAL_TYPES = ("one-shot", "recurring")
-# §1.4 — closed by TEXT (7.79, 7.136, the definition-of-done), by no code. Stated so a reader does
-# not go looking for the enum in a source file that does not carry it.
+# §1.4 — the enum is now closed by CODE as well as by text: `goal_cli.py#GOAL_KINDS` owns it on the
+# creation-verb side (it landed there with the `--kind` flag, d-owner-batch1 (2)). This copy stays a
+# literal for the same reason GOAL_NAME_RE does — deliberate duplication of a contract constant, not
+# drift — so the request layer's schema does not become importable from a tool's internals.
 GOAL_KINDS = ("interactive", "non-interactive")
 
 RULED_LAUNCH_NAME = "scaffold-seats"
@@ -180,7 +193,9 @@ def _verdict(checked, refusals, stage):
             "arm": "a" if refusals else None,
             "reject-set-source": REJECT_SET_SOURCE,
             "classes-evaluated": stage,
-            "kind-carrier": "NONE"}
+            # Was hardcoded "NONE" while no carrier was ruled. d-owner-batch1 (2) ruled one, so
+            # this names it — the requester's surface reports WHERE the kind it supplied went.
+            "kind-carrier": "goal.md frontmatter"}
 
 
 def validate(payload, goals_root=None):
@@ -320,8 +335,13 @@ def create(request, goals_root, package, catalog_root, bindings, conduct, claude
             fh.write(request["goal-contract"])
             contract_file = Path(fh.name)
         try:
+            # `--kind` is passed UNCONDITIONALLY, unlike `--due` below: `goal-kind` is a REQUIRED
+            # request field (P4 refuses an absent one), so by the time create() runs the value is
+            # present and validated. Forwarding it is what stops the validated value being dropped
+            # on the floor — the whole defect d-owner-batch1 (2) ruled a carrier for.
             cmd = [sys.executable, str(goal_cli), "scaffold", request["goal-name"],
                    "--root", str(goals_root), "--type", request["goal-type"],
+                   "--kind", request["goal-kind"],
                    "--contract", str(contract_file), "--json"]
             if request.get("due-date"):
                 cmd += ["--due", request["due-date"]]

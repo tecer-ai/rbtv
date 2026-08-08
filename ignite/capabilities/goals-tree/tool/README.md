@@ -5,7 +5,7 @@ grammar is owner-ruled (`r-763-grammar-ruled` — all four decision items at the
 defaults) and is **implemented here, not re-derived**.
 
 ```
-rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--due DATE] [--dry-run]
+rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--kind K] [--due DATE] [--dry-run]
 rbtv-goal reindex
 rbtv-goal lint <goal-name>
 rbtv-goal materialize <goal-name> --catalog-root DIR [--force] [--dry-run]
@@ -14,6 +14,18 @@ rbtv-goal selftest
 
 `--root` (the `.rbtv/goals` root) and `--json` are accepted on either side of the verb. Without
 `--root` the root is found by walking up from the working directory.
+
+**`--kind interactive|non-interactive`** (default `interactive`) stamps `goal-kind` into `goal.md`
+frontmatter. Owner ruling `d-owner-batch1` (2), 2026-08-08: the frontmatter IS the carrier — a
+consumer looks the kind up on the descriptor and it is never carried on a queue row.
+
+The field is **OPTIONAL on the descriptor**, and that has one consequence worth stating outright:
+a goal scaffolded before the field existed carries no `goal-kind` key, **lints clean**, and reads
+as `interactive`. So `goal-kind` is deliberately NOT in lint's identity-fields check (the same
+treatment `due-date` gets); only its ENUM is checked, and only when a value is present. `reindex`
+projects the declared value and leaves the cell EMPTY when the descriptor declares none — the
+index reports what each descriptor says, and the default is applied by the reader, in one place
+(`seat-folder.js#goalKind`), so the ruled default cannot fork across two files.
 
 **Exit codes** (the `sd-graph` convention): `0` success/clean · `1` refusal, gate-fail, or
 not-found · `2` usage error.
@@ -142,7 +154,11 @@ empirically: a path+size+mtime fingerprint of a live goal folder is identical be
 rbtv-goal selftest        # end-to-end on a throwaway tree; exit 0 / 1
 ```
 
-`selftest` exercises scaffold (+ its three refusals), the read-only property of lint, name/layout
+`selftest` exercises scaffold (+ its four refusals), `goal-kind` (the default stamped when
+`--kind` is omitted, an explicit `--kind` round-tripping to frontmatter, the projected column, and
+the lint PAIR — a key-less descriptor raising no finding *beside* an out-of-enum value raising
+one, because the clean arm alone would also pass if the check never fired), the read-only property
+of lint, name/layout
 violation rejection, cycle rejection, the full assembly (frozen assembled refs, `@latest` invoked
 refs, stamped XML blocks, loader stubs not inlined), refuse-without-`--force`, `--force`,
 refuse-without-`--catalog-root`, reindex's fail-loud-and-leave-untouched behaviour, and the

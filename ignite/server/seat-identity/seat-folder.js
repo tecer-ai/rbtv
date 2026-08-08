@@ -426,6 +426,46 @@ function readSeatDescriptorName(seatMdPath) {
   return { present: true, frontmatter: true, seat: seat[1].trim().replace(/^["']|["']$/g, '') };
 }
 
+// THE ONE READ SITE FOR A GOAL'S KIND (owner ruling `d-owner-batch1` (2), 2026-08-08).
+//
+// The ruling settles two things a consumer must not re-decide: `goal-kind` is OPTIONAL goal.md
+// frontmatter defaulting to `interactive`, and the CARRIER IS THE FRONTMATTER — the kind is
+// looked up here, never carried on a queue row. So a caller asks this function; it never reads
+// `goal.md` itself and never spells the default a second time. Two readers of one file free to
+// disagree is `issues.md` G-301's shape, and a second copy of a ruled default is how the default
+// silently forks the day one copy is edited.
+//
+// It lives beside `readSeatDescriptorName` and copies its idiom deliberately: a regex read of one
+// frontmatter key, no `js-yaml`, because this sits on the ticker's per-tick launch path and a full
+// YAML parse to answer a one-word question is a dependency bought for nothing.
+//
+// ABSENCE IS NOT AN ERROR — it is the majority case and it is the reason this returns a value
+// rather than a verdict. Every goal scaffolded before the field existed carries no key, and the
+// ruling says those read `interactive`. An unreadable goal.md, a descriptor with no frontmatter,
+// and a value outside the enum resolve the same way for the same reason: the caller's question is
+// "which kind do I treat this goal as", and there is no answer to that question that is not one of
+// the two kinds. A malformed value is REPORTED by `goal_cli.py lint`'s enum check ("goal kind in
+// enum"), which is the surface built to name it; making the launch path fail on it instead would
+// take the daemon down for a typo lint already catches.
+const GOAL_KINDS = ['interactive', 'non-interactive'];
+const GOAL_KIND_DEFAULT = 'interactive';
+
+function goalKind(goalDir) {
+  if (!goalDir || typeof goalDir !== 'string') return GOAL_KIND_DEFAULT;
+  let raw;
+  try {
+    raw = fs.readFileSync(path.join(goalDir, 'goal.md'), 'utf8');
+  } catch {
+    return GOAL_KIND_DEFAULT;
+  }
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw);
+  if (!fm) return GOAL_KIND_DEFAULT;
+  const declared = /^goal-kind:[ \t]*(.+)$/m.exec(fm[1]);
+  if (!declared) return GOAL_KIND_DEFAULT;
+  const kind = declared[1].trim().replace(/^["']|["']$/g, '');
+  return GOAL_KINDS.includes(kind) ? kind : GOAL_KIND_DEFAULT;
+}
+
 // L3 — a MATERIALIZED, ROSTERED seat, not merely a folder of the right shape.
 //
 // Two independent facts, and they must AGREE with the folder name rather than merely exist:
@@ -474,4 +514,7 @@ module.exports = {
   checkRunLive,
   checkMaterializedSeat,
   readSeatDescriptorName,
+  goalKind,
+  GOAL_KINDS,
+  GOAL_KIND_DEFAULT,
 };

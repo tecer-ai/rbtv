@@ -4,7 +4,7 @@
 Five verbs over the CMP-4 goals tree, all LOCAL file operations (they work with
 the daemon down, which is why they live on the rbtv side and never on ignite):
 
-    rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--due DATE] [--dry-run]
+    rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--kind K] [--due DATE] [--dry-run]
     rbtv-goal reindex
     rbtv-goal lint <goal-name>
     rbtv-goal materialize <goal-name> [--catalog-root DIR] [--force] [--dry-run]
@@ -45,8 +45,29 @@ FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 GOAL_TYPES = ("one-shot", "recurring")
 GOAL_STATUSES = ("briefed", "active", "standing", "completed", "abandoned")
 
+# Owner ruling d-owner-batch1 (2), 2026-08-08: `goal-kind` is OPTIONAL goal.md frontmatter
+# defaulting to `interactive`, and the carrier is the FRONTMATTER — no queue-row carrier.
+#
+# The enum lives HERE because this module already owns GOAL_TYPES/GOAL_STATUSES and is the
+# creation verb. `goal_creation_request.py` keeps its own literal copy ON PURPOSE (its own
+# stated convention for GOAL_NAME_RE: importing would couple the request layer's contract to a
+# tool's internals) — that duplication is deliberate, not drift.
+#
+# OPTIONAL is load-bearing in two places and nowhere else: `goal-kind` is NOT in lint's
+# identity-fields tuple (a pre-existing goal carries no such key and must stay lint-green,
+# exactly like `due-date`), and every consumer that ASKS for a kind reads it through the ONE
+# defaulting helper rather than defaulting for itself.
+GOAL_KINDS = ("interactive", "non-interactive")
+GOAL_KIND_DEFAULT = "interactive"
+
 # goals-index schema (concept goals-index § file schema)
-GOALS_INDEX_COLUMNS = ["name", "creation date", "due date", "type", "status"]
+#
+# ⚠ DIVERGENCE TO TRANSCRIBE, NOT A DRIFT: the registry's `concepts/goals-index.md` file-schema
+# block enumerates five columns and is marked `design-intent` — it was written before `goal-kind`
+# existed. Its DEFINITION ("a FULL deterministic projection of each goal's goal.md frontmatter")
+# is what governs here: a frontmatter field the projection omits would make the index partial.
+# The column list needs a registry-side update; the registry is never edited from this build.
+GOALS_INDEX_COLUMNS = ["name", "creation date", "due date", "type", "goal-kind", "status"]
 # run-log schema (concept run-log § file schema)
 RUNS_COLUMNS = ["run-id", "type", "state", "taskforce-id(s)", "opened", "closed"]
 
@@ -199,6 +220,12 @@ def project_goals(root: Path) -> list[dict]:
                 "creation date": fm.get("creation-date", fm.get("creation date", "")),
                 "due date": fm.get("due-date", fm.get("due date", "")),
                 "type": fm.get("type", ""),
+                # PROJECTED, NOT DEFAULTED — deliberately unlike a consumer read. The index is a
+                # projection of what each descriptor SAYS, so a goal that declares no kind
+                # projects empty (the `due date` idiom above), and the ONE place absence becomes
+                # `interactive` is the read helper every consumer goes through. Defaulting here
+                # too would put the ruled default in two files free to disagree.
+                "goal-kind": fm.get("goal-kind", ""),
                 "status": fm.get("status", ""),
             }
         )
@@ -232,6 +259,14 @@ def cmd_scaffold(args) -> int:
     if args.type not in GOAL_TYPES:
         raise Refusal(f"--type {args.type}: must be one of {', '.join(GOAL_TYPES)}")
 
+    # `getattr` because the field is OPTIONAL at the contract level, and this function is called
+    # directly with a Namespace by selftest and by the request handler's argv — a caller that
+    # names no kind gets the ruled default rather than an AttributeError. Validated anyway:
+    # argparse's `choices` does not run on a hand-built Namespace.
+    kind = getattr(args, "kind", None) or GOAL_KIND_DEFAULT
+    if kind not in GOAL_KINDS:
+        raise Refusal(f"--kind {kind}: must be one of {', '.join(GOAL_KINDS)}")
+
     goal_dir = root / name
     if goal_dir.exists():
         raise Refusal(
@@ -250,6 +285,7 @@ def cmd_scaffold(args) -> int:
         "creation-date": _today(),
         "due-date": args.due or "",
         "type": args.type,
+        "goal-kind": kind,
         "status": "briefed",
     }
     goal_md = (
@@ -799,6 +835,15 @@ def lint_goal(root: Path, name: str) -> Findings:
         if gtype and gtype not in GOAL_TYPES:
             f.add("goal type in enum", str(goal_dir / "goal.md"),
                   f"type '{gtype}' is not one of {', '.join(GOAL_TYPES)}")
+        # OPTIONAL field (d-owner-batch1 (2)) — so the enum is checked and presence is NOT.
+        # The `gkind and` guard is the whole backward-compatibility story: every goal scaffolded
+        # before this field existed carries no key, reads as empty, skips the check, and lints
+        # green. Adding `goal-kind` to the identity-fields tuple above would retroactively fail
+        # all of them, which is why it is absent from that tuple by construction.
+        gkind = str(fm.get("goal-kind", "")).strip()
+        if gkind and gkind not in GOAL_KINDS:
+            f.add("goal kind in enum", str(goal_dir / "goal.md"),
+                  f"goal-kind '{gkind}' is not one of {', '.join(GOAL_KINDS)}")
         if not body.strip():
             f.add("goal-radius contract present", str(goal_dir / "goal.md"),
                   "body is empty — the descriptor carries the goal-radius contract")
@@ -1947,6 +1992,43 @@ def cmd_selftest(args) -> int:
               str(idx))
         check("status is briefed", idx and idx[0]["status"] == "briefed")
 
+        # goal-kind (d-owner-batch1 (2)). demo-goal above named NO kind, so it is the
+        # absence arm; the enum default is spelled out as a LITERAL rather than read from
+        # GOAL_KIND_DEFAULT — a check whose expectation reads the constant under test moves
+        # with any edit to it and can never go red.
+        print("goal-kind")
+        demo_fm, _ = read_goal_md(gd)
+        check("absent --kind stamps the default", demo_fm.get("goal-kind") == "interactive",
+              str(demo_fm.get("goal-kind")))
+        check("goals.csv carries the goal-kind column",
+              idx and idx[0].get("goal-kind") == "interactive", str(idx))
+
+        rc = cmd_scaffold(argparse.Namespace(
+            goal_name="kinded-goal", type="one-shot", kind="non-interactive", due=None,
+            contract=str(contract), **vars(ns)))
+        kfm, _ = read_goal_md(root / "kinded-goal")
+        check("explicit --kind round-trips to frontmatter",
+              rc == 0 and kfm.get("goal-kind") == "non-interactive", str(kfm.get("goal-kind")))
+
+        # The lint pair, and it is a PAIR on purpose: "legacy goal lints clean" alone would
+        # also pass if the enum check never fired at all. The bad-kind arm is what proves the
+        # check is live, so the clean arm means backward-compatible rather than unreachable.
+        legacy = root / "legacy-goal"
+        legacy.mkdir()
+        (legacy / "goal.md").write_text(
+            "---\nname: legacy-goal\ncreation-date: 2026-01-01\ntype: one-shot\n"
+            "status: briefed\n---\n\ncontract\n", encoding="utf-8")
+        badkind = root / "badkind-goal"
+        badkind.mkdir()
+        (badkind / "goal.md").write_text(
+            "---\nname: badkind-goal\ncreation-date: 2026-01-01\ntype: one-shot\n"
+            "goal-kind: nonsense\nstatus: briefed\n---\n\ncontract\n", encoding="utf-8")
+        kind_finding = lambda items: any(i["check"] == "goal kind in enum" for i in items)
+        check("a pre-existing goal with no goal-kind key raises no kind finding",
+              not kind_finding(lint_goal(root, "legacy-goal").items))
+        check("a goal-kind outside the enum IS a lint finding",
+              kind_finding(lint_goal(root, "badkind-goal").items))
+
         print("scaffold refusals")
         for label, kwargs in (
             ("re-scaffold refused (create-only)",
@@ -1955,6 +2037,9 @@ def cmd_selftest(args) -> int:
              dict(goal_name="Bad_Name", type="one-shot", due=None, contract=str(contract))),
             ("bad type refused",
              dict(goal_name="other-goal", type="nonsense", due=None, contract=str(contract))),
+            ("bad kind refused",
+             dict(goal_name="other-goal", type="one-shot", kind="nonsense", due=None,
+                  contract=str(contract))),
         ):
             try:
                 cmd_scaffold(argparse.Namespace(**kwargs, **vars(ns)))
@@ -2588,7 +2673,10 @@ def cmd_selftest(args) -> int:
         rc = cmd_reindex(argparse.Namespace(root=str(root), json=False))
         check("reindex exits 0", rc == 0)
         idx2 = list(csv.DictReader((root / "goals.csv").open(encoding="utf-8")))
-        check("reindex projects every goal", len(idx2) == 2, str(len(idx2)))
+        # 5 = demo-goal + kinded-goal + legacy-goal + badkind-goal + mismatch-goal. The count is
+        # spelled out rather than derived from the tree, because deriving it from the same
+        # directory listing the projection walks would pass whatever the projection did.
+        check("reindex projects every goal", len(idx2) == 5, str(len(idx2)))
         check("reindex columns are the goals-index schema",
               list(idx2[0].keys()) == GOALS_INDEX_COLUMNS, str(list(idx2[0].keys())))
 
@@ -2642,6 +2730,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = add_common(sub.add_parser("scaffold", help="create a goal folder (create-only) + reindex"))
     p.add_argument("goal_name")
     p.add_argument("--type", default="one-shot", choices=list(GOAL_TYPES))
+    p.add_argument("--kind", default=GOAL_KIND_DEFAULT, choices=list(GOAL_KINDS),
+                   help="the goal-kind stamped into goal.md frontmatter "
+                        f"(default: {GOAL_KIND_DEFAULT}, owner ruling d-owner-batch1)")
     p.add_argument("--due", default=None)
     p.add_argument("--contract", required=True,
                    help="FILE, or - for stdin: the goal-radius contract prose")

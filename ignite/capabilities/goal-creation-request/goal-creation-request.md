@@ -74,10 +74,14 @@ type" member the schema does not carry.
    the file appears only when a seat actually boots. Its absence *before* the launch act is
    expected; its absence *after* one is a defect. This is why the acts are ordered create → arm →
    launch rather than create → launch → arm.
-3. **`goal-kind` is validated and deliberately NOT persisted.** The schema declares the field and
-   states explicitly that it does not say where the kind is stored, because choosing a carrier is a
-   structural convention and owner-gated. `goal.md` frontmatter carries no such field. The result
-   reports `kind-carrier: NONE` rather than inventing one.
+3. **`goal-kind` is validated AND persisted — the carrier is `goal.md` frontmatter.** The carrier
+   this schema once declined to invent was owner-ruled on 2026-08-08 (`d-owner-batch1` (2)), so the
+   creation verb carries `--kind` and the validated value is forwarded to it instead of being
+   dropped. The result reports `kind-carrier: goal.md frontmatter`.
+   ⚠ The ruling made the FRONTMATTER KEY optional (a goal scaffolded before the field existed
+   stays valid and reads as `interactive`); it did **not** relax this REQUEST schema, where
+   `goal-kind` is still one of the four required fields and `P4` still refuses an absent one.
+   A requester must say which kind it wants; only stored descriptors may be silent.
 
 ## ⚠ Arming does not generalise from this capability
 
