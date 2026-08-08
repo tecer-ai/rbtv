@@ -212,6 +212,43 @@ async function main() {
         { notice: n });
     }
 
+    // ── ARM 3b · NO REGRESSION for a daemon WITHOUT the door (the RUNNING one) ─────────────────
+    //
+    // The guard must fire on `deduped` being TRUE, never on the field merely being present or
+    // absent. The daemon in production predates the door and answers a successful enqueue with a
+    // bare `{jobId}` — if the guard read presence rather than truth, every live create would be
+    // refused and the bridge would break on the deployment it runs on today.
+    //
+    // ⚠ THIS is the one arm a STUB forwarder belongs in, and the header's "drive the door for
+    // real" rule is not bent by it: the SUPPRESSION direction must meet the real door (arms 1-2),
+    // because only the real door proves the field names. This arm drives the OPPOSITE direction —
+    // wire shapes the current door never emits (`deduped:false`) or emits only pre-restart
+    // (absent) — which no real store here can produce. Synthesising them is the only way to pin
+    // them, and getting them wrong costs the running deployment.
+    {
+      const shapes = [
+        ['absent', { jobId: 7 }],                      // the RUNNING pre-door daemon's shape
+        ['explicit-false', { jobId: 7, deduped: false }], // a door that answers symmetrically
+      ];
+      for (const [label, result] of shapes) {
+        const posted = [];
+        const threadMap = createThreadMap();
+        const fp = forwardPathModule.createForwardPath({
+          forwarder: { forward: async () => ({ ok: true, result }) },
+          threadMap,
+          allowlist: createAllowlist({ allowed: [USER] }),
+          config: { sessionJobId: 'chat-launch', sessionProfile: 'worker', masterProfile: 'worker', workdir: '/tmp/p7-2-noregress' },
+          logger: null,
+          deliver: async ({ chatThreadId, text }) => { posted.push({ chatThreadId, text }); return { delivered: true }; },
+        });
+        const r = await fp.forwardSessionCreate({ chatThreadId: `N_IM:${label}`, text: 'no-regression', route: { kind: 'master', goalId: null } });
+        check(`arm3b-${label}-deduped-maps-normally-and-posts-no-notice`,
+          r.forwarded === true && r.queueId === 7 && threadMap.has(`N_IM:${label}`) === true
+            && posted.length === 0 && r.reason === undefined,
+          { shape: label, forwarded: r.forwarded, queueId: r.queueId, mapped: threadMap.has(`N_IM:${label}`), notices: posted.length });
+      }
+    }
+
     // ── ARM 4 · RED ARM · the PRE-FIX code, rebuilt by cutting the guard out ───────────────────
     const original = fs.readFileSync(FWD_SRC, 'utf8');
     const GUARD_START = '    if (res.result && res.result.deduped) {';
