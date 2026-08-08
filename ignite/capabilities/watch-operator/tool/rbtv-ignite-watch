@@ -305,7 +305,14 @@ def cmd_heartbeat_set(package, unit, sw, args):
     else:
         print(f"\nno watch loop is running for this package — starting one so the new cadence "
               f"takes effect...")
-        rc = cmd_start(package, unit, sw, args)
+        # cmd_start REFUSES BY EXITING (double-start, launch-did-not-take). Uncaught, that exit is
+        # 1 — "the act was refused" — which reads as NOTHING HAPPENED to a caller whose edit has
+        # ALREADY landed on disk. The write is durable on both arms, so both must reach the exit-4
+        # branch below; exit 4 was unreachable through this arm.
+        try:
+            rc = cmd_start(package, unit, sw, args)
+        except SystemExit as exc:
+            rc = exc.code if isinstance(exc.code, int) else 1
         act = "start"
     if rc != 0:
         # LOUD, and the write is NOT undone: the edit is durable and correct, only unapplied.
@@ -369,6 +376,12 @@ def cmd_selftest(_args):
         r = run("heartbeat-set", "45", "--package", str(pkg))
         check("over the 30s ceiling refuses with exit 3", r.returncode == 3, f"(exit {r.returncode})")
         check("a refused set writes NOTHING", bj.read_bytes() == frozen)
+        # A dry run may NEVER be reported as an applied one: this combination used to write the
+        # value, launch nothing, and print "is now in effect" with exit 0.
+        r = run("heartbeat-set", "9", "--restart", "--dry-run", "--package", str(pkg))
+        check("--dry-run on heartbeat-set is a usage error, not a false 'in effect'",
+              r.returncode == 2 and "in effect" not in r.stdout, f"(exit {r.returncode}: {r.stdout})")
+        check("the refused dry-run wrote nothing", bj.read_bytes() == frozen)
         r = run("heartbeat-set", "0", "--package", str(pkg))
         check("a non-positive cadence refuses with exit 3", r.returncode == 3, f"(exit {r.returncode})")
         check("a refused set STILL writes nothing", bj.read_bytes() == frozen)
@@ -433,6 +446,13 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="start: print the launch argv, launch nothing")
     ap.add_argument("--json", action="store_true", help="unit: machine-readable output")
     args = ap.parse_args()
+
+    # `heartbeat-set N --restart --dry-run` WROTE the value, launched nothing, and still printed
+    # "cadence Ns is now in effect" with exit 0 — a success this surface never performed. A dry run
+    # belongs to `start` alone, and a refusal here lands BEFORE the write.
+    if args.dry_run and args.verb != "start":
+        ap.error("--dry-run applies to `start` only (it launches nothing, so it can never put a "
+                 "cadence into effect)")
 
     if args.verb == "selftest":
         return cmd_selftest(args)
