@@ -65,8 +65,10 @@ that writes its verdict into an adjacent `.out`. **Run them with `node deploy/pr
 prove the runner itself.
 
 **⚠ ASKING WHETHER ANYTHING ALREADY GUARDS X? USE THE ENUMERATOR — never a hand-glob of `probes/`
-folders.** There are EIGHTEEN of them and the obvious guesses miss: the inspect target set is guarded
-from `server/internal-api/probes/`, not `server/probes/`.
+folders.** There are more of them than you will guess, and the obvious guesses miss: the inspect
+target set is guarded from `server/internal-api/probes/`, not `server/probes/`. The count is
+deliberately not written here — a literal in this sentence contradicts the sentence, and it went
+stale twice (TWELVE, then EIGHTEEN) before this note replaced it.
 
 ```
 node deploy/probe-suite.js --list | grep -E '\.(js|py)$' | xargs grep -l <SYMBOL>
