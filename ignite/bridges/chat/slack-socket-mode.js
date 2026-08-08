@@ -113,12 +113,23 @@ function createSlackSocketMode({
   function toChatMessage(event) {
     if (!event || event.type !== 'message') return null;
     // Ignore bot echoes, edits/deletes, and joins — only genuine user text drives work.
-    if (event.bot_id || event.subtype || typeof event.user !== 'string' || typeof event.text !== 'string') return null;
+    // Exception: `file_share` (a user message carrying an attachment) passes through —
+    // the bridge does NOT ferry the bytes; it appends a pointer line per file so the
+    // agent can pull it itself (stools download takes exactly channel + message ts).
+    const files = Array.isArray(event.files) ? event.files : [];
+    const isFileShare = event.subtype === 'file_share' && files.length > 0;
+    if (event.bot_id || (event.subtype && !isFileShare) || typeof event.user !== 'string' || typeof event.text !== 'string') return null;
+    let text = event.text;
+    if (files.length > 0) {
+      const fileLines = files.map((f) =>
+        `[attachment: ${f.name || f.id || 'file'} (${f.mimetype || 'unknown type'}) — slack channel ${event.channel}, message ts ${event.ts} — download it yourself: stools download --channel ${event.channel} --ts ${event.ts} --output downloads]`);
+      text = [event.text, ...fileLines].filter(Boolean).join('\n');
+    }
     const rootTs = event.thread_ts || event.ts;
     return {
       chatUserId: event.user,
       chatThreadId: `${event.channel}:${rootTs}`,
-      text: event.text,
+      text,
       // Kept for the outbound reply address (chat.postMessage channel + thread_ts).
       _channel: event.channel,
       _threadTs: rootTs,

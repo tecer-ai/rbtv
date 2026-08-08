@@ -128,8 +128,10 @@ interim handle) and delivery reaches that chain's current turn.
 than by an event.
 
 **Required Slack bot scopes:** `channels:manage` (create + archive), `channels:read`
-(+ `groups:read`, for list/members), `chat:write`, `channels:history`, `im:history`.
-Deliberately **not** required: any invite scope. **Optional:** `reactions:write` — the ⏳
+(+ `groups:read`, for list/members), `chat:write`, `channels:history`, `im:history`,
+`files:read` — not used by the bridge itself, but the SAME bot token is what agents
+use (via stools) to download the attachments the bridge's pointer lines announce; without
+it every download fails with a scope error. Deliberately **not** required: any invite scope. **Optional:** `reactions:write` — the ⏳
 pending marker the bridge puts on an owner message while its turn runs and removes when
 the answer lands (chat-bridge.js § pending marker). Without it every reaction call fails,
 one info line is logged for the whole run, and nothing else changes: message handling and
