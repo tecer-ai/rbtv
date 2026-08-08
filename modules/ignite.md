@@ -40,7 +40,15 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   LANDED too (task C5E, `d-owner-planning-entry-0808` + `-2-0808`): `spawn-profiles.yaml` carries a
   `workflows:` section, the goal is born WITH a `runs/run-1` package materialized through the ruled
   name `scaffold-seats`, and `tool/workflow_launcher.py` opens that run's own per-run detached tmux
-  room before handing the launch to `coordinate` with an explicit target. The ruled bare name now
+  room before handing the launch to `coordinate` with an explicit target. That first fire DOES open
+  the entry seat — `coordinate launch`'s cold-start admission (team-kit 7.406) admits a virgin
+  package on the empty-room bound — and the launcher's exit code IS the store record: `0` means a
+  seat pane opened and nothing else, `3` means the launch ran and admitted nobody (recorded
+  `failed`, never a false `done`; the row is one-shot, so that failure has no cadence to recur on).
+  Task 7.548 measured both and corrected the contrary claim this doc, the launcher and
+  `spawn-profiles.yaml` had carried — including its instruction to put the team-monitor census
+  sensor in the arming sequence, which is impossible: the sensor refuses until a seat has checked
+  in. The ruled bare name now
   RESOLVES under the daemon: a fired tool used to inherit the systemd `--user` MANAGER's PATH, which
   carries no `~/.local/bin`, so `scaffold-seats` exited 127 and every daemon-fired creation refused
   after scaffolding — fixed at the CARRIER for the whole class, not at this call site

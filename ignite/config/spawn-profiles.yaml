@@ -1135,11 +1135,21 @@ workflows:
   # catch. The rejected alternatives are recorded in that ruling — an always-on boot-time room, or
   # widening the certified templating key set with a new byte class on an exec'd command line.
   #
-  # ⚠ FIRST FIRE ON A BRAND-NEW PACKAGE OPENS THE ROOM AND NO SEAT, AND EXITS 0. A freshly
-  # materialized package has no `state.json`, so the capacity census is unenforceable and `launch`
-  # DEFERS every candidate to the pickup lane — "a WAIT, not a refusal". Measured (P7). The launcher
-  # says so loudly rather than leaving an empty room to be discovered; whoever arms goal-creation
-  # needs the team-monitor census sensor in the arming sequence.
+  # ✅ FIRST FIRE ON A BRAND-NEW PACKAGE OPENS THE ENTRY SEAT. `coordinate launch` carries a
+  # COLD-START admission (team-kit 7.406): a package no sensor has ever run against and no seat has
+  # ever launched into is admitted on the EMPTY-ROOM BOUND. Proven end to end by
+  # `probes/probe-planning-entry.py` P5 (the real launcher, no --dry-run, the seat's pane asserted).
+  # ⚠ THIS CORRECTS WHAT THIS COMMENT SAID UNTIL TASK 7.548 — that the first fire opens no seat and
+  # that whoever arms goal-creation must add the team-monitor census sensor to the arming sequence.
+  # That was read off the census-FAILURE branch, not measured, and its remedy is impossible:
+  # `team_monitor.py` resolves the room's session FROM THE ROSTER and refuses while no seat has
+  # checked in (exit 4), so it cannot run before the first launch. NOTHING ABOUT THE CENSUS BELONGS
+  # IN THE ARMING SEQUENCE.
+  #
+  # ⚠ THE LAUNCHER'S EXIT CODE IS THE STORE RECORD (`recordToolCompletion`: 0 -> `done`, non-zero ->
+  # `failed`). 0 means A SEAT OPENED and nothing else; 3 means the launch ran and admitted nobody —
+  # loud, typed, recorded `failed` rather than a false `done`. The row is ONE-SHOT (deleted at fire),
+  # so that failure has no cadence to recur on.
   planning:
     argv:
       - /usr/bin/python3

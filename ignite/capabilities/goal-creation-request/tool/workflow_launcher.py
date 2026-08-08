@@ -60,6 +60,19 @@ from pathlib import Path
 SESSION_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MAX_SESSION_NAME = 100
 
+# ⚠ THIS PROGRAM'S EXIT CODE **IS** THE STORE RECORD, so 0 is spent on exactly one claim.
+# `recordToolCompletion` (server/ticker/ticker.js) maps a fired tool's exit 0 -> completion `done`
+# and every non-zero -> `failed`, against a CLOSED enum with no third word. So an exit 0 that did
+# not open a seat writes `done` on a fire that achieved nothing — the false success this code
+# previously produced by construction (C5E-review C1). 0 now means "this fire opened at least one
+# seat pane" and nothing else.
+#
+# 3 is its own code rather than a reuse of 1: 1 and 2 are already spent on a REFUSAL (bad inputs, an
+# unresolvable target, a delegated launch that itself failed), and a launch that ran correctly and
+# admitted nobody is a different fact. The store keeps `exit_code`, so the two stay tellable apart
+# in the record and not only in the log.
+EXIT_NO_SEAT = 3
+
 
 def log(msg):
     print(f"workflow-launcher: {msg}", flush=True)
@@ -134,6 +147,20 @@ def ensure_session(name, cwd, socket=None):
     return pane, provenance
 
 
+def panes_in(name, socket=None):
+    """The SET of pane ids in session `name`, or None if the room could not be read.
+
+    ⚠ None IS NOT AN EMPTY ROOM, and the caller must never collapse them: "no pane is open" is a
+    measurement, "I could not look" is the absence of one. They travel to the same exit code here
+    (an unproven launch may not record a success either) but they carry different reasons, and a
+    predicate that returned an empty set on a failed read would report a room it never saw.
+    """
+    r = tmux("list-panes", "-s", "-t", f"={name}", "-F", "#{pane_id}", socket=socket)
+    if r is None or r.returncode != 0:
+        return None
+    return {ln.strip() for ln in r.stdout.splitlines() if ln.strip()}
+
+
 def launch_argv(coord, package, entry_seat, pane):
     """The EXACT argv the launch delegates to. Built above every early return so --dry-run prints
     the real thing.
@@ -198,6 +225,12 @@ def main(argv=None):
         return 1
     log(f"target {pane} verified in session {name!r} — {provenance}")
 
+    # READ BEFORE, so the verdict below is about THIS FIRE and not about the room's history. An
+    # absolute count cannot tell "a seat opened" from "a seat was already there": a re-fire joins a
+    # room it already populated (`ensure_session` is idempotent by design), and a count-based test
+    # would report that re-fire as a fresh success while it opened nothing.
+    before = panes_in(name, args.tmux_socket)
+
     env = dict(os.environ)
     env.pop("TMUX_PANE", None)      # never let an inherited pane win over the one just proven
     env.pop("COORD_LAUNCH_TARGET", None)
@@ -218,22 +251,53 @@ def main(argv=None):
         log(f"launch exited {res.returncode}")
         return res.returncode
 
-    # ⚠ EXIT 0 IS NOT 'A SEAT OPENED', AND THE DIFFERENCE IS MEASURED. A freshly materialized run
-    # package has no `state.json`, so the capacity census is UNENFORCEABLE and `launch` admits no
-    # seat — "this is a WAIT, not a refusal — the act exits ZERO", every candidate deferred to the
-    # pickup lane until the team-monitor sensor produces a census (evidence/c5e/c5e-01 P7). So on a
-    # brand-new package the FIRST fire legitimately opens nothing and still exits 0. That is stated
-    # loudly here rather than left to be discovered from an empty room: whoever arms goal-creation
-    # needs the census sensor in the arming sequence.
-    r = tmux("list-panes", "-s", "-t", f"={name}", "-F", "#{pane_id}", socket=args.tmux_socket)
-    panes = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()] if r and r.returncode == 0 else []
-    if len(panes) <= 1:
-        log(f"WAIT — launch exited 0 but session {name!r} holds {len(panes)} pane(s), i.e. no seat "
-            f"opened. On a fresh package this is the EXPECTED first-fire outcome: with no "
-            f"state.json the capacity census is unenforceable and every candidate defers to the "
-            f"pickup lane. The room is up and the seats arrive once a census exists.")
-    else:
-        log(f"LAUNCHED — session {name!r} holds {len(panes)} panes")
+    # ⚠ EXIT 0 MEANS "A SEAT OPENED", AND THIS IS WHERE THAT IS PROVEN — from the pane set THIS
+    # FIRE ADDED. Two measured facts decide the shape, and both correct what this file used to say:
+    #
+    #  · A VIRGIN PACKAGE'S FIRST FIRE DOES OPEN ITS ENTRY SEAT. `coordinate launch` carries a
+    #    COLD-START admission (team-kit task 7.406): a package no sensor has ever run against and no
+    #    seat has ever launched into is recognised on its own markers and admitted on the EMPTY-ROOM
+    #    BOUND (in_use 0), because a room nothing has ever touched has an accurate census of itself.
+    #    The claim this comment used to carry — the first fire opens nothing, exits 0, and whoever
+    #    arms goal-creation must put the census sensor in the arming sequence — was read off 7.363's
+    #    census-FAILURE branch and is FALSE against the tree. Measured end to end, the entry seat's
+    #    pane opens on the first fire (`probes/probe-planning-entry.py` P5).
+    #  · NO ARMING SEQUENCE COULD HAVE CARRIED THAT SENSOR ANYWAY. `team_monitor.py` resolves the
+    #    room's session FROM THE ROSTER and refuses while no seat has checked in ("the roster
+    #    carries no pane at all", exit 4) — it cannot run before the first launch, by construction.
+    #    Cold-start admission exists precisely because a virgin room's census is unobtainable and
+    #    its true reading is nonetheless known.
+    #
+    # So a WAIT here is NOT the expected first-fire outcome. It is a package that is no longer
+    # virgin and has no census — its sensor died — which is the state 7.363 defers on. That is a
+    # real outcome, and it is now recorded as a FAILED completion rather than a false `done`.
+    #
+    # ⚠ WHY `failed` DOES NOT MINT THE FAILURE-PER-CADENCE PATTERN, which is the other way this
+    # could have gone wrong: the queue row this program runs under is ONE-SHOT. It is enqueued
+    # `--trigger scheduled --at <t>` with no repeat rule, and `fireQueueRow` DELETES exactly that
+    # row at fire (server/heart/heart-store.js). So there is no cadence for a failure to recur on —
+    # one fire, one honest record. `probe-planning-entry.py` P7 pins that, because the day the row
+    # becomes periodic this exit code starts writing a `failed` every pass.
+    after = panes_in(name, args.tmux_socket)
+    opened = (after - before) if (after is not None and before is not None) else None
+    if opened is None:
+        log(f"NO SEAT PROVEN — the delegated launch exited 0, but session {name!r}'s panes could "
+            f"not be read either before or after it, so NOTHING here proves a seat opened. Exiting "
+            f"{EXIT_NO_SEAT} rather than 0: an unproven launch must not be recorded as a success.")
+        return EXIT_NO_SEAT
+    if not opened:
+        log(f"WAIT — the delegated launch exited 0 and opened NO seat pane in session {name!r} "
+            f"({len(after)} pane(s), UNCHANGED by this fire — a room that already held panes is "
+            f"not evidence this fire opened one). This is a "
+            f"WAIT, not a refusal, in `coordinate launch`'s own terms — but it is NOT a success, so "
+            f"this program exits {EXIT_NO_SEAT} and the store records `failed` instead of `done`. "
+            f"Read the `launch|` lines above for the reason it named; the usual one is a package "
+            f"whose team-monitor sensor is down, so its capacity census is unreadable and every "
+            f"counted candidate defers. PICKUP LANE: restore the sensor for this package and fire "
+            f"again.")
+        return EXIT_NO_SEAT
+    log(f"LAUNCHED — this fire opened {len(opened)} seat pane(s) in session {name!r}: "
+        f"{' '.join(sorted(opened))} ({len(after)} pane(s) in the room)")
     return 0
 
 

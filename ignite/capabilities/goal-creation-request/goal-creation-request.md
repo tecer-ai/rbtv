@@ -225,11 +225,35 @@ hands the launch to `coordinate` with an explicit `--tmux-target`. Properties wo
   is a NEW launch, exactly what that floor is sized for. `jobs/recover-room.py` does override it,
   correctly, on a premise that is false here — a recovery replaces a seat that already died and is
   load-neutral. Reusing that program as this launcher was considered and REJECTED for that reason.
-- ⚠ **First fire on a brand-new package opens the room and NO SEAT, and exits 0.** A freshly
-  materialized package has no `state.json`, so the capacity census is unenforceable and `launch`
-  DEFERS every candidate to the pickup lane — "a WAIT, not a refusal". The launcher counts panes
-  after a zero-exit launch and says so loudly rather than leaving an empty room to be discovered.
-  **Whoever arms goal-creation needs the team-monitor census sensor in the arming sequence.**
+- ✅ **First fire on a brand-new package OPENS THE ENTRY SEAT.** `coordinate launch` carries a
+  COLD-START admission (team-kit task 7.406): a package no sensor has ever run against and no seat
+  has ever launched into is recognised on its own markers and admitted on the EMPTY-ROOM BOUND
+  (`in_use` 0). Proven end to end against a fixture built by the shipped create path —
+  `probes/probe-planning-entry.py` **P5**, which fires the real launcher with no `--dry-run` and
+  asserts the seat's pane. This **corrects** the earlier claim (carried here, in the launcher and in
+  `spawn-profiles.yaml` until task 7.548) that the first fire opens nothing and that whoever arms
+  goal-creation must add the team-monitor census sensor to the arming sequence. That claim was read
+  off `coordinate launch`'s census-FAILURE branch rather than measured, and the remedy it named is
+  impossible anyway: `team_monitor.py` resolves the room's session FROM THE ROSTER and refuses while
+  no seat has checked in (exit 4), so it cannot run before the first launch. **Nothing about the
+  census belongs in the arming sequence.**
+- ⚠ **Exit codes: `0` means A SEAT OPENED, and nothing else.** `recordToolCompletion` maps a fired
+  tool's `0` to completion `done` and every non-zero to `failed`, so this program's exit code *is*
+  the store record. It proves the claim from the pane set THIS fire added (never an absolute count,
+  which cannot tell a fresh launch from a re-fire joining a room it already populated):
+
+  | Exit | Means | Store records |
+  |---|---|---|
+  | `0` | this fire opened ≥ 1 seat pane | `done` |
+  | `3` | the delegated launch exited 0 and opened NO seat pane — or the room could not be read, so nothing proves one opened | `failed` |
+  | `1` / `2` | refusal — unresolvable target, absent package, bad name, delegated launch failed | `failed` |
+
+  A `3` is a package that is **no longer virgin and has no census** (its sensor died), which is the
+  state `coordinate launch` defers on. It is loud and typed, never a silent success. It does **not**
+  mint the failure-per-cadence pattern: the row this program runs under is **one-shot** (enqueued
+  `--trigger scheduled --at <t>` with no repeat rule; `fireQueueRow` deletes it at fire), so there is
+  no cadence for a failure to recur on — one fire, one honest record. Probe **P7** pins that, because
+  the day the row becomes periodic this exit code starts writing a `failed` every pass.
 
 ## The request schema it validates against
 

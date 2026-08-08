@@ -122,6 +122,31 @@ def tmux(*a):
     return subprocess.run([exe, "-L", SOCKET, *a], capture_output=True, text=True) if exe else None
 
 
+def make_shims(d):
+    """The hermetic fixture for the REAL-fire arms (P5/P6), built out of PATH and nothing else.
+
+    ⚠ WHY A `tmux` SHIM AND NOT A FLAG. The launcher takes `--tmux-socket`, but it does NOT pass one
+    to the `coordinate launch` it delegates to — and coord.py has no socket option at all (it calls
+    bare `tmux`). So on a private socket the launcher would open the room there and hand coord a
+    pane id that does not exist on the socket coord actually talks to. PATH is therefore the ONLY
+    seam that isolates the whole composed act, and it is the same seam the F1 arms below already
+    use. NOTHING in the product is bent to be testable.
+
+    `claude` is stubbed for the same reason the `ignite` stub exists above: this probe proves that a
+    SEAT PANE OPENS, which is the launcher's claim. Whether a real agent then boots is that agent's
+    business and is not provable in a probe.
+    """
+    d.mkdir(parents=True, exist_ok=True)
+    real = shutil.which("tmux")
+    t = d / "tmux"
+    t.write_text(f'#!/bin/sh\nexec {real} -L {SOCKET} "$@"\n', encoding="utf-8")
+    t.chmod(0o755)
+    cl = d / "claude"
+    cl.write_text('#!/bin/sh\necho "probe stub seat pane: $*"\nexec sleep 120\n', encoding="utf-8")
+    cl.chmod(0o755)
+    return d
+
+
 def kill_socket():
     tmux("kill-server")
 
@@ -217,6 +242,22 @@ def main():
                    set(args) == {"workflow", "entry-seat", "goal", "workdir"}, True, json.dumps(args))
             report("P1 workdir IS the run package (ruling clause 3)", "green",
                    args.get("workdir") == str(pkg), True, args.get("workdir", ""))
+            # ---- P7 · THE ROW IS ONE-SHOT, which is what keeps the launcher's failure
+            # exit from minting the failure-per-cadence pattern. `fireQueueRow` DELETES a
+            # `scheduled` row carrying no repeat rule at fire (heart-store.js), so the
+            # `failed` completion a no-seat fire records happens ONCE and has no cadence to
+            # recur on. The day this row becomes periodic that exit writes a `failed` every
+            # pass — the owner-killed pattern — so the enqueue shape is pinned HERE, read off
+            # the captured argv rather than off the source that composed it.
+            repeaters = [t for t in addjob[0]
+                         if t in ("--every", "--cron", "--repeat", "--repeat-rule",
+                                  "--interval", "--interval-seconds", "--max-fires")]
+            report("P7 the workflow row is queued ONE-SHOT (no cadence to pollute)", "green",
+                   "--trigger" in addjob[0]
+                   and addjob[0][addjob[0].index("--trigger") + 1] == "scheduled"
+                   and "--at" in addjob[0] and not repeaters, True,
+                   f"trigger=scheduled --at present; repeat flags: {repeaters or 'none'}")
+
             regjob = [c for c in calls if c and c[0] == "register-job"]
             schema = json.loads(regjob[0][regjob[0].index("--args-schema") + 1]) if regjob else {}
             report("P1 all four declared required", "green",
@@ -366,6 +407,66 @@ def main():
             report("F1b the workflow row is queued under the fired environment", "green",
                    sum(1 for c in calls4 if c and c[0] == "add-job") == 1, True,
                    f"add-job calls={sum(1 for c in calls4 if c and c[0] == 'add-job')}")
+
+        # ---- P5 / P6 · THE REAL FIRE (task 7.548) — no `--dry-run`, the seat's pane asserted ----
+        #
+        # WHAT THIS GUARDS THAT P3 CANNOT. P3 executes the composed argv with `--dry-run` APPENDED,
+        # so it proves the command line is accepted and opens nothing. The claim that actually
+        # decides whether arming goal-creation is safe — a brand-new goal's FIRST fire opens its
+        # entry seat — was guarded by nothing, and the launcher, this capability's contract doc and
+        # `spawn-profiles.yaml` all asserted the OPPOSITE ("opens the room and NO SEAT, and exits
+        # 0") until 7.548 measured it. Both arms run the SHIPPED launcher for real.
+        shims = make_shims(tmpdir / "shims")
+        fire_env = dict(os.environ)
+        fire_env["PATH"] = f"{shims}{os.pathsep}{os.environ.get('PATH', '')}"
+        fire_env.pop("TMUX", None)            # a fired exec inherits neither; neither does this
+        fire_env.pop("TMUX_PANE", None)
+        fire_env.pop("COORD_LAUNCH_TARGET", None)
+        _, calls5, root5 = drain(tmpdir / "c", flags, goal="probe-firstfire")
+        pkg5 = root5 / "probe-firstfire" / "runs" / "run-1"
+        room = "probe-firstfire-run-1"
+        fire = [sys.executable, str(LAUNCHER), "--package", str(pkg5), "--goal", "probe-firstfire",
+                "--entry-seat", flags["--entry-seat"],
+                "--coord", str(IGNITE / "team-kit" / "coord.py")]
+
+        def room_panes():
+            r = tmux("list-panes", "-s", "-t", f"={room}", "-F", "#{pane_id}\t#{pane_current_command}")
+            return [l.strip() for l in r.stdout.splitlines() if l.strip()] if r and r.returncode == 0 else []
+
+        virgin = not any((pkg5 / m).exists() for m in
+                         ("state.json", "sessions.csv", "coordination/team-monitor.log"))
+        report("P5 the scaffolded package is VIRGIN before the first fire", "green", virgin, True,
+               "state.json / sessions.csv / team-monitor.log all absent")
+        r5 = subprocess.run(fire, capture_output=True, text=True, env=fire_env, timeout=600)
+        o5, panes5 = r5.stdout + r5.stderr, room_panes()
+        report("P5 first fire on a virgin package EXITS 0", "green", r5.returncode == 0, True,
+               f"exit={r5.returncode} :: " + (o5.strip().splitlines() or [""])[-1][:200])
+        report("P5 cold-start admission is what admits it", "green", "COLD-START" in o5, True,
+               next((l for l in o5.splitlines() if "COLD-START" in l), "")[:180])
+        report("P5 a SEAT PANE actually opened", "green",
+               len(panes5) >= 2 and any("claude" in p for p in panes5), True,
+               f"{len(panes5)} pane(s): {panes5}")
+
+        # P6 · THE SAME FIRE AGAIN, and this is the DISCRIMINATING arm. The first fire left
+        # `sessions.csv` and a `team-monitor.log` behind, so the package is no longer VIRGIN — and
+        # the sensor never started (it resolves the room's session FROM THE ROSTER and refuses while
+        # no seat has checked in), so there is still no `state.json`. That is exactly the state
+        # `coordinate launch` defers on: CAP UNENFORCEABLE, every counted candidate deferred, EXIT 0.
+        # ⚠ THE ROOM NOW HOLDS 2 PANES, so the pre-7.548 verdict — `len(panes) <= 1` — would have
+        # read "LAUNCHED" and exited 0, writing a `done` completion for a fire that opened NOTHING
+        # (C5E-review C1). This arm goes RED against that rule and green only against a verdict
+        # computed from the panes THIS fire added.
+        r6 = subprocess.run(fire, capture_output=True, text=True, env=fire_env, timeout=600)
+        o6, panes6 = r6.stdout + r6.stderr, room_panes()
+        report("P6 a fire that opens no seat EXITS NON-ZERO (never a false `done`)", "green",
+               r6.returncode == wl.EXIT_NO_SEAT and r6.returncode != 0, True,
+               f"exit={r6.returncode} (EXIT_NO_SEAT={wl.EXIT_NO_SEAT})")
+        report("P6 the deferral is named LOUDLY, typed, in the launcher's own output", "green",
+               "CAP UNENFORCEABLE" in o6 and "WAIT" in o6, True,
+               next((l for l in o6.splitlines() if l.startswith("workflow-launcher: WAIT")), "")[:200])
+        report("P6 no pane opened, while the ROOM still holds more than one", "green",
+               len(panes6) == len(panes5) and len(panes6) > 1, True,
+               f"{len(panes6)} pane(s), unchanged — a count-based verdict would have said LAUNCHED")
     finally:
         kill_socket()
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -379,8 +480,10 @@ def main():
         print(f"VERDICT: RED — {len(FAILED)} check(s) failed: {FAILED}")
         return 1
     print(f"VERDICT: GREEN — {len(CHECKS)} checks, every gating green paired with a red arm that "
-          f"fired. Boundary: the fire itself is probe-argv-template.js's; here the composed argv "
-          f"was EXECUTED by the real launcher with --dry-run appended.")
+          f"fired. Boundary: firing the QUEUE ROW through a live ticker is probe-argv-template.js's; "
+          f"here P3 executes the composed argv with --dry-run appended, and P5/P6 run the shipped "
+          f"launcher FOR REAL (no --dry-run) against a scaffolded fixture, on a private tmux socket "
+          f"with a stubbed harness — so the seat's pane is asserted, not the agent that boots in it.")
     return 0
 
 
