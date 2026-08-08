@@ -183,3 +183,24 @@ would hand its 256 MB cap to the very sensor or recovery agent it is resurrectin
 - **One catalogue entry per target.** Each detector's target is in its argv, not its cwd, so
   re-pointing a job at a live target requires a config edit plus a daemon restart rather than a
   different enqueue.
+- **`detach_argv` FORWARDS the caller's PATH across its inner hop** (7.551). That hop is a second
+  `systemd-run --user`, so the detached process was handed the systemd MANAGER's environment, not
+  the fired tool's — dropping the PATH `carrier.js` `toolExecEnv()` composed for it
+  (`d-owner-f1-carrier-env-0808`). Nothing about argv[0] was broken (systemd-run resolves that
+  CLIENT-side against the caller's PATH); what was broken is what the detached process and its
+  descendants resolve BY NAME afterwards — `selfheal-room` → `recover-room.py` → `coord.py` boots
+  the harness by the bare name `claude`, which lives in `~/.local/bin` and is absent from the
+  manager PATH. So the helper emits `--setenv=PATH=<os.environ["PATH"]>`: **forwarded, never
+  re-derived** (PRIN-11 — under the daemon that string IS `toolExecEnv()`'s output byte-for-byte;
+  from a human shell it is that shell's PATH, and both are correct). Guarded by
+  `probes/probe-detach-env.py` — whose R2 arm is what fails a re-derivation that would look right.
+
+## `probes/` — `probe-detach-env.py`
+
+The folder's first probe (7.551). It drives the real `detach_argv` and reads the PATH the DETACHED
+process received, never the launcher's exit code — `systemd-run --collect --quiet` returns 0 as
+soon as the unit starts, and `--collect` reaps the unit before any `systemctl show` could read it.
+Its C0 control fires the same child through a bare hop and REFUSES to grade (exit 2) if that
+already carries the caller's PATH, so the arm can never pass for the wrong reason. Discovery is
+structural (`deploy/probe-suite.js`), so the file enrolled with no registration step:
+`node deploy/probe-suite.js --only detach-env`.

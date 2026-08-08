@@ -62,7 +62,13 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   live, and that covers BOTH halves — the config file is boot-read AND the carrier fix is daemon
   code, so a RUNNING daemon has neither until the next restart; the PATH class is retired in the
   tree, not yet in the process. Arming remains the three gated acts. Contract in
-  `goal-creation-request.md`.
+  `goal-creation-request.md`. The carrier fix had ONE leak downstream of it, closed by task 7.551:
+  `jobs/jobcontain.py` `detach_argv` opens a SECOND `systemd-run --user` so a recovery outlives the
+  job that started it, and that inner hop went back through the MANAGER environment — so the
+  composed PATH stopped at it and the detached process's descendants (`recover-room.py` →
+  `coord.py`, which boots the harness by the bare name `claude`) were back on the manager PATH. It
+  now FORWARDS `os.environ["PATH"]` — forwarded, never re-derived, so the composer stays singular
+  (PRIN-11); guarded by `jobs/probes/probe-detach-env.py`.
 - **`watch-operator`** (`ignite/capabilities/watch-operator/`) — the WATCH-LOOP operator surface:
   the fourth ignite service's power verbs plus its pass cadence (`heartbeat-set`). Separate from
   `daemon-operator` because its target is a RUN PACKAGE, not a fixed unit — the watch unit is

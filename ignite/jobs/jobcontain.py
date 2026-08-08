@@ -96,7 +96,19 @@ def detach_argv(argv, unit, daemonizes=False):
     if not shutil.which("systemd-run"):
         return list(argv), None
     props = ["--property=KillMode=process"] if daemonizes else []
-    return ["systemd-run", "--user", "--collect", "--quiet", *props, f"--unit={unit}", *argv], unit
+    # The inner hop goes back through the systemd --user MANAGER, whose environment is NOT this
+    # process's — so the PATH carrier.js toolExecEnv() composed for this fired tool (the F1 fix,
+    # decisions.md#d-owner-f1-carrier-env-0808) was lost here, and everything the detached process
+    # later resolves BY NAME (recover-room -> coord.py's `claude`/`codex`/`opencode`, which live in
+    # ~/.local/bin and ~/.opencode/bin) looked for it on the manager's PATH instead (7.551).
+    # FORWARDED, NEVER RECOMPOSED (PRIN-11): under the daemon os.environ["PATH"] IS toolExecEnv()'s
+    # output byte-for-byte (measured), and from a human shell it is that shell's own PATH — both
+    # correct, neither a second composer. Positional, not separated by `--`: the flag must precede
+    # the argv tail or systemd-run hands it to the child as an argument (probes/probe-detach-env.py).
+    path = os.environ.get("PATH")
+    setenv = [f"--setenv=PATH={path}"] if path else []
+    return ["systemd-run", "--user", "--collect", "--quiet", *setenv, *props,
+            f"--unit={unit}", *argv], unit
 
 
 def unit_name(prefix, key):

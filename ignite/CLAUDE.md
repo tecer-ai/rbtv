@@ -65,7 +65,7 @@ that writes its verdict into an adjacent `.out`. **Run them with `node deploy/pr
 prove the runner itself.
 
 **⚠ ASKING WHETHER ANYTHING ALREADY GUARDS X? USE THE ENUMERATOR — never a hand-glob of `probes/`
-folders.** There are TWELVE of them and the obvious guesses miss: the inspect target set is guarded
+folders.** There are EIGHTEEN of them and the obvious guesses miss: the inspect target set is guarded
 from `server/internal-api/probes/`, not `server/probes/`.
 
 ```
