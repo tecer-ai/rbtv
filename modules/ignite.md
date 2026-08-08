@@ -45,8 +45,10 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   carries no `~/.local/bin`, so `scaffold-seats` exited 127 and every daemon-fired creation refused
   after scaffolding — fixed at the CARRIER for the whole class, not at this call site
   (`d-owner-f1-carrier-env-0808`; `server/spawn/carrier.js` `toolExecEnv`). Landed is still not
-  live — the file is boot-read, so the entry activates at the next daemon restart, and arming
-  remains the three gated acts. Contract in `goal-creation-request.md`.
+  live, and that covers BOTH halves — the config file is boot-read AND the carrier fix is daemon
+  code, so a RUNNING daemon has neither until the next restart; the PATH class is retired in the
+  tree, not yet in the process. Arming remains the three gated acts. Contract in
+  `goal-creation-request.md`.
 - **`watch-operator`** (`ignite/capabilities/watch-operator/`) — the WATCH-LOOP operator surface:
   the fourth ignite service's power verbs plus its pass cadence (`heartbeat-set`). Separate from
   `daemon-operator` because its target is a RUN PACKAGE, not a fixed unit — the watch unit is

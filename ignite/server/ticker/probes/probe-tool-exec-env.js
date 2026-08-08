@@ -26,9 +26,26 @@
 //   R3  a tool exec's unit carries NO `EnvironmentFile=` and exactly       (the credential channel
 //       ONE `--setenv`, named PATH                                          is not co-opted)
 //   R4  R1's check, run against the PRE-FIX composition, goes RED          (the check discriminates)
+//   R5  `toolExecEnv()` PREPENDS `~/.local/bin` to a PATH that lacks it,   (the composer is guarded,
+//       and DEDUPES one that already carries it                             not just the channel)
+//   R6  every variable the fired unit carries other than PATH has the      (PATH-scope means VALUES,
+//       SAME VALUE as the pre-fix unit                                      not only names)
 //
 // R2's baseline is not a guess at what systemd sets: it is the SAME unit composed with `setenv: {}`
 // — the pre-fix shape — and actually run. One variable changed, both arms measured.
+//
+// ⚠ R5 AND R6 EXIST BECAUSE R1–R4 WERE MEASURED GREEN ON TWO REAL MUTANTS (§2 review of 01b8960,
+// each run against a scratch copy of this tree):
+//   · the prepend deleted from `toolExecEnv()` (`return { PATH: base }`) — R1 still passed, because
+//     EVERY process that hosts this probe (an interactive shell, the `rbtv-probe-suite` unit) already
+//     carries `~/.local/bin` in its OWN PATH, so forwarding it is indistinguishable from composing
+//     it. R1 measures that a `--setenv` reached the child; it cannot measure what put the entry
+//     there. R4 does not help: it controls the MANAGER's PATH, which this mutant does not touch.
+//   · a second variable added at the ticker's call site OVERWRITING a name the child already had
+//     (`setenv: { ...toolExecEnv(), SSH_AUTH_SOCK: '/tmp/attacker.sock' }`) — R2 compares NAME SETS,
+//     so an overwrite introduces no name; R3 inspects an args array IT composes from
+//     `toolExecEnv()` directly, never the args the ticker actually passed. Both stayed green while
+//     the hostile value rode a real fired unit.
 //
 // Exit 0 PASS · 1 FAIL (lib/capture owns the exit).
 
@@ -116,23 +133,29 @@ capture('probe-tool-exec-env', async (lines) => {
     // The baseline is not an assumption about what systemd sets — it is this exact unit with the
     // one added variable removed. Anything present in the fired env and absent here is a leak we
     // introduced.
-    const baseLog = path.join(ctx.dataRoot, 'logs', 'prefix-baseline.log');
-    fs.mkdirSync(path.dirname(baseLog), { recursive: true });
-    fs.writeFileSync(baseLog, '');
-    const { args: baseArgs } = carrier.buildSystemdRunArgs({
-      sessionId: 'prefix-baseline',
-      argv: ['/usr/bin/env'],
-      workdir: ctx.defaultWorkdir,
-      logPath: baseLog,
-      caps: {},
-      sandbox: {},
-      envFile: null,
-      setenv: {},          // ← the pre-fix composition, explicitly
-      userManager: true,
-    });
-    execFileSync('systemd-run', ['--wait', ...baseArgs.filter((a) => a !== '--collect')],
-      { stdio: 'ignore', timeout: 20000 });
-    const baseEnv = parseEnvDump(fs.readFileSync(baseLog, 'utf8'));
+    // Parameterised by tag so R6 below can run the SAME composition twice and calibrate which names
+    // are per-unit by construction, rather than hand-listing them (a hand-listed exclusion set is
+    // free to grow until it covers the name that mattered).
+    const runPreFixUnit = (tag) => {
+      const logFile = path.join(ctx.dataRoot, 'logs', `${tag}.log`);
+      fs.mkdirSync(path.dirname(logFile), { recursive: true });
+      fs.writeFileSync(logFile, '');
+      const { args } = carrier.buildSystemdRunArgs({
+        sessionId: tag,
+        argv: ['/usr/bin/env'],
+        workdir: ctx.defaultWorkdir,
+        logPath: logFile,
+        caps: {},
+        sandbox: {},
+        envFile: null,
+        setenv: {},          // ← the pre-fix composition, explicitly
+        userManager: true,
+      });
+      execFileSync('systemd-run', ['--wait', ...args.filter((a) => a !== '--collect')],
+        { stdio: 'ignore', timeout: 20000 });
+      return { env: parseEnvDump(fs.readFileSync(logFile, 'utf8')), logFile };
+    };
+    const { env: baseEnv, logFile: baseLog } = runPreFixUnit('prefix-baseline');
     lines.push(`pre-fix baseline PATH: ${baseEnv.PATH}`);
 
     const introduced = Object.keys(firedEnv).filter((k) => !Object.hasOwn(baseEnv, k));
@@ -176,6 +199,55 @@ capture('probe-tool-exec-env', async (lines) => {
     }
     lines.push(`R4 PASS: the pre-fix composition's PATH begins with ${JSON.stringify(baseFirst)}, not `
       + `${LOCAL_BIN} — R1 goes RED on it, so R1 is measuring the fix and not the box`);
+
+    // ── R5 · the COMPOSER, driven with the one input R1 can never supply ──────────────────────
+    // R1 can only see that a `--setenv PATH` reached the child; it cannot see whether `toolExecEnv`
+    // PUT `~/.local/bin` there, because this probe's own host process already carries it. So drive
+    // the composer with a PATH that does NOT — the daemon's condition, and the whole point of the
+    // derivation the ruling names. Both halves of the composition are exercised: the PREPEND, and
+    // the DEDUPE that keeps a PATH already carrying the entry from growing a repeat.
+    const composeWith = (p) => {
+      const saved = process.env.PATH;
+      process.env.PATH = p;
+      try { return carrier.toolExecEnv().PATH; } finally { process.env.PATH = saved; }
+    };
+    const prepended = composeWith('/usr/bin:/bin');
+    if (prepended !== `${LOCAL_BIN}:/usr/bin:/bin`) {
+      throw new Error(`R5 RED: toolExecEnv() did not PREPEND ${LOCAL_BIN} to a PATH that lacks it.\n`
+        + `  given:    "/usr/bin:/bin"\n  composed: ${JSON.stringify(prepended)}\n`
+        + `A fired tool on a box whose daemon PATH omits the entry would still be exit 127.`);
+    }
+    const deduped = composeWith(`/usr/bin:${LOCAL_BIN}:/bin`);
+    if (deduped !== `${LOCAL_BIN}:/usr/bin:/bin`) {
+      throw new Error(`R5 RED: toolExecEnv() did not DEDUPE an already-present ${LOCAL_BIN}.\n`
+        + `  given:    "/usr/bin:${LOCAL_BIN}:/bin"\n  composed: ${JSON.stringify(deduped)}`);
+    }
+    lines.push(`R5 PASS: toolExecEnv() prepends ${LOCAL_BIN} to a PATH without it and dedupes one `
+      + 'with it — the composition is measured, not inferred from the host process\'s own PATH');
+
+    // ── R6 · PATH-scope is about VALUES, not only names ───────────────────────────────────────
+    // R2's name-set comparison cannot see a second variable that OVERWRITES a name the child
+    // already carries, and R3 inspects an args array it composes itself rather than the ticker's.
+    // This arm compares the VALUES the two real units carried. The names that legitimately differ
+    // between two units are calibrated by running the pre-fix composition a SECOND time: whatever
+    // differs between two identical units is per-unit by construction, and nothing else is excused.
+    const { env: baseEnv2 } = runPreFixUnit('prefix-baseline-2');
+    const perUnit = Object.keys(baseEnv).filter((k) => baseEnv[k] !== baseEnv2[k]);
+    const compared = Object.keys(baseEnv).filter((k) => k !== 'PATH' && !perUnit.includes(k));
+    if (compared.length === 0) {
+      throw new Error('R6 INOPERATIVE: every non-PATH name differed between two identical pre-fix '
+        + 'units, so there is nothing this arm can hold constant — it would pass on any value.');
+    }
+    const changed = compared.filter((k) => firedEnv[k] !== baseEnv[k]);
+    if (changed.length > 0) {
+      throw new Error(`R6 RED (scope): the fired unit carries a DIFFERENT VALUE than the pre-fix `
+        + `unit for ${JSON.stringify(changed)}. PATH-scope only means exactly one variable changes; `
+        + `an overwrite of an inherited name introduces no new NAME and so passes R2.\n`
+        + changed.map((k) => `  ${k}: fired=${JSON.stringify(firedEnv[k])} pre-fix=${JSON.stringify(baseEnv[k])}`).join('\n'));
+    }
+    lines.push(`R6 PASS: ${compared.length} inherited variable(s) carry byte-identical values in the `
+      + `fired and pre-fix units; ${perUnit.length} per-unit name(s) calibrated out `
+      + `(${JSON.stringify(perUnit)}) — only PATH differs`);
   } finally {
     teardown(ctx);
   }
