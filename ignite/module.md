@@ -18,7 +18,8 @@ is where the detail lives — progressive disclosure (`PRIN-3`), one rung at a t
 
 | Capability | One line | Reach it |
 |---|---|---|
-| `daemon-operator` | Local systemd USER unit ops that work precisely when the daemon is DOWN — `start`/`restart`/`stop`/`kill`/`unit`. Health is a FIELD, never the exit status. | `rbtv ignite daemon <verb>` · `-h` |
+| `daemon-operator` | Local systemd USER unit ops that work precisely when the daemon is DOWN — `start`/`restart`/`stop`/`kill`/`unit`, on any of the three FIXED services via `--service ignite\|chat-bridge\|probe-suite`. Health is a FIELD, never the exit status. | `rbtv ignite daemon <verb>` · `-h` |
+| `watch-operator` | The fourth service, the watch loop: same power verbs against a RUN's TRANSIENT unit (resolved from `--package`/`--goal`, refused when ambiguous), plus its pass cadence — `heartbeat-set`, which is NOT the ticker's `set-interval`. | `rbtv ignite watch <verb>` · `-h` |
 | `goals-tree` | The goals-tree machinery — `scaffold`/`reindex`/`lint`/`materialize` over a goal folder. | `rbtv goal <verb>` · `-h` |
 | `daemon-watchdog` | One bounded liveness pass over the whole deployment — probe, restart through the units, DM the owner only on action or failure to restore. Normally nobody runs it: a systemd timer does, every 60s. | `capabilities/daemon-watchdog/tool/rbtv-ignite-watchdog --dry-run` · `-h` |
 | gateway client | Enqueue and remove scheduled/periodic jobs, inspect runtime state. | `rbtv ignite <command>` · `-h` |

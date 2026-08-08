@@ -17,6 +17,13 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
 - **`daemon-operator/`** — the ignite OPERATOR surface: local systemd USER unit ops (`start` /
   `restart` / `stop` / `kill` / `unit`) that work precisely when the daemon is DOWN. Contract:
   `capabilities/daemon-operator/daemon-operator.md`.
+- **`watch-operator/`** — the WATCH-LOOP operator surface: the same power verbs plus the loop's
+  pass cadence (`heartbeat-set`), against a RUN's TRANSIENT unit rather than a fixed one. Its own
+  capability because the target is a run PACKAGE and the unit name is derived from it, so every
+  verb resolves WHICH run first (and refuses rather than guessing). It delegates
+  `unit`/`restart`/`stop`/`kill` back to `daemon-operator`. ⚠ `heartbeat-set` is the WATCH loop's
+  cadence, NEVER the ticker's `set-interval`. Contract:
+  `capabilities/watch-operator/watch-operator.md`.
 - **`goals-tree/`** — the goals-tree machinery (`scaffold` / `reindex` / `lint` / `materialize`).
   Contract: `capabilities/goals-tree/tool/README.md`.
 - **`daemon-watchdog/`** — the ignite LIVENESS surface (`CMP-28`): a systemd user timer firing one
@@ -29,7 +36,7 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   `deploy/`, so the capability folder stays self-contained per CMP-5. Contract:
   `capabilities/daemon-watchdog/daemon-watchdog.md`.
 
-The first two are documented for the `rbtv` CLI's delegation table in `modules/ignite.md`
+All but the watchdog are documented for the `rbtv` CLI's delegation table in `modules/ignite.md`
 § Capabilities, which also carries the watchdog.
 
 ## launch-profiles/ — the ONE shared launch-profile resolver

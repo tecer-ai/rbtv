@@ -27,6 +27,13 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   `daemon-operator.md`.
 - **`goals-tree`** (`ignite/capabilities/goals-tree/`) — the goals-tree machinery
   (`scaffold`/`reindex`/`lint`/`materialize`). Contract in `tool/README.md`.
+- **`watch-operator`** (`ignite/capabilities/watch-operator/`) — the WATCH-LOOP operator surface:
+  the fourth ignite service's power verbs plus its pass cadence (`heartbeat-set`). Separate from
+  `daemon-operator` because its target is a RUN PACKAGE, not a fixed unit — the watch unit is
+  transient and derived (`rbtv-watch-<digest>`), so every verb resolves WHICH run first and refuses
+  rather than guessing. It delegates `unit`/`restart`/`stop`/`kill` back to `daemon-operator`.
+  ⚠ `heartbeat-set` is the WATCH loop's cadence, never the ticker's `set-interval`. Contract in
+  `watch-operator.md`.
 - **`daemon-watchdog`** (`ignite/capabilities/daemon-watchdog/`) — the ignite LIVENESS surface
   (CMP-28): a systemd user timer firing one deterministic pass that probes the deployment,
   restarts what is down through the services' own units, and DMs the owner only when it acted or
@@ -56,7 +63,10 @@ delegated call's stdout, stderr and exit code are the delegate's, unchanged.
 rbtv ignite                      the module's components, its rules, and its action verbs
 rbtv ignite <component>          that component's entry point body + its invocable entry points
 
-rbtv ignite daemon start|restart|stop|kill|unit    -> capabilities/daemon-operator
+rbtv ignite daemon start|restart|stop|kill|unit [--service ignite|chat-bridge|probe-suite]
+                                                    -> capabilities/daemon-operator
+rbtv ignite watch  unit|start|restart|stop|kill|heartbeat-show|heartbeat-set
+                   (--package PKG | --goal NAME)    -> capabilities/watch-operator
 rbtv ignite ticker                                  NOT BUILT — core-build task 7.66
 rbtv ignite register-job|add-job|remove-job|inspect|snooze|status|send|screen|kill   -> cli/ignite.js
 ```
@@ -65,9 +75,10 @@ The standalone `ignite` client is **unchanged and still the working surface** �
 execs it and nothing else. Auth stays env-only (`IGNITE_SENDER_TOKEN` never in argv); the `rbtv`
 process never handles the token's value.
 
-⚠ **Two commands named `kill`, and they are different objects.** `rbtv ignite kill` kills a
-SESSION through the gateway; `rbtv ignite daemon kill` SIGKILLs the unit. The extra token is what
-tells them apart. Likewise `ignite status` (the daemon's report of itself, needs it alive) is not
+⚠ **Three commands named `kill`, and they are different objects.** `rbtv ignite kill` kills a
+SESSION through the gateway; `rbtv ignite daemon kill` SIGKILLs a fixed service's unit; `rbtv
+ignite watch kill` SIGKILLs one RUN's transient watch unit. The extra token is what tells them
+apart. Likewise `ignite status` (the daemon's report of itself, needs it alive) is not
 `rbtv ignite daemon unit` (the machine's report about the daemon, works when it is dead).
 
 ⚠ **`rbtv ignite daemon unit` exits 0 for any unit it could READ**, including a failed or

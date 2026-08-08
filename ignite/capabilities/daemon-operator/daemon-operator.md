@@ -1,7 +1,7 @@
 # daemon-operator — the ignite OPERATOR surface (v1 stand-in)
 
 A thin local wrapper over this machine's systemd **USER** unit ops for the ignite daemon:
-`tool/rbtv-ignite-daemon start|restart|stop|kill|unit|selftest`.
+`tool/rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--service NAME]`.
 
 It never crosses the gateway, presents no `IGNITE_SENDER_TOKEN`, and works precisely when the
 daemon is **down** — which is why it is not an `ignite` subcommand. The full contract, reasoning
@@ -43,7 +43,40 @@ could not read the unit at all (`read_ok: false`, `error: "not-loaded"`). **A ca
 | `inactive` | Stopped, cleanly. |
 | `failed` | The unit is in `failed` state. |
 
-**Environment:** `RBTV_IGNITE_UNIT` (default `rbtv-ignite.service`) · `RBTV_IGNITE_SETTLE_SECONDS`
+## `--service` — the same verbs, aimed at the other fixed units
+
+Every verb above is already unit-name agnostic, and `RBTV_IGNITE_UNIT` has always steered them at
+any unit. `--service` is a **selector on top of that**, not new control logic: it spares a caller
+from knowing the unit names.
+
+| `--service` | Acts on |
+|-------------|---------|
+| `ignite` (default) | `rbtv-ignite.service` |
+| `chat-bridge` | `rbtv-chat-bridge.service` |
+| `probe-suite` | `rbtv-probe-suite.timer` |
+
+**⚠ `probe-suite` means the TIMER, never the `.service`.** The service is `static` — no `[Install]`,
+it cannot be enabled or disabled — so the timer is the on/off switch. Firing ONE suite run right now
+is a materially different act and keeps its own spelling:
+`RBTV_IGNITE_UNIT=rbtv-probe-suite.service rbtv-ignite-daemon start`.
+
+**An explicit `RBTV_IGNITE_UNIT` still WINS over `--service`** — every probe and every selftest
+steers this script that way, and a selector must not silently overrule an operator's own override.
+When the two disagree it is **said out loud on stderr**; a `--service` that quietly did nothing is
+exactly the silent-no-op class this surface exists to close.
+
+**The survival check adapts to the unit TYPE, and the type comes from systemd.** A `.timer` has no
+`MainPID` — a perfectly healthy one reports 0 — so for a non-service unit `ActiveState` after the
+settle window is the whole check. The type is read from `systemctl show … -p Id`, never parsed off
+the name: a unit named without a suffix **is** a service (systemd appends `.service`), which is
+exactly how the transient watch units are named, and a string test would have silently skipped the
+pid-survival check on every one of them. `kill` against a `.timer` refuses loudly (systemd: "Unit
+type does not support process killing") rather than reporting a false success.
+
+**The watch loop is NOT reachable here.** It has no fixed unit — see `rbtv ignite watch`
+(`capabilities/watch-operator/`).
+
+**Environment:** `RBTV_IGNITE_UNIT` (default `rbtv-ignite.service`; wins over `--service`) · `RBTV_IGNITE_SETTLE_SECONDS`
 (default 3) · `RBTV_IGNITE_JOURNAL_LINES` (default 20) · `RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS`
 (default 300). The unit name is an override so a probe can
 always be pointed at a throwaway unit instead of the live daemon.

@@ -93,6 +93,32 @@ health_verdict() {
 # reports active with an already-dead pid. Verify SURVIVAL, not a single read.
 assert_running() {
   local want_alive="$1" pid0 pid1
+  # A NON-SERVICE unit has no MainPID — a perfectly healthy `.timer` reports 0 — so the
+  # pid-survival check below would fail every `--service probe-suite` act. For those units
+  # ActiveState after the settle window IS the whole check; there is no process to survive.
+  #
+  # ⚠ THE TYPE COMES FROM SYSTEMD, NEVER FROM THE STRING. A unit named without a suffix IS a
+  # service (`systemctl` appends `.service`), and that is exactly how the transient watch units
+  # are named — `rbtv-watch-<digest>`. Matching on `$UNIT` would have sent every one of them down
+  # the weaker no-pid branch and silently skipped the survival check on the units that most need
+  # it. `show Id` is the machine's own answer and returns the fully-qualified name.
+  local id; id="$(show Id)"; [ -n "$id" ] || id="$UNIT"
+  case "$id" in
+    *.service) ;;
+    *)
+      sleep "$SETTLE"
+      local tactive; tactive="$(sc is-active "$UNIT" 2>/dev/null)"
+      if [ "$want_alive" = yes ] && [ "$tactive" != active ]; then
+        printf 'FAILED: %s is %s after the verb, not active\n' "$UNIT" "${tactive:-inactive}" >&2
+        exit 1
+      fi
+      if [ "$want_alive" != yes ] && [ "$tactive" = active ]; then
+        printf 'FAILED: %s is still active after the stop verb\n' "$UNIT" >&2
+        exit 1
+      fi
+      printf 'ok: %s is %s (%s has no MainPID — not a service unit)\n' "$UNIT" "${tactive:-inactive}" "$id"
+      return 0 ;;
+  esac
   pid0="$(show MainPID)"
   sleep "$SETTLE"
   pid1="$(show MainPID)"
@@ -219,21 +245,62 @@ EOF
   printf 'selftest FAIL (%s failures)\n' "$fails"; return 1
 }
 
-VERB=""
-for a in "$@"; do
-  case "$a" in
+# --service is a SELECTOR, not new control logic: every verb above is already unit-name
+# agnostic, and RBTV_IGNITE_UNIT has always steered them at any unit. This maps the three
+# fixed services to their units so a caller does not have to know the unit names.
+#
+# ⚠ probe-suite maps to the TIMER, never the `.service` (ruled default D3, and the VPS
+# runbook says it directly): the service is `static` — no [Install], it cannot be enabled
+# or disabled — so the timer is the on/off switch. Firing ONE suite run right now is a
+# materially different act and keeps its own spelling:
+#     RBTV_IGNITE_UNIT=rbtv-probe-suite.service rbtv-ignite-daemon start
+service_unit() {
+  case "$1" in
+    ignite)      printf 'rbtv-ignite.service' ;;
+    chat-bridge) printf 'rbtv-chat-bridge.service' ;;
+    probe-suite) printf 'rbtv-probe-suite.timer' ;;
+    *) die "unknown --service: $1 (ignite|chat-bridge|probe-suite)" ;;
+  esac
+}
+
+VERB=""; SERVICE=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --json) JSON=1 ;;
+    --service) [ "$#" -ge 2 ] || die "--service needs a name (ignite|chat-bridge|probe-suite)"
+               SERVICE="$2"; shift ;;
+    --service=*) SERVICE="${1#--service=}" ;;
     -h|--help)
-      printf 'usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--json]\n'
-      printf '  env: RBTV_IGNITE_UNIT (default rbtv-ignite.service) · RBTV_IGNITE_SETTLE_SECONDS\n'
+      printf 'usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--service NAME] [--json]\n'
+      printf '  --service ignite|chat-bridge|probe-suite   which service the verb acts on (default ignite)\n'
+      printf '            probe-suite acts on rbtv-probe-suite.timer — the schedule IS the on/off switch.\n'
+      printf '            fire one suite run now instead: RBTV_IGNITE_UNIT=rbtv-probe-suite.service ... start\n'
+      printf '  env: RBTV_IGNITE_UNIT (default rbtv-ignite.service; WINS over --service) · RBTV_IGNITE_SETTLE_SECONDS\n'
       printf '       RBTV_IGNITE_JOURNAL_LINES · RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS\n'
       printf '  --json applies to `unit` only.\n'
-      printf '  `unit` exit code = did the READ succeed. Health is the `health` field, never the exit code.\n'; exit 0 ;;
-    -*) die "unknown option: $a" ;;
-    *)  [ -z "$VERB" ] || die "one verb at a time (got '$VERB' and '$a')"; VERB="$a" ;;
+      printf '  `unit` exit code = did the READ succeed. Health is the `health` field, never the exit code.\n'
+      printf '  the watch loop is NOT one of these: it has no fixed unit — see `rbtv ignite watch`.\n'; exit 0 ;;
+    -*) die "unknown option: $1" ;;
+    *)  [ -z "$VERB" ] || die "one verb at a time (got '$VERB' and '$1')"; VERB="$1" ;;
   esac
+  shift
 done
-[ -n "$VERB" ] || die "usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--json]"
+
+if [ -n "$SERVICE" ]; then
+  WANT="$(service_unit "$SERVICE")" || exit $?
+  # An explicit RBTV_IGNITE_UNIT still wins — every probe and every selftest steers this
+  # script that way, and a selector must not silently overrule an operator's own override.
+  # It is SAID OUT LOUD rather than resolved silently: a --service that quietly did nothing
+  # is the silent-no-op class this whole surface exists to close.
+  if [ -n "${RBTV_IGNITE_UNIT:-}" ] && [ "$RBTV_IGNITE_UNIT" != "$WANT" ]; then
+    printf 'note: RBTV_IGNITE_UNIT=%s WINS over --service %s (%s) — acting on the env var\n' \
+      "$RBTV_IGNITE_UNIT" "$SERVICE" "$WANT" >&2
+  else
+    UNIT="$WANT"
+  fi
+fi
+
+[ -n "$VERB" ] || die "usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--service NAME] [--json]"
 
 case "$VERB" in
   start) v_start ;; restart) v_restart ;; stop) v_stop ;; kill) v_kill ;;
