@@ -2264,25 +2264,57 @@ def check_reads_subset_of_audit():
                  "audited field rows parsed, %d null-field rows)" % (len(READS), len(pairs), len(nulls))
 
 
-def check_reads_match_coord_reader(coord):
-    """The read inventory is asserted against `session_disposition`'s OWN BYTES, not against prose.
+def _disposition_reader_chain(coord):
+    """(sources, names) — `session_disposition` plus every coord-level function it DELEGATES to.
 
-    If coord's durable reader ever starts indexing a fourth column, that column becomes a field
-    this stage reads and the audit never enumerated — the exact latent gap criterion 2 exists to
-    catch. This check makes that drift red here instead of invisible in production."""
+    THE CHAIN IS DISCOVERED, NEVER LISTED. Reading `session_disposition`'s bytes alone was the
+    whole check until 7.237 moved the row selection out to `sessions_last_ended` and 7.475 added
+    `sessions_open_ids` beside it — after which the regex below matched nothing and the check
+    reported that coord's durable reader "indexes []", which is not a drift warning but a false
+    statement about the reader. A hardcoded pair of delegate names would be the same defect one
+    refactor later, so the callees are resolved off the AST of the reader itself."""
     src = inspect.getsource(coord.session_disposition)
-    cols = set(re.findall(r'idx\["([a-z-]+)"\]', src))
-    expected = {"seat", "ended", "disposition"}          # spelled out literally
-    if cols != expected:
-        return False, ("criterion 2: coord.session_disposition indexes %s, but this stage's READS "
-                       "were declared against %s. The disposition reader changed; re-audit before "
-                       "trusting any mark." % (sorted(cols), sorted(expected)))
+    sources, names = [src], ["session_disposition"]
+    for node in ast.walk(ast.parse(src)):     # module-level def: getsource is already unindented
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        fn = getattr(coord, node.func.id, None)
+        if not (inspect.isfunction(fn) and fn.__module__ == coord.session_disposition.__module__):
+            continue
+        if node.func.id not in names:
+            names.append(node.func.id)
+            sources.append(inspect.getsource(fn))
+    return sources, names
+
+
+def check_reads_match_coord_reader(coord):
+    """The read inventory is asserted against the durable reader's OWN BYTES, not against prose.
+
+    If coord's durable reader ever starts indexing a further column, that column becomes a field
+    this stage reads and the audit never enumerated — the exact latent gap criterion 2 exists to
+    catch. This check makes that drift red here instead of invisible in production.
+
+    ⚠ IT ASSERTS OVER THE WHOLE READER CHAIN, not over one function. `session_disposition` is the
+    symbol this stage calls, but since 7.237 it OWNS none of the indexing: it delegates the row
+    selection, so a check that read only its bytes measured an empty set and passed judgement on
+    the wrong function. What this stage reads is what the chain reads."""
+    sources, names = _disposition_reader_chain(coord)
+    cols = set()
+    for src in sources:
+        cols |= set(re.findall(r'idx\["([a-z-]+)"\]', src))
+    if not cols:
+        return False, ("criterion 2: the reader chain %s indexes NO column by name — the match "
+                       "pattern no longer fits the reader, so this check measures nothing and "
+                       "cannot be trusted as green or red." % names)
     declared = {f for s, f in READS if s == SESSIONS}
-    if not expected <= declared:
-        return False, ("criterion 2: %s is read by coord.session_disposition but missing from "
-                       "READS" % sorted(expected - declared))
-    return True, "criterion 2: coord.session_disposition indexes exactly %s, all declared in READS" \
-                 % sorted(expected)
+    undeclared = cols - declared
+    if undeclared:
+        return False, ("criterion 2: coord's durable disposition reader (%s) indexes %s on %s, of "
+                       "which %s is NOT in this stage's READS and so was never audited. Report the "
+                       "field to the leader and extend the audit; do not read it silently."
+                       % (" -> ".join(names), sorted(cols), SESSIONS, sorted(undeclared)))
+    return True, ("criterion 2: the reader chain %s indexes exactly %s on %s, all declared in READS"
+                  % (" -> ".join(names), sorted(cols), SESSIONS))
 
 
 def check_enum_matches_coord(coord):

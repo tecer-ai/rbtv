@@ -43,12 +43,49 @@ first so the boot-read catalogue carries the entry):
 ```bash
 ignite register-job edge-runner --action-type fire-tool \
   --args-schema '{"required":{"tool":"string"},"optional":{"workdir":"string"}}'
-ignite add-job --fn edge-runner --args-json '{"tool":"edge-runner"}' --trigger periodic --every 60
+# `workdir` is PASSED, not merely permitted — see the door-resolution warning below.
+ignite add-job --fn edge-runner \
+  --args-json '{"tool":"edge-runner","workdir":"<the workspace root — the dir holding .rbtv/>"}' \
+  --trigger periodic --every 300
 ```
 
 ⚠ **`--ignite-bin` in that entry is load-bearing.** STEP 4's door is the `ignite` CLI, and a
 `fire-tool` exec inherits the systemd `--user` MANAGER's PATH, which does not carry `~/.local/bin`.
 The bare name resolves for every interactive caller and for nobody under the daemon.
+
+⚠ **AND `workdir` IS THE OTHER HALF OF THAT DOOR, for the same reason one field over.** The door
+resolves its gateway endpoint and its sender token from FILES, never from the environment — the CLI
+reads `{workspace}/.rbtv/modules/ignite/server.json` and `{workspace}/.rbtv/config/.env`, and it
+finds `{workspace}` from `RBTV_IGNITE_WORKSPACE_ROOT` **or, absent that, from its own CWD**
+(`cli/lib/config.js` `resolveWorkspaceRoot`). A fired exec has neither: `runToolLikeExec` passes
+`envFile: null` and `systemd-run --user` does not carry the daemon's own `Environment=` lines to the
+child, so the variable the daemon unit sets **does not reach this job**. Its CWD is therefore the
+whole resolution, and its CWD is `args.workdir` falling back to `default_workdir_root`
+(`ticker.js` `launchFireTool`). Passing `workdir` explicitly is what stops the door's credentials
+from depending on an unrelated config key that happens to hold the right value today.
+
+⚠⚠ **A RE-FIRE RE-ENQUEUES EVERY SEAT THAT HAS NOT BOOTED YET, AND THE INTERVAL IS THE ONLY BOUND.**
+This job holds no memory between fires and reads no queue: `launch_candidates` suppresses a seat on
+a terminal mark or an `active: yes` roster row, **and a roster row is written by the SEAT ITSELF
+after it boots and registers** — so between `add-job` and that registration a candidate is invisible
+to the guard and a second fire enqueues it again. Two consequences, and the second is the one to
+plan around:
+
+- **Pick an interval longer than a seat's worst-case boot-to-register latency.** `--every 60` is
+  shorter than a cold harness takes to come up; `300` is the conservative default above. This is a
+  bound chosen by the operator, not a guarantee the job makes.
+- **A seat whose spawn never registers re-enqueues on EVERY fire, without limit.** An unhomed or
+  refused launch job never produces a roster row, so nothing ever suppresses it. Watch `inspect
+  queue` after arming a run; a growing count of the same seat is this, not a stuck ticker.
+
+⚠ **A PRODUCTIVE PASS IS RECORDED `failed` WHENEVER ANY CANDIDATE WAS REFUSED**, and that is the
+file's own pre-existing fail-loud contract (`return 1 if res["failed"]`), deliberately not changed
+by the registration. `recordToolCompletion` maps any non-zero exit to `failed`, so `jobs_log` shows
+`failed` identically for "advanced nine edges, refused two" and for "crashed on line one" — the
+exit code and the status do not distinguish them. **The distinction is only in the completion
+corpus** (the pass's output tail): a productive pass names every `QUEUED` row above its refusals,
+a crashed one does not. Read the corpus, never the status, to tell the two apart. Under a periodic
+trigger a run carrying one permanently-refused candidate reports `failed` on every fire.
 
 ## THE FALLBACKS — one command each, and they stay armed (`r-cutover-gated`)
 
