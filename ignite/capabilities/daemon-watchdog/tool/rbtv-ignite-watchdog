@@ -1,0 +1,399 @@
+#!/usr/bin/env python3
+"""rbtv-ignite-watchdog — CMP-28, ONE bounded pass. Probe · restart · report.
+
+Runs OUTSIDE the daemon's process tree and job queue (a systemd user timer), because
+the one thing the in-daemon goal-watcher job can never see is the daemon being dead.
+Deterministic only: it never interprets, never escalates to an agent, never widens
+beyond probe/restart/report (CMP-28 invariant 2 / PRIN-7).
+
+Silence means healthy: the owner DM fires ONLY when this pass ACTED or when a
+restart did NOT restore the subject (CMP-28 invariant 3). A chatty watchdog trains
+its reader to ignore it.
+
+Exit codes:
+  0  the pass completed — all green, or it acted and every subject came back
+  1  a subject is still down after its restart action (a human is needed), or the
+     pass could not run at all (missing token/config). Both are cases a reader of
+     `systemctl --user status` should see as a failure.
+  2  usage error
+
+Environment (every per-instance value is resolved at runtime; nothing is baked in):
+  RBTV_WATCHDOG_WORKSPACE     workspace root that carries .rbtv/  (default: CWD)
+  RBTV_WATCHDOG_GATEWAY       gateway URL          (default http://127.0.0.1:7431/)
+  IGNITE_WATCHDOG_TOKEN       watchdog sender token; falls back to IGNITE_SENDER_TOKEN
+  RBTV_WATCHDOG_DAEMON_UNIT   default rbtv-ignite.service
+  RBTV_WATCHDOG_BRIDGE_UNIT   default rbtv-chat-bridge.service
+  RBTV_WATCHDOG_PROBE_TIMER   default rbtv-probe-suite.timer
+  RBTV_WATCHDOG_WATCH_JOB     goal-watcher job id  (default selfheal-watch)
+  RBTV_WATCHDOG_TARGETS       comma list to scope the pass (default: all four).
+                              The test-override hook, mirroring RBTV_IGNITE_UNIT —
+                              a probe points this at a throwaway unit instead of
+                              editing the real probe table.
+  RBTV_WATCHDOG_OPERATOR      path to rbtv-ignite-daemon (default: resolved as a
+                              sibling capability, else on PATH)
+  RBTV_WATCHDOG_STATE         alert-dedupe state file (default
+                              <workspace>/.rbtv/runtime/watchdog/state.json)
+  RBTV_WATCHDOG_NOTIFY_FILE   TEST DOUBLE: when set, notifications are appended
+                              here as JSON lines and Slack is not called
+  RBTV_WATCHDOG_NOTIFY_PREFIX prepended to every message (used to mark a TEST DM)
+  SLACK_BOT_TOKEN             owner-DM notify credential
+  IGNITE_CHAT_BRIDGE_CONFIG   the chat bridge's own config — read ONLY to resolve
+                              WHO the owner is, so the two components can never
+                              disagree about it
+"""
+import calendar
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+HELLO_MARK = "Socket Mode connection established (hello)"
+RECONNECT_FAIL_MARK = "Socket Mode reconnect failed"
+UA = {"content-type": "application/json; charset=utf-8"}
+
+
+def env(name, default=None):
+    v = os.environ.get(name)
+    return v if v not in (None, "") else default
+
+
+WORKSPACE = env("RBTV_WATCHDOG_WORKSPACE", os.getcwd())
+GATEWAY = env("RBTV_WATCHDOG_GATEWAY", "http://127.0.0.1:7431/")
+DAEMON_UNIT = env("RBTV_WATCHDOG_DAEMON_UNIT", "rbtv-ignite.service")
+BRIDGE_UNIT = env("RBTV_WATCHDOG_BRIDGE_UNIT", "rbtv-chat-bridge.service")
+PROBE_TIMER = env("RBTV_WATCHDOG_PROBE_TIMER", "rbtv-probe-suite.timer")
+WATCH_JOB = env("RBTV_WATCHDOG_WATCH_JOB", "selfheal-watch")
+TIMEOUT = float(env("RBTV_WATCHDOG_TIMEOUT_SECONDS", "10"))
+
+
+def operator_path():
+    p = env("RBTV_WATCHDOG_OPERATOR")
+    if p:
+        return p
+    sibling = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "daemon-operator", "tool", "rbtv-ignite-daemon")
+    return sibling if os.path.exists(sibling) else "rbtv-ignite-daemon"
+
+
+def utc_epoch(stamp):
+    """Both artifacts this reads stamp UTC with a literal Z. calendar.timegm is the
+    UTC-correct inverse; mktime()+timezone silently skews by an hour under DST on a
+    box that is not UTC, and this component must be portable off this one host."""
+    return calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ"))
+
+
+def run(argv, env_extra=None):
+    e = dict(os.environ)
+    e.update(env_extra or {})
+    p = subprocess.run(argv, capture_output=True, text=True, env=e, timeout=180)
+    return p.returncode, (p.stdout + p.stderr).strip()
+
+
+def gateway_call(target):
+    """Returns (state, detail). state: 'ok' | 'down' | 'auth'."""
+    token = env("IGNITE_WATCHDOG_TOKEN") or env("IGNITE_SENDER_TOKEN")
+    if not token:
+        return "auth", "no IGNITE_WATCHDOG_TOKEN / IGNITE_SENDER_TOKEN in the environment"
+    body = json.dumps({"intent": "inspect", "payload": {"target": target}}).encode()
+    req = urllib.request.Request(
+        GATEWAY, data=body,
+        headers=dict(UA, authorization="Bearer " + token))
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return "ok", json.loads(r.read())
+    except urllib.error.HTTPError as ex:
+        # 401 with a known-good token means the daemon is UP and something else is
+        # wrong. Restarting would not fix it and would loop; report instead.
+        if ex.code == 401:
+            return "auth", "gateway answered 401 AUTH_REFUSED — the daemon is up, the token is not accepted"
+        return "down", "gateway HTTP %s" % ex.code
+    except Exception as ex:  # connection refused, timeout, DNS, malformed body
+        return "down", "%s: %s" % (type(ex).__name__, ex)
+
+
+# ── the four probes ─────────────────────────────────────────────────────────
+# Each returns (state, detail): 'up' · 'down' · 'alarm' (up, but a human is needed
+# and no restart can help) · 'skip' (not answerable this pass, and another row
+# already owns the cause).
+
+def probe_daemon():
+    state, detail = gateway_call("daemon")
+    if state == "ok":
+        r = detail.get("result", {})
+        return "up", "pid=%s uptime_ms=%s last_tick=%s" % (
+            r.get("pid"), r.get("uptime_ms"), r.get("last_tick"))
+    if state == "auth":
+        return "alarm", detail
+    return "down", detail
+
+
+def probe_bridge():
+    rc, out = run(["systemctl", "--user", "is-active", BRIDGE_UNIT])
+    active = out.strip()
+    if active != "active":
+        return "down", "is-active=%s" % (active or "<unreadable>")
+    # `active` only proves the Node process exists. Slack's socket can die under it;
+    # the bridge's own reconnect() is the first line of self-heal, so what this
+    # catches is that BACKOFF LOOP being stuck: the newest socket-lifecycle line in
+    # the journal is a reconnect failure with no later hello. Neither marker present
+    # is NOT a fault — a healthy bridge is quiet.
+    _, log = run(["journalctl", "--user", "-u", BRIDGE_UNIT, "-n", "200",
+                  "--no-pager", "-o", "cat"])
+    last = None
+    for line in log.splitlines():
+        if HELLO_MARK in line:
+            last = "hello"
+        elif RECONNECT_FAIL_MARK in line:
+            last = "reconnect-failed"
+    if last == "reconnect-failed":
+        return "down", "active, but its newest Socket Mode line is a reconnect failure with no later hello"
+    return "up", "active, socket marker=%s" % (last or "none-in-window")
+
+
+def probe_probe_suite():
+    path = os.path.join(WORKSPACE, ".rbtv", "runtime", "probe-suite", "latest.json")
+    try:
+        with open(path) as f:
+            a = json.load(f)
+    except Exception as ex:
+        return "down", "cannot read %s (%s)" % (path, type(ex).__name__)
+    # LIVENESS ONLY. `verdict`/`passed`/`failed` in this same artifact are a
+    # CORRECTNESS grade and are deliberately never read here (CMP-28
+    # § Differentiation: the probe suite grades correctness, this grades liveness).
+    fired = a.get("fired_at")
+    stale_after = a.get("stale_after_seconds")
+    if not fired or not stale_after:
+        return "down", "artifact carries no fired_at/stale_after_seconds"
+    age = time.time() - utc_epoch(fired)
+    if age > float(stale_after):
+        return "down", "last fired %ds ago, stale_after=%ss" % (int(age), stale_after)
+    return "up", "last fired %ds ago (stale_after=%ss)" % (int(age), stale_after)
+
+
+def probe_goal_watcher():
+    """The goal-watcher job (CMP-21) has NO systemd unit of its own — it is a
+    recurring entry in the daemon's job catalogue, fired by the ticker into a
+    TRANSIENT rbtv-worker-* unit each time. So its liveness is 'is its periodic
+    queue row still due on schedule', read from the queue itself, and the overdue
+    threshold is the row's OWN interval_seconds — never a number written here,
+    which would go stale in silence the moment anyone retuned the cadence.
+    """
+    state, detail = gateway_call("queue")
+    if state != "ok":
+        # The queue is unreadable exactly when the daemon is down or mis-authed —
+        # which the daemon row already owns, including the only restart lever that
+        # exists for this job. Claiming it again would double-restart and double-report.
+        return "skip", "queue unreadable (%s) — the daemon row owns this cause" % detail
+    rows = [r for r in detail.get("result", {}).get("rows", [])
+            if r.get("job_id") == WATCH_JOB]
+    if not rows:
+        return "alarm", "no queue row for job '%s' — it is not scheduled at all" % WATCH_JOB
+    row = rows[0]
+    interval = row.get("interval_seconds")
+    run_at = row.get("run_at")
+    if not interval or not run_at:
+        return "up", "queued, non-periodic (interval=%s)" % interval
+    overdue = time.time() - utc_epoch(run_at)
+    # One whole interval of slack: a tick is 10s and the row re-arms on completion,
+    # so a single slow fire must not read as death.
+    if overdue > float(interval):
+        return "down", "next fire was due %ds ago (interval=%ss)" % (int(overdue), interval)
+    return "up", "next fire due in %ds (interval=%ss)" % (int(-overdue), interval)
+
+
+# ── restart actions ─────────────────────────────────────────────────────────
+# Everything systemd-backed and Service-typed goes through the daemon-operator,
+# which already verifies SURVIVAL rather than a single read (PRIN-11 — no second
+# restart-and-verify implementation).
+
+def restart_via_operator(unit):
+    return run([operator_path(), "restart"], {"RBTV_IGNITE_UNIT": unit})
+
+
+def restart_timer(unit):
+    # NOT through the operator, and this is measured rather than assumed: its
+    # post-act check requires a non-zero, unchanged MainPID, and a Timer unit's
+    # MainPID is always 0 — so the wrapper can never report a timer restart as
+    # anything but a failure. Proven on a throwaway timer 2026-08-08 (wrapper
+    # exit 1, bare exit 0). Ruled default D5.
+    return run(["systemctl", "--user", "restart", unit])
+
+
+ROWS = {
+    "daemon":      (probe_daemon,       lambda: restart_via_operator(DAEMON_UNIT),
+                    lambda: "restarted %s" % DAEMON_UNIT),
+    "bridge":      (probe_bridge,       lambda: restart_via_operator(BRIDGE_UNIT),
+                    lambda: "restarted %s" % BRIDGE_UNIT),
+    "probe-suite": (probe_probe_suite,  lambda: restart_timer(PROBE_TIMER),
+                    lambda: "restarted %s" % PROBE_TIMER),
+    # No narrower lever exists: this job has no unit of its own, so the ONLY way to
+    # revive it is a full daemon restart. The notify text says so, so the owner is
+    # never misled about the blast radius.
+    "goal-watcher": (probe_goal_watcher, lambda: restart_via_operator(DAEMON_UNIT),
+                     lambda: "restarted the WHOLE daemon (%s) — this job has no unit of its own, "
+                             "so a job-scoped restart does not exist" % DAEMON_UNIT),
+}
+
+
+# ── notify ──────────────────────────────────────────────────────────────────
+
+def slack_post(method, token, body):
+    req = urllib.request.Request(
+        "https://slack.com/api/" + method,
+        data=json.dumps(body).encode(),
+        headers=dict(UA, authorization="Bearer " + token))
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return json.loads(r.read())
+
+
+def owner_dm_user():
+    """Resolved from the chat bridge's OWN config, with the bridge's own fallback
+    (explicit dm user, else the first allowlist entry), so the watchdog and the
+    bridge can never disagree about who 'the owner' is."""
+    path = env("IGNITE_CHAT_BRIDGE_CONFIG")
+    if not path:
+        return None
+    with open(path) as f:
+        cfg = json.load(f)
+    allow = cfg.get("allowlist") or []
+    return cfg.get("bus_ferry_dm_user") or (allow[0] if allow else None)
+
+
+def notify(text):
+    """Its OWN two-call Slack client, deliberately: this must reach the owner when
+    the chat bridge is the thing that is down, so it can depend on neither the
+    bridge process nor its bus-poll loop. Returns (ok, detail)."""
+    text = (env("RBTV_WATCHDOG_NOTIFY_PREFIX", "") + text).strip()
+    sink = env("RBTV_WATCHDOG_NOTIFY_FILE")
+    if sink:
+        os.makedirs(os.path.dirname(os.path.abspath(sink)), exist_ok=True)
+        with open(sink, "a") as f:
+            f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                "text": text}) + "\n")
+        return True, "written to %s" % sink
+    token = env("SLACK_BOT_TOKEN")
+    if not token:
+        return False, "no SLACK_BOT_TOKEN"
+    try:
+        user = owner_dm_user()
+        if not user:
+            return False, "no owner DM user resolvable from IGNITE_CHAT_BRIDGE_CONFIG"
+        opened = slack_post("conversations.open", token, {"users": user})
+        if not opened.get("ok"):
+            return False, "conversations.open failed: %s" % opened.get("error")
+        sent = slack_post("chat.postMessage", token,
+                          {"channel": opened["channel"]["id"], "text": text})
+        if not sent.get("ok"):
+            return False, "chat.postMessage failed: %s" % sent.get("error")
+        return True, "ts=%s" % sent.get("ts")
+    except Exception as ex:
+        return False, "%s: %s" % (type(ex).__name__, ex)
+
+
+def state_path():
+    return env("RBTV_WATCHDOG_STATE",
+               os.path.join(WORKSPACE, ".rbtv", "runtime", "watchdog", "state.json"))
+
+
+def load_last_alert():
+    try:
+        with open(state_path()) as f:
+            return json.load(f).get("alert")
+    except Exception:
+        return None
+
+
+def save_last_alert(fingerprint):
+    p = state_path()
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = p + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"alert": fingerprint,
+                   "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
+    os.replace(tmp, p)
+
+
+def main(argv):
+    targets = [t.strip() for t in env("RBTV_WATCHDOG_TARGETS", ",".join(ROWS)).split(",") if t.strip()]
+    dry = False
+    for a in argv:
+        if a == "--dry-run":
+            dry = True
+        elif a in ("-h", "--help"):
+            print(__doc__)
+            return 0
+        else:
+            print("usage: rbtv-ignite-watchdog [--dry-run]", file=sys.stderr)
+            return 2
+    unknown = [t for t in targets if t not in ROWS]
+    if unknown:
+        print("unknown target(s): %s (known: %s)" % (", ".join(unknown), ", ".join(ROWS)),
+              file=sys.stderr)
+        return 2
+
+    lines, alerts, dry_down, unrestored = [], [], [], False
+    for name in targets:
+        probe, restart, describe = ROWS[name]
+        state, detail = probe()
+        lines.append("%-13s %-6s %s" % (name, state, detail))
+        if state in ("up", "skip"):
+            continue
+        if state == "alarm":
+            alerts.append("%s: %s (no restart can fix this — human needed)" % (name, detail))
+            unrestored = True
+            continue
+        if dry:
+            # A dry run INSPECTS. It restarts nothing and it must also not DM: a
+            # diagnostic verb with a side effect on the owner's inbox is a verb
+            # nobody dares run.
+            lines.append("%-13s %-6s would restart, but --dry-run" % ("  ->", "dry"))
+            dry_down.append(name)
+            continue
+        rc, out = restart()
+        after, after_detail = probe()
+        lines.append("%-13s %-6s restart rc=%s | reprobe=%s %s"
+                     % ("  ->", "acted", rc, after, after_detail))
+        if after in ("up", "skip"):
+            alerts.append("%s was down (%s) — %s, and it is back." % (name, detail, describe()))
+        else:
+            unrestored = True
+            alerts.append("%s is DOWN and did NOT come back after %s — %s. Restart output: %s"
+                          % (name, describe(), after_detail, out[-400:] or "<none>"))
+
+    print("\n".join(lines))
+
+    if alerts:
+        # ponytail: fingerprint dedupe, not a rate limiter. A 60s cadence against a
+        # subject that cannot be restored would otherwise DM the owner ~1440x/day,
+        # which is CMP-28 invariant 3 violated by volume rather than by rule. Add
+        # per-subject backoff only if a flapping subject proves noisy in practice.
+        fingerprint = " | ".join(sorted(a.split(" —")[0].split(" (")[0] for a in alerts))
+        if fingerprint == load_last_alert():
+            print("\n[repeat] same alert as the previous pass — not re-notifying: %s" % fingerprint)
+        else:
+            ok, detail = notify("*ignite watchdog*\n" + "\n".join("• " + a for a in alerts))
+            print("\n[notify] ok=%s %s" % (ok, detail))
+            if ok:
+                save_last_alert(fingerprint)
+            else:
+                unrestored = True
+    elif dry_down:
+        # Not green, but nothing was done and nothing is claimed. The dedupe state is
+        # deliberately left untouched: a dry run must not consume a real pass's
+        # "already told the owner about this" record.
+        print("\n--dry-run: %d subject(s) down (%s) — nothing restarted, no DM sent"
+              % (len(dry_down), ", ".join(dry_down)))
+    else:
+        if load_last_alert() is not None:
+            save_last_alert(None)
+        print("\nall green — exiting silently (no DM)")
+
+    return 1 if (unrestored or dry_down) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,62 @@
+# rbtv-watchdog.service — machine-agnostic systemd USER unit template (CMP-28).
+#
+# What the timer runs. rbtv-watchdog.timer is what actually schedules it.
+#
+# ⚠⚠ NOT PART OF THE DAEMON, AND THAT IS THE WHOLE COMPONENT. The in-daemon goal-watcher
+# job (CMP-21) can watch everything EXCEPT ignite being down, because ignite is what fires
+# it. Until this unit existed, "the whole system is dead" was discoverable only by the
+# owner noticing silence. A watchdog inside the process tree it watches shares its failure
+# mode — same argument as rbtv-probe-suite.service, one layer down (liveness, not
+# correctness).
+#
+# Install-time substitution points (replace each @@NAME@@ with the instance value):
+#   @@IGNITE_SRC@@       - absolute path to the ignite module source root
+#   @@WORKSPACE_ROOT@@   - workspace root: the folder that roots .rbtv/
+#   @@ENV_FILE@@         - the machine's gitignored env surface, carrying
+#                          IGNITE_WATCHDOG_TOKEN (or IGNITE_SENDER_TOKEN),
+#                          SLACK_BOT_TOKEN and IGNITE_CHAT_BRIDGE_CONFIG.
+#                          Secrets NEVER travel in git (D27).
+#
+# Install location for the user manager:
+#   ~/.config/systemd/user/rbtv-watchdog.service
+#
+# BEFORE ENABLING, mint the watchdog's own gateway sender — see
+# capabilities/daemon-watchdog/daemon-watchdog.md § Enabling this thing. The daemon reads
+# its sender registry ONCE at startup, so the mint needs a daemon restart to take effect,
+# and a watchdog whose token is not yet loaded reports AUTH_REFUSED on every pass.
+#
+# After installing and substituting BOTH units:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now rbtv-watchdog.timer
+#
+# ⚠ ENABLE THE **TIMER**, NOT THE SERVICE. Enabling the service runs one pass at boot and
+# never again — a watchdog that fires once is not a watchdog.
+#
+# Do NOT commit a substituted version of this file.
+
+[Unit]
+Description=RBTV ignite daemon watchdog (CMP-28)
+# No After=/Wants= on rbtv-ignite.service, deliberately — same reasoning as
+# rbtv-probe-suite.service: this must run, and ACT, precisely when the daemon is NOT
+# running. Ordering it after the daemon would make it unavailable in the one case it
+# exists to catch.
+
+[Service]
+Type=oneshot
+WorkingDirectory=@@WORKSPACE_ROOT@@
+# The pass shells out to systemctl and journalctl and reads the workspace .rbtv/ tree;
+# keep the same user-local bin dirs the other rbtv units carry (a minimal user-manager
+# PATH breaks the spawns).
+Environment="PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="RBTV_WATCHDOG_WORKSPACE=@@WORKSPACE_ROOT@@"
+EnvironmentFile=@@ENV_FILE@@
+ExecStart=/usr/bin/python3 @@IGNITE_SRC@@/capabilities/daemon-watchdog/tool/rbtv-ignite-watchdog
+# A pass that ACTS and restores is exit 0 and is not a unit failure. Exit 1 means a subject
+# is still down after its restart — a human is needed, and a reader of `systemctl --user
+# status rbtv-watchdog` should see that as a failure. So exit 1 is NOT whitelisted here,
+# unlike rbtv-probe-suite.service where a RED suite is still a successful fire.
+# Bounded well under the timer's re-fire interval: a pass that cannot finish is a pass that
+# would otherwise pile up behind the next one.
+TimeoutStartSec=90
+StandardOutput=journal
+StandardError=journal

@@ -19,8 +19,18 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   `capabilities/daemon-operator/daemon-operator.md`.
 - **`goals-tree/`** — the goals-tree machinery (`scaffold` / `reindex` / `lint` / `materialize`).
   Contract: `capabilities/goals-tree/tool/README.md`.
+- **`daemon-watchdog/`** — the ignite LIVENESS surface (`CMP-28`): a systemd user timer firing one
+  deterministic probe/restart/report pass over the whole deployment. **The one capability here the
+  `rbtv` CLI does NOT delegate to** — a watchdog is a scheduled act, not a verb a human types, so
+  its reach is the timer. It CALLS `daemon-operator` for every Service-typed restart (`PRIN-11` —
+  restart-and-verify is not written twice) and bypasses it for exactly one row, the probe-suite
+  `.timer`, whose absent `MainPID` its survival check can never satisfy (measured, not assumed).
+  Its unit templates live beside it in `capabilities/daemon-watchdog/units/` rather than in
+  `deploy/`, so the capability folder stays self-contained per CMP-5. Contract:
+  `capabilities/daemon-watchdog/daemon-watchdog.md`.
 
-Both are documented for the `rbtv` CLI's delegation table in `modules/ignite.md` § Capabilities.
+The first two are documented for the `rbtv` CLI's delegation table in `modules/ignite.md`
+§ Capabilities, which also carries the watchdog.
 
 ## launch-profiles/ — the ONE shared launch-profile resolver
 

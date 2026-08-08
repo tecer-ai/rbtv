@@ -27,6 +27,13 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   `daemon-operator.md`.
 - **`goals-tree`** (`ignite/capabilities/goals-tree/`) — the goals-tree machinery
   (`scaffold`/`reindex`/`lint`/`materialize`). Contract in `tool/README.md`.
+- **`daemon-watchdog`** (`ignite/capabilities/daemon-watchdog/`) — the ignite LIVENESS surface
+  (CMP-28): a systemd user timer firing one deterministic pass that probes the deployment,
+  restarts what is down through the services' own units, and DMs the owner only when it acted or
+  a restart failed. Unlike the other two it is not driven by a `rbtv` verb — a timer fires it.
+  It CALLS `daemon-operator` for every Service-typed restart rather than reimplementing
+  restart-and-verify. Ships installed-and-DISABLED; enabling has a sender-mint prerequisite.
+  Contract in `daemon-watchdog.md`.
 
 ### `ignite/module.md` — the module entry point (KG shape)
 

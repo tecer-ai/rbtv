@@ -20,6 +20,7 @@ is where the detail lives — progressive disclosure (`PRIN-3`), one rung at a t
 |---|---|---|
 | `daemon-operator` | Local systemd USER unit ops that work precisely when the daemon is DOWN — `start`/`restart`/`stop`/`kill`/`unit`. Health is a FIELD, never the exit status. | `rbtv ignite daemon <verb>` · `-h` |
 | `goals-tree` | The goals-tree machinery — `scaffold`/`reindex`/`lint`/`materialize` over a goal folder. | `rbtv goal <verb>` · `-h` |
+| `daemon-watchdog` | One bounded liveness pass over the whole deployment — probe, restart through the units, DM the owner only on action or failure to restore. Normally nobody runs it: a systemd timer does, every 60s. | `capabilities/daemon-watchdog/tool/rbtv-ignite-watchdog --dry-run` · `-h` |
 | gateway client | Enqueue and remove scheduled/periodic jobs, inspect runtime state. | `rbtv ignite <command>` · `-h` |
 | team-kit | Run a coordinated parallel multi-agent team in tmux: checkin, typed append-only messaging, bounded reads, staged launches, close/renew ceremonies. | `coordinate -h` |
 

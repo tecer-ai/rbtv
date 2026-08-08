@@ -1,0 +1,46 @@
+# rbtv-watchdog.timer — machine-agnostic systemd USER unit template (CMP-28).
+#
+# THIS is the trigger. rbtv-watchdog.service is only what it runs.
+#
+# No @@PLACEHOLDER@@ substitution is needed in this file — install it as-is.
+# Install location for the user manager:
+#   ~/.config/systemd/user/rbtv-watchdog.timer
+#
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now rbtv-watchdog.timer
+#   systemctl --user list-timers rbtv-watchdog.timer     # confirm NEXT is populated
+#
+# ⚠ ENABLE THE TIMER, NOT THE SERVICE (see the .service header), and read
+# daemon-watchdog.md § Enabling this thing FIRST — the gateway sender must be minted and
+# the daemon restarted before the first pass, or every pass reports AUTH_REFUSED.
+#
+# Do NOT commit a substituted version of this file.
+
+[Unit]
+Description=Fire the RBTV ignite daemon watchdog
+
+[Timer]
+Unit=rbtv-watchdog.service
+# Not immediately at boot: the box has other things to do, and the daemon's own units are
+# still coming up — a pass fired into that window reports a restart nobody needed.
+OnBootSec=1min
+# ⚠ CADENCE IS LOAD-BEARING, AND IT IS DELIBERATELY NOT THE PROBE SUITE'S HOURLY.
+# The probe suite grades CORRECTNESS, where hourly is right. This grades LIVENESS, where
+# the same interval means up to an hour of total downtime before anyone is told — which is
+# exactly the "self-healing jobs dead for 23 hours and nothing reported it" lesson (G-254)
+# rediscovered at a smaller scale. 60s keeps worst-case detection-to-restart near a minute
+# while staying two orders of magnitude cheaper than the daemon's own 10s tick; a measured
+# all-green pass costs ~200ms.
+# OnUnitActiveSec (not OnCalendar) re-schedules from the PREVIOUS run's COMPLETION, so a
+# slow probe-and-restart pass can never overlap the next one.
+OnUnitActiveSec=60s
+AccuracySec=10s
+# ⚠ FALSE, and unlike rbtv-probe-suite.timer this is deliberate rather than an oversight.
+# Persistent=true replays runs missed while the box was off. A watchdog has nothing to
+# catch up: its whole value is in the NEXT pass, and a boot-time burst of backlogged
+# liveness passes would probe a system that is still coming up and restart things that
+# were about to start on their own.
+Persistent=false
+
+[Install]
+WantedBy=timers.target
