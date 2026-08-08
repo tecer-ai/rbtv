@@ -96,6 +96,11 @@ LATEST = os.path.join(RUNTIME_DIR, 'latest.json')
 # and is RESTORED here (task 7.553 criterion 3): `probe-planning-entry.py`'s `claude` stub now
 # actually binds — its own arm P5c goes RED if it ever stops — so the hourly run boots nothing.
 EXCLUDED_DIRS = {}
+# ⚠ MECHANIZED, not documented: on 2026-08-08 an interim exclusion wrote a SET here while :202
+# reads this as a MAPPING, so every hourly fire died `TypeError: 'set' object is not subscriptable`
+# and the whole box lost its verdict for two hours. A prose note would not have caught it — while
+# this dict is EMPTY, :202 never evaluates, so the shape is unexercised until the day it matters.
+assert isinstance(EXCLUDED_DIRS, dict), "EXCLUDED_DIRS must be a dict {dirname: why} — :202 subscripts it"
 
 DEFAULT_INTERVAL_SECONDS = 3600
 # How long after a fire the artifact should be considered stale. Deliberately > interval so a single
