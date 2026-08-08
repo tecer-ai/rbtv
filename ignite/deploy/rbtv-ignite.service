@@ -55,6 +55,21 @@
 #                                         orchestration module beside ignite/)
 # Deploy prerequisite: `tmux` on the PATH below. Its absence costs the cockpit only.
 #
+# One more optional EnvironmentFile knob, and it is a PATH — never a secret (task C3):
+#   RBTV_IGNITE_CHAT_ENV_FILE           - the chat bridge's own EnvironmentFile (the one
+#                                         rbtv-chat-bridge.service names), carrying
+#                                         SLACK_BOT_TOKEN. Set it and the daemon causes an
+#                                         INTERACTIVE goal's Slack channel to exist at that
+#                                         goal's workflow start, by launching the bridge's
+#                                         `goal-channel-cli.js ensure <goal>` with this file
+#                                         as the CHILD's EnvironmentFile. ⚑ The daemon never
+#                                         reads it: systemd does, into the child only, which
+#                                         is how `goal-channel-design.md`'s bound ("the daemon
+#                                         holds no chat credential and must not grow one")
+#                                         survives the daemon gaining this caller. UNSET is a
+#                                         supported state — the ensure is recorded as skipped
+#                                         in the tick log, never attempted.
+#
 # Do NOT commit a substituted version of this file.
 
 # network-online.target does NOT exist for the user manager (it ships under

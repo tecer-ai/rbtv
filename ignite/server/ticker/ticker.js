@@ -28,6 +28,11 @@ const { oneLiveRunDecision } = require('./one-live-run');
 // deliverer is INJECTED and the one wired here is credential-free (the owner feed) — nothing in the
 // daemon resolves a credentialed transport, because arming one is a cutover (`r-cutover-gated`).
 const { createQueuedRunNotifier, ownerFeedDeliverer } = require('./queued-run-notify');
+// Task C3 — the goal's Slack channel at its workflow start. The DECISION (is this row a run start,
+// is the goal interactive, what is the invocation) lives in its own module and is unit-checkable
+// without a tick; the branch below only performs what came back. Same split as one-live-run above,
+// and for the same reason.
+const { channelEnsureDecision } = require('./goal-channel-start');
 
 const DEFAULT_CONFIG = {
   tick_interval_ms: 10000,
@@ -890,6 +895,109 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     await runToolLikeExec(exec, argv, workdir, actions, 'fire-tool');
   }
 
+  // ── Task C3 — the goal's channel, caused to exist at the goal's workflow start ────────────────
+  //
+  // The DOD's "created by the daemon at an interactive goal's workflow start … as a job" (§ Comm).
+  // What crosses the process boundary is an INVOCATION of the bridge's own `goal-channel-cli.js
+  // ensure`, because the bridge is a separate OS process that opens no inbound listener and holds
+  // the only chat credential — `goal-channel-start.js`'s header carries the whole argument.
+  //
+  // ⚑ THE CREDENTIAL NEVER ENTERS THIS PROCESS. `RBTV_IGNITE_CHAT_ENV_FILE` is a PATH, and it is
+  // handed to the carrier as `EnvironmentFile=` — systemd reads the file into the CHILD. The
+  // daemon reads no token, logs none, and holds none, which is `goal-channel-design.md`'s bound
+  // kept mechanically rather than by care. UNSET is not an error and not a silent no-op either:
+  // the ensure is recorded as skipped with that reason, because a deployment with no chat env
+  // configured has no bridge either, and spawning a doomed exec at every run start would fill the
+  // journal with a failure that is really a configuration state.
+  //
+  // ⚑ NOTHING IS AWAITED PAST THE FORK. The carriers resolve when the child is launched, not when
+  // it finishes; the Slack round-trip happens in the child, off the tick. A tick must never block
+  // on a network call — 10 s is the whole cadence.
+  //
+  // The `channel-ensure` action is pushed with its composed argv BEFORE the launch outcome is
+  // known, and the outcome is its own action. Same discipline as the queued-run notice above: the
+  // decision is a fact the moment it was made, and a launch failure must not be able to erase the
+  // record that the daemon decided to ensure.
+  async function ensureGoalChannelAtStart(job, actions) {
+    const decision = channelEnsureDecision({
+      job,
+      resolveRoot: () => resolveWorkspaceRoot(heartStore.dbPath),
+    });
+    if (decision.action !== 'ensure') {
+      actions.push({
+        phase: 'dispatch',
+        action: 'channel-ensure-skipped',
+        goal: decision.goal,
+        kind: decision.kind,
+        reason: decision.reason,
+      });
+      return;
+    }
+
+    const envFile = process.env.RBTV_IGNITE_CHAT_ENV_FILE || null;
+    if (!envFile) {
+      actions.push({
+        phase: 'dispatch',
+        action: 'channel-ensure-skipped',
+        goal: decision.goal,
+        kind: decision.kind,
+        reason: 'no-chat-env-file (RBTV_IGNITE_CHAT_ENV_FILE unset — no chat credential to give the child)',
+      });
+      return;
+    }
+
+    const cc = carrierConfig();
+    const sessionId = generateSessionId();
+    const logPath = ensureLogPath(cc.dataRoot, sessionId);
+    actions.push({
+      phase: 'dispatch',
+      action: 'channel-ensure',
+      goal: decision.goal,
+      kind: decision.kind,
+      argv: decision.argv,
+      sessionId,
+      logPath,
+    });
+
+    const carrier = selectCarrier(cc.carrier, cc.userManager);
+    const common = {
+      sessionId,
+      argv: decision.argv,
+      workdir: decision.goalDir,
+      logPath,
+      exitFile: ensureExitFile(cc.dataRoot, sessionId),
+      caps: {},
+      sandbox: {},
+      envFile,
+      userManager: cc.userManager,
+    };
+    try {
+      const launchResult = carrier === 'systemd'
+        ? await spawnSystemd(common, log)
+        : await spawnSetsid(common, log);
+      actions.push({
+        phase: 'dispatch',
+        action: 'channel-ensure-launched',
+        goal: decision.goal,
+        sessionId,
+        carrier,
+        pid: launchResult.pid || null,
+        unitName: launchResult.unitName || null,
+      });
+    } catch (err) {
+      // Contained: a channel that could not be ensured is loud and is NOT allowed to abandon the
+      // tick or stop the run it belongs to. The run start below proceeds either way — a goal with
+      // no channel is degraded, a goal with no run is stopped.
+      actions.push({
+        phase: 'dispatch',
+        action: 'channel-ensure-failed',
+        goal: decision.goal,
+        sessionId,
+        error: err.message,
+      });
+    }
+  }
+
   async function launchStartWorkflow(queueRow, actions, tick, now) {
     const args = safeJsonParse(queueRow.args, {});
     const workflowName = args.workflow;
@@ -1252,6 +1360,12 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
           actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-workflow' });
           continue;
         }
+        // Task C3 — BEFORE the workflow launches, not after: `goal-channel-design.md` (a) settles
+        // that the 1:1 goal↔channel invariant holds from the goal's birth, so the seats this start
+        // is about to launch must not be able to reach for a channel that is still being created.
+        // Placed inside this branch and after the unknown-workflow guard because only a row that
+        // will actually start a run is a workflow start; a deferred row is not one.
+        await ensureGoalChannelAtStart(job, actions);
         await launchStartWorkflow(queueRow, actions, tick, now);
       } else if (job.action_type === 'send-message') {
         await launchSendMessage(queueRow, actions, tick, now);

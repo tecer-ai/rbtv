@@ -255,6 +255,16 @@ function checkRunLive(parsed) {
   return { ok: true };
 }
 
+// WHERE A GOAL'S FOLDER IS, spelled once (task C3). It was already spelled inside openRunsOfGoal
+// below; a second caller needed it (`ticker/goal-channel-start.js` asks `goalKind()` for a goal it
+// knows only by NAME), and a private copy of a layout constant is the cheapest kind of drift —
+// `<ws>/.rbtv/goals/` moving would leave one of the two copies right. It is a pure join and reads
+// nothing: an absent folder is the caller's answer to give, not this function's.
+function goalDirOf({ workspaceRoot, goal }) {
+  if (!workspaceRoot || !goal) return null;
+  return path.join(workspaceRoot, '.rbtv', 'goals', goal);
+}
+
 // Task 7.12 §job->seat — resolve a job's (goal, seat) POINTER to the seat folder its action runs in.
 //
 // The third caller of the same definition, and it is here rather than in `spawn/` for the reason
@@ -291,7 +301,7 @@ function openRunsOfGoal({ workspaceRoot, goal }) {
   if (!workspaceRoot || !goal) {
     return { ok: false, reason: 'openRunsOfGoal requires workspaceRoot and goal' };
   }
-  const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', goal);
+  const goalDir = goalDirOf({ workspaceRoot, goal });
   const runsCsv = path.join(goalDir, 'runs.csv');
   const runs = readCsv(runsCsv);
   if (!runs.exists) {
@@ -508,6 +518,7 @@ module.exports = {
   parseServiceSeatPath,
   parseGoalScope,
   resolveSeatFromCwd,
+  goalDirOf,
   openRunsOfGoal,
   materializeSeatFolder,
   resolveSeatHome,
