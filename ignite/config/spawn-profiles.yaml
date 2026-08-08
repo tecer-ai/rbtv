@@ -878,6 +878,12 @@ tools:
   # tool-like exec inherits the systemd --user manager's PATH (runToolLikeExec passes
   # `envFile: null`), and that PATH does not contain ~/.local/bin.
   #
+  # ✔ SINCE F1 (`d-owner-f1-carrier-env-0808`) THE CARRIER GUARANTEES THAT CLASS: every fire-tool
+  # exec is now composed with `--setenv PATH=<~/.local/bin>:…` (`carrier.js toolExecEnv`), so a bare
+  # name WOULD resolve here. The absolute form above is KEPT anyway — it is this entry's actual argv
+  # and documents what really execs; the carrier fix removes the need for the next entry to
+  # rediscover the lesson, it does not make an already-explicit path wrong.
+  #
   # ⚠ LANDED IS NOT LIVE. This file is boot-read, so this entry reaches the daemon only
   # through a restart — today the owner's one arming restart, thereafter this job itself.
   restart-daemon:
@@ -945,6 +951,11 @@ tools:
   # note on `restart-daemon` above. It names the REPO file, not the `~/.local/bin` symlink: the
   # symlink's lifetime is shorter than this config's, which is precisely what S-6(b)'s boot-time
   # catalogue-path check exists to catch.
+  #
+  # ✔ SINCE F1 (`d-owner-f1-carrier-env-0808`) THE CARRIER GUARANTEES THAT CLASS — `carrier.js
+  # toolExecEnv` puts `~/.local/bin` on every fire-tool exec's PATH, so no future entry has to
+  # rediscover this. The flag STAYS: it still names the REPO file rather than the symlink, and that
+  # second reason (lifetime, S-6(b)) is untouched by the environment fix.
   #
   # NO THROWAWAY TWIN, and the absence is reasoned rather than forgotten. A twin must point at a
   # throwaway goal, and a throwaway goal's lifetime is SHORTER THAN THIS FILE'S — the exact rule

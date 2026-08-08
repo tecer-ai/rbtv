@@ -7,6 +7,7 @@ const {
   spawnSystemd,
   spawnSetsid,
   generateSessionId,
+  toolExecEnv,
 } = require('../spawn/carrier');
 const { exitFilePath, ensureExitFile } = require('../spawn/spawn');
 const { runWarningCheck } = require('./warnings-check');
@@ -815,6 +816,17 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       caps: {},
       sandbox: {},
       envFile: null,
+      // F1 (owner ruling `d-owner-f1-carrier-env-0808`) — the fired tool gets an environment in
+      // which the RULED BARE TOOL NAMES RESOLVE. Without this a `systemd-run --user` child inherits
+      // the MANAGER's PATH, which carries no `~/.local/bin`, so `scaffold-seats` exited 127 and
+      // goal creation refused after having already scaffolded the goal — one orphan per fire, and
+      // no retry could complete it (C5E review, F1).
+      //
+      // ⚠ THIS LINE FIXES THE WHOLE CLASS, which is why it is here and not at a call site: BOTH
+      // `fire-tool` (launchFireTool) and `start-workflow` route through this one function, so every
+      // present and future fired tool is covered by one composition. `envFile` stays null — that is
+      // the CREDENTIAL channel and this is not a credential (carrier.js `toolExecEnv`).
+      setenv: toolExecEnv(),
       userManager: cc.userManager,
     };
 

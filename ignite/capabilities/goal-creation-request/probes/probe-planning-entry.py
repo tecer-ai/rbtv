@@ -47,6 +47,7 @@ HANDLER = CAP / "tool" / "goal_creation_request.py"
 LAUNCHER = CAP / "tool" / "workflow_launcher.py"
 CONFIG = IGNITE / "config" / "spawn-profiles.yaml"
 ARGV_TEMPLATE = IGNITE / "server" / "heart" / "argv-template.js"
+CARRIER = IGNITE / "server" / "spawn" / "carrier.js"
 
 SOCKET = "probe-planning-entry"          # a PRIVATE tmux socket; never the default one
 
@@ -90,6 +91,32 @@ def expand(argv, args):
     return json.loads(r.stdout)
 
 
+# ─────────────────────────────────────────── F1 · the two PATHs, both read from their real source
+
+def manager_path():
+    """The systemd --user MANAGER's PATH — what a `systemd-run --user` child actually inherits.
+
+    MEASURED, never typed: this is the environment the daemon-fired exec really lands in, and the
+    whole of F1 is that it differs from the operator's."""
+    r = subprocess.run(["systemctl", "--user", "show-environment"], capture_output=True, text=True)
+    for line in r.stdout.splitlines():
+        if line.startswith("PATH="):
+            return line[len("PATH="):]
+    return None
+
+
+def carrier_tool_path():
+    """The PATH the CARRIER now composes for every fired tool — asked of the real module.
+
+    ⚠ ASKED, NOT REPRODUCED. A python re-implementation of `toolExecEnv()` would agree with the
+    carrier only until one of them changed, and this arm's whole claim is about what the daemon
+    does. Returns None if the carrier exports no composer (the pre-fix shape)."""
+    script = (f"const c=require({json.dumps(str(CARRIER))});"
+              "process.stdout.write(c.toolExecEnv?c.toolExecEnv().PATH:'');")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+    return r.stdout.strip() or None
+
+
 def tmux(*a):
     exe = shutil.which("tmux")
     return subprocess.run([exe, "-L", SOCKET, *a], capture_output=True, text=True) if exe else None
@@ -101,10 +128,14 @@ def kill_socket():
 
 # ─────────────────────────────────────────── P1 · a REAL drain against a fixture
 
-def drain(tmp, flags, goal="probe-fresh-goal", bindings=None, request=None):
+def drain(tmp, flags, goal="probe-fresh-goal", bindings=None, request=None, path=None):
     """Run scaffold-and-queue for real against a scratch goals root with a STUB ignite.
 
     Returns (result_json, captured_ignite_argvs, goals_root).
+
+    `path` overrides PATH for this drain ONLY — everything else in the environment is inherited
+    unchanged, so an arm that sets it differs from the default arm on exactly one variable. That is
+    what makes the F1 pair below a control rather than two unrelated runs.
 
     ⚠ THE FIXTURE ROOT CARRIES `.rbtv/goals` SEGMENTS ON PURPOSE. `argv-template.js`'s `workdirRule`
     proves containment LEXICALLY, from the path's own segments after normalisation, because the
@@ -137,7 +168,11 @@ def drain(tmp, flags, goal="probe-fresh-goal", bindings=None, request=None):
            "--conduct", flags["--conduct"], "--claude-md", flags["--claude-md"],
            "--budget-json", flags["--budget-json"],
            "--ignite-bin", str(stub)]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    env = None
+    if path is not None:
+        env = dict(os.environ)
+        env["PATH"] = path
+    r = subprocess.run(cmd, capture_output=True, text=True, env=env)
     try:
         out = json.loads(r.stdout)
     except ValueError:
@@ -287,6 +322,50 @@ def main():
         report("R8b the partial state is DISCLOSED, not unwound", "green",
                "run-package" in disclosed and "goal-dir" in disclosed, True,
                f"goal-exists={disclosed.get('goal-exists')} run-package-exists={disclosed.get('run-package-exists')}")
+
+        # ---- F1 · THE ENVIRONMENT ARM the reviewer's finding said this probe could not see ------
+        #
+        # THE BLIND SPOT, NAMED. Every arm above drains through `subprocess.run` inheriting THIS
+        # process's environment — the operator's. The daemon's fired exec inherits the systemd
+        # --user MANAGER's instead, and the two differ on exactly the one variable that decides the
+        # outcome: `~/.local/bin`, where the ruled name `scaffold-seats` lives. So this probe was
+        # green while every daemon-fired creation refused and orphaned its goal (C5E review, F1).
+        # The pair below is that variable, changed once, with the handler run for real on both sides.
+        mpath, cpath = manager_path(), carrier_tool_path()
+        print(f"  manager PATH  : {mpath}")
+        print(f"  carrier PATH  : {cpath}")
+
+        # F1a · RED ARM — the PRE-FIX condition, still reproducible on demand. Under the bare
+        # manager PATH the ruled name does not resolve and the request MUST refuse. If this ever
+        # goes green the box is carrying ~/.local/bin from somewhere else and F1b proves nothing.
+        if mpath is None:
+            INOPERATIVE.append("F1a/no-manager-path")
+            print("  [BAD] F1a · the manager PATH could not be measured — the pair scores nothing")
+        else:
+            out3, calls3, _ = drain(tmpdir / "f1a", flags, goal="probe-f1-manager", path=mpath)
+            report("F1a ruled name under the MANAGER PATH (the pre-fix condition)", "refused",
+                   out3.get("outcome") == "ACCEPTED", False,
+                   f"outcome={out3.get('outcome')}, add-job calls="
+                   f"{sum(1 for c in calls3 if c and c[0] == 'add-job')}")
+
+        # F1b · GREEN ARM — the SAME drain under the environment the carrier now composes for every
+        # fired tool. This is the fix, exercised end to end through the real handler.
+        if cpath is None:
+            FAILED.append("F1b/no-composer")
+            print("  [BAD] F1b · the carrier exports no toolExecEnv() — nothing composes a fired "
+                  "tool's environment, so the F1 class is still open")
+        else:
+            out4, calls4, root4 = drain(tmpdir / "f1b", flags, goal="probe-f1-carrier", path=cpath)
+            report("F1b ruled name under the CARRIER-COMPOSED PATH (the fix)", "green",
+                   out4.get("outcome") == "ACCEPTED", True,
+                   f"outcome={out4.get('outcome')} "
+                   f"{'' if out4.get('outcome') == 'ACCEPTED' else json.dumps(out4)[:300]}")
+            report("F1b the goal is born WITH its run package under the fired environment", "green",
+                   (root4 / "probe-f1-carrier" / "runs" / "run-1").is_dir(), True,
+                   "runs/run-1 present")
+            report("F1b the workflow row is queued under the fired environment", "green",
+                   sum(1 for c in calls4 if c and c[0] == "add-job") == 1, True,
+                   f"add-job calls={sum(1 for c in calls4 if c and c[0] == 'add-job')}")
     finally:
         kill_socket()
         shutil.rmtree(tmpdir, ignore_errors=True)

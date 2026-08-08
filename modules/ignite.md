@@ -40,9 +40,13 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   LANDED too (task C5E, `d-owner-planning-entry-0808` + `-2-0808`): `spawn-profiles.yaml` carries a
   `workflows:` section, the goal is born WITH a `runs/run-1` package materialized through the ruled
   name `scaffold-seats`, and `tool/workflow_launcher.py` opens that run's own per-run detached tmux
-  room before handing the launch to `coordinate` with an explicit target. Landed is still not live —
-  the file is boot-read, so the entry activates at the next daemon restart, and arming remains the
-  three gated acts. Contract in `goal-creation-request.md`.
+  room before handing the launch to `coordinate` with an explicit target. The ruled bare name now
+  RESOLVES under the daemon: a fired tool used to inherit the systemd `--user` MANAGER's PATH, which
+  carries no `~/.local/bin`, so `scaffold-seats` exited 127 and every daemon-fired creation refused
+  after scaffolding — fixed at the CARRIER for the whole class, not at this call site
+  (`d-owner-f1-carrier-env-0808`; `server/spawn/carrier.js` `toolExecEnv`). Landed is still not
+  live — the file is boot-read, so the entry activates at the next daemon restart, and arming
+  remains the three gated acts. Contract in `goal-creation-request.md`.
 - **`watch-operator`** (`ignite/capabilities/watch-operator/`) — the WATCH-LOOP operator surface:
   the fourth ignite service's power verbs plus its pass cadence (`heartbeat-set`). Separate from
   `daemon-operator` because its target is a RUN PACKAGE, not a fixed unit — the watch unit is

@@ -88,13 +88,22 @@ ignite add-job --fn edge-runner \
 `fire-tool` exec inherits the systemd `--user` MANAGER's PATH, which does not carry `~/.local/bin`.
 The bare name resolves for every interactive caller and for nobody under the daemon.
 
+✔ **PATH — and PATH only — is fixed at the carrier since F1** (`d-owner-f1-carrier-env-0808`). Every
+`fire-tool` exec is now composed with `--setenv PATH=<~/.local/bin>:…` (`server/spawn/carrier.js`
+`toolExecEnv`), so a bare tool name DOES resolve under the daemon and no future entry has to
+rediscover the lesson above. The flag stays regardless: it names the REPO file rather than the
+`~/.local/bin` symlink, and that reason is untouched by the environment fix. **Nothing else about
+the environment changed** — see the `workdir` note below, which still holds in full.
+
 ⚠ **AND `workdir` IS THE OTHER HALF OF THAT DOOR, for the same reason one field over.** The door
 resolves its gateway endpoint and its sender token from FILES, never from the environment — the CLI
 reads `{workspace}/.rbtv/modules/ignite/server.json` and `{workspace}/.rbtv/config/.env`, and it
 finds `{workspace}` from `RBTV_IGNITE_WORKSPACE_ROOT` **or, absent that, from its own CWD**
 (`cli/lib/config.js` `resolveWorkspaceRoot`). A fired exec has neither: `runToolLikeExec` passes
 `envFile: null` and `systemd-run --user` does not carry the daemon's own `Environment=` lines to the
-child, so the variable the daemon unit sets **does not reach this job**. Its CWD is therefore the
+child, so the variable the daemon unit sets **does not reach this job** — and the F1 carrier fix
+above does NOT change that, because it composes exactly one variable (`PATH`) and deliberately
+inherits nothing else. Its CWD is therefore the
 whole resolution, and its CWD is `args.workdir` falling back to `default_workdir_root`
 (`ticker.js` `launchFireTool`). Passing `workdir` explicitly is what stops the door's credentials
 from depending on an unrelated config key that happens to hold the right value today.

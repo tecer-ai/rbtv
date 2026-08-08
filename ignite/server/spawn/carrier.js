@@ -100,7 +100,39 @@ function sandboxToProperty(key, value) {
   }
 }
 
-function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null, caps, sandbox, envFile, userManager = true }) {
+// ── F1 (owner ruling `d-owner-f1-carrier-env-0808`) — the environment a FIRED TOOL runs in ─────
+//
+// A `systemd-run --user` child inherits the systemd --user MANAGER's environment, NOT the daemon
+// unit's — so the daemon's own `Environment=PATH=…` never reaches it and `~/.local/bin` is absent
+// from a fired tool's PATH. Every ruled bare tool name therefore resolved for every interactive
+// caller and for NOBODY under the daemon: `scaffold-seats` exited 127, the goal-creation handler
+// refused, and the goal it had already scaffolded was left orphaned (C5E review, F1). The owner
+// ruled the fix at the CARRIER rather than at the call site, so the whole class is retired at once
+// instead of re-taught one absolute-path flag at a time (the `--ignite-bin` precedent, declined).
+//
+// PATH-SCOPE ONLY, and that is the bound, not a default. Exactly one variable is composed here; no
+// secret material rides it (`cli/lib/config.js`'s rule — a token stays a FILE READ, never a
+// `--setenv`, because a flag list is a process list), and nothing is inherited wholesale.
+//
+// DERIVED, NEVER TYPED. `~/.local/bin` comes from the unit's own HOME via `os.homedir()` — the same
+// derivation `spawn.js resolveLocalBinGrant` uses, and the code-tree twin of the daemon unit's `%h`
+// (D26(3): an instance path must never be written into the repo).
+//
+// ⚠ NOT UNIFIED WITH `spawn.js`'s caged-seat PATH composition, deliberately. That one emits BWRAP
+// flags and fires only when the seat holds a `local-bin` grant; this one emits a systemd-run flag
+// and is unconditional for tool execs. They may legitimately diverge — a cage's PATH is
+// grant-scoped, a fire-tool's is not caged at all — so fusing them would couple two policies that
+// should be free to differ. Change one, read the other; they are not required to agree.
+function toolExecEnv() {
+  const localBin = path.join(require('node:os').homedir(), '.local', 'bin');
+  // Prepend, then DEDUPE preserving first-seen order — the daemon's own PATH may already carry
+  // ~/.local/bin, and a fired tool should not inherit a repeated entry in a variable this module
+  // is the author of. Same shape as the caged composer, for the same reason.
+  const base = process.env.PATH || '/usr/local/bin:/usr/bin:/bin';
+  return { PATH: [...new Set([localBin, ...base.split(':').filter(Boolean)])].join(':') };
+}
+
+function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null, caps, sandbox, envFile, setenv = null, userManager = true }) {
   const unitName = `rbtv-worker-${sessionId}`;
   const args = [
     userManager ? '--user' : '--system',
@@ -163,15 +195,26 @@ function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = nu
     args.push('--property', `EnvironmentFile=${envFile}`);
   }
 
+  // `--setenv NAME=VALUE` (systemd-run(1)) is the NARROW env channel, and it is deliberately a
+  // different door from `envFile` above: that one is the CREDENTIAL transport — a PATH systemd
+  // reads into the child so the daemon never holds the secret (ticker.js's chat env file) — and
+  // widening it to carry non-secret values would put a secret channel to work on ordinary jobs.
+  // Each entry here is ONE variable, named by the caller. The carrier composes no policy of its
+  // own: a caller that passes nothing gets no env change at all (every agent-session spawn).
+  for (const [name, value] of Object.entries(setenv || {})) {
+    if (value === undefined || value === null) continue;
+    args.push('--setenv', `${name}=${value}`);
+  }
+
   args.push('--');
   for (const a of argv) args.push(a);
 
   return { args, unitName };
 }
 
-function spawnSystemd({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null, caps, sandbox, envFile, userManager = true }, logger = null) {
+function spawnSystemd({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null, caps, sandbox, envFile, setenv = null, userManager = true }, logger = null) {
   ensureDir(path.dirname(logPath));
-  const { args, unitName } = buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile, exitFile, caps, sandbox, envFile, userManager });
+  const { args, unitName } = buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile, exitFile, caps, sandbox, envFile, setenv, userManager });
 
   if (logger) logger({ level: 'info', message: 'systemd-run', args });
 
@@ -388,6 +431,10 @@ module.exports = {
   systemdAvailable,
   selectCarrier,
   buildSystemdRunArgs,
+  // F1: the ONE composer of a fired tool's environment. Exported so the ticker and the probes ask
+  // this function rather than transcribing its policy twice (PRIN-11 — a second interpreter of the
+  // one rule is the same drift as a second rule).
+  toolExecEnv,
   spawnSystemd,
   spawnSetsid,
   systemdStatus,
