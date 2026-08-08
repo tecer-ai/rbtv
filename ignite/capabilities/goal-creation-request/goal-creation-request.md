@@ -82,15 +82,23 @@ queued job is also visible as a goals-root directory absent from `ignite inspect
    ```
    ignite register-job <goal>-workflow-start --action-type start-workflow \
      --goal <goal> --seat <entry-seat> \
-     --args-schema '{"required": {"workflow": "string"}, "optional": {"workdir": "string"}}'
+     --args-schema '{"required": {"workflow": "string", "entry-seat": "string"}, "optional": {"workdir": "string"}}'
    ignite add-job --fn <goal>-workflow-start \
-     --args-json '{"workflow": "<workflow>", "workdir": "<goal-dir>"}' \
+     --args-json '{"workflow": "<workflow>", "entry-seat": "<entry-seat>", "workdir": "<goal-dir>"}' \
      --trigger scheduled --at <ISO-8601 Z>
    ```
 
    `<entry-seat>` and `<workflow>` are the catalogue entry's own `--entry-seat` / `--workflow`
    values; `<goal-dir>` is the refusal record's. If `register-job` reports the id already exists,
    the row was minted before the failure — skip to `add-job`.
+
+   ⚠ **`entry-seat` appears TWICE and both are required** (task C5). `--seat` HOMES the job — the
+   ticker resolves the seat FOLDER from it at fire — while the `entry-seat` ARG is what the
+   launcher's argv template expands `{{entry-seat}}` from. Omitting the arg is refused at
+   `add-job` (the schema declares it required); omitting `--seat` leaves the job unhomed.
+   `add-job` also refuses a `workflow`/`entry-seat` that is not lowercase kebab-case, and a
+   `workdir` that does not resolve inside `.rbtv/goals/` — those values reach an exec'd command
+   line, so they are bounded at the door (`server/heart/argv-template.js`).
 
 2. **Drop it** — the goal is not wanted. Remove the directory, then rebuild the index, or
    `goals.csv` keeps a row for a goal that is gone:
@@ -152,12 +160,30 @@ Landing it does not arm it:
 Out of order, step 2 logs one `catalogue-paths` error per boot for an `--inbox` that does not exist
 yet (that check logs; it never refuses the boot).
 
-⚠ **`--workflow` / `--entry-seat` are the one pair an owner must confirm before arming.** They name
-what EVERY master-created goal starts with. A second precondition sits behind them: `enqueue-job`
-refuses a `start-workflow` row whose workflow is absent from `config.workflows`, and
-`spawn-profiles.yaml` **has no `workflows:` section at all**. The launcher argv for
-`master-request-launch-entry` is a deployment/design value, so the C2 proof stubs it in a throwaway
-config and names the substitution rather than inventing one into the shipped file.
+⚠ **`--workflow` / `--entry-seat` are RULED — `planning` / `elicitator`** (owner ruling
+`d-owner-q10-launcher-0808` (1), 2026-08-08; task C5). They name what EVERY master-created goal that
+does not route to a pre-existing workflow starts with: the existing meta component
+`.rbtv/mirror/meta/planner-workflow/`, whose chain root is `elicitator`. The pair shipped here
+before was `master-request-launch-entry` / `request-schema-absence-remeasurer` — the run-3 wave that
+BUILT this machinery, whose root seat is a build-time measurement seat — so a fresh goal would have
+re-run the build wave. Confirming that pair is no longer an owner precondition; it is settled.
+
+⚠ **ONE precondition still stands between this entry and a fire.** `enqueue-job` refuses a
+`start-workflow` row whose workflow is absent from `config.workflows`, and `spawn-profiles.yaml`
+**still has no `workflows:` section**. The launcher argv for `planning` is an unresolved
+deployment/design value — which `scaffold-seats` call shape (`--workflow planning` materializes the
+whole DAG, `--seat elicitator --root` materializes just the chain root), which bindings file (the
+component ships only run-3-scoped ones, and `bindings-run-3-planner.json` documents a per-PASS
+`pass-folder` hold that refuses a guessed value), and how a fresh goal's run PACKAGE is resolved
+(`scaffold-and-queue` scaffolds `goal.md`/`decisions.md`/`runs.csv`/`threads.sql` and no run
+folder). It is named here rather than invented, exactly as the C2 proof stubbed its substitution in
+a throwaway config instead of writing a guess into the shipped file. **Arming stays gated on that
+ruling.**
+
+⚠ **The MECHANISM the entry will use is built and proven** (task C5): a registered workflow's argv is
+a TEMPLATE whose `{{workflow}}` / `{{entry-seat}}` / `{{goal}}` / `{{workdir}}` tokens expand from
+the queue row's own args, so one generic entry serves every workflow. Contract, injection argument
+and value rules: `server/heart/argv-template.js`. Suite: `server/ticker/probes/probe-argv-template.js`.
 
 ## The request schema it validates against
 

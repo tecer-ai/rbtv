@@ -14,6 +14,9 @@ const { runWarningCheck } = require('./warnings-check');
 // constructs or opens one. Imported rather than re-spelled so the crash sweep's notion of "the
 // turn already reported" is the store's, not a second copy that can drift from it.
 const { TERMINAL_TURN_STATUSES, sessionStatusForEndedTurn } = require('../heart/heart-store');
+// Task C5 — the ONE definition of what a row may template into an exec'd argv, shared with the
+// store's enqueue gate so the two ends can never disagree about what a legal value is.
+const { expandArgv } = require('../heart/argv-template');
 // Task 7.12 — the job->seat pointer (`r-job-seat-home`). The RESOLVER is imported, never
 // re-implemented: `seat-folder.js` is the one definition of what a seat folder is, and a second
 // spelling here would be a second definition that drifts (that module's own opening argument).
@@ -1054,7 +1057,32 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       actions.push({ phase: 'dispatch', action: 'start-workflow-failed', execId: exec.exec_id, error: 'empty argv' });
       return;
     }
-    await runToolLikeExec(exec, argv, workdir, actions, 'start-workflow');
+
+    // ── Task C5 · PER-ROW ARGV TEMPLATING (ruling `d-owner-q10-launcher-0808` (2)) ──────────────
+    //
+    // The registered argv is a TEMPLATE: its `{{workflow}}` / `{{entry-seat}}` / `{{goal}}` /
+    // `{{workdir}}` tokens are replaced by this row's own args, which is what lets ONE generic
+    // launcher entry serve every workflow instead of one static entry per workflow. The whole
+    // injection argument lives in `heart/argv-template.js`'s header — array in, array out,
+    // whole-token only, one pass, closed key set — and is not restated here.
+    //
+    // ⚠ IT RE-VALIDATES WHAT ENQUEUE ALREADY VALIDATED, deliberately. The store gate refuses a bad
+    // value at enqueue, but the store on disk outlives this code: rows written before that gate
+    // existed are still fireable, and a row is read here as DATA, never as something a past
+    // validation vouched for.
+    //
+    // A REFUSAL IS RECORDED, NOT THROWN. It lands exactly where `empty argv` above lands — the
+    // turn ends `failed` and the action carries the typed reason — because the alternative shapes
+    // are both worse: throwing abandons the rest of the tick (tick() has a `finally` and no
+    // `catch`), and deferring leaves a row that can never compose re-firing every cadence forever.
+    const composed = expandArgv(argv, args);
+    if (composed.refused) {
+      endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: new Date(), reason: `argv template refused (start-workflow): ${composed.refused}` });
+      actions.push({ phase: 'dispatch', action: 'start-workflow-failed', execId: exec.exec_id, error: `argv-template: ${composed.refused}` });
+      return;
+    }
+
+    await runToolLikeExec(exec, composed.argv, workdir, actions, 'start-workflow');
   }
 
   async function launchSendMessage(queueRow, actions, tick, now) {

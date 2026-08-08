@@ -34,7 +34,12 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   Slack-caged channel master measurably cannot create a goal directory but can write its own seat
   folder, so the payload is file-staged and only the trigger crosses the gateway. Registered in
   `config/spawn-profiles.yaml` under `tools: goal-creation-request` and landed **dark** — arming is
-  three gated acts in a fixed order. Contract in `goal-creation-request.md`.
+  three gated acts in a fixed order. The workflow every master-created goal starts in is RULED
+  (task C5, `d-owner-q10-launcher-0808`): `planning` / entry seat `elicitator`, the existing meta
+  component `.rbtv/mirror/meta/planner-workflow/`. Still dark for ONE remaining reason — the
+  launcher argv for `planning` is an unresolved deployment value, so `spawn-profiles.yaml` carries
+  no `workflows:` section and `enqueue-job` would refuse the row. Contract in
+  `goal-creation-request.md`.
 - **`watch-operator`** (`ignite/capabilities/watch-operator/`) — the WATCH-LOOP operator surface:
   the fourth ignite service's power verbs plus its pass cadence (`heartbeat-set`). Separate from
   `daemon-operator` because its target is a RUN PACKAGE, not a fixed unit — the watch unit is

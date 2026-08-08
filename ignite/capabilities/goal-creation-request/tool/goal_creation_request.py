@@ -566,17 +566,36 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=60
             # of this request rather than something to retry around: re-driving a half-registered id
             # needs a human, and sniffing the failure text for "already exists" would be reading a
             # message as if it were a policy (project ledger S-3).
+            #
+            # ⚠ THIS IS THE SCAFFOLD-THEN-REGISTER SEAM, AND A FAILURE PAST IT LEAVES THE GOAL
+            # STANDING. Owner ruling `d-owner-q10-launcher-0808` (3): a failed registration leaves
+            # the scaffolded goal AS-IS, documented — NO UNWIND IS BUILT, and none may be added
+            # here. The reason is not tidiness: the daemon cannot prove it ALONE created that
+            # directory, so a delete-on-failure would be a destructive act taken on an assumption.
+            # The partial state is instead DISCLOSED — the `settle` record below carries
+            # `goal-name`, `goal-dir`, `goal-exists` and `scaffolded`, which is what makes an orphan
+            # findable from the refusal record rather than only from a walk of the goals root.
             job_id = f"{goal}-workflow-start"
             if all(s.get("rc", 0) == 0 for s in steps):
+                # ⚠ `entry-seat` RIDES THE ROW as well as homing the job (task C5, ruling
+                # `d-owner-q10-launcher-0808` (2)). The two carriers are not redundant: the
+                # `--goal/--seat` HOME is what the ticker resolves a seat folder from at fire, while
+                # the ARG is what the launcher's argv template expands `{{entry-seat}}` from. The
+                # home cannot serve the argv — `resolveJobHome` yields a path, not the seat's name —
+                # and the arg cannot serve the home, because the Q9 dedup key deliberately never
+                # reads args CONTENT. Both are declared `required`: an absent value would compose an
+                # argv missing a flag's operand, which fails looking like a success.
                 steps.append(_run([ignite_bin, "register-job", job_id,
                                    "--action-type", "start-workflow",
                                    "--goal", goal, "--seat", entry_seat,
-                                   "--args-schema", json.dumps({"required": {"workflow": "string"},
+                                   "--args-schema", json.dumps({"required": {"workflow": "string",
+                                                                             "entry-seat": "string"},
                                                                 "optional": {"workdir": "string"}})],
                                   "register-workflow-job", dry_run))
             if all(s.get("rc", 0) == 0 for s in steps):
                 steps.append(_run([ignite_bin, "add-job", "--fn", job_id,
                                    "--args-json", json.dumps({"workflow": workflow,
+                                                              "entry-seat": entry_seat,
                                                               "workdir": str(goal_dir)}),
                                    "--trigger", "scheduled", "--at", run_at],
                                   "queue-workflow-job", dry_run))

@@ -997,9 +997,35 @@ tools:
   # logs one `catalogue-paths` error per boot for a `--inbox` that does not exist yet (the check
   # logs, it never refuses the boot).
   #
-  # ⚠ `--workflow`/`--entry-seat` ARE THE ONE PAIR AN OWNER MUST CONFIRM BEFORE ARMING. They name
-  # what EVERY master-created goal starts with; the values below are the design's own ruled name,
-  # not a measurement, and they are the reason this entry stays dark.
+  # ⚠ `--workflow`/`--entry-seat` NAME WHAT EVERY MASTER-CREATED GOAL STARTS WITH — RULED, task C5.
+  # Owner ruling `d-owner-q10-launcher-0808` (1), 2026-08-08: a master-created goal that does not
+  # route to a pre-existing workflow starts in the PLANNING workflow — the existing meta component
+  # `.rbtv/mirror/meta/planner-workflow/`, workflow `planning`, entry seat `elicitator` (the
+  # chain's root, verified on disk against that component's `seats.csv` before this edit).
+  #
+  # ⚠ THE PAIR THAT WAS HERE BEFORE WOULD HAVE RE-RUN THE BUILD WAVE ON EVERY FRESH GOAL.
+  # `master-request-launch-entry` / `request-schema-absence-remeasurer` name the run-3 wave that
+  # BUILT this machinery, and that wave's root seat is a build-time MEASUREMENT seat ("re-measure
+  # that no request schema already exists"). They were the shipped default because they were the
+  # only names in hand when the entry was written, never because they were right for production.
+  #
+  # ⚠ THE ENTRY SEAT NOW RIDES THE QUEUE ROW, not just the job's home (task C5): `scaffold-and-queue`
+  # puts `entry-seat` in the enqueued args AND homes the job at `--goal/--seat`, because the
+  # launcher's argv template expands `{{entry-seat}}` from the ARGS while the ticker resolves the
+  # seat FOLDER from the home. Per-row templating is what lets one generic launcher serve every
+  # workflow; `server/heart/argv-template.js` carries the mechanism and its injection argument.
+  #
+  # ⚠ A FAILED REGISTRATION LEAVES THE SCAFFOLDED GOAL STANDING — ruled, no unwind (same ruling,
+  # clause 3). The daemon cannot prove it alone created that directory, so the partial state is
+  # DISCLOSED in the request's refusal record (`goal-dir`, `goal-exists`, `scaffolded`) instead of
+  # deleted. Expect orphan goal directories after a failed fire; that is the ruled behaviour.
+  #
+  # ⚠ STILL DARK, AND NOW FOR ONE REASON ONLY. `enqueue-job` refuses a `start-workflow` row whose
+  # workflow is absent from `config.workflows`, and this file carries NO `workflows:` section — the
+  # launcher argv for `planning` is an unresolved DEPLOYMENT/DESIGN value (which `scaffold-seats`
+  # call shape, which bindings file, how the fresh goal's run package is resolved), so it is named
+  # here rather than invented, exactly as the C2 proof named its substitution instead of writing a
+  # guess into this file. Arming stays gated on that ruling.
   goal-creation-request:
     argv:
       - /usr/bin/python3
@@ -1010,9 +1036,9 @@ tools:
       - --goals-root
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals
       - --workflow
-      - master-request-launch-entry
+      - planning
       - --entry-seat
-      - request-schema-absence-remeasurer
+      - elicitator
       - --delay-seconds
       - "600"
       - --ignite-bin

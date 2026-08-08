@@ -22,6 +22,7 @@ const { minutesToTicks } = require('./warnings');
 
 const SCHEMA_SQL = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 const { migrate, isFreshStore } = require('./migrations');
+const { checkTemplateArgs } = require('./argv-template');
 
 const ACTION_TYPES = new Set(['launch-agent', 'fire-tool', 'start-workflow', 'send-message']);
 
@@ -328,6 +329,20 @@ function validateArgs(args, schemaJson, actionType) {
   } else if (actionType === 'start-workflow') {
     if (typeof parsed.workflow !== 'string' || parsed.workflow.length === 0) {
       throw new HeartStoreError(E_BAD_ARGS, 'start-workflow requires a non-empty workflow argument', { field: 'workflow' });
+    }
+    // ── Task C5 · the ENQUEUE half of the templating gate (ruling `d-owner-q10-launcher-0808`).
+    //
+    // A start-workflow row's args expand into the registered workflow's argv at fire, so these
+    // values become tokens of an exec'd command line. They are bounded HERE so no such row is ever
+    // stored — the fire path re-checks the same rule for rows that predate this code.
+    //
+    // START-WORKFLOW ONLY, and the narrowness is the point. `workdir` is an argument of every
+    // action type, and the `.rbtv/goals/` containment is true of a WORKFLOW's workdir specifically
+    // (a workflow belongs to a goal); a fire-tool row's workdir is legitimately a repo or a state
+    // root, and widening this to every action would refuse the live edge-runner and self-heal rows.
+    const templateRefusal = checkTemplateArgs(parsed);
+    if (templateRefusal) {
+      throw new HeartStoreError(E_BAD_ARGS, `start-workflow args refused: ${templateRefusal}`, { field: 'args' });
     }
   } else if (actionType === 'send-message') {
     // Dry-run contract: send-message reference check yields E_BAD_MESSAGE (not E_BAD_ARGS).
