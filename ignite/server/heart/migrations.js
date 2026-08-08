@@ -141,7 +141,8 @@ const MIGRATION_SESSION_SPLIT = {
 // query that crash-looped the daemon (no such column: j.session_pk) then ran clean.
 MIGRATIONS.push(MIGRATION_SESSION_SPLIT);
 
-// ── Task 7.12 · the job->seat pointer, WRITTEN AND EXERCISED BUT DELIBERATELY NOT REGISTERED.
+// ── Task 7.12 · the job->seat pointer — REGISTERED 2026-08-04 under `r-migration-job-seat-home-ratified`
+// (the posture below described the pre-ratification state and is kept as history).
 //
 // Same posture as the 7.46 split above, for the same reason and under the same ruling
 // (`r-746-schema-pregrant`): LANDING A MIGRATION ARMS IT. `migrate()` runs at DAEMON START, so
@@ -153,7 +154,9 @@ MIGRATIONS.push(MIGRATION_SESSION_SPLIT);
 // exactly this). RATIFICATION IS THEN ONE REVIEWABLE LINE, placed immediately below, exactly where
 // 7.46's went and for the reason stated above it — above the `LATEST` derivation:
 //
-//     MIGRATIONS.push(MIGRATION_JOB_SEAT_HOME);
+//     MIGRATIONS.push(MIGRATION_JOB_SEAT_HOME);   ← SUPERSEDED DRAFT — never place the line HERE:
+//     this spot precedes the const definition and throws a module-load ReferenceError (measured,
+//     workflow-registration-record.md §R.10c). The LIVE arming line sits BELOW the definition.
 //
 // `up()` is idempotent (the column-exists guard SQLite forces, since `ALTER TABLE` has no
 // `IF NOT EXISTS`), which is what makes that append a NO-OP on stores built from `schema.sql` —
@@ -183,6 +186,12 @@ const MIGRATION_JOB_SEAT_HOME = {
     // here would bake a pending owner decision into the store as though it had been taken.
   },
 };
+
+// ARMED per `r-migration-job-seat-home-ratified` (owner ratification, 2026-08-03) +
+// `p-migration-arming-granted`; executed at the master console under the owner's GO (#3144).
+// Placed HERE — after the const definition, above the LATEST derivation — because the comment
+// block's draft spot precedes the definition and throws at module load (record §R.10c).
+MIGRATIONS.push(MIGRATION_JOB_SEAT_HOME);
 
 const LATEST = MIGRATIONS.length ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
 

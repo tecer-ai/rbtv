@@ -156,11 +156,12 @@ try {
     old.close();
   }
 
-  // ── LEG 5 · THE MIGRATION IS NOT ARMED ────────────────────────────────────────────────────────
-  // The claim `r-746-schema-pregrant` actually cares about. If someone registers it, this goes RED.
-  check('MIGRATION_JOB_SEAT_HOME is NOT in MIGRATIONS (parked, per r-746-schema-pregrant)',
-    !MIGRATIONS.includes(MIGRATION_JOB_SEAT_HOME)
-    && !MIGRATIONS.some((m) => m.version === MIGRATION_JOB_SEAT_HOME.version),
+  // ── LEG 5 · THE MIGRATION IS ARMED ────────────────────────────────────────────────────────────
+  // Inverted 2026-08-04 per p-migration-arming-granted: an accidental REMOVAL of the push now goes
+  // RED. `exactly once` is deliberate — a duplicate push makes migrate() run the same ALTER twice.
+  check('MIGRATION_JOB_SEAT_HOME IS in MIGRATIONS exactly once (armed, per p-migration-arming-granted)',
+    MIGRATIONS.includes(MIGRATION_JOB_SEAT_HOME)
+    && MIGRATIONS.filter((m) => m.version === MIGRATION_JOB_SEAT_HOME.version).length === 1,
     `MIGRATIONS versions: ${MIGRATIONS.map((m) => m.version).join(',')}; mine: ${MIGRATION_JOB_SEAT_HOME.version}`);
 
   const failed = checks.filter((c) => !c.pass);
