@@ -611,7 +611,36 @@ def main():
     return 0
 
 
-if __name__ == "__main__":
+class _Tee:
+    """stdout, plus the transcript this probe writes to its adjacent `.out`.
+
+    ⚠ WITHOUT THIS THE PROBE WRITES NO CAPTURE AT ALL, AND THE RUNNER IS RIGHT TO REFUSE THAT
+    (C5E review, 2026-08-08). `deploy/probe-suite.js` grades a probe on a capture refreshed inside
+    its OWN run window — a verdict never comes from the content of a committed `.out`. This probe
+    printed to stdout and wrote nothing, so in any tree where an earlier run had left a `.out`
+    behind the runner reported `STALE` and counted it FAILED, while in a tree with no `.out` it
+    reported `capture=none` and counted it PASSED: the same code, the same verdict, two different
+    suite results decided by a leftover file. That is a baseline that moves on its own, which is
+    exactly how a regression gets called pre-existing. Measured before the fix: the `.out` beside
+    this probe was 7 days old and reported a control count of 10 where the live run reported 11.
+
+    Copied from the sibling `probe-planning-entry.py` rather than re-invented — one spelling of the
+    capture contract per folder.
+    """
+
+    def __init__(self, real):
+        self.real, self.buf = real, []
+
+    def write(self, s):
+        self.real.write(s)
+        self.buf.append(s)
+        return len(s)
+
+    def flush(self):
+        self.real.flush()
+
+
+def _run_all():
     rc = main()
     # Check 3's POSITIVE CONTROL. The mutant arm above proves the instrument fires on an injected
     # construct; this proves it fires on real code nobody wrote for it. A zero from an instrument
@@ -630,4 +659,15 @@ if __name__ == "__main__":
             print(f"NOTE — arm(s) with 0 hits in the control: {blind}. Their 0 on the TARGET is "
                   f"carried by the mutant arm above, which injects the construct directly; the "
                   f"control file simply does not happen to contain that form.")
+    return rc
+
+
+if __name__ == "__main__":
+    tee = _Tee(sys.stdout)
+    sys.stdout = tee
+    try:
+        rc = _run_all()
+    finally:
+        sys.stdout = tee.real
+        (Path(__file__).with_suffix(".out")).write_text("".join(tee.buf), encoding="utf-8")
     sys.exit(rc)
