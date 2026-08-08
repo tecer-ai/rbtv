@@ -443,8 +443,21 @@ def launch(package, only=None, dry_run=False):
 DONE_DIR = "done"
 REFUSED_DIR = "refused"
 
+# The run package a fresh goal is born with. Owner ruling `d-owner-planning-entry-0808` (3): the
+# scaffold act creates `runs/run-1/` and registers it `state=open` at scaffold time, and the FULL
+# package path rides the queued row's args as a whole token — whole-token templating deliberately
+# cannot compose `runs/run-N`, and a row queued at birth must carry a path that already exists.
+#
+# ⚠ THE ORDINAL IS A CONSTANT HERE AND THAT IS CORRECT, not a home in waiting. This act only ever
+# runs against a goal it has just created, whose runs.csv it has just minted; `run-1` is that
+# register's first row by construction. It is NOT the stale-pin defect the `selfheal-*` entries
+# carry comments about — those name a run in CONFIG, outliving the run; this names the run being
+# born, in the same act that mints it.
+FRESH_RUN_ID = "run-1"
 
-def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=600,
+
+def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, catalog_root, bindings,
+                       conduct, claude_md, budget_json, delay_seconds=600,
                        ignite_bin="ignite", dry_run=False):
     """SCAFFOLD-AND-QUEUE — the daemon-executed half of a caged requester's ask (task C2).
 
@@ -555,7 +568,24 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=60
 
             goal = payload["goal-name"]
             goal_dir = Path(goals_root) / goal
-            steps = [scaffold_goal(payload, goals_root, dry_run)]
+            package = goal_dir / "runs" / FRESH_RUN_ID
+
+            # ⚠ THE RUN PACKAGE IS CREATED BY `create()`, WHICH INVOKES THE RULED NAME — there is
+            # NO run-register writer here and none may be added. `scaffold-seats` ALREADY renders
+            # the package and appends the `state=open` row to the goal's runs.csv
+            # (`materialize-seats.py` render_run_register / append_run_register_row), so the ruling's
+            # clause (3) needs no new code, only the right call: `--package <goal>/runs/run-1
+            # --run-type fresh`. A second writer of that CSV would be PRIN-11's exact prohibition —
+            # two answers to "which runs exist", disagreeing the first time either changes.
+            # Measured, including the two sub-questions this seam raises
+            # (`evidence/c5e/c5e-01-premise-probes.txt` P4): a PRE-EXISTING runs.csv row — the
+            # partial state the ruled no-unwind behaviour can leave behind — is handled idempotently
+            # by that same writer, which leaves the row BYTE-UNTOUCHED, appends nothing and warns;
+            # and both live header spellings are accepted through its RUN_REGISTER_HEADER_ALIASES.
+            # So a re-fire after a partial failure completes the package instead of corrupting it.
+            steps = create(payload, goals_root, package, catalog_root, bindings,
+                           conduct, claude_md, budget_json,
+                           workflow=workflow, root=True, dry_run=dry_run)
 
             # THE GOAL'S FIRST WORKFLOW JOB. `register-job` mints the catalogue row HOMED at this
             # goal (`--goal/--seat` are both-or-neither at the CLI); the home is what lets the
@@ -594,15 +624,36 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=60
                 steps.append(_run([ignite_bin, "register-job", job_id,
                                    "--action-type", "start-workflow",
                                    "--goal", goal, "--seat", entry_seat,
+                                   # ⚠ ALL FOUR ARE `required`, AND `workdir` MOVED HERE FROM
+                                   # `optional` (task C5E). Every one of them fills an operand of
+                                   # the launcher's templated argv, and the ticker falls back to the
+                                   # carrier's DEFAULT workdir when a row carries none — so an
+                                   # absent value does not fail, it composes a command line pointed
+                                   # somewhere else, or one missing a flag's operand. That is the
+                                   # failure that looks like a success, and `required` is what makes
+                                   # it a refusal at the enqueue door instead.
                                    "--args-schema", json.dumps({"required": {"workflow": "string",
-                                                                             "entry-seat": "string"},
-                                                                "optional": {"workdir": "string"}})],
+                                                                             "entry-seat": "string",
+                                                                             "goal": "string",
+                                                                             "workdir": "string"}})],
                                   "register-workflow-job", dry_run))
             if all(s.get("rc", 0) == 0 for s in steps):
                 steps.append(_run([ignite_bin, "add-job", "--fn", job_id,
+                                   # ⚠ `workdir` IS THE RUN PACKAGE, NOT THE GOAL DIR (task C5E,
+                                   # ruling clause 3: "the full package path rides the queued job's
+                                   # args as a whole token"). It is read TWICE downstream and both
+                                   # readings want the package: it expands into `{{workdir}}` in the
+                                   # launcher's argv, and `launchStartWorkflow` passes it to
+                                   # `runToolLikeExec` as the fired process's CWD.
+                                   # `goal` rides as its own arg rather than being parsed back out
+                                   # of that path: it is a member of the templating mechanism's
+                                   # CLOSED key set, so as an arg it is validated by `nameRule` at
+                                   # the enqueue door AND again at fire, while a name sliced out of
+                                   # a path would be checked by whatever the slicer remembered to do.
                                    "--args-json", json.dumps({"workflow": workflow,
                                                               "entry-seat": entry_seat,
-                                                              "workdir": str(goal_dir)}),
+                                                              "goal": goal,
+                                                              "workdir": str(package)}),
                                    "--trigger", "scheduled", "--at", run_at],
                                   "queue-workflow-job", dry_run))
 
@@ -611,6 +662,12 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=60
                 "goal-name": goal,
                 "goal-dir": str(goal_dir),
                 "goal-exists": goal_dir.is_dir(),
+                # The run package is disclosed on the SAME terms as the goal dir, and for the same
+                # reason: the ruled no-unwind behaviour can leave one standing after a later step
+                # fails, and a partial state that is named in the refusal record is findable without
+                # a walk of the goals root.
+                "run-package": str(package),
+                "run-package-exists": package.is_dir(),
                 "workflow-job-id": job_id,
                 "workflow": workflow,
                 "run-at": run_at,
@@ -799,6 +856,24 @@ def main(argv=None):
     q.add_argument("--workflow", required=True, help="the workflow name the queued job starts")
     q.add_argument("--entry-seat", required=True,
                    help="the workflow's entry seat — register-job homes --goal/--seat both or neither")
+    # ⚠ THE FIVE BASE INPUTS OF A CREATED RUN PACKAGE, ALL REQUIRED, NONE DEFAULTED (task C5E).
+    # `scaffold-seats` REFUSES `create-inputs-missing` without the last three and states why:
+    # "this command never invents run conventions and never defaults a floor". Those base texts are
+    # the goal-generic STARTER SET the owner authored and approved for exactly this path
+    # (`d-owner-starter-set-approved-0808`), shipped at `ignite/team-kit/starter-set/`. They are
+    # named as PATHS here rather than resolved relative to this file: a default would make this tool
+    # the author of a run's constitution, which is the one thing that refusal exists to prevent.
+    q.add_argument("--catalog-root", required=True,
+                   help="component catalog root the workflow's seat definitions resolve from — the "
+                        "SHARED PARENT of the components, since catalog resolution is catalog-root-wide")
+    q.add_argument("--bindings", required=True,
+                   help="goal-generic per-seat bindings JSON for this workflow's manifest seats")
+    q.add_argument("--conduct", required=True,
+                   help="caller-supplied conduct.md base text for the created run package")
+    q.add_argument("--claude-md", required=True,
+                   help="caller-supplied run CLAUDE.md base text for the created run package")
+    q.add_argument("--budget-json", required=True,
+                   help="caller-supplied budget.json for the created run package (a PATH, never a value)")
     q.add_argument("--delay-seconds", type=int, default=600,
                    help="how far out the workflow job is queued (default 600 = 10 minutes)")
     q.add_argument("--ignite-bin", default="ignite",
@@ -813,6 +888,8 @@ def main(argv=None):
         # go through the single-payload read below.
         if args.verb == "scaffold-and-queue":
             out = scaffold_and_queue(args.inbox, args.goals_root, args.workflow, args.entry_seat,
+                                     args.catalog_root, args.bindings, args.conduct,
+                                     args.claude_md, args.budget_json,
                                      delay_seconds=args.delay_seconds, ignite_bin=args.ignite_bin,
                                      dry_run=args.dry_run)
             print(json.dumps(out, indent=2))

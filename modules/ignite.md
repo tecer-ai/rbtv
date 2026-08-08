@@ -36,10 +36,13 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   `config/spawn-profiles.yaml` under `tools: goal-creation-request` and landed **dark** — arming is
   three gated acts in a fixed order. The workflow every master-created goal starts in is RULED
   (task C5, `d-owner-q10-launcher-0808`): `planning` / entry seat `elicitator`, the existing meta
-  component `.rbtv/mirror/meta/planner-workflow/`. Still dark for ONE remaining reason — the
-  launcher argv for `planning` is an unresolved deployment value, so `spawn-profiles.yaml` carries
-  no `workflows:` section and `enqueue-job` would refuse the row. Contract in
-  `goal-creation-request.md`.
+  component `.rbtv/mirror/meta/planner-workflow/`. The launcher argv for `planning` is now RULED AND
+  LANDED too (task C5E, `d-owner-planning-entry-0808` + `-2-0808`): `spawn-profiles.yaml` carries a
+  `workflows:` section, the goal is born WITH a `runs/run-1` package materialized through the ruled
+  name `scaffold-seats`, and `tool/workflow_launcher.py` opens that run's own per-run detached tmux
+  room before handing the launch to `coordinate` with an explicit target. Landed is still not live —
+  the file is boot-read, so the entry activates at the next daemon restart, and arming remains the
+  three gated acts. Contract in `goal-creation-request.md`.
 - **`watch-operator`** (`ignite/capabilities/watch-operator/`) — the WATCH-LOOP operator surface:
   the fourth ignite service's power verbs plus its pass cadence (`heartbeat-set`). Separate from
   `daemon-operator` because its target is a RUN PACKAGE, not a fixed unit — the watch unit is

@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+"""probe-planning-entry.py — the planning entry, end to end, from the SHIPPED config (task C5E).
+
+WHAT THIS GUARDS THAT NOTHING ELSE DOES. `probe-argv-template.js` certifies the templating
+MECHANISM (a row's args expand into a registered argv) and `probe-goal-creation-request.py`
+certifies the create act's SHAPE. Neither reads `config/spawn-profiles.yaml`. So the composition —
+the SHIPPED `workflows: planning:` argv, expanded against the args the SHIPPED
+`goal-creation-request` entry actually produces, handed to the program that argv names — was
+guarded by nothing, and it is the whole surface between a certified mechanism and a goal that
+plans itself.
+
+⚠ EVERY INPUT IS READ OFF THE SHIPPED CONFIG, NEVER TYPED HERE. A probe that hand-types the flag
+values it checks tests its own transcription: the config could drift to a different bindings file
+or a different catalog root and this file would keep passing. So the flag values below are PARSED
+out of `config/spawn-profiles.yaml` — the same bytes the daemon boot-reads — and the queue-row args
+are CAPTURED from a real drain rather than composed by hand.
+
+⚠ NOTHING HERE TOUCHES THE LIVE DAEMON, THE LIVE STORE, OR A LIVE ROOM. The goals root is a
+tempdir; `ignite` is a STUB that records its argv and exits 0 (`--ignite-bin` is an existing seam,
+so no code is bent to be testable); and every tmux act runs on a PRIVATE `-L` socket, never the
+socket live rooms are on. No real goal is created and no queue row is ever enqueued.
+
+BOUNDARY, STATED RATHER THAN IMPLIED: this probe does not fire the row through a live ticker. The
+real-fire path is `probe-argv-template.js`'s (scratch store, real `fireQueueRow`, real expansion).
+What is proven here instead is that the composed argv is ACCEPTED BY THE REAL PROGRAM — the exact
+composed command line is EXECUTED, with `--dry-run` appended and a private tmux socket, so the
+program, its flags and every value are exercised. The one-flag delta is named here so no reader
+takes this for a live fire.
+
+Exit 0 GREEN · 1 RED · 2 INOPERATIVE (a red arm that failed to go red has scored nothing).
+"""
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+import yaml
+
+CAP = Path(__file__).resolve().parents[1]
+IGNITE = CAP.parents[1]
+HANDLER = CAP / "tool" / "goal_creation_request.py"
+LAUNCHER = CAP / "tool" / "workflow_launcher.py"
+CONFIG = IGNITE / "config" / "spawn-profiles.yaml"
+ARGV_TEMPLATE = IGNITE / "server" / "heart" / "argv-template.js"
+
+SOCKET = "probe-planning-entry"          # a PRIVATE tmux socket; never the default one
+
+FAILED = []
+INOPERATIVE = []
+CHECKS = []
+
+
+def report(check, arm, ok, expected, detail=""):
+    CHECKS.append(check)
+    verdict = "GREEN" if ok else "RED"
+    good = (ok == expected)
+    print(f"  [{'ok ' if good else 'BAD'}] {check} · {arm} -> {verdict} "
+          f"(expected {'GREEN' if expected else 'RED'})" + (f" — {detail}" if detail else ""))
+    if not good:
+        (FAILED if expected else INOPERATIVE).append(f"{check}/{arm}")
+    return good
+
+
+# ─────────────────────────────────────────── the shipped config, parsed not typed
+
+def shipped():
+    """(tool_flags, workflow_argv) read out of spawn-profiles.yaml."""
+    cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    argv = cfg["tools"]["goal-creation-request"]["argv"]
+    flags = {}
+    for i, tok in enumerate(argv):
+        if isinstance(tok, str) and tok.startswith("--") and i + 1 < len(argv):
+            flags[tok] = argv[i + 1]
+    return flags, cfg["workflows"]["planning"]["argv"]
+
+
+def expand(argv, args):
+    """The REAL expander — `argv-template.js` run through node. Never a python re-implementation:
+    a second expander would agree with the first only until one of them changed."""
+    script = (f"const t=require({json.dumps(str(ARGV_TEMPLATE))});"
+              f"console.log(JSON.stringify(t.expandArgv({json.dumps(argv)},{json.dumps(args)})));")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+    if r.returncode != 0:
+        return {"refused": f"node failed: {r.stderr.strip()[:200]}"}
+    return json.loads(r.stdout)
+
+
+def tmux(*a):
+    exe = shutil.which("tmux")
+    return subprocess.run([exe, "-L", SOCKET, *a], capture_output=True, text=True) if exe else None
+
+
+def kill_socket():
+    tmux("kill-server")
+
+
+# ─────────────────────────────────────────── P1 · a REAL drain against a fixture
+
+def drain(tmp, flags, goal="probe-fresh-goal", bindings=None, request=None):
+    """Run scaffold-and-queue for real against a scratch goals root with a STUB ignite.
+
+    Returns (result_json, captured_ignite_argvs, goals_root).
+
+    ⚠ THE FIXTURE ROOT CARRIES `.rbtv/goals` SEGMENTS ON PURPOSE. `argv-template.js`'s `workdirRule`
+    proves containment LEXICALLY, from the path's own segments after normalisation, because the
+    workspace root is not knowable inside the module. A fixture rooted at a bare tempdir is
+    therefore refused by the real rule — which is the rule working, not a defect. The first draft of
+    this probe used `tmp/goals` and went RED at P2 for exactly that reason; making the fixture look
+    like production is the fix, and weakening the arm would have been the bug."""
+    root = tmp / ".rbtv" / "goals"
+    inbox = root / "_requester" / "requests"
+    inbox.mkdir(parents=True)
+    payload = request if request is not None else {
+        "goal-name": goal, "goal-type": "one-shot", "goal-kind": "interactive",
+        "goal-contract": "# Contract\n\nProbe fixture. Nothing real depends on this.\n"}
+    (inbox / "req.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    capture = tmp / "ignite-calls.jsonl"
+    stub = tmp / "ignite-stub"
+    stub.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json,sys\n"
+        f"open({json.dumps(str(capture))},'a').write(json.dumps(sys.argv[1:])+'\\n')\n"
+        "sys.exit(0)\n", encoding="utf-8")
+    stub.chmod(0o755)
+
+    cmd = [sys.executable, str(HANDLER), "scaffold-and-queue",
+           "--inbox", str(inbox), "--goals-root", str(root),
+           "--workflow", flags["--workflow"], "--entry-seat", flags["--entry-seat"],
+           "--catalog-root", flags["--catalog-root"],
+           "--bindings", bindings if bindings is not None else flags["--bindings"],
+           "--conduct", flags["--conduct"], "--claude-md", flags["--claude-md"],
+           "--budget-json", flags["--budget-json"],
+           "--ignite-bin", str(stub)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        out = json.loads(r.stdout)
+    except ValueError:
+        out = {"outcome": "UNPARSEABLE", "stdout": r.stdout[-500:], "stderr": r.stderr[-500:]}
+    calls = [json.loads(ln) for ln in capture.read_text().splitlines()] if capture.exists() else []
+    return out, calls, root
+
+
+def main():
+    if shutil.which("tmux") is None:
+        print("VERDICT: INOPERATIVE — tmux is absent, so the room arms cannot run")
+        return 2
+    flags, wf_argv = shipped()
+    print(f"shipped tool flags parsed from {CONFIG.name}: "
+          f"{ {k: v for k, v in flags.items() if k != '--inbox'} }")
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="probe-planning-entry-"))
+    args = None
+    try:
+        # ---- P1 · the goal is born WITH a run package and an open register row -----
+        out, calls, root = drain(tmpdir / "a", flags)
+        goal_dir = root / "probe-fresh-goal"
+        pkg = goal_dir / "runs" / "run-1"
+        report("P1 goal scaffolded", "green", out.get("outcome") == "ACCEPTED", True,
+               f"outcome={out.get('outcome')} "
+               f"{'' if out.get('outcome') == 'ACCEPTED' else json.dumps(out)[:400]}")
+        report("P1 run-1 package created", "green", pkg.is_dir(), True, str(pkg))
+        seats = sorted(p.name for p in (pkg / "seats").iterdir()) if (pkg / "seats").is_dir() else []
+        report("P1 whole planning DAG materialized", "green", len(seats) == 9, True,
+               f"{len(seats)} seats: {seats}")
+        reg = (goal_dir / "runs.csv").read_text(encoding="utf-8") if (goal_dir / "runs.csv").is_file() else ""
+        open_row = bool(re.search(r"^run-1,fresh,open,", reg, re.M))
+        report("P1 runs.csv carries the state=open row", "green", open_row, True,
+               reg.strip().replace("\n", " | ") or "runs.csv absent")
+
+        # The queue row's args, CAPTURED from the stub rather than composed here.
+        addjob = [c for c in calls if c and c[0] == "add-job"]
+        report("P1 one workflow row queued", "green", len(addjob) == 1, True, f"{len(addjob)} add-job call(s)")
+        if addjob:
+            args = json.loads(addjob[0][addjob[0].index("--args-json") + 1])
+            report("P1 args carry all four template keys", "green",
+                   set(args) == {"workflow", "entry-seat", "goal", "workdir"}, True, json.dumps(args))
+            report("P1 workdir IS the run package (ruling clause 3)", "green",
+                   args.get("workdir") == str(pkg), True, args.get("workdir", ""))
+            regjob = [c for c in calls if c and c[0] == "register-job"]
+            schema = json.loads(regjob[0][regjob[0].index("--args-schema") + 1]) if regjob else {}
+            report("P1 all four declared required", "green",
+                   set(schema.get("required", {})) == {"workflow", "entry-seat", "goal", "workdir"},
+                   True, json.dumps(schema))
+
+        # ---- P2 · the SHIPPED argv composes byte-exactly against those args -------
+        if args:
+            composed = expand(wf_argv, args)
+            expected = [t if not (isinstance(t, str) and t.startswith("{{"))
+                        else args[t[2:-2]] for t in wf_argv]
+            report("P2 shipped argv expands", "green", "argv" in composed, True,
+                   composed.get("refused", ""))
+            report("P2 composed argv is byte-exact", "green", composed.get("argv") == expected, True,
+                   " ".join(composed.get("argv", []))[:220])
+            report("P2 argv[0] is the interpreter, not a placeholder", "green",
+                   wf_argv[0] == "/usr/bin/python3", True, wf_argv[0])
+            report("P2 launcher named in argv exists on disk", "green",
+                   Path(wf_argv[1]).is_file() and Path(wf_argv[1]) == LAUNCHER, True, wf_argv[1])
+
+            # ---- P3 · the real program ACCEPTS the composed command line ----------
+            # The composed argv verbatim, plus --dry-run and a private socket. Nothing is created.
+            # Guarded on the expansion having produced one: a P2 refusal must be reported as itself,
+            # never crash the run and take every later arm — including the RED ones — with it.
+            r = (subprocess.run(composed["argv"] + ["--dry-run", "--tmux-socket", SOCKET],
+                                capture_output=True, text=True) if "argv" in composed else None)
+            report("P3 composed argv accepted by the real launcher", "green",
+                   r is not None and r.returncode == 0, True,
+                   "" if r is None else ((r.stdout + r.stderr).strip().splitlines() or [""])[-1][:200])
+            report("P3 session name is per-run and goal-derived", "green",
+                   r is not None and f"'{args['goal']}-run-1'" in r.stdout, True,
+                   "" if r is None else
+                   next((l for l in r.stdout.splitlines() if "room for this run" in l), "")[:160])
+
+            # ---- RED · the injection arms, on the SHIPPED argv --------------------
+            # ⚠ `ok` IS "DID IT COMPOSE", NEVER "DID IT REFUSE" — the same polarity every arm above
+            # uses. The first draft passed "did it refuse" here and all four arms reported BAD while
+            # their own detail text quoted the refusal they had just correctly produced. A red arm
+            # whose polarity is inverted reads as an INOPERATIVE instrument, which is the honest
+            # failure, but it is still the probe being wrong about a product that was right.
+            def red(check, args_in, argv_in=None):
+                res = expand(argv_in if argv_in is not None else wf_argv, args_in)
+                report(check, "hostile row", "argv" in res, False, res.get("refused", "")[:120])
+
+            red("R1 shell metacharacter in a row value",
+                dict(args, **{"entry-seat": "elicitator; rm -rf /"}))
+            red("R2 workdir outside the goals containment", dict(args, workdir="/etc"))
+            red("R3 a row may not choose the program", args, ["{{goal}}"] + wf_argv[1:])
+            red("R4 a missing operand refuses, never empties",
+                {k: v for k, v in args.items() if k != "workdir"})
+
+        # ---- P4 · the room, for real, on a private socket ------------------------
+        sys.path.insert(0, str(LAUNCHER.parent))
+        import workflow_launcher as wl                       # noqa: E402 — the real thing
+
+        name = wl.session_name("probe-fresh-goal", pkg)
+        report("P4 name derivation is <goal>-<run-id>", "green", name == "probe-fresh-goal-run-1",
+               True, name)
+        pane, prov = wl.ensure_session(name, str(tmpdir), SOCKET)
+        live = tmux("has-session", "-t", f"={name}").returncode == 0
+        report("P4 detached session created", "green", live and bool(pane), True, f"{pane} — {prov}")
+        pane2, prov2 = wl.ensure_session(name, str(tmpdir), SOCKET)
+        n_sessions = len([l for l in tmux("list-sessions", "-F", "#{session_name}").stdout.splitlines() if l.strip()])
+        report("P4 re-fire is idempotent (joins, never doubles)", "green",
+               pane2 == pane and n_sessions == 1, True, f"{n_sessions} session(s), pane {pane2}")
+
+        # ---- RED · the launcher's own refusals ----------------------------------
+        r = subprocess.run([sys.executable, str(LAUNCHER), "--package", str(tmpdir / "nope"),
+                            "--goal", "probe-fresh-goal", "--entry-seat", "elicitator",
+                            "--coord", str(IGNITE / "team-kit" / "coord.py"),
+                            "--tmux-socket", SOCKET], capture_output=True, text=True)
+        report("R5 absent run package", "refused", r.returncode == 0, False,
+               (r.stdout.strip().splitlines() or [""])[-1][:140])
+        try:
+            wl.session_name("bad.name", pkg)
+            bad_ok = True
+        except ValueError as err:
+            bad_ok, why = False, str(err)
+        report("R6 a session name carrying a tmux separator", "refused", bad_ok, False,
+               "" if bad_ok else why[:140])
+
+        # tmux absent -> an honest refusal, never a guessed target.
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(tmpdir / "empty")
+        try:
+            wl.ensure_session(name, str(tmpdir), SOCKET)
+            noexe_ok = True
+        except RuntimeError as err:
+            noexe_ok, why2 = False, str(err)
+        finally:
+            os.environ["PATH"] = saved
+        report("R7 tmux absent from PATH", "refused", noexe_ok, False,
+               "" if noexe_ok else why2[:140])
+
+        # ---- RED · a missing bindings file refuses the REQUEST, queues nothing ---
+        out2, calls2, _ = drain(tmpdir / "b", flags, goal="probe-nobind",
+                                bindings=str(tmpdir / "absent-bindings.json"))
+        report("R8 absent bindings file", "refused",
+               out2.get("outcome") == "ACCEPTED" or any(c and c[0] == "add-job" for c in calls2),
+               False,
+               f"outcome={out2.get('outcome')}, add-job calls={sum(1 for c in calls2 if c and c[0] == 'add-job')}")
+        disclosed = out2.get("requests", [{}])[0]
+        report("R8b the partial state is DISCLOSED, not unwound", "green",
+               "run-package" in disclosed and "goal-dir" in disclosed, True,
+               f"goal-exists={disclosed.get('goal-exists')} run-package-exists={disclosed.get('run-package-exists')}")
+    finally:
+        kill_socket()
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    print()
+    if INOPERATIVE:
+        print(f"VERDICT: INOPERATIVE — {len(INOPERATIVE)} red arm(s) did not go red, so they have "
+              f"scored nothing: {INOPERATIVE}")
+        return 2
+    if FAILED:
+        print(f"VERDICT: RED — {len(FAILED)} check(s) failed: {FAILED}")
+        return 1
+    print(f"VERDICT: GREEN — {len(CHECKS)} checks, every gating green paired with a red arm that "
+          f"fired. Boundary: the fire itself is probe-argv-template.js's; here the composed argv "
+          f"was EXECUTED by the real launcher with --dry-run appended.")
+    return 0
+
+
+class _Tee:
+    """stdout, plus a transcript for the adjacent `.out` this probe is expected to leave.
+
+    The capture is THIS run's output and is untracked (G-171): the file beside a probe is no
+    longer a frozen snapshot restored after the run, which is precisely how a stale capture once
+    reported a debt 15x too small while the live probe said otherwise.
+    """
+
+    def __init__(self, real):
+        self.real, self.buf = real, []
+
+    def write(self, s):
+        self.real.write(s)
+        self.buf.append(s)
+        return len(s)
+
+    def flush(self):
+        self.real.flush()
+
+
+if __name__ == "__main__":
+    tee = _Tee(sys.stdout)
+    sys.stdout = tee
+    try:
+        rc = main()
+    finally:
+        sys.stdout = tee.real
+        (Path(__file__).with_suffix(".out")).write_text("".join(tee.buf), encoding="utf-8")
+    sys.exit(rc)

@@ -1,0 +1,56 @@
+{
+ "schema": "run-budget/1",
+ "_readme": "This run's DECLARED capacity. Machine-read by ignite/team-kit/budget.py, which compares it against the live census in state.json. This file DECLARES; it never OBSERVES. Shipped as the goal-generic starter set and byte-copied here at scaffold time (scaffold-seats --budget-json). Writer thereafter: the run authority. A number here without a ruling in decisions.md is a defect.",
+ "cap": {
+  "agent_panes": 10,
+  "ruling": "r-pane-cap-10 — owner, 2026-07-27. Carried into the starter set as the box-wide agent-pane ceiling; cited by conduct.md section 8, which states no number of its own.",
+  "note": "A CEILING, not a licence. Every launch is still gated on the RAM floor below, measured fresh at the launch instant. The census counts AGENT panes only and is MEASURED at each fill pass, never remembered.",
+  "_scope": "PER-RUN. A box running several live runs at once is bounded by the RAM floor, not by the sum of these caps — the floor is what refuses, and it reads the whole box."
+ },
+ "floors": {
+  "launch_refuse_mb": 2000,
+  "pressure_warn_mb": 2000,
+  "ruling": "r-mem-floor-2000 — owner, 2026-07-28. Enforced by coord.py; overridden only by --force-memory, never --force.",
+  "_scope": "TWO NAMED THRESHOLDS, EVEN AT EQUAL VALUES (r-floor-single-source). launch_refuse_mb is the value at which coord.py DENIES a launch; pressure_warn_mb is the value at which the watch layer FLAGS system pressure. Equal values are a coincidence of value, NEVER of meaning: neither is derived from the other, and neither may be moved to match the other. Collapsing them would make 'warn me before you start refusing' permanently unexpressible.",
+  "_read_never_copied": "⚠ THIS IS THE ONE HOME AND CONSUMERS READ IT. A POLICY NUMBER MUST NEVER BE TRANSPORTED BY ARGV — argv is a COPY, a file is a REFERENCE. coord.py's launch gate, the watch layer and the goal-watcher job resolve the floor through budget.py's read_floor(); spawn-profiles.yaml carries no floor value at all, because a recovery path holding no number cannot drift. A flag survives ONLY as a deliberate operator override, and a consumer that uses one SAYS SO. ignite/team-kit/floor-lint.py refuses a floor literal anywhere but this file.",
+  "_landed_is_not_live": "⚠ A value written here does not reach a RUNNING consumer until an actuation carries it — a loop launched with a floor in its argv keeps that copy until it is next relaunched. Take the EFFECTIVE value from the running system when it matters (ask /proc; floor-homes.py has the arm). LANDED is not LIVE.",
+  "tmp_free_warn_mb": 512,
+  "_tmp_free_warn_scope": "LABELED TREND ONLY — never a gate, never a detector. statvfs is PROVEN blind to the quota edge (EDQUOT at 1 KB while df read hundreds of MB free), so this number can only say 'the filesystem is filling', never 'the box is usable'. The BINDING probe is the gauge's own small canary write, a code-side constant deliberately decoupled from this floor."
+ },
+ "cadence": {
+  "watch_loop_max_seconds": 30,
+  "ruling": "r-watch-loop-30s — owner, 2026-07-30.",
+  "_scope": "A CEILING — the maximum interval of the watch layer's pass cadence, in seconds. Deliberately its OWN section: not a cap (a count of panes), not a floor (an MB threshold an act is refused or flagged at). A third kind of number never borrows another kind's slot.",
+  "_read_never_copied": "Same doctrine as floors: a consumer READS this field, never carries the value in argv, env, or prose.",
+  "_interim_overshoot": "⚠ DISCLOSED, NEVER NORMALIZED: watch.py's --loop is integer MINUTES, so no invocation satisfies 30s today and the interim loop runs at --loop 1 = 60s — 2x this ceiling, breach-by-necessity. Ends when the seconds-granular change lands; from that moment the running tool binds at 30. A run inheriting this file inherits the disclosure, not a licence."
+ },
+ "job_fire": {
+  "interval_seconds": 30,
+  "ruling": "r-job-fire-interval-30s — owner, 2026-07-30.",
+  "_scope": "The self-heal jobs' FIRE interval — how often a queued periodic job fires. Deliberately its OWN section: a fourth kind of number, not the watch layer's pass cadence (cadence.watch_loop_max_seconds), not a cap, not a floor. Its equality with the watch cadence is a coincidence of value, never of meaning — neither may be derived from the other.",
+  "_read_never_copied": "Same doctrine as floors and cadence: consumers READ this field, never carry the value in argv, env, or prose.",
+  "_landed_is_not_live": "A value written here does not reach a running queue until an actuation carries it, and whoever performs the act that invalidates a written claim owes the walk-back in the same act."
+ },
+ "counting": {
+  "_rule": "Counted from state.json's seats[] agent_type field, NEVER from tmux. team-monitor is the room's only raw sensor; a second pane-reader would be a second sensor.",
+  "counts_toward_cap": [
+   "staff",
+   "worker",
+   "verifier"
+  ],
+  "never_counts": {
+   "master": "an owner door is not a working agent pane — owner-ruled: the cap counts working agent panes, and the door is not one",
+   "no-seat": "agent_type_source=no-seat means no descriptor exists to declare it — a teamview pane, the watch-loop pane, any monitoring surface. Never counted."
+  },
+  "unclassified_with_descriptor": "REPORT LOUDLY, never silently counted and never silently skipped. An aggregate over a partly-unclassified population must report its own incompleteness rather than a whole-looking number."
+ },
+ "_bars_home": "THIS FILE IS THE ONE NORMATIVE HOME OF A BAR — r-bar-home-is-the-run-budget-json, completing r-one-normative-home-per-bar. Per-run and machine-readable. Every other place a bar appears (budget.py comments, bars.md, a task row) is a POINTER HERE, never a restatement: a restatement is an untested cache of a rule, not documentation. ⚠ RESIDUAL, named not buried: per-run means a run inherits this file by COPY — a starter-set copy at goal birth, a previous-run copy otherwise. A bootstrap COPIES this file wholesale and never restates a bar in prose.",
+ "bars": {
+  "no_permission_may_key_on_agent_type": "BINDING. The agent_type field is a SENSOR OBSERVATION of a descriptor's claim, never an authorization. The identity gate is the only authorization. The moment anything gates a permission on it, editing a descriptor becomes granting a privilege. ⚠ This text is NORMATIVE, and it is still not a machine consumer of the field itself — budget.py reads agent_type from state.json, never from here — so the bar remains unenforced by code; what it has is ONE address to be wrong at instead of five.",
+  "staleness": "A stale state.json means the SENSOR is the incident. budget.py reports UNKNOWN on a stale snapshot and never a confident number — a headroom figure computed off a frozen snapshot would authorize launches into a room that no longer exists."
+ },
+ "provenance": {
+  "why_this_file_exists": "A capacity number with no home decays into folklore. The precedent: a run spent a night at 1-2 executors against an 'executor budget of 2' that was written in NO ruling surface — it was traced to a past census in a seat's memory file that survived a renewal and was read as live policy. This is the home.",
+  "declared_by": "the goal-generic starter set, byte-copied by the scaffold act at goal creation. Every value above traces to an owner ruling cited in its own section; a run that measures its box differently re-rules the value here and records the ruling in decisions.md."
+ }
+}

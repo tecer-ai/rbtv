@@ -168,22 +168,68 @@ before was `master-request-launch-entry` / `request-schema-absence-remeasurer` �
 BUILT this machinery, whose root seat is a build-time measurement seat — so a fresh goal would have
 re-run the build wave. Confirming that pair is no longer an owner precondition; it is settled.
 
-⚠ **ONE precondition still stands between this entry and a fire.** `enqueue-job` refuses a
-`start-workflow` row whose workflow is absent from `config.workflows`, and `spawn-profiles.yaml`
-**still has no `workflows:` section**. The launcher argv for `planning` is an unresolved
-deployment/design value — which `scaffold-seats` call shape (`--workflow planning` materializes the
-whole DAG, `--seat elicitator --root` materializes just the chain root), which bindings file (the
-component ships only run-3-scoped ones, and `bindings-run-3-planner.json` documents a per-PASS
-`pass-folder` hold that refuses a guessed value), and how a fresh goal's run PACKAGE is resolved
-(`scaffold-and-queue` scaffolds `goal.md`/`decisions.md`/`runs.csv`/`threads.sql` and no run
-folder). It is named here rather than invented, exactly as the C2 proof stubbed its substitution in
-a throwaway config instead of writing a guess into the shipped file. **Arming stays gated on that
-ruling.**
+✅ **THAT PRECONDITION IS DISCHARGED** (task C5E, owner rulings `d-owner-planning-entry-0808` and
+`d-owner-planning-entry-2-0808`). `enqueue-job` refuses a `start-workflow` row whose workflow is
+absent from `config.workflows`; `spawn-profiles.yaml` now carries a `workflows:` section whose
+`planning` entry is that launcher. The three values named here as unresolved were ruled and landed:
 
-⚠ **The MECHANISM the entry will use is built and proven** (task C5): a registered workflow's argv is
+| Was unresolved | Ruled and built |
+|---|---|
+| which `scaffold-seats` call shape | The WHOLE planning DAG — `--workflow planning --root --run-type fresh`, **9** manifest seats (`workflows/planning/planning.csv`; `seats.csv`'s 10 is a different set), `--catalog-root` the SHARED PARENT `.rbtv/mirror/meta/` because `ledger-groomer` resolves from a sibling component |
+| which bindings file | A goal-generic one authored for this path: `.rbtv/mirror/meta/planner-workflow/bindings-fresh-goal-planning.json`. It is STATIC, not a filled template — probing found no per-goal value to fill; `pass-folder` is the documented greenfield CONSTANT `planning/m0-bootstrapping/`, which is why the per-PASS hold that blocked run-3's file does not apply to a fresh goal |
+| how the run PACKAGE is resolved | `runs/run-1`, created in this same act. `scaffold-and-queue` now calls `create()` — i.e. the ruled name `scaffold-seats` — which ALSO appends the run's `state=open` row to the goal's `runs.csv`. There is no second writer of that register, and none may be added |
+
+**The goal is therefore born WITH a run**, and the full package path rides the queued row's args as
+a whole token — whole-token templating deliberately cannot compose `runs/run-N`, so a row queued at
+birth must carry a path that already exists.
+
+⚠ **Five flags on the entry are what make that happen**, and the last three are not defaultable:
+`--catalog-root`, `--bindings`, and `--conduct`/`--claude-md`/`--budget-json`. `scaffold-seats`
+refuses `create-inputs-missing` without the base texts, saying why — it "never invents run
+conventions and never defaults a floor". They name the OWNER-AUTHORED, OWNER-APPROVED goal-generic
+starter set at `team-kit/starter-set/` (`d-owner-starter-set-approved-0808`). ⚠ **NOT
+`team-kit/conduct-template.md`** — that is an UNFILLED FORM whose own opening lines say a run's
+conduct-author instantiates it "filling every `{{slot}}`", while `--conduct` BYTE-COPIES. Pointing
+at it would give every auto-created run a rulebook whose law reads `{{INSTANTIATE}}`; that option
+was put to the owner and rejected on exactly that ground.
+
+⚠ **The MECHANISM the entry uses is built and proven** (task C5): a registered workflow's argv is
 a TEMPLATE whose `{{workflow}}` / `{{entry-seat}}` / `{{goal}}` / `{{workdir}}` tokens expand from
 the queue row's own args, so one generic entry serves every workflow. Contract, injection argument
 and value rules: `server/heart/argv-template.js`. Suite: `server/ticker/probes/probe-argv-template.js`.
+
+⚠ **`goal` and `workdir` are now REQUIRED args on the registered job**, joining `workflow` and
+`entry-seat`. `workdir` moved out of `optional` deliberately: the ticker falls back to the carrier's
+DEFAULT workdir when a row carries none, so an absent value does not fail — it composes a command
+line pointed somewhere else. `required` turns that into a refusal at the enqueue door.
+
+### The launcher the `workflows: planning:` entry fires
+
+`tool/workflow_launcher.py`. It exists because **`coordinate launch` cannot open a room and a
+daemon-fired exec has none**: `launch` contains zero `new-session` calls (it opens a WINDOW in an
+EXISTING session) and resolves its target from `COORD_LAUNCH_TARGET or TMUX_PANE`, neither of which
+the daemon exports — and with both unset tmux resolves an empty target to the MOST RECENT session,
+which is how a stray launch reaches a live room.
+
+So it creates a **per-run DETACHED session named `<goal>-<run-id>`** (owner ruling
+`d-owner-planning-entry-2-0808` Q2), proves the resolved pane really belongs to that session, and
+hands the launch to `coordinate` with an explicit `--tmux-target`. Properties worth knowing:
+
+- **Nothing short-lived is baked into boot config** — the config carries only placeholders and repo
+  paths; the session name is composed at fire time from the goal.
+- **Idempotent** — a re-fire joins the room it already opened (`has-session -t =NAME`, EXACT match:
+  prefix matching would let goal `foo` resolve goal `foo-bar`'s room). It never kills a session, so
+  the room outlives the launch, which is the point — humans attach over SSH.
+- **`--force` yes, `--force-memory` no.** `--force` carries the ROLE gate, which a daemon-fired exec
+  can never pass any other way (no pane ⇒ no seat identity). The MEMORY gate is left binding: this
+  is a NEW launch, exactly what that floor is sized for. `jobs/recover-room.py` does override it,
+  correctly, on a premise that is false here — a recovery replaces a seat that already died and is
+  load-neutral. Reusing that program as this launcher was considered and REJECTED for that reason.
+- ⚠ **First fire on a brand-new package opens the room and NO SEAT, and exits 0.** A freshly
+  materialized package has no `state.json`, so the capacity census is unenforceable and `launch`
+  DEFERS every candidate to the pickup lane — "a WAIT, not a refusal". The launcher counts panes
+  after a zero-exit launch and says so loudly rather than leaving an empty room to be discovered.
+  **Whoever arms goal-creation needs the team-monitor census sensor in the arming sequence.**
 
 ## The request schema it validates against
 
@@ -258,7 +304,28 @@ nothing else** (`decisions.md#p-E16-carries-the-durable-arming-writer-itself-and
 generalise-arming`). A goal created by any other path stays BORN INERT. This file's existence
 closes no general arming issue.
 
-## The probe, and why it carries mutants
+## The probes
+
+Two, and they guard different things. `probes/probe-planning-entry.py` (task C5E) is the
+**composition** probe: it drains a real request through a fixture goals root with a STUB
+`--ignite-bin`, then takes the SHIPPED `workflows: planning:` argv out of `spawn-profiles.yaml`,
+expands it with the REAL `argv-template.js` against the args that drain actually produced, and
+EXECUTES the composed command line against the real launcher (with `--dry-run` appended and a
+private tmux socket). 26 checks, 8 of them red arms.
+
+It exists because that composition was guarded by NOTHING: `probe-argv-template.js` certifies the
+mechanism and `probe-goal-creation-request.py` certifies the create act's shape, and **neither reads
+`config/spawn-profiles.yaml`** — so the config could drift to a different bindings file or catalog
+root and every probe would stay green. For the same reason it TYPES no flag value: every one is
+parsed out of the shipped config, and the queue-row args are captured from the drain rather than
+composed by hand. Its boundary is stated in its own header: it does not fire the row through a live
+ticker (that is `probe-argv-template.js`'s real-fire path); what it proves is that the composed argv
+is accepted by the real program.
+
+Nothing in it touches the live daemon, the live store, or a live room — tempdir goals root, stub
+`ignite` binary, private `-L` tmux socket.
+
+## The other probe, and why it carries mutants
 
 `probes/probe-goal-creation-request.py` runs **nine** checks — six authored by `7.211` (the entry)
 and three by `7.206` (the refusal arm: the member is named, the class-stop holds, the refusal is

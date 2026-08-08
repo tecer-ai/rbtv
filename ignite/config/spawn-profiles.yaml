@@ -1020,12 +1020,27 @@ tools:
   # DISCLOSED in the request's refusal record (`goal-dir`, `goal-exists`, `scaffolded`) instead of
   # deleted. Expect orphan goal directories after a failed fire; that is the ruled behaviour.
   #
-  # ⚠ STILL DARK, AND NOW FOR ONE REASON ONLY. `enqueue-job` refuses a `start-workflow` row whose
-  # workflow is absent from `config.workflows`, and this file carries NO `workflows:` section — the
-  # launcher argv for `planning` is an unresolved DEPLOYMENT/DESIGN value (which `scaffold-seats`
-  # call shape, which bindings file, how the fresh goal's run package is resolved), so it is named
-  # here rather than invented, exactly as the C2 proof named its substitution instead of writing a
-  # guess into this file. Arming stays gated on that ruling.
+  # ⚠ NO LONGER DARK — the `workflows: planning:` entry at the foot of this file is the counterpart
+  # this comment used to name as missing (task C5E, owner rulings `d-owner-planning-entry-0808` and
+  # `d-owner-planning-entry-2-0808`). `enqueue-job` refuses a `start-workflow` row whose workflow is
+  # absent from `config.workflows`; that refusal is now satisfied for `planning`, and the three
+  # values named here as unresolved are RULED and landed: the call shape is the WHOLE planning DAG
+  # (`--workflow planning --root`, 9 manifest seats, entry seat `elicitator`), the bindings file is
+  # the goal-generic `.rbtv/mirror/meta/planner-workflow/bindings-fresh-goal-planning.json`, and the
+  # fresh goal's run package is `runs/run-1`, created by this same act and riding the queued row's
+  # args as a whole token.
+  #
+  # ⚠ LANDED IS NOT LIVE, AND THE GAP IS THIS FILE'S OWN. It is BOOT-READ, so the entry below and
+  # the section at the foot both activate at the NEXT daemon restart and not before. Arming remains
+  # the separately gated sequence spelled out four comments up.
+  #
+  # ⚠ THE FIVE NEW FLAGS BELOW ARE WHAT MAKES THE GOAL BORN WITH A RUN. `scaffold-and-queue` now
+  # creates `runs/run-1/` through the ruled name `scaffold-seats` (which also appends the run's
+  # `state=open` row to the goal's runs.csv — there is no second writer of that register) instead of
+  # scaffolding a bare goal folder. `--conduct`/`--claude-md`/`--budget-json` name the OWNER-APPROVED
+  # goal-generic starter set (`d-owner-starter-set-approved-0808`): that command refuses
+  # `create-inputs-missing` without them because it "never invents run conventions and never defaults
+  # a floor", and the run's constitution is the owner's to author, never this config's.
   goal-creation-request:
     argv:
       - /usr/bin/python3
@@ -1039,7 +1054,90 @@ tools:
       - planning
       - --entry-seat
       - elicitator
+      # ⚠ THE CATALOG ROOT IS THE SHARED PARENT, NOT THE planner-workflow COMPONENT FOLDER, and
+      # this is measured rather than stylistic (`evidence/c5e/c5e-01-premise-probes.txt` P1).
+      # `ledger-groomer` IS a row of the planning manifest but is cataloged in its OWN sibling
+      # component; catalog resolution is catalog-root-wide, so rooting this at the component folder
+      # resolves 8 of the 9 manifest seats and refuses.
+      - --catalog-root
+      - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta/
+      - --bindings
+      - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta/planner-workflow/bindings-fresh-goal-planning.json
+      # The OWNER-APPROVED starter set, shipped with the team-kit beside `conduct-template.md`.
+      # ⚠ NOT `conduct-template.md` ITSELF — that file is an UNFILLED FORM whose own first lines say
+      # a run's conduct-author instantiates it "filling every {{slot}}", and `--conduct` BYTE-COPIES.
+      # Pointing this at it would give every auto-created run a rulebook whose law reads
+      # `{{INSTANTIATE}}`. That option was put to the owner and rejected on exactly that ground.
+      - --conduct
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/conduct.md
+      - --claude-md
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/CLAUDE.md
+      - --budget-json
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/budget.json
       - --delay-seconds
       - "600"
       - --ignite-bin
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/cli/ignite.js
+
+# ═════════════════════════════════════════════════════════════════════════════
+# workflows: — the launcher a `start-workflow` queue row fires (task C5E)
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# A DAEMON-ONLY SECTION, like `tools:` and `ticker:` above: `server/index.js` strips it before
+# `spawn/config.js` sees it (DAEMON_ONLY_ROOT_KEYS), and the heart store holds it as the catalogue
+# `enqueue-job` validates a `start-workflow` row against — a row naming a workflow absent from here
+# is REFUSED at the door, and re-checked at fire.
+#
+# ⚠ EVERY ENTRY HERE IS A TEMPLATE, AND THE ROW FILLS ITS OPERANDS. `{{workflow}}`, `{{entry-seat}}`,
+# `{{goal}}` and `{{workdir}}` are expanded from the firing row's own args by
+# `server/heart/argv-template.js`, which is what lets ONE generic launcher serve every workflow
+# instead of one static entry per workflow. That module's header carries the whole injection
+# argument — array in / array out, whole-token only, one pass, closed key set — and it is NOT
+# restated here. Two consequences bind an author of this section:
+#   · argv[0] MAY NEVER BE A PLACEHOLDER. A row may fill an operand, never CHOOSE THE PROGRAM;
+#     the expander refuses it in one place rather than trusting every config author.
+#   · A TOKEN IS A PLACEHOLDER OR A LITERAL, NEVER A MIX. `--flag={{workdir}}` is refused as
+#     malformed, so a value can never be concatenated onto a flag it did not arrive with.
+#
+# ⚠ NAME THE INTERPRETER AND NAME THE REPO FILE — never a bare command, never a symlink. A
+# start-workflow exec inherits the systemd --user manager's PATH, which does not carry
+# `~/.local/bin`, so `coordinate` as a bare name resolves interactively and NOT here. Same rule and
+# same reason as `--ignite-bin` on the tools above.
+workflows:
+
+  # The workflow EVERY master-created goal starts in — owner ruling `d-owner-q10-launcher-0808` (1).
+  # The launcher is workflow-AGNOSTIC: it reads the run package, the goal and the entry seat off the
+  # row, so a second workflow needs a new key here and no new program.
+  #
+  # ⚠ WHY A LAUNCHER PROGRAM AND NOT `coordinate launch` DIRECTLY. Two measured facts, both in
+  # `evidence/c5e/c5e-01-premise-probes.txt` P6 and in the launcher's own docstring: `coordinate
+  # launch` contains ZERO `new-session` calls (it opens a WINDOW in an EXISTING session, and at
+  # 10 minutes old this goal has none), and it resolves its target from
+  # `COORD_LAUNCH_TARGET or TMUX_PANE`, NEITHER of which the daemon exports. With both unset tmux
+  # resolves an empty target to the MOST RECENT session — which is how a stray launch reaches the
+  # LIVE room. So the room is created and the target is named EXPLICITLY, or the act refuses.
+  #
+  # ⚠ THE SESSION IS PER-RUN AND ITS NAME DERIVES FROM THE GOAL — owner ruling
+  # `d-owner-planning-entry-2-0808` (Q2). It is composed by the launcher as `<goal>-<run-id>`, so
+  # NO short-lived identifier is baked into this file: a pane or window id would name a thing whose
+  # lifetime is far shorter than this config's, which is the hazard `catalogue-paths.js` exists to
+  # catch. The rejected alternatives are recorded in that ruling — an always-on boot-time room, or
+  # widening the certified templating key set with a new byte class on an exec'd command line.
+  #
+  # ⚠ FIRST FIRE ON A BRAND-NEW PACKAGE OPENS THE ROOM AND NO SEAT, AND EXITS 0. A freshly
+  # materialized package has no `state.json`, so the capacity census is unenforceable and `launch`
+  # DEFERS every candidate to the pickup lane — "a WAIT, not a refusal". Measured (P7). The launcher
+  # says so loudly rather than leaving an empty room to be discovered; whoever arms goal-creation
+  # needs the team-monitor census sensor in the arming sequence.
+  planning:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/capabilities/goal-creation-request/tool/workflow_launcher.py
+      - --package
+      - "{{workdir}}"
+      - --goal
+      - "{{goal}}"
+      - --entry-seat
+      - "{{entry-seat}}"
+      - --coord
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
