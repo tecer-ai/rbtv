@@ -31,9 +31,12 @@ OnBootSec=1min
 # rediscovered at a smaller scale. 60s keeps worst-case detection-to-restart near a minute
 # while staying two orders of magnitude cheaper than the daemon's own 10s tick; a measured
 # all-green pass costs ~200ms.
-# OnUnitActiveSec (not OnCalendar) re-schedules from the PREVIOUS run's COMPLETION, so a
-# slow probe-and-restart pass can never overlap the next one.
-OnUnitActiveSec=60s
+# OnUnitInactiveSec (not OnCalendar, and NOT OnUnitActiveSec) re-schedules from the
+# previous run's COMPLETION — `systemd.timer`: OnUnitActiveSec measures from when the
+# service was last ACTIVATED, so a pass slower than the interval would have its next fire
+# already due the moment it finished. Only the Inactive form delivers the full quiet gap
+# this comment claimed, and the claim is the reason the directive exists.
+OnUnitInactiveSec=60s
 AccuracySec=10s
 # ⚠ FALSE, and unlike rbtv-probe-suite.timer this is deliberate rather than an oversight.
 # Persistent=true replays runs missed while the box was off. A watchdog has nothing to

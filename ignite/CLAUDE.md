@@ -29,9 +29,10 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
 - **`daemon-watchdog/`** — the ignite LIVENESS surface (`CMP-28`): a systemd user timer firing one
   deterministic probe/restart/report pass over the whole deployment. **The one capability here the
   `rbtv` CLI does NOT delegate to** — a watchdog is a scheduled act, not a verb a human types, so
-  its reach is the timer. It CALLS `daemon-operator` for every Service-typed restart (`PRIN-11` —
-  restart-and-verify is not written twice) and bypasses it for exactly one row, the probe-suite
-  `.timer`, whose absent `MainPID` its survival check can never satisfy (measured, not assumed).
+  its reach is the timer. It CALLS `daemon-operator` for EVERY restart, including the probe-suite
+  `.timer` (`PRIN-11` — restart-and-verify is not written twice). That row was briefly a bypass,
+  because the operator's survival check demanded a `MainPID` a `.timer` never has; `7127713` made
+  the check unit-type-aware, so the bypass was deleted rather than kept as dead flexibility.
   Its unit templates live beside it in `capabilities/daemon-watchdog/units/` rather than in
   `deploy/`, so the capability folder stays self-contained per CMP-5. Contract:
   `capabilities/daemon-watchdog/daemon-watchdog.md`.

@@ -38,8 +38,9 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   (CMP-28): a systemd user timer firing one deterministic pass that probes the deployment,
   restarts what is down through the services' own units, and DMs the owner only when it acted or
   a restart failed. Unlike the other two it is not driven by a `rbtv` verb — a timer fires it.
-  It CALLS `daemon-operator` for every Service-typed restart rather than reimplementing
-  restart-and-verify. Ships installed-and-DISABLED; enabling has a sender-mint prerequisite.
+  It CALLS `daemon-operator` for every restart rather than reimplementing restart-and-verify.
+  Ships installed-and-DISABLED; enabling has a sender-mint prerequisite that fails LOUD (the
+  watchdog has no fallback to another sender's token).
   Contract in `daemon-watchdog.md`.
 
 ### `ignite/module.md` — the module entry point (KG shape)

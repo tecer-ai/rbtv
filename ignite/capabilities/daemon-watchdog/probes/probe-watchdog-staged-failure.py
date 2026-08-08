@@ -2,7 +2,10 @@
 """probe-watchdog-staged-failure — CMP-28's done check, run as a probe.
 
 Stages a real failure and proves the whole chain end to end: down -> detected ->
-restarted -> notified -> recovered, then proves a clean pass is SILENT.
+restarted -> notified -> recovered, then proves a clean pass is SILENT — and that the
+silence has a CEILING: an unchanged alert is suppressed, but past the re-alert window
+it is re-sent marked as standing, so a condition that never clears can never read as
+a healthy system.
 
 It runs against a THROWAWAY unit it creates and removes, reached through the
 watchdog's documented env override (RBTV_WATCHDOG_TARGETS + the per-row unit var) —
@@ -70,10 +73,15 @@ def main():
         "RBTV_IGNITE_SETTLE_SECONDS": "2",
     })
 
-    def watchdog():
+    def watchdog(**overrides):
         t0 = time.time()
-        p = subprocess.run([sys.executable, WATCHDOG], capture_output=True, text=True, env=env)
+        e = dict(env, **overrides)
+        p = subprocess.run([sys.executable, WATCHDOG], capture_output=True, text=True, env=e)
         return p.returncode, (p.stdout + p.stderr).strip(), int((time.time() - t0) * 1000)
+
+    def stage_failure():
+        sc("kill", "--signal=SIGKILL", UNIT)
+        time.sleep(1)
 
     def notifications():
         if not os.path.exists(notify_file):
@@ -100,8 +108,7 @@ def main():
         check("stage 0: throwaway unit is active", is_active() == "active", is_active())
 
         # ── 1. bring it down ────────────────────────────────────────────────
-        sc("kill", "--signal=SIGKILL", UNIT)
-        time.sleep(1)
+        stage_failure()
         down = is_active()
         check("stage 1: unit is DOWN before the pass", down != "active", "is-active=%s" % down)
 
@@ -133,6 +140,31 @@ def main():
         check("stage 7: an all-green pass exits 0", rc2 == 0, "exit=%s" % rc2)
         check("stage 8: the all-green pass says so on stdout", "all green" in out2)
 
+        # ── 4. the repeat ceiling: suppressed, but NOT forever ──────────────
+        # Dedupe alone would let a condition that never clears go permanently silent,
+        # which is indistinguishable from health on the only channel that pushes.
+        stage_failure()
+        rc3, out3, _ = watchdog()
+        n3 = notifications()
+        check("stage 9: a fault recurring after a green pass DOES notify",
+              len(n3) == len(n2) + 1, "%d -> %d" % (len(n2), len(n3)))
+
+        stage_failure()
+        rc4, out4, _ = watchdog()
+        n4 = notifications()
+        check("stage 10: the SAME alert on the next pass is suppressed",
+              len(n4) == len(n3) and "[repeat]" in out4, "%d -> %d" % (len(n3), len(n4)))
+
+        stage_failure()
+        rc5, out5, _ = watchdog(RBTV_WATCHDOG_REALERT_SECONDS="0")
+        n5 = notifications()
+        check("stage 11: past the re-alert ceiling the SAME alert is re-sent",
+              len(n5) == len(n4) + 1, "%d -> %d" % (len(n4), len(n5)))
+        if len(n5) > len(n4):
+            check("stage 11b: the re-alert is marked as standing, not new",
+                  "STILL UNRESOLVED" in n5[-1]["text"],
+                  n5[-1]["text"].splitlines()[0])
+
     except Exception as ex:
         check("probe ran to completion", False, "%s: %s" % (type(ex).__name__, ex))
     finally:
@@ -144,7 +176,7 @@ def main():
         sc("daemon-reload")
         shutil.rmtree(scratch, ignore_errors=True)
         gone = sc("show", UNIT, "-p", "LoadState", "--value")[1].strip() != "loaded"
-        check("stage 9: throwaway unit removed", gone and not os.path.exists(UNIT_FILE))
+        check("stage 12: throwaway unit removed", gone and not os.path.exists(UNIT_FILE))
 
     log.append("")
     log.append("PROBE %s (%d failure%s)" % ("PASS" if not fails else "FAIL",
