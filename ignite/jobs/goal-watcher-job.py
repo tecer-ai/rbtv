@@ -279,12 +279,22 @@ def run_inline(script, tail, timeout=INLINE_FIX_TIMEOUT_S):
     The child is exempted from this job's own address-space and CPU caps (`child_preexec`): a
     sensor restart killed by the WATCHER's budget would leave the sensor half-started, which is
     a worse state than the one being repaired."""
+    # ⚠ THE EMPTINESS CHECK RUNS FIRST, and the order is the whole point. `--team-monitor`
+    # DEFAULTS TO `""`, so an entry that omits it reaches here with an empty path — and
+    # `basename("")` is `""`, which the allowlist branch below rejects with "`` is not an
+    # inline-fix program … no queue door is reachable from here". That text lands in the flag the
+    # LEADER reads (the caller folds this detail into it), pointing at the act-identity bar when
+    # the actual cause is an unset operator flag. Behind the allowlist branch this check was
+    # unreachable, which is why it never fired.
+    if not str(script).strip():
+        return False, ("REFUSED: no program path was given for this inline fix — the operator "
+                       "flag naming it (`--team-monitor` for the staleness row, `--coord` for "
+                       "the reap row) is unset or empty, so the row degrades to a nudge. This is "
+                       "a MISSING PATH, not a refused program.")
     name = os.path.basename(str(script))
     if name not in INLINE_FIX_SCRIPTS:
         return False, (f"REFUSED: `{name}` is not an inline-fix program. This job may exec only "
                        f"{INLINE_FIX_SCRIPTS} — no queue door is reachable from here.")
-    if not script:
-        return False, f"REFUSED: no path given for `{name}`"
     try:
         r = subprocess.run([sys.executable, str(script), *tail], capture_output=True,
                            text=True, timeout=timeout, preexec_fn=jobcontain.child_preexec)
@@ -1152,6 +1162,13 @@ def selftest():
     ok, why = run_inline("/nonexistent/team_monitor.py", ["ensure"])
     check("EXEC ALLOWLIST: an allowlisted basename with no file behind it is NOT a green fix",
           ok is False and "exit 0" not in why)
+    # An UNSET operator flag and a REFUSED program are different failures reaching the same
+    # leader, and `--team-monitor` defaults to `""` — so the empty path must diagnose ITSELF
+    # rather than borrow the act-identity refusal's text.
+    ok, why = run_inline("", ["ensure"])
+    check(f"EXEC ALLOWLIST: an EMPTY program path says MISSING PATH, not 'not an inline-fix "
+          f"program' ({why[:60]}…)",
+          ok is False and "MISSING PATH" in why and "not an inline-fix program" not in why)
     # ⚠ EVERY `decision(...)` CALL SITE, not only the rows this selftest happens to reach: parsed
     # off this file's own AST, so an unreachable row carrying a retired name is caught too.
     import ast
