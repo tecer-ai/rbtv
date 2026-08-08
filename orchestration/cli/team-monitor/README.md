@@ -78,7 +78,9 @@ take no lock. Every write is `tmp` + `os.replace`, so a reader never sees a part
               ended_at, completion_msg_id}, pid, log_path}],
     headless_source{heart_db, readable, reason, scoped, emitted, unattributed,
                     retention_dropped, keep, window_s},
-    headless_unattributed{count, exec_ids, rows[…]}      # ONLY when there is an incident
+    headless_unattributed{count, exec_ids, rows[…]},     # ONLY when there is an incident
+    run{ready_rows, live_executors, queued,
+        source{ready_rows, queued{heart_db, readable, reason, goal, scanned, unscopable}}}
 
 `box{}` carries the **same** `captured_at` as the rest of the snapshot — box pressure is
 thresholded continuously by `goal-watcher-job` without a second raw-source reader.
@@ -133,6 +135,37 @@ The store is resolved from `--heart-db`, else `RBTV_IGNITE_DATA_ROOT`, else the 
 daemon unit's own environment (`coord.py`'s `daemon_heart_db`, imported by path so that
 "which store is the daemon's" has one home). Unresolvable or unreadable is REPORTED in
 `headless_source.reason` — an empty `headless[]` is never ambiguous.
+
+## `run{}` — the three run-progress facts CMP-21's stall row is computed from
+
+CMP-21's run-stall predicate is **`ready rows > 0, live executors = 0, nothing queued`**, and
+these three numbers are sensed HERE for the same reason everything else is: a consumer that
+computed them itself would be a second toucher of taskforce state and of the queue table.
+
+| field | is | read from |
+|-------|----|-----------|
+| `ready_rows` | taskforce rows whose predecessors are satisfied | `coord.ready_seat_rows`, counting `verdict == "READY"` — the launcher's OWN readiness predicate, borrowed rather than re-spelled, so the sensor cannot disagree with it about which seats are offerable. Its whole resolver chain runs `register=False`, so the read registers no run tag |
+| `live_executors` | live PANED executor seats | the snapshot's own `seats[]` — `liveness == "live"` AND a roster seat name. A live pane that is not a seat is not counted, and a HEADLESS execution has no pane: a consumer that must not false-positive during a headless window reads `headless[]` (a `state` outside the terminal set) from this same snapshot |
+| `queued` | pending queue rows carrying this GOAL's path | `heart.db`'s `queue` table, `mode=ro` — the same read-only bound `headless[]` carries |
+
+**`queued` is scoped by parsing each pending row's `args` JSON** (owner ruling
+`d-owner-batch1` (4)). It has to be: the `workdir` column `headless[]` scopes `jobs_log` on is
+acquired when an execution *starts*, and a queued row has not started. The scan is over every
+string VALUE in the decoded object, not a field name — `args` is validated per-job against
+that `job_id`'s own `args_schema`, so there is no guaranteed key to read and hardcoding one
+would make this sensor a second reader of another component's job schema. Containment is
+`== goal or startswith(goal + "/")`, so a sibling goal sharing a path prefix never scopes in.
+The scope key is the **goal** folder, not the run folder — real rows spell their path both as
+a seat folder under `{goal}/runs/run-n/seats/` and as the goal root itself.
+
+Two bounds mirror `headless[]`'s: **a row whose `args` will not decode to an object is
+excluded AND COUNTED** (`source.queued.unscopable`) rather than dropped silently, and **a term
+that could not be read is `null`, never `0`** — a `0` here would read to CMP-21 as "nothing
+queued", which is one third of its stall predicate, satisfied by a fabrication.
+`source.queued.reason` / `source.ready_rows` say which term failed and why.
+
+The block is **purely additive**: it is a new top-level key, so every existing consumer
+tolerates it unchanged, and a consumer reading an older snapshot must tolerate its absence.
 
 ## `agent_type` — declared in the descriptor, only OBSERVED here (task 7.80)
 

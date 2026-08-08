@@ -75,6 +75,28 @@ def sensor(path=None):
     return _SENSOR
 
 
+_COORD = None
+
+
+def coord():
+    """The coordination CLI, imported by path. Never copied, never edited — same inheritance
+    discipline as `sensor()` above.
+
+    ONE importer, CACHED. Three symbols are borrowed from it (`daemon_heart_db`, `ready_seat_rows`,
+    `goal_dir`) and `capture()` spends all three on EVERY cadence, so re-executing a
+    27k-line module per call is a cost the loop would pay forever (measured: ~49 ms per import).
+    The uncached import this replaces was affordable only while `heart_db_path` was its one
+    caller."""
+    global _COORD
+    if _COORD is None:
+        p = HERE.parent.parent.parent / "ignite" / "team-kit" / "coord.py"
+        spec = importlib.util.spec_from_file_location("_tm_coord", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _COORD = mod
+    return _COORD
+
+
 # ---------- raw reads team-monitor owns (the engine exposes none of these) ----------
 
 def read_proc(path):
@@ -612,12 +634,8 @@ def heart_db_path(explicit=None):
     root = os.environ.get("RBTV_IGNITE_DATA_ROOT")
     if root:
         return str(Path(root) / "heart.db")
-    coord = HERE.parent.parent.parent / "ignite" / "team-kit" / "coord.py"
     try:
-        spec = importlib.util.spec_from_file_location("_tm_coord", coord)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod.daemon_heart_db() or None
+        return coord().daemon_heart_db() or None
     except Exception:
         return None
 
@@ -763,6 +781,128 @@ def _log_mtime(log_path):
         return None
 
 
+# ---------- the run block (CMP-20 Layout) ----------
+#
+# `ready rows > 0, live executors = 0, nothing queued` is CMP-21's run-stall predicate, and it is
+# the whole reason these three numbers are sensed HERE: a consumer computing them for itself would
+# be a second toucher of taskforce state and of the queue table — exactly the drift CMP-20's
+# single-raw-source-toucher invariant exists to remove.
+#
+# ⚠ AN UNREADABLE TERM IS `None`, NEVER 0. Two of the three terms can fail to read, and both feed a
+# predicate whose stall arm fires on `ready > 0 and live == 0 and queued == 0`. A 0 standing in for
+# "unknown" is not a missing fact, it is a FABRICATED one — and it fabricates in the direction that
+# raises the alarm. `run.source` says which term could not be read and why, so an absent number is
+# never ambiguous (invariant 5: the sensor's own failure is an incident, not silence).
+
+
+def ready_row_count(package):
+    """(count, reason) — taskforce rows whose predecessors are satisfied; `(None, why)` on failure.
+
+    BORROWED from `coord.ready_seat_rows`, the ONE implementation of the readiness predicate: a
+    second spelling of its verdict precedence (SKEW > DONE > RUNNING > UNBUILT > UNDECLARED >
+    STOPPED > BLOCKED > READY) is how a sensor comes to disagree with the launcher about which
+    seats are offerable, and the sensor would be the one that is wrong.
+
+    ⚠ THE CALL WRITES NOTHING, and that is a property of the callee rather than a hope: its whole
+    resolver chain (`package_dir` / `base_dir` / `workers_dir`) is invoked `register=False` inside
+    it, so no run tag is registered under `~/.config/rbtv/`. The four attributes passed are its
+    COMPLETE `args` surface, enumerated from the function body and its transitive resolver calls —
+    not assumed. `SystemExit` is caught beside `Exception` because `package_dir` EXITS rather than
+    raises on an unresolvable package, and a read must never take the sensor loop down with it."""
+    try:
+        rows = coord().ready_seat_rows(argparse.Namespace(
+            package=str(Path(package).resolve()), base=None, run=None, workers_dir=None))
+        return sum(1 for r in rows if r.get("verdict") == "READY"), ""
+    except (Exception, SystemExit) as e:
+        return None, f"{type(e).__name__}: {e}"
+
+
+def live_executor_count(seats):
+    """Live PANED executor seats — a seat row of this run whose pane holds a harness process.
+
+    Two exclusions, both deliberate. A live pane carrying NO roster seat is not counted: the field
+    is "live executor seats" and an unrostered pane is not a seat. A HEADLESS execution has no pane
+    at all and is not counted either — the snapshot's own `headless[]` rows carry that half (a row
+    whose `state` is outside `HEADLESS_TERMINAL` is an executor occupying work), so a consumer whose
+    predicate must not false-positive during a headless window reads them from the SAME snapshot
+    rather than from a second observation path."""
+    return sum(1 for s in seats if s.get("liveness") == "live" and s.get("seat"))
+
+
+def _args_carries(node, root):
+    """True when any string inside a decoded `args` object IS `root` or sits under it.
+
+    NOT KEYED ON A FIELD NAME. `args` is dry-run-validated at queue time against THAT job_id's own
+    `args_schema`, which is per-catalogue-entry — there is no schema-guaranteed `workdir` key to
+    read, and hardcoding one would make this sensor a second reader of another component's job
+    schema. The ruling's words are "whose args JSON carries this goal's path"; this is those words,
+    and it is recursive because a schema is free to nest its paths in a list or a sub-object.
+
+    Containment is the same `== root or startswith(root + sep)` shape `scoped_execs` uses, so a
+    sibling goal `/x/goal-2` can never scope into `/x/goal`."""
+    if isinstance(node, str):
+        return node == root or node.startswith(root + os.sep)
+    if isinstance(node, dict):
+        return any(_args_carries(v, root) for v in node.values())
+    if isinstance(node, list):
+        return any(_args_carries(v, root) for v in node)
+    return False
+
+
+def queued_count(package, db_path=None):
+    """(count, source) — PENDING queue rows whose args JSON carries this goal's path.
+
+    Owner ruling `d-owner-batch1` (4). The scope key is the GOAL folder, not the run folder — the
+    ruling says goal, and live rows spell their path BOTH ways: a seat folder under
+    `{goal}/runs/run-n/seats/`, and the goal root itself.
+
+    The scope is read out of `args` because a PENDING row has nothing else to read it from: the
+    `workdir` column `scoped_execs` filters `jobs_log` on is acquired when an execution STARTS, and
+    a queued row has not started.
+
+    ⚠ A ROW WHOSE `args` WILL NOT DECODE TO AN OBJECT IS EXCLUDED **AND COUNTED** (`unscopable`) —
+    never counted in, never dropped silently. Same bound `headless()` carries: a row may leave a
+    view, it may never leave it unclassified. The remainder `scanned - count - unscopable` is the
+    rows that decoded cleanly and belong to another goal."""
+    import sqlite3
+    path = heart_db_path(db_path)
+    src = {"heart_db": path, "readable": False, "reason": "", "goal": "",
+           "scanned": 0, "unscopable": 0}
+    if not path:
+        src["reason"] = ("no heart.db resolved (no explicit path, no RBTV_IGNITE_DATA_ROOT, "
+                         "no live unit)")
+        return None, src
+    if not Path(path).exists():
+        src["reason"] = "heart.db does not exist at the resolved path"
+        return None, src
+    try:
+        root = str(coord().goal_dir(Path(package).resolve()))
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = con.execute("SELECT args FROM queue").fetchall()
+        finally:
+            con.close()
+    except (Exception, SystemExit) as e:                       # a broken source is REPORTED
+        src["reason"] = f"{type(e).__name__}: {e}"
+        return None, src
+    src["readable"] = True
+    src["goal"] = root
+    src["scanned"] = len(rows)
+    count = 0
+    for row in rows:
+        try:
+            decoded = json.loads(row[0] or "")
+        except (TypeError, ValueError):
+            src["unscopable"] += 1
+            continue
+        if not isinstance(decoded, (dict, list)):
+            src["unscopable"] += 1                             # valid JSON, but not an args object
+            continue
+        if _args_carries(decoded, root):
+            count += 1
+    return count, src
+
+
 # ---------- capture ----------
 
 def capture(package, session=None, sensor_path=None, heart_db=None):
@@ -829,6 +969,9 @@ def capture(package, session=None, sensor_path=None, heart_db=None):
 
     # The second raw source. Added to the ONE sensor, never a second writer of state.json.
     head_rows, unattributed, head_source = headless(package, captured_at, heart_db)
+    # The run block's two READ terms (the third is an aggregate of `seats`, already in hand).
+    ready, ready_reason = ready_row_count(package)
+    n_queued, queued_source = queued_count(package, heart_db)
 
     snap = {
         "schema": SCHEMA,
@@ -846,6 +989,15 @@ def capture(package, session=None, sensor_path=None, heart_db=None):
         "dispatch_tokens": dispatch_tokens(package, seats),
         "headless": head_rows,
         "headless_source": head_source,
+        # CMP-20's Layout `run` block. PURELY ADDITIVE: a new top-level key changes no existing
+        # one, so every current consumer of this snapshot tolerates it without a change, and a
+        # consumer reading an OLDER snapshot must tolerate its absence the same way.
+        "run": {
+            "ready_rows": ready,
+            "live_executors": live_executor_count(seats),
+            "queued": n_queued,
+            "source": {"ready_rows": ready_reason, "queued": queued_source},
+        },
     }
     # NORMALLY ABSENT (design-760 §4): the incident field appears only when there is an incident,
     # so a consumer that renders it as a warning has nothing to render on a healthy run.
@@ -1112,6 +1264,150 @@ def cmd_status(args):
               f"{s['model'][:18]:<18} {ctx:>5} {s['ram_mb']:>7}MB {s['liveness']:<9}"
               f"{'  PROMPT' if s['prompt_pending'] else ''}")
     return 0
+
+
+def _selftest_run_block(check):
+    """The `run` block's checks (CMP-20 Layout + owner ruling `d-owner-batch1` (4)).
+
+    A FUNCTION rather than an inline block so the exact code `selftest` runs is also the code a
+    driver can exercise directly — on a box where the surrounding selftest's live-tmux fixture
+    cannot be built, a second hand-written copy of these checks would be evidence about the copy."""
+    import sqlite3
+    import tempfile
+
+    def queue_fixture(td, args_rows):
+        """A heart.db carrying ONLY a `queue` table — the columns the DDL declares, so a reader
+        that reached for `workdir` (the column a PENDING row does not have) fails here."""
+        db = str(Path(td) / "heart.db")
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE queue (queue_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    " job_id TEXT NOT NULL, args TEXT NOT NULL DEFAULT '{}',"
+                    " session_mode TEXT, trigger_kind TEXT, run_at TEXT, repeat_rule TEXT,"
+                    " interval_seconds INTEGER, max_fires INTEGER, enqueued_by TEXT,"
+                    " enqueued_at TEXT)")
+        con.executemany("INSERT INTO queue (job_id, args, session_mode, trigger_kind, run_at,"
+                        " enqueued_by, enqueued_at) VALUES ('j', ?, 'headless', 'scheduled',"
+                        " '2026-01-01T00:00:00Z', 'owner', '2026-01-01T00:00:00Z')",
+                        [(a,) for a in args_rows])
+        con.commit()
+        con.close()
+        return db
+
+    # ---- ready_rows: the READY count, not the row count ----
+    # The fixture makes the two DIFFER (2 rows, 1 ready): a count that forgot the verdict filter
+    # reads 2 here and cannot pass.
+    with tempfile.TemporaryDirectory() as td:
+        pkg = Path(td) / "goals" / "zz-goal" / "runs" / "run-1"
+        (pkg / "coordination").mkdir(parents=True)
+        for s in ("alpha", "beta"):
+            (pkg / "seats" / s).mkdir(parents=True)
+            (pkg / "seats" / s / "seat.md").write_text(
+                f"---\nseat: {s}\nharness: claude\n---\nbrief\n", encoding="utf-8")
+        (pkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-1,alpha,,claude,opus,high,50,m0\n"
+            "tf-2,beta,alpha,claude,opus,high,50,m0\n", encoding="utf-8")
+        (pkg / "coordination" / "workers.md").write_text(
+            "| agent | active | tmux pane | working on | checked in | checked out | last-read |\n"
+            "|---|---|---|---|---|---|---|\n", encoding="utf-8")
+        n, reason = ready_row_count(str(pkg))
+        check(f"B1: ready_rows counts READY verdicts, not taskforce rows (2 rows, 1 ready; "
+              f"got {n!r}, reason={reason!r})", n == 1 and reason == "")
+
+    # A package with no taskforce.csv at all answers 0 rather than raising — the sensor runs on
+    # rooms that have no DAG, and a raise there would cost the whole snapshot.
+    with tempfile.TemporaryDirectory() as td:
+        pkg = Path(td) / "goals" / "g" / "runs" / "run-1"
+        (pkg / "coordination").mkdir(parents=True)
+        n, reason = ready_row_count(str(pkg))
+        check(f"B1: a package with no taskforce.csv reads 0, never an exception (got {n!r})",
+              n == 0 and reason == "")
+
+    # ---- live_executors: live AND seated, paned only ----
+    rows = [{"seat": "a", "liveness": "live"},        # counted
+            {"seat": "b", "liveness": "no-harness"},  # a seat whose harness died
+            {"seat": "c", "liveness": "shell"},       # a seat sitting at a shell
+            {"seat": "", "liveness": "live"}]         # a live pane that is NOT a seat
+    check("B1: live_executors counts live SEATED panes only (1 of 4)",
+          live_executor_count(rows) == 1)
+
+    # ---- queued: the owner ruling's scoping, and the counts that close ----
+    with tempfile.TemporaryDirectory() as td:
+        goals = Path(td) / "goals"
+        pkg = goals / "zz-goal" / "runs" / "run-1"
+        pkg.mkdir(parents=True)
+        goal = str((goals / "zz-goal").resolve())
+        other = str((goals / "zz-goal-2").resolve())   # the sibling-prefix control
+
+        empty_db = queue_fixture(td, [])
+        n, src = queued_count(str(pkg), empty_db)
+        check(f"B1: baseline — an empty queue is 0 AND readable, never None (got {n!r})",
+              n == 0 and src["readable"] is True and src["scanned"] == 0)
+
+        sub = Path(td) / "full"
+        sub.mkdir()
+        db = queue_fixture(sub, [
+            json.dumps({"tool": "selfheal-watch"}),                                    # no path
+            json.dumps({"profile": "p", "workdir": f"{goal}/runs/run-1/seats/alpha"}),  # MATCH
+            json.dumps({"profile": "p", "workdir": f"{other}/runs/run-1/seats/alpha"}),  # sibling
+            json.dumps({"prompt": "c", "workdir": goal}),          # MATCH — the goal root itself
+            json.dumps({"profile": "p", "workdir": f"{goal}/runs/run-2/seats/x"}),  # MATCH — run 2
+            "{not json at all",                                                   # unscopable
+            json.dumps("a bare string"),                          # valid JSON, not an args object
+        ])
+        n, src = queued_count(str(pkg), db)
+        check(f"B1: queued is GOAL-scoped per d-owner-batch1 (4) — the goal root and a SECOND "
+              f"run of the same goal both count, so 3 of 7 (got {n!r})", n == 3)
+        check(f"B1: a sibling goal sharing the path PREFIX (`zz-goal-2` vs `zz-goal`) is NOT "
+              f"scoped in (got {n!r}, would be 4)", n == 3)
+        check(f"B1: a row whose args will not decode is EXCLUDED and COUNTED, never silent "
+              f"(unscopable={src['unscopable']})", src["unscopable"] == 2)
+        check(f"B1: the counts close — scanned {src['scanned']} == matched {n} + unscopable "
+              f"{src['unscopable']} + 2 other-goal rows",
+              src["scanned"] == n + src["unscopable"] + 2)
+        check(f"B1: the source names the goal it scoped on ({src['goal']!r})", src["goal"] == goal)
+
+        # ---- the READ-ONLY bound, checked on THE MODULE's own open (the 7.73 pattern) ----
+        # Watching the kernel refuse a write on a connection this check opened proves sqlite works
+        # and stays green with `queued_count` switched read-write. The subject is the URI the
+        # module itself asked for, captured as it asked.
+        opened = []
+        real_connect = sqlite3.connect
+
+        def spy(*a, **kw):
+            opened.append(a[0] if a else kw.get("database"))
+            return real_connect(*a, **kw)
+
+        sqlite3.connect = spy
+        try:
+            queued_count(str(pkg), db)
+        finally:
+            sqlite3.connect = real_connect
+        uri = str(opened[0] if opened else "")
+        check(f"B1: the queue is opened READ-ONLY — the module's own connect asked for mode=ro "
+              f"({uri!r})", "mode=ro" in uri)
+        ro = real_connect(uri, uri=True)
+        try:
+            ro.execute("DELETE FROM queue")
+            ro.commit()
+            refused = False
+        except sqlite3.OperationalError:
+            refused = True
+        finally:
+            ro.close()
+        rw = real_connect(db)                                    # the control, same statement
+        rw.execute("DELETE FROM queue WHERE queue_id = 999")
+        rw.commit()
+        rw.close()
+        check("B1: that connection cannot write — the kernel refuses while the SAME statement "
+              "succeeds read-write on the same file (so the refusal is the mode's)", refused)
+
+        # ⚠ THE FIELD THAT COULD NOT BE READ IS None, NEVER 0 — a 0 here would read to CMP-21 as
+        # "nothing queued", which is one third of its stall predicate, satisfied by a fabrication.
+        n, src = queued_count(str(pkg), str(Path(td) / "nope.db"))
+        check(f"B1: an absent heart.db reports WHY and reads None, never 0 (got {n!r}, "
+              f"reason={src['reason']!r})",
+              n is None and src["readable"] is False and "does not exist" in src["reason"])
 
 
 def cmd_selftest(args):
@@ -1601,6 +1897,8 @@ def cmd_selftest(args):
         _, _, missing = headless(str(pkg), now_, str(Path(td) / "nope.db"))
         check("7.73: an absent heart.db reports WHY rather than an ambiguous empty headless[]",
               missing["readable"] is False and "does not exist" in missing["reason"])
+
+    _selftest_run_block(check)
 
     print(f"\n{'PASS' if not failures else 'FAIL'} — {len(failures)} failure(s)")
     return 1 if failures else 0
