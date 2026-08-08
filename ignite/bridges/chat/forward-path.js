@@ -49,6 +49,13 @@ const DECLINE_NOTICE = "⚠ couldn't route your reply to the running work — pl
 // fixes it, because the owner reading it in Slack is the one who can.
 const NO_GOAL_SEAT_NOTICE = "⚠ no goal-master seat is open for this goal — ask the run's owner to seat one";
 
+// The THIRD honest refusal, same mechanics again: the daemon's idempotent door suppressed this
+// session-create because the seat is still busy with a live turn, so NOTHING was enqueued
+// (ruling `d-q9-door`). Fixed string, no internals — it states the outcome the owner cannot
+// otherwise see (his message did NOT land) and the act that fixes it (send it again), because
+// unlike the two notices above, nobody else can act on this one: it clears on its own.
+const SEAT_BUSY_NOTICE = "⚠ that work is still busy with the previous message — yours was NOT delivered, please send it again shortly";
+
 // Where a goal-channel session is HOMED: the goal-master seat of that goal's OPEN run.
 //   <workspaceRoot>/.rbtv/goals/<goalId>/runs.csv  → the row with state=open
 //   <workspaceRoot>/.rbtv/goals/<goalId>/runs/<run-id>/seats/goal-master
@@ -178,6 +185,37 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       log('warn', 'session-create enqueue refused by gateway', { chatThreadId, error: res.error });
       return { forwarded: false, leg: 'session-create', intent: 'enqueue-job', error: res.error };
     }
+    // ⚠ A RETURNED QUEUE ID IS NOT DELIVERY — the door may have suppressed this create
+    // (ruling `d-q9-door`; the discard bound is stated in heart-store.js at the guard).
+    // The store dedups `launch-agent` enqueues on a (run, seat) key and returns BEFORE the
+    // INSERT, so a suppressed call's `args` — the user's text included — are DISCARDED and the
+    // caller is handed the HELD operation's id. This bridge is the caller that loses by it:
+    // EVERY session it creates is homed at a SHARED seat — master traffic at `config.workdir`,
+    // goal traffic at that goal's `goal-master` (see `workdirFor`) — so a new conversation
+    // opening while that seat holds a live turn is precisely the suppressed case.
+    //
+    // Mapping the thread to that id would bind this conversation to a turn it did not create,
+    // and the user's message would be neither enqueued nor delivered while the bridge logged a
+    // success (measured, Q9 review 2026-08-08). So nothing is mapped and the human is told.
+    if (res.result && res.result.deduped) {
+      log('warn', 'session-create suppressed at the door — seat busy, NOTHING enqueued', {
+        chatThreadId, route: route && route.kind, goalId: route && route.goalId,
+        heldQueueId: res.result.jobId, because: res.result.because, seatKey: res.result.seat_key,
+      });
+      await postDeclineNotice(chatThreadId, SEAT_BUSY_NOTICE);
+      // The undelivered text rides the REFUSAL so no caller has to reconstruct what was lost —
+      // `chat-bridge.js` routeBusRowToMaster already falls through to posting the row raw on a
+      // not-forwarded result, which turns this from silent loss into a degraded delivery.
+      return {
+        forwarded: false,
+        leg: 'session-create',
+        intent: 'enqueue-job',
+        reason: `seat-busy-deduped:${res.result.because || 'unknown'}`,
+        undeliveredText: text,
+        route: route && route.kind,
+        goalId: (route && route.goalId) || null,
+      };
+    }
     const queueId = res.result && res.result.jobId;
     threadMap.create(chatThreadId, { queueId });
     log('info', 'session-create job enqueued', { chatThreadId, queueId, route: route && route.kind, goalId: route && route.goalId, profile, workdir: home.workdir || null });
@@ -260,4 +298,4 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   return { onChatMessage, forwardSessionCreate, forwardFollowUp, CMP8_TYPES };
 }
 
-module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, resolveGoalMasterSeat };
+module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, SEAT_BUSY_NOTICE, resolveGoalMasterSeat };

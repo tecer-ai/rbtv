@@ -193,6 +193,20 @@ seat one` on the goal's channel. There is deliberately **no fallback workdir**: 
 session launched outside its seat would run with no descriptor and no goal identity at
 all, which is worse than not running.
 
+⚠ **Both rows above are SHARED seats, so a returned queue id is NOT delivery.** The
+daemon's idempotent door (ruling `d-q9-door`) dedups `launch-agent` enqueues on a
+(run, seat) key and returns **before** the INSERT — a suppressed call's `args`, the
+user's text included, are discarded and the caller is handed the **held** operation's
+id. Every master sitting shares one `config.workdir`, and every sitting of one goal
+shares that goal's `goal-master`, so a new conversation opening while that seat holds a
+live turn is exactly the suppressed case. The forward path therefore reads `deduped` on
+the result: it maps **nothing**, returns `forwarded: false` with
+`reason: seat-busy-deduped:<what held it>` and the undelivered text on
+`undeliveredText`, and posts the seat-busy notice below. Mapping the thread to that id
+would bind the conversation to a turn it did not create and swallow the message while
+logging a success — measured on the pre-fix code, Q9 §2 review 2026-08-08.
+The follow-up leg is unaffected: it rides `send-message`, which the door does not key.
+
 ## The reply leg (D110) — `reply-leg.js`
 
 The outbound production driver that closes Behavior #3. On every FORWARDED turn the
@@ -251,7 +265,11 @@ fixed decline notice (`⚠ couldn't route your reply to the running work — ple
 again shortly`) via `deliverToOwner`. The same mechanics carry the goal-channel
 no-seat notice above. When the reply leg retires an exec undelivered
 at its attempt cap, it posts a fixed give-up notice (`⚠ the agent finished but its
-reply couldn't be delivered`). Notices carry NO internals, are **best-effort** (a
+reply couldn't be delivered`). When the door suppresses a session-create because the
+seat is still busy, it posts a fixed seat-busy notice (`⚠ that work is still busy with
+the previous message — yours was NOT delivered, please send it again shortly`) — the
+one notice whose fix is nobody's act but the clock's, which is why it says *retry*
+rather than naming a human. Notices carry NO internals, are **best-effort** (a
 failed post is logged and dropped, never retried into a loop), and are posted ONLY
 for mapped conversations — never on an allowlist/pairing refusal (unpaired users get
 nothing, by security posture).
@@ -429,6 +447,7 @@ graded for staleness (`ignite/CLAUDE.md` § probes). Evidence → `probe-chat-<n
 | `probe-chat-mention-route` | — | the 2026-08-06 rulings: a mention in an unmapped channel routes as master with a thread-scoped conversation and an in-thread reply address; an unmentioned (or someone-else-mentioning) message there stays refused with nothing enqueued; `mpim` stays refused even when mentioned; a failed `auth.test` DISABLES the mention route while the DM path keeps working; a goal session-create is homed at the open run's `goal-master` seat; each of the four unresolvable-seat states (no open run · run open but unseated · goal absent · `workspace_root` unset) enqueues nothing and posts the fixed no-seat notice; every session-create prompt equals the user text verbatim; the runtime source carries no instance path and no `MASTER_CHARTER`; and the **mint-vs-continue** rule — a mention mints, an un-mentioned reply in a KNOWN thread continues as a follow-up `send-message`, while an unknown thread, a top-level message, and the same `thread_ts` in another channel each stay refused with nothing enqueued |
 | `probe-chat-state-persistence` | — | the 2026-08-06 `state_file` ruling, modelled as a real restart (a SECOND `buildBridge` on the same file, fresh maps, the same still-running daemon): a mutation writes the file (0600, directory created) carrying BOTH tables; the restarted bridge starts empty, restores at `start()`, and an **un-mentioned reply in the restored thread CONTINUES** — the owner's amnesia repro, now green — with the restored reply address still addressing the original channel+thread; the CONTROL run with no `state_file` refuses that same reply; with no `state_file` **nothing is written anywhere** (asserted against an empty cwd); a corrupt file is renamed aside `.corrupt-<ts>`, logged at `error`, starts EMPTY without crashing, and still mints and re-persists afterwards; `closeGoal`'s reply-address DELETE is persisted; a relative `state_file` is refused at config resolution while unset stays `null` |
 | `probe-chat-bus-ferry` | — | the bus ferry: a 50-row `to: master` backlog is NOT ferried at first sight and the cursor lands at the tail; a row appended after IS ferried once with the exact header; `to: leader` is ignored while `to: master, leader` ferries and `goal-master` does not; an over-long body truncates at a line boundary naming the workspace-relative source; a torn trailing row is left unposted until it completes; malformed headers warn once then drop to debug without stopping the rows around them; a failed post is retried without advancing the cursor and without letting the next row jump it, then is skipped loudly at the attempt cap leaving the ferry UNWEDGED; the cursor survives a real restart (second `buildBridge`, same `state_file` → no double-post, no re-flood) with the state file EXTENDED not restructured; a `state=closed` run is never enumerated; and the fail-closed set — off by default, on-without-`workspace_root`, and a failed `conversations.open` — each disables the ferry loudly while the bridge starts fine. **The 2026-08-07 role route:** a LIVE roster seat declaring `relays: master` stands the ferry down with nothing posted and the cursor advanced, while the same seat CHECKED OUT routes and a LIVE seat with NO `relays:` declaration also routes (so the decision reads the DECLARATION, not "some seat is alive" — the fixture seat is named `goal-master`, a name the `to:` matcher does not match, so keying on the name fails these legs); with no holder the post MINTS a sitting whose session-create prompt equals the posted row byte-for-byte, the conversation is keyed on the post's own `ts`, and an un-mentioned reply in that thread CONTINUES it as a `send-message` on the row's own chain instead of minting a second session; an ABSENT roster routes. Every leg mutation-tested (3 mutations, 3 red on exactly their own legs) |
+| `probe-chat-dedup-refusal` | — | **two threads at ONE seat** — the coverage no other probe here had (each drives one conversation, and the whole defect lives in the second). Against the REAL door (throwaway daemon, thread A's row FIRED so a live turn genuinely holds the seat): a suppressed session-create writes **no** thread mapping, is never reported as a queued success, posts the seat-busy notice to *that* thread, and carries the undelivered text on `undeliveredText` — proven on BOTH shared-seat derivations, `config.workdir` (master) and `resolveGoalMasterSeat` (goal). The review's control is re-measured (thread A's text in the store, thread B's nowhere); the first thread's follow-up leg still enqueues, which is also the **tolerance sweep** — `send-message` is the only other bridge-side reader of an enqueue response and the door never keys it. RED ARM: a scratch copy of `forward-path.js` with the guard cut out — the pre-fix code exactly — maps the new thread to the held queue id and posts nothing, and the mutation is asserted to have altered the source first |
 | `probe-chat-boundary` | #5 | bridge source holds no spawn/queue handle, opens no server, imports no sibling |
 | `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; **exec KNOWN but NOT live → derives `exec-<firstExecId>`** (D111 convention fallback); **first-exec immutability** (a later exec-id bind is ignored); **exec-id-unknown DECLINES** (nothing enqueued) and posts the exact decline notice to the mapped thread while an allowlist-refused user gets nothing; a failed notice post is logged and dropped (no retry loop) |
 
