@@ -30,40 +30,53 @@ claim was right about the thing being watched and imprecise about the thing that
 WHAT IT DOES: thresholds the snapshot into a DECISION SET, and delivers each decision to a
 LIVE recipient. Nothing else.
 
-NOTIFY-ONLY, AND THAT IS A DELIBERATE READING OF A SELF-CONTRADICTING CONTRACT
------------------------------------------------------------------------------
-Task 7.32 says this job "spawns a closer" and "runs the restarter", and in the same
-paragraph says it "never performs an agentic action itself", with the chain
-    job (deterministic detection) -> chief-of-staff (operational recovery) -> leader
-    (judgment) -> master/owner.
-Both cannot hold. This job resolves it as DETECT + DELIVER: every flag carries the exact
-remedy command, and the agentic half is performed by chief-of-staff. Reasons, not a default:
+THE CHAIN IS DETERMINISTIC AND HAS NO OPERATIONAL-RECOVERY AGENT IN IT (CMP-21)
+-------------------------------------------------------------------------------
+Owner ruling `decisions.md#d-watcher-deterministic-chain` (2026-08-08) settles CMP-21 and
+RETIRES the `chief-of-staff` role and the `closer` outright. The chain this file implements
+is exactly:
 
-  1. Lifecycle is the leader's, and `p-no-seat-closed-for-memory` stands — nothing is closed
-     to buy headroom, and nothing autonomously at all.
-  2. `r-cutover-gated` bars the run's own control loop from adopting an un-shadowed feature.
-     Handing a job built tonight autonomous close rights IS that cutover.
-  3. It makes the shadow window mean something. `watch.py`, the layer this shadows, is
-     notify-only WITH EXACTLY ONE EXCEPTION — its charter was amended by `s4-08` on
-     2026-07-29 (goal decisions.md, anchor `r-watch-revival-arm-amends-notify-only`; resolve
-     it by ANCHOR — that file is append-only and grows, so a line number is a hint only). The
-     one exception is the seat-down revival arm (`r-leader-revival-is-deterministic`): it
-     relaunches a CRASHED seat with no agent in the path, on a HARD liveness signal only, and
-     the loop's actuator count of ONE is asserted by `watch.py --selftest` rather than claimed
-     in prose. Everything else in that loop still closes, kills and relaunches nothing.
-     ⚠ This paragraph used to quote the PRE-AMENDMENT charter ("the loop never closes, kills,
-     or relaunches anything") as though it were still whole. It is not — and the amendment
-     does not reach THIS file: only the quotation was corrected here, no behaviour changed
-     (`r-cutover-gated`, still untouched, is reason 2 above).
-     The justification survives the amendment, and the reason is the comparison object: two
-     layers that both emit decisions are comparable, and the object is the DECISION SET, per
-     the window's own definition. Both layers still EMIT a decision for a down seat; only the
-     executor of it differs. What the amendment does cost is narrow, and must be said: on that
-     ONE row the two layers are no longer symmetric in ACTUATION, so nobody may read
-     `watch.py`'s revival arm as evidence that THIS job may act as well. It may not.
+    deterministic detect -> fix INLINE where the fix is mechanical -> nudge the SEAT where
+    the seat can act -> nudge the LEADER where judgment is needed -> the leader to the
+    `master` or the owner.
 
-Disclosed to the leader at entry (run-root `m2-lane-e-entry.md`); override is one flag on
-one code path.
+No agent is ever spawned to close another agent and nothing mechanical recycles a seat. No
+decision, remedy, flag or help string here names a retired role: that ABSENCE is the
+grep-provable property, and it replaces task 7.32's older self-contradicting wording
+(`job -> chief-of-staff -> leader`), which the ruling supersedes.
+
+WHICH ROWS ACT AND WHICH ONLY NUDGE — enumerated, because "deterministic" is not a mood:
+
+  INLINE MECHANICAL FIX (performed here, and ONLY with `--notify`; see `run_inline`)
+    STALE-SENSOR  runs team-monitor's OWN idempotent `ensure` (invariant 2). Idempotent is
+                  what makes it a fix rather than a judgment. A sensor that does not come
+                  back is nudged to the LEADER, with the failing exit in the flag.
+    REAP          runs the kit's OWN `reap` observation pass over the awaiting-close debt
+                  (invariant 6). The pane KILL is `reap --go`, which coord role-gates to a
+                  LEADER-CLASS seat — a gate this job holds no role to pass, in a file this
+                  change does not own (⚠ coord's gate predicate still spells the retired second
+                  half of that role in its own identifier; flagged for coord's owner, never
+                  extended here). So the CONFIRMATION is what is performed (coord's own
+                  two-pass rule needs it and its docstring names a watcher as the sweeper),
+                  and the confirmed set is what is nudged to the LEADER.
+  NUDGE THE SEAT  QUIET (the seat is the one that can answer) and CONTEXT (invariant 3: the
+                  seat renews ITSELF — writes memory, runs `checkout --renew`, relaunches).
+                  Unresolved `--escalate-after` consecutive passes later -> nudge the LEADER.
+  NUDGE THE LEADER  every row needing judgment: ROOM-DEAD, BOX, RUN-STALL, APPROVAL,
+                  DEAD/COMPLETED/GHOSTROW, WORKTREE-SWEEP, and every escalated seat row.
+
+Two Layout rows are DELIBERATELY not actuated here, and each names its owner rather than
+being silently absent:
+
+  - the dirty-finish FAILURE-MODE ENQUEUE stays SHADOW — barred as autonomous actuation by
+    rider 1 of `p-756-edge-consumption-true` (OWNER-CLASS, not this change's to reverse) and
+    by `r-cutover-gated`. See THE SHADOW BACKSTOP below.
+  - LAUNCH GATING under a breached RAM floor ALREADY belongs to the launch door:
+    `coord.launch_gates` refuses a launch against the SAME `budget.json` floor this row
+    thresholds. A second gate here would be a second implementation of one rule (`PRIN-11`),
+    free to disagree with the door that actually stops launches. So this row detects the
+    RISING TREND the at-launch gate structurally cannot see (it fires AT LAUNCH and cannot
+    evaluate a trend) and nudges the LEADER with the facts. It never kills a working seat.
 
 THE DEAD-ROOM ROW HANDS OFF; IT DOES NOT REBUILD
 ------------------------------------------------
@@ -74,13 +87,15 @@ mechanisms that can disagree about whether a room is dead and both act. So this 
 changes is only that the condition now appears in this job's decision set, where the shadow
 window can score it.
 
-STALENESS IS PAUSE + RECOVER, NOT ALERT-ONLY (R24 + R32)
---------------------------------------------------------
+STALENESS IS PAUSE + RECOVER, NOT ALERT-ONLY (R24, CMP-21 invariant 2)
+----------------------------------------------------------------------
 A snapshot older than `--tolerance-mult` x the sensor cadence means THE SENSOR IS THE
 INCIDENT. Two behaviours, both required and both implemented here: enforcement PAUSES
 entirely (no threshold acts off a frozen snapshot — a watcher enforcing on a stale world
-spawns closers against seats that no longer exist), AND chief-of-staff is woken to restart
-the sensor. Enforcement resumes on the first fresh snapshot, with no manual re-arm.
+acts against seats that no longer exist), AND the sensor's own idempotent `ensure` is run
+INLINE, here, as a mechanical fix with no agent in the path. Enforcement resumes on the
+first fresh snapshot, with no manual re-arm. A sensor the `ensure` does not bring back is
+the one case that leaves this row for the leader.
 
 This is a PREREQUISITE of the box-pressure row, not a sibling of it. `box{}` lives inside
 the snapshot, so a dead sensor takes the box signal with it silently — the gravestone shape
@@ -161,8 +176,14 @@ side-effect set, read at `edge-runner-job.py:enqueue` → `default_submitter`, i
 `ignite add-job` through `subprocess.run`, which reaches the daemon's gateway `enqueue-job`
 intent, which writes a durable queue row, which later launches a seat. This arm's side-effect
 set is: append lines to the trail file above, and print. THE INTERSECTION IS EMPTY, and it is
-grep-provable in the direction that matters — this file imports no `subprocess`, imports
-`edge-runner-job` not at all, and contains no enqueue verb and no queue call. A shadow that
+still grep-provable — but the proof is NARROWER than it was, and the narrowing is stated here
+rather than left for a reader to discover. This file now DOES import `subprocess`: CMP-21's
+invariants 2 and 6 make the sensor restart and the reap confirmation INLINE MECHANICAL FIXES,
+and a fix that spawns nothing is not a fix. So the claim is no longer "imports no
+`subprocess`" but the exact one that matters: `INLINE_FIX_SCRIPTS` is the COMPLETE set of
+programs `run_inline` may exec and it is enforced there by refusal, `ignite` is not in it and
+neither is any queue door, this file imports `edge-runner-job` not at all, and it contains no
+enqueue verb and no queue call. A shadow that
 enqueued to a side queue would still be the barred act (D-3's act-identity test); the bar
 attaches to the side-effect set, never to the word on the branch.
 
@@ -191,6 +212,7 @@ It never writes `state.json`: task 7.33 has exactly one writer and this is a rea
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -201,14 +223,18 @@ import jobcontain  # noqa: E402
 sys.path.insert(0, str(HERE.parent / "team-kit"))
 import budget as budget_mod  # noqa: E402 — the ONE reader of the run's declared floor (task 7.82)
 
-# The chief-of-staff ROLE is what this job escalates to (registry `chief-of-staff`, R32).
-# The legacy alias for that role is deliberately ABSENT from this file, its config and its
-# prompts: the alias exists for readers of old records, not for new code (grep-provable).
-DEFAULT_ROLE_SEAT = "watcher"
-DEFAULT_FALLBACK = "leader"
+# The LEADER is the one role this job escalates to (CMP-21's chain). The two roles that ruling
+# retired name nothing here, and `--selftest` asserts it rather than this comment claiming it.
+DEFAULT_LEADER_SEAT = "leader"
+DEFAULT_FALLBACK = ""
 DEFAULT_CADENCE_S = 20.0
 DEFAULT_TOLERANCE_MULT = 3.0
 DEFAULT_QUIET_MIN = 30
+# How many CONSECUTIVE passes a seat-addressed row may go unresolved before the same condition
+# is escalated to the leader (CMP-21 Layout rows 3 and ctx-refresh: "still quiet N cadences
+# later -> nudge the LEADER"). Consecutive, not cumulative: the counter resets the pass the
+# condition clears, so a seat that answers and later goes quiet again starts its own episode.
+DEFAULT_ESCALATE_AFTER = 3
 # ⚠ `DEFAULT_MEM_FLOOR_MB = 2000` STOOD HERE, and its own comment said the quiet part out loud:
 # "it MUST be re-synchronised whenever that ruling moves — it is a copy, and a copy drifts." A
 # default that documents its own drift is still a home. Task 7.82 / `r-floor-single-source` deletes
@@ -227,12 +253,46 @@ CLEAN_CHECKOUT = "done"
 # The act this arm COMPUTES and DOES NOT PERFORM, written out in full because the record's
 # `act_not_taken` field is this constant and nothing else — there is deliberately no code path
 # by which a trail record can carry an act that WAS performed.
-BARRED_ACT = ("enqueue this seat's `workflow-edge` job in FAILURE MODE (closer-first, CMP-25) "
+BARRED_ACT = ("enqueue this seat's `workflow-edge` job in FAILURE MODE (CMP-25) "
               "through the daemon's enqueue door — barred as autonomous actuation by rider 1 of "
               "`p-756-edge-consumption-true` (OWNER-CLASS, not the run's to reverse) and by "
               "`r-cutover-gated`. NOT PERFORMED. No accumulation of these records authorizes "
               "performing it; the real act needs a FRESH owner-class authorization through the "
               "`master`.")
+
+# ---- the INLINE MECHANICAL FIX door (CMP-21 invariants 2 and 6).
+# THE COMPLETE SET OF PROGRAMS THIS FILE MAY EXEC, by basename. It is the successor to the
+# old "imports no subprocess" proof: the barred act's door is `ignite add-job`, `ignite` is not
+# on this list, and `run_inline` REFUSES anything that is not — so the act-identity claim in
+# THE SHADOW BACKSTOP is enforced by a branch rather than by a promise.
+INLINE_FIX_SCRIPTS = ("team_monitor.py", "coord.py")
+INLINE_FIX_TIMEOUT_S = 45
+
+
+def run_inline(script, tail, timeout=INLINE_FIX_TIMEOUT_S):
+    """Run ONE inline mechanical fix as a child process. (ok, detail). THE ONLY exec door here.
+
+    Both fixes it carries are IDEMPOTENT by the callee's own contract — team-monitor's `ensure`
+    and coord's observe-only `reap` — which is precisely what makes them fixes rather than
+    judgments, and what makes running one on every stale pass safe.
+
+    The child is exempted from this job's own address-space and CPU caps (`child_preexec`): a
+    sensor restart killed by the WATCHER's budget would leave the sensor half-started, which is
+    a worse state than the one being repaired."""
+    name = os.path.basename(str(script))
+    if name not in INLINE_FIX_SCRIPTS:
+        return False, (f"REFUSED: `{name}` is not an inline-fix program. This job may exec only "
+                       f"{INLINE_FIX_SCRIPTS} — no queue door is reachable from here.")
+    if not script:
+        return False, f"REFUSED: no path given for `{name}`"
+    try:
+        r = subprocess.run([sys.executable, str(script), *tail], capture_output=True,
+                           text=True, timeout=timeout, preexec_fn=jobcontain.child_preexec)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return False, f"`{name}` did not run: {type(exc).__name__}: {exc}"
+    lines = [ln for ln in (r.stdout or r.stderr or "").splitlines() if ln.strip()]
+    return r.returncode == 0, (f"exit {r.returncode}"
+                               + (f"; {lines[-1].strip()[:160]}" if lines else ""))
 
 
 # ---------------------------------------------------------------- snapshot
@@ -299,13 +359,22 @@ def save_state(path, state):
 
 # ---------------------------------------------------------------- decisions
 
-def decision(cls, subject, action, detail, remedy=""):
+def decision(cls, subject, action, detail, remedy="", nudge="leader", fix=None):
     """One element of the comparison object the shadow window scores (m2 shape §7.1).
 
     `cls` is the vocabulary class; `action` is what the layer says to DO. Two layers agree
-    when they produce the same (class, subject, action), never when they agree on a reading."""
+    when they produce the same (class, subject, action), never when they agree on a reading.
+
+    `nudge` is CMP-21's RECIPIENT CLASS and it is per-decision, never per-pass — `"seat"`
+    addresses the subject seat itself, `"leader"` the leader, `""` nobody (a reported row).
+    One recipient for a whole pass was the old shape and it cannot express the seat half of
+    the chain at all: a quiet seat's flag went to a third party who could only relay it.
+
+    `fix` is `(script, [argv-tail])` for a row whose repair is MECHANICAL — run by the caller
+    through `run_inline`, and only under `--notify`. It is built here and executed nowhere in
+    this function, which is what keeps `evaluate` pure and a dry pass genuinely dry."""
     return {"class": cls, "subject": subject, "action": action,
-            "detail": detail, "remedy": remedy}
+            "detail": detail, "remedy": remedy, "nudge": nudge, "fix": fix}
 
 
 # ---------------------------------------------------------------- shadow backstop
@@ -393,6 +462,95 @@ def append_trail(path, records):
     return len(records)
 
 
+# ---------------------------------------------------------------- run stall
+
+def headless_live(snap):
+    """(count, why) — executors occupying work with NO PANE, from this same snapshot.
+
+    `run.live_executors` counts live PANED seats only, and says so; a HEADLESS execution has no
+    pane and is invisible to it. A stall predicate reading only that term therefore fires DURING
+    A HEALTHY HEADLESS WINDOW, which is a false alarm on the one row whose whole value is that
+    it is believed.
+
+    NON-TERMINALITY IS READ OFF THE ROW'S OWN `outcome`, NOT off a copy of the sensor's status
+    enum: team-monitor sets `outcome` to a dict exactly when the row's status is terminal and to
+    `null` otherwise, so `outcome is None` IS "this executor is still occupying work" in the
+    sensor's own words. A second spelling of that enum here would be free to drift from it.
+
+    An UNREADABLE source is `None`, never 0 — the same discipline CMP-20 applies to the run
+    block's own terms, and for the same reason: a 0 standing in for "unknown" satisfies a third
+    of the stall predicate with a fabrication."""
+    src = snap.get("headless_source")
+    if not isinstance(src, dict):
+        return None, "snapshot carries no headless_source (older sensor)"
+    if not src.get("readable"):
+        return None, (src.get("reason") or "headless[] source not readable")
+    return sum(1 for r in (snap.get("headless") or []) if r.get("outcome") is None), ""
+
+
+def run_stall(snap, args):
+    """CMP-21 invariant 5 — [decision] or []. DETECTION ONLY: launching is the edge-runner's.
+
+    Ready DAG rows with zero live executors and nothing queued is a stalled RUN even though
+    every individual seat row looks clean — the contradiction no per-seat threshold can see.
+    All four terms come from the SNAPSHOT (invariant 1); none is computed here.
+
+    ⚠ THE PREDICATE IS EVALUATED ONLY WHEN EVERY TERM IS KNOWN. `ready_rows`, `queued` and the
+    headless count are each `null` when the sensor could not read their source, and every null
+    biases the predicate TOWARD firing — so an unreadable term would turn a sensor failure into
+    a stall alarm. Undecidable is reported as its own row and never delivered: it is a fact for
+    the decision set, and the sensor's own failure already has a row (STALE-SENSOR)."""
+    run = snap.get("run")
+    if not isinstance(run, dict):
+        return [decision("RUN-STALL", "run", "none — UNDECIDABLE: no run block in the snapshot",
+                         "this snapshot predates CMP-20's `run` block, so the stall predicate "
+                         "has no terms to read. Reported, never delivered.", "", nudge="")]
+    ready, live, queued = run.get("ready_rows"), run.get("live_executors"), run.get("queued")
+    hl, hl_why = headless_live(snap)
+    src = run.get("source") or {}
+    unknown = [n for n, v in (("ready_rows", ready), ("live_executors", live),
+                              ("queued", queued), ("headless-live", hl)) if v is None]
+    if unknown:
+        qsrc = src.get("queued") if isinstance(src.get("queued"), dict) else {}
+        why = "; ".join(x for x in (src.get("ready_rows") or "", qsrc.get("reason") or "",
+                                    hl_why) if x) or "no reason given by the sensor"
+        return [decision(
+            "RUN-STALL", "run", "none — UNDECIDABLE: " + ", ".join(unknown) + " unreadable",
+            f"the stall predicate needs all four terms and {len(unknown)} could not be read "
+            f"({why}). A null is NEVER read as 0 here: every null biases this predicate toward "
+            f"firing, so an unreadable term would turn a sensor failure into a stall alarm.",
+            "", nudge="")]
+    if not (ready > 0 and live == 0 and hl == 0 and queued == 0):
+        return []
+    return [decision(
+        "RUN-STALL", "run", "nudge leader: the run is stalled",
+        f"{ready} DAG row(s) are READY to be offered, and NOTHING is executing them: "
+        f"{live} live paned executor(s), {hl} live headless execution(s), {queued} queued "
+        f"row(s) for this goal. Every seat row can look clean while this holds — that is the "
+        f"contradiction this row exists to catch. DETECTION ONLY: launching a ready seat is the "
+        f"edge-runner's monopoly (CMP-25) and nothing here launches anything.",
+        "offer the ready rows, or say why they are not offerable", nudge="leader")]
+
+
+# ---------------------------------------------------------------- run-close sweep
+
+def worktree_leftovers(room_goal):
+    """CMP-21 invariant 8 — the goal's leftover worktrees under `{workspace}/.rbtv/worktrees/`.
+
+    A DIRECTORY READ filtered by `worktree-flow.py`'s own `{repo}--{goal}--{seat}` naming, run
+    when the goal has NO live run: that is the only moment "the run closed" is observable from
+    where this job stands. REMOVAL IS NOT PERFORMED and is not this file's: `worktree-flow.py`
+    owns it and REFUSES on a dirty tree, and a backstop that force-removed a dirty worktree
+    would destroy unmerged work — the opposite of a backstop."""
+    goal = Path(room_goal).resolve()
+    root = goal.parent.parent.parent / ".rbtv" / "worktrees"     # {ws}/.rbtv/goals/<goal>
+    try:
+        return sorted(p.name for p in root.iterdir()
+                      if p.is_dir() and f"--{goal.name}--" in p.name)
+    except OSError:
+        return []
+
+
 # ---------------------------------------------------------------- decisions
 
 def evaluate(snap, args, state, dispositions, now):
@@ -407,6 +565,8 @@ def evaluate(snap, args, state, dispositions, now):
     decisions = []
     trail = []
     coord_cmd = f"python3 {args.coord} --package {args.package}"
+    repeats = state.get("_repeat") or {}
+    held = {}          # condition-key -> consecutive passes it has held, THIS pass
 
     # ---- ROW 5 (FIRST, and it gates every other row): the staleness tripwire.
     tolerance = args.cadence_s * args.tolerance_mult
@@ -414,12 +574,16 @@ def evaluate(snap, args, state, dispositions, now):
     if age is None or age > tolerance:
         shown = "unknown" if age is None else f"{age:.0f}s"
         decisions.append(decision(
-            "STALE-SENSOR", "team-monitor", "wake chief-of-staff: restart the sensor",
+            "STALE-SENSOR", "team-monitor", "inline fix: restart the sensor (idempotent ensure)",
             f"snapshot age {shown} > tolerance {tolerance:.0f}s "
             f"({args.tolerance_mult:g}x the {args.cadence_s:g}s cadence). ENFORCEMENT IS "
             f"PAUSED — no threshold acts off a frozen snapshot, and box{{}} pressure is "
-            f"UNOBSERVED for as long as this lasts.",
-            f"python3 {args.team_monitor} ensure --package {args.package}"))
+            f"UNOBSERVED for as long as this lasts. The sensor's own `ensure` is idempotent, so "
+            f"restarting it is a mechanical fix and not a judgment (CMP-21 invariant 2); only a "
+            f"sensor that does NOT come back is the leader's.",
+            f"python3 {args.team_monitor} ensure --package {args.package}",
+            nudge="leader",
+            fix=(args.team_monitor, ["ensure", "--package", str(args.package)])))
         # The shadow arm is gated by the SAME tripwire as every threshold: a would-be decision
         # computed off a frozen snapshot is a would-be decision about a room that no longer
         # exists, and a trail of those is worse than an empty trail.
@@ -428,12 +592,17 @@ def evaluate(snap, args, state, dispositions, now):
     # ---- ROW 4: the room itself.
     if snap.get("session_alive") is False:
         decisions.append(decision(
-            "ROOM-DEAD", snap.get("session", "?"), "wake chief-of-staff: room recovery",
-            "the snapshot reports the room's tmux session absent. Recovery is task 7.71's "
-            "registered `selfheal-room` job, which owns this failure and is already armed — "
-            "this row detects and hands off rather than running a second recovery path that "
-            "could disagree with it.",
-            f"{coord_cmd} launch --only <seat> --force --force-memory  (kit fallback)"))
+            "ROOM-DEAD", snap.get("session", "?"), "nudge leader: the room is gone",
+            "the snapshot reports the room's tmux session absent. CMP-21 invariant 7 puts the "
+            "recreate-from-launch-profiles + harness-native-resume + ONE re-orient nudge behind "
+            "this row, and task 7.71's registered `selfheal-room` job ALREADY OWNS that recovery "
+            "and is armed against this room. Running a second recreate here would be two "
+            "mechanisms that can disagree about whether a room is dead and both act, so this row "
+            "detects and hands off. ⚠ The resume-by-birth-`session_ref` half of invariant 7 is "
+            "UNBUILT in that job as of this writing — it recreates rather than resurrects; the "
+            "gap is the leader's to route, and is why this row is a nudge and not a `none`.",
+            f"{coord_cmd} launch --only <seat> --force --force-memory  (kit fallback)",
+            nudge="leader"))
 
     # ---- ROW 7: box pressure. Continuous, which is the whole reason it exists — the launch
     # gate fires AT LAUNCH and cannot evaluate a rising trend at all.
@@ -460,10 +629,17 @@ def evaluate(snap, args, state, dispositions, now):
                          f"(>= {cores * args.load_per_core:g})")
     if box_flags:
         decisions.append(decision(
-            "BOX", "box", "wake chief-of-staff: box pressure",
+            "BOX", "box", "nudge leader: box pressure, launches already gated at the door",
             "; ".join(box_flags) + ". NEVER an autonomous close — `p-no-seat-closed-for-memory` "
-            "stands and no seat is closed to buy headroom.",
-            "pause launches; let finishing seats return their own RAM; escalate below 2600MB"))
+            "stands and no seat is closed to buy headroom, and no working seat is ever killed "
+            "(CMP-21 invariant 6). The launch GATE is not re-implemented here: "
+            "`coord.launch_gates` already refuses a launch against this same budget.json floor, "
+            "so a second gate would be free to disagree with the door that actually stops "
+            "launches (PRIN-11). What this row adds is the RISING TREND an at-launch gate "
+            "structurally cannot see, handed to the leader with the numbers.",
+            "let finishing seats return their own RAM; the launch door refuses new ones "
+            "below the run's declared floor",
+            nudge="leader"))
 
     # ---- ROW 6: GHOSTROW / COMPLETED / DEAD, driven from `roster_absent` — team-monitor's
     # own designated GHOSTROW input, which already separates the two failures that look alike
@@ -499,31 +675,37 @@ def evaluate(snap, args, state, dispositions, now):
 
         if r.get("liveness") == "absent":
             decisions.append(decision(
-                "DEAD", name, "wake chief-of-staff: pane gone",
+                "DEAD", name, "nudge leader: pane gone",
                 f"roster row ACTIVE but pane {pane} is not in the room — wakes cannot reach "
-                f"it. {r.get('reason', '')}".strip(),
-                f"{coord_cmd} close-seat {name} --no-export   (or relaunch)"))
+                f"it, so the SEAT is not a reachable recipient for its own flag. "
+                f"{r.get('reason', '')}".strip(),
+                f"{coord_cmd} close-seat {name} --no-export   (or relaunch)",
+                nudge="leader"))
         elif harness and harness in one_shot:
             # G-76. `opencode run` executes, prints, exits — for this harness a vanished
             # process is the SUCCESS path, and the remedy is the OPPOSITE of a ghost's.
             decisions.append(decision(
-                "COMPLETED", name, "wake chief-of-staff: close the finished one-shot",
+                "COMPLETED", name, "nudge leader: close the finished one-shot",
                 f"pane {pane} holds no process and this seat is bound to `{harness}`, a "
                 f"ONE-SHOT harness: it executed, printed and exited. Read the seat's LAST "
                 f"MESSAGE before acting — the message says whether work was delivered; the "
-                f"process cannot. Close, do not renew.",
-                f"{coord_cmd} close-seat {name}"))
+                f"process cannot. Close, do not renew. The close is LIFECYCLE and stays the "
+                f"leader's; nothing here closes a seat.",
+                f"{coord_cmd} close-seat {name}",
+                nudge="leader"))
         else:
             decisions.append(decision(
-                "GHOSTROW", name, "wake chief-of-staff: ghost roster row",
+                "GHOSTROW", name, "nudge leader: ghost roster row",
                 f"roster row ACTIVE but pane {pane} runs NO harness process"
                 + (f" (declared harness `{harness}`)" if harness else
                    " (no declared harness in taskforce.csv — classed conservatively as a "
                    "ghost, which asks for inspection rather than a close)")
                 + ". Its work is stopped and every wake sent to it is typed into a bare shell.",
-                f"inspect, then relaunch or close: {coord_cmd} close-seat {name} --renew"))
+                f"inspect, then relaunch or close: {coord_cmd} close-seat {name} --renew",
+                nudge="leader"))
 
-    # ---- ROWS 1/2/3: per-seat, over live rows only.
+    # ---- ROWS 1/2/3 + REAP: per-seat.
+    reapable = []
     for s in snap.get("seats") or []:
         name = s.get("seat") or ""
         pane = s.get("pane") or "?"
@@ -531,7 +713,22 @@ def evaluate(snap, args, state, dispositions, now):
             # A launched-but-silent pane: team-monitor reports it as a real state and never
             # guesses a name. Nothing here can be keyed to a seat, so nothing is decided.
             continue
-        if not s.get("roster_active") or name in absent:
+        if name in absent:
+            continue
+
+        # ---- THE REAP ROW (CMP-21 invariant 6), and it lives BEFORE the roster_active skip
+        # because it is the only row about a seat whose roster row is DONE. Three conditions,
+        # and the third is what keeps it deterministic: a roster row that is no longer active,
+        # a pane still LIVE (still holding the memory), and a DURABLE `done` disposition off
+        # sessions.csv. Without the third, a seat that was launched and never checked in reads
+        # identically to one that finished — both carry `roster_active: false` — and reaping
+        # the first would kill a starting seat. The disposition is read through the SAME single
+        # reader the shadow arm uses, so the two arms cannot disagree about what `done` means.
+        if s.get("roster_active") is False:
+            if s.get("liveness") == "live" and dispositions.get(name) == CLEAN_CHECKOUT:
+                reapable.append(f"{name} ({pane})")
+            continue
+        if not s.get("roster_active"):
             continue
 
         # ROWS 1/2/3 are evaluated INDEPENDENTLY — no early exit between them. A seat can be
@@ -545,10 +742,19 @@ def evaluate(snap, args, state, dispositions, now):
         # waiting on one keypress.
         if s.get("prompt_pending"):
             decisions.append(decision(
-                "APPROVAL", name, "wake chief-of-staff: clear the prompt",
+                "APPROVAL", name, "nudge leader: non-allowlisted prompt residue",
                 f"pane {pane} is parked on an interactive approval prompt — it is frozen "
-                f"until someone answers, and a wake typed into it lands in the modal.",
-                f"{coord_cmd} approve {name}"))
+                f"until someone answers, and a wake typed into it lands in the modal. "
+                f"⚠ CMP-21 invariant 4 splits this row: allowlisted residue is answered "
+                f"DETERMINISTICALLY here and only the rest is the leader's. THE ALLOWLIST HALF "
+                f"IS NOT BUILT, and the reason is a snapshot bound rather than an omission: "
+                f"CMP-20 carries `prompt_pending` as a BOOLEAN and no prompt identity, so from "
+                f"`state.json` alone — invariant 1, the only input this job has — no prompt can "
+                f"be matched against any allowlist. Every prompt is therefore non-allowlisted "
+                f"residue by construction, which is the SAFE arm of the split. Answering one "
+                f"needs CMP-20 to carry the prompt's identity first.",
+                f"inspect the pane, then: {coord_cmd} approve {name}",
+                nudge="leader"))
 
         # ROW 2: quiet. G-68 — a standby seat's correct state is WAITING.
         age_s = s.get("last_activity_age_s")
@@ -560,37 +766,91 @@ def evaluate(snap, args, state, dispositions, now):
                     f"quiet {mins}min, and this seat is declared STANDBY: waiting IS its "
                     f"correct state. Reported so it is visible, never flagged — an alarm that "
                     f"fires on correct behaviour trains the reader to wave off the real one.",
-                    ""))
+                    "", nudge=""))
             else:
-                decisions.append(decision(
-                    "QUIET", name, "wake chief-of-staff: re-summon or check",
-                    f"no activity for {mins}min (threshold {args.quiet_min}min).",
-                    f"check it; if hung or done-but-stuck: {coord_cmd} close {name} --renew"))
+                # CMP-21 Layout row 3, both halves: the SEAT first (it is the one that can
+                # answer), the LEADER only once the seat has been given N consecutive cadences
+                # and is still quiet. Two recipients, staged — never one recipient re-notified.
+                n = repeats.get(f"quiet:{name}", 0) + 1
+                held[f"quiet:{name}"] = n
+                if n >= args.escalate_after:
+                    decisions.append(decision(
+                        "QUIET-ESCALATED", name, "nudge leader: seat still quiet after nudges",
+                        f"no activity for {mins}min (threshold {args.quiet_min}min), and this "
+                        f"is pass {n} with the condition unbroken — the seat has been nudged "
+                        f"and has not moved, so the row is now judgment.",
+                        f"check it; if hung or done-but-stuck: {coord_cmd} close {name} --renew",
+                        nudge="leader"))
+                else:
+                    decisions.append(decision(
+                        "QUIET", name, "nudge seat: still there?",
+                        f"no activity for {mins}min (threshold {args.quiet_min}min). Pass {n} "
+                        f"of {args.escalate_after} before this escalates to the leader.",
+                        "if you are working, say so on the log; if you are done, check out",
+                        nudge="seat"))
 
         # ROW 3: context past the seat's OWN refresh threshold (its briefing's `ctx-refresh`,
         # with the job's fallback for a seat that declares none).
         #
-        # A ONE-SHOT SEAT IS SKIPPED HERE, and this row is where the omission was found. This
-        # row's remedy is "spawn a closer, which negotiates handoff AT A TURN BOUNDARY" — that
+        # A ONE-SHOT SEAT IS SKIPPED HERE, and this row is where the omission was found. Renewal
         # presupposes an interactive, renewable seat. A one-shot has exactly one turn: there is
-        # no handoff to negotiate, no later turn to protect, and `close --renew` would relaunch
-        # work that is already finishing. Flagging it proposes an action nobody should take.
-        # G-76 applied to a THIRD row: I had applied it only to GHOSTROW/COMPLETED, and a shadow
-        # pass caught `verify-job-mech` (opencode, 62.6% of a 204800 window) being told to spawn
-        # a closer. The old layer never had this bug because it computes context for claude
-        # seats only — an accident of its implementation that happened to be right.
+        # no handoff to negotiate, no later turn to protect, and a renew would relaunch work that
+        # is already finishing. Flagging it proposes an action nobody should take. G-76 applied
+        # to a THIRD row: I had applied it only to GHOSTROW/COMPLETED, and a shadow pass caught
+        # `verify-job-mech` (opencode, 62.6% of a 204800 window) being flagged here. The old
+        # layer never had this bug because it computes context for claude seats only — an
+        # accident of its implementation that happened to be right.
         pct = s.get("ctx_pct")
         threshold = args.context_pct_override or s.get("ctx_refresh") or args.context_pct
         if (declared.get(name, harness_of(s)) in one_shot) and pct is not None:
             continue
         if isinstance(pct, (int, float)) and pct >= threshold:
             amb = " (reading is DIRECTIONAL — issue G-31)" if s.get("ctx_ambiguous") else ""
-            decisions.append(decision(
-                "CONTEXT", name, "wake chief-of-staff: spawn a closer",
-                f"context {pct}% >= threshold {threshold}%{amb}. The closer negotiates handoff "
-                f"AT A TURN BOUNDARY — nothing is killed mid-turn.",
-                f"{coord_cmd} close {name} --renew"))
+            # CMP-21 invariant 3. RENEWAL IS THE SEAT'S OWN ACT: it writes its memory, runs the
+            # renew command and relaunches itself. The remedy is therefore `checkout --renew`,
+            # which coord's own help calls "the SEAT's own act now" — NOT `close <seat> --renew`,
+            # which is a THIRD PARTY closing and relaunching someone else. Those are different
+            # commands with different actors and the old row handed out the wrong one.
+            n = repeats.get(f"ctx:{name}", 0) + 1
+            held[f"ctx:{name}"] = n
+            if n >= args.escalate_after:
+                decisions.append(decision(
+                    "CONTEXT-ESCALATED", name, "nudge leader: seat has not renewed",
+                    f"context {pct}% >= threshold {threshold}%{amb}, unbroken for {n} passes — "
+                    f"the seat has been nudged to renew itself and has not.",
+                    f"the seat's own act: {coord_cmd} checkout {name} --renew",
+                    nudge="leader"))
+            else:
+                decisions.append(decision(
+                    "CONTEXT", name, "nudge seat: renew yourself",
+                    f"context {pct}% >= threshold {threshold}%{amb}. Renewal is YOUR act and "
+                    f"nothing will be spawned to do it for you: write your memory, then run the "
+                    f"renew command, then relaunch fresh. Pass {n} of {args.escalate_after} "
+                    f"before this escalates to the leader.",
+                    f"{coord_cmd} checkout {name} --renew",
+                    nudge="seat"))
 
+    # ---- THE REAP ROW's decision (CMP-21 invariant 6), ONE per pass rather than one per seat:
+    # the fix is a single sweep over the run's whole awaiting-close debt, so N identical child
+    # processes would be N spellings of one act.
+    if reapable:
+        decisions.append(decision(
+            "REAP", "awaiting-close debt",
+            "inline fix: confirm the reap set; nudge leader to free it",
+            f"{len(reapable)} cleanly-checked-out seat(s) still hold a LIVE pane and its memory: "
+            + ", ".join(sorted(reapable)) +
+            ". The kit's own `reap` owns this act and requires TWO confirming passes before it "
+            "frees anything — its docstring names a watcher sweeping on its own cadence as how "
+            "that is satisfied honestly, and this is that sweep. The pane KILL (`reap --go`) is "
+            "role-gated by coord to a leader-class seat, which this job is not, so the "
+            "confirmation is performed here and the freeing is the leader's.",
+            f"{coord_cmd} reap --go", nudge="leader",
+            fix=(args.coord, ["--package", str(args.package), "reap"])))
+
+    # ---- CMP-21 Layout ROW 5 / invariant 5: the RUN stalls even when every seat row is clean.
+    decisions.extend(run_stall(snap, args))
+
+    state["_repeat"] = held
     return decisions, False, trail
 
 
@@ -605,8 +865,16 @@ def recipient_live(snap, name):
     return False
 
 
-def resolve_recipient(room_snap, args):
-    """(recipient, why). The chief-of-staff ROLE, then the declared fallback, then nobody.
+def resolve_recipient(room_snap, args, d=None):
+    """(recipient, why) for ONE decision — CMP-21's chain, resolved PER ROW, never per pass.
+
+    A `nudge == "seat"` row addresses THE SUBJECT SEAT ITSELF. That is the entire seat half of
+    the chain: invariant 3's renewal is the seat's own act, and a quiet seat is the one that can
+    answer. The old shape resolved ONE recipient for a whole pass, which cannot express this at
+    all — every seat's flag went to a third party who could at best relay it.
+
+    A subject that is not live cannot be nudged, so the row falls through to the leader AND SAYS
+    it fell through: a flag that silently becomes someone else's is how a recipient defect hides.
 
     Resolved from the DELIVERY room's snapshot, which is not necessarily the snapshot being
     thresholded. In production they are the same file — the job watches the room it reports
@@ -614,12 +882,19 @@ def resolve_recipient(room_snap, args):
     this: resolving the recipient from the thresholded snapshot made every flag about a
     throwaway target undeliverable, because the recipient does not live in that room. The
     subject of a flag and the addressee of a flag are different things."""
+    if d and d.get("nudge") == "seat":
+        subject = d.get("subject") or ""
+        if recipient_live(room_snap, subject):
+            return subject, f"seat '{subject}' is live — nudged DIRECTLY (CMP-21 seat half)"
+        fell = f"seat '{subject}' is NOT live — this seat nudge falls through to the leader; "
+    else:
+        fell = ""
     if recipient_live(room_snap, args.to):
-        return args.to, f"chief-of-staff seat '{args.to}' is live in the room's snapshot"
+        return args.to, f"{fell}leader seat '{args.to}' is live in the room's snapshot"
     if args.fallback_to and recipient_live(room_snap, args.fallback_to):
-        return args.fallback_to, (f"chief-of-staff seat '{args.to}' is NOT live — escalated to "
+        return args.fallback_to, (f"{fell}leader seat '{args.to}' is NOT live — escalated to "
                                   f"'{args.fallback_to}'")
-    return None, (f"NO LIVE RECIPIENT: neither '{args.to}' nor "
+    return None, (f"{fell}NO LIVE RECIPIENT: neither '{args.to}' nor "
                   f"'{args.fallback_to or '(none)'}' is live in the room's snapshot")
 
 
@@ -748,9 +1023,166 @@ def resolve_room_package(args):
         f"{goal / 'runs.csv'} state=open -> {run_id} (resolved live via coord.resolve_live_run, R10)")
 
 
+# ---------------------------------------------------------------- selftest
+
+# The retired role names, spelled ONCE so the grep-proof is an assertion rather than a claim.
+#
+# ⚠ THE SCAN'S TARGET IS THE BINDING VALUE, NOT THE WORD. A checker that grepped this whole
+# file would fire on the docstring that DOCUMENTS the retirement and on this very line — it
+# would report the statement of the rule and stay silent about a breach that used a synonym.
+# What `d-run-context` actually forbids is code, config or a prompt that WAKES, SPAWNS or FALLS
+# BACK TO one of these — so the scan runs over the strings that reach a recipient (every literal
+# inside a `decision(...)` call, plus `BARRED_ACT`, which reaches one by name) and over the two
+# recipient defaults. Prose explaining the retirement is the record, never the residue.
+RETIRED_ROLE_TOKENS = ("chief-of-staff", "closer")
+
+
+def _ns(**kw):
+    base = dict(coord="/nonexistent/coord.py", package="/nonexistent/pkg", cadence_s=20.0,
+                tolerance_mult=3.0, team_monitor="/nonexistent/team_monitor.py",
+                mem_floor_mb=2000, load_per_core=1.5, standby=[], one_shot_harness=["opencode"],
+                quiet_min=30, escalate_after=3, context_pct_override=0, context_pct=50,
+                to="leader", fallback_to="")
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def selftest():
+    """Assertions over the PURE predicates this file decides with. No package, no room, no I/O.
+
+    It covers the four things a reader cannot verify by reading: the stall predicate's null
+    discipline, the headless half of that predicate, the per-decision recipient chain, and the
+    seat->leader escalation. Plus the two guards whose failure is silent — `run_inline`'s exec
+    allowlist and the retired-role absence."""
+    fails = []
+
+    def check(label, cond):
+        print(f"  [{'ok ' if cond else 'FAIL'}] {label}")
+        if not cond:
+            fails.append(label)
+
+    fresh = time.time()
+    ok_src = {"readable": True, "reason": ""}
+
+    def snap(ready=1, live=0, queued=0, headless=(), src=None, run=True):
+        s = {"captured_at": fresh, "captured_at_iso": "iso", "seats": [], "roster_absent": [],
+             "headless": list(headless), "headless_source": dict(src or ok_src)}
+        if run:
+            s["run"] = {"ready_rows": ready, "live_executors": live, "queued": queued,
+                        "source": {"ready_rows": "", "queued": {"reason": ""}}}
+        return s
+
+    print("goal-watcher-job --selftest")
+    a = _ns()
+
+    # ---- the stall predicate
+    d = run_stall(snap(), a)
+    check("STALL: ready>0, no paned/headless executor, nothing queued -> nudge leader",
+          len(d) == 1 and d[0]["class"] == "RUN-STALL" and d[0]["nudge"] == "leader")
+    check("STALL: queued>0 is not a stall", run_stall(snap(queued=1), a) == [])
+    check("STALL: a live paned executor is not a stall", run_stall(snap(live=1), a) == [])
+    check("STALL: no ready rows is not a stall", run_stall(snap(ready=0), a) == [])
+    # THE HEADLESS HALF — the false positive B1's README names, and the reason this row may not
+    # read `live_executors` alone: a healthy headless window has zero live PANES.
+    check("STALL: a NON-TERMINAL headless row suppresses the stall (no pane, still executing)",
+          run_stall(snap(headless=[{"outcome": None}]), a) == [])
+    check("STALL: a TERMINAL headless row does NOT suppress it (that executor is finished)",
+          len(run_stall(snap(headless=[{"outcome": {"status": "done"}}]), a)) == 1)
+    # THE NULL DISCIPLINE — every null biases the predicate toward firing, so none may read as 0.
+    for term in ("ready", "queued"):
+        d = run_stall(snap(**{term: None}), a)
+        check(f"STALL: a null `{term}` is UNDECIDABLE and undelivered, never read as 0",
+              len(d) == 1 and d[0]["nudge"] == "" and "UNDECIDABLE" in d[0]["action"])
+    d = run_stall(snap(src={"readable": False, "reason": "store unreadable"}), a)
+    check("STALL: an unreadable headless source is UNDECIDABLE, never counted as 0",
+          len(d) == 1 and d[0]["nudge"] == "" and "UNDECIDABLE" in d[0]["action"])
+    d = run_stall(snap(run=False), a)
+    check("STALL: a snapshot with no `run` block is UNDECIDABLE, not a stall",
+          len(d) == 1 and d[0]["nudge"] == "")
+    check("HEADLESS-LIVE: counts non-terminal rows only",
+          headless_live(snap(headless=[{"outcome": None}, {"outcome": {}},
+                                       {"outcome": None}]))[0] == 2)
+
+    # ---- the recipient chain
+    room = {"seats": [{"seat": "alpha", "liveness": "live", "harness_pid": 7},
+                      {"seat": "leader", "liveness": "live", "harness_pid": 9}]}
+    seat_row = decision("QUIET", "alpha", "nudge seat", "", nudge="seat")
+    check("CHAIN: a seat row is nudged to ITS OWN SEAT",
+          resolve_recipient(room, a, seat_row)[0] == "alpha")
+    check("CHAIN: a leader row is nudged to the leader",
+          resolve_recipient(room, a, decision("BOX", "box", "", ""))[0] == "leader")
+    dead = decision("QUIET", "ghost", "nudge seat", "", nudge="seat")
+    to, why = resolve_recipient(room, a, dead)
+    check("CHAIN: a seat row whose seat is NOT live falls through to the leader AND says so",
+          to == "leader" and "falls through" in why)
+    check("CHAIN: no live recipient at all is a refusal, not a guess",
+          resolve_recipient({"seats": []}, a, seat_row)[0] is None)
+
+    # ---- the seat -> leader escalation
+    quiet = {"captured_at": fresh, "captured_at_iso": "iso", "roster_absent": [], "headless": [],
+             "headless_source": dict(ok_src),
+             "seats": [{"seat": "alpha", "pane": "%1", "roster_active": True, "liveness": "live",
+                        "last_activity_age_s": 99999, "ctx_pct": None}]}
+    st = {}
+    classes = []
+    for _ in range(a.escalate_after):
+        ds, _p, _t = evaluate(quiet, a, st, {}, fresh)
+        classes.append(next(x["class"] for x in ds if x["class"].startswith("QUIET")))
+    check(f"ESCALATION: seat first, leader on pass {a.escalate_after} "
+          f"({' -> '.join(classes)})",
+          classes[0] == "QUIET" and classes[-1] == "QUIET-ESCALATED")
+    ds, _p, _t = evaluate(quiet, a, {}, {}, fresh)
+    check("ESCALATION: the counter is CONSECUTIVE — a cleared condition starts a new episode",
+          next(x["class"] for x in ds if x["class"].startswith("QUIET")) == "QUIET")
+    check("CONTEXT: the seat's remedy is its OWN `checkout --renew`, never a third-party close",
+          all("checkout" in x["remedy"] for x in evaluate(
+              {"captured_at": fresh, "captured_at_iso": "i", "roster_absent": [], "headless": [],
+               "headless_source": dict(ok_src),
+               "seats": [{"seat": "a", "pane": "%1", "roster_active": True, "liveness": "live",
+                          "ctx_pct": 90, "ctx_refresh": 60}]},
+              a, {}, {}, fresh)[0] if x["class"].startswith("CONTEXT")))
+
+    # ---- the two guards whose failure is silent
+    ok, why = run_inline("/usr/bin/ignite", ["add-job"])
+    check("EXEC ALLOWLIST: a program outside INLINE_FIX_SCRIPTS is REFUSED (act identity)",
+          ok is False and "REFUSED" in why)
+    check("EXEC ALLOWLIST: `ignite` is not on the list", "ignite" not in INLINE_FIX_SCRIPTS)
+    # An allowlisted BASENAME is not an allowlisted FILE. The interpreter starts and the missing
+    # script is its non-zero exit, so this fails LOUD rather than reading as a fix that ran.
+    ok, why = run_inline("/nonexistent/team_monitor.py", ["ensure"])
+    check("EXEC ALLOWLIST: an allowlisted basename with no file behind it is NOT a green fix",
+          ok is False and "exit 0" not in why)
+    # ⚠ EVERY `decision(...)` CALL SITE, not only the rows this selftest happens to reach: parsed
+    # off this file's own AST, so an unreachable row carrying a retired name is caught too.
+    import ast
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    residue = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "decision"):
+            continue
+        for lit in ast.walk(node):
+            if isinstance(lit, ast.Constant) and isinstance(lit.value, str):
+                residue += [(node.lineno, t) for t in RETIRED_ROLE_TOKENS if t in lit.value]
+    check(f"RETIRED ROLE: no decision this file can emit names one ({len(residue)} hit(s): "
+          f"{residue})", not residue)
+    check("RETIRED ROLE: BARRED_ACT — the one delivered string reached by name — is clean",
+          not any(t in BARRED_ACT for t in RETIRED_ROLE_TOKENS))
+    check("RETIRED ROLE: neither recipient default is a retired role",
+          not any(t in (DEFAULT_LEADER_SEAT + "|" + DEFAULT_FALLBACK)
+                  for t in RETIRED_ROLE_TOKENS))
+
+    print(f"selftest: {len(fails)} failure(s)" if fails else "selftest: all green")
+    return 1 if fails else 0
+
+
 # ---------------------------------------------------------------- main
 
 def main():
+    # ⚠ BEFORE parse_args, deliberately: `--package` and `--coord` are REQUIRED for a real pass
+    # and a selftest has neither a package nor a room. Relaxing them instead would weaken the
+    # fail-closed start for every production fire to buy one test entry point.
+    if "--selftest" in sys.argv[1:]:
+        return selftest()
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--package", required=True, help="the run folder holding state.json")
     p.add_argument("--state-json", default=None, help="override the snapshot path")
@@ -767,9 +1199,20 @@ def main():
                         "waiting: it goes stale the moment that run closes. Resolution goes "
                         "through coord.resolve_live_run(), which REFUSES on zero or two open "
                         "rows rather than guessing (R9/R10).")
-    p.add_argument("--team-monitor", default="", help="path to team_monitor.py (remedy text)")
-    p.add_argument("--to", default=DEFAULT_ROLE_SEAT, help="the seat holding chief-of-staff")
-    p.add_argument("--fallback-to", default=DEFAULT_FALLBACK)
+    p.add_argument("--team-monitor", default="",
+                   help="path to team_monitor.py — the remedy TEXT and, under --notify, the "
+                        "program the staleness row's inline `ensure` fix actually runs")
+    p.add_argument("--to", default=DEFAULT_LEADER_SEAT,
+                   help="the LEADER seat — the recipient of every judgment row and of every "
+                        "escalated seat row (CMP-21's chain ends at the leader, who carries it "
+                        "to the master or the owner)")
+    p.add_argument("--fallback-to", default=DEFAULT_FALLBACK,
+                   help="a second recipient when the leader seat is not live. EMPTY BY DEFAULT: "
+                        "no undeliverable name is invented, and a pass with no live recipient "
+                        "fails loud rather than sending flags into a dead seat")
+    p.add_argument("--escalate-after", type=int, default=DEFAULT_ESCALATE_AFTER,
+                   help="consecutive passes a seat-addressed condition may hold before the same "
+                        "condition escalates to the leader (CMP-21 Layout rows 3/ctx-refresh)")
     p.add_argument("--send-as", default="goal-watcher-job")
     p.add_argument("--cadence-s", type=float, default=DEFAULT_CADENCE_S)
     p.add_argument("--tolerance-mult", type=float, default=DEFAULT_TOLERANCE_MULT)
@@ -795,7 +1238,12 @@ def main():
     p.add_argument("--one-shot-harness", action="append", default=["opencode", "codex"],
                    help="a harness whose exit is COMPLETION, not death (G-76)")
     p.add_argument("--notify", action="store_true",
-                   help="deliver flags; without it the pass is a dry run")
+                   help="deliver nudges AND perform the inline mechanical fixes; without it the "
+                        "pass is a full dry run — every row is decided and printed, nothing is "
+                        "sent and no child process is spawned. This is the SHADOW mode a fixture "
+                        "run is thresholded in")
+    p.add_argument("--selftest", action="store_true",
+                   help="run this file's own assertions over the pure predicates and exit")
     p.add_argument("--json", action="store_true", help="print the decision set as JSON")
     p.add_argument("--state-file", default=None)
     p.add_argument("--shadow-trail", default=None,
@@ -816,6 +1264,19 @@ def main():
     # a HARD START FAILURE, never a fallback onto some run the job picked: see resolve_room_package.
     room, room_why = resolve_room_package(args)
     if room is None:
+        # ---- CMP-21 invariant 8, and this is the ONLY place the run-close state is observable
+        # from: the job thresholds a LIVE run, so "the run closed" reaches it as the register no
+        # longer resolving one. The sweep is REPORTED here rather than performed — see
+        # `worktree_leftovers` for why removal stays with the tool that owns it.
+        if args.room_goal:
+            goal_name = Path(args.room_goal).name
+            left = worktree_leftovers(args.room_goal)
+            flow = Path(args.coord).resolve().parent / "worktree-flow.py"
+            print(f"goal-watcher-job [WORKTREE-SWEEP] {goal_name} — "
+                  f"{len(left)} leftover worktree(s): {', '.join(left) or '(none)'}")
+            if left:
+                print(f"  remedy: python3 {flow} list --goal {goal_name}   (then merge-seat / "
+                      f"close-goal — removal REFUSES on a dirty tree and is never forced here)")
         print("goal-watcher-job: REFUSING TO START — %s\n"
               "  The room flags are DELIVERED into must be the LIVE run, and this job will not "
               "guess which one that is: a flag delivered into the wrong room reads as having "
@@ -859,18 +1320,29 @@ def main():
               file=sys.stderr)
         snap = {"seats": [], "captured_at_iso": "?"}
         decisions = [decision("STALE-SENSOR", "team-monitor",
-                              "wake chief-of-staff: restart the sensor", err,
-                              f"python3 {args.team_monitor} ensure --package {args.package}")]
+                              "inline fix: restart the sensor (idempotent ensure)", err,
+                              f"python3 {args.team_monitor} ensure --package {args.package}",
+                              nudge="leader",
+                              fix=(args.team_monitor,
+                                   ["ensure", "--package", str(args.package)]))]
         paused = True
         trail = []
         state = load_state(state_path)
     else:
         state = load_state(state_path)
-        # Read the durable dispositions of exactly the seats the snapshot says are out of the
-        # room — the shadow arm's one added input, and it is asked ONLY about those seats.
+        # The seats the DURABLE check-out record is asked about, and only these. Two rows need
+        # it and they need it for the SAME question — did this seat check out cleanly:
+        #   roster_absent  -> the SHADOW BACKSTOP's without-clean-check-out half
+        #   live pane, roster row no longer active -> the REAP row's cleanly-DONE half
+        # One reader, one meaning of `done`; two rows deriving it separately is how they come
+        # to disagree about the same seat in the same pass.
         absent_seats = [r.get("seat") for r in (snap.get("roster_absent") or []) if r.get("seat")]
+        done_paned = [s.get("seat") for s in (snap.get("seats") or [])
+                      if s.get("seat") and s.get("roster_active") is False
+                      and s.get("liveness") == "live"]
         decisions, paused, trail = evaluate(
-            snap, args, state, declared_dispositions(args, absent_seats), now)
+            snap, args, state,
+            declared_dispositions(args, sorted(set(absent_seats) | set(done_paned))), now)
 
     # Flag once per episode; re-arm when the condition clears — the same discipline the kit
     # layer uses, so a per-pass comparison is not swamped by repeats of one crossing.
@@ -901,7 +1373,29 @@ def main():
     print(f"goal-watcher-job pass {stamp} — {len(decisions)} decision(s), {len(fresh)} new"
           + ("  [ENFORCEMENT PAUSED: stale sensor]" if paused else ""))
     for d in decisions:
-        print(f"  {d['subject']:<20} {d['class']:<13} {d['action']}")
+        print(f"  {d['subject']:<20} {d['class']:<17} [{d['nudge'] or '-':<6}] {d['action']}")
+
+    # ---- THE INLINE MECHANICAL FIXES, before delivery and gated on --notify. Each row that
+    # carries one built its argv in `evaluate`; NOTHING is spawned in a dry pass. Deduped by
+    # argv because two rows may name one sweep, and the outcome is folded into the flag the
+    # leader receives — a fix that ran and failed must never reach anyone as a bare detection.
+    ran = {}
+    if args.notify:
+        for d in decisions:
+            if not d.get("fix"):
+                continue
+            script, tail = d["fix"]
+            key = (str(script), tuple(tail))
+            if key not in ran:
+                ran[key] = run_inline(script, tail)
+                print(f"  inline fix [{d['class']}]: {os.path.basename(str(script))} "
+                      f"{' '.join(tail)} -> {'OK' if ran[key][0] else 'FAILED'}; {ran[key][1]}")
+            ok, detail = ran[key]
+            d["detail"] += (f" INLINE FIX {'RAN' if ok else 'FAILED'}: {detail}."
+                            + ("" if ok else " The mechanical arm did not repair this — which is"
+                                             " exactly the case CMP-21 leaves to the leader."))
+    elif any(d.get("fix") for d in decisions):
+        print("  (dry: --notify not set — inline mechanical fixes NOT run)")
 
     sent = failed = suppressed = 0
     delivery_note = ""
@@ -910,31 +1404,33 @@ def main():
         if args.room_package != args.package:
             room_snap, _err = read_snapshot(str(Path(args.room_package) / "state.json"))
             room_snap = room_snap or {}
-        to, why = resolve_recipient(room_snap, args)
-        delivery_note = why
-        if to is None:
-            # Fail loud. A flag nothing consumes is a log line, not an enforcement action.
-            print(f"goal-watcher-job: {why} — {len(fresh)} flag(s) NOT DELIVERED. The "
-                  f"detection is sound and the delivery is not; treat this as an incident.",
-                  file=sys.stderr)
-            failed = len(fresh)
-        else:
-            print(f"  delivery: {why}")
-            for d in fresh:
-                head = f"goal-watcher-job [{d['class']}] {d['subject']} —"
-                if recently_said(args.room_package, head, args.reflag_min):
-                    suppressed += 1
-                    print(f"  suppressed: [{d['class']}] {d['subject']} was already said to "
-                          f"the room inside {args.reflag_min}min — repeating it trains the "
-                          f"room to ignore this job")
-                    continue
-                ok, msg = deliver(args, to, flag_text(d, snap))
-                if ok:
-                    sent += 1
-                else:
-                    failed += 1
-                    print(f"goal-watcher-job: {msg} — flag [{d['class']}] "
-                          f"{d['subject']} NOT DELIVERED", file=sys.stderr)
+        for d in fresh:
+            # ⚠ RESOLVED PER DECISION. A seat row goes to its own seat and a judgment row to the
+            # leader, so one recipient for the pass cannot express this chain (CMP-21).
+            to, why = resolve_recipient(room_snap, args, d)
+            delivery_note = why
+            if to is None:
+                # Fail loud. A flag nothing consumes is a log line, not an enforcement action.
+                print(f"goal-watcher-job: {why} — flag [{d['class']}] {d['subject']} NOT "
+                      f"DELIVERED. The detection is sound and the delivery is not; treat this "
+                      f"as an incident.", file=sys.stderr)
+                failed += 1
+                continue
+            head = f"goal-watcher-job [{d['class']}] {d['subject']} —"
+            if recently_said(args.room_package, head, args.reflag_min):
+                suppressed += 1
+                print(f"  suppressed: [{d['class']}] {d['subject']} was already said to "
+                      f"the room inside {args.reflag_min}min — repeating it trains the "
+                      f"room to ignore this job")
+                continue
+            print(f"  delivery [{d['class']}] -> {to}: {why}")
+            ok, msg = deliver(args, to, flag_text(d, snap))
+            if ok:
+                sent += 1
+            else:
+                failed += 1
+                print(f"goal-watcher-job: {msg} — flag [{d['class']}] "
+                      f"{d['subject']} NOT DELIVERED", file=sys.stderr)
     elif fresh:
         print("  (dry: --notify not set — flags NOT delivered)")
 

@@ -729,14 +729,30 @@ tools:
       # watch.py's own `leader` default, and a flag whose SUBJECT is the leader has the leader as
       # its only recipient — the messaging layer refuses it, silently. That is not hypothetical:
       # 7 leader-subject flags died that way between 2026-07-30 and 08-03, and on 08-05 01:17:59
-      # this job raced a manual restart and did relaunch a flag-less loop (caught by the
-      # chief-of-staff, killed, disclosed). The comment above already stated the rule this argv
+      # this job raced a manual restart and did relaunch a flag-less loop (caught by the run's
+      # operational-recovery seat — a role RETIRED since, `decisions.md#d-watcher-deterministic-
+      # chain`; the catch is the history, the role names nothing live). The comment above
+      # already stated the rule this argv
       # was breaking. These four items reproduce the live sensor's invocation, verified against
       # the running loop's /proc cmdline and the run seed's canonical command, which agree.
-      # ⚠ ROLE NAMES, NOT A POLICY VALUE: `leader` and `chief-of-staff` are fixed seats of the run
-      # system, present in every run — they are not a number, not a cadence, and not a floor, so
-      # the home-in-waiting argument above does NOT apply to them. What WOULD be a home in waiting
-      # is a run id or a pane, and neither appears here.
+      # ⚠ ROLE NAME, NOT A POLICY VALUE: `leader` is a fixed seat of the run system, present in
+      # every run — it is not a number, not a cadence, and not a floor, so the home-in-waiting
+      # argument above does NOT apply to it. What WOULD be a home in waiting is a run id or a
+      # pane, and neither appears here.
+      # ⚠⚠ THE `--notify-fallback` PAIR WAS DELETED HERE (r11 Stage 0, ruling
+      # `decisions.md#d-watcher-deterministic-chain`, 2026-08-08). It named the RETIRED
+      # operational-recovery role, and a fallback pointing at a role that no longer exists is a
+      # flag addressed to nobody. Deleting it is safe TODAY because this entry's queue row is
+      # DISARMED — it cannot fire — and because the landmine was unreachable but present.
+      # ⚠ WHAT THE DELETION LEAVES OPEN, STATED RATHER THAN LEFT TO BE DISCOVERED: `watch.py`
+      # defaults BOTH `--notify-to` and `--notify-fallback` to `leader`, and its own rule is that
+      # a flag whose SUBJECT is `--notify-to` is diverted to the fallback. With both resolving to
+      # `leader`, a LEADER-SUBJECT flag diverts to the leader itself and the messaging layer drops
+      # it silently — the exact defect G-leader-0805-0120 recorded (7 flags lost 07-30..08-03).
+      # A successor recipient above the leader is `master`/owner per the ruling's chain, and no
+      # such SEAT exists in a run roster, so naming one here would substitute a dead address for
+      # a dead role. This is therefore RE-ARM-GATED: before this row is ever armed again, either
+      # watch.py's divert target is ruled, or this entry names a live one. Do not arm it blind.
       # ⚠ THE `=` IS LOad-BEARING, NOT STYLE. `--watch-arg --notify-to` as two items makes argparse
       # read `--notify-to` as the NEXT FLAG, not as a value ("expected one argument"), and the job
       # would then die at parse time on every fire — a self-heal that cannot start is worse than the
@@ -744,8 +760,6 @@ tools:
       # is what caught it. Any future passthrough of a dash-leading argument uses `=` too.
       - --watch-arg=--notify-to
       - --watch-arg=leader
-      - --watch-arg=--notify-fallback
-      - --watch-arg=chief-of-staff
       - --budget-s
       - "120"
 
@@ -824,8 +838,18 @@ tools:
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp
       - --coord
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
+      # ⚠ `--team-monitor` IS NO LONGER REMEDY TEXT ONLY. Since the CMP-21 realignment the
+      # staleness row runs this program's idempotent `ensure` as an INLINE MECHANICAL FIX, so an
+      # absent or wrong path here downgrades that row from a fix to a nudge, silently.
       - --team-monitor
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/orchestration/cli/team-monitor/team_monitor.py
+      # ⚠ `--to` NOW MEANS THE LEADER SEAT, not an operational-recovery role — the role this flag
+      # used to name is RETIRED (`decisions.md#d-watcher-deterministic-chain`) and the chain now
+      # ends at the leader. This THROWAWAY twin deliberately keeps a non-leader value: it exists
+      # to exercise real delivery into the live room without a throwaway watcher injecting
+      # traffic anyone acts on. ⚠ A LIVE `goal-watcher` ENTRY MUST NAME THE ACTUAL LEADER SEAT
+      # here — copying this twin's value would route every judgment row to a builder.
+      # Seat-addressed rows (QUIET, CONTEXT) ignore this flag entirely and go to their own seat.
       - --to
       - enforcement-builder
       - --fallback-to
@@ -938,3 +962,58 @@ tools:
       - --ignite-bin
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/cli/ignite.js
       - --enqueue
+
+  # ── goal-creation-request (task C2) — the DAEMON-EXECUTED half of a caged requester's ask ──────
+  #
+  # WHY THIS ENTRY EXISTS AT ALL, in one sentence: a Slack-caged channel master cannot create a
+  # goal directory, and the daemon can. Both halves were MEASURED before this entry was written
+  # (evidence/c2/probe-c2.js, 2026-08-08) rather than assumed:
+  #   · under the SHIPPED cage above, a channel-master-shaped service seat writing into the goals
+  #     root gets `mkdir: Read-only file system` and the target's bytes never reach disk — proven
+  #     from OUTSIDE the cage, which is the only reading that counts;
+  #   · the same seat CAN write inside its own seat folder, which is what makes a staged inbox the
+  #     payload transport. `fire-tool` argv is static (only `workdir` crosses from a queue row), so
+  #     there is no gateway verb that could carry a request BODY to a fired tool;
+  #   · at the gateway, `register-job` is REFUSED to a `bridge` token (`authz.canRegisterJob`) and
+  #     `enqueue-job` is allowed to ALL THREE sender kinds — it carries no authz gate. So the
+  #     TRIGGER goes through `enqueue-job` and the wire holds whichever kind the master presents.
+  #
+  # ⚠ THE INBOX IS A DIRECTORY, NOT A REQUEST FILE, and that follows from the static argv: one
+  # fixed argument must serve every request the master ever makes, and a drained directory is the
+  # only shape that does. The tool moves each request into `done/` or `refused/` as it goes, so a
+  # re-fire never re-processes what it already handled.
+  #
+  # ⚠ IT SCAFFOLDS AND QUEUES — IT DOES NOT ARM AND DOES NOT LAUNCH. `arm()`/`launch()` are the
+  # entry's other acts and this path never reaches them; a goal born here is BORN INERT, and its
+  # first workflow job is a QUEUE ROW ten minutes out, not a running session.
+  #
+  # ⚠ --ignite-bin IS NOT OPTIONAL, for the reason spelled out on `edge-runner` above: a fire-tool
+  # exec inherits the systemd --user manager's PATH, which does not carry `~/.local/bin`. It names
+  # the REPO file, never the symlink.
+  #
+  # ⚠ LANDING THIS ENTRY DOES NOT ARM IT — three gated acts stand between here and a fire, and the
+  # ORDER matters: (1) create the inbox dir `<.rbtv/goals/_channel-master/requests>`, (2) restart
+  # the daemon (this file is boot-read), (3) `register-job` + `add-job`. Done out of order, step 2
+  # logs one `catalogue-paths` error per boot for a `--inbox` that does not exist yet (the check
+  # logs, it never refuses the boot).
+  #
+  # ⚠ `--workflow`/`--entry-seat` ARE THE ONE PAIR AN OWNER MUST CONFIRM BEFORE ARMING. They name
+  # what EVERY master-created goal starts with; the values below are the design's own ruled name,
+  # not a measurement, and they are the reason this entry stays dark.
+  goal-creation-request:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/capabilities/goal-creation-request/tool/goal_creation_request.py
+      - scaffold-and-queue
+      - --inbox
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/requests
+      - --goals-root
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals
+      - --workflow
+      - master-request-launch-entry
+      - --entry-seat
+      - request-schema-absence-remeasurer
+      - --delay-seconds
+      - "600"
+      - --ignite-bin
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/cli/ignite.js
