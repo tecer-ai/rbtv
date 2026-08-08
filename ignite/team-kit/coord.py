@@ -7001,22 +7001,50 @@ def cmd_checkin(args):
             atomic_write(path, WORKERS_HEADER)
             lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
             rows = []
+        displaced = []
         for r in rows:
-            if r["agent"] != args.agent:
+            same_name = r["agent"] == args.agent
+            # P1b: ONE PANE IS ONE HARNESS, SO A SECOND LIVE ROW THERE IS STALE BY CONSTRUCTION.
+            # P1 retired ghost rows keyed on the NAME and stopped there, which leaves the mirror
+            # shape untouched: one PANE carrying live rows under two NAMES. Measured on run-3's
+            # owner door, 2026-08-07 — the seat was renamed `master` -> `goal-master` (keeping
+            # `relays: master` so the role word still routed), a later sitting checked in under
+            # the OLD name from the SAME pane, and both rows went live. Nothing downstream can
+            # survive that: `pane_agent` resolves a pane to `hit[-1]`, so the checkout closed the
+            # NEWER name and left the older row ACTIVE with a dead process behind it, and the
+            # watch loop's revival arm then relaunched a seat that had just closed cleanly, twice.
+            #
+            # RETIRING IT BEATS REFUSING IT. A refusal would demand a human close the other row
+            # before this session can register — for a state the tool can resolve unambiguously,
+            # since the pane's previous occupant is gone the moment a new harness checks in there.
+            # It is not silent: the retired row is marked `superseded` like any other, and the
+            # displacement is NAMED on the check-in line.
+            #
+            # NOT MASTER-SPECIFIC. `relays:` exists precisely so a renamed seat keeps its role word
+            # (a run that renames its leader declares `relays: leader`), so every future rename
+            # arrives here — as does any relaunch into a pane whose prior seat died without a row.
+            same_pane = bool(pane) and r["pane"] == pane and r["active"] == "yes"
+            if not same_name and not same_pane:
                 continue
-            if r["lastread"].isdigit():
+            # The cursor belongs to the SEAT: a displaced row is ANOTHER seat's reading and must
+            # never be inherited, or the new name silently skips messages it has not been shown.
+            if same_name and r["lastread"].isdigit():
                 inherited = max(inherited, int(r["lastread"]))
-            # P1: a re-check-in supersedes EVERY prior active row for the same agent — the roster
-            # never strands a ghost ACTIVE row again.
             if r["active"] == "yes":
                 r["active"] = "no"
                 r["checkout"] = f"superseded {now()}"
                 lines[r["_line"]] = row_text(r)
-                superseded += 1
+                if same_name:
+                    superseded += 1
+                else:
+                    displaced.append(r["agent"])
         new_row = {"agent": args.agent, "active": "yes", "pane": pane, "summary": summary,
                    "checkin": now(), "checkout": "", "lastread": str(inherited)}
         atomic_write(path, "".join(lines) + row_text(new_row))
     note = f" (superseded {superseded} prior row(s))" if superseded else ""
+    if displaced:
+        note += (f" (RETIRED {len(displaced)} stale row(s) on {pane} held under another name: "
+                 f"{', '.join(sorted(set(displaced)))})")
     if inherited:
         note += f" (cursor kept at #{inherited})"
     print(f"checked in: {args.agent} ({pane or 'no pane'}){note} — {summary}")
@@ -16685,6 +16713,36 @@ def _selftest_checks(args, failures, names):
         check("P37: a relaunch whose old pane is dead supersedes exactly as before — the guard "
               "fires on pane LIVENESS, never on the mere existence of a prior active row",
               "superseded 1 prior row" in out)
+
+        # ---- P1b: one PANE, two NAMES — P1 supersession widened to the pane (run-3 owner door,
+        # 2026-08-07: a renamed seat re-checked-in under its OLD name from the SAME pane, both
+        # rows went live, the checkout closed one and the revival arm resurrected the other) ----
+        live_tmux_panes["v"] = {"%55"}
+        run(cmd_checkin, agent="renamed-old", summary="the seat under its former name", pane="%55")
+        rd("renamed-old")
+        old_cursor = int(cursor_of("renamed-old"))
+        out = run(cmd_checkin, agent="renamed-new", summary="the same seat, new name", pane="%55")
+        _, _, pb_rows = load_workers(base_dir(ns()))
+        check("P1b: a check-in under a DIFFERENT name onto a pane already carrying an ACTIVE row "
+              "RETIRES that row — one pane is one harness, so the second live row is stale by "
+              "construction. Leaving it active is what lets a checkout close one name while the "
+              "watch loop revives the other",
+              current_row(pb_rows, "renamed-old")["active"] == "no"
+              and current_row(pb_rows, "renamed-new")["active"] == "yes")
+        check("P1b: the displacement is NAMED on the check-in line, never silent — retiring "
+              "another seat's row is exactly the act nobody may discover only from the file",
+              "RETIRED" in out and "renamed-old" in out and "%55" in out)
+        check("P1b: the retired row keeps its history — marked `superseded`, never deleted",
+              current_row(pb_rows, "renamed-old")["checkout"].startswith("superseded"))
+        check("P1b: the displaced row's READ CURSOR is NOT inherited — the cursor belongs to the "
+              "SEAT, so a new name starts at its own reading or it silently skips messages it was "
+              "never shown. (Its positive control is the P1 same-name path, which DOES inherit.)",
+              old_cursor > 0 and int(cursor_of("renamed-new")) == 0)
+        live_tmux_panes["v"] = {"%56"}
+        out = run(cmd_checkin, agent="renamed-new", summary="a pane of its own", pane="%56")
+        check("P1b: a check-in onto a pane carrying no other active row retires NOTHING — the "
+              "widening is bounded to one-pane-two-names and reaches no further",
+              "RETIRED" not in out)
 
         # ---- 8(b): a seat parked on an approval gate is never broadcast-woken ----
         run(cmd_checkin, agent="gated", summary="codex seat mid-approval", pane="%61")
