@@ -10,7 +10,45 @@ recovery agent every period regardless of health — an unbounded paid path.
 |--------|-----|--------|-----------|
 | `selfheal-room.py` | 7.71 | a tmux session named as the room | the session does not exist |
 | `selfheal-watch.py` | 7.72 | `{package}/coordination/watch-heartbeat.json` | the stamp is old **or** its pid is not a live `watch.py` |
+| `edge-runner-job.py` | C1 | the live run's finished seats + every downstream `after` row | the run is ARMED (`{package}/coordination/edge-fastpath.json`); otherwise it stands down |
 | `jobcontain.py` | both | — | (library: self-cap, wall clock, single-instance lock) |
+
+(`goal-watcher-job.py`, `run-state-job.py`, `restart-daemon.py` and `recover-room.py` are also in
+this folder and are NOT in the table above — noticed while adding the `edge-runner` row, left alone
+rather than back-filled from guesswork.)
+
+## `edge-runner-job.py` is the one whose registration is the whole point (task C1)
+
+Owner ruling `d-owner-batch1` (1): CMP-25's edge-runner registers as a REAL daemon job — the shape
+its registry record already described ("runs out of the heart store like any job") — superseding
+the interim in-process arm-file-gated call from `team-kit/coord.py`, which STAYS wired.
+
+Its catalogue entry is `tools: edge-runner` in `config/spawn-profiles.yaml`. Two things follow from
+that, and both are properties of THIS job rather than of the two above:
+
+- **Its exit is CMP-25's step 5.** Called in-process the pass returns into a caller that keeps
+  running and nobody observes an exit. Fired as a job it is a process, and `recordToolCompletion`
+  records the exit — 0 → `done`, non-zero → `failed`, with the pass's own output tail as the
+  completion corpus. Registering it is what made step 5 exist; no exit arm was added to the file.
+- **The catalogue entry names a GOAL, and `job-id`/`profile` are not in it at all.** The run is
+  resolved from `{goal}/runs.csv` at fire time (`coord.resolve_live_run`, which refuses on zero or
+  two open rows), and STEP 4's `job-id`/`profile` are read from the resolved run's own
+  `coordination/edge-fastpath.json` — the same file the check-out fast path reads, so the two
+  triggers of CMP-25 are armed by ONE act. An unarmed run is marked, reported, and advanced not at
+  all. That is what keeps `r-cutover-gated` intact through the registration.
+
+Registering it on a machine (per-machine runtime state — never in git, and needing a daemon restart
+first so the boot-read catalogue carries the entry):
+
+```bash
+ignite register-job edge-runner --action-type fire-tool \
+  --args-schema '{"required":{"tool":"string"},"optional":{"workdir":"string"}}'
+ignite add-job --fn edge-runner --args-json '{"tool":"edge-runner"}' --trigger periodic --every 60
+```
+
+⚠ **`--ignite-bin` in that entry is load-bearing.** STEP 4's door is the `ignite` CLI, and a
+`fire-tool` exec inherits the systemd `--user` MANAGER's PATH, which does not carry `~/.local/bin`.
+The bare name resolves for every interactive caller and for nobody under the daemon.
 
 ## THE FALLBACKS — one command each, and they stay armed (`r-cutover-gated`)
 

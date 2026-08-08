@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""edge-runner-job — CMP-25's pass, STEPS 1-4: verify a finished seat's done contract and mark it
-`done` or `failed` (task 7.123 / M4-08), evaluate readiness of every row whose `after` names it
-(task 7.124 / M4-09), and enqueue each LAUNCH CANDIDATE as a daemon job seeded with its
-predecessors' declared outputs (task 7.125 / M4-10).
+"""edge-runner-job — CMP-25's pass: verify a finished seat's done contract and mark it `done` or
+`failed` (task 7.123 / M4-08), evaluate readiness of every row whose `after` names it (task 7.124 /
+M4-09), enqueue each LAUNCH CANDIDATE as a daemon job seeded with its predecessors' declared
+outputs (task 7.125 / M4-10), and exit (task C1 — see below: the exit is step 5 and it is the
+DAEMON that reads it).
 
-Fired by the ignite daemon as a `fire-tool` job, one job per finished seat. CMP-25 is ONE engine
-whose per-edge behaviour is entirely DATA; this file is that engine, and today it carries the
-first four of its five steps.
+Fired by the ignite daemon as a `fire-tool` job. CMP-25 is ONE engine whose per-edge behaviour is
+entirely DATA; this file is that engine.
 
-⚠⚠ WHAT THIS FILE IS NOT, YET. CMP-25's pass has five steps: (1) verify the finished seat's done
-contract, (2) mark it done or failed loudly, (3) evaluate every downstream row whose `after` names
-it, (4) enqueue each ready seat's launch job, (5) exit. **Steps 1 through 4 are here. Step 5 is
-NOT, and its absence is a build state, not a design.** A reader who finds no exit arm here has
-found an unbuilt stage, not a missing feature.
+⚠⚠ STEP 5 IS THE PROCESS EXIT, AND IT EXISTS ONLY ON THE DAEMON PATH (task C1, owner ruling
+`d-owner-batch1` (1)). CMP-25's pass has five steps: (1) verify the finished seat's done contract,
+(2) mark it done or failed loudly, (3) evaluate every downstream row whose `after` names it,
+(4) enqueue each ready seat's launch job, (5) exit — "no long-lived driver survives this design".
+Step 5 is not an arm this file could ever have carried alone: called IN-PROCESS from `coord.py`'s
+check-out (STEP 4b) the pass RETURNS into a caller that keeps running, so there is no exit for
+anybody to observe, and the interpreter's own `sys.exit` below reports to nothing. Fired as a
+`fire-tool` job the pass IS a process and its exit is RECORDED: `ticker.recordToolCompletion` maps
+exit 0 to a `done` completion and non-zero to `failed`, carrying this file's own output tail as the
+corpus. Step 5 was therefore delivered by REGISTERING this file, not by adding an arm to it — the
+return code below is the pass's report, and the daemon is the reader that makes it one.
 
 ⚠ STEP 4 IS THIS WAVE'S ONE ENQUEUE INTERFACE. `enqueue()` is called by the check-out fast path
 (M4-11), the created goal's first workflow (M4-20) and the C1 rehearsal (M4-22). None of the three
@@ -21,11 +27,23 @@ of that shape is that one of the two keeps reporting success. Its signature is a
 task 7.125 and is recorded in `probe-record-edge-runner-enqueue-builder.md`; `--signature` prints
 the live one, and a check binds the two together so it cannot move under its consumers silently.
 
-**NOTHING REGISTERS THIS FILE.** It is in no job catalogue and no queue row, so it fires for
-nothing and arms nothing. That is deliberate and it is the `r-cutover-gated` bound (m4 criterion
-C4): the live run's own control loop stays untouched, and this engine is exercised against the
-THROWAWAY goal `throwaway-m4-fixture` and against the fixture tree its own `--selftest` builds.
-Arming it against a real run is a separate, gated act that this file does not perform.
+**A CATALOGUE ENTRY NOW REGISTERS THIS FILE** — `tools: edge-runner` in
+`ignite/config/spawn-profiles.yaml` (owner ruling `d-owner-batch1` (1): the edge-runner registers
+as a REAL daemon job per CMP-25, superseding the interim in-process arm-file-gated call — which
+stays intact and is not retired here). TWO BOUNDS SURVIVE THAT ENTRY, and both are still
+`r-cutover-gated` (m4 criterion C4):
+
+  LANDED IS NOT LIVE. `spawn-profiles.yaml` is BOOT-READ, so the entry reaches a daemon only
+  through a restart, and firing it additionally needs a catalogue row in that machine's `heart.db`
+  (`ignite register-job`) and a queue row (`ignite add-job`). Neither is in this repo — per-machine
+  runtime state never is. Landing this entry arms nothing by itself.
+
+  A FIRE STANDS DOWN ON AN UNARMED RUN. The entry names a GOAL and never a run: the live run is
+  resolved at FIRE TIME (`--goal`), and STEP 4's `job-id`/`profile` are read from THAT run's own
+  `coordination/edge-fastpath.json` — the same arm file, in the same single home, that the check-out
+  fast path reads. An unarmed run is marked and reported and enqueues NOTHING, loud on stderr. The
+  two triggers cannot disagree about what is armed, because there is exactly one file to disagree
+  about.
 
 THE READER PROBLEM, AND WHY THIS FILE CALLS RATHER THAN REIMPLEMENTS
 -------------------------------------------------------------------
@@ -100,6 +118,7 @@ silently; the audit is the contract and extending it is the auditor's act.
 
 Usage:
   python3 edge-runner-job.py --package <RUN> [--seat NAME ...] [--json]
+  python3 edge-runner-job.py --goal <GOAL> --enqueue [--ignite-bin PATH]   # the catalogue entry
   python3 edge-runner-job.py --selftest                    # hermetic temp-dir fixture
   python3 edge-runner-job.py --selftest --fixture <DIR>     # the same assertions, off real disk
 """
@@ -876,6 +895,13 @@ ENQUEUE_ROW_KEYS = ("seat", "job-id", "seed")
 # does not speak to the store, the queue or the gateway directly, and holds no credential of its
 # own. `submit` is a parameter so the checks can drive the interface without a daemon and without
 # arming anything (m4 criterion C4).
+#
+# ⚠ THE DEFAULT IS A BARE NAME AND A FIRED JOB MUST NOT RELY ON IT (task C1). A `fire-tool` exec
+# inherits the systemd --user MANAGER's PATH — `runToolLikeExec` passes `envFile: null` — and that
+# PATH does not carry `~/.local/bin`, where this binary is installed. The bare name resolves for
+# every INTERACTIVE caller and for the in-process fast path, and resolves for NOBODY under the
+# daemon; `--ignite-bin` rebinds it to an absolute path, which is what the catalogue entry passes.
+# Same reasoning, one field over, as the `restart-daemon` entry's absolute-interpreter note.
 IGNITE_BIN = "ignite"
 _ENQUEUE_VERB = "add" + "-job"          # assembled, so the single-call-site check never counts ITSELF
 _QUEUE_ID = re.compile(r"queue id (\S+)")
@@ -4318,6 +4344,10 @@ def cmd_selftest(fixture):
         ("branch-arm-reaches-classifier", lambda: check_branch_arm_reaches_the_classifier()),
         ("branch-arm-refuses-unresolvable",
          lambda: check_branch_arm_refuses_an_unresolvable_reference(coord)),
+        # STEP 5 / the daemon entry (task C1, owner ruling d-owner-batch1 (1))
+        ("goal-resolves-the-live-run", lambda: check_goal_resolves_the_live_run()),
+        ("arming-has-one-home", lambda: check_arming_has_exactly_one_home(coord, pkg)),
+        ("catalogue-entry-drives-parser", lambda: check_catalogue_entry_drives_this_interface()),
     ]
     failed = 0
     for name, fn in checks:
@@ -4334,9 +4364,267 @@ def cmd_selftest(fixture):
     return 1 if failed else 0
 
 
+# ---- STEP 5 / the daemon entry (task C1) — checks -----------------------------------------------
+
+CATALOGUE = HERE.parent / "config" / "spawn-profiles.yaml"
+CATALOGUE_TOOL = "edge-runner"
+
+
+def _fake_args(**kw):
+    """An argparse-Namespace stand-in carrying only the fields `resolve_package` reads. Written
+    rather than driving `main()` because these two checks are about the RESOLVERS; the check that
+    the real parser accepts the shipped argv drives the real parser, in its own subprocess."""
+    ns = argparse.Namespace(package=None, goal=None)
+    for k, v in kw.items():
+        setattr(ns, k, v)
+    return ns
+
+
+def _goal_fixture(root, states):
+    """A goal folder whose runs.csv carries one row per `states` entry — the minimum
+    `coord.resolve_live_run` reads. Its run folders exist so a resolved path is a real directory."""
+    goal = Path(root)
+    goal.mkdir(parents=True, exist_ok=True)
+    lines = ["run-id,state"]
+    for i, st in enumerate(states, start=1):
+        lines.append("run-%d,%s" % (i, st))
+        (goal / "runs" / ("run-%d" % i)).mkdir(parents=True, exist_ok=True)
+    (goal / "runs.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return goal
+
+
+def check_goal_resolves_the_live_run():
+    """C1 criterion 1: a catalogue argv names a GOAL and the run is resolved at fire time — and the
+    resolver REFUSES rather than picks when the register is ambiguous. Both arms, one variable."""
+    tmp = Path(tempfile.mkdtemp(prefix="edge-runner-goal-"))
+    try:
+        one = _goal_fixture(tmp / "g-one", ["closed", "open", "closed"])
+        pkg, prov = resolve_package(_fake_args(goal=str(one)))
+        if pkg != (one / "runs" / "run-2").resolve():
+            return False, "one open row resolved to %s, expected run-2 (%s)" % (pkg, prov)
+
+        two = _goal_fixture(tmp / "g-two", ["open", "open"])
+        bad, why = resolve_package(_fake_args(goal=str(two)))
+        if bad is not None:
+            return False, "TWO open rows resolved to %s instead of refusing" % bad
+        if "R9" not in why:
+            return False, "the two-open-row refusal does not name R9: %s" % why
+
+        none, why0 = resolve_package(_fake_args(goal=str(_goal_fixture(tmp / "g-none", ["closed"]))))
+        if none is not None:
+            return False, "a register with no open row resolved to %s instead of refusing" % none
+
+        # The override still wins, and it consults no register: this package has no runs.csv above
+        # it at all, which is the shape every check and every on-disk fixture run passes.
+        over, oprov = resolve_package(_fake_args(package=str(tmp), goal=str(two)))
+        if over != tmp.resolve() or "override" not in oprov:
+            return False, "--package did not override --goal (got %s / %s)" % (over, oprov)
+        return True, ("one open row -> run-2; TWO open rows REFUSED naming R9; zero open rows "
+                      "REFUSED; --package overrode a resolvable --goal. Four arms, one variable.")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_arming_has_exactly_one_home(_coord, pkg):
+    """C1 criterion 2: STEP 4's `job-id`/`profile` come from the package's OWN arm file — the same
+    file the check-out fast path reads — so the two CMP-25 triggers cannot be armed differently.
+    The control is the SAME package with the arm removed: it must yield no values at all."""
+    p = arm_path(pkg)
+    had = p.read_bytes() if p.exists() else None
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"job-id": "fx-armed-job", "profile": "fx-armed-profile",
+                                 "dry-run": True}), encoding="utf-8")
+        jid, prof, dry, scope = enqueue_arming(pkg, None, None)
+        if (jid, prof, dry) != ("fx-armed-job", "fx-armed-profile", True):
+            return False, "armed package yielded %r/%r/%r" % (jid, prof, dry)
+        if str(p) not in scope:
+            return False, "the provenance does not name the arm file: %s" % scope
+        # The SAME two values, read by the OTHER trigger, off the same file — this is the property,
+        # not the values: if the fast path ever read a different home this comparison goes red.
+        other, _ = fastpath_arm(pkg)
+        if (other["job-id"], other["profile"]) != (jid, prof):
+            return False, "the fast path reads %r but the daemon path reads %r" % (other, (jid, prof))
+
+        p.unlink()
+        njid, nprof, ndry, nscope = enqueue_arming(pkg, None, None)
+        if (njid, nprof, ndry) != (None, None, None):
+            return False, "an UNARMED package still yielded %r/%r/%r" % (njid, nprof, ndry)
+        if ARM_FILENAME not in nscope:
+            return False, "the unarmed refusal does not name %s: %s" % (ARM_FILENAME, nscope)
+
+        ojid, oprof, _, oprov = enqueue_arming(pkg, "cli-job", "cli-profile")
+        if (ojid, oprof) != ("cli-job", "cli-profile") or "override" not in oprov:
+            return False, "explicit --job-id/--profile did not override (%r/%r)" % (ojid, oprof)
+        return True, ("armed -> %s/%s (dry-run honoured) and BOTH triggers read the one file; the "
+                      "same package unarmed -> nothing, naming %s; explicit flags overrode. The "
+                      "control fired." % (jid, prof, ARM_FILENAME))
+    finally:
+        if had is None:
+            if p.exists():
+                p.unlink()
+        else:
+            p.write_bytes(had)
+
+
+def check_catalogue_entry_drives_this_interface():
+    """C1 criterion 3: the SHIPPED catalogue entry and this file's own argument surface are bound
+    together, so the argv cannot drift under the program it execs.
+
+    The binding is EXERCISED, not read: the entry's own argv is handed to this file's real parser
+    in a subprocess, with `--arming-scope` appended so the pass reports and acts on nothing. The
+    control is the same argv plus a flag that does not exist — it must exit 2. Without that arm a
+    parser that accepted everything would pass this check."""
+    if not CATALOGUE.exists():
+        return False, "no catalogue at %s" % CATALOGUE
+    import yaml                                            # noqa: E402 — checks only, not the job
+    entry = (yaml.safe_load(CATALOGUE.read_text(encoding="utf-8")).get("tools") or {}).get(
+        CATALOGUE_TOOL)
+    if not entry or not isinstance(entry.get("argv"), list):
+        return False, "`tools: %s` carries no argv in %s" % (CATALOGUE_TOOL, CATALOGUE)
+    argv = [str(a) for a in entry["argv"]]
+    if str(Path(__file__).resolve()) not in argv:
+        return False, "the entry's argv does not name this file (%s)" % Path(__file__).resolve()
+    if "--package" in argv:
+        return False, ("the entry pins a RUN via --package. A run number in a catalogue argv is a "
+                       "home in waiting — it goes stale at the next run close (7.117/7.188).")
+    if "--goal" not in argv:
+        return False, "the entry passes no --goal, so it can resolve no run at fire time"
+    for flag in ("--job-id", "--profile"):
+        if flag in argv:
+            return False, ("the entry pins %s, minting a SECOND home for a value whose one home is "
+                           "the run's own %s" % (flag, ARM_FILENAME))
+    if "--ignite-bin" not in argv:
+        return False, ("the entry passes no --ignite-bin. A fire-tool exec inherits the systemd "
+                       "--user manager's PATH, which does not carry the ignite binary.")
+    bin_path = argv[argv.index("--ignite-bin") + 1]
+    if not bin_path.startswith("/"):
+        return False, "--ignite-bin is %r, not an absolute path" % bin_path
+    accepted = subprocess.run([sys.executable] + argv[1:] + ["--arming-scope"],
+                              capture_output=True, text=True)
+    if accepted.returncode == 2 or "unrecognized arguments" in accepted.stderr:
+        return False, ("this file's parser REFUSED the shipped argv (rc=%d): %s"
+                       % (accepted.returncode, accepted.stderr.strip()[:400]))
+    refused = subprocess.run([sys.executable] + argv[1:] + ["--arming-scope", "--no-such-flag"],
+                             capture_output=True, text=True)
+    if refused.returncode != 2:
+        return False, ("the control did NOT fire: a bogus flag exited %d, so 'the parser accepted "
+                       "the shipped argv' measures nothing" % refused.returncode)
+    return True, ("the shipped `tools: %s` argv names this file, pins no run, pins neither job-id "
+                  "nor profile, carries an absolute --ignite-bin (%s), and this file's real parser "
+                  "accepted it (rc=%d) while rejecting a bogus flag (rc=2)"
+                  % (CATALOGUE_TOOL, bin_path, accepted.returncode))
+
+
+# ---- THE DAEMON ENTRY (task C1) ---------------------------------------------------------------
+#
+# A `fire-tool` catalogue entry's argv is FIXED at boot and carries no per-fire arguments
+# (`ticker.launchFireTool` execs `tool.argv` verbatim). Everything run-specific must therefore be
+# RESOLVED by this file at fire time rather than written into that argv — the two functions below
+# are the whole of that resolution, and neither invents a value.
+
+
+def door_at(binary):
+    """A submitter for `enqueue` that runs the door from an explicitly named binary — or `None`,
+    meaning "use the default door unchanged".
+
+    ⚠ THIS IS AN INJECTION, NOT A SECOND BUILDER, and the distinction is
+    `check_single_enqueue_call_site`'s whole subject. `_enqueue_argv` stays the only place an
+    enqueue command is BUILT; this substitutes element 0 of the command it built and touches
+    nothing else of it. The first draft rebound the module's door-binary constant from `main()`
+    instead, and that check went red the same minute: the constant being named outside the one
+    builder IS the drift it watches for. The injection seam already existed for the checks; a fired
+    job needs it for the same reason, so nothing new was invented here.
+
+    ⚠ AND ITS INNER FUNCTION IS NOT CALLED `submit`, deliberately. That check's third needle is the
+    literal submitter call, and a second function whose source carries that text reads to it as a
+    second call site. The name here is prose the check cannot mistake for the thing it guards."""
+    if not binary:
+        return None
+
+    def run_door(argv):
+        return default_submitter([binary] + list(argv[1:]))
+    return run_door
+
+
+def resolve_package(args):
+    """(Path, provenance) or (None, refusal) — the run package this pass runs against.
+
+    THE TARGET IS RESOLVED, NEVER PINNED. A run number written into a catalogue argv is a HOME IN
+    WAITING: it goes stale the moment that run closes, and the entry then fires against a closed
+    run's package while the job's own status keeps reading healthy. That is not hypothetical on
+    this tree — it is the defect task 7.117 fixed in the `selfheal-watch` entry and task 7.188
+    fixed in `selfheal-room`, and swapping in the currently-live run reproduces it at the very next
+    close. So the entry names a GOAL and this asks the register which run is open.
+
+    THE REGISTER HAS EXACTLY ONE READER AND IT IS NOT THIS FILE. `coord.resolve_live_run` already
+    answers this and already REFUSES rather than guesses on zero or two `state=open` rows (R9's
+    one-live-run guarantee, whose enforcement — task 7.77 — is NOT BUILT). A second CSV reader here
+    would be a second answer to "which run is live", which is the two-readers shape (G-301) this
+    whole file is bounded against. Unlike `selfheal-watch.resolve_package` this takes no `--coord`
+    flag: `COORD_PATH` is already a module-level constant here and `load_coord()` is already the
+    single import site, so a flag would be a second home for a path this file cannot run without.
+
+    `--package` SURVIVES AS THE EXPLICIT OVERRIDE and wins whenever present — every interactive
+    caller, every check, and the on-disk fixture runs pass it, and none of them has a run register.
+
+    Refusal is FAIL-CLOSED and returns no package: a pass that guessed its target on an ambiguous
+    register would mark and advance seats in a run nobody named."""
+    if args.package:
+        return Path(args.package).resolve(), "--package (explicit override; the register is not consulted)"
+    if not args.goal:
+        return None, ("neither --package nor --goal: this pass has no target and will not choose "
+                      "one. A catalogue entry passes --goal, and the live run is resolved from that "
+                      "goal's runs.csv at FIRE TIME.")
+    goal = Path(args.goal).resolve()
+    run_id, detail = load_coord().resolve_live_run(goal)
+    if not run_id:
+        return None, ("register at %s did not resolve ONE live run: %s" % (goal / "runs.csv", detail))
+    return (goal / "runs" / run_id).resolve(), (
+        "%s state=open -> %s (resolved live via coord.resolve_live_run, R10)"
+        % (goal / "runs.csv", run_id))
+
+
+def enqueue_arming(pkg, job_id, profile):
+    """(job-id, profile, dry-run, provenance) — the values STEP 4 enqueues with, or `(None, None,
+    None, why-not)` when this package is not armed.
+
+    ONE HOME FOR THESE TWO VALUES, AND IT IS THE PACKAGE'S OWN ARM FILE. `job-id` and `profile`
+    have no defaults anywhere in this file — the catalogue id belongs to whoever armed the queue
+    and the daemon requires a profile of every launch-agent job — so a fixed catalogue argv cannot
+    carry them without minting a SECOND home beside `coordination/edge-fastpath.json`. A second
+    home is a disagreement waiting to happen about the one question C4 cares about: what is this
+    armed FOR. Reading the same file the check-out fast path reads means the two triggers of CMP-25
+    are armed by one act and can never diverge.
+
+    It also keeps `r-cutover-gated` intact through the registration: a run that carries no arm file
+    is not advanced by a daemon fire any more than by a check-out. AN UNARMED PACKAGE IS A NO-OP,
+    NOT A FAILURE — the same verdict `check_fastpath_unarmed_is_a_no_op` already pins on the other
+    trigger — so the caller reports the scope loudly and exits 0. Exiting non-zero would record a
+    `failed` completion on every fire of every unarmed goal, and a job whose normal state is red is
+    a job whose red nobody reads.
+
+    Explicit `--job-id`/`--profile` still win, both together: they are how every check and every
+    interactive run drives the interface, and neither half alone is a usable arming."""
+    if job_id and profile:
+        return job_id, profile, None, "--job-id/--profile (explicit override; the arm file is not consulted)"
+    arm, scope = fastpath_arm(pkg)
+    if arm is None:
+        return None, None, None, scope
+    return arm["job-id"], arm["profile"], bool(arm.get("dry-run")), scope
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--package", help="the run folder to verify seats in")
+    p.add_argument("--goal", default=None,
+                   help="goal folder whose runs.csv resolves the live run when --package is "
+                        "absent. Names a GOAL, never a run — there is no run number to go stale")
+    p.add_argument("--ignite-bin", default=None, dest="ignite_bin",
+                   help="absolute path to the `ignite` binary STEP 4's door runs. Omitted, the "
+                        "door resolves the bare name on PATH — which works for an interactive "
+                        "caller and for NOBODY under a fire-tool exec, since that inherits the "
+                        "systemd --user manager's PATH")
     p.add_argument("--seat", action="append", default=[],
                    help="verify only this seat (repeatable); default is every seat on the trace "
                         "or the roster")
@@ -4434,9 +4722,13 @@ def main():
         print("No environment variable and no flag can arm it. Either would arm every package the")
         print("process touches, and neither can be read back off disk later to answer what was")
         print("armed. Absent, unreadable, unparseable and incomplete all fail CLOSED.")
-        if args.package:
-            _, scope = fastpath_arm(Path(args.package).resolve())
-            print("\n--package %s\n  %s" % (Path(args.package).resolve(), scope))
+        if args.package or args.goal:
+            target, prov = resolve_package(args)
+            if target is None:
+                print("\nno target resolved: %s" % prov)
+            else:
+                _, scope = fastpath_arm(target)
+                print("\ntarget %s\n  resolved by: %s\n  %s" % (target, prov, scope))
         # Printed on EVERY invocation, with or without --package: the question C4 asks is about
         # the live run, and an answer a reader has to remember to ask for is an answer that goes
         # unasked. The path is a literal, so this cannot be pointed somewhere reassuring.
@@ -4449,11 +4741,19 @@ def main():
 
     if args.selftest:
         return cmd_selftest(args.fixture)
-    if not args.package:
-        p.error("--package is required (or --selftest)")
+
+    # The door, bound to the binary this invocation names — `None` when the flag is omitted, which
+    # leaves every existing caller on today's exact default behaviour.
+    door = door_at(args.ignite_bin)
+
+    pkg, provenance = resolve_package(args)
+    if pkg is None:
+        p.error(provenance)
+    # PRINTED, NEVER ONLY DECIDED. A fired pass leaves its stdout as the daemon's completion corpus,
+    # and "which run did this act on" is the first question anyone reads that corpus to answer.
+    print("target %s\n  resolved by: %s" % (pkg, provenance))
 
     coord = load_coord()
-    pkg = Path(args.package).resolve()
     marks = run_stage(coord, pkg, args.seat)
 
     if args.readiness:
@@ -4492,7 +4792,7 @@ def main():
         # read every nested row as `<no mark>` and block its successors forever.
         res3 = readiness(coord, pkg, marks=marks_with_branches(coord, pkg, args.catalog_root))
         res = branch_stage(coord, pkg, args.catalog_root, args.job_id, args.profile,
-                           args.bindings, at=args.at, dry_run=args.dry_run,
+                           args.bindings, submit=door, at=args.at, dry_run=args.dry_run,
                            milestone_id=args.milestone_id, readiness_result=res3,
                            creation_inputs={"conduct": args.conduct,
                                             "claude_md": args.claude_md,
@@ -4530,14 +4830,18 @@ def main():
         return 1 if failed else 0
 
     if args.enqueue:
-        if not args.job_id or not args.profile:
-            p.error("--enqueue requires --job-id and --profile: the catalogue id belongs to "
-                    "whoever armed the queue, and the daemon requires a profile of every "
-                    "launch-agent job. This stage invents neither.")
+        job_id, profile, arm_dry, arming = enqueue_arming(pkg, args.job_id, args.profile)
+        print("arming: %s" % arming)
+        if job_id is None:
+            # STOOD DOWN — not failed, and the exit code says so. `enqueue_arming`'s docstring
+            # carries why: a fire against an unarmed run is the no-op `r-cutover-gated` asks for,
+            # and recording it as `failed` would make every such fire red.
+            print("NOT ENQUEUED (whole pass stood down) — %s" % arming, file=sys.stderr)
+            return 0
         full = marks if not args.seat else run_stage(coord, pkg)
         res3 = readiness(coord, pkg, {r["seat"]: r["disposition"] for r in full})
-        res = enqueue(coord, pkg, args.job_id, args.profile, readiness_result=res3,
-                      at=args.at, dry_run=args.dry_run)
+        res = enqueue(coord, pkg, job_id, profile, readiness_result=res3, submit=door,
+                      at=args.at, dry_run=args.dry_run or bool(arm_dry))
         if args.json:
             print(json.dumps(res, indent=2))
         else:

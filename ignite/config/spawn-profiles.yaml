@@ -887,3 +887,54 @@ tools:
     argv:
       - /usr/bin/python3
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/deploy/probe-suite-scheduled.py
+
+  # ── task C1 (owner ruling `d-owner-batch1` (1)) — CMP-25's edge-runner, as a REAL job ──────
+  # The registry record CMP-25 says this engine "runs out of the heart store like any job (CMP-2)".
+  # Until now nothing registered it: its only live trigger was an in-process Python call from the
+  # kit's check-out. The owner ruled the registry-conformant arm; this entry is it. The in-process
+  # fast path is NOT retired by it — that is a later ruling, and both triggers read one arm file.
+  #
+  # ⚠ LANDED IS NOT LIVE, twice over. This file is boot-read, so the entry reaches the daemon only
+  # through a restart; and a registered TOOL is not a registered JOB — firing it still needs an
+  # `ignite register-job edge-runner --action-type fire-tool` row in this machine's heart.db plus
+  # an `ignite add-job` queue row. Neither is in git (per-machine runtime state never is).
+  #
+  # ⚠ AND A FIRE STILL STANDS DOWN ON AN UNARMED RUN, which is what keeps `r-cutover-gated` (m4
+  # criterion C4) intact through the registration: STEP 4's `job-id` and `profile` are read from
+  # the resolved run's own `coordination/edge-fastpath.json` — the SAME file the check-out fast
+  # path reads — so arming is one act for both triggers and they cannot disagree. An unarmed run
+  # is marked, reported, and enqueues nothing.
+  #
+  # ⚠ THIS ENTRY DELIBERATELY NAMES NO RUN, for the reason the three entries above name no run: a
+  # run number in an argv is a HOME IN WAITING and goes stale at the next close (7.117, 7.188).
+  # `--goal` names the GOAL and edge-runner-job.py asks `coord.resolve_live_run` at FIRE TIME,
+  # which REFUSES rather than guesses on zero or two open rows (R9/R10).
+  #
+  # ⚠ AND IT PINS NEITHER --job-id NOR --profile, which would be the same defect one field over:
+  # those two have exactly ONE home and it is the arm file above. A copy here would be free to
+  # disagree with it about what the run is armed for.
+  #
+  # ⚠ --ignite-bin IS NOT OPTIONAL HERE and it is not style. STEP 4's door is the `ignite` CLI, and
+  # a fire-tool exec inherits the systemd --user MANAGER's PATH (`runToolLikeExec` passes
+  # `envFile: null`) — which does not carry `~/.local/bin`. The bare name resolves for every
+  # interactive caller and for nobody under the daemon. Same lesson as the absolute-interpreter
+  # note on `restart-daemon` above. It names the REPO file, not the `~/.local/bin` symlink: the
+  # symlink's lifetime is shorter than this config's, which is precisely what S-6(b)'s boot-time
+  # catalogue-path check exists to catch.
+  #
+  # NO THROWAWAY TWIN, and the absence is reasoned rather than forgotten. A twin must point at a
+  # throwaway goal, and a throwaway goal's lifetime is SHORTER THAN THIS FILE'S — the exact rule
+  # `server/heart/catalogue-paths.js` was written to enforce ("production config must never
+  # reference a path whose lifetime is shorter than its own"). The equivalent cover is bound
+  # inside the program instead: `--selftest`'s `catalogue-entry-drives-parser` check hands THIS
+  # argv to edge-runner-job.py's real parser and proves a bogus flag is refused, so the entry
+  # cannot drift under the program it execs.
+  edge-runner:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/edge-runner-job.py
+      - --goal
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp
+      - --ignite-bin
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/cli/ignite.js
+      - --enqueue
