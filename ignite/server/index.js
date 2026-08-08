@@ -597,9 +597,14 @@ async function main() {
   // settle ledger frames the whole cutover ("DEC-1 is amended in TARGET, never in gate", R28).
   return {
     ...spawnManager,
-    spawn: (execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown') => {
+    // `resumeRef` MUST ride through this decoration (r-chat-chain-resumes-session): the ticker
+    // passes it positionally, and a wrapper pinned to the old arity silently drops it — measured
+    // 2026-08-08 (execs 24666/24669/24672): the tick log said `chain: resume`, the argv ran the
+    // exec template, and the sitting answered the owner with no thread history. Headed spawns
+    // never resume, so the ref is forwarded on the headless path only.
+    spawn: (execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown', resumeRef = null) => {
       if (sessionMode !== 'headed') {
-        return spawnManager.spawn(execId, profileName, sessionMode, prompt, workdir, enqueuedBy);
+        return spawnManager.spawn(execId, profileName, sessionMode, prompt, workdir, enqueuedBy, resumeRef);
       }
       // ⚑ THE ROOM IS NOW REQUIRED FOR A HEADED SPAWN, and that is a real behavior change, not a
       // tidy-up: `RBTV_IGNITE_TMUX_ROOM` unset used to mean "fall back to the pty path" (the
