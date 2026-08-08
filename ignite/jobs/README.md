@@ -11,11 +11,46 @@ recovery agent every period regardless of health — an unbounded paid path.
 | `selfheal-room.py` | 7.71 | a tmux session named as the room | the session does not exist |
 | `selfheal-watch.py` | 7.72 | `{package}/coordination/watch-heartbeat.json` | the stamp is old **or** its pid is not a live `watch.py` |
 | `edge-runner-job.py` | C1 | the live run's finished seats + every downstream `after` row | the run is ARMED (`{package}/coordination/edge-fastpath.json`); otherwise it stands down |
+| `goal-watcher-job.py` | 7.32 / B2 | the run's `state.json` snapshot (CMP-20) and nothing raw | a threshold in CMP-21's Layout is crossed — see below; **DARK today, no live catalogue entry** |
 | `jobcontain.py` | both | — | (library: self-cap, wall clock, single-instance lock) |
 
-(`goal-watcher-job.py`, `run-state-job.py`, `restart-daemon.py` and `recover-room.py` are also in
-this folder and are NOT in the table above — noticed while adding the `edge-runner` row, left alone
-rather than back-filled from guesswork.)
+(`run-state-job.py`, `restart-daemon.py` and `recover-room.py` are also in this folder and are NOT
+in the table above — noticed while adding the `edge-runner` row, left alone rather than back-filled
+from guesswork.)
+
+## `goal-watcher-job.py` is the one that ACTS on a threshold, not only reports it (CMP-21)
+
+Owner ruling `decisions.md#d-watcher-deterministic-chain` (2026-08-08) settles CMP-21 and RETIRES
+the operational-recovery role and the closer this job used to escalate to. Its chain is now
+**detect → fix INLINE where the fix is mechanical → nudge the SEAT → nudge the LEADER**, and the
+alignment landed as work-list item B2. What a reader of the older docstrings must not carry over:
+
+- **It is no longer notify-only.** Two rows perform an inline mechanical fix under `--notify`:
+  the staleness row runs team-monitor's own idempotent `ensure`, and the reap row runs the kit's
+  observe-only `reap` pass over the awaiting-close debt. `run_inline` is the file's ONE exec door
+  and it refuses any program outside `INLINE_FIX_SCRIPTS` — which is what keeps the shadow
+  backstop's "no queue door is reachable from here" claim checkable now that the file spawns.
+- **The recipient is per DECISION, not per pass.** `--to` now names the **LEADER** seat and takes
+  every judgment row; `QUIET` and `CONTEXT` go to the SUBJECT SEAT itself and escalate to the
+  leader after `--escalate-after` consecutive unresolved passes.
+- **The run-stall row reads FOUR terms, not three.** `run.live_executors` counts live *paned*
+  seats only, so the predicate also reads `headless[]` (a row whose `outcome` is `null` is an
+  executor still occupying work) — without it a healthy headless window reads as a stalled run.
+  Any term the sensor could not read makes the row **UNDECIDABLE**; a null is never read as `0`.
+- **The dirty-finish enqueue is still SHADOW** (owner-class bar, rider 1 of
+  `p-756-edge-consumption-true`), and **launch gating is still the launch door's** —
+  `coord.launch_gates` already refuses against the same `budget.json` floor, so this row supplies
+  the rising trend and the leader's nudge, never a second gate.
+
+`python3 goal-watcher-job.py --selftest` asserts the stall predicate's null discipline, the
+headless half, the recipient chain, the escalation, the exec allowlist, and the absence of a
+retired role in every `decision(...)` this file can emit. A pass WITHOUT `--notify` is a full dry
+run: every row is decided and printed, nothing is delivered and no child process is spawned.
+
+⚠ **It is DARK. `config/spawn-profiles.yaml` carries only `goal-watcher-throwaway`; the live
+`goal-watcher` entry is deliberately absent** and arming it is a separate gated act. A live entry
+MUST set `--to` to the run's actual leader seat — the throwaway's non-leader value exists only to
+exercise delivery.
 
 ## `edge-runner-job.py` is the one whose registration is the whole point (task C1)
 
