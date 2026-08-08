@@ -201,6 +201,84 @@ try {
     `branch@${branch} ensure@${ensureCall} launch@${launchCall}`,
   );
 
+  // ── THE REAL READER ON A HOSTILE DESCRIPTOR (A3/C3 review, 2026-08-08) ───────────────────────
+  //
+  // The throw arm above injects a `readKind` that throws — it proves the try/catch, not the seam.
+  // At TICK TIME the reader is `seat-folder.js#goalKind` and the descriptor is whatever is on
+  // disk, so these arms drive the REAL reader through the shapes a broken goal.md actually takes.
+  // None may throw (a throw out of `dispatch()` abandons the whole tick) and each must return a
+  // decision.
+  const hostileShapes = [
+    ['unterminated frontmatter', '---\nname: x\ngoal-kind: non-interactive\n'],
+    ['no frontmatter at all', '# just a heading'],
+    ['a value outside the enum', '---\ngoal-kind: interctive\n---'],
+    ['an empty goal.md', ''],
+  ];
+  let hostileFault = null;
+  hostileShapes.forEach(([label, body], i) => {
+    const g = `test-c3-hostile-${i}`;
+    makeGoal(g, body);
+    try {
+      const d = decide(runStartJob(g));
+      if (!['ensure', 'skip'].includes(d.action)) hostileFault = `${label} -> action ${d.action}`;
+    } catch (err) {
+      hostileFault = `${label} THREW ${err.message}`;
+    }
+  });
+  check(
+    `${hostileShapes.length} malformed descriptors each yield a decision through the REAL goalKind, none throws`,
+    hostileFault === null,
+    hostileFault || 'a throw here abandons every later due row in the tick',
+  );
+  // A goal folder that does not exist at all: the reader defaults, so this ENSURES. That is the
+  // ruling working as ruled — recorded here so the behaviour is a decision on the record rather
+  // than a surprise the first time a queue row outlives its goal folder.
+  const orphan = decide(runStartJob('test-c3-no-such-goal'));
+  check(
+    'a run-start row whose goal folder is ABSENT still ensures (the ruled default, documented not accidental)',
+    orphan.action === 'ensure' && orphan.kind === 'interactive',
+    `action=${orphan.action} kind=${orphan.kind}`,
+  );
+
+  // ── THE CARRIER INVARIANT THE TICKER'S SKIP RESTS ON ─────────────────────────────────────────
+  //
+  // `ticker.js` refuses to launch the ensure on any carrier but systemd, because the chat
+  // credential reaches the child ONLY as systemd's `EnvironmentFile=` property and `spawnSetsid`
+  // has no such parameter — its child inherits the daemon's env, which by design holds no token,
+  // so a setsid launch is a guaranteed failure recorded as a success. That refusal is only correct
+  // while the invariant holds. If someone later teaches `spawnSetsid` to carry an env file, this
+  // arm goes RED and points at the skip that must then be revisited (and at
+  // `goal-channel-design.md`'s bound, which such a change would also have to answer).
+  const carrierSrc = fs.readFileSync(path.resolve(__dirname, '..', '..', 'spawn', 'carrier.js'), 'utf8');
+  const setsidSig = /function spawnSetsid\(\{([^}]*)\}/.exec(carrierSrc);
+  check(
+    'spawnSetsid still accepts NO envFile — the invariant the ticker\'s non-systemd skip rests on',
+    !!setsidSig && !/envFile/.test(setsidSig[1]),
+    setsidSig ? setsidSig[1].replace(/\s+/g, ' ').trim() : 'signature not found',
+  );
+  const tickerSrcCarrier = fs.readFileSync(path.resolve(__dirname, '..', 'ticker.js'), 'utf8');
+  check(
+    'ticker.js skips the ensure when the selected carrier is not systemd',
+    /carrier !== 'systemd'/.test(tickerSrcCarrier) && /carrier-cannot-carry-credential/.test(tickerSrcCarrier),
+  );
+
+  // ── CONTAINMENT COVERS THE PREPARATION, NOT ONLY THE FORK ────────────────────────────────────
+  //
+  // `selectCarrier` THROWS when `spawn.carrier: systemd` is configured on a box with no user
+  // manager, and `ensureLogPath`/`ensureExitFile` mkdir. `tick()` has a `finally` and no `catch`,
+  // so any of those escaping abandons the rest of the tick. All three must sit INSIDE the
+  // function's try.
+  const fnStart = tickerSrcCarrier.indexOf('async function ensureGoalChannelAtStart');
+  const fnEnd = tickerSrcCarrier.indexOf('async function launchStartWorkflow', fnStart);
+  const body = tickerSrcCarrier.slice(fnStart, fnEnd);
+  const tryAt = body.indexOf('try {');
+  check(
+    'selectCarrier / ensureLogPath / ensureExitFile all sit INSIDE ensureGoalChannelAtStart\'s try',
+    fnStart > 0 && fnEnd > fnStart && tryAt > 0
+      && ['selectCarrier(', 'ensureLogPath(', 'ensureExitFile('].every((c) => body.indexOf(c) > tryAt),
+    `try@${tryAt} selectCarrier@${body.indexOf('selectCarrier(')} ensureLogPath@${body.indexOf('ensureLogPath(')} ensureExitFile@${body.indexOf('ensureExitFile(')}`,
+  );
+
   const failed = checks.filter((c) => !c.pass);
   out('');
   out(`SUMMARY: ${checks.length - failed.length}/${checks.length} passed`);

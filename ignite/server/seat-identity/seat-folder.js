@@ -457,6 +457,16 @@ function readSeatDescriptorName(seatMdPath) {
 // the two kinds. A malformed value is REPORTED by `goal_cli.py lint`'s enum check ("goal kind in
 // enum"), which is the surface built to name it; making the launch path fail on it instead would
 // take the daemon down for a typo lint already catches.
+//
+// ⚠ THAT LAST SENTENCE IS ONLY TRUE IF THE TWO READERS AGREE ON WHAT THE VALUE IS. `goal_cli.py`
+// reads this same frontmatter with `yaml.safe_load`; this reads it with a regex. Where they
+// disagree, lint reports NOTHING (it sees a clean value) and the launch path silently defaults —
+// so the named safety surface is blind by construction on exactly the inputs it exists to catch.
+// One ordinary YAML shape lands there and it is the reason for the strip below: a trailing
+// comment. `goal-kind: non-interactive # batch` is `non-interactive` to YAML and lints clean,
+// while an unstripped regex read is out-of-enum and resolves `interactive` — a BATCH goal handed
+// a Slack channel with nothing anywhere reporting it. Measured 2026-08-08 (A3/C3 review) on a
+// scaffolded fixture: control skips, the same file plus a comment ensures, `lint` names neither.
 const GOAL_KINDS = ['interactive', 'non-interactive'];
 const GOAL_KIND_DEFAULT = 'interactive';
 
@@ -472,7 +482,10 @@ function goalKind(goalDir) {
   if (!fm) return GOAL_KIND_DEFAULT;
   const declared = /^goal-kind:[ \t]*(.+)$/m.exec(fm[1]);
   if (!declared) return GOAL_KIND_DEFAULT;
-  const kind = declared[1].trim().replace(/^["']|["']$/g, '');
+  // Strip a YAML trailing comment BEFORE the enum test, so this reader and lint's `yaml.safe_load`
+  // resolve the same value (see the ⚠ above). Whitespace before `#` is what starts a comment in
+  // YAML — `a#b` is the scalar `a#b` — so the pattern is `\s+#`, never a bare `#`.
+  const kind = declared[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
   return GOAL_KINDS.includes(kind) ? kind : GOAL_KIND_DEFAULT;
 }
 

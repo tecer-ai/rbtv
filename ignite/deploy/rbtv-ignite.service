@@ -69,6 +69,15 @@
 #                                         survives the daemon gaining this caller. UNSET is a
 #                                         supported state — the ensure is recorded as skipped
 #                                         in the tick log, never attempted.
+#                                         ⚑ REQUIRES THE SYSTEMD CARRIER. `EnvironmentFile=` is a
+#                                         systemd property; the setsid carrier cannot set one, so
+#                                         a setsid child would run the ensure with NO token. On a
+#                                         non-systemd carrier the ensure is therefore SKIPPED,
+#                                         reason `carrier-cannot-carry-credential`, rather than
+#                                         launched — a doomed exec reported as a success is worse
+#                                         than a recorded skip. This costs nothing real: every
+#                                         deployment that has a bridge runs systemd already
+#                                         (rbtv-chat-bridge.service is itself a unit).
 #
 # Do NOT commit a substituted version of this file.
 

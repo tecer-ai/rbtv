@@ -946,35 +946,66 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       return;
     }
 
-    const cc = carrierConfig();
-    const sessionId = generateSessionId();
-    const logPath = ensureLogPath(cc.dataRoot, sessionId);
-    actions.push({
-      phase: 'dispatch',
-      action: 'channel-ensure',
-      goal: decision.goal,
-      kind: decision.kind,
-      argv: decision.argv,
-      sessionId,
-      logPath,
-    });
-
-    const carrier = selectCarrier(cc.carrier, cc.userManager);
-    const common = {
-      sessionId,
-      argv: decision.argv,
-      workdir: decision.goalDir,
-      logPath,
-      exitFile: ensureExitFile(cc.dataRoot, sessionId),
-      caps: {},
-      sandbox: {},
-      envFile,
-      userManager: cc.userManager,
-    };
+    // ⚠ THE PREPARATION IS INSIDE THE TRY, not only the spawn (A3/C3 review, 2026-08-08). Three of
+    // the calls below can throw BEFORE any carrier is reached — `ensureLogPath` (mkdir + append),
+    // `ensureExitFile` (mkdir), and `selectCarrier`, which throws `E_SYSTEMD_NOT_AVAILABLE` when
+    // `spawn.carrier: systemd` is configured on a box whose user manager is not up. `tick()` has a
+    // `finally` and NO `catch`, so a throw escaping this function abandons the REST OF THE TICK:
+    // enforce, the warning check, broadcast and `recordTick` never run and no `ticks` row is
+    // written. A persistent cause — an unwritable data root, a misconfigured carrier — would then
+    // break every tick that meets a due run-start row, for as long as the cause lasts. Containment
+    // is what this function's own contract promises; before this it began one line too late.
+    let sessionId = null;
     try {
-      const launchResult = carrier === 'systemd'
-        ? await spawnSystemd(common, log)
-        : await spawnSetsid(common, log);
+      const cc = carrierConfig();
+      const carrier = selectCarrier(cc.carrier, cc.userManager);
+
+      // ⚑ ONLY SYSTEMD CAN CARRY THE CREDENTIAL, so only systemd may launch this. `envFile` reaches
+      // the child as systemd's `EnvironmentFile=` property; `spawnSetsid` accepts no such option
+      // (`spawn/carrier.js` destructures sessionId/argv/workdir/logPath/stdinFile/exitFile and
+      // nothing else) and its child simply inherits THIS process's environment — which by design
+      // holds no chat token. A setsid launch is therefore an exec that cannot succeed, recorded as
+      // `channel-ensure-launched`: a false success, and the one outcome worse than a skip, because
+      // the tick log would then say the daemon ensured a channel it did not. It skips for exactly
+      // the reason an unset env file skips. ⚠ The fix is NOT to teach setsid to read the file —
+      // that would load the token into the DAEMON's own memory and break
+      // `goal-channel-design.md`'s bound ("the daemon holds no chat credential"), which is the
+      // entire reason this act is a process rather than a function call.
+      if (carrier !== 'systemd') {
+        actions.push({
+          phase: 'dispatch',
+          action: 'channel-ensure-skipped',
+          goal: decision.goal,
+          kind: decision.kind,
+          reason: `carrier-cannot-carry-credential (${carrier} — EnvironmentFile is a systemd property; a ${carrier} child would run the ensure with no chat token)`,
+        });
+        return;
+      }
+
+      sessionId = generateSessionId();
+      const logPath = ensureLogPath(cc.dataRoot, sessionId);
+      const exitFile = ensureExitFile(cc.dataRoot, sessionId);
+      actions.push({
+        phase: 'dispatch',
+        action: 'channel-ensure',
+        goal: decision.goal,
+        kind: decision.kind,
+        argv: decision.argv,
+        sessionId,
+        logPath,
+      });
+
+      const launchResult = await spawnSystemd({
+        sessionId,
+        argv: decision.argv,
+        workdir: decision.goalDir,
+        logPath,
+        exitFile,
+        caps: {},
+        sandbox: {},
+        envFile,
+        userManager: cc.userManager,
+      }, log);
       actions.push({
         phase: 'dispatch',
         action: 'channel-ensure-launched',
@@ -987,7 +1018,9 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     } catch (err) {
       // Contained: a channel that could not be ensured is loud and is NOT allowed to abandon the
       // tick or stop the run it belongs to. The run start below proceeds either way — a goal with
-      // no channel is degraded, a goal with no run is stopped.
+      // no channel is degraded, a goal with no run is stopped. `sessionId` is null when the throw
+      // landed before one was minted, and that is information, not a gap: it says the failure was
+      // in the preparation rather than in the carrier.
       actions.push({
         phase: 'dispatch',
         action: 'channel-ensure-failed',

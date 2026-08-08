@@ -52,6 +52,16 @@ CALLABLE surface (`ensureGoalChannel`) with the hook as its named build follow-u
 channel is created by an explicit call, not by a registration event. The answer is not
 degraded — only its caller is.
 
+> **SUPERSEDED 2026-08-08 (task C3).** The hook exists. It is NOT `rbtv goal scaffold`:
+> the caller is the daemon's ticker at a goal's *run start* — `server/ticker/
+> goal-channel-start.js`, gated on `one-live-run.js#isRunStart` and on the goal resolving
+> `interactive` through `seat-folder.js#goalKind` (owner ruling `d-owner-batch1` (2)). It
+> launches this file's own `ensure` verb as a child process, so the bound below holds
+> unchanged: the daemon composes an argv and never touches a token. Scaffold-time creation
+> was rejected because a goal may be scaffolded long before it ever runs, and an unrun
+> goal's channel is an empty room. Requires the systemd carrier — the credential reaches
+> the child only as `EnvironmentFile=`, which the setsid carrier cannot set.
+
 **Never-invite, by construction.** The bridge has NO `conversations.invite` code path at all.
 Membership is a human act in the Slack UI. This is what makes `r-slack-etiquette`'s "the owner
 is added to NO test channel" mechanically true rather than a policy nobody enforces — a probe

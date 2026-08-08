@@ -1,14 +1,21 @@
 'use strict';
 
-// THE GOAL-CHANNEL OPERATOR SURFACE (task 7.58) — the stand-in caller for the two
-// settled lifecycle answers until the goal-registration hook exists.
+// THE GOAL-CHANNEL OPERATOR SURFACE (task 7.58) — and, since task C3, the surface the
+// daemon itself invokes.
 //
 // `goal-channel-design.md` settles WHO creates a goal's channel (the bridge, at goal
-// registration) and WHAT happens at close (archive, never delete). The eventual
-// caller is the goal machinery — `rbtv goal scaffold` / goal close, task 7.63. That
-// hook does not exist yet, so this CLI is the caller: same functions, same
-// idempotence, invoked by hand instead of by an event. The ANSWER is unchanged; only
-// its trigger is (the pre-ruled degrade, milestone-dag §1 branch B3).
+// registration) and WHAT happens at close (archive, never delete). This CLI was
+// authored as the stand-in caller under the pre-ruled degrade (milestone-dag §1 branch
+// B3) because no hook existed: same functions, same idempotence, invoked by hand
+// instead of by an event.
+//
+// ⚑ THAT IS NO LONGER THE ONLY WAY IN (task C3, 2026-08-08). `server/ticker/
+// goal-channel-start.js` composes `<node> <this file> ensure <goal>` and the daemon
+// launches it at an INTERACTIVE goal's run start — so `ensure` now has a machine caller
+// as well as a human one, and its argv is asserted BYTE-EXACT by
+// `server/ticker/probes/probe-goal-channel-start.js`. Renaming this file, moving it, or
+// changing the `ensure` verb's argument shape breaks that caller; the probe is what
+// catches it. The hand-invoked path is unchanged and still supported.
 //
 // ⚑ SECRETS: `SLACK_BOT_TOKEN` comes from the environment and is NEVER printed,
 // logged, or echoed — not even truncated. The only identity this prints is the one
