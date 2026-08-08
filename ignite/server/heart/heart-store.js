@@ -864,6 +864,20 @@ class HeartStore {
     // NOT A GUARD ON THE RECYCLE PATH: the ticker's own `insertQueueRow` is a raw INSERT that
     // never reaches this method, so a turn chain's recycle is untouched by construction (it has
     // its own `slot-live-session` defer). That is the ruled split, not an oversight.
+    //
+    // ⚠ SUPPRESSION DISCARDS THE ENTIRE NEW REQUEST — payload AND schedule, not just the row.
+    // This returns BEFORE the INSERT, so the second call's `args` (a `prompt` included),
+    // `run_at`, `trigger_kind` and `session_mode` are dropped and the caller is handed the HELD
+    // operation's id. That is exactly right when the re-submission is REDUNDANT — the
+    // edge-runner re-submits an IDENTICAL launch request, so nothing unique is lost, which is
+    // why the door is safe for the caller it was built for. It is LOSSY for any caller whose
+    // payload carries something the held operation never saw. One such caller is in-tree and
+    // live: `bridges/chat/forward-path.js` forwardSessionCreate homes every goal-channel session
+    // at that goal's `goal-master` seat, so a NEW chat thread opened while that seat holds a live
+    // turn is suppressed, its user text is dropped, and the bridge maps the thread to the held id
+    // and logs a success (measured, Q9 review 2026-08-08 — surfaced, NOT fixed here: the fix
+    // belongs at the bridge, outside this task's allowlist). A caller that must not lose its
+    // payload MUST read `deduped` on the result rather than treating a returned id as delivery.
     const seatKey = seatKeyOf(job, parsedArgs);
     if (seatKey) {
       const holder = this._findSeatHolder(seatKey);
