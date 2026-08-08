@@ -55,6 +55,91 @@ is create-only with no update surface, so re-driving a half-registered id needs 
 the failure text for "already exists" would be reading a message as if it were a policy
 (project ledger `S-3`).
 
+### The orphan that partial state leaves — how an operator finds it and closes it
+
+There is **no unwind, by decision**, so the orphan is an operator's job. This is the procedure; it
+is written down because a partial state whose recovery is undocumented is a partial state nobody
+closes.
+
+**Find it.** Every orphan is named in the request's own refusal record — `<inbox>/refused/<name>.refusal.json`
+— and never only in the goals root. Read these four keys:
+
+| Key | Reads |
+|---|---|
+| `goal-name` / `goal-dir` | the goal that was scaffolded, and where |
+| `goal-exists` | whether the directory is on disk **now** |
+| `scaffolded` | `true` the scaffold succeeded · `false` it was never reached · **`null` unknown** — the fire died mid-request and only `goal-exists` is trustworthy |
+| `stated-refusal` | which step failed, and its stderr tail |
+
+The whole set of orphans is `refused/*.refusal.json` with `goal-exists: true`. A goal with no
+queued job is also visible as a goals-root directory absent from `ignite inspect queue --json`.
+
+**Then close it, one of two ways — the choice is the operator's and neither is automatic:**
+
+1. **Complete it** — the goal is wanted; only its job is missing. Re-issue exactly what the verb
+   would have, with an owner or enrolled-**agent** token (`register-job` refuses a bridge one):
+
+   ```
+   ignite register-job <goal>-workflow-start --action-type start-workflow \
+     --goal <goal> --seat <entry-seat> \
+     --args-schema '{"required": {"workflow": "string"}, "optional": {"workdir": "string"}}'
+   ignite add-job --fn <goal>-workflow-start \
+     --args-json '{"workflow": "<workflow>", "workdir": "<goal-dir>"}' \
+     --trigger scheduled --at <ISO-8601 Z>
+   ```
+
+   `<entry-seat>` and `<workflow>` are the catalogue entry's own `--entry-seat` / `--workflow`
+   values; `<goal-dir>` is the refusal record's. If `register-job` reports the id already exists,
+   the row was minted before the failure — skip to `add-job`.
+
+2. **Drop it** — the goal is not wanted. Remove the directory, then rebuild the index, or
+   `goals.csv` keeps a row for a goal that is gone:
+
+   ```
+   rm -rf <goal-dir> && rbtv-goal reindex --root <goals-root>
+   ```
+
+   `rbtv-goal` is `capabilities/goals-tree/tool/rbtv-goal` — name the path unless it is on PATH.
+
+⚠ **Re-staging the same request instead is not recovery.** `V2`/`V3` refuse a goal-name that already
+resolves, so a re-stage of an orphaned name is refused forever until one of the two paths above runs.
+
+### The exit code is per-FIRE, and one bad request colours the whole fire
+
+`scaffold-and-queue` exits **1 if ANY drained request was refused**, even when every other one was
+accepted and its goal created. That is deliberate — a fire that silently exited 0 while refusing
+work would report success for requests that never happened — but it has a consequence an operator
+must know before arming, and it is **not softened**:
+
+- The daemon records a fire-tool execution's status from the exit code alone (`ticker.js#recordToolCompletion`:
+  `exitCode === 0 ? 'done' : 'failed'`). So **one junk file staged by a channel user marks the whole
+  execution `failed`** in `jobs_log`, alongside goals that really were created and queued.
+- `failed` here therefore means "not every request succeeded", **never** "nothing happened". The
+  per-request truth is only in the JSON on stdout (captured in the execution's tool log) and in
+  `<inbox>/done/` vs `<inbox>/refused/`. Read those before treating a `failed` fire as a no-op —
+  and never re-stage a whole batch on the strength of the exit code, since the accepted half is
+  already scaffolded and would come back as `V2` refusals.
+- A monitor that alerts on `failed` fire-tool executions will therefore alert on ordinary requester
+  error. Whoever arms this row owns that choice.
+
+### What the inbox defends against, and what it does not
+
+The inbox is a **trust boundary**: it sits inside the requester's own seat folder, so its whole
+content — file names, bytes, and directory structure — is chosen by the requester.
+
+| Defended | How |
+|---|---|
+| A goal outside the goals root | `goal-name` is refused (`V1`) unless it matches `^[a-z0-9]+(?:-[a-z0-9]+)*$`, so no separator, traversal or absolute path survives validation, and validation strictly precedes the scaffold. |
+| A goal the requester may not have | `V2`/`V3` refuse a name already taken or declared in the resolved root. |
+| **One request wedging the whole surface** | The refusal arm is the **entire per-request body**, not just the JSON read. A directory named `*.json`, an unreadable/dangling entry, and a schema-legal non-string `due-date` each used to raise past the narrow arm and kill the fire with a traceback — and, since the offender never left the inbox, kill every later fire too. Each is now a per-request refusal that settles into `refused/`. |
+| **Writes escaping the cage through a symlink** | `<inbox>`, `<inbox>/done` and `<inbox>/refused` are refused if any is a **symlink**: `mkdir(exist_ok=True)` accepts a symlink-to-directory and `Path.replace` follows it, so a pre-created link would have relocated the staged request and its `.refusal.json` to any daemon-writable path. The whole fire refuses and drains nothing. |
+
+| **Not** defended — accepted, and stated | Consequence |
+|---|---|
+| Volume | No cap on requests per fire. A requester that stages many files makes one fire long; the drain is serial and each accepted request costs two `ignite` calls. |
+| A symlink swapped in *during* the fire | The symlink check is a check, so a requester that swaps a real directory for a link between the check and the move still wins that race. Closing it needs directory-fd-relative moves. |
+| Disclosure into `refused/` | A refusal record carries the failed step's argv and stderr tail, written where the requester can read it — daemon-side absolute paths and gateway error text included. That is the same property that makes a refusal readable at all. |
+
 ### Arming it is three gated acts, in this order
 
 The catalogue entry `tools: goal-creation-request` in `config/spawn-profiles.yaml` is landed **dark**.

@@ -475,6 +475,25 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=60
     if not inbox.is_dir():
         raise Refusal(f"the staged inbox {inbox} does not resolve to a directory — nothing to drain")
 
+    # ⚠ THE INBOX AND ITS SETTLE TARGETS MUST BE REAL DIRECTORIES, AND THIS GUARD IS HERE BECAUSE
+    # THE ESCAPE WAS MEASURED (C2 review, 2026-08-08). The inbox lives INSIDE the requester's own
+    # seat folder — that is the whole transport — so the requester can pre-create `done/` or
+    # `refused/` as a SYMLINK. `mkdir(exist_ok=True)` ACCEPTS a symlink-to-directory (`is_dir()`
+    # follows it) and `Path.replace` follows it too, so the daemon then writes the staged request
+    # AND its `.refusal.json` wherever the link points, with the DAEMON's uid and outside the cage:
+    # requester-chosen content at a requester-chosen absolute path. Refused for the WHOLE fire and
+    # not per request — a symlinked settle target is tampering with the transport, not a bad ask.
+    # Residual, stated rather than left to be found: this is a check, so a requester that swaps the
+    # directory for a symlink between here and the move still wins that race. Closing it needs
+    # dir-fd-relative moves; the check is what stops the standing, un-raced case.
+    for candidate in (inbox, inbox / DONE_DIR, inbox / REFUSED_DIR):
+        if candidate.is_symlink():
+            raise Refusal(
+                f"{candidate} is a symlink, and this verb refuses to drain through one. The "
+                "requester owns this folder, so a symlinked inbox or settle target relocates every "
+                "write made here outside the cage. NOTHING was drained; replace it with a real "
+                "directory.")
+
     run_at = (datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def settle(src, verdict, record):
@@ -487,6 +506,12 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=60
         dest_dir = inbox / (DONE_DIR if verdict == "ACCEPTED" else REFUSED_DIR)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / src.name
+        if dest.exists():
+            # A colliding settled name is NOT a reason to raise: the requester chooses these names
+            # and a plain retry of a refused request re-stages the same one. Uniquify — clobbering
+            # would destroy the earlier refusal record the requester is meant to read, and raising
+            # would leave the request in the inbox for the next fire to trip over again.
+            dest = dest_dir / f"{src.name}.{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
         src.replace(dest)
         record["moved-to"] = str(dest)
         if verdict != "ACCEPTED":
@@ -496,9 +521,82 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=60
                 json.dumps(record, indent=2) + "\n", encoding="utf-8")
         return record
 
+    # ⚠ THE REFUSAL ARM IS THE WHOLE PER-REQUEST BODY, NOT THE READ, AND THAT IS A FIX RATHER THAN
+    # A PREFERENCE (C2 review, 2026-08-08). `main()` already states the property this loop is
+    # supposed to have — "an unreadable file refuses that ONE request instead of killing the whole
+    # fire" — but only `JSONDecodeError`/`UnicodeDecodeError` was caught, and THREE
+    # requester-reachable inputs raised straight past it, each measured:
+    #   · a DIRECTORY named `*.json` (the requester can `mkdir` in its own seat folder)
+    #     -> `IsADirectoryError` at the read;
+    #   · an unreadable, dangling or looping entry -> another `OSError` at the same read;
+    #   · a schema-LEGAL non-string `due-date` — §6.3 gives it ZERO value members on purpose —
+    #     which reaches subprocess argv as a non-str -> `TypeError`, well past validation.
+    # Every one killed the fire with a traceback, and because the offender never left the inbox it
+    # killed EVERY LATER FIRE TOO: one `mkdir` permanently denies the surface, and every request
+    # sorted after it is never processed. What may refuse ONE request is decided by the BLAST
+    # RADIUS, never by the exception class someone anticipated — so the catch is broad and the
+    # settle is the same one the designed arms use, which is what gets the offender OUT of the
+    # inbox and puts a readable refusal beside it.
     for src in sorted(inbox.glob("*.json")):
+        payload = None
         try:
             payload = json.loads(src.read_text(encoding="utf-8"))
+
+            verdict = validate(payload, goals_root=goals_root)
+            if not verdict["accepted"]:
+                results.append(settle(src, "REFUSED", {
+                    "stated-refusal": verdict["stated-refusal"],
+                    "refusal-site": verdict["refusal-site"],
+                    "refusals": verdict["refusals"],
+                    "classes-evaluated": verdict["classes-evaluated"],
+                    "scaffolded": False,
+                }))
+                continue
+
+            goal = payload["goal-name"]
+            goal_dir = Path(goals_root) / goal
+            steps = [scaffold_goal(payload, goals_root, dry_run)]
+
+            # THE GOAL'S FIRST WORKFLOW JOB. `register-job` mints the catalogue row HOMED at this
+            # goal (`--goal/--seat` are both-or-neither at the CLI); the home is what lets the
+            # daemon ensure the goal's channel at workflow start. `add-job` then queues it
+            # `delay_seconds` out.
+            #
+            # ⚑ `register-job` is CREATE-ONLY with no update surface, so a failure here is a REFUSAL
+            # of this request rather than something to retry around: re-driving a half-registered id
+            # needs a human, and sniffing the failure text for "already exists" would be reading a
+            # message as if it were a policy (project ledger S-3).
+            job_id = f"{goal}-workflow-start"
+            if all(s.get("rc", 0) == 0 for s in steps):
+                steps.append(_run([ignite_bin, "register-job", job_id,
+                                   "--action-type", "start-workflow",
+                                   "--goal", goal, "--seat", entry_seat,
+                                   "--args-schema", json.dumps({"required": {"workflow": "string"},
+                                                                "optional": {"workdir": "string"}})],
+                                  "register-workflow-job", dry_run))
+            if all(s.get("rc", 0) == 0 for s in steps):
+                steps.append(_run([ignite_bin, "add-job", "--fn", job_id,
+                                   "--args-json", json.dumps({"workflow": workflow,
+                                                              "workdir": str(goal_dir)}),
+                                   "--trigger", "scheduled", "--at", run_at],
+                                  "queue-workflow-job", dry_run))
+
+            failed = [s for s in steps if s.get("rc", 0) != 0]
+            results.append(settle(src, "REFUSED" if failed else "ACCEPTED", {
+                "goal-name": goal,
+                "goal-dir": str(goal_dir),
+                "goal-exists": goal_dir.is_dir(),
+                "workflow-job-id": job_id,
+                "workflow": workflow,
+                "run-at": run_at,
+                "delay-seconds": delay_seconds,
+                "steps": steps,
+                "scaffolded": any(s.get("step") == "create-goal" and s.get("rc", 0) == 0
+                                  for s in steps),
+                "stated-refusal": (f"{failed[0]['step']} failed (rc={failed[0]['rc']}): "
+                                   f"{(failed[0].get('stderr') or failed[0].get('stdout') or '').strip()[-800:]}")
+                                  if failed else None,
+            }))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             results.append(settle(src, "REFUSED", {
                 "stated-refusal": f"the staged request is not readable JSON: {exc}. "
@@ -506,61 +604,24 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=60
                 "refusal-site": "scaffold-and-queue · parse",
                 "scaffolded": False,
             }))
-            continue
-
-        verdict = validate(payload, goals_root=goals_root)
-        if not verdict["accepted"]:
+        except Exception as exc:
+            # The goal dir is named when it CAN be named, so an orphan left by a mid-request failure
+            # is findable from this record rather than only from the goals root. `scaffolded` is
+            # `null`, not `false`: this arm cannot know how far the request got, and reporting a
+            # confident `false` over an unknown is how an orphan becomes invisible.
+            name = payload.get("goal-name") if isinstance(payload, dict) else None
+            named = isinstance(name, str) and bool(GOAL_NAME_RE.match(name))
             results.append(settle(src, "REFUSED", {
-                "stated-refusal": verdict["stated-refusal"],
-                "refusal-site": verdict["refusal-site"],
-                "refusals": verdict["refusals"],
-                "classes-evaluated": verdict["classes-evaluated"],
-                "scaffolded": False,
+                "stated-refusal": f"the staged request could not be processed: "
+                                  f"{type(exc).__name__}: {exc}. The fire continued: this refusal "
+                                  "is scoped to THIS request, and the goal directory below (when "
+                                  "named) is where to look for a partial scaffold.",
+                "refusal-site": "scaffold-and-queue · unhandled",
+                "goal-name": name if named else None,
+                "goal-dir": str(Path(goals_root) / name) if named else None,
+                "goal-exists": (Path(goals_root) / name).is_dir() if named else None,
+                "scaffolded": None,
             }))
-            continue
-
-        goal = payload["goal-name"]
-        goal_dir = Path(goals_root) / goal
-        steps = [scaffold_goal(payload, goals_root, dry_run)]
-
-        # THE GOAL'S FIRST WORKFLOW JOB. `register-job` mints the catalogue row HOMED at this goal
-        # (`--goal/--seat` are both-or-neither at the CLI); the home is what lets the daemon ensure
-        # the goal's channel at workflow start. `add-job` then queues it `delay_seconds` out.
-        #
-        # ⚑ `register-job` is CREATE-ONLY with no update surface, so a failure here is a REFUSAL of
-        # this request rather than something to retry around: re-driving a half-registered id needs
-        # a human, and sniffing the failure text for "already exists" would be reading a message as
-        # if it were a policy (project ledger S-3).
-        job_id = f"{goal}-workflow-start"
-        if all(s.get("rc", 0) == 0 for s in steps):
-            steps.append(_run([ignite_bin, "register-job", job_id,
-                               "--action-type", "start-workflow",
-                               "--goal", goal, "--seat", entry_seat,
-                               "--args-schema", json.dumps({"required": {"workflow": "string"},
-                                                            "optional": {"workdir": "string"}})],
-                              "register-workflow-job", dry_run))
-        if all(s.get("rc", 0) == 0 for s in steps):
-            steps.append(_run([ignite_bin, "add-job", "--fn", job_id,
-                               "--args-json", json.dumps({"workflow": workflow,
-                                                          "workdir": str(goal_dir)}),
-                               "--trigger", "scheduled", "--at", run_at],
-                              "queue-workflow-job", dry_run))
-
-        failed = [s for s in steps if s.get("rc", 0) != 0]
-        results.append(settle(src, "REFUSED" if failed else "ACCEPTED", {
-            "goal-name": goal,
-            "goal-dir": str(goal_dir),
-            "goal-exists": goal_dir.is_dir(),
-            "workflow-job-id": job_id,
-            "workflow": workflow,
-            "run-at": run_at,
-            "delay-seconds": delay_seconds,
-            "steps": steps,
-            "scaffolded": any(s.get("step") == "create-goal" and s.get("rc", 0) == 0 for s in steps),
-            "stated-refusal": (f"{failed[0]['step']} failed (rc={failed[0]['rc']}): "
-                               f"{(failed[0].get('stderr') or failed[0].get('stdout') or '').strip()[-800:]}")
-                              if failed else None,
-        }))
 
     accepted = [r for r in results if r["outcome"] == "ACCEPTED"]
     return {
