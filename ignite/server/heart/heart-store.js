@@ -773,15 +773,22 @@ class HeartStore {
 
     const parsedArgs = JSON.parse(args);
     if (job.action_type === 'launch-agent') {
-      if (!this.config.profiles[parsedArgs.profile]) {
+      // ⚠ `Object.hasOwn`, NOT a truthiness test, on all three catalogue lookups below (C5 review
+      // 2026-08-08). The name comes from the ROW, and a plain `catalogue[name]` walks the prototype
+      // chain: `constructor` is a legal kebab-case value, so `workflow: "constructor"` resolved
+      // truthy and ENQUEUED past this very guard while `no-such-workflow` was refused (measured,
+      // `evidence/c5-review/c5r-02-integration-attacks.txt` § P1). Nothing exploitable followed —
+      // the fire path then found no argv and recorded a failed turn — but a row-controlled name
+      // that defeats its own existence check is a guard that reports absence wrongly.
+      if (!Object.hasOwn(this.config.profiles, parsedArgs.profile)) {
         throw new HeartStoreError(E_UNKNOWN_PROFILE, `unknown launch profile: ${parsedArgs.profile}`, { profile: parsedArgs.profile });
       }
     } else if (job.action_type === 'fire-tool') {
-      if (!this.config.tools[parsedArgs.tool]) {
+      if (!Object.hasOwn(this.config.tools, parsedArgs.tool)) {
         throw new HeartStoreError(E_UNKNOWN_TOOL, `unknown tool: ${parsedArgs.tool}`, { tool: parsedArgs.tool });
       }
     } else if (job.action_type === 'start-workflow') {
-      if (!this.config.workflows[parsedArgs.workflow]) {
+      if (!Object.hasOwn(this.config.workflows, parsedArgs.workflow)) {
         throw new HeartStoreError(E_UNKNOWN_WORKFLOW, `unknown workflow: ${parsedArgs.workflow}`, { workflow: parsedArgs.workflow });
       }
     }
@@ -890,9 +897,12 @@ class HeartStore {
     // live: `bridges/chat/forward-path.js` forwardSessionCreate homes every goal-channel session
     // at that goal's `goal-master` seat, so a NEW chat thread opened while that seat holds a live
     // turn is suppressed, its user text is dropped, and the bridge maps the thread to the held id
-    // and logs a success (measured, Q9 review 2026-08-08 — surfaced, NOT fixed here: the fix
-    // belongs at the bridge, outside this task's allowlist). A caller that must not lose its
-    // payload MUST read `deduped` on the result rather than treating a returned id as delivery.
+    // and logs a success (measured, Q9 review 2026-08-08). THAT BRIDGE FIX HAS SINCE LANDED, at
+    // `78c7ac2`: `forwardSessionCreate` now reads `deduped` and refuses the thread rather than
+    // mapping it to the held id, so the loss path above is closed for that caller specifically.
+    // The lossiness of THIS method is unchanged and is not a bug to be fixed here — a caller that
+    // must not lose its payload MUST read `deduped` on the result rather than treating a returned
+    // id as delivery. The bridge is the precedent for doing so, not an exemption from it.
     const seatKey = seatKeyOf(job, parsedArgs);
     if (seatKey) {
       const holder = this._findSeatHolder(seatKey);

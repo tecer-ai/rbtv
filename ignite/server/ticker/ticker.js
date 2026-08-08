@@ -701,7 +701,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       } else {
         spawnPrompt = CONTINUE_PROMPT_HEADER + transcript + CONTINUE_PROMPT_FOOTER;
         const parentRow = heartStore.getExecution(parentExecId);
-        const profile = (heartStore.config.profiles || {})[profileName];
+        const profile = Object.hasOwn(heartStore.config.profiles || {}, profileName) ? heartStore.config.profiles[profileName] : undefined;
         const newMessages = composeNewSenderMessages(parentRow);
         // Every condition is a REASON, so a fallback in the journal names what was missing rather
         // than only that it fell back. `parent-compaction`: the predecessor is a compaction turn,
@@ -875,7 +875,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   async function launchFireTool(queueRow, actions, tick, now) {
     const args = safeJsonParse(queueRow.args, {});
     const toolName = args.tool;
-    const tool = (heartStore.config.tools || {})[toolName];
+    const tool = Object.hasOwn(heartStore.config.tools || {}, toolName) ? heartStore.config.tools[toolName] : undefined;
     if (!tool) {
       actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-tool' });
       return;
@@ -1037,7 +1037,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   async function launchStartWorkflow(queueRow, actions, tick, now) {
     const args = safeJsonParse(queueRow.args, {});
     const workflowName = args.workflow;
-    const workflow = (heartStore.config.workflows || {})[workflowName];
+    const workflow = Object.hasOwn(heartStore.config.workflows || {}, workflowName) ? heartStore.config.workflows[workflowName] : undefined;
     if (!workflow) {
       actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-workflow' });
       return;
@@ -1405,19 +1405,19 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
 
       const args = safeJsonParse(queueRow.args, {});
       if (job.action_type === 'launch-agent') {
-        if (!args.profile || !(heartStore.config.profiles || {})[args.profile]) {
+        if (!args.profile || !Object.hasOwn(heartStore.config.profiles || {}, args.profile)) {
           actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-profile' });
           continue;
         }
         await launchAgent(queueRow, actions, tick, now);
       } else if (job.action_type === 'fire-tool') {
-        if (!args.tool || !(heartStore.config.tools || {})[args.tool]) {
+        if (!args.tool || !Object.hasOwn(heartStore.config.tools || {}, args.tool)) {
           actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-tool' });
           continue;
         }
         await launchFireTool(queueRow, actions, tick, now);
       } else if (job.action_type === 'start-workflow') {
-        if (!args.workflow || !(heartStore.config.workflows || {})[args.workflow]) {
+        if (!args.workflow || !Object.hasOwn(heartStore.config.workflows || {}, args.workflow)) {
           actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-workflow' });
           continue;
         }

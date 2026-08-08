@@ -582,9 +582,15 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=60
                 # `--goal/--seat` HOME is what the ticker resolves a seat folder from at fire, while
                 # the ARG is what the launcher's argv template expands `{{entry-seat}}` from. The
                 # home cannot serve the argv — `resolveJobHome` yields a path, not the seat's name —
-                # and the arg cannot serve the home, because the Q9 dedup key deliberately never
-                # reads args CONTENT. Both are declared `required`: an absent value would compose an
-                # argv missing a flag's operand, which fails looking like a success.
+                # and the arg cannot serve the home, because the home is a JOB-level registration
+                # the ticker resolves a seat folder from, which no queue-row arg is read for.
+                # ⚠ The reason is NOT "the Q9 dedup key never reads args content" (corrected, C5
+                # review 2026-08-08): `seatKeyOf` DOES fall back to `args.workdir` when a job
+                # carries no goal/seat, and it returns null for every action type except
+                # `launch-agent` — so it does not see a start-workflow row at all. Measured:
+                # `evidence/c5-review/c5r-03-dedup-entryseat.txt`.
+                # Both are declared `required`: an absent value would compose an argv missing a
+                # flag's operand, which fails looking like a success.
                 steps.append(_run([ignite_bin, "register-job", job_id,
                                    "--action-type", "start-workflow",
                                    "--goal", goal, "--seat", entry_seat,

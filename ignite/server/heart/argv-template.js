@@ -66,6 +66,18 @@ function nameRule(label) {
 // SEGMENTS after normalisation: an absolute path whose segments carry `.rbtv/goals/<something>`.
 // `..` is refused on the RAW value first rather than normalised away, because a value that needed
 // normalising to become legal is a value someone wrote to escape.
+//
+// ⚠ THE CONTAINMENT IS LEXICAL, NOT RESOLVED — measured, C5 review 2026-08-08. A workdir whose
+// segments read `.rbtv/goals/<x>` but whose `<x>` is a SYMLINK pointing elsewhere passes this rule,
+// and the fired child's cwd is then outside the goals root (capture:
+// `evidence/c5-review/c5r-02-integration-attacks.txt` § P2). This is deliberate, not an oversight:
+// resolving with `realpath` would refuse two legal cases — a workdir scaffolded but not yet on disk,
+// and a deployment whose `.rbtv/goals` root is itself a symlink onto another volume (the resolved
+// path no longer carries the `.rbtv/goals` segments at all). The exposure it leaves is bounded by
+// who can PLANT a symlink under the goals root, which is local filesystem write as the daemon user
+// — strictly more access than this rule defends against. A row author cannot reach it: the inbox
+// boundary carries a goal NAME through `GOAL_NAME_RE`, which creates a directory and never a link.
+// Tightening this needs an owner ruling on the two legal cases above, not a silent realpath.
 function workdirRule(value) {
   if (typeof value !== 'string') return `workdir must be a string, got ${typeof value}`;
   if (value.length === 0 || value.length > MAX_PATH) {
@@ -102,7 +114,11 @@ const CONTROL_RE = /[\x00-\x1f\x7f]/;
 // Returns null when clean, else the refusal reason (a string), so both callers can raise it in
 // their own idiom: a typed store error at enqueue, a recorded failure action at fire.
 function checkTemplateArgs(args) {
-  if (args === null || typeof args !== 'object') return 'args must be a JSON object';
+  // `Array.isArray` is not pedantry: an array IS `typeof 'object'`, so without it a row whose args
+  // are `["…"]` passes a check that says "must be a JSON object", carries no templatable key, and
+  // is then treated as an empty args object. `validateArgs` already spells the same three-part test
+  // at the enqueue door; this is the fire-side half, which reads rows that door never saw.
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) return 'args must be a JSON object';
   for (const [key, rule] of Object.entries(TEMPLATE_KEYS)) {
     if (!(key in args)) continue;
     const value = args[key];
@@ -123,8 +139,21 @@ function expandArgv(argv, args) {
   if (bad) return { refused: bad };
 
   const out = [];
-  for (const token of argv) {
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
     if (typeof token !== 'string') return { refused: `registered argv carries a non-string token: ${typeof token}` };
+    // ⚠ A ROW MAY FILL AN OPERAND, NEVER CHOOSE THE PROGRAM (added C5 review 2026-08-08). argv[0]
+    // is the executable — `spawn(argv[0], argv.slice(1))` in `spawn/carrier.js`, which resolves a
+    // bare name through PATH. A placeholder there would hand the row that choice, and `entry-seat`
+    // and `goal` are bounded only by kebab-case, so `python3`, `curl` and `node` are all legal
+    // values. The other four shape properties do NOT cover this one: the argv stays an array, the
+    // token stays whole, and the key stays in the closed set — every guarantee holds while the row
+    // still picks the binary. It is refused here, in the ONE definition, rather than trusted to the
+    // config author, because the `workflows:` entry this mechanism exists to serve is not authored
+    // yet and its whole selling point is that one generic entry serves every workflow.
+    if (i === 0 && PLACEHOLDER_RE.test(token)) {
+      return { refused: `registered argv[0] is the placeholder "${token}" — a row may fill an operand, never choose the program` };
+    }
     const m = PLACEHOLDER_RE.exec(token);
     if (!m) {
       // A token that merely CONTAINS `{{` is a malformed placeholder, not a literal. Passing it
