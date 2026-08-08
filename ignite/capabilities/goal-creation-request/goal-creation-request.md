@@ -10,12 +10,69 @@ the entry already existed. The disk refuted it: every consuming row reached for 
 built, and nothing errored — the rows would simply have waited. This capability is the row that
 builds it.
 
-## The two verbs
+## The three verbs
 
 | Verb | What it does |
 |---|---|
 | `validate <request.json> [--goals-root R]` | Validates field by field and **names every field it checked**. Performs no act. Exit 0 accepted, 1 refused. |
 | `handle <request.json> …` | Validates, then create → arm → launch. A refused request performs **no** act. `--no-launch` withholds the launch act; `--dry-run` writes nothing. |
+| `scaffold-and-queue --inbox D --goals-root R --workflow W --entry-seat S [--delay-seconds 600] [--ignite-bin B]` | **The daemon-executed verb** (task C2). Drains a staged inbox: per request, validate → scaffold the goal → register the goal's first workflow job homed at it → queue that job `--delay-seconds` out. **Arms nothing, launches nothing.** Exit 0 when every drained request was accepted (or the inbox was empty), 1 otherwise. |
+
+## `scaffold-and-queue` — the caged requester's path, and the measurements that shaped it
+
+A Slack-caged channel master cannot create a goal directory. The daemon can. This verb is the
+daemon's half of that split, and **both halves of its transport were measured before it was
+written** (`evidence/c2/probe-c2.js`, 2026-08-08 — captures under the core-build project's
+`build/subagent-closeout/evidence/c2/`):
+
+| Measured | Result | What it settled |
+|---|---|---|
+| A channel-master-shaped **service seat** writing into the goals root, under the SHIPPED cage | `mkdir: Read-only file system`; the target's bytes never reach disk (read from OUTSIDE the cage) | The scaffold MUST happen daemon-side. This is the whole reason the verb exists. |
+| The same seat writing inside **its own seat folder** | Writes land | The request PAYLOAD is file-staged there. `fire-tool` argv is static (only `workdir` crosses from a queue row), so no gateway verb can carry a request body to a fired tool. |
+| `register-job` at the gateway, per sender kind | owner ✅ · agent ✅ · **bridge ❌** (`authz.canRegisterJob`) | The daemon-side identity the fired tool's door resolves must be owner or agent. A bridge credential refuses **loudly**, naming the enforced predicate and what the sender was seen as. |
+| `enqueue-job` at the gateway, per sender kind | owner ✅ · agent ✅ · **bridge ✅** — no authz gate at all | The TRIGGER goes through `enqueue-job`, so the wire holds whichever kind the channel master presents. |
+
+**The inbox is a directory, not a request file**, and that follows from the static argv: one fixed
+argument must serve every request, and a drained directory is the only shape that does. Each
+request is moved to `<inbox>/done/` or `<inbox>/refused/` as it is handled — without the move, a
+re-fire re-processes everything and `V2`/`V3` (goal-name uniqueness) refuses forever, a growing
+pile of refusals about work that already succeeded. A refusal is written beside the moved request
+as `<name>.refusal.json`, in the folder the requester staged into: **a refusal a caged requester
+cannot read is a silent drop.**
+
+**Validation strictly precedes the scaffold.** A malformed or schema-refused payload leaves no goal
+directory behind — both arms are exercised in the same fire as an accepted request, so a refusal
+that took the accepted request down with it would be visible.
+
+**One partial state is real and is not hidden.** The scaffold runs before `register-job`, so a fire
+whose credential cannot register leaves a scaffolded goal with no queued job. The result records it
+truthfully (`scaffolded: true`, `outcome: REFUSED`, the stated refusal naming `register-workflow-job`)
+rather than rolling the goal back — an unwind here would delete a directory the daemon cannot prove
+it alone created.
+
+**`register-job` failure is a refusal of that request, never something to retry around.** The verb
+is create-only with no update surface, so re-driving a half-registered id needs a human; sniffing
+the failure text for "already exists" would be reading a message as if it were a policy
+(project ledger `S-3`).
+
+### Arming it is three gated acts, in this order
+
+The catalogue entry `tools: goal-creation-request` in `config/spawn-profiles.yaml` is landed **dark**.
+Landing it does not arm it:
+
+1. create the inbox directory the entry names (`.rbtv/goals/_channel-master/requests`);
+2. restart the daemon — `spawn-profiles.yaml` is boot-read;
+3. `ignite register-job goal-creation-request --action-type fire-tool …` then `ignite add-job`.
+
+Out of order, step 2 logs one `catalogue-paths` error per boot for an `--inbox` that does not exist
+yet (that check logs; it never refuses the boot).
+
+⚠ **`--workflow` / `--entry-seat` are the one pair an owner must confirm before arming.** They name
+what EVERY master-created goal starts with. A second precondition sits behind them: `enqueue-job`
+refuses a `start-workflow` row whose workflow is absent from `config.workflows`, and
+`spawn-profiles.yaml` **has no `workflows:` section at all**. The launcher argv for
+`master-request-launch-entry` is a deployment/design value, so the C2 proof stubs it in a throwaway
+config and names the substitution rather than inventing one into the shipped file.
 
 ## The request schema it validates against
 

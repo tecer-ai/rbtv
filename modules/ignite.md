@@ -27,6 +27,14 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   `daemon-operator.md`.
 - **`goals-tree`** (`ignite/capabilities/goals-tree/`) — the goals-tree machinery
   (`scaffold`/`reindex`/`lint`/`materialize`). Contract in `tool/README.md`.
+- **`goal-creation-request`** (`ignite/capabilities/goal-creation-request/`) — the entry a
+  goal-creation request arrives at: `validate`, `handle` (create → arm → launch), and
+  `scaffold-and-queue`, the DAEMON-EXECUTED verb (task C2) that drains a staged request inbox,
+  scaffolds each goal and queues its first workflow job ten minutes out. That verb exists because a
+  Slack-caged channel master measurably cannot create a goal directory but can write its own seat
+  folder, so the payload is file-staged and only the trigger crosses the gateway. Registered in
+  `config/spawn-profiles.yaml` under `tools: goal-creation-request` and landed **dark** — arming is
+  three gated acts in a fixed order. Contract in `goal-creation-request.md`.
 - **`watch-operator`** (`ignite/capabilities/watch-operator/`) — the WATCH-LOOP operator surface:
   the fourth ignite service's power verbs plus its pass cadence (`heartbeat-set`). Separate from
   `daemon-operator` because its target is a RUN PACKAGE, not a fixed unit — the watch unit is

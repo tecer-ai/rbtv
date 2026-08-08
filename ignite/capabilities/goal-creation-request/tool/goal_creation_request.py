@@ -70,6 +70,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # --------------------------------------------------------------- the schema
@@ -309,6 +310,49 @@ def validate(payload, goals_root=None):
 
 # --------------------------------------------------------------- 2 · CREATE
 
+def scaffold_goal(request, goals_root, dry_run=False):
+    """SCAFFOLD — the goal folder and its contract, and NOTHING else.
+
+    The first half of `create()` below, extracted (task C2) because the daemon-executed path needs
+    the goal to EXIST without materializing a run package: `scaffold-seats` has no create-only mode
+    and would launch seats, which a scheduled workflow start is what queues instead. Extracted
+    rather than copied — a second spelling of the `--kind` forwarding is exactly the drop
+    `d-owner-batch1` (2) ruled a carrier for, and two spellings are two chances to drop it.
+
+    Returns ONE step dict, or the skip record when the goal already resolves.
+    """
+    goal_cli = (Path(__file__).resolve().parents[2] / "goals-tree" / "tool" / "goal_cli.py")
+    goal_dir = Path(goals_root) / request["goal-name"]
+
+    if goal_dir.exists():
+        return {"step": "create-goal", "skipped": f"{goal_dir} already resolves"}
+
+    # ⚠ THE CONTRACT GOES TO A TEMP FILE, AND NOTHING IS WRITTEN UNDER --dry-run. Measured, on
+    # this row's own first exercise: an earlier draft staged the contract at
+    # `package.parent.parent` and created that directory with `mkdir(parents=True)` BEFORE
+    # testing `dry_run` — which is the goal directory itself. The dry run therefore CREATED the
+    # goal, and the next run refused it as already existing. A dry run that writes makes the
+    # one command meant for inspection the one that lies.
+    with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8",
+                                     delete=False) as fh:
+        fh.write(request["goal-contract"])
+        contract_file = Path(fh.name)
+    try:
+        # `--kind` is passed UNCONDITIONALLY, unlike `--due` below: `goal-kind` is a REQUIRED
+        # request field (P4 refuses an absent one), so by the time this runs the value is
+        # present and validated. Forwarding it is what stops the validated value being dropped
+        # on the floor — the whole defect d-owner-batch1 (2) ruled a carrier for.
+        cmd = [sys.executable, str(goal_cli), "scaffold", request["goal-name"],
+               "--root", str(goals_root), "--type", request["goal-type"],
+               "--kind", request["goal-kind"],
+               "--contract", str(contract_file), "--json"]
+        if request.get("due-date"):
+            cmd += ["--due", request["due-date"]]
+        return _run(cmd, "create-goal", dry_run)
+    finally:
+        contract_file.unlink(missing_ok=True)
+
+
 def create(request, goals_root, package, catalog_root, bindings, conduct, claude_md, budget_json,
            seat=None, workflow=None, after=None, root=False, dry_run=False):
     """CREATE — the goal, then its run package, through the RULED NAME.
@@ -319,37 +363,8 @@ def create(request, goals_root, package, catalog_root, bindings, conduct, claude
     act NECESSARILY materializes at least one seat. That is a property of the only creation path in
     the system, not a choice this handler made.
     """
-    goal_cli = (Path(__file__).resolve().parents[2] / "goals-tree" / "tool" / "goal_cli.py")
-    goal_dir = Path(goals_root) / request["goal-name"]
-    steps = []
+    steps = [scaffold_goal(request, goals_root, dry_run)]
 
-    if not goal_dir.exists():
-        # ⚠ THE CONTRACT GOES TO A TEMP FILE, AND NOTHING IS WRITTEN UNDER --dry-run. Measured, on
-        # this row's own first exercise: an earlier draft staged the contract at
-        # `package.parent.parent` and created that directory with `mkdir(parents=True)` BEFORE
-        # testing `dry_run` — which is the goal directory itself. The dry run therefore CREATED the
-        # goal, and the next run refused it as already existing. A dry run that writes makes the
-        # one command meant for inspection the one that lies.
-        with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8",
-                                         delete=False) as fh:
-            fh.write(request["goal-contract"])
-            contract_file = Path(fh.name)
-        try:
-            # `--kind` is passed UNCONDITIONALLY, unlike `--due` below: `goal-kind` is a REQUIRED
-            # request field (P4 refuses an absent one), so by the time create() runs the value is
-            # present and validated. Forwarding it is what stops the validated value being dropped
-            # on the floor — the whole defect d-owner-batch1 (2) ruled a carrier for.
-            cmd = [sys.executable, str(goal_cli), "scaffold", request["goal-name"],
-                   "--root", str(goals_root), "--type", request["goal-type"],
-                   "--kind", request["goal-kind"],
-                   "--contract", str(contract_file), "--json"]
-            if request.get("due-date"):
-                cmd += ["--due", request["due-date"]]
-            steps.append(_run(cmd, "create-goal", dry_run))
-        finally:
-            contract_file.unlink(missing_ok=True)
-    else:
-        steps.append({"step": "create-goal", "skipped": f"{goal_dir} already resolves"})
 
     # THE RULED NAME. Resolved on PATH as the name — never the script path behind it.
     ruled = shutil.which(RULED_LAUNCH_NAME)
@@ -417,6 +432,146 @@ def launch(package, only=None, dry_run=False):
     if dry_run:
         cmd += ["--dry-run"]
     return _run(cmd, "launch", dry_run=False)
+
+
+# ------------------------------------------------- 5 · SCAFFOLD-AND-QUEUE (task C2)
+
+# The two subdirs the drain moves a request into. A processed request MUST leave the inbox: the
+# tool is fired by a queue row and would otherwise re-process every request on every fire, where
+# `V2`/`V3` (goal-name uniqueness) would refuse each one forever — a growing pile of refusals about
+# work that already succeeded.
+DONE_DIR = "done"
+REFUSED_DIR = "refused"
+
+
+def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, delay_seconds=600,
+                       ignite_bin="ignite", dry_run=False):
+    """SCAFFOLD-AND-QUEUE — the daemon-executed half of a caged requester's ask (task C2).
+
+    THE MEASUREMENT THIS SHAPE IS BUILT ON (evidence/c2/, probe-c2.js, 2026-08-08). Under the
+    SHIPPED seat cage a channel-master-shaped service seat CANNOT create a goal directory
+    (`mkdir: Read-only file system`, proven by the target's absent bytes read from OUTSIDE the
+    cage) but CAN write inside its own seat folder. At the gateway, `register-job` is REFUSED to a
+    `bridge` token and allowed to `owner`/`agent`, while `enqueue-job` is allowed to ALL THREE
+    kinds — it carries no authz gate at all.
+
+    So the transport is split, and neither half is a preference:
+      · the PAYLOAD is FILE-STAGED into the requester's own seat folder, because `fire-tool`'s argv
+        is static (only `workdir` crosses from a queue row) and there is no gateway verb that
+        carries a request body to a fired tool;
+      · the TRIGGER is the gateway verb `enqueue-job`, because that is the one door open to every
+        sender kind — the wire therefore works even if the channel master presents a bridge token.
+
+    This function is the daemon side of that split: it drains the staged inbox, and for each
+    accepted request it scaffolds the goal (the write the requester could not make) and QUEUES the
+    goal's first workflow job `delay_seconds` out. It ARMS NOTHING and LAUNCHES NOTHING — `arm()`
+    and `launch()` are the entry's other acts and stay out of this path deliberately.
+
+    ⚑ VALIDATION STRICTLY PRECEDES THE SCAFFOLD. A malformed or refused payload must leave no goal
+    directory behind, so parse and `validate()` both run before `scaffold_goal` is reached.
+    """
+    inbox = Path(inbox)
+    results = []
+    if not inbox.is_dir():
+        raise Refusal(f"the staged inbox {inbox} does not resolve to a directory — nothing to drain")
+
+    run_at = (datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def settle(src, verdict, record):
+        """Move the request out of the inbox and record where it went."""
+        record["request-file"] = str(src)
+        record["outcome"] = verdict
+        if dry_run:
+            record["moved-to"] = None
+            return record
+        dest_dir = inbox / (DONE_DIR if verdict == "ACCEPTED" else REFUSED_DIR)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / src.name
+        src.replace(dest)
+        record["moved-to"] = str(dest)
+        if verdict != "ACCEPTED":
+            # The refusal is written where the requester can read it — the same folder it staged
+            # into. A refusal a caged requester cannot see is a silent drop.
+            dest.with_suffix(".refusal.json").write_text(
+                json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        return record
+
+    for src in sorted(inbox.glob("*.json")):
+        try:
+            payload = json.loads(src.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            results.append(settle(src, "REFUSED", {
+                "stated-refusal": f"the staged request is not readable JSON: {exc}. "
+                                  "Nothing was created: the payload is parsed before any act.",
+                "refusal-site": "scaffold-and-queue · parse",
+                "scaffolded": False,
+            }))
+            continue
+
+        verdict = validate(payload, goals_root=goals_root)
+        if not verdict["accepted"]:
+            results.append(settle(src, "REFUSED", {
+                "stated-refusal": verdict["stated-refusal"],
+                "refusal-site": verdict["refusal-site"],
+                "refusals": verdict["refusals"],
+                "classes-evaluated": verdict["classes-evaluated"],
+                "scaffolded": False,
+            }))
+            continue
+
+        goal = payload["goal-name"]
+        goal_dir = Path(goals_root) / goal
+        steps = [scaffold_goal(payload, goals_root, dry_run)]
+
+        # THE GOAL'S FIRST WORKFLOW JOB. `register-job` mints the catalogue row HOMED at this goal
+        # (`--goal/--seat` are both-or-neither at the CLI); the home is what lets the daemon ensure
+        # the goal's channel at workflow start. `add-job` then queues it `delay_seconds` out.
+        #
+        # ⚑ `register-job` is CREATE-ONLY with no update surface, so a failure here is a REFUSAL of
+        # this request rather than something to retry around: re-driving a half-registered id needs
+        # a human, and sniffing the failure text for "already exists" would be reading a message as
+        # if it were a policy (project ledger S-3).
+        job_id = f"{goal}-workflow-start"
+        if all(s.get("rc", 0) == 0 for s in steps):
+            steps.append(_run([ignite_bin, "register-job", job_id,
+                               "--action-type", "start-workflow",
+                               "--goal", goal, "--seat", entry_seat,
+                               "--args-schema", json.dumps({"required": {"workflow": "string"},
+                                                            "optional": {"workdir": "string"}})],
+                              "register-workflow-job", dry_run))
+        if all(s.get("rc", 0) == 0 for s in steps):
+            steps.append(_run([ignite_bin, "add-job", "--fn", job_id,
+                               "--args-json", json.dumps({"workflow": workflow,
+                                                          "workdir": str(goal_dir)}),
+                               "--trigger", "scheduled", "--at", run_at],
+                              "queue-workflow-job", dry_run))
+
+        failed = [s for s in steps if s.get("rc", 0) != 0]
+        results.append(settle(src, "REFUSED" if failed else "ACCEPTED", {
+            "goal-name": goal,
+            "goal-dir": str(goal_dir),
+            "goal-exists": goal_dir.is_dir(),
+            "workflow-job-id": job_id,
+            "workflow": workflow,
+            "run-at": run_at,
+            "delay-seconds": delay_seconds,
+            "steps": steps,
+            "scaffolded": any(s.get("step") == "create-goal" and s.get("rc", 0) == 0 for s in steps),
+            "stated-refusal": (f"{failed[0]['step']} failed (rc={failed[0]['rc']}): "
+                               f"{(failed[0].get('stderr') or failed[0].get('stdout') or '').strip()[-800:]}")
+                              if failed else None,
+        }))
+
+    accepted = [r for r in results if r["outcome"] == "ACCEPTED"]
+    return {
+        "outcome": "ACCEPTED" if results and len(accepted) == len(results) else
+                   ("EMPTY" if not results else "REFUSED"),
+        "inbox": str(inbox),
+        "drained": len(results),
+        "accepted": len(accepted),
+        "refused": len(results) - len(accepted),
+        "requests": results,
+    }
 
 
 def _run(cmd, step, dry_run):
@@ -546,10 +701,42 @@ def main(argv=None):
                    help="perform create and arm only; the launch act is withheld by the caller")
     h.add_argument("--dry-run", action="store_true")
 
+    # Task C2 — the DAEMON-EXECUTED verb. It takes an inbox DIRECTORY, never a single request
+    # path: `fire-tool`'s argv is static, so one fixed argument must serve every request, and a
+    # drained directory is the only shape that does. See scaffold_and_queue's docstring for the
+    # measurements that settled this.
+    q = sub.add_parser("scaffold-and-queue",
+                       help="drain a staged request inbox: scaffold each goal, queue its first workflow job")
+    q.add_argument("--inbox", required=True,
+                   help="directory the requester stages request JSON into (its own seat folder)")
+    q.add_argument("--goals-root", required=True)
+    q.add_argument("--workflow", required=True, help="the workflow name the queued job starts")
+    q.add_argument("--entry-seat", required=True,
+                   help="the workflow's entry seat — register-job homes --goal/--seat both or neither")
+    q.add_argument("--delay-seconds", type=int, default=600,
+                   help="how far out the workflow job is queued (default 600 = 10 minutes)")
+    q.add_argument("--ignite-bin", default="ignite",
+                   help="the door's binary; a daemon-fired exec has no ~/.local/bin on PATH")
+    q.add_argument("--dry-run", action="store_true")
+
     args = p.parse_args(argv)
-    payload = json.loads(sys.stdin.read() if args.request == "-"
-                         else Path(args.request).read_text(encoding="utf-8"))
     try:
+        # `scaffold-and-queue` reads its payloads FROM THE INBOX, one per request, and each read is
+        # inside the drain's own refusal arm — so an unreadable file refuses that ONE request
+        # instead of killing the whole fire. It therefore takes no `request` argument and must not
+        # go through the single-payload read below.
+        if args.verb == "scaffold-and-queue":
+            out = scaffold_and_queue(args.inbox, args.goals_root, args.workflow, args.entry_seat,
+                                     delay_seconds=args.delay_seconds, ignite_bin=args.ignite_bin,
+                                     dry_run=args.dry_run)
+            print(json.dumps(out, indent=2))
+            for req in out["requests"]:
+                if req["outcome"] != "ACCEPTED":
+                    print(f"{req['request-file']}: {req.get('stated-refusal')}", file=sys.stderr)
+            return 0 if out["outcome"] in ("ACCEPTED", "EMPTY") else 1
+
+        payload = json.loads(sys.stdin.read() if args.request == "-"
+                             else Path(args.request).read_text(encoding="utf-8"))
         if args.verb == "validate":
             out = validate(payload, goals_root=args.goals_root)
             print(json.dumps(out, indent=2))
