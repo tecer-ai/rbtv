@@ -1139,6 +1139,8 @@ workflows:
   # COLD-START admission (team-kit 7.406): a package no sensor has ever run against and no seat has
   # ever launched into is admitted on the EMPTY-ROOM BOUND. Proven end to end by
   # `probes/probe-planning-entry.py` P5 (the real launcher, no --dry-run, the seat's pane asserted).
+  # ⚠ SUBJECT TO THE RAM FLOOR, which this launcher leaves binding (--force yes, --force-memory
+  # no): under memory pressure the first fire opens NOTHING and exits non-zero.
   # ⚠ THIS CORRECTS WHAT THIS COMMENT SAID UNTIL TASK 7.548 — that the first fire opens no seat and
   # that whoever arms goal-creation must add the team-monitor census sensor to the arming sequence.
   # That was read off the census-FAILURE branch, not measured, and its remedy is impossible:
