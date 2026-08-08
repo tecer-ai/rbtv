@@ -68,7 +68,7 @@ rbtv ignite daemon start|restart|stop|kill|unit [--service ignite|chat-bridge|pr
                                                     -> capabilities/daemon-operator
 rbtv ignite watch  unit|start|restart|stop|kill|heartbeat-show|heartbeat-set
                    (--package PKG | --goal NAME)    -> capabilities/watch-operator
-rbtv ignite ticker                                  NOT BUILT — core-build task 7.66
+rbtv ignite ticker show|set-interval|history        -> capabilities/ticker-settings
 rbtv ignite register-job|add-job|remove-job|inspect|snooze|status|send|screen|kill   -> cli/ignite.js
 ```
 
