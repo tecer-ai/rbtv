@@ -611,18 +611,27 @@ async function main() {
   //     line, so `coord.py` refused `to: master` and the route was inert end to end). A
   //     fixture-only green is precisely the failure this check exists to prevent, so it reads the
   //     workspace on disk. The workspace is RESOLVED by walking up from this file — never a path
-  //     written here — and the claim is conditional on there being a standing door at all, so a
-  //     checkout with no workspace, or a workspace with no correspondent, SKIPS with its reason
-  //     rather than reporting a red for something this repo does not own.
+  //     written here.
+  //
+  //     ⚑ THE SKIP GATES ON "NO GOALS TREE AT ALL", NEVER ON "NO DOOR FOUND" (§2 review, 7.546).
+  //     The route needs BOTH halves of the descriptor — `addressable: non-member` (which admits the
+  //     correspondent to coord.py) and `relays: <role>` (which is what this ferry delivers on). The
+  //     first draft derived its SKIP from the first half and its ASSERTION from the second, so
+  //     removing `addressable:`, or deleting the descriptor outright, emptied the door list and the
+  //     arm STOOD DOWN: pass=true, 40 checks, suite GREEN — while `load_addressable` refused the
+  //     correspondent outright and the live route was exactly as dead as in the state this arm was
+  //     built to catch. A workspace that HAS a goals tree and no addressable door is that dead
+  //     route, so it is a RED. Only a checkout with no readable goals tree — this repo cloned
+  //     somewhere with no workspace around it — has nothing real to exercise and skips.
   {
     let ws = path.resolve(__dirname);
     while (ws !== path.dirname(ws) && !fs.existsSync(path.join(ws, '.rbtv', 'goals'))) ws = path.dirname(ws);
     const goalsDir = path.join(ws, '.rbtv', 'goals');
-    let entries = [];
+    let entries = null;   // stays null when the tree is absent/unreadable — the ONLY skip condition
     try { entries = fs.readdirSync(goalsDir, { withFileTypes: true }); } catch {}
     const doors = [];
     const holders = [];
-    for (const d of entries) {
+    for (const d of entries || []) {
       if (!d.isDirectory()) continue;
       let fm;
       try { fm = fs.readFileSync(path.join(goalsDir, d.name, 'seat.md'), 'utf8'); } catch { continue; }
@@ -631,11 +640,11 @@ async function main() {
       const m = fm.match(/^relays:[ \t]*(.+?)[ \t]*$/m);
       if (m && m[1].split(/[,\s]+/).some((t) => t.toLowerCase() === ROLE_TOKEN)) holders.push(d.name);
     }
-    if (!doors.length) {
-      skipped.push(`live descriptor: no workspace correspondent declaring 'addressable: non-member' found under ${goalsDir} — nothing real to exercise in this checkout`);
+    if (!entries) {
+      skipped.push(`live descriptor: no readable goals tree at ${goalsDir} — this checkout has no workspace around it, so there is nothing real to exercise. (A workspace that HAS a goals tree and no addressable door is a RED here, never a skip.)`);
       cap.log({ skip: skipped[skipped.length - 1] });
     } else {
-      check(`7.546 LIVE DESCRIPTOR: a standing correspondent of this workspace declares \`relays: ${ROLE_TOKEN}\` — the half no fixture can prove. Without it every arm above passes and the real route carries nothing, because coord.py admits the correspondent's NAME and this ferry delivers only the ROLE WORD`,
+      check(`7.546 LIVE DESCRIPTOR: this workspace has a standing correspondent declaring BOTH \`addressable: non-member\` AND \`relays: ${ROLE_TOKEN}\` — the half no fixture can prove. Missing either one kills the live route while every arm above still passes: without the first coord.py refuses the correspondent outright, and without the second this ferry never delivers on it, because coord.py admits the correspondent's NAME and the ferry carries only the ROLE WORD`,
         holders.length > 0, { goalsDir, doors, holders });
     }
   }

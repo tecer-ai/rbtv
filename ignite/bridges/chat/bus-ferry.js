@@ -333,12 +333,24 @@ function createBusFerry({
         // on every later pass via the unchanged-size short-circuit above, until some SECOND
         // message happened to arrive.
         //
-        // ⚑ THIS DOES NOT COVER A GOAL BORN WHILE THE BRIDGE IS DOWN, and the marker is not
-        // persisted precisely because persisting it would imply that it does. In that case the log
-        // already exists when the bridge returns, no pass ever observed the empty state, and the
-        // backlog is (correctly, by this rule) treated as history. The durable record for that
-        // case is the goal's own `doubts.md` park — tier 1 of the escalation ladder, kept for
-        // exactly this reason.
+        // ⚑ WHAT THE MARKER BEING PER-PROCESS COSTS — TWO CASES, AND THEY ARE NOT THE SAME CASE
+        // (corrected by the §2 review of 7.546; the first wording named only the first of them and
+        // therefore read as "persisting buys nothing", which is measurably false for the second):
+        //
+        //   1. BORN WHILE THE BRIDGE WAS DOWN — no pass ever observed the empty state. The log
+        //      already exists when the bridge returns, so the backlog is (correctly, by this rule)
+        //      treated as history. Persistence buys NOTHING here: there was never an observation
+        //      to persist.
+        //   2. BIRTH OBSERVED, THEN A RESTART before the run's first row — SWALLOWED, and
+        //      persisting the marker WOULD have delivered it. The marker dies with the process
+        //      (`toJSON()` carries `cursors` only), so the returning bridge meets that first row as
+        //      an ordinary first sight WITH a log and seeds at its tail. Measured on this code:
+        //      state carried across the restart `{"cursors":{}}`, delivered 0, cursor 1 — while the
+        //      same birth and the same row with NO restart in between delivers 1.
+        //
+        // Case 2 is a KNOWN gap, ruled and accepted with the case named — not an oversight and not
+        // a claim of coverage. The durable record for BOTH is the goal's own `doubts.md` park —
+        // tier 1 of the escalation ladder, kept for exactly this reason.
         if (!cursors.has(key)) {
           if (bornWatched.has(key)) {
             bornWatched.delete(key);

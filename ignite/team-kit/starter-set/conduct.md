@@ -96,8 +96,14 @@ anchor you resolve.
   row exists, the call is neither yours to make nor to improvise, and you do all THREE of these, in
   order: **(1) file it in the goal's owner-decision queue `../../doubts.md`** — the durable record,
   which survives a bridge outage, a restart and a phone that is off; **(2) send it to `master`** —
-  `coordinate send master "<the escalation>" --type note` — the ROLE ADDRESS of the standing owner
-  door, which resolves through this run's `addressable.csv` and is carried to the owner from there;
+  `coordinate send master "<the escalation>" --type note --inline` — the ROLE ADDRESS of the standing
+  owner door, which resolves through this run's `addressable.csv` and is carried to the owner from
+  there. **`--inline` is not optional**: a positional body without it is refused outright, and that
+  refusal is about your INPUT, not about the addressee — do not read it as a missing register. And
+  `--inline` does NOT cover a body containing a backtick or `$(`; a shell eats those before coord.py
+  sees them, so a body carrying a code fragment goes to a file first and travels as `--file` —
+  `cat > /tmp/esc.txt <<'EOF'` / the text / `EOF`, then
+  `coordinate send master --type note --file /tmp/esc.txt`;
   **(3) stop the dependent work.** Tier 2 is a ROUTE and tier 1 is the RECORD — the record is kept,
   never retired, and it is the whole answer whenever the route is down. Delivery on tier 2 is PULL:
   nothing wakes, and silence means NOT YET READ, never "considering". If `master` is refused as an
