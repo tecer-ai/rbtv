@@ -8465,30 +8465,104 @@ def next_message_number(blocks):
     return max((b["num"] for b in blocks), default=0) + 1
 
 
+def _append_message_unlocked(base, sender, to, mtype, body, supersedes=None, re_num=None,
+                             why=None, origin=None):
+    """The append WITHOUT the lock — for callers already inside a `coord_lock` hold
+    (`escalate_if_second_fail` derives + scans + appends under ONE hold; a nested
+    `coord_lock` on a second fd of the same .lock file would deadlock under flock).
+    Everyone else calls `append_message`."""
+    path, blocks = load_messages(base)
+    n = next_message_number(blocks)
+    if not path.exists():
+        path.write_text(MESSAGES_HEADER, encoding="utf-8")
+    # G-94: a sender writing into a package it is not rostered in NAMES WHERE IT CAME FROM.
+    # Written only for a foreign sender, so a local send's header is byte-identical to before.
+    org = f" | from-pkg: {origin}" if origin else ""
+    sup = f" | supersedes: {supersedes}" if supersedes is not None else ""
+    rel = f" | re: {re_num}" if re_num is not None else ""
+    # #198: the clause rides IN THE LOG LINE, not just in the sender's terminal — a reader
+    # judging whether a broadcast earned everyone's attention can see the claim it made.
+    wc = f" | why: {why}" if why else ""
+    block = (f"\n## {n} | from: {sender}{org} | to: {to} | type: {mtype}{sup}{rel}{wc} | "
+             f"{now()}\n"
+             f"\n{body}\n")
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(block)
+    return n
+
+
 def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None, why=None,
                    origin=None):
     """Allocate the next message number AND append the block inside one lock hold — two
     concurrent sends used to read the same tail and claim the same ID (run-obs §589).
     Returns the number."""
     with coord_lock(base):
-        path, blocks = load_messages(base)
-        n = next_message_number(blocks)
-        if not path.exists():
-            path.write_text(MESSAGES_HEADER, encoding="utf-8")
-        # G-94: a sender writing into a package it is not rostered in NAMES WHERE IT CAME FROM.
-        # Written only for a foreign sender, so a local send's header is byte-identical to before.
-        org = f" | from-pkg: {origin}" if origin else ""
-        sup = f" | supersedes: {supersedes}" if supersedes is not None else ""
-        rel = f" | re: {re_num}" if re_num is not None else ""
-        # #198: the clause rides IN THE LOG LINE, not just in the sender's terminal — a reader
-        # judging whether a broadcast earned everyone's attention can see the claim it made.
-        wc = f" | why: {why}" if why else ""
-        block = (f"\n## {n} | from: {sender}{org} | to: {to} | type: {mtype}{sup}{rel}{wc} | "
-                 f"{now()}\n"
-                 f"\n{body}\n")
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(block)
-    return n
+        return _append_message_unlocked(base, sender, to, mtype, body, supersedes=supersedes,
+                                        re_num=re_num, why=why, origin=origin)
+
+
+# ---- dod-judge two-strikes derivation (7.581 / Q17) --------------------------------------------
+#
+# The consecutive-FAIL count for a milestone is DERIVED from this log at the instant of the call,
+# NEVER stored — no counter, no retry/attempt column, no status field anywhere (Rule 14: a stored
+# count is a second ledger that drifts silently and keeps answering). A PASS resets the count BY
+# CONSTRUCTION: the count is the length of the TRAILING run of FAIL trial verdicts, so there is
+# no reset step to forget and nothing to lose across a daemon restart or a seat renewal.
+
+# A trial verdict's body opens with exactly `verdict: PASS` or `verdict: FAIL` (the dod-judge
+# seat's contract); anything else never extends a FAIL run.
+VERDICT_CLAUSE = re.compile(r"^verdict:\s*(PASS|FAIL)\b", re.IGNORECASE | re.MULTILINE)
+# The escalation record's first body line — what makes it findable (idempotency scan) and what
+# excludes it from the trial walk. It is a record ABOUT trials, not a trial.
+ESCALATION_MARKER = "escalation: second-consecutive-FAIL"
+
+
+def trailing_fail_verdicts(base, milestone_id):
+    """The length of the TRAILING run of FAIL trial verdicts for `milestone_id` — the two-strikes
+    count, recomputed from the log every call. Walks from the tail over `type: verdict` rows
+    whose `why:` is `milestone-<id>`, counting while the body's verdict clause reads FAIL and
+    stopping at the first PASS (or clause-less row). Escalation records are skipped: they are
+    not trials. Returns 0 for a milestone with no verdict rows."""
+    _, blocks = load_messages(base)
+    want = f"milestone-{milestone_id}"
+    count = 0
+    for b in reversed(blocks):
+        if b["type"] != "verdict" or (b["why"] or "") != want:
+            continue
+        body = "\n".join(b["lines"][1:])
+        if ESCALATION_MARKER in body:
+            continue
+        m = VERDICT_CLAUSE.search(body)
+        if m and m.group(1).upper() == "FAIL":
+            count += 1
+            continue
+        break
+    return count
+
+
+def escalate_if_second_fail(base, milestone_id, sender, to="master"):
+    """On the SECOND consecutive FAIL for `milestone_id`, append EXACTLY ONE escalation row —
+    a `verdict` message addressed to `to` (the owner channel's relay) — and return the derived
+    count; return None otherwise (count < 2, or the row already exists). Derivation, existence
+    scan and append share ONE `coord_lock` hold, so two concurrent judges cannot both observe
+    "no escalation yet" (the same race append_message's own lock closes for numbering)."""
+    want = f"milestone-{milestone_id}"
+    with coord_lock(base):
+        count = trailing_fail_verdicts(base, milestone_id)
+        if count < 2:
+            return None
+        _, blocks = load_messages(base)
+        for b in blocks:
+            if (b["type"] == "verdict" and (b["why"] or "") == want
+                    and ESCALATION_MARKER in "\n".join(b["lines"][1:])):
+                return None
+        _append_message_unlocked(
+            base, sender, to, "verdict",
+            f"{ESCALATION_MARKER}\n"
+            f"{count} consecutive FAIL verdicts for {want} — the gap-wave loop halts here; "
+            f"this row travels the owner channel and waits for the owner's answer.",
+            why=want)
+        return count
 
 
 def log_delivery_failures(base, failures):
@@ -14407,6 +14481,11 @@ def _selftest_checks(args, failures, names):
     # states — a `global` after the name is read in this scope is a SyntaxError `ast.parse` does
     # not raise and only `compile()` catches.
     global fork_lifecycle_renewal
+    # 7.581 arm 4: rebound with a DELEGATING spy (records the hold, then takes the real lock),
+    # restored in-block. Declared here with every other global for the reason the s3-06 comment
+    # states — a `global` after the name is read in this scope is a SyntaxError only compile()
+    # catches.
+    global coord_lock
     # s3-06: the settle budget, zeroed for that block only (its own comment carries the clause).
     global LIFECYCLE_SETTLE_S
     real = (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
@@ -26696,6 +26775,113 @@ def _selftest_checks(args, failures, names):
               "an unwritable package. A row fabricated for a name the package does not know is "
               "the hand-written trace the edge-runner's gate 3 exists to refuse",
               _c5d != 0 and "refused [coord state]" in _o5d and len(_r5d) == 2)
+
+    # ---- 7.581 / Q17: the dod-judge two-strikes derivation — four red-first arms per the
+    # measured design dossier. The count is DERIVED from the run's verdict log, never stored
+    # (Rule 14). Guard-vacuity gate: every fixture is built explicitly HERE; a missing
+    # messages.md, an unparseable header, or a milestone with no verdict rows would fail the
+    # arm's own assertions — nothing below can skip.
+    with tempfile.TemporaryDirectory() as td81:
+        pkg81 = Path(td81) / "goal" / "runs" / "run-1"
+        base81 = pkg81 / "coordination"
+        base81.mkdir(parents=True)
+        # csv fixtures so arm 3's header sweep has real subjects (the run-3 milestones shape,
+        # whose grandfathered `status` column must NOT trip the retry-column scan)
+        (pkg81 / "milestones.csv").write_text(
+            "milestone-id,after,name,done-contract,responsible,status\nm1,,x,dc,seat,\n",
+            encoding="utf-8")
+        (pkg81 / "taskforce.csv").write_text("seat,executor\nplan-dod-judge,agent\n",
+                                             encoding="utf-8")
+
+        def verdict81(clause, why="milestone-m1"):
+            append_message(base81, "dod-judge", "master", "verdict",
+                           f"verdict: {clause}\nclause 1: evidence …", why=why)
+
+        def esc_rows81(mid):
+            return [b for b in load_messages(base81)[1]
+                    if b["type"] == "verdict" and (b["why"] or "") == f"milestone-{mid}"
+                    and ESCALATION_MARKER in "\n".join(b["lines"][1:])]
+
+        # arm 1 — trailing, not total. The PASS sits in the MIDDLE on purpose: a count-ALL
+        # implementation returns 3 here yet passes any fixture with no PASS in it, so this arm
+        # is what proves the PASS-reset is real. RED mutation: count all FAILs instead of the
+        # trailing run.
+        verdict81("FAIL"); verdict81("PASS"); verdict81("FAIL"); verdict81("FAIL")
+        verdict81("FAIL", why="milestone-OTHER")   # a second milestone must not leak in
+        check("7.581 arm 1: trailing_fail_verdicts counts the TRAILING FAIL run only — "
+              "FAIL,PASS,FAIL,FAIL derives 2 (a PASS resets by construction) and another "
+              "milestone's verdicts never leak into the count",
+              trailing_fail_verdicts(base81, "m1") == 2
+              and trailing_fail_verdicts(base81, "OTHER") == 1)
+
+        # arm 2 — exactly once, asserted DIRECTLY by counting escalation rows in the log,
+        # never by "no throw". RED mutation: drop the pre-append existence scan.
+        first81 = escalate_if_second_fail(base81, "m1", "dod-judge")
+        again81 = escalate_if_second_fail(base81, "m1", "dod-judge")
+        check("7.581 arm 2: the second consecutive FAIL escalates EXACTLY ONCE — the first "
+              "call appends the row and returns the count, the re-run returns None, and the "
+              "log holds exactly one escalation row for the milestone",
+              first81 == 2 and again81 is None and len(esc_rows81("m1")) == 1)
+        check("7.581 arm 2 control: one FAIL is below the bar — the single-FAIL milestone "
+              "derives 1, its helper call returns None and appends nothing",
+              escalate_if_second_fail(base81, "OTHER", "dod-judge") is None
+              and len(esc_rows81("OTHER")) == 0)
+        check("7.581: the escalation record is not a trial — the trailing count still reads 2 "
+              "after the escalation row landed",
+              trailing_fail_verdicts(base81, "m1") == 2)
+
+        # arm 3 — Rule 14 at the file surface: a pass in which an escalation FIRES leaves
+        # every .csv header under the package byte-identical (edge-runner-job's
+        # check_no_status_column_written shape, reused not reinvented) and none carries a
+        # retry-like column. Fresh milestone so the escalation fires INSIDE the measured
+        # window. RED mutation: write a retry-count column on escalation.
+        def headers81():
+            return {str(p.relative_to(pkg81)): p.open(encoding="utf-8").readline().rstrip("\n")
+                    for p in sorted(pkg81.rglob("*.csv"))}
+        before81 = headers81()
+        verdict81("FAIL", why="milestone-m3"); verdict81("FAIL", why="milestone-m3")
+        fired81 = escalate_if_second_fail(base81, "m3", "dod-judge")
+        after81 = headers81()
+        check("7.581 arm 3: a pass in which an escalation FIRES writes no counter anywhere — "
+              "every .csv header under the package byte-identical before/after, and none "
+              "carries a retry/attempt column",
+              fired81 == 2 and before81 == after81 and len(after81) == 2
+              and not any("retry" in h.lower() or "attempt" in h.lower()
+                          for h in after81.values()))
+
+        # arm 4 — two concurrent judges: ONE escalation row, monotone message numbers. The
+        # thread race alone can go green by luck with the lock dropped, so a DELEGATING spy
+        # additionally records that the helper actually TOOK the lock around derive+scan+append.
+        # RED mutation: drop the coord_lock hold in escalate_if_second_fail.
+        verdict81("FAIL", why="milestone-m4"); verdict81("FAIL", why="milestone-m4")
+        lock_holds81 = []
+        _real_lock81 = coord_lock
+
+        @contextmanager
+        def _spy_lock81(b):
+            lock_holds81.append(str(b))
+            with _real_lock81(b) as held:
+                yield held
+
+        coord_lock = _spy_lock81
+        try:
+            res81 = []
+            th81 = [threading.Thread(target=lambda: res81.append(
+                escalate_if_second_fail(base81, "m4", "dod-judge"))) for _ in range(2)]
+            for t in th81:
+                t.start()
+            for t in th81:
+                t.join()
+        finally:
+            coord_lock = _real_lock81
+        nums81 = [b["num"] for b in load_messages(base81)[1]]
+        check("7.581 arm 4: two concurrent judges yield ONE escalation row and monotone, "
+              "duplicate-free message numbers — derive + existence scan + append share one "
+              "coord_lock hold, and the spy saw both calls take it",
+              res81.count(2) == 1 and res81.count(None) == 1
+              and len(esc_rows81("m4")) == 1
+              and nums81 == sorted(nums81) and len(nums81) == len(set(nums81))
+              and len(lock_holds81) >= 2)
 
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
