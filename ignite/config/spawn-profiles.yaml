@@ -1078,6 +1078,7 @@ tools:
     args_allowlist:
       goal:
         - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp
+        - /home/henri/ht-wkdir/second-brain/.rbtv/goals/d1-throwaway
 
   # ── goal-creation-request (task C2) — the DAEMON-EXECUTED half of a caged requester's ask ──────
   #
