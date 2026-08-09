@@ -26,4 +26,4 @@
 # (PRIN-11). The full rationale, including what the other two options would have cost, is in
 # ignite/capabilities/sub-agent-dispatch/sub-agent-dispatch.md § The interim exposure manifest.
 part-id,part-kind,method,rbtv-cli,entry-point,description
-ticker-settings,capability,sub-agent,,ignite/capabilities/ticker-settings/ticker-settings.md,
+ticker-settings,capability,sub-agent,,capabilities/ticker-settings/ticker-settings.md,

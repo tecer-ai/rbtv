@@ -42,4 +42,4 @@
 # schema change, Phase-3/4-deferred, outside a worker seat's authority) in
 # `seats/S21-748-catalog/design-notes.md` § 3.
 part-id,part-kind,method,rbtv-cli,entry-point,description
-source-mining,workflow,sub-agent,,orchestration/workflows/source-mining/workflow.md,
+source-mining,workflow,sub-agent,,workflows/source-mining/workflow.md,

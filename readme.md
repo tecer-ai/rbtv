@@ -32,13 +32,40 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 
 ## Install
 
-> **There are two installers, and `install.py` is the one you want.** `install.py` (below) is
-> the installer for RBTV as it ships today — flat module components installed into `.claude/`.
-> A **second** installer, `core/capabilities/installer/tool/rbtv-install`, serves the
-> KG-shape component layout (module folders with `prompts.csv`/`tasks.csv`/`seats.csv`/
-> `exposure.csv` catalogs and cognitive-unit pools) that the system-definition registry
-> specifies. The two coexist deliberately; `install.py` is untouched by it. Unless you are
-> working on that layout, use `install.py`. See
+> **There are three installers today, and `install.py` is still the one you want.**
+> `install.py` (below) installs RBTV as it ships today — flat module components into
+> `.claude/`, state in `rbtv.json`, every artifact named `rbtv-*`.
+>
+> **`install2.py`** (repo root) is its **designated successor**, in a deliberate coexistence
+> period: it discovers components from their **exposure manifests** (`<module>/<component>/
+> exposure.csv`) on BOTH the workspace mirror (`{target}/.rbtv/mirror`) and this repo, and
+> realizes each row's canonical method for **four harnesses** (claude, codex, opencode, kimi)
+> through CMP-12's adapter matrix. Its artifacts are named `rbtv2-*` and its state lives at
+> `{target}/.rbtv/config/install.json`, recording every file and every shared-config key it
+> wrote — so the two installers can never sweep, overwrite, or delete each other's work, and
+> `install2.py uninstall` removes exactly what it wrote and nothing else. It exposes at the
+> INSTALL ROOT only and never writes under `.rbtv/goals/` (seat folders belong to the
+> materializer). `install.py` is byte-untouched by it.
+>
+> ```bash
+> python rbtv/install2.py --target /path/to/workspace scan            # what is installable
+> python rbtv/install2.py --target /path/to/workspace install --component meta/planning
+> python rbtv/install2.py --target /path/to/workspace install --module office --harness claude,codex
+> python rbtv/install2.py --target /path/to/workspace list
+> python rbtv/install2.py --target /path/to/workspace uninstall --component meta/planning
+> python rbtv/install2.py                                             # interactive
+> python rbtv/install2.py selftest                                    # its runnable check
+> ```
+>
+> Every verb takes `--dry-run` and `--json`; exit codes are `0` success / `1` refusal /
+> `2` usage. Its design decisions (tree precedence, the `rbtv2-` prefix rule, the collision
+> rule, the measured kimi realizations) are documented in the file's own module docstring —
+> that is their one home.
+>
+> A **third** installer, `core/capabilities/installer/tool/rbtv-install`, was built for the
+> KG-shape component layout with cognitive-unit pools; it requires `<module>/module.md` and
+> `prompts/cognitive-units/` pools, neither of which exists on the live trees today. Unless
+> you are working on that layout, use `install.py`. See
 > [core/capabilities/installer/installer.md](./core/capabilities/installer/installer.md).
 
 1. Clone RBTV as a subfolder of your workspace:
