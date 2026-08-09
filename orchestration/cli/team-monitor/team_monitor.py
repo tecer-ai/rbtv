@@ -551,8 +551,29 @@ def relaunch_room(session, run_fn=None):
         return True, f"room {session} relaunched"
     err = (getattr(r, "stderr", "") or "").strip()
     if "duplicate session" in err:
-        return True, f"room {session} already exists (another actor restored it first)"
+        return True, (f"room {session} already exists — NOTHING was restored by this attempt "
+                      f"(it was already up, or it is the empty shell a previous attempt created)")
     return False, f"`tmux new-session -d -s {session}` failed: {err[:200]}"
+
+
+def verified_seat_count(package):
+    """The goal's VERIFIED-SEAT count from the ONE lease, or None when the lease is UNREADABLE.
+
+    Delegates to `coord.derive_lease` -> `ignite/server/lease/lease.js`, the single home of both
+    the room predicate and the seat predicate. A second spelling of "is anybody actually in
+    there?" in this file is the drift PRIN-11 forbids and is exactly what the register era
+    produced (three independent `runs.csv` parsers that could disagree).
+
+    ⚠ None IS IGNORANCE AND IS NEVER COLLAPSED INTO 0. A lease this sensor could not read says
+    nothing about occupancy; a 0 here would be read by the caller as a measurement that was never
+    made, and reading ignorance as "empty" is what would spend the relaunch bound on a meter
+    failure rather than on a crash.
+    """
+    try:
+        lease, detail = coord().derive_lease(coord().goal_dir(Path(package).resolve()))
+    except Exception:                                          # noqa: BLE001
+        return None
+    return None if detail else len(lease.get("seats") or [])
 
 
 MSG_HDR_RE = re.compile(
@@ -1233,28 +1254,51 @@ def cmd_run(args):
                 msg, code = RUN_EXIT_FINISHED
                 print(msg, flush=True)
                 return code
-            if not session_alive(session):
+            alive = session_alive(session)
+            seats = verified_seat_count(args.package)
+            if alive and seats is None:
+                # The lease is UNREADABLE. Loud, and NEITHER arm fires: a meter this sensor could
+                # not read is not evidence of recovery (so it may not reset the bound) and is not
+                # evidence of a crash (so it may not spend an attempt).
+                print("team-monitor: LEASE EVIDENCE UNREADABLE — room occupancy could not be "
+                      "measured this pass; the relaunch budget is neither reset nor spent",
+                      file=sys.stderr, flush=True)
+            elif alive and seats > 0:
+                relaunch_attempts, escalated = 0, False  # an OCCUPIED room is back: budget resets
+            else:
                 # NOT an ending any more. No finish event + no room = CRASH, and a sensor that
                 # exits here is how `G-296`'s room ran unobserved behind a log that read healthy.
+                #
+                # ⚠ AND A LIVE ROOM WITH ZERO VERIFIED SEATS IS THE SAME CRASH (7.607 E1b, F-1 of
+                # the E1 §2 review). `relaunch_room` restores the room as an EMPTY tmux shell, so
+                # a reset keyed on `session_alive` alone — a bare `has-session`, which an empty
+                # shell satisfies — reset the bound on the very event it counts: the escalation
+                # was unreachable and the run reported healthy forever while nothing executed it.
+                # Occupancy is asked of the LEASE, never of tmux directly, because an empty room
+                # still has its shell pane and no pane count can tell the two apart.
                 if relaunch_attempts < len(RELAUNCH_BACKOFF_S):
                     backoff = RELAUNCH_BACKOFF_S[relaunch_attempts]
                     relaunch_attempts += 1
                     ok, detail = relaunch_room(session)
-                    print(f"room GONE with no finish event — CRASH, not completion. relaunch "
-                          f"attempt {relaunch_attempts}/{len(RELAUNCH_BACKOFF_S)}: {detail}",
+                    print(f"room {'EMPTY' if alive else 'GONE'} with no finish event — CRASH, not "
+                          f"completion. relaunch attempt "
+                          f"{relaunch_attempts}/{len(RELAUNCH_BACKOFF_S)}: {detail}",
                           file=sys.stderr, flush=True)
+                    # The bound that keeps a failing relaunch from storming AND the GRACE WINDOW a
+                    # legitimately-booting room needs to acquire its first verified seat. Never
+                    # skipped, and cadence-independent by construction; a FAILED relaunch
+                    # additionally skips the pass, which is the only difference.
+                    time.sleep(backoff)
                     if not ok:
-                        time.sleep(backoff)   # the bound that keeps a failing relaunch from storming
                         continue
                 elif not escalated:
                     escalated = True
-                    print(f"{RELAUNCH_EXHAUSTED_LINE} (room {session}). This sensor does NOT exit: "
-                          f"a goal with no finish event is unfinished, and a silent exit here is "
-                          f"how a room dies unwatched. Restore the room, or fire the finish edge "
-                          f"(`coordinate finish-goal`) if the goal is genuinely over.",
+                    print(f"{RELAUNCH_EXHAUSTED_LINE} (room {session}, lease: {seats} verified "
+                          f"seat(s)). This sensor does NOT exit: a goal with no finish event is "
+                          f"unfinished, and a silent exit here is how a room dies unwatched. "
+                          f"Re-seat the room, or fire the finish edge (`coordinate finish-goal`) "
+                          f"if the goal is genuinely over.",
                           file=sys.stderr, flush=True)
-            else:
-                relaunch_attempts, escalated = 0, False   # the room is back: the budget resets
             try:
                 write_snapshot(capture(args.package, session, args.sensor, args.heart_db), args.package)
             except Exception as e:  # noqa: BLE001 — a bad pass must never kill the sensor
@@ -1750,6 +1794,49 @@ def cmd_selftest(args):
     check("⚠ 7.607 E1 THE CRITERION: the legitimate close observed from `cmd_run` IS the finish-edge "
           "pair — driven by a real finish EVENT in a real messages.md, through the real reader",
           endings["legitimate-close"] == RUN_EXIT_FINISHED)
+
+    # ---- 7.607 E1b — ONLY AN OCCUPIED ROOM RESETS THE RELAUNCH BUDGET (F-1) -------------------
+    #
+    # `relaunch_room` restores the room as an EMPTY tmux shell, which a bare `has-session` — and
+    # an empty room still has its shell pane, so no pane count can tell them apart — reports as
+    # alive. The reset used to key on that alone, so the bound reset on the very event it counts
+    # and `RELAUNCH EXHAUSTED` was unreachable. Occupancy is now asked of the ONE lease.
+    with tempfile.TemporaryDirectory() as td:
+        _g = Path(td) / "ws" / ".rbtv" / "goals" / "zz-e1b-no-such-goal"
+        _g.mkdir(parents=True)
+        check("⚠ 7.607 E1b T1 INTEGRATION: `verified_seat_count` really reaches the lease — a goal "
+              "with no room reads 0 through a REAL `node lease.js` + `tmux` round trip, not a stub",
+              verified_seat_count(_g) == 0)
+    import types
+    _real_coord = _COORD
+    try:
+        globals()["_COORD"] = types.SimpleNamespace(
+            goal_dir=lambda p: p, derive_lease=lambda _g: ({}, "the lease module is absent"))
+        check("⚠ 7.607 E1b T2 IGNORANCE IS NOT ZERO: an UNREADABLE lease reads None, never 0. A 0 "
+              "here would be read by the loop as a measurement never made, and would spend the "
+              "relaunch bound on a broken meter instead of on a crash",
+              verified_seat_count(Path("/nonexistent")) is None)
+        globals()["_COORD"] = types.SimpleNamespace(
+            goal_dir=lambda p: p, derive_lease=lambda _g: ({"seats": [{"seat": "a"}, {"seat": "b"}]}, ""))
+        check("⚠ 7.607 E1b T3 the count is the LEASE's verified-seat set, not a pane count",
+              verified_seat_count(Path("/nonexistent")) == 2)
+    finally:
+        globals()["_COORD"] = _real_coord
+    # T4 is STRUCTURAL on purpose: `cmd_run`'s loop has no sleep seam, so driving the crash arm
+    # would cost the full 520 s backoff and would need a room on the DEFAULT tmux server, which a
+    # selftest may not take. This asserts the DECISION instead — the branch that resets the budget
+    # must test the seat count, not liveness alone. Reverting the condition reds it.
+    _resets = [n for n in ast.walk(mine["cmd_run"])
+               if isinstance(n, ast.If) and any(
+                   # `ast.unparse` parenthesises the tuple (`= (0, False)`), so the prefix stops at
+                   # the `=` — matching the source spelling instead silently found NOTHING and the
+                   # arm went red on its own matcher rather than on the code it scores.
+                   isinstance(b, ast.Assign) and ast.unparse(b).startswith("relaunch_attempts, escalated =")
+                   for b in n.body)]
+    check("⚠⚠ 7.607 E1b T4 THE DECISION: every branch that RESETS the relaunch budget tests the "
+          f"verified-seat count, never room liveness alone (found {len(_resets)} reset branch(es): "
+          f"{[ast.unparse(n.test)[:60] for n in _resets]})",
+          len(_resets) == 1 and "seats" in ast.unparse(_resets[0].test))
 
     # ---- the declared agent type (task 7.80) ----
     # Four descriptor states, and the ABSENCES are checked as hard as the presence: an

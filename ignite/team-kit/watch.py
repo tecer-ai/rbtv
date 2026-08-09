@@ -560,25 +560,39 @@ def goal_finished(package):
 
 
 def lease_evidence(package):
-    """('live'|'gone'|'unreadable', room_name_or_'', detail) — the goal's live-lease evidence.
+    """('live'|'gone'|'unreadable', room_or_'', verified_seat_count, detail) — the lease evidence.
 
     A THIN read of `coord.derive_lease`, which is itself a thin accessor over the ONE home of the
     lease (`server/lease/lease.js`). Nothing about the room predicate is spelled here: a watcher
     holding its own opinion of what "executing" means is the second-implementation drift the
     register era died of.
+
+    ⚠ THE VERIFIED-SEAT COUNT IS RETURNED BESIDE `state`, NEVER FOLDED INTO IT (7.607 E1b, F-1).
+    The lease's own ruling stands unchanged — `live` is the ROOM's existence, and "a live room
+    with zero verified seats is still a live lease" (`lease.js`), because a room mid-relaunch
+    between seat boots must not read as finished. What the COUNT adds is the other half that
+    ruling deliberately does not answer: whether anything is actually executing IN that room.
+    `watch_loop` needs both, because the room its own `relaunch_room` restores comes back EMPTY —
+    a relaunch budget reset on `live` alone is reset by the very event it counts (measured: 30
+    passes, 1 attempt, escalation never reached, the goal reporting healthy forever).
+
+    The count is 0 for every non-live state. That is not a measurement of those states — an
+    UNREADABLE lease is reported by `state`, and a caller may never read this 0 as "empty".
     """
     p = Path(package).resolve()
     goal = p.parent.parent if p.parent.name == "runs" else p
     try:
         lease, detail = coord.derive_lease(goal)
     except Exception as exc:                                   # noqa: BLE001
-        return "unreadable", "", f"the lease accessor raised {exc!r}"
+        return "unreadable", "", 0, f"the lease accessor raised {exc!r}"
     if detail:
-        return "unreadable", "", detail
+        return "unreadable", "", 0, detail
     rooms = lease.get("rooms") or []
     if not rooms:
-        return "gone", "", f"no room matches {lease.get('evidence', {}).get('room-predicate', '?')}"
-    return "live", (rooms[0].get("room") or ""), f"{len(lease.get('seats') or [])} verified seat(s)"
+        return "gone", "", 0, (f"no room matches "
+                               f"{lease.get('evidence', {}).get('room-predicate', '?')}")
+    seats = len(lease.get("seats") or [])
+    return "live", (rooms[0].get("room") or ""), seats, f"{seats} verified seat(s)"
 
 
 def relaunch_room(room, run_fn=None):
@@ -598,7 +612,8 @@ def relaunch_room(room, run_fn=None):
         return True, f"room {room} relaunched"
     err = (getattr(r, "stderr", "") or "").strip()
     if "duplicate session" in err:
-        return True, f"room {room} already exists (another actor restored it first)"
+        return True, (f"room {room} already exists — NOTHING was restored by this attempt "
+                      f"(it was already up, or it is the empty shell a previous attempt created)")
     return False, f"`tmux new-session -d -s {room}` failed: {err[:200]}"
 
 
@@ -6809,7 +6824,13 @@ def cmd_selftest():
         rcgoal = Path(td) / "finishedge-goal"
         rcrun = rcgoal / "runs" / "run-7"
         (rcrun / "coordination").mkdir(parents=True)
-        rcargs = argparse.Namespace(cadence_s=30)
+        # ⚠ THE CADENCE HERE IS A SENTINEL, NOT A CADENCE (7.607 E1b). `sleep_fn` is injected, so
+        # no wall time is ever spent; the value exists only so the per-pass cadence sleep can be
+        # told from a BACKOFF sleep BY VALUE. -1 is not a member of `RELAUNCH_BACKOFF_S` and the
+        # arm that relies on that asserts it rather than assuming it.
+        _RC_CADENCE_SENTINEL = -1
+        rcargs = argparse.Namespace(cadence_s=_RC_CADENCE_SENTINEL)
+        sleeps = []
 
         _orig_finished, _orig_lease, _orig_relaunch = goal_finished, lease_evidence, relaunch_room
 
@@ -6817,10 +6838,16 @@ def cmd_selftest():
             """(stopped_by_the_guard, turns_taken, printed, relaunch_calls) for one evidence pair.
 
             `finished` is what the finish-event reader returns; `lease` is the
-            ('live'|'gone'|'unreadable', room, detail) triple. `limit` turns with no stop IS the
-            negative result — an unguarded loop never returns on its own.
+            ('live'|'gone'|'unreadable', room, verified_seat_count, detail) QUADRUPLE — the count
+            is the E1b addition and every arm below states it explicitly, because an arm that
+            omitted it is exactly the F-1 blind spot. A LIST of quadruples is consumed one per
+            pass (the last one sticks), which is how an arm expresses evidence that CHANGES —
+            a fixed lease can never score a budget that resets after a partial spend.
+            `limit` turns with no stop IS the negative result — an unguarded loop never returns
+            on its own. `sleeps` collects every sleep argument the loop passed.
             """
             turns, calls = [], []
+            leases = list(lease) if isinstance(lease, list) else [lease]
 
             def _pass(_a):
                 turns.append(1)
@@ -6833,11 +6860,11 @@ def cmd_selftest():
 
             g = globals()
             g["goal_finished"] = lambda _p: finished
-            g["lease_evidence"] = lambda _p: lease
+            g["lease_evidence"] = lambda _p: leases[min(len(turns), len(leases) - 1)]
             stopped, buf, ebuf = True, io.StringIO(), io.StringIO()
             try:
                 with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(ebuf):
-                    watch_loop(rcargs, rcrun, do_pass=_pass, sleep_fn=lambda _s: None,
+                    watch_loop(rcargs, rcrun, do_pass=_pass, sleep_fn=sleeps.append,
                                relaunch_fn=_relaunch)
             except _RCLoopRanOn:
                 stopped = False
@@ -6845,7 +6872,19 @@ def cmd_selftest():
                 g["goal_finished"], g["lease_evidence"] = _orig_finished, _orig_lease
             return stopped, len(turns), buf.getvalue() + ebuf.getvalue(), calls
 
-        _st, _turns, _out, _calls = _rcturns(True, ("live", "room-a", "1 verified seat(s)"))
+        def _rcsleeps(lease, limit=3):
+            """The BACKOFF sleeps one evidence quadruple produces, in order — cadence removed.
+
+            The loop sleeps twice per turn (the backoff, then the cadence), and the two are told
+            apart by a SENTINEL CADENCE that is provably not a backoff value rather than by
+            position: a positional split silently mis-attributes the moment the loop body's order
+            changes, which is the class of blind spot this whole row exists to close.
+            """
+            del sleeps[:]
+            _rcturns(False, lease, limit=limit)
+            return [s for s in sleeps if s != _RC_CADENCE_SENTINEL]
+
+        _st, _turns, _out, _calls = _rcturns(True, ("live", "room-a", 1, "1 verified seat(s)"))
         check("⚠ 7.607 E1 THE CRITERION ITSELF: with the FINISH EVENT present the LOOP RETURNS — "
               "and it returns BEFORE taking a pass, so a loop started against a finished goal "
               "never writes into it. This is the ONE deterministic termination",
@@ -6857,12 +6896,12 @@ def cmd_selftest():
               "event + a LIVE room and the loop does NOT stop — it keeps taking turns until the "
               "fixture forces it out. Without this pair a guard that returned unconditionally "
               "would pass",
-              _rcturns(False, ("live", "room-a", "ok"))[:2] == (False, 3))
+              _rcturns(False, ("live", "room-a", 2, "2 verified seat(s)"))[:2] == (False, 3))
         check("⚠ 7.607 E1 CRASH IS RECOVERY, NEVER EXIT (design lock item 3): room GONE with NO "
               "finish event does NOT stop the loop and DOES relaunch the room. Under the register "
               "this was indistinguishable from a close and silently killed the sensor",
-              _rcturns(False, ("gone", "", "no room"))[:2] == (False, 3))
-        _st4, _t4, _o4, _calls4 = _rcturns(False, ("gone", "", "no room"), limit=9)
+              _rcturns(False, ("gone", "", 0, "no room"))[:2] == (False, 3))
+        _st4, _t4, _o4, _calls4 = _rcturns(False, ("gone", "", 0, "no room"), limit=9)
         check("⚠ 7.607 E1 THE RELAUNCH IS BOUNDED — never a storm: at most "
               f"{len(RELAUNCH_BACKOFF_S)} attempts however many passes the loop takes, then a "
               "LOUD escalation line, and STILL no exit",
@@ -6872,12 +6911,53 @@ def cmd_selftest():
         check("⚠ 7.607 E1 UNREADABLE EVIDENCE IS NEITHER FINISHED NOR CRASHED: a loud line, no "
               "exit, and NO relaunch. Fail-open in the one direction it was ever right — a broken "
               "meter must never stop a healthy loop, and must never be read as 'over'",
-              _rcturns(False, ("unreadable", "", "tmux is unreadable"))[:2] == (False, 3)
-              and _rcturns(False, ("unreadable", "", "tmux is unreadable"))[3] == []
-              and "UNREADABLE" in _rcturns(False, ("unreadable", "", "x"))[2])
+              _rcturns(False, ("unreadable", "", 0, "tmux is unreadable"))[:2] == (False, 3)
+              and _rcturns(False, ("unreadable", "", 0, "tmux is unreadable"))[3] == []
+              and "UNREADABLE" in _rcturns(False, ("unreadable", "", 0, "x"))[2])
         check("7.607 E1: a FINISH EVENT wins over live-lease evidence — the finish edge is the "
               "termination, the lease never is",
-              _rcturns(True, ("gone", "", "no room"))[:2] == (True, 0))
+              _rcturns(True, ("gone", "", 0, "no room"))[:2] == (True, 0))
+        # ---- 7.607 E1b — F-1: ONLY AN OCCUPIED ROOM RESETS THE RELAUNCH BUDGET.
+        # The pair below is the whole fix, and it is a PAIR on purpose: the OCCUPIED arm must
+        # stay silent (a bound that fires on a healthy room is a false escalation) and the HOLLOW
+        # arm must reach the escalation (a bound that never fires is F-1). One without the other
+        # is satisfied by a loop that always escalates, or by one that never does.
+        _st5, _t5, _o5, _calls5 = _rcturns(False, ("live", "room-a", 0, "0 verified seat(s)"),
+                                           limit=9)
+        check("⚠⚠ 7.607 E1b F-1 THE FIX: a room that is LIVE but carries ZERO VERIFIED SEATS — "
+              "the EMPTY SHELL `relaunch_room` itself creates — walks the SAME bounded backoff as "
+              "an absent room and REACHES the loud escalation. Before this fix the reset keyed on "
+              "`live` alone, so the ordinary crash reset the bound on the very event it counts: "
+              "30 passes, 1 attempt, escalation unreachable, the goal reporting healthy forever",
+              len(_calls5) == len(RELAUNCH_BACKOFF_S)
+              and RELAUNCH_EXHAUSTED_LINE.split(" — ")[0] in _o5
+              and (_st5, _t5) == (False, 9))
+        check("⚠ 7.607 E1b F-1 THE CONTROL THAT BOUNDS THE FIX: an OCCUPIED live room (seats > 0) "
+              "spends NO relaunch attempt and raises NO escalation however many passes it takes — "
+              "so the fix cannot false-escalate on a healthy room, and the row above is not "
+              "passing because the loop escalates on everything",
+              _rcturns(False, ("live", "room-a", 3, "3 verified seat(s)"), limit=9)[3] == []
+              and RELAUNCH_EXHAUSTED_LINE.split(" — ")[0]
+              not in _rcturns(False, ("live", "room-a", 3, "3 verified seat(s)"), limit=9)[2])
+        _hollow = ("live", "room-a", 0, "0 verified seat(s)")
+        _seated = ("live", "room-a", 2, "2 verified seat(s)")
+        _recov = _rcturns(False, [_hollow, _hollow, _hollow, _seated] + [_hollow] * 10, limit=14)
+        check("⚠ 7.607 E1b F-1 THE RECOVERY HALF: an occupied room RESETS a budget already partly "
+              "spent. Three hollow passes spend three attempts, ONE occupied pass gives the whole "
+              f"bound back, and the eight hollow passes after it spend the full "
+              f"{len(RELAUNCH_BACKOFF_S)} again — {3 + len(RELAUNCH_BACKOFF_S)} attempts in all. "
+              "Without the reset a genuinely recovering goal would sit one attempt from a "
+              "spurious escalation forever after one bad patch",
+              len(_recov[3]) == 3 + len(RELAUNCH_BACKOFF_S)
+              and RELAUNCH_EXHAUSTED_LINE.split(" — ")[0] in _recov[2])
+        check("⚠ 7.607 E1b: the GRACE WINDOW IS THE BACKOFF, NEVER THE CADENCE — every attempt on "
+              "a hollow room sleeps its own backoff BEFORE the next pass, so a cadence lowered to "
+              "5 s cannot shrink the seconds a legitimately-booting room is given to acquire its "
+              f"first verified seat. The whole bound is {sum(RELAUNCH_BACKOFF_S)}s of grace, and "
+              "an OCCUPIED room spends none of it",
+              _RC_CADENCE_SENTINEL not in RELAUNCH_BACKOFF_S
+              and _rcsleeps(_hollow, limit=9) == list(RELAUNCH_BACKOFF_S)
+              and _rcsleeps(_seated, limit=9) == [])
         # ---- the REAL readers, not the injection point: `goal_finished` and `lease_evidence`
         # driven against files on disk. The six rows below replace the register-era fail-open set
         # arm for arm — same properties (absent / undecodable / unreadable / wrong shape / refuses
@@ -6992,9 +7072,13 @@ def cmd_selftest():
         # a RELAUNCH BACKOFF, not the cadence, so a package with no room measured 10 s here and
         # this check went red. That backoff is correct and is asserted by the bounded-relaunch row
         # above; the cadence claim is about the NORMAL pass, so the normal pass is what it drives.
+        # ⚠ 7.607 E1b — THE PIN NOW CARRIES A VERIFIED-SEAT COUNT, and it must be > 0: a LIVE room
+        # with zero seats is a hollow shell and takes the same crash path (F-1's fix), so a pin of
+        # 0 would measure the backoff here for the second time and red this row for the same
+        # reason the E1 note above records.
         _g = globals()
         _orig_le, _orig_gf = lease_evidence, goal_finished
-        _g["lease_evidence"] = lambda _p: ("live", "room-cadence", "pinned for the cadence row")
+        _g["lease_evidence"] = lambda _p: ("live", "room-cadence", 1, "pinned for the cadence row")
         _g["goal_finished"] = lambda _p: False
         try:
             watch_loop(argparse.Namespace(cadence_s=30), Path(td) / "no-such-run",
@@ -7094,10 +7178,11 @@ def _escalate_relaunch_exhausted(run_root, room, detail):
         coord.append_message(
             Path(run_root) / "coordination", "watch", "leader", "ask",
             f"{RELAUNCH_EXHAUSTED_LINE}\n\nroom: {room or 'UNKNOWN'}\nlease: {detail}\n\n"
-            f"The goal has NO finish event, so it is unfinished, and its room could not be "
-            f"restored. The watch loop is still running and will keep reporting, but nothing is "
-            f"executing this goal. Either restore the room by hand or fire the finish edge "
-            f"(`coordinate finish-goal`) if the goal is genuinely over.")
+            f"The goal has NO finish event, so it is unfinished, and no verified seat is "
+            f"executing it — the room is either absent or an EMPTY shell a relaunch restored "
+            f"without occupants. The watch loop is still running and will keep reporting, but "
+            f"nothing is executing this goal. Either re-seat the room by hand or fire the finish "
+            f"edge (`coordinate finish-goal`) if the goal is genuinely over.")
     except Exception as exc:                                   # noqa: BLE001
         print(f"watch: the relaunch escalation could NOT be delivered to the bus ({exc!r}) — "
               f"the condition stands and is unreported to the leader", file=sys.stderr, flush=True)
@@ -7131,27 +7216,45 @@ def watch_loop(args, run_root, do_pass=None, sleep_fn=None, relaunch_fn=None):
             print(FINISH_EXIT_LINE, flush=True)
             return 0
 
-        state, room, detail = lease_evidence(run_root)
-        if state == "live":
-            if room:
-                known_room = room
-            relaunch_attempts, escalated = 0, False      # the room is back: the budget resets
-        elif state == "unreadable":
+        state, room, seats, detail = lease_evidence(run_root)
+        if room:
+            known_room = room
+        if state == "unreadable":
             # LOUD, and the loop keeps going. Never a silent exit, never read as "finished".
             print(f"watch: LEASE EVIDENCE UNREADABLE — {detail}. NOT treating this as a finished "
                   f"goal; retrying next pass", file=sys.stderr, flush=True)
-        else:  # 'gone' — no room AND no finish event, which is the CRASH case, not the end
+        elif state == "live" and seats > 0:
+            relaunch_attempts, escalated = 0, False  # an OCCUPIED room is back: the budget resets
+        else:
+            # 'gone' — no room — OR a room that is LIVE AND EMPTY, which is precisely what
+            # `relaunch_room` below creates. Both mean the same thing to THIS loop: no finish
+            # event and nothing executing the goal, i.e. the CRASH case, not the end.
+            #
+            # ⚠ ONLY AN OCCUPIED ROOM RESETS THE BOUND (7.607 E1b, fixing F-1 of the E1 §2
+            # review). The reset used to key on `live` alone, and `relaunch_room` restores the
+            # room as an EMPTY tmux shell that the lease correctly reports as live — so the
+            # bound reset on the very event it was counting. Measured before this fix: the
+            # ordinary crash (room killed) walked 30 passes on 1 relaunch attempt, RELAUNCH
+            # EXHAUSTED never fired, the lease read `live` with `0 verified seat(s)` forever, and
+            # every `start-workflow` for that goal would queue behind a goal that reports healthy
+            # and executes nothing — the 7.608 deadlock's shape with tmux as the stale-status
+            # carrier. The lease's own posture is untouched: a hollow room IS a live lease. What
+            # is no longer read as RECOVERY is a room with nobody in it.
             if relaunch_attempts < len(RELAUNCH_BACKOFF_S):
                 backoff = RELAUNCH_BACKOFF_S[relaunch_attempts]
                 relaunch_attempts += 1
                 ok, rdetail = relaunch_fn(known_room)
-                print(f"watch: room GONE with no finish event — CRASH, not completion. "
-                      f"relaunch attempt {relaunch_attempts}/{len(RELAUNCH_BACKOFF_S)}: {rdetail}",
+                print(f"watch: room {'EMPTY' if state == 'live' else 'GONE'} with no finish "
+                      f"event — CRASH, not completion. relaunch attempt "
+                      f"{relaunch_attempts}/{len(RELAUNCH_BACKOFF_S)}: {rdetail}",
                       file=sys.stderr, flush=True)
+                # The backoff is the storm bound AND the GRACE WINDOW — the seconds a legitimately
+                # booting room is given to acquire its first verified seat before the next attempt
+                # is spent. It is applied BEFORE the next pass and never skipped, which also makes
+                # the grace CADENCE-INDEPENDENT: a cadence lowered to 5 s must not shrink it. A
+                # FAILED relaunch additionally skips the pass — that is the only difference.
+                sleep_fn(backoff)
                 if not ok:
-                    # The backoff is what keeps a failing relaunch from becoming a storm; it is
-                    # applied BEFORE the next pass and is never skipped on a failure.
-                    sleep_fn(backoff)
                     continue
             elif not escalated:
                 escalated = True

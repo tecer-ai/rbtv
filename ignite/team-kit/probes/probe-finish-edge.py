@@ -42,19 +42,29 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KIT))
+# The adjacent capture every sibling probe writes (§2 review of stage E1 — this file was the one
+# probe the runner graded `capture=none`, so its verdict came from the child exit code alone,
+# thinner than the runner's design intends). PURELY ADDITIVE: not one check below is changed by
+# it. The runner grades the capture on FRESHNESS inside this probe's own run window, so it is
+# written on the way out whether the run passed, failed, or raised.
+OUT = Path(__file__).resolve().parent / "probe-finish-edge.out"
 
 failures = []
 checks = 0
+lines = []
 
 
 def check(label, ok, detail=""):
     global checks
     checks += 1
-    print(f"{'PASS' if ok else 'FAIL'}  {label}" + (f"  — {detail}" if detail else ""), flush=True)
+    row = f"{'PASS' if ok else 'FAIL'}  {label}" + (f"  — {detail}" if detail else "")
+    print(row, flush=True)
+    lines.append(row)
     if not ok:
         failures.append(label)
 
@@ -165,8 +175,20 @@ def main():
               f"team_monitor={m.group(1) if m else None!r} coord={coord.FINISH_MARKER!r}")
 
 
-main()
+try:
+    main()
+except Exception as exc:  # noqa: BLE001 — a crashed probe still writes its capture, then fails
+    lines.append(f"CRASH  {type(exc).__name__}: {exc}")
+    failures.append(f"probe crashed: {type(exc).__name__}")
+    raise
+finally:
+    _summary = [f"checks: {checks} run, {len(failures)} failed",
+                f"probe-finish-edge: "
+                f"{'PASS' if not failures else 'FAIL -> ' + ', '.join(failures)}"]
+    OUT.write_text("\n".join([f"{'FAILED' if failures else 'GREEN'}  probe-finish-edge  "
+                              f"({time.strftime('%Y-%m-%dT%H:%M:%S%z')})",
+                              *lines, *_summary]) + "\n", encoding="utf-8")
 print()
-print(f"checks: {checks} run, {len(failures)} failed")
-print(f"probe-finish-edge: {'PASS' if not failures else 'FAIL -> ' + ', '.join(failures)}")
+print(_summary[0])
+print(_summary[1])
 sys.exit(1 if failures else 0)
