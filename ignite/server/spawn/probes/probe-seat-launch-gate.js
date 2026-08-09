@@ -12,28 +12,40 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const yaml = require('js-yaml');
+const { execFileSync } = require('node:child_process');
 const { capture } = require('./lib');
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../spawn');
 
-// A goal tree with a LIVE run (run-1), a CLOSED run (run-0), a real seat, an imposter folder, and
-// the flat interim `.rbtv/sessions/` dir the task retires for seat spawns.
+// ── 7.607 E2a — GOAL-DIRECT, AND "NOT LIVE" IS A GOAL WITH NO ROOM ────────────────────────────
+//
+// The tree carried a LIVE run (run-1) and a CLOSED run (run-0) of ONE goal, and P2 launched into
+// the closed one. There is no run compartment and no register left, so the two states are now two
+// GOALS: `testgoal`, which has a room, and `finishedgoal`, which has an equally complete, rostered
+// seat and no room at all — a historical seat folder of a finished execution, which is exactly the
+// case the ruling says must grant nothing.
+//
+// The room is REAL, on an ISOLATED `TMUX_TMPDIR` socket, because `spawnSeat` resolves its own
+// lease through the real binary. The box's default tmux server carries the owner's attached
+// session and is neither read as evidence nor extended here.
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'g4-launch-'));
   const ws = path.join(root, 'ws');
   const goalsDir = path.join(ws, '.rbtv', 'goals');
   const goalDir = path.join(goalsDir, 'testgoal');
-  const runDir = path.join(goalDir, 'runs', 'run-1');
-  const closedRunDir = path.join(goalDir, 'runs', 'run-0');
+  const runDir = goalDir;                                        // the goal folder IS the package
+  const closedRunDir = path.join(goalsDir, 'finishedgoal');      // …and this goal is not executing
   const seatDir = path.join(runDir, 'seats', 'mine');
   const imposterDir = path.join(runDir, 'seats', 'imposter');
   const closedSeatDir = path.join(closedRunDir, 'seats', 'mine');
   const interimDir = path.join(ws, '.rbtv', 'sessions', 'exec-7');
   for (const d of [seatDir, imposterDir, closedSeatDir, interimDir]) fs.mkdirSync(d, { recursive: true });
 
-  fs.writeFileSync(path.join(goalsDir, 'goals.csv'), 'name,created,due,type,status\ntestgoal,2026-07-27,,one-shot,active\n');
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-07-27 01:30,\nrun-0,fresh,closed,tf-1,2026-07-27 01:30,2026-07-27 13:11\n');
+  fs.writeFileSync(path.join(goalsDir, 'goals.csv'),
+    'name,created,due,type,status\ntestgoal,2026-07-27,,one-shot,active\nfinishedgoal,2026-07-27,,one-shot,active\n');
   for (const rd of [runDir, closedRunDir]) {
+    // the `tmpfs:{goalDir}/runs` mountpoint the shipped template still needs (spawn.js's E2a note)
+    fs.mkdirSync(path.join(rd, 'runs'), { recursive: true });
     fs.writeFileSync(path.join(rd, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,mine\n');
     fs.writeFileSync(path.join(rd, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
   }
@@ -73,7 +85,19 @@ function fixture() {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const store = openHeartStore({ dbPath });
   const mgr = createSpawnManager({ heartStore: store, configPath: cfgPath, logger: null, userManager: true });
-  return { root, ws, goalDir, runDir, seatDir, imposterDir, closedSeatDir, interimDir, store, mgr, dataRoot };
+
+  const roomTmpdir = path.join(os.tmpdir(), `e2a-lg-${process.pid}`);
+  fs.mkdirSync(roomTmpdir, { recursive: true, mode: 0o700 });
+  const savedTmpdir = process.env.TMUX_TMPDIR;
+  process.env.TMUX_TMPDIR = roomTmpdir;
+  execFileSync('tmux', ['new-session', '-d', '-s', 'testgoal', 'sleep', '600'],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const reapRoom = () => {
+    try { execFileSync('tmux', ['kill-server'], { stdio: 'ignore' }); } catch { /* already gone */ }
+    if (savedTmpdir === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = savedTmpdir;
+    try { fs.rmSync(roomTmpdir, { recursive: true, force: true }); } catch {}
+  };
+  return { root, ws, goalDir, runDir, seatDir, imposterDir, closedSeatDir, interimDir, store, mgr, dataRoot, reapRoom };
 }
 
 let tick = 1;
@@ -127,12 +151,12 @@ capture('probe-seat-launch-gate', async (lines) => {
         `code=${r.code} store-status=${r.status} world-unchanged=${nothingHappened} (sessions dirs ${after.sessionDirs.length}, csv rows ${after.csvRows}, logs ${after.units.length})`);
     }
 
-    // ── P2 — a seat of a CLOSED run.
+    // ── P2 — a complete, rostered seat of a goal that is NOT EXECUTING (no room).
     const before2 = worldAfter(f, f.closedSeatDir);
     const r2 = await refuse(f.closedSeatDir, 'mine');
     const after2 = worldAfter(f, f.closedSeatDir);
-    leg('P2', 'a seat of a CLOSED run is refused E_RUN_NOT_LIVE, nothing created',
-      r2.threw && r2.code === 'E_RUN_NOT_LIVE' && JSON.stringify(before2) === JSON.stringify(after2) && r2.status !== 'running',
+    leg('P2', 'a seat of a goal that is NOT EXECUTING is refused E_GOAL_NOT_LIVE, nothing created',
+      r2.threw && r2.code === 'E_GOAL_NOT_LIVE' && JSON.stringify(before2) === JSON.stringify(after2) && r2.status !== 'running',
       `code=${r2.code} store-status=${r2.status} — ${r2.message.slice(0, 90)}`);
 
     // ── P3 — a hand-made seats/imposter/: right shape, no seat.md, not rostered.
@@ -198,6 +222,7 @@ capture('probe-seat-launch-gate', async (lines) => {
     lines.push(`legs: ${fails.length === 0 ? 'ALL PASS' : `FAILED -> ${fails.join(', ')}`}`);
     if (fails.length > 0) throw new Error(`launch gate probes failed: ${fails.join(', ')}`);
   } finally {
+    f.reapRoom();
     try { closeHeartStore(); } catch {}
     try { fs.rmSync(f.root, { recursive: true, force: true }); } catch {}
   }

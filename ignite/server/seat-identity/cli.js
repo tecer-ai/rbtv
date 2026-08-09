@@ -46,7 +46,7 @@ function main(argv) {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   } else if (result.ok) {
     process.stdout.write(
-      `seat: ${result.seat}\ngoal: ${result.goal}\nrun: ${result.run}\n` +
+      `seat: ${result.seat}\ngoal: ${result.goal}\n` +
       `registered-pid: ${result.registeredPid}\nmatched-ancestor: ${result.matchedAncestor.pid}\n` +
       `permissions: ${result.permissionsSource}\n`,
     );

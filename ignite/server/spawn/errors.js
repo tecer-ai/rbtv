@@ -59,10 +59,13 @@ const E_CAGE_TEMPLATE = 'E_CAGE_TEMPLATE';
 const E_CAGE_GROUND_TRUTH = 'E_CAGE_GROUND_TRUTH';
 
 // ── 7.11 — the identity gate (seat-identity/) ────────────────────────────────────────────────
-// BOTH gates (§4a launch-time AND §4b command-time): the seat folder resolves, but its run is not
-// the goal's LIVE run. One condition, one code, deliberately — the remedy is identical whichever
-// gate asks it, and a second code would only invite a caller to handle one and miss the other.
-const E_RUN_NOT_LIVE = 'E_RUN_NOT_LIVE';
+// BOTH gates (§4a launch-time AND §4b command-time): the seat folder resolves, but its GOAL is not
+// EXECUTING. One condition, one code, deliberately — the remedy is identical whichever gate asks
+// it, and a second code would only invite a caller to handle one and miss the other.
+// 7.607 E2a: renamed from `E_RUN_NOT_LIVE`. The run layer is extinguished
+// (`decisions.md#d-runs-extinguished`), so a code naming a run named nothing; the condition it
+// reports is now the derived lease's (`server/lease/lease.js`), not a register row's.
+const E_GOAL_NOT_LIVE = 'E_GOAL_NOT_LIVE';
 // BOTH gates: right shape, but not a materialized + rostered seat (no `seat.md`, or no roster row).
 // ⚑ These two read "Launch-time" until task 7.10 — ACCURATELY, because the command-time gate did
 // not call them. That omission was G-126.
@@ -127,7 +130,7 @@ module.exports = {
   E_TMUX_NAME_INVALID,
   E_CAGE_TEMPLATE,
   E_CAGE_GROUND_TRUTH,
-  E_RUN_NOT_LIVE,
+  E_GOAL_NOT_LIVE,
   E_NOT_A_SEAT_FOLDER,
   E_IDENTITY_NO_SEAT,
   E_IDENTITY_NO_SESSION,

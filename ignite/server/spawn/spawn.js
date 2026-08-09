@@ -9,7 +9,7 @@ const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
 const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags, contains, composeAncestorMasks } = require('./cage');
-const { parseServiceSeatPath, parseSeatPath, checkRunLive, checkMaterializedSeat } = require('../seat-identity/seat-folder');
+const { parseServiceSeatPath, parseSeatPath, checkGoalExecuting, checkMaterializedSeat } = require('../seat-identity/seat-folder');
 const { deriveLease } = require('../lease/lease');  // 7.607 E1 — the bus/goals authz predicate
 const { appendRow, readCsv } = require('../seat-identity/csv');
 const {
@@ -38,7 +38,7 @@ const {
   E_ORPHAN_RESCAN_FAILED,
   E_MISSING_KEY,
   E_BAD_REQUEST,
-  E_RUN_NOT_LIVE,
+  E_GOAL_NOT_LIVE,
   E_NOT_A_SEAT_FOLDER,
   E_SEATLESS_GOAL_DISPATCH,
 } = require('./errors');
@@ -459,7 +459,7 @@ function resolveReadRootGrant(seatPath) {
 // `bus-write: true` — RW on the coordination dir of every goal that is EXECUTING RIGHT NOW.
 //
 // WHAT THIS REPLACED AND WHY IT IS SECURITY, NOT PLUMBING. The predicate was "seats of an OPEN run
-// of the goal", read from `<goal>/runs.csv`. With the run layer extinguished, seat folders become
+// of the goal", read from the (now deleted) run register. With the layer extinguished, seat folders become
 // GOAL-DURABLE (`decisions.md#d-runs-extinguished`, owner clarification): every seat a goal ever
 // had persists on disk forever. A register-shaped predicate carried straight over would therefore
 // have WIDENED — a stale `state=open` row, or the mere existence of the goal's accumulated seat
@@ -519,24 +519,24 @@ function leasedGoals(workspaceRoot) {
   return out;
 }
 
-// `goals-write: true` — RW on the RUN FOLDER of every goal's OPEN run, so a seat holding the
-// materializer (`team-kit/materialize-seats.py`) can seat a cataloged seat into a live run: it
-// writes `seats/<seat>/seat.md` and appends `taskforce.csv`, and that append is an atomic
-// tmp-file-plus-rename IN THE RUN DIR — which is why the grant is the run dir and not `seats/`
-// alone. Same open-run scoping as `bus-write` above, through the same one reader of runs.csv.
+// `goals-write: true` — RW on the GOAL FOLDER of every goal that is EXECUTING, so a seat holding
+// the materializer (`team-kit/materialize-seats.py`) can seat a cataloged seat into a live
+// execution: it writes `seats/<seat>/seat.md` and appends `taskforce.csv`, and that append is an
+// atomic tmp-file-plus-rename IN THE GOAL DIR — which is why the grant is the goal dir and not
+// `seats/` alone. Same lease scoping as `bus-write` above, through the same one lease reader.
 //
 // TWO NARROWINGS, both load-bearing:
 //
-//   1. THE SEAT'S OWN RUN IS NEVER GRANTED. A run-seated seat would otherwise re-open its own
-//      run dir read-write ON TOP of `tmpfs:{runDir}/seats` and the `ro-bind:{seatDir}/seat.md`
+//   1. THE SEAT'S OWN GOAL FOLDER IS NEVER GRANTED. A seat would otherwise re-open its own
+//      goal dir read-write ON TOP of `tmpfs:{runDir}/seats` and the `ro-bind:{seatDir}/seat.md`
 //      carve — un-erasing peer seat folders and handing the occupant its own permission record.
 //      (The ground-truth assertion would then refuse the whole spawn; failing closed is correct
-//      but useless. Excluding the own run keeps the grant usable AND the carves intact.)
-//   2. EVERY GRANTED RUN'S `sessions.csv` IS CARVED BACK READ-ONLY, by the second grant field
+//      but useless. Excluding the own goal keeps the grant usable AND the carves intact.)
+//   2. EVERY GRANTED GOAL'S `sessions.csv` IS CARVED BACK READ-ONLY, by the second grant field
 //      below and the template line that consumes it. The identity gate reads that file to decide
-//      who is sitting in a run; a cross-goal writer of it could spoof any seat's identity.
+//      who is sitting in a goal; a cross-goal writer of it could spoof any seat's identity.
 //      `assertGroundTruthUnwritable` only guards THIS seat's own sessions.csv — it cannot see the
-//      other runs this grant opens, so the carve is what keeps them shut.
+//      other goals this grant opens, so the carve is what keeps them shut.
 // 7.607 E1: same lease predicate as `resolveBusWriteGrants` above, same seat conjunct, same
 // fail-closed posture — read that block for the security argument; it is not restated here. The
 // TWO NARROWINGS below are untouched by the re-founding and remain load-bearing.
@@ -545,12 +545,12 @@ function resolveGoalsWriteGrants(seatPath) {
   const grants = [];
   for (const { lease } of leasedGoals(seatPath.workspaceRoot)) {
     for (const room of lease.rooms) {
-      if (room.seats.length === 0) continue;            // no live occupant ⇒ nothing to seat into
-      const runDir = room.packageDir;
-      if (!fs.existsSync(runDir)) continue;             // never created from here
-      if (contains(runDir, seatPath.seatDir)) continue; // narrowing 1 — never the seat's own home
-      grants.push({ goalsWrite: runDir });
-      const sessions = path.join(runDir, 'sessions.csv');
+      if (room.seats.length === 0) continue;             // no live occupant ⇒ nothing to seat into
+      const pkgDir = room.packageDir;
+      if (!fs.existsSync(pkgDir)) continue;              // never created from here
+      if (contains(pkgDir, seatPath.seatDir)) continue;  // narrowing 1 — never the seat's own home
+      grants.push({ goalsWrite: pkgDir });
+      const sessions = path.join(pkgDir, 'sessions.csv');
       // narrowing 2 — a SEPARATE grant so the carve line composes only where the file exists;
       // a package with no sessions.csv yet has no ground truth to carve back.
       if (fs.existsSync(sessions)) grants.push({ goalsWriteGroundTruth: sessions });
@@ -695,6 +695,26 @@ function resolveHarnessCredGrants(entitledHarnesses = []) {
 function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr = null, log = () => {}) {
   let template = resolvedSandbox && resolvedSandbox.SeatBinds;
   if (!template || template.length === 0) return null;
+
+  // ⚠⚠ 7.607 E2a INTERIM — THE `runs` MOUNTPOINT, AND WHY IT IS CREATED FOR EVERY SEAT ──────────
+  //
+  // MEASURED, not anticipated (2026-08-09, this box): with `{goalDir}` ro-bound, bwrap refuses a
+  // tmpfs whose mountpoint does not exist —
+  //     bwrap: Can't mkdir <goalDir>/runs: Read-only file system
+  // — and the SHIPPED `config/spawn-profiles.yaml` SeatBinds template still carries
+  // `tmpfs:{goalDir}/runs`. Under the goal-direct layout no goal folder has a `runs/` any more, so
+  // WITHOUT this line every caged seat spawn dies at bwrap. Reproduced by probe-seat-rw-paths R5a,
+  // which composes against the shipped template rather than a fixture of its own.
+  //
+  // This creates an EMPTY directory the tmpfs then covers: it erases nothing (there are no other
+  // runs to hide) and it grants nothing. It is kept ONLY because the profile is outside this
+  // stage's write surface, and it is the FIRST thing to delete in the stage that edits that file:
+  // dropping the `tmpfs:{goalDir}/runs` and `ro-bind:{runDir}` template lines retires this mkdir,
+  // the `{runDir}` cage slot, and `parseSeatPath`'s `runDir` alias in one change. Until then a
+  // goal folder acquires a stray empty `runs/` at first caged spawn — inert, and named here so
+  // nobody has to work out where it came from.
+  try { fs.mkdirSync(path.join(seatPath.goalDir, 'runs'), { recursive: true }); } catch { /* best effort */ }
+
   if (seatPath.service) {
     // Service-seat home (r-master-seat-homes): goalDir==runDir==seatDir. Pre-create the bind
     // sources the template expects of a run folder, and carve the IN-FOLDER ground truth
@@ -706,7 +726,8 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
     // …and the tmpfs MOUNTPOINTS: bwrap cannot mkdir them once the read-root grant has made
     // the folder ro (measured: exec 19427). tmpfs over an existing empty dir is the same
     // absence the template intends.
-    fs.mkdirSync(path.join(seatPath.goalDir, 'runs'), { recursive: true });
+    //
+    // (the `{goalDir}/runs` mountpoint is created for EVERY seat above — see the E2a note there.)
     fs.mkdirSync(path.join(seatPath.runDir, 'seats'), { recursive: true });
     if (!fs.existsSync(seatPath.sessionsCsv)) fs.writeFileSync(seatPath.sessionsCsv, '');
     template = [...template, 'ro-bind:{seatDir}/sessions.csv'];
@@ -842,7 +863,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
         E_SEATLESS_GOAL_DISPATCH,
         `REFUSING SEATLESS DISPATCH: launch of profile ${profileName} names no home — ` +
         'MISSING FIELD: workdir (a canonical seat folder ' +
-        '<ws>/.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>/, resolved from the job row\'s ' +
+        '<ws>/.rbtv/goals/<goal>/seats/<seat>/, resolved from the job row\'s ' +
         'goal_name/seat_name or the dispatch args). The flat .rbtv/sessions/<exec-id>/ launch ' +
         'branch is RETIRED (r-seats-only-architecture: every daemon-spawned agent is a seat).',
         { profile: profileName, missingField: 'workdir', sessionMode },
@@ -877,7 +898,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       throw new SpawnError(
         E_SEATLESS_GOAL_DISPATCH,
         `REFUSING SEATLESS DISPATCH: ${resolvedWorkdir} is not a canonical seat folder ` +
-        `(<ws>/.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>/). MISSING FIELD: seat — the ` +
+        `(<ws>/.rbtv/goals/<goal>/seats/<seat>/). MISSING FIELD: seat — the ` +
         'dispatch-time record is the ONLY authority for session->seat attribution (G-31), so a ' +
         'session with no seat to record could never be attributed at all. Supply a seat-folder ' +
         'workdir, or home the job at a (goal, seat) pair (r-seats-only-architecture: a dispatch ' +
@@ -1046,7 +1067,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   // `dryRun: true` composes and returns WITHOUT creating a pane or writing a store row. It exists
   // because composition is the half that is checkable off a live room — the probe uses it, and so
   // does any caller that wants to see the exact argv before it runs.
-  async function spawnSeat(execId, profileName, { room, seatName, seatDir, dryRun = false, enqueuedBy = 'unknown' } = {}) {
+  async function spawnSeat(execId, profileName, { room, seatName, seatDir, dryRun = false, enqueuedBy = 'unknown', readLease = undefined } = {}) {
     if (!config.profiles || !config.profiles[profileName]) {
       throw new SpawnError(E_UNKNOWN_PROFILE, `unknown profile: ${profileName}`, { profile: profileName });
     }
@@ -1087,7 +1108,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       throw new SpawnError(
         E_WORKDIR_ESCAPE,
         `seat spawn requires a canonical seat folder ` +
-        `(<ws>/.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>/); ${resolvedWorkdir} is not one. ` +
+        `(<ws>/.rbtv/goals/<goal>/seats/<seat>/); ${resolvedWorkdir} is not one. ` +
         'The flat .rbtv/sessions/<exec-id>/ interim path is retired for seat spawns (task 7.11 §5).',
         { workdir: resolvedWorkdir, profile: profileName, seat: seatName },
       );
@@ -1104,13 +1125,19 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       );
     }
 
-    // L2 — the goal is known and this run is the goal's LIVE run.
-    const live = checkRunLive(seatPath);
+    // L2 — the goal is known and it is EXECUTING RIGHT NOW.
+    //
+    // 7.607 E2a: this was `checkRunLive` reading `<goal>/runs.csv`. The register is extinguished,
+    // so the same adapter every other L2 caller uses now routes the question to the derived lease
+    // (`server/lease/lease.js`) — same shape, same fail-closed posture, live evidence instead of a
+    // stored status. `readLease` is injectable so a probe supplies a fixture tmux server rather
+    // than this path growing an assertion channel.
+    const live = checkGoalExecuting(seatPath, readLease ? { readLease } : undefined);
     if (!live.ok) {
       throw new SpawnError(
-        E_RUN_NOT_LIVE,
+        E_GOAL_NOT_LIVE,
         `refusing to spawn into ${resolvedWorkdir}: ${live.reason}`,
-        { workdir: resolvedWorkdir, goal: seatPath.goal, run: seatPath.run, reason: live.reason },
+        { workdir: resolvedWorkdir, goal: seatPath.goal, reason: live.reason },
       );
     }
 

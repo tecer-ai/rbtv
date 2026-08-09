@@ -37,17 +37,24 @@ function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'anc-mask-'));
   const ws = path.join(root, 'ws');
   const goalDir = path.join(ws, '.rbtv', 'goals', 'testgoal');
-  const runDir = path.join(goalDir, 'runs', 'run-1');
+  const runDir = goalDir;   // 7.607 E2a — goal-direct: the goal folder IS the package
   const seatDir = path.join(runDir, 'seats', 'mine');
   fs.mkdirSync(path.join(runDir, 'seats'), { recursive: true });
+  // 7.607 E2a — the `tmpfs:{goalDir}/runs` template line needs its mountpoint to EXIST: with
+  // {goalDir} ro-bound, bwrap refuses `Can't mkdir <goalDir>/runs: Read-only file system`.
+  // spawn.js#composeCageFor creates it for every real seat; this fixture mirrors that. Both
+  // go away with the profile's template line (see the E2a note in spawn.js).
+  fs.mkdirSync(path.join(goalDir, 'runs'), { recursive: true });
   fs.mkdirSync(path.join(ws, '.claude', 'rules'), { recursive: true });
   fs.mkdirSync(path.join(seatDir, '.claude', 'skills'), { recursive: true });
 
   fs.writeFileSync(path.join(ws, 'CLAUDE.md'), 'VAULT-ROOT-RULES\n');
   fs.writeFileSync(path.join(ws, 'AGENTS.md'), 'VAULT-ROOT-AGENTS\n');
   fs.writeFileSync(path.join(ws, '.claude', 'rules', 'r.md'), 'WORKSPACE-RULE\n');
+  // 7.607 E2a — there is ONE level inside the goals tree now. The old fixture wrote a goal
+  // CLAUDE.md and a RUN CLAUDE.md at two depths; goal-direct collapses them into this one file,
+  // so writing both would only have the second overwrite the first.
   fs.writeFileSync(path.join(goalDir, 'CLAUDE.md'), 'GOAL-RULES\n');
-  fs.writeFileSync(path.join(runDir, 'CLAUDE.md'), 'RUN-RULES\n');
   fs.writeFileSync(path.join(seatDir, 'CLAUDE.md'), 'SEAT-OWN-RULES\n');
   fs.writeFileSync(path.join(seatDir, '.claude', 'skills', 's.md'), 'SEAT-OWN-SKILL\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,pid,pid-starttime\nmine,1,1\n');
@@ -103,10 +110,13 @@ capture('probe-ancestor-mask', async (lines) => {
       `in-cage: ${JSON.stringify(a.trim())}`);
 
     // ── (b) bound (i): the goals tree keeps injecting ─────────────────────────────────────────
+    // The SEAT's own CLAUDE.md is read in the same command as the goal's: with one level left in
+    // the goals tree, a leg reading only the goal file would pass on a cage that masked everything
+    // below it too. Two depths still exist — goal and seat — and both must survive.
     const b = inCage(f, false,
-      `echo "goal=[$(cat ${f.goalDir}/CLAUDE.md 2>/dev/null)]"; echo "run=[$(cat ${f.runDir}/CLAUDE.md 2>/dev/null)]"`);
-    leg('B', 'CLAUDE.md inside .rbtv/goals (goal + run) is NOT masked',
-      /goal=\[GOAL-RULES\]/.test(b) && /run=\[RUN-RULES\]/.test(b),
+      `echo "goal=[$(cat ${f.goalDir}/CLAUDE.md 2>/dev/null)]"; echo "seat=[$(cat ${f.seatDir}/CLAUDE.md 2>/dev/null)]"`);
+    leg('B', 'CLAUDE.md inside .rbtv/goals (the goal folder and the seat folder) is NOT masked',
+      /goal=\[GOAL-RULES\]/.test(b) && /seat=\[SEAT-OWN-RULES\]/.test(b),
       `in-cage: ${JSON.stringify(b.trim())}`);
 
     // ── (c) bound (ii): the channel policy ────────────────────────────────────────────────────

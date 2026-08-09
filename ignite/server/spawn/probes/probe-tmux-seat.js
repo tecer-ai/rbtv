@@ -19,6 +19,7 @@ const fs = require('node:fs');
 const { capture, setup, teardown, fire } = require('./lib');
 const { composeSeatSpawn, buildScopeArgv, scopeUnitName } = require('../tmux');
 const { SpawnError } = require('../errors');
+const { execFileSync } = require('node:child_process');
 
 function assert(cond, msg) {
   if (!cond) throw new Error(`assertion failed: ${msg}`);
@@ -119,6 +120,7 @@ capture('probe-tmux-seat', async (lines) => {
   // dryRun composes and returns without creating a pane or writing a store row, so the door's own
   // resolution logic is checkable off a live room. A pane is never created anywhere in this probe.
   const ctx = setup();
+  let reapRoom = () => {};
   try {
     // TASK 7.11 UPDATE. This fixture used to be a flat `workRoot/seat-probe` directory, and the
     // §4a launch-time gate now REFUSES it — correctly: a seat spawn requires a canonical seat
@@ -126,19 +128,31 @@ capture('probe-tmux-seat', async (lines) => {
     // goal's LIVE run. The probe's fixture is brought up to the real shape rather than the gate
     // being loosened to accept the old one; probe-seat-launch-gate.js is where the refusals of
     // every WRONG shape are proven.
+    // 7.607 E2a — GOAL-DIRECT, and the goal's liveness is a REAL room on an ISOLATED socket
+    // (never the box's default server, which carries the owner's attached session).
     const goalDir = path.join(ctx.workRoot, '.rbtv', 'goals', 'probegoal');
-    const runDir = path.join(goalDir, 'runs', 'run-1');
+    const runDir = goalDir;
     const seatDir = path.join(runDir, 'seats', 'probe-seat');
     fs.mkdirSync(seatDir, { recursive: true });
     fs.writeFileSync(path.join(ctx.workRoot, '.rbtv', 'goals', 'goals.csv'), 'name,created,due,type,status\nprobegoal,2026-07-27,,one-shot,active\n');
-    fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-07-27 01:30,\n');
     fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,probe-seat\n');
     fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,pid,pid-starttime,started,ended\n');
     fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\n---\nbriefing\n');
 
+    const roomTmpdir = path.join(os.tmpdir(), `e2a-ts-${process.pid}`);
+    fs.mkdirSync(roomTmpdir, { recursive: true, mode: 0o700 });
+    const savedTmpdir = process.env.TMUX_TMPDIR;
+    process.env.TMUX_TMPDIR = roomTmpdir;
+    reapRoom = () => {
+      try { execFileSync('tmux', ['kill-server'], { stdio: 'ignore' }); } catch { /* already gone */ }
+      if (savedTmpdir === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = savedTmpdir;
+      try { fs.rmSync(roomTmpdir, { recursive: true, force: true }); } catch {}
+    };
+    execFileSync('tmux', ['new-session', '-d', '-s', 'probegoal', 'sleep', '600'], { stdio: ['ignore', 'pipe', 'pipe'] });
+
     const row = fire(ctx, { profile: 'test-headed', sessionMode: 'headed' });
     const res = await ctx.mgr.spawnSeat(row.exec_id, 'test-headed', {
-      room: 'probe-room', seatName: 'probe-seat', seatDir, dryRun: true,
+      room: 'probegoal', seatName: 'probe-seat', seatDir, dryRun: true,
     });
     assert(res.dryRun === true, 'leg9: dryRun returns without launching');
     assert(res.workdir === fs.realpathSync(seatDir), 'leg9: the SEAT DESCRIPTOR folder is the workdir (R7 — cognitive material comes from the seat, never the profile)');
@@ -168,6 +182,7 @@ capture('probe-tmux-seat', async (lines) => {
     assert(noSeat && noSeat.code === 'E_BAD_REQUEST', 'leg12: a seat spawn without a seat descriptor folder is refused');
     lines.push('leg12 R7 guard: no seat descriptor folder -> E_BAD_REQUEST, never a profile-supplied fallback');
   } finally {
+    reapRoom();
     teardown(ctx);
   }
 

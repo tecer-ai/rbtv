@@ -20,7 +20,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 
 const { capture } = require('./lib');
 const { resolvePeerSeat, isLoopback, findSocketHolders } = require('../../seat-identity/peer-identity');
@@ -34,16 +34,19 @@ function selfStarttime(pid) {
 
 // A fixture seat that is LIVE, MATERIALIZED and ROSTERED, registered to a pid that will genuinely
 // be an ancestor of the client — so L1-L4 pass honestly rather than by relaxation.
-function buildFixture({ seat = 'occupant', registerPid, runState = 'open' } = {}) {
+// 7.607 E2a — GOAL-DIRECT, and the goal's liveness is a REAL tmux room. `goal` is a parameter now
+// because the "not executing" refusal is expressed by naming a goal NO room exists for, which is
+// the lease's own shape — there is no `runState` column left to set to `closed`.
+function buildFixture({ seat = 'occupant', registerPid, goal = 'peer-goal' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-peer-'));
-  const goal = 'peer-goal';
-  const run = 'run-1';
   const goalDir = path.join(root, '.rbtv', 'goals', goal);
-  const runDir = path.join(goalDir, 'runs', run);
+  const runDir = goalDir;   // the goal folder IS the package
   const seatDir = path.join(runDir, 'seats', seat);
   fs.mkdirSync(seatDir, { recursive: true });
+  // The `tmpfs:{goalDir}/runs` mountpoint the shipped cage template still needs (see spawn.js's
+  // E2a note); bwrap refuses a tmpfs whose mountpoint is missing under a ro-bind.
+  fs.mkdirSync(path.join(goalDir, 'runs'), { recursive: true });
   fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goals.csv'), `name,created,due,type,status\n${goal},2026-07-27,,one-shot,active\n`);
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'), `run-id,type,state,taskforce-ids,opened,closed\n${run},fresh,${runState},tf-1,2026-07-27 01:30,\n`);
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), `seat,role\n${seat},executor\n`);
   fs.writeFileSync(path.join(seatDir, 'seat.md'), `---\nseat: ${seat}\n---\n`);
   fs.writeFileSync(
@@ -110,6 +113,23 @@ function cagedArgv(port, fx, clientFile) {
 capture('probe-peer-identity', async (lines) => {
   const clientFile = path.join(os.tmpdir(), `probe-peer-client-${process.pid}.js`);
   fs.writeFileSync(clientFile, CLIENT_SRC);
+
+  // ── 7.607 E2a — THE GOAL'S LEASE IS A REAL tmux ROOM, ON AN ISOLATED SOCKET ──────────────────
+  // The identity gate this path shares now asks `server/lease/lease.js` whether the goal is
+  // EXECUTING. The receiver runs in THIS process, so pointing `TMUX_TMPDIR` at a scratch socket is
+  // what keeps the probe off the box's default tmux server (which carries the owner's attached
+  // session and may neither be read as evidence nor extended). Reaped in the `finally` below.
+  const ROOM_TMPDIR = path.join(os.tmpdir(), `e2a-peer-${process.pid}`);
+  const savedTmpdir = process.env.TMUX_TMPDIR;
+  fs.mkdirSync(ROOM_TMPDIR, { recursive: true, mode: 0o700 });
+  process.env.TMUX_TMPDIR = ROOM_TMPDIR;
+  const tmuxFixture = (args) => execFileSync('tmux', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  tmuxFixture(['new-session', '-d', '-s', 'peer-goal', 'sleep', '600']);
+  const reapRoom = () => {
+    try { tmuxFixture(['kill-server']); } catch { /* already gone */ }
+    if (savedTmpdir === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = savedTmpdir;
+    try { fs.rmSync(ROOM_TMPDIR, { recursive: true, force: true }); } catch {}
+  };
   const PORT = (p) => ({ ...process.env, PORT: String(p) });
   // ⚠ FAILURE IS SIGNALLED BY THROWING, never by returning false. `capture()` sets PASS when this
   // callback RESOLVES and ignores its return value entirely — so a probe that returned a boolean
@@ -155,14 +175,17 @@ capture('probe-peer-identity', async (lines) => {
       `claimed=${v.__clientClaimed} resolved=${v.seat}`);
   }
 
-  // ── P4 — REFUSAL: a caller in a seat folder whose run is CLOSED ────────────
-  // The G-126 checks reach the peer path for free, because it is the SAME gate.
+  // ── P4 — REFUSAL: a caller in a seat folder whose GOAL IS NOT EXECUTING ────
+  // The G-126 checks reach the peer path for free, because it is the SAME gate. 7.607 E2a: the
+  // condition is the lease's, not a register row's — this goal has a complete, rostered, honestly
+  // registered seat and NO room, which is exactly a historical seat folder of a finished
+  // execution. It must grant nothing (design-lock item 4).
   {
-    const fx = buildFixture({ registerPid: process.pid, runState: 'closed' });
+    const fx = buildFixture({ registerPid: process.pid, goal: 'finished-goal' });
     const v = await measure((port) => spawn(process.execPath, [clientFile],
       { cwd: fx.seatDir, env: PORT(port), stdio: 'ignore' }));
-    t(v.ok === false && v.code === 'E_RUN_NOT_LIVE',
-      'P4 — REFUSED: seat folder in a CLOSED run (G-126 checks apply on the peer path too)',
+    t(v.ok === false && v.code === 'E_GOAL_NOT_LIVE',
+      'P4 — REFUSED: a complete seat folder of a goal that is NOT executing (historical seats grant nothing)',
       `ok=${v.ok} code=${v.code}`);
   }
 
@@ -225,6 +248,7 @@ capture('probe-peer-identity', async (lines) => {
   }
 
   try { fs.unlinkSync(clientFile); } catch {}
+  reapRoom();
 
   // Completeness asserted, never counted (G-121): a truncated run reads greener than a full one,
   // because the legs that did not run print nothing at all.

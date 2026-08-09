@@ -35,7 +35,12 @@ function assert(cond, msg) {
   if (!cond) throw new Error(`assertion failed: ${msg}`);
 }
 
-const ROOM = `a4-live-${process.pid}`;
+// 7.607 E2a — the room NAME is the goal's (design-lock item 2: `spawnSeat`'s L2 leases on a room
+// of that name), and the SOCKET is a scratch `TMUX_TMPDIR` — the per-run uniqueness `process.pid`
+// used to give the session name now lives in the socket path. The box's default tmux server
+// carries the owner's attached session and is never touched or extended by this probe.
+const ROOM = 'a4goal';
+const ROOM_TMPDIR = path.join(os.tmpdir(), `e2a-a4-${process.pid}`);
 const MEM = '384M';
 const MEM_BYTES = 384 * 1024 * 1024;
 
@@ -82,11 +87,10 @@ capture('probe-tmux-seat-live', async (lines) => {
   // goal's LIVE run) rather than the gate being loosened: this probe's value is that it launches a
   // REAL seat into a REAL tmux room, so its fixture must be what a real seat folder actually is.
   const goalDir = path.join(workRoot, '.rbtv', 'goals', 'a4goal');
-  const runDir = path.join(goalDir, 'runs', 'run-1');
+  const runDir = goalDir;   // 7.607 E2a — goal-direct: the goal folder IS the package
   const seatDir = path.join(runDir, 'seats', 'a4seat');
   fs.mkdirSync(seatDir, { recursive: true });
   fs.writeFileSync(path.join(workRoot, '.rbtv', 'goals', 'goals.csv'), 'name,created,due,type,status\na4goal,2026-07-27,,one-shot,active\n');
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-07-27 01:30,\n');
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,a4seat\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: a4seat\n---\nprobe seat\n');
@@ -115,10 +119,13 @@ capture('probe-tmux-seat-live', async (lines) => {
   const mgr = createSpawnManager({ heartStore: store, configPath: cfgPath, logger: null, userManager: true });
 
   let roomUp = false;
+  const savedTmpdir = process.env.TMUX_TMPDIR;
+  fs.mkdirSync(ROOM_TMPDIR, { recursive: true, mode: 0o700 });
+  process.env.TMUX_TMPDIR = ROOM_TMPDIR;
   try {
     execFileSync('tmux', ['new-session', '-d', '-s', ROOM, '-n', 'idle', 'sleep', '120']);
     roomUp = true;
-    lines.push(`throwaway room created: ${ROOM} (never this run's room)`);
+    lines.push(`throwaway room created: ${ROOM} on isolated socket ${ROOM_TMPDIR} (never the default server)`);
 
     const row = store.recordExecutionStart({
       jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({ profile: 'a4-seat' }),
@@ -182,8 +189,10 @@ capture('probe-tmux-seat-live', async (lines) => {
     const panes = execFileSync('tmux', ['list-panes', '-t', `${ROOM}:`, '-a', '-F', '#{pane_id}'], { encoding: 'utf8' });
     lines.push(`legC placement: the seat is a pane of the throwaway room (panes: ${panes.trim().split('\n').join(' ')})`);
   } finally {
-    if (roomUp) { try { execFileSync('tmux', ['kill-session', '-t', ROOM]); } catch {} }
+    if (roomUp) { try { execFileSync('tmux', ['kill-server'], { stdio: 'ignore' }); } catch {} }
+    if (savedTmpdir === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = savedTmpdir;
+    try { fs.rmSync(ROOM_TMPDIR, { recursive: true, force: true }); } catch {}
     try { closeHeartStore(); } catch {}
-    lines.push(`throwaway room ${ROOM} killed; evidence left under ${tmp}`);
+    lines.push(`throwaway room ${ROOM} and its isolated server killed; evidence left under ${tmp}`);
   }
 });

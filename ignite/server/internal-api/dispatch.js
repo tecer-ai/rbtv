@@ -364,7 +364,7 @@ const NOT_WIRE_REACHABLE = new Map([
   // rationale naming only the identity.js half would be false for the spawn.js half, and vice
   // versa. That is the trap this whole block exists to avoid.
   ['E_NOT_A_SEAT_FOLDER', 'TWO contexts, both non-wire: returned as DATA by the command-time gate (identity.js, zero throws) AND thrown by the launch-time gate (spawn.js spawnSeat), which is ticker-spawn-path only — dispatch never calls spawnSeat'],
-  ['E_RUN_NOT_LIVE', 'TWO contexts, both non-wire: returned as DATA by the command-time gate (identity.js, zero throws) AND thrown by the launch-time gate (spawn.js spawnSeat), which is ticker-spawn-path only'],
+  ['E_GOAL_NOT_LIVE', 'TWO contexts, both non-wire: returned as DATA by the command-time gate (identity.js, zero throws) AND thrown by the launch-time gate (spawn.js spawnSeat), which is ticker-spawn-path only. 7.607 E2a renamed it from E_RUN_NOT_LIVE with the run layer; the call graph is unchanged, so the classification carries over unaltered'],
 
   // Task 7.13 — server-composed tmux target names.
   ['E_TMUX_NAME_INVALID', 'ticker-spawn-path only (tmux.js <- composeSeatSpawn <- spawnSeat); the names are server-composed, never caller strings, so no request path can carry one'],

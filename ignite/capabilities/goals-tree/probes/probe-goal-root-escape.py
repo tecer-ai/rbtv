@@ -137,8 +137,8 @@ def build_tree(td: Path) -> tuple[Path, Path, Path]:
         raise RuntimeError(f"could not scaffold the decoy goal: {err.strip()}")
     goal = decoy_root / "outside-goal"
 
-    run_dir = goal / "runs" / "run-1"
-    run_dir.mkdir(parents=True)
+    # 7.607 E2a — GOAL-DIRECT: the plan and the pass folder sit directly under the goal.
+    run_dir = goal
     # The decoy's pass folder — the write-safe fixture row 2d needs. `write_gate_key_override`
     # does NOT mkdir its parent: without this folder an escaped `--override` record cannot land
     # even when the guard is gone, so row 2d's "nothing was written outside" arm would pass for
@@ -146,11 +146,8 @@ def build_tree(td: Path) -> tuple[Path, Path, Path]:
     # `mkdir` removed, the SAME live escape reds only 2 of row 2d's 6 arms — the record cannot
     # land, so "nothing written outside" passes, and the failed write makes the verb exit
     # nonzero so "exits nonzero" passes too. With the folder present the escape lands
-    # `runs/run-1/planning/pass-1/gate-key-override.md` outside the root and all 6 arms red.
+    # `planning/pass-1/gate-key-override.md` outside the root and all 6 arms red.
     (run_dir / "planning" / "pass-1").mkdir(parents=True)
-    (goal / "runs.csv").write_text(
-        "run-id,type,state,taskforce-id(s),opened,closed\n"
-        "run-1,fresh,planning,tf-1,2026-01-01,\n", encoding="utf-8", newline="\n")
     (run_dir / "taskforce.csv").write_text(
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
         "tf-1,w-demo,,claude,claude-opus-5,medium,50,m1\n", encoding="utf-8", newline="\n")
@@ -246,8 +243,8 @@ def main() -> int:
         # WHICH CALL SITE EACH ARM ACTUALLY SCORES, measured by reverting ONE site at a time to
         # the pre-fix `root / <name>` (§2 review of 7.576, re-measured by task 7.592):
         # `lint_goal` → rows 2 (2 arms red) · `gate_key_check` → rows 2b (2 arms red) ·
-        # `cmd_materialize` → rows 1 (5 arms red) · `cmd_branch_home` → rows 2c (4 arms red,
-        # added by 7.592 — it USED to turn nothing red).
+        # `cmd_materialize` → rows 1 (5 arms red). (`cmd_branch_home` → rows 2c, 4 arms, DELETED
+        # WITH ITS VERB by 7.607 E2a — see the note where 2c used to stand.)
         # The fifth site — `cmd_gate_key_check`'s `--override` branch — turns nothing red under
         # that ONE-SITE technique and never will, because it is SHADOWED; rows 2d below score it
         # through a two-site revert instead, and carry the measurement.
@@ -255,7 +252,7 @@ def main() -> int:
         # `--override` branch of `cmd_gate_key_check` — is scored by rows 2d below. Its former
         # exclusion ("that branch WRITES") is retired: every path here already runs inside a
         # `tempfile` throwaway tree, so the write is safe by construction; what the arm needed
-        # was the decoy's `runs/run-1/planning/pass-1/` folder (see `build_tree`), because
+        # was the decoy's `planning/pass-1/` folder (see `build_tree`), because
         # `write_gate_key_override` does not create its parent.
         for label, name in (("absolute path", abs_name), ("`..` traversal", dots_name)):
             rc, so, se = run(TOOL, ["--root", str(root), "gate-key-check", name,
@@ -265,20 +262,14 @@ def main() -> int:
                   "escapes --root" in se and "gate-key-check pass-1" not in so,
                   f"stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
 
-        # ── 2c. branch-home (the MINT verb) — SCORED, not assumed via delegation ───────────────
+        # ── 2c. branch-home — DELETED WITH ITS VERB (7.607 E2a) ───────────────────────────────
         #
-        # `cmd_branch_home` (added by 7.582) was CENSUSED but scored by no arm: reverting its
-        # call site red nothing, so "it delegates to resolve_goal_dir" was an assumption of
-        # coverage, not a measurement — the exact silence rows 2b were added to remove. Task
-        # 7.592 scored it instead of recording the exclusion: the delegation argument is only as
-        # good as the call, and nothing here asserted the call. `--dry-run` is passed so the
-        # green path mints nothing; the guard refuses ahead of any mkdir either way.
-        for label, name in (("absolute path", abs_name), ("`..` traversal", dots_name)):
-            rc, so, se = run(TOOL, ["--root", str(root), "branch-home", name, "--dry-run"])
-            check(f"2c.{label} — branch-home exits nonzero", rc != 0, f"exit={rc}")
-            check(f"2c.{label} — branch-home refuses instead of homing a branch outside the root",
-                  "escapes --root" in se and "would mint" not in so,
-                  f"stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
+        # `cmd_branch_home` and the whole branch-compartment machinery are abolished: the registry
+        # deleted the branch folder (`r-branch-folder-deleted-nested-seats-are-ordinary-run-seats`
+        # — a branch is a ROLE with no file home) and design-lock item 9 deleted the code with it.
+        # Its four arms are removed rather than pointed at a surviving verb: the CENSUS of
+        # resolve_goal_dir call sites lost a member, it did not lose coverage of one. The remaining
+        # rows still score every site that exists (1, 2, 2b, 2d).
 
         # ── 2d. gate-key-check --override (the SECOND WRITE path) — SCORED (task 7.602) ────────
         #
@@ -382,7 +373,7 @@ def main() -> int:
                     "escape could not be reproduced, so the green rows above discriminate nothing",
                 )
             # the mutant's damage is confined to the throwaway tree; clean it so row 4 starts fresh
-            shutil.rmtree(decoy / "runs" / "run-1" / "seats", ignore_errors=True)
+            shutil.rmtree(decoy / "seats", ignore_errors=True)
 
         # ── 4. THE POSITIVE CONTROL — an ordinary in-root name is NOT refused ──────────────────
         contract = td / "contract.md"
@@ -408,13 +399,6 @@ def main() -> int:
         rc, so, se = run(TOOL, ["--root", str(root), "gate-key-check", "inside-goal",
                                 "--pass-folder", "pass-1", "--override", "d-probe-anchor"])
         check("4. an in-root goal is not refused by gate-key-check --override as an escape",
-              "escapes --root" not in se and "escapes --root" not in so,
-              f"exit={rc} stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
-        # branch-home's own positive control — same shape as gate-key-check's: `inside-goal` has
-        # no run compartment, so it still exits nonzero; the discriminating property is that the
-        # refusal is NOT the escape refusal.
-        rc, so, se = run(TOOL, ["--root", str(root), "branch-home", "inside-goal", "--dry-run"])
-        check("4. an in-root goal is not refused by branch-home as an escape",
               "escapes --root" not in se and "escapes --root" not in so,
               f"exit={rc} stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
 

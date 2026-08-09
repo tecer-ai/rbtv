@@ -9,7 +9,6 @@ the daemon down, which is why they live on the rbtv side and never on ignite):
     rbtv-goal lint <goal-name>
     rbtv-goal materialize <goal-name> [--catalog-root DIR] [--force] [--dry-run]
     rbtv-goal gate-key-check <goal-name> --pass-folder NAME [--override ANCHOR]
-    rbtv-goal branch-home <goal-name> [--parent REL] [--branch branch-M] [--dry-run]
 
 Grammar is owner-ruled (r-763-grammar-ruled, all four items at their recommended
 defaults) and is implemented here, not re-derived. Exit codes follow the sd-graph
@@ -68,9 +67,6 @@ GOAL_KIND_DEFAULT = "interactive"
 # is what governs here: a frontmatter field the projection omits would make the index partial.
 # The column list needs a registry-side update; the registry is never edited from this build.
 GOALS_INDEX_COLUMNS = ["name", "creation date", "due date", "type", "goal-kind", "status"]
-# run-log schema (concept run-log § file schema)
-RUNS_COLUMNS = ["run-id", "type", "state", "taskforce-id(s)", "opened", "closed"]
-
 # threads-store schema (concept threads-store § file schema)
 THREADS_SCHEMA = """\
 -- threads.sql — the goal-scoped message/completion store (concept: threads-store).
@@ -78,7 +74,7 @@ THREADS_SCHEMA = """\
 CREATE TABLE IF NOT EXISTS threads (
     message_id  TEXT PRIMARY KEY,
     reply_to    TEXT,            -- answer rows only: the message-id answered
-    session_id  TEXT,            -- tracing column; resolves the run via runs.csv
+    session_id  TEXT,            -- tracing column; resolves the session via sessions.csv
     sender      TEXT NOT NULL,   -- a seat, set by the identity gate
     recipient   TEXT NOT NULL,
     corpus      TEXT NOT NULL,
@@ -142,8 +138,9 @@ where things are and where to write. What this goal IS lives in `goal.md`.
 | File | What it holds |
 |------|---------------|
 | `goal.md` | the goal-descriptor — identity frontmatter plus the goal-radius done contract |
-| `runs.csv` | the run-log — one row per run; the current run resolves through it |
-| `runs/run-<n>/` | a run folder — that run's working state, seats, and coordination |
+| `taskforce.csv` | the taskforce descriptor — one row per seat of this goal |
+| `seats/<seat>/` | a seat folder — that seat's workspace, and it is GOAL-DURABLE: the same seat boots from the same folder every time this goal executes |
+| `coordination/` | the coordination bus — the message log every seat reads and writes |
 | `threads.sql` | the goal-scoped message/completion store schema |
 
 ## Write-if-something files
@@ -194,20 +191,26 @@ DECISIONS_TEMPLATE = """\
 Write here when you have a settled decision, and the reason it was settled that way. Nothing
 obliges an entry.
 
-## Durability split — a general rbtv convention
+## Anchor classes — and NOTHING here is mortal
 
-THIS file is GOAL-DURABLE only: owner rulings, `goal.md` contract amendments, plan rationale,
-standing goal-durable policy. A ruling that governs ONE run's processes, tools, or conduct is
-PROVISIONAL and belongs in that run's own `runs/run-<n>/decisions.md`, where it dies with the
-run. The shared filename is the design, not a collision: one canonical name, per-folder scope.
-At milestone close, a provisional ruling that proved goal-durable is PROMOTED here; the rest die
-with the run. Entries here are frozen history — never moved, reclassified, or rewritten.
+THIS file is the goal's ONE decision record, and every entry in it is DURABLE. Three anchor
+classes still say what KIND of ruling an entry is — `r-*` a standing rule, `d-*` a settled
+design decision, `p-*` a PROVISIONAL ruling about this goal's processes, tools, or conduct —
+but the class no longer sets a lifetime. There is no run to die with: the goal folder IS the
+workspace, and it persists across every execution of this goal.
 
-Anchors resolve by class: `r-*` / `d-*` in this file, run-scoped `p-*` in that run's own file.
+`p-*` anchors are therefore DURABLE and are PRUNED BY HAND (owner ruling,
+`decisions.md#d-extinguishment-design-lock` item 6: no automatic mortality boundary; ledger
+hygiene is human housekeeping). Nothing sweeps them, and no sweep may be invented — an entry
+that has stopped being true is deleted by a person who read it. A `p-*` that proved goal-durable
+is PROMOTED by re-anchoring it `d-*` or `r-*` in place.
+
+Entries are frozen history — never moved, reclassified, or rewritten, except the two acts named
+above (hand-pruning a spent `p-*`, promoting one).
 
 ## Entry shape — adopted BY CITATION
 
-Every entry in this file and in the run-folder files follows
+Every entry in this file follows
 `orchestration/workflows/_shared/authoring/decisions-discipline.md` in the rbtv repo (its path is
 `rbtv_path` in the workspace's `rbtv.json`). That file is the ONE source of the entry rules; this
 one restates none of them — read it before your first entry.
@@ -480,7 +483,7 @@ def cmd_scaffold(args) -> int:
     # longer written here: it is one of the five write-if-something files and comes off
     # `standard_artifacts` with the other four (its old body called itself a "decision log",
     # which is the exact word §9 rules these files are NOT).
-    created_names = ["goal.md", "runs.csv", "threads.sql", *standard_artifacts(name)]
+    created_names = ["goal.md", "threads.sql", *standard_artifacts(name)]
     plan = {
         "goal": name,
         "root": str(root),
@@ -496,7 +499,6 @@ def cmd_scaffold(args) -> int:
 
     goal_dir.mkdir(parents=True)
     (goal_dir / "goal.md").write_text(goal_md, encoding="utf-8", newline="\n")
-    write_csv(goal_dir / "runs.csv", RUNS_COLUMNS, [])
     (goal_dir / "threads.sql").write_text(THREADS_SCHEMA, encoding="utf-8", newline="\n")
     # R21 (+ Q16): the per-harness routers + the five write-if-something files, from deterministic
     # templates. Written LAST so the routers describe a folder that already holds what they name.
@@ -524,180 +526,6 @@ class Findings:
 
     def __bool__(self) -> bool:
         return bool(self.items)
-
-
-def current_run_dir(goal_dir: Path, f: Findings) -> Path | None:
-    """The goal's current run, resolved through runs.csv (7.37 owns the machinery;
-    lint only reads its result). Falls back to the highest-numbered run folder when
-    runs.csv carries no open row, and says so."""
-    runs_csv = goal_dir / "runs.csv"
-    open_ids = []
-    if runs_csv.is_file():
-        try:
-            for row in read_csv(runs_csv):
-                state = (row.get("state") or "").strip().lower()
-                closed = (row.get("closed") or "").strip()
-                if state not in ("completed", "failed") and not closed:
-                    open_ids.append((row.get("run-id") or "").strip())
-        except Refusal as exc:
-            f.add("runs.csv parses", str(runs_csv), str(exc))
-            return None
-    if len(open_ids) > 1:
-        f.add(
-            "one live run per goal", str(runs_csv),
-            f"{len(open_ids)} runs are open at once: {', '.join(open_ids)}",
-        )
-    runs_dir = goal_dir / "runs"
-    if not runs_dir.is_dir():
-        return None
-    for rid in open_ids:
-        cand = runs_dir / rid
-        if cand.is_dir():
-            return cand
-    # G-117: highest-numbered means NUMERICALLY highest. A lexicographic sort on the folder
-    # name returned `run-9` while `run-11` existed — latent while a goal had fewer than ten
-    # runs and certain to fire at run-10. `RUN_NAME_RE` (defined with the branch-numbering
-    # rule below) is the repo's one spelling of a run folder name, so the ordering key and
-    # the `branch-{M+1}` mint now read the suffix the same way. A name that is not
-    # `run-<digits>` carries no number to be highest, so it no longer enters the ordering
-    # at all — the fallback returns None instead of a folder whose position was an accident.
-    numbered = [(int(m.group(1)), p) for p in runs_dir.iterdir()
-                if p.is_dir() and (m := RUN_NAME_RE.match(p.name))]
-    return max(numbered)[1] if numbered else None
-
-
-# ---------------------------------------------------------------- branch home (MC8 / 7.450)
-#
-# The registry SETTLES this shape; nothing here invents it. `concepts/branch.md`
-# (settled-by d-branch-family): *"their files live under the parent run's branches
-# folder (`runs/run-{n}/branches/branch-{m}/`), each branch folder shaped exactly
-# like a run folder, recursively — a branch may carry its own `branches/`"*.
-#
-# THE NUMBERING RULE, stated before it runs: `branch-{M+1}` where M is the largest
-# integer suffix among the entries directly under this parent's `branches/` whose
-# NAME matches `branch-<digits>` exactly, and M = 0 when none exists. It is a
-# pure function of that listing — two calls over the same state return the same
-# name — and it never reuses a number while the higher-numbered folder is present.
-#
-# This resolver MINTS THE HOME AND NOTHING ELSE. Filling that home with a run
-# folder's contents (taskforce.csv, seat folders) is the materialization step's
-# (MC10), which is why nothing here writes a file.
-
-BRANCHES_DIR_NAME = "branches"
-BRANCH_NAME_RE = re.compile(r"^branch-(\d+)$")
-RUN_NAME_RE = re.compile(r"^run-(\d+)$")
-
-
-def branch_parent_kind(parent: Path) -> str | None:
-    """`"run"`, `"branch"`, or None — what the path itself says the parent is.
-
-    A branch homes under a RUN folder (`runs/run-{n}`) or, recursively, under
-    another BRANCH folder (`branches/branch-{m}`). Both the folder name and its
-    holder are checked: a bare directory called `run-1` sitting outside a `runs/`
-    layout is not a run folder, and admitting it would put `branches/` somewhere
-    the registry's path never reaches.
-    """
-    holder = parent.parent.name
-    if RUN_NAME_RE.match(parent.name) and holder == "runs":
-        return "run"
-    if BRANCH_NAME_RE.match(parent.name) and holder == BRANCHES_DIR_NAME:
-        return "branch"
-    return None
-
-
-def next_branch_name(branches_dir: Path) -> str:
-    """The numbering rule above, over one directory listing.
-
-    A matching NAME counts whatever the entry is. Counting only directories would
-    let a stray `branches/branch-4` FILE stay invisible to the numbering and then
-    block the mint as a collision several branches later.
-    """
-    used = []
-    if branches_dir.is_dir():
-        for p in branches_dir.iterdir():
-            m = BRANCH_NAME_RE.match(p.name)
-            if m:
-                used.append(int(m.group(1)))
-    return f"branch-{max(used, default=0) + 1}"
-
-
-def resolve_branch_home(parent: Path, branch: str | None = None,
-                        create: bool = True) -> Path:
-    """The branch home under `parent`, minted create-only. Returns its path.
-
-    `branch` names the folder explicitly (a caller that already knows the id);
-    omitted, it is auto-numbered. CREATE-ONLY: an existing home is REFUSED, never
-    reused and never written into — `mkdir` runs without `exist_ok`, so the refusal
-    holds even against a folder that appears between the check and the create.
-    """
-    parent = parent.resolve()
-    if not parent.is_dir():
-        raise Refusal(f"{parent}: no such parent run/branch folder")
-    kind = branch_parent_kind(parent)
-    if kind is None:
-        raise Refusal(
-            f"{parent}: not a run folder or a branch folder — a branch homes under "
-            f"`runs/run-{{n}}/` or, recursively, under `{BRANCHES_DIR_NAME}/branch-{{m}}/` "
-            "(concepts/branch.md, settled-by d-branch-family). Nothing was created."
-        )
-    branches_dir = parent / BRANCHES_DIR_NAME
-    if branch is None:
-        branch = next_branch_name(branches_dir)
-    elif not BRANCH_NAME_RE.match(branch):
-        raise Refusal(
-            f"branch name '{branch}' violates the settled form `branch-{{m}}` "
-            "(concepts/branch.md) — m is an integer"
-        )
-    home = branches_dir / branch
-    if home.exists():
-        raise Refusal(
-            f"{home}: already exists — minting a branch home is create-only and "
-            "never overwrites, reuses or writes into an existing home"
-        )
-    if create:
-        home.mkdir(parents=True)   # no exist_ok: the create IS the collision check
-    return home
-
-
-def cmd_branch_home(args) -> int:
-    root = resolve_goals_root(args.root)
-    goal_dir = resolve_goal_dir(root, args.goal_name)
-    if not goal_dir.is_dir():
-        raise Refusal(f"{goal_dir}: no such goal folder")
-
-    if args.parent:
-        # Same hazard resolve_goal_dir guards: an absolute right operand discards
-        # the left one, and `..` walks out — either would mint outside the goal.
-        parent = (goal_dir / args.parent).resolve()
-        if not parent.is_relative_to(goal_dir) or parent == goal_dir:
-            raise Refusal(
-                f"--parent '{args.parent}' resolves to {parent}, outside the goal folder "
-                f"{goal_dir} — it is a path RELATIVE to the goal folder, never an escape"
-            )
-    else:
-        f = Findings()
-        parent = current_run_dir(goal_dir, f)
-        if parent is None:
-            raise Refusal(f"{goal_dir}: no run compartment — nothing to home a branch under")
-
-    home = resolve_branch_home(parent, args.branch, create=not args.dry_run)
-    payload = {
-        "ok": True,
-        "goal": args.goal_name,
-        "parent": str(parent),
-        "parent_kind": branch_parent_kind(parent),
-        "branch": home.name,
-        "home": str(home),
-    }
-    if args.dry_run:
-        payload["dry_run"] = True
-    if args.json:
-        print(json.dumps(payload, indent=2))
-    elif args.dry_run:
-        print(f"dry-run: would mint {home}")
-    else:
-        print(f"minted {home}")
-    return 0
 
 
 # ------------------------------------- the `after` MEMBER grammar (7.426 / W3)
@@ -1051,25 +879,16 @@ def lint_goal(root: Path, name: str) -> Findings:
                       f"goal '{other.name}' declares the same name '{fm.get('name')}'")
 
     # --- 3. CMP-4 layout at goal level
-    for required in ("goal.md", "decisions.md", "runs.csv", "threads.sql"):
+    for required in ("goal.md", "decisions.md", "threads.sql"):
         if not (goal_dir / required).exists():
             f.add("CMP-4 goal-level layout", str(goal_dir / required),
                   "required by the CMP-4 layout, absent")
-    try:
-        if (goal_dir / "runs.csv").is_file():
-            read_csv(goal_dir / "runs.csv")
-    except Refusal as exc:
-        f.add("runs.csv parses", str(goal_dir / "runs.csv"), str(exc))
 
-    # --- 4. the current run's plan
-    run_dir = current_run_dir(goal_dir, f)
-    if run_dir is None:
-        f.add("current run resolves", str(goal_dir / "runs"),
-              "no run compartment found — nothing to validate or emulate")
-        return f
-
-    tf_path = run_dir / "taskforce.csv"
-    ms_path = run_dir / "milestones.csv"
+    # --- 4. the goal's plan (7.607 E2a: GOAL-LEVEL — the run compartment is extinguished, so
+    # the taskforce descriptor, the milestone spine and the seats tree sit directly under the
+    # goal folder. There is no longer a compartment to resolve, hence no resolution finding.)
+    tf_path = goal_dir / "taskforce.csv"
+    ms_path = goal_dir / "milestones.csv"
 
     if not ms_path.is_file():
         f.add("milestones.csv parses", str(ms_path), "absent")
@@ -1091,7 +910,7 @@ def lint_goal(root: Path, name: str) -> Findings:
     check_acyclic(rows, f, tf_path)
     check_after_grammar(rows, f, tf_path)
 
-    seats_dir = run_dir / "seats"
+    seats_dir = goal_dir / "seats"
     for row in rows:
         seat = (row.get("seat") or "").strip()
         if not seat:
@@ -1474,12 +1293,11 @@ def gate_key_check(root: Path, goal_name: str, pass_folder: str,
         f.add(f"gate-key: {code}", str(task_id), finding)
 
     goal_dir = resolve_goal_dir(root, goal_name)
-    run_dir = current_run_dir(goal_dir, f)
-    if run_dir is None:
-        refuse("-", "schema-violation", f"{goal_dir}: no run folder resolves",
-               closes="a run folder with an open row in runs.csv")
+    if not goal_dir.is_dir():
+        refuse("-", "schema-violation", f"{goal_dir}: no such goal folder",
+               closes="the goal folder exists")
         return {"refusals": refusals, "flags": flags, "reports": reports}
-    pass_dir = run_dir / "planning" / pass_folder
+    pass_dir = goal_dir / "planning" / pass_folder
     decl_path = pass_dir / GATE_KEY_DECLARATION_NAME
     if not decl_path.is_file():
         refuse("-", "schema-violation",
@@ -1721,8 +1539,8 @@ def cmd_gate_key_check(args) -> int:
             f.add("gate-key: schema-violation", "--override", msg)
         else:
             goal_dir = resolve_goal_dir(root, args.goal_name)
-            run_dir = current_run_dir(goal_dir, Findings())
-            pass_dir = (run_dir / "planning" / args.pass_folder) if run_dir else None
+            pass_dir = ((goal_dir / "planning" / args.pass_folder)
+                        if goal_dir.is_dir() else None)
             try:
                 override_path = write_gate_key_override(pass_dir, str(override).strip(),
                                                         refusals)
@@ -2042,16 +1860,15 @@ def cmd_materialize(args) -> int:
         raise Refusal(f"{goal_dir}: no such goal folder")
 
     f = Findings()
-    run_dir = current_run_dir(goal_dir, f)
-    if run_dir is None:
-        raise Refusal(f"{goal_dir}: no run compartment — nothing to materialize")
+    tf_path = goal_dir / "taskforce.csv"
+    if not tf_path.is_file():
+        raise Refusal(f"{tf_path}: absent — nothing to materialize")
 
-    tf_path = run_dir / "taskforce.csv"
     rows = read_csv(tf_path)
     if not rows:
         raise Refusal(f"{tf_path}: no taskforce rows")
 
-    seats_dir = run_dir / "seats"
+    seats_dir = goal_dir / "seats"
     if seats_dir.exists() and any(seats_dir.iterdir()) and not args.force:
         raise Refusal(
             f"{seats_dir}: already materialized — refusing to regenerate. "
@@ -2087,9 +1904,8 @@ def cmd_materialize(args) -> int:
     # inadmissible guard is `check_after_grammar`'s, a well-formed guard naming a
     # row that does not exist is `check_acyclic`'s resolution rule alone.
     #
-    # A FRESH `Findings`: `f` above already passed through `current_run_dir`, which
-    # adds findings of its own (e.g. "one live run per goal"), and a refusal must
-    # name only the rules THIS manifest broke.
+    # A FRESH `Findings`: `f` above may already carry findings of its own, and a
+    # refusal must name only the rules THIS manifest broke.
     #
     # Placed LAST in the refusal set deliberately — every pre-existing refusal keeps
     # its precedence, and this one is additive.
@@ -2103,7 +1919,7 @@ def cmd_materialize(args) -> int:
             + "\n".join(f"  [{i['check']}] {i['reason']}" for i in graph.items))
 
     # Assemble everything in memory FIRST: a mid-assembly failure must never
-    # leave a half-materialized run on disk.
+    # leave a half-materialized goal on disk.
     assembled: dict[str, str] = {}
     for row in rows:
         seat = (row.get("seat") or "").strip()
@@ -2113,7 +1929,6 @@ def cmd_materialize(args) -> int:
 
     plan = {
         "goal": args.goal_name,
-        "run": run_dir.name,
         "catalog_root": str(catalog_root),
         "seats": sorted(assembled),
         "writes": [str(seats_dir / s / "seat.md") for s in sorted(assembled)],
@@ -2172,12 +1987,12 @@ def cmd_selftest(args) -> int:
             contract=str(contract), **vars(ns)))
         check("scaffold exits 0", rc == 0)
         gd = root / "demo-goal"
-        # The ten files a created goal carries, spelled as LITERALS rather than read from
+        # The nine files a created goal carries, spelled as LITERALS rather than read from
         # ROUTER_FILENAMES/WRITE_IF_SOMETHING — an expectation that reads the constant under test
         # moves with any edit to it and can never go red (7.582; the goal-kind arm below states
         # the same rule for the same reason). The probe carries the content proof; this arm is
         # the selftest's own enumerator staying complete.
-        for fname in ("goal.md", "runs.csv", "threads.sql", "CLAUDE.md", "AGENTS.md",
+        for fname in ("goal.md", "threads.sql", "CLAUDE.md", "AGENTS.md",
                       "issues.md", "decisions.md", "doubts.md", "gotchas.md", "ideas.md"):
             check(f"creates {fname}", (gd / fname).is_file())
         idx = list(csv.DictReader((root / "goals.csv").open(encoding="utf-8")))
@@ -2262,25 +2077,15 @@ def cmd_selftest(args) -> int:
             except OSError as exc:
                 check(arm, False, f"G-118: a raw {type(exc).__name__} escaped as a crash")
 
-        # G-117 regression. The no-open-row fallback returns the NUMERICALLY highest run: a
-        # lexicographic sort on the folder name returned `run-9` while `run-11` existed.
-        # THE FIXTURE SPANS THE SINGLE/DOUBLE-DIGIT BOUNDARY BECAUSE THAT IS THE ONLY PLACE THE
-        # TWO ORDERINGS DIFFER — over runs 1..9 alone the broken sort and the correct one agree
-        # and this check would pass against the defect. Built outside the goals root: it needs a
-        # goal_dir and a `runs/` listing, and nothing here should add a goal the index then sees.
-        print("run ordering (G-117)")
-        order_goal = tmp / "runorder-goal"
-        (order_goal / "runs").mkdir(parents=True)
-        for n in (2, 9, 11):
-            (order_goal / "runs" / f"run-{n}").mkdir()
-        picked = current_run_dir(order_goal, Findings())
-        check("no-open-row fallback picks the numerically highest run",
-              picked is not None and picked.name == "run-11",
-              f"picked {picked.name if picked else None} — lexicographic order returns run-9")
+        # The G-117 run-ordering arm is DELETED WITH ITS SUBJECT (7.607 E2a): it exercised
+        # `current_run_dir`'s numerically-highest-run fallback, and there is no run folder left
+        # to order. Recorded here rather than silently dropped — the defect it guarded
+        # (a lexicographic sort returning `run-9` while `run-11` existed) cannot recur in a
+        # layout with no numbered compartments.
 
         print("lint")
         f = lint_goal(root, "demo-goal")
-        check("lint finds the unstaffed run (no run compartment)", bool(f))
+        check("lint finds the unstaffed goal (no taskforce)", bool(f))
         f2 = lint_goal(root, "no-such-goal")
         check("lint refuses an absent goal", bool(f2))
 
@@ -2291,7 +2096,6 @@ def cmd_selftest(args) -> int:
             "---\nname: something-else\ncreation-date: 2026-01-01\ntype: one-shot\n"
             "status: briefed\n---\n\ncontract\n", encoding="utf-8")
         (bad / "decisions.md").write_text("x\n", encoding="utf-8")
-        write_csv(bad / "runs.csv", RUNS_COLUMNS, [])
         (bad / "threads.sql").write_text(THREADS_SCHEMA, encoding="utf-8")
         f3 = lint_goal(root, "mismatch-goal")
         check("lint rejects a name violation",
@@ -2359,26 +2163,23 @@ def cmd_selftest(args) -> int:
               red == ["store-task-id", "design-id", "task-goal", "capabilities"],
               str(red))
 
-        run = gd / "runs" / "run-1"
-        run.mkdir(parents=True)
-        write_csv(gd / "runs.csv", RUNS_COLUMNS, [{
-            "run-id": "run-1", "type": "fresh", "state": "planning",
-            "taskforce-id(s)": "tf-1", "opened": _today(), "closed": ""}])
-        (run / "taskforce.csv").write_text(
+        # 7.607 E2a — the plan is GOAL-DIRECT: no run folder, no register row. The goal dir
+        # itself carries taskforce.csv / milestones.csv / seats/.
+        (gd / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
             "tf-1,w-demo,,claude,claude-opus-5,medium,50,m1\n", encoding="utf-8")
-        write_csv(run / "milestones.csv", ["milestone-id", "name", "status"],
+        write_csv(gd / "milestones.csv", ["milestone-id", "name", "status"],
                   [{"milestone-id": "m1", "name": "prove it", "status": "pending"}])
 
         mns = argparse.Namespace(root=str(root), json=False, goal_name="demo-goal",
                                  catalog_root=str(tmp / "catalog"), force=False)
         rc = cmd_materialize(argparse.Namespace(dry_run=True, **vars(mns)))
         check("materialize --dry-run exits 0", rc == 0)
-        check("dry-run wrote no seat folder", not (run / "seats").exists())
+        check("dry-run wrote no seat folder", not (gd / "seats").exists())
 
         rc = cmd_materialize(argparse.Namespace(dry_run=False, **vars(mns)))
         check("materialize exits 0", rc == 0)
-        seat_md = run / "seats" / "w-demo" / "seat.md"
+        seat_md = gd / "seats" / "w-demo" / "seat.md"
         check("seat.md written", seat_md.is_file())
 
         text = seat_md.read_text(encoding="utf-8")
@@ -2445,7 +2246,7 @@ def cmd_selftest(args) -> int:
               json.dumps(f4.items, indent=2))
 
         print("lint catches a cycle")
-        (run / "taskforce.csv").write_text(
+        (gd / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
             "tf-1,a,b,claude,claude-opus-5,medium,50,m1\n"
             "tf-1,b,a,claude,claude-opus-5,medium,50,m1\n", encoding="utf-8")
@@ -2468,7 +2269,7 @@ def cmd_selftest(args) -> int:
             "seat-id,prompt-id,task-id,description\n"
             "w-demo,prompt-demo,task-demo,the demo seat\n"
             "p-demo,prompt-demo,task-demo,the predecessor seat\n", encoding="utf-8")
-        tf = run / "taskforce.csv"
+        tf = gd / "taskforce.csv"
         HEAD_ROW = "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
         BODY = ("tf-1,p-demo,,claude,claude-opus-5,medium,50,m1\n"
                 "tf-1,w-demo,{cell},claude,claude-opus-5,medium,50,m1\n")
@@ -2497,8 +2298,8 @@ def cmd_selftest(args) -> int:
         rc = cmd_materialize(argparse.Namespace(dry_run=False, **forced))
         check("a WELL-FORMED guarded manifest still materializes", rc == 0)
         check("both seats written",
-              (run / "seats" / "w-demo" / "seat.md").is_file()
-              and (run / "seats" / "p-demo" / "seat.md").is_file())
+              (gd / "seats" / "w-demo" / "seat.md").is_file()
+              and (gd / "seats" / "p-demo" / "seat.md").is_file())
 
         # ------------------------------------------------ gate-key check
         # Spec: runs/run-3/planning/briefing-gate-ships-with-its-own-key-check/
@@ -2571,7 +2372,7 @@ def cmd_selftest(args) -> int:
               str(contam))
 
         print("gate-key check — the declaration (§ 1) and the refusals (§ 5)")
-        pass_dir = run / "planning" / "pass-demo"
+        pass_dir = gd / "planning" / "pass-demo"
         pass_dir.mkdir(parents=True, exist_ok=True)
         decl = pass_dir / GATE_KEY_DECLARATION_NAME
         head = ",".join(GATE_KEY_COLUMNS) + "\n"
@@ -3014,23 +2815,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--after-col", default="after",
                    help="the column (or markdown label) carrying each node's predecessors")
     p.set_defaults(func=cmd_check_acyclic)
-
-    # MC8 / 7.450 — mint a branch's home at the registry's settled path. Create-only:
-    # it makes the folder and nothing else; MC10's materialization fills it.
-    p = add_common(sub.add_parser(
-        "branch-home",
-        help="mint a branch home under a run (or under another branch), create-only"))
-    p.add_argument("goal_name")
-    p.add_argument("--parent", default=None,
-                   help="the parent run or branch folder, as a path RELATIVE to the goal "
-                        "folder (e.g. runs/run-1/branches/branch-1). Default: the goal's "
-                        "current run, resolved through runs.csv")
-    p.add_argument("--branch", default=None,
-                   help="name the branch folder explicitly (`branch-<m>`). Default: the "
-                        "next number under the parent's branches/")
-    p.add_argument("--dry-run", action="store_true",
-                   help="report the path the numbering rule returns; create nothing")
-    p.set_defaults(func=cmd_branch_home)
 
     p = add_common(sub.add_parser("selftest", help="end-to-end exercise on a throwaway tree"))
     p.set_defaults(func=cmd_selftest)

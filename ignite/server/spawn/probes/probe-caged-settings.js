@@ -115,7 +115,9 @@ const template = config.profiles['claude-haiku'].sandbox && config.profiles['cla
 const goalDir = path.join(seatDir, 'g');
 const spec = composeSeatCage({
   seatBinds: template,
-  values: { workdir: seatDir, seatDir, goalDir, runDir: path.join(goalDir, 'runs', 'run-1') },
+  // 7.607 E2a — goal-direct: the `{runDir}` cage slot resolves to the goal dir (seat-folder.js's
+  // disclosed alias), so the fixture supplies exactly what parseSeatPath would.
+  values: { workdir: seatDir, seatDir, goalDir, runDir: goalDir },
   grants: [],                                  // no read-root, no worktree — an ordinary seat
 });
 if (!Array.isArray(template) || template.length === 0 || spec.length === 0) {

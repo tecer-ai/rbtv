@@ -9,10 +9,18 @@
 // measurables and NOTHING ambient:
 //
 //   1. the calling process's cwd            -> which seat folder it is in
-//   2. the goal's `runs.csv` + the seat's `seat.md`/`taskforce.csv`
+//   2. the goal's DERIVED LEASE + goals-index, and the seat's `seat.md`/`taskforce.csv`
 //                                           -> whether that folder is a LIVE, ROSTERED seat at all
-//   3. the run-level `sessions.csv`         -> who is REGISTERED in that seat
+//   3. the goal-level `sessions.csv`        -> who is REGISTERED in that seat
 //   4. `/proc` ancestry                     -> whether the caller IS that registered process
+//
+// ── 7.607 E2a — MEASURABLE 2 IS RE-FOUNDED ON THE LEASE (the E1 residual, #34/#52) ─────────────
+// E1 replaced the ticker gate's and the bus authz's register reads but left THIS gate reading
+// `runs.csv` through `checkRunLive`, and that residual is closed here. Liveness is now
+// `seat-folder.js#checkGoalExecuting` -> `server/lease/lease.js`: the goal's tmux room existing
+// RIGHT NOW, plus the goals-index membership read that was always a separate question. No stored
+// status is read on this path by anything, and the refusal code `E_RUN_NOT_LIVE` is retired with
+// the layer that named it — `E_GOAL_NOT_LIVE` says what is actually being refused.
 //
 // Measurable 2 was absent until G-126 was fixed (task 7.10): the two checks existed but were wired
 // into the LAUNCH-time gate only, so the command-time gate confirmed a hand-made folder in a closed
@@ -34,7 +42,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { readCsv } = require('./csv');
-const { resolveSeatFromCwd, checkRunLive, checkMaterializedSeat } = require('./seat-folder');
+const { resolveSeatFromCwd, checkGoalExecuting, checkMaterializedSeat } = require('./seat-folder');
 
 // The identity columns §7 pre-registers as the gate's interface to 7.37's writer. `pid` and
 // `pid-starttime` are the pair the daemon already trusts everywhere else (spawn.js:396-399) —
@@ -108,10 +116,10 @@ function currentOccupantRow(rows, seat, header) {
 // Returns { ok: true, seat, ... } or { ok: false, code, message }. Every failure is a typed
 // REFUSAL. There is no path that returns ok on missing data — absence fails closed, everywhere,
 // because the whole point of this gate is to be the thing that says no.
-function checkIdentity({ cwd = process.cwd(), pid = process.pid } = {}) {
+function checkIdentity({ cwd = process.cwd(), pid = process.pid, readLease = undefined } = {}) {
   const {
     E_IDENTITY_NO_SEAT, E_IDENTITY_NO_SESSION, E_IDENTITY_MISMATCH, E_IDENTITY_SCHEMA,
-    E_RUN_NOT_LIVE, E_NOT_A_SEAT_FOLDER,
+    E_GOAL_NOT_LIVE, E_NOT_A_SEAT_FOLDER,
   } = require('../spawn/errors');
 
   // 1 — resolve the folder.
@@ -120,7 +128,7 @@ function checkIdentity({ cwd = process.cwd(), pid = process.pid } = {}) {
     return fail(
       E_IDENTITY_NO_SEAT,
       `no seat folder encloses ${cwd}. System CLI commands run FROM the seat folder ` +
-      '(.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>/); the worktree is for work-product. ' +
+      '(.rbtv/goals/<goal>/seats/<seat>/); the worktree is for work-product. ' +
       'A command from a non-seat directory has no identity and is refused.',
       { cwd },
     );
@@ -135,22 +143,25 @@ function checkIdentity({ cwd = process.cwd(), pid = process.pid } = {}) {
   // `closed`, returned `{"ok":true}` and exit 0.
   //
   // WHY IT IS NOT ENOUGH THAT LAUNCH CHECKED: launch-time is a single instant, and every fact
-  // these two read can change AFTER it. A run CLOSES while its seats keep running — that is not
-  // hypothetical, it is tonight: `runs.csv` records run-1 closed while `G-111` found a live pane
-  // still sitting in a run-1 seat folder, and nothing prunes `sessions.csv` on close. A gate that
-  // only asks at launch answers a question nobody is asking by the time it matters.
+  // these two read can change AFTER it. A goal's EXECUTION ENDS while its seats keep running —
+  // that is not hypothetical, it is what `G-111` found (a live pane still sitting in a seat folder
+  // of an execution the record had already closed), and nothing prunes `sessions.csv` on finish. A
+  // gate that only asks at launch answers a question nobody is asking by the time it matters. And
+  // seat folders are GOAL-DURABLE now, so the folder outliving the execution is the NORMAL state
+  // rather than the exceptional one — which makes this re-ask load-bearing where it was merely
+  // prudent before.
   //
   // ORDER IS DELIBERATE: these run BEFORE the session/process match so the refusal names the
-  // REAL reason. "this run is closed" is actionable; the same case reaching the pid check would
-  // refuse with a mismatch message about ancestry, which sends the reader hunting the wrong thing.
-  const live = checkRunLive(parsed);
+  // REAL reason. "this goal is not executing" is actionable; the same case reaching the pid check
+  // would refuse with a mismatch message about ancestry, sending the reader after the wrong thing.
+  const live = checkGoalExecuting(parsed, readLease ? { readLease } : undefined);
   if (!live.ok) {
     return fail(
-      E_RUN_NOT_LIVE,
-      `seat "${parsed.seat}" is in ${parsed.run} of goal ${parsed.goal}, which is not provably the ` +
-      `goal's live run: ${live.reason}. Identity is scoped to a LIVE run — a seat in a closed run ` +
+      E_GOAL_NOT_LIVE,
+      `seat "${parsed.seat}" is a seat of goal ${parsed.goal}, which is not provably EXECUTING: ` +
+      `${live.reason}. Identity is scoped to a live execution — a seat whose goal is not running ` +
       'has no standing to act, however genuinely it occupies the folder.',
-      { seat: parsed.seat, goal: parsed.goal, run: parsed.run, reason: live.reason },
+      { seat: parsed.seat, goal: parsed.goal, reason: live.reason },
     );
   }
 
@@ -170,7 +181,7 @@ function checkIdentity({ cwd = process.cwd(), pid = process.pid } = {}) {
   if (!log.exists) {
     return fail(
       E_IDENTITY_NO_SESSION,
-      `the run's session log is unreadable at ${parsed.sessionsCsv} — identity cannot be established, so it is refused`,
+      `the goal's session log is unreadable at ${parsed.sessionsCsv} — identity cannot be established, so it is refused`,
       { seat: parsed.seat, sessionsCsv: parsed.sessionsCsv },
     );
   }
@@ -240,9 +251,8 @@ function checkIdentity({ cwd = process.cwd(), pid = process.pid } = {}) {
     ok: true,
     seat: parsed.seat,
     goal: parsed.goal,
-    run: parsed.run,
     seatDir: parsed.seatDir,
-    runDir: parsed.runDir,
+    goalDir: parsed.goalDir,
     sessionId: row['session-id'] || null,
     registeredPid: regPid,
     matchedAncestor: { pid: match.pid, starttime: match.starttime },

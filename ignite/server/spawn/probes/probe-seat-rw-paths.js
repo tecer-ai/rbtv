@@ -38,15 +38,13 @@ function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rw-paths-'));
   const ws = path.join(root, 'ws');
   const goalDir = path.join(ws, '.rbtv', 'goals', 'alpha');
-  const runDir = path.join(goalDir, 'runs', 'run-1');
+  const runDir = goalDir;   // 7.607 E2a — goal-direct: the goal folder IS the package
   const mineDir = path.join(runDir, 'seats', 'mine');
   const plainDir = path.join(runDir, 'seats', 'plain');
 
   fs.mkdirSync(path.join(runDir, 'coordination'), { recursive: true });
   fs.mkdirSync(mineDir, { recursive: true });
   fs.mkdirSync(plainDir, { recursive: true });
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'),
-    'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-08-02 01:00,\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,pid,pid-starttime\nmine,s1,1,1\n');
 
   // The declared, VALID target: an in-workspace credentials dir (the gtools shape).
@@ -67,7 +65,7 @@ function fixture() {
     '  - 3-resources/tools/google/credentials',   // valid
     '  - ../outside',                              // escapes the root
     `  - ${outside}`,                              // absolute
-    '  - .rbtv/goals/alpha/runs/run-1',            // covers sessions.csv + seat.md
+    '  - .rbtv/goals/alpha',                       // covers sessions.csv + seat.md
     '  - .rbtv',                                   // CONTAINS the whole goals subtree
     '  - 3-resources/tools/nope',                  // does not exist
     'gateway-env: true',                           // a key AFTER the block: must survive the reader

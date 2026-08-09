@@ -22,23 +22,28 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
+const { execFileSync } = require('node:child_process');
 const { setup, teardown, capture } = require('./lib');
 
-// Build a real goal tree the resolver will accept: goals.csv row, runs.csv with an OPEN run,
-// seat.md naming its own folder, and a taskforce row. Anything missing is a refusal, which is
-// exactly what scenario 2 exploits.
-function makeSeatTree(wsRoot, { goal, run = 'run-1', seat, materialize = true }) {
+// Build a real goal tree the resolver will accept: a goals.csv row, a REAL tmux room (the goal is
+// EXECUTING — 7.607 E2a: `resolveSeatHome` asks the derived lease, not a register), seat.md naming
+// its own folder, and a taskforce row. Anything missing is a refusal, which is exactly what
+// scenario 2 exploits. GOAL-DIRECT: everything sits under `<goal>/`, with no run compartment.
+function makeSeatTree(wsRoot, { goal, seat, materialize = true, executing = true }) {
   const goalsDir = path.join(wsRoot, '.rbtv', 'goals');
-  fs.mkdirSync(path.join(goalsDir, goal, 'runs', run, 'seats'), { recursive: true });
+  fs.mkdirSync(path.join(goalsDir, goal, 'seats'), { recursive: true });
 
   const goalsCsv = path.join(goalsDir, 'goals.csv');
   if (!fs.existsSync(goalsCsv)) fs.writeFileSync(goalsCsv, 'name,state\n');
   if (!fs.readFileSync(goalsCsv, 'utf8').includes(`${goal},`)) {
     fs.appendFileSync(goalsCsv, `${goal},open\n`);
   }
-  fs.writeFileSync(path.join(goalsDir, goal, 'runs.csv'), `run-id,state\n${run},open\n`);
+  if (executing) {
+    execFileSync('tmux', ['new-session', '-d', '-s', goal, 'sleep', '600'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  }
 
-  const runDir = path.join(goalsDir, goal, 'runs', run);
+  const runDir = path.join(goalsDir, goal);
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), `seat,executor\n${materialize ? seat : 'other'},claude\n`);
 
   const seatDir = path.join(runDir, 'seats', seat);
@@ -83,6 +88,14 @@ async function run(lines) {
   const wsRoot = fs.mkdtempSync('/tmp/p712-ws-');
   const prevEnv = process.env.RBTV_IGNITE_WORKSPACE_ROOT;
   process.env.RBTV_IGNITE_WORKSPACE_ROOT = wsRoot;
+
+  // 7.607 E2a — the goal's lease is a REAL tmux room, on an ISOLATED socket. Never the box's
+  // default server: it carries the owner's attached session and may be neither read as evidence
+  // nor extended. Reaped in the `finally` below.
+  const roomTmpdir = path.join(os.tmpdir(), `e2a-jsl-${process.pid}`);
+  fs.mkdirSync(roomTmpdir, { recursive: true, mode: 0o700 });
+  const prevTmux = process.env.TMUX_TMPDIR;
+  process.env.TMUX_TMPDIR = roomTmpdir;
 
   try {
     // ── 1 · HOMED → the seat folder ──────────────────────────────────────────────────────────
@@ -150,6 +163,9 @@ async function run(lines) {
     lines.push('');
     lines.push('CHECKS: 3/3 scenarios passed');
   } finally {
+    try { execFileSync('tmux', ['kill-server'], { stdio: 'ignore' }); } catch { /* already gone */ }
+    if (prevTmux === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = prevTmux;
+    try { fs.rmSync(roomTmpdir, { recursive: true, force: true }); } catch { /* best effort */ }
     if (prevEnv === undefined) delete process.env.RBTV_IGNITE_WORKSPACE_ROOT;
     else process.env.RBTV_IGNITE_WORKSPACE_ROOT = prevEnv;
     try { fs.rmSync(wsRoot, { recursive: true, force: true }); } catch { /* best effort */ }

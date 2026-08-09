@@ -25,11 +25,16 @@ function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'g4-cage-'));
   const ws = path.join(root, 'ws');
   const goalDir = path.join(ws, '.rbtv', 'goals', 'testgoal');
-  const runDir = path.join(goalDir, 'runs', 'run-1');
+  const runDir = goalDir;   // 7.607 E2a — goal-direct: the goal folder IS the package
   const seatDir = path.join(runDir, 'seats', 'mine');
   const peerDir = path.join(runDir, 'seats', 'peer');
   const coordDir = path.join(runDir, 'coordination');
   for (const d of [seatDir, peerDir, coordDir]) fs.mkdirSync(d, { recursive: true });
+  // 7.607 E2a — the `tmpfs:{goalDir}/runs` template line needs its mountpoint to EXIST: with
+  // {goalDir} ro-bound, bwrap refuses `Can't mkdir <goalDir>/runs: Read-only file system`.
+  // spawn.js#composeCageFor creates it for every real seat; this fixture mirrors that. Both
+  // go away with the profile's template line (see the E2a note in spawn.js).
+  fs.mkdirSync(path.join(goalDir, 'runs'), { recursive: true });
 
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,pid,pid-starttime\nmine,1,1\n');
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: mine\n---\nbriefing\n');

@@ -8,8 +8,40 @@
 // produces — a launch landing somewhere the checker later refuses to recognise — is invisible
 // until a seat is already sitting in it.
 //
-// The canonical shape (KG `seat folder`):
-//     <ws>/.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>/
+// The canonical shape (KG `seat folder`) — 7.607 E2a, GOAL-DIRECT:
+//     <ws>/.rbtv/goals/<goal>/seats/<seat>/
+//
+// ── 7.607 E2a — THE RUN SEGMENT IS GONE, AND THE GRAMMAR ACCEPTS ONLY THE NEW SHAPE ────────────
+//
+// `decisions.md#d-runs-extinguished` + `#d-extinguishment-design-lock` (items 6, 9): a goal's
+// working content sits DIRECTLY under `goal/`. There is no `runs/run-N/` segment, no `runs.csv`,
+// no `branches/branch-M/` compartment. CUT CLEAN — this parser does NOT accept the old shape
+// alongside the new one. A dual grammar would be two definitions of what a seat folder is, which
+// is the exact failure the header above exists to prevent, and nothing live depends on the old
+// shape (E4 migrates the live goal folders before anything boots again).
+//
+// WHAT DIED WITH THE SEGMENT, named so a reader does not go hunting: `RUN_NAME_RE`, `parsed.run`,
+// `parsed.runsCsv`, `checkRunLive`, `openRunsOfGoal`, and the WHOLE branch-compartment walk
+// (`BRANCHES_DIR`/`BRANCH_NAME_RE`, `parsed.branch`, `parsed.branchDir`). The branch machinery is
+// abolished by registry ruling `r-branch-folder-deleted-nested-seats-are-ordinary-run-seats` — a
+// branch is a ROLE with NO file home, and a branch seat is an ordinary seat of the goal named
+// `<four-letters>-<n>-<seat>`. Deleted, never migrated.
+//
+// SEAT LIVENESS IS NOT ANSWERED HERE ANY MORE. "Is this goal executing" is `server/lease/lease.js`
+// (E1, design-lock item 1): live evidence, no stored status. `checkGoalExecuting` below is the
+// thin adapter that routes the question there; it computes no lease of its own (PRIN-11).
+//
+// SEAT FOLDERS ARE GOAL-DURABLE. `materializeSeatFolder`/`resolveSeatHome` create and resolve at
+// GOAL level, which is the ruling's memory mechanism: the same goal performed twice boots from the
+// same `seats/<seat>/` folders, and whatever the seat accumulated is still there.
+//
+// ⚠ `parsed.runDir` SURVIVES AS AN ALIAS OF `goalDir`, DELIBERATELY, AND IT IS A DISCLOSED SEAM.
+// `config/spawn-profiles.yaml`'s shipped `SeatBinds` template consumes the cage slots `{goalDir}`
+// and `{runDir}` (`cage.js SCALAR_SLOTS`), and that file is outside this stage's write surface. A
+// dropped field would leave the slot valueless and every caged spawn would die at compose time
+// with `E_CAGE_TEMPLATE`. Aliased to the goal dir the shipped template stays CORRECT under the new
+// layout — `tmpfs:{runDir}/seats` still erases peer seat folders, `bind:{runDir}/coordination` is
+// still the goal's coordination dir. The profile's slot rename is a later stage's one-file edit.
 //
 // Everything here is derived from the PATH and from files on disk. Nothing is asserted by the
 // caller — no env var, no flag, no name passed in. That is G-111's lesson wired into the shape of
@@ -19,13 +51,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { readCsv } = require('./csv');
+const { deriveLease } = require('../lease/lease');
 
 // Parse the canonical shape out of an ABSOLUTE, REAL path. Returns null when the path is not a
 // seat folder — the caller decides which typed refusal that becomes, because "you launched into
 // a non-seat folder" and "you ran a CLI from a non-seat folder" are different failures with
 // different remedies even though they share this test.
 // r-master-seat-homes (owner, 2026-08-06): a SERVICE SEAT — a seat-shaped folder directly
-// under .rbtv/goals/ named _<seat>, with NO goal apparatus (no goal.md, no runs, no taskforce):
+// under .rbtv/goals/ named _<seat>, with NO goal apparatus (no goal.md, no taskforce):
 // one seat, many sessions (the channel-master is the first). goalDir/runDir/seatDir all resolve
 // to the folder itself; the seat name is the folder name WITHOUT its underscore, which is what
 // its seat.md declares (descriptor-agreement unchanged).
@@ -42,108 +75,58 @@ function parseServiceSeatPath(absPath) {
     seat: m[1].slice(1),
     goalDir: norm, runDir: norm, seatDir: norm,
     sessionsCsv: path.join(norm, 'sessions.csv'),
-    runsCsv: null,
     service: true,
   };
 }
 
-// Task 7.480 (BSC1) — a BRANCH seat, and why the offsets had to go.
+// THE GRAMMAR, and it is now FIXED-OFFSET because the shape is fixed.
 //
-// The branch shape (concepts/branch.md, settled-by d-branch-family; the Python spelling of the
-// same rule is `goal_cli.py#branch_parent_kind`): a branch homes under a RUN folder or,
-// recursively, under another BRANCH folder, and it is a run-like COMPARTMENT of its own — it
-// carries its own `runs.csv`, `sessions.csv`, `taskforce.csv`, `coordination/` and `seats/`:
+//     <ws>/.rbtv/goals/<goal>/seats/<seat>/
 //
-//     <ws>/.rbtv/goals/<goal>/runs/run-{n}/branches/branch-{m}/…/branches/branch-{k}/seats/<seat>/
+// The 7.480 walk this replaced existed for ONE reason: a branch level inserted a variable number
+// of segments between the compartment and `seats`, so no constant offset was the right one. With
+// the branch machinery abolished (`r-branch-folder-deleted-nested-seats-are-ordinary-run-seats`)
+// and the run segment extinguished, the depth is a constant again — `goal` is exactly one segment
+// above `seats` — and the offsets are the honest expression of that. Nothing is folded: a nested
+// seat is an ORDINARY seat of the goal whose NAME carries its lineage, so there is no fourth
+// identity component left to give a slot to.
 //
-// WHY A WALK RATHER THAN PATCHED ARITHMETIC. The old body derived five anchors as FIXED negative
-// offsets from `seats`. A branch level inserts TWO segments between the run folder and `seats`, so
-// all five point two segments too shallow — and the depth is not a constant, so no offset is the
-// right one. Measured (branch-shape-arms/arm2-out.json, partition exact): of the twelve fields the
-// old body returned, NINE shift with those anchors and THREE — `seat`, `seatsDir`, `seatDir` — are
-// anchored on `seats` itself and do not.
-//
-// TWO OF THE NINE ARE IDENTITY SCALARS, which is the part a path-only check cannot see. A fix that
-// re-derived only the PATH fields would return `goal:"run-1", run:"branch-1"` for a branch seat —
-// not a mis-path, a silently wrong IDENTITY (decisions.md
-// #p-TASK-DAG-ACCEPTED-my-Q2-RULING-IS-AMENDED-NINE-NOT-EIGHT-and-TWO-OF-THEM-ARE-IDENTITY-SCALARS).
-//
-// WHERE `branch` LIVES — the shape decision this change had to make, stated here because the truth
-// object carries FOUR identity components (goal, run, branch, seat) and the old return had three
-// slots. `branch` gets its OWN slot and is an ORDERED CHAIN, outermost first — `['branch-1',
-// 'branch-2']` at depth 2, `[]` for a run seat — with `branchDir` naming the innermost branch home
-// (null for a run seat). Nothing is folded into anything: `run` stays the PARENT RUN, because a
-// branch is not a run and renaming one into the other is the same identity lie by another door.
-// The addition is purely additive, so no existing requirer's field disappears (sweeping the
-// requirers to USE the new fields is task BSC3's, not this one's).
-//
-// THE COMPARTMENT-SCOPED FIELDS FOLLOW THE COMPARTMENT. `sessionsCsv` and `taskforceCsv` name the
-// branch home's own for a branch seat (measured on disk: the branch root carries both), and
-// `runsCsv` names the branch's OWN register — the branch's liveness is stated there, never in the
-// goal's `runs.csv`, which has no row for it. `goalsCsv` stays goal-level: a branch's goal is
-// still the goal.
-//
-// THE WALK GOES UP FROM `seats`, NOT DOWN FROM `.rbtv/goals`, and that is deliberate rather than
-// incidental: a downward walk from the anchor admits `…/seats/<seat>/seats/x`, which the offset
-// resolver refused, and widening the admission predicate is no part of this change. The
-// `.rbtv`/`goals` anchor is still checked — it is where the walk must land — and the probe's red
-// arm removes it to prove it is load-bearing. Both facts are measured in the probe's
-// non-regression block, not asserted here.
-const BRANCHES_DIR = 'branches';
-const BRANCH_NAME_RE = /^branch-\d+$/;
-const RUN_NAME_RE = /^run-\d+$/;
-
+// The anchor is still CHECKED rather than assumed: `.rbtv`/`goals` must be where the offsets say
+// they are, and the probe's red arm removes one to prove the check is load-bearing. And the search
+// still starts from `seats` upward rather than from `.rbtv/goals` downward, which is what keeps
+// `…/seats/<seat>/seats/x` refused instead of admitted.
 function parseSeatPath(absPath) {
   const parts = path.normalize(absPath).split(path.sep);
-  // …/.rbtv/goals/<goal>/runs/<run>/[branches/<branch>/]*seats/<seat>
+  // …/.rbtv/goals/<goal>/seats/<seat>
   const seatsIdx = parts.lastIndexOf('seats');
   if (seatsIdx < 0 || seatsIdx + 1 >= parts.length) return null;
   const seat = parts[seatsIdx + 1];
   if (!seat) return null;
 
-  // Walk up through zero or more `branches/branch-{m}` levels. Zero levels IS the run-seat case
-  // and the loop simply does not run, which is why the run-seat path through this function is
-  // unchanged rather than re-implemented.
-  const branch = [];
-  let cursor = seatsIdx - 1;
-  while (cursor >= 1 && parts[cursor - 1] === BRANCHES_DIR && BRANCH_NAME_RE.test(parts[cursor])) {
-    branch.unshift(parts[cursor]);
-    cursor -= 2;
-  }
-
-  const runIdx = cursor;
-  const runsIdx = runIdx - 1;
-  const goalIdx = runIdx - 2;
-  const goalsIdx = runIdx - 3;
-  const rbtvIdx = runIdx - 4;
+  const goalIdx = seatsIdx - 1;
+  const goalsIdx = seatsIdx - 2;
+  const rbtvIdx = seatsIdx - 3;
   if (rbtvIdx < 1) return null;
-  if (parts[runsIdx] !== 'runs' || parts[goalsIdx] !== 'goals' || parts[rbtvIdx] !== '.rbtv') return null;
-  if (!RUN_NAME_RE.test(parts[runIdx])) return null;
+  if (parts[goalsIdx] !== 'goals' || parts[rbtvIdx] !== '.rbtv') return null;
   const goal = parts[goalIdx];
   if (!goal) return null;
 
   const workspaceRoot = parts.slice(0, rbtvIdx).join(path.sep) || path.sep;
   const goalDir = parts.slice(0, goalIdx + 1).join(path.sep);
-  const runDir = parts.slice(0, runIdx + 1).join(path.sep);
-  // `seats` sits directly under the innermost compartment, whichever kind it is.
-  const branchDir = branch.length ? parts.slice(0, seatsIdx).join(path.sep) : null;
-  const compartmentDir = branchDir || runDir;
   const seatDir = parts.slice(0, seatsIdx + 2).join(path.sep);
   return {
     workspaceRoot,
-    goal: parts[goalIdx],
-    run: parts[runIdx],
-    branch,
+    goal,
     seat,
     goalDir,
-    runDir,
-    branchDir,
+    // The disclosed cage-slot alias — see the header. Goal-direct means the goal folder IS the
+    // package, so `{runDir}` and `{goalDir}` resolve to the same real directory.
+    runDir: goalDir,
     seatsDir: parts.slice(0, seatsIdx + 1).join(path.sep),
     seatDir,
-    sessionsCsv: path.join(compartmentDir, 'sessions.csv'),
+    sessionsCsv: path.join(goalDir, 'sessions.csv'),
     goalsCsv: path.join(parts.slice(0, goalsIdx + 1).join(path.sep), 'goals.csv'),
-    runsCsv: path.join(branchDir || goalDir, 'runs.csv'),
-    taskforceCsv: path.join(compartmentDir, 'taskforce.csv'),
+    taskforceCsv: path.join(goalDir, 'taskforce.csv'),
   };
 }
 
@@ -191,32 +174,36 @@ function resolveSeatFromCwd(startDir) {
   }
 }
 
-// L2 — the goal is known and the run is the goal's LIVE run.
+// L2 — the goal is KNOWN (it is in the goals-index) and it is EXECUTING RIGHT NOW.
 //
-// "Live" is read from `runs.csv`'s own `state` column by NAME. A run whose row is absent is NOT
-// live: the one-live-run invariant is maintained by hand tonight (7.77 has not landed), so a
-// missing row means the record does not say this run is open, and an identity gate may not
-// supply an optimistic default for a fact the record declines to state.
+// ── 7.607 E2a — THIS IS `checkRunLive` RE-FOUNDED, NOT RENAMED ─────────────────────────────────
 //
-// Task 7.481 (BSC2) — WHICH REGISTER, AND WHICH ROW IN IT. BSC1 already pointed `parsed.runsCsv`
-// at the innermost COMPARTMENT's own register (a branch carries its own `runs.csv`; the goal's has
-// no row for it). What that left wrong is the ROW: this looked up `parsed.run`, and `parsed.run`
-// is deliberately the PARENT RUN for a branch seat — so a branch was looked up under `run-1` in a
-// register whose only row is `branch-1`, and every branch seat refused as "not provably live".
-// Measured on disk: `throwaway-cw15/runs/run-1/branches/branch-1/runs.csv` carries `run-id
-// branch-1`, and branch-shape-arms/arm2-out.json's D block measured the two verdicts this gate
-// must be able to tell apart.
+// The old body read `<compartment>/runs.csv`'s `state` column: a STORED STATUS, and the register
+// era's whole defect class. `state=open` outlives the thing it describes, so every reader of it
+// answered a question about the past believing it read the present — G-103's stale fire, and the
+// 7.608 deadlock where a stale open row refused the start of a run nobody was running.
 //
-// The lookup follows the COMPARTMENT, never the parent: the INNERMOST branch when there is one,
-// the run otherwise. Innermost rather than outermost is load-bearing at depth ≥2 — a `branch-2`
-// register states `branch-2`'s liveness and says nothing about `branch-1` — and the probe's
-// depth-2 arm is what separates the two choices rather than a comment claiming they differ.
-// `parsed.run` itself is NOT rewritten here: a branch is not a run, and folding one into the
-// other is the identity lie BSC1 refused (see the `branch` slot's note above).
+// The liveness half is now `server/lease/lease.js` and NOTHING is computed here (PRIN-11, design
+// lock item 1: "NO stored status of any kind"). This function is the ADAPTER its three callers
+// share — the command-time gate (identity.js), the launch-time gate (spawn.js spawnSeat) and
+// `resolveSeatHome` below — so there is one place that says what L2 means and one place that says
+// how liveness is measured, and they are not the same place.
 //
-// The refusal STRINGS are untouched, byte for byte, because callers match on them; only the
-// identity substituted into them follows the compartment.
-function checkRunLive(parsed) {
+// THE GOALS-INDEX READ SURVIVES, and it is a different question from liveness. `goals.csv` is the
+// deterministic projection of every goal's `goal.md` frontmatter (`d-goal-descriptor-md`), read by
+// its settled column `name` and by no other — G-143 was this gate accepting invented column names
+// and refusing every real seat on every real box while reading green. A goal that is not in the
+// index is not a goal this daemon knows, whatever a tmux session happens to be called.
+//
+// ⚠ THE TWO REFUSALS ARE KEPT DISTINCT, and the order is deliberate: "this goal is unknown" is a
+// different remedy from "this goal is not executing", and unreadable evidence is a THIRD thing
+// again. `deriveLease` reports `{ok:false}` for ignorance (tmux gone) and never a verdict; this
+// gate's posture on ignorance is CLOSED, because an identity gate may not admit on a fact it
+// could not measure. That posture is stated HERE rather than in the lease, which decides nothing.
+//
+// `readLease` is the injection point a probe supplies a fixture tmux server through — E1's own
+// pattern at `ticker/one-live-run.js#decide`. A probe supplies real measurables, never a verdict.
+function checkGoalExecuting(parsed, { readLease = deriveLease } = {}) {
   const goals = readCsv(parsed.goalsCsv);
   if (!goals.exists) return { ok: false, reason: `goals.csv unreadable at ${parsed.goalsCsv}` };
   // The goals-index identifies a goal by `name`. That is not a preference: the goals-index is a
@@ -237,92 +224,32 @@ function checkRunLive(parsed) {
     return { ok: false, reason: `goal ${parsed.goal} is not in ${parsed.goalsCsv}` };
   }
 
-  const branch = Array.isArray(parsed.branch) ? parsed.branch : [];
-  const compartment = branch.length ? branch[branch.length - 1] : parsed.run;
-
-  const runs = readCsv(parsed.runsCsv);
-  if (!runs.exists) return { ok: false, reason: `runs.csv unreadable at ${parsed.runsCsv}` };
-  const runCol = runs.header.includes('run-id') ? 'run-id' : (runs.header.includes('run') ? 'run' : null);
-  if (!runCol) return { ok: false, reason: `runs.csv carries no run-id/run column (header: ${runs.header.join(',')})` };
-  const row = runs.rows.find((r) => r[runCol] === compartment);
-  if (!row) return { ok: false, reason: `run ${compartment} has no row in ${parsed.runsCsv} — not provably live` };
-  if (!runs.header.includes('state')) {
-    return { ok: false, reason: `runs.csv carries no state column (header: ${runs.header.join(',')})` };
+  const lease = readLease({ workspaceRoot: parsed.workspaceRoot, goal: parsed.goal });
+  if (!lease.ok) {
+    return {
+      ok: false,
+      reason: `the lease of goal ${parsed.goal} is UNREADABLE (${lease.reason}) — this gate refuses `
+        + 'on ignorance rather than admitting on a fact it could not measure',
+    };
   }
-  if (row.state !== 'open') {
-    return { ok: false, reason: `run ${compartment} state is "${row.state}", not open` };
+  if (!lease.live) {
+    return {
+      ok: false,
+      reason: `goal ${parsed.goal} is not executing — no room of its own exists right now `
+        + `(${lease.evidence['room-predicate']})`,
+    };
   }
   return { ok: true };
 }
 
-// WHERE A GOAL'S FOLDER IS, spelled once (task C3). It was already spelled inside openRunsOfGoal
-// below; a second caller needed it (`ticker/goal-channel-start.js` asks `goalKind()` for a goal it
-// knows only by NAME), and a private copy of a layout constant is the cheapest kind of drift —
+// WHERE A GOAL'S FOLDER IS, spelled once (task C3). It was first spelled inside the (now deleted)
+// run-register reader; a second caller needed it (`ticker/goal-channel-start.js` asks `goalKind()`
+// for a goal it knows only by NAME), and a private copy of a layout constant is the cheapest drift —
 // `<ws>/.rbtv/goals/` moving would leave one of the two copies right. It is a pure join and reads
 // nothing: an absent folder is the caller's answer to give, not this function's.
 function goalDirOf({ workspaceRoot, goal }) {
   if (!workspaceRoot || !goal) return null;
   return path.join(workspaceRoot, '.rbtv', 'goals', goal);
-}
-
-// Task 7.12 §job->seat — resolve a job's (goal, seat) POINTER to the seat folder its action runs in.
-//
-// The third caller of the same definition, and it is here rather than in `spawn/` for the reason
-// stated at the top of this file: two resolvers would be two definitions of what a seat folder is.
-// This one differs from `checkRunLive` in DIRECTION — that validates a run already named by a path;
-// this must FIND the run, because the job row deliberately does not store one.
-//
-// WHY THE RUN IS NOT STORED (owner ruling `r-job-seat-home` (1)): goal-serving jobs "are seats of
-// that goal's live run and RETIRE WITH IT". A stored run would pin the pointer to a run that later
-// closes, and the job would go on firing into a dead run's folder — which is `G-103`'s stale-fire
-// class, the very thing the ruling structurally kills. So the run is resolved at FIRE time, here.
-//
-// ⚠ AMBIGUITY IS A REFUSAL, NEVER A CHOICE. Zero open runs and MORE THAN ONE open run are both
-// typed failures. The one-live-run invariant is maintained BY HAND today (7.77 is unbuilt), so a
-// second open row is a real possibility, and picking one — the newest, the first, any rule at all —
-// would let a job fire into a run nobody pointed it at. `checkRunLive` already refuses to supply an
-// optimistic default for a fact the record declines to state; this refuses for the same reason.
-// The RUN REGISTER read, and the ONLY one on the daemon side — `<goal>/runs.csv`'s `state` column
-// answers "is a run of this goal live?", and `run-id` names which (PRIN-11: never a second place
-// that answers it; trace-field-audit.md §2.3 rules `closed` deliberately NOT a read site, because
-// deriving open-ness from an empty `closed` would be that second answer).
-//
-// EXTRACTED, NOT WRITTEN (task 7.129 / M4-14): every line below already stood inside
-// resolveSeatHome. It is lifted out because the ticker's one-live-run gate must read the register
-// too, and a second spelling of this predicate in the scheduler would be two readers of one file
-// that can disagree — `issues.md` G-301's exact shape. resolveSeatHome now calls it, so there is
-// one reader with two callers and its behaviour is unchanged.
-//
-// It REPORTS and never decides: `open` is the set, `unrecognized` is the set whose `state` is
-// neither `open` nor `closed` (the comparison is exact and stays exact — `coord.py`'s
-// `close_run_index` writes exactly those two values). A caller that must fail closed reads
-// `unrecognized`; nothing here widens the comparison until a disagreement disappears.
-function openRunsOfGoal({ workspaceRoot, goal }) {
-  if (!workspaceRoot || !goal) {
-    return { ok: false, reason: 'openRunsOfGoal requires workspaceRoot and goal' };
-  }
-  const goalDir = goalDirOf({ workspaceRoot, goal });
-  const runsCsv = path.join(goalDir, 'runs.csv');
-  const runs = readCsv(runsCsv);
-  if (!runs.exists) {
-    return { ok: false, register: runsCsv, goalDir, reason: `runs.csv unreadable at ${runsCsv} — goal "${goal}" has no run log` };
-  }
-  const runCol = runs.header.includes('run-id') ? 'run-id' : (runs.header.includes('run') ? 'run' : null);
-  if (!runCol) {
-    return { ok: false, register: runsCsv, goalDir, reason: `runs.csv carries no run-id/run column (header: ${runs.header.join(',')})` };
-  }
-  if (!runs.header.includes('state')) {
-    return { ok: false, register: runsCsv, goalDir, reason: `runs.csv carries no state column (header: ${runs.header.join(',')})` };
-  }
-  return {
-    ok: true,
-    register: runsCsv,
-    goalDir,
-    runCol,
-    rows: runs.rows,
-    open: runs.rows.filter((r) => r.state === 'open'),
-    unrecognized: runs.rows.filter((r) => r.state !== 'open' && r.state !== 'closed'),
-  };
 }
 
 // ── r-seats-only-architecture — auto-materialize a JOB-BORN seat's MINIMAL valid shape ─────────
@@ -364,37 +291,32 @@ function materializeSeatFolder(parsed, { jobId = null } = {}) {
   return { created: true, seatMd };
 }
 
-function resolveSeatHome({ workspaceRoot, goal, seat, materialize = null }) {
+// Task 7.12 §job->seat — resolve a job's (goal, seat) POINTER to the seat folder its action runs in.
+//
+// ── 7.607 E2a — THERE IS NO LONGER A RUN TO FIND ───────────────────────────────────────────────
+//
+// The old body's hard part was RESOLUTION: the job row deliberately stores no run
+// (`r-job-seat-home` (1) — a stored run pins the pointer to a run that later closes, G-103's
+// stale-fire class), so this had to ASK the register which run was open, and refuse on zero or on
+// two. With the layer extinguished the question has no subject: a goal has ONE seats tree, at
+// `<goal>/seats/<seat>/`, and it is GOAL-DURABLE. The ambiguity refusal dies with the ambiguity —
+// there is nothing left to choose between, so nothing left to refuse choosing between.
+//
+// What SURVIVES is the ruling's actual intent, and it is now the lease's job: a job may not fire
+// into a goal that is not EXECUTING. `checkGoalExecuting` asks that at FIRE time, exactly as the
+// register read did, and fails closed on unreadable evidence for the same reason it always did.
+function resolveSeatHome({ workspaceRoot, goal, seat, materialize = null, readLease = deriveLease }) {
   if (!workspaceRoot || !goal || !seat) {
     return { ok: false, reason: 'resolveSeatHome requires workspaceRoot, goal and seat' };
   }
-  const register = openRunsOfGoal({ workspaceRoot, goal });
-  if (!register.ok) return { ok: false, reason: register.reason };
-  const { goalDir, register: runsCsv, runCol, open } = register;
-
-  if (open.length === 0) {
-    return { ok: false, reason: `goal "${goal}" has no run in state "open" in ${runsCsv} — nothing to fire into` };
-  }
-  if (open.length > 1) {
-    const names = open.map((r) => r[runCol]).join(', ');
-    return {
-      ok: false,
-      reason: `goal "${goal}" has ${open.length} runs in state "open" (${names}) in ${runsCsv} — `
-        + 'the one-live-run invariant is violated and this refuses to choose between them',
-    };
-  }
-
-  const run = open[0][runCol];
-  if (!run) return { ok: false, reason: `the open run row in ${runsCsv} carries no ${runCol} value` };
-
-  const seatDir = path.join(goalDir, 'runs', run, 'seats', seat);
+  const seatDir = path.join(goalDirOf({ workspaceRoot, goal }), 'seats', seat);
   // Round-tripped through the SAME parser every other caller uses, so a pointer that assembles a
   // path this module would not itself recognise as a seat folder fails here rather than at spawn.
   const parsed = parseSeatPath(seatDir);
   if (!parsed) {
     return { ok: false, reason: `assembled path is not a canonical seat folder: ${seatDir}` };
   }
-  const live = checkRunLive(parsed);
+  const live = checkGoalExecuting(parsed, { readLease });
   if (!live.ok) return { ok: false, reason: live.reason };
 
   if (materialize) {
@@ -417,7 +339,7 @@ function resolveSeatHome({ workspaceRoot, goal, seat, materialize = null }) {
     if (!materialized.ok) return { ok: false, reason: materialized.reason };
   }
 
-  return { ok: true, seatDir, parsed, run };
+  return { ok: true, seatDir, parsed };
 }
 
 // Minimal frontmatter read — the `seat:` key only. A full YAML parse is not needed and would drag
@@ -532,10 +454,9 @@ module.exports = {
   parseGoalScope,
   resolveSeatFromCwd,
   goalDirOf,
-  openRunsOfGoal,
   materializeSeatFolder,
   resolveSeatHome,
-  checkRunLive,
+  checkGoalExecuting,
   checkMaterializedSeat,
   readSeatDescriptorName,
   goalKind,

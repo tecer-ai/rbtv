@@ -21,7 +21,8 @@ function setup(configOverrides = {}, extraProfiles = {}) {
   // r-seats-only-architecture (3): every daemon spawn resolves a canonical seat folder or is
   // refused, so the fixture provides one INSIDE workdir_root; enqueueLaunchAgent defaults its
   // queue args' workdir to it (the caller-named-workdir home lane the ticker admits).
-  const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal', 'runs', 'run-1');
+  // 7.607 E2a — GOAL-DIRECT: the goal folder IS the package; `runDir` is its alias here.
+  const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal');
   const seatDir = path.join(runDir, 'seats', 'probe-seat');
   fs.mkdirSync(seatDir, { recursive: true });
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\n---\n');

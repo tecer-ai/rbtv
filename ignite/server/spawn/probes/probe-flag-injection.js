@@ -90,7 +90,7 @@ capture('probe-flag-injection', async (lines) => {
     lines.push(`claude + seat.md present: --append-system-prompt-file ${path.basename(descriptor)} appended`);
 
     // No descriptor → the flag MUST be absent. This is the fatal case.
-    const bareSeat = path.join(ctx.workRoot, '.rbtv', 'goals', 'probe-goal', 'runs', 'run-1', 'seats', 'no-descriptor');
+    const bareSeat = path.join(ctx.workRoot, '.rbtv', 'goals', 'probe-goal', 'seats', 'no-descriptor');
     fs.mkdirSync(bareSeat, { recursive: true });
     const withoutSeat = composeArgv(claudeProfile, 'headless', 'sid-2', bareSeat, 'p', ctx.dataRoot).argv;
     if (withoutSeat.includes('--append-system-prompt-file')) {

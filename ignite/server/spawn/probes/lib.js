@@ -20,9 +20,11 @@ function setup() {
 
   // r-seats-only-architecture (3): every daemon spawn resolves a canonical seat folder or is
   // refused, so the fixture provides one INSIDE workdir_root for the probes' live-spawn legs.
-  // The run-level sessions.csv carries the real 7.37 header so the at-dispatch row appends
-  // cleanly rather than warning.
-  const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal', 'runs', 'run-1');
+  // 7.607 E2a — GOAL-DIRECT: `<ws>/.rbtv/goals/<goal>/seats/<seat>/`, no run compartment. The
+  // goal-level sessions.csv carries the real 7.37 header so the at-dispatch row appends cleanly
+  // rather than warning. `runDir` is kept as the NAME the consuming probes destructure and is the
+  // goal dir itself — the same alias `parseSeatPath` returns for the cage's `{runDir}` slot.
+  const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal');
   const seatDir = path.join(runDir, 'seats', 'probe-seat');
   fs.mkdirSync(seatDir, { recursive: true });
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\n---\n');

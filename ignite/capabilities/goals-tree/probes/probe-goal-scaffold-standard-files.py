@@ -7,9 +7,14 @@ machinery writes the standard goal-folder artifacts from DETERMINISTIC templates
 every supported harness (`CLAUDE.md` plus each equivalent, here `AGENTS.md`) plus the
 write-if-something files. Owner ruling Q16 (2026-08-09, `d-owner-batch-q12-q19-0809` item 5)
 added `ideas.md` to that set, making it FIVE (`issues.md`, `decisions.md`, `doubts.md`,
-`gotchas.md`, `ideas.md`) and the created goal TEN files. Measured at the commit before 7.582
-landed, `rbtv-goal scaffold` wrote four files — `goal.md`, `decisions.md`, `runs.csv`,
-`threads.sql` — so the rest were the gap.
+`gotchas.md`, `ideas.md`). Measured at the commit before 7.582 landed, `rbtv-goal scaffold` wrote
+four files — `goal.md`, `decisions.md`, `runs.csv`, `threads.sql` — so the rest were the gap.
+
+⚠ 7.607 E2a — THE ARTIFACT SET IS ONE FILE SHORTER, AND ITS ABSENCE IS ASSERTED. `runs.csv` is NOT
+written any more: the run layer is extinguished (`decisions.md#d-runs-extinguished`), the register
+with it, and a created goal now carries NINE files. `NEVER_WRITTEN` below asserts the register's
+absence directly — dropping it from the expected LIST alone would let a scaffold that still minted
+one pass, which is the whole failure mode this probe exists to refuse.
 
 The five properties scored:
 
@@ -60,7 +65,9 @@ OUT = HERE / "probe-goal-scaffold-standard-files.out"
 # then delete the check that name is written, and the probe would stay green over the regression.
 ROUTERS = ("CLAUDE.md", "AGENTS.md")
 WRITE_IF_SOMETHING = ("issues.md", "decisions.md", "doubts.md", "gotchas.md", "ideas.md")
-PRE_EXISTING = ("goal.md", "runs.csv", "threads.sql")
+PRE_EXISTING = ("goal.md", "threads.sql")
+# 7.607 E2a — the register is EXTINGUISHED, and its absence is a property, not an omission.
+NEVER_WRITTEN = ("runs.csv",)
 
 # The landed call + guard, verbatim. Textual replacement: a reshaped fix stops matching and turns
 # the arm INOPERATIVE rather than quietly green.
@@ -152,6 +159,19 @@ def main() -> int:
                   p.is_file() and p.stat().st_size > 0,
                   f"exists={p.is_file()} size={p.stat().st_size if p.is_file() else 'n/a'}")
 
+        # ── 1b. AND THE EXTINGUISHED ARTIFACTS ARE NOT WRITTEN (7.607 E2a) ────────────────────
+        # An assertion of ABSENCE, because a shorter expected list only stops CHECKING for the
+        # register — it does not notice one being minted. The scaffolded folder is listed too, so
+        # the arm names what IS there when it goes red.
+        for fname in NEVER_WRITTEN:
+            p = gd / fname
+            check(f"1b. a fresh scaffold does NOT write {fname} (the run register is extinguished)",
+                  not p.exists(),
+                  f"present={p.exists()}; folder holds {sorted(x.name for x in gd.iterdir())}")
+        check("1b. a fresh scaffold does NOT create a runs/ compartment",
+              not (gd / "runs").exists(),
+              f"runs/ present={(gd / 'runs').exists()}")
+
         # ── 2. THE ROUTERS ROUTE — content, not count ─────────────────────────────────────────
         for router in ROUTERS:
             text = read(gd / router)
@@ -175,8 +195,15 @@ def main() -> int:
         # Content, not presence: arm 1 above passes on any decisions.md, including the pre-Q19
         # body. Both conjuncts are spelled as literals for the same reason the set is.
         dec = read(gd / "decisions.md")
-        check("2b. decisions.md names the run-folder half of the durability split",
-              "runs/run-<n>/decisions.md" in dec, dec[:200])
+        # 7.607 E2a — the run-folder half of the split HAD to go: `p-*` anchors are now DURABLE
+        # and hand-pruned (design-lock item 6), so a template still pointing them at a run folder
+        # would send agents to a path that cannot exist. The arm asserts the REPLACEMENT doctrine
+        # AND the absence of the retired one, because dropping the check would leave a template
+        # that kept the dead sentence passing.
+        check("2b. decisions.md states that p-* anchors are DURABLE and hand-pruned (item 6)",
+              "DURABLE" in dec and "PRUNED BY HAND" in dec, dec[:400])
+        check("2b. decisions.md no longer sends provisional rulings to a run folder",
+              "runs/run-" not in dec and "dies with the run" not in dec, dec[:400])
         check("2b. decisions.md adopts the entry shape by CITING decisions-discipline.md",
               "authoring/decisions-discipline.md" in dec, dec[:200])
         check("2b. decisions.md no longer carries the pre-Q19 'NOT a log' body",

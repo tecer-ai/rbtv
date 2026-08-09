@@ -72,55 +72,65 @@ function makeRoom(pkgDir, room) {
   return { pid, starttime };
 }
 
-// A workspace with SIX goals, so every branch of the LEASE scan is exercised by data rather than
-// by argument: one goal EXECUTING with a coordination dir (granted) whose earlier run also has one
-// (must NOT be granted — no room), a second executing goal (granted — the cross-goal opening the
-// ruling is about), an executing goal with no coordination dir at all (skipped, never created), a
-// goal with no room, and the TWO SECURITY CASES the re-founding exists for: `historical`, whose
-// register still says `open` and whose seat folders are all still on disk but which has NO ROOM;
-// and `ghost`, which HAS a room but whose only registered occupant is a dead pid.
+// A workspace with FIVE goals, so every branch of the LEASE scan is exercised by data rather than
+// by argument: one goal EXECUTING with a coordination dir (granted, and it is the seat's OWN), a
+// second executing goal (granted — the cross-goal opening the ruling is about), an executing goal
+// with no coordination dir at all (skipped, never created), and the TWO SECURITY CASES the
+// re-founding exists for: `historical`, whose seat folders are all still on disk but which has NO
+// ROOM; and `ghost`, which HAS a room but whose only registered occupant is a dead pid.
+//
+// ── 7.607 E2a — GOAL-DIRECT, AND THE ROOM NAME IS NOW THE GOAL'S ───────────────────────────────
+//
+// Two fixture changes, both forced and neither cosmetic:
+//   · No `runs.csv` is written ANYWHERE. It was already a decoy here — E1 proved the predicate
+//     ignores it — and the file no longer exists in the layout, so writing one would test a shape
+//     that cannot occur. The states it used to encode are encoded by ROOMS now, which is the
+//     point of the ruling.
+//   · Rooms are named for the GOAL (`alpha`), not `<goal>-run-N`. The lease's E1 transitional
+//     predicate still ACCEPTS the legacy spelling, but `packageDirForRoom` resolves that spelling
+//     to `<goal>/runs/run-N` — a path that no longer exists — so a legacy-named room would
+//     contribute nothing and every grant leg would pass for the wrong reason. E2b deletes that
+//     arm; this fixture is already on the far side of it.
+//   · `alpha`'s CLOSED EARLIER RUN is gone with the compartment. Its assertion (a non-executing
+//     compartment of a goal is not granted) has no subject at goal level and is not simulated —
+//     what replaces it is `historical`, a whole goal with everything on disk and no room, which
+//     is the same claim at the granularity the layout actually has.
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'grant-classes-'));
   const ws = path.join(root, 'ws');
   const goals = path.join(ws, '.rbtv', 'goals');
 
-  const mk = (goal, runsCsv, dirs) => {
+  const mk = (goal, dirs) => {
     const goalDir = path.join(goals, goal);
     fs.mkdirSync(goalDir, { recursive: true });
-    fs.writeFileSync(path.join(goalDir, 'runs.csv'), runsCsv);
     for (const d of dirs) fs.mkdirSync(path.join(goalDir, d), { recursive: true });
     return goalDir;
   };
 
-  const HEADER = 'run-id,type,state,taskforce-ids,opened,closed\n';
-  const alpha = mk('alpha',
-    `${HEADER}run-0,fresh,closed,tf-0,2026-08-01 01:00,2026-08-02 01:00\nrun-1,fresh,open,tf-1,2026-08-02 01:00,\n`,
-    ['runs/run-0/coordination', 'runs/run-1/coordination', 'runs/run-1/seats/mine', 'runs/run-1/seats/plain']);
-  const beta = mk('beta', `${HEADER}run-1,fresh,open,tf-1,2026-08-02 01:00,\n`, ['runs/run-1/coordination']);
-  const gamma = mk('gamma', `${HEADER}run-1,fresh,open,tf-1,2026-08-02 01:00,\n`, ['runs/run-1']);
-  const delta = mk('delta', `${HEADER}run-1,fresh,closed,tf-1,2026-08-02 01:00,2026-08-03 01:00\n`, ['runs/run-1/coordination']);
-  // ⚠ THE SECURITY FIXTURES. `historical` is the state the ruling names: a register still reading
-  // `open`, every seat folder the goal ever had still on disk (they are goal-durable now), and NO
-  // ROOM. `ghost` has a room but nobody in it — its only registered occupant is a pid past the
-  // kernel's maximum, so it cannot be alive.
-  const historical = mk('historical', `${HEADER}run-1,fresh,open,tf-1,2026-08-02 01:00,\n`,
-    ['runs/run-1/coordination', 'runs/run-1/seats/ghost-a', 'runs/run-1/seats/ghost-b']);
-  const ghost = mk('ghost', `${HEADER}run-1,fresh,open,tf-1,2026-08-02 01:00,\n`, ['runs/run-1/coordination']);
+  const alpha = mk('alpha', ['coordination', 'seats/mine', 'seats/plain']);
+  const beta = mk('beta', ['coordination']);
+  const gamma = mk('gamma', []);
+  // ⚠ THE SECURITY FIXTURES. `historical` is the state the ruling names: every seat folder the
+  // goal ever had still on disk (they are goal-durable now) and NO ROOM. `ghost` has a room but
+  // nobody in it — its only registered occupant is a pid past the kernel's maximum, so it cannot
+  // be alive.
+  const historical = mk('historical', ['coordination', 'seats/ghost-a', 'seats/ghost-b']);
+  const ghost = mk('ghost', ['coordination']);
   const deadPid = Number(fs.readFileSync('/proc/sys/kernel/pid_max', 'utf8').trim()) + 1;
-  fs.writeFileSync(path.join(historical, 'runs', 'run-1', 'sessions.csv'),
+  fs.writeFileSync(path.join(historical, 'sessions.csv'),
     `seat,session-id,pid,pid-starttime\nghost-a,s1,${deadPid},1\n`);
-  fs.writeFileSync(path.join(ghost, 'runs', 'run-1', 'sessions.csv'),
+  fs.writeFileSync(path.join(ghost, 'sessions.csv'),
     `seat,session-id,pid,pid-starttime\nnobody,s1,${deadPid},1\n`);
 
-  const runDir = path.join(alpha, 'runs', 'run-1');
-  // The three EXECUTING goals get real rooms and real verified occupants; alpha/run-0, delta and
-  // `historical` deliberately get none. `ghost` gets a room and no live occupant.
-  const rooms = ['alpha-run-1', 'beta-run-1', 'gamma-run-1'];
-  makeRoom(runDir, 'alpha-run-1');
-  makeRoom(path.join(beta, 'runs', 'run-1'), 'beta-run-1');
-  makeRoom(path.join(gamma, 'runs', 'run-1'), 'gamma-run-1');
-  execFileSync('tmux', ['new-session', '-d', '-s', 'ghost-run-1'], { stdio: 'ignore', timeout: 15000 });
-  rooms.push('ghost-run-1');
+  const runDir = alpha;   // the goal folder IS the package
+  // The three EXECUTING goals get real rooms and real verified occupants; `historical` gets none.
+  // `ghost` gets a room and no live occupant.
+  const rooms = ['alpha', 'beta', 'gamma'];
+  makeRoom(runDir, 'alpha');
+  makeRoom(beta, 'beta');
+  makeRoom(gamma, 'gamma');
+  execFileSync('tmux', ['new-session', '-d', '-s', 'ghost'], { stdio: 'ignore', timeout: 15000 });
+  rooms.push('ghost');
 
   // The DECLARING seat — the channel-master's shape (read-root plus the three new keys).
   fs.writeFileSync(path.join(runDir, 'seats', 'mine', 'seat.md'),
@@ -128,32 +138,28 @@ function fixture() {
   // The seat that declares NOTHING — the fail-closed control.
   fs.writeFileSync(path.join(runDir, 'seats', 'plain', 'seat.md'), '---\nseat: plain\n---\nbriefing\n');
 
-  fs.writeFileSync(path.join(beta, 'runs', 'run-1', 'coordination', 'messages.md'), 'peer goal bus\n');
-  // The goals-write target: a peer goal's open run with the two surfaces the materializer writes
-  // (a seats/ dir, a taskforce.csv) AND the ground truth the grant must carve back read-only.
-  fs.mkdirSync(path.join(beta, 'runs', 'run-1', 'seats'), { recursive: true });
-  fs.writeFileSync(path.join(beta, 'runs', 'run-1', 'taskforce.csv'), 'taskforce-id,seat\n');
+  fs.writeFileSync(path.join(beta, 'coordination', 'messages.md'), 'peer goal bus\n');
+  // The goals-write target: a peer goal that is EXECUTING, with the two surfaces the materializer
+  // writes (a seats/ dir, a taskforce.csv) AND the ground truth the grant must carve back read-only.
+  fs.mkdirSync(path.join(beta, 'seats'), { recursive: true });
+  fs.writeFileSync(path.join(beta, 'taskforce.csv'), 'taskforce-id,seat\n');
 
   return {
     root, ws, runDir, rooms,
-    historicalRun: path.join(historical, 'runs', 'run-1'),
-    historicalCoord: path.join(historical, 'runs', 'run-1', 'coordination'),
-    ghostRun: path.join(ghost, 'runs', 'run-1'),
-    ghostCoord: path.join(ghost, 'runs', 'run-1', 'coordination'),
-    betaRun: path.join(beta, 'runs', 'run-1'),
-    betaSessions: path.join(beta, 'runs', 'run-1', 'sessions.csv'),
-    betaTaskforce: path.join(beta, 'runs', 'run-1', 'taskforce.csv'),
-    betaSeats: path.join(beta, 'runs', 'run-1', 'seats'),
-    deltaRun: path.join(delta, 'runs', 'run-1'),
-    alphaClosedRun: path.join(alpha, 'runs', 'run-0'),
+    historicalRun: historical,
+    historicalCoord: path.join(historical, 'coordination'),
+    ghostRun: ghost,
+    ghostCoord: path.join(ghost, 'coordination'),
+    betaRun: beta,
+    betaSessions: path.join(beta, 'sessions.csv'),
+    betaTaskforce: path.join(beta, 'taskforce.csv'),
+    betaSeats: path.join(beta, 'seats'),
     mineDir: path.join(runDir, 'seats', 'mine'),
     plainDir: path.join(runDir, 'seats', 'plain'),
     sessionsCsv: path.join(runDir, 'sessions.csv'),
     ownCoord: path.join(runDir, 'coordination'),
-    betaCoord: path.join(beta, 'runs', 'run-1', 'coordination'),
-    closedCoord: path.join(alpha, 'runs', 'run-0', 'coordination'),
-    gammaRun: path.join(gamma, 'runs', 'run-1'),
-    deltaCoord: path.join(delta, 'runs', 'run-1', 'coordination'),
+    betaCoord: path.join(beta, 'coordination'),
+    gammaRun: gamma,
   };
 }
 
@@ -213,16 +219,19 @@ capture('probe-seat-grant-classes', async (lines) => {
     leg('G1b', "its OWN open run's coordination dir is RW (and the duplicate opening is harmless)",
       granted.filter((a, i) => a === '--bind' && granted[i + 1] === f.ownCoord).length >= 1,
       `own-coordination --bind count ${granted.filter((a, i) => a === '--bind' && granted[i + 1] === f.ownCoord).length}`);
-    leg('G1c', 'a CLOSED run of the same goal is NOT bound at all',
-      !granted.includes(f.closedCoord), `closed-run coordination present in flags: ${granted.includes(f.closedCoord)}`);
+    // 7.607 E2a — G1c's subject was `alpha`'s CLOSED EARLIER RUN, and a goal has no compartments
+    // left to close. The claim it made — a non-executing part of the tree is not bound — survives
+    // at goal granularity as G8a below (`historical`: every seat folder on disk, no room, nothing
+    // bound), which is the same assertion against a state that can actually occur. Not silently
+    // dropped; re-homed, and named here so the census stays honest.
     // Class-specific by construction: the claim is that BUS-WRITE contributes nothing for a run
     // with no coordination dir, so it is asserted on that dir — not on "no flag mentions this
     // run", which another grant class over the same run folder (goals-write) legitimately does.
-    leg('G1d', 'a goal whose open run has NO coordination dir contributes no bus opening (never created)',
+    leg('G1d', 'an EXECUTING goal with NO coordination dir contributes no bus opening (never created)',
       !granted.includes(path.join(f.gammaRun, 'coordination')) && !fs.existsSync(path.join(f.gammaRun, 'coordination')),
       `gamma coordination in flags: ${granted.includes(path.join(f.gammaRun, 'coordination'))}; dir created on disk: ${fs.existsSync(path.join(f.gammaRun, 'coordination'))}`);
     leg('G1e', 'a goal with no room contributes nothing',
-      !granted.includes(f.deltaCoord), `delta (no room) coordination present: ${granted.includes(f.deltaCoord)}`);
+      !granted.includes(f.historicalCoord), `historical (no room) coordination present: ${granted.includes(f.historicalCoord)}`);
 
     // ── ⚠⚠ G8 — THE SECURITY ARMS OF THE 7.607 E1 RE-FOUNDING (design lock item 4).
     //
@@ -230,9 +239,9 @@ capture('probe-seat-grant-classes', async (lines) => {
     // would have GRANTED, and the ruling forbids both by name: "historical seat folders on disk
     // grant nothing", and access holds only "while [a seat] has a live, ancestry-verified process".
     // Each is asserted on BOTH grant classes, because a widening in either is the same breach.
-    leg('G8a', '⚠⚠ a goal whose runs.csv still reads `state=open`, with EVERY seat folder it ever '
-      + 'had still on disk, but with NO ROOM, grants NOTHING — not the bus, not the run folder. '
-      + 'This is the exact widening the extinguished run layer would have produced',
+    leg('G8a', '⚠⚠ a goal with EVERY seat folder it ever had still on disk (they are GOAL-DURABLE '
+      + 'now) but with NO ROOM grants NOTHING — not the bus, not the goal folder. This is the exact '
+      + 'widening a register-shaped predicate carried into the extinguished layout would produce',
       !granted.includes(f.historicalCoord) && !granted.includes(f.historicalRun),
       `historical coordination in flags: ${granted.includes(f.historicalCoord)}; run folder: ${granted.includes(f.historicalRun)}`);
     leg('G8b', '⚠⚠ a goal that HAS a live room but whose only registered occupant is a DEAD pid '
@@ -318,45 +327,47 @@ capture('probe-seat-grant-classes', async (lines) => {
     // ── G6 — goals-write: the seat materializer's write set, and the two narrowings that bound it.
     leg('G6a', "a declaring seat gets RW on another goal's OPEN RUN FOLDER (not just its coordination dir)",
       hasFlag(granted, '--bind', f.betaRun), `--bind ${f.betaRun}: ${hasFlag(granted, '--bind', f.betaRun)}`);
-    leg('G6b', "the seat's OWN run folder is NEVER granted — the peer-seat tmpfs and seat.md carve stay unshadowed",
+    leg('G6b', "the seat's OWN goal folder is NEVER granted — the peer-seat tmpfs and seat.md carve stay unshadowed",
       !hasFlag(granted, '--bind', f.runDir), `--bind own runDir: ${hasFlag(granted, '--bind', f.runDir)}`);
-    leg('G6c', "each granted run's sessions.csv is carved back READ-ONLY, after the rw opening",
+    leg('G6c', "each granted goal's sessions.csv is carved back READ-ONLY, after the rw opening",
       hasFlag(granted, '--ro-bind', f.betaSessions)
       && granted.lastIndexOf(f.betaSessions) > granted.lastIndexOf(f.betaRun),
       `--ro-bind ${f.betaSessions}: ${hasFlag(granted, '--ro-bind', f.betaSessions)}; carve after bind: ${granted.lastIndexOf(f.betaSessions) > granted.lastIndexOf(f.betaRun)}`);
     // THE SET, not a spot check. Asserting "beta is present" cannot tell an open-run resolver
     // from an every-run one — beta has a single run. The exact set can: it fails if a CLOSED run
     // is granted (alpha/run-0, delta/run-1), if the OWN run leaks in (alpha/run-1), or if an open
-    // run is missed (gamma, whose run folder has no coordination dir — a goals-write grant does
-    // not depend on one). Derived from the composed flags, compared against the fixture's own
-    // declared open runs.
-    const grantedRunDirs = [];
-    for (let i = 0; i < granted.length; i++) {
-      if (granted[i] === '--bind' && /[\\/]runs[\\/]run-\d+$/.test(granted[i + 1] || '')) grantedRunDirs.push(granted[i + 1]);
-    }
+    // goal is missed (gamma, which has no coordination dir — a goals-write grant does not depend
+    // on one).
+    //
+    // ⚠ THE SET IS ENUMERATED FROM THE FIXTURE'S OWN GOAL DIRS, NOT FROM A PATH PATTERN. The old
+    // body matched `--bind` targets against a /runs\/run-N$/ regex; with the compartment gone that
+    // pattern matches NOTHING, so the leg would have compared [] against [] and passed while
+    // measuring nothing at all. Membership of each goal dir the fixture built is checked instead.
+    const allGoalDirs = [f.runDir, f.betaRun, f.gammaRun, f.historicalRun, f.ghostRun];
+    const grantedRunDirs = allGoalDirs.filter((d) => hasFlag(granted, '--bind', d));
     const expected = [f.betaRun, f.gammaRun].sort();
-    leg('G6d', 'the granted RUN-FOLDER set is exactly the OPEN runs of other goals — no closed run, no own run',
+    leg('G6d', 'the granted GOAL-FOLDER set is exactly the EXECUTING, OCCUPIED other goals — not the own goal, not a roomless one, not an unoccupied room',
       JSON.stringify([...new Set(grantedRunDirs)].sort()) === JSON.stringify(expected),
       `granted ${JSON.stringify([...new Set(grantedRunDirs)].sort())} vs expected ${JSON.stringify(expected)} `
-      + `(alpha/run-0 closed, alpha/run-1 own, delta/run-1 closed all absent)`);
-    leg('G6h', 'a seat declaring nothing gets no run folder at all',
-      !plain.includes(f.betaRun) && !plain.includes(f.gammaRun) && !plain.includes(f.deltaRun) && !plain.includes(f.alphaClosedRun),
-      `plain seat run-folder openings: ${JSON.stringify(plain.filter((a) => /[\\/]runs[\\/]run-\d+$/.test(a)))}`);
+      + `(alpha own, historical roomless, ghost unoccupied — all absent)`);
+    leg('G6h', 'a seat declaring nothing gets no goal folder at all',
+      allGoalDirs.every((d) => !hasFlag(plain, '--bind', d)),
+      `plain seat goal-folder openings: ${JSON.stringify(allGoalDirs.filter((d) => hasFlag(plain, '--bind', d)))}`);
 
     // The materializer's two writes, proven ON DISK from outside the cage — and the carve proven
     // the same way, by the bytes of the file the grant must NOT have opened.
     inCage(f.mineDir, granted, `mkdir -p ${f.betaSeats}/seated && echo "seat: seated" > ${f.betaSeats}/seated/seat.md`);
-    leg('G6e', "a seat descriptor can be materialized into another goal's open run",
+    leg('G6e', "a seat descriptor can be materialized into another goal's executing folder",
       bytes(path.join(f.betaSeats, 'seated', 'seat.md')).includes('seat: seated'),
       `seated seat.md: ${JSON.stringify(bytes(path.join(f.betaSeats, 'seated', 'seat.md')).trim())}`);
     // The atomic append shape materialize-seats.py actually uses: tmp file in the SAME dir + rename.
     inCage(f.mineDir, granted,
       `cp ${f.betaTaskforce} ${f.betaRun}/.tf.tmp && echo "tf-1,seated" >> ${f.betaRun}/.tf.tmp && mv ${f.betaRun}/.tf.tmp ${f.betaTaskforce}`);
-    leg('G6f', 'taskforce.csv appends via tmp-file-plus-rename IN the run dir (why the grant is the run dir)',
+    leg('G6f', 'taskforce.csv appends via tmp-file-plus-rename IN the goal dir (why the grant is the goal dir)',
       bytes(f.betaTaskforce).includes('tf-1,seated'), `taskforce.csv now: ${JSON.stringify(bytes(f.betaTaskforce).trim())}`);
     const betaBefore = bytes(f.betaSessions);
     const spoof = inCage(f.mineDir, granted, `echo "imposter,999,999,999" >> ${f.betaSessions}`);
-    leg('G6g', "the GRANTED run's sessions.csv is still unwritable — no cross-goal identity spoofing",
+    leg('G6g', "the GRANTED goal's sessions.csv is still unwritable — no cross-goal identity spoofing",
       bytes(f.betaSessions) === betaBefore,
       `on-disk bytes ${bytes(f.betaSessions) === betaBefore ? 'UNCHANGED' : 'CHANGED — WALL BREACHED'} (in-cage exit ${spoof.exit}, not the evidence)`);
 

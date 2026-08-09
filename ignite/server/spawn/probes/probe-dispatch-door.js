@@ -41,14 +41,13 @@ function fixture() {
   const ws = path.join(root, 'ws');
   const goalsDir = path.join(ws, '.rbtv', 'goals');
   const goalDir = path.join(goalsDir, 'testgoal');
-  const runDir = path.join(goalDir, 'runs', 'run-1');
+  const runDir = goalDir;   // 7.607 E2a — goal-direct: the goal folder IS the package
   const seatDir = path.join(runDir, 'seats', 'mine');
   const seatlessDir = path.join(runDir, 'seats');
   const interimDir = path.join(ws, '.rbtv', 'sessions', 'subagent-1');
   for (const d of [seatDir, interimDir]) fs.mkdirSync(d, { recursive: true });
 
   fs.writeFileSync(path.join(goalsDir, 'goals.csv'), 'name,created,due,type,status\ntestgoal,2026-08-05,,one-shot,active\n');
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-08-05 01:30,\n');
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,mine\n');
   // The header task 7.37 settled — written BY COLUMN NAME by the writer under test, so a schema
   // this probe invented from the writer's side would prove nothing. This is the real one.
@@ -193,10 +192,12 @@ capture('probe-dispatch-door', async (lines) => {
     // ── D4 — a seat-SHAPED path outside any `.rbtv/goals/` tree is NOT a seat folder and is
     // REFUSED too. Under 7.75 this leg proved the goal tree was what armed the gate; under
     // r-seats-only-architecture the gate is armed everywhere — parseSeatPath requires the full
-    // canonical shape (`.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>`), so a decoy `seats/`
-    // segment outside the goal tree cannot buy admission. Inside the workspace, deliberately, so
-    // the containment gate is not what answers (the confounding D1's fixture note warns about).
-    const decoy = path.join(f.ws, 'decoy', 'runs', 'run-1', 'seats', 'mine');
+    // canonical shape (`.rbtv/goals/<goal>/seats/<seat>`), so a decoy `seats/` segment outside the
+    // goal tree cannot buy admission. Inside the workspace, deliberately, so the containment gate
+    // is not what answers (the confounding D1's fixture note warns about). ⚠ The decoy keeps a
+    // `.rbtv/goals`-SHAPED tail depth so what refuses it is the missing `.rbtv`/`goals` anchor and
+    // not merely a path too short to parse.
+    const decoy = path.join(f.ws, 'decoy', 'goals', 'testgoal', 'seats', 'mine');
     fs.mkdirSync(decoy, { recursive: true });
     const beforeD4 = world(f);
     const d4 = await dispatch(decoy);

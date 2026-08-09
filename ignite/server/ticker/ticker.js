@@ -23,8 +23,9 @@ const { expandArgv } = require('../heart/argv-template');
 // spelling here would be a second definition that drifts (that module's own opening argument).
 const { resolveSeatHome } = require('../seat-identity/seat-folder');
 const { resolveWorkspaceRoot } = require('../spawn/config');
-// Task 7.129 (7.77 / R9) — the one-live-run rule. The DECISION lives in its own module and the
-// register read lives in seat-folder.js; dispatch below only obeys the decision. Keeping the rule
+// Task 7.129 (7.77 / R9) — the one-live-execution rule. The DECISION lives in its own module and
+// the liveness EVIDENCE in `server/lease/lease.js` (7.607 E1; the register read that used to sit in
+// seat-folder.js is gone with the layer); dispatch below only obeys the decision. Keeping the rule
 // out of this function is what makes it unit-checkable without a tick.
 const { oneLiveRunDecision } = require('./one-live-run');
 // Task 7.130 (7.77 / R9) — the other half of the same rule: a queued run tells the owner. Rendering

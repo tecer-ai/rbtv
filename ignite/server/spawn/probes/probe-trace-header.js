@@ -51,11 +51,10 @@ function fixture(over) {
   const ws = path.join(root, 'ws');
   const goalsDir = path.join(ws, '.rbtv', 'goals');
   const goalDir = path.join(goalsDir, 'tracegoal');
-  const runDir = path.join(goalDir, 'runs', 'run-1');
+  const runDir = goalDir;   // 7.607 E2a — goal-direct: the goal folder IS the package
   const seatDir = path.join(runDir, 'seats', 'tracer');
   fs.mkdirSync(seatDir, { recursive: true });
   fs.writeFileSync(path.join(goalsDir, 'goals.csv'), 'name,created,due,type,status\ntracegoal,2026-08-06,,one-shot,active\n');
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-08-06 01:30,\n');
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,tracer\n');
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: tracer\n---\n');
 
@@ -102,8 +101,18 @@ function rows(csvPath) {
 
 const inode = (p) => { try { return fs.statSync(p).ino; } catch { return null; } };
 
-// A throwaway room name, never this run's. `process.pid` keeps two concurrent suite runs apart.
-const ROOM = `mc7-trace-${process.pid}`;
+// ── 7.607 E2a — THE ROOM IS THE GOAL'S NAME, AND IT LIVES ON AN ISOLATED SOCKET ────────────────
+//
+// Two changes, and both are forced by the lease. (1) `spawnSeat`'s L2 now asks whether the GOAL is
+// executing, and the evidence is a room named for it (design-lock item 2) — so a room called
+// `mc7-trace-<pid>` would leave every seat leg refused before it reached the door under test.
+// (2) The socket is a scratch `TMUX_TMPDIR` rather than the box's default server: the default
+// server carries the owner's attached session, and a probe may neither add a session to it nor
+// read it as evidence. `process.pid` still keeps two concurrent suite runs apart — now in the
+// SOCKET PATH rather than the session name, which is what lets the name be the goal's.
+const ROOM = 'tracegoal';
+const ROOM_TMPDIR = path.join(os.tmpdir(), `e2a-trace-${process.pid}`);
+const tmuxFixture = (args) => execFileSync('tmux', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 capture('probe-trace-header', async (lines) => {
   const fails = [];
@@ -115,6 +124,12 @@ capture('probe-trace-header', async (lines) => {
 
   const HEADER = ownerHeader();
   lines.push(`owner header (coord.py SESSIONS_COLS, asked at run time): ${HEADER}`);
+
+  // The isolated fixture server, up for the whole probe: T5 launches INTO it and T6 needs the
+  // goal's lease live so its refusal comes from the missing WINDOW rather than from L2.
+  const savedTmpdir = process.env.TMUX_TMPDIR;
+  fs.mkdirSync(ROOM_TMPDIR, { recursive: true, mode: 0o700 });
+  process.env.TMUX_TMPDIR = ROOM_TMPDIR;
 
   const fixtures = [];
   // The heart store is a per-process singleton (`E_SECOND_WRITER`), so each leg's fixture closes
@@ -231,7 +246,7 @@ capture('probe-trace-header', async (lines) => {
       const f = make({ headed: { tui: { argv: ['sleep', '90'] } } });
       let roomUp = false;
       try {
-        execFileSync('tmux', ['new-session', '-d', '-s', ROOM, '-n', 'idle', 'sleep', '120']);
+        tmuxFixture(['new-session', '-d', '-s', ROOM, '-n', 'idle', 'sleep', '120']);
         roomUp = true;
         const row = f.store.recordExecutionStart({
           jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({ profile: 'trace-probe' }),
@@ -249,7 +264,9 @@ capture('probe-trace-header', async (lines) => {
           !threw && !pre && v.ok && one && one['pid-starttime'] !== '',
           `pre-existing=${pre} threw=${threw} pid-starttime=${one && one['pid-starttime']} ${v.why}`);
       } finally {
-        if (roomUp) { try { execFileSync('tmux', ['kill-session', '-t', ROOM]); } catch { /* teardown */ } }
+        // The SESSION stays up for T6 (which needs this goal's lease live so its refusal comes from
+        // the missing window, not from L2); the whole fixture SERVER is reaped in the outer finally.
+        void roomUp;
       }
     }
     // ── T6 — THE FAILURE ARM AT THE SEAT DOOR. T4 proves it at the at-dispatch door only, and the
@@ -273,6 +290,9 @@ capture('probe-trace-header', async (lines) => {
         `threw=${threw} sessions.csv exists=${fs.existsSync(f.sessionsCsv)} rows=${t ? t.data.length : 'n/a'}`);
     }
   } finally {
+    try { tmuxFixture(['kill-server']); } catch { /* already gone */ }
+    if (savedTmpdir === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = savedTmpdir;
+    try { fs.rmSync(ROOM_TMPDIR, { recursive: true, force: true }); } catch { /* teardown */ }
     try { closeHeartStore(); } catch { /* teardown */ }
     for (const f of fixtures) { try { fs.rmSync(f.root, { recursive: true, force: true }); } catch { /* teardown */ } }
   }
