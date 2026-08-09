@@ -1058,7 +1058,13 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"  Mirror uninstall: deleted {len(un.deleted)} file(s), "
                 f"spared {len(un.spared)} hand-authored guidance file(s); "
-                "model_mirror cleared."
+                + (
+                    f"protected {len(un.protected)} recorded file(s) under an "
+                    "always-excluded prefix (left on disk, un-managed); "
+                    if un.protected
+                    else ""
+                )
+                + "model_mirror cleared."
             )
             _print_leftover_worker_dirs(un)
             print("\nMirror uninstall complete.")
@@ -1393,6 +1399,12 @@ def main(argv: list[str] | None = None) -> int:
                     f"\n  Mirror: deselected [{', '.join(sorted(deselected))}] — "
                     f"deleted {len(un.deleted)} file(s), "
                     f"spared {len(un.spared)} hand-authored guidance file(s)."
+                    + (
+                        f" Protected {len(un.protected)} recorded file(s) under an "
+                        "always-excluded prefix (left on disk, un-managed)."
+                        if un.protected
+                        else ""
+                    )
                 )
                 _print_leftover_worker_dirs(un)
 
