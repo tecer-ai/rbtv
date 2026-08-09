@@ -163,6 +163,13 @@ def main() -> int:
             check(f"2. {router} states the write-if-something contract",
                   "nothing writes nothing" in text or "writes nothing" in text,
                   text[:200])
+            # Owner ruling Q22: the NOT-logs claim EXEMPTS `decisions.md`, which Q19 made an
+            # append-only record. BOTH halves are asserted — the blanket claim alone passed the
+            # pre-Q22 body, and the exemption alone would pass a router that dropped the claim.
+            check(f"2. {router} exempts decisions.md from the NOT-logs claim (Q22)",
+                  "NOT logs" in text and "except `decisions.md`" in text
+                  and "append-only record" in text,
+                  text[:400])
 
         # ── 2b. THE decisions.md TEMPLATE CARRIES Q19 — the split, and the citation ──────────
         # Content, not presence: arm 1 above passes on any decisions.md, including the pre-Q19

@@ -127,6 +127,12 @@ WRITE_IF_SOMETHING = {
     "ideas.md": "an improvement worth framing that nobody has ruled on",
 }
 
+# The write-if-something sentence EXEMPTS `decisions.md`: owner ruling Q22 (2026-08-09,
+# `build/subagent-closeout/decisions.md#d-owner-batch4-partial-0809`) — Q19 gave that file an
+# append-only body (DECISIONS_TEMPLATE below), so a blanket "these are NOT logs" contradicted it.
+# ⚠ THE CLAUSE SITS INSIDE THE NOT-LOGS HALF ON PURPOSE. Trailing it after both halves scopes the
+# exception over "reporting obligation" too, which says decisions.md IS one — contradicting that
+# file's OWN scaffolded body ("Nothing obliges an entry"). Q22 exempted the log claim, nothing else.
 GOAL_ROUTER_TEMPLATE = """\
 # {name}/ — goal folder
 
@@ -142,8 +148,9 @@ where things are and where to write. What this goal IS lives in `goal.md`.
 
 ## Write-if-something files
 
-These are NOT logs, and none of them is a reporting obligation. Write to one ONLY when you have
-something to note; an agent with nothing to note writes nothing.
+These are NOT logs — except `decisions.md`, which IS an append-only record — and none of them is
+a reporting obligation. Write to one ONLY when you have something to note; an agent with nothing
+to note writes nothing.
 
 {table}
 
