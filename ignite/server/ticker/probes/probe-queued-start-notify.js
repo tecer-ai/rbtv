@@ -1,6 +1,6 @@
 'use strict';
 
-// Task 7.130 / M4-15 — the owner-notification path for a queued run.
+// Task 7.130 / M4-15 — the owner-notification path for a QUEUED START (renamed 7.607 E3).
 //
 // NINE CHECKS. The ones that carry the weight are the CONTROLS and the DISCRIMINATORS, because the
 // easy way to pass this task is to assert that a notify function was CALLED, and 7.77 excludes that
@@ -8,10 +8,10 @@
 //
 //   N1  a queued row NOTIFIES — driven through a real `ticker.tick()`, asserted on the message that
 //       arrived in the store's `owner-feed` thread, not on the notifier's return value.
-//   N2  THE CONTROL: a start with no open run notifies NOTHING. Without it, N1 is satisfied by a
+//   N2  THE CONTROL: a start with no live lease notifies NOTHING. Without it, N1 is satisfied by a
 //       path that notifies on every due row, which is not this path.
 //   N3  the notice NAMES the held start and the run that held it — literal expected substrings
-//       (goal, job id, queue row, due time, run-id), so the check cannot drift with the renderer.
+//       (goal, job id, queue row, due time, room), so the check cannot drift with the renderer.
 //   N4  ONCE per queued row, not once per tick — three ticks with the row still queued produce one
 //       message. A queued row is re-evaluated every tick; without this it is an hourly message
 //       storm. And a CHANGED reason re-notifies, because that is new information.
@@ -36,8 +36,8 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { setup, teardown, capture } = require('./lib');
 const {
-  createQueuedRunNotifier, renderQueuedRunNotice, describeNotifier, SKIPPED,
-} = require('../queued-run-notify');
+  createQueuedStartNotifier, renderQueuedStartNotice, describeNotifier, SKIPPED,
+} = require('../queued-start-notify');
 
 const WORKFLOW = 'start-a-run';
 const OWNER_FEED = 'owner-feed';
@@ -108,9 +108,10 @@ function queueEvent(overrides = {}) {
       'queue-id': 42, 'job-id': 'start-tg', 'action-type': 'start-workflow',
       goal: 'tg-goal', 'trigger-kind': 'scheduled', 'run-at': '2026-07-30T06:00:00Z',
     },
-    'open-run-found': { 'run-id': 'run-9', state: 'open', count: 1, register: '/ws/.rbtv/goals/tg-goal/runs.csv' },
+    'live-lease': { room: 'tg-goal', rooms: ['tg-goal'], state: 'live-lease', count: 1,
+                    register: 'session name === "tg-goal" (design-lock item 2: one room per goal)' },
     action: 'queued',
-    reason: 'open-run',
+    reason: 'live-lease',
     ...overrides,
   };
 }
@@ -163,7 +164,7 @@ async function run(lines) {
 
     const notices = ownerFeedNotices(ctx);
     assert(lines, notices.length === 1,
-      'N1 a queued run put exactly ONE notification on the owner feed (observed in the store, not a call count)',
+      'N1 a queued start put exactly ONE notification on the owner feed (observed in the store, not a call count)',
       `messages=${notices.length}`);
     assert(lines, actionsOf(r1, 'queued-notified', q.queue_id).length === 1,
       'N1 the tick records that the notification went out, distinctly from the queueing itself');
@@ -176,7 +177,7 @@ async function run(lines) {
     // ⚠ ANCHORED ON THE LABELLED LINE, NOT ON A BARE SUBSTRING — and that is a correction, not a
     // style choice. The first form of this check asked whether the notice CONTAINED "goal-open",
     // and it passed even with the goal line deleted, because the register path it also prints is
-    // `…/.rbtv/goals/goal-open/runs.csv` and contains the goal name incidentally. Mutant M1 caught
+    // `…/.rbtv/goals/goal-open/…` and contains the goal name incidentally. Mutant M1 caught
     // it. A bare substring check on a notice that also prints a PATH built from the same values is
     // satisfied by the path, so it proves nothing about the field it claims to guard.
     const text = notices[0].corpus;
@@ -184,11 +185,10 @@ async function run(lines) {
       ['the goal, on its own line', /^\s*goal:\s+goal-open\s*$/m],
       ['the held job', /^\s*start held:\s+job start-open\b/m],
       ['its queue row', new RegExp(`\\(queue row ${q.queue_id}\\)`)],
-      // 7.607 E2b: the room the lease found is the goal's OWN name now (item 2). The
-      // `open run found:` LABEL is E1's deliberate compat field (`event['open-run-found']`,
-      // kept so the unmodified notifier keeps rendering) — renaming it is the E3/E4 rename pass
-      // (E2a §5.5), so this arm asserts the VALUE that changed and leaves the label that did not.
-      ['the live room that held it', /^\s*open run found:\s+goal-open\b/m],
+      // 7.607 E3: the compat label is GONE with the compat field. The notice reads the lease
+      // directly and says so — `lease held by: room <goal>` — and the room the lease found is the
+      // goal's OWN name (item 2). Label and value now describe the same mechanism.
+      ['the live room that held it', /^\s*lease held by:\s+room goal-open\b/m],
       ['what happened', /was QUEUED/],
     ];
     const missing = mustName.filter(([, re]) => !re.test(text)).map(([label]) => label);
@@ -227,7 +227,7 @@ async function run(lines) {
     //
     // The break is injected at the deliverer, which is where a real delivery fails. The rest of the
     // path — decision, dispatch, queue row — is untouched and real.
-    const broken = createQueuedRunNotifier({
+    const broken = createQueuedStartNotifier({
       deliver: async () => ({ delivered: false, error: 'delivery-surface-unreachable' }),
     });
     const brokenResult = await broken(queueEvent());
@@ -245,7 +245,7 @@ async function run(lines) {
       'N5 the queued row survived every notification outcome — a notification failure is never a skip');
 
     // ── N6 — a THROWING deliverer is contained, not rethrown ─────────────────────────────────────
-    const thrower = createQueuedRunNotifier({
+    const thrower = createQueuedStartNotifier({
       deliver: async () => { throw new Error('socket hang up'); },
     });
     let threw = false;
@@ -258,7 +258,7 @@ async function run(lines) {
       JSON.stringify(thrownResult && thrownResult.error));
 
     // ── N7 — a MISSING deliverer is a surfaced failure, not a quiet no-op ────────────────────────
-    const undelivered = createQueuedRunNotifier({});
+    const undelivered = createQueuedStartNotifier({});
     const noDeliverer = await undelivered(queueEvent());
     assert(lines, noDeliverer.notified === true && noDeliverer.delivered === false
       && noDeliverer.error === SKIPPED.NO_DELIVERER,
@@ -267,7 +267,7 @@ async function run(lines) {
 
     // ── N8 — fires on the queue event and on NO other event ─────────────────────────────────────
     const sent = [];
-    const picky = createQueuedRunNotifier({ deliver: async (t) => { sent.push(t); return { delivered: true, ts: '1' }; } });
+    const picky = createQueuedStartNotifier({ deliver: async (t) => { sent.push(t); return { delivered: true, ts: '1' }; } });
     const nonEvents = [
       ['a start decision', { action: 'start' }],
       ['a defer-shaped action', { phase: 'dispatch', action: 'defer', reason: 'job-invalid' }],
@@ -295,14 +295,14 @@ async function run(lines) {
 
     // ── N9 — no credential in the notice or the event ───────────────────────────────────────────
     const secretShapes = [/xoxb-/, /xapp-/, /Bearer /i, /SLACK_BOT_TOKEN/, /IGNITE_BRIDGE_TOKEN/];
-    const rendered = renderQueuedRunNotice(queueEvent());
+    const rendered = renderQueuedStartNotice(queueEvent());
     const leaked = secretShapes.filter((re) => re.test(rendered) || re.test(JSON.stringify(queueEvent())));
     assert(lines, leaked.length === 0,
       'N9 no credential shape appears in the rendered notice or the event it renders',
       leaked.length ? `leaked: ${leaked.join(', ')}` : 'checked xoxb-/xapp-/Bearer/token env names');
 
     lines.push(`CHECKS: ${passed}/${passed} passed`);
-    lines.push('QUEUED_RUN_NOTIFY_OK: true');
+    lines.push('QUEUED_START_NOTIFY_OK: true');
   } finally {
     itmux(['kill-server'], { allowFail: true });
     for (const [k, v] of Object.entries(savedTmuxEnv)) {
@@ -314,4 +314,4 @@ async function run(lines) {
   }
 }
 
-capture('probe-queued-run-notify', run);
+capture('probe-queued-start-notify', run);

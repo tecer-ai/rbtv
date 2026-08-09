@@ -6,9 +6,10 @@ Provider plan limits are NOT here. They moved OUT of teamview to the `acct` CLI
 (`acct usage`, `acct usage --posh`) — accounts and their plan windows are a property of the
 BOX, not of a run, and teamview renders one run.
 
-⚠ teamview RENDERS the run's state; it does NOT sense it (settle ledger R24, task 7.34).
-`team-monitor` is the run's one raw-source sensor — it reads the tmux panes, harness session
-files and /proc, and writes ONE canonical snapshot to {goal}/runs/run-{n}/state.json. This
+⚠ teamview RENDERS the goal's state; it does NOT sense it (settle ledger R24, task 7.34).
+`team-monitor` is the goal's one raw-source sensor — it reads the tmux panes, harness session
+files and /proc, and writes ONE canonical snapshot to {goal}/state.json (GOAL-DIRECT since
+7.607 — there is no run folder and no `runs/run-N` segment). This
 program reads that file and nothing else, ALWAYS shows the snapshot's age, and renders a stale
 snapshot as a visible WARNING rather than as silently-current data. ONE lane stays outside
 that boundary and is named where it lives: the box CPU% (state.json's box{} carries no cpu
@@ -135,9 +136,9 @@ MARK = "\033[95m"  # status markers (+ …): bright magenta — legible on dark 
 #                    DIM vanished; unclaimed by the red/yellow/green/cyan semantics
 # ---------- the snapshot: teamview's ONLY run-state source (settle ledger R24, task 7.34) ----------
 #
-# teamview does not sense. `team-monitor` is the run's one raw-source sensor (tmux panes,
+# teamview does not sense. `team-monitor` is the goal's one raw-source sensor (tmux panes,
 # harness session files, /proc RAM and pressure) and writes ONE canonical snapshot to
-# {goal}/runs/run-{n}/state.json; teamview RENDERS it. Nobody else reads the panes — PRIN-2
+# {goal}/state.json; teamview RENDERS it. Nobody else reads the panes — PRIN-2
 # parity: one source of truth for the facts AND for their treatment.
 #
 # ⚠ TWO LANES ARE DELIBERATELY OUTSIDE THIS BOUNDARY, AND BOTH ARE NAMED SO A GREP-PROOF CAN
@@ -176,12 +177,12 @@ RECENT_ACTIVITY_S = 45.0
 
 
 def find_package(start=None):
-    """The run folder, by walk-up from `start` (default: cwd) — the first ancestor holding a
+    """The goal folder, by walk-up from `start` (default: cwd) — the first ancestor holding a
     `state.json`. None when there is none.
 
-    REUSE, NOT INVENTION: `coordinate` already resolves its run package from a cwd walk-up, and
-    every seat's cwd is inside its own run package, so a bare `teamview` keeps working from any
-    seat pane. Deliberately NOT a search of `.rbtv/goals/*/runs/*` from an assumed vault root —
+    REUSE, NOT INVENTION: `coordinate` already resolves its package from a cwd walk-up, and
+    every seat's cwd is inside its own goal package, so a bare `teamview` keeps working from any
+    seat pane. Deliberately NOT a search of `.rbtv/goals/*` from an assumed vault root —
     that would be inventing a discovery convention this system does not have (PRIN-7, PRIN-10)."""
     try:
         d = Path(start).resolve() if start else Path.cwd().resolve()
@@ -232,17 +233,17 @@ def snapshot_refusal(package_arg, session_arg, found, snap_session=None):
         where = f"--package {package_arg}" if package_arg else f"the current directory ({Path.cwd()})"
         return (f"no {SNAPSHOT_NAME} found from {where}.\n"
                 f"teamview renders a team-monitor snapshot; it no longer reads tmux directly.\n"
-                f"  run it from inside a run folder, or name one:\n"
-                f"      teamview --package /path/to/<goal>/runs/run-N\n"
-                f"  if the run folder is right but has no {SNAPSHOT_NAME}, the sensor is not "
+                f"  run it from inside a goal folder, or name one:\n"
+                f"      teamview --package /path/to/.rbtv/goals/<goal>\n"
+                f"  if the goal folder is right but has no {SNAPSHOT_NAME}, the sensor is not "
                 f"running:\n"
-                f"      team-monitor start --package /path/to/<goal>/runs/run-N")
+                f"      team-monitor start --package /path/to/.rbtv/goals/<goal>")
     if session_arg and snap_session and session_arg != snap_session:
-        return (f"this run package's snapshot is for session '{snap_session}', not "
+        return (f"this package's snapshot is for session '{snap_session}', not "
                 f"'{session_arg}'.\n"
                 f"  render it as it is:   teamview --package {found}\n"
-                f"  or point at the run folder whose session is '{session_arg}':\n"
-                f"      teamview --package /path/to/<goal>/runs/run-N")
+                f"  or point at the goal folder whose session is '{session_arg}':\n"
+                f"      teamview --package /path/to/.rbtv/goals/<goal>")
     return None
 
 
@@ -1620,10 +1621,10 @@ def cmd_selftest():
               for item in LEGEND_ITEMS))
     # R24 discovery: package-rooted, never tmux-rooted.
     with tempfile.TemporaryDirectory() as td:
-        run = Path(td).resolve() / "goal" / "runs" / "run-9"
+        run = Path(td).resolve() / "goals" / "zz-goal"
         (run / "seats" / "s1").mkdir(parents=True)
         (run / SNAPSHOT_NAME).write_text('{"captured_at": 1, "seats": []}', encoding="utf-8")
-        check("find_package: walks UP from a seat folder to the run folder holding state.json",
+        check("find_package: walks UP from a seat folder to the goal folder holding state.json",
               find_package(run / "seats" / "s1") == run and find_package(run) == run)
         check("find_package: None when no ancestor carries a snapshot (never a silent guess)",
               find_package(Path(td).resolve()) is None)
@@ -2223,8 +2224,8 @@ def cmd_selftest():
     no_pkg = snapshot_refusal(None, None, None)
     check("item9: no snapshot -> teaching refusal carrying a RUNNABLE command for BOTH causes "
           "(wrong directory, and sensor not started), never a bare flag name",
-          "teamview --package /path/to/<goal>/runs/run-N" in no_pkg
-          and "team-monitor start --package /path/to/<goal>/runs/run-N" in no_pkg
+          "teamview --package /path/to/.rbtv/goals/<goal>" in no_pkg
+          and "team-monitor start --package /path/to/.rbtv/goals/<goal>" in no_pkg
           and SNAPSHOT_NAME in no_pkg)
     check("item9: a positional NAME that disagrees with the snapshot's OWN session refuses and "
           "names both; agreement (and no name at all) resolves to None",

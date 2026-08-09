@@ -1,28 +1,33 @@
 #!/usr/bin/env node
 'use strict';
 
-// rbtv-run — the ATTACHED RUN surface, delegated to by `rbtv run <run-folder>`.
+// rbtv-execution — the ATTACHED EXECUTION surface, delegated to by `rbtv run <goal-folder>`.
+//
+// ⚠ RENAMED 7.607 E3 (design-lock item 7): the file was `attached-run/tool/rbtv-run` and the
+// operand was a `runs/run-N` folder. The run layer is extinguished — the operand is the GOAL
+// FOLDER, which IS the package (item 8). The umbrella verb the `rbtv` CLI routes here is still
+// spelled `run`; that word belongs to `core/capabilities/rbtv-cli` and is not renamed from here.
 //
 // The command orchestrates and the agent is a caller (registry `concepts/rbtv-cli.md`
 // § Run-verb machinery): this boots the ignite ENGINE IN-PROCESS — the same queue, tick algorithm
 // and fire path the daemon runs — attached to this terminal and dying with it. It returns on
-// completion or on ANY worker question, keeps its state in the run folder, and resumes from that
+// completion or on ANY worker question, keeps its state in the goal folder, and resumes from that
 // state when re-run.
 //
 // It owns NO advancement logic. Every decision about what advances is `engine/`'s, which is the
 // daemon's. This file is argv, output and exit codes.
 //
 // ⚠ THERE IS NO WATCHER FOR THIS LANE, and that is RULED rather than missing
-// (decisions.md#d-attached-lane-no-watcher): if this run dies unattended it stays dead until you
-// notice. Recovery is re-running this command — the run resumes from its run folder.
+// (decisions.md#d-attached-lane-no-watcher): if this execution dies unattended it stays dead until
+// you notice. Recovery is re-running this command — it resumes from the goal folder.
 
 const path = require('node:path');
 
-// tool/ -> attached-run/ -> capabilities/ -> ignite/. Three levels, not four: a fourth lands on
+// tool/ -> attached-execution/ -> capabilities/ -> ignite/. Three levels, not four: a fourth lands on
 // the rbtv root and the engine require fails with a module-not-found that names a path nobody
 // wrote. Verified by running the verb, not by counting the segments.
 const IGNITE_SRC = process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '..', '..', '..');
-const { runAttached } = require(path.join(IGNITE_SRC, 'engine', 'attached-run.js'));
+const { executeAttached } = require(path.join(IGNITE_SRC, 'engine', 'attached-execution.js'));
 
 const EXIT_OK = 0;
 const EXIT_REFUSED = 1;
@@ -32,15 +37,15 @@ const EXIT_QUESTION = 3;   // distinct: a run that STOPPED TO ASK is not a run t
 
 function help() {
   return [
-    'rbtv run <run-folder> --profile <name> [options]',
+    'rbtv run <goal-folder> --profile <name> [options]',
     '',
-    'Boot the ignite engine IN THIS TERMINAL and advance the run. The engine is the daemon\'s —',
+    'Boot the ignite engine IN THIS TERMINAL and advance the goal. The engine is the daemon\'s —',
     'same queue, same tick algorithm, same fire path — attached instead of detached.',
     '',
     'ARGUMENTS',
-    '  <run-folder>            .rbtv/goals/<goal>/runs/run-<n>/ — the run to advance. Its seats',
-    '                          come from that folder\'s taskforce.csv, and the `after` column is',
-    '                          the wave structure.',
+    '  <goal-folder>           .rbtv/goals/<goal>/ — the goal to advance. Its seats come from',
+    '                          that folder\'s taskforce.csv, and the `after` column is the wave',
+    '                          structure. There is no run folder (7.607: the package IS the goal).',
     '',
     'OPTIONS',
     '  --profile <name>        REQUIRED. A launch profile, BY NAME, from the one shared config.',
@@ -52,20 +57,20 @@ function help() {
     '  --json                  machine-readable result on stdout.',
     '',
     'EXIT CODES',
-    `  ${EXIT_OK}  the run COMPLETED, or the tick bound was reached`,
-    `  ${EXIT_REFUSED}  refused, or the run cannot advance (a blocked dependency chain)`,
-    `  ${EXIT_QUESTION}  a worker asked a QUESTION and the run returned to you`,
+    `  ${EXIT_OK}  the goal's execution COMPLETED, or the tick bound was reached`,
+    `  ${EXIT_REFUSED}  refused, or nothing can advance (a blocked dependency chain)`,
+    `  ${EXIT_QUESTION}  a worker asked a QUESTION and the execution returned to you`,
     '',
-    'STATE lives in the run folder — <run-folder>/heart.db, this run\'s own store. The daemon\'s',
+    'STATE lives in the goal folder — <goal-folder>/heart.db, this goal\'s own store. The daemon\'s',
     'store is never opened. Kill this terminal and re-run the same command: it resumes.',
     '',
-    '⚠ No watcher runs for an attached run (owner-ruled). A run that dies unattended stays dead',
+    '⚠ No watcher runs for an attached execution (owner-ruled). One that dies unattended stays dead',
     '  until you notice; re-running this command is the recovery.',
   ].join('\n');
 }
 
 function parseArgs(argv) {
-  const opts = { runFolder: null, profile: null, config: null, tickMs: null, maxTicks: null, json: false };
+  const opts = { goalFolder: null, profile: null, config: null, tickMs: null, maxTicks: null, json: false };
   const rest = [];
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -78,8 +83,8 @@ function parseArgs(argv) {
     else if (a.startsWith('-')) return { error: `unknown flag: ${a}` };
     else rest.push(a);
   }
-  if (rest.length > 1) return { error: `expected ONE run folder, got ${rest.length}: ${rest.join(', ')}` };
-  opts.runFolder = rest[0] || null;
+  if (rest.length > 1) return { error: `expected ONE goal folder, got ${rest.length}: ${rest.join(', ')}` };
+  opts.goalFolder = rest[0] || null;
   return opts;
 }
 
@@ -92,15 +97,15 @@ async function main(argv) {
   const opts = parseArgs(argv);
   if (opts.help) { process.stdout.write(help() + '\n'); return EXIT_OK; }
   if (opts.error) { process.stderr.write(`rbtv run: ${opts.error}\n\n${help()}\n`); return EXIT_REFUSED; }
-  if (!opts.runFolder) { process.stderr.write(`${help()}\n`); return EXIT_REFUSED; }
+  if (!opts.goalFolder) { process.stderr.write(`${help()}\n`); return EXIT_REFUSED; }
   if (!opts.profile) return refuse('--profile <name> is required. Profiles are pinned and NAMED in the one shared config; this verb never composes one.');
 
   const spawnConfigPath = opts.config || path.join(IGNITE_SRC, 'config', 'spawn-profiles.yaml');
 
   let result;
   try {
-    result = await runAttached({
-      runFolder: opts.runFolder,
+    result = await executeAttached({
+      goalFolder: opts.goalFolder,
       profile: opts.profile,
       spawnConfigPath,
       tickIntervalMs: opts.tickMs || null,
@@ -117,12 +122,12 @@ async function main(argv) {
   if (opts.json) {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   } else {
-    process.stdout.write(`\nrun ${result.outcome} — ${result.runFolder}\n`);
+    process.stdout.write(`\nexecution ${result.outcome} — ${result.goalFolder}\n`);
     process.stdout.write(`  store   ${result.storePath}\n`);
     process.stdout.write(`  ticks   ${result.ticks} this session (tick ${result.resumedAtTick} -> ${result.tick})\n`);
     process.stdout.write(`  seats   ${result.seats.join(', ')}\n`);
     if (result.asks.length) {
-      process.stdout.write('\nA WORKER ASKED — the run stopped and handed it back to you:\n');
+      process.stdout.write('\nA WORKER ASKED — the execution stopped and handed it back to you:\n');
       for (const a of result.asks) process.stdout.write(`  [${a.sender}] ${a.corpus}\n`);
       process.stdout.write('\nAnswer it, then re-run this command to continue.\n');
     }

@@ -57,15 +57,24 @@ const NO_GOAL_SEAT_NOTICE = "⚠ no goal-master seat is open for this goal — a
 const SEAT_BUSY_NOTICE = "⚠ that work is still busy with the previous message — yours was NOT delivered, please send it again shortly";
 
 // The FOURTH honest refusal (ratified 2026-08-09): the owner replied in an agent's own thread,
-// but that agent's seat is no longer on disk — its run closed, or the seat was never
-// materialized under the goal's currently-open run. Nothing is enqueued, and the owner is told
-// in the thread he typed in, because silence there reads as the agent ignoring him. Fixed
-// string, no internals: which seat and which run are the deployment's business, not chat's.
+// but that agent's seat is no longer on disk — it was never materialized, or it was cleaned up.
+// Nothing is enqueued, and the owner is told in the thread he typed in, because silence there
+// reads as the agent ignoring him. Fixed string, no internals: which seat and which goal are the
+// deployment's business, not chat's.
 const NO_AGENT_SEAT_NOTICE = "⚠ that agent's seat is no longer open — its thread can't be answered";
 
-// Where a session on a GOAL surface is HOMED: a named seat of that goal's OPEN run.
-//   <workspaceRoot>/.rbtv/goals/<goalId>/runs.csv  → the row with state=open
-//   <workspaceRoot>/.rbtv/goals/<goalId>/runs/<run-id>/seats/<seatName>
+// Where a session on a GOAL surface is HOMED: a named seat of that goal.
+//   <workspaceRoot>/.rbtv/goals/<goalId>/seats/<seatName>
+//
+// ⚠ GOAL-DIRECT SINCE 7.607 (E3). This used to read the goal's `runs.csv` for a `state=open` row
+// and compose `runs/<run-id>/seats/<seat>` — the SECOND independent parser of that register
+// (inventory #36), reading a stored status to answer a question that was never about liveness.
+// A seat folder is GOAL-DURABLE now (design-lock items 1 and 8): the seat either exists on disk
+// or it does not, and that is the whole question a session home has to answer. The register read
+// could only ever have made this WRONG — a goal whose row read `closed` had its live goal-master
+// declared unreachable, and a goal whose row read `open` after the room died resolved a seat dir
+// under a run folder that no longer exists.
+//
 // Every step is a refusal point, and each returns a REASON rather than a fallback: an
 // unresolvable seat must never degrade into launching at some default workdir, where the
 // session would run with no descriptor and no goal identity at all.
@@ -80,14 +89,12 @@ const NO_AGENT_SEAT_NOTICE = "⚠ that agent's seat is no longer open — its th
 //
 // ⚑ THE NAME IS VALIDATED, because it now comes from a bus row's `from:` field rather than
 // from a literal in this file. A name carrying `..` or a separator would resolve a seat dir
-// OUTSIDE the run — and that dir becomes a session's cwd.
-// ponytail: plain split on ',' — runs.csv columns are ids and timestamps, no quoted
-// fields; if a column ever needs escaping this needs a real CSV reader.
+// OUTSIDE the goal — and that dir becomes a session's cwd.
 //
 // ⚑ `owner` IS A RESERVED ADDRESS, NEVER A SEAT (ruling `d-agents-address-owner-not-master`): no
 // seat may carry the name, so a seat dir called `owner` is a question with no answer and is
-// refused rather than resolved. Without this a run that materialized such a folder would make the
-// bus's owner ADDRESS resolvable as a session home.
+// refused rather than resolved. Without this a goal that materialized such a folder would make
+// the bus's owner ADDRESS resolvable as a session home.
 const SEAT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const RESERVED_SEAT_NAME = 'owner';
 
@@ -96,22 +103,17 @@ function resolveGoalSeat(workspaceRoot, goalId, seatName = 'goal-master') {
   if (!SEAT_NAME_RE.test(String(seatName))) return { ok: false, reason: 'seat-name-not-a-name' };
   if (String(seatName) === RESERVED_SEAT_NAME) return { ok: false, reason: 'owner-is-reserved' };
   const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', String(goalId));
-  const runsCsv = path.join(goalDir, 'runs.csv');
-  let raw;
-  try { raw = fs.readFileSync(runsCsv, 'utf8'); } catch { return { ok: false, reason: 'runs-csv-unreadable' }; }
-  const rows = raw.split('\n').map((l) => l.trim()).filter(Boolean).slice(1); // drop the header
-  const open = rows.map((l) => l.split(',')).find((c) => (c[2] || '').trim() === 'open');
-  if (!open) return { ok: false, reason: 'no-open-run' };
-  const runId = (open[0] || '').trim();
-  if (!runId) return { ok: false, reason: 'no-open-run' };
-  const seatDir = path.join(goalDir, 'runs', runId, 'seats', String(seatName));
-  // The seat must EXIST — a run can be open with the seat never materialized (or checked out
-  // and cleaned up), and launching at a path that is not there is the failure this check
-  // exists to make visible.
+  try {
+    if (!fs.statSync(goalDir).isDirectory()) return { ok: false, reason: 'no-such-goal' };
+  } catch { return { ok: false, reason: 'no-such-goal' }; }
+  const seatDir = path.join(goalDir, 'seats', String(seatName));
+  // The seat must EXIST — a goal can exist with the seat never materialized (or checked out and
+  // cleaned up), and launching at a path that is not there is the failure this check exists to
+  // make visible.
   try {
     if (!fs.statSync(seatDir).isDirectory()) return { ok: false, reason: 'seat-missing', seat: String(seatName), seatDir };
   } catch { return { ok: false, reason: 'seat-missing', seat: String(seatName), seatDir }; }
-  return { ok: true, runId, seatDir, seat: String(seatName) };
+  return { ok: true, seatDir, seat: String(seatName) };
 }
 
 function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null, deliver = null }) {
@@ -170,7 +172,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     if (!route || (route.kind !== 'goal' && route.kind !== 'agent')) return { ok: true, workdir: config.workdir || null };
     const seat = resolveGoalSeat(config.workspaceRoot, route.goalId, route.kind === 'agent' ? route.agent : 'goal-master');
     if (!seat.ok) return seat;
-    return { ok: true, workdir: seat.seatDir, runId: seat.runId };
+    return { ok: true, workdir: seat.seatDir, seat: seat.seat };
   }
 
   // A first message that STARTS work → a session-creating launch-agent job.
@@ -184,7 +186,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     const home = workdirFor(route);
     if (!home.ok) {
       // Nothing is enqueued. The owner gets a fixed notice on the surface he typed on, because
-      // the fix — seating a goal-master on the open run, or accepting that an agent's seat is
+      // the fix — seating a goal-master on the goal, or accepting that an agent's seat is
       // gone — is a human act. The two surfaces get DIFFERENT notices: they name different acts.
       const isAgent = Boolean(route && route.kind === 'agent');
       log('warn', 'goal-surface session-create refused: no seat resolved', { chatThreadId, kind: route && route.kind, goalId: route && route.goalId, agent: route && route.agent, reason: home.reason });

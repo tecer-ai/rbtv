@@ -100,8 +100,11 @@ probe's own run window — **never from the content of a committed `.out`**.
 Probes write their `.out` in place, so a run always rewrites captures — but the runner restores
 each one byte-identical (mtime included) and keeps the fresh output beside the summary, so **the
 working tree is unchanged by default**. Regeneration is the deliberate `--write-captures`. The
-summary and captures default to the workspace `.rbtv/` runtime root, never into the repo
-(§ Installation model's no-runtime-state-in-the-repo rule).
+summary and captures default to `<tmpdir>/rbtv-probe-suite/` — never into the repo (§ Installation
+model's no-runtime-state-in-the-repo rule), and since 7.607 E3 not into the workspace `.rbtv/`
+either: a read-only check must not write into the goals workspace as the price of running, so a
+dispatch fenced against `.rbtv/**` can run the suite without breaching its own fence. A summary
+worth keeping is worth naming — pass `--summary <path>` and it is written verbatim there.
 
 ## Installation model
 

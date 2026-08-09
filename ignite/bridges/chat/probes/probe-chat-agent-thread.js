@@ -104,23 +104,23 @@ function msgRow(id, from, to, type, body) {
 // declares `human-interactive` (a string value is written verbatim, so `no` is testable).
 // No roster is written anywhere here: an absent `workers.md` is the nobody-home branch, which
 // is the ONLY branch the gates sit on.
-function seedRun(root, goalId, { runId = 'run-1', executionMode = 'interactive', seats = {} } = {}) {
+// 7.607 E3: GOAL-DIRECT. No `runs.csv`, no run folder — the coordination bus and the seats hang
+// off the goal folder itself, and the third element of identity is the EXECUTION STAMP
+// (design-lock item 5) written to `coordination/execution`.
+function seedGoal(root, goalId, { stamp = '2026-08-03a', executionMode = 'interactive', seats = {} } = {}) {
   const goalDir = path.join(root, '.rbtv', 'goals', goalId);
-  const runDir = path.join(goalDir, 'runs', runId);
-  fs.mkdirSync(path.join(runDir, 'coordination'), { recursive: true });
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'),
-    'run-id,type,state,taskforce-ids,opened,closed\n' +
-    `${runId},fresh,open,tf-1,2026-08-03 00:00,\n`);
+  fs.mkdirSync(path.join(goalDir, 'coordination'), { recursive: true });
+  fs.writeFileSync(path.join(goalDir, 'coordination', 'execution'), `${stamp}\n`);
   if (executionMode !== null) fs.writeFileSync(path.join(goalDir, 'execution-mode'), `${executionMode}\n`);
   for (const [seat, flag] of Object.entries(seats)) {
-    fs.mkdirSync(path.join(runDir, 'seats', seat), { recursive: true });
-    fs.writeFileSync(path.join(runDir, 'seats', seat, 'seat.md'),
+    fs.mkdirSync(path.join(goalDir, 'seats', seat), { recursive: true });
+    fs.writeFileSync(path.join(goalDir, 'seats', seat, 'seat.md'),
       `---\nseat: ${seat}\n${flag === null ? '' : `human-interactive: ${flag}\n`}---\nbody\n`);
   }
-  const file = path.join(runDir, 'coordination', 'messages.md');
+  const file = path.join(goalDir, 'coordination', 'messages.md');
   fs.writeFileSync(file, '# messages — append-only coordination log (script-managed, do not edit by hand)\n\n'
     + msgRow(1, 'leader', 'leader', 'note', 'history — first sight seeds the cursor here'));
-  return { file, runDir, goalDir };
+  return { file, goalDir };
 }
 
 function append(file, chunk) { fs.appendFileSync(file, chunk); }
@@ -322,7 +322,7 @@ async function main() {
   //     answer, and only the exact word `interactive` is the other.
   {
     const root = mkroot();
-    const { runDir } = seedRun(root, 'goal-modes', { executionMode: null, seats: { 'seat-yes': 'yes', 'seat-true': 'TRUE', 'seat-no': 'no', 'seat-blank': null, owner: 'yes' } });
+    const { goalDir } = seedGoal(root, 'goal-modes', { executionMode: null, seats: { 'seat-yes': 'yes', 'seat-true': 'TRUE', 'seat-no': 'no', 'seat-blank': null, owner: 'yes' } });
     const absent = goalExecutionMode(root, 'goal-modes');
     fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goal-modes', 'execution-mode'), '  Interactive \n');
     const interactive = goalExecutionMode(root, 'goal-modes');
@@ -334,38 +334,38 @@ async function main() {
       { absent, interactive, junk });
 
     check('gate 1: `yes`/`true` declare a seat human-interactive; `no`, a missing line, and a missing descriptor do not',
-      seatIsHumanInteractive(runDir, 'seat-yes') === true
-      && seatIsHumanInteractive(runDir, 'seat-true') === true
-      && seatIsHumanInteractive(runDir, 'seat-no') === false
-      && seatIsHumanInteractive(runDir, 'seat-blank') === false
-      && seatIsHumanInteractive(runDir, 'seat-absent') === false,
+      seatIsHumanInteractive(goalDir, 'seat-yes') === true
+      && seatIsHumanInteractive(goalDir, 'seat-true') === true
+      && seatIsHumanInteractive(goalDir, 'seat-no') === false
+      && seatIsHumanInteractive(goalDir, 'seat-blank') === false
+      && seatIsHumanInteractive(goalDir, 'seat-absent') === false,
       {});
 
     check('gate 1 reads a seat NAME, never a path — a traversing `from:` token resolves nothing',
-      seatIsHumanInteractive(runDir, '../../seat-yes') === false && seatIsHumanInteractive(runDir, 'seats/seat-yes') === false, {});
+      seatIsHumanInteractive(goalDir, '../../seat-yes') === false && seatIsHumanInteractive(goalDir, 'seats/seat-yes') === false, {});
 
     // `owner` is an ADDRESS, never a seat (`d-agents-address-owner-not-master`). A run that
     // materialized a seat folder called `owner` — declaring the flag, so only the reservation can
     // refuse it — must not make the bus's owner address resolvable as a seat, on either reader.
     check('`owner` is RESERVED: it is refused as a seat name by the gate-1 reader and by resolveGoalSeat, even with the flag declared',
-      seatIsHumanInteractive(runDir, 'owner') === false
+      seatIsHumanInteractive(goalDir, 'owner') === false
       && isSafeName('owner') === false && isSafeName('goal-owner') === true
       && resolveGoalSeat(root, 'goal-modes', 'owner').reason === 'owner-is-reserved',
       { resolve: resolveGoalSeat(root, 'goal-modes', 'owner') });
 
     // The flag lives in FRONTMATTER. An unscoped read would let a seat's PROSE — a briefing line
     // that quotes the flag, or a copy of this very rule — open gate 1 for a seat nobody declared.
-    fs.writeFileSync(path.join(runDir, 'seats', 'seat-blank', 'seat.md'),
+    fs.writeFileSync(path.join(goalDir, 'seats', 'seat-blank', 'seat.md'),
       '---\nseat: seat-blank\n---\n\nThe protocol says to write `human-interactive: yes` in frontmatter.\nhuman-interactive: yes\n');
     check('gate 1 is scoped to the FRONTMATTER block — the same line in the descriptor BODY does not open it',
-      seatIsHumanInteractive(runDir, 'seat-blank') === false, {});
+      seatIsHumanInteractive(goalDir, 'seat-blank') === false, {});
   }
 
   // 2 — GATE 2 PARKS THE ROW, and parking means NOTHING POSTED ANYWHERE. The pair is the
   //     point: the same row, same seat, same everything except the goal's one-word mode.
   {
     const root = mkroot();
-    const { file } = seedRun(root, 'goal-auto', { executionMode: null, seats: { leader: 'yes' } });
+    const { file } = seedGoal(root, 'goal-auto', { executionMode: null, seats: { leader: 'yes' } });
     const logs = [];
     const a = makeBridge({ workspaceRoot: root, logs });
     await a.bridge.start();
@@ -384,9 +384,9 @@ async function main() {
     check('GATE 2 (absent → autonomous): the row is PARKED — nothing posted to the goal channel, nothing to the owner DM — and the cursor still advances',
       a.slack.posted.length === postsBefore
       && a.slack.postsIn(reg.channelId).length === 0 && a.slack.postsIn(DM).length === 0
-      && a.bridge.busFerry._cursors.get('goal-auto/run-1') === 3
+      && a.bridge.busFerry._cursors.get('goal-auto/2026-08-03a') === 3
       && parked.length === 1 && parked[0].gate === 'execution-mode' && parked[0].executionMode === 'autonomous',
-      { posted: a.slack.posted.length, cursor: a.bridge.busFerry._cursors.get('goal-auto/run-1'), parked });
+      { posted: a.slack.posted.length, cursor: a.bridge.busFerry._cursors.get('goal-auto/2026-08-03a'), parked });
     check('RULING (gates shut): the `to: master` row beside it is not posted AND not even PARKED — it was never this ferry\'s business',
       a.slack.posted.length === postsBefore && parked.length === 1 && parked[0].msgId === 2
       && addressesOwner('owner') === true && addressesOwner('master') === false
@@ -401,7 +401,7 @@ async function main() {
     fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goal-auto', 'execution-mode'), 'interactive\n');
     const b = makeBridge({ workspaceRoot: root, slack: a.slack, forwarder: a.forwarder });
     await b.bridge.start();
-    b.bridge.busFerry._cursors.set('goal-auto/run-1', 3);
+    b.bridge.busFerry._cursors.set('goal-auto/2026-08-03a', 3);
     append(file, msgRow(4, 'leader', 'owner', 'ask', 'now that the goal is interactive'));
     await b.bridge.busFerry.tick();
     check('MUTATION (gate 2): with `interactive` on disk the same row from the same seat DOES travel — into the goal channel',
@@ -413,7 +413,7 @@ async function main() {
   // 3 — GATE 1 PARKS THE ROW: the goal is reachable, the SEAT is not declared. Same pairing.
   {
     const root = mkroot();
-    const { file, runDir } = seedRun(root, 'goal-seatflag', { seats: { leader: null, 'chief-of-staff': 'no' } });
+    const { file, goalDir } = seedGoal(root, 'goal-seatflag', { seats: { leader: null, 'chief-of-staff': 'no' } });
     const logs = [];
     const a = makeBridge({ workspaceRoot: root, logs });
     await a.bridge.start();
@@ -427,11 +427,11 @@ async function main() {
     check('GATE 1: a seat with no `human-interactive:` line and a seat declaring `no` are both PARKED, nothing posted on either surface',
       a.slack.posted.length === 0
       && parked.length === 2 && parked.every((l) => l.gate === 'human-interactive')
-      && a.bridge.busFerry._cursors.get('goal-seatflag/run-1') === 3,
+      && a.bridge.busFerry._cursors.get('goal-seatflag/2026-08-03a') === 3,
       { posted: a.slack.posted.length, parked: parked.map((l) => ({ from: l.from, gate: l.gate })) });
 
     // MUTATION: declare the seat and the next row travels. The seat is the same seat.
-    fs.writeFileSync(path.join(runDir, 'seats', 'leader', 'seat.md'),
+    fs.writeFileSync(path.join(goalDir, 'seats', 'leader', 'seat.md'),
       '---\nseat: leader\nhuman-interactive: yes\n---\nbody\n');
     append(file, msgRow(4, 'leader', 'owner', 'ask', 'now declared'));
     await a.bridge.busFerry.tick();
@@ -446,7 +446,7 @@ async function main() {
   //     DIFFERENT agent anchors its OWN thread. And no sitting is minted by any of it.
   {
     const root = mkroot();
-    const { file } = seedRun(root, 'goal-threads', { seats: { leader: 'yes', engineer: 'yes' } });
+    const { file } = seedGoal(root, 'goal-threads', { seats: { leader: 'yes', engineer: 'yes' } });
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();
     const reg = await a.bridge.registerGoal('goal-threads');
@@ -485,8 +485,8 @@ async function main() {
     check('RULING (gates OPEN): the `to: master` row still reaches NOTHING — no channel post, no DM, no thread of its own',
       chanPosts.length === 3 && a.slack.postsIn(DM).length === 0
       && !a.slack.posted.some((p) => /MASTER-ADDRESSED/.test(p.text))
-      && a.bridge.busFerry._cursors.get('goal-threads/run-1') === 5,
-      { channelPosts: chanPosts.length, cursor: a.bridge.busFerry._cursors.get('goal-threads/run-1') });
+      && a.bridge.busFerry._cursors.get('goal-threads/2026-08-03a') === 5,
+      { channelPosts: chanPosts.length, cursor: a.bridge.busFerry._cursors.get('goal-threads/2026-08-03a') });
     a.bridge.stop();
   }
 
@@ -494,7 +494,7 @@ async function main() {
   //     never created must not cost a row; that is the one reason the agent leg falls back.
   {
     const root = mkroot();
-    const { file } = seedRun(root, 'goal-unmapped', { seats: { leader: 'yes' } });
+    const { file } = seedGoal(root, 'goal-unmapped', { seats: { leader: 'yes' } });
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();                                  // NOTE: no registerGoal
     await a.bridge.busFerry.tick();
@@ -502,7 +502,7 @@ async function main() {
     await a.bridge.busFerry.tick();
     check('gates pass but the goal has NO channel → the row falls back to the owner DM and mints the channel-master sitting, as before',
       a.slack.postsIn(DM).length === 1
-      && a.slack.postsIn(DM)[0].text === '*bus → you* — goal-unmapped/run-1 · from leader · ask · #2\nno channel for this goal'
+      && a.slack.postsIn(DM)[0].text === '*bus → you* — goal-unmapped/2026-08-03a · from leader · ask · #2\nno channel for this goal'
       && a.forwarder.creates().length === 1,
       { dmPosts: a.slack.postsIn(DM).map((p) => p.text.split('\n')[0]), creates: a.forwarder.creates().length });
     a.bridge.stop();
@@ -512,7 +512,7 @@ async function main() {
   //     else in a goal channel stays 'goal' on the channel-as-conversation (d-channel-per-goal).
   {
     const root = mkroot();
-    seedRun(root, 'goal-route', { seats: { leader: 'yes', 'goal-master': 'yes' } });
+    seedGoal(root, 'goal-route', { seats: { leader: 'yes', 'goal-master': 'yes' } });
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();
     const reg = await a.bridge.registerGoal('goal-route');
@@ -542,7 +542,7 @@ async function main() {
   //     session-create homed at THAT AGENT's seat dir (revive), then a follow-up on its chain.
   {
     const root = mkroot();
-    const { runDir } = seedRun(root, 'goal-reply', { seats: { leader: 'yes' } });
+    const { goalDir } = seedGoal(root, 'goal-reply', { seats: { leader: 'yes' } });
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();
     const reg = await a.bridge.registerGoal('goal-reply');
@@ -550,7 +550,7 @@ async function main() {
 
     const first = await a.bridge.onChatMessage(msg({ channel: reg.channelId, ts: '10.1', threadTs: opened.ts, text: 'use the second shape' }));
     const create = a.forwarder.creates()[0];
-    const seatDir = path.join(runDir, 'seats', 'leader');
+    const seatDir = path.join(goalDir, 'seats', 'leader');
     const CORRELATION_PREFIX = /^chat-thread: [A-Z][A-Z0-9_]{2,}(?::\d+\.\d+)?\n\n/;
     check('the owner\'s reply mints a session-create HOMED AT THE ASKING SEAT, on the goal profile',
       first.forwarded === true && first.leg === 'session-create' && first.route === 'agent'
@@ -578,12 +578,12 @@ async function main() {
   //     there reads as the agent ignoring him.
   {
     const root = mkroot();
-    const { runDir } = seedRun(root, 'goal-ghost', { seats: { ghost: 'yes' } });
+    const { goalDir } = seedGoal(root, 'goal-ghost', { seats: { ghost: 'yes' } });
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();
     const reg = await a.bridge.registerGoal('goal-ghost');
     const opened = await a.bridge.routeToAgentThread({ goalId: 'goal-ghost', agent: 'ghost', text: 'ask' });
-    fs.rmSync(path.join(runDir, 'seats', 'ghost'), { recursive: true, force: true }); // the seat leaves
+    fs.rmSync(path.join(goalDir, 'seats', 'ghost'), { recursive: true, force: true }); // the seat leaves
 
     const res = await a.bridge.onChatMessage(msg({ channel: reg.channelId, ts: '11.1', threadTs: opened.ts, text: 'still there?' }));
     const last = a.slack.posted[a.slack.posted.length - 1];
@@ -601,7 +601,7 @@ async function main() {
   //     answers into a thread the owner wrote in.
   {
     const root = mkroot();
-    const { file, runDir } = seedRun(root, 'goal-return', { executionMode: null, seats: { leader: null } });
+    const { file, goalDir } = seedGoal(root, 'goal-return', { executionMode: null, seats: { leader: null } });
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();
     const reg = await a.bridge.registerGoal('goal-return');
@@ -616,13 +616,13 @@ async function main() {
     check('a row naming a GOAL-CHANNEL thread is posted into that thread verbatim, with NO sitting minted',
       a.slack.posted.length === before + 1
       && posted.channel === reg.channelId && posted.threadTs === opened.ts
-      && posted.text === `*bus → you* — goal-return/run-1 · from leader · answer · #2\nhere is the answer\n\n[chat-thread: ${reg.channelId}:${opened.ts}]`
+      && posted.text === `*bus → you* — goal-return/2026-08-03a · from leader · answer · #2\nhere is the answer\n\n[chat-thread: ${reg.channelId}:${opened.ts}]`
       && a.forwarder.creates().length === 0,
       { posted, creates: a.forwarder.creates().length });
     check('and it flowed with BOTH GATES SHUT (mode absent, seat undeclared) — an owner-initiated leg is never gated',
-      goalExecutionMode(root, 'goal-return') === 'autonomous' && seatIsHumanInteractive(runDir, 'leader') === false
-      && a.bridge.busFerry._cursors.get('goal-return/run-1') === 2,
-      { cursor: a.bridge.busFerry._cursors.get('goal-return/run-1') });
+      goalExecutionMode(root, 'goal-return') === 'autonomous' && seatIsHumanInteractive(goalDir, 'leader') === false
+      && a.bridge.busFerry._cursors.get('goal-return/2026-08-03a') === 2,
+      { cursor: a.bridge.busFerry._cursors.get('goal-return/2026-08-03a') });
 
     // THE CONTROL: a token naming a KNOWN DM thread still mints the channel-master sitting.
     // Without it, the guard above could be passing because the return leg mints nothing ANYWHERE.
@@ -655,7 +655,7 @@ async function main() {
     const root = mkroot();
     // Gates SHUT (mode absent, seat undeclared) so the ordinary path's outcome is a PARK, which is
     // observable and distinguishable from "the token was obeyed" and from "the row vanished".
-    const { file } = seedRun(root, 'goal-forged', { executionMode: null, seats: { leader: null } });
+    const { file } = seedGoal(root, 'goal-forged', { executionMode: null, seats: { leader: null } });
     const logs = [];
     const a = makeBridge({ workspaceRoot: root, logs });
     await a.bridge.start();
@@ -679,7 +679,7 @@ async function main() {
       a.slack.posted.length === 0 && a.forwarder.enqueued.length === 0
       && ignored.length === 1 && ignored[0].namedThread === `${reg.channelId}:${forgedGoalTs}`
       && parked.length === 1 && parked[0].msgId === 2
-      && a.bridge.busFerry._cursors.get('goal-forged/run-1') === 2,
+      && a.bridge.busFerry._cursors.get('goal-forged/2026-08-03a') === 2,
       { posted: a.slack.posted.length, enqueued: a.forwarder.enqueued.length, ignored: ignored.length, parked: parked.map((l) => l.gate) });
 
     // (b) FABRICATED DM-SHAPED TOKEN → must mint NO sitting. Same row shape, different invented
@@ -688,7 +688,7 @@ async function main() {
     await a.bridge.busFerry.tick();
     check('S-13 (b): a FABRICATED DM-shaped token mints NO sitting and posts nothing — and being `to: channel-master` the row is not even owner-bound, so the ordinary path just advances the cursor',
       a.forwarder.creates().length === 0 && a.slack.posted.length === 0
-      && a.bridge.busFerry._cursors.get('goal-forged/run-1') === 3,
+      && a.bridge.busFerry._cursors.get('goal-forged/2026-08-03a') === 3,
       { creates: a.forwarder.creates().length, posted: a.slack.posted.length });
 
     // (c) THE GREEN HALF, same run, same seat, same shut gates: make the thread KNOWN by anchoring
@@ -714,7 +714,7 @@ async function main() {
   {
     const root = mkroot();
     const stateFile = path.join(mkroot(), 'chat-state.json');
-    const { file } = seedRun(root, 'goal-restart', { executionMode: null, seats: { leader: null } });
+    const { file } = seedGoal(root, 'goal-restart', { executionMode: null, seats: { leader: null } });
     const daemon = makeFakeForwarder();
     const a = makeBridge({ workspaceRoot: root, stateFile, forwarder: daemon });
     await a.bridge.start();
@@ -730,7 +730,7 @@ async function main() {
     check('before start() the restarted bridge knows NOTHING — so the acceptance below cannot come from memory',
       b.bridge.knowsThread(`${DM}:55.5`) === false, {});
     await b.bridge.start();
-    b.bridge.busFerry._cursors.set('goal-restart/run-1', 1);
+    b.bridge.busFerry._cursors.set('goal-restart/2026-08-03a', 1);
     const createsBefore = daemon.creates().length;
     append(file, msgRow(2, 'leader', 'channel-master', 'answer', `answering after the restart\n\n[chat-thread: ${DM}:55.5]`));
     await b.bridge.busFerry.tick();
@@ -742,7 +742,7 @@ async function main() {
     // THE CONTROL: the same restart with NO state file forgets, so the same token is UNKNOWN and
     // the row takes the ordinary path — which is the honest decline, not a reason to believe it.
     const root2 = mkroot();
-    const { file: file2 } = seedRun(root2, 'goal-nostate', { executionMode: null, seats: { leader: null } });
+    const { file: file2 } = seedGoal(root2, 'goal-nostate', { executionMode: null, seats: { leader: null } });
     const c = makeBridge({ workspaceRoot: root2, stateFile: null, forwarder: makeFakeForwarder() });
     await c.bridge.start();
     await c.bridge.busFerry.tick();
@@ -751,7 +751,7 @@ async function main() {
     check('CONTROL: with no state_file the same token is UNKNOWN after a restart — nothing minted, nothing posted, cursor advanced (the amnesia is disclosed, never papered over by trusting the row)',
       c.bridge.knowsThread(`${DM}:55.5`) === false
       && c.forwarder.creates().length === 0 && c.slack.posted.length === 0
-      && c.bridge.busFerry._cursors.get('goal-nostate/run-1') === 2,
+      && c.bridge.busFerry._cursors.get('goal-nostate/2026-08-03a') === 2,
       { creates: c.forwarder.creates().length, posted: c.slack.posted.length });
     b.bridge.stop(); c.bridge.stop();
   }
@@ -762,7 +762,7 @@ async function main() {
   {
     const root = mkroot();
     const stateFile = path.join(mkroot(), 'chat-state.json');
-    const { file } = seedRun(root, 'goal-persist', { seats: { leader: 'yes' } });
+    const { file } = seedGoal(root, 'goal-persist', { seats: { leader: 'yes' } });
     const daemon = makeFakeForwarder(); // the daemon outlives the bridge restart, as it does live
     const a = makeBridge({ workspaceRoot: root, stateFile, forwarder: daemon });
     await a.bridge.start();

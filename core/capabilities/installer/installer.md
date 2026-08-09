@@ -122,7 +122,9 @@ in this capability depends on the stand-in.
 ## Registry divergences — FLAGGED for transcription, never applied as record edits
 
 Per 7.64's criteria this capability reports divergences and repairs none of them. The full list
-with evidence is the run's: `runs/run-2/seats/C3-installer/premise-audit.md`. The two that bear
+with evidence is that seat's: `seats/C3-installer/premise-audit.md` (written under the goal's
+then-current `runs/run-2/` compartment, before 7.607 extinguished the run layer — a historical
+citation, not a live path). The two that bear
 on a reader of this file: the rbtv repo has **no KG-shape module** other than `ignite/module.md`
 added here (D2), and the capability-folder shape stated at `rbtv/CLAUDE.md:43` carries a
 component level that **both shipped precedents omit** (D1) — this capability follows the shipped

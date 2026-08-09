@@ -24,7 +24,7 @@ here first has to answer *which run*, and only then *which unit*.
 | `stop` / `kill` | Delegated to `daemon-operator` against the computed unit. |
 | `heartbeat-show` | The run's declared watch cadence, read through `budget.py`'s `read_cadence()`. |
 | `heartbeat-set <seconds> [--restart]` | Writes `cadence.watch_loop_max_seconds` into `{package}/budget.json`. |
-| `selftest` | Proves the cadence path (ceiling gate, key preservation, read-back, unit-name agreement) against a throwaway package. Touches no systemd and no live run. |
+| `selftest` | Proves the cadence path (ceiling gate, key preservation, read-back, unit-name agreement) against a throwaway package. Touches no systemd and no executing goal. |
 
 **⚠ `start` and `restart` are NOT symmetric here.** For a fixed-unit service they differ only in
 whether the unit was already up. Here there is no unit at all until the first launch: `start`
@@ -34,11 +34,14 @@ fixed-unit symmetry reaches for `restart` and gets a refusal.
 ## Target resolution — refused, never guessed
 
 `--package` is the explicit override and always wins. Otherwise `--goal` names a goal (a name under
-the walked-up `.rbtv/goals`, or a goal folder's path) and the ONE live run is resolved from its
-`runs.csv` by `coord.resolve_live_run()` — via `jobs/selfheal-watch.py`'s `resolve_package()`, the
-register's single reader. Zero or two runs reading `open` is a **refusal** (exit 1), never a guess:
-acting on a guessed package is how a self-heal once reported healthy while doing nothing for the
-live run. Every verb prints the resolved package, its provenance and the computed unit.
+the walked-up `.rbtv/goals`, or a goal folder's path) and the package is **DERIVED FROM THE GOAL'S
+LIVE LEASE** by `coord.derive_lease()` — via `jobs/selfheal-watch.py`'s `resolve_package()`, the
+lease's single accessor. No stored status is read anywhere on this path (7.607 design-lock item 1):
+the evidence is the goal's tmux room existing NOW plus its ancestry-verified seat processes. Three
+doors **refuse** (exit 1), never guess — an UNREADABLE lease (ignorance, which is not absence), NO
+room (the goal is not executing), and more than one room. Acting on a guessed package is how a
+self-heal once reported healthy while doing nothing for the goal it was watching. Every verb prints
+the resolved package, its provenance and the computed unit.
 
 ## `heartbeat-set` is NOT the ticker's cadence
 

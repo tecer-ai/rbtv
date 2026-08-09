@@ -43,7 +43,7 @@
 //                        filename. Prefer it over `node probe-x.js`: the run is counted, graded
 //                        for staleness, and archived, which a bare invocation is not
 //     --timeout-ms <n>   per-probe timeout (default 180000)
-//     --summary <path>   summary file (default: <workspace>/.rbtv/runtime/probe-suite/<stamp>.txt)
+//     --summary <path>   summary file (default: <tmpdir>/rbtv-probe-suite/<stamp>.txt)
 //     --list             discover and print, execute nothing (exit 0 if any found, 2 if none)
 //     --json             machine-readable result on stdout
 //     --selftest         run the runner's own fixtures and mutations; execute no real probe
@@ -53,9 +53,16 @@
 // orphaned output of the lost 2026-07-15 sweep. This restores a mechanism into its own footprint;
 // it is NOT a new interim CLI home (owner CLI-placement ruling, 2026-07-26).
 //
-// `ignite/` rule 3 (no runtime state in the repo): the summary defaults to the workspace `.rbtv/`
-// runtime root, never into `ignite/deploy/`. That also stops a fresh run from destroying the
-// 2026-07-15 record.
+// `ignite/` rule 3 (no runtime state in the repo): the summary NEVER defaults into `ignite/deploy/`
+// — that also stops a fresh run from destroying the 2026-07-15 record.
+//
+// ⚠ THE DEFAULT IS THE OS TEMP DIR, NOT `.rbtv/` (7.607 E3, review F5). It used to be
+// `<workspace>/.rbtv/runtime/probe-suite/`, which put a WRITE into the goals workspace as the price
+// of running a read-only check: every dispatch fenced against `.rbtv/**` — the normal posture while
+// a live goal is executing — had to remember to pass `--summary` or silently breach its own fence.
+// `os.tmpdir()` is the least surprising home for a per-invocation report nobody has ever cited by
+// path: it needs no workspace, survives a read-only checkout, and is swept by the OS. A summary
+// worth keeping is worth naming — pass `--summary <path>` and it is written verbatim.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -63,7 +70,6 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const IGNITE_ROOT = path.resolve(__dirname, '..');
-const REPO_ROOT = path.resolve(IGNITE_ROOT, '..');
 const DEFAULT_TIMEOUT_MS = 180000;
 
 const EXIT_GREEN = 0;
@@ -686,7 +692,7 @@ function selftest() {
 
 function defaultSummaryPath() {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  return path.join(REPO_ROOT, '..', '..', '..', '.rbtv', 'runtime', 'probe-suite', `${stamp}.txt`);
+  return path.join(os.tmpdir(), 'rbtv-probe-suite', `${stamp}.txt`);
 }
 
 function main(argv) {

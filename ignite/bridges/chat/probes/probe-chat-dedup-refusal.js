@@ -50,11 +50,9 @@ const TEXT_B = 'second thread: SHIP THE INVOICE TODAY';  // the text the pre-fix
 function seedGoalWorkspace(goalId) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-dedupws-'));
   const goalDir = path.join(root, '.rbtv', 'goals', goalId);
-  fs.mkdirSync(path.join(goalDir, 'runs', 'run-1', 'seats', 'goal-master'), { recursive: true });
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'),
-    'run-id,type,state,taskforce-ids,opened,closed\n' +
-    'run-1,fresh,open,tf-1,2026-08-03 00:00,\n');
-  return { root, seatDir: path.join(goalDir, 'runs', 'run-1', 'seats', 'goal-master') };
+  // 7.607 E3: GOAL-DIRECT — the seat folder IS the home; there is no register to read.
+  fs.mkdirSync(path.join(goalDir, 'seats', 'goal-master'), { recursive: true });
+  return { root, seatDir: path.join(goalDir, 'seats', 'goal-master') };
 }
 
 // One forward path over the REAL gateway. `createFP` is a parameter so the red arm can build the

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""team-monitor — the run's ONE raw-source sensor (settle ledger R24).
+"""team-monitor — the goal's ONE raw-source sensor (settle ledger R24).
 
 It is the only component that touches raw sources (tmux panes, harness session files,
 /proc RAM + pressure, pending prompts) and its sole output is one canonical timestamped
-snapshot at {goal}/runs/run-{n}/state.json. goal-watcher-job and teamview read that file
+snapshot at {goal}/state.json — GOAL-DIRECT since 7.607 (there is no run folder and no
+`runs/run-N` segment; the package IS the goal folder). goal-watcher-job and teamview read that file
 and never the raw sources — PRIN-2 parity: agents query the same state.json the dashboard
 renders.
 
@@ -943,9 +944,9 @@ def _args_carries(node, root):
 def queued_count(package, db_path=None):
     """(count, source) — PENDING queue rows whose args JSON carries this goal's path.
 
-    Owner ruling `d-owner-batch1` (4). The scope key is the GOAL folder, not the run folder — the
-    ruling says goal, and live rows spell their path BOTH ways: a seat folder under
-    `{goal}/runs/run-n/seats/`, and the goal root itself.
+    Owner ruling `d-owner-batch1` (4). The scope key is the GOAL folder — and since 7.607 that is
+    the only folder there is: rows spell their path as a seat folder under `{goal}/seats/` or as
+    the goal root itself, both of which live under the same root this matches on.
 
     The scope is read out of `args` because a PENDING row has nothing else to read it from: the
     `workdir` column `scoped_execs` filters `jobs_log` on is acquired when an execution STARTS, and
@@ -1452,7 +1453,7 @@ def _selftest_run_block(check):
     # The fixture makes the two DIFFER (2 rows, 1 ready): a count that forgot the verdict filter
     # reads 2 here and cannot pass.
     with tempfile.TemporaryDirectory() as td:
-        pkg = Path(td) / "goals" / "zz-goal" / "runs" / "run-1"
+        pkg = Path(td) / "goals" / "zz-goal"
         (pkg / "coordination").mkdir(parents=True)
         for s in ("alpha", "beta"):
             (pkg / "seats" / s).mkdir(parents=True)
@@ -1472,7 +1473,7 @@ def _selftest_run_block(check):
     # A package with no taskforce.csv at all answers 0 rather than raising — the sensor runs on
     # rooms that have no DAG, and a raise there would cost the whole snapshot.
     with tempfile.TemporaryDirectory() as td:
-        pkg = Path(td) / "goals" / "g" / "runs" / "run-1"
+        pkg = Path(td) / "goals" / "g"
         (pkg / "coordination").mkdir(parents=True)
         n, reason = ready_row_count(str(pkg))
         check(f"B1: a package with no taskforce.csv reads 0, never an exception (got {n!r})",
@@ -1709,7 +1710,7 @@ def cmd_selftest(args):
     # green through the entire defect. A fixture that agrees with its path cannot fail; this one
     # can only pass if resolution actually asks the room.
     with tempfile.TemporaryDirectory() as td:
-        pkg = Path(td) / "goals" / "zz-goal-folder" / "runs" / "run-1"
+        pkg = Path(td) / "goals" / "zz-goal-folder"
         (pkg / "coordination").mkdir(parents=True)
         header = ("| agent | active | tmux pane | working on | checked in | checked out |\n"
                   "|---|---|---|---|---|---|\n")
@@ -1739,7 +1740,7 @@ def cmd_selftest(args):
         ("a roster carrying no pane at all", "| a-seat | yes |  | w | t1 |  |\n"),
     ):
         with tempfile.TemporaryDirectory() as td:
-            pkg = Path(td) / "goals" / "zz-goal-folder" / "runs" / "run-1"
+            pkg = Path(td) / "goals" / "zz-goal-folder"
             (pkg / "coordination").mkdir(parents=True)
             (pkg / "coordination" / "workers.md").write_text(header + rows)
             try:
@@ -1774,7 +1775,7 @@ def cmd_selftest(args):
               "|---|---|---|---|---|---|\n")
     with tempfile.TemporaryDirectory() as td:
         # (a) UNRESOLVABLE — a roster whose only pane resolves to nothing
-        pkg = Path(td) / "goals" / "zz-goal" / "runs" / "run-1"
+        pkg = Path(td) / "goals" / "zz-goal"
         (pkg / "coordination").mkdir(parents=True)
         (pkg / "coordination" / "workers.md").write_text(
             hdr296 + "| a-seat | yes | %999999 | w | t1 |  |\n")
@@ -1910,8 +1911,24 @@ def cmd_selftest(args):
     check("⚠ 7.607 E2b T5 IT IS A REPORT, NOT AN ACT: the guarded escalation branch relaunches "
           "NOTHING and returns NOTHING — acting on a reading that was never taken is precisely "
           "what the fail-open posture exists to prevent, and the bound must not smuggle it back",
-          "relaunch_room" not in ast.unparse(_uw[0])
+          # ⚠ THE LENGTH GUARD COMES FIRST (7.607 E3, review F2). Written the other way round this
+          # arm evaluated `_uw[0]` on an empty list when the guarded branch was removed, so the
+          # regression it exists to catch arrived as an `IndexError` traceback that ABORTED the
+          # remaining selftest instead of as one named red row. A check must fail; it must not
+          # crash, because a crash hides every check after it.
+          len(_uw) == 1
+          and "relaunch_room" not in ast.unparse(_uw[0])
           and not any(isinstance(n, ast.Return) for n in ast.walk(_uw[0])))
+
+    # ⚠ THE CONSTANT ITSELF, SPELLED OUT (7.607 E3, review F3). Every arm above asserts the
+    # MECHANISM relative to `UNREADABLE_BOUND` (`limit=UNREADABLE_BOUND+3`, `-1`), so a change to
+    # the NUMBER moves the expectation with it and passes. 5 is a design choice — five consecutive
+    # blind passes before the sensor says so out loud — and a choice nobody can change by accident
+    # is the difference between a guarded value and a documented one.
+    check(f"⚠ 7.607 E3 F3 UNREADABLE_BOUND IS 5, asserted LITERALLY (got {UNREADABLE_BOUND!r}) — "
+          "the mechanism arms read the constant as their own expectation, so this is the only "
+          "check that can go red on a change to the number itself",
+          UNREADABLE_BOUND == 5)
 
     # ---- the declared agent type (task 7.80) ----
     # Four descriptor states, and the ABSENCES are checked as hard as the presence: an

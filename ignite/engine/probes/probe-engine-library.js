@@ -7,10 +7,10 @@
 //
 //   C1  the engine core is importable AS A LIBRARY — no daemon process, no gateway, no HTTP — and
 //       the DAEMON consumes the same library (asserted at the daemon's own source, not inferred).
-//   C2  an attached run with NO daemon executes a MULTI-SEAT workflow with PARALLEL WAVES and the
+//   C2  an attached execution with NO daemon executes a MULTI-SEAT workflow with PARALLEL WAVES and the
 //       stall ladder live.
 //   C3  kill it mid-run, re-run, and it RESUMES from run-folder state at the correct step.
-//   C4  the attached engine's store lands in the RUN FOLDER and never opens the daemon's
+//   C4  the attached engine's store lands in the GOAL FOLDER and never opens the daemon's
 //       {state_root}/heart.db (owner ruling decisions.md#d-attached-run-store-and-seats).
 //   SEAM the Windows-degraded lane cannot fall through to a POSIX construct — it is REFUSED, with
 //       an error naming all four degraded sites and task 7.84.
@@ -68,16 +68,18 @@ async function attemptAsync(fn) {
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-engine-library-'));
 const workspace = path.join(tmp, 'workspace');
 const dataRoot = path.join(tmp, 'data');
-const runFolder = path.join(workspace, '.rbtv', 'goals', 'probe-goal', 'runs', 'run-1');
-fs.mkdirSync(runFolder, { recursive: true });
+// 7.607 E3: GOAL-DIRECT. The attached engine's folder predicate is `.rbtv/goals/<goal>/` now;
+// a `runs/run-1` fixture would be refused by the very predicate this probe exercises.
+const goalFolder = path.join(workspace, '.rbtv', 'goals', 'probe-goal');
+fs.mkdirSync(goalFolder, { recursive: true });
 fs.mkdirSync(dataRoot, { recursive: true });
 
 const SEATS = ['alpha', 'bravo', 'charlie'];
-for (const s of SEATS) fs.mkdirSync(path.join(runFolder, 'seats', s), { recursive: true });
+for (const s of SEATS) fs.mkdirSync(path.join(goalFolder, 'seats', s), { recursive: true });
 
 // taskforce.csv in the goals tree's own shape (goal_cli.py write_csv). `after` is the WAVE
 // structure: alpha and bravo have none (wave 1), charlie follows alpha (wave 2).
-fs.writeFileSync(path.join(runFolder, 'taskforce.csv'), [
+fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'), [
   'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id',
   'tf-probe,alpha,,claude,claude-opus-5,medium,50,m1',
   'tf-probe,bravo,,claude,claude-opus-5,medium,50,m1',
@@ -116,7 +118,7 @@ cfg.profiles['probe-seat'] = {
 const configPath = path.join(tmp, 'spawn-profiles.yaml');
 fs.writeFileSync(configPath, yaml.dump(cfg));
 
-const storePath = path.join(runFolder, 'heart.db');
+const storePath = path.join(goalFolder, 'heart.db');
 const daemonStorePath = path.join(dataRoot, 'heart.db');
 
 async function main() {
@@ -188,17 +190,17 @@ async function main() {
 
   // ── C4 · two store kinds ───────────────────────────────────────────────────────────────────
   say('');
-  say('C4 — the store lands in the RUN FOLDER, and the daemon\'s store is never opened');
+  say('C4 — the store lands in the GOAL FOLDER, and the daemon\'s store is never opened');
 
-  const attached = require(path.join(IGNITE_SRC, 'engine', 'attached-run.js'));
+  const attached = require(path.join(IGNITE_SRC, 'engine', 'attached-execution.js'));
 
-  const badFolder = attempt(() => attached.resolveRunFolder(tmp));
-  check('C4 a path that is not a run folder is REFUSED',
-    badFolder.threw && /run folder/.test(badFolder.err.message),
-    badFolder.threw ? 'refused' : 'it accepted a non-run-folder path');
-  const goodFolder = attempt(() => attached.resolveRunFolder(runFolder));
-  check('C4 POSITIVE CONTROL: a real run folder is ACCEPTED',
-    !goodFolder.threw && goodFolder.value === runFolder,
+  const badFolder = attempt(() => attached.resolveGoalFolder(tmp));
+  check('C4 a path that is not a goal folder is REFUSED',
+    badFolder.threw && /goal folder/.test(badFolder.err.message),
+    badFolder.threw ? 'refused' : 'it accepted a non-goal-folder path');
+  const goodFolder = attempt(() => attached.resolveGoalFolder(goalFolder));
+  check('C4 POSITIVE CONTROL: a real goal folder is ACCEPTED',
+    !goodFolder.threw && goodFolder.value === goalFolder,
     goodFolder.threw ? goodFolder.err.message : goodFolder.value);
 
   const sameStore = attempt(() => attached.assertNotTheDaemonStore(daemonStorePath, spawnConfig));
@@ -206,7 +208,7 @@ async function main() {
     sameStore.threw && /never opens/.test(sameStore.err.message),
     sameStore.threw ? 'refused' : 'it accepted the daemon\'s own store path');
   const otherStore = attempt(() => attached.assertNotTheDaemonStore(storePath, spawnConfig));
-  check('C4 POSITIVE CONTROL: the run-folder store is ACCEPTED',
+  check('C4 POSITIVE CONTROL: the goal-folder store is ACCEPTED',
     !otherStore.threw, otherStore.threw ? otherStore.err.message : storePath);
 
   // The COMMITTED value, not only the fixture's — the guard must be measured against the real
@@ -251,16 +253,16 @@ async function main() {
   const bogus = attempt(() => substrate.detectSubstrate({ RBTV_IGNITE_SUBSTRATE: 'darwin-ish' }, 'linux'));
   check('SEAM an unknown substrate value is REFUSED, never silently treated as posix', bogus.threw);
 
-  const seamOnRun = await attemptAsync(() => attached.runAttached({
-    runFolder, profile: 'probe-seat', spawnConfigPath: configPath, maxTicks: 1,
+  const seamOnRun = await attemptAsync(() => attached.executeAttached({
+    goalFolder, profile: 'probe-seat', spawnConfigPath: configPath, maxTicks: 1,
   }));
   const hadEnv = 'RBTV_IGNITE_SUBSTRATE' in process.env;
   process.env.RBTV_IGNITE_SUBSTRATE = 'windows';
-  const seamBlocked = await attemptAsync(() => attached.runAttached({
-    runFolder, profile: 'probe-seat', spawnConfigPath: configPath, maxTicks: 1,
+  const seamBlocked = await attemptAsync(() => attached.executeAttached({
+    goalFolder, profile: 'probe-seat', spawnConfigPath: configPath, maxTicks: 1,
   }));
   if (!hadEnv) delete process.env.RBTV_IGNITE_SUBSTRATE;
-  check('SEAM runAttached itself refuses on a non-POSIX host, BEFORE opening any store',
+  check('SEAM executeAttached itself refuses on a non-POSIX host, BEFORE opening any store',
     seamBlocked.threw && seamBlocked.err.code === substrate.E_SUBSTRATE_UNSUPPORTED,
     seamBlocked.threw ? `code ${seamBlocked.err.code}` : 'the run proceeded on a windows substrate');
   // ⚠ THIS CONTROL WAS WEAK WHEN FIRST WRITTEN AND THE PROBE CAUGHT IT ON ITSELF. It asked only
@@ -277,7 +279,7 @@ async function main() {
   say('');
   say('C2 — a multi-seat workflow, parallel waves, the stall ladder live, NO daemon');
 
-  check('C2 the store landed in the RUN FOLDER', fs.existsSync(storePath), storePath);
+  check('C2 the store landed in the GOAL FOLDER', fs.existsSync(storePath), storePath);
   check('C2 no store was created at the daemon\'s data root', !fs.existsSync(daemonStorePath),
     `${daemonStorePath} absent`);
 
@@ -319,7 +321,7 @@ async function main() {
     type: 'ask', sender: 'alpha', thread: 'probe', corpus: 'a worker question', createdAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
   });
   const onAsk = attached.evaluateExit(inspect, rows, new Set());
-  check('C3 ANY worker question ends the attached run and returns it to the caller',
+  check('C3 ANY worker question ends the attached execution and returns it to the caller',
     onAsk.done && onAsk.reason === 'question' && onAsk.asks.length === 1,
     onAsk.done ? `reason=${onAsk.reason}, ${onAsk.asks.length} ask(s)` : 'the run did not return on a question');
 
@@ -342,13 +344,13 @@ async function main() {
   say('');
   say('C2b — the WAVE DECISION itself, measured at the point it is made (not at what fired)');
 
-  const waveDir = path.join(workspace, '.rbtv', 'goals', 'wave-goal', 'runs', 'run-1');
+  const waveDir = path.join(workspace, '.rbtv', 'goals', 'wave-goal');
   fs.mkdirSync(path.join(waveDir, 'seats'), { recursive: true });
-  fs.copyFileSync(path.join(runFolder, 'taskforce.csv'), path.join(waveDir, 'taskforce.csv'));
+  fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(waveDir, 'taskforce.csv'));
   const waveStore = openHeartStore({ dbPath: path.join(waveDir, 'heart.db'), profiles: spawnConfig.profiles });
   const waveRows = attached.seedTaskforce(waveStore, waveDir, { profile: 'probe-seat' });
 
-  const wave1 = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', runFolder: waveDir });
+  const wave1 = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir });
   check('C2b WAVE 1 releases BOTH dependency-free seats and NOTHING else',
     wave1.length === 2 && wave1.includes('alpha') && wave1.includes('bravo'),
     `released: [${wave1.join(', ')}]`);
@@ -356,7 +358,7 @@ async function main() {
     !wave1.includes('charlie'),
     'the cap dispatches; the `after` column decides eligibility, and this reads eligibility');
 
-  const wave1Again = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', runFolder: waveDir });
+  const wave1Again = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir });
   check('C2b a second pass releases NOTHING — an already-queued seat is never double-enqueued',
     wave1Again.length === 0, `released: [${wave1Again.join(', ')}]`);
 
@@ -370,13 +372,13 @@ async function main() {
     jobId: 'seat-alpha', actionType: 'launch-agent', args: '{}', enqueuedBy: 'probe',
     sessionMode: 'headless', firedTick: 1, firedAt: nowIso,
   });
-  const wave2Blocked = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', runFolder: waveDir });
+  const wave2Blocked = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir });
   check('C2b POSITIVE CONTROL: with alpha merely RUNNING, charlie is STILL held',
     !wave2Blocked.includes('charlie'),
     '`after` means finished, not started — else wave 2 would race wave 1');
 
   waveStore.updateExecutionStatus(alphaExec.exec_id, { status: 'done', endedAt: nowIso });
-  const wave2 = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', runFolder: waveDir });
+  const wave2 = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir });
   check('C2b WAVE 2 releases charlie ONCE alpha is done, and only charlie',
     wave2.length === 1 && wave2[0] === 'charlie',
     `released: [${wave2.join(', ')}]`);
@@ -401,7 +403,7 @@ async function main() {
   check('C3b the queue is EMPTY, so the queued-guard cannot answer for the has-run guard',
     waveStore.listQueue().length === 0, 'the two guards are now separable');
 
-  const dupes = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', runFolder: waveDir });
+  const dupes = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir });
   check('C3b RESUME: seats that already RAN are NOT re-enqueued, even with an empty queue',
     !dupes.includes('alpha') && !dupes.includes('bravo'),
     dupes.length ? `released [${dupes.join(', ')}]` : 'released nothing');
@@ -411,10 +413,10 @@ async function main() {
   waveStore.close();
 
   // RESUME: a second boot must re-enqueue NOTHING that already ran. This is criterion 3's whole
-  // mechanism — the state is in the run folder, so re-running the verb continues rather than
+  // mechanism — the state is in the goal folder, so re-running the verb continues rather than
   // restarts.
-  const second = await attemptAsync(() => attached.runAttached({
-    runFolder, profile: 'probe-seat', spawnConfigPath: configPath, maxTicks: 1,
+  const second = await attemptAsync(() => attached.executeAttached({
+    goalFolder, profile: 'probe-seat', spawnConfigPath: configPath, maxTicks: 1,
   }));
   check('C3 a SECOND run of the same folder boots without error (resume, not replay)',
     !second.threw, second.threw ? second.err.message.split('\n')[0] : `outcome ${second.value.outcome}`);
@@ -450,12 +452,12 @@ async function main() {
   };
 
   check('C5 the rbtv delegate is present AND executable (a permission bit is invisible to a content check)',
-    (() => { try { fs.accessSync(path.join(IGNITE_SRC, 'capabilities', 'attached-run', 'tool', 'rbtv-run'), fs.constants.X_OK); return true; } catch { return false; } })(),
+    (() => { try { fs.accessSync(path.join(IGNITE_SRC, 'capabilities', 'attached-execution', 'tool', 'rbtv-execution'), fs.constants.X_OK); return true; } catch { return false; } })(),
     'asserted with X_OK, never inferred from the file existing — `bars.md` 9');
 
   const helpRes = runCli(['run', '--help']);
   check('C5 `rbtv run --help` resolves through the CLI and exits 0',
-    helpRes.status === 0 && /run-folder/.test(helpRes.stdout),
+    helpRes.status === 0 && /goal-folder/.test(helpRes.stdout),
     `exit ${helpRes.status}`);
 
   const noProfile = runCli(['run', tmp]);
@@ -463,16 +465,16 @@ async function main() {
     noProfile.status === 1 && /--profile/.test(noProfile.stderr),
     `exit ${noProfile.status}`);
 
-  const cliDir = path.join(workspace, '.rbtv', 'goals', 'cli-goal', 'runs', 'run-1');
+  const cliDir = path.join(workspace, '.rbtv', 'goals', 'cli-goal');
   fs.mkdirSync(path.join(cliDir, 'seats'), { recursive: true });
-  fs.copyFileSync(path.join(runFolder, 'taskforce.csv'), path.join(cliDir, 'taskforce.csv'));
+  fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(cliDir, 'taskforce.csv'));
   const cliRes = runCli(['run', cliDir, '--profile', 'probe-seat', '--config', configPath, '--max-ticks', '1', '--json']);
   let cliJson = null;
   try { cliJson = JSON.parse(cliRes.stdout); } catch { /* reported by the check below */ }
   check('C5 a REAL `rbtv run` advances the run and emits a machine-readable result',
     cliRes.status === 0 && cliJson && cliJson.host === 'posix',
     cliJson ? `exit ${cliRes.status}, outcome ${cliJson.outcome}` : `exit ${cliRes.status}: ${cliRes.stderr.split('\n')[0]}`);
-  check('C5 the store it created is IN THE RUN FOLDER, reached through the CLI',
+  check('C5 the store it created is IN THE GOAL FOLDER, reached through the CLI',
     fs.existsSync(path.join(cliDir, 'heart.db')),
     path.join(cliDir, 'heart.db'));
 
@@ -486,9 +488,9 @@ async function main() {
   say('');
   say('C3c — SIGKILLed mid-run, then re-run (criterion 3, done rather than approximated)');
 
-  const killDir = path.join(workspace, '.rbtv', 'goals', 'kill-goal', 'runs', 'run-1');
+  const killDir = path.join(workspace, '.rbtv', 'goals', 'kill-goal');
   fs.mkdirSync(path.join(killDir, 'seats'), { recursive: true });
-  fs.copyFileSync(path.join(runFolder, 'taskforce.csv'), path.join(killDir, 'taskforce.csv'));
+  fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(killDir, 'taskforce.csv'));
 
   const { spawn: spawnProc, spawnSync } = require('node:child_process');
   const victim = spawnProc(RBTV_BIN,

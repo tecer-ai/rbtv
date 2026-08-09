@@ -158,8 +158,9 @@ ROSTER = "{RUN}/coordination/workers.md"
 # "`skipped` — resolves to NO column … M4-09 builds no guard evaluator, and nothing can produce it"
 # after 7.425 had built one. That seat reported it to the `leader` rather than editing another
 # seat's surface, and it then sat. RECONCILED 2026-08-06 by task 7.454, which gave
-# `run-state-job.py` the arm that EMITS the state and corrected both of the audit's sites under a
-# claim-shaped grant (run-3 `decisions.md#p-mc12-granted-the-audit-row-claim-not-the-folder`).
+# `goal-state-job.py` (named `run-state-job.py` until the 7.607 E3 rename) the arm that EMITS the
+# state and corrected both of the audit's sites under a claim-shaped grant
+# (`decisions.md#p-mc12-granted-the-audit-row-claim-not-the-folder`).
 # Row 15 now reads the state as DERIVED from this file's third verdict list; its `null` field
 # verdict never moved. Nothing in THIS file's behaviour changed with that correction — only this
 # comment, which had itself become the last carrier of the retired claim.
@@ -941,7 +942,7 @@ def _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run, prompt):
     the message `ticker.launchAgent` reads off `args.prompt` and `spawn.ensurePromptFile` writes to
     the 0600 file the harness receives as stdin. Absent, that file is written `''` and a harness
     that requires a message dies promptless (finding D). It is declared `optional: {prompt:
-    'string'}` in every launch-agent `args_schema` this tree registers (`engine/attached-run.js`,
+    'string'}` in every launch-agent `args_schema` this tree registers (`engine/attached-execution.js`,
     the ticker and chat probes) and is a KNOWN request key at the spawn door (`spawn.js`
     `validateRequestKeys`). It carries no free text: batch-08 item 4 half A collapsed the headless
     vocabulary to `{stdin}`, and this value never becomes argv of the harness — only of the door.
@@ -1012,12 +1013,43 @@ def seat_boot_prompt(coord, pkg, seats, seat):
     return prompt, ""
 
 
-def launch_candidates(coord, pkg, ready, self_marks):
+# ---- 7.607 E3 (E2b review OQ1): A NESTED-WORKFLOW ROW REFUSES OUT LOUD ------------------------
+#
+# A `taskforce.csv` row whose reference classifies as `kind=nested_workflow` names a WORKFLOW, not
+# a seat, so it has no `seats/<seat>/seat.md` and can never be launched by this stage. Before this
+# change it fell out as a bare `no-descriptor` exclusion — indistinguishable from a typo — and the
+# DAG then waited on it forever. E2b's review found `nested_rows` intact with ZERO CALLERS: the
+# classification existed and nothing asked it. This is the ask.
+#
+# ⚠ THE UNTYPED ARM IS NOT SILENT EITHER, and that is deliberate. MC9's classifier needs a catalog
+# root, and the daemon's catalogue argv carries none, so on a production fire the row CANNOT be
+# typed. It is still refused BY NAME, naming the nested-workflow cause and the task that owns the
+# launch path (7.615) — because the failure this arm exists to remove is silence, not imprecision.
+NESTED_ROW_TASK = "task 7.615"
+
+
+def nested_workflow_seats(coord, pkg, catalog_root):
+    """The set of `taskforce.csv` seats MC9 classifies as nested workflows — `set()` when no
+    catalog root reached this pass, which is the daemon's ordinary condition.
+
+    Failure to classify is NEVER an exception here: this is a refusal path, and a launch pass that
+    died because a catalog was unreadable would turn a loud row into an outage."""
+    if not catalog_root:
+        return set()
+    try:
+        nested, _refused = nested_rows(coord, pkg, catalog_root)
+    except Exception:                                              # noqa: BLE001 — see docstring
+        return set()
+    return set(nested)
+
+
+def launch_candidates(coord, pkg, ready, self_marks, catalog_root=None):
     """(candidates, excluded) — the ready list INTERSECTED with the three self-state terms.
 
     `excluded` rows carry the seat, the term that excluded it and the value that term read, so an
     exclusion is auditable by a reader who did not watch this run."""
     _, _, roster = coord.load_workers(pkg / "coordination")
+    nested = nested_workflow_seats(coord, pkg, catalog_root)
     candidates, excluded = [], []
     for seat in ready:
         mark = self_marks.get(seat, NO_MARK)
@@ -1033,10 +1065,26 @@ def launch_candidates(coord, pkg, ready, self_marks):
                             "reason": "an ACTIVE roster row — the seat is occupied right now, and "
                                       "enqueuing it would double-launch it."})
             continue
+        if seat in nested:
+            excluded.append({"seat": seat, "term": "nested-workflow-row",
+                            "value": "kind=nested_workflow",
+                            "reason": "MC9's classifier reads this row as a NESTED WORKFLOW, not a "
+                                      "seat: it names a workflow manifest, so it has no descriptor "
+                                      "and this stage can never launch it. REFUSED BY NAME rather "
+                                      "than left ready forever — every successor of `%s` waits on "
+                                      "a row nothing will ever advance. The launch path for a "
+                                      "nested workflow is %s." % (seat, NESTED_ROW_TASK)})
+            continue
         if not (pkg / "seats" / seat / "seat.md").exists():
             excluded.append({"seat": seat, "term": "no-descriptor", "value": None,
-                            "reason": "no descriptor at {RUN}/seats/%s/seat.md — a taskforce.csv-"
-                                      "only row would be launched into nothing." % seat})
+                            "reason": "no descriptor at {GOAL}/seats/%s/seat.md — a taskforce.csv-"
+                                      "only row would be launched into nothing. ⚠ THIS IS ALSO THE "
+                                      "SHAPE OF A NESTED-WORKFLOW ROW, and MC9's classifier was "
+                                      "NOT consulted on this pass (no catalog root reached it), so "
+                                      "the cause is not typed here: it is either a row whose "
+                                      "descriptor is missing, or a row that names a workflow and "
+                                      "needs %s. Either way its successors wait forever until a "
+                                      "human reads this line." % (seat, NESTED_ROW_TASK)})
             continue
         candidates.append(seat)
     return candidates, excluded
@@ -3702,6 +3750,16 @@ def check_this_run_is_not_armed():
 # manifest reference still names either a seat or a nested workflow, that reading still has exactly
 # one home (MC9), and this file must still not author a second one.
 
+# Assembled from fragments so this check's own source is never a hit for the search it performs.
+# ⚠ RESTORED IN 7.607 E3. E2b deleted these three constants with the branch arm but LEFT the check
+# that reads them, so `branch-arm-reaches-classifier` raised `NameError` on every pass instead of
+# grading — a check that cannot run is a guard that is not there, and the selftest is not in the
+# probe suite's enumerator, so nothing else was looking.
+_CLASSIFIER = "classify_manifest" + "_reference"
+_WORKFLOW_GLOB = "/work" + "flows/"
+_SEAT_CATALOG = "seats" + ".csv"
+
+
 def check_branch_arm_reaches_the_classifier():
     """CRITERION 4 — the arm REACHES MC9's classifier rather than re-classifying. Proven at source,
     both directions:
@@ -3729,6 +3787,78 @@ def check_branch_arm_reaches_the_classifier():
     return True, ("criterion 4: `nested_rows` calls %s and this file carries no second resolution "
                   "rule (both needles positively controlled in %s)"
                   % (_CLASSIFIER, MATERIALIZE_PATH.name))
+
+
+def check_nested_row_refuses_out_loud(coord, pkg):
+    """7.607 E3 (E2b review OQ1) — a `kind=nested_workflow` row leaves the LAUNCH PATH as a TYPED,
+    NAMED refusal, never silently.
+
+    Three arms plus a vacuity control, because each alone passes on the wrong code:
+
+      GREEN CONTROL   with no nested rows, the same seat is a CANDIDATE. Without this the refusal
+                      arms would pass on code that refused everything.
+      TYPED ARM       MC9 reads the row as a nested workflow -> the seat leaves as
+                      `nested-workflow-row`, carrying the task that owns its launch path.
+      UNTYPED ARM     no catalog root (the daemon's own condition) and no descriptor -> the seat
+                      still leaves NAMED, and the reason still names the nested-workflow cause and
+                      the task. This is the arm that makes production non-silent.
+      NOT-VACUOUS     the seat is asserted to be in `ready` first: a refusal reported about a row
+                      that was never a candidate proves nothing at all."""
+    res = readiness(coord, pkg)
+    ready = list(res["ready"])
+    base, base_excl = launch_candidates(coord, pkg, ready, res["self-marks"])
+    if not base:
+        return False, ("GREEN CONTROL failed: the fixture produced NO launch candidate at all "
+                       "(ready=%d, excluded terms=%r), so every refusal arm below would pass "
+                       "vacuously" % (len(ready), sorted({e["term"] for e in base_excl})))
+    subject = base[0]
+
+    original = globals()["nested_rows"]
+    try:
+        globals()["nested_rows"] = lambda _c, _p, _root, ms=None: ({subject: object()}, [])
+        cand, excl = launch_candidates(coord, pkg, ready, res["self-marks"],
+                                       catalog_root="/nonexistent-catalog-root")
+        if subject in cand:
+            return False, "TYPED ARM: a nested-workflow row was still a launch candidate"
+        row = next((e for e in excl if e["seat"] == subject), None)
+        if row is None:
+            return False, ("TYPED ARM: the nested-workflow row VANISHED — neither a candidate nor "
+                           "an exclusion, which is exactly the silence this check exists to stop")
+        if row["term"] != "nested-workflow-row":
+            return False, "TYPED ARM: the exclusion is typed %r, not `nested-workflow-row`" % row["term"]
+        if NESTED_ROW_TASK not in row["reason"]:
+            return False, ("TYPED ARM: the refusal does not cite %s, so a reader is told a row is "
+                           "dead and not where its launch path lives" % NESTED_ROW_TASK)
+    finally:
+        globals()["nested_rows"] = original
+
+    # UNTYPED ARM — the daemon's condition: no catalog root, so the classifier is never asked.
+    # A seat that is ready and has no descriptor must still leave NAMED, naming the same cause.
+    orphan = "zz-nested-orphan"
+    tf = pkg / "taskforce.csv"
+    had = tf.read_text(encoding="utf-8")
+    try:
+        tf.write_text(had.rstrip("\n") + "\ntf-zz,%s,,claude,opus,high,50,m0\n" % orphan,
+                      encoding="utf-8")
+        res2 = readiness(coord, pkg)
+        if orphan not in res2["ready"]:
+            return False, ("UNTYPED ARM: the descriptor-less row did not become ready, so its "
+                           "exclusion would not be measured")
+        _c2, excl2 = launch_candidates(coord, pkg, res2["ready"], res2["self-marks"])
+        row2 = next((e for e in excl2 if e["seat"] == orphan), None)
+        if row2 is None:
+            return False, "UNTYPED ARM: the descriptor-less row vanished silently"
+        if NESTED_ROW_TASK not in row2["reason"] or "NESTED-WORKFLOW" not in row2["reason"].upper():
+            return False, ("UNTYPED ARM: the refusal names neither the nested-workflow cause nor "
+                           "%s: %r" % (NESTED_ROW_TASK, row2["reason"][:200]))
+    finally:
+        tf.write_text(had, encoding="utf-8")
+
+    return True, ("green control: %r IS a candidate with no nested rows; TYPED: it leaves as "
+                  "`nested-workflow-row` citing %s; UNTYPED (no catalog root, the daemon's own "
+                  "condition): a descriptor-less row still leaves NAMED, naming the nested cause "
+                  "and %s. A dead row is never silent in either direction."
+                  % (subject, NESTED_ROW_TASK, NESTED_ROW_TASK))
 
 
 
@@ -3866,6 +3996,8 @@ def cmd_selftest(fixture):
         # a seat reference from a workflow reference is still a real question — so the one check
         # that guards THAT stays and is the only member left of this group.
         ("branch-arm-reaches-classifier", lambda: check_branch_arm_reaches_the_classifier()),
+        # 7.607 E3 (E2b review OQ1) — the dead nested-workflow row refuses out loud
+        ("nested-row-refuses-out-loud", lambda: check_nested_row_refuses_out_loud(coord, pkg)),
         # STEP 5 / the daemon entry (task C1, owner ruling d-owner-batch1 (1))
         ("goal-resolves-the-live-run", lambda: check_goal_resolves_the_live_run()),
         ("arming-has-one-home", lambda: check_arming_has_exactly_one_home(coord, pkg)),
@@ -3902,48 +4034,76 @@ def _fake_args(**kw):
     return ns
 
 
-def _goal_fixture(root, states):
-    """A goal folder whose runs.csv carries one row per `states` entry — the minimum
-    `coord.resolve_live_run` reads. Its run folders exist so a resolved path is a real directory."""
-    goal = Path(root)
-    goal.mkdir(parents=True, exist_ok=True)
-    lines = ["run-id,state"]
-    for i, st in enumerate(states, start=1):
-        lines.append("run-%d,%s" % (i, st))
-        (goal / "runs" / ("run-%d" % i)).mkdir(parents=True, exist_ok=True)
-    (goal / "runs.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return goal
+def _lease_stub(rooms, unreadable=""):
+    """A stand-in for `coord.derive_lease` returning exactly the accessor's two-value contract:
+    `({}, why)` for an UNREADABLE lease, `(lease, "")` otherwise. Written as a stub rather than a
+    real tmux room because these arms are about `resolve_package`'s THREE DOORS, not about the
+    lease's own derivation — that has its own probe (`server/lease/probes/`) and its own end-to-end
+    exercise. A stub that returned some other shape would prove nothing, so it returns this one."""
+    if unreadable:
+        return lambda goal: ({}, unreadable)
+    return lambda goal: ({"ok": True, "live": bool(rooms), "goal": Path(goal).name,
+                          "goalDir": str(goal),
+                          "rooms": [{"room": r, "packageDir": str(goal), "panePids": [],
+                                     "seats": []} for r in rooms],
+                          "seats": [], "evidence": {}}, "")
 
 
 def check_goal_resolves_the_live_run():
-    """C1 criterion 1: a catalogue argv names a GOAL and the run is resolved at fire time — and the
-    resolver REFUSES rather than picks when the register is ambiguous. Both arms, one variable."""
+    """C1 criterion 1, re-founded on the LEASE (7.607 E3): a catalogue argv names a GOAL and the
+    package is DERIVED at fire time — and the resolver REFUSES rather than picks at each of its
+    three doors. Four arms, one variable.
+
+    ⚠ THE PACKAGE IS THE GOAL FOLDER ITSELF (design-lock item 8), so the live arm asserts the
+    identity rather than a composed `runs/run-N` path — which is the exact composition that made
+    this resolver return a directory that does not exist between E2b and here."""
+    coord_mod = load_coord()
+    original = coord_mod.derive_lease
     tmp = Path(tempfile.mkdtemp(prefix="edge-runner-goal-"))
     try:
-        one = _goal_fixture(tmp / "g-one", ["closed", "open", "closed"])
+        one = tmp / "g-one"
+        one.mkdir(parents=True)
+        coord_mod.derive_lease = _lease_stub(["g-one"])
         pkg, prov = resolve_package(_fake_args(goal=str(one)))
-        if pkg != (one / "runs" / "run-2").resolve():
-            return False, "one open row resolved to %s, expected run-2 (%s)" % (pkg, prov)
+        if pkg != one.resolve():
+            return False, "a live lease resolved to %s, expected the goal folder %s (%s)" % (
+                pkg, one.resolve(), prov)
+        if "lease" not in prov:
+            return False, "the live provenance does not name the lease: %s" % prov
 
-        two = _goal_fixture(tmp / "g-two", ["open", "open"])
-        bad, why = resolve_package(_fake_args(goal=str(two)))
+        coord_mod.derive_lease = _lease_stub(["g-one", "g-one"])
+        bad, why = resolve_package(_fake_args(goal=str(one)))
         if bad is not None:
-            return False, "TWO open rows resolved to %s instead of refusing" % bad
-        if "R9" not in why:
-            return False, "the two-open-row refusal does not name R9: %s" % why
+            return False, "TWO rooms resolved to %s instead of refusing" % bad
+        if "item 2" not in why:
+            return False, "the two-room refusal does not name the one-room rule: %s" % why
 
-        none, why0 = resolve_package(_fake_args(goal=str(_goal_fixture(tmp / "g-none", ["closed"]))))
+        coord_mod.derive_lease = _lease_stub([])
+        none, why0 = resolve_package(_fake_args(goal=str(one)))
         if none is not None:
-            return False, "a register with no open row resolved to %s instead of refusing" % none
+            return False, "a goal with NO room resolved to %s instead of refusing" % none
+        if "NOT EXECUTING" not in why0:
+            return False, "the no-room refusal does not say the goal is not executing: %s" % why0
 
-        # The override still wins, and it consults no register: this package has no runs.csv above
-        # it at all, which is the shape every check and every on-disk fixture run passes.
-        over, oprov = resolve_package(_fake_args(package=str(tmp), goal=str(two)))
+        coord_mod.derive_lease = _lease_stub([], unreadable="tmux is unreadable")
+        ign, whyi = resolve_package(_fake_args(goal=str(one)))
+        if ign is not None:
+            return False, "an UNREADABLE lease resolved to %s instead of refusing" % ign
+        if "IGNORANCE" not in whyi:
+            return False, ("the unreadable refusal does not distinguish ignorance from absence: %s"
+                           % whyi)
+
+        # The override still wins and consults NO lease — proven by leaving the stub on the
+        # unreadable arm, which would refuse if the override path reached it at all.
+        over, oprov = resolve_package(_fake_args(package=str(tmp), goal=str(one)))
         if over != tmp.resolve() or "override" not in oprov:
             return False, "--package did not override --goal (got %s / %s)" % (over, oprov)
-        return True, ("one open row -> run-2; TWO open rows REFUSED naming R9; zero open rows "
-                      "REFUSED; --package overrode a resolvable --goal. Four arms, one variable.")
+        return True, ("live lease -> the GOAL FOLDER (not a composed runs/run-N path); TWO rooms "
+                      "REFUSED naming item 2; NO room REFUSED as not-executing; an UNREADABLE "
+                      "lease REFUSED as IGNORANCE, distinctly; --package overrode even an "
+                      "unreadable lease. Five arms, one variable.")
     finally:
+        coord_mod.derive_lease = original
         shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -4079,32 +4239,44 @@ def resolve_package(args):
     fixed in `selfheal-room`, and swapping in the currently-live run reproduces it at the very next
     close. So the entry names a GOAL and this asks the register which run is open.
 
-    THE REGISTER HAS EXACTLY ONE READER AND IT IS NOT THIS FILE. `coord.resolve_live_run` already
-    answers this and already REFUSES rather than guesses on zero or two `state=open` rows (R9's
-    one-live-run guarantee, whose enforcement — task 7.77 — is NOT BUILT). A second CSV reader here
-    would be a second answer to "which run is live", which is the two-readers shape (G-301) this
-    whole file is bounded against. Unlike `selfheal-watch.resolve_package` this takes no `--coord`
-    flag: `COORD_PATH` is already a module-level constant here and `load_coord()` is already the
-    single import site, so a flag would be a second home for a path this file cannot run without.
+    ⚠ THERE IS NO REGISTER ANY MORE, AND THE TARGET IS THE LEASE (7.607 E3, design-lock item 1).
+    Liveness is DERIVED at fire time from the goal's tmux room and its ancestry-verified seats,
+    never from a stored status. `coord.derive_lease` is the ONE accessor over the one home
+    (`server/lease/lease.js`); a second room predicate here would be the two-readers shape (G-301)
+    this whole file is bounded against, exactly as a second `runs.csv` parse was. Unlike
+    `selfheal-watch.resolve_package` this takes no `--coord` flag: `COORD_PATH` is already a
+    module-level constant here and `load_coord()` is already the single import site.
+
+    ⚠ WHAT THIS REPLACES WAS ALREADY BROKEN, NOT MERELY DATED: it composed `<goal>/runs/<name>`
+    from `resolve_live_run`'s compat return, and E2b moved the layout out from under that path — a
+    fire would have marked and advanced seats against a directory that does not exist.
 
     `--package` SURVIVES AS THE EXPLICIT OVERRIDE and wins whenever present — every interactive
-    caller, every check, and the on-disk fixture runs pass it, and none of them has a run register.
+    caller, every check, and the on-disk fixture runs pass it, and none of them is executing.
 
-    Refusal is FAIL-CLOSED and returns no package: a pass that guessed its target on an ambiguous
-    register would mark and advance seats in a run nobody named."""
+    Refusal is FAIL-CLOSED and returns no package, at THREE doors — an unreadable lease
+    (ignorance), no room (the goal is not executing), and more than one room."""
     if args.package:
-        return Path(args.package).resolve(), "--package (explicit override; the register is not consulted)"
+        return Path(args.package).resolve(), "--package (explicit override; the lease is not consulted)"
     if not args.goal:
         return None, ("neither --package nor --goal: this pass has no target and will not choose "
-                      "one. A catalogue entry passes --goal, and the live run is resolved from that "
-                      "goal's runs.csv at FIRE TIME.")
+                      "one. A catalogue entry passes --goal, and the package is DERIVED from that "
+                      "goal's live lease at FIRE TIME.")
     goal = Path(args.goal).resolve()
-    run_id, detail = load_coord().resolve_live_run(goal)
-    if not run_id:
-        return None, ("register at %s did not resolve ONE live run: %s" % (goal / "runs.csv", detail))
-    return (goal / "runs" / run_id).resolve(), (
-        "%s state=open -> %s (resolved live via coord.resolve_live_run, R10)"
-        % (goal / "runs.csv", run_id))
+    lease, why = load_coord().derive_lease(goal)
+    if why:
+        return None, ("the lease for %s is UNREADABLE (%s). That is IGNORANCE, not an idle goal — "
+                      "refusing rather than reading it as 'nothing is running'." % (goal.name, why))
+    rooms = lease.get("rooms") or []
+    if len(rooms) != 1:
+        return None, ("the live lease for %s names %d rooms and the design rules exactly one "
+                      "(lock item 2): %s"
+                      % (goal.name, len(rooms),
+                         "the goal is NOT EXECUTING, so there is nothing to advance" if not rooms
+                         else "two rooms of one goal is a box state nothing here should resolve"))
+    pkg = Path(rooms[0].get("packageDir") or "").resolve()
+    return pkg, ("DERIVED from the live lease of %s: room %r -> %s (no stored status read; "
+                 "design-lock item 1)" % (goal.name, rooms[0].get("room"), pkg))
 
 
 def enqueue_arming(pkg, job_id, profile):
@@ -4138,10 +4310,10 @@ def enqueue_arming(pkg, job_id, profile):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--package", help="the run folder to verify seats in")
+    p.add_argument("--package", help="the goal folder to verify seats in")
     p.add_argument("--goal", default=None,
-                   help="goal folder whose runs.csv resolves the live run when --package is "
-                        "absent. Names a GOAL, never a run — there is no run number to go stale")
+                   help="goal folder whose LIVE LEASE resolves the package when --package is "
+                        "absent. Names a GOAL — there is no run number left to go stale")
     p.add_argument("--ignite-bin", default=None, dest="ignite_bin",
                    help="absolute path to the `ignite` binary STEP 4's door runs. Omitted, the "
                         "door resolves the bare name on PATH — which works for an interactive "

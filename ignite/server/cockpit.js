@@ -72,6 +72,9 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const { assertTmuxName } = require('./spawn/tmux');
+// 7.607 E3: the ONE home of 'is this goal executing' (design-lock item 1). Required here, never
+// re-implemented — a second room predicate is the drift PRIN-11 forbids.
+const { deriveLease } = require('./lease/lease');
 
 // The reserved cockpit session name. A constant, never an operator string: it is half of the
 // distinctness guarantee above, and a configurable name would make that guarantee configurable.
@@ -120,22 +123,33 @@ function resolveTeamviewArgv({ igniteSrc, env = process.env, exists = fs.existsS
   return null;
 }
 
-// ── run-package resolution ─────────────────────────────────────────────────────────────────────
+// ── package resolution ─────────────────────────────────────────────────────────────────────────
 //
-// WHICH run folder the cockpit renders. The leader ruled the FORM (an explicit --package); this
-// is the only part left, and it is deterministic rather than a policy: the MOST RECENTLY ACTIVE
-// run folder under {workspace}/.rbtv/goals/*/runs/run-*, ranked by its state.json mtime (the
-// sensor's own last write) and falling back to the folder's mtime where no snapshot exists.
+// WHICH goal the cockpit renders. The leader ruled the FORM (an explicit --package); this is the
+// only part left.
 //
-// Between runs that resolves to the last run — whose snapshot teamview renders with a visible
-// STALE warning (task 7.34 / R24), which is exactly the right between-runs picture: the room that
-// just closed, flagged as no longer live. During a run it resolves to the live run, because the
-// live sensor is the one writing.
+// ⚠ THE LIVE QUESTION IS ASKED OF THE LEASE, NOT OF AN mtime (7.607 E3, design-lock item 1;
+// inventory #12). This used to glob `{workspace}/.rbtv/goals/*/runs/run-*` and rank by
+// `state.json`'s mtime — a THREE-WAY wrong reading of "which workspace is live": the run folders
+// are gone, an mtime is a stored artefact of the last writer rather than evidence of a live
+// execution, and a stale sensor left one goal outranking the goal that was actually executing.
+// A goal is EXECUTING iff its room exists NOW; that is the lease's whole contract and this asks
+// it directly.
 //
-// An env override (RBTV_IGNITE_COCKPIT_PACKAGE) pins it for an operator who wants a fixed view.
-// Ranking is by mtime and NEVER by run-folder name: names sort lexicographically, so run-10 would
-// rank below run-2 (the same defect filed as G-117 against the goals-tree run sort).
-function resolveCockpitPackage(workspaceRoot, { env = process.env } = {}) {
+// THE ORDER, and why each rung exists:
+//   1. the env override — an operator pinning a fixed view outranks every derivation;
+//   2. a LIVE LEASE — the goal whose room exists now. Exactly one is the design (item 2); on
+//      more than one the FIRST by name is taken deterministically rather than refusing, because
+//      this composes a VIEW and a cockpit that refuses to render is worse than one rendering a
+//      named, checkable choice;
+//   3. BETWEEN EXECUTIONS, the most recent snapshot — the goal that just finished, which
+//      teamview renders with its visible STALE warning (task 7.34 / R24). This rung reads an
+//      mtime, and that is legitimate here BECAUSE it is not answering liveness: rung 2 already
+//      answered it `no`. The question here is "what did the owner last look at".
+//
+// An UNREADABLE lease falls through to rung 3 rather than resolving nothing: this is a view, and
+// the posture on ignorance for a view is to show the last thing known, never to blank the screen.
+function resolveCockpitPackage(workspaceRoot, { env = process.env, readLease = null } = {}) {
   const override = env.RBTV_IGNITE_COCKPIT_PACKAGE;
   if (override) return path.resolve(override);
   if (!workspaceRoot) return null;
@@ -143,41 +157,43 @@ function resolveCockpitPackage(workspaceRoot, { env = process.env } = {}) {
   const goalsRoot = path.join(workspaceRoot, '.rbtv', 'goals');
   let goals;
   try {
-    goals = fs.readdirSync(goalsRoot, { withFileTypes: true });
+    goals = fs.readdirSync(goalsRoot, { withFileTypes: true }).filter((g) => g.isDirectory());
   } catch {
     return null;
   }
 
+  // RUNG 2 — the live lease. `readLease` is the injection point a probe supplies a fixture tmux
+  // server through; the default is the one home (`server/lease/lease.js`), never a second room
+  // predicate written here.
+  const lease = readLease || deriveLease;
+  const live = [];
+  for (const goal of goals) {
+    let l;
+    try { l = lease({ workspaceRoot, goal: goal.name }); } catch { continue; }
+    if (l && l.ok && l.live && l.rooms && l.rooms.length) live.push(l.rooms[0].packageDir);
+  }
+  if (live.length) return live.sort()[0];
+
+  // RUNG 3 — nothing is executing: the most recent snapshot. Ranked by `state.json` mtime, and a
+  // goal WITH a snapshot always outranks one without, whatever the mtimes say: a folder touched
+  // by an unrelated write is not evidence that anything ever ran there.
   let best = null;
   for (const goal of goals) {
-    if (!goal.isDirectory()) continue;
-    const runsDir = path.join(goalsRoot, goal.name, 'runs');
-    let runs;
+    const goalPath = path.join(goalsRoot, goal.name);
+    let stamp = 0;
+    let hasSnapshot = false;
     try {
-      runs = fs.readdirSync(runsDir, { withFileTypes: true });
+      stamp = fs.statSync(path.join(goalPath, 'state.json')).mtimeMs;
+      hasSnapshot = true;
     } catch {
-      continue;
+      try { stamp = fs.statSync(goalPath).mtimeMs; } catch { continue; }
     }
-    for (const run of runs) {
-      if (!run.isDirectory() || !run.name.startsWith('run-')) continue;
-      const runPath = path.join(runsDir, run.name);
-      let stamp = 0;
-      let hasSnapshot = false;
-      try {
-        stamp = fs.statSync(path.join(runPath, 'state.json')).mtimeMs;
-        hasSnapshot = true;
-      } catch {
-        try { stamp = fs.statSync(runPath).mtimeMs; } catch { continue; }
-      }
-      // A run WITH a snapshot always outranks one without, whatever the mtimes say: a folder
-      // touched by an unrelated write is not evidence that a run was active there.
-      const better = !best
-        || (hasSnapshot && !best.hasSnapshot)
-        || (hasSnapshot === best.hasSnapshot && stamp > best.stamp);
-      if (better) best = { runPath, stamp, hasSnapshot };
-    }
+    const better = !best
+      || (hasSnapshot && !best.hasSnapshot)
+      || (hasSnapshot === best.hasSnapshot && stamp > best.stamp);
+    if (better) best = { goalPath, stamp, hasSnapshot };
   }
-  return best ? best.runPath : null;
+  return best ? best.goalPath : null;
 }
 
 // ── the composition ────────────────────────────────────────────────────────────────────────────

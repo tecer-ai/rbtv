@@ -75,19 +75,18 @@ function makeFakeForwarder() {
   };
 }
 
-// A workspace root shaped like the real one. `seat` and `open` are independently
-// controllable, because the two refusal reasons they produce (no open run, seat missing)
-// are different failures the owner fixes differently.
+// A workspace root shaped like the real one. 7.607 E3: the two unresolvable states left are
+// SEAT MISSING and GOAL ABSENT — "no open run" was a third one until the run register was
+// extinguished, and it is gone rather than re-spelled: there is no stored state to be closed.
 function seedWorkspace(goals) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-mention-'));
   for (const [goalId, opts] of Object.entries(goals)) {
-    const { open = true, seat = true } = opts || {};
+    // 7.607 E3: GOAL-DIRECT. No register row, no run folder — a goal-surface session is homed by
+    // whether the SEAT EXISTS on disk, which is the whole question now.
+    const { seat = true } = opts || {};
     const goalDir = path.join(root, '.rbtv', 'goals', goalId);
-    fs.mkdirSync(path.join(goalDir, 'runs', 'run-1'), { recursive: true });
-    if (seat) fs.mkdirSync(path.join(goalDir, 'runs', 'run-1', 'seats', 'goal-master'), { recursive: true });
-    fs.writeFileSync(path.join(goalDir, 'runs.csv'),
-      'run-id,type,state,taskforce-ids,opened,closed\n' +
-      `run-1,fresh,${open ? 'open' : 'closed'},tf-1,2026-08-03 00:00,${open ? '' : '2026-08-04 00:00'}\n`);
+    fs.mkdirSync(goalDir, { recursive: true });
+    if (seat) fs.mkdirSync(path.join(goalDir, 'seats', 'goal-master'), { recursive: true });
   }
   return root;
 }
@@ -203,7 +202,7 @@ async function main() {
     await bridge.start();
     const reg = await bridge.registerGoal('goal-seated');
     const res = await bridge.onChatMessage(msg({ channel: reg.channelId, ts: '5.1', channelType: 'channel', text: 'status?' }));
-    const expected = path.join(workspaceRoot, '.rbtv', 'goals', 'goal-seated', 'runs', 'run-1', 'seats', 'goal-master');
+    const expected = path.join(workspaceRoot, '.rbtv', 'goals', 'goal-seated', 'seats', 'goal-master');
     const args = forwarder.enqueued[0] && forwarder.enqueued[0].payload.args;
     check('goal session-create is homed at the open run\'s goal-master seat',
       res.forwarded === true && Boolean(args) && args.workdir === expected, { workdir: args && args.workdir, expected });
@@ -211,13 +210,12 @@ async function main() {
     bridge.stop();
   }
 
-  // 5 — NO SEAT, NO WORK. Each of the three unresolvable states enqueues NOTHING and
-  //     posts the ONE fixed notice on the goal's own channel. Silence here would read as
-  //     the goal-master ignoring the owner.
+  // 5 — NO SEAT, NO WORK. Each unresolvable state enqueues NOTHING and posts the ONE fixed
+  //     notice on the goal's own channel. Silence here would read as the goal-master ignoring
+  //     the owner. 7.607 E3: two states, not three — see `seedWorkspace`.
   {
     const cases = [
-      { label: 'no open run', goals: { 'goal-closed': { open: false } }, goalId: 'goal-closed' },
-      { label: 'open run with no goal-master seat', goals: { 'goal-unseated': { seat: false } }, goalId: 'goal-unseated' },
+      { label: 'the goal exists with no goal-master seat', goals: { 'goal-unseated': { seat: false } }, goalId: 'goal-unseated' },
       { label: 'goal absent from the workspace', goals: {}, goalId: 'goal-absent' },
     ];
     for (const c of cases) {

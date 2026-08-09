@@ -106,6 +106,8 @@ RULED_LAUNCH_NAME = "scaffold-seats"
 # the members and no others, and growing it requires adding a CLAUSE to the schema's §1 FIRST. This
 # file therefore mints nothing — a condition with no member here is a condition this schema ADMITS,
 # and inventing a fourteenth member would re-open a closed half nobody reviewed.
+# 7.607 E3: a HISTORICAL citation of where this set was specified. `runs/run-3/` was that goal's
+# then-current compartment; the run layer is extinguished and stage E4 migrates the folder itself.
 REJECT_SET_SOURCE = (".rbtv/goals/build-core-daemon-mvp/runs/run-3/planning/"
                      "briefing-master-request-launch-entry/request-schema-goal-creation.md §6.1")
 REJECT_SET = {

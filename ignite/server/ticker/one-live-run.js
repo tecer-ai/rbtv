@@ -40,12 +40,11 @@
 // The RENAME is a later stage's; this stage changes the BEHAVIOR under the existing names so the
 // two changes stay separable in the history.)
 //
-// ⚠ EVENT-FIELD COMPAT SEAM, DISCLOSED RATHER THAN SILENTLY RENAMED. `queued-run-notify.js` (the
-// owner notification, inventory #49) reads `event['open-run-found']`, and it is NOT in this
-// stage's write surface. So the field KEEPS ITS NAME and carries lease values (`run-id` = the
-// matched room name(s), `state` = the lease verdict word, `register` = the room predicate), and a
-// second field `live-lease` carries the full evidence for anything reading the event fresh. E2's
-// rename pass collapses the two. A rename here would have broken the notifier silently.
+// ⚠ THE EVENT-FIELD COMPAT SEAM IS GONE (7.607 E3). E2b carried a second key `open-run-found`
+// pointing at the same object, because `queued-run-notify.js` read it and was outside that stage's
+// write surface. E3 renamed that module to `queued-start-notify.js` and moved it onto `live-lease`
+// in the same pass, so the duplicate key is DELETED rather than kept as a tolerant alias: two names
+// for one object is a second reader waiting to be written against the one nobody maintains.
 //
 // THRESHOLDS: this rule has NONE. It reads no floor, no cap, no interval, and therefore reads
 // nothing from `budget.json` and carries no policy number in argv or the environment.
@@ -80,7 +79,7 @@ function describeGate() {
     `run-start discriminator: jobs.action_type === "${RUN_START_ACTION_TYPE}" AND jobs.goal_name is set`,
     'executing answer: server/lease/lease.js deriveLease() — the goal\'s tmux room existing NOW',
     'stored status read: NONE — runs.csv is not read by this gate at any point',
-    `emitted on a gated start: {scheduled-start, live-lease, open-run-found (compat), action: "${QUEUED}"} + reason`,
+    `emitted on a gated start: {scheduled-start, live-lease, action: "${QUEUED}"} + reason`,
     'lease unreadable (tmux missing/erroring): QUEUED (fail-closed), never started',
     'no live lease: START — a fresh goal with no room admits its start (the 7.608 deadlock is gone)',
     'an error inside the gate itself: QUEUED and never rethrown — a throw here would abandon the whole tick',
@@ -108,9 +107,6 @@ function queuedResult(job, queueRow, reason, leaseFound) {
     event: {
       'scheduled-start': scheduledStartOf(job, queueRow),
       'live-lease': leaseFound,
-      // Compat seam — see the header note. Same object, legacy key, so the unmodified notifier
-      // keeps rendering. E2 deletes this line in the same pass that renames the notifier.
-      'open-run-found': leaseFound,
       action: QUEUED,
       reason,
     },
@@ -135,7 +131,7 @@ function decide({ job, queueRow, resolveRoot, readLease = deriveLease }) {
     // second is a fact, the first is ignorance, and starting on ignorance is the overlap this
     // prevents.
     return queued(REASONS.WORKSPACE_UNRESOLVABLE, {
-      'run-id': null,
+      room: null,
       state: null,
       count: null,
       register: null,
@@ -151,7 +147,7 @@ function decide({ job, queueRow, resolveRoot, readLease = deriveLease }) {
     // opposite posture on the same signal (a broken meter may not stop a healthy loop) — which is
     // exactly why the lease module reports and never decides.
     return queued(REASONS.LEASE_UNREADABLE, {
-      'run-id': null,
+      room: null,
       state: null,
       count: null,
       register: null,
@@ -164,7 +160,7 @@ function decide({ job, queueRow, resolveRoot, readLease = deriveLease }) {
   if (lease.live) {
     const rooms = lease.rooms.map((r) => r.room);
     return queued(REASONS.LIVE_LEASE, {
-      'run-id': rooms.length === 1 ? rooms[0] : rooms,
+      room: rooms.length === 1 ? rooms[0] : rooms,
       state: 'live-lease',
       count: rooms.length,
       register: lease.evidence['room-predicate'],
@@ -199,7 +195,7 @@ function oneLiveRunDecision(input) {
   } catch (err) {
     const { job = {}, queueRow = {} } = input || {};
     return queuedResult(job, queueRow, REASONS.GATE_ERROR, {
-      'run-id': null,
+      room: null,
       state: null,
       count: null,
       register: null,

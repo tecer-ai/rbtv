@@ -20,9 +20,9 @@
 //                           DIRECTIONS: C1's goal has `state=closed` on disk and queues; C2's has
 //                           `state=open` and starts. No reading of runs.csv produces both.
 //   C4  event fields     -> the declared fields present; `live-lease` names WHICH room was found;
-//                           the legacy `open-run-found` key still carries it (the notifier compat
-//                           seam, `one-live-run.js` header).
-//   C5  lease unreadable -> QUEUED, fail-closed. Ignorance never starts a run.
+//                           the legacy `open-run-found` alias is GONE (7.607 E3 deleted the compat
+//                           seam in the same pass that renamed the notifier).
+//   C5  lease unreadable -> QUEUED, fail-closed. Ignorance never starts an execution.
 //   C6  workspace root unresolvable -> QUEUED, same posture, different cause.
 //   C7  not a run start  -> a `fire-tool` job homed at the SAME goal with the SAME live room FIRES.
 //                           The bound: the gate must not stop the watchers and self-heal jobs that
@@ -189,11 +189,11 @@ async function run(lines) {
     const ev = aLive.event;
     assert(lines, !!ev['scheduled-start'] && !!ev['live-lease'] && ev.action === 'queued',
       'C4 the event carries all three declared fields', JSON.stringify(Object.keys(ev)));
-    assert(lines, ev['live-lease']['run-id'] === room && ev['live-lease'].state === 'live-lease',
+    assert(lines, ev['live-lease'].room === room && ev['live-lease'].state === 'live-lease',
       'C4 live-lease NAMES which room was found', JSON.stringify(ev['live-lease']));
-    assert(lines, ev['open-run-found'] === ev['live-lease'],
-      'C4 the legacy `open-run-found` key still carries it — the disclosed compat seam that keeps '
-      + 'queued-run-notify.js (out of this stage\'s write surface) rendering');
+    assert(lines, !('open-run-found' in ev),
+      'C4 (7.607 E3) the legacy `open-run-found` alias is DELETED, not merely unused — two keys for '
+      + 'one object is the second reader nobody maintains', JSON.stringify(Object.keys(ev)));
     assert(lines, ev['scheduled-start'].goal === GOAL_LIVE && ev['scheduled-start']['queue-id'] === qLive.queue_id,
       'C4 scheduled-start names the gated start', JSON.stringify(ev['scheduled-start']));
     assert(lines, !/runs\.csv/.test(String(ev['live-lease'].register)),

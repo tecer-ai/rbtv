@@ -182,33 +182,51 @@ def resolve_package(args):
     identical flag surface": what the twin exists to keep identical is the RELAUNCH argv it
     exercises on the live entry's behalf, and that is untouched by which target flag it carries.
 
-    THE REGISTER IS READ BY EXACTLY ONE READER, AND IT IS NOT THIS FILE. `coord.resolve_live_run()`
-    already does this and already REFUSES rather than guesses when zero or two rows read `open`
-    (R9's one-live-run guarantee, whose enforcement — task 7.77 — is NOT BUILT). A second CSV
-    reader here would be a second answer to "which run is live", which is the defect shape `G-301`
-    is made of. `coord` is imported INSIDE this function from the `--coord` path, mirroring
+    ⚠ THERE IS NO REGISTER ANY MORE, AND THE TARGET IS THE LEASE (7.607 E3, design-lock item 1).
+    Liveness is DERIVED at fire time from live evidence — the goal's tmux room and its ancestry-
+    verified seats — and never from a stored status. `coord.derive_lease()` is the ONE accessor
+    over the one home (`server/lease/lease.js`); a second room predicate here would be the
+    two-readers shape `G-301` is made of, exactly as a second `runs.csv` parse was.
+
+    ⚠ WHAT THIS REPLACES WAS ALREADY BROKEN, NOT MERELY DATED. Until this change the resolution
+    composed `<goal>/runs/<name>` out of `coord.resolve_live_run`'s compat return — and E2b moved
+    the layout so that path no longer exists: a fire would have relaunched the sensor into a
+    directory that is not there. The lease hands back the package directly, so there is nothing
+    left to compose and nothing left to get wrong.
+
+    `coord` is imported INSIDE this function from the `--coord` path, mirroring
     `goal-watcher-job.py:454`: at module level it would make every copy-and-test of this job carry
     a sibling dependency it does not otherwise need.
 
-    Refusal is FAIL-CLOSED and returns no package. A self-heal that guessed its target on an
-    ambiguous register is the failure this whole task exists to remove.
+    Refusal is FAIL-CLOSED and returns no package, at THREE doors — an unreadable lease
+    (ignorance), no room (the goal is not executing), and more than one room (a box state nothing
+    here should resolve). A self-heal that guessed its target is the failure this task removes.
     """
     if args.package:
-        return Path(args.package).resolve(), "--package (explicit override; register not consulted)"
+        return Path(args.package).resolve(), "--package (explicit override; the lease is not consulted)"
     if not args.goal or not args.coord:
         absent = [f"--{f}" for f in ("goal", "coord") if not getattr(args, f)]
         missing = " and ".join(absent) + (" are absent" if len(absent) > 1 else " is absent")
-        return None, (f"no --package, so the target must resolve from the run register — but "
-                      f"{missing}. Register resolution needs BOTH: --goal names the "
-                      f"goal folder holding runs.csv, --coord supplies the ONE resolver.")
+        return None, (f"no --package, so the target must be DERIVED from the goal's live lease — "
+                      f"but {missing}. Lease resolution needs BOTH: --goal names the goal folder, "
+                      f"--coord supplies the ONE accessor.")
     sys.path.insert(0, str(Path(args.coord).resolve().parent))
-    import coord  # noqa: E402  — the register's single reader; see this docstring
+    import coord  # noqa: E402  — the lease's single accessor; see this docstring
     goal = Path(args.goal).resolve()
-    run_id, detail = coord.resolve_live_run(goal)
-    if not run_id:
-        return None, (f"register at {goal / 'runs.csv'} did not resolve ONE live run: {detail}")
-    return (goal / "runs" / run_id).resolve(), (
-        f"{goal / 'runs.csv'} state=open -> {run_id} (resolved live via coord.resolve_live_run, R10)")
+    lease, why = coord.derive_lease(goal)
+    if why:
+        return None, (f"the lease for {goal.name} is UNREADABLE ({why}). That is IGNORANCE, not an "
+                      f"idle goal — refusing rather than reading it as 'nothing is running'.")
+    rooms = lease.get("rooms") or []
+    if len(rooms) != 1:
+        return None, (f"the live lease for {goal.name} names {len(rooms)} rooms and the design "
+                      f"rules exactly one (lock item 2): "
+                      + ("the goal is NOT EXECUTING, so there is no sensor to judge"
+                         if not rooms else
+                         "two rooms of one goal is a box state nothing here should resolve"))
+    pkg = Path(rooms[0].get("packageDir") or "").resolve()
+    return pkg, (f"DERIVED from the live lease of {goal.name}: room {rooms[0].get('room')!r} -> "
+                 f"{pkg} (no stored status read; design-lock item 1)")
 
 
 def main():
@@ -217,14 +235,14 @@ def main():
     # `--package` is the EXPLICIT OVERRIDE; absent, the target resolves from the run register at
     # FIRE TIME. See resolve_package() for why the override survives and why the twin needs it.
     ap.add_argument("--package", default=None,
-                    help="run package whose heartbeat is judged — the EXPLICIT OVERRIDE. Absent: "
-                         "resolved live from the goal's run register (needs --goal and --coord)")
+                    help="package whose heartbeat is judged — the EXPLICIT OVERRIDE. Absent: "
+                         "DERIVED from the goal's live lease (needs --goal and --coord)")
     ap.add_argument("--goal", default=None,
-                    help="goal folder whose runs.csv resolves the live run when --package is "
-                         "absent. Names a GOAL, never a run — there is no run number to go stale")
+                    help="goal folder whose LIVE LEASE resolves the package when --package is "
+                         "absent. Names a GOAL — there is no run number left to go stale")
     ap.add_argument("--coord", default=None,
-                    help="absolute path to the kit's coord.py, which supplies the ONE register "
-                         "resolver (coord.resolve_live_run). Required when --package is absent")
+                    help="absolute path to the kit's coord.py, which supplies the ONE lease "
+                         "accessor (coord.derive_lease). Required when --package is absent")
     ap.add_argument("--watch-py", required=True, help="absolute path to watch.py")
     # `--loop` is GONE, not re-valued: this job held the live default, and a relaunch that carries a
     # cadence number is a second home for it. `watch.py --loop-forever` reads the run's declaration.

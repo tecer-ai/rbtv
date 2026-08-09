@@ -28,11 +28,11 @@ const { resolveWorkspaceRoot } = require('../spawn/config');
 // seat-folder.js is gone with the layer); dispatch below only obeys the decision. Keeping the rule
 // out of this function is what makes it unit-checkable without a tick.
 const { oneLiveRunDecision } = require('./one-live-run');
-// Task 7.130 (7.77 / R9) — the other half of the same rule: a queued run tells the owner. Rendering
+// Task 7.130 (7.77 / R9) — the other half of the same rule: a queued start tells the owner. Rendering
 // and delivery live in that module; the branch below only calls it and records what came back. Its
 // deliverer is INJECTED and the one wired here is credential-free (the owner feed) — nothing in the
 // daemon resolves a credentialed transport, because arming one is a cutover (`r-cutover-gated`).
-const { createQueuedRunNotifier, ownerFeedDeliverer } = require('./queued-run-notify');
+const { createQueuedStartNotifier, ownerFeedDeliverer } = require('./queued-start-notify');
 // Task C3 — the goal's Slack channel at its workflow start. The DECISION (is this row a run start,
 // is the goal interactive, what is the invocation) lives in its own module and is unit-checkable
 // without a tick; the branch below only performs what came back. Same split as one-live-run above,
@@ -247,9 +247,9 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
 
   // Task 7.130 / M4-15 — built ONCE per ticker, not per tick, because its dedupe cache is the whole
   // reason it exists: a queued row stays due and is re-evaluated every tick, so a notifier rebuilt
-  // each tick would announce the same held start every tick interval until the open run closed.
+  // each tick would announce the same held start every tick interval until that execution ended.
   // The deliverer is the owner feed — no credential, nothing leaves the box.
-  const notifyQueuedRun = createQueuedRunNotifier({ deliver: ownerFeedDeliverer(recordOwnerNote) });
+  const notifyQueuedStart = createQueuedStartNotifier({ deliver: ownerFeedDeliverer(recordOwnerNote) });
 
   function updateArgs(execId, argsJson) {
     runSql('UPDATE jobs_log SET args = ? WHERE exec_id = ?', argsJson, execId);
@@ -1422,10 +1422,10 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         // undo is already banked, and this call has no queue handle to undo it with. That is the
         // failure 7.77 designs out, made structural rather than promised.
         //
-        // `notifyQueuedRun` never throws (its module's header says why, and 7.129 measured the
+        // `notifyQueuedStart` never throws (its module's header says why, and 7.129 measured the
         // cost: a throw on this path abandons the whole tick). So there is deliberately NO try
         // around it — a second one here would suggest the containment is not already inside.
-        const notice = await notifyQueuedRun(oneLive.event, { now, tick });
+        const notice = await notifyQueuedStart(oneLive.event, { now, tick });
         if (notice.notified && !notice.delivered) {
           // SURFACED IN TWO PLACES, SWALLOWED IN NEITHER. Its own tick action, so an operator
           // reading the log sees the delivery failed and does not read the `queued` line above as

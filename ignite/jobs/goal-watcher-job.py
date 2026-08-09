@@ -3,7 +3,7 @@
 
 Fired by the ignite daemon as a periodic `fire-tool` job.
 
-**It reads team-monitor's snapshot at `{goal}/runs/run-{n}/state.json` (task 7.33) plus three
+**It reads team-monitor's snapshot at `{goal}/state.json` (goal-direct since 7.607; task 7.33) plus three
 DECLARED NON-SENSING inputs, and performs NO RAW SENSING.** No tmux, no /proc, no harness
 session files, no pane capture. team-monitor is the run's sole raw sensor and that
 single-sensor invariant is the whole architecture; a second raw reader is exactly the "two
@@ -1112,12 +1112,17 @@ def resolve_room_package(args):
     and an override that resolves live on being dropped would promote such a probe onto the live run
     silently.
 
-    THE REGISTER IS READ BY EXACTLY ONE READER, AND IT IS NOT THIS FILE. `coord.resolve_live_run()`
-    already does this and already REFUSES rather than guesses when zero or two rows read `open`
-    (R9's one-live-run guarantee, whose enforcement — task 7.77 — is NOT BUILT). A second CSV reader
-    here would be a second answer to the same question. `coord` is imported INSIDE this function
-    from the `--coord` path this job already requires, so a copy-and-test of this file carries no
-    sibling dependency it does not otherwise need.
+    ⚠ THERE IS NO REGISTER ANY MORE, AND THE ROOM IS THE LEASE (7.607 E3, design-lock item 1).
+    Which package is live is DERIVED at fire time from the goal's tmux room and its ancestry-
+    verified seats, never from a stored status. `coord.derive_lease()` is the ONE accessor over the
+    one home (`server/lease/lease.js`); a second room predicate here would be the same two-readers
+    defect a second `runs.csv` parse was. What this replaces was already BROKEN, not merely dated:
+    it composed `<goal>/runs/<name>` from `resolve_live_run`'s compat return, and E2b moved the
+    layout out from under that path — the flags would have been delivered into a directory that is
+    gone, and a flag that reads as delivered and was not is the worst ending this function has.
+
+    `coord` is imported INSIDE this function from the `--coord` path this job already requires, so
+    a copy-and-test of this file carries no sibling dependency it does not otherwise need.
 
     With NEITHER flag the room is the watched package, which is the production case: in production
     the run being watched and the room being told about it are the same run.
@@ -1126,17 +1131,26 @@ def resolve_room_package(args):
     on an ambiguous register is worse than not delivering it, because the flag reads as having been
     delivered to whoever can act on it."""
     if args.room_package:
-        return args.room_package, "--room-package (explicit override; register not consulted)"
+        return args.room_package, "--room-package (explicit override; the lease is not consulted)"
     if not args.room_goal:
         return args.package, "--package (neither --room-package nor --room-goal; room == watched run)"
     sys.path.insert(0, str(Path(args.coord).resolve().parent))
-    import coord  # noqa: E402  — the register's single reader; see this docstring
+    import coord  # noqa: E402  — the lease's single accessor; see this docstring
     goal = Path(args.room_goal).resolve()
-    run_id, detail = coord.resolve_live_run(goal)
-    if not run_id:
-        return None, (f"register at {goal / 'runs.csv'} did not resolve ONE live run: {detail}")
-    return str((goal / "runs" / run_id).resolve()), (
-        f"{goal / 'runs.csv'} state=open -> {run_id} (resolved live via coord.resolve_live_run, R10)")
+    lease, why = coord.derive_lease(goal)
+    if why:
+        return None, (f"the lease for {goal.name} is UNREADABLE ({why}). That is IGNORANCE, not an "
+                      f"idle goal — refusing rather than reading it as 'nothing is running'.")
+    rooms = lease.get("rooms") or []
+    if len(rooms) != 1:
+        return None, (f"the live lease for {goal.name} names {len(rooms)} rooms and the design "
+                      f"rules exactly one (lock item 2): "
+                      + ("the goal is NOT EXECUTING, so there is no room to deliver into"
+                         if not rooms else
+                         "two rooms of one goal is a box state nothing here should resolve"))
+    pkg = Path(rooms[0].get("packageDir") or "").resolve()
+    return str(pkg), (f"DERIVED from the live lease of {goal.name}: room "
+                      f"{rooms[0].get('room')!r} -> {pkg} (no stored status read; lock item 1)")
 
 
 # ---------------------------------------------------------------- selftest
@@ -1482,21 +1496,22 @@ def main():
     if "--selftest" in sys.argv[1:]:
         return selftest()
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--package", required=True, help="the run folder holding state.json")
+    p.add_argument("--package", required=True, help="the goal folder holding state.json")
     p.add_argument("--state-json", default=None, help="override the snapshot path")
     p.add_argument("--coord", required=True, help="path to the kit's coord.py (delivery)")
     p.add_argument("--room-package", default=None,
-                   help="the run package flags are DELIVERED into, and whose snapshot decides "
-                        "whether the recipient is live — the EXPLICIT OVERRIDE. Absent: resolved "
-                        "live from the goal's run register (needs --room-goal), else --package. "
-                        "In production the watched run and the room are the same run; a probe "
+                   help="the package flags are DELIVERED into, and whose snapshot decides "
+                        "whether the recipient is live — the EXPLICIT OVERRIDE. Absent: DERIVED "
+                        "from the goal's live lease (needs --room-goal), else --package. "
+                        "In production the watched goal and the room are the same goal; a probe "
                         "watching a throwaway target is the only case that separates them.")
     p.add_argument("--room-goal", default=None,
-                   help="goal folder whose runs.csv resolves the LIVE room at FIRE TIME when "
-                        "--room-package is absent. Naming a run here instead would be a home in "
-                        "waiting: it goes stale the moment that run closes. Resolution goes "
-                        "through coord.resolve_live_run(), which REFUSES on zero or two open "
-                        "rows rather than guessing (R9/R10).")
+                   help="goal folder whose LIVE LEASE resolves the room at FIRE TIME when "
+                        "--room-package is absent. Naming a package here instead would be a home "
+                        "in waiting: it goes stale the moment that execution ends. Resolution "
+                        "goes through coord.derive_lease(), which REFUSES on an unreadable lease "
+                        "or on anything but exactly one room, rather than guessing (R10 / "
+                        "design-lock items 1-2).")
     p.add_argument("--team-monitor", default="",
                    help="path to team_monitor.py — the remedy TEXT and, under --notify, the "
                         "program the staleness row's inline `ensure` fix actually runs")

@@ -139,9 +139,9 @@ def resolve_target(args, sw):
     )
     package, provenance = sw.resolve_package(ns)
     if package is None:
-        # FAIL CLOSED. The resolver refuses rather than guessing when the register does not name
-        # exactly one live run; acting on a guessed package is the G-305 defect shape.
-        die(f"cannot resolve which run to act on: {provenance}")
+        # FAIL CLOSED. The resolver refuses rather than guessing when the LEASE does not name
+        # exactly one live room; acting on a guessed package is the G-305 defect shape.
+        die(f"cannot resolve which package to act on: {provenance}")
     return package, provenance
 
 
@@ -330,7 +330,7 @@ def cmd_heartbeat_set(package, unit, sw, args):
 def cmd_selftest(_args):
     """Exercise the cadence path end to end against a THROWAWAY package.
 
-    It never resolves a live run, never launches watch.py and never touches systemd — those halves
+    It never derives a lease, never launches watch.py and never touches systemd — those halves
     are proven by the daemon-operator selftest and by the live captures. What is unique here, and
     what silently breaks, is the WRITE: the ceiling gate, key preservation, and the read-back.
     """
@@ -433,16 +433,17 @@ def main():
     ap.add_argument("verb", choices=VERBS)
     ap.add_argument("seconds", nargs="?", type=int, help="heartbeat-set only: the new cadence in "
                                                          f"seconds (1..{CEILING_S})")
-    ap.add_argument("--package", default=None, help="the run package to act on (absolute path)")
+    ap.add_argument("--package", default=None, help="the package to act on (absolute path)")
     ap.add_argument("--goal", default=None, help="a goal NAME under .rbtv/goals (or a goal folder "
-                                                 "path); the ONE live run is resolved from its "
-                                                 "runs.csv, and ambiguity is refused, never guessed")
+                                                 "path); the package is DERIVED from the goal's "
+                                                 "LIVE LEASE, and an unreadable lease, no room or "
+                                                 "two rooms are refused, never guessed")
     ap.add_argument("--restart", action="store_true", help="heartbeat-set: apply it now")
     ap.add_argument("--notify", action="store_true", help="start: launch watch.py with --notify")
     ap.add_argument("--watch-arg", action="append", default=[],
                     help="start: extra argument passed through to watch.py, repeatable. The live "
                          "sensor runs with --mem-floor-mb; a start that drops it launches a WEAKER "
-                         "sensor than the one the run had")
+                         "sensor than the one the goal had")
     ap.add_argument("--dry-run", action="store_true", help="start: print the launch argv, launch nothing")
     ap.add_argument("--json", action="store_true", help="unit: machine-readable output")
     args = ap.parse_args()

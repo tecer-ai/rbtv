@@ -38,7 +38,7 @@ const substrate = require('./substrate');
 //
 //   dbPath          the heart store file. THE CALLER CHOOSES WHICH STORE KIND (CMP-2 § Two store
 //                   kinds): the daemon passes `{state_root}/heart.db`; an attached run passes
-//                   `<run-folder>/heart.db` and NEVER the daemon's. One candidate writer each, by
+//                   `<goal-folder>/heart.db` and NEVER the daemon's. One candidate writer each, by
 //                   construction — the `E_SECOND_WRITER` throw inside the store is an in-PROCESS
 //                   guard and was never able to see across processes.
 //   profiles/tools/workflows/tickIntervalMs   the store's catalogue + snooze conversion inputs.
@@ -65,7 +65,7 @@ function createEngine({
   if (!dbPath) {
     throw new Error(
       'createEngine requires dbPath — the engine never guesses which heart store it owns. ' +
-      'The daemon passes {state_root}/heart.db; an attached run passes <run-folder>/heart.db ' +
+      'The daemon passes {state_root}/heart.db; an attached execution passes <goal-folder>/heart.db ' +
       '(CMP-2 § Two store kinds, DEC-7 § placement).'
     );
   }

@@ -47,7 +47,7 @@ stand-in pattern, no contract change at fold-in.
 
 | Verb | Does | Never |
 |---|---|---|
-| `scaffold` | Creates the goal root — TEN files: `goal.md` (identity frontmatter + the contract body), `runs.csv` (header), `threads.sql` (empty schema), plus the standard goal-folder artifacts of § below — then reindexes. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes `runs/` compartments or seat folders — run birth is task 7.37's step |
+| `scaffold` | Creates the goal root — `goal.md` (identity frontmatter + the contract body), `threads.sql` (empty schema), plus the standard goal-folder artifacts of § below — then reindexes. **No `runs.csv`:** the run register was extinguished in 7.607 (design-lock item 1) and liveness is DERIVED from the goal's tmux room, never stored. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes seat folders — seat birth is `materialize`'s step |
 | `reindex` | Rebuilds `goals.csv` whole from every `goal.md` frontmatter. Always the full projection; a partial one would leave silent staleness. Fails loud on an unparseable descriptor, naming the file, and leaves `goals.csv` **untouched** — a projection that silently drops a goal is corruption. | Touches any goal folder |
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
 | `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
@@ -56,7 +56,7 @@ stand-in pattern, no contract change at fold-in.
 
 Folder name ≡ `goal.md` name · cross-goal name uniqueness · identity fields present · thin goal
 state and type in their enums · the goal-radius contract body is non-empty · CMP-4 goal-level
-layout · `runs.csv` / `milestones.csv` / `taskforce.csv` parse · one live run per goal · every
+layout · `milestones.csv` / `taskforce.csv` parse · every
 taskforce row resolves to a REAL seat with a parseable `seat.md` · the `after` graph is acyclic
 (guards `ref[field=value]` stripped, alternates `a|b` split) and every predecessor names a real
 seat row · **every guard and alternate is well-formed** (below) · each seat's binding matches the
@@ -78,8 +78,9 @@ goal name produce byte-identical files.
 
 `decisions.md` is the one write-if-something file with its OWN template body (`DECISIONS_TEMPLATE`),
 per owner ruling **Q19** (2026-08-09, `d-owner-batch-q12-q19-0809` item 8): a created goal carries
-the **durability split** from birth — goal-durable rulings in the goal's `decisions.md`,
-run-operational PROVISIONAL rulings in `runs/run-<n>/decisions.md` — and adopts the entry shape **by
+the **durability split** from birth — goal-durable rulings in the goal's `decisions.md`, and
+PROVISIONAL (`p-*`) rulings alongside them, ALL DURABLE and pruned by hand (7.607 design-lock item
+6: no automatic mortality boundary, because there is no run to die with) — and adopts the entry shape **by
 citation** of `orchestration/workflows/_shared/authoring/decisions-discipline.md`, restating none of
 its rules. This is the same convention the vault's `.rbtv/goals/CLAUDE.md` § decision-ledger states
 (`r-decision-ledger-contract`); the template agrees with it rather than re-legislating it.
@@ -207,7 +208,9 @@ ANY edit to `goal_cli.py` — it must exit 0.
 The one row the selftest CANNOT carry is that the grammar is imported rather than copied: it would
 have to mutate `coord.py`. That control runs on a mirrored scratch tree — mutate
 `GUARDED_MEMBER_RE` there and a manifest that validated clean must go red. Recorded for 7.426 in
-`runs/run-3/planning/briefing-m6-remainder-drain/mrd-w3-lint-arm-record.md`.
+`planning/briefing-m6-remainder-drain/mrd-w3-lint-arm-record.md` under the
+`build-core-daemon-mvp` goal (written under its then-current `runs/run-3/` compartment — a
+historical citation, not a live path).
 
 A selftest sits inside its own blast radius, so it is not sufficient evidence on its own: vary the
 invocation (bare, under `timeout`, via `sh -c`, from another cwd, absolute path, piped/no-tty) and

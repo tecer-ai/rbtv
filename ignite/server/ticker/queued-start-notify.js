@@ -1,19 +1,19 @@
 'use strict';
 
-// ── THE OWNER-NOTIFICATION PATH FOR A QUEUED RUN (task 7.77 → 7.130 / M4-15) ────────────────────
+// ── THE OWNER-NOTIFICATION PATH FOR A QUEUED START (task 7.77 → 7.130 / M4-15) ──────────────────
 //
-// R9's one-live-run rule (`one-live-run.js`, 7.129 / M4-14) declines to fire a scheduled start that
-// lands while a run of the same goal is open. THIS file is the other half of that rule: the half a
+// R9's one-live-execution rule (`one-live-run.js`, 7.129 / M4-14) declines to fire a scheduled start
+// that lands while the same goal is EXECUTING. THIS file is the other half of that rule: the half a
 // human can see.
 //
-// WHY THE OTHER HALF IS NOT OPTIONAL. From outside the box, a run that was silently held is
-// indistinguishable from a run that was never scheduled at all. Both look like nothing happened.
+// WHY THE OTHER HALF IS NOT OPTIONAL. From outside the box, a start that was silently held is
+// indistinguishable from a start that was never scheduled at all. Both look like nothing happened.
 // The queue row is observable — it sits in the `queue` table with its due `run_at` — but observable
 // is not the same as OBSERVED, and nobody polls a table they have no reason to suspect. So the
 // queueing announces itself.
 //
 // ⚠ WHAT THIS FILE DOES NOT DO, STRUCTURALLY AND NOT BY PROMISE. It holds no queue handle, no store
-// handle and no decision. It cannot start a run, cannot cancel one, and cannot turn a queued row
+// handle and no decision. It cannot start an execution, cannot cancel one, and cannot turn a queued row
 // into a skipped one, because it has nothing to call that would do any of those things. That is
 // deliberate: 7.77 designs out the failure where a broken notification quietly becomes a dropped
 // start, and the cheapest way to make that impossible is to give the notifier no power to do it.
@@ -37,14 +37,14 @@
 // open.
 //
 // ⚠ ONCE PER QUEUED ROW, NOT ONCE PER TICK. A queued row is re-evaluated EVERY tick and stays due
-// until the open run closes, so a notifier with no memory would announce the same held start every
-// tick interval for as long as the run lasts — hours of identical messages, which trains a reader
+// until the goal's execution ends, so a notifier with no memory would announce the same held start
+// every tick interval for as long as it lasts — hours of identical messages, which trains a reader
 // to ignore the channel and is a worse outcome than silence. The dedupe key is
-// `queue-id | reason`, so a CHANGE of reason (the register became unreadable; a second run opened)
+// `queue-id | reason`, so a CHANGE of reason (the lease became unreadable; a second room appeared)
 // notifies again, because that is new information. The cache is a bounded insertion-ordered `Map`,
 // oldest evicted — the same in-memory-by-design idiom the chat bridge's Slack event dedupe uses,
 // and it is lost on restart, which re-announces each still-queued row exactly once. Re-announcing
-// once after a restart is the right side to err on: the alternative is a held run that went
+// once after a restart is the right side to err on: the alternative is a held start that went
 // unmentioned because a process bounced.
 
 // The `action` value this path fires on. It is `one-live-run.js`'s `QUEUED` and is imported rather
@@ -68,7 +68,7 @@ function describeNotifier() {
   return [
     `fires on: an event whose action === "${QUEUED}" — R9's queue event, and no other event`,
     'dedupe: once per `queue-id | reason`; a changed reason re-notifies; bounded in-memory, lost on restart',
-    'names: the goal, the held scheduled start (job, queue row, due time) and the open run that held it',
+    'names: the goal, the held scheduled start (job, queue row, due time) and the LIVE LEASE that held it',
     'deliverer: INJECTED. The daemon wires the credential-free owner feed; nothing here resolves a credentialed one',
     'on a failed or throwing send: surfaced as {delivered:false, error} — never thrown, never retried in-tick',
     'the queueing is untouched either way: this path holds no queue handle and cannot skip a start',
@@ -76,11 +76,11 @@ function describeNotifier() {
   ].join('\n');
 }
 
-// A run-id may arrive as a string (one open run), an array (the ambiguous and unrecognized-state
-// cases name every row) or null (the register could not be read at all). All three are reported as
-// themselves — "unknown" is a fact worth printing, and inventing a single id from an array would
-// name a run the register never picked.
-function formatRunId(value) {
+// A room may arrive as a string (the one room of a live lease), an array (the more-than-one case
+// names every room) or null (the lease could not be read at all). All three are reported as
+// themselves — "unknown" is a fact worth printing, and inventing a single name from an array would
+// name a room the lease never picked.
+function formatRoom(value) {
   if (Array.isArray(value)) return value.length ? value.join(', ') : '(none named)';
   if (value === null || value === undefined || value === '') return '(not readable)';
   return String(value);
@@ -93,27 +93,27 @@ function formatField(value) {
 
 // THE NOTICE. Criterion 3 of this task's done contract: a reader must be able to act on it WITHOUT
 // opening anything, so both halves of the event are spelled out in full — which start was held, and
-// which run held it — rather than referred to by an id the reader would have to go resolve.
+// which lease held it — rather than referred to by an id the reader would have to go resolve.
 //
 // The closing line is load-bearing, not reassurance: the single most likely wrong conclusion from
-// "your run did not start" is that it was lost and must be re-scheduled by hand, and a re-scheduled
+// "it did not start" is that it was lost and must be re-scheduled by hand, and a re-scheduled
 // start is a second queue row racing the first. Saying it resumes by itself is what stops that.
-function renderQueuedRunNotice(event) {
+function renderQueuedStartNotice(event) {
   const start = (event && event['scheduled-start']) || {};
-  const found = (event && event['open-run-found']) || {};
+  const found = (event && event['live-lease']) || {};
   const lines = [
-    'ignite: a scheduled run start was QUEUED, not started — a run of the same goal is already open.',
+    "ignite: a scheduled start was QUEUED, not started — the goal is already EXECUTING.",
     `  goal:           ${formatField(start.goal)}`,
     `  start held:     job ${formatField(start['job-id'])} (queue row ${formatField(start['queue-id'])})`
       + `, due ${formatField(start['run-at'])}, trigger ${formatField(start['trigger-kind'])}`,
-    `  open run found: ${formatRunId(found['run-id'])} (state ${formatField(found.state)}`
-      + `, ${formatField(found.count)} open)`,
-    `  register read:  ${formatField(found.register)}`,
+    `  lease held by:  room ${formatRoom(found.rooms && found.rooms.length ? found.rooms : found['room'])}`
+      + ` (state ${formatField(found.state)}, ${formatField(found.count)} room(s))`,
+    `  evidence:       ${formatField(found.register)}`,
     `  reason:         ${formatField(event && event.reason)}`,
   ];
   if (found.reason) lines.push(`  detail:         ${found.reason}`);
   lines.push(
-    '  not lost:       the queue row keeps its due time and starts by itself when that run closes.',
+    '  not lost:       the queue row keeps its due time and starts by itself once that execution ends.',
     '                  Do NOT re-schedule it by hand — a second row would race the first.',
   );
   return lines.join('\n');
@@ -127,7 +127,7 @@ function renderQueuedRunNotice(event) {
 //   { notified: false, skipped: 'already-notified', key }         announced before, correct
 //   { notified: true,  delivered: true,  ts, text }               it landed
 //   { notified: true,  delivered: false, error, text }            it did not — SURFACED, not swallowed
-function createQueuedRunNotifier({ deliver, maxRemembered = MAX_REMEMBERED } = {}) {
+function createQueuedStartNotifier({ deliver, maxRemembered = MAX_REMEMBERED } = {}) {
   const seen = new Map();
 
   function remember(key) {
@@ -144,7 +144,7 @@ function createQueuedRunNotifier({ deliver, maxRemembered = MAX_REMEMBERED } = {
   // other two arguments), and those change every tick while the notifier and its dedupe cache are
   // built once and must outlive them. Threading them through the call keeps that state out of a
   // mutable holder the two would otherwise have to share.
-  async function notifyQueuedRun(event, context = {}) {
+  async function notifyQueuedStart(event, context = {}) {
     // Criterion 1: this path fires on R9's queue event and on NO other event. The test is the
     // event's own `action` field, not the caller's good intentions — a caller that hands this a
     // `start` decision, a defer, or a half-built object gets nothing delivered.
@@ -156,7 +156,7 @@ function createQueuedRunNotifier({ deliver, maxRemembered = MAX_REMEMBERED } = {
     const key = `${start['queue-id']}|${event.reason}`;
     if (seen.has(key)) return { notified: false, skipped: SKIPPED.ALREADY_NOTIFIED, key };
 
-    const text = renderQueuedRunNotice(event);
+    const text = renderQueuedStartNotice(event);
 
     if (typeof deliver !== 'function') {
       // A missing deliverer is a MISCONFIGURATION, not a quiet no-op, so it is reported with the
@@ -186,7 +186,7 @@ function createQueuedRunNotifier({ deliver, maxRemembered = MAX_REMEMBERED } = {
     }
   }
 
-  return notifyQueuedRun;
+  return notifyQueuedStart;
 }
 
 // THE DAEMON'S DELIVERER. A note on the `owner-feed` thread — the daemon's own owner surface, the
@@ -222,8 +222,8 @@ function chatTransportDeliverer({ sendToOwner, channel }) {
 }
 
 module.exports = {
-  createQueuedRunNotifier,
-  renderQueuedRunNotice,
+  createQueuedStartNotifier,
+  renderQueuedStartNotice,
   ownerFeedDeliverer,
   chatTransportDeliverer,
   describeNotifier,

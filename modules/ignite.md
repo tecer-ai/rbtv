@@ -39,9 +39,11 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   component `.rbtv/mirror/meta/planning-deprecated/` (named `planning`/`planner-workflow` when ruled;
   renamed by R11, vault `01f60de16`, task 7.598). The launcher argv for it is now RULED AND
   LANDED too (task C5E, `d-owner-planning-entry-0808` + `-2-0808`): `spawn-profiles.yaml` carries a
-  `workflows:` section, the goal is born WITH a `runs/run-1` package materialized through the ruled
-  name `scaffold-seats`, and `tool/workflow_launcher.py` opens that run's own per-run detached tmux
-  room before handing the launch to `coordinate` with an explicit target. That first fire DOES open
+  `workflows:` section, the goal is born WITH its package materialized through the ruled name
+  `scaffold-seats` — GOAL-DIRECT since 7.607, the package IS the goal folder and there is no
+  `runs/run-N` compartment — and `tool/workflow_launcher.py` opens the goal's ONE detached tmux
+  room, named for the goal (design-lock item 2), before handing the launch to `coordinate` with an
+  explicit target. That first fire DOES open
   the entry seat — `coordinate launch`'s cold-start admission (team-kit 7.406) admits a virgin
   package on the empty-room bound — **subject to the RAM floor, which the launcher deliberately
   leaves binding** (it passes `--force`, never `--force-memory`: this is a NEW launch and that floor

@@ -10,11 +10,11 @@ recovery agent every period regardless of health — an unbounded paid path.
 |--------|-----|--------|-----------|
 | `selfheal-room.py` | 7.71 | a tmux session named as the room | the session does not exist |
 | `selfheal-watch.py` | 7.72 | `{package}/coordination/watch-heartbeat.json` | the stamp is old **or** its pid is not a live `watch.py` |
-| `edge-runner-job.py` | C1 | the live run's finished seats + every downstream `after` row | the run is ARMED (`{package}/coordination/edge-fastpath.json`); otherwise it stands down |
-| `goal-watcher-job.py` | 7.32 / B2 | the run's `state.json` snapshot (CMP-20) and nothing raw | a threshold in CMP-21's Layout is crossed — see below; **DARK today, no live catalogue entry** |
+| `edge-runner-job.py` | C1 | the executing goal's finished seats + every downstream `after` row | the package is ARMED (`{package}/coordination/edge-fastpath.json`); otherwise it stands down |
+| `goal-watcher-job.py` | 7.32 / B2 | the goal's `state.json` snapshot (CMP-20) and nothing raw | a threshold in CMP-21's Layout is crossed — see below; **DARK today, no live catalogue entry** |
 | `jobcontain.py` | both | — | (library: self-cap, wall clock, single-instance lock) |
 
-(`run-state-job.py`, `restart-daemon.py` and `recover-room.py` are also in this folder and are NOT
+(`goal-state-job.py`, `restart-daemon.py` and `recover-room.py` are also in this folder and are NOT
 in the table above — noticed while adding the `edge-runner` row, left alone rather than back-filled
 from guesswork.)
 
@@ -60,7 +60,7 @@ run: every row is decided and printed, nothing is delivered and no child process
 
 ⚠ **It is DARK. `config/spawn-profiles.yaml` carries only `goal-watcher-throwaway`; the live
 `goal-watcher` entry is deliberately absent** and arming it is a separate gated act. A live entry
-MUST set `--to` to the run's actual leader seat — the throwaway's non-leader value exists only to
+MUST set `--to` to the goal's actual leader seat — the throwaway's non-leader value exists only to
 exercise delivery.
 
 ## `edge-runner-job.py` is the one whose registration is the whole point (task C1)
@@ -76,12 +76,13 @@ that, and both are properties of THIS job rather than of the two above:
   running and nobody observes an exit. Fired as a job it is a process, and `recordToolCompletion`
   records the exit — 0 → `done`, non-zero → `failed`, with the pass's own output tail as the
   completion corpus. Registering it is what made step 5 exist; no exit arm was added to the file.
-- **The catalogue entry names a GOAL, and `job-id`/`profile` are not in it at all.** The run is
-  resolved from `{goal}/runs.csv` at fire time (`coord.resolve_live_run`, which refuses on zero or
-  two open rows), and STEP 4's `job-id`/`profile` are read from the resolved run's own
-  `coordination/edge-fastpath.json` — the same file the check-out fast path reads, so the two
-  triggers of CMP-25 are armed by ONE act. An unarmed run is marked, reported, and advanced not at
-  all. That is what keeps `r-cutover-gated` intact through the registration.
+- **The catalogue entry names a GOAL, and `job-id`/`profile` are not in it at all.** The package is
+  DERIVED from the goal's LIVE LEASE at fire time (`coord.derive_lease` — the goal's tmux room plus
+  its ancestry-verified seats; no stored status is read, and it refuses on an unreadable lease or on
+  anything but exactly one room), and STEP 4's `job-id`/`profile` are read from the resolved
+  package's own `coordination/edge-fastpath.json` — the same file the check-out fast path reads, so
+  the two triggers of CMP-25 are armed by ONE act. An unarmed package is marked, reported, and
+  advanced not at all. That is what keeps `r-cutover-gated` intact through the registration.
 
 Registering it on a machine (per-machine runtime state — never in git, and needing a daemon restart
 first so the boot-read catalogue carries the entry):
@@ -179,7 +180,7 @@ its queue rows and run these by hand:
 # room dead — relaunch it through the kit path that created it
 python3 <rbtv>/ignite/team-kit/coord.py --package <PKG> launch --only <SEAT> --force
 
-# sensor dead — relaunch the watch loop (cadence comes from the run's budget.json; pass no number)
+# sensor dead — relaunch the watch loop (cadence comes from the goal's budget.json; pass no number)
 nohup python3 <rbtv>/ignite/team-kit/watch.py --package <PKG> --notify --loop-forever >/dev/null 2>&1 &
 ```
 

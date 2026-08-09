@@ -83,10 +83,8 @@ function seedWorkspace(goalIds = []) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-state-'));
   for (const goalId of goalIds) {
     const goalDir = path.join(root, '.rbtv', 'goals', goalId);
-    fs.mkdirSync(path.join(goalDir, 'runs', 'run-1', 'seats', 'goal-master'), { recursive: true });
-    fs.writeFileSync(path.join(goalDir, 'runs.csv'),
-      'run-id,type,state,taskforce-ids,opened,closed\n' +
-      'run-1,fresh,open,tf-1,2026-08-03 00:00,\n');
+    // 7.607 E3: GOAL-DIRECT — the seat folder IS the home; there is no register to read.
+    fs.mkdirSync(path.join(goalDir, 'seats', 'goal-master'), { recursive: true });
   }
   return root;
 }

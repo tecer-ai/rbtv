@@ -175,8 +175,29 @@ def main():
         # no longer doing anything and nobody would know. Say so rather than silently covering it.
         missing_exclusions = [d for d in EXCLUDED_DIRS if d not in all_dirs]
 
+        # ⚠ THE SUMMARY DESTINATION IS NAMED HERE, EXPLICITLY (7.607 E3, review F5). `probe-suite.js`
+        # used to DEFAULT its summary into the workspace `.rbtv/runtime/probe-suite/`, which is
+        # exactly where this runner's liveness artifact lives — so the agreement below held by
+        # coincidence of two independent derivations. E3 moved that default to the OS temp dir (a
+        # read-only check must not write into the goals workspace as the price of running), and the
+        # first scheduled fire after the change reported `ARTIFACT-PATH-MISMATCH` and no verdict.
+        # A summary worth keeping is one whose destination is named, so this names it.
+        #
+        # ⚠⚠ AND NAMING IT SPENDS THE SECOND DERIVATION — say so rather than inherit the old claim
+        # (7.607 E3 review). The check below was two INDEPENDENT derivations of the runtime dir
+        # disagreeing; dictating `--summary` leaves ONE, and the suite echoes back the very string
+        # it was handed. Measured: inject the exact defect that check was written for (a suite
+        # resolving a DIFFERENT `.rbtv/`) and the no-`--summary` shape catches it while this shape
+        # does not. What survives below is narrower and still worth keeping — a suite that IGNORED
+        # the flag, and an artifact that never landed — so it is asserted for what it now proves.
+        # THE ORIGINAL DEFECT (this runner's OWN workspace derivation being wrong) is no longer
+        # detectable here at all: the summary would follow RUNTIME_DIR wherever it pointed.
+        stamp = time.strftime('%Y-%m-%dT%H-%M-%SZ', time.gmtime())
+        summary_path = os.path.join(RUNTIME_DIR, f'{stamp}.txt')
+        os.makedirs(RUNTIME_DIR, exist_ok=True)   # the suite mkdir -p's it too; belt and braces
         proc = subprocess.run(
-            ['node', SUITE] + [arg for d in run_dirs for arg in ('--dir', d)],
+            ['node', SUITE, '--summary', summary_path]
+            + [arg for d in run_dirs for arg in ('--dir', d)],
             cwd=IGNITE_ROOT, capture_output=True, text=True, timeout=3600,
         )
         tail = proc.stdout[-4000:]
@@ -215,21 +236,30 @@ def main():
             payload['exclusion_dirs_not_found'] = sorted(missing_exclusions)
             payload['coverage_ok'] = False
 
-        # ⚠⚠ THE ARTIFACT MUST LAND BESIDE THE SUITE'S OWN SUMMARY. This is a SECOND, INDEPENDENT
-        # derivation of where the runtime dir is: `summary_path` is produced by probe-suite.js from
-        # ITS root, this file resolves the workspace root from ITS own location, and the two must
-        # agree. When they did not, the artifact was silently written into a `.rbtv/` this script
-        # had created one level up from the real one — successfully written, and nowhere its reader
-        # would ever look. A single derivation cannot catch that; a disagreement between two can.
+        # ⚠⚠ THE ARTIFACT MUST LAND WHERE ITS READER LOOKS. Historically this compared TWO
+        # independent derivations of the runtime dir — the suite's own and this file's — because
+        # when they disagreed the artifact was silently written into a `.rbtv/` one level up from
+        # the real one: successfully written, and nowhere its reader would ever look. Since the
+        # destination is DICTATED above there is only one derivation left, so what is asserted here
+        # is the pair of things still falsifiable: the suite HONOURED the path it was handed, and
+        # the file is ACTUALLY THERE afterwards (a crash between the echo and the write, or a suite
+        # that reported a path it never opened, both red this).
         if payload.get('summary_path'):
             suite_runtime_dir = os.path.dirname(os.path.abspath(payload['summary_path']))
             if os.path.abspath(RUNTIME_DIR) != suite_runtime_dir:
                 payload['verdict'] = 'ARTIFACT-PATH-MISMATCH'
                 payload['coverage_ok'] = False
                 payload['note'] = (
-                    f'this runner resolved the runtime dir to {RUNTIME_DIR} but the suite wrote its '
-                    f'summary to {suite_runtime_dir}. The liveness artifact is not where its reader '
-                    'looks, so no verdict is reported for this run.'
+                    f'this runner handed the suite --summary under {RUNTIME_DIR} but the suite '
+                    f'reported writing to {suite_runtime_dir} — the flag was not honoured. The '
+                    'liveness artifact is not where its reader looks, so no verdict is reported.'
+                )
+            elif not os.path.isfile(payload['summary_path']):
+                payload['verdict'] = 'ARTIFACT-MISSING'
+                payload['coverage_ok'] = False
+                payload['note'] = (
+                    f"the suite reported writing {payload['summary_path']} and no file is there. "
+                    'The run reported itself; its artifact did not land, so no verdict is reported.'
                 )
 
         if not coverage_ok:

@@ -1,6 +1,6 @@
 'use strict';
 
-// engine/attached-run.js — THE SECOND ATTACHMENT.
+// engine/attached-execution.js — THE SECOND ATTACHMENT.
 //
 // The daemon attaches the engine to a systemd unit behind a gateway. This attaches THE SAME
 // ENGINE to the calling terminal, dying with it (registry `concepts/rbtv-cli.md` § Run-verb
@@ -12,10 +12,11 @@
 //
 // THE FOUR THINGS THE ATTACHMENT OWNS, and why each is here rather than in the engine:
 //
-//  1. THE STORE IT OPENS. `<run-folder>/heart.db` — the PER-RUN store, CMP-2 § Two store kinds,
-//     placed by DEC-7 § placement "by the run folder it belongs to", beside `sessions.csv` and
+//  1. THE STORE IT OPENS. `<goal-folder>/heart.db` — the PER-GOAL store, CMP-2 § Two store kinds,
+//     placed by DEC-7 § placement "by the folder it belongs to", beside `sessions.csv` and
 //     `state.json`. It NEVER opens the daemon's `{state_root}/heart.db`, and that is asserted
-//     below rather than merely intended.
+//     below rather than merely intended. (7.607 E3: the run folder it used to be placed by does
+//     not exist — the package IS the goal folder, design-lock item 8.)
 //  2. THE LOOP POLICY. The daemon loops forever on a timer. This ticks until the run COMPLETES or
 //     until ANY worker asks a question, then RETURNS — the registry's own sentence.
 //  3. RESUME. Re-running the verb reopens the same store and continues. Nothing is replayed:
@@ -31,9 +32,10 @@ const { createEngine } = require('./index');
 const substrate = require('./substrate');
 const { loadConfig } = require('../server/spawn/config');
 
-// The run folder's shape is the goals tree's (CMP-4), not ours to redefine:
-//   <workspace>/.rbtv/goals/<goal-name>/runs/run-{n}/
-const RUN_FOLDER_RE = /[/\\]\.rbtv[/\\]goals[/\\][^/\\]+[/\\]runs[/\\]run-\d+[/\\]?$/;
+// The goal folder's shape is the goals tree's (CMP-4), not ours to redefine. GOAL-DIRECT since
+// 7.607 (design-lock items 7-8 — the `runs/run-{n}` segment is extinguished, not optional):
+//   <workspace>/.rbtv/goals/<goal-name>/
+const GOAL_FOLDER_RE = /[/\\]\.rbtv[/\\]goals[/\\][^/\\]+[/\\]?$/;
 
 const STORE_FILENAME = 'heart.db';
 const TASKFORCE = 'taskforce.csv';
@@ -67,26 +69,26 @@ function readCsv(file) {
   });
 }
 
-function resolveRunFolder(input) {
-  const runFolder = path.resolve(input);
-  if (!fs.existsSync(runFolder) || !fs.statSync(runFolder).isDirectory()) {
-    throw new Error(`not a directory: ${runFolder}`);
+function resolveGoalFolder(input) {
+  const goalFolder = path.resolve(input);
+  if (!fs.existsSync(goalFolder) || !fs.statSync(goalFolder).isDirectory()) {
+    throw new Error(`not a directory: ${goalFolder}`);
   }
-  if (!RUN_FOLDER_RE.test(runFolder)) {
+  if (!GOAL_FOLDER_RE.test(goalFolder)) {
     throw new Error(
-      `${runFolder} is not a run folder. The attached engine's store is placed BY THE RUN FOLDER ` +
+      `${goalFolder} is not a goal folder. The attached engine's store is placed BY THE GOAL FOLDER ` +
       `IT BELONGS TO (DEC-7 § placement), so the path must be ` +
-      `<workspace>/.rbtv/goals/<goal-name>/runs/run-<n>/. Refusing rather than creating a heart ` +
+      `<workspace>/.rbtv/goals/<goal-name>/. Refusing rather than creating a heart ` +
       `store somewhere no one will look for it.`
     );
   }
-  return runFolder;
+  return goalFolder;
 }
 
 // CRITERION 4, ASSERTED RATHER THAN INTENDED. The owner ruling says the embedded engine "never
 // opens the daemon's {state_root}/heart.db". A comment cannot enforce that, so the daemon's own
 // configured data root is resolved and compared. Fail-closed: if the config cannot be read at all
-// we still know the run-folder path, and that path is the only one we ever pass to the engine —
+// we still know the goal-folder path, and that path is the only one we ever pass to the engine —
 // but where the daemon's root IS knowable, an equal path is a hard refusal.
 function assertNotTheDaemonStore(storePath, spawnConfig) {
   const daemonDataRoot = process.env.RBTV_IGNITE_DATA_ROOT
@@ -96,8 +98,8 @@ function assertNotTheDaemonStore(storePath, spawnConfig) {
   const daemonStore = path.resolve(daemonDataRoot, STORE_FILENAME);
   if (path.resolve(storePath) === daemonStore) {
     throw new Error(
-      `REFUSING TO RUN: the resolved per-run store ${storePath} IS the daemon's store. ` +
-      `An attached run keeps its own heart store in its run folder and never opens ` +
+      `REFUSING TO RUN: the resolved per-goal store ${storePath} IS the daemon's store. ` +
+      `An attached execution keeps its own heart store in its goal folder and never opens ` +
       `{state_root}/heart.db (owner ruling decisions.md#d-attached-run-store-and-seats; ` +
       `CMP-2 § Two store kinds). Two writers on one store is meant to be impossible here by ` +
       `construction, not guarded — the in-process E_SECOND_WRITER guard cannot see the daemon.`
@@ -122,8 +124,8 @@ function jobIdFor(seat) {
   return `seat-${seat}`;
 }
 
-function seedTaskforce(heartStore, runFolder, { profile, logger }) {
-  const tfPath = path.join(runFolder, TASKFORCE);
+function seedTaskforce(heartStore, goalFolder, { profile, logger }) {
+  const tfPath = path.join(goalFolder, TASKFORCE);
   if (!fs.existsSync(tfPath)) {
     throw new Error(
       `${tfPath}: no taskforce — an attached run executes the run's seats, and the taskforce is ` +
@@ -179,7 +181,7 @@ function seatHasRun(rows) {
 
 // Enqueue every seat whose `after` dependency has finished and which has never been fired. Returns
 // the seats enqueued this pass.
-function enqueueEligible(heartStore, rows, { profile, runFolder, logger }) {
+function enqueueEligible(heartStore, rows, { profile, goalFolder, logger }) {
   const byJob = executionsByJob(heartStore);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
   const enqueued = [];
@@ -191,7 +193,7 @@ function enqueueEligible(heartStore, rows, { profile, runFolder, logger }) {
     const after = (row.after || '').trim();
     if (after && !seatIsFinished(byJob.get(jobIdFor(after)))) continue;
 
-    const seatDir = path.join(runFolder, 'seats', row.seat);
+    const seatDir = path.join(goalFolder, 'seats', row.seat);
     heartStore.enqueue({
       jobId,
       args: JSON.stringify({ profile, workdir: seatDir }),
@@ -240,8 +242,8 @@ function evaluateExit(heartStore, rows, seenAskIds) {
 }
 
 // ── The attached run ──────────────────────────────────────────────────────────────────────────
-async function runAttached({
-  runFolder: runFolderInput,
+async function executeAttached({
+  goalFolder: goalFolderInput,
   profile,
   spawnConfigPath,
   tickIntervalMs = null,
@@ -255,8 +257,8 @@ async function runAttached({
   // never carried silently down the POSIX path.
   const host = substrate.assertSubstrateSupported();
 
-  const runFolder = resolveRunFolder(runFolderInput);
-  const storePath = path.join(runFolder, STORE_FILENAME);
+  const goalFolder = resolveGoalFolder(goalFolderInput);
+  const storePath = path.join(goalFolder, STORE_FILENAME);
 
   if (!profile) {
     throw new Error(
@@ -283,8 +285,8 @@ async function runAttached({
     tickIntervalMs: tickIntervalMs || undefined,
     spawnConfigPath,
     tickerConfig: tickIntervalMs ? { tick_interval_ms: tickIntervalMs } : {},
-    feedPath: path.join(runFolder, 'feed.jsonl'),
-    logPath: path.join(runFolder, 'ticker.log'),
+    feedPath: path.join(goalFolder, 'feed.jsonl'),
+    logPath: path.join(goalFolder, 'ticker.log'),
     logger,
   });
 
@@ -300,14 +302,14 @@ async function runAttached({
   process.on('SIGTERM', onSignal);
 
   try {
-    const rows = seedTaskforce(engine.heartStore, runFolder, { profile, logger });
+    const rows = seedTaskforce(engine.heartStore, goalFolder, { profile, logger });
     const resumedAtTick = engine.getTickNumber();
     const seenAskIds = new Set();
     const intervalMs = tickIntervalMs || 10000;
 
     let ticks = 0;
     for (;;) {
-      enqueueEligible(engine.heartStore, rows, { profile, runFolder, logger });
+      enqueueEligible(engine.heartStore, rows, { profile, goalFolder, logger });
       await engine.tick(now());
       ticks += 1;
 
@@ -316,7 +318,7 @@ async function runAttached({
         return {
           host,
           outcome: verdict.reason,
-          runFolder,
+          goalFolder,
           storePath,
           resumedAtTick,
           tick: engine.getTickNumber(),
@@ -331,7 +333,7 @@ async function runAttached({
       // is genuinely attached: it ticks until it finishes or someone asks something.
       if (maxTicks !== null && ticks >= maxTicks) {
         return {
-          host, outcome: 'max-ticks', runFolder, storePath, resumedAtTick,
+          host, outcome: 'max-ticks', goalFolder, storePath, resumedAtTick,
           tick: engine.getTickNumber(), ticks, seats: rows.map((r) => r.seat), asks: [], unfinished: [],
         };
       }
@@ -345,15 +347,15 @@ async function runAttached({
 }
 
 module.exports = {
-  runAttached,
+  executeAttached,
   // Exported for the probe, which must be able to exercise each decision on its own rather than
   // only through a whole run — and for a caller that wants the refusals without the loop.
-  resolveRunFolder,
+  resolveGoalFolder,
   assertNotTheDaemonStore,
   seedTaskforce,
   enqueueEligible,
   evaluateExit,
   jobIdFor,
-  RUN_FOLDER_RE,
+  GOAL_FOLDER_RE,
   STORE_FILENAME,
 };

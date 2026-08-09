@@ -44,14 +44,16 @@ const {
 // Declared BEFORE anything runs. A run that ends with a different tally is INCOMPLETE, whatever
 // its failures say.
 //
-// 35 = 12 (layer 1) + 10 (layer 1b) + 13 (layer 2). The live layer's skip branch emits exactly 13
+// 38 = 12 (layer 1) + 13 (layer 1b) + 13 (layer 2). The live layer's skip branch emits exactly 13
 // too, so a tmux-less box reaches the same denominator rather than silently shrinking it.
+// (7.607 E3: layer 1b went 10 -> 13 — the three run-folder RANKING arms were replaced by six
+// LEASE-ranking arms, and the count moving is how this assertion reported the change.)
 //
 // ⚠ THIS NUMBER WAS WRONG ON THE FIRST RUN (declared 24, ran 34) AND THE ASSERTION IS WHAT SAID
 // SO: every check passed and the probe still exited 1. Recorded because it is the argument for
 // the assertion existing — a probe that only counted its failures would have reported a clean
 // green over an author who had lost track of his own coverage.
-const EXPECTED_CHECKS = 35;
+const EXPECTED_CHECKS = 38;
 
 const checks = [];
 let skipped = 0;
@@ -140,7 +142,7 @@ function layerCompose() {
     sessionName: 'rbtv-cockpit',
     masterDir: '/tmp/master-here',
     teamviewArgv: ['teamview'],
-    packageDir: '/tmp/goal/runs/run-3',
+    packageDir: '/tmp/.rbtv/goals/some-goal',
   });
 
   // THE LAZY PANE. `new-session` must carry NO command — the absence IS the feature. If a command
@@ -159,7 +161,7 @@ function layerCompose() {
   const tvIdx = composed.splitArgv.indexOf('--');
   const tvCmd = composed.splitArgv.slice(tvIdx + 1);
   check('teamview is invoked with an EXPLICIT --package',
-    tvCmd.includes('--package') && tvCmd[tvCmd.indexOf('--package') + 1] === '/tmp/goal/runs/run-3',
+    tvCmd.includes('--package') && tvCmd[tvCmd.indexOf('--package') + 1] === '/tmp/.rbtv/goals/some-goal',
     `cmd=${JSON.stringify(tvCmd)}`);
   check('teamview pane command is passed as a VECTOR after `--` (no shell parses it)',
     tvIdx > 0 && tvCmd.length >= 3);
@@ -204,7 +206,7 @@ function layerCompose() {
 // ── layer 1b: the collision refusal and the package ranking ────────────────────────────────────
 function layerPolicy() {
   out('');
-  out('── LAYER 1b: goal-room collision + run-folder ranking ──');
+  out('── LAYER 1b: goal-room collision + LEASE-ranked package resolution ──');
 
   // THE DISTINCTNESS CRITERION, enforced. ensureCockpit is fail-soft, so the refusal surfaces as a
   // NAMED reason rather than a throw — and the check asserts the NAME, because "did not spawn" is
@@ -262,10 +264,15 @@ function layerPolicy() {
   check('a failing tmux is reported and swallowed — ensureCockpit NEVER throws at the daemon',
     !threw && soft && soft.spawned === false && Boolean(soft.error), `reason=${soft && soft.reason}`);
 
-  // RUN-FOLDER RANKING, on a fabricated tree under tmpdir.
+  // ── 7.607 E3 — WHICH GOAL THE COCKPIT RENDERS, on fabricated trees under tmpdir ──────────────
+  //
+  // The run-folder ranking arms are GONE with their subject (`runs/run-N` and the register). What
+  // replaces them is the three-rung order in `resolveCockpitPackage`: override > LIVE LEASE >
+  // most-recent snapshot. `readLease` is injected, so the lease arms measure the RANKING and never
+  // tmux — the lease's own derivation has its own probe.
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'cockpit-pkg-'));
-  const mk = (goal, run, snapshot, ageMs) => {
-    const p = path.join(ws, '.rbtv', 'goals', goal, 'runs', run);
+  const mk = (goal, snapshot, ageMs) => {
+    const p = path.join(ws, '.rbtv', 'goals', goal);
     fs.mkdirSync(p, { recursive: true });
     if (snapshot) {
       const f = path.join(p, 'state.json');
@@ -275,50 +282,69 @@ function layerPolicy() {
     }
     return p;
   };
-  mk('goal-a', 'run-2', true, 60_000);
-  const newest = mk('goal-b', 'run-9', true, 1_000);
-  mk('goal-c', 'run-1', false, 0);
-  const picked = resolveCockpitPackage(ws, { env: {} });
-  check('the most recently ACTIVE run folder is chosen, across goals',
-    picked === newest, `picked=${picked}`);
+  const stale = mk('goal-a', true, 60_000);
+  const newest = mk('goal-b', true, 1_000);
+  mk('goal-c', false, 0);
 
-  // ⚠ G-117's shape: run folder names sort lexicographically, so run-10 < run-2 by NAME. Ranking
-  // must be by mtime, and this fixture is the one that tells the two apart.
-  const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cockpit-pkg2-'));
-  const mk2 = (run, ageMs) => {
-    const p = path.join(ws2, '.rbtv', 'goals', 'g', 'runs', run);
-    fs.mkdirSync(p, { recursive: true });
-    const f = path.join(p, 'state.json');
-    fs.writeFileSync(f, '{}');
-    const t = new Date(Date.now() - ageMs);
-    fs.utimesSync(f, t, t);
-    return p;
+  // A lease reader that says "executing" for exactly the named goals, and answers a readable
+  // "not executing" for every other — the shape `deriveLease` returns.
+  const leaseOf = (...liveGoals) => ({ workspaceRoot, goal }) => {
+    const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', goal);
+    const live = liveGoals.includes(goal);
+    return { ok: true, live, goal, goalDir, seats: [], evidence: {},
+             rooms: live ? [{ room: goal, packageDir: goalDir, panePids: [], seats: [] }] : [] };
   };
-  mk2('run-2', 60_000);
-  const run10 = mk2('run-10', 1_000);
-  check('run-10 outranks run-2 — ranking is by mtime, never lexicographic (G-117 shape)',
-    resolveCockpitPackage(ws2, { env: {} }) === run10);
 
-  // A run folder WITH a snapshot outranks a bare folder, whatever the mtimes say.
+  // RUNG 3 first, so the LEASE arm below is attributable: with NOTHING executing, the newest
+  // snapshot wins — and that is a DIFFERENT goal from the one the lease arm picks, which is what
+  // makes the lease arm's result evidence rather than a coincidence.
+  check('nothing executing: the most recent SNAPSHOT is rendered (the goal that just finished)',
+    resolveCockpitPackage(ws, { env: {} , readLease: leaseOf() }) === newest,
+    `picked=${resolveCockpitPackage(ws, { env: {}, readLease: leaseOf() })}`);
+
+  check('⚠ THE LIVE LEASE OUTRANKS THE SNAPSHOT: the EXECUTING goal is rendered even though its '
+    + 'snapshot is 60s older than another goal\'s — "which workspace is live" is asked of the '
+    + 'lease, never of an mtime (design-lock item 1, inventory #12)',
+    resolveCockpitPackage(ws, { env: {}, readLease: leaseOf('goal-a') }) === stale,
+    `picked=${resolveCockpitPackage(ws, { env: {}, readLease: leaseOf('goal-a') })}, stale=${stale}`);
+
+  check('a goal with NO snapshot at all still wins when it holds the lease — the lease is '
+    + 'evidence of execution and a snapshot is not',
+    resolveCockpitPackage(ws, { env: {}, readLease: leaseOf('goal-c') })
+      === path.join(ws, '.rbtv', 'goals', 'goal-c'));
+
+  check('two live leases (which the design forbids): the FIRST BY NAME is taken deterministically '
+    + '— a view that refuses to render is worse than one rendering a checkable choice',
+    resolveCockpitPackage(ws, { env: {}, readLease: leaseOf('goal-b', 'goal-a') }) === stale);
+
+  check('an UNREADABLE lease falls through to the snapshot rather than blanking the view — the '
+    + 'posture on ignorance for a VIEW is to show the last thing known',
+    resolveCockpitPackage(ws, { env: {}, readLease: () => ({ ok: false, reason: 'tmux unreadable' }) })
+      === newest);
+
+  // A goal WITH a snapshot outranks a bare folder, whatever the mtimes say.
   const ws3 = fs.mkdtempSync(path.join(os.tmpdir(), 'cockpit-pkg3-'));
-  const withSnap = path.join(ws3, '.rbtv', 'goals', 'g', 'runs', 'run-1');
+  const withSnap = path.join(ws3, '.rbtv', 'goals', 'g-snap');
   fs.mkdirSync(withSnap, { recursive: true });
   const sf = path.join(withSnap, 'state.json');
   fs.writeFileSync(sf, '{}');
   const old = new Date(Date.now() - 600_000);
   fs.utimesSync(sf, old, old);
-  const bare = path.join(ws3, '.rbtv', 'goals', 'g', 'runs', 'run-2');
+  const bare = path.join(ws3, '.rbtv', 'goals', 'g-bare');
   fs.mkdirSync(bare, { recursive: true });
-  check('a run WITH a snapshot outranks a freshly-touched folder without one',
-    resolveCockpitPackage(ws3, { env: {} }) === withSnap);
+  check('a goal WITH a snapshot outranks a freshly-touched folder without one',
+    resolveCockpitPackage(ws3, { env: {}, readLease: leaseOf() }) === withSnap);
 
-  check('the env override pins the package and short-circuits resolution',
-    resolveCockpitPackage(ws, { env: { RBTV_IGNITE_COCKPIT_PACKAGE: '/pinned/run-7' } }) === '/pinned/run-7');
+  check('the env override pins the package and short-circuits resolution — the lease is never asked',
+    resolveCockpitPackage(ws, { env: { RBTV_IGNITE_COCKPIT_PACKAGE: '/pinned/goal-x' },
+      readLease: () => { throw new Error('the override must short-circuit before any lease read'); } })
+      === '/pinned/goal-x');
 
   check('a workspace with no goals resolves to null rather than guessing',
-    resolveCockpitPackage(fs.mkdtempSync(path.join(os.tmpdir(), 'cockpit-empty-')), { env: {} }) === null);
+    resolveCockpitPackage(fs.mkdtempSync(path.join(os.tmpdir(), 'cockpit-empty-')),
+      { env: {}, readLease: leaseOf() }) === null);
 
-  for (const d of [ws, ws2, ws3]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* tmp */ } }
+  for (const d of [ws, ws3]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* tmp */ } }
 }
 
 // ── layer 2: live, under a throwaway session ───────────────────────────────────────────────────

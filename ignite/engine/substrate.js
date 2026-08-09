@@ -3,7 +3,7 @@
 // engine/substrate.js — THE SEAM. One host detection, and a NAMED branch point at every site the
 // Windows-degraded attached lane must traverse.
 //
-// Owner ruling decisions.md#d-windows-degraded-attached-lane: the attached-run engine "carries two
+// Owner ruling decisions.md#d-windows-degraded-attached-lane: the attached-execution engine "carries two
 // code paths, POSIX and Windows-degraded". Leader ruling 2026-07-28
 // (`runs/run-2/seats/leader/ruling-744-forks.md`) SPLIT that build: task 7.44 owns THE SEAMS —
 // this file — and **task 7.84 owns the degraded BRANCH BODIES** (Windows job-object tree-kill, the
@@ -108,7 +108,7 @@ function assertSubstrateSupported(env = process.env, platform = process.platform
 
   throw new SubstrateError(
     E_SUBSTRATE_UNSUPPORTED,
-    `the attached-run engine has no ${resolved} branch bodies yet, and REFUSES rather than running ` +
+    `the attached-execution engine has no ${resolved} branch bodies yet, and REFUSES rather than running ` +
     `the POSIX ones on a host that cannot honour them.\n` +
     `This is a DELIBERATE DEFERRAL, not an oversight: owner ruling ` +
     `decisions.md#d-windows-degraded-attached-lane rules Windows a supported, DEGRADED substrate; ` +

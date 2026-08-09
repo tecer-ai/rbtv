@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""run-state-job — recompute every seat's RUN STATE from disk, on demand, per seat (task 7.127 /
+"""goal-state-job — recompute every seat's GOAL STATE from disk, on demand, per seat (task 7.127 /
 M4-12, from 7.56 item (b)).
 
 One computation shared by human, agent and daemon. Registered as a `fire-tool` job so the daemon
@@ -79,7 +79,7 @@ machinery. See `GUARD_EXCLUDED_NOTE`.
 
 ⚠ ONE WORD, TWO MEANINGS IN THIS WAVE — DO NOT CONFLATE THEM. `edge-runner-job.py`'s enqueue stage
 (M4-10) also has a `skipped`, and it means *"a ready seat the self-state intersection excluded from
-enqueueing"*. **This file's `skipped` is the guard-excluded RUN STATE.** Same word, two surfaces,
+enqueueing"*. **This file's `skipped` is the guard-excluded GOAL STATE.** Same word, two surfaces,
 and both fire on real rows now — which makes the collision matter MORE than when it was reported to
 the `leader` (message #275), not less. M4-10 owns that surface; this file names the collision and
 does not resolve it.
@@ -270,7 +270,7 @@ def open_session_seats(coord, pkg):
     return out
 
 
-def run_state(coord, er, pkg):
+def goal_state(coord, er, pkg):
     """`{rows: [{seat, state, reason, ...}], divergences, not-in-graph, caveats, unreachable}`.
 
     Every state is DERIVED at the instant of this call. Nothing is cached, nothing is stored, and no
@@ -392,8 +392,16 @@ def run_state(coord, er, pkg):
 # code and passes any change to it.
 # =================================================================================================
 
-AUDIT = (HERE.parents[4] / ".rbtv" / "goals" / "build-core-daemon-mvp" / "runs" / "run-3"
-         / "planning" / "m4-workflow-engine-runs-DAG-edged-jobs" / "trace-field-audit.md")
+# 7.607 E3: GOAL-DIRECT first. The document is the same one either way — `runs/run-3/` is this
+# goal's PRE-MIGRATION location and is read ONLY until stage E4 moves the folder up. Two spellings,
+# one document, and the legacy arm deletes itself the day the migration lands (its `exists()` goes
+# false and the goal-direct path is already the answer). This is a historical PLANNING DOCUMENT, not
+# a status: nothing here is consulted for liveness.
+_AUDIT_REL = (Path("planning") / "m4-workflow-engine-runs-DAG-edged-jobs"
+              / "trace-field-audit.md")
+_AUDIT_GOAL = HERE.parents[4] / ".rbtv" / "goals" / "build-core-daemon-mvp"
+AUDIT = (_AUDIT_GOAL / _AUDIT_REL if (_AUDIT_GOAL / _AUDIT_REL).exists()
+         else _AUDIT_GOAL / "runs" / "run-3" / _AUDIT_REL)
 
 # The fixture's expected states, written out BY HAND. Not one is computed from the predicate, from
 # the fixture's own tables, or from the mark table.
@@ -473,7 +481,7 @@ def check_states_are_the_declared_vocabulary(coord, er, pkg):
     if STATES != ("done", "ready", "running", "skipped", "failed", "blocked"):
         return False, ("criterion 1: STATES is %r, expected exactly the five declared for 7.127 "
                        "plus `blocked` (leader #271)" % (STATES,))
-    res = run_state(coord, er, pkg)
+    res = goal_state(coord, er, pkg)
     if not res["rows"]:
         return False, ("criterion 1: ZERO rows emitted — an empty result would satisfy every "
                        "vocabulary assertion vacuously")
@@ -501,7 +509,7 @@ def check_states_match_expected_table(coord, er, pkg):
         first gives `running`; the correct answer is `done`.
       * `fx-crashed` has an OPEN trace row and an INACTIVE roster row. The trace reading gives
         `running`; the RULED roster reading gives its `after`-term state."""
-    res = run_state(coord, er, pkg)
+    res = goal_state(coord, er, pkg)
     got = {r["seat"]: r["state"] for r in res["rows"]}
     bad = []
     for seat, want in EXPECT_STATE.items():
@@ -532,7 +540,9 @@ def check_no_stored_state_is_read(coord, er, pkg):
       (b) this file's own source contains no read of one;
       (c) a FULL pass leaves every csv header AND every csv byte unchanged — a CLI that cached its
           answer would have to write somewhere."""
-    forbidden = ("status", "state", "verdict", "run-state", "runstate")
+    # ⚠ BOTH SPELLINGS. The job renamed to `goal-state` in 7.607 E3; a blacklist that renamed WITH
+    # it would have stopped guarding the column name it was written to forbid.
+    forbidden = ("status", "state", "verdict", "run-state", "runstate", "goal-state", "goalstate")
     csvs = sorted(pkg.glob("*.csv"))
     if not csvs:
         return False, "criterion 2: no csv found under %s — nothing to check" % pkg
@@ -550,11 +560,12 @@ def check_no_stored_state_is_read(coord, er, pkg):
     # not theorised.
     q1, q2 = '"', "'"
     for marker in ("idx[%sstatus%s]" % (q1, q1), "row[%sstatus%s]" % (q2, q2),
-                   "row[%sstatus%s]" % (q1, q1), "[%srun-state%s]" % (q1, q1)):
+                   "row[%sstatus%s]" % (q1, q1), "[%srun-state%s]" % (q1, q1),
+                   "[%sgoal-state%s]" % (q1, q1)):
         if marker in src:
             return False, ("criterion 2: this file reads a stored-state column (%r found in its "
                            "own source)" % marker)
-    run_state(coord, er, pkg)
+    goal_state(coord, er, pkg)
     changed = [p.name for p in csvs if p.read_bytes() != before[p]]
     if changed:
         return False, ("criterion 2: a full pass CHANGED %s — this CLI must write nothing at all"
@@ -570,7 +581,7 @@ def check_uses_existing_predicate(coord, er, pkg):
     Proven three ways, none of them by intent:
       (a) IDENTITY — the function this CLI calls is the very object defined in edge-runner-job.py,
           asserted by module of origin. A copied-and-pasted equivalent fails this.
-      (b) CALL SITE — `run_state`'s own source calls `er.readiness(`, and this file's source
+      (b) CALL SITE — `goal_state`'s own source calls `er.readiness(`, and this file's source
           defines no predicate of that name (the search string is assembled from fragments below,
           so this docstring is not itself a hit — spelling it out here made the check red on its
           own text, twice).
@@ -587,9 +598,9 @@ def check_uses_existing_predicate(coord, er, pkg):
     if ("def " + "readiness") in src:
         return False, ("criterion 3: this file DEFINES a readiness function — a second predicate "
                        "over one graph is exactly G-301's shape")
-    body = _inspect.getsource(run_state)
+    body = _inspect.getsource(goal_state)
     if "er.readiness(" not in body:
-        return False, ("criterion 3: `run_state` does not call the imported predicate — its "
+        return False, ("criterion 3: `goal_state` does not call the imported predicate — its "
                        "readiness answer is coming from somewhere else")
     needle = "split(" + '"' + "," + '"'
     lines = [i + 1 for i, ln in enumerate(src.splitlines())
@@ -604,7 +615,7 @@ def check_uses_existing_predicate(coord, er, pkg):
                        "disposition is the edge-runner stage's to read, and a second call site "
                        "here is a second grader")
     return True, ("criterion 3: readiness is the imported edge_runner_job.readiness (called in "
-                  "`run_state`), this file defines no predicate, splits no cell on comma, and "
+                  "`goal_state`), this file defines no predicate, splits no cell on comma, and "
                   "reads no disposition itself")
 
 
@@ -643,7 +654,7 @@ def check_agrees_with_readiness_surface(coord, er, pkg):
     breakdown — so a run that compares many rows while exercising a verdict zero times is visible
     rather than hidden inside a healthy-looking total. A vacuous comparison (zero comparable
     seats) is RED."""
-    res = run_state(coord, er, pkg)
+    res = goal_state(coord, er, pkg)
     marks = {r["seat"]: r["disposition"] for r in er.run_stage(coord, pkg)}
     ready_res = er.readiness(coord, pkg, marks)
 
@@ -780,7 +791,7 @@ def check_skipped_is_emitted_and_explained(coord, er, pkg):
             return False, ("criterion 5: %s still prints the RETIRED unreachability claim %s while "
                            "this CLI emits the state — a file that does is worse than silent"
                            % (label, retired))
-    res = run_state(coord, er, pkg)
+    res = goal_state(coord, er, pkg)
     emitted = {r["seat"] for r in res["rows"] if r["state"] == GUARD_EXCLUDED_STATE}
     theirs = {s["seat"] for s in er.readiness(
         coord, pkg, {r["seat"]: r["disposition"] for r in er.run_stage(coord, pkg)})["skipped"]}
@@ -868,7 +879,7 @@ def check_divergences_are_reported(coord, er, pkg):
     row, inactive roster row) to be surfaced rather than silently taking the roster answer. Both
     divergence classes are asserted by the literal table, and the note must be non-empty: a
     divergence with no explanation is a row a reader cannot act on."""
-    res = run_state(coord, er, pkg)
+    res = goal_state(coord, er, pkg)
     got = {d["seat"]: d["class"] for d in res["divergences"]}
     if got != EXPECT_DIVERGENCE:
         only_got = sorted(set(got) - set(EXPECT_DIVERGENCE))
@@ -905,7 +916,7 @@ def check_precedence_is_ordered(coord, er, pkg):
     if PRECEDENCE != ("done", "failed", "running", "ready", "blocked", "skipped"):
         return False, ("precedence: PRECEDENCE is %r, expected the six in order — the three "
                        "`after`-term outcomes included" % (PRECEDENCE,))
-    res = run_state(coord, er, pkg)
+    res = goal_state(coord, er, pkg)
     got = {r["seat"]: r["state"] for r in res["rows"]}
     if got.get("fx-done-but-active") != "done":
         return False, ("precedence: fx-done-but-active is %r — a terminal mark must OUTRANK an "
@@ -1011,11 +1022,11 @@ def cmd_selftest(fixture, only):
     tmp = None
     if fixture:
         pkg = Path(fixture).resolve()
-        print("run-state-job --selftest against on-disk fixture %s" % pkg)
+        print("goal-state-job --selftest against on-disk fixture %s" % pkg)
     else:
-        tmp = tempfile.mkdtemp(prefix="run-state-selftest-")
+        tmp = tempfile.mkdtemp(prefix="goal-state-selftest-")
         pkg = build_fixture(Path(tmp))
-        print("run-state-job --selftest against hermetic temp fixture %s" % pkg)
+        print("goal-state-job --selftest against hermetic temp fixture %s" % pkg)
     try:
         selected = [(n, f) for n, f in CHECKS if not only or n == only]
         if only and not selected:
@@ -1052,9 +1063,9 @@ def cmd_selftest(fixture, only):
 
 
 REGISTER_INVOCATION = (
-    "ignite register-job run-state-recompute "
+    "ignite register-job goal-state-recompute "
     "--action-type fire-tool "
-    "--description 'Recompute every seat run state from disk (task 7.127 / M4-12)' "
+    "--description 'Recompute every seat goal state from disk (task 7.127 / M4-12)' "
     # ⚠ THE SCHEMA SHAPE IS THE STORE'S, NOT A SKETCH (task 7.587). It read
     # `'{"package": "string"}'` until 2026-08-09 — three defects in one string, all of which
     # `heart-store.js` refuses AT REGISTRATION, before the INSERT, so no id was ever burnt:
@@ -1089,7 +1100,7 @@ def cmd_registration():
           "     `config/spawn-profiles.yaml` carries no `run-state` key. Registering first costs\n"
           "     nothing (create-only, and the id is not burnt by a MISSING catalogue entry — only\n"
           "     by a wrong SCHEMA), but the entry must land before any row can fire.\n")
-    print("VERIFY IT, DO NOT TRUST THIS: `ignite inspect jobs` and look for `run-state-recompute`.\n"
+    print("VERIFY IT, DO NOT TRUST THIS: `ignite inspect jobs` and look for `goal-state-recompute`.\n"
           "The register command's own success line is NOT evidence — the job list is.\n")
     print("NOTE, so nobody re-decides this as an arming question: `register-job` is CREATE-ONLY and\n"
           "arms nothing. It installs a job DEFINITION; `add-job` schedules a run, and that is the\n"
@@ -1099,8 +1110,8 @@ def cmd_registration():
 
 def main():
     p = argparse.ArgumentParser(
-        prog="run-state-job",
-        description=("Recompute every seat's run state from disk, on demand (task 7.127 / M4-12). "
+        prog="goal-state-job",
+        description=("Recompute every seat's goal state from disk, on demand (task 7.127 / M4-12). "
                      "It COMPUTES; it never reads a stored state, because there is none."),
         epilog=("THE STATE VOCABULARY: " + ", ".join("`%s`" % s for s in STATES) + ".\n\n"
                 + GUARD_EXCLUDED_NOTE + "\n\n"
@@ -1133,7 +1144,7 @@ def main():
     er = load_edge_runner()
     coord = er.load_coord()
     pkg = Path(args.package).resolve()
-    res = run_state(coord, er, pkg)
+    res = goal_state(coord, er, pkg)
 
     if args.json:
         print(json.dumps(res, indent=2))

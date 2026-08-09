@@ -4,7 +4,7 @@
 // One way, outbound only.
 //
 // The problem it solves (owner-hit 2026-08-06): an agent raises something a human must answer on
-// the team-kit coordination bus (`<goal>/runs/<run>/coordination/messages.md`) and it sits unread
+// the team-kit coordination bus (`<goal>/coordination/messages.md`) and it sits unread
 // until somebody happens to open the file. Nothing pushed it anywhere. This module is that push,
 // and ONLY that push: Slack → bus stays the sittings' job.
 //
@@ -24,7 +24,7 @@
 // after that are the owner's business. The cursor is persisted through the bridge's
 // state file, so a restart does not re-arm a flood either.
 //
-// ⚑ ONE EXCEPTION, AND ONLY ONE (7.546): a run this process watched BE BORN — enumerated
+// ⚑ ONE EXCEPTION, AND ONLY ONE (7.546): an execution this process watched BE BORN — enumerated
 // open while its messages.md did not exist yet — has no history, so its cursor seeds at 0
 // and its first rows DO travel. That first row is a fresh goal's first escalation, and a
 // newly scaffolded goal rosters no authority seat to read it.
@@ -154,7 +154,7 @@ const INTERACTIVE_MODE = 'interactive';
 const AUTONOMOUS_MODE = 'autonomous';
 
 function goalExecutionMode(workspaceRoot, goalId) {
-  // The goal id is a NAME here too. Today it always arrives from `openRuns`' own directory
+  // The goal id is a NAME here too. Today it always arrives from `goalBuses`' own directory
   // listing, but this reader is exported and a future caller could hand it a `to:`/`from:` token
   // — and a traversing id would read `execution-mode` from outside `.rbtv/goals/` entirely,
   // making some unrelated file the gate. Autonomous is the safe answer, as it is for every other
@@ -167,10 +167,10 @@ function goalExecutionMode(workspaceRoot, goalId) {
   return raw.trim().toLowerCase() === INTERACTIVE_MODE ? INTERACTIVE_MODE : AUTONOMOUS_MODE;
 }
 
-function seatIsHumanInteractive(runDir, seat) {
+function seatIsHumanInteractive(goalDir, seat) {
   if (!isSafeName(seat)) return false;
   let fm;
-  try { fm = fs.readFileSync(path.join(runDir, 'seats', seat, 'seat.md'), 'utf8'); } catch { return false; }
+  try { fm = fs.readFileSync(path.join(goalDir, 'seats', seat, 'seat.md'), 'utf8'); } catch { return false; }
   const m = frontmatterOf(fm).match(/^human-interactive:[ \t]*(.+?)[ \t]*$/m);
   const v = m ? m[1].toLowerCase() : '';
   return v === 'yes' || v === 'true';
@@ -255,10 +255,10 @@ function chatThreadToken(body) {
 // in a goal channel the goal is the room — so the goal/run/`from` triple that a DM needs to be
 // legible is redundant there, while the agent's name is what the owner is looking for. Same
 // body, same truncation; only the header line differs.
-function formatMessage(row, { goalId, runId, relPath, maxBodyChars = DEFAULT_MAX_BODY_CHARS, agentLead = false }) {
+function formatMessage(row, { goalId, stamp, relPath, maxBodyChars = DEFAULT_MAX_BODY_CHARS, agentLead = false }) {
   const header = agentLead
     ? `*🧵 ${row.from}* — ${goalId} · ${row.type} · #${row.id}`
-    : `*bus → you* — ${goalId}/${runId} · from ${row.from} · ${row.type} · #${row.id}`;
+    : `*bus → you* — ${goalId}/${stamp} · from ${row.from} · ${row.type} · #${row.id}`;
   let body = row.body;
   if (body.length > maxBodyChars) {
     const cut = body.slice(0, maxBodyChars);
@@ -268,22 +268,45 @@ function formatMessage(row, { goalId, runId, relPath, maxBodyChars = DEFAULT_MAX
   return body ? `${header}\n${body}` : header;
 }
 
-// Enumerate the open runs of every goal under `<workspaceRoot>/.rbtv/goals/`.
-// runs.csv: `run-id,type,state,taskforce-ids,opened,closed`.
-function openRuns(workspaceRoot) {
+// THIS GOAL'S CURRENT EXECUTION STAMP (7.607 design-lock item 5), read from the marker
+// `coordination/execution` that `coord.py mint_execution` writes at BOOT and nowhere else.
+//
+// ⚠ IT IS A DELIMITER, NEVER A STATUS. Nothing here asks whether the goal is running — the ferry
+// ferries whatever the log holds, and a goal between executions simply appends nothing. What the
+// stamp buys is the CURSOR KEY: keyed by goal alone, a cursor carried across a goal's next boot
+// would resume mid-file at an id from the previous execution; keyed by `<goal>/<stamp>` the next
+// execution is a FIRST SIGHT, whose rule is "cursor at the tail, ferry nothing" — so history is
+// not replayed and the new execution's own rows are the owner's business from the first one.
+// An absent or corrupt marker reads as `no-stamp`, which is a stable key rather than a guess: a
+// goal that predates the stamp still ferries, it simply never re-keys.
+const EXECUTION_STAMP_RE = /^\d{4}-\d{2}-\d{2}[a-z]+$/;
+
+function executionStamp(workspaceRoot, goalId) {
+  try {
+    const raw = fs.readFileSync(
+      path.join(workspaceRoot, '.rbtv', 'goals', goalId, 'coordination', 'execution'), 'utf8',
+    ).trim();
+    return EXECUTION_STAMP_RE.test(raw) ? raw : 'no-stamp';
+  } catch { return 'no-stamp'; }
+}
+
+// Enumerate every goal under `<workspaceRoot>/.rbtv/goals/` with its current execution stamp.
+//
+// ⚠ GOAL-DIRECT SINCE 7.607 (E3). This used to parse each goal's `runs.csv` for `state=open` rows
+// — the THIRD independent parser of that register (inventory #37), and one of the readers whose
+// disagreement the extinguishment removed. There is no register and no run folder: a goal's
+// coordination bus is at `<goal>/coordination/messages.md`, one per goal, and the ferry visits
+// every goal that has one. Liveness is deliberately NOT consulted here: the ferry's question is
+// "are there rows the owner has not seen", which a finished goal can answer yes to.
+function goalBuses(workspaceRoot) {
   const goalsDir = path.join(workspaceRoot, '.rbtv', 'goals');
   let goals;
   try { goals = fs.readdirSync(goalsDir, { withFileTypes: true }); } catch { return []; }
   const out = [];
   for (const g of goals) {
     if (!g.isDirectory()) continue;
-    let csv;
-    try { csv = fs.readFileSync(path.join(goalsDir, g.name, 'runs.csv'), 'utf8'); } catch { continue; }
-    for (const line of csv.split('\n').slice(1)) {
-      const cols = line.split(',');
-      if (cols.length < 3 || cols[2].trim() !== 'open') continue;
-      out.push({ goalId: g.name, runId: cols[0].trim() });
-    }
+    if (!fs.existsSync(path.join(goalsDir, g.name, 'coordination'))) continue;
+    out.push({ goalId: g.name, stamp: executionStamp(workspaceRoot, g.name) });
   }
   return out;
 }
@@ -325,10 +348,10 @@ function createBusFerry({
     if (logger) logger({ level, message, ...extra });
   }
 
-  // `<goalId>/<runId>` -> last-ferried msg id. PERSISTED (state file `busFerry` block).
+  // `<goalId>/<execution-stamp>` -> last-ferried msg id. PERSISTED (state file `busFerry` block).
   const cursors = new Map();
   // Volatile per-pass bookkeeping — deliberately NOT persisted: attempt counts and the
-  // "already warned about this run's malformed headers" flag are both per-process.
+  // "already warned about this execution's malformed headers" flag are both per-process.
   const attempts = new Map();   // `<key>#<msgId>` -> failed post count
   const warned = new Set();
   const sizes = new Map();      // `<key>` -> last seen byte size (skip an unchanged file)
@@ -347,15 +370,15 @@ function createBusFerry({
     if (!enabled || ticking) return;
     ticking = true;
     try {
-      for (const { goalId, runId } of openRuns(workspaceRoot)) {
-        const key = `${goalId}/${runId}`;
-        const relPath = path.join('.rbtv', 'goals', goalId, 'runs', runId, 'coordination', 'messages.md');
+      for (const { goalId, stamp } of goalBuses(workspaceRoot)) {
+        const key = `${goalId}/${stamp}`;
+        const relPath = path.join('.rbtv', 'goals', goalId, 'coordination', 'messages.md');
         const file = path.join(workspaceRoot, relPath);
         let st;
         // NO LOG YET = WE WATCHED THIS RUN BE BORN. The run is registered open and its
         // coordination folder is created EMPTY (`materialize-seats.py`); the log appears only
         // when somebody first writes to it (`coord.py append_message`). Seeing that state is the
-        // one moment the ferry can know a run has NO history — which is what the first-sight
+        // one moment the ferry can know an execution has NO history — which is what the first-sight
         // rule below is protecting against. Recorded here, consumed there.
         try { st = fs.statSync(file); } catch { bornWatched.add(key); continue; }
         if (cursors.has(key) && sizes.get(key) === st.size) continue; // nothing appended
@@ -370,7 +393,7 @@ function createBusFerry({
         const rows = parseMessages(text, (line) => {
           if (warned.has(key)) return log('debug', 'bus ferry skipped a malformed header', { key, line: line.slice(0, 120) });
           warned.add(key);
-          log('warn', 'bus ferry skipping malformed message header(s) in this run (logged once)', { key, line: line.slice(0, 120) });
+          log('warn', 'bus ferry skipping malformed message header(s) in this goal (logged once)', { key, line: line.slice(0, 120) });
         });
         sizes.set(key, st.size);
 
@@ -381,7 +404,7 @@ function createBusFerry({
         // and protects nothing, and what it swallows is a fresh goal's FIRST escalation. A newly
         // scaffolded goal rosters only the planning DAG, so that first message is exactly the one
         // with nobody in the room to read it. Seed at ZERO and FALL THROUGH, so the row travels on
-        // the pass that sees it: `continue`-ing here would set the cursor and then skip this run
+        // the pass that sees it: `continue`-ing here would set the cursor and then skip this goal
         // on every later pass via the unchanged-size short-circuit above, until some SECOND
         // message happened to arrive.
         //
@@ -393,7 +416,7 @@ function createBusFerry({
         //      already exists when the bridge returns, so the backlog is (correctly, by this rule)
         //      treated as history. Persistence buys NOTHING here: there was never an observation
         //      to persist.
-        //   2. BIRTH OBSERVED, THEN A RESTART before the run's first row — SWALLOWED, and
+        //   2. BIRTH OBSERVED, THEN A RESTART before the execution's first row — SWALLOWED, and
         //      persisting the marker WOULD have delivered it. The marker dies with the process
         //      (`toJSON()` carries `cursors` only), so the returning bridge meets that first row as
         //      an ordinary first sight WITH a log and seeds at its tail. Measured on this code:
@@ -408,12 +431,12 @@ function createBusFerry({
             bornWatched.delete(key);
             cursors.set(key, 0);
             persist();
-            log('info', 'bus ferry watched this run be born — cursor seeded at 0, its first rows ARE the owner\'s business', { key, rows: rows.length });
+            log('info', 'bus ferry watched this execution be born — cursor seeded at 0, its first rows ARE the owner\'s business', { key, rows: rows.length });
           } else {
             const tail = rows.length ? rows[rows.length - 1].id : 0;
             cursors.set(key, tail);
             persist();
-            log('info', 'bus ferry saw a run for the first time — cursor set at tail, backlog NOT ferried', { key, cursor: tail, rows: rows.length });
+            log('info', 'bus ferry saw this execution for the first time — cursor set at tail, backlog NOT ferried', { key, cursor: tail, rows: rows.length });
             continue;
           }
         }
@@ -422,11 +445,11 @@ function createBusFerry({
         // GATE 1 is a property of the SENDING SEAT, memoized per pass: at most one descriptor
         // read per distinct `from:` name actually seen, and zero on a pass with no `to: owner`
         // row at all.
-        const runDir = path.join(workspaceRoot, '.rbtv', 'goals', goalId, 'runs', runId);
+        const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', goalId);
         const executionMode = goalExecutionMode(workspaceRoot, goalId);
         const humanInteractiveMemo = new Map();
         const isHumanInteractive = (name) => {
-          if (!humanInteractiveMemo.has(name)) humanInteractiveMemo.set(name, seatIsHumanInteractive(runDir, name));
+          if (!humanInteractiveMemo.has(name)) humanInteractiveMemo.set(name, seatIsHumanInteractive(goalDir, name));
           return humanInteractiveMemo.get(name);
         };
 
@@ -466,7 +489,7 @@ function createBusFerry({
               continue;
             }
           }
-          const text = formatMessage(row, { goalId, runId, relPath, maxBodyChars });
+          const text = formatMessage(row, { goalId, stamp, relPath, maxBodyChars });
           let delivered = false;
           let error = null;
           let viaAgentThread = false;
@@ -486,7 +509,7 @@ function createBusFerry({
             // row. Any OTHER failure is a real post failure and takes the bounded-retry path
             // below — a rate limit must never be silently downgraded into a different surface.
             if (!chatThread && routeToAgentThread) {
-              const threadText = formatMessage(row, { goalId, runId, relPath, maxBodyChars, agentLead: true });
+              const threadText = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true });
               res = await routeToAgentThread({ goalId, agent: row.from, text: threadText });
               if (res && !res.delivered && res.reason === 'no-channel') res = null;
               // ⚑ `else if (res)`, never a bare `else`: an injected `routeToAgentThread` that
@@ -526,11 +549,11 @@ function createBusFerry({
             continue;
           }
           log('warn', 'bus ferry post failed — will retry next pass', { key, msgId: row.id, attempts: n, error });
-          // Forget the size so the next pass RE-READS this run. Without this the
+          // Forget the size so the next pass RE-READS this goal. Without this the
           // unchanged-size short-circuit at the top would skip the run entirely and the
           // retry would never happen — the bound would be unreachable and the row lost.
           sizes.delete(key);
-          break; // stop this run's pass here; order is the point
+          break; // stop this goal's pass here; order is the point
         }
       }
     } finally {
@@ -590,7 +613,7 @@ function createBusFerry({
 }
 
 module.exports = {
-  createBusFerry, parseMessages, formatMessage, addressesOwner, openRuns,
+  createBusFerry, parseMessages, formatMessage, addressesOwner, goalBuses, executionStamp,
   OWNER_TOKEN, DEFAULT_MAX_BODY_CHARS,
   goalExecutionMode, seatIsHumanInteractive, isSafeName, INTERACTIVE_MODE, AUTONOMOUS_MODE,
 };

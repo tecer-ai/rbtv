@@ -88,16 +88,18 @@ function writeSeatDescriptor(runDir, seat, { humanInteractive = true } = {}) {
     `---\nseat: ${seat}\n${humanInteractive ? 'human-interactive: yes\n' : ''}---\nbody\n`);
 }
 
-function seedRun(root, goalId, runId, { state = 'open', backlogRows = 0, executionMode = 'interactive', senders = SENDERS } = {}) {
+// 7.607 E3: GOAL-DIRECT. No `runs.csv`, no run folder — the bus is `<goal>/coordination/` and the
+// third argument is the goal's EXECUTION STAMP (design-lock item 5), written to the marker
+// `coordination/execution` exactly as `coord.py mint_execution` writes it. The stamp is what the
+// cursor is keyed by, so a fixture that omitted it would test a key shape nothing produces.
+function seedGoal(root, goalId, stamp, { backlogRows = 0, executionMode = 'interactive', senders = SENDERS } = {}) {
   const goalDir = path.join(root, '.rbtv', 'goals', goalId);
-  const coord = path.join(goalDir, 'runs', runId, 'coordination');
+  const coord = path.join(goalDir, 'coordination');
   fs.mkdirSync(coord, { recursive: true });
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'),
-    'run-id,type,state,taskforce-ids,opened,closed\n' +
-    `${runId},fresh,${state},tf-1,2026-08-03 00:00,\n`);
+  fs.writeFileSync(path.join(coord, 'execution'), `${stamp}\n`);
   // Gate 2, then gate 1 — see SENDERS above.
   if (executionMode) fs.writeFileSync(path.join(goalDir, 'execution-mode'), `${executionMode}\n`);
-  for (const s of senders) writeSeatDescriptor(path.join(goalDir, 'runs', runId), s);
+  for (const s of senders) writeSeatDescriptor(goalDir, s);
   const file = path.join(coord, 'messages.md');
   let text = '# messages — append-only coordination log (script-managed, do not edit by hand)\n\n';
   // A REAL backlog, every row addressed to the owner — exactly what must NOT be ferried.
@@ -151,7 +153,7 @@ async function main() {
   //     cursor lands AT THE TAIL. This is the check the whole module is shaped around.
   {
     const root = mkroot();
-    const { file, lastId } = seedRun(root, 'goal-a', 'run-1', { backlogRows: 50 });
+    const { file, lastId } = seedGoal(root, 'goal-a', '2026-08-03a', { backlogRows: 50 });
     const a = makeBridge({ workspaceRoot: root });
     const started = await a.bridge.start();
     await a.bridge.busFerry.tick();
@@ -164,8 +166,8 @@ async function main() {
       a.slack.posted.length === 0, { backlogRows: lastId, posted: a.slack.posted.length });
 
     check('FIRST SIGHT: the cursor is initialized AT THE TAIL',
-      a.bridge.busFerry._cursors.get('goal-a/run-1') === lastId,
-      { cursor: a.bridge.busFerry._cursors.get('goal-a/run-1'), tail: lastId });
+      a.bridge.busFerry._cursors.get('goal-a/2026-08-03a') === lastId,
+      { cursor: a.bridge.busFerry._cursors.get('goal-a/2026-08-03a'), tail: lastId });
 
     // 2 — A row appended AFTER first sight IS ferried, exactly once, with the header.
     append(file, msgRow(51, 'leader', 'owner', 'note', 'ack — the m6 pass is running'));
@@ -175,7 +177,7 @@ async function main() {
       a.slack.posted.length === 1 && p.channel === DM && p.threadTs === null,
       { posted: a.slack.posted.length, channel: p && p.channel });
     check('the ferried message carries the phone-first header and the body verbatim',
-      Boolean(p) && p.text === '*bus → you* — goal-a/run-1 · from leader · note · #51\nack — the m6 pass is running',
+      Boolean(p) && p.text === '*bus → you* — goal-a/2026-08-03a · from leader · note · #51\nack — the m6 pass is running',
       { text: p && p.text });
 
     // Idempotence: another pass with nothing appended posts nothing more.
@@ -192,8 +194,8 @@ async function main() {
     await a.bridge.busFerry.tick();
     check('a `to: leader` row is ignored; a comma-separated `to: owner, leader` row IS ferried; `goal-owner` is NOT',
       a.slack.posted.length === 2 && /#53/.test(a.slack.posted[1].text)
-      && a.bridge.busFerry._cursors.get('goal-a/run-1') === 54,
-      { posted: a.slack.posted.map((x) => x.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-a/run-1') });
+      && a.bridge.busFerry._cursors.get('goal-a/2026-08-03a') === 54,
+      { posted: a.slack.posted.map((x) => x.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-a/2026-08-03a') });
 
     // 3b — THE RULING'S RED HALF (`d-agents-address-owner-not-master`, 2026-08-09): a `to: master`
     //      row is NEVER ferried anywhere, from the same seat, in the same run, on the same pass
@@ -207,8 +209,8 @@ async function main() {
       a.slack.posted.length === 3
       && !a.slack.posted.some((x) => /MASTER-ADDRESSED/.test(x.text))
       && /OWNER-ADDRESSED/.test(a.slack.posted[2].text)
-      && a.bridge.busFerry._cursors.get('goal-a/run-1') === 56,
-      { posted: a.slack.posted.map((x) => x.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-a/run-1') });
+      && a.bridge.busFerry._cursors.get('goal-a/2026-08-03a') === 56,
+      { posted: a.slack.posted.map((x) => x.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-a/2026-08-03a') });
 
     a.bridge.stop();
   }
@@ -216,7 +218,7 @@ async function main() {
   // 4 — TRUNCATION at a line boundary, naming the workspace-relative source.
   {
     const root = mkroot();
-    const { file } = seedRun(root, 'goal-b', 'run-1', { backlogRows: 1 });
+    const { file } = seedGoal(root, 'goal-b', '2026-08-03a', { backlogRows: 1 });
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();
     await a.bridge.busFerry.tick(); // first sight
@@ -231,7 +233,7 @@ async function main() {
     const bodyLen = text.length - text.indexOf('\n') - 1;
     check('an over-long body is truncated at a LINE boundary (last line WHOLE) with the full-text pointer',
       a.slack.posted.length === 1
-      && tail === '… (truncated — full text: .rbtv/goals/goal-b/runs/run-1/coordination/messages.md #2)'
+      && tail === '… (truncated — full text: .rbtv/goals/goal-b/coordination/messages.md #2)'
       && bodyLen <= DEFAULT_MAX_BODY_CHARS + tail.length + 1
       && /^line \d+ x{20}$/.test(lastBodyLine),
       { bodyLen, tail, lastBodyLine, rawBodyChars: long.length });
@@ -242,7 +244,7 @@ async function main() {
   //     pass, never posted half-read.
   {
     const root = mkroot();
-    const { file } = seedRun(root, 'goal-c', 'run-1', { backlogRows: 1 });
+    const { file } = seedGoal(root, 'goal-c', '2026-08-03a', { backlogRows: 1 });
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();
     await a.bridge.busFerry.tick();
@@ -250,7 +252,7 @@ async function main() {
     fs.appendFileSync(file, '## 2 | from: leader | to: owner | type: note | 2026-08-06 14:23\n\nhalf-writ');
     await a.bridge.busFerry.tick();
     check('a torn trailing row (no terminating newline) is NOT posted',
-      a.slack.posted.length === 0 && a.bridge.busFerry._cursors.get('goal-c/run-1') === 1,
+      a.slack.posted.length === 0 && a.bridge.busFerry._cursors.get('goal-c/2026-08-03a') === 1,
       { posted: a.slack.posted.length });
 
     fs.appendFileSync(file, 'ten, now complete\n\n');
@@ -263,7 +265,7 @@ async function main() {
     const logs = [];
     const b = makeBridge({ workspaceRoot: root, logs, slack: a.slack });
     await b.bridge.start();
-    b.bridge.busFerry._cursors.set('goal-c/run-1', 2); // pretend we already saw the run
+    b.bridge.busFerry._cursors.set('goal-c/2026-08-03a', 2); // pretend we already saw the run
     fs.appendFileSync(file, '## not-a-header at all\n\njunk\n\n');
     fs.appendFileSync(file, msgRow(3, 'leader', 'owner', 'note', 'after the junk'));
     fs.appendFileSync(file, '## also not a header\n\nmore junk\n\n');
@@ -288,7 +290,7 @@ async function main() {
     const pkgMalformed = logs.filter((l) => /malformed/.test(l.message) && /from-pkg/.test(String(l.line)));
     check('a header carrying the OPTIONAL from-pkg/re/why fields parses and ferries — not dropped as malformed',
       a.slack.posted.length === 4 && pkgMalformed.length === 0
-      && a.slack.posted[3].text === '*bus → you* — goal-c/run-1 · from fixture-seat-a · completion · #5\nfrom outside the package',
+      && a.slack.posted[3].text === '*bus → you* — goal-c/2026-08-03a · from fixture-seat-a · completion · #5\nfrom outside the package',
       { posted: a.slack.posted.length, pkgMalformed: pkgMalformed.length, text: a.slack.posted[3] && a.slack.posted[3].text });
     a.bridge.stop(); b.bridge.stop();
   }
@@ -297,7 +299,7 @@ async function main() {
   //     log — the ferry never wedges behind one undeliverable row.
   {
     const root = mkroot();
-    const { file } = seedRun(root, 'goal-d', 'run-1', { backlogRows: 1 });
+    const { file } = seedGoal(root, 'goal-d', '2026-08-03a', { backlogRows: 1 });
     const logs = [];
     const slack = makeFakeSlack();
     const a = makeBridge({ workspaceRoot: root, logs, slack, busFerryOptions: { maxAttempts: 3 } });
@@ -310,14 +312,14 @@ async function main() {
     await a.bridge.busFerry.tick();
     await a.bridge.busFerry.tick();
     check('a failed post is retried and does NOT advance the cursor, and row 3 does not jump the queue',
-      slack.posted.length === 0 && a.bridge.busFerry._cursors.get('goal-d/run-1') === 1,
-      { posted: slack.posted.length, cursor: a.bridge.busFerry._cursors.get('goal-d/run-1') });
+      slack.posted.length === 0 && a.bridge.busFerry._cursors.get('goal-d/2026-08-03a') === 1,
+      { posted: slack.posted.length, cursor: a.bridge.busFerry._cursors.get('goal-d/2026-08-03a') });
 
     await a.bridge.busFerry.tick(); // 3rd attempt == cap
     const gaveUp = logs.filter((l) => l.level === 'warn' && /giving up/.test(l.message));
     check('at the attempt cap the row is SKIPPED loudly and the cursor advances past it',
-      gaveUp.length === 1 && a.bridge.busFerry._cursors.get('goal-d/run-1') === 2,
-      { gaveUp: gaveUp.length, cursor: a.bridge.busFerry._cursors.get('goal-d/run-1') });
+      gaveUp.length === 1 && a.bridge.busFerry._cursors.get('goal-d/2026-08-03a') === 2,
+      { gaveUp: gaveUp.length, cursor: a.bridge.busFerry._cursors.get('goal-d/2026-08-03a') });
 
     slack.failNextPosts(0);
     await a.bridge.busFerry.tick();
@@ -332,7 +334,7 @@ async function main() {
   {
     const root = mkroot();
     const stateFile = path.join(mkroot(), 'chat-state.json');
-    const { file } = seedRun(root, 'goal-e', 'run-1', { backlogRows: 20 });
+    const { file } = seedGoal(root, 'goal-e', '2026-08-03a', { backlogRows: 20 });
     const a = makeBridge({ workspaceRoot: root, stateFile });
     await a.bridge.start();
     await a.bridge.busFerry.tick();
@@ -341,14 +343,14 @@ async function main() {
     a.bridge.stop();
     check('pre-restart: one row ferried, cursor persisted to the state file',
       a.slack.posted.length === 1
-      && JSON.parse(fs.readFileSync(stateFile, 'utf8')).busFerry.cursors['goal-e/run-1'] === 21,
+      && JSON.parse(fs.readFileSync(stateFile, 'utf8')).busFerry.cursors['goal-e/2026-08-03a'] === 21,
       { posted: a.slack.posted.length, doc: JSON.parse(fs.readFileSync(stateFile, 'utf8')).busFerry });
 
     const b = makeBridge({ workspaceRoot: root, stateFile });
     check('the restarted bridge holds NO cursors before start()', b.bridge.busFerry._cursors.size === 0, {});
     await b.bridge.start();
     check('start() restored the ferry cursor from disk',
-      b.bridge.busFerry._cursors.get('goal-e/run-1') === 21, { cursor: b.bridge.busFerry._cursors.get('goal-e/run-1') });
+      b.bridge.busFerry._cursors.get('goal-e/2026-08-03a') === 21, { cursor: b.bridge.busFerry._cursors.get('goal-e/2026-08-03a') });
     await b.bridge.busFerry.tick();
     check('AFTER A RESTART nothing is re-posted — no double-post, no re-flood of the 20-row backlog',
       b.slack.posted.length === 0, { posted: b.slack.posted.length });
@@ -367,17 +369,50 @@ async function main() {
       { keys: Object.keys(doc), version: doc.version });
   }
 
-  // 8 — CLOSED runs are not ferried (only `state=open` rows in runs.csv).
+  // 8 — 7.607 E3: THE CURSOR IS KEYED BY EXECUTION STAMP, so a goal's NEXT execution is a FIRST
+  //     SIGHT and its predecessor's rows are never replayed.
+  //
+  //     ⚠ THIS ARM REPLACES "a CLOSED run is never enumerated", whose subject the extinguishment
+  //     deleted: there is no `state=closed` row to read and the ferry visits every goal that has a
+  //     coordination bus. What the old arm actually protected was the owner's inbox against a
+  //     goal's history arriving twice — and THAT property now lives in the key. Measured here
+  //     rather than asserted: same file, same rows, a new stamp, and the count of posts is the
+  //     discriminator.
   {
     const root = mkroot();
-    const { file } = seedRun(root, 'goal-f', 'run-1', { state: 'closed', backlogRows: 1 });
-    append(file, msgRow(2, 'leader', 'owner', 'note', 'from a closed run'));
+    const { file } = seedGoal(root, 'goal-f', '2026-08-03a', { backlogRows: 1 });
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();
+    await a.bridge.busFerry.tick();                 // FIRST SIGHT under stamp `a` — cursor at tail
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'the first execution says something'));
     await a.bridge.busFerry.tick();
-    check('a CLOSED run is never enumerated — nothing ferried, no cursor minted',
-      a.slack.posted.length === 0 && a.bridge.busFerry._cursors.size === 0,
-      { posted: a.slack.posted.length, cursors: a.bridge.busFerry._cursors.size });
+    const firstPosts = a.slack.posted.length;
+    check('execution 1: the row appended after first sight IS ferried, under the stamped key',
+      firstPosts === 1 && a.bridge.busFerry._cursors.get('goal-f/2026-08-03a') === 2,
+      { posted: firstPosts, cursors: [...a.bridge.busFerry._cursors.entries()] });
+
+    // THE NEXT EXECUTION of the same goal: the marker advances, the append-only log does NOT
+    // reset (design-lock item 5 — "files stay single and append-only").
+    fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goal-f', 'coordination', 'execution'),
+      '2026-08-03b\n');
+    await a.bridge.busFerry.tick();
+    check('7.607 E3: a NEW execution stamp is a FIRST SIGHT — the previous execution\'s rows are '
+      + 'NOT replayed to the owner, and the new key seeds at the tail',
+      a.slack.posted.length === firstPosts
+      && a.bridge.busFerry._cursors.get('goal-f/2026-08-03b') === 2
+      && a.bridge.busFerry._cursors.get('goal-f/2026-08-03a') === 2,
+      { posted: a.slack.posted.length, cursors: [...a.bridge.busFerry._cursors.entries()] });
+
+    // AND IT IS NOT A MUTE: a row appended UNDER the new stamp travels. Without this the arm
+    // above passes on a ferry that stopped working entirely.
+    append(file, msgRow(3, 'leader', 'owner', 'note', 'the second execution speaks'));
+    await a.bridge.busFerry.tick();
+    check('7.607 E3 CONTROL: a row appended under the NEW stamp IS ferried — the re-key protects '
+      + 'against replay, it does not mute the goal',
+      a.slack.posted.length === firstPosts + 1
+      && /the second execution speaks/.test(a.slack.posted[a.slack.posted.length - 1].text)
+      && a.bridge.busFerry._cursors.get('goal-f/2026-08-03b') === 3,
+      { posted: a.slack.posted.map((x) => x.text.split('\n')[0]) });
     a.bridge.stop();
   }
 
@@ -385,7 +420,7 @@ async function main() {
   //     resolvable DM it says so LOUDLY and stays off — the bridge is otherwise fine.
   {
     const root = mkroot();
-    const { file } = seedRun(root, 'goal-g', 'run-1', { backlogRows: 1 });
+    const { file } = seedGoal(root, 'goal-g', '2026-08-03a', { backlogRows: 1 });
     append(file, msgRow(2, 'leader', 'owner', 'note', 'should never be ferried'));
 
     const off = makeBridge({ workspaceRoot: root, busFerry: false });
@@ -444,7 +479,7 @@ async function main() {
     // thread CONTINUES it as a follow-up. This is the Slack transcript defect: the sitting must
     // hold the bus row that opened its thread.
     const root2 = mkroot();
-    const { file: file2 } = seedRun(root2, 'goal-s', 'run-1', { backlogRows: 1 });
+    const { file: file2 } = seedGoal(root2, 'goal-s', '2026-08-03a', { backlogRows: 1 });
     const forwards = [];
     // The minted session-create's queue row is 7; its session is live on chain thread
     // `exec-7`, so the follow-up's chain resolution (thread-map tier 1) succeeds and the
@@ -516,38 +551,36 @@ async function main() {
   //     seat to read it. Measured 0-delivered before this change.
   {
     const root = mkroot();
-    // Birth order byte for byte, as `materialize-seats.py` births a package: the run register
-    // row is `open` and `coordination/` is created EMPTY — no messages.md until somebody writes.
+    // Birth order byte for byte, as `materialize-seats.py` births a package: `coordination/` is
+    // created EMPTY with its execution marker — no messages.md until somebody writes.
     const goalDir = path.join(root, '.rbtv', 'goals', 'goal-newborn');
-    const newRun = path.join(goalDir, 'runs', 'run-1');
-    fs.mkdirSync(path.join(newRun, 'coordination'), { recursive: true });
-    fs.writeFileSync(path.join(goalDir, 'runs.csv'),
-      'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-08-08 22:00,\n');
+    fs.mkdirSync(path.join(goalDir, 'coordination'), { recursive: true });
+    fs.writeFileSync(path.join(goalDir, 'coordination', 'execution'), '2026-08-08a\n');
     // Both gates open — this arm is about the BIRTH observation, not the gate (see SENDERS).
     fs.writeFileSync(path.join(goalDir, 'execution-mode'), 'interactive\n');
-    writeSeatDescriptor(newRun, 'planning-strategist');
+    writeSeatDescriptor(goalDir, 'planning-strategist');
     // THE CONTROL, in the same workspace and the same passes: a second run that already HAS a
     // 40-row backlog. The flood rule must be untouched for it — the exception is "we watched it
     // be born", never "the ferry started recently".
-    const { file: oldFile } = seedRun(root, 'goal-elderly', 'run-1', { backlogRows: 40 });
+    const { file: oldFile } = seedGoal(root, 'goal-elderly', '2026-08-03a', { backlogRows: 40 });
 
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();
     await a.bridge.busFerry.tick();               // the birth observation
     check('7.546: a run enumerated open with NO messages.md yet takes no cursor on that pass, while a run that HAS one is seeded at its tail on the same pass',
-      a.bridge.busFerry._cursors.has('goal-newborn/run-1') === false
-      && a.bridge.busFerry._cursors.get('goal-elderly/run-1') === 40,
+      a.bridge.busFerry._cursors.has('goal-newborn/2026-08-08a') === false
+      && a.bridge.busFerry._cursors.get('goal-elderly/2026-08-03a') === 40,
       { cursors: [...a.bridge.busFerry._cursors.entries()] });
 
-    fs.writeFileSync(path.join(newRun, 'coordination', 'messages.md'),
+    fs.writeFileSync(path.join(goalDir, 'coordination', 'messages.md'),
       '# messages — append-only coordination log (script-managed, do not edit by hand)\n\n'
       + msgRow(1, 'planning-strategist', 'owner', 'note', 'ESCALATION: this run rosters no authority seat'));
     await a.bridge.busFerry.tick();
     check("7.546 BORN-WATCHED: the newborn run's FIRST row IS ferried, on the very pass that first reads it — not held for a second message that may never come",
       a.slack.posted.length === 1 && /ESCALATION/.test(a.slack.posted[0].text)
-      && a.bridge.busFerry._cursors.get('goal-newborn/run-1') === 1,
+      && a.bridge.busFerry._cursors.get('goal-newborn/2026-08-08a') === 1,
       { posted: a.slack.posted.map((p) => p.text.slice(0, 70)),
-        cursor: a.bridge.busFerry._cursors.get('goal-newborn/run-1') });
+        cursor: a.bridge.busFerry._cursors.get('goal-newborn/2026-08-08a') });
 
     append(oldFile, msgRow(41, 'leader', 'owner', 'note', 'the elderly run keeps the tail rule'));
     await a.bridge.busFerry.tick();

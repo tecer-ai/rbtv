@@ -19,8 +19,11 @@ const GOALS_TREE = path.join(
 const TICKER_SETTINGS = path.join(
   RBTV_ROOT, 'ignite', 'capabilities', 'ticker-settings', 'tool', 'rbtv-ignite-ticker',
 );
-const ATTACHED_RUN = path.join(
-  RBTV_ROOT, 'ignite', 'capabilities', 'attached-run', 'tool', 'rbtv-run',
+// 7.607 E3 renamed the capability and its entry point (`attached-run/tool/rbtv-run` ->
+// `attached-execution/tool/rbtv-execution`, design-lock item 7). The `run` VERB below is
+// deliberately unchanged — it is this CLI's user surface, not the renamed component.
+const ATTACHED_EXECUTION = path.join(
+  RBTV_ROOT, 'ignite', 'capabilities', 'attached-execution', 'tool', 'rbtv-execution',
 );
 const WATCH_OPERATOR = path.join(
   RBTV_ROOT, 'ignite', 'capabilities', 'watch-operator', 'tool', 'rbtv-ignite-watch',
@@ -105,16 +108,16 @@ const ROUTES = [
     verbs: GOAL_VERBS,
     summary: 'goals-tree machinery — scaffold/reindex/lint/materialize a goal folder',
   },
-  // Core-build task 7.44. `run` takes no sub-verb: its argument is a RUN FOLDER, not a word from a
+  // Core-build task 7.44. `run` takes no sub-verb: its argument is a GOAL FOLDER, not a word from a
   // fixed set, so `verbs` is empty and the disjointness check has nothing to collide with. It is
   // the one route that BOOTS the ignite engine rather than talking to something that already runs
   // it — attached to this terminal, dying with it (decisions.md#d-attached-run-embedded-engine).
   {
     prefix: ['run'],
-    target: ATTACHED_RUN,
+    target: ATTACHED_EXECUTION,
     exec: 'direct',
     verbs: [],
-    summary: 'run a goal ATTACHED to this terminal — the daemon\'s own engine, in-process, resumable from the run folder',
+    summary: 'run a goal ATTACHED to this terminal — the daemon\'s own engine, in-process, resumable from the goal folder',
   },
   {
     prefix: ['teambuild'],
