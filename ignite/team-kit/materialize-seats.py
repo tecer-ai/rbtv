@@ -103,6 +103,20 @@ registration files (`.mcp.json` + `.claude/settings.json` approval flag ·
 per CMP-12 § config. Derived files, regenerated freely; a broken declaration
 refuses pre-write. Acceptance row MCP-1.
 
+The SEAT-EXPOSURE LOADER SURFACE is landed (d-materializer-seat-loaders;
+shape owner-ruled 2026-08-09, d-seat-exposes-frontmatter) —
+resolve_seat_exposes/render_seat_exposures/emit_seat_exposures: a prompt
+file's frontmatter `exposes:` mapping (method -> exposure.csv part-ids,
+`<component>/<part-id>` for a sibling component's row) materializes per seat
+as thin loaders / verbatim copies for the five seat-authorable methods
+(skill, command, rule, hook, sub-agent), realization per CMP-12's matrix;
+the validated mapping is also emitted into the descriptor frontmatter, and
+rule exposure appends a forced-read preamble to the seat's AGENTS.md. The
+manifest stays the one home of the part -> method binding (PRIN-11): a
+mismatched group key refuses. Derived files, regenerated freely; every gate
+fires pre-write. Acceptance row EXP-1; full spec: the block comment above
+resolve_seat_exposes.
+
 Assembly is goal_cli's — `index_units` / `load_catalogs` / `assemble_seat`
 imported from the goals-tree tool. ONE assembler; this file must never grow a
 local unit emitter (SK-7).
@@ -1314,6 +1328,14 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
                 continue
             fm[key] = val
 
+        # The seat's harness-materialized instruments, grouped by method
+        # (d-seat-exposes-frontmatter) — already validated against
+        # exposure.csv by resolve_seat_exposes, emitted so the descriptor
+        # itself shows what was minted beside it.
+        exp = (plan.get("exposes") or {}).get(seat)
+        if exp:
+            fm["exposes"] = exp
+
         tail = ""
         if fm["mode"] == "one-shot":
             # F10 — a one-shot pays for CLI discovery inside its single
@@ -1637,14 +1659,36 @@ its system prompt and needs no pointer. Your harness has no such flag, so this p
 the only thing that tells you the descriptor is there. Nothing else will.
 """
 
+# The forced-read preamble for rule exposure (d-materializer-seat-loaders;
+# CMP-12's fallback row: codex auto-injects no rule folder, so the guidance
+# file must FORCE the read by naming the specific files).
+_SEAT_RULES_BLOCK = """\
 
-def _write_seat_agents_md(folder: Path, seat: str) -> str | None:
+## Always-on rules — binding for this whole sitting
+
+This seat carries always-on behavior rules, materialized beside this file twice:
+`.claude/rules/` (auto-loaded by Claude Code) and `.agents/behavior-rules/` (verbatim
+copies for harnesses that auto-load no rule folder). If your harness did not auto-inject
+them, read EVERY file below NOW — before seat.md's task work — and follow each as binding:
+
+{rows}
+"""
+
+
+def _write_seat_agents_md(folder: Path, seat: str,
+                          rules: list[tuple[str, str]] = ()) -> str | None:
     """Write (or refresh) the seat's AGENTS.md pointer. Returns the path if written.
 
     Regenerated freely — unlike `seat.md` this is fixed boilerplate with no per-run
-    content, so there is no drift to preserve and no reason to refuse an overwrite."""
+    content (plus, when the seat exposes rules, the forced-read preamble naming each
+    materialized copy), so there is no drift to preserve and no reason to refuse an
+    overwrite."""
     target = folder / "AGENTS.md"
     text = _SEAT_AGENTS_MD.format(seat=seat)
+    if rules:
+        text += _SEAT_RULES_BLOCK.format(rows="\n".join(
+            f"- `.agents/behavior-rules/{pid}.md` — {desc}"
+            for pid, desc in rules))
     if target.exists() and target.read_text(encoding="utf-8") == text:
         return None
     target.write_text(text, encoding="utf-8", newline="\n")
@@ -1837,6 +1881,342 @@ def emit_harness_configs(plan: dict) -> list[str]:
     return written
 
 
+# ── seat-folder exposure loaders — the five seat-authorable methods
+#    (d-materializer-seat-loaders; shape owner-ruled 2026-08-09,
+#    d-seat-exposes-frontmatter) ──
+#
+# A seat DECLARES what must be materialized beside its seat.md in its prompt
+# file's frontmatter (`<component>/prompts/<executor>.md`):
+#
+#   exposes:
+#     skill: [brws, other-comp/xsk]
+#     rule: [house-style]
+#     sub-agent: [researcher]
+#
+# The mapping is grouped by canonical exposure method for readability, but
+# exposure.csv REMAINS the one home of the part -> method binding (PRIN-11):
+# a group key that disagrees with the referenced row's `method` column is a
+# refusal, never a silent override. Ref grammar (segment count decides):
+# `part` = the seat's own component's exposure.csv · `component/part` = a
+# sibling component, same module · `module/component/part` = another
+# module's component (owner-ruled 2026-08-09: cross-module must exist) —
+# resolved from the referencing component's position in the tree, so the
+# same grammar works for the mirror and the rbtv repo, both shaped
+# `<tree>/<module>/<component>/`. The prose <resources> unit is NOT
+# replaced by this: it keeps naming conditional reads, references, and CLI
+# commands — `exposes:` carries only what the harness must materialize.
+# Realization per harness follows CMP-12's matrix and nowhere else:
+#
+#   skill      .claude/skills/<id>/SKILL.md (claude; opencode reads .claude/)
+#              + .agents/skills/<id>/SKILL.md (codex) — thin loaders
+#   command    .claude/commands/<id>.md + .codex/prompts/<id>.md
+#              + .opencode/commands/<id>.md — thin loaders
+#   rule       .claude/rules/<id>.md + .agents/behavior-rules/<id>.md —
+#              VERBATIM copies; the seat AGENTS.md gains a forced-read
+#              preamble naming each copy (codex auto-injects no rule folder)
+#   hook       entry-point names a JSON file carrying a claude-shape `hooks`
+#              object (rbtv's neutral shape adopts Claude Code's namings, the
+#              same move d-mcp-registration-is-config made for mcpServers);
+#              merged into .claude/settings.json and carried verbatim into
+#              .codex/hooks.json — MEASURED, not assumed: codex-cli 0.144.5
+#              reads project-local `.codex/hooks.json` whose `hooks` object
+#              uses the claude event/matcher/handler shape verbatim, plus an
+#              optional top-level `description` (codex manual § Hooks,
+#              read 2026-08-09; extra per-handler fields: timeout seconds,
+#              statusMessage, additionalContextLimit). ⚠ Codex TRUST-GATES
+#              them: project-local hooks load only when the `.codex` layer
+#              is trusted AND each hook definition is trusted by hash
+#              (`/hooks`), or the launch passes
+#              `--dangerously-bypass-hook-trust` — a materialized file that
+#              fires nothing until the launch profile carries that; see the
+#              core-build issues ledger. opencode has no hook surface
+#              (CMP-12)
+#   sub-agent  .claude/agents/<id>.md + .opencode/agents/<id>.md — thin
+#              loaders; codex has no confirmed-native definition (CMP-12)
+#
+# `agents.md` and `config` are NOT seat-authorable here — the seat AGENTS.md
+# pointer and the plugin/MCP registration files are materialized by their own
+# surfaces above. Like those files, every loader is DERIVED and per-run
+# content-free: regenerated freely (byte-identical -> skipped), never a
+# collision refusal. A prompt with no `exposes:` (or no prompt FILE at all —
+# csv-shaped prompts, tool seats) generates nothing: absence is normal.
+
+SEAT_EXPOSE_METHODS = ("skill", "command", "rule", "hook", "sub-agent")
+
+_LOADER_NOTE = ("Generated by materialize-seats.py from the component's "
+                "exposure manifest (d-materializer-seat-loaders) — a thin "
+                "loader, regenerated freely, never hand-edited.")
+
+
+def _yq(text: str) -> str:
+    """A YAML-safe quoted scalar (json.dumps quoting is valid YAML — the
+    colon-space-in-description failure class); unicode kept readable."""
+    return json.dumps(str(text), ensure_ascii=False)
+
+
+def _loader_md(part: str, desc: str, entry_abs: str, what: str,
+               named: bool) -> str:
+    """A thin-loader markdown file pointing at the exposed part's entry
+    point. `named` adds the `name:` key (skills, sub-agents)."""
+    name_line = f"name: {part}\n" if named else ""
+    return (f"---\n{name_line}description: {_yq(desc)}\n---\n\n"
+            + _LOADER_NOTE + "\n\n"
+            f"Read `{entry_abs}` NOW and follow it as this {what}'s full "
+            "instructions.\n")
+
+
+def _prompt_exposes(comp_dir: Path, executor: str, seat: str) -> dict:
+    """The `exposes:` mapping off the seat's prompt-file frontmatter
+    (`prompts/<executor>.md`) — {} when the file or the key is absent."""
+    path = comp_dir / "prompts" / f"{executor}.md"
+    if not executor or not path.is_file():
+        return {}
+    m = _FM_RE.match(path.read_text(encoding="utf-8"))
+    if not m:
+        return {}
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError as exc:
+        raise Refuse(
+            "exposes-invalid",
+            f"prompt file for seat '{seat}' carries frontmatter that is not "
+            f"YAML — {exc}",
+            str(path)) from exc
+    raw = fm.get("exposes") if isinstance(fm, dict) else None
+    if raw in (None, "", {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise Refuse(
+            "exposes-invalid",
+            f"seat '{seat}': `exposes:` must be a mapping of method -> "
+            "part-id list",
+            str(path))
+    out: dict[str, list[str]] = {}
+    for method, refs in raw.items():
+        if method not in SEAT_EXPOSE_METHODS:
+            raise Refuse(
+                "exposes-method-unknown",
+                f"seat '{seat}': `exposes:` key '{method}' is not a "
+                "seat-authorable method — one of "
+                + "|".join(SEAT_EXPOSE_METHODS)
+                + " (agents.md and config are materialized by their own "
+                "surfaces; anything else is outside the canon)",
+                str(path))
+        if isinstance(refs, str):
+            refs = [refs]
+        if not isinstance(refs, list) or not refs or not all(
+                isinstance(r, str) and r.strip() for r in refs):
+            raise Refuse(
+                "exposes-invalid",
+                f"seat '{seat}': `exposes: {method}:` must be a non-empty "
+                "list of part-id strings",
+                str(path))
+        out[method] = [r.strip() for r in refs]
+    return out
+
+
+def _exposure_rows(comp_dir: Path) -> dict[str, dict]:
+    """part-id -> exposure.csv row of ONE component ({} when no manifest)."""
+    path = comp_dir / EXPOSURE_NAME
+    if not path.is_file():
+        return {}
+    rows: dict[str, dict] = {}
+    with path.open(encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            pid = (row.get("part-id") or "").strip()
+            if pid:
+                rows[pid] = row
+    return rows
+
+
+def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
+    """Resolve + validate every added seat's `exposes:` declaration (ALL
+    gates fire here, before any render and any write):
+    plan['exposes'][seat] = the authored mapping (normalized), emitted into
+    the descriptor frontmatter; plan['expose_parts'][seat] = the resolved
+    [(method, part-id, row, component dir)] the loader render consumes.
+    Every reference must resolve to an exposure.csv row whose `method`
+    column EQUALS its group key and whose entry-point file exists."""
+    plan["exposes"], plan["expose_parts"] = {}, {}
+    for seat in plan["added_seats"]:
+        source = str((seats_cat.get(seat) or {}).get("__source__") or "")
+        if not source:
+            continue
+        comp_dir = Path(source).parent
+        srow = seats_cat.get(seat) or {}
+        executor = (srow.get("prompt-id") or srow.get("executor") or "").strip()
+        exposes = _prompt_exposes(comp_dir, executor, seat)
+        if not exposes:
+            continue
+        parts: list[tuple[str, str, dict, Path]] = []
+        for method, refs in exposes.items():
+            for ref in refs:
+                # Ref grammar, disambiguated by segment count (owner-ruled
+                # 2026-08-09, cross-module must exist): `part` = own
+                # component · `component/part` = sibling component, same
+                # module · `module/component/part` = another module's
+                # component, resolved from the referencing component's
+                # position (comp_dir.parent.parent = the tree root above
+                # the modules) — identical arithmetic for the mirror and
+                # the rbtv repo, both `<tree>/<module>/<component>/`.
+                segs = ref.split("/")
+                if not all(s.strip() for s in segs) or len(segs) > 3:
+                    raise Refuse(
+                        "exposes-invalid",
+                        f"seat '{seat}' exposes '{ref}' ({method}) — a "
+                        "reference is `part`, `component/part`, or "
+                        "`module/component/part`; empty segments or deeper "
+                        "nesting are not expressible",
+                    )
+                if len(segs) == 1:
+                    ref_dir = comp_dir
+                elif len(segs) == 2:
+                    ref_dir = comp_dir.parent / segs[0]
+                else:
+                    ref_dir = comp_dir.parent.parent / segs[0] / segs[1]
+                pid = segs[-1]
+                rows = _exposure_rows(ref_dir)
+                if pid not in rows:
+                    raise Refuse(
+                        "exposes-ref-dangling",
+                        f"seat '{seat}' exposes '{ref}' ({method}) — no "
+                        f"exposure.csv row '{pid}' under "
+                        f"{ref_dir / EXPOSURE_NAME}; a dead reference must "
+                        "not reach a materialized seat (grammar: `part` · "
+                        "`component/part` · `module/component/part`)",
+                    )
+                declared = (rows[pid].get("method") or "").strip()
+                if declared != method:
+                    raise Refuse(
+                        "exposes-method-mismatch",
+                        f"seat '{seat}' exposes '{ref}' under '{method}' but "
+                        f"its exposure.csv row declares method "
+                        f"'{declared or '(empty)'}' — the manifest is the "
+                        "one home of the part -> method binding (PRIN-11); "
+                        "fix the frontmatter or the manifest",
+                        str(ref_dir / EXPOSURE_NAME))
+                entry = (rows[pid].get("entry-point") or "").strip()
+                if not entry or not (ref_dir / entry).is_file():
+                    raise Refuse(
+                        "exposes-entry-missing",
+                        f"seat '{seat}' exposes '{ref}' ({method}) whose "
+                        f"entry-point '{entry or '(empty)'}' resolves to no "
+                        "file under its component — nothing to realize",
+                        str(ref_dir / EXPOSURE_NAME))
+                parts.append((method, pid, rows[pid], ref_dir))
+        plan["exposes"][seat] = exposes
+        plan["expose_parts"][seat] = parts
+
+
+def render_seat_exposures(plan: dict) -> None:
+    """Plan the per-seat loader files for the resolved `exposes:` parts
+    (validation already fired in resolve_seat_exposes) and DECLARE each in
+    writes[]. Hooks MERGE into the .claude/settings.json the plugin/MCP
+    surface may already carry — one writer per file, never two."""
+    plan["seat_exposures"] = {}
+    plan["seat_rules"] = {}
+    for seat, parts in (plan.get("expose_parts") or {}).items():
+        files: dict[str, str] = {}
+        rules: list[tuple[str, str]] = []
+        hooks: dict = {}
+        for method, pid, row, ref_dir in parts:
+            entry = str((ref_dir / (row.get("entry-point") or "").strip())
+                        .resolve())
+            desc = (row.get("description") or "").strip() \
+                or f"{pid} — exposed via {ref_dir.name}/exposure.csv"
+            if method == "skill":
+                text = _loader_md(pid, desc, entry, "skill", named=True)
+                files[f".claude/skills/{pid}/SKILL.md"] = text
+                files[f".agents/skills/{pid}/SKILL.md"] = text
+            elif method == "command":
+                text = _loader_md(pid, desc, entry, "command", named=False)
+                files[f".claude/commands/{pid}.md"] = text
+                files[f".opencode/commands/{pid}.md"] = text
+                # codex prompt files are plain markdown — no frontmatter.
+                files[f".codex/prompts/{pid}.md"] = (
+                    _LOADER_NOTE + "\n\n"
+                    f"Read `{entry}` NOW and follow it as this command's "
+                    "full instructions.\n")
+            elif method == "rule":
+                body = (ref_dir / row["entry-point"].strip()).read_text(
+                    encoding="utf-8")
+                files[f".claude/rules/{pid}.md"] = body
+                files[f".agents/behavior-rules/{pid}.md"] = body
+                rules.append((pid, desc))
+            elif method == "sub-agent":
+                text = _loader_md(pid, desc, entry, "sub-agent", named=True)
+                files[f".claude/agents/{pid}.md"] = text
+                files[f".opencode/agents/{pid}.md"] = text
+            elif method == "hook":
+                try:
+                    data = json.loads(Path(entry).read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    raise Refuse(
+                        "hook-declaration-invalid",
+                        f"hook entry-point for '{pid}' (seat '{seat}') is "
+                        f"not readable JSON ({exc}) — refusing before any "
+                        "write",
+                        entry) from exc
+                decl = data.get("hooks") if isinstance(data, dict) else None
+                if not isinstance(decl, dict):
+                    raise Refuse(
+                        "hook-declaration-invalid",
+                        f"hook entry-point for '{pid}' (seat '{seat}') "
+                        "carries no `hooks` object — the neutral shape is "
+                        "claude's settings `hooks` block",
+                        entry)
+                for event, entries in decl.items():
+                    hooks.setdefault(event, []).extend(
+                        entries if isinstance(entries, list) else [entries])
+        if hooks:
+            mcp_files = (plan.get("harness_configs") or {}).get(seat)
+            settings: dict = {}
+            if mcp_files and ".claude/settings.json" in mcp_files:
+                settings = json.loads(mcp_files[".claude/settings.json"])
+            settings["hooks"] = hooks
+            text = json.dumps(settings, indent=2, sort_keys=True) + "\n"
+            if mcp_files and ".claude/settings.json" in mcp_files:
+                # already planned AND declared by the plugin/MCP surface —
+                # replace its content, add no second writes[] row.
+                mcp_files[".claude/settings.json"] = text
+            else:
+                files[".claude/settings.json"] = text
+            # codex 0.144.5 measured shape: the claude `hooks` object
+            # verbatim + an optional top-level `description` (provenance).
+            files[".codex/hooks.json"] = json.dumps(
+                {"description": f"Generated by materialize-seats.py for "
+                                f"seat '{seat}' from its component's "
+                                "exposure manifest — regenerated freely, "
+                                "never hand-edited.",
+                 "hooks": hooks}, indent=2, sort_keys=True) + "\n"
+        if rules:
+            plan["seat_rules"][seat] = rules
+        if files:
+            plan["seat_exposures"][seat] = files
+            for rel in sorted(files):
+                plan["writes"].append({
+                    "kind": "seat-exposure", "seat": seat,
+                    "path": str(Path(plan["package"]) / "seats" / seat
+                                / rel)})
+
+
+def emit_seat_exposures(plan: dict) -> list[str]:
+    """Write the planned loaders — AGENTS.md semantics (derived,
+    deterministic, regenerated freely; byte-identical → skipped)."""
+    written: list[str] = []
+    for seat, files in (plan.get("seat_exposures") or {}).items():
+        folder = Path(plan["package"]) / "seats" / seat
+        for rel, text in files.items():
+            target = folder / rel
+            if target.exists() and target.read_text(encoding="utf-8") == text:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8", newline="\n")
+            target.chmod(0o644)
+            written.append(str(target))
+    return written
+
+
 def emit_seat_descriptors(plan: dict) -> list[str]:
     """dag-04 — write the rendered descriptors: file mode 0644, folder 0755.
     Every gate already fired in render_descriptors (before any write); under
@@ -1868,7 +2248,8 @@ def emit_seat_descriptors(plan: dict) -> list[str]:
                 )
             # The descriptor is already correct; the POINTER may still be missing —
             # completing a partial failure has to complete both halves.
-            also = _write_seat_agents_md(folder, seat)
+            also = _write_seat_agents_md(
+                folder, seat, (plan.get("seat_rules") or {}).get(seat, ()))
             if also:
                 written.append(also)
             continue
@@ -1877,7 +2258,8 @@ def emit_seat_descriptors(plan: dict) -> list[str]:
         target.chmod(0o644)
         folder.chmod(0o755)
         written.append(str(target))
-        also = _write_seat_agents_md(folder, seat)
+        also = _write_seat_agents_md(
+            folder, seat, (plan.get("seat_rules") or {}).get(seat, ()))
         if also:
             written.append(also)
     return written
@@ -2523,6 +2905,11 @@ def run(args) -> dict:
     assembled = assemble_all(added, bindings, catalogs, units)
     plan = build_plan(package, added, internal_after, internal_after_raw,
                       attach_after, assembled, bindings, args, creation)
+    # Seat-exposure resolution fires for BOTH paths (its gates are pre-write,
+    # and the descriptor frontmatter carries the validated mapping); the
+    # loader FILES are planned only on the materialize path below — a repass
+    # replaces descriptors, nothing else.
+    resolve_seat_exposes(plan, catalogs[0])
     if repass:
         # A repass renders and REPLACES descriptors, nothing else: the
         # registry row, the run register and every package surface are the
@@ -2543,6 +2930,7 @@ def run(args) -> dict:
     # write, so a refusal always leaves zero files and zero rows.
     render_descriptors(plan, catalogs[0], units)
     render_harness_configs(plan, catalogs[0])  # plugin/MCP config files
+    render_seat_exposures(plan)   # seat-exposure loaders (five methods)
     render_taskforce_rows(plan)
     render_run_register(plan, args)
     if args.dry_run:
@@ -2559,6 +2947,7 @@ def run(args) -> dict:
     append_run_register_row(plan)  # the run register's opening half
     emit_seat_descriptors(plan)   # dag-04
     emit_harness_configs(plan)    # plugin/MCP config files
+    emit_seat_exposures(plan)     # seat-exposure loaders (five methods)
     append_taskforce_rows(plan)   # dag-05
     return result_of(plan, dry_run=False)
 
@@ -2894,6 +3283,71 @@ def build_fixture(tmp: Path) -> dict:
         "demo-stdio": {"command": "demo-mcp-server", "args": ["--flag"],
                        "env": {"DEMO_KEY": "x"}},
     }}, indent=2) + "\n", encoding="utf-8")
+    # A cross-component skill row (EXP-1's `<component>/<part-id>` arm) —
+    # method `skill`, so load_mcp_servers (config-only) never reads it and
+    # MCP-1's write set is unchanged.
+    mcpc.joinpath("xsk.md").write_text("# xsk\n\nCross skill content.\n",
+                                       encoding="utf-8")
+    with mcpc.joinpath("exposure.csv").open("a", encoding="utf-8") as fh:
+        fh.write("xsk,reference,skill,,xsk.md,cross-component skill\n")
+
+    # A fourth component whose seat DECLARES exposure in its prompt-file
+    # frontmatter (EXP-1, d-materializer-seat-loaders /
+    # d-seat-exposes-frontmatter): its own component so no other arm's write
+    # set changes; assembly reuses demo-comp's prompt/task rows (catalogs
+    # merge across the root), while the `exposes:` declaration lives on THIS
+    # component's own whole-file prompt card.
+    expc = tmp / "catalog" / "exp-comp"
+    expc.mkdir(parents=True)
+    expc.joinpath("seats.csv").write_text(
+        "seat-id,executor,task,staffing-hints,description\n"
+        "exp-seat,alpha-prompt,alpha-task,,the exposure seat\n",
+        encoding="utf-8")
+    expc.joinpath("exposure.csv").write_text(
+        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+        "brws,capability,skill,,skills/brws.md,browse the fixture web\n"
+        "cmd1,workflow,command,,commands/cmd1.md,run the demo flow\n"
+        "rul1,reference,rule,,rules/rul1.md,house style rule\n"
+        "hk1,capability,hook,,hooks/hk1.json,post-write lint\n"
+        "res1,prompt,sub-agent,,prompts/res1.md,fixture researcher\n",
+        encoding="utf-8")
+    for rel, body in (
+            ("skills/brws.md", "# brws\n\nBrowse skill content.\n"),
+            ("commands/cmd1.md", "# cmd1\n\nCommand content.\n"),
+            ("rules/rul1.md", "# rul1\n\nAlways-on fixture rule.\n"),
+            ("prompts/res1.md",
+             "---\nid: res1\ndescription: fixture researcher\n---\n\n"
+             "<role>\nResearcher.\n</role>\n"),
+            ("hooks/hk1.json", json.dumps({"hooks": {"PostToolUse": [
+                {"matcher": "Write", "hooks": [
+                    {"type": "command", "command": "demo-lint"}]}]}},
+                indent=2) + "\n"),
+            ("prompts/alpha-prompt.md",
+             "---\nid: alpha-prompt\ndescription: exp fixture prompt card\n"
+             "exposes:\n"
+             "  skill: [brws, mcp-comp/xsk, xmod/xmodc/xms]\n"
+             "  command: [cmd1]\n"
+             "  rule: [rul1]\n"
+             "  hook: [hk1]\n"
+             "  sub-agent: [res1]\n"
+             "---\n\nWhole-file prompt card — read for `exposes:`; assembly "
+             "still resolves the catalog prompt row.\n")):
+        p = expc / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
+    # A component in ANOTHER MODULE (the `module/component/part` ref arm,
+    # owner-ruled: cross-module must exist): tmp/ stands in for the tree
+    # root above the modules (catalog/ being the module the seats live in),
+    # exactly the `<tree>/<module>/<component>/` shape of the mirror and
+    # the rbtv repo.
+    xmodc = tmp / "xmod" / "xmodc"
+    xmodc.mkdir(parents=True)
+    xmodc.joinpath("exposure.csv").write_text(
+        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+        "xms,capability,skill,,xms.md,cross-module skill\n",
+        encoding="utf-8")
+    xmodc.joinpath("xms.md").write_text(
+        "# xms\n\nCross-module skill content.\n", encoding="utf-8")
 
     bdir = tmp / "bindings"
     bdir.mkdir()
@@ -2940,6 +3394,10 @@ def build_fixture(tmp: Path) -> dict:
                 "seats": {"mcp-seat": {**seat_binding, "after": []}}}
     bdir.joinpath("mcp-seat.json").write_text(json.dumps(mcp_only),
                                               encoding="utf-8")
+    exp_only = {"version": 1, "defaults": both["defaults"],
+                "seats": {"exp-seat": {**seat_binding, "after": []}}}
+    bdir.joinpath("exp-seat.json").write_text(json.dumps(exp_only),
+                                              encoding="utf-8")
     guard = {"version": 1, "defaults": both["defaults"],
              "seats": {f"s{i}": dict(seat_binding) for i in range(1, 5)}}
     bdir.joinpath("guard.json").write_text(json.dumps(guard),
@@ -2984,6 +3442,8 @@ def build_fixture(tmp: Path) -> dict:
         "b_b2": str(bdir / "b2.json"),
         "b_beta": str(bdir / "beta.json"),
         "b_mcp": str(bdir / "mcp-seat.json"),
+        "b_exp": str(bdir / "exp-seat.json"),
+        "exp_prompt": str(expc / "prompts" / "alpha-prompt.md"),
         "mcp_decl": str(mcpc / "mcp.json"),
         "src_conduct": str(seeds / "conduct.md"),
         "src_claude": str(seeds / "CLAUDE.md"),
@@ -4736,6 +5196,7 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "AS-4": (("SK-4: the whole suite is identical",), ("SK-4 control",)),
     # The plugin/MCP registration row (d-mcp-registration-is-config).
     "MCP-1": (("MCP-1 green",), ("MCP-1 red",)),
+    "EXP-1": (("EXP-1 green",), ("EXP-1 red",)),
     # The pass-folder substitution rows (B4, B5, G-planner-0804-1502).
     "PF-1": (("PF-1 green",), ("PF-1 red",)),
     "PF-2": (("PF-2 green",), ("PF-2 red",)),
@@ -5216,6 +5677,97 @@ def run_selftest() -> int:
               pr.returncode == 1 and "mcp-declaration-invalid" in pr.stderr
               and not (Path(fxm["pkg9"]) / "seats" / "mcp-seat").exists(),
               pr.stderr.strip()[:200])
+
+    print("EXP-1 seat-exposure loaders pass (d-materializer-seat-loaders / "
+          "d-seat-exposes-frontmatter)")
+    with tempfile.TemporaryDirectory() as exp_td:
+        fxe = build_fixture(Path(exp_td))
+        common_e = ["--catalog-root", fxe["catalog"], "--root", "--json"]
+        pe = _invoke(["--package", fxe["pkg"], "--seat", "exp-seat",
+                      "--bindings", fxe["b_exp"]] + common_e, clean_env)
+        sd = Path(fxe["pkg"]) / "seats" / "exp-seat"
+        expected = [
+            ".claude/skills/brws/SKILL.md", ".agents/skills/brws/SKILL.md",
+            ".claude/skills/xsk/SKILL.md", ".agents/skills/xsk/SKILL.md",
+            ".claude/skills/xms/SKILL.md", ".agents/skills/xms/SKILL.md",
+            ".claude/commands/cmd1.md", ".codex/prompts/cmd1.md",
+            ".opencode/commands/cmd1.md",
+            ".claude/rules/rul1.md", ".agents/behavior-rules/rul1.md",
+            ".claude/settings.json", ".codex/hooks.json",
+            ".claude/agents/res1.md", ".opencode/agents/res1.md",
+        ]
+        check("EXP-1 green: every declared method materializes its "
+              "per-harness realization (CMP-12), sibling-component AND "
+              "cross-module refs included",
+              pe.returncode == 0
+              and all((sd / rel).is_file() for rel in expected),
+              (pe.stderr.strip()[:300]
+               or str([r for r in expected if not (sd / r).is_file()])))
+        check("EXP-1 green: the skill loader points at the entry file "
+              "and the rule copy is VERBATIM",
+              str((Path(fxe["catalog"]) / "exp-comp" / "skills"
+                   / "brws.md").resolve())
+              in (sd / ".claude/skills/brws/SKILL.md").read_text(
+                  encoding="utf-8")
+              and (sd / ".claude/rules/rul1.md").read_text(encoding="utf-8")
+              == (Path(fxe["catalog"]) / "exp-comp" / "rules"
+                  / "rul1.md").read_text(encoding="utf-8"))
+        codex_hooks = json.loads((sd / ".codex/hooks.json").read_text(
+            encoding="utf-8"))
+        check("EXP-1 green: the hook declaration lands in "
+              ".claude/settings.json and in .codex/hooks.json (measured "
+              "codex 0.144.5 shape: claude hooks object verbatim + "
+              "top-level description)",
+              bool(json.loads((sd / ".claude/settings.json").read_text(
+                  encoding="utf-8")).get("hooks", {}).get("PostToolUse"))
+              and bool(codex_hooks.get("hooks", {}).get("PostToolUse"))
+              and bool(codex_hooks.get("description")))
+        check("EXP-1 green: AGENTS.md carries the forced-read rules "
+              "preamble naming the behavior-rules copy",
+              ".agents/behavior-rules/rul1.md"
+              in (sd / "AGENTS.md").read_text(encoding="utf-8"))
+        check("EXP-1 green: seat.md frontmatter carries the validated "
+              "`exposes:` mapping",
+              "exposes:" in (sd / "seat.md").read_text(encoding="utf-8"))
+        res_e = json.loads(pe.stdout) if pe.stdout.strip() else {}
+        declared = {w["path"] for w in res_e.get("writes", [])
+                    if w.get("kind") == "seat-exposure"}
+        on_disk = {str(sd / rel) for rel in expected}
+        check("EXP-1 green: every loader is DECLARED in writes[] (kind "
+              "seat-exposure) — no undisclosed write",
+              declared == on_disk, str(declared ^ on_disk))
+        pa = _invoke(["--package", fxe["pkg"], "--seat", "alpha",
+                      "--bindings", fxe["b_alpha"]] + common_e, clean_env)
+        check("EXP-1 green: a seat whose prompt declares no `exposes:` "
+              "generates nothing (absence is normal)",
+              pa.returncode == 0
+              and not (Path(fxe["pkg"]) / "seats" / "alpha"
+                       / ".claude" / "skills").exists(),
+              pa.stderr.strip()[:200])
+        # RED ARMS — both refuse pre-write: rc 1, the named code, NO seat
+        # surface materialized (zero-files refusal).
+        prompt_path = Path(fxe["exp_prompt"])
+        orig = prompt_path.read_text(encoding="utf-8")
+        prompt_path.write_text(orig.replace("hook: [hk1]", "hook: [rul1]"),
+                               encoding="utf-8")
+        pr1 = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
+                       "--bindings", fxe["b_exp"]] + common_e, clean_env)
+        check("EXP-1 red: a group key disagreeing with the manifest's "
+              "method column refuses exposes-method-mismatch and writes "
+              "NOTHING (PRIN-11 — the manifest stays the one home)",
+              pr1.returncode == 1 and "exposes-method-mismatch" in pr1.stderr
+              and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
+              pr1.stderr.strip()[:200])
+        prompt_path.write_text(orig.replace("sub-agent: [res1]",
+                                            "sub-agent: [ghost]"),
+                               encoding="utf-8")
+        pr2 = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
+                       "--bindings", fxe["b_exp"]] + common_e, clean_env)
+        check("EXP-1 red: a dangling reference refuses exposes-ref-dangling "
+              "and writes NOTHING",
+              pr2.returncode == 1 and "exposes-ref-dangling" in pr2.stderr
+              and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
+              pr2.stderr.strip()[:200])
 
     print("dag-04 acceptance pass (SC rows, each with its failing control)")
     run_dag04_acceptance(check, clean_env)
