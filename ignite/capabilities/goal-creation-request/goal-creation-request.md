@@ -348,7 +348,12 @@ closes no general arming issue.
 
 ## The probes
 
-Two, and they guard different things. `probes/probe-planning-entry.py` (task C5E) is the
+Four, and they guard different things. Two arrived after this section was first written and are
+named here so the count stays true: `probes/probe-sensor-start.py` (task 7.552) and
+`probes/probe-goal-type-carrier.py` (task 7.533) — the latter is the goal-type carrier's
+end-to-end witness, standing guard over the fact that a request carrying `--type recurring`
+produces a recurring goal, checked against the created goal's own descriptor on disk rather than
+against the request that asked for it. `probes/probe-planning-entry.py` (task C5E) is the
 **composition** probe: it drains a real request through a fixture goals root with a STUB
 `--ignite-bin`, then takes the SHIPPED `workflows: planning:` argv out of `spawn-profiles.yaml`,
 expands it with the REAL `argv-template.js` against the args that drain actually produced, and
