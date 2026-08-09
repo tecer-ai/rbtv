@@ -71,6 +71,27 @@ INOPERATIVE = []
 CHECKS = []
 
 
+def refusal_detail(out):
+    """WHY a drain did not accept, with the TYPED reason WHOLE (task 7.604).
+
+    This was `json.dumps(out)[:400]`, and those 400 chars are the inbox path, the counters and the
+    head of the first request's paths — every one of them known before the run. The one fact the
+    capture existed to carry, the typed reason, sits at char ~3900 behind a 2 KB copy of
+    `create-goal`'s stdout, so it was truncated away EVERY time: during task 7.598 the decisive
+    `bindings-missing-seat` was invisible here and cost a standalone repro arm to surface.
+
+    So name the field instead of slicing the blob: the reason lives in
+    `requests[*]['stated-refusal']`, which the handler ALREADY bounds at composition
+    (`goal_creation_request.py:678` — a step name plus `stderr[-800:]`, so ≈860 chars per refused
+    request). The raw payload stays as the fallback for an outcome that carries no `requests` at
+    all (`UNPARSEABLE`), bounded at 2000. This changes what the capture SHOWS, never what any
+    check DECIDES — every arm still grades `out['outcome']`.
+    """
+    stated = [r.get("stated-refusal") for r in out.get("requests", [])
+              if r.get("outcome") != "ACCEPTED"]
+    return " | ".join(s for s in stated if s)[:2000] or json.dumps(out)[:2000]
+
+
 def report(check, arm, ok, expected, detail=""):
     CHECKS.append(check)
     verdict = "GREEN" if ok else "RED"
@@ -250,7 +271,7 @@ def main():
         pkg = goal_dir / "runs" / "run-1"
         report("P1 goal scaffolded", "green", out.get("outcome") == "ACCEPTED", True,
                f"outcome={out.get('outcome')} "
-               f"{'' if out.get('outcome') == 'ACCEPTED' else json.dumps(out)[:400]}")
+               f"{'' if out.get('outcome') == 'ACCEPTED' else refusal_detail(out)}")
         report("P1 run-1 package created", "green", pkg.is_dir(), True, str(pkg))
         seats = sorted(p.name for p in (pkg / "seats").iterdir()) if (pkg / "seats").is_dir() else []
         report("P1 whole planning DAG materialized", "green", len(seats) == 9, True,
@@ -427,7 +448,7 @@ def main():
             report("F1b ruled name under the CARRIER-COMPOSED PATH (the fix)", "green",
                    out4.get("outcome") == "ACCEPTED", True,
                    f"outcome={out4.get('outcome')} "
-                   f"{'' if out4.get('outcome') == 'ACCEPTED' else json.dumps(out4)[:300]}")
+                   f"{'' if out4.get('outcome') == 'ACCEPTED' else refusal_detail(out4)}")
             report("F1b the goal is born WITH its run package under the fired environment", "green",
                    (root4 / "probe-f1-carrier" / "runs" / "run-1").is_dir(), True,
                    "runs/run-1 present")
