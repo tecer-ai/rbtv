@@ -8713,6 +8713,32 @@ def escalate_if_second_fail(base, milestone_id, sender, to="master"):
         return count
 
 
+def cmd_escalate(args):
+    """The two-strikes escalation as a VERB (planning-v4 D12, finding F1): the dod-judge seat is
+    an agent OCCUPANT, and an occupant cannot call a Python helper — only the CLI. THIN BY
+    DESIGN: the derived-count and at-most-once invariants live in `escalate_if_second_fail`
+    (one coord_lock hold over derive + scan + append) and are NOT restated here; this wrapper
+    resolves base and identity, calls the helper, and names which of the three outcomes
+    happened — the helper's None covers BOTH quiet outcomes, so the split is READ off the log
+    (an existing escalation row is what "already" means), never re-derived."""
+    base = base_dir(args)
+    sender = resolve_agent(args)
+    count = escalate_if_second_fail(base, args.milestone, sender, to=args.to)
+    want = f"milestone-{args.milestone}"
+    row = next((b for b in load_messages(base)[1]
+                if b["type"] == "verdict" and (b["why"] or "") == want
+                and ESCALATION_MARKER in "\n".join(b["lines"][1:])), None)
+    if count is not None:
+        print(f"escalated: sent message #{row['num']} ({sender} -> {args.to}, type: verdict, "
+              f"why: {want}) — {count} consecutive FAIL verdicts")
+    elif row is not None:
+        print(f"already-escalated: message #{row['num']} already carries {want}'s escalation "
+              f"row — nothing appended (at-most-once)")
+    else:
+        print(f"no-second-fail: trailing FAIL count for {want} is "
+              f"{trailing_fail_verdicts(base, args.milestone)} (bar: 2) — nothing appended")
+
+
 def log_delivery_failures(base, failures):
     """P22 — a lost wake must be visible in the LOG, not only on the sender's terminal."""
     if not failures:
@@ -27031,6 +27057,40 @@ def _selftest_checks(args, failures, names):
               and nums81 == sorted(nums81) and len(nums81) == len(set(nums81))
               and len(lock_holds81) >= 2)
 
+        # F1 (planning-v4 D12): the VERB layer. An agent occupant cannot call a Python helper,
+        # so `escalate` is the CLI over `escalate_if_second_fail`. These rows prove DISPATCH
+        # (the real parser routes `escalate` through the wrapper into the helper — the row
+        # lands in the log) and OUTPUT SHAPE (each of the three outcomes names itself; the
+        # quiet two append nothing). The invariants themselves are arms 1-4's subject and are
+        # deliberately not re-proven here — the wrapper carries none of them. `--base` is the
+        # testing lane: no run-tag registration, no package discovery.
+        verdict81("FAIL", why="milestone-m5"); verdict81("FAIL", why="milestone-m5")
+        p81 = build_parser()
+
+        def esc_cli81(mid):
+            ns81 = p81.parse_args(["--base", str(base81), "escalate", mid,
+                                   "--as", "dod-judge"])
+            out, err, code = harness_outcome(ns81.func, ns81)
+            return out + err, code
+
+        o81v, c81v = esc_cli81("m5")
+        o81w, c81w = esc_cli81("m5")
+        o81x, c81x = esc_cli81("m-none")
+        check("F1 verb: `escalate` dispatches through the real parser into the helper — the "
+              "second-FAIL call appends the ONE escalation row and its output names that "
+              "row's number, sender and recipient",
+              c81v is None and len(esc_rows81("m5")) == 1
+              and o81v.startswith("escalated: sent message #")
+              and f"#{esc_rows81('m5')[0]['num']} (dod-judge -> master" in o81v)
+        check("F1 verb: the quiet outcomes NAME THEMSELVES and append nothing — a re-run "
+              "reports already-escalated against the same single row, a milestone with no "
+              "second FAIL reports its derived count, and both return normally (re-running "
+              "the verb is always safe)",
+              c81w is None and o81w.startswith("already-escalated: message #")
+              and len(esc_rows81("m5")) == 1
+              and c81x is None and o81x.startswith("no-second-fail:")
+              and "is 0 (bar: 2)" in o81x and len(esc_rows81("m-none")) == 0)
+
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
 
@@ -27107,7 +27167,7 @@ HELP_EPILOG = """everyday
   checkin     register this session — binds this tmux pane to your agent name
   status      where you stand: identity, pane, owner, unread, cursor, open asks
   read        your unread messages, {limit} at a time (cursor persisted per agent)
-  send        message one agent, a group, or all — typed, their pane woken
+  send / escalate  message one agent, a group, or all — typed, their pane woken · dod-judge two-strikes: append the ONE escalation row on a milestone's second consecutive FAIL
   pending     open asks: waiting on you, open to everyone, yours unanswered
   checkout    end your session (exports your transcript first) · --renew --handoff hands this seat to your own next session
 
@@ -27558,6 +27618,25 @@ def build_parser():
                         + " | ".join(f"{k} ({v})" for k, v in sorted(BROADCAST_CLAUSES.items())))
     add_identity_flags(s)
     s.set_defaults(func=cmd_send)
+
+    s = command(
+        "escalate",
+        "The dod-judge two-strikes escalation. On the SECOND consecutive FAIL verdict for a\n"
+        "milestone it appends EXACTLY ONE escalation row addressed to the owner channel's\n"
+        "relay; otherwise it appends nothing and says why. The count is DERIVED from the\n"
+        "verdict log at the moment of the call (a PASS resets it by construction; never a\n"
+        "stored counter), and derive + at-most-once scan + append share one lock hold — so\n"
+        "the command is always safe to re-run.",
+        "example:\n"
+        "  coordinate escalate m3\n"
+        "next: nothing to send — the row is in the log addressed to master; the gap-wave loop\n"
+        "      halts on it and waits for the owner channel's answer")
+    s.add_argument("milestone",
+                   help="the milestone id, bare (e.g. m3) — the log's verdict rows carry it as milestone-<id> in their why: clause")
+    s.add_argument("--to", default="master", metavar="NAME",
+                   help="recipient of the escalation row (default: master, the owner channel's relay)")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_escalate)
 
     s = command(
         "gates",
