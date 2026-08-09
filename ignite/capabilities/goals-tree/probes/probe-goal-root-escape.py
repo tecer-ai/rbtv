@@ -29,6 +29,16 @@ and never written, by either the fixed tool or the mutant.
 Run it through the suite — `node deploy/probe-suite.js --only goal-root-escape` — never by hand
 (`G-163`). Exit 0 = the sandbox holds and the mutant proved the check can fail · 1 = a property is
 broken · 2 = INOPERATIVE (could not run, or the red control did not go red).
+
+⚠ 1 WINS OVER 2 WHEN BOTH APPLY (task 7.592, from the §2 review of 7.576). A genuinely broken
+G-115 guard produces BOTH: real assertion failures in rows 1-2c AND an inoperative row 3, because
+row 1 has already escaped and the mutant's own materialize then refuses as "already materialized".
+The old mapping returned 2 first, so the WORST case this probe can report — a live escape out of
+`--root` — read as "broken probe" to anything grading on the exit code alone. Real failures
+therefore win: `failures` → 1, else `INOPERATIVE` → 2, else 0. Nothing is hidden either way — the
+summary prints every INOPERATIVE row and every FAILED row regardless of which code is returned.
+The vacuity signal is untouched where it is the ONLY signal: a census that reaches no call site
+while the guard still holds has no real failures, so it still exits 2.
 """
 
 import json
@@ -220,19 +230,35 @@ def main() -> int:
         # excluded. It writes nothing without `--override`, which is never passed here.
         #
         # WHICH CALL SITE EACH ARM ACTUALLY SCORES, measured by reverting ONE site at a time to
-        # the pre-fix `root / <name>` (§2 review of 7.576): `lint_goal` → rows 2 (2 arms red) ·
-        # `gate_key_check` → rows 2b (2 arms red) · `cmd_materialize` → rows 1 (5 arms red).
-        # TWO censused call sites carry NO arm and turn nothing red: `cmd_branch_home`, and the
-        # `--override` branch of `cmd_gate_key_check` (that branch WRITES, so this probe never
-        # passes the flag). Recorded rather than left silent — they are still CENSUSED, so the
-        # mutation must still reach them; an arm for either is a separate task, never an
-        # assumption of coverage.
+        # the pre-fix `root / <name>` (§2 review of 7.576, re-measured by task 7.592):
+        # `lint_goal` → rows 2 (2 arms red) · `gate_key_check` → rows 2b (2 arms red) ·
+        # `cmd_materialize` → rows 1 (5 arms red) · `cmd_branch_home` → rows 2c (4 arms red,
+        # added by 7.592 — it USED to turn nothing red).
+        # ONE censused call site still carries NO arm and turns nothing red: the `--override`
+        # branch of `cmd_gate_key_check`. That branch WRITES, so this probe never passes the
+        # flag — a stated exclusion, not an assumption of coverage. It remains CENSUSED, so the
+        # mutation must still reach it; an arm for it is a separate task.
         for label, name in (("absolute path", abs_name), ("`..` traversal", dots_name)):
             rc, so, se = run(TOOL, ["--root", str(root), "gate-key-check", name,
                                     "--pass-folder", "pass-1"])
             check(f"2b.{label} — gate-key-check exits nonzero", rc != 0, f"exit={rc}")
             check(f"2b.{label} — gate-key-check refuses instead of checking outside the root",
                   "escapes --root" in se and "gate-key-check pass-1" not in so,
+                  f"stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
+
+        # ── 2c. branch-home (the MINT verb) — SCORED, not assumed via delegation ───────────────
+        #
+        # `cmd_branch_home` (added by 7.582) was CENSUSED but scored by no arm: reverting its
+        # call site red nothing, so "it delegates to resolve_goal_dir" was an assumption of
+        # coverage, not a measurement — the exact silence rows 2b were added to remove. Task
+        # 7.592 scored it instead of recording the exclusion: the delegation argument is only as
+        # good as the call, and nothing here asserted the call. `--dry-run` is passed so the
+        # green path mints nothing; the guard refuses ahead of any mkdir either way.
+        for label, name in (("absolute path", abs_name), ("`..` traversal", dots_name)):
+            rc, so, se = run(TOOL, ["--root", str(root), "branch-home", name, "--dry-run"])
+            check(f"2c.{label} — branch-home exits nonzero", rc != 0, f"exit={rc}")
+            check(f"2c.{label} — branch-home refuses instead of homing a branch outside the root",
+                  "escapes --root" in se and "would mint" not in so,
                   f"stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
 
         # ── 3. THE RED CONTROL — the pre-fix code MUST escape, or rows 1-2 score nothing ───────
@@ -268,7 +294,7 @@ def main() -> int:
                 f"{applied} of {sites} `resolve_goal_dir` call sites in {TOOL.name} were reverted "
                 "to the pre-fix form (the counts must MATCH and be nonzero) — a call site the "
                 "mutation cannot reach, or a source carrying none at all, means this probe's red "
-                "control no longer bites every guarded path; rows 1-2b are therefore unproven, "
+                "control no longer bites every guarded path; rows 1-2c are therefore unproven, "
                 "not green. Widen MUTATE_RE to the new call form, or record the exclusion and its "
                 "reason on this probe. UNREACHED: "
                 + ("; ".join(unreached) if unreached
@@ -314,6 +340,13 @@ def main() -> int:
         check("4. an in-root goal is not refused by gate-key-check as an escape",
               "escapes --root" not in se and "escapes --root" not in so,
               f"exit={rc} stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
+        # branch-home's own positive control — same shape as gate-key-check's: `inside-goal` has
+        # no run compartment, so it still exits nonzero; the discriminating property is that the
+        # refusal is NOT the escape refusal.
+        rc, so, se = run(TOOL, ["--root", str(root), "branch-home", "inside-goal", "--dry-run"])
+        check("4. an in-root goal is not refused by branch-home as an escape",
+              "escapes --root" not in se and "escapes --root" not in so,
+              f"exit={rc} stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
 
     failures = [lbl for ok, lbl in RESULTS if not ok]
     out("")
@@ -324,9 +357,12 @@ def main() -> int:
         out(f"  FAILED  {lbl}")
     OUT.write_text("\n".join(_lines) + "\n", encoding="utf-8")
 
-    if INOPERATIVE:
-        return 2
-    return 1 if failures else 0
+    # A REAL failure outranks INOPERATIVE (see the module docstring): a broken guard reds rows
+    # 1-2c (measured: 13 arms — 5+2+2+4) AND strands row 3, and reporting that as "could not run"
+    # buries a live root escape.
+    if failures:
+        return 1
+    return 2 if INOPERATIVE else 0
 
 
 if __name__ == "__main__":
