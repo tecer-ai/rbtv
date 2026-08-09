@@ -907,6 +907,47 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       actions.push({ phase: 'dispatch', action: 'fire-tool-failed', execId: exec.exec_id, error: 'empty argv' });
       return;
     }
+
+    // ── Task 7.559 · PER-RUN ARGUMENT ON A FIRE-TOOL ENTRY, ADMITTED BY IDENTITY ─────────────────
+    // (owner ruling `d-owner-7559-design-rulings-0808`; design `dossiers/7559-argv-allowlist-design.md`.)
+    //
+    // An entry may declare `args_allowlist: { <key>: [ …literal values… ] }` in the BOOT-READ
+    // merged config, and ONLY there — ruling B1, the whole security condition, argued in
+    // `heart/argv-template.js`'s header. A row then SELECTS a member; it never supplies a string.
+    //
+    // ⚠ THIS IS A SECURITY BOUNDARY, NOT A CONVENIENCE FILTER, and the reason is one line up:
+    // `runToolLikeExec` passes literal `caps: {}` / `sandbox: {}`, so a fired tool runs with no
+    // memory cap, no task cap, no runtime cap and no filesystem namespace, as the daemon user. The
+    // bytes it is handed are the whole containment. `enqueue-job` carries NO authz gate (every
+    // sender kind may enqueue, including the chat `bridge`, which relays other people's words), so
+    // the value space of a per-run argument is the value space a chat participant can reach.
+    //
+    // FROZEN BY DEFAULT SURVIVES, and the shape carries it rather than a promise: an entry that
+    // declares no `args_allowlist` falls through both branches to the SAME call this function has
+    // always ended with, with `tool.argv` untouched — byte-identical argv, today's behaviour.
+    const allow = (tool && tool.args_allowlist) || null;
+    const templated = argv.some((t) => typeof t === 'string' && t.includes('{{'));
+    if (!allow && templated) {
+      // FAIL CLOSED. Without this arm an entry that templates a value but declares no allowlist
+      // would exec the LITERAL token `{{goal}}` as an operand — a silent wrong-command fire, which
+      // is worse than a refusal and reads as a success in the log.
+      endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: new Date(), reason: 'fire-tool entry templates a value but declares no args_allowlist' });
+      actions.push({ phase: 'dispatch', action: 'fire-tool-failed', execId: exec.exec_id, error: 'argv-template: no args_allowlist on a templated entry' });
+      return;
+    }
+    if (allow) {
+      // A REFUSAL IS RECORDED, NOT THROWN — the same shape as launchStartWorkflow below, for the
+      // same two reasons: `tick()` has a `finally` and no `catch`, so a throw abandons the rest of
+      // the tick; and a DEFERRED row that can never compose re-fires every cadence forever.
+      const composed = expandArgv(argv, args, allow);
+      if (composed.refused) {
+        endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: new Date(), reason: `argv template refused (fire-tool): ${composed.refused}` });
+        actions.push({ phase: 'dispatch', action: 'fire-tool-failed', execId: exec.exec_id, error: `argv-template: ${composed.refused}` });
+        return;
+      }
+      await runToolLikeExec(exec, composed.argv, workdir, actions, 'fire-tool');
+      return;
+    }
     await runToolLikeExec(exec, argv, workdir, actions, 'fire-tool');
   }
 

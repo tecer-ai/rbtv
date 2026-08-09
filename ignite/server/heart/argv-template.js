@@ -28,6 +28,30 @@
 //      its own value rule. An unknown placeholder is a typed refusal, never an empty string —
 //      silently dropping it would compose an argv missing a flag's operand, which is the failure
 //      that looks like a success.
+//   5. IDENTITY ADMISSION ON THE FIRE-TOOL PATH (task 7.559, owner ruling
+//      `d-owner-7559-design-rulings-0808`). The optional `allow` argument switches admission from
+//      GRAMMAR to MEMBERSHIP: a value is admitted because the config author WROTE IT DOWN, never
+//      because it matches a shape. Passed → the rules above (1-4) all still hold and the per-key
+//      grammar is switched OFF ENTIRELY for that entry; omitted → this module behaves exactly as
+//      C5 shipped it.
+//
+// ⚠ THE TWO CATALOGUE SECTIONS ADMIT VALUES BY DIFFERENT RULES, AND THAT IS DELIBERATE.
+// `workflows:` (C5) admits by GRAMMAR — `NAME_RE`, a genuinely name-shaped space of workflow and
+// seat names. `tools:` (7.559) admits by IDENTITY, because a fired tool runs with NO sandbox at all
+// (`ticker.js` runToolLikeExec passes literal `caps: {}` / `sandbox: {}`) and its operands are
+// absolute paths, which no name grammar can bound. MEASURED, not asserted: with the membership test
+// deleted, 12 hostile arms flip from refused to composed — shell metacharacters, traversal,
+// `/etc/passwd`, `--dry-run`, a 10 000-byte value, and case and homoglyph near-misses ALL compose
+// under grammar alone. A grammar is "a pattern that looks safe"; on this path that is not an
+// admission mechanism.
+//
+// ⚠ WHERE THE ALLOWLIST MAY LIVE — THE WHOLE SECURITY CONDITION (owner ruling B1). `allow` is read
+// from the BOOT-READ MERGED CONFIG (`config/spawn-profiles.yaml` → `loadMergedConfig`, no
+// `fs.watch`) and from NOWHERE ELSE. It must NEVER be resolved from a job registration's
+// `args_schema`, a runtime settings file, an env var, or a queue row: `authz.canRegisterJob`
+// admits any enrolled AGENT token, so an allowlist living there would be extensible BY THE VERY
+// AGENTS IT BOUNDS, with no restart and no reviewed diff. Extending the list must keep costing
+// exactly what the argv freeze cost — a reviewed diff plus a deliberate daemon restart.
 //
 // Used at BOTH ends on purpose (defence in depth): `heart-store.js` validateArgs refuses a bad
 // value at ENQUEUE, so no such row is ever stored; `ticker.js` launchStartWorkflow re-validates at
@@ -94,6 +118,27 @@ function workdirRule(value) {
   return null;
 }
 
+// ⚠ THIS IS THE ENTIRE SECURITY CHECK of task 7.559 — three tests, and the third is the boundary.
+// A row does not SUPPLY a string, it SELECTS a member of a list a human wrote in a reviewed diff,
+// so the exact bytes reaching the command line are bytes the config author typed. `includes` is
+// `===` identity: no case folding, no trimming, no normalisation, no prefix match. A near miss is a
+// miss — that is the property a grammar cannot have.
+function allowValue(key, permitted, value) {
+  // An entry that declares a key with nothing in it admits NOTHING. Failing open here would turn a
+  // typo (`goal:` with an empty list) into an unbounded operand, which is the whole defect class.
+  if (!Array.isArray(permitted) || permitted.length === 0) {
+    return `${key} has an empty positive list on this entry — an empty positive list admits nothing`;
+  }
+  if (typeof value !== 'string') {
+    const seen = Array.isArray(value) ? 'array' : (value === null ? 'null' : typeof value);
+    return `${key} must be a string, got ${seen}`;
+  }
+  if (!permitted.includes(value)) {
+    return `${key} is not on this entry's allowlist (${permitted.length} permitted value(s))`;
+  }
+  return null;
+}
+
 // The CLOSED set of keys a registered argv may template from a row, each with its value rule.
 // Growing it is a deliberate act: a new key is a new byte class reaching an exec'd command line.
 const TEMPLATE_KEYS = Object.freeze({
@@ -113,19 +158,28 @@ const CONTROL_RE = /[\x00-\x1f\x7f]/;
 // module's business — `validateArgs`'s args_schema check already refuses an undeclared argument.
 // Returns null when clean, else the refusal reason (a string), so both callers can raise it in
 // their own idiom: a typed store error at enqueue, a recorded failure action at fire.
-function checkTemplateArgs(args) {
+// `allow` (7.559) is the entry's `args_allowlist`: `{ <key>: [ …permitted literal values… ] }`.
+// When present, the keys it names are checked by MEMBERSHIP and the grammar rules above never run;
+// a key it does not name carries no value rule here, because such a key can never reach the argv —
+// the placeholder branch in `expandArgv` refuses `{{key}}` BY NAME when the key has no allowlist on
+// that entry. So the admissible operand set is exactly the allowlist, and nothing else is reachable.
+function checkTemplateArgs(args, allow = null) {
   // `Array.isArray` is not pedantry: an array IS `typeof 'object'`, so without it a row whose args
   // are `["…"]` passes a check that says "must be a JSON object", carries no templatable key, and
   // is then treated as an empty args object. `validateArgs` already spells the same three-part test
   // at the enqueue door; this is the fire-side half, which reads rows that door never saw.
   if (args === null || typeof args !== 'object' || Array.isArray(args)) return 'args must be a JSON object';
-  for (const [key, rule] of Object.entries(TEMPLATE_KEYS)) {
+  const keys = allow ? Object.keys(allow) : Object.keys(TEMPLATE_KEYS);
+  for (const key of keys) {
     if (!(key in args)) continue;
     const value = args[key];
+    // Unconditional in BOTH modes and ahead of the per-key rule, so a newline can never reach the
+    // systemd unit properties the carrier writes — including on an allowlisted key, where it would
+    // otherwise be reported as a mere non-membership and teach the reader the wrong reason.
     if (typeof value === 'string' && CONTROL_RE.test(value)) {
       return `${key} must carry no control character`;
     }
-    const reason = rule(value);
+    const reason = allow ? allowValue(key, allow[key], value) : TEMPLATE_KEYS[key](value);
     if (reason) return reason;
   }
   return null;
@@ -133,9 +187,9 @@ function checkTemplateArgs(args) {
 
 // Expand a registered argv against a row's args. Returns `{ argv }` or `{ refused }` — never
 // throws, because the fire path records a refusal rather than abandoning the tick.
-function expandArgv(argv, args) {
+function expandArgv(argv, args, allow = null) {
   if (!Array.isArray(argv)) return { refused: 'registered argv is not an array' };
-  const bad = checkTemplateArgs(args);
+  const bad = checkTemplateArgs(args, allow);
   if (bad) return { refused: bad };
 
   const out = [];
@@ -167,6 +221,13 @@ function expandArgv(argv, args) {
     const key = m[1];
     if (!(key in TEMPLATE_KEYS)) {
       return { refused: `unknown placeholder {{${key}}} — the templatable keys are ${Object.keys(TEMPLATE_KEYS).join(', ')}` };
+    }
+    // ⚠ REFUSED BY NAME, not by a grammar complaint. An entry that templates a key it declares no
+    // allowlist for has no admissible value at all, and saying so is the point: the first draft let
+    // the grammar answer first and produced "goal must be 1..64 characters" — a refusal that teaches
+    // the reader the value was merely too long, when the truth is that this entry admits nothing.
+    if (allow && !(key in allow)) {
+      return { refused: `placeholder {{${key}}} has no allowlist on this entry` };
     }
     if (!(key in args)) {
       return { refused: `placeholder {{${key}}} has no value in the row args` };

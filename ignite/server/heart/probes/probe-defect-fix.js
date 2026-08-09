@@ -173,15 +173,70 @@ check('S-6(b): a template slot is NOT reported as missing — a false ERROR woul
 check('S-6(b): an entry with no argv at all is reported rather than skipped',
   validateCataloguePaths({ tools: { t: {} } }).length === 1);
 
+// ── S-6(b) · task 7.559 — THE COVERAGE MUST SURVIVE THE MOVE INTO `args_allowlist` ───────────
+// 7.559 takes the edge-runner's goal path OUT of `argv` and puts it on an allowlist. The argv walk
+// skips any token containing `{`, so WITHOUT the allowlist walk that path would leave the boot
+// check silently — the same invisibility this whole module exists to end, reintroduced by the very
+// change that needed it. These arms are that regression, written as a before/after on ONE path.
+const ALLOW_ARGV = ['/usr/bin/python3', '/bin/true', '--goal', missing];
+const beforeMove = validateCataloguePaths({ tools: { 'edge-shaped': { argv: ALLOW_ARGV } } });
+const afterMove = validateCataloguePaths({
+  tools: {
+    'edge-shaped': {
+      argv: ['/usr/bin/python3', '/bin/true', '--goal', '{{goal}}'],
+      args_allowlist: { goal: [missing] },
+    },
+  },
+});
+check('S-6(b)/7.559 CONTROL: the same missing path IS flagged while it still lives in argv — the ' +
+      'before half of the move, without which the after half proves nothing',
+  beforeMove.length === 1 && beforeMove[0].path === missing, JSON.stringify(beforeMove));
+check('S-6(b)/7.559 RED HALF: after the path moves from `argv` into `args_allowlist` it is STILL ' +
+      'flagged — the boot existence check follows the value, and the `{{goal}}` token that replaced ' +
+      'it in argv is correctly skipped rather than double-reported',
+  afterMove.length === 1 && afterMove[0].path === missing && afterMove[0].key === 'goal'
+  && afterMove[0].index === null && /allowlisted path does not exist/.test(afterMove[0].why),
+  JSON.stringify(afterMove));
+check('S-6(b)/7.559: an allowlisted path that EXISTS produces NO finding — the check is existence, ' +
+      'not "any entry with an allowlist is suspect"',
+  validateCataloguePaths({
+    tools: { ok: { argv: ['/usr/bin/python3', '/bin/true'], args_allowlist: { goal: ['/bin/true'] } } },
+  }).length === 0);
+check('S-6(b)/7.559: a NON-absolute allowlist member is not reported — a goal NAME is not a path, ' +
+      'and a false ERROR trains readers to ignore the check',
+  validateCataloguePaths({
+    tools: { t: { argv: ['/usr/bin/python3', '/bin/true'], args_allowlist: { goal: ['some-goal-name'] } } },
+  }).length === 0);
+check('S-6(b)/7.559: a malformed `args_allowlist` (not an object / not a list) is skipped rather ' +
+      'than thrown on — a boot check that crashes the boot is worse than the silence it replaced',
+  validateCataloguePaths({
+    tools: {
+      a: { argv: ['/bin/true'], args_allowlist: ['not', 'an', 'object'] },
+      b: { argv: ['/bin/true'], args_allowlist: { goal: 'not-a-list' } },
+      c: { argv: ['/bin/true'], args_allowlist: { goal: [null, 7, { x: 1 }] } },
+    },
+  }).length === 0);
+
 // The LIVE config: reported, never asserted. Asserting zero would go red on the day the defect
 // this guards against actually happens, which is precisely when the check must stay green.
 const liveCfg = yaml.load(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'config', 'spawn-profiles.yaml'), 'utf8'));
 const liveFindings = validateCataloguePaths(liveCfg);
-const liveRefs = Object.values(liveCfg.tools || {})
-  .flatMap((e) => (e.argv || []).filter((x) => typeof x === 'string' && x.startsWith('/'))).length;
+// The denominator counts BOTH surfaces since 7.559 — counting only argv would understate exactly
+// the paths that moved onto an allowlist, so the report would look complete while shrinking.
+const absolutes = (e) => [
+  ...(e.argv || []),
+  ...Object.values((e.args_allowlist && typeof e.args_allowlist === 'object' && !Array.isArray(e.args_allowlist))
+    ? e.args_allowlist : {}).flatMap((v) => (Array.isArray(v) ? v : [])),
+].filter((x) => typeof x === 'string' && x.startsWith('/'));
+const liveRefs = Object.values(liveCfg.tools || {}).flatMap(absolutes).length;
+const liveAllowed = Object.values(liveCfg.tools || {})
+  .flatMap((e) => Object.values((e && e.args_allowlist) || {}).flatMap((v) => (Array.isArray(v) ? v : []))).length;
 console.log(`\nLIVE CONFIG (reported, not asserted): ${liveFindings.length} broken reference(s) ` +
-            `over ${liveRefs} absolute path(s) in ${Object.keys(liveCfg.tools || {}).length} tool entries.`);
-for (const f of liveFindings) console.log(`  broken: ${f.section}.${f.name} argv[${f.index}] ${f.path}`);
+            `over ${liveRefs} absolute path(s) in ${Object.keys(liveCfg.tools || {}).length} tool entries ` +
+            `(${liveAllowed} of them selectable per-run via args_allowlist).`);
+for (const f of liveFindings) {
+  console.log(`  broken: ${f.section}.${f.name} ${f.key ? `args_allowlist.${f.key}` : `argv[${f.index}]`} ${f.path}`);
+}
 
 store.close();
 fs.rmSync(dir, { recursive: true, force: true });

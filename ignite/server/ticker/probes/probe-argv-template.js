@@ -20,6 +20,12 @@
 // emitted verbatim, because the expansion is one pass over the template and never re-enters its own
 // output. Asserting a refusal there would have been asserting the wrong property.
 //
+// ⚠ THIS PROBE ALSO CARRIES TASK 7.559's FIRE-TOOL ARMS (§ "TASK 7.559" below) — deliberately in
+// ONE file rather than a second probe, because both rows govern the SAME expander and a split would
+// let one side's mutant answer the other side's question. C5 admits a `workflows:` value by GRAMMAR;
+// 7.559 admits a `tools:` value by IDENTITY against a config-authored list. The F arms fire through
+// a real `ticker.tick()` on the fire-tool path and include their own guard-removal mutant (F10).
+//
 // ⚠ TWO RED ARMS, because the two gates are two separate claims. R1 cuts the value rule out of a
 // SCRATCH copy of `argv-template.js` and shows a `;`-bearing value expand — proving the value gate
 // is what refuses. R2 cuts the `checkTemplateArgs` call out of a SCRATCH copy of `heart-store.js`
@@ -38,6 +44,9 @@ const HEART_STORE_SRC = path.join(__dirname, '..', '..', 'heart', 'heart-store.j
 // `./argv-template`, `schema.sql`) off their own __dirname. Removed in `finally`.
 const templateScratch = path.join(__dirname, '..', '..', 'heart', `argv-template.__c5scratch-${process.pid}.js`);
 const storeScratch = path.join(__dirname, '..', '..', 'heart', `heart-store.__c5scratch-${process.pid}.js`);
+// 7.559's own mutant: a SECOND scratch copy, because R1 above already holds the first one and a
+// shared path would have one arm's mutation silently answering the other's question.
+const allowScratch = path.join(__dirname, '..', '..', 'heart', `argv-template.__c7559scratch-${process.pid}.js`);
 
 const GOAL = 'test-c5-fixture';
 const WORKFLOW = 'planning';
@@ -196,7 +205,11 @@ async function run(lines) {
 
     // ── R1 · RED ARM · the VALUE RULE cut out of a scratch copy — the hostile value must expand ──
     const tplOriginal = fs.readFileSync(TEMPLATE_SRC, 'utf8');
-    const R1_ANCHOR = 'function checkTemplateArgs(args) {';
+    // ⚠ THE ANCHOR CARRIES THE SIGNATURE, so it goes stale the moment the signature changes — as it
+    // did when 7.559 added the `allow` parameter, and this arm went red and said exactly why. That
+    // is the anchor working, not the anchor being brittle: a mutation arm whose anchor silently
+    // missed would report a guard as proven while mutating nothing.
+    const R1_ANCHOR = 'function checkTemplateArgs(args, allow = null) {';
     const tplMutated = tplOriginal.includes(R1_ANCHOR)
       ? tplOriginal.replace(R1_ANCHOR, `${R1_ANCHOR}\n  if (args) return null; // MUTANT: value rule removed`)
       : null;
@@ -371,15 +384,229 @@ async function run(lines) {
         ranAnyway ? 'argv-echo.json EXISTS — the exec ran despite the refusal' : 'no argv-echo.json');
     }
 
+    // ══ TASK 7.559 · THE FIRE-TOOL PATH — ADMISSION BY IDENTITY ═════════════════════════════════
+    // (owner ruling `d-owner-7559-design-rulings-0808`; design `dossiers/7559-argv-allowlist-design.md`.)
+    //
+    // C5 above admits a value by GRAMMAR, which is right for a workflow name. On the `tools:` path
+    // it is not an admission mechanism at all: a fired tool runs with NO sandbox and its operands
+    // are absolute paths, which no name grammar bounds. So a value is admitted by MEMBERSHIP of a
+    // list the config author wrote, or not at all.
+    //
+    // ⚠ EVERY ARM BELOW GOES THROUGH A REAL `ticker.tick()` FIRE — the row criterion says "against
+    // the real fire path and not a unit stub", and 7.559 adds NO enqueue gate (the enqueue-door
+    // half is deliberately deferred), so the fire path is the ONLY place the guard exists. The
+    // hostile args are written into the store BEHIND the enqueue gate, which is also the honest way
+    // to exercise a fire path that must treat any stored row as data.
+    //
+    // ⚠ NO ARM SKIPS ON "THE TARGET WAS NOT FOUND". A missing refusal, a missing action, an absent
+    // echo file — each is a FAIL. The only thing reported as a fixture problem is a control row
+    // that could not be ENQUEUED AT ALL, and that is reported as a FAIL too, never as a skip: an
+    // absent target IS the failure, and a skip predicate that swallows it makes the arm vacuous.
+    const TOOL = 'c7559-edge';
+    const goalA = path.join(ctx.workRoot, '.rbtv', 'goals', 'test-7559-approved');
+    const goalB = path.join(ctx.workRoot, '.rbtv', 'goals', 'test-7559-unapproved');
+    const fireDir = path.join(ctx.workRoot, 'fire-7559');
+    const frozenDir = path.join(ctx.workRoot, 'frozen-7559');
+    const refusedDir = path.join(ctx.workRoot, 'refused-7559');
+    for (const d of [goalA, goalB, fireDir, frozenDir, refusedDir]) fs.mkdirSync(d, { recursive: true });
+
+    const ECHO = path.join(__dirname, '_argv-echo.js');
+    const FIRE_TEMPLATE = [process.execPath, ECHO, '--goal', '{{goal}}'];
+    const FROZEN_ARGV = [process.execPath, ECHO, '--frozen', 'literal-operand'];
+    ctx.store.config.tools = {
+      [TOOL]: { argv: FIRE_TEMPLATE, args_allowlist: { goal: [goalA] } },
+      'c7559-frozen': { argv: FROZEN_ARGV },
+      'c7559-templated-no-list': { argv: FIRE_TEMPLATE },
+      'c7559-empty-list': { argv: FIRE_TEMPLATE, args_allowlist: { goal: [] } },
+      // Templates `{{goal}}` but lists a DIFFERENT key. `entry-seat` and not `workdir`: every row
+      // carries a workdir, so a workdir-keyed list would refuse on MEMBERSHIP first and F7 would
+      // pass on the wrong reason — the arm must reach the by-name branch to mean anything.
+      'c7559-other-key': { argv: FIRE_TEMPLATE, args_allowlist: { 'entry-seat': ['elicitator'] } },
+    };
+    ctx.store.registerJob({
+      jobId: 'c7559-fire',
+      actionType: 'fire-tool',
+      function: 'fire-tool',
+      argsSchema: JSON.stringify({ required: { tool: 'string' }, optional: { goal: 'string', workdir: 'string' } }),
+    });
+
+    const dueNow = () => new Date(Date.now() - 60000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    async function fireRow(rowArgs) {
+      const enq = attempt(() => ctx.store.enqueue({
+        jobId: 'c7559-fire',
+        args: JSON.stringify({ tool: TOOL, goal: goalA, workdir: refusedDir }),
+        triggerKind: 'scheduled',
+        runAt: dueNow(),
+        enqueuedBy: 'probe',
+      }));
+      if (!enq.ok) return { built: false, detail: `control row could not be ENQUEUED: ${enq.code} ${enq.message}` };
+      const wanted = JSON.stringify(rowArgs);
+      ctx.store._prepare('UPDATE queue SET args = ? WHERE queue_id = ?').run(wanted, enq.value.queue_id);
+      const stored = ctx.store._prepare('SELECT args FROM queue WHERE queue_id = ?').get(enq.value.queue_id).args;
+      if (stored !== wanted) return { built: false, detail: 'the args write behind the gate did not take' };
+      const t = await ctx.ticker.tick(new Date());
+      return { built: true, acts: JSON.stringify((t && t.actions) || t || []) };
+    }
+
+    // ── F0/F1 · the GREEN control: a LISTED member composes, read back from the child's argv ─────
+    const EXPECT_FIRED = [ECHO, '--goal', goalA];
+    check(lines, JSON.stringify(EXPECT_FIRED) !== JSON.stringify(FIRE_TEMPLATE.slice(1)),
+      'F0 the expected fire-tool argv DIFFERS from the registered template — so F1 cannot pass on a fire that skipped expansion',
+      `${FIRE_TEMPLATE.filter((t) => t.includes('{{')).length} placeholder token(s) must have been replaced`);
+    const greenFire = await fireRow({ tool: TOOL, goal: goalA, workdir: fireDir });
+    check(lines, greenFire.built, 'F1a the green fire-tool fixture was built', greenFire.detail || 'enqueued + fired');
+    const fireEcho = path.join(fireDir, 'argv-echo.json');
+    const fireArrived = greenFire.built && await waitFor(() => fs.existsSync(fireEcho));
+    if (!fireArrived) {
+      check(lines, false, 'F1b the fired child wrote its own argv', `no ${fireEcho} within budget — the exec did not run`);
+    } else {
+      const seen = JSON.parse(fs.readFileSync(fireEcho, 'utf8'));
+      check(lines, JSON.stringify(seen) === JSON.stringify(EXPECT_FIRED),
+        'F1b a LISTED member REACHES THE EXEC, byte-compared against the written expectation — refusal-by-default is not "refuse everything"',
+        `seen=${JSON.stringify(seen)}`);
+    }
+
+    // ── F2/F3 · REFUSAL BY DEFAULT and the hostile-argv suite, each at the REAL fire ─────────────
+    // The expected reason is asserted per arm, not just "some refusal": a membership refusal and a
+    // control-character refusal are different claims, and an arm that accepted either would not
+    // notice the membership test disappearing.
+    const NOT_LISTED = "not on this entry's allowlist";
+    const OVERLONG_VALUE = 'a'.repeat(10000);
+    const FIRE_HOSTILE = [
+      ['F2  an UNLISTED but REAL goal folder is REFUSED — the criterion-(2) arm: admission is identity, not plausibility', goalB, NOT_LISTED],
+      ['F3a shell metacharacters appended to a listed value', `${goalA}; rm -rf /`, NOT_LISTED],
+      ['F3b command substitution', '$(cat /etc/passwd)', NOT_LISTED],
+      ['F3c backtick substitution', '`id`', NOT_LISTED],
+      ['F3d path traversal out of the listed folder', `${goalA}/../../../../etc`, NOT_LISTED],
+      ['F3e an absolute path nobody listed', '/etc/passwd', NOT_LISTED],
+      ['F3f flag injection (long flag)', '--dry-run', NOT_LISTED],
+      ['F3g flag injection (short flag)', '-rf', NOT_LISTED],
+      ['F3h an over-long value (10 000 bytes)', OVERLONG_VALUE, NOT_LISTED],
+      ['F3i a CASE near-miss of a listed value', goalA.toUpperCase(), NOT_LISTED],
+      ['F3j a TRAILING-SLASH near-miss of a listed value', `${goalA}/`, NOT_LISTED],
+      ['F3k a CYRILLIC HOMOGLYPH inside a listed value', goalA.replace('o', 'о'), NOT_LISTED],
+      ['F3l placeholder smuggling as a value', '{{workdir}}', NOT_LISTED],
+      ['F3m the EMPTY STRING', '', NOT_LISTED],
+      ['F3n an embedded NEWLINE — refused as a control character, which fires BEFORE membership', `${goalA}\nExecStart=/bin/sh`, 'must carry no control character'],
+      ['F3o a NUL byte', `${goalA}\u0000/etc`, 'must carry no control character'],
+    ];
+    let membershipArms = 0;
+    for (const [label, value, expect] of FIRE_HOSTILE) {
+      if (expect === NOT_LISTED) membershipArms += 1;
+      const r = await fireRow({ tool: TOOL, goal: value, workdir: refusedDir });
+      if (!r.built) { check(lines, false, `${label} is REFUSED at fire`, r.detail); continue; }
+      check(lines, r.acts.includes('fire-tool-failed') && r.acts.includes('argv-template:') && r.acts.includes(expect),
+        `${label} is REFUSED at fire, typed and RECORDED`, r.acts.slice(0, 240));
+    }
+    for (const [label, value] of [['F3p an ARRAY', [goalA]], ['F3q NULL', null], ['F3r a NUMBER', 7]]) {
+      const r = await fireRow({ tool: TOOL, goal: value, workdir: refusedDir });
+      if (!r.built) { check(lines, false, `${label} where a listed value is required is REFUSED at fire`, r.detail); continue; }
+      check(lines, r.acts.includes('fire-tool-failed') && r.acts.includes('must be a string, got'),
+        `${label} where a listed value is required is REFUSED at fire — type confusion never reaches membership`, r.acts.slice(0, 240));
+    }
+
+    // ── F4 · CRITERION (4): FROZEN BY DEFAULT SURVIVES, proven by a REAL fire, not by inspection ─
+    const frozenFire = await fireRow({ tool: 'c7559-frozen', workdir: frozenDir });
+    check(lines, frozenFire.built, 'F4a the frozen-entry fixture was built', frozenFire.detail || 'enqueued + fired');
+    const frozenEcho = path.join(frozenDir, 'argv-echo.json');
+    const frozenArrived = frozenFire.built && await waitFor(() => fs.existsSync(frozenEcho));
+    if (!frozenArrived) {
+      check(lines, false, 'F4b an entry declaring NO args_allowlist still fires', `no ${frozenEcho} within budget — the exec did not run`);
+    } else {
+      const seen = JSON.parse(fs.readFileSync(frozenEcho, 'utf8'));
+      check(lines, JSON.stringify(seen) === JSON.stringify(FROZEN_ARGV.slice(1)),
+        'F4b an entry declaring NO args_allowlist composes a BYTE-IDENTICAL argv and fires exactly as before 7.559',
+        `seen=${JSON.stringify(seen)}`);
+    }
+
+    // ── F5 · FAIL CLOSED: an entry that templates a value but declares no list never execs ───────
+    const failClosed = await fireRow({ tool: 'c7559-templated-no-list', goal: goalA, workdir: refusedDir });
+    check(lines, failClosed.built && failClosed.acts.includes('no args_allowlist on a templated entry'),
+      'F5 an entry that TEMPLATES a value while declaring NO allowlist is REFUSED — never exec\'d with a literal `{{goal}}` operand',
+      failClosed.built ? failClosed.acts.slice(0, 240) : failClosed.detail);
+
+    // ── F6 · an EMPTY positive list admits NOTHING (failing open here would be the whole defect) ─
+    const emptyList = await fireRow({ tool: 'c7559-empty-list', goal: goalA, workdir: refusedDir });
+    check(lines, emptyList.built && emptyList.acts.includes('an empty positive list admits nothing'),
+      'F6 an EMPTY allowlist admits nothing — a value that would be listed is still refused',
+      emptyList.built ? emptyList.acts.slice(0, 240) : emptyList.detail);
+
+    // ── F7 · a placeholder whose KEY has no list on that entry is refused BY NAME ────────────────
+    const otherKey = await fireRow({ tool: 'c7559-other-key', goal: goalA, workdir: refusedDir });
+    check(lines, otherKey.built && otherKey.acts.includes('has no allowlist on this entry'),
+      'F7 a placeholder whose key carries no allowlist on THAT entry is refused BY NAME — not by a grammar complaint that misdescribes the reason',
+      otherKey.built ? otherKey.acts.slice(0, 240) : otherKey.detail);
+
+    // ── F8 · THE SECURITY CONDITION (owner ruling B1): the list comes from the BOOT-READ CONFIG ──
+    // A row that carries its OWN `args_allowlist` permitting the hostile value must still be
+    // refused. This is the arm that would catch the one change that moves the boundary: reading
+    // the list from anywhere an enrolled agent token can write (a row, a job registration).
+    const selfGranted = await fireRow({ tool: TOOL, goal: goalB, workdir: refusedDir, args_allowlist: { goal: [goalB] } });
+    check(lines, selfGranted.built && selfGranted.acts.includes(NOT_LISTED),
+      'F8 a ROW that carries its OWN args_allowlist permitting the value is STILL REFUSED — a row can never extend its own boundary',
+      selfGranted.built ? selfGranted.acts.slice(0, 240) : selfGranted.detail);
+    for (const rel of ['internal-api/dispatch.js', 'internal-api/authz.js']) {
+      const src = fs.readFileSync(path.join(__dirname, '..', '..', rel), 'utf8');
+      check(lines, !src.includes('args_allowlist'),
+        `F8b \`${rel}\` never reads args_allowlist — the registration/authz surfaces are exactly the ones an enrolled AGENT token can write`,
+        `${src.length} bytes scanned`);
+    }
+
+    // ── F9 · NO CHILD WAS EXEC'D FOR ANY REFUSED ARM. Every refusal above shares one workdir, so
+    // a single echo file here would mean SOME refusal leaked an exec. The refusal is the outcome,
+    // not just a log line.
+    const leaked = await waitFor(() => fs.existsSync(path.join(refusedDir, 'argv-echo.json')), 3000);
+    check(lines, !leaked,
+      'F9 NOT ONE of the refused arms exec\'d a child — the shared refusal workdir is empty',
+      leaked ? 'argv-echo.json EXISTS — a refusal still reached the exec' : 'no argv-echo.json');
+
+    // ── F10 · RED ARM · the MEMBERSHIP TEST cut out of a scratch copy — the hostile values compose ─
+    // The guard must be SEEN to fire. Cutting the three-line membership test and nothing else, the
+    // arms above must flip from refused to composed; the ones that still refuse are C5's structural
+    // and type rules, which is itself the proof that C5 does not already satisfy criterion (2).
+    const tpl2Original = fs.readFileSync(TEMPLATE_SRC, 'utf8');
+    const F10_START = '  if (!permitted.includes(value)) {';
+    const F10_END = '  return null;\n}\n\n// The CLOSED set of keys';
+    const c0 = tpl2Original.indexOf(F10_START);
+    const c1 = tpl2Original.indexOf(F10_END, c0);
+    const tpl2Mutated = (c0 !== -1 && c1 !== -1)
+      ? `${tpl2Original.slice(0, c0)}  // MUTANT: membership test removed\n${tpl2Original.slice(c1)}`
+      : null;
+    check(lines, tpl2Mutated !== null && !tpl2Mutated.includes(F10_START) && tpl2Mutated.includes('MUTANT'),
+      'F10 the membership mutation was actually applied to the scratch copy — an unmutated mutant passes for the wrong reason',
+      tpl2Mutated === null ? 'ANCHOR NOT FOUND' : `cut ${tpl2Original.length - tpl2Mutated.length} bytes`);
+    if (tpl2Mutated) {
+      fs.writeFileSync(allowScratch, tpl2Mutated);
+      const unguarded = require(allowScratch);
+      const allow = { goal: [goalA] };
+      let flipped = 0;
+      const stillRefused = [];
+      for (const [label, value, expect] of FIRE_HOSTILE) {
+        if (expect !== NOT_LISTED) { stillRefused.push(label.slice(0, 4)); continue; }
+        const r = unguarded.expandArgv(FIRE_TEMPLATE, { goal: value }, allow);
+        if (!r.refused && r.argv[3] === value) flipped += 1; else stillRefused.push(label.slice(0, 4));
+      }
+      check(lines, flipped >= 12 && flipped === membershipArms,
+        `F10 UNGUARDED ${flipped} of ${membershipArms} membership arms FLIP from refused to composed — the membership test is what refuses them, and a grammar would not`,
+        `flipped=${flipped} still-refused=[${stillRefused.join(' ')}] (the survivors are control-character and type rules, which C5 already owned)`);
+      const guardedAgain = expandArgv(FIRE_TEMPLATE, { goal: goalB }, allow);
+      check(lines, !!guardedAgain.refused,
+        'F10 CONTROL the LIVE module still refuses the same value — the mutation touched only the scratch copy',
+        guardedAgain.refused || JSON.stringify(guardedAgain));
+    }
+
     // ── The pure gate answers `null` on the legal row — the module-level control for every H arm ─
     check(lines, checkTemplateArgs(goodArgs) === null,
       'C the value gate passes the legal row', String(checkTemplateArgs(goodArgs)));
+    check(lines, checkTemplateArgs({ goal: goalA }, { goal: [goalA] }) === null,
+      'C7559 the identity gate passes a LISTED value — every F refusal above is measured against this control',
+      String(checkTemplateArgs({ goal: goalA }, { goal: [goalA] })));
 
     lines.push(`CHECKS: ${passed}/${passed + failed} passed`);
     lines.push(`ARGV_TEMPLATE_OK: ${failed === 0}`);
     if (failed > 0) throw new Error(`${failed} check(s) failed`);
   } finally {
-    for (const p of [templateScratch, storeScratch]) {
+    for (const p of [templateScratch, storeScratch, allowScratch]) {
       try { fs.unlinkSync(p); } catch {}
     }
     teardown(ctx);

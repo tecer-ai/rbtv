@@ -73,6 +73,30 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   `coord.py`, which boots the harness by the bare name `claude`) were back on the manager PATH. It
   now FORWARDS `os.environ["PATH"]` — forwarded, never re-derived, so the composer stays singular
   (PRIN-11); guarded by `jobs/probes/probe-detach-env.py`.
+- **Per-run arguments on a fired tool — an IDENTITY allowlist, refusing by default** (task 7.559,
+  owner ruling `d-owner-7559-design-rulings-0808`; `server/heart/argv-template.js` +
+  `server/ticker/ticker.js` `launchFireTool`). A `tools:` entry in `config/spawn-profiles.yaml` may
+  declare `args_allowlist: { <key>: [ …literal values… ] }`; its argv may then carry `{{key}}`, and
+  a queue row SELECTS one of those literals. It never supplies a string — admission is `===`
+  identity against a list a human wrote, never a grammar, never a denylist. Anything else is a typed
+  refusal recorded `failed`, and no child is exec'd. ⚠ **The list lives in the boot-read merged
+  config and NOWHERE ELSE — that is the whole security condition**, because `register-job` is
+  reachable by any enrolled AGENT token, so an allowlist in a job registration would be extensible
+  by the agents it bounds with no restart and no reviewed diff. Extending it keeps costing exactly
+  what the argv freeze cost: a reviewed diff plus an integrator-owned restart. **Frozen stays the
+  default** — an entry declaring no `args_allowlist` takes the same code path and the same
+  byte-identical argv as before, and an entry that templates a value WITHOUT declaring a list is
+  refused (fail closed) rather than exec'ing a literal `{{goal}}`. The boot-time catalogue check
+  walks allowlist values too (`server/heart/catalogue-paths.js`), so a member naming a folder that
+  is gone logs one `error` per boot forever and refuses nothing — a stale permission is loud, and
+  removing it is the same act as adding it. Guarded by `server/ticker/probes/probe-argv-template.js`
+  (a real `ticker.tick()` fire, argv read back from the child's own `process.argv`) and
+  `server/heart/probes/probe-defect-fix.js`. **Live scope today is ONE entry, `edge-runner`, with
+  ONE permitted goal.** So the edge-runner can advance any PRE-APPROVED goal — not an arbitrary one
+  — and approving each costs one config edit plus one restart; after that its advances are ordinary
+  enqueues. ⚠ Two things this does NOT do: it does not sandbox a fired tool (`caps: {}` /
+  `sandbox: {}` are unchanged — it bounds who can STEER a tool, never what a tool can DO), and it
+  does not govern a fire-tool row's `workdir`, which stays per-run and unvalidated (row 7.562).
 - **`watch-operator`** (`ignite/capabilities/watch-operator/`) — the WATCH-LOOP operator surface:
   the fourth ignite service's power verbs plus its pass cadence (`heartbeat-set`). Separate from
   `daemon-operator` because its target is a RUN PACKAGE, not a fixed unit — the watch unit is

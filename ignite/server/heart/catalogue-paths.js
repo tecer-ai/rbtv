@@ -18,6 +18,20 @@
 // strings are meant to be paths: a false ERROR about a string that was never a path would train
 // readers to ignore the check, which costs more than the check earns.
 //
+// ⚠ AND EVERY `args_allowlist` VALUE (task 7.559). This walk is NOT an enhancement, it is the
+// repair of a hole that task opened: 7.559 moves the edge-runner's goal path OUT of `argv` and into
+// `args_allowlist`, and the argv walk above skips any token containing `{` — so without this the
+// path would leave the boot check silently and a retired goal would go back to being invisible,
+// which is the exact defect this module exists for. Same log-never-refuse posture.
+//
+// A DECLARED-BUT-ABSENT ALLOWLIST VALUE IS NOISE, NEVER AN OUTAGE — decided and stated rather than
+// left to be discovered: it logs one `error` line per boot, FOREVER, and refuses nothing. That is
+// the intended behaviour, and it is why the finding carries its OWN `why` rather than reusing the
+// argv one. A stale member is a permission for a target that no longer exists, and the operator's
+// action is to REMOVE it by the same act that added it — a reviewed diff plus a restart, ideally as
+// part of the retiring goal's teardown. It is deliberately NOT cleaned up automatically: a daemon
+// that edits its own security allowlist at boot is a strictly worse system than one that complains.
+//
 // WHAT IT DOES NOT DO: refuse the boot. A missing fixture in one throwaway entry must not take the
 // whole daemon down — that trades a silent broken entry for a loud dead daemon, which is worse for a
 // system whose purpose is running unattended. The caller logs `level: error`, one line per broken
@@ -45,6 +59,24 @@ function validateCataloguePaths(mergedConfig) {
           findings.push({ section, name, index, path: element, why: 'path does not exist' });
         }
       });
+      // The values a row may SELECT (7.559). No `{` skip here and none is wanted: an allowlist
+      // member is a literal the config author wrote, never a template — that is the whole design.
+      const allow = entry.args_allowlist;
+      if (allow && typeof allow === 'object' && !Array.isArray(allow)) {
+        for (const [key, permitted] of Object.entries(allow)) {
+          if (!Array.isArray(permitted)) continue;
+          permitted.forEach((value) => {
+            if (typeof value !== 'string') return;
+            if (!value.startsWith('/')) return;
+            if (!fs.existsSync(value)) {
+              findings.push({
+                section, name, index: null, key, path: value,
+                why: 'allowlisted path does not exist — a permitted value naming a target that is gone (stale permission; remove it by config edit + restart)',
+              });
+            }
+          });
+        }
+      }
     }
   }
   return findings;
