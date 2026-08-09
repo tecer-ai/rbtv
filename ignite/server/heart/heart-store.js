@@ -282,7 +282,11 @@ function validateSchemaTypes(schemaJson, { required, optional }) {
   }
 }
 
-function validateArgs(args, schemaJson, actionType) {
+// `tools` is the BOOT-READ merged config's `tools:` catalogue (`this.config.tools`), handed in
+// rather than reached for, because this function is module-level and has no `this`. Task 7.574
+// needs it for the fire-tool branch below; every other branch ignores it, and the `null` default
+// keeps a caller that has no catalogue behaving exactly as before.
+function validateArgs(args, schemaJson, actionType, tools = null) {
   let parsed;
   try {
     parsed = JSON.parse(args);
@@ -325,6 +329,45 @@ function validateArgs(args, schemaJson, actionType) {
   } else if (actionType === 'fire-tool') {
     if (typeof parsed.tool !== 'string' || parsed.tool.length === 0) {
       throw new HeartStoreError(E_BAD_ARGS, 'fire-tool requires a non-empty tool argument', { field: 'tool' });
+    }
+    // ── Task 7.574 · the ENQUEUE half of 7.559's `args_allowlist` gate (its design step 3, the one
+    // its builder deferred). UX / defence in depth, NOT the boundary: the boundary is the fire path
+    // (owner ruling B1), and a hostile row already dies there. What this buys is that a bad value is
+    // refused at the CLI immediately instead of failing minutes later inside a recorded execution.
+    //
+    // ⚠⚠ THE ENTRY'S ALLOWLIST KEYS ONLY, AND NEVER `checkTemplateArgs(parsed)` WITH NO `allow`.
+    // The bare call switches admission to the per-key GRAMMAR — including `workdirRule`'s
+    // `.rbtv/goals/<goal>` containment, which is a WORKFLOW's rule. A fire-tool row's workdir is
+    // legitimately a repo or a state root, so a grammar call here would refuse the live edge-runner
+    // and self-heal rows. The start-workflow branch below records the same invariant from the other
+    // side; this is why that branch is not simply widened to cover both.
+    //
+    // NO `args_allowlist` ON THE ENTRY ⇒ THIS DOOR DOES NOTHING, matching the fire path EXACTLY
+    // (`ticker.js` launchFireTool: a falsy `allow` on an untemplated argv falls through to the
+    // byte-identical exec, never reaching `checkTemplateArgs`). A door stricter than the fire path
+    // would refuse rows the fire path accepts, which is the failure this comment exists to prevent.
+    // `Object.hasOwn` for the same reason the catalogue lookups in `enqueue` carry it: the name
+    // comes from the ROW, and `tool: "constructor"` walks the prototype chain on a plain index.
+    //
+    // ⚠⚠ A MALFORMED `args_allowlist` IS NOT THIS DOOR'S BUSINESS — the well-formedness test below
+    // is a REFUSAL TO JUDGE, not an oversight, and removing it re-breaks task 7.577's guard.
+    // A scalar or bare-list `args_allowlist:` is an OPERATOR's typo in a reviewed config file, not
+    // anything the enqueuing sender did; `checkTemplateArgs` reports it as a shape error, and if
+    // this door raised that the row could never be STORED — so the shape error would be refused at
+    // a door instead of RECORDED on a fired execution, which is the exact property 7.577 restored
+    // (`config/spawn-profiles.yaml` rule 9 states it to operators: the daemon "refuses them at FIRE
+    // as a shape error and records the execution `failed`"). MEASURED, not reasoned: without this
+    // test, `server/ticker/probes/probe-argv-template.js` arm S2b could no longer build the fixture
+    // its fire-path arms need, and 7.577's guard went vacuous. The predicate is `checkTemplateArgs`'
+    // own shape test, so "well-formed here" and "not a shape error there" cannot drift apart.
+    const entry = tools && Object.hasOwn(tools, parsed.tool) ? tools[parsed.tool] : null;
+    const raw = (entry && entry.args_allowlist) || null;
+    const allow = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : null;
+    if (allow) {
+      const templateRefusal = checkTemplateArgs(parsed, allow);
+      if (templateRefusal) {
+        throw new HeartStoreError(E_BAD_ARGS, `fire-tool args refused: ${templateRefusal}`, { field: 'args' });
+      }
     }
   } else if (actionType === 'start-workflow') {
     if (typeof parsed.workflow !== 'string' || parsed.workflow.length === 0) {
@@ -769,7 +812,7 @@ class HeartStore {
     }
 
     const args = req.args !== undefined ? req.args : '{}';
-    validateArgs(args, job.args_schema, job.action_type);
+    validateArgs(args, job.args_schema, job.action_type, this.config.tools);
 
     const parsedArgs = JSON.parse(args);
     if (job.action_type === 'launch-agent') {
