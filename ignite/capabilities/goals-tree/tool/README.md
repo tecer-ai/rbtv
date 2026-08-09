@@ -47,7 +47,7 @@ stand-in pattern, no contract change at fold-in.
 
 | Verb | Does | Never |
 |---|---|---|
-| `scaffold` | Creates the goal root — NINE files: `goal.md` (identity frontmatter + the contract body), `runs.csv` (header), `threads.sql` (empty schema), plus the standard goal-folder artifacts of § below — then reindexes. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes `runs/` compartments or seat folders — run birth is task 7.37's step |
+| `scaffold` | Creates the goal root — TEN files: `goal.md` (identity frontmatter + the contract body), `runs.csv` (header), `threads.sql` (empty schema), plus the standard goal-folder artifacts of § below — then reindexes. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes `runs/` compartments or seat folders — run birth is task 7.37's step |
 | `reindex` | Rebuilds `goals.csv` whole from every `goal.md` frontmatter. Always the full projection; a partial one would leave silent staleness. Fails loud on an unparseable descriptor, naming the file, and leaves `goals.csv` **untouched** — a projection that silently drops a goal is corruption. | Touches any goal folder |
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
 | `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
@@ -65,16 +65,24 @@ frontmatter cognitive-unit reference has its assembled block in the body · perm
 · dry-run dispatch emulation (would this seat launch under its resolved harness+model+effort — no
 launch, no LLM call).
 
-### The standard goal-folder artifacts `scaffold` writes (7.582 / owner ruling R21)
+### The standard goal-folder artifacts `scaffold` writes (7.582 / owner ruling R21; set extended by 7.595 / Q16)
 
-Six of the nine files are written from **deterministic templates in `goal_cli.py`** — module-level
+Seven of the ten files are written from **deterministic templates in `goal_cli.py`** — module-level
 strings, the `THREADS_SCHEMA` precedent. **No agent is in the path**, and two scaffolds of the same
 goal name produce byte-identical files.
 
 | Written | What it is |
 |---|---|
 | `CLAUDE.md`, `AGENTS.md` | the ROUTER, one per supported harness. It names the sibling artifacts and carries no content of its own. `AGENTS.md` is `CLAUDE.md`'s body behind a header saying so |
-| `issues.md`, `decisions.md`, `doubts.md`, `gotchas.md` | the four **write-if-something** files — NOT logs. Nothing obliges an entry; an agent with nothing to note writes nothing |
+| `issues.md`, `decisions.md`, `doubts.md`, `gotchas.md`, `ideas.md` | the five **write-if-something** files. Nothing obliges an entry; an agent with nothing to note writes nothing |
+
+`decisions.md` is the one write-if-something file with its OWN template body (`DECISIONS_TEMPLATE`),
+per owner ruling **Q19** (2026-08-09, `d-owner-batch-q12-q19-0809` item 8): a created goal carries
+the **durability split** from birth — goal-durable rulings in the goal's `decisions.md`,
+run-operational PROVISIONAL rulings in `runs/run-<n>/decisions.md` — and adopts the entry shape **by
+citation** of `orchestration/workflows/_shared/authoring/decisions-discipline.md`, restating none of
+its rules. This is the same convention the vault's `.rbtv/goals/CLAUDE.md` § decision-ledger states
+(`r-decision-ledger-contract`); the template agrees with it rather than re-legislating it.
 
 `ROUTER_FILENAMES` is **measured, not assumed**: it is the distinct set of `guidance_file.convention`
 values across every model package manifest (`orchestration/models/*/manifest.yaml`) — `CLAUDE.md`
@@ -89,9 +97,11 @@ write INTO, and an overwrite there is data loss. Scored by
 `probes/probe-goal-scaffold-standard-files.py` (`--only goal-scaffold-standard-files`), whose two
 mutants prove the presence arm and the no-clobber arm can each go red.
 
-**Registry note:** the live `build-core-daemon-mvp` goal folder also carries `ideas.md`. R21's ruled
-set is the FOUR files above; the fifth is **not** scaffolded here — adding it would be this tool
-minting a convention no ruling names.
+**Registry note:** `ideas.md` was deliberately EXCLUDED under R21 alone (scaffolding it would have
+been this tool minting a convention no ruling named). That exclusion is **superseded by owner ruling
+Q16** (2026-08-09) — the ruling now names it, so `ideas.md` is scaffolded and a created goal matches
+the live `build-core-daemon-mvp` goal's three-ledger shape (`issues.md` / `decisions.md` /
+`ideas.md`).
 
 ### The guard-grammar arm (7.426) and its carve-out
 

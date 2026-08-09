@@ -112,7 +112,10 @@ CREATE INDEX IF NOT EXISTS threads_reply_to_idx  ON threads (reply_to);
 # adopts a third convention adds its filename to this tuple and nothing else changes.
 ROUTER_FILENAMES = ("CLAUDE.md", "AGENTS.md")
 
-# The FOUR write-if-something files R21 names, filename -> what an agent has when it writes there.
+# The FIVE write-if-something files, filename -> what an agent has when it writes there. R21 named
+# four; owner ruling Q16 (2026-08-09, `build/subagent-closeout/decisions.md#d-owner-batch-q12-q19-0809`
+# item 5) added `ideas.md`, so a created goal matches the live goal's three-ledger shape
+# (issues/decisions/ideas).
 # The router's table below is RENDERED FROM THIS MAPPING, so the routing an agent reads and the
 # files that exist can never drift apart — a router naming a file nobody wrote (or missing one
 # that was) is the one way a router fails without anything noticing.
@@ -121,6 +124,7 @@ WRITE_IF_SOMETHING = {
     "decisions.md": "a settled decision, and the reason it was settled that way",
     "doubts.md": "a question only the owner can answer",
     "gotchas.md": "a validated pattern or trap worth carrying forward",
+    "ideas.md": "an improvement worth framing that nobody has ruled on",
 }
 
 GOAL_ROUTER_TEMPLATE = """\
@@ -172,6 +176,38 @@ writes nothing. Append at the moment you have it — one entry, dated, stating t
 it matters. The goal folder's routing is in `CLAUDE.md`.
 """
 
+# `decisions.md` gets its OWN body instead of the shared one: owner ruling Q19 (2026-08-09,
+# `d-owner-batch-q12-q19-0809` item 8) made the DURABILITY SPLIT a general rbtv convention that a
+# created goal must carry from birth, and pinned the entry shape to `decisions-discipline.md` BY
+# CITATION. The entry rules are NOT restated here — a second copy of them is a second thing to
+# drift (the same reason the router's table is rendered from one mapping).
+DECISIONS_TEMPLATE = """\
+# decisions.md — {name}
+
+Write here when you have a settled decision, and the reason it was settled that way. Nothing
+obliges an entry.
+
+## Durability split — a general rbtv convention
+
+THIS file is GOAL-DURABLE only: owner rulings, `goal.md` contract amendments, plan rationale,
+standing goal-durable policy. A ruling that governs ONE run's processes, tools, or conduct is
+PROVISIONAL and belongs in that run's own `runs/run-<n>/decisions.md`, where it dies with the
+run. The shared filename is the design, not a collision: one canonical name, per-folder scope.
+At milestone close, a provisional ruling that proved goal-durable is PROMOTED here; the rest die
+with the run. Entries here are frozen history — never moved, reclassified, or rewritten.
+
+Anchors resolve by class: `r-*` / `d-*` in this file, run-scoped `p-*` in that run's own file.
+
+## Entry shape — adopted BY CITATION
+
+Every entry in this file and in the run-folder files follows
+`orchestration/workflows/_shared/authoring/decisions-discipline.md` in the rbtv repo (its path is
+`rbtv_path` in the workspace's `rbtv.json`). That file is the ONE source of the entry rules; this
+one restates none of them — read it before your first entry.
+
+The goal folder's routing is in `CLAUDE.md`.
+"""
+
 
 def _write_if_something_table() -> str:
     return "\n".join(
@@ -193,7 +229,8 @@ def standard_artifacts(name: str) -> dict:
                   else ROUTER_MIRROR_HEADER.format(filename=fn) + body)
              for fn in ROUTER_FILENAMES}
     for fn, what in WRITE_IF_SOMETHING.items():
-        files[fn] = WRITE_IF_SOMETHING_TEMPLATE.format(file=fn, name=name, what=what)
+        files[fn] = (DECISIONS_TEMPLATE.format(name=name) if fn == "decisions.md"
+                     else WRITE_IF_SOMETHING_TEMPLATE.format(file=fn, name=name, what=what))
     return files
 
 
@@ -433,8 +470,8 @@ def cmd_scaffold(args) -> int:
 
     # The FULL set, named in one place so the dry-run plan, the writes and the report can never
     # be three different answers to "what does creating a goal produce". `decisions.md` is no
-    # longer written here: it is one of R21's four write-if-something files and comes off
-    # `standard_artifacts` with the other three (its old body called itself a "decision log",
+    # longer written here: it is one of the five write-if-something files and comes off
+    # `standard_artifacts` with the other four (its old body called itself a "decision log",
     # which is the exact word §9 rules these files are NOT).
     created_names = ["goal.md", "runs.csv", "threads.sql", *standard_artifacts(name)]
     plan = {
@@ -454,7 +491,7 @@ def cmd_scaffold(args) -> int:
     (goal_dir / "goal.md").write_text(goal_md, encoding="utf-8", newline="\n")
     write_csv(goal_dir / "runs.csv", RUNS_COLUMNS, [])
     (goal_dir / "threads.sql").write_text(THREADS_SCHEMA, encoding="utf-8", newline="\n")
-    # R21: the per-harness routers + the four write-if-something files, from deterministic
+    # R21 (+ Q16): the per-harness routers + the five write-if-something files, from deterministic
     # templates. Written LAST so the routers describe a folder that already holds what they name.
     write_standard_artifacts(goal_dir, name)
 
@@ -2128,13 +2165,13 @@ def cmd_selftest(args) -> int:
             contract=str(contract), **vars(ns)))
         check("scaffold exits 0", rc == 0)
         gd = root / "demo-goal"
-        # The nine files a created goal carries, spelled as LITERALS rather than read from
+        # The ten files a created goal carries, spelled as LITERALS rather than read from
         # ROUTER_FILENAMES/WRITE_IF_SOMETHING — an expectation that reads the constant under test
         # moves with any edit to it and can never go red (7.582; the goal-kind arm below states
         # the same rule for the same reason). The probe carries the content proof; this arm is
         # the selftest's own enumerator staying complete.
         for fname in ("goal.md", "runs.csv", "threads.sql", "CLAUDE.md", "AGENTS.md",
-                      "issues.md", "decisions.md", "doubts.md", "gotchas.md"):
+                      "issues.md", "decisions.md", "doubts.md", "gotchas.md", "ideas.md"):
             check(f"creates {fname}", (gd / fname).is_file())
         idx = list(csv.DictReader((root / "goals.csv").open(encoding="utf-8")))
         check("goals.csv carries the row", len(idx) == 1 and idx[0]["name"] == "demo-goal",

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """probe-goal-scaffold-standard-files.py — a fresh goal creation produces R21's FULL standard set.
 
-WHAT IT SCORES (task 7.582). Owner ruling R21 (2026-08-08, `build/meta-workflow/
-interview-findings.md`; meta-planner-v4 §9 / §11.12): the goal-creation machinery writes the
-standard goal-folder artifacts from DETERMINISTIC templates — the ROUTER of every supported
-harness (`CLAUDE.md` plus each equivalent, here `AGENTS.md`) plus the FOUR write-if-something
-files (`issues.md`, `decisions.md`, `doubts.md`, `gotchas.md`). Measured at the commit before
-this row landed, `rbtv-goal scaffold` wrote four files — `goal.md`, `decisions.md`, `runs.csv`,
-`threads.sql` — so five of the nine were the gap.
+WHAT IT SCORES (task 7.582; set extended by 7.595). Owner ruling R21 (2026-08-08,
+`build/meta-workflow/interview-findings.md`; meta-planner-v4 §9 / §11.12): the goal-creation
+machinery writes the standard goal-folder artifacts from DETERMINISTIC templates — the ROUTER of
+every supported harness (`CLAUDE.md` plus each equivalent, here `AGENTS.md`) plus the
+write-if-something files. Owner ruling Q16 (2026-08-09, `d-owner-batch-q12-q19-0809` item 5)
+added `ideas.md` to that set, making it FIVE (`issues.md`, `decisions.md`, `doubts.md`,
+`gotchas.md`, `ideas.md`) and the created goal TEN files. Measured at the commit before 7.582
+landed, `rbtv-goal scaffold` wrote four files — `goal.md`, `decisions.md`, `runs.csv`,
+`threads.sql` — so the rest were the gap.
 
 The five properties scored:
 
@@ -24,7 +26,7 @@ The five properties scored:
 also what a probe reading its own fixture would report. So:
 
   - mutant A removes the `write_standard_artifacts` call from `cmd_scaffold` and MUST then leave
-    the five ruled files absent — that is the pre-fix state this row closed, reproduced;
+    the seven ruled files absent — that is the pre-fix state this row closed, reproduced;
   - mutant B turns the skip-if-exists guard into an unconditional write and MUST then destroy the
     content arm 5 protects.
 
@@ -57,7 +59,7 @@ OUT = HERE / "probe-goal-scaffold-standard-files.out"
 # this probe's expectation move with the code under test — deleting a name from the tuple would
 # then delete the check that name is written, and the probe would stay green over the regression.
 ROUTERS = ("CLAUDE.md", "AGENTS.md")
-WRITE_IF_SOMETHING = ("issues.md", "decisions.md", "doubts.md", "gotchas.md")
+WRITE_IF_SOMETHING = ("issues.md", "decisions.md", "doubts.md", "gotchas.md", "ideas.md")
 PRE_EXISTING = ("goal.md", "runs.csv", "threads.sql")
 
 # The landed call + guard, verbatim. Textual replacement: a reshaped fix stops matching and turns
@@ -162,6 +164,17 @@ def main() -> int:
                   "nothing writes nothing" in text or "writes nothing" in text,
                   text[:200])
 
+        # ── 2b. THE decisions.md TEMPLATE CARRIES Q19 — the split, and the citation ──────────
+        # Content, not presence: arm 1 above passes on any decisions.md, including the pre-Q19
+        # body. Both conjuncts are spelled as literals for the same reason the set is.
+        dec = read(gd / "decisions.md")
+        check("2b. decisions.md names the run-folder half of the durability split",
+              "runs/run-<n>/decisions.md" in dec, dec[:200])
+        check("2b. decisions.md adopts the entry shape by CITING decisions-discipline.md",
+              "authoring/decisions-discipline.md" in dec, dec[:200])
+        check("2b. decisions.md no longer carries the pre-Q19 'NOT a log' body",
+              bool(dec) and "NOT a log" not in dec, dec[:200])
+
         # ── 3. THE MIRROR DECLARES ITSELF ONE, AND CARRIES THE SAME BODY ─────────────────────
         claude = read(gd / "CLAUDE.md")
         agents = read(gd / "AGENTS.md")
@@ -229,7 +242,7 @@ def main() -> int:
             gd_a, rc_a, err_a = fresh_root(td, "mut-a", mut_a)
             absent = [f for f in (*ROUTERS, *WRITE_IF_SOMETHING) if not (gd_a / f).is_file()]
             if rc_a == 0 and sorted(absent) == sorted([*ROUTERS, *WRITE_IF_SOMETHING]):
-                check("6. RED CONTROL — the mutant leaves all 6 ruled files absent "
+                check("6. RED CONTROL — the mutant leaves all 7 ruled files absent "
                       "(so arm 1 can fail)", True, f"absent: {sorted(absent)}")
             else:
                 inoperative(
