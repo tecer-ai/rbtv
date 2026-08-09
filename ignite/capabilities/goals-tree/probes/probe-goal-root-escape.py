@@ -31,7 +31,7 @@ Run it through the suite — `node deploy/probe-suite.js --only goal-root-escape
 broken · 2 = INOPERATIVE (could not run, or the red control did not go red).
 
 ⚠ 1 WINS OVER 2 WHEN BOTH APPLY (task 7.592, from the §2 review of 7.576). A genuinely broken
-G-115 guard produces BOTH: real assertion failures in rows 1-2c AND an inoperative row 3, because
+G-115 guard produces BOTH: real assertion failures in rows 1-2d AND an inoperative row 3, because
 row 1 has already escaped and the mutant's own materialize then refuses as "already materialized".
 The old mapping returned 2 first, so the WORST case this probe can report — a live escape out of
 `--root` — read as "broken probe" to anything grading on the exit code alone. Real failures
@@ -139,6 +139,15 @@ def build_tree(td: Path) -> tuple[Path, Path, Path]:
 
     run_dir = goal / "runs" / "run-1"
     run_dir.mkdir(parents=True)
+    # The decoy's pass folder — the write-safe fixture row 2d needs. `write_gate_key_override`
+    # does NOT mkdir its parent: without this folder an escaped `--override` record cannot land
+    # even when the guard is gone, so row 2d's "nothing was written outside" arm would pass for
+    # the wrong reason — and NOT hypothetically: MEASURED (7.602, trial D3) that with this one
+    # `mkdir` removed, the SAME live escape reds only 2 of row 2d's 6 arms — the record cannot
+    # land, so "nothing written outside" passes, and the failed write makes the verb exit
+    # nonzero so "exits nonzero" passes too. With the folder present the escape lands
+    # `runs/run-1/planning/pass-1/gate-key-override.md` outside the root and all 6 arms red.
+    (run_dir / "planning" / "pass-1").mkdir(parents=True)
     (goal / "runs.csv").write_text(
         "run-id,type,state,taskforce-id(s),opened,closed\n"
         "run-1,fresh,planning,tf-1,2026-01-01,\n", encoding="utf-8", newline="\n")
@@ -179,6 +188,11 @@ def build_tree(td: Path) -> tuple[Path, Path, Path]:
 
 def seats_under(goal: Path) -> list[str]:
     return sorted(str(p) for p in goal.rglob("seat.md"))
+
+
+def overrides_under(goal: Path) -> list[str]:
+    """Row 2d's damage detector — `gate-key-check --override`'s § 6b record."""
+    return sorted(str(p) for p in goal.rglob("gate-key-override.md"))
 
 
 def main() -> int:
@@ -234,10 +248,15 @@ def main() -> int:
         # `lint_goal` → rows 2 (2 arms red) · `gate_key_check` → rows 2b (2 arms red) ·
         # `cmd_materialize` → rows 1 (5 arms red) · `cmd_branch_home` → rows 2c (4 arms red,
         # added by 7.592 — it USED to turn nothing red).
-        # ONE censused call site still carries NO arm and turns nothing red: the `--override`
-        # branch of `cmd_gate_key_check`. That branch WRITES, so this probe never passes the
-        # flag — a stated exclusion, not an assumption of coverage. It remains CENSUSED, so the
-        # mutation must still reach it; an arm for it is a separate task.
+        # The fifth site — `cmd_gate_key_check`'s `--override` branch — turns nothing red under
+        # that ONE-SITE technique and never will, because it is SHADOWED; rows 2d below score it
+        # through a two-site revert instead, and carry the measurement.
+        # THERE IS NO LONGER AN UNSCORED CENSUSED SITE (task 7.602). The last one — the
+        # `--override` branch of `cmd_gate_key_check` — is scored by rows 2d below. Its former
+        # exclusion ("that branch WRITES") is retired: every path here already runs inside a
+        # `tempfile` throwaway tree, so the write is safe by construction; what the arm needed
+        # was the decoy's `runs/run-1/planning/pass-1/` folder (see `build_tree`), because
+        # `write_gate_key_override` does not create its parent.
         for label, name in (("absolute path", abs_name), ("`..` traversal", dots_name)):
             rc, so, se = run(TOOL, ["--root", str(root), "gate-key-check", name,
                                     "--pass-folder", "pass-1"])
@@ -260,6 +279,48 @@ def main() -> int:
             check(f"2c.{label} — branch-home refuses instead of homing a branch outside the root",
                   "escapes --root" in se and "would mint" not in so,
                   f"stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
+
+        # ── 2d. gate-key-check --override (the SECOND WRITE path) — SCORED (task 7.602) ────────
+        #
+        # ⚠ THIS SITE IS SHADOWED, AND THAT CHANGES WHAT ITS RED CONTROL LOOKS LIKE. Reverting
+        # this call site ALONE reds nothing here and NEVER CAN: `cmd_gate_key_check`
+        # (goal_cli.py) calls `gate_key_check(root, goal_name, …)` FIRST, and that function's own
+        # `resolve_goal_dir` refuses an escaping name before the `--override` branch is reached.
+        # So a single-site attribution census — the technique that scored rows 2/2b/2c — reports
+        # "turns nothing red" for this site whether it is guarded or not, which is precisely why
+        # it read as unscorable until 7.602.
+        #
+        # The red control is therefore a TWO-SITE revert, with the one-site revert as its GREEN
+        # discriminator (both MEASURED, task 7.602, scratch copies):
+        #   revert `gate_key_check`'s site ONLY   -> rows 2b red, rows 2d GREEN (this site
+        #                                            refuses the escape, nothing lands outside)
+        #   revert BOTH that site AND this one    -> rows 2d RED: exit 0, no escape refusal, and
+        #                                            `gate-key-override.md` written outside --root
+        # The green half is what attributes rows 2d to THIS site rather than to the shadowing
+        # one — without it the arms would merely re-measure rows 2b.
+        #
+        # ⚠ IF YOU EVER REMOVE `gate_key_check`'s OWN `resolve_goal_dir` CALL, OR MAKE IT
+        # CONDITIONAL, BOTH HALVES ABOVE CHANGE MEANING — silently, with every arm still green.
+        # The shadow is what makes the one-site revert a discriminator: unshadowed, reverting
+        # `gate_key_check`'s site alone would red rows 2d TOO, and a reader following the recipe
+        # would read that as "this site is unguarded" when the site under test was never touched.
+        # Rows 2d would also become the ONLY guard left on this path, so what is defense in depth
+        # today is a single point of failure then. If that call goes: re-derive the controls here
+        # (the one-site revert of THIS site becomes the red control directly) and rewrite this
+        # block — do not carry these two trials forward unexamined.
+        #
+        # The third arm is the one nothing else in this probe covers: an escaping `--override`
+        # WRITES. Row 1 asserts `materialize` writes nothing outside; nothing asserted it of the
+        # § 6b override record until now.
+        for label, name in (("absolute path", abs_name), ("`..` traversal", dots_name)):
+            rc, so, se = run(TOOL, ["--root", str(root), "gate-key-check", name,
+                                    "--pass-folder", "pass-1", "--override", "d-probe-anchor"])
+            check(f"2d.{label} — gate-key-check --override exits nonzero", rc != 0,
+                  f"exit={rc} stdout={so.strip()[:200]}")
+            check(f"2d.{label} — the refusal names the root escape",
+                  "escapes --root" in se, f"stderr={se.strip()[:300]}")
+            check(f"2d.{label} — no override record was written outside --root",
+                  overrides_under(decoy) == [], str(overrides_under(decoy)))
 
         # ── 3. THE RED CONTROL — the pre-fix code MUST escape, or rows 1-2 score nothing ───────
         #
@@ -294,7 +355,7 @@ def main() -> int:
                 f"{applied} of {sites} `resolve_goal_dir` call sites in {TOOL.name} were reverted "
                 "to the pre-fix form (the counts must MATCH and be nonzero) — a call site the "
                 "mutation cannot reach, or a source carrying none at all, means this probe's red "
-                "control no longer bites every guarded path; rows 1-2c are therefore unproven, "
+                "control no longer bites every guarded path; rows 1-2d are therefore unproven, "
                 "not green. Widen MUTATE_RE to the new call form, or record the exclusion and its "
                 "reason on this probe. UNREACHED: "
                 + ("; ".join(unreached) if unreached
@@ -340,6 +401,15 @@ def main() -> int:
         check("4. an in-root goal is not refused by gate-key-check as an escape",
               "escapes --root" not in se and "escapes --root" not in so,
               f"exit={rc} stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
+        # gate-key-check --override's own positive control — an in-root name reaches the
+        # override branch instead of being refused as an escape. (`inside-goal` has no run
+        # compartment, so the record still cannot be written and the verb exits nonzero; the
+        # discriminating property is the ABSENCE of the escape refusal.)
+        rc, so, se = run(TOOL, ["--root", str(root), "gate-key-check", "inside-goal",
+                                "--pass-folder", "pass-1", "--override", "d-probe-anchor"])
+        check("4. an in-root goal is not refused by gate-key-check --override as an escape",
+              "escapes --root" not in se and "escapes --root" not in so,
+              f"exit={rc} stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
         # branch-home's own positive control — same shape as gate-key-check's: `inside-goal` has
         # no run compartment, so it still exits nonzero; the discriminating property is that the
         # refusal is NOT the escape refusal.
@@ -358,7 +428,7 @@ def main() -> int:
     OUT.write_text("\n".join(_lines) + "\n", encoding="utf-8")
 
     # A REAL failure outranks INOPERATIVE (see the module docstring): a broken guard reds rows
-    # 1-2c (measured: 13 arms — 5+2+2+4) AND strands row 3, and reporting that as "could not run"
+    # 1-2d (measured: 19 arms — 5+2+2+4+6) AND strands row 3, and reporting that as "could not run"
     # buries a live root escape.
     if failures:
         return 1
