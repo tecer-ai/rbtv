@@ -83,6 +83,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -1495,6 +1496,30 @@ LEFTOVER_DEBOUNCE_TICKS = REVIVAL_DEBOUNCE_TICKS
 REVIVAL_ROOM_DEAD_LINE = "REVIVAL n/a — room dead; recovery is jobs/recover-room.py (task 7.71)"
 REVIVAL_STALE_LINE = "REVIVAL paused — snapshot stale"
 
+# The RETIRED role names, spelled ONCE (task 7.575 finding B). `d-watcher-deterministic-chain`
+# (2026-08-08) retired both: nothing may WAKE, SPAWN, ADDRESS or FALL BACK TO one.
+#
+# ⚠ THE SCAN'S TARGET IS THE DELIVERED STRING, NOT THE WORD — the twin of the guard
+# `goal-watcher-job.py` already runs over its `decision(...)` literals. A checker that grepped
+# this whole file would fire on this very comment and on every paragraph DOCUMENTING the
+# retirement, and would still be silent about a breach worded as a synonym. So it runs over what
+# reaches a recipient: every string literal inside a `Flag(...)` call, plus the module-level
+# constants those flags paste in by name. Prose explaining the retirement is the record, never the
+# residue.
+#
+# ⚠ WHAT IT DOES **NOT** SEE, stated because an unstated blind spot is worse than a known one
+# (§2 review, 2026-08-09 — each case below was driven against a mutant, not reasoned about;
+# `evidence/w7575-7578-review/r09-guard-blindspot-battery.out`). CAUGHT: a plain literal, a literal
+# inside an f-string, implicitly-concatenated adjacent literals, a module-level constant, and a
+# `Flag(...)` at a site no test ever reaches. NOT CAUGHT: a name the token is SPLIT ACROSS an
+# explicit `+` concatenation (`"clo" + "ser"`), and a name ASSEMBLED AT RUNTIME into a local
+# variable that an f-string then interpolates. Both are static-analysis limits, not oversights: the
+# scan reads literals, so a value that only exists at runtime is invisible to it. The mitigation is
+# the convention, not more scanning — SPELL A ROLE NAME AS ONE LITERAL AT THE FLAG, never assemble
+# one. If a role ever does have to be parameterized here, this guard stops covering it and the
+# check moves to the assignment site.
+RETIRED_ROLE_TOKENS = ("chief-of-staff", "closer")
+
 # ---- 7.32 leaf (v): THE STALE-SENSOR TRIPWIRE'S SECOND HALF — THE WAKE. ------------------------
 #
 # The tripwire is TWO behaviours and the row says both are required: *"(1) Enforcement PAUSES …
@@ -1521,7 +1546,14 @@ REVIVAL_STALE_LINE = "REVIVAL paused — snapshot stale"
 # A remedy the recipient cannot execute is the alert-only shape this leaf exists to supersede.
 SENSOR_RESTART_CMD = ("python3 3-resources/tools/rbtv/orchestration/cli/team-monitor/"
                       "team_monitor.py ensure --package {package}{session}")
-SENSOR_WAKE_LINE = "WAKE chief-of-staff — RESTART THE SENSOR"
+# ⚠ NO ROLE NAME HERE. `chief-of-staff` and `closer` are RETIRED roles
+# (`decisions.md#d-watcher-deterministic-chain`, 2026-08-08): nothing may wake, spawn, address or
+# fall back to one. This line USED to wake the chief-of-staff, and nothing caught it because
+# `watch.py` had no equivalent of `goal-watcher-job.py`'s retired-role scan — task 7.575 finding
+# B. It now names the RUN AUTHORITY, which is the addressee `d-watcher-deterministic-chain`'s
+# chain actually ends at, and which `--notify-to` already resolves per run (default `leader`) —
+# so the kit stays free of one campaign's role table, which is why no seat name is spelled here.
+SENSOR_WAKE_LINE = "WAKE THE RUN AUTHORITY — RESTART THE SENSOR"
 
 
 def sensor_restart_cmd(package, session=""):
@@ -1532,10 +1564,17 @@ def sensor_restart_cmd(package, session=""):
     the persisted room state so the unreadable-snapshot tick still has it. Unknown -> the command
     is UNCHANGED from its sessionless form, which is a remedy that may fail rather than one that
     names a session nobody can confirm. `G-296`: a derived session name is right by coincidence
-    only, and it once ran a whole room unobserved behind a log that read healthy."""
+    only, and it once ran a whole room unobserved behind a log that read healthy.
+
+    ⚠ SHELL-QUOTED (task 7.578). This side has NO exec path — the text IS the entire surface, and
+    it is handed to a reader who pastes it — so a session name of `room; touch /tmp/PWNED` would
+    render a remedy that runs TWO commands, and a name carrying a newline would split across
+    lines. `shlex.quote` leaves an ordinary name byte-identical, so nothing about the normal
+    remedy changes. Quoting lives HERE, in the one renderer, and never in a copy of the string."""
     session = (session or "").strip()
-    return SENSOR_RESTART_CMD.format(package=package,
-                                     session=f" --session {session}" if session else "")
+    return SENSOR_RESTART_CMD.format(
+        package=shlex.quote(str(package)),
+        session=f" --session {shlex.quote(session)}" if session else "")
 
 # ---- s4-04: the COMPLETED-ONE-SHOT gate's literals ----
 #
@@ -2572,7 +2611,7 @@ def check_revival(args, base, snap, snap_err, state, notes):
                 f"on the snapshot's age, not on anything anyone has to un-set, so nothing needs "
                 f"re-arming after the restart and no second flag will announce the resumption. "
                 f"This is a WAKE, not an act performed here: restarting a resident service is the "
-                f"chief-of-staff's, and this loop's one actuator is the revival fire."))
+                f"run authority's, and this loop's one actuator is the revival fire."))
             room["notified_stale"] = True
         return lines
     room["stale_ticks"] = 0
@@ -3569,8 +3608,8 @@ def run_pass(args):
                              f"`{coord.coord_invocation(args)} checkout --renew` (that arms it and prints "
                              f"the second call, which carries `--handoff \"<what its next session must "
                              f"do>\"`; nothing is closed until that second call). Reach for "
-                             f"`{coord.coord_invocation(args)} close {agent} --renew` — the closer, the "
-                             f"FAILURE path — only if '{agent}' cannot check itself out."))
+                             f"`{coord.coord_invocation(args)} close {agent} --renew` — a THIRD-PARTY "
+                             f"close, the FAILURE path — only if '{agent}' cannot check itself out."))
                 st["notified_context"] = True
 
         ctx = f" ctx={pct}%" if pct is not None else ""
@@ -4788,11 +4827,71 @@ def cmd_selftest():
         check("⚠ 7.32 (v) IT IS A WAKE, NOT AN ACTUATION, AND THE FLAG SAYS SO — [S6]: the loop's "
               "ONE actuator stays `fire_revival`. `check_revival` names no subprocess, no tmux and "
               "no restart call anywhere in its own source; restarting a resident service is the "
-              "chief-of-staff's act. This is asserted off the SOURCE, so adding a quiet "
+              "RUN AUTHORITY's act. This is asserted off the SOURCE, so adding a quiet "
               "`subprocess.Popen` beside the flag reds it even while the flag text stays right",
-              "chief-of-staff's" in p3[0]
+              "run authority's" in p3[0]
               and not any(t in inspect.getsource(check_revival)
                           for t in ("subprocess.", "Popen", "team_monitor.py ensure", "os.system")))
+        # ---- task 7.575 finding B: the WAKE names no RETIRED role. Asserted on the DELIVERED
+        # text, not on the constant, because what reaches a reader is the flag.
+        check("7.575 (B) THE WAKE ADDRESSES NO RETIRED ROLE: the outage flag names neither "
+              "`chief-of-staff` nor `closer` — both retired by `d-watcher-deterministic-chain` "
+              "(2026-08-08), which nothing here caught because this file had no equivalent of "
+              f"`goal-watcher-job.py`'s retired-role scan. It wakes the RUN AUTHORITY instead "
+              f"({SENSOR_WAKE_LINE!r})",
+              not any(t in p3[0] for t in RETIRED_ROLE_TOKENS)
+              and "RUN AUTHORITY" in SENSOR_WAKE_LINE)
+        # ---- task 7.578: the remedy TEXT is shell-safe. THIS SIDE HAS NO EXEC PATH — the text is
+        # the whole surface, so the only thing that can be wrong here is the string a reader pastes.
+        hostile = "room; touch /tmp/PWNED\nsecond --session --help"
+        rstate.clear(); rnotes.clear()
+        h3 = []
+        for _ in range(REVIVAL_STALE_NOTE_TICKS):
+            _, h3 = rev(dict(rsnap(absent=[gone()], age_s=9999), session=hostile))
+        # ⚠ SLICED BY ITS TWO MARKERS, NOT BY LINES: a quoted newline is still a newline on the
+        # page, so splitting the flag on "\n" would cut the remedy in half and measure a fragment.
+        hcmd = h3[0].split(SENSOR_WAKE_LINE + ": ", 1)[-1].split("\nEnforcement RESUMES", 1)[0]
+        check(f"7.578 TEXT PATH: a session name carrying `;` and a newline renders as ONE COMMAND "
+              f"— the remedy shell-parses into exactly 7 words with the whole hostile name as the "
+              f"LAST one, so a paste runs `team_monitor ensure` and nothing else; the `touch` is "
+              f"data and the trailing `--session --help` never reaches a flag slot. Driven through "
+              f"`check_revival`'s real flag, never a local re-render ({hcmd[-40:]!r})",
+              len(h3) == 1 and shlex.split(hcmd)[:1] == ["python3"]
+              and len(shlex.split(hcmd)) == 7
+              and shlex.split(hcmd)[-2:] == ["--session", hostile])
+        # THE CONTROL that makes the arm above a measurement: the pre-7.578 unquoted rendering
+        # does NOT survive a shell parse — it splits the name into four words and loses `;`.
+        check("7.578 CONTROL: the pre-fix unquoted `--session {name}` interpolation splits under "
+              "a shell parse — which is the defect, and without this line the arm above would "
+              "pass against the code it exists to fix",
+              shlex.split(f"{SENSOR_RESTART_CMD.format(package=str(rpkg), session='')} "
+                          f"--session {hostile}")[-2:] != ["--session", hostile])
+        check("7.578 A LEGITIMATE NAME IS UNCHANGED: quoting fires only where it must, so an "
+              "ordinary room name renders byte-identically to the pre-fix remedy",
+              sensor_restart_cmd(rpkg, "revsess")
+              == SENSOR_RESTART_CMD.format(package=str(rpkg), session=" --session revsess"))
+        # ---- 7.575 (B) THE GUARD, and it is the half that matters: fixing leaf (v) without one
+        # leaves the NEXT occurrence exactly as invisible as this one was. Parsed off this file's
+        # own AST — EVERY `Flag(...)` call site plus the module-level constants they paste in by
+        # name, not only the rows this suite happens to reach — so an unreachable flag carrying a
+        # retired role reds too. The twin of `goal-watcher-job.py`'s `decision(...)` scan.
+        import ast
+        _tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        _residue = []
+        for _n in ast.walk(_tree):
+            if isinstance(_n, ast.Call) and getattr(_n.func, "id", "") == "Flag":
+                for _l in ast.walk(_n):
+                    if isinstance(_l, ast.Constant) and isinstance(_l.value, str):
+                        _residue += [(_n.lineno, _t) for _t in RETIRED_ROLE_TOKENS
+                                     if _t in _l.value]
+        for _n in _tree.body:
+            if (isinstance(_n, ast.Assign) and isinstance(_n.value, ast.Constant)
+                    and isinstance(_n.value.value, str)):
+                _residue += [(_n.lineno, _t) for _t in RETIRED_ROLE_TOKENS
+                             if _t in _n.value.value]
+        check(f"7.575 (B) RETIRED ROLE: no flag this file can deliver, and no constant one pastes "
+              f"in, names `chief-of-staff` or `closer` ({len(_residue)} hit(s): {_residue})",
+              not _residue)
         rstate.clear(); rnotes.clear()
 
         # ⚠ 7.561 CONTROL — THE OTHER DIRECTION, and it is what makes the arm above a measurement

@@ -212,6 +212,7 @@ It never writes `state.json`: task 7.33 has exactly one writer and this is a rea
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -342,6 +343,25 @@ def sensor_ensure(args, state):
     run and what the job actually runs cannot drift apart."""
     name = (state.get("_session") or "").strip()
     return ["ensure", "--package", str(args.package)] + (["--session", name] if name else [])
+
+
+def sensor_ensure_text(team_monitor, tail):
+    """The leader-facing REMEDY TEXT for the argv `sensor_ensure` just returned (task 7.578).
+
+    ⚠ THE TEXT PATH ONLY. The exec path hands `tail` to `run_inline` as LIST-ARGV with no shell,
+    so it is already correct and quoting it there would corrupt a literal argv value. What is
+    unsafe is this string: a leader — or, foreseeably, an AGENT acting on a leader-addressed flag
+    — PASTES it into a shell, so a session name of `room; touch /tmp/PWNED` renders as TWO
+    commands and a name carrying a newline splits across lines.
+
+    ⚠ RENDERED FROM THE SAME LIST, and that property is why this is a FUNCTION rather than a
+    quote added at each call site: both remedy strings pass the very `tail` object they hand to
+    `fix=`, so the coached text and the executed argv cannot drift apart (task 7.561), and a
+    second copy of the string cannot go unquoted while this one is fixed.
+
+    `shlex.join` quotes each element only when it needs quoting, so a legitimate session name
+    renders byte-identically to the pre-fix text."""
+    return "python3 " + shlex.join([str(team_monitor)] + list(tail))
 
 
 # ---------------------------------------------------------------- snapshot
@@ -631,7 +651,7 @@ def evaluate(snap, args, state, dispositions, now):
             f"UNOBSERVED for as long as this lasts. The sensor's own `ensure` is idempotent, so "
             f"restarting it is a mechanical fix and not a judgment (CMP-21 invariant 2); only a "
             f"sensor that does NOT come back is the leader's.",
-            f"python3 {args.team_monitor} {' '.join(tail)}",
+            sensor_ensure_text(args.team_monitor, tail),
             nudge="leader",
             fix=(args.team_monitor, tail)))
         # The shadow arm is gated by the SAME tripwire as every threshold: a would-be decision
@@ -1209,6 +1229,38 @@ def selftest():
     check(f"EXEC ALLOWLIST: an EMPTY program path says MISSING PATH, not 'not an inline-fix "
           f"program' ({why[:60]}…)",
           ok is False and "MISSING PATH" in why and "not an inline-fix program" not in why)
+    # ---- task 7.578: the leader-facing REMEDY TEXT is shell-safe; the ARGV stays raw.
+    # ⚠ DRIVEN OFF `evaluate`'s REAL STALE-SENSOR DECISION, never a hand-composed string — the
+    # defect is that the remedy a leader PASTES is built by interpolation, so the arm has to
+    # measure what that call site actually emits, not what a local re-render would.
+    hostile = "room; touch /tmp/PWNED\nsecond --session --help"
+    stale = snap()
+    stale["captured_at"] = fresh - 10_000
+    sd = evaluate(stale, a, {"_session": hostile}, {}, fresh)[0][0]
+    argv = list(sd["fix"][1])
+    naive = f"python3 {a.team_monitor} {' '.join(argv)}"   # the pre-7.578 rendering, for control
+    check("7.578 TEXT PATH: a session name carrying `;` and a newline renders as ONE command — "
+          f"the remedy shell-parses back to EXACTLY the argv the fix runs, so the `touch` is a "
+          f"quoted WORD and not a second command a paste would execute ({sd['remedy'][-48:]!r})",
+          sd["class"] == "STALE-SENSOR"
+          and shlex.split(sd["remedy"]) == ["python3", str(a.team_monitor)] + argv)
+    # THE CONTROL, and it is what makes the arm above a measurement rather than a restatement:
+    # the UNQUOTED rendering this row replaces splits that one word into four and loses the flag
+    # boundary entirely. Without this line the arm would pass against the code it exists to fix.
+    check("7.578 CONTROL: the pre-fix `' '.join(...)` rendering does NOT survive a shell parse — "
+          "it splits the session name into separate words, which is the defect",
+          shlex.split(naive) != ["python3", str(a.team_monitor)] + argv)
+    check("7.578 EXEC PATH UNCHANGED: the argv element is the RAW name, unquoted — the fix runs "
+          "through list-argv with no shell, so a quote added there would be passed to "
+          "team-monitor as a literal character",
+          argv[-2:] == ["--session", hostile] and sd["fix"][0] == a.team_monitor)
+    # A LEGITIMATE NAME STILL RESOLVES, and renders byte-identically to the pre-fix text: quoting
+    # that fired on ordinary names would change every remedy line in the run's logs.
+    ok_d = evaluate(stale, a, {"_session": "run-3"}, {}, fresh)[0][0]
+    check("7.578 (2) a legitimate session name is UNCHANGED in both paths — raw in the argv and "
+          "unquoted in the text",
+          ok_d["fix"][1][-1] == "run-3"
+          and ok_d["remedy"] == f"python3 {a.team_monitor} {' '.join(ok_d['fix'][1])}")
     # ⚠ EVERY `decision(...)` CALL SITE, not only the rows this selftest happens to reach: parsed
     # off this file's own AST, so an unreachable row carrying a retired name is caught too.
     import ast
@@ -1385,7 +1437,7 @@ def main():
         tail = sensor_ensure(args, state)
         decisions = [decision("STALE-SENSOR", "team-monitor",
                               "inline fix: restart the sensor (idempotent ensure)", err,
-                              f"python3 {args.team_monitor} {' '.join(tail)}",
+                              sensor_ensure_text(args.team_monitor, tail),
                               nudge="leader",
                               fix=(args.team_monitor, tail))]
         paused = True
