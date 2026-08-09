@@ -115,8 +115,8 @@ throwaway fixture in tempfile.TemporaryDirectory(); it never points at a real
 run.
 
 Ruled command name: `scaffold-seats`. The planning workflow and the rulings
-that reach for this tool name it `scaffold-seats` (planner-workflow
-workflow.md: "scaffold-seats --workflow planning" / "scaffold-seats --seat
+that reach for this tool name it `scaffold-seats` (planning-deprecated — pre-rename
+planner-workflow — workflow.md: "scaffold-seats --workflow planning" / "scaffold-seats --seat
 planner"); this FILE keeps its own name, and the ruled name is EXPOSED, never
 substituted (d-materialize-term keeps the spec token deliberately; run-3
 p-the-scaffold-seats-fix-is-NOT-a-text-alignment forbids a rename). Exposure is
@@ -1916,7 +1916,7 @@ def render_taskforce_rows(plan: dict) -> None:
 
     Q8 second-carrier note (d-spec-open-points-ruled Q8; verified at dag-05
     implementation): the verbatim 15-rule DAG-authoring block is carried by
-    TWO surfaces, both under .rbtv/mirror/meta/planner-workflow/ —
+    TWO surfaces, both under .rbtv/mirror/meta/planning-deprecated/ (pre-rename planner-workflow) —
     (1) workflows/planning/workflow.md § "DAG-authoring rules" (the source),
     (2) prompts/cognitive-units/procedures/workflow-designer.md § "The
     DAG-authoring rules — carried VERBATIM" (the byte-identical copy).
@@ -2710,7 +2710,7 @@ def build_fixture(tmp: Path) -> dict:
     component shape (kind-named XML unit bodies, id in frontmatter; bare and
     @latest unit refs both exercised — the dag-01 widened grammar)."""
     # catalog-root/<component>/... — one level, mirroring the live shape
-    # (catalog-root .rbtv/mirror/meta, component planner-workflow).
+    # (catalog-root .rbtv/mirror/meta, component planning-deprecated, pre-rename planner-workflow).
     comp = tmp / "catalog" / "demo-comp"
 
     def unit(rel: str, uid: str, body: str) -> None:

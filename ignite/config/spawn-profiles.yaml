@@ -1117,8 +1117,9 @@ tools:
   # ⚠ `--workflow`/`--entry-seat` NAME WHAT EVERY MASTER-CREATED GOAL STARTS WITH — RULED, task C5.
   # Owner ruling `d-owner-q10-launcher-0808` (1), 2026-08-08: a master-created goal that does not
   # route to a pre-existing workflow starts in the PLANNING workflow — the existing meta component
-  # `.rbtv/mirror/meta/planner-workflow/`, workflow `planning`, entry seat `elicitator` (the
-  # chain's root, verified on disk against that component's `seats.csv` before this edit).
+  # `.rbtv/mirror/meta/planning-deprecated/` (RENAMED from `planner-workflow/` by the planning-v4
+  # stage-B rename, vault commit `01f60de16`; task 7.598), entry seat `elicitator` (the chain's
+  # root, verified on disk against that component's `seats.csv` before this edit).
   #
   # ⚠ THE PAIR THAT WAS HERE BEFORE WOULD HAVE RE-RUN THE BUILD WAVE ON EVERY FRESH GOAL.
   # `master-request-launch-entry` / `request-schema-absence-remeasurer` name the run-3 wave that
@@ -1137,13 +1138,14 @@ tools:
   # DISCLOSED in the request's refusal record (`goal-dir`, `goal-exists`, `scaffolded`) instead of
   # deleted. Expect orphan goal directories after a failed fire; that is the ruled behaviour.
   #
-  # ⚠ NO LONGER DARK — the `workflows: planning:` entry at the foot of this file is the counterpart
-  # this comment used to name as missing (task C5E, owner rulings `d-owner-planning-entry-0808` and
-  # `d-owner-planning-entry-2-0808`). `enqueue-job` refuses a `start-workflow` row whose workflow is
-  # absent from `config.workflows`; that refusal is now satisfied for `planning`, and the three
+  # ⚠ NO LONGER DARK — the `workflows: planning-deprecated:` entry at the foot of this file is the
+  # counterpart this comment used to name as missing (task C5E, owner rulings
+  # `d-owner-planning-entry-0808` and `d-owner-planning-entry-2-0808`). `enqueue-job` refuses a
+  # `start-workflow` row whose workflow is absent from `config.workflows`; that refusal is now
+  # satisfied for `planning-deprecated`, and the three
   # values named here as unresolved are RULED and landed: the call shape is the WHOLE planning DAG
-  # (`--workflow planning --root`, 9 manifest seats, entry seat `elicitator`), the bindings file is
-  # the goal-generic `.rbtv/mirror/meta/planner-workflow/bindings-fresh-goal-planning.json`, and the
+  # (`--workflow planning-deprecated --root`, 9 manifest seats, entry seat `elicitator`), the bindings file is
+  # the goal-generic `.rbtv/mirror/meta/planning-deprecated/bindings-fresh-goal-planning.json`, and the
   # fresh goal's run package is `runs/run-1`, created by this same act and riding the queued row's
   # args as a whole token.
   #
@@ -1168,10 +1170,10 @@ tools:
       - --goals-root
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals
       - --workflow
-      - planning
+      - planning-deprecated
       - --entry-seat
       - elicitator
-      # ⚠ THE CATALOG ROOT IS THE SHARED PARENT, NOT THE planner-workflow COMPONENT FOLDER, and
+      # ⚠ THE CATALOG ROOT IS THE SHARED PARENT, NOT THE planning-deprecated COMPONENT FOLDER, and
       # this is measured rather than stylistic (`evidence/c5e/c5e-01-premise-probes.txt` P1).
       # `ledger-groomer` IS a row of the planning manifest but is cataloged in its OWN sibling
       # component; catalog resolution is catalog-root-wide, so rooting this at the component folder
@@ -1179,7 +1181,7 @@ tools:
       - --catalog-root
       - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta/
       - --bindings
-      - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta/planner-workflow/bindings-fresh-goal-planning.json
+      - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta/planning-deprecated/bindings-fresh-goal-planning.json
       # The OWNER-APPROVED starter set, shipped with the team-kit beside `conduct-template.md`.
       # ⚠ NOT `conduct-template.md` ITSELF — that file is an UNFILLED FORM whose own first lines say
       # a run's conduct-author instantiates it "filling every {{slot}}", and `--conduct` BYTE-COPIES.
@@ -1258,7 +1260,7 @@ workflows:
   # `failed`). 0 means A SEAT OPENED and nothing else; 3 means the launch ran and admitted nobody —
   # loud, typed, recorded `failed` rather than a false `done`. The row is ONE-SHOT (deleted at fire),
   # so that failure has no cadence to recur on.
-  planning:
+  planning-deprecated:
     argv:
       - /usr/bin/python3
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/capabilities/goal-creation-request/tool/workflow_launcher.py

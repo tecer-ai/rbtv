@@ -35,8 +35,9 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   folder, so the payload is file-staged and only the trigger crosses the gateway. Registered in
   `config/spawn-profiles.yaml` under `tools: goal-creation-request` and landed **dark** — arming is
   three gated acts in a fixed order. The workflow every master-created goal starts in is RULED
-  (task C5, `d-owner-q10-launcher-0808`): `planning` / entry seat `elicitator`, the existing meta
-  component `.rbtv/mirror/meta/planner-workflow/`. The launcher argv for `planning` is now RULED AND
+  (task C5, `d-owner-q10-launcher-0808`): `planning-deprecated` / entry seat `elicitator`, the existing meta
+  component `.rbtv/mirror/meta/planning-deprecated/` (named `planning`/`planner-workflow` when ruled;
+  renamed by R11, vault `01f60de16`, task 7.598). The launcher argv for it is now RULED AND
   LANDED too (task C5E, `d-owner-planning-entry-0808` + `-2-0808`): `spawn-profiles.yaml` carries a
   `workflows:` section, the goal is born WITH a `runs/run-1` package materialized through the ruled
   name `scaffold-seats`, and `tool/workflow_launcher.py` opens that run's own per-run detached tmux

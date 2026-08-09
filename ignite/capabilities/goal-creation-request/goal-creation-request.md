@@ -177,10 +177,11 @@ Landing it does not arm it:
 Out of order, step 2 logs one `catalogue-paths` error per boot for an `--inbox` that does not exist
 yet (that check logs; it never refuses the boot).
 
-⚠ **`--workflow` / `--entry-seat` are RULED — `planning` / `elicitator`** (owner ruling
+⚠ **`--workflow` / `--entry-seat` are RULED — `planning-deprecated` / `elicitator`** (owner ruling
 `d-owner-q10-launcher-0808` (1), 2026-08-08; task C5). They name what EVERY master-created goal that
 does not route to a pre-existing workflow starts with: the existing meta component
-`.rbtv/mirror/meta/planner-workflow/`, whose chain root is `elicitator`. The pair shipped here
+`.rbtv/mirror/meta/planning-deprecated/` (RENAMED from `planner-workflow/` by the planning-v4
+stage-B rename, vault commit `01f60de16`; task 7.598), whose chain root is `elicitator`. The pair shipped here
 before was `master-request-launch-entry` / `request-schema-absence-remeasurer` — the run-3 wave that
 BUILT this machinery, whose root seat is a build-time measurement seat — so a fresh goal would have
 re-run the build wave. Confirming that pair is no longer an owner precondition; it is settled.
@@ -188,12 +189,12 @@ re-run the build wave. Confirming that pair is no longer an owner precondition; 
 ✅ **THAT PRECONDITION IS DISCHARGED** (task C5E, owner rulings `d-owner-planning-entry-0808` and
 `d-owner-planning-entry-2-0808`). `enqueue-job` refuses a `start-workflow` row whose workflow is
 absent from `config.workflows`; `spawn-profiles.yaml` now carries a `workflows:` section whose
-`planning` entry is that launcher. The three values named here as unresolved were ruled and landed:
+`planning-deprecated` entry is that launcher. The three values named here as unresolved were ruled and landed:
 
 | Was unresolved | Ruled and built |
 |---|---|
-| which `scaffold-seats` call shape | The WHOLE planning DAG — `--workflow planning --root --run-type fresh`, **9** manifest seats (`workflows/planning/planning.csv`; `seats.csv`'s 10 is a different set), `--catalog-root` the SHARED PARENT `.rbtv/mirror/meta/` because `ledger-groomer` resolves from a sibling component |
-| which bindings file | A goal-generic one authored for this path: `.rbtv/mirror/meta/planner-workflow/bindings-fresh-goal-planning.json`. It is STATIC, not a filled template — probing found no per-goal value to fill; `pass-folder` is the documented greenfield CONSTANT `planning/m0-bootstrapping/`, which is why the per-PASS hold that blocked run-3's file does not apply to a fresh goal |
+| which `scaffold-seats` call shape | The WHOLE planning DAG — `--workflow planning-deprecated --root --run-type fresh`, **9** manifest seats (`workflows/planning-deprecated/planning-deprecated.csv`; `seats.csv`'s 10 is a different set), `--catalog-root` the SHARED PARENT `.rbtv/mirror/meta/` because `ledger-groomer` resolves from a sibling component |
+| which bindings file | A goal-generic one authored for this path: `.rbtv/mirror/meta/planning-deprecated/bindings-fresh-goal-planning.json`. It is STATIC, not a filled template — probing found no per-goal value to fill; `pass-folder` is the documented greenfield CONSTANT `planning/m0-bootstrapping/`, which is why the per-PASS hold that blocked run-3's file does not apply to a fresh goal |
 | how the run PACKAGE is resolved | `runs/run-1`, created in this same act. `scaffold-and-queue` now calls `create()` — i.e. the ruled name `scaffold-seats` — which ALSO appends the run's `state=open` row to the goal's `runs.csv`. There is no second writer of that register, and none may be added |
 
 **The goal is therefore born WITH a run**, and the full package path rides the queued row's args as
@@ -220,7 +221,7 @@ and value rules: `server/heart/argv-template.js`. Suite: `server/ticker/probes/p
 DEFAULT workdir when a row carries none, so an absent value does not fail — it composes a command
 line pointed somewhere else. `required` turns that into a refusal at the enqueue door.
 
-### The launcher the `workflows: planning:` entry fires
+### The launcher the `workflows: planning-deprecated:` entry fires
 
 `tool/workflow_launcher.py`. It exists because **`coordinate launch` cannot open a room and a
 daemon-fired exec has none**: `launch` contains zero `new-session` calls (it opens a WINDOW in an
@@ -375,7 +376,7 @@ end-to-end witness, standing guard over the fact that a request carrying `--type
 produces a recurring goal, checked against the created goal's own descriptor on disk rather than
 against the request that asked for it. `probes/probe-planning-entry.py` (task C5E) is the
 **composition** probe: it drains a real request through a fixture goals root with a STUB
-`--ignite-bin`, then takes the SHIPPED `workflows: planning:` argv out of `spawn-profiles.yaml`,
+`--ignite-bin`, then takes the SHIPPED `workflows: planning-deprecated:` argv out of `spawn-profiles.yaml`,
 expands it with the REAL `argv-template.js` against the args that drain actually produced, and
 EXECUTES the composed command line against the real launcher (with `--dry-run` appended and a
 private tmux socket). 26 checks, 8 of them red arms.

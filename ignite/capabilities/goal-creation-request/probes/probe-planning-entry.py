@@ -4,7 +4,7 @@
 WHAT THIS GUARDS THAT NOTHING ELSE DOES. `probe-argv-template.js` certifies the templating
 MECHANISM (a row's args expand into a registered argv) and `probe-goal-creation-request.py`
 certifies the create act's SHAPE. Neither reads `config/spawn-profiles.yaml`. So the composition —
-the SHIPPED `workflows: planning:` argv, expanded against the args the SHIPPED
+the SHIPPED `workflows: planning-deprecated:` argv, expanded against the args the SHIPPED
 `goal-creation-request` entry actually produces, handed to the program that argv names — was
 guarded by nothing, and it is the whole surface between a certified mechanism and a goal that
 plans itself.
@@ -92,7 +92,7 @@ def shipped():
     for i, tok in enumerate(argv):
         if isinstance(tok, str) and tok.startswith("--") and i + 1 < len(argv):
             flags[tok] = argv[i + 1]
-    return flags, cfg["workflows"]["planning"]["argv"]
+    return flags, cfg["workflows"][flags["--workflow"]]["argv"]
 
 
 def expand(argv, args):

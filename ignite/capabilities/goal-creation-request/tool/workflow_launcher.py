@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Open a run's own detached tmux room and launch its entry seat into it (task C5E).
 
-This is the program the `workflows: planning:` entry of `config/spawn-profiles.yaml` execs when the
+This is the program the `workflows: planning-deprecated:` entry of `config/spawn-profiles.yaml` execs when the
 queue row `scaffold-and-queue` planted at goal birth comes due. It is the LAST dark piece between
 the certified per-row argv templating (`server/heart/argv-template.js`) and a master-created goal
 that plans itself.
