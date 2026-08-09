@@ -385,11 +385,18 @@ profiles:
   # depths [low, medium, high] — THREE, not four; the abstract `max` maps to `high`, a LOSSY but
   # honest collapse the resolver reports rather than silently drops. No `headed:` — the retired
   # set never declared a codex TUI and none is verified here.
+  # `--dangerously-bypass-hook-trust` (owner-ruled, core-build d-codex-hook-trust-bypass,
+  # 2026-08-09): codex trust-gates hooks BY HASH, and seat-folder hooks.json files are derived
+  # and regenerated freely, so persisted trust re-breaks on every re-materialize; daemon-fired
+  # seat folders are machine-generated from owner-authored exposure manifests — codex's own
+  # documented case ("automation that already vets hook sources"). Daemon spawn profiles ONLY;
+  # never add this to an interactive/human codex invocation (humans keep the /hooks review).
 
   codex-gpt-5-5:
     exec:
       argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.5",
-             "--sandbox", "danger-full-access", "-c", "approval_policy=never", "--json"]
+             "--sandbox", "danger-full-access", "-c", "approval_policy=never",
+             "--dangerously-bypass-hook-trust", "--json"]
       prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
     effort:
       dialect: thinking
