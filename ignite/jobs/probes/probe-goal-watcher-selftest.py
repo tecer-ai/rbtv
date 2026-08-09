@@ -57,9 +57,9 @@ TARGET = HERE.parent / "goal-watcher-job.py"
 OUT = HERE / "probe-goal-watcher-selftest.out"
 
 # The count the selftest carried at 2026-08-09 (task 7.575, raised 29 -> 35 by task 7.590's six
-# arms — the floor is RAISED IN THE SAME CHANGE that adds arms, or the new coverage is deletable
-# without reddening anything). See R2.
-ARM_FLOOR = 35
+# arms, 35 -> 45 by task 7.601's ten — the floor is RAISED IN THE SAME CHANGE that adds arms, or
+# the new coverage is deletable without reddening anything). See R2.
+ARM_FLOOR = 45
 # Label prefixes whose disappearance is a silent loss of coverage. Each names a guard whose
 # failure mode is invisible without it — the two 7.578 rows are the text/exec split the row was
 # filed over, and RETIRED ROLE is the AST scan that makes `d-watcher-deterministic-chain`
@@ -81,6 +81,22 @@ REQUIRED_FAMILIES = (
     "7.590 TEXT PATH (goal name):",
     "7.590 CALL SITE (goal name):",
     "7.590 EXEC PATH UNCHANGED:",
+    # Task 7.601 — the SAME split at the seven remedy strings that append a SEAT NAME. Six arms
+    # reach six sites through `evaluate`'s real decisions; CENSUS closes the seventh (`COMPLETED`
+    # needs a taskforce.csv the selftest has no package for) off the file's own AST and is the
+    # only arm that covers a site no fixture can reach — losing it silently reopens that site.
+    # CONTROL is what makes the six measurements rather than restatements, and EXEC PATH UNCHANGED
+    # asserts the argv that must NOT move. Named individually, per the 7.590 precedent: a bare
+    # `7.601` prefix would still be satisfied after losing eight of the nine.
+    "7.601 TEXT PATH (DEAD):",
+    "7.601 TEXT PATH (GHOSTROW):",
+    "7.601 TEXT PATH (APPROVAL):",
+    "7.601 TEXT PATH (CONTEXT):",
+    "7.601 TEXT PATH (QUIET-ESCALATED):",
+    "7.601 TEXT PATH (CONTEXT-ESCALATED):",
+    "7.601 CONTROL:",
+    "7.601 CENSUS:",
+    "7.601 EXEC PATH UNCHANGED:",
 )
 
 lines, failures, inoperative = [], [], []

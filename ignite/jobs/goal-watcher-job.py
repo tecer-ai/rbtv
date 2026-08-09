@@ -364,9 +364,9 @@ def sensor_ensure_text(team_monitor, tail):
     return "python3 " + shlex.join([str(team_monitor)] + list(tail))
 
 
-def coord_text(coord, package):
-    """The leader-facing REMEDY-TEXT PREFIX every `coord.py` remedy in `evaluate` is built on
-    (task 7.590 — 7.578's shape at the site its criterion's wording missed).
+def coord_text(coord, package, *tail):
+    """The leader-facing REMEDY TEXT for a `coord.py` invocation — the ONE renderer every
+    `coord.py` remedy in `evaluate` is built on (task 7.590; `*tail` added by task 7.601).
 
     ⚠ THE TEXT PATH ONLY, exactly as `sensor_ensure_text` above, and for the same reason. The
     package reaches the EXEC path as list-argv (`sensor_ensure` -> `fix=` -> `run_inline`, no
@@ -375,11 +375,22 @@ def coord_text(coord, package):
     package path or a `--coord` path carrying a space renders as extra operands and one carrying
     `;` renders as a second command.
 
-    ONE renderer, and that is why this is a function rather than a quote at each site: TEN remedy
-    strings in `evaluate` are built by appending a subcommand to its return value, so a second
-    copy cannot go unquoted while this one is fixed (the 7.561 property). `shlex.join` quotes only
-    what needs quoting, so an ordinary path renders byte-identically to the pre-fix text."""
-    return "python3 " + shlex.join([str(coord), "--package", str(package)])
+    ONE renderer, and that is why this is a function rather than a quote at each site: NINE remedy
+    strings in `evaluate` are built from its return value (counted off this file's own AST, task
+    7.601 — the 7.590 docstring said TEN), so a second copy cannot go unquoted while this one is
+    fixed (the 7.561 property). `shlex.join` quotes only what needs quoting, so an ordinary path
+    renders byte-identically to the pre-fix text.
+
+    ⚠ `*tail` IS THE 7.601 FIX, and it exists because the prefix alone was only half the defect:
+    SEVEN of those nine remedy strings appended a SEAT NAME — taken off the snapshot, which no
+    code anywhere validates the characters of (swept by symbol, task 7.601) — by f-string
+    interpolation, so a seat called `a; touch /tmp/PWNED` rendered as two commands in a line a
+    leader PASTES. Passing the subcommand and its operands THROUGH here quotes them by the same
+    one mechanism instead of adding a `shlex.quote` at seven call sites, any one of which could
+    later be forgotten. A remedy that is prose + command concatenates the prose to this call's
+    return value; the prose never goes through `shlex.join`, which would quote its punctuation."""
+    return "python3 " + shlex.join([str(coord), "--package", str(package)]
+                                   + [str(t) for t in tail])
 
 
 def worktree_flow_text(flow, goal_name):
@@ -659,6 +670,14 @@ def evaluate(snap, args, state, dispositions, now):
     decisions = []
     trail = []
     coord_cmd = coord_text(args.coord, args.package)
+
+    def coord_seat(*tail):
+        """A `coord.py` remedy carrying OPERANDS — every one of which is shell-quoted, because
+        the operand is a SEAT NAME off the snapshot (task 7.601). `coord_cmd` above stays for the
+        two remedy lines whose operands are literal text: routing those through `shlex.join` too
+        would quote the `<seat>` placeholder into `'<seat>'` and rewrite a line that is correct."""
+        return coord_text(args.coord, args.package, *tail)
+
     repeats = state.get("_repeat") or {}
     held = {}          # condition-key -> consecutive passes it has held, THIS pass
 
@@ -774,7 +793,7 @@ def evaluate(snap, args, state, dispositions, now):
                 f"roster row ACTIVE but pane {pane} is not in the room — wakes cannot reach "
                 f"it, so the SEAT is not a reachable recipient for its own flag. "
                 f"{r.get('reason', '')}".strip(),
-                f"{coord_cmd} close-seat {name} --no-export   (or relaunch)",
+                coord_seat("close-seat", name, "--no-export") + "   (or relaunch)",
                 nudge="leader"))
         elif harness and harness in one_shot:
             # G-76. `opencode run` executes, prints, exits — for this harness a vanished
@@ -786,7 +805,7 @@ def evaluate(snap, args, state, dispositions, now):
                 f"MESSAGE before acting — the message says whether work was delivered; the "
                 f"process cannot. Close, do not renew. The close is LIFECYCLE and stays the "
                 f"leader's; nothing here closes a seat.",
-                f"{coord_cmd} close-seat {name}",
+                coord_seat("close-seat", name),
                 nudge="leader"))
         else:
             decisions.append(decision(
@@ -796,7 +815,8 @@ def evaluate(snap, args, state, dispositions, now):
                    " (no declared harness in taskforce.csv — classed conservatively as a "
                    "ghost, which asks for inspection rather than a close)")
                 + ". Its work is stopped and every wake sent to it is typed into a bare shell.",
-                f"inspect, then relaunch or close: {coord_cmd} close-seat {name} --renew",
+                "inspect, then relaunch or close: "
+                + coord_seat("close-seat", name, "--renew"),
                 nudge="leader"))
 
     # ---- ROWS 1/2/3 + REAP: per-seat.
@@ -848,7 +868,7 @@ def evaluate(snap, args, state, dispositions, now):
                 f"be matched against any allowlist. Every prompt is therefore non-allowlisted "
                 f"residue by construction, which is the SAFE arm of the split. Answering one "
                 f"needs CMP-20 to carry the prompt's identity first.",
-                f"inspect the pane, then: {coord_cmd} approve {name}",
+                "inspect the pane, then: " + coord_seat("approve", name),
                 nudge="leader"))
 
         # ROW 2: quiet. G-68 — a standby seat's correct state is WAITING.
@@ -874,7 +894,8 @@ def evaluate(snap, args, state, dispositions, now):
                         f"no activity for {mins}min (threshold {args.quiet_min}min), and this "
                         f"is pass {n} with the condition unbroken — the seat has been nudged "
                         f"and has not moved, so the row is now judgment.",
-                        f"check it; if hung or done-but-stuck: {coord_cmd} close {name} --renew",
+                        "check it; if hung or done-but-stuck: "
+                        + coord_seat("close", name, "--renew"),
                         nudge="leader"))
                 else:
                     decisions.append(decision(
@@ -913,7 +934,7 @@ def evaluate(snap, args, state, dispositions, now):
                     "CONTEXT-ESCALATED", name, "nudge leader: seat has not renewed",
                     f"context {pct}% >= threshold {threshold}%{amb}, unbroken for {n} passes — "
                     f"the seat has been nudged to renew itself and has not.",
-                    f"the seat's own act: {coord_cmd} checkout {name} --renew",
+                    "the seat's own act: " + coord_seat("checkout", name, "--renew"),
                     nudge="leader"))
             else:
                 decisions.append(decision(
@@ -922,7 +943,7 @@ def evaluate(snap, args, state, dispositions, now):
                     f"nothing will be spawned to do it for you: write your memory, then run the "
                     f"renew command, then relaunch fresh. Pass {n} of {args.escalate_after} "
                     f"before this escalates to the leader.",
-                    f"{coord_cmd} checkout {name} --renew",
+                    coord_seat("checkout", name, "--renew"),
                     nudge="seat"))
 
     # ---- THE REAP ROW's decision (CMP-21 invariant 6), ONE per pass rather than one per seat:
@@ -1330,6 +1351,104 @@ def selftest():
           "`worktree_flow_text`, and no unquoted interpolation of it survives",
           "worktree_flow_text(flow, goal_name)" in src_text
           and ("list --goal {" + "goal_name}") not in src_text)
+
+    # ---- task 7.601: the SAME text/exec split at the SEVEN remedy strings that append a SEAT
+    # NAME to the coord prefix. The name comes off the SNAPSHOT and NOTHING validates its
+    # characters anywhere on the path (swept by symbol before this was written: no seat-name
+    # regex exists in the tree; `coord.validate_seat` validates harness and model, not the name),
+    # so `trusted by construction` would rest on nothing.
+    # ⚠ EVERY ARM IS DRIVEN OFF `evaluate`'s REAL DECISION, never a local re-render — the defect
+    # is what those call sites emit, not what the renderer can do when called correctly.
+    hs = "al pha; touch /tmp/PWNED"            # a seat name carrying a space AND a `;`
+
+    def cmd601(*tail):
+        return ["python3", hostile_coord, "--package", hostile_pkg] + list(tail)
+
+    def has_run(remedy, exp):
+        """Shell-parse the COMMAND HALF of a remedy — from its `python3 ` onward — and assert it
+        opens with EXACTLY the operand list `exp`.
+
+        The command half, not the whole line, because four of these seven remedies are prose +
+        command and one is command + prose: prose is prose and is not shell input, and one of the
+        prefixes ("the seat's own act: ") carries an apostrophe that no shell parse of the whole
+        line survives. It remains a ONE-TOKEN-STREAM assertion of everything a paste would run —
+        under the pre-fix interpolation the hostile name is FOUR tokens and the prefix mismatches
+        at the seat operand."""
+        i = remedy.find("python3 ")
+        toks = shlex.split(remedy[i:]) if i >= 0 else []
+        return toks[:len(exp)] == exp
+
+    def site601(ds, cls, *tail):
+        d = next((x for x in ds if x["class"] == cls), None)
+        return d is not None and has_run(d["remedy"], cmd601(*tail))
+
+    absent_snap = snap()
+    absent_snap["roster_absent"] = [{"seat": hs, "pane": "%1", "liveness": "absent"},
+                                    {"seat": hs + "-2", "pane": "%2", "liveness": "live"}]
+    ads = evaluate(absent_snap, b, {}, {}, fresh)[0]
+    live_snap = snap()
+    live_snap["seats"] = [{"seat": hs, "pane": "%3", "roster_active": True, "liveness": "live",
+                           "prompt_pending": True, "last_activity_age_s": 99999,
+                           "ctx_pct": 90, "ctx_refresh": 60}]
+    st601 = {}
+    lds1 = evaluate(live_snap, b, st601, {}, fresh)[0]          # pass 1: seat-addressed rows
+    for _ in range(b.escalate_after - 1):
+        ldsN = evaluate(live_snap, b, st601, {}, fresh)[0]      # pass N: the escalated rows
+
+    check("7.601 TEXT PATH (DEAD): a seat name carrying a space and `;` renders as ONE shell "
+          "token — the remedy parses back to exactly the coord operands, so the `touch` is a "
+          "quoted WORD and not a second command a paste would execute",
+          site601(ads, "DEAD", "close-seat", hs, "--no-export"))
+    check("7.601 TEXT PATH (GHOSTROW): the prose-prefixed remedy still carries ONE shell command",
+          site601(ads, "GHOSTROW", "close-seat", hs + "-2", "--renew"))
+    check("7.601 TEXT PATH (APPROVAL): the approve remedy carries the seat name as one token",
+          site601(lds1, "APPROVAL", "approve", hs))
+    check("7.601 TEXT PATH (CONTEXT): the seat's own `checkout --renew` carries it as one token",
+          site601(lds1, "CONTEXT", "checkout", hs, "--renew"))
+    check("7.601 TEXT PATH (QUIET-ESCALATED): the leader-addressed close carries it as one token",
+          site601(ldsN, "QUIET-ESCALATED", "close", hs, "--renew"))
+    check("7.601 TEXT PATH (CONTEXT-ESCALATED): the escalated renew carries it as one token",
+          site601(ldsN, "CONTEXT-ESCALATED", "checkout", hs, "--renew"))
+    # THE CONTROL, and it is what makes the six arms above measurements rather than restatements:
+    # the pre-7.601 rendering — the coord PREFIX with the name interpolated after it — splits that
+    # one name into FOUR words and smuggles in a `;`. Without this line every arm above would pass
+    # against the code they exist to fix.
+    check("7.601 CONTROL: the pre-fix `{coord_cmd} <verb> {name}` rendering does NOT survive a "
+          "shell parse as one command",
+          not has_run(f"{coord_text(hostile_coord, hostile_pkg)} close-seat {hs} --no-export",
+                      cmd601("close-seat", hs, "--no-export")))
+    # A LEGITIMATE seat name renders byte-identically to the pre-fix text — quoting that fired on
+    # ordinary names would rewrite every remedy line in the run's logs.
+    check("7.601 (2) an ordinary seat name is UNCHANGED by the renderer",
+          coord_text("/a/coord.py", "/b/pkg", "close-seat", "alpha", "--renew")
+          == "python3 /a/coord.py --package /b/pkg close-seat alpha --renew")
+    # ⚠ THE SIX ARMS ABOVE REACH SIX OF THE SEVEN SITES. `COMPLETED` needs a declared one-shot
+    # harness, which only a real `taskforce.csv` under the package supplies, and this selftest has
+    # no package — so that site is closed HERE, off the file's own AST, together with any site a
+    # future fixture also cannot reach: a remedy f-string that interpolates `coord_cmd` may
+    # interpolate NOTHING ELSE. The two survivors are the literal-operand lines (`launch --only
+    # <seat>`, `reap --go`). The `>= 2` half is the vacuity guard — a renamed variable would
+    # otherwise find zero sites and pass.
+    import ast as _ast601
+    _t601 = _ast601.parse(src_text)
+    coord_fstrings = [n for n in _ast601.walk(_t601) if isinstance(n, _ast601.JoinedStr)
+                      and any(isinstance(v, _ast601.FormattedValue)
+                              and getattr(v.value, "id", "") == "coord_cmd" for v in n.values)]
+    smuggled = [n.lineno for n in coord_fstrings
+                if sum(isinstance(v, _ast601.FormattedValue) for v in n.values) > 1]
+    check(f"7.601 CENSUS: every remedy f-string built on `coord_cmd` interpolates nothing else "
+          f"({len(coord_fstrings)} such f-string(s), smuggled={smuggled})",
+          len(coord_fstrings) >= 2 and not smuggled)
+    # THE PATH THAT MUST NOT MOVE: no seat name reaches an exec argv at all, and the one `fix=`
+    # this loop can emit still carries the package RAW — a quote added there would be handed to
+    # coord as a literal character.
+    reap_snap = snap()
+    reap_snap["seats"] = [{"seat": hs, "pane": "%4", "roster_active": False, "liveness": "live"}]
+    rp = next(x for x in evaluate(reap_snap, b, {}, {hs: CLEAN_CHECKOUT}, fresh)[0]
+              if x["class"] == "REAP")
+    check("7.601 EXEC PATH UNCHANGED: the reap fix argv is raw and unquoted, and no seat name is "
+          "smuggled into its remedy",
+          rp["fix"] == (b.coord, ["--package", hostile_pkg, "reap"]) and hs not in rp["remedy"])
 
     # ⚠ EVERY `decision(...)` CALL SITE, not only the rows this selftest happens to reach: parsed
     # off this file's own AST, so an unreachable row carrying a retired name is caught too.
