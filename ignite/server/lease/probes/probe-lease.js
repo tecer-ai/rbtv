@@ -70,19 +70,21 @@ const UNIQUE = `${process.pid}-${Date.now()}`;
 
 // ── LAYER 1: the room predicate and the package mapping, pure ──────────────────────────────────
 
-check('L1 the E1 transitional predicate accepts the BARE GOAL NAME (E2\'s settled shape)',
+check('L1 the room predicate accepts the BARE GOAL NAME — design-lock item 2, one room per goal',
   roomNamesForGoal('gx', ['gx']).join() === 'gx');
-check('L1 …and the LEGACY `<goal>-run-N` spelling, which is what is on this box today',
-  roomNamesForGoal('gx', ['gx-run-3']).join() === 'gx-run-3');
+check('⚠ L1 the E1 transitional `<goal>-run-N` arm is DELETED (E2b) — a legacy-named room no '
+  + 'longer matches, so it can never contribute a grant or a verified seat',
+  roomNamesForGoal('gx', ['gx-run-3']).length === 0);
 check('⚠ L1 and NOTHING ELSE — a prefix match would hand one goal another goal\'s lease',
   roomNamesForGoal('gx', ['gx-other', 'gxy', 'gx-run-x', 'ygx', 'gx-run-']).length === 0,
   'gx-other/gxy/gx-run-x/ygx/gx-run- all refused');
 check('L1 a goal name carrying regex metacharacters is matched LITERALLY, never as a pattern',
   roomNamesForGoal('g.x', ['gyx']).length === 0 && roomNamesForGoal('g.x', ['g.x']).length === 1);
-check('L2 a bare-goal room homes at the GOAL folder (E2\'s shape, already expressible)',
+check('L2 a room homes at the GOAL folder — the package IS the goal folder (item 8)',
   packageDirForRoom({ goalDir: '/w/g', goal: 'g', room: 'g' }) === '/w/g');
-check('L2 a legacy room homes at `runs/run-N` — the E1 compat seam, and the ONLY place it lives',
-  packageDirForRoom({ goalDir: '/w/g', goal: 'g', room: 'g-run-4' }) === path.join('/w/g', 'runs', 'run-4'));
+check('⚠ L2 and the mapping NEVER composes a runs/ segment again — the E1 legacy arm that mapped '
+  + 'a room to `<goal>/runs/run-N` is deleted; that path does not exist under the new layout',
+  !/runs/.test(packageDirForRoom({ goalDir: '/w/g', goal: 'g', room: 'g' })));
 
 // ── LAYER 1b: UNREADABLE IS NOT EMPTY ─────────────────────────────────────────────────────────
 
@@ -210,7 +212,7 @@ if (!tmuxAvailable()) {
       + 'goal forever (7.608). A lease that could see the file at all fails here',
       lease.ok === true && lease.live === false);
 
-    const room = `${GOAL}-run-1`;
+    const room = GOAL;
     itmux(['new-session', '-d', '-s', room]);
     const panePid = Number(itmux(['list-panes', '-t', room, '-F', '#{pane_pid}']).split('\n')[0]);
 
@@ -227,14 +229,13 @@ if (!tmuxAvailable()) {
       + 'directions, so no reading of runs.csv can produce both',
       lease.ok === true && lease.live === true);
 
-    check('L8 the live room maps to its package dir through the E1 compat seam',
-      lease.rooms[0].packageDir === path.join(goalDir, 'runs', 'run-1'));
+    check('L8 the live room maps to the GOAL FOLDER as its package dir',
+      lease.rooms[0].packageDir === goalDir);
     check('L8 the lease reports WHICH predicate it matched, so a reader need not find it in a comment',
       /room predicate|session name/.test(lease.evidence['room-predicate'] || ''));
 
     // ── the ancestry verifier, green arm then three red twins from the SAME row ────────────────
-    const pkgDir = path.join(goalDir, 'runs', 'run-1');
-    fs.mkdirSync(pkgDir, { recursive: true });
+    const pkgDir = goalDir;
     const sessionsCsv = path.join(pkgDir, 'sessions.csv');
     const writeSeat = (pid, st) => fs.writeFileSync(sessionsCsv,
       `session-id,seat,harness,pid,pid-starttime,ended\ns1,builder,claude,${pid},${st},\n`);

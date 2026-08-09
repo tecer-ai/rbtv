@@ -21,12 +21,15 @@
 // nothing about liveness, and every row it names is re-measured against /proc before it counts.
 // A row for a dead process contributes exactly nothing and is not an error.
 //
-// ⚠ TRANSITIONAL ROOM PREDICATE — E1 ONLY, AND IT IS SPELLED AT THE DEFINITION.
-// The design lock (item 2) settles the room name as the BARE GOAL NAME. But E1 is the MECHANISM
-// stage: the layout change is E2, and today's live rooms are `<goal>-run-N` (composed by
-// `workflow_launcher.session_name`, inventory #55). So this stage accepts BOTH spellings and says
-// which one it matched. E2 collapses `ROOM_PATTERNS` to the bare goal name and deletes
-// `packageDirForRoom`'s legacy arm — those two functions are the entire compat seam.
+// ⚠ THE ROOM NAME IS THE GOAL NAME — the E1 transitional predicate is COLLAPSED (7.607 E2b).
+// Design lock item 2: ONE room per goal, named for the goal. E1 accepted a second spelling,
+// `<goal>-run-N`, because the layout had not yet moved and `workflow_launcher.session_name` still
+// composed it. E2b re-keyed that launcher to the bare goal in the SAME stage as this collapse —
+// never separately — so the legacy arm has no producer left. It is DELETED rather than kept as a
+// tolerant reader, and under the goal-direct layout keeping it would have been worse than dead:
+// `packageDirForRoom` mapped a legacy room to `<goal>/runs/run-N`, a path that no longer exists,
+// so a legacy-named room derived a packageDir failing `existsSync` — contributing no authz grant
+// and no verified seat while still counting as a matched room (E2a findings §5.3).
 //
 // ⚠ UNREADABLE IS NOT EMPTY, AND NEVER FAIL-OPEN. `tmux` missing, refusing, or erroring returns
 // `{ ok: false, reason }`. Every caller must treat that as "I do not know", never as "no lease".
@@ -40,21 +43,17 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { readCsv } = require('../seat-identity/csv');
 
-// The two room spellings this stage accepts, in the order they are reported. See the transitional
-// note above: E2 deletes the second entry.
+// The ONE room spelling: the bare goal name. Exact equality, never a prefix or a pattern — a goal
+// named `foo` must not match the room of a goal named `foo-bar`.
 function roomNamesForGoal(goal, rooms) {
-  const legacy = new RegExp(`^${goal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-run-\\d+$`);
-  return rooms.filter((r) => r === goal || legacy.test(r));
+  return rooms.filter((r) => r === goal);
 }
 
-// Which folder a room's working content lives in — the E1 compat seam's other half. A bare-goal
-// room homes at the goal folder (E2's shape, already expressible); a legacy `<goal>-run-N` room
-// homes at `runs/run-N`. NOTHING here changes any path grammar: it only READS the two shapes that
-// exist on disk today.
-function packageDirForRoom({ goalDir, goal, room }) {
-  if (room === goal) return goalDir;
-  const m = room.match(/-(run-\d+)$/);
-  return m ? path.join(goalDir, 'runs', m[1]) : goalDir;
+// Which folder a room's working content lives in. The package IS the goal folder (design-lock
+// item 8), so this is now an identity — kept as a named function because it is exported and
+// because the mapping is a real concept a reader looks for, not because it computes anything.
+function packageDirForRoom({ goalDir }) {
+  return goalDir;
 }
 
 // /proc/<pid>/stat, parsed from the LAST ')' — the comm field is parenthesised and may itself
@@ -173,7 +172,7 @@ function deriveLease({ workspaceRoot, goal, tmuxProbe = defaultTmuxProbe }) {
     seats,
     evidence: {
       'rooms-matched': matched,
-      'room-predicate': `session name === "${goal}" OR /^${goal}-run-\\d+$/ (E1 transitional; E2 keeps only the first)`,
+      'room-predicate': `session name === "${goal}" (design-lock item 2: one room per goal)`,
       'sessions-seen': allRooms.length,
       'seats-verified': seats.length,
     },
@@ -222,7 +221,7 @@ function verifiedSeats({ packageDir, panePids }) {
 function describeLease() {
   return [
     'lease evidence: tmux room existence (primary) + ancestry-verified live seat processes',
-    'room predicate (E1 transitional): session name === <goal> OR <goal>-run-N; E2 keeps only <goal>',
+    'room predicate: session name === <goal> (exact; the E1 <goal>-run-N arm is deleted, E2b)',
     'seat predicate: sessions.csv (pid, pid-starttime) alive AND ancestry reaches a pane of that room',
     'stored status read: NONE — no runs.csv, no lease file, no heartbeat, no mtime',
     'tmux unreadable: { ok:false, reason } — ignorance, never "no lease"; the caller decides its posture',

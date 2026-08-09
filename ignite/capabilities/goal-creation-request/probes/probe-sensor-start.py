@@ -52,7 +52,7 @@ ENTRY_PROBE = HERE / "probe-planning-entry.py"
 
 SOCKET = "probe-sensor-start"          # PRIVATE; never the socket live rooms are on
 GOAL = "probe-sensor-start-goal"
-ROOM = f"{GOAL}-run-1"
+ROOM = GOAL   # 7.607 E2b, design-lock item 2: the room name IS the goal name
 
 FAILED = []
 INOPERATIVE = []
@@ -170,7 +170,7 @@ def main():
         os.environ["PATH"] = env["PATH"]          # so this probe's own `tmux()` hits the shim too
 
         _out, _calls, root = ep.drain(tmpdir / "a", flags, goal=GOAL)
-        pkg = root / GOAL / "runs" / "run-1"
+        pkg = root / GOAL   # 7.607 E2b item 8: the package IS the goal folder
         report("S1 the scaffolded package exists", pkg.is_dir(), True, str(pkg))
         virgin = not any((pkg / m).exists() for m in
                          ("state.json", "sessions.csv", "coordination/team-monitor.log",
@@ -257,7 +257,7 @@ def main():
                bool(wait_for(lambda: monitor_pid(pkg))), True, f"lock pid={monitor_pid(pkg)}")
     finally:
         subprocess.run([sys.executable, str(TEAM_MONITOR), "stop",
-                        "--package", str(tmpdir / "a" / ".rbtv" / "goals" / GOAL / "runs" / "run-1")],
+                        "--package", str(tmpdir / "a" / ".rbtv" / "goals" / GOAL)],
                        capture_output=True, text=True)
         tmux("kill-server")
         shutil.rmtree(tmpdir, ignore_errors=True)

@@ -112,6 +112,28 @@ REAP_MIN_AGE_MIN = 15
 REAP_MIN_PASS_GAP_MIN = 5
 # P2 — the registry's five canonical message types (concepts/message.md): the SOLE vocabulary.
 MESSAGE_TYPES = ["completion", "ask", "answer", "verdict", "note"]
+
+# ---- the CLOSED ADDRESSING RULE for agents (`decisions.md#d-agents-address-owner-not-master`) --
+#
+# Three lines, and they replace the role-vs-name judgment that measurably drifted (the
+# `goal-master` rename incident):
+#
+#   initiate -> `owner`      the RESERVED bus token for agent-initiated human-bound traffic. The
+#                            chat bridge's ferry delivers it under the two ratified gates
+#                            (human-interactive seat AND interactive goal), else the row PARKS on
+#                            the bus. Delivery is the BRIDGE's business, never this file's: a send
+#                            to `owner` is always legal from an agent and always lands in the log.
+#   answer   -> the asker    a `to: master` row is legal ONLY as an ANSWER to something master
+#                            sent — which on this bus means it carries `--re <n>`.
+#   else     -> the NAME     every other address is a seat by name, `channel-master` included:
+#                            the restriction is on the ROLE TOKEN, not on the seats holding it.
+#
+# ⚠ `owner` IS RESERVED AS A SEAT NAME. No seat may be called `owner` — the token must mean the
+# human on every bus, and a seat holding it would silently capture owner-bound traffic. Refused at
+# check-in (the roster's own door, below) so the name can never enter the roster in the first
+# place.
+OWNER_TOKEN = "owner"
+MASTER_TOKEN = "master"
 SUMMARY_MAX = 560
 # T2 — a real run logged 305 messages averaging 1,243 chars: an unbounded `read` floods the
 # reader's context. A read renders at most this many messages and says how many are still
@@ -192,10 +214,16 @@ GROUP_ROW = re.compile(
 # for it, so it was absorbed into `ts` and `age_of` returned '?' for every broadcast carrying one.
 # Fixed here rather than filed again — this is the exact line being widened, and leaving a known
 # unparsed field in a regex while editing it would be perverse.
+# `exec:` is the DATED EXECUTION STAMP (7.607 E2b, design-lock item 5) — see `current_execution`.
+# OPTIONAL in the grammar, and permanently so: every row written before the stamp existed parses
+# with `exec` = None, which is the honest reading (that row predates the delimiter, it does not
+# belong to execution `a`). Placed before `why:` so the free-text `why` clause stays the last
+# labelled field and its `[^|]*?` cannot swallow a following one.
 MSG_HEADER = re.compile(
     r"^## (?P<num>\d+) \| from: (?P<sender>\S+)(?: \| from-pkg: (?P<from_pkg>\S+))?"
     r" \| to: (?P<to>\S+) \| type: (?P<type>\S+)"
     r"(?: \| supersedes: (?P<supersedes>\d+))?(?: \| re: (?P<re>\d+))?"
+    r"(?: \| exec: (?P<exec_id>\S+))?"
     r"(?: \| why: (?P<why>[^|]*?))? \| (?P<ts>.+)$"
 )
 FM_KEY = {
@@ -415,6 +443,76 @@ def file_stamp():
     return datetime.now().strftime("%Y%m%d-%H%M")
 
 
+# ---- the DATED EXECUTION STAMP (7.607 E2b; `d-extinguishment-design-lock` item 5 / D5) --------
+#
+# THE DELIMITER THE RUN ID USED TO BE. With runs extinguished a goal has ONE workspace and its
+# files are single and append-only, so successive EXECUTIONS of the same goal write into the same
+# `sessions.csv`, the same `messages.md`, the same watcher state. The stamp is what tells them
+# apart at read time — `YYYY-MM-DDx`, e.g. `2026-08-09a`, monotonic within a day, a NEW letter for
+# each boot and a fresh `a` on a new date.
+#
+# ⚠ IT IS AN IDENTITY, NOT A STATUS, AND THE DIFFERENCE IS THE WHOLE 7.608 LESSON. It says WHICH
+# execution a row belongs to; it never says whether anything is running. Liveness has exactly one
+# answer — the derived lease (item 1) — and nothing here may be consulted for it. A stamp file
+# left behind by a crashed execution is correct data about a past execution, not a claim.
+#
+# ⚠ ONE HOME FOR THE RULE. `mint_execution` is called at ONE moment — when the goal's room is
+# CREATED, i.e. a boot (`workflow_launcher.ensure_session`'s create arm, via the `execution --mint`
+# verb) — and everything else READS through `current_execution`. Joining an existing room mints
+# nothing, which is what makes a re-fire of the same boot idempotent.
+EXECUTION_FILE = "execution"
+EXECUTION_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})([a-z]+)$")
+
+
+def _execution_path(base):
+    return Path(base) / EXECUTION_FILE
+
+
+def _next_letter(letters):
+    """`a`->`b` … `z`->`aa`->`ab`; a pure odometer so a 27th boot in one day is still ordered."""
+    chars = list(letters)
+    i = len(chars) - 1
+    while i >= 0:
+        if chars[i] != "z":
+            chars[i] = chr(ord(chars[i]) + 1)
+            return "".join(chars)
+        chars[i] = "a"
+        i -= 1
+    return "a" + "".join(chars)
+
+
+def current_execution(base):
+    """This goal's CURRENT execution stamp. Reads the marker; mints today's first when there is
+    none, so a package that predates the stamp (or a bare `--base` fixture) still yields a usable,
+    dated id rather than an empty cell. A marker whose content is not a stamp is treated as absent
+    — a corrupt delimiter must not become a delimiter."""
+    try:
+        raw = _execution_path(base).read_text(encoding="utf-8").strip()
+    except OSError:
+        raw = ""
+    if EXECUTION_RE.match(raw):
+        return raw
+    return datetime.now().strftime("%Y-%m-%d") + "a"
+
+
+def mint_execution(base):
+    """Mint and record the NEXT execution stamp for this goal. Returns it.
+
+    Called at BOOT and nowhere else. Same day -> the next letter after the recorded one; a new day
+    (or no marker, or an unreadable one) -> that date's `a`. The write is atomic, like every other
+    state write in this file."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        raw = _execution_path(base).read_text(encoding="utf-8").strip()
+    except OSError:
+        raw = ""
+    m = EXECUTION_RE.match(raw)
+    stamp = today + (_next_letter(m.group(2)) if (m and m.group(1) == today) else "a")
+    Path(base).mkdir(parents=True, exist_ok=True)
+    atomic_write(_execution_path(base), stamp + "\n")
+    return stamp
+
+
 RUNS_INDEX = Path.home() / ".config" / "rbtv" / "coordinate-runs.json"
 
 
@@ -439,7 +537,15 @@ def load_runs_index(prune=True):
         return {}
     if not prune:
         return idx
-    alive = {tag: path for tag, path in idx.items() if Path(path).is_dir()}
+    # 7.607 E2b (design-lock item 8): this registry re-keys BY GOAL NAME, because a package IS a
+    # goal folder and its tag is its folder name. Every entry written before the cutover points at
+    # a `<goal>/runs/run-N` compartment and is STALE BY CONSTRUCTION — the tag is a run ordinal,
+    # not a goal — so it is dropped here rather than left to resolve `--run run-1` at a path whose
+    # meaning changed under it. Dropped by SHAPE (parent named `runs`), never by existence: the
+    # legacy folders survive on disk until the live-goal migration, so an existence prune would
+    # keep every one of them.
+    alive = {tag: path for tag, path in idx.items()
+             if Path(path).is_dir() and Path(path).parent.name != "runs"}
     if alive != idx:
         write_runs_index(alive)
     return alive
@@ -468,10 +574,13 @@ def register_run(pkg):
 
 
 def discover_package_from(cwd):
-    """Nearest ancestor (cwd included) that IS a run package — identified by its own
-    structure (coordination/ + a roster dir: seats/ in the KG run-folder form, workers/ in the
-    legacy form). Seats' cwd is their seat folder, so a bare `coordinate <cmd>` resolves for
-    them with no arguments at all."""
+    """Nearest ancestor (cwd included) that IS a package — identified by its own STRUCTURE
+    (coordination/ + a roster dir: seats/ in the KG form, workers/ in the legacy form). Seats' cwd
+    is their seat folder, so a bare `coordinate <cmd>` resolves for them with no arguments at all.
+
+    7.607 E2b: the package is the GOAL FOLDER now, and this function needed no change to follow it
+    — it never asked for a `runs/run-N` shape, only for the two directories a package carries.
+    That is why the structural predicate was worth having."""
     p = Path(cwd).resolve()
     for cand in (p, *p.parents):
         if (cand / "coordination").is_dir() and (
@@ -496,8 +605,8 @@ def package_dir(args, register=True):
         pkg = discover_package_from(Path.cwd())
     if not pkg:
         known = ", ".join(sorted(load_runs_index())) or "(none registered yet)"
-        print("error: no run package — pass --run <tag> or --package <abs-run-folder>, or "
-              f"invoke from inside a package. Known runs: {known}", file=sys.stderr)
+        print("error: no package — pass --run <goal> or --package <abs-goal-folder>, or "
+              f"invoke from inside a package. Known goals: {known}", file=sys.stderr)
         sys.exit(2)
     pkg = Path(pkg).resolve()
     if register:
@@ -2014,7 +2123,6 @@ def arm_pid_reaper(idents, delay=4):
 # lands, one-live-run is a convention held by hand. So nothing here assumes exclusivity: the index
 # is keyed by run-id, and a second concurrent run would add its own row rather than corrupt this.
 
-RUNS_INDEX_COLS = ["run-id", "type", "state", "taskforce-ids", "opened", "closed"]
 # `pid`/`pid-starttime`/`tty` are the seat-identity gate's PRE-REGISTERED interface to this writer
 # (ignite/server/seat-identity/identity.js: REQUIRED_IDENTITY_COLUMNS + CORROBORATING_COLUMNS).
 # The PAIR is the identity — starttime is what defeats pid reuse, so the gate refuses a pid alone
@@ -2038,9 +2146,17 @@ RUNS_INDEX_COLS = ["run-id", "type", "state", "taskforce-ids", "opened", "closed
 # ⚠ AN EMPTY CELL HERE MEANS `not recorded`, and it is the reading every row written before this
 # column existed carries. It is NEVER read as `seat`: guessing an author is the same class of
 # defect as guessing a disposition, one field over.
+# `execution` (7.607 E2b, design-lock item 5) is APPENDED LAST, after `disposition-writer`, and it
+# carries the DATED EXECUTION STAMP the row was opened under. It is the delimiter the run id used
+# to be: with runs extinguished this file is goal-durable and accumulates every execution's
+# sessions, so without it a reader cannot tell this boot's rows from the previous one's.
+# ⚠ AN EMPTY CELL MEANS `written before the stamp existed`, and it is what every pre-cutover row
+# carries (`widen_header` appends the column to a live file without touching a byte of its data).
+# It is NEVER read as "the current execution": inheriting the current stamp onto a historical row
+# is exactly the cross-execution confusion the stamp exists to end.
 SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir",
                  "recorded", "started", "ended", "pid", "pid-starttime", "tty", "disposition",
-                 "disposition-writer"]
+                 "disposition-writer", "execution"]
 NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close re-resolves
 
 
@@ -2171,17 +2287,17 @@ def validate_disposition(disposition, writer):
 
 
 def goal_dir(pkg):
-    """The goal folder owning this run package: {goal}/runs/run-{n} -> {goal}.
+    """The goal folder owning this package — which IS the package (7.607 E2b, design-lock item 8).
 
-    A package NOT in the canonical runs/ form (a /tmp fixture, the legacy workers/ layout) owns
-    its own index: returning pkg keeps the writer total rather than raising on a shape the kit
-    still supports.
+    KEPT AS A NAMED IDENTITY, not inlined at its ~dozen call sites. "Which goal owns this package"
+    is a question a reader asks and a future layout could answer differently; the walk that used to
+    answer it (`pkg.parent.parent if pkg.parent.name == "runs"`) is what died, not the question.
+
+    ⚠ `runs_index_csv` WENT WITH IT. There is no run register: `<goal>/runs.csv` had exactly two
+    writers in this file (`ensure_run_index`, `close_run_index`) and both are deleted with the
+    layer — liveness is the DERIVED LEASE (item 1) and the goal's end is the FINISH EDGE (item 3).
     """
-    return pkg.parent.parent if pkg.parent.name == "runs" else pkg
-
-
-def runs_index_csv(pkg):
-    return goal_dir(pkg) / "runs.csv"
+    return pkg
 
 
 def sessions_csv(pkg):
@@ -2264,48 +2380,6 @@ def taskforce_ids(pkg):
     return "|".join(out)
 
 
-def ensure_run_index(pkg):
-    """Keep the goal-level run INDEX correct with nobody maintaining it by hand. Idempotent.
-
-    Creates the file with its header when absent, adds this run's row when absent, and re-syncs
-    only DERIVED state (`taskforce-ids`). Never rewrites `type` or `opened`: they are the run's
-    identity, not derived data.
-
-    `type` is left EMPTY on a row this code creates, deliberately. The KG says run type is csv
-    DATA — `fresh | fix` — and explicitly NOT derivable from the ordinal. Defaulting it to
-    `fresh` would be right most of the time and silently wrong on a fix run, which is the exact
-    shape this run has spent the night refusing. An empty cell is answerable; a guessed one is not.
-
-    `closed` is NOT stamped here. Closing a run is the leader's ceremony and this kit has no
-    run-close command; an OPEN run's row is correct precisely by staying open. Disclosed at #531.
-    """
-    path = runs_index_csv(pkg)
-    header, rows = read_csv_table(path, RUNS_INDEX_COLS)
-    idx = {c: i for i, c in enumerate(header)}
-    if "run-id" not in idx:
-        return False
-    run_id = pkg.name
-    row, changed = None, False
-    for r in rows:
-        pad_row(r, header)
-        if r[idx["run-id"]].strip() == run_id:
-            row = r
-    if row is None:
-        row = [""] * len(header)
-        row[idx["run-id"]] = run_id
-        if "state" in idx:
-            row[idx["state"]] = "open"
-        if "opened" in idx:
-            row[idx["opened"]] = now()
-        rows.append(row)
-        changed = True
-    tf = taskforce_ids(pkg)
-    if tf and "taskforce-ids" in idx and row[idx["taskforce-ids"]].strip() != tf:
-        row[idx["taskforce-ids"]] = tf
-        changed = True
-    if changed:
-        write_csv_table(path, header, rows)
-    return changed
 
 
 # ---------- 7.607 E1: THE DERIVED LEASE, accessed — never re-implemented here ----------------
@@ -2362,14 +2436,16 @@ def resolve_live_run(goal):
     `open` while nothing ran). It is now the room: a goal is executing iff its room exists NOW.
 
     The return VALUE keeps its shape so the three fire-time callers (`selfheal-watch.py`,
-    `recover-room.py`, `goal-watcher-job.py`, inventory #54) need no change this stage: the
-    PACKAGE NAME under the goal — `run-N` for a legacy `<goal>-run-N` room, the goal's own name for
-    an E2-shape `<goal>` room. E2 collapses that to one spelling.
+    `recover-room.py`, `goal-watcher-job.py`, inventory #54) need no change: the PACKAGE NAME
+    under the goal. 7.607 E2b collapsed that to ONE spelling — the package IS the goal folder, so
+    this now returns the goal's own name whenever the goal is executing.
 
-    ⚠ STILL REFUSES RATHER THAN GUESSES, for the same reason and at three doors: an UNREADABLE
-    lease (ignorance), NO lease (the goal is not executing), and — while the E1 transitional
-    predicate accepts two room spellings — MORE THAN ONE matching room. A resolver that cannot be
-    wrong quietly is the whole point, and it survives the change of evidence unaltered.
+    ⚠ STILL REFUSES RATHER THAN GUESSES, at three doors: an UNREADABLE lease (ignorance), NO lease
+    (the goal is not executing), and MORE THAN ONE matching room. The third is no longer reachable
+    through a second room SPELLING (E2b deleted the legacy arm) — it is reachable through tmux
+    reporting two sessions of one name, which cannot normally happen and is therefore exactly the
+    condition worth refusing on rather than picking from. A resolver that cannot be wrong quietly
+    is the whole point, and it survives the change of evidence unaltered.
     """
     goal = Path(goal)
     lease, detail = derive_lease(goal)
@@ -2384,11 +2460,30 @@ def resolve_live_run(goal):
     if len(rooms) > 1:
         names = ", ".join(r.get("room", "?") for r in rooms)
         return "", (f"{len(rooms)} rooms match goal {goal.name} ({names}) — the design lock rules "
-                    f"ONE room per goal (item 2) and the E1 transitional predicate still accepts "
-                    f"the legacy `<goal>-run-N` spelling alongside it, so this is a real state. "
-                    f"Refusing to pick: state read against the wrong room is worse than a refusal "
-                    f"that names the ambiguity.")
+                    f"ONE room per goal (item 2) and the predicate now accepts exactly one "
+                    f"spelling, so two matches means the box itself is in a state nothing here "
+                    f"should resolve. Refusing to pick: state read against the wrong room is "
+                    f"worse than a refusal that names the ambiguity.")
     return Path(rooms[0].get("packageDir") or "").name, ""
+
+
+def cmd_execution(args):
+    """`execution` — print the goal's current execution stamp; `--mint` starts a new one.
+
+    ⚠ `--mint` IS THE BOOT'S ONE ACT and has exactly one caller: `workflow_launcher.py`, on the arm
+    where it CREATES the room (never where it joins one). That is what makes a re-fire of the same
+    boot idempotent — a join mints nothing, so a retried launch does not silently invent a second
+    execution of the same room. Anything else reads."""
+    base = base_dir(args)
+    if getattr(args, "mint", False):
+        stamp = mint_execution(base)
+        print(stamp)
+        print(c("a NEW execution of this goal begins here (design-lock item 5). Session rows, "
+                "message headers and watcher state written from now on carry this stamp; the "
+                "files themselves stay single and append-only", C_HINT))
+        return 0
+    print(current_execution(base))
+    return 0
 
 
 def cmd_current_run(args):
@@ -2397,9 +2492,9 @@ def cmd_current_run(args):
     if not run_id:
         refuse("state", detail, 1)
     print(run_id)
-    print(c(f"DERIVED from the live tmux room of {goal.name} (7.607 E1 — no stored status is read; "
-            f"runs.csv is not consulted), so goal-level state follows the execution boundary (R10)",
-            C_HINT))
+    print(c(f"DERIVED from the live tmux room of {goal.name} (7.607 — no stored status is read; "
+            f"there is no runs.csv to consult), so goal-level state follows the execution "
+            f"boundary (R10). Execution stamp: {current_execution(base_dir(args))}", C_HINT))
 
 
 # ---------- 7.607 E1: THE FINISH EDGE — the ONLY thing that finishes a goal -------------------
@@ -2500,68 +2595,16 @@ def cmd_finish_goal(args):
     print(detail)
     print(c("watchers terminate on this event alone. Until it fired, an absent room was a CRASH "
             "and the watcher relaunched it; from here it is a finished goal", C_HINT))
-
-
-def close_run_index(pkg, when=None):
-    """Stamp this run's index row `state=closed` + `closed=<now>`. Returns (ok, detail).
-
-    LEADER RULING #398, adopted verbatim: THE CEREMONY STAYS THE LEADER'S, THE WRITE STOPS BEING
-    THE LEADER'S. The leader decides WHEN a run closes; the kit records THAT it closed. Conflating
-    the decision with the keystrokes is why run-1's closed row is in a leader's handwriting, and
-    why 7.37's criterion — the index resolves the current run WITHOUT HAND MAINTENANCE — was unmet
-    while `ensure_run_index` deliberately refused to stamp `closed` for want of a run-close command.
-    This is that command's writer half.
-
-    Why this is 7.37's and not 7.77's: 7.77 is R9's one-live-run QUEUE rule on the daemon's
-    scheduler. Stamping state/closed is a WRITE TO runs.csv, and 7.37 is the writers half.
-
-    NOT idempotent-by-overwrite: an already-closed run is REFUSED rather than re-stamped, so a
-    second close cannot quietly move a historical timestamp. Re-closing is a correction, and a
-    correction should be visible.
-    """
-    path = runs_index_csv(pkg)
-    if not path.exists():
-        return False, f"no run index at {path} — nothing to close"
-    header, rows = read_csv_table(path, RUNS_INDEX_COLS)
-    header, widened = widen_header(header, RUNS_INDEX_COLS)
-    if widened:
-        rows = [pad_row(r, header) for r in rows]
-    idx = {c: i for i, c in enumerate(header)}
-    if "run-id" not in idx or "state" not in idx:
-        return False, f"run index carries no run-id/state column (header: {','.join(header)})"
-    run_id = pkg.name
-    row = None
-    for r in rows:
-        pad_row(r, header)
-        if r[idx["run-id"]].strip() == run_id:
-            row = r
-    if row is None:
-        return False, f"no index row for {run_id} — it was never opened"
-    if row[idx["state"]].strip() == "closed":
-        return False, (f"{run_id} is ALREADY closed"
-                       + (f" at {row[idx['closed']].strip()}" if "closed" in idx else "")
-                       + " — refusing to re-stamp; a correction must be visible, not silent")
-    row[idx["state"]] = "closed"
-    if "closed" in idx:
-        row[idx["closed"]] = when or now()
-    write_csv_table(path, header, rows)
-    return True, f"{run_id} closed at {row[idx['closed']] if 'closed' in idx else '(no column)'}"
-
-
-def cmd_close_run(args):
-    gate(args, "close-run", lambda a: a == "leader", "leader's alone (it ends the run's index row)")
-    pkg = package_dir(args)
-    ok, detail = close_run_index(pkg)
-    if not ok:
-        refuse("state", detail, 1)
-    print(f"runs.csv: {detail}")
-    print(c(f"the index now resolves the goal's current run without hand maintenance "
-            f"({runs_index_csv(pkg)})", C_HINT))
     # ---- s3-03: the LIFECYCLE MARKER SWEEP. `clear_lifecycle` has exactly ONE caller and this is
-    # it. Without this block, "swept by the next close-run" would be a claim about code that does
-    # not exist: every `state: "done"` entry would accumulate for the life of the goal and
-    # `clear_lifecycle` would ship dead. Runs AFTER the index close, because a refused close means
-    # the run is not over and its marker is not the close's to touch.
+    # it. Without this block, "swept by the next close" would be a claim about code that does not
+    # exist: every `state: "done"` entry would accumulate for the life of the goal and
+    # `clear_lifecycle` would ship dead. Runs AFTER the finish edge fired, because a REFUSED finish
+    # means the goal is not over and its marker is not this act's to touch.
+    #
+    # ⚠ IT MOVED HERE FROM `close-run` (7.607 E2b) AND IT MOVED BECAUSE ITS SUBJECT DID. The sweep
+    # belonged to the run-close ceremony; runs are extinguished and `close-run` is deleted with the
+    # register it stamped. The finish edge (design-lock item 3) is the ONE act that now ends the
+    # thing whose end the marker was swept at — same act, new granularity, ONE caller still.
     #
     # The survivors are printed one per line and NAMED. A close that quietly left entries behind
     # would teach the leader that the marker is empty when it is not — and an in-flight entry at
@@ -2724,7 +2767,13 @@ def session_open(args, w, since=None, wait=None, pane=None):
            # `recorded` is the pipe-pane marker of task 7.31, which is NOT BUILT (no pipe-pane
            # anywhere in this file). The column stays, blank, rather than being invented.
            "recorded": "", "started": now(), "ended": "",
-           "pid": pid, "pid-starttime": pid_start, "tty": tty}
+           "pid": pid, "pid-starttime": pid_start, "tty": tty,
+           # The DATED EXECUTION STAMP this session was opened under (design-lock item 5): the
+           # delimiter that separates this boot's rows from every previous boot's in a file that
+           # is now goal-durable. READ, never minted here — minting is the boot's one act.
+           # Off `pkg`, which this function already resolved — NOT a second `base_dir(args)` hop:
+           # that call re-enters the package resolver and re-points the injection context mid-act.
+           "execution": current_execution(pkg / "coordination")}
     with coord_lock(base_dir(args)):
         path = sessions_csv(pkg)
         header, rows = read_csv_table(path, SESSIONS_COLS)
@@ -2744,7 +2793,6 @@ def session_open(args, w, since=None, wait=None, pane=None):
         rec["session-id"] = sid
         rows.append([rec.get(c, "") for c in header])
         write_csv_table(path, header, rows)
-        ensure_run_index(pkg)
     note = ("" if native or w.get("harness") != "claude"
             else "native-session-id UNRESOLVED at launch — retried at close")
     return sid, note
@@ -2900,7 +2948,6 @@ def session_close(args, seat, disposition="", writer=DISPOSITION_WRITER_SEAT):
             wd = target[idx["workdir"]].strip() if "workdir" in idx else ""
             target[idx["native-session-id"]] = claude_native_session_id(wd, since)
         write_csv_table(path, header, rows)
-        ensure_run_index(pkg)
         return target[idx["session-id"]].strip() if "session-id" in idx else ""
 
 
@@ -3200,7 +3247,6 @@ def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
         if "disposition-writer" in idx:
             target[idx["disposition-writer"]] = writer
         write_csv_table(path, header, rows)
-        ensure_run_index(pkg)
         return target[idx["session-id"]].strip(), current, ""
 
 
@@ -3788,11 +3834,19 @@ def load_addressable(args):
             continue
         out[name] = str(p)
         # THE ROLE WORD IS AN ADDRESS TOO (7.546). A correspondent that declares `relays:` beside
-        # its opt-in is reachable by that ROLE TOKEN as well as by its name — which is what the
-        # bus ferry actually carries (`bridges/chat/bus-ferry.js` ROLE_TOKEN), so a fresh run's
+        # its opt-in is reachable by that ROLE TOKEN as well as by its name, so a fresh goal's
         # escalation has a legal address before anybody holds the role locally. Admitting only the
-        # NAME left the two halves missing each other by one word: `to: channel-master` resolved
-        # here and was invisible to the ferry, `to: master` was refused here.
+        # NAME left the two halves missing each other by one word.
+        #
+        # ⚠ WHAT THE FERRY CARRIES CHANGED (task 7.614, `decisions.md#d-agents-address-owner-not-
+        # master`): agents NEVER INITIATE to `master`. The closed addressing rule is three lines —
+        # initiate -> `owner` (the reserved bus token the ferry's agent-thread leg delivers under
+        # the two ratified gates), answer -> the asker, else the seat BY NAME. `bus-ferry.js`
+        # deleted its role-token constant and the whole `roleHeldLive`/`seatDeclaresRole` roster
+        # stand-down at `004eeba`; its live surface is `OWNER_TOKEN`/`addressesOwner`, and a
+        # master-addressed row is never owner-bound. The register below is unchanged in
+        # mechanism: it still admits a declared role word as an address, and that is still what
+        # makes a role-addressed row resolvable locally.
         #
         # BOTH HALVES STILL AGREE, and this is why the read is HERE rather than in a second parse:
         # the token is read off the SAME frontmatter that already proved it accepts outside mail,
@@ -7097,6 +7151,21 @@ def unread_for(args, base, agent, start, blocks=None, gmap=None, observers=None,
 
 def cmd_checkin(args):
     base = base_dir(args)
+    # ⚠ `owner` IS A RESERVED BUS ADDRESS AND MAY NOT BE A SEAT NAME
+    # (`decisions.md#d-agents-address-owner-not-master`, consequence 2). Refused at the roster's
+    # own door — the earliest surface a name can enter this run through — because the token has to
+    # mean THE HUMAN on every bus: a seat holding it would silently capture every owner-bound row
+    # an agent initiates, and the capture would look exactly like normal delivery. No --force: a
+    # name is free to change, and there is no case in which this one must be a seat.
+    if args.agent == OWNER_TOKEN:
+        refuse(
+            "input",
+            f"'{OWNER_TOKEN}' is a RESERVED bus address — the token agent-initiated human-bound "
+            f"traffic is sent to, ferried to the human by the chat bridge "
+            f"(d-agents-address-owner-not-master). No seat may carry it: a seat named "
+            f"'{OWNER_TOKEN}' would receive every row meant for the person.\n"
+            f"Pick another name and check in again.",
+            1)
     base.mkdir(parents=True, exist_ok=True)
     summary = " ".join(args.summary.split()).replace("|", "/")
     if len(summary) > SUMMARY_MAX:
@@ -8600,6 +8669,8 @@ def load_messages(base):
                        "to": m.group("to"), "type": m.group("type"),
                        "supersedes": int(m.group("supersedes")) if m.group("supersedes") else None,
                        "re": int(m.group("re")) if m.group("re") else None,
+                       # None = written before the execution stamp existed (design-lock item 5).
+                       "exec": m.group("exec_id"),
                        "why": (m.group("why") or "").strip() or None,
                        "ts": m.group("ts").strip(),
                        "lines": [line]}
@@ -8631,7 +8702,20 @@ def _append_message_unlocked(base, sender, to, mtype, body, supersedes=None, re_
     # #198: the clause rides IN THE LOG LINE, not just in the sender's terminal — a reader
     # judging whether a broadcast earned everyone's attention can see the claim it made.
     wc = f" | why: {why}" if why else ""
-    block = (f"\n## {n} | from: {sender}{org} | to: {to} | type: {mtype}{sup}{rel}{wc} | "
+    # THE EXECUTION STAMP RIDES EVERY ROW (design-lock item 5). The file stays SINGLE and
+    # append-only — the stamp is what scopes a read to one execution, so successive executions of
+    # one goal are separable without a second file and without a second numbering space.
+    #
+    # ⚠ THE NUMBER ITSELF IS STILL ALLOCATED ACROSS THE WHOLE FILE, and that is a deliberate
+    # divergence from a literal reading of "numbering scopes by stamp" — disclosed rather than
+    # taken silently. Restarting at 1 per execution would put two rows numbered `5` in one
+    # append-only log, and `supersedes:`/`re:`/every cursor in this file addresses a row by its
+    # NUMBER ALONE; they would all become ambiguous. The collision item 5 names is already
+    # impossible here for a stronger reason: ONE file, ONE lock, one max — two leaders cannot
+    # claim one id when there is only one allocator. The stamp gives the SCOPE; the number keeps
+    # its uniqueness.
+    ex = f" | exec: {current_execution(base)}"
+    block = (f"\n## {n} | from: {sender}{org} | to: {to} | type: {mtype}{sup}{rel}{ex}{wc} | "
              f"{now()}\n"
              f"\n{body}\n")
     with open(path, "a", encoding="utf-8") as f:
@@ -9150,6 +9234,11 @@ def known_recipients(args, base):
     for d in inbox_decls(args).values():
         names |= set(d.get("relays") or ())
     names.add("all")
+    # `owner` IS ALWAYS A LEGAL ADDRESS (d-agents-address-owner-not-master). It is not a seat and
+    # never resolves to one: it is the reserved token the chat bridge's ferry routes to the human,
+    # under gates that are the BRIDGE's to apply. It is admitted unconditionally — an agent must
+    # never be told "unknown recipient" for the one address the ruling tells it to initiate to.
+    names.add(OWNER_TOKEN)
     # THE ONE GRANT. An addressable non-member joins the recipient set and NOTHING else: it gains
     # no row above, so it is absent from the census, the sweep, every lifecycle command, the pane
     # cap, `to: all` fan-out and the wake pass — each of those reads the roster, not this set.
@@ -9221,6 +9310,36 @@ def cmd_send(args):
             f"log yourself.\n"
             f"There is no --force for this one: 13 asks opened this way in one run and not "
             f"one of them can ever be closed.",
+            1)
+
+    # ⚠ AGENTS NEVER INITIATE TO `master` (`decisions.md#d-agents-address-owner-not-master`,
+    # owner, 2026-08-09). A `to: master` row is legal ONLY as an ANSWER to something master sent —
+    # on this bus, a row carrying `--re <n>`. An initiation goes to `owner` instead, and everything
+    # else goes to the seat BY NAME. Enforced HERE, at the CLI, for the same reason every other
+    # bound in this function is: the log is append-only, so a mis-addressed row is permanent
+    # residue, and the sender still HOLDS the message at a refusal.
+    #
+    # NO --force, deliberately: this is not a rule that is wrong in some case. The ruling's whole
+    # value is that it is trivially teachable and closed — three lines with no judgment call — and
+    # an override would reintroduce exactly the judgment that drifted.
+    #
+    # The MASTER itself is exempt (it initiates to whom it likes), and so is any answer.
+    if (args.to == MASTER_TOKEN and sender != MASTER_TOKEN
+            and getattr(args, "re_num", None) is None):
+        refuse(
+            "input",
+            f"an agent NEVER INITIATES to `{MASTER_TOKEN}` — `decisions.md#"
+            f"d-agents-address-owner-not-master` (owner, 2026-08-09). The rule is three lines:\n"
+            f"  initiate -> `{OWNER_TOKEN}`   the reserved token the chat bridge ferries to the "
+            f"human (gated there, parked when the gates say no)\n"
+            f"  answer   -> the asker  a `to: {MASTER_TOKEN}` row is legal only with --re <n> "
+            f"answering what master sent you\n"
+            f"  else     -> the NAME   address the seat directly ('channel-master' by name is "
+            f"always legal; it is the ROLE TOKEN that is restricted)\n"
+            f"So: send this to `{OWNER_TOKEN}` if you are raising it with the human, or add "
+            f"--re <n> if it answers a message master sent you.\n"
+            f"There is no --force for this one: the ruling is closed, and an override is the "
+            f"judgment call it exists to delete.",
             1)
 
     # G-22 / #198 — the two enforcement halves of the broadcast discipline. `all` costs every seat
@@ -17625,10 +17744,48 @@ def _selftest_checks(args, failures, names):
                                           "b": {"relays": frozenset({"master"})},
                                           "c": {}}) == frozenset({"a", "b"}))
         m5mark = load_messages(base_g)[1][-1]["num"]
-        m5_out = sd("leader", "master", "the owner channel, addressed by ROLE", type="note")
+        # ---- d-agents-address-owner-not-master: AGENTS NEVER INITIATE TO `master` -------------
+        # RED FIRST, and it is the red arm that makes every green one below attributable: the
+        # bare initiation this stage used to send is now REFUSED, so the answer-shaped send that
+        # follows cannot be passing for the wrong reason (i.e. because nothing is enforced).
+        _amr_out, _amr_code = refuse(cmd_send, agent="leader", to="master",
+                                     message="raising this with master on my own initiative",
+                                     type="note", supersedes=None, re_num=None, file=None)
+        check("d-agents-address-owner-not-master RED: an agent-INITIATED `to: master` (no answer "
+              "linkage) is REFUSED, typed, and NAMES the ruling — the three-line rule is "
+              "initiate -> owner, answer -> the asker, else the seat by name",
+              _amr_code == 1
+              and "coord input" in _amr_out
+              and "d-agents-address-owner-not-master" in _amr_out
+              and "NEVER INITIATES" in _amr_out)
+        check("d-agents-address-owner-not-master RED: and there is NO --force for it — the "
+              "refusal text says so, because an override is the judgment call the closed rule "
+              "exists to delete",
+              "no --force" in _amr_out.lower())
+        _own_out = sd("leader", "owner", "raising this with the human", type="note")
+        check("d-agents-address-owner-not-master GREEN: a send to the RESERVED `owner` token IS "
+              "legal from an agent and lands in the log — delivery gating is the chat bridge's "
+              "(two ratified gates), never this CLI's",
+              "sent message #" in _own_out)
+        _own_ci, _own_ci_code = refuse(cmd_checkin, agent="owner",
+                                       summary="trying to hold the reserved token", pane=None,
+                                       force=False)
+        check("d-agents-address-owner-not-master GREEN(2): `owner` is RESERVED — no seat may be "
+              "NAMED owner, refused at the roster's own door, so the token can never be captured "
+              "by a seat and read as ordinary delivery",
+              _own_ci_code == 1 and "RESERVED bus address" in _own_ci)
+        # The ANSWER arm — the ruling's own exemption, and the shape this stage's subject needs.
+        # `rly` is the seat holding the master relay, so an ask from it IS master-side traffic and
+        # answering it by the ROLE TOKEN is exactly the one shape the ruling admits.
+        sd("rly", "leader", "master asks: what is the state of the room?", type="ask")
+        _m5_ask = load_messages(base_g)[1][-1]["num"]
+        m5_out = sd("leader", "master", "the owner channel, addressed by ROLE", type="answer",
+                    re_num=_m5_ask)
         check("stage 5: the send REPORTS the resolved set — a bare 'delivered to master' is an "
               "unverifiable claim, and a role word that quietly resolves to a seat the sender did "
-              "not expect is G-111 with better manners",
+              "not expect is G-111 with better manners. (Sent as an ANSWER: under "
+              "d-agents-address-owner-not-master that is the one shape a `to: master` row may "
+              "take from an agent, and the red arm above proves the other shape is refused)",
               "sent message #" in m5_out and "[master -> rly]" in m5_out)
         check("stage 5: and the seat carrying the relay READS it — the wake half and the read half "
               "resolve the token through the same predicate, so this stage cannot reopen the very "
@@ -17754,11 +17911,18 @@ def _selftest_checks(args, failures, names):
               "outsider" not in known_recipients(ns(), base_an))
 
         # ---- 7.546: A CORRESPONDENT'S DECLARED ROLE WORD IS AN ADDRESS ----------------------
-        # The measured gap: the bus ferry delivers on a ROLE TOKEN (`bridges/chat/bus-ferry.js`
-        # ROLE_TOKEN) and this register admitted the correspondent's NAME only — so the row that
-        # resolved here was invisible to the ferry and the row the ferry carries was refused here
-        # (arm D of the 7.546 experiment: 0 delivered). A freshly scaffolded run holds the planning
-        # DAG's seats and NO role, so its escalation had no legal address at all.
+        # The measured gap: the bus ferry delivered on a role token and this register admitted the
+        # correspondent's NAME only — so the row that resolved here was invisible to the ferry and
+        # the row the ferry carried was refused here (arm D of the 7.546 experiment: 0 delivered).
+        # A freshly scaffolded goal holds the planning DAG's seats and NO role, so its escalation
+        # had no legal address at all.
+        #
+        # ⚠ THE FERRY'S SIDE OF THAT GAP IS NOW SPELLED DIFFERENTLY (task 7.614): under
+        # `decisions.md#d-agents-address-owner-not-master` an agent NEVER INITIATES to `master` —
+        # initiate -> the reserved `owner` token, answer -> the asker, else the seat by name — and
+        # `bus-ferry.js` keys on `OWNER_TOKEN`/`addressesOwner`, its role-token constant and roster
+        # machinery deleted at `004eeba`. What this proves is unchanged: a declared role word is an
+        # address HERE, which is the half this register owns.
         #
         # THE TOKEN UNDER TEST IS `owner-door`, NOT `master`, and that is not decoration: a seat of
         # THIS fixture package already declares `relays: master` (stage 5's `rly`), so every
@@ -17831,7 +17995,12 @@ def _selftest_checks(args, failures, names):
             "---\nb\n", encoding="utf-8")
         reg.write_text(f"descriptor,admitted-by,admitted\n{out_home / 'dual.md'},leader,now\n",
                        encoding="utf-8")
-        dual_send = sd("alpha", "master", "a role a LIVE seat also carries", type="note")
+        # An ANSWER — d-agents-address-owner-not-master: an agent may address `master` only as
+        # one. The subject here is TOKEN RESOLUTION, which the shape does not change.
+        sd("rly", "alpha", "master asks: who holds this role?", type="ask")
+        _dual_ask = load_messages(base_dir(ns()))[1][-1]["num"]
+        dual_send = sd("alpha", "master", "a role a LIVE seat also carries", type="answer",
+                       re_num=_dual_ask)
         check("7.546 / A LIVE HOLDER IS NOT A PULL CORRESPONDENT: when the token resolves to a "
               "seat of this run as well as to the register, the send names the seat it resolved "
               "to and the PULL-delivery warning is SUPPRESSED — that warning is about an address "
@@ -19850,14 +20019,13 @@ def _selftest_checks(args, failures, names):
             ("reap --go", refuse(cmd_reap, as_agent="chief-of-staff", go=True)),
             ("panel", refuse(cmd_panel, as_agent="chief-of-staff")),
             ("owner", refuse(cmd_owner, as_agent="chief-of-staff", state="afk", note="")),
-            ("close-run", refuse(cmd_close_run, as_agent="chief-of-staff")),
             ("add-to-group", refuse(cmd_add_to_group, as_agent="chief-of-staff", group="pair",
                                     members=["gamma"])),
             ("remove-from-group", refuse(cmd_remove_from_group, as_agent="chief-of-staff",
                                          group="pair", members=["gamma"])),
         ]
         check("s12-04 S4-f: the widening is scoped to `launch` AND NOTHING ELSE -- close, "
-              "close-seat, reap --go, panel, owner, close-run, add-to-group and "
+              "close-seat, reap --go, panel, owner, add-to-group and "
               "remove-from-group every one still REFUSE the chief-of-staff on the role gate. The "
               "terminating verbs among them are barred by `d-cos-may-launch`: the bound is "
               "open-versus-terminate, and a chief-of-staff is not a second leader",
@@ -20962,17 +21130,21 @@ def _selftest_checks(args, failures, names):
               "columns with `header.includes`). The CONTROL proves the risk was not imaginary: a "
               "positional reader built on the OLD eleven names silently DROPS the new fields "
               "instead of raising, which is exactly how an appended column goes wrong quietly. "
-              "⚠ THIS ROW IS THE SCHEMA'S TRIPWIRE AND IT FIRED: 7.155's column reddened it "
-              "exactly as written, which is why the tail is asserted by NAME and by INDEX rather "
-              "than as 'the last one' — a claim that moves with the file grades nothing",
+              "⚠ THIS ROW IS THE SCHEMA'S TRIPWIRE AND IT HAS NOW FIRED TWICE: 7.155's "
+              "`disposition-writer` reddened it, and 7.607 E2b's `execution` (the dated execution "
+              "stamp, design-lock item 5) reddened it again — which is exactly why the tail is "
+              "asserted by NAME and by INDEX rather than as 'the last one'. A claim that moves "
+              "with the file grades nothing, and each firing is a schema change being SEEN",
               _d9_hdr[:len(_d9_cols_before_dag09)] == _d9_cols_before_dag09
-              and _d9_hdr[-2:] == ["disposition", "disposition-writer"]
+              and _d9_hdr[-3:] == ["disposition", "disposition-writer", "execution"]
               and _d9_idx["tty"] == 10
-              and _d9_idx["disposition"] == len(_d9_hdr) - 2
-              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 1
+              and _d9_idx["disposition"] == len(_d9_hdr) - 3
+              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 2
+              and _d9_idx["execution"] == len(_d9_hdr) - 1
               and len(_d9_fields) == len(_d9_hdr)
               and "disposition" not in _d9_positional
               and "disposition-writer" not in _d9_positional
+              and "execution" not in _d9_positional
               and len(_d9_positional) == len(_d9_cols_before_dag09))
 
         check("dag-09 LG-14: `disposition` APPEARS EXACTLY ONCE — in the column constant and in "
@@ -24500,11 +24672,8 @@ def _selftest_checks(args, failures, names):
               and lifecycle_ident({"pid": 7}) == {})
 
         # ---- (6) THE CLOSE-RUN SWEEP.
-        _lc_pkg = Path(td) / "lc-run"
+        _lc_pkg = Path(td) / "lc-goal"
         (_lc_pkg / "coordination").mkdir(parents=True)
-        (_lc_pkg / "runs.csv").write_text(
-            "run-id,type,state,taskforce-ids,opened,closed\n"
-            "lc-run,goal,open,tf-lc,2026-07-29 09:00,\n", encoding="utf-8")
         _lc_sb = _lc_pkg / "coordination"
         for _s in ("alpha", "beta"):
             stamp_lifecycle(_lc_sb, _s, {"disposition": "renew", "pane": "%1"})
@@ -24513,12 +24682,14 @@ def _selftest_checks(args, failures, names):
         stamp_lifecycle(_lc_sb, "delta", {"disposition": "renew", "pane": "%3"})
         finish_lifecycle(_lc_sb, "delta", "FAILED", "the respawned harness never came up")
         _lc_pre = sorted(load_lifecycle(_lc_sb))
-        _lc_close_out = run(cmd_close_run, package=str(_lc_pkg), as_agent="leader")
+        # 7.607 E2b: the sweep's caller MOVED from `close-run` (deleted with the run register)
+        # to `finish-goal`, the ONE act that now ends the thing the marker was swept at.
+        _lc_close_out = run(cmd_finish_goal, package=str(_lc_pkg), as_agent="leader", note="")
         _lc_post = load_lifecycle(_lc_sb)
-        check("s3-03 (6) THE CLOSE-RUN SWEEP: on a marker holding two `done` entries, one "
-              "`in-flight` and one `FAILED`, `close-run` clears EXACTLY the two done ones, leaves "
-              "the other two, and NAMES each survivor with its reason. Without this sweep "
-              "`clear_lifecycle` ships with zero callers and 'swept by the next close-run' is "
+        check("s3-03 (6) THE FINISH-EDGE SWEEP: on a marker holding two `done` entries, one "
+              "`in-flight` and one `FAILED`, `finish-goal` clears EXACTLY the two done ones, "
+              "leaves the other two, and NAMES each survivor with its reason. Without this sweep "
+              "`clear_lifecycle` ships with zero callers and 'swept by the next close' is "
               "fiction — done entries would accumulate for the life of the goal",
               _lc_pre == ["alpha", "beta", "delta", "gamma"]
               and sorted(_lc_post) == ["delta", "gamma"]
@@ -26396,12 +26567,13 @@ def _selftest_checks(args, failures, names):
           "process is never a kill target", arm_pid_reaper([(4242, "")]) is None)
 
     # ---- 7.37 run index + session trace (R10/R11), and 7.69's per-seat statusline.
-    # Built on a fixture in the CANONICAL goal shape ({goal}/runs/run-{n}), because the index
-    # living one level ABOVE the package is the whole point of R11 and a flat fixture would let a
-    # writer that put both files in one folder pass.
+    # Built on a fixture in the CANONICAL goal shape — which since 7.607 E2b IS the goal folder
+    # itself (design-lock item 8). R11's "two files, one level apart" is EXTINGUISHED with the run
+    # register: there is no index above the package, because there is no run to index. What the
+    # trace half of R11 asserted survives unchanged and is asserted below.
     with tempfile.TemporaryDirectory() as td4:
         goal4 = Path(td4) / "goal"
-        pkg4 = goal4 / "runs" / "run-7"
+        pkg4 = goal4
         (pkg4 / "coordination").mkdir(parents=True)
         (pkg4 / "seats").mkdir()
         (pkg4 / "taskforce.csv").write_text(
@@ -26413,15 +26585,21 @@ def _selftest_checks(args, failures, names):
                  "folder": pkg4 / "seats" / "alpha"}
         Path(seat4["cwd"]).mkdir(parents=True)
 
-        check("7.37/R11: the run INDEX is the GOAL-level runs.csv and the TRACE is the run's own "
-              "sessions.csv — two files, one level apart. The KG record's older wording called "
-              "the per-run trace runs.csv; building that would put both in one folder",
-              runs_index_csv(pkg4) == goal4 / "runs.csv"
-              and sessions_csv(pkg4) == pkg4 / "sessions.csv"
-              and goal_dir(pkg4) == goal4)
-        check("7.37: a package NOT in the canonical runs/ form still resolves an index — the "
-              "writer stays total over the layouts this kit supports rather than raising",
-              goal_dir(Path("/tmp/flat-pkg")) == Path("/tmp/flat-pkg"))
+        check("7.607 E2b / R11 EXTINGUISHED: there is NO run index. The TRACE is the goal's own "
+              "sessions.csv, the package IS the goal folder so `goal_dir` is an identity, and the "
+              "two register writers are GONE FROM THE MODULE — asserted by NAME on the module's "
+              "own globals, not by grepping the source: this file's prose says `runs.csv` in a "
+              "dozen historical notes, so a text search would grade the comments",
+              sessions_csv(pkg4) == pkg4 / "sessions.csv"
+              and goal_dir(pkg4) == goal4
+              and goal_dir(Path("/tmp/flat-pkg")) == Path("/tmp/flat-pkg")
+              and not {"ensure_run_index", "close_run_index", "runs_index_csv",
+                       "RUNS_INDEX_COLS", "cmd_close_run"} & set(globals()))
+        check("7.607 E2b CONTROL: that absence assertion CAN fail — the SAME lookup finds the "
+              "writers that DO survive, so a set-intersection that came back empty because it was "
+              "spelled wrong would have reported the same clean result",
+              {"session_open", "sessions_csv", "current_execution",
+               "mint_execution"} <= set(globals()))
 
         sid4, note4 = session_open(a4, seat4, since=time.time(), wait=0.0)
         hdr4, rows4 = read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)
@@ -26441,22 +26619,28 @@ def _selftest_checks(args, failures, names):
               "7.31 is not built and a fabricated marker would point at no recording",
               "recorded" in cix and r4[cix["recorded"]] == "")
 
-        check("7.37: the GOAL-level index gains this run's row automatically, at the same moment "
-              "— nobody hand-maintains it",
-              (goal4 / "runs.csv").exists()
-              and read_csv_table(goal4 / "runs.csv", RUNS_INDEX_COLS)[1][0][0] == "run-7")
-        irows4 = read_csv_table(goal4 / "runs.csv", RUNS_INDEX_COLS)[1]
-        iix4 = {c: i for i, c in enumerate(RUNS_INDEX_COLS)}
-        check("7.37: `taskforce-ids` is DERIVED from taskforce.csv and deduped — 2 rows of one "
-              "taskforce yield one id, not two",
-              bool(irows4) and pad_row(irows4[0], RUNS_INDEX_COLS)[iix4["taskforce-ids"]] == "tf-9")
-        check("7.37: run `type` is left EMPTY on a row this code creates — the KG says type is "
-              "DATA (fresh|fix) and NOT derivable from the ordinal, so defaulting it to `fresh` "
-              "would be silently wrong on a fix run. An empty cell is answerable; a guess is not",
-              bool(irows4) and irows4[0][iix4["type"]] == "")
-        check("7.37: `closed` is NOT stamped by the writer — closing a run is the leader's "
-              "ceremony and an OPEN run's row is correct by staying open",
-              bool(irows4) and irows4[0][iix4["closed"]] == "" and irows4[0][iix4["state"]] == "open")
+        check("7.607 E2b: a launch writes NO register row — `runs.csv` is not created beside the "
+              "trace, and the three cells the old writer agonised over (`type`, `state`, "
+              "`closed`) have no home to be wrong in. Liveness is the DERIVED LEASE (item 1); the "
+              "goal's end is the FINISH EDGE (item 3)",
+              not (goal4 / "runs.csv").exists())
+        check("7.607 E2b: the session row carries the DATED EXECUTION STAMP instead (item 5) — "
+              "the delimiter the run id used to be, in the shape YYYY-MM-DDx, on a file that "
+              "stays single and append-only across executions",
+              "execution" in cix
+              and EXECUTION_RE.match(r4[cix["execution"]]) is not None
+              and r4[cix["execution"]] == current_execution(pkg4 / "coordination"))
+        check("7.607 E2b CONTROL: the stamp assertion CAN fail — the same matcher REFUSES a "
+              "run-shaped id and a bare date, so a cell carrying either would not have passed",
+              EXECUTION_RE.match("run-7") is None
+              and EXECUTION_RE.match("2026-08-09") is None)
+        check("7.607 E2b: minting is MONOTONIC WITHIN THE DAY and the boot's act alone — a second "
+              "mint advances the letter, and `current_execution` follows it, so two executions of "
+              "one goal are separable in the one file",
+              mint_execution(pkg4 / "coordination")[:10] == current_execution(
+                  pkg4 / "coordination")[:10]
+              and mint_execution(pkg4 / "coordination")
+              != mint_execution(pkg4 / "coordination"))
 
         # A SECOND session of the SAME seat — the renew case the KG names ("one seat may
         # contribute SEVERAL sessions within one run").
@@ -26476,20 +26660,9 @@ def _selftest_checks(args, failures, names):
               "one launched before this writer existed, never gains a phantom row",
               session_close(a4, "nobody-here") == ""
               and len(read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)[1]) == 2)
-        check("7.37: ensure_run_index is IDEMPOTENT — a second call changes nothing, so every "
-              "launch and close in a long run rewrites no history",
-              ensure_run_index(pkg4) is False)
-
-        # An index row already carrying owner-set identity must survive the writer touching it.
-        write_csv_table(goal4 / "runs.csv", RUNS_INDEX_COLS,
-                        [["run-7", "fix", "open", "", "2026-01-01 00:00", ""]])
-        ensure_run_index(pkg4)
-        keep4 = read_csv_table(goal4 / "runs.csv", RUNS_INDEX_COLS)[1][0]
-        check("7.37: the writer NEVER rewrites `type` or `opened` on an existing row — they are "
-              "the run's identity, not derived state, and a re-sync that overwrote a hand-set "
-              "`fix` would destroy the one field the KG says is not derivable",
-              keep4[iix4["type"]] == "fix" and keep4[iix4["opened"]] == "2026-01-01 00:00"
-              and keep4[iix4["taskforce-ids"]] == "tf-9")
+        check("7.607 E2b: STILL no register after a full launch/renew/close cycle — the writer "
+              "is not merely unused, it does not exist, so no ceremony can resurrect the file",
+              not (goal4 / "runs.csv").exists())
 
         # The native session id RESOLVING, through a real CALL SITE. Every other assertion about
         # that field in this suite reaches '' or, at the row-shape check above, asserts only that
@@ -27174,7 +27347,7 @@ HELP_EPILOG = """everyday
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / finish-goal / current-run / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / execution / current-run / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -27884,15 +28057,18 @@ def build_parser():
     s.set_defaults(func=cmd_close_seat)
 
     s = command(
-        "close-run",
-        "Stamp this run's row in the goal-level runs.csv: state=closed, closed=<now>.\n"
-        "The leader still DECIDES when a run closes; this records THAT it closed, so the run\n"
-        "index resolves the goal's current run with nobody maintaining it by hand (task 7.37).",
+        "execution",
+        "Print this goal's current DATED EXECUTION STAMP (YYYY-MM-DDx) — the delimiter that\n"
+        "separates this boot's rows from previous boots' in the goal's single, append-only\n"
+        "files (design-lock item 5). --mint starts a NEW execution; it is the BOOT's act and\n"
+        "belongs to whoever creates the room, never to a seat.",
         "example:\n"
-        "  coordinate close-run\n"
-        "next: coordinate --package <next-run> launch — the new run opens its own index row")
+        "  coordinate execution\n"
+        "next: nothing — this is a read")
+    s.add_argument("--mint", action="store_true",
+                   help="mint the NEXT stamp (boot only — the room-creating act)")
     add_identity_flags(s)
-    s.set_defaults(func=cmd_close_run)
+    s.set_defaults(func=cmd_execution)
 
     s = command(
         "finish-goal",

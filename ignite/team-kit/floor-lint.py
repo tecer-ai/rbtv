@@ -27,7 +27,11 @@ WHAT IT PERMITS, and it says so out loud rather than silently passing. Three cla
 its reason (criterion 11's discipline, applied to this tool too -- SCOPE-EXCLUDED must never render
 as NOT-FOUND):
 
-    HOME      budget.json itself. The one normative home. `r-bar-home-is-the-run-budget-json`.
+    HOME      budget.json itself. The one normative home. `r-bar-home-is-the-run-budget-json` --
+              whose anchor still SAYS "run" and whose subject is now the GOAL's budget.json (7.607
+              E2b, design-lock item 8: the package IS the goal folder, so the run's budget.json and
+              the goal's are the same file). The anchor is the registry's to rename; the doctrine
+              it states -- ONE home, matched on basename -- is unchanged and is what this enforces.
     EXCLUDED  a line a RULING put out of scope. Named, with the ruling.
     FIXTURE   a literal inside a _selftest() -- determines no live behaviour.
     PROSE     a number in a comment or docstring. Task 7.82's row rules these NOT sites (same class
@@ -76,7 +80,8 @@ SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "dist", "build"}
 
 # ---------------------------------------------------------------- what is allowed, and WHY
 
-# The ONE normative home. Matched on basename: every run package carries its own.
+# The ONE normative home. Matched on basename: every GOAL package carries its own (7.607 E2b --
+# the basename match is exactly why this line needed no path re-key when the layer went).
 HOME_BASENAMES = {"budget.json"}
 
 # ⚠ EVERY ENTRY NEEDS A RULING. An allowlist without reasons is how a defect becomes permanent

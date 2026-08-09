@@ -134,10 +134,17 @@ try {
   // ── GOAL-DURABILITY · the seat folder is the SAME across executions ───────────────────────────
   // The ruling's memory mechanism (owner clarification to `d-runs-extinguished`): "the seats boot
   // from the SAME seats/<seat>/ folders on every execution". Measured as a property rather than
-  // asserted in a comment: a second, differently-named room of the same goal — which is what a
-  // later execution looks like from here — must resolve the same pointer to the same bytes.
+  // asserted in a comment.
+  //
+  // ⚠ 7.607 E2b RE-KEYS WHAT "A LATER EXECUTION" LOOKS LIKE HERE, and the change is the point.
+  // E2a expressed it as a DIFFERENTLY-NAMED room (`good-goal-run-9`) because two executions of a
+  // goal still had two room names. Design-lock item 2 settles ONE room per goal, named for the
+  // goal, and E2b deleted the legacy spelling from the lease predicate — so a later execution is
+  // the SAME room name, and goal-durability is the stronger statement that the resolution does
+  // not depend on the execution at all. Executions are told apart by the dated stamp, which is a
+  // record on the rows, never a component of a path.
   const secondExecution = resolveSeatHome({
-    workspaceRoot: root, goal: 'good-goal', seat: 'worker', readLease: leaseOver(['good-goal-run-9']),
+    workspaceRoot: root, goal: 'good-goal', seat: 'worker', readLease: leaseOver(['good-goal']),
   });
   check('GOAL-DURABLE: a later execution resolves the SAME seat folder (the memory mechanism)',
     secondExecution.ok === true && secondExecution.seatDir === expected,

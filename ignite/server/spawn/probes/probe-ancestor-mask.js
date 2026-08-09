@@ -27,9 +27,7 @@ const { buildBwrapArgv } = require('../bwrap');
 const TEMPLATE = [
   'ro-bind:{grant:readRoot}',
   'ro-bind:{goalDir}',
-  'tmpfs:{goalDir}/runs',
-  'ro-bind:{runDir}',
-  'tmpfs:{runDir}/seats',
+  'tmpfs:{goalDir}/seats',
   'bind:{seatDir}',
 ];
 
@@ -40,11 +38,11 @@ function fixture() {
   const runDir = goalDir;   // 7.607 E2a — goal-direct: the goal folder IS the package
   const seatDir = path.join(runDir, 'seats', 'mine');
   fs.mkdirSync(path.join(runDir, 'seats'), { recursive: true });
-  // 7.607 E2a — the `tmpfs:{goalDir}/runs` template line needs its mountpoint to EXIST: with
-  // {goalDir} ro-bound, bwrap refuses `Can't mkdir <goalDir>/runs: Read-only file system`.
+  // 7.607 E2b — the `tmpfs:{goalDir}/runs` template line and its mountpoint mkdir are BOTH gone
+  // (design-lock item 8); this fixture no longer creates a `runs/` and the template no longer
+  // names one.
   // spawn.js#composeCageFor creates it for every real seat; this fixture mirrors that. Both
   // go away with the profile's template line (see the E2a note in spawn.js).
-  fs.mkdirSync(path.join(goalDir, 'runs'), { recursive: true });
   fs.mkdirSync(path.join(ws, '.claude', 'rules'), { recursive: true });
   fs.mkdirSync(path.join(seatDir, '.claude', 'skills'), { recursive: true });
 
@@ -64,7 +62,7 @@ function fixture() {
 function cageFor(f, keepInstructionFiles) {
   const spec = composeSeatCage({
     seatBinds: TEMPLATE,
-    values: { workdir: f.seatDir, seatDir: f.seatDir, goalDir: f.goalDir, runDir: f.runDir },
+    values: { workdir: f.seatDir, seatDir: f.seatDir, goalDir: f.goalDir },
     grants: [{ readRoot: f.ws }],
   });
   const mask = composeAncestorMasks(spec, {

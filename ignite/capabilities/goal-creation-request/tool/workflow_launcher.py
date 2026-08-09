@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Open a run's own detached tmux room and launch its entry seat into it (task C5E).
+"""Open a goal's own detached tmux room and launch its entry seat into it (task C5E).
 
 This is the program the `workflows: planning-deprecated:` entry of `config/spawn-profiles.yaml` execs when the
 queue row `scaffold-and-queue` planted at goal birth comes due. It is the LAST dark piece between
@@ -86,18 +86,21 @@ def tmux(*args, socket=None):
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
-def session_name(goal, package):
-    """`<goal>-<run-id>`, or raise ValueError with the reason.
+def session_name(goal, package=None):
+    """The BARE GOAL NAME, or raise ValueError with the reason.
 
-    PER-RUN and DERIVED FROM THE GOAL, which is what the ruling asks for and what makes the name
-    collision-safe without a registry: goal names are unique within the goals root (the request
-    validator's V2/V3 uniqueness checks) and a run id is unique within its goal, so the pair is
-    unique by construction. The run id is the package's own last segment — read from the path the
-    row carries rather than passed separately, because two carriers of one fact is two chances for
-    them to disagree.
+    7.607 E2b, `decisions.md#d-extinguishment-design-lock` item 2 (D4): ONE ROOM PER GOAL, named
+    for the goal, and a second concurrent execution is REFUSED — the room's existence IS the
+    lease's primary evidence (item 1). The old `<goal>-<run-id>` spelling died with the run layer:
+    it made the room name carry a compartment id that no longer exists, and a per-execution room
+    would have made the lease's "is this goal executing" question ambiguous by construction.
+
+    Collision-safety is UNCHANGED in strength and simpler in argument: goal names are unique within
+    the goals root (the request validator's V2/V3 uniqueness checks), so the goal name alone is
+    unique. `package` is accepted and IGNORED — kept only so an unmigrated caller passing it does
+    not TypeError while the rest of the tree re-keys; it contributes nothing to the name.
     """
-    run_id = Path(package).name
-    name = f"{goal}-{run_id}"
+    name = str(goal)
     if len(name) > MAX_SESSION_NAME:
         raise ValueError(f"composed session name is {len(name)} chars, over the {MAX_SESSION_NAME} cap: {name!r}")
     if not SESSION_NAME_RE.match(name):
@@ -106,6 +109,26 @@ def session_name(goal, package):
             f"sanitizing: a '.' or ':' is a tmux SEPARATOR, so a name carrying one addresses a "
             f"window or a pane instead of a session")
     return name
+
+
+def mint_execution(coord, package):
+    """Mint this BOOT's dated execution stamp through coord.py — the ONE home of the rule
+    (7.607 E2b, `d-extinguishment-design-lock` item 5). Returns the stamp, or '' on any failure.
+
+    ⚠ CALLED ONLY WHERE THE ROOM WAS *CREATED*, never where it was joined. That is what keeps a
+    re-fire of the same row idempotent: joining an existing room must not invent a second execution
+    of it. `ensure_session` already distinguishes the two arms and reports which — this reads that
+    verdict rather than re-deriving it.
+
+    ⚠ BEST-EFFORT, and deliberately so: a stamp is a DELIMITER, not a gate. The launch's job is to
+    open the room; failing to record a delimiter must not stop agents from booting into it. A
+    failure is REPORTED (the caller logs it), never swallowed silently and never fatal — an absent
+    marker is read by `coord.current_execution` as today's first execution, which is the right
+    reading for a boot whose mint did not land."""
+    r = subprocess.run([sys.executable, str(coord), "--package", str(package),
+                        "execution", "--mint"],
+                       capture_output=True, text=True, timeout=60)
+    return r.stdout.splitlines()[0].strip() if r.returncode == 0 and r.stdout.strip() else ""
 
 
 def ensure_session(name, cwd, socket=None):
@@ -204,9 +227,10 @@ def launch_argv(coord, package, entry_seat, pane):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(
-        description="Open a run's own detached tmux room and launch its entry seat into it.")
+        description="Open a goal's own detached tmux room and launch its entry seat into it.")
     ap.add_argument("--package", required=True,
-                    help="absolute run-package path (runs/run-N) — the row's {{workdir}}")
+                    help="absolute GOAL-folder path (the package IS the goal folder, "
+                         "design-lock item 8) — the row's {{workdir}}")
     ap.add_argument("--goal", required=True,
                     help="the goal NAME the session name derives from — the row's {{goal}}")
     ap.add_argument("--entry-seat", required=True,
@@ -224,7 +248,7 @@ def main(argv=None):
     # materialized this package at goal birth, so an absent one means that act failed or the row
     # outlived its package — both are refusals, and creating it here would paper over either.
     if not package.is_dir():
-        log(f"FATAL — run package {package} does not resolve to a directory. REFUSING: this act "
+        log(f"FATAL — goal package {package} does not resolve to a directory. REFUSING: this act "
             f"launches into a package, it never creates one.")
         return 2
     if not Path(args.coord).is_file():
@@ -236,8 +260,8 @@ def main(argv=None):
     except ValueError as err:
         log(f"FATAL — {err}")
         return 2
-    log(f"room for this run: session {name!r} (per-run, derived from goal {args.goal!r} + run "
-        f"{package.name!r} — ruling d-owner-planning-entry-2-0808 Q2)")
+    log(f"room for this goal: session {name!r} (ONE room per goal, the bare goal name — "
+        f"design-lock item 2; ruling d-owner-planning-entry-2-0808 Q2 re-founded on it)")
 
     if args.dry_run:
         log(f"DRY-RUN — would ensure detached session {name!r} (cwd {package}), resolve its pane "
@@ -252,6 +276,20 @@ def main(argv=None):
         log(f"FATAL — {err}")
         return 1
     log(f"target {pane} verified in session {name!r} — {provenance}")
+
+    # THE BOOT'S ONE ACT (7.607 E2b, design-lock item 5): a CREATED room is a new execution of this
+    # goal, so it mints the dated stamp every session row, message header and watcher-state entry
+    # written from here on will carry. A JOINED room is the SAME execution and mints nothing —
+    # which is what keeps a re-fired row idempotent.
+    if provenance.startswith("CREATED"):
+        stamp = mint_execution(args.coord, package)
+        log(f"execution stamp: {stamp or 'MINT FAILED'} — the delimiter this boot's rows carry "
+            f"(design-lock item 5; the goal's files stay single and append-only)"
+            + ("" if stamp else ". NOT FATAL: an absent marker reads as today's first execution, "
+                              "and a delimiter must never gate a launch"))
+    else:
+        log("execution stamp: UNCHANGED — this re-fire JOINED the room it already opened, so it "
+            "is the same execution and mints nothing")
 
     env = dict(os.environ)
     env.pop("TMUX_PANE", None)      # never let an inherited pane win over the one just proven

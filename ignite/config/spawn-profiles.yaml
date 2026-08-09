@@ -56,7 +56,8 @@ default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every s
 # ── THE SHARED SEAT CAGE (r-seats-only-architecture (1)) ───────────────────────────────────────
 # Absorbed from the retired 7.11 `claude-seat` profile: the SeatBinds template below is that
 # profile's VERBATIM, plus the one new line class part (5) of the ruling adds (harnessCreds).
-# Per-dispatch parameters supply the paths ({goalDir}/{runDir}/{seatDir}) and the grants.
+# Per-dispatch parameters supply the paths ({goalDir}/{seatDir}) and the grants — `{runDir}` is
+# RETIRED (7.607 E2b, design-lock item 8: the package IS the goal folder).
 #
 # GRANT CLASSES (owner ruling "1a", 2026-08-06 — the instrument set a service seat is promised).
 # Every one is declared in the seat's OWN `seat.md` frontmatter, which the cage ro-binds, so an
@@ -125,14 +126,19 @@ cage:
     - "ro-bind:{grant:readRoot}"
     # READ the goal's own record — decisions.md, issues.md, doubts.md.
     - "ro-bind:{goalDir}"
-    # Every OTHER run: ABSENT. Not denied — never bound.
-    - "tmpfs:{goalDir}/runs"
-    # READ this run — sessions.csv, state.csv, run CLAUDE.md, conduct.md.
-    - "ro-bind:{runDir}"
+    # ⚠ 7.607 E2b: `tmpfs:{goalDir}/runs` and `ro-bind:{runDir}` are DELETED with the run layer
+    # (design-lock item 8 — the package IS the goal folder). The `{runDir}` SLOT is retired with
+    # them, and so is `spawn.js#composeCageFor`'s mkdir of the runs mountpoint (E2a §5.1: with
+    # `{goalDir}` ro-bound, bwrap refuses a tmpfs whose mountpoint is missing, so E2a had to
+    # CREATE the very directory this epic deletes — that mkdir goes in the same change as these
+    # two lines, which is exactly the condition E2a stated for its removal).
+    # The `ro-bind:{goalDir}` line above already grants what `ro-bind:{runDir}` granted: the goal
+    # folder IS the run folder now, so sessions.csv / state.csv / CLAUDE.md / conduct.md are all
+    # under it. Nothing is lost; one line covers what two did.
     # ⚑ PEER SEAT FOLDERS: ABSENT. This is "never read another seat's folder" moved out of
     # the conduct manual and into the kernel — the one rule in this run that was, until now,
     # enforced entirely by every agent choosing to obey it.
-    - "tmpfs:{runDir}/seats"
+    - "tmpfs:{goalDir}/seats"
     # W1 — the seat's own folder, READ-WRITE: launch home, sessions/{session-id}/ artifacts,
     # and the box-① work-in-progress memory the KG membership test's fourth prong names
     # (memory*, conventions.md).
@@ -146,21 +152,22 @@ cage:
     # the pre-bound set a caged seat could not write the kit's coordination files, and the
     # target model routes that through the gateway (7.57/7.59, unbuilt). Nothing wider: the
     # goal-root ledgers and vault task files stay OUT, routed through uncaged stewards.
-    - "bind:{runDir}/coordination"
-    # BUS-WRITE grant (owner ruling "1a"): the coordination dir of every goal's OPEN run,
+    - "bind:{goalDir}/coordination"
+    # BUS-WRITE grant (owner ruling "1a"): the coordination dir of every EXECUTING goal,
     # READ-WRITE, one opening per grant. Placed HERE, immediately after the line above, for
-    # two ordering reasons: it must come AFTER `tmpfs:{goalDir}/runs` (which erases this
-    # goal's runs subtree, own coordination dir included) and AFTER the read-root ro floor
-    # (which would otherwise re-cover it read-only). A grant for the seat's OWN run resolves
+    # the ordering reason that survives the run layer's death: it must come AFTER the
+    # read-root ro floor (which would otherwise re-cover it read-only). The old second reason
+    # — after `tmpfs:{goalDir}/runs`, which erased this goal's own coordination dir — is GONE
+    # with that line (7.607 E2b). A grant for the seat's OWN goal resolves
     # to the same path as the line above — deliberately NOT deduped: two identical RW binds
     # in sequence are harmless under the same shadow rule that makes this whole stack work,
     # and a dedupe would be a second place where bind order is reasoned about.
     - "bind:{grant:busWrite}"
-    # GOALS-WRITE grant (owner ruling, 2026-08-07): the RUN FOLDER of every goal's OPEN run,
+    # GOALS-WRITE grant (owner ruling, 2026-08-07): the GOAL FOLDER of every EXECUTING goal,
     # READ-WRITE, one opening per grant — the materializer's write set (seats/<seat>/seat.md,
-    # plus the atomic tmp-and-rename that appends taskforce.csv IN the run dir). Same placement
-    # reasoning as busWrite: after the runs tmpfs and after the read-root ro floor. The seat's
-    # OWN run is never a grant (resolveGoalsWriteGrants excludes it), so the two carves above —
+    # plus the atomic tmp-and-rename that appends taskforce.csv IN the goal dir). Same placement
+    # reasoning as busWrite: after the read-root ro floor. The seat's
+    # OWN goal is never a grant (resolveGoalsWriteGrants excludes it), so the two carves above —
     # peer-seat tmpfs and the seat.md ro-bind — are never shadowed by this line.
     - "bind:{grant:goalsWrite}"
     # …and the CARVE that makes it safe: each granted run's sessions.csv back to READ-ONLY.
@@ -743,7 +750,7 @@ tools:
       - --session
       - tw-room2
       - --package
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1/seats/jobs-builder/throwaway/pkg-room
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/seats/jobs-builder/throwaway/pkg-room
       - --seat
       - tw-recovery
       - --coord
@@ -852,7 +859,7 @@ tools:
       - /usr/bin/python3
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-watch.py
       - --package
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1/seats/jobs-builder/throwaway/pkg-watch
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/seats/jobs-builder/throwaway/pkg-watch
       - --watch-py
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/watch.py
       # The SAME passthrough as the live entry, and it is not cosmetic: the relaunch path is
@@ -886,7 +893,7 @@ tools:
       - /usr/bin/python3
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/goal-watcher-job.py
       - --package
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1/seats/enforcement-builder/throwaway/pkg
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/seats/enforcement-builder/throwaway/pkg
       # The room flags are DELIVERED into is the live run; the package WATCHED is the throwaway.
       # Those are different things, and conflating them was a real defect this build's own probe
       # found: the recipient does not live in the room being watched.
@@ -1153,17 +1160,19 @@ tools:
   # values named here as unresolved are RULED and landed: the call shape is the WHOLE planning DAG
   # (`--workflow planning-deprecated --root`, 9 manifest seats, entry seat `elicitator`), the bindings file is
   # the goal-generic `.rbtv/mirror/meta/planning-deprecated/bindings-fresh-goal-planning.json`, and the
-  # fresh goal's run package is `runs/run-1`, created by this same act and riding the queued row's
-  # args as a whole token.
+  # fresh goal's package IS ITS GOAL FOLDER (7.607 E2b, design-lock item 8 — `runs/run-1` is
+  # extinguished), created by this same act and riding the queued row's args as a whole token.
   #
   # ⚠ LANDED IS NOT LIVE, AND THE GAP IS THIS FILE'S OWN. It is BOOT-READ, so the entry below and
   # the section at the foot both activate at the NEXT daemon restart and not before. Arming remains
   # the separately gated sequence spelled out four comments up.
   #
-  # ⚠ THE FIVE NEW FLAGS BELOW ARE WHAT MAKES THE GOAL BORN WITH A RUN. `scaffold-and-queue` now
-  # creates `runs/run-1/` through the ruled name `scaffold-seats` (which also appends the run's
-  # `state=open` row to the goal's runs.csv — there is no second writer of that register) instead of
-  # scaffolding a bare goal folder. `--conduct`/`--claude-md`/`--budget-json` name the OWNER-APPROVED
+  # ⚠ THE FIVE NEW FLAGS BELOW ARE WHAT MAKES THE GOAL BORN READY TO EXECUTE. `scaffold-and-queue`
+  # completes the goal folder's WORKING SURFACES through the ruled name `scaffold-seats` instead of
+  # leaving a bare scaffold. ⚠ 7.607 E2b: it no longer mints a `runs/run-1/` compartment and no
+  # longer appends a `state=open` register row — the run register is EXTINGUISHED (design-lock
+  # item 8), liveness is the DERIVED LEASE (item 1), and the deadlock that register caused (7.608)
+  # dies with it. `--conduct`/`--claude-md`/`--budget-json` name the OWNER-APPROVED
   # goal-generic starter set (`d-owner-starter-set-approved-0808`): that command refuses
   # `create-inputs-missing` without them because it "never invents run conventions and never defaults
   # a floor", and the run's constitution is the owner's to author, never this config's.

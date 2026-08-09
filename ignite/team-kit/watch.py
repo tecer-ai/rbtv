@@ -57,15 +57,19 @@ it was found as one — a context warning about the LEADER was delivered to the 
 its own close/renew/approve with no seat above it and an AFK owner — and the general rule is what
 closes it, since pointing the flags at any single seat just moves the hole to that seat.
 
-  python3 watch.py --package <abs-run-package> [--notify] [--loop-forever] [--cadence-s SEC]
+  python3 watch.py --package <abs-goal-folder> [--notify] [--loop-forever] [--cadence-s SEC]
 
 State (7.37 criterion 3 / R10): the agent-keyed re-arm state lives at the GOAL folder —
-<goal>/watch-state.json, SECTIONED BY RUN (`{"runs": {"run-1": {...}, "run-2": {...}}}`) — so it
-survives a run boundary while a run reads only its OWN section. Every key it holds (`pane`, `hash`,
-`stable_since`, `notified_*`) describes a seat in the run-scoped tmux room R15 tears down at run
-close, so NO field is correct to inherit across runs and none is. A package with no goal folder
-above it (a bare `--base`, a test tree) keeps the per-run `<package>/coordination/watch-state.json`
-unchanged. The other two state files stay PER-RUN on purpose: `watch-system.json` is run-scoped
+<goal>/watch-state.json, SECTIONED BY EXECUTION STAMP (`{"runs": {"2026-08-09a": {...},
+"2026-08-09b": {...}}}`) — so it survives an execution boundary while an execution reads only its
+OWN section. ⚠ 7.607 E2b RE-FOUNDS THIS SENTENCE ON THE STAMP (design-lock item 5) and the
+sentence itself is UNCHANGED IN FORCE: every key it holds (`pane`, `hash`, `stable_since`,
+`notified_*`) describes a seat in a tmux room that is torn down when the execution ends, so NO
+FIELD IS CORRECT TO INHERIT ACROSS EXECUTIONS and none is. The run tag was only ever the delimiter
+this property needed; the dated stamp is the delimiter now, and it delimits the same thing. (The
+outer JSON key stays `runs` — renaming it would orphan every existing file's sections for a word.)
+A package with no goal folder above it (a bare `--base`, a test tree) keeps the local
+`<package>/coordination/watch-state.json` unchanged. The other two state files stay PER-RUN on purpose: `watch-system.json` is run-scoped
 (windows) and box-scoped (pressure), never goal-scoped; `watch-heartbeat.json` is this loop's own
 liveness stamp plus the daemon reading (see `save_heartbeat`). Transcript matching: the seat's
 launch cwd maps to ~/.claude/projects/<munged-cwd>/*.jsonl; the boot prompt names the agent
@@ -323,7 +327,7 @@ def tmp_quota_gauge():
     return {"refused": refused, "errno": eno, "trend_mb": trend_mb}
 
 
-def tmp_floor_reading(run_root):
+def tmp_floor_reading(run_root):   # `run_root` IS the goal root (7.607 E2b, item 8)
     """Resolve floors.tmp_free_warn_mb via the SAME generic loader budget.py already exposes
     (`budget_mod._load` — the lane `check_budget` uses for this run's budget.json). No new key
     is added to budget.py's FLOOR_FIELDS: that file is a separate custody this seat did not
@@ -481,27 +485,33 @@ def transcript_usage(path):
 # ---------- state ----------
 
 def goal_state(base):
-    """(goal-level watch-state.json, this run's tag) — or (None, None) if `base` is not inside a
-    goal folder (task 7.37 criterion 3 / settle-ledger R10).
+    """(goal-level watch-state.json, this EXECUTION's stamp) — or (None, None) if `base` is not
+    inside a goal folder (task 7.37 criterion 3 / settle-ledger R10).
 
     RESOLVED HERE, NOT IN coord.base_dir: base_dir is coord's, and coord.py is a separate custody.
     watch.py:78 is `import coord`; a watcher relocation has no business reaching into the file the
     whole room's messaging shares.
 
-    THE GOAL FOLDER IS IDENTIFIED BY ITS `runs.csv` — the run INDEX (R11), not by counting path
-    segments. A parent-walk of fixed depth would silently pick the wrong directory for any package
-    that is not exactly `{goal}/runs/run-{n}/coordination`, and would resolve SOMETHING rather than
-    nothing — the failure mode where a watcher writes a goal file outside the goal.
+    ⚠ 7.607 E2b — THE IDENTIFICATION PREDICATE IS RE-FOUNDED, AND ITS OLD BASIS IS GONE TWICE OVER.
+    It used to require `run_dir.parent.name == "runs"` AND a `{goal}/runs.csv`: the first names a
+    layer that no longer exists, the second a register that is extinguished (design-lock item 8).
+    The replacement keeps the property that mattered — IDENTIFY, never count path segments, and
+    resolve NOTHING rather than something wrong: the goal folder is the parent of a `coordination/`
+    dir that carries the goal's own descriptor, `goal.md`. That is `goal_cli`'s OWN identity file
+    (`lint_goal` reads it first), so this is not a second definition of what a goal is.
+
+    ⚠ THE SECTION KEY IS NOW THE DATED EXECUTION STAMP, not a run tag (design-lock item 5). The
+    file's sectioning was never really per-RUN — it was per-EXECUTION, and the run tag was the only
+    delimiter available. `coord.current_execution` is its one home; this reads it.
 
     Returns (None, None) rather than raising or guessing when there is no goal above: a package
     with no goal folder (the selftest's temp tree, a bare `--base`) keeps the pre-7.37 per-run
     behaviour untouched. Absence of a goal is a legitimate shape, not an error."""
     try:
-        run_dir = base.parent                      # {goal}/runs/run-{n}
-        goal = run_dir.parent.parent               # {goal}
-        if run_dir.parent.name != "runs" or not (goal / "runs.csv").is_file():
+        goal = base.parent                         # {goal}/coordination -> {goal}
+        if base.name != "coordination" or not (goal / "goal.md").is_file():
             return None, None
-        return goal / "watch-state.json", run_dir.name
+        return goal / "watch-state.json", coord.current_execution(base)
     except (OSError, IndexError):
         return None, None
 
@@ -534,6 +544,34 @@ FINISH_EXIT_LINE = "finish edge fired — watch exiting (the ONE deterministic t
 # constant that can disagree with it, and no configuration in which the loop relaunches forever.
 # Seconds, as resolved — no unit arithmetic on this path (the `--loop` retirement's lesson).
 RELAUNCH_BACKOFF_S = (10, 30, 60, 120, 300)
+
+# ---- THE IGNORANCE BOUND (7.607 E2b; the E1b §2 review's standing concern) --------------------
+#
+# An UNREADABLE lease is ignorance, and this loop's posture on ignorance is fail-OPEN: a broken
+# meter may not stop a healthy loop (`lease.js` header). That posture is right and is unchanged —
+# but taken alone it is unbounded, and an unbounded fail-open is silence with a good excuse: a box
+# whose `node` is gone, whose tmux socket died, or whose lease module was moved reports UNREADABLE
+# on every pass FOREVER, prints one stderr line nobody tails, and never tells anyone. The room may
+# have been dead for hours; this loop cannot tell, and neither can the leader.
+#
+# So ignorance is BOUNDED, not converted: after N CONSECUTIVE unreadable passes the loop escalates
+# LOUDLY ON THE BUS — the same escalation surface `RELAUNCH EXHAUSTED` uses, because the leader
+# reads one place — and then KEEPS RUNNING. It never exits, never relaunches on ignorance, and
+# never re-reads the ignorance as "gone": acting on a fact you could not read is the failure the
+# fail-open posture exists to prevent, and this bound does not touch it. Escalation is a REPORT.
+#
+# N = 5, and the justification is the CADENCE, not a feeling: the default pass cadence is 30 s
+# (`--cadence-s`), so 5 consecutive passes is ~2.5 minutes of continuous ignorance. That is long
+# enough to ride out the transients this actually sees — a `node` process losing a race, one tmux
+# invocation timing out, a momentary fork failure under memory pressure — and short enough that a
+# real outage reaches the leader in the same order of minutes the relaunch ladder takes
+# (10+30+60+120+300 s ≈ 8.7 min to exhaustion). A bound so loose it never fires is the defect it
+# is meant to fix, one number over.
+UNREADABLE_BOUND = 5
+UNREADABLE_ESCALATION_LINE = ("watch: LEASE UNREADABLE FOR "
+                              f"{UNREADABLE_BOUND} CONSECUTIVE PASSES — this loop cannot tell "
+                              "whether the goal is executing, and has not been able to for the "
+                              "whole window")
 RELAUNCH_EXHAUSTED_LINE = ("watch: RELAUNCH EXHAUSTED — the room did not come back after "
                            f"{len(RELAUNCH_BACKOFF_S)} bounded attempts and NO finish event exists")
 
@@ -618,13 +656,19 @@ def relaunch_room(room, run_fn=None):
 
 
 def _migrate_runs(goal):
-    """Every run's legacy per-run state, as {run-tag: {...}} — the one-time lift into the goal file.
+    """Every legacy per-run state, as {run-tag: {...}} — the one-time lift into the goal file.
 
     MIGRATED, NOT DISCARDED, and the reason is not sentiment: the live loop already holds this
-    run's flags, so a goal file that started EMPTY would re-arm every seat on the first pass and
-    re-fire notifications already sent. The migration is what makes the cutover SILENT. Discarding
-    would also satisfy a naive reading of "survives across runs" while destroying every flag on
-    disk — the trap ruling-737-watchpy-bars.md §7 names."""
+    execution's flags, so a goal file that started EMPTY would re-arm every seat on the first pass
+    and re-fire notifications already sent. The migration is what makes the cutover SILENT.
+    Discarding would also satisfy a naive reading of "survives across runs" while destroying every
+    flag on disk — the trap ruling-737-watchpy-bars.md §7 names.
+
+    ⚠ 7.607 E2b: `runs/` no longer exists on a cut-over goal, so this glob finds nothing there and
+    the function returns {} — correct, and deliberately NOT deleted: the live goals on disk have
+    not been migrated yet (that is E4), and this is the code that carries their flags across when
+    they are. It is the migration's own reader, so it keeps reading the OLD shape by construction.
+    The section it writes them under stays their run tag; the stamp keys only new sections."""
     out = {}
     for p in sorted((goal / "runs").glob("run-*/coordination/watch-state.json")):
         try:
@@ -646,7 +690,7 @@ def _read_goal_file(p):
 
 
 def load_state(base):
-    """This run's watcher state — from the GOAL-level file when there is a goal, else per-run.
+    """This EXECUTION's watcher state — from the GOAL-level file when there is a goal, else local.
 
     ⚠ THIS RUN'S SECTION ONLY. Prior runs are PRESERVED in the file and never merged into the
     evaluation, and that is the whole of criterion 3's "read correctly". Measured across both runs
@@ -677,7 +721,7 @@ def load_state(base):
 
 
 def save_state(base, state):
-    """Write back THIS RUN'S SECTION, leaving every other run's byte-for-byte.
+    """Write back THIS EXECUTION'S SECTION, leaving every other execution's byte-for-byte.
 
     Read-modify-write, because the file is shared with any other run's loop. ⚠ THIS NARROWS THE
     UNLOCKED-WRITER HAZARD, IT DOES NOT CLOSE IT, and saying so is the point: two coexisting loops
@@ -6759,56 +6803,82 @@ def cmd_selftest():
         # The temp package has no goal folder, so every case above takes the no-goal fallback —
         # a green suite over code that never ran (G-78). The goal shape has to be built on purpose.
         goal = Path(td) / "goalfolder"
+        gbase = goal / "coordination"
+        gbase.mkdir(parents=True)
+        # The LEGACY per-run files, exactly as they sit on disk before the live-goal migration
+        # (E4). `_migrate_runs` is the migration's own reader and still reads the OLD shape.
         for tag in ("run-1", "run-2"):
             (goal / "runs" / tag / "coordination").mkdir(parents=True)
-        gbase1 = goal / "runs" / "run-1" / "coordination"
-        gbase2 = goal / "runs" / "run-2" / "coordination"
+        (goal / "runs" / "run-1" / "coordination" / "watch-state.json").write_text(json.dumps(
+            {"ghost": {"pane": "%40", "notified_ghostrow": True}}))
+        (goal / "runs" / "run-2" / "coordination" / "watch-state.json").write_text(json.dumps(
+            {"live": {"pane": "%292"}}))
 
-        check("R10 CONTROL: with no runs.csv the goal does NOT resolve — the resolver refuses to "
-              "GUESS a goal folder. Without this, the checks below could pass against a directory "
-              "picked by counting path segments, which is how a watcher writes outside its goal",
-              goal_state(gbase2) == (None, None))
+        check("R10 CONTROL (7.607 E2b): with no goal.md the goal does NOT resolve — the resolver "
+              "refuses to GUESS a goal folder. Without this, the checks below could pass against a "
+              "directory picked by counting path segments, which is how a watcher writes outside "
+              "its goal. ⚠ The predicate is RE-FOUNDED: it used to require `runs/` + a `runs.csv` "
+              "register, and both are extinguished (design-lock item 8)",
+              goal_state(gbase) == (None, None))
 
-        (goal / "runs.csv").write_text("run,status\nrun-1,closed\nrun-2,open\n")
-        gp, gtag = goal_state(gbase2)
-        check("R10: the goal folder resolves by its runs.csv (the R11 run INDEX), and the state "
-              "file sits at GOAL level — not inside the run",
-              gp == goal / "watch-state.json" and gtag == "run-2")
-        check("R10: a bare --base outside any goal keeps the pre-7.37 per-run behaviour",
+        (goal / "goal.md").write_text("---\nname: goalfolder\n---\n\ncontract.\n")
+        gp, gstamp = goal_state(gbase)
+        check("R10 (7.607 E2b): the goal folder resolves by its OWN descriptor `goal.md` — "
+              "goal_cli's identity file, not a second definition — the state file sits at GOAL "
+              "level, and the section key is the DATED EXECUTION STAMP (item 5), not a run tag",
+              gp == goal / "watch-state.json"
+              and coord.EXECUTION_RE.match(gstamp) is not None
+              and gstamp == coord.current_execution(gbase))
+        check("R10 CONTROL: the stamp assertion CAN fail — the same matcher REFUSES the run tag "
+              "this key used to be, so a section still keyed `run-2` would not have passed",
+              coord.EXECUTION_RE.match("run-2") is None)
+        check("R10: a bare --base outside any goal keeps the pre-7.37 local behaviour",
               goal_state(Path(td) / "coordination") == (None, None))
 
-        # legacy per-run files, as they exist on disk before the cutover
-        (gbase1 / "watch-state.json").write_text(json.dumps(
-            {"ghost": {"pane": "%40", "notified_ghostrow": True}}))
-        (gbase2 / "watch-state.json").write_text(json.dumps({"live": {"pane": "%292"}}))
+        check("R10 MIGRATE, not discard: the first load lifts EVERY legacy per-run file into "
+              "sections — a goal file starting empty would re-arm every seat and re-fire "
+              "notifications already sent. This goal has not been migrated on disk yet (E4), "
+              "which is exactly the state this reader exists for",
+              _migrate_runs(goal) == {"run-1": {"ghost": {"pane": "%40",
+                                                          "notified_ghostrow": True}},
+                                      "run-2": {"live": {"pane": "%292"}}})
 
-        check("R10 MIGRATE, not discard: the first load lifts EVERY run's legacy file into "
-              "sections and returns THIS run's — a goal file starting empty would re-arm every "
-              "seat and re-fire notifications already sent",
-              load_state(gbase2) == {"live": {"pane": "%292"}})
-        check("R10 MIGRATE: the prior run's entries are lifted too, not dropped on the floor",
-              load_state(gbase1) == {"ghost": {"pane": "%40", "notified_ghostrow": True}})
+        # TWO EXECUTIONS of the ONE goal — what the run tags used to be, in the shape that
+        # replaced them. Minted through coord's one home, never spelled here.
+        # ⚠ MINTED, not read: `current_execution` mints-if-absent but WRITES NOTHING, so reading
+        # it twice around a mint would compare a stamp to itself. The boot's act is the mint.
+        stamp_a = coord.mint_execution(gbase)
+        save_state(gbase, {"live": {"pane": "%292", "notified_dead": True}})
+        stamp_b = coord.mint_execution(gbase)
+        check("R10 (7.607 E2b): a NEW execution mints a NEW section key, monotonic within the day",
+              stamp_b != stamp_a and stamp_b[:10] == stamp_a[:10])
+        check("⚠ R10 THE CRITERION ITSELF — read correctly ACROSS an EXECUTION boundary: the new "
+              "execution opens a file that CONTAINS the previous one's `notified_dead` and does "
+              "NOT inherit it. A flat name-keyed merge returns that flag and pre-suppresses the "
+              "warning; this returns only THIS execution's section (A/B measured in "
+              "seats/S9-737-watchstate/). NO FIELD IS CORRECT TO INHERIT ACROSS EXECUTIONS",
+              load_state(gbase) == {})
 
-        save_state(gbase2, {"live": {"pane": "%292", "notified_dead": True}})
+        save_state(gbase, {"fresh": {"pane": "%7"}})
         on_disk = json.loads((goal / "watch-state.json").read_text())
-        check("R10: the goal-level file is written, sectioned by run tag",
-              set(on_disk["runs"]) == {"run-1", "run-2"})
-        check("R10: writing run-2 leaves run-1's section INTACT — a whole-file write that dropped "
-              "the other run would be the silent-flag-loss this shape exists to prevent",
-              on_disk["runs"]["run-1"] == {"ghost": {"pane": "%40", "notified_ghostrow": True}})
-        check("⚠ R10 THE CRITERION ITSELF — read correctly ACROSS a run boundary: run-2's loop "
-              "opens a file that CONTAINS run-1's stale notified_ghostrow and does NOT inherit it. "
-              "A flat name-keyed merge returns that flag and pre-suppresses the warning; this "
-              "returns only run-2's section (A/B measured in seats/S9-737-watchstate/)",
-              "ghost" not in load_state(gbase2))
-        check("R10: run-1's section is still readable after run-2 wrote — SURVIVES across runs, "
-              "which is R10's actual words",
-              load_state(gbase1) == {"ghost": {"pane": "%40", "notified_ghostrow": True}})
+        check("R10: the goal-level file is written, sectioned by EXECUTION STAMP, and the "
+              "PREVIOUS execution's section is INTACT — a whole-file write that dropped the other "
+              "section would be the silent-flag-loss this shape exists to prevent",
+              set(on_disk["runs"]) == {stamp_a, stamp_b, "run-1", "run-2"}
+              and on_disk["runs"][stamp_a] == {"live": {"pane": "%292",
+                                                        "notified_dead": True}}
+              and on_disk["runs"][stamp_b] == {"fresh": {"pane": "%7"}}
+              # …and the MIGRATED legacy sections rode along untouched. The first save found no
+              # goal file and lifted them (`_migrate_runs`), which is the cutover being SILENT
+              # rather than a flag massacre — asserted here so the lift cannot regress into a
+              # drop while every stamp assertion above still reads green.
+              and on_disk["runs"]["run-1"] == {"ghost": {"pane": "%40",
+                                                         "notified_ghostrow": True}})
 
         (goal / "watch-state.json").write_text("{ this is not json")
         check("R10: a corrupt goal file degrades to EMPTY, never raises — a watcher that dies on "
-              "its own state file takes the run's only sensor down with it",
-              load_state(gbase2) == {})
+              "its own state file takes the goal's only sensor down with it",
+              load_state(gbase) == {})
 
         # ---- 7.607 E1: THE FINISH-EDGE LOOP-TURN GUARD (re-founded from G-297) ----
         # ⚠ EVERY ROW BELOW DRIVES `watch_loop`, NOT its predicates. A suite that only asserted a
@@ -6917,6 +6987,31 @@ def cmd_selftest():
         check("7.607 E1: a FINISH EVENT wins over live-lease evidence — the finish edge is the "
               "termination, the lease never is",
               _rcturns(True, ("gone", "", 0, "no room"))[:2] == (True, 0))
+        # ---- 7.607 E2b — THE IGNORANCE BOUND. Red-capable PAIR, same shape as F-1's: the
+        # BOUNDED arm must reach the escalation and the CLEARING arm must not, so neither is
+        # satisfied by a loop that always escalates or by one that never does.
+        _un = ("unreadable", "", 0, "node is not on PATH")
+        _stu, _tu, _ou, _callsu = _rcturns(False, _un, limit=UNREADABLE_BOUND + 3)
+        check("⚠⚠ 7.607 E2b THE IGNORANCE BOUND: %d CONSECUTIVE unreadable passes reach the LOUD "
+              "escalation — an unbounded fail-open is silence with a good excuse, and a meter that "
+              "has been dead for hours must reach the leader. The loop still does NOT exit and "
+              "still spends NO relaunch attempt: escalation is a REPORT, never an act on a "
+              "reading that was never taken" % UNREADABLE_BOUND,
+              UNREADABLE_ESCALATION_LINE.split(" — ")[0] in _ou
+              and _callsu == [] and _stu is False)
+        check("⚠ 7.607 E2b THE BOUND'S CONTROL — it CANNOT fire early: %d-1 unreadable passes "
+              "raise NOTHING. Without this the row above would pass on a loop that escalated on "
+              "the first unreadable pass, which is the false-alarm failure, not the fix"
+              % UNREADABLE_BOUND,
+              UNREADABLE_ESCALATION_LINE.split(" — ")[0]
+              not in _rcturns(False, _un, limit=UNREADABLE_BOUND - 1)[2])
+        check("⚠ 7.607 E2b THE BOUND IS CONSECUTIVE: one READABLE pass inside the window clears "
+              "the counter, so a flapping meter never escalates. Evidence that alternates "
+              "unreadable/live-occupied for twice the bound raises nothing — a bound that counted "
+              "cumulatively would call an intermittent hiccup an outage",
+              UNREADABLE_ESCALATION_LINE.split(" — ")[0]
+              not in _rcturns(False, [_un, ("live", "room-a", 2, "2 verified seat(s)")]
+                              * (UNREADABLE_BOUND + 1), limit=2 * UNREADABLE_BOUND + 2)[2])
         # ---- 7.607 E1b — F-1: ONLY AN OCCUPIED ROOM RESETS THE RELAUNCH BUDGET.
         # The pair below is the whole fix, and it is a PAIR on purpose: the OCCUPIED arm must
         # stay silent (a bound that fires on a healthy room is a false escalation) and the HOLLOW
@@ -7188,6 +7283,27 @@ def _escalate_relaunch_exhausted(run_root, room, detail):
               f"the condition stands and is unreported to the leader", file=sys.stderr, flush=True)
 
 
+def _escalate_unreadable(run_root, passes, detail):
+    """The LOUD BUS escalation for BOUNDED IGNORANCE. Same surface as the relaunch escalation —
+    one place the leader reads — and, like it, a delivery failure is reported and never swallowed
+    and never stops the loop."""
+    try:
+        coord.append_message(
+            Path(run_root) / "coordination", "watch", "leader", "ask",
+            f"{UNREADABLE_ESCALATION_LINE}\n\nconsecutive unreadable passes: {passes}\n"
+            f"last reason: {detail}\n\n"
+            f"This is IGNORANCE, not a verdict: the loop has NOT concluded the goal is stopped "
+            f"and has NOT relaunched anything on the strength of a reading it could not take. It "
+            f"is still running and will report again if this clears. What needs a human is the "
+            f"METER: the lease derives from `node` + the goal's tmux room, so check that node is "
+            f"on PATH, that the tmux server is reachable, and that "
+            f"`ignite/server/lease/lease.js` is where the accessor expects it.")
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"watch: the unreadable-lease escalation could NOT be delivered to the bus "
+              f"({exc!r}) — the condition stands and is unreported to the leader",
+              file=sys.stderr, flush=True)
+
+
 def watch_loop(args, run_root, do_pass=None, sleep_fn=None, relaunch_fn=None):
     """The `--loop-forever` body — and the ONE place this loop decides whether to take another turn.
 
@@ -7211,6 +7327,7 @@ def watch_loop(args, run_root, do_pass=None, sleep_fn=None, relaunch_fn=None):
     # path-derived session name is right only by coincidence). Once learned it is what a relaunch
     # restores — a crashed room cannot be asked its own name.
     known_room, relaunch_attempts, escalated = "", 0, False
+    unreadable_passes, unreadable_escalated = 0, False
     while True:
         if goal_finished(run_root):
             print(FINISH_EXIT_LINE, flush=True)
@@ -7223,7 +7340,17 @@ def watch_loop(args, run_root, do_pass=None, sleep_fn=None, relaunch_fn=None):
             # LOUD, and the loop keeps going. Never a silent exit, never read as "finished".
             print(f"watch: LEASE EVIDENCE UNREADABLE — {detail}. NOT treating this as a finished "
                   f"goal; retrying next pass", file=sys.stderr, flush=True)
+            # THE IGNORANCE BOUND (see UNREADABLE_BOUND). CONSECUTIVE, so one readable pass
+            # anywhere in the window clears it — a flapping meter is not an outage.
+            unreadable_passes += 1
+            if unreadable_passes >= UNREADABLE_BOUND and not unreadable_escalated:
+                unreadable_escalated = True
+                print(f"{UNREADABLE_ESCALATION_LINE} ({unreadable_passes} passes): {detail}. "
+                      f"This loop does NOT exit and does NOT act on the unread state — it "
+                      f"escalates and keeps watching.", file=sys.stderr, flush=True)
+                _escalate_unreadable(run_root, unreadable_passes, detail)
         elif state == "live" and seats > 0:
+            unreadable_passes, unreadable_escalated = 0, False   # the meter reads again
             relaunch_attempts, escalated = 0, False  # an OCCUPIED room is back: the budget resets
         else:
             # 'gone' — no room — OR a room that is LIVE AND EMPTY, which is precisely what
@@ -7240,6 +7367,7 @@ def watch_loop(args, run_root, do_pass=None, sleep_fn=None, relaunch_fn=None):
             # and executes nothing — the 7.608 deadlock's shape with tmux as the stale-status
             # carrier. The lease's own posture is untouched: a hollow room IS a live lease. What
             # is no longer read as RECOVERY is a room with nobody in it.
+            unreadable_passes, unreadable_escalated = 0, False   # the meter reads again
             if relaunch_attempts < len(RELAUNCH_BACKOFF_S):
                 backoff = RELAUNCH_BACKOFF_S[relaunch_attempts]
                 relaunch_attempts += 1

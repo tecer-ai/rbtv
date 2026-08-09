@@ -506,6 +506,29 @@ FINISH_MARKER = "goal-finished: the finish edge fired"
 # disagree with it and no configuration relaunches forever. Seconds, as resolved.
 RELAUNCH_BACKOFF_S = (10, 30, 60, 120, 300)
 
+# ---- THE IGNORANCE BOUND (7.607 E2b; the E1b §2 review's standing concern) --------------------
+#
+# The twin of `watch.py`'s, at the same number and for the same reason — stated here rather than
+# imported because this file deliberately does not import that one (`ignite/CLAUDE.md` rule 4: no
+# reach-out at import level between components; the sensors are separate custodies).
+#
+# An UNREADABLE lease is IGNORANCE: it resets no bound and spends no attempt, which is right and
+# is unchanged. Taken alone it is also UNBOUNDED — a box whose `node` is gone reports UNREADABLE
+# on every pass forever, prints one stderr line into a log nobody tails, and never tells anyone
+# the sensor has been blind for hours. So after N CONSECUTIVE unreadable passes this escalates
+# LOUDLY, then KEEPS RUNNING: it never exits, never relaunches on ignorance, and never re-reads
+# ignorance as a crash. The escalation is a REPORT about the METER, not a verdict about the goal.
+#
+# N = 5 by the same cadence argument watch.py's carries: the default interval makes 5 consecutive
+# passes a couple of minutes of continuous blindness — past every transient this actually sees
+# (a `node` losing a race, one tmux call timing out) and well inside the ~8.7 min the relaunch
+# ladder itself takes to exhaust. CONSECUTIVE, so one readable pass clears it.
+UNREADABLE_BOUND = 5
+UNREADABLE_ESCALATION_LINE = ("team-monitor: LEASE UNREADABLE FOR "
+                              f"{UNREADABLE_BOUND} CONSECUTIVE PASSES — this sensor cannot tell "
+                              "whether the goal is executing, and has not been able to for the "
+                              "whole window")
+
 
 def goal_finished(package):
     """True once this goal's FINISH EVENT is in the append-only coordination log.
@@ -1245,6 +1268,7 @@ def cmd_run(args):
     print(f"team-monitor up: pid {os.getpid()} session {session} "
           f"interval {args.interval}s -> {state_path(args.package)}", flush=True)
     relaunch_attempts, escalated = 0, False
+    unreadable_passes, unreadable_escalated = 0, False
     try:
         while True:
             # 7.607 E1 — the ONE termination, tested FIRST so a finished goal is never relaunched
@@ -1263,7 +1287,20 @@ def cmd_run(args):
                 print("team-monitor: LEASE EVIDENCE UNREADABLE — room occupancy could not be "
                       "measured this pass; the relaunch budget is neither reset nor spent",
                       file=sys.stderr, flush=True)
+                # THE IGNORANCE BOUND (see UNREADABLE_BOUND). CONSECUTIVE: one readable pass
+                # anywhere in the window clears it, so a flapping meter is not an outage.
+                unreadable_passes += 1
+                if unreadable_passes >= UNREADABLE_BOUND and not unreadable_escalated:
+                    unreadable_escalated = True
+                    print(f"{UNREADABLE_ESCALATION_LINE} ({unreadable_passes} passes, room "
+                          f"{session}). This sensor does NOT exit and does NOT act on the unread "
+                          f"state — it escalates and keeps watching. What needs a human is the "
+                          f"METER: the lease derives from `node` + the goal's tmux room, so check "
+                          f"node is on PATH, the tmux server is reachable, and "
+                          f"`ignite/server/lease/lease.js` is where the accessor expects it.",
+                          file=sys.stderr, flush=True)
             elif alive and seats > 0:
+                unreadable_passes, unreadable_escalated = 0, False   # the meter reads again
                 relaunch_attempts, escalated = 0, False  # an OCCUPIED room is back: budget resets
             else:
                 # NOT an ending any more. No finish event + no room = CRASH, and a sensor that
@@ -1276,6 +1313,7 @@ def cmd_run(args):
                 # was unreachable and the run reported healthy forever while nothing executed it.
                 # Occupancy is asked of the LEASE, never of tmux directly, because an empty room
                 # still has its shell pane and no pane count can tell the two apart.
+                unreadable_passes, unreadable_escalated = 0, False   # the meter reads again
                 if relaunch_attempts < len(RELAUNCH_BACKOFF_S):
                     backoff = RELAUNCH_BACKOFF_S[relaunch_attempts]
                     relaunch_attempts += 1
@@ -1451,9 +1489,13 @@ def _selftest_run_block(check):
     # ---- queued: the owner ruling's scoping, and the counts that close ----
     with tempfile.TemporaryDirectory() as td:
         goals = Path(td) / "goals"
-        pkg = goals / "zz-goal" / "runs" / "run-1"
+        # 7.607 E2b — the package IS the goal folder (design-lock item 8), so the fixture's
+        # package and its goal root are ONE path. ⚠ This is a FIXTURE re-key only: `queued_count`
+        # scopes through `coord.goal_dir`, which is now an identity, and needed no change —
+        # team_monitor's own path re-keys are E3's, per this stage's write surface.
+        pkg = goals / "zz-goal"
         pkg.mkdir(parents=True)
-        goal = str((goals / "zz-goal").resolve())
+        goal = str(pkg.resolve())
         other = str((goals / "zz-goal-2").resolve())   # the sibling-prefix control
 
         empty_db = queue_fixture(td, [])
@@ -1465,16 +1507,16 @@ def _selftest_run_block(check):
         sub.mkdir()
         db = queue_fixture(sub, [
             json.dumps({"tool": "selfheal-watch"}),                                    # no path
-            json.dumps({"profile": "p", "workdir": f"{goal}/runs/run-1/seats/alpha"}),  # MATCH
-            json.dumps({"profile": "p", "workdir": f"{other}/runs/run-1/seats/alpha"}),  # sibling
+            json.dumps({"profile": "p", "workdir": f"{goal}/seats/alpha"}),           # MATCH
+            json.dumps({"profile": "p", "workdir": f"{other}/seats/alpha"}),          # sibling
             json.dumps({"prompt": "c", "workdir": goal}),          # MATCH — the goal root itself
-            json.dumps({"profile": "p", "workdir": f"{goal}/runs/run-2/seats/x"}),  # MATCH — run 2
+            json.dumps({"profile": "p", "workdir": f"{goal}/seats/x"}),               # MATCH
             "{not json at all",                                                   # unscopable
             json.dumps("a bare string"),                          # valid JSON, not an args object
         ])
         n, src = queued_count(str(pkg), db)
-        check(f"B1: queued is GOAL-scoped per d-owner-batch1 (4) — the goal root and a SECOND "
-              f"run of the same goal both count, so 3 of 7 (got {n!r})", n == 3)
+        check(f"B1: queued is GOAL-scoped per d-owner-batch1 (4) — the goal root and two seats "
+              f"under it all count, so 3 of 7 (got {n!r})", n == 3)
         check(f"B1: a sibling goal sharing the path PREFIX (`zz-goal-2` vs `zz-goal`) is NOT "
               f"scoped in (got {n!r}, would be 4)", n == 3)
         check(f"B1: a row whose args will not decode is EXCLUDED and COUNTED, never silent "
@@ -1837,6 +1879,39 @@ def cmd_selftest(args):
           f"verified-seat count, never room liveness alone (found {len(_resets)} reset branch(es): "
           f"{[ast.unparse(n.test)[:60] for n in _resets]})",
           len(_resets) == 1 and "seats" in ast.unparse(_resets[0].test))
+
+    # ---- 7.607 E2b T5: THE IGNORANCE BOUND, structural for T4's own reason (no sleep seam) ----
+    # Asserted as a DECISION over `cmd_run`'s AST, in a PAIR: the escalation must be REACHABLE
+    # from the unreadable branch (a bound that cannot fire is the defect it fixes) and it must be
+    # GUARDED by a >= comparison against the bound (an escalation on pass 1 is a false alarm, not
+    # a fix). Each half alone passes on the wrong code — an unguarded print, or a guard with
+    # nothing behind it — so both are required.
+    _uw = [n for n in ast.walk(mine["cmd_run"])
+           if isinstance(n, ast.If) and "unreadable_passes" in ast.unparse(n.test)
+           and ">=" in ast.unparse(n.test)]
+    _uinc = [n for n in ast.walk(mine["cmd_run"])
+             if isinstance(n, ast.AugAssign) and ast.unparse(n.target) == "unreadable_passes"]
+    _uresets = [n for n in ast.walk(mine["cmd_run"])
+                if isinstance(n, ast.Assign)
+                and ast.unparse(n).startswith("unreadable_passes, unreadable_escalated =")]
+    check("⚠⚠ 7.607 E2b T5 THE IGNORANCE BOUND EXISTS AND IS GUARDED: the unreadable arm COUNTS "
+          f"(found {len(_uinc)} increment) and the escalation fires only behind a `>=` test of "
+          f"that counter against UNREADABLE_BOUND (found {len(_uw)} guarded branch: "
+          f"{[ast.unparse(n.test)[:70] for n in _uw]}) — never on the first blind pass",
+          len(_uinc) == 1 and len(_uw) == 1
+          and "UNREADABLE_BOUND" in ast.unparse(_uw[0].test)
+          and "UNREADABLE_ESCALATION_LINE" in ast.unparse(_uw[0]))
+    check("⚠ 7.607 E2b T5 CONSECUTIVE, not cumulative: the counter is RESET on the two branches "
+          f"where the meter reads again — the occupied-room branch and the crash branch (found "
+          f"{len(_uresets)} resets, plus the initialiser) — so a flapping meter never escalates. "
+          f"Without a reset the bound counts blindness that has already cleared",
+          len(_uresets) == 3
+          and all(ast.unparse(n).endswith("(0, False)") for n in _uresets))
+    check("⚠ 7.607 E2b T5 IT IS A REPORT, NOT AN ACT: the guarded escalation branch relaunches "
+          "NOTHING and returns NOTHING — acting on a reading that was never taken is precisely "
+          "what the fail-open posture exists to prevent, and the bound must not smuggle it back",
+          "relaunch_room" not in ast.unparse(_uw[0])
+          and not any(isinstance(n, ast.Return) for n in ast.walk(_uw[0])))
 
     # ---- the declared agent type (task 7.80) ----
     # Four descriptor states, and the ABSENCES are checked as hard as the presence: an

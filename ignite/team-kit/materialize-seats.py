@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""materialize-seats — materialize a seat or a whole workflow into a run package.
+"""materialize-seats — materialize a seat or a whole workflow into a goal package.
 
 The command MATERIALIZES seats incrementally into an EXISTING run: it resolves
 the added seat set (a seat catalog `seats.csv` row for --seat; a workflow
@@ -44,12 +44,14 @@ Rules 9/8/14 of the workflow.md DAG-authoring block), the frozen-copy `after`
 cells (Rule 13), taskforce-id read from the file (never argv), atomic
 read → append → os.replace (never an open-append), and the --force-partial
 rows half (byte-match completion of ONLY the missing rows).
-The dag-06 CREATE-RUN-PACKAGE STEP is landed — plan_package_creation/
-create_run_package (d-bootstrap-mechanics-ruled (b)): an absent --package that
-passes the runs/run-N bar is CREATED — `runs/run-N/` plus the surfaces a run
-needs before a seat can check in (seats/, coordination/, header-only
-taskforce.csv, the ruled header-only state.csv) — so the MASTER can
-materialize at bootstrap, before the team exists. The three CONTENT surfaces
+The dag-06 CREATE-PACKAGE STEP is landed — plan_package_creation/
+create_run_package (d-bootstrap-mechanics-ruled (b)): the surfaces a goal needs
+before a seat can check in (seats/, coordination/, header-only taskforce.csv,
+the ruled header-only state.csv) are CREATED under the goal folder that passes
+the package bar — so the MASTER can materialize at bootstrap, before the team
+exists. (7.607 E2b: the package IS the goal folder — design-lock item 8 — so
+this step no longer mints a `runs/run-N/` compartment; it completes the goal
+folder `rbtv-goal scaffold` minted.) The three CONTENT surfaces
 — conduct.md, CLAUDE.md, budget.json — arrive as CALLER-SUPPLIED input files
 (--conduct / --claude-md / --budget-json, byte-copied), per
 `d-run3-seeds-from-run2-amended`: run-2's versions as amended by the authored
@@ -59,22 +61,14 @@ loudly (`create-inputs-missing`) naming the input and the remedy. Creation is
 announced in `writes[]` (kind `package-surface`), planned-not-written under
 --dry-run, idempotent against an existing package, and COMPLETES a partial
 one. A freshly created registry has no taskforce-id to read, so the first
-append derives it from the compartment name (`run-N` -> `tf-N`) —
-deterministic, never argv (see render_taskforce_rows).
+append derives it from the goal's OWN taskforce.csv counter (max existing + 1,
+design-lock item 10) — deterministic, never argv (see render_taskforce_rows).
 
-The RUN REGISTER's OPENING HALF is landed — render_run_register/
-append_run_register_row: creating a run package also APPENDS the run's row to
-`<goal>/runs.csv`, the ONE home of a run's state
-(`.rbtv/goals/CLAUDE.md`; `d-run-close-is-runscsv-plus-run-claudemd`;
-`team_monitor.run_closed()` machine-reads it). It closes a measured asymmetry:
-the CLOSING half (`state=closed` + the closed stamp) had a writer while the
-OPENING half had none, so run-3 of `build-core-daemon-mvp` was born LIVE on
-disk and ABSENT from its own register. `--run-type fresh|fix` is CALLER-SUPPLIED
-and refused when missing — the KG `run` record makes run type csv DATA,
-explicitly NOT derivable from the ordinal. The append is APPEND-ONLY and
-IDEMPOTENT: existing rows (every closed run's history) pass through byte-
-unchanged, and a row already carrying this run-id is left alone and warned
-about. This command never writes the `closed` cell — closing stays where it is.
+⚠ THE RUN REGISTER IS EXTINGUISHED (7.607 E2b, design-lock item 8). This
+command was the ONE writer of `<goal>/runs.csv`'s opening half
+(render_run_register / append_run_register_row) and both are DELETED with the
+run layer, along with `--run-type`. Its idempotence-on-refire guarantee is
+re-stated against the goal-direct creation act — see the constants section.
 
 Bootstrap call shape (the master's one call, d-master-scaffolds-at-bootstrap):
 the planning workflow's ENTRY SEATS are DECLARED ROOTS at authoring time
@@ -175,17 +169,13 @@ if str(_GOAL_CLI_DIR) not in sys.path:
 
 from goal_cli import (  # noqa: E402 — path bound just above
     BINDING_COLUMNS,
-    BRANCHES_DIR_NAME,
-    BRANCH_NAME_RE,
     Findings,
     Refusal as CatalogRefusal,
     after_member_grammar,
     assemble_seat,
-    branch_parent_kind,
     check_acyclic,
     index_units,
     load_catalogs,
-    resolve_branch_home,
 )
 
 # ---------------------------------------------------------------- constants
@@ -196,7 +186,11 @@ from goal_cli import (  # noqa: E402 — path bound just above
 SCRUBBED_ENV_VARS = ("TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET")
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-RUN_NAME_RE = re.compile(r"^run-[a-z0-9][a-z0-9-]*$")
+# The goals-tree folder the goal-direct package bar keys on (7.607 E2b, design-lock
+# item 8: the PACKAGE IS THE GOAL FOLDER). Positional, exactly like the daemon-side
+# grammar in `server/seat-identity/seat-folder.js` — no second reading of goal
+# identity, and it answers for a folder that does not exist yet.
+GOALS_DIR_NAME = "goals"
 MANIFEST_SEAT_COLUMN = "Seat/workflow"
 MANIFEST_AFTER_COLUMN = "after"
 TASKFORCE_NAME = "taskforce.csv"
@@ -212,7 +206,7 @@ MILESTONES_NAME = "milestones.csv"
 TASKFORCE_HEADER = ("taskforce-id", "seat", "after", "harness", "model",
                     "effort", "ctx-refresh", "milestone-id")
 
-# ---- dag-06 create-run-package constants ----
+# ---- dag-06 create-package constants ----
 
 # The state-cursor header a CREATED package's state.csv carries — byte-exact,
 # the ruled run-3 authoring input (`r-stage0-state-cursor-interim-convention`
@@ -232,40 +226,27 @@ CREATION_INPUTS = (
     ("budget.json", "--budget-json", "budget_json"),
 )
 
-# ---- run-register (the goal's runs.csv) constants ----
-
-# The goal-level RUN REGISTER: `<goal>/runs.csv`, the single home of a run's
-# state (.rbtv/goals/CLAUDE.md, d-run-close-is-runscsv-plus-run-claudemd).
-# Column ORDER is fixed and identical in both header spellings that exist on
-# disk: every live goal file spells the fourth column `taskforce-ids`, while
-# `rbtv-goal scaffold` writes `taskforce-id(s)` (goal_cli.RUNS_COLUMNS). BOTH
-# are accepted — normalized to the documented name before the header check —
-# because refusing either would break this writer on exactly one of the two
-# goal shapes that exist. The spelling divergence itself is goal_cli's to
-# settle; this command reads the register, never repairs it.
-RUNS_CSV_NAME = "runs.csv"
-RUN_REGISTER_HEADER = ("run-id", "type", "state", "taskforce-ids",
-                       "opened", "closed")
-RUN_REGISTER_HEADER_ALIASES = {"taskforce-id(s)": "taskforce-ids"}
-
-# Run TYPE is csv DATA — `fresh | fix` — and the KG `run` record states it is
-# NOT derivable from the ordinal (run 2 of a recurring goal is fresh). So it is
-# CALLER-SUPPLIED and refused when absent, never defaulted: defaulting `fresh`
-# would be right often enough to hide the one case it is wrong.
-RUN_TYPES = ("fresh", "fix")
-
-# A run this command CREATES is `open` by construction — creating the package
-# IS the act that opens the run, and nothing here can know it closed. The
-# vocabulary is .rbtv/goals/CLAUDE.md's (`open` | `closed`), matching every
-# live row. The `closed` cell and its stamp belong to the CLOSING half, which
-# this command never writes.
-RUN_STATE_OPEN = "open"
-
-# The `opened` stamp's format, byte-matching the live register's rows. The
-# VALUE is the wall clock at this act — an observation, not a default: this
-# command is the opening, so it is the one thing here that legitimately knows
-# when the run opened.
-RUN_OPENED_FORMAT = "%Y-%m-%d %H:%M"
+# ---- the run register is EXTINGUISHED (7.607 E2b, design-lock item 8) -------
+#
+# ⚠ THE ONE RUN-REGISTER WRITER USED TO LIVE HERE and it is DELETED, not
+# re-pointed: `RUNS_CSV_NAME` / `RUN_REGISTER_HEADER` / its two header spellings
+# / `RUN_TYPES` / `RUN_STATE_OPEN` / `RUN_OPENED_FORMAT`, and the
+# `render_run_register` + `append_run_register_row` pair (inventory #32 — the
+# SINGLE home of the opening half, PRIN-11). The register recorded a RUN's
+# state; there are no runs. `--run-type` goes with it: run type was csv DATA of
+# a row that no longer exists, so there is nothing left to refuse a default for.
+#
+# ⚠ ITS IDEMPOTENCE-ON-REFIRE GUARANTEE IS NOT LOST — it is RE-STATED against
+# the goal-direct creation act, which is now the only thing this command opens.
+# The register's guarantee was "a second fire appends no second row, and every
+# existing row passes through byte-unchanged". The creation act's equivalent, and
+# it is STRONGER because it is enforced by the filesystem rather than by a scan:
+# `plan_package_creation` plans only the surfaces that are ABSENT and
+# `create_run_package` writes them EXCLUSIVELY (mode `xb`) — so a re-fire against
+# a complete goal plans nothing and writes nothing, a re-fire against a partial
+# one completes exactly the missing surfaces, and a surface appearing between
+# plan and write fails loudly instead of being overwritten. Acceptance rows
+# `creation` / `creation-partial` are that guarantee's arms.
 
 # ---- dag-04 descriptor-surface constants ----
 
@@ -405,71 +386,68 @@ def _csv_rows(path: Path) -> list[dict]:
 # ---------------------------------------------------------------- validation
 
 
-# ------------------------------------------- branch packages (MC10 / 7.452)
+# ------------------------------------------- the package IS the goal folder
 #
-# A BRANCH is SHAPED like a run and is NEVER one. `concepts/branch.md`
-# (settled-by d-branch-family): a branch is the role a workflow plays when a
-# step of another workflow's run launches it — "their files live under the
-# parent run's branches folder (`runs/run-{n}/branches/branch-{m}/`), each
-# branch folder shaped exactly like a run folder, recursively".
+# 7.607 E2b, `decisions.md#d-extinguishment-design-lock` item 8 (D9). There is
+# no run compartment and no branch compartment: a goal's working content sits
+# DIRECTLY under `<ws>/.rbtv/goals/<goal>/`, so `--package` names the goal
+# folder and nothing else.
 #
-# Shaped like one, so it materializes through the SAME path with every gate
-# unchanged — a second materializer for branches would be the duplication
-# PRIN-11 forbids. Never one, so it never enters the goal's `runs.csv`: that
-# file is the ONE home of a RUN's state (.rbtv/goals/CLAUDE.md) and a branch
-# has no goal lifecycle of its own.
-
-
-def package_kind(package: Path) -> str | None:
-    """`"run"` for a runs/run-N compartment, `"branch"` for a
-    branches/branch-M home under a run or (recursively) another branch, else
-    None. The branch half defers to goal_cli's own `branch_parent_kind` — the
-    layout rule has ONE home (MC8 / 7.450) and this is not a second reading."""
-    if package.parent.name == "runs" and RUN_NAME_RE.match(package.name):
-        return "run"
-    if (package.parent.name == BRANCHES_DIR_NAME
-            and BRANCH_NAME_RE.match(package.name)
-            and branch_parent_kind(package.parent.parent) is not None):
-        return "branch"
-    return None
+# ⚠ `package_kind` IS DELETED, not re-keyed to one value. It existed to tell a
+# run from a branch; with both gone it would have had a single kind and a single
+# caller — a classifier that classifies nothing. The bar it fed is inlined in
+# `validate_package` below, which is now its only reader.
+#
+# ⚠ BRANCH PACKAGES ARE DELETED, not migrated (design-lock item 9, owner + KG):
+# `materialize_branch`, `--branch-of`/`--branch`, and the four `goal_cli` branch
+# imports are gone. The registry deleted the branch FOLDER on 2026-08-07
+# (`r-branch-folder-deleted-nested-seats-are-ordinary-run-seats`): `branch` is a
+# ROLE with NO file home, and a nested workflow's seats are ordinary seats of the
+# parent goal. Re-founding the nested-workflow LAUNCH on that shape is a design
+# act and is NOT performed here — see the findings' measured boundary.
 
 
 def derive_taskforce_id(package: Path) -> str:
-    """The taskforce-id a freshly created (zero-data-row) registry carries — a
-    pure function of the package path, never argv, identical at creation and on
-    every later empty-registry call. `runs/run-3` -> `tf-3`; a branch appends
-    its own ordinal to its parent's id, `runs/run-3/branches/branch-1` ->
-    `tf-3-b1`, recursively (`…/branch-1/branches/branch-2` -> `tf-3-b1-b2`), so
-    a branch taskforce is unique inside the goal and its id reads its lineage.
+    """The taskforce-id a zero-data-row registry carries: a COUNTER read from the
+    goal's own `taskforce.csv` — `max existing + 1` (design-lock item 10 / D3).
 
-    UNSETTLED AND DISCLOSED, never assumed: the registry settles no id form for
-    a BRANCH taskforce (`sd-graph show taskforce` carries none, 2026-08-06).
-    The branch half is MC10's own call, stated here so a later ruling replaces
-    one function instead of hunting id strings across a tree."""
-    if package_kind(package) == "branch":
-        return (derive_taskforce_id(package.parent.parent)
-                + "-b" + BRANCH_NAME_RE.match(package.name).group(1))
-    return "tf-" + package.name[len("run-"):]
+    NO FOLDER-NAME INPUT, and that is the whole change. The id used to be the run
+    ordinal (`runs/run-3` -> `tf-3`), which was only ever available because the
+    package path carried a compartment number. The package is now the goal folder
+    and its name is the goal, so the ordinal has one honest source left: the ids
+    already in the file. An unparseable or non-`tf-N` id contributes nothing to
+    the max rather than raising — this function's contract is to produce the NEXT
+    id, and a registry it cannot fully read still has a defensible next value.
+
+    `package` is the goal folder. The file may not exist (the creation act's
+    first call); an absent or header-only registry yields `tf-1`.
+    """
+    top = 0
+    for row in _csv_rows(package / TASKFORCE_NAME):
+        m = re.fullmatch(r"tf-(\d+)", (row.get("taskforce-id") or "").strip())
+        if m:
+            top = max(top, int(m.group(1)))
+    return f"tf-{top + 1}"
 
 
 def validate_package(raw: str) -> Path:
-    """The absolute runs/run-N compartment — or branch home under one — this
-    command materializes into."""
+    """The absolute GOAL FOLDER this command materializes into."""
     package = Path(raw)
     if not package.is_absolute():
         raise Refuse(
             "package-not-absolute",
-            "--package must be an ABSOLUTE run-package path — never inferred",
+            "--package must be an ABSOLUTE goal-folder path — never inferred",
             raw,
         )
-    if package_kind(package) is None:
+    if not (package.parent.name == GOALS_DIR_NAME and ID_RE.match(package.name)):
         raise Refuse(
-            "package-not-a-run",
-            "--package must resolve to a runs/run-N compartment, or to a "
-            f"{BRANCHES_DIR_NAME}/branch-M home under one (a branch folder is "
-            "shaped exactly like a run folder — concepts/branch.md, "
-            "d-branch-family) — seats materialize into the run folder, never "
-            "beside their definitions (d-all-seats-in-run-folder)",
+            "package-not-a-goal",
+            "--package must resolve to a GOAL FOLDER — "
+            f"<workspace>/.rbtv/{GOALS_DIR_NAME}/<goal> (design-lock item 8: "
+            "the package IS the goal folder; the runs/run-N compartment and "
+            "the branches/branch-M home are both extinguished) — seats "
+            "materialize into the goal folder, never beside their definitions "
+            "(d-all-seats-in-run-folder)",
             str(package),
         )
     # An ABSENT package no longer refuses here: dag-06's creation step plans
@@ -1436,7 +1414,7 @@ def result_of(plan: dict, dry_run: bool) -> dict:
     return result
 
 
-# ------------------------------------------- dag-06 run-package creation
+# ------------------------------------------- dag-06 goal-package creation
 
 
 def _read_creation_source(surface: str, opt: str, raw: str) -> bytes:
@@ -1489,10 +1467,11 @@ def _read_creation_source(surface: str, opt: str, raw: str) -> bytes:
 
 
 def plan_package_creation(package: Path, args) -> list[dict]:
-    """dag-06 — plan the run-package creation/completion WITHOUT writing
+    """dag-06 — plan the package creation/completion WITHOUT writing
     (d-bootstrap-mechanics-ruled (b)): at the opening of a brand-new goal the
-    run does not exist, so the MASTER's bootstrap materialize must create
-    `runs/run-N/` and the surfaces a run needs before a seat can check in.
+    working surfaces do not exist, so the MASTER's bootstrap materialize must
+    create the surfaces a goal needs before a seat can check in. (7.607 E2b:
+    the package IS the goal folder — there is no `runs/run-N/` to mint.)
     Derived from the live run-2 package + coord.py's own expectations:
 
       seats/          coord.py workers_dir + package discovery
@@ -1520,38 +1499,41 @@ def plan_package_creation(package: Path, args) -> list[dict]:
       accretions — authored content owned by the goal machinery and the
       authoring tasks, never command-invented.
 
-    Modes: an ABSENT package (bar already passed) plans full creation and
-    requires all three inputs; an existing package missing taskforce.csv is a
-    CREATION-PARTIAL half-state and is completed the same way (all inputs
-    required — closes the crash-then-flagless-retry window); an existing
-    package WITH taskforce.csv (run-2 and every legacy run) completes only
-    the structural dirs seats/ and coordination/, plus any caller-input
-    surface whose option was explicitly supplied and whose file is missing.
-    Existing surfaces are NEVER touched, compared, or overwritten."""
-    creating = not package.is_dir()
-    if creating:
-        goal = package.parent.parent
-        if not goal.is_dir():
-            raise Refuse(
-                "goal-folder-absent",
-                f"the goal folder {goal} does not exist — this command "
-                "creates a RUN PACKAGE inside an EXISTING goal folder; "
-                "creating a goal is rbtv-goal's act, never this command's",
-                str(package),
-            )
-    creation_partial = (not creating
-                        and not (package / TASKFORCE_NAME).is_file())
-    full = creating or creation_partial
+    ⚠ 7.607 E2b — THE "CREATE THE PACKAGE FOLDER" MODE IS DELETED, and it is
+    the ruling below that deletes it rather than a simplification. The package
+    IS the goal folder (design-lock item 8), and this command has always
+    refused to create a goal: "creating a goal is rbtv-goal's act, never this
+    command's". With the compartment gone, creating an absent package WOULD BE
+    creating a goal, so an absent package is now exactly the refusal that
+    sentence already named. What survives — and it is the whole bootstrap
+    story, unchanged in effect — is COMPLETION: `rbtv-goal scaffold` mints the
+    goal folder and its authored artifacts, and this command completes the
+    WORKING surfaces (seats/, coordination/, header-only taskforce.csv, the
+    ruled header-only state.csv, the three caller-supplied content files).
+
+    Modes: a goal folder missing taskforce.csv is completed FULLY and requires
+    all three inputs (this is the bootstrap path, and it is the same code path
+    that closed the crash-then-flagless-retry window); a goal folder WITH
+    taskforce.csv completes only the structural dirs seats/ and coordination/,
+    plus any caller-input surface whose option was explicitly supplied and
+    whose file is missing. Existing surfaces are NEVER touched, compared, or
+    overwritten."""
+    if not package.is_dir():
+        raise Refuse(
+            "goal-folder-absent",
+            f"the goal folder {package} does not exist — this command "
+            "completes the WORKING surfaces of an EXISTING goal folder; "
+            "creating a goal is rbtv-goal's act, never this command's",
+            str(package),
+        )
+    full = not (package / TASKFORCE_NAME).is_file()
 
     plan: list[dict] = []
-    if creating:
-        plan.append({"surface": ".", "path": str(package), "dir": True})
 
     missing_inputs = []
     for surface, opt, attr in CREATION_INPUTS:
         supplied = getattr(args, attr, None)
-        present = (package / surface).is_file() if not creating else False
-        if present:
+        if (package / surface).is_file():
             continue
         if supplied is None:
             if full:
@@ -1563,7 +1545,7 @@ def plan_package_creation(package: Path, args) -> list[dict]:
     if missing_inputs:
         raise Refuse(
             "create-inputs-missing",
-            "creating (or completing) this run package needs the "
+            "creating (or completing) this goal package needs the "
             "caller-supplied base text for: "
             + ", ".join(f"{s} (pass {o} <file>)" for s, o in missing_inputs)
             + " — d-run3-seeds-from-run2-amended: the content is run-2's "
@@ -1587,7 +1569,7 @@ def plan_package_creation(package: Path, args) -> list[dict]:
                          "path": str(package / STATE_CSV_NAME),
                          "data": (STATE_CSV_HEADER + "\n").encode()})
     for d in ("seats", "coordination"):
-        if creating or not (package / d).is_dir():
+        if not (package / d).is_dir():
             plan.append({"surface": d, "path": str(package / d), "dir": True})
     return plan
 
@@ -2330,7 +2312,7 @@ def render_taskforce_rows(plan: dict) -> None:
     elif not tf_path.is_file():
         raise Refuse(
             "registry-absent",
-            f"the run package carries no {TASKFORCE_NAME} — the append needs "
+            f"the goal package carries no {TASKFORCE_NAME} — the append needs "
             "the run's registry (its taskforce-id is read from the file, "
             "never argv). Completing this package is dag-06's creation step: "
             "re-run with --conduct/--claude-md/--budget-json so the missing "
@@ -2395,15 +2377,20 @@ def render_taskforce_rows(plan: dict) -> None:
             )
         raw_by_seat[seat] = line
 
-    # taskforce-id: the run's EXISTING id, read from the file — never argv.
-    # dag-06 bootstrap story: a registry with ZERO data rows (a freshly
+    # taskforce-id: the taskforce's EXISTING id, read from the file — never
+    # argv. dag-06 bootstrap story: a registry with ZERO data rows (a freshly
     # created, header-only taskforce.csv — first materialize into a created
-    # package) carries no id to read, so the id is DERIVED from the
-    # compartment name the package bar already proved: run-N -> tf-N, and a
-    # branch home -> its parent's id plus its own ordinal (derive_taskforce_id).
-    # Deterministic — a pure function of the package path, the same at
-    # creation and on every later empty-registry call — never argv, never
-    # guessed per call. The derivation fires ONLY on zero data rows: a
+    # package) carries no id to read, so the id is DERIVED by the COUNTER in
+    # the goal's own taskforce.csv — max existing + 1, design-lock item 10
+    # (derive_taskforce_id). No folder-name input: the package is the goal
+    # folder and its name is the goal, so the ordinal's one honest source is
+    # the file. Deterministic and never argv.
+    # ⚠ BOUNDARY, DISCLOSED: the derivation still fires ONLY on zero data rows,
+    # so on a goal-durable registry the counter is exercised exactly once. WHEN
+    # a second taskforce is minted inside one goal (a recurring goal's next
+    # execution) is an unsettled design question the lock does not answer, and
+    # inventing a rule for it here would be a design act. Until it is ruled, a
+    # registry that HAS rows still yields their one id. A
     # registry that HAS rows but no readable id still refuses (red arm), and
     # an id read from rows always wins over the derivation.
     ids = {(r.get("taskforce-id") or "").strip() for r in existing_rows}
@@ -2582,280 +2569,10 @@ def append_taskforce_rows(plan: dict) -> int:
     return plan["rows_appended"]
 
 
-# ------------------------------------------- the run register's OPENING half
-
-
-def render_run_register(plan: dict, args) -> None:
-    """Plan the run's row in `<goal>/runs.csv` WITHOUT writing — the OPENING
-    half of the run-close convention (`.rbtv/goals/CLAUDE.md`,
-    `d-run-close-is-runscsv-plus-run-claudemd`). That convention makes runs.csv
-    the ONE home of a run's state, machine-read by `team_monitor.run_closed()`
-    and `goal_cli.current_run_dir`; its CLOSING half (state=closed + the closed
-    stamp) already had a writer and is NOT touched here. The OPENING half had
-    none, which is why run-3 of `build-core-daemon-mvp` was born live on disk
-    and absent from its own register.
-
-    FIRES ONLY when this act creates the package's taskforce.csv — i.e. a
-    creation or a creation-partial completion (the same detector
-    render_taskforce_rows uses). A legacy package already carries its row, so
-    nothing is planned for it.
-
-    APPEND-ONLY and IDEMPOTENT. A row already carrying this run-id is left
-    BYTE-UNTOUCHED and reported as a warning rather than refused: the creation
-    path is deliberately re-runnable (it completes a crashed creation), so
-    refusing here would turn a recoverable half-state into a dead end. No
-    existing row is ever rewritten, reordered, compared away, or re-read for
-    content — every closed run's history passes through as bytes.
-
-    Where every cell comes from — nothing here is invented:
-
-      run-id        the runs/run-N compartment name, which validate_package
-                    already proved; the same basis as the tf-N derivation
-      type          CALLER-SUPPLIED (--run-type): the KG `run` record makes run
-                    type csv DATA, `fresh|fix`, explicitly NOT derivable from
-                    the ordinal — refused when absent, never defaulted
-      state         `open`, by construction: this act opens the run
-      taskforce-ids the taskforce-id render_taskforce_rows already derived,
-                    taken from its plan — never recomputed, so the register and
-                    the registry cannot disagree
-      opened        the wall clock at this act, in the live register's format —
-                    the one value this command legitimately knows, because it
-                    IS the opening
-      closed        empty; the closing half's cell
-
-    NOT enforced here, deliberately: the ONE-LIVE-RUN-PER-GOAL invariant. It
-    has a home already (`goal_cli`'s lint reports two open rows), and a second
-    enforcement point is the duplication PRIN-11 forbids."""
-    creating_tf = any(c["surface"] == TASKFORCE_NAME
-                      for c in plan.get("creation", ()))
-    if not creating_tf:
-        return
-    package = Path(plan["package"])
-    # A BRANCH is never a run (concepts/branch.md, d-branch-family): it has no
-    # goal lifecycle of its own, so it takes no row in the goal's run register.
-    # Registering one would also put a non-run id in front of
-    # `goal_cli.current_run_dir` and `team_monitor.run_closed()`, which resolve
-    # THE RUN from that file. Reported, never silent — a branch is discovered
-    # as an entry of its parent's branches/ folder and nowhere else (MC10).
-    if package_kind(package) == "branch":
-        plan["warnings"].append(
-            f"{package.name} is a BRANCH home under {package.parent.parent}, "
-            f"not a run — NO {RUNS_CSV_NAME} row is written (a branch has no "
-            "goal lifecycle of its own; concepts/branch.md, d-branch-family). "
-            f"It is discoverable as an entry of its parent's "
-            f"{BRANCHES_DIR_NAME}/ folder")
-        return
-    runs_csv = package.parent.parent / RUNS_CSV_NAME
-    if not runs_csv.is_file():
-        raise Refuse(
-            "run-register-absent",
-            f"the goal carries no {RUNS_CSV_NAME} — it is the ONE home of a "
-            "run's state (.rbtv/goals/CLAUDE.md), so a run created without it "
-            "would be live on disk and invisible to every consumer; "
-            "scaffolding a goal is rbtv-goal's act, never this command's. "
-            "Nothing was created",
-            str(runs_csv),
-        )
-    run_type = getattr(args, "run_type", None)
-    if not run_type:
-        raise Refuse(
-            "run-type-missing",
-            "creating a run package registers the run in "
-            f"{RUNS_CSV_NAME} and its `type` cell needs "
-            "--run-type " + "|".join(RUN_TYPES) + " — run type is csv DATA "
-            "and the KG `run` record makes it explicitly NOT derivable from "
-            "the ordinal (run 2 of a recurring goal is fresh), so this "
-            "command refuses rather than defaulting one. Nothing was created",
-            str(runs_csv),
-        )
-
-    text = runs_csv.read_text(encoding="utf-8")
-    if not text.endswith("\n"):
-        raise Refuse(
-            "run-register-tail-unterminated",
-            f"{RUNS_CSV_NAME} does not end in a newline — appending would "
-            "join this run's row onto a partial line and corrupt the register; "
-            "repair it before creating a run",
-            str(runs_csv),
-        )
-    lines = text.split("\n")[:-1]
-    header_line = lines[0] if lines else ""
-    header = tuple(
-        RUN_REGISTER_HEADER_ALIASES.get(h.strip(), h.strip())
-        for h in (next(csv.reader([header_line])) if header_line else ()))
-    if header != RUN_REGISTER_HEADER:
-        raise Refuse(
-            "run-register-header-drift",
-            f"{RUNS_CSV_NAME} header is {header_line!r}, not the documented "
-            "run-register shape '" + ",".join(RUN_REGISTER_HEADER)
-            + "' (.rbtv/goals/CLAUDE.md) — a row written against a drifted "
-            "header lands its cells in the wrong columns, so this refuses "
-            "rather than guessing the mapping",
-            str(runs_csv),
-        )
-
-    run_id = package.name
-    for line in lines[1:]:
-        if not line.strip():
-            continue
-        cells = next(csv.reader([line]))
-        if cells and cells[0].strip() == run_id:
-            plan["warnings"].append(
-                f"{RUNS_CSV_NAME} already carries a row for {run_id} — left "
-                f"byte-untouched, no row appended (append-only, idempotent): "
-                f"{line}")
-            return
-
-    row = _render_csv_line([
-        run_id,
-        run_type,
-        RUN_STATE_OPEN,
-        (plan.get("registry") or {}).get("taskforce_id", ""),
-        datetime.datetime.now().strftime(RUN_OPENED_FORMAT),
-        "",
-    ])
-    plan["register"] = {"path": str(runs_csv), "text": text, "line": row}
-    plan["writes"].append({"kind": "run-register-append",
-                           "path": str(runs_csv), "row": row})
-
-
-def append_run_register_row(plan: dict) -> int:
-    """WRITE the planned run-register row: read → verify the file is byte-for-
-    byte what render_run_register validated → atomic replace. The existing
-    bytes (header and every previous run's row) pass through UNCHANGED; only
-    the one rendered line is added, at the end. Returns the rows appended
-    (0 when nothing was planned — a legacy package, or an already-present
-    row)."""
-    reg = plan.get("register")
-    if not reg:
-        return 0
-    path = Path(reg["path"])
-    current = path.read_text(encoding="utf-8")
-    if current != reg["text"]:
-        raise Refuse(
-            "run-register-changed-underfoot",
-            f"{RUNS_CSV_NAME} changed between validation and write — re-run "
-            "so the check sees the file that is actually there (the run "
-            "package is already created; the re-run appends only the missing "
-            "row)",
-            str(path),
-        )
-    _atomic_replace(path, current + reg["line"] + "\n")
-    plan["run_registered"] = reg["line"]
-    return 1
-
-
 # ---------------------------------------------------------------- run
 
 
-def materialize_branch(args) -> dict:
-    """MC10 (7.452) — materialize a nested-workflow row into its OWN branch
-    taskforce, homed under the parent run's `branches/`.
-
-    A manifest row names a seat-id "or, instead of a seat, a nested workflow"
-    (registry concept `workflow manifest`). When it names a workflow, the
-    executing instance the registry rules for it is a TASKFORCE homed under the
-    parent's `branches/` (`concepts/branch.md`, d-branch-family). This is that
-    act, and it composes three landed pieces rather than reimplementing any:
-
-      classify_manifest_reference   MC9 / 7.451 — is the row a seat or a
-                                    workflow? A seat is refused here.
-      goal_cli.resolve_branch_home  MC8 / 7.450 — the settled path, the
-                                    numbering rule, the create-only refusal.
-      run(args)                     THIS command's ordinary path — every gate,
-                                    every write, unchanged. The branch's rows
-                                    and seat folders are written by the
-                                    materialize command, never hand-written.
-
-    Bounds, all of them: nothing is launched; the PARENT's own taskforce.csv is
-    not rewired (that edge is the edge-runner's, MC11); and every write lands
-    inside the branch home — the run register is skipped for a branch
-    (render_run_register) and the parent's surfaces are only READ."""
-    parent = Path(args.branch_of)
-    if not parent.is_absolute():
-        raise Refuse(
-            "branch-parent-not-absolute",
-            "--branch-of must be an ABSOLUTE run-or-branch package path — "
-            "never inferred",
-            args.branch_of,
-        )
-    if package_kind(parent) is None:
-        raise Refuse(
-            "branch-parent-not-a-package",
-            "--branch-of must resolve to a runs/run-N compartment or to a "
-            f"{BRANCHES_DIR_NAME}/branch-M home — a branch homes under a run "
-            "or, recursively, under another branch (concepts/branch.md)",
-            str(parent),
-        )
-    if args.seat:
-        raise Refuse(
-            "branch-of-with-seat",
-            "--branch-of materializes a nested WORKFLOW as a branch taskforce "
-            "— a single cataloged seat materializes into a run package with "
-            "--package, and is not a branch",
-        )
-    if args.after:
-        raise Refuse(
-            "branch-of-with-after",
-            "--branch-of mints a FRESH branch home, so its rows attach to "
-            "nothing inside it: pass --root. The parent row the branch runs "
-            "for is the edge-runner's to advance, never an --after cell here",
-        )
-    catalog_root = Path(args.catalog_root)
-    if not catalog_root.is_dir():
-        raise Refuse(
-            "catalog-root-missing",
-            "--catalog-root is not a directory — no catalog to materialize from",
-            str(catalog_root),
-        )
-    # MC9's classifier, reached by call — this path authors no second reading
-    # of what a manifest reference names.
-    ref = classify_manifest_reference(args.workflow, catalog_root)
-    if ref.kind != "nested_workflow":
-        raise Refuse(
-            "branch-not-a-workflow",
-            f"'{args.workflow}' classifies as {ref.kind}, not a nested "
-            "workflow — a branch is a WORKFLOW launched by a step of another "
-            "workflow's run (concepts/branch.md); nothing materialized",
-            str(catalog_root),
-        )
-    try:
-        home = resolve_branch_home(parent, args.branch, create=False)
-    except CatalogRefusal as exc:
-        raise Refuse("branch-home-refused", str(exc), str(parent)) from exc
-
-    # The created branch's content surfaces are the PARENT's own, byte-copied,
-    # unless the caller named a file — a branch folder is shaped exactly like
-    # the run folder it lives under, and this command still invents nothing
-    # (d-run3-seeds-from-run2-amended). A parent missing one, with no caller
-    # option, reaches plan_package_creation's own create-inputs-missing refusal.
-    inherited = []
-    for surface, _opt, attr in CREATION_INPUTS:
-        if getattr(args, attr, None) is None and (parent / surface).is_file():
-            setattr(args, attr, str(parent / surface))
-            inherited.append(surface)
-
-    args.package = str(home)
-    args.branch_of = None          # the branch is resolved; run() sees a package
-    result = run(args)
-    result["branch"] = {
-        "parent": str(parent),
-        "parent_kind": package_kind(parent),
-        "home": str(home),
-        "workflow": ref.name,
-        "manifest_reference": ref.kind,
-    }
-    if inherited:
-        result["warnings"].append(
-            "branch content surfaces INHERITED from the parent package "
-            f"({', '.join(inherited)}) — byte-copies of {parent}'s own; pass "
-            "--conduct/--claude-md/--budget-json to override")
-    return result
-
-
 def run(args) -> dict:
-    if getattr(args, "branch_of", None):
-        return materialize_branch(args)
     package = validate_package(args.package)
     repass = bool(getattr(args, "repass", False))
     if repass:
@@ -2876,7 +2593,7 @@ def run(args) -> dict:
     if repass and creation:
         raise Refuse(
             "repass-incomplete-package",
-            "--repass re-renders inside an EXISTING run package and this one "
+            "--repass re-renders inside an EXISTING goal package and this one "
             "is missing "
             + ", ".join(c["surface"] for c in creation)
             + " — complete the package with a plain materialize first",
@@ -2932,19 +2649,13 @@ def run(args) -> dict:
     render_harness_configs(plan, catalogs[0])  # plugin/MCP config files
     render_seat_exposures(plan)   # seat-exposure loaders (five methods)
     render_taskforce_rows(plan)
-    render_run_register(plan, args)
     if args.dry_run:
         return result_of(plan, dry_run=True)
     # Package surfaces FIRST (dag-06), descriptors SECOND, rows LAST — never
     # another order (the descriptor/rows rationale lives on
     # append_taskforce_rows' docstring; creation must precede both because
     # descriptors land in seats/ and the append re-reads taskforce.csv).
-    # The run-register row lands immediately after creation, and never before
-    # it: the register would otherwise claim a run that does not exist. The
-    # other order's half-state is the one already survivable — a created
-    # package not yet registered, which the idempotent re-run completes.
     create_run_package(package, creation)  # dag-06
-    append_run_register_row(plan)  # the run register's opening half
     emit_seat_descriptors(plan)   # dag-04
     emit_harness_configs(plan)    # plugin/MCP config files
     emit_seat_exposures(plan)     # seat-exposure loaders (five methods)
@@ -2963,20 +2674,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="materialize-seats.py --selftest materializes only against a "
                "throwaway fixture and exits 0/1.",
     )
-    into = p.add_mutually_exclusive_group(required=True)
-    into.add_argument("--package",
-                      help="absolute run-package path to materialize into "
-                           "(runs/run-N, or a branches/branch-M home under "
-                           "one). Required, never inferred.")
-    into.add_argument("--branch-of", dest="branch_of",
-                      help="absolute path of the PARENT run (or branch) "
-                           "package: mint a branch home under its "
-                           f"{BRANCHES_DIR_NAME}/ and materialize --workflow "
-                           "into it as its own taskforce (MC10). Requires "
-                           "--root; the parent is only read.")
-    p.add_argument("--branch",
-                   help="name the branch home explicitly (branch-M); omitted, "
-                        "it is auto-numbered by the settled rule (MC8)")
+    p.add_argument("--package", required=True,
+                   help="absolute GOAL-FOLDER path to materialize into "
+                        "(<workspace>/.rbtv/goals/<goal> — the package IS the "
+                        "goal folder, design-lock item 8). Never inferred.")
     what = p.add_mutually_exclusive_group(required=True)
     what.add_argument("--seat",
                       help="materialize ONE cataloged seat (seats.csv row)")
@@ -3000,24 +2701,18 @@ def build_parser() -> argparse.ArgumentParser:
                         "milestones.csv row")
     p.add_argument("--conduct", dest="conduct",
                    help="caller-supplied conduct.md BASE-TEXT file, byte-"
-                        "copied into a CREATED run package (d-run3-seeds-"
+                        "copied into a CREATED goal package (d-run3-seeds-"
                         "from-run2-amended — this command never invents run "
                         "conventions). Required when creating/completing")
     p.add_argument("--claude-md", dest="claude_md",
                    help="caller-supplied run CLAUDE.md base-text file, byte-"
-                        "copied into a CREATED run package (same ruling as "
+                        "copied into a CREATED goal package (same ruling as "
                         "--conduct). Required when creating/completing")
     p.add_argument("--budget-json", dest="budget_json",
                    help="caller-supplied budget.json file, byte-copied into "
-                        "a CREATED run package. A PATH, never a value: the "
+                        "a CREATED goal package. A PATH, never a value: the "
                         "floor lives in the file (R-10, r-floor-single-"
                         "source). Required when creating/completing")
-    p.add_argument("--run-type", dest="run_type", choices=RUN_TYPES,
-                   help="the created run's `type` cell in the goal's "
-                        "runs.csv register: fresh (a promotion) or fix (a "
-                        "request re-opening a closed run). Run type is DATA, "
-                        "not derivable from the ordinal (KG `run`), so it is "
-                        "never defaulted. Required when creating/completing")
     p.add_argument("--dry-run", action="store_true", dest="dry_run",
                    help="print the full materialize write plan as JSON; "
                         "touch nothing")
@@ -3095,7 +2790,7 @@ def _invoke(argv: list[str], env: dict) -> subprocess.CompletedProcess:
 
 
 def build_fixture(tmp: Path) -> dict:
-    """A throwaway catalog + run package + bindings set, in the settled
+    """A throwaway catalog + goal package + bindings set, in the settled
     component shape (kind-named XML unit bodies, id in frontmatter; bare and
     @latest unit refs both exercised — the dag-01 widened grammar)."""
     # catalog-root/<component>/... — one level, mirroring the live shape
@@ -3233,28 +2928,36 @@ def build_fixture(tmp: Path) -> dict:
         "tf-1,chief,,claude,claude-opus-5,high,,m1\n"
     )
     milestones = "milestone-id,name,status\nm1,prove the fixture,pending\n"
-    pkg = tmp / "goals" / "demo-goal" / "runs" / "run-1"
+    pkg = tmp / "goals" / "demo-goal"
     (pkg / "seats").mkdir(parents=True)
-    (pkg / "coordination").mkdir()  # a run package carries it (coord.py home)
+    (pkg / "coordination").mkdir()  # a goal package carries it (coord.py home)
     pkg.joinpath(TASKFORCE_NAME).write_text(taskforce, encoding="utf-8")
     pkg.joinpath(MILESTONES_NAME).write_text(milestones, encoding="utf-8")
     # A second package with seat alpha already materialized — the collision arm.
-    pkg9 = tmp / "goals" / "demo-goal" / "runs" / "run-9"
+    # A SECOND GOAL now (7.607 E2b): the package is the goal folder, so two
+    # packages are two goals — never two compartments of one.
+    pkg9 = tmp / "goals" / "demo-goal-9"
     (pkg9 / "seats" / "alpha").mkdir(parents=True)
     (pkg9 / "coordination").mkdir()
     pkg9.joinpath(TASKFORCE_NAME).write_text(taskforce, encoding="utf-8")
     pkg9.joinpath(MILESTONES_NAME).write_text(milestones, encoding="utf-8")
     # SC-10 control fixture: a registry whose header ALREADY carries `status`.
-    pkg_status = tmp / "goals" / "demo-goal" / "runs" / "run-8"
+    pkg_status = tmp / "goals" / "demo-goal-8"
     (pkg_status / "seats").mkdir(parents=True)
     (pkg_status / "coordination").mkdir()
     pkg_status.joinpath(TASKFORCE_NAME).write_text(
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
         "milestone-id,status\n"
         "tf-1,chief,,claude,claude-opus-5,high,,m1,queued\n", encoding="utf-8")
+    # The UNCOMPLETED goal folder (what `rbtv-goal scaffold` leaves): the
+    # creation/completion arms' target. 7.607 E2b — this used to be an ABSENT
+    # runs/run-7 compartment; a goal folder is never created by this command,
+    # so the fixture scaffolds it and leaves it bare.
+    pkg_uncompleted = tmp / "goals" / "demo-goal-7"
+    pkg_uncompleted.mkdir(parents=True)
     # SC-21 fixture: the REPAIRED spine — m4 present, `bootstrap` absent
     # (dag-15's live repair is parked; this spine is the fixture's own).
-    pkg_spine = tmp / "goals" / "demo-goal" / "runs" / "run-31"
+    pkg_spine = tmp / "goals" / "demo-goal-31"
     (pkg_spine / "seats").mkdir(parents=True)
     (pkg_spine / "coordination").mkdir()
     pkg_spine.joinpath(TASKFORCE_NAME).write_text(
@@ -3430,7 +3133,7 @@ def build_fixture(tmp: Path) -> dict:
         "pkg9": str(pkg9),
         "pkg_status": str(pkg_status),
         "pkg_spine": str(pkg_spine),
-        "pkg_absent": str(tmp / "goals" / "demo-goal" / "runs" / "run-7"),
+        "pkg_absent": str(pkg_uncompleted),
         "b_both": str(bdir / "both.json"),
         "b_alpha": str(bdir / "alpha.json"),
         "b_missing": str(bdir / "missing.json"),
@@ -3496,10 +3199,10 @@ def selftest_scenarios(fx: dict) -> list[tuple[str, list[str], int, str | None]]
          wf(**{"--workflow": "no-flow"}), 1, "workflow-unknown"),
         ("red: milestone-id resolves to no milestones.csv row",
          wf(**{"--milestone-id": "m9"}), 1, "milestone-unresolved"),
-        ("red: package outside a runs/run-N compartment",
-         wf(**{"--package": fx["catalog"]}), 1, "package-not-a-run"),
+        ("red: package that is not a goal folder (not under goals/)",
+         wf(**{"--package": fx["catalog"]}), 1, "package-not-a-goal"),
         ("red: package not absolute",
-         wf(**{"--package": "runs/run-1"}), 1, "package-not-absolute"),
+         wf(**{"--package": "goals/demo-goal"}), 1, "package-not-absolute"),
         ("red: absent package with NO creation inputs refuses naming them "
          "(dag-06 — an absent input is a refusal, never a default)",
          wf(**{"--package": fx["pkg_absent"]}), 1, "create-inputs-missing"),
@@ -4043,9 +3746,13 @@ def run_dag04_acceptance(check, env: dict) -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         fx = build_fixture(tmp)
-        groot = tmp / "lintgoals"
+        # 7.607 E2b: the package IS the goal folder, and the bar is positional
+        # (`.../goals/<goal>`, the seat-folder.js grammar) — so the lint tree's
+        # goals root is literally named `goals`, under its own parent so it
+        # cannot collide with the shared fixture's.
+        groot = tmp / "lint" / "goals"
         gdir = groot / "demo-goal"
-        run1 = gdir / "runs" / "run-1"
+        run1 = gdir
         (run1 / "seats").mkdir(parents=True)
         (run1 / "coordination").mkdir()
         (gdir / "goal.md").write_text(
@@ -4055,9 +3762,6 @@ def run_dag04_acceptance(check, env: dict) -> None:
             encoding="utf-8")
         (gdir / "decisions.md").write_text("# decisions\n", encoding="utf-8")
         (gdir / "threads.sql").write_text("-- threads\n", encoding="utf-8")
-        (gdir / "runs.csv").write_text(
-            "run-id,type,state,taskforce-id(s),opened,closed\n"
-            "run-1,build,active,tf-1,2026-07-29,\n", encoding="utf-8")
         (run1 / MILESTONES_NAME).write_text(
             "milestone-id,name,status\nm1,prove,pending\n", encoding="utf-8")
         # dag-05: seed the registry (canonical header + the run's existing
@@ -4323,14 +4027,14 @@ def run_dag05_acceptance(check, env: dict) -> None:
                       "--catalog-root", fx["catalog"], "--root",
                       "--bindings", fx["b_alpha"], "--json"], env)
         check("SC-15: a catalog/mirror path is refused — the target is the "
-              "run folder, never the catalog (d-all-seats-in-run-folder)",
+              "goal folder, never the catalog (d-all-seats-in-run-folder)",
               cp.returncode == 1
-              and _refusal(cp).get("code") == "package-not-a-run",
+              and _refusal(cp).get("code") == "package-not-a-goal",
               cp.stdout.strip()[:200])
         cp = _invoke(["--package", fx["pkg_spine"], "--seat", "alpha",
                       "--catalog-root", fx["catalog"], "--after", "chief",
                       "--bindings", fx["b_alpha"], "--dry-run", "--json"], env)
-        check("SC-15 control: a real run package is accepted",
+        check("SC-15 control: a real goal package is accepted",
               cp.returncode == 0, (cp.stdout + cp.stderr).strip()[:200])
 
     # ---- group 3: SC-10 control (status column) + SC-21 (spine) --------
@@ -4385,9 +4089,13 @@ def run_dag05_acceptance(check, env: dict) -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         fx = build_fixture(tmp)
-        groot = tmp / "lintgoals"
+        # 7.607 E2b: the package IS the goal folder, and the bar is positional
+        # (`.../goals/<goal>`, the seat-folder.js grammar) — so the lint tree's
+        # goals root is literally named `goals`, under its own parent so it
+        # cannot collide with the shared fixture's.
+        groot = tmp / "lint" / "goals"
         gdir = groot / "demo-goal"
-        run1 = gdir / "runs" / "run-1"
+        run1 = gdir
         (run1 / "seats").mkdir(parents=True)
         (run1 / "coordination").mkdir()
         (gdir / "goal.md").write_text(
@@ -4396,9 +4104,6 @@ def run_dag05_acceptance(check, env: dict) -> None:
             encoding="utf-8")
         (gdir / "decisions.md").write_text("# decisions\n", encoding="utf-8")
         (gdir / "threads.sql").write_text("-- threads\n", encoding="utf-8")
-        (gdir / "runs.csv").write_text(
-            "run-id,type,state,taskforce-id(s),opened,closed\n"
-            "run-1,build,active,tf-1,2026-07-29,\n", encoding="utf-8")
         (run1 / MILESTONES_NAME).write_text(
             "milestone-id,name,status\nm1,prove,pending\n", encoding="utf-8")
         seed_text = ("taskforce-id,seat,after,harness,model,effort,"
@@ -4547,13 +4252,10 @@ def run_dag06_acceptance(check, env: dict) -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         fx = build_fixture(tmp)
-        goal = tmp / "g6-goal"
-        goal.mkdir()
-        # The goal's run register — a created run is registered in it, so a
-        # goal folder without one refuses (run-register-absent).
-        (goal / "runs.csv").write_text(
-            "run-id,type,state,taskforce-ids,opened,closed\n", encoding="utf-8")
-        pkg = goal / "runs" / "run-1"  # live-held tag: register declines
+        # The package IS the goal folder (7.607 E2b): scaffold's act is the
+        # bare goal folder, and this command completes its WORKING surfaces.
+        pkg = tmp / "g6" / "goals" / "g6-goal"
+        pkg.mkdir(parents=True)
 
         def create_argv(seat, bindings, extra=()):
             return ["--package", str(pkg), "--seat", seat,
@@ -4562,43 +4264,44 @@ def run_dag06_acceptance(check, env: dict) -> None:
                     "--conduct", fx["src_conduct"],
                     "--claude-md", fx["src_claude"],
                     "--budget-json", fx["src_budget"],
-                    "--run-type", "fresh", "--json", *extra]
+                    "--json", *extra]
 
-        # CP-7: --dry-run against the ABSENT package — plan printed, nothing
-        # on disk.
+        # CP-7: --dry-run against the UNCOMPLETED goal folder — plan printed,
+        # nothing on disk.
         cp = _invoke(create_argv("alpha", fx["b_alpha"], ("--dry-run",)), env)
         plan_writes = (json.loads(cp.stdout)
                        if cp.returncode == 0 else {}).get("writes", [])
         planned = {w.get("surface") for w in plan_writes
                    if w["kind"] == "package-surface"}
-        check("CP-7: dry-run against an absent package exits 0 and the "
-              "printed plan names every created surface",
+        check("CP-7: dry-run against an uncompleted goal folder exits 0 and "
+              "the printed plan names every created surface",
               cp.returncode == 0
-              and {".", "conduct.md", "CLAUDE.md", "budget.json",
+              and {"conduct.md", "CLAUDE.md", "budget.json",
                    TASKFORCE_NAME, STATE_CSV_NAME, "seats",
                    "coordination"} <= planned,
               (cp.stdout + cp.stderr).strip()[:200])
-        check("CP-7: ...and writes NOTHING — neither the package nor runs/ "
-              "exists after the dry-run",
-              not pkg.exists() and not (goal / "runs").exists())
+        check("CP-7: ...and writes NOTHING — not one working surface exists "
+              "after the dry-run",
+              list(pkg.iterdir()) == [])
 
         # CP-1 green: the same argv without --dry-run CREATES + materializes.
         cp = _invoke(create_argv("alpha", fx["b_alpha"]), env)
         created = json.loads(cp.stdout) if cp.returncode == 0 else {}
         surfaces = {w.get("surface") for w in created.get("writes", [])
                     if w["kind"] == "package-surface"}
-        check("CP-1: a materialize against a NON-EXISTENT --package creates "
-              "the package and materializes into it, announcing every "
-              "created surface in writes[]",
+        check("CP-1: a materialize against a goal folder with no working "
+              "surfaces creates them and materializes into it, announcing "
+              "every created surface in writes[]",
               cp.returncode == 0
               and (pkg / "seats" / "alpha" / "seat.md").is_file()
               and (pkg / "coordination").is_dir()
               and (pkg / TASKFORCE_NAME).is_file()
               and (pkg / STATE_CSV_NAME).is_file()
-              and {".", "conduct.md", "CLAUDE.md", "budget.json"} <= surfaces,
+              and {"conduct.md", "CLAUDE.md", "budget.json"} <= surfaces,
               (cp.stdout + cp.stderr).strip()[:200])
         check("CP-7 control: the dry flag is the discriminator — the same "
-              "argv without it created the package", pkg.is_dir())
+              "argv without it completed the package",
+              (pkg / TASKFORCE_NAME).is_file())
         check("state.csv: the created cursor carries EXACTLY the ruled "
               "header, header only (r-stage0-state-cursor-interim-convention)",
               (pkg / STATE_CSV_NAME).read_text(encoding="utf-8")
@@ -4606,13 +4309,15 @@ def run_dag06_acceptance(check, env: dict) -> None:
 
         rows = list(csv.DictReader(
             (pkg / TASKFORCE_NAME).read_text(encoding="utf-8").splitlines()))
-        check("tf-id: the first materialize into a created package derives "
-              "the id from the compartment (run-1 -> tf-1), never argv",
+        check("tf-id: the first materialize into a completed package derives "
+              "the id from the goal's OWN taskforce.csv counter (empty -> "
+              "tf-1, design-lock item 10), never argv and never a folder name",
               [r["taskforce-id"] for r in rows] == ["tf-1"]
               and rows[0]["seat"] == "alpha", str(rows))
 
         # CP-1 control: the SAME call with the create step disabled refuses.
-        pkg2 = goal / "runs" / "run-2"
+        pkg2 = tmp / "g6" / "goals" / "g6-goal-2"
+        pkg2.mkdir(parents=True)
         args2 = build_parser().parse_args(
             [a if a != str(pkg) else str(pkg2)
              for a in create_argv("alpha", fx["b_alpha"])])
@@ -4633,7 +4338,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
             globals()["plan_package_creation"] = orig_plan
         check("CP-1 control: the SAME call with the create step disabled "
               "refuses (package-absent) and creates nothing",
-              refused and not pkg2.exists())
+              refused and list(pkg2.iterdir()) == [])
 
         # CP-5: no policy number on the argument surface; the caller's
         # budget.json IS read and reaches the created package unchanged.
@@ -4734,10 +4439,14 @@ def run_dag06_acceptance(check, env: dict) -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         fx = build_fixture(tmp)
-        goal = tmp / "g6-goal"
-        goal.mkdir()
-        (goal / "runs.csv").write_text(
-            "run-id,type,state,taskforce-ids,opened,closed\n", encoding="utf-8")
+        groot = tmp / "g6" / "goals"
+
+        def mkgoal(name):
+            """A scaffolded-but-uncompleted goal folder: what `rbtv-goal
+            scaffold` leaves behind, and this command's only creatable state."""
+            g = groot / name
+            g.mkdir(parents=True)
+            return g
 
         def argv_for(pkg, seat, bindings, extra=()):
             return ["--package", str(pkg), "--seat", seat,
@@ -4746,45 +4455,48 @@ def run_dag06_acceptance(check, env: dict) -> None:
                     "--conduct", fx["src_conduct"],
                     "--claude-md", fx["src_claude"],
                     "--budget-json", fx["src_budget"],
-                    "--run-type", "fresh", "--json", *extra]
+                    "--json", *extra]
 
-        # CP-4: an absent path OUTSIDE runs/run-N refuses with NOTHING
-        # created — creation never bypasses SC-15's bar.
+        # CP-4: a path that is not a goal folder refuses with NOTHING
+        # created — completion never bypasses SC-15's bar.
         outside = tmp / "whatever"
         cp = _invoke(argv_for(outside, "alpha", fx["b_alpha"]), env)
-        check("CP-4: --package <absent, outside runs/run-N> refuses "
-              "(package-not-a-run) and creates nothing on disk",
+        check("CP-4: --package <not under goals/> refuses "
+              "(package-not-a-goal) and creates nothing on disk",
               cp.returncode == 1
-              and _refusal(cp).get("code") == "package-not-a-run"
+              and _refusal(cp).get("code") == "package-not-a-goal"
               and not outside.exists())
-        nogoal_pkg = tmp / "no-goal" / "runs" / "run-1"
+        nogoal_pkg = groot / "never-scaffolded"
         cp = _invoke(argv_for(nogoal_pkg, "alpha", fx["b_alpha"]), env)
-        check("CP-4: an absent GOAL folder refuses (goal-folder-absent — "
+        check("CP-4: an ABSENT goal folder refuses (goal-folder-absent — "
               "goal creation is rbtv-goal's) and creates nothing",
               cp.returncode == 1
               and _refusal(cp).get("code") == "goal-folder-absent"
-              and not (tmp / "no-goal").exists())
-        # CP-4 control: <goal>/runs/run-9 (absent, correct shape) IS created.
-        pkg9 = goal / "runs" / "run-9"
+              and not nogoal_pkg.exists())
+        # CP-4 control: a scaffolded, uncompleted goal folder IS completed.
+        pkg9 = mkgoal("g6-goal-9")
         cp = _invoke(argv_for(pkg9, "alpha", fx["b_alpha"]), env)
         rows9 = (list(csv.DictReader((pkg9 / TASKFORCE_NAME).read_text(
-            encoding="utf-8").splitlines())) if pkg9.is_dir() else [])
-        check("CP-4 control: <goal>/runs/run-9 (absent) IS created and "
+            encoding="utf-8").splitlines()))
+            if (pkg9 / TASKFORCE_NAME).is_file() else [])
+        check("CP-4 control: a scaffolded goal folder IS completed and "
               "materialized",
               cp.returncode == 0
               and (pkg9 / "seats" / "alpha" / "seat.md").is_file())
-        check("tf-id: the run-9 compartment derives tf-9",
-              [r["taskforce-id"] for r in rows9] == ["tf-9"], str(rows9))
+        check("tf-id: an empty registry derives tf-1 from the COUNTER, and "
+              "the goal folder's name contributes nothing to it",
+              [r["taskforce-id"] for r in rows9] == ["tf-1"], str(rows9))
 
-        # Creation is gated like every write: a later-gate refusal on an
-        # absent package leaves NOTHING created.
-        pkg5 = goal / "runs" / "run-5"
+        # Completion is gated like every write: a later-gate refusal on an
+        # uncompleted goal folder leaves NOTHING created.
+        pkg5 = mkgoal("g6-goal-5")
         cp = _invoke(argv_for(pkg5, "beta", fx["b_alpha"]), env)
-        check("gated creation: a bindings refusal against an absent package "
-              "leaves nothing created (creation fires after every gate)",
+        check("gated creation: a bindings refusal against an uncompleted "
+              "goal folder leaves nothing created (creation fires after "
+              "every gate)",
               cp.returncode == 1
               and _refusal(cp).get("code") == "bindings-missing-seat"
-              and not pkg5.exists())
+              and list(pkg5.iterdir()) == [])
 
         # CP-8 red arm: omit --conduct → REFUSAL naming it, nothing created.
         argv8 = argv_for(pkg5, "alpha", fx["b_alpha"])
@@ -4797,7 +4509,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
               cp.returncode == 1
               and _refusal(cp).get("code") == "create-inputs-missing"
               and "--conduct" in _refusal(cp).get("message", "")
-              and not pkg5.exists())
+              and list(pkg5.iterdir()) == [])
         argv8 = argv_for(pkg5, "alpha", fx["b_alpha"])
         i = argv8.index("--budget-json")
         del argv8[i:i + 2]
@@ -4807,7 +4519,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
               cp.returncode == 1
               and _refusal(cp).get("code") == "create-inputs-missing"
               and "--budget-json" in _refusal(cp).get("message", "")
-              and not pkg5.exists())
+              and list(pkg5.iterdir()) == [])
         argvb = argv_for(pkg5, "alpha", fx["b_alpha"])
         argvb[argvb.index("--budget-json") + 1] = fx["src_budget_broken"]
         cp = _invoke(argvb, env)
@@ -4816,7 +4528,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
               "(create-input-invalid), before any write",
               cp.returncode == 1
               and _refusal(cp).get("code") == "create-input-invalid"
-              and not pkg5.exists())
+              and list(pkg5.iterdir()) == [])
 
         # CP-3: a partially-present package is COMPLETED, never refused.
         shutil.rmtree(pkg9 / "coordination")
@@ -4846,7 +4558,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
         # CREATION-PARTIAL half-state: an existing dir WITHOUT taskforce.csv
         # re-requires the full input trio (closes the crash-then-flagless-
         # retry window), then completes.
-        pkg6 = goal / "runs" / "run-6"
+        pkg6 = mkgoal("g6-goal-6")
         (pkg6 / "seats").mkdir(parents=True)
         cp = _invoke(["--package", str(pkg6), "--seat", "alpha",
                       "--catalog-root", fx["catalog"], "--root",
@@ -4870,7 +4582,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
 
         # tf-id red arm: rows that exist with NO readable id still refuse —
         # the derivation fires only on a zero-row registry.
-        pkg7 = goal / "runs" / "run-7"
+        pkg7 = mkgoal("g6-goal-7")
         (pkg7 / "seats").mkdir(parents=True)
         (pkg7 / "coordination").mkdir()
         (pkg7 / TASKFORCE_NAME).write_text(
@@ -4880,7 +4592,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
                       "--catalog-root", fx["catalog"], "--root",
                       "--bindings", fx["b_alpha"], "--json"], env)
         check("tf-id red: a registry WITH rows but no readable id refuses "
-              "(taskforce-id-unreadable) — the compartment derivation never "
+              "(taskforce-id-unreadable) — the counter derivation never "
               "papers over it",
               cp.returncode == 1
               and _refusal(cp).get("code") == "taskforce-id-unreadable")
@@ -4893,189 +4605,11 @@ def run_dag06_acceptance(check, env: dict) -> None:
                       "--bindings", fx["b_alpha"], "--json"], env)
         rows7 = list(csv.DictReader((pkg7 / TASKFORCE_NAME).read_text(
             encoding="utf-8").splitlines()))
-        check("tf-id: an id READ FROM THE FILE (tf-1) wins over the run-7 "
-              "compartment derivation — the appended row carries tf-1",
+        check("tf-id: an id READ FROM THE FILE (tf-1) wins over the counter "
+              "derivation — the appended row carries tf-1",
               cp.returncode == 0
               and [r["taskforce-id"] for r in rows7] == ["tf-1", "tf-1"],
               str(rows7))
-
-
-def run_run_register_acceptance(check, env: dict) -> None:
-    """RR-1/RR-2 — the run register's OPENING half (render_run_register /
-    append_run_register_row), each row with the arm that MUST be able to fail.
-
-    EVERY EXPECTED VALUE BELOW IS A LITERAL — the header string, the six cells,
-    the run id, the taskforce id. Nothing is read back out of the module's own
-    constants: a check that asserts the code equals itself passes whatever the
-    code says, and four such rows shipped on this build before the pattern was
-    caught. Fixture-only (tempfile.TemporaryDirectory), never a real goal."""
-    def _refusal(cp):
-        try:
-            return json.loads(cp.stdout).get("refusal") or {}
-        except ValueError:
-            return {}
-
-    with tempfile.TemporaryDirectory() as td:
-        tmp = Path(td)
-        fx = build_fixture(tmp)
-        goal = tmp / "rr-goal"
-        goal.mkdir()
-        runs_csv = goal / RUNS_CSV_NAME
-        # A register that already holds CLOSED history — literal bytes, so the
-        # append-only claim has real rows to protect.
-        pre_text = ("run-id,type,state,taskforce-ids,opened,closed\n"
-                    "run-1,fresh,closed,tf-1,2026-07-27 01:30,"
-                    "2026-07-27 13:11\n"
-                    "run-2,fresh,closed,tf-2,2026-07-27 14:25,"
-                    "2026-07-29 17:12\n")
-        runs_csv.write_text(pre_text, encoding="utf-8")
-        pre_bytes = runs_csv.read_bytes()
-        pkg = goal / "runs" / "run-4"
-
-        def argv(seat, bindings, extra=()):
-            return ["--package", str(pkg), "--seat", seat,
-                    "--catalog-root", fx["catalog"], "--root",
-                    "--bindings", bindings,
-                    "--conduct", fx["src_conduct"],
-                    "--claude-md", fx["src_claude"],
-                    "--budget-json", fx["src_budget"],
-                    "--run-type", "fresh", "--json", *extra]
-
-        def rows():
-            with runs_csv.open(encoding="utf-8", newline="") as fh:
-                return [r for r in csv.reader(fh) if r]
-
-        # RR-1 red arm FIRST — omitting --run-type refuses and creates
-        # nothing. Run type is DATA (KG `run`: not derivable from the ordinal),
-        # so a default here would be wrong exactly when it matters.
-        no_type = [a for a in argv("alpha", fx["b_alpha"])]
-        i = no_type.index("--run-type")
-        del no_type[i:i + 2]
-        cp = _invoke(no_type, env)
-        check("RR-1 red: creating without --run-type REFUSES "
-              "(run-type-missing) — the type cell is never defaulted — and "
-              "neither the package nor a register row appears",
-              cp.returncode == 1
-              and _refusal(cp).get("code") == "run-type-missing"
-              and not pkg.exists()
-              and runs_csv.read_bytes() == pre_bytes,
-              (cp.stdout + cp.stderr).strip()[:200])
-
-        # RR-2 red arm — the dry run plans the append and writes NOTHING, so
-        # the "byte-identical" comparator below is exercised on a case where a
-        # write was genuinely planned.
-        cp = _invoke(argv("alpha", fx["b_alpha"], ("--dry-run",)), env)
-        planned = [w["kind"] for w in (json.loads(cp.stdout)
-                                       if cp.returncode == 0
-                                       else {}).get("writes", [])]
-        check("RR-2 red: --dry-run PLANS the run-register append yet writes "
-              "nothing — runs.csv byte-identical",
-              cp.returncode == 0 and "run-register-append" in planned
-              and runs_csv.read_bytes() == pre_bytes, str(planned))
-
-        # RR-1 green — the creation registers the run. Cells asserted as
-        # LITERALS against a csv.reader parse (never a grep: grep cannot tell
-        # an empty cell from a missing column).
-        cp = _invoke(argv("alpha", fx["b_alpha"]), env)
-        parsed = rows()
-        stamp = parsed[-1][4] if len(parsed) == 4 else ""
-        check("RR-1 green: creating runs/run-4 APPENDS its register row — "
-              "6 columns, cells [run-4, fresh, open, tf-4, <stamp>, '']",
-              cp.returncode == 0
-              and len(parsed) == 4
-              and all(len(r) == 6 for r in parsed)
-              and parsed[3][:4] == ["run-4", "fresh", "open", "tf-4"]
-              and parsed[3][5] == ""
-              and re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d", stamp)
-              is not None,
-              f"rc={cp.returncode} rows={parsed} "
-              f"err={cp.stderr.strip()[:160]}")
-        check("RR-1 green: the appended row is announced in writes[] "
-              "(kind run-register-append, path = the goal's runs.csv)",
-              any(w["kind"] == "run-register-append"
-                  and w["path"] == str(runs_csv)
-                  for w in (json.loads(cp.stdout)
-                            if cp.returncode == 0 else {}).get("writes", [])),
-              cp.stdout.strip()[:200])
-        after_one = runs_csv.read_bytes()
-        check("RR-2 green: the write is a PURE APPEND — the pre-existing "
-              "bytes (header, run-1, run-2) are unchanged and still first, "
-              "and exactly one line was added",
-              after_one.startswith(pre_bytes)
-              and after_one[len(pre_bytes):].count(b"\n") == 1,
-              repr(after_one[len(pre_bytes):])[:160])
-        check("RR-2 green: the two closed rows are byte-identical to what was "
-              "there before (no rewrite, no reorder)",
-              after_one.decode().splitlines(keepends=True)[:3]
-              == pre_text.splitlines(keepends=True),
-              str(after_one.decode().splitlines()[:3]))
-
-        # RR-2 green (idempotence) — a CREATION-PARTIAL retry whose row is
-        # already in the register appends NOTHING and says so.
-        (pkg / TASKFORCE_NAME).unlink()
-        cp = _invoke(argv("beta", fx["b_beta"]), env)
-        res = json.loads(cp.stdout) if cp.returncode == 0 else {}
-        warns = res.get("warnings") or []
-        check("RR-2 green: a creation-partial RETRY does not double-append — "
-              "it warns that run-4's row is already there, plans no register "
-              "write, and leaves runs.csv byte-identical",
-              cp.returncode == 0
-              and any("already carries a row for run-4" in w for w in warns)
-              and "run-register-append" not in [w["kind"] for w
-                                               in res.get("writes", [])]
-              and runs_csv.read_bytes() == after_one
-              and [r[0] for r in rows()[1:]] == ["run-1", "run-2", "run-4"],
-              f"rc={cp.returncode} warns={warns} rows={rows()}")
-
-        # RR-1 red (second arm) — a register whose columns are REORDERED
-        # refuses rather than landing cells in the wrong columns.
-        drift = tmp / "rr-drift-goal"
-        drift.mkdir()
-        (drift / RUNS_CSV_NAME).write_text(
-            "run-id,state,type,taskforce-ids,opened,closed\n",
-            encoding="utf-8")
-        dpkg = drift / "runs" / "run-1"
-        cp = _invoke([a if a != str(pkg) else str(dpkg)
-                      for a in argv("alpha", fx["b_alpha"])], env)
-        check("RR-1 red: a register with REORDERED columns refuses "
-              "(run-register-header-drift) instead of writing cells into the "
-              "wrong columns — nothing created",
-              cp.returncode == 1
-              and _refusal(cp).get("code") == "run-register-header-drift"
-              and not dpkg.exists(),
-              (cp.stdout + cp.stderr).strip()[:200])
-
-        # RR-1 green (alias) — rbtv-goal scaffold's `taskforce-id(s)` spelling
-        # is the OTHER header on disk and must be accepted, not refused.
-        scaf = tmp / "rr-scaffold-goal"
-        scaf.mkdir()
-        (scaf / RUNS_CSV_NAME).write_text(
-            "run-id,type,state,taskforce-id(s),opened,closed\n",
-            encoding="utf-8")
-        spkg = scaf / "runs" / "run-1"
-        cp = _invoke([a if a != str(pkg) else str(spkg)
-                      for a in argv("alpha", fx["b_alpha"])], env)
-        with (scaf / RUNS_CSV_NAME).open(encoding="utf-8", newline="") as fh:
-            srows = [r for r in csv.reader(fh) if r]
-        check("RR-1 green: the scaffolded header spelling `taskforce-id(s)` "
-              "is accepted and its run-1 row carries tf-1",
-              cp.returncode == 0 and len(srows) == 2
-              and srows[1][:4] == ["run-1", "fresh", "open", "tf-1"],
-              f"rc={cp.returncode} {srows}")
-
-        # RR-1 red (third arm) — a goal with NO register refuses: a run live on
-        # disk and invisible to every consumer is the defect this closes.
-        bare = tmp / "rr-bare-goal"
-        bare.mkdir()
-        bpkg = bare / "runs" / "run-1"
-        cp = _invoke([a if a != str(pkg) else str(bpkg)
-                      for a in argv("alpha", fx["b_alpha"])], env)
-        check("RR-1 red: a goal folder with NO runs.csv refuses "
-              "(run-register-absent) — a run is never created unregistered",
-              cp.returncode == 1
-              and _refusal(cp).get("code") == "run-register-absent"
-              and not bpkg.exists(),
-              (cp.stdout + cp.stderr).strip()[:200])
 
 
 # dag-07 — the per-ROW rollup table. Every acceptance row of the command
@@ -5158,14 +4692,14 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
               ("SC-20 red", "SC-20 control: a mutated descriptor",
                "SC-20 rows-half control")),
     "SC-21": (("SC-21 control",), ("SC-21: --milestone-id bootstrap",)),
-    "CP-1": (("CP-1: a materialize against a NON-EXISTENT",),
+    "CP-1": (("CP-1: a materialize against a goal folder",),
              ("CP-1 control",)),
     "CP-2": (("CP-2: a later materialize",),
              ("CP-2: the identical call again",)),
     "CP-3": (("CP-3: deleting coordination/",), ("CP-3 control",)),
     "CP-4": (("CP-4 control",),
-             ("CP-4: --package <absent, outside",
-              "CP-4: an absent GOAL folder")),
+             ("CP-4: --package <not under goals/>",
+              "CP-4: an ABSENT goal folder")),
     "CP-5": (("CP-5: the argument surface carries NO numeric default",
               "CP-5 control: the caller-supplied budget.json IS read"),
              ("CP-5 control: the numeric-default detector fires",
@@ -5173,7 +4707,7 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "CP-6": (("CP-6: coordinate launch --dry-run --only alpha resolves",
               "CP-6: a REAL launch reads the created budget.json"),
              ("CP-6 control: without budget.json", "CP-6/CP-8 red")),
-    "CP-7": (("CP-7: dry-run against an absent package exits 0",
+    "CP-7": (("CP-7: dry-run against an uncompleted goal folder exits 0",
               "CP-7: ...and writes NOTHING"), ("CP-7 control",)),
     "CP-8": (("CP-8: created conduct.md",),
              ("CP-8 red", "CP-6/CP-8 red")),
@@ -5188,10 +4722,6 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "creation-partial": (("creation-partial control",),
                          ("creation-partial: an existing dir with NO "
                           "taskforce.csv",)),
-    # The run register's OPENING half. RR-1 = the row is written at creation;
-    # RR-2 = the write is append-only and idempotent.
-    "RR-1": (("RR-1 green",), ("RR-1 red",)),
-    "RR-2": (("RR-2 green",), ("RR-2 red",)),
     "AS-2": (("AS-2 green",), ("AS-2 control",)),
     "AS-4": (("SK-4: the whole suite is identical",), ("SK-4 control",)),
     # The plugin/MCP registration row (d-mcp-registration-is-config).
@@ -5274,7 +4804,7 @@ def _pf_fixture(root: Path) -> dict:
         "seat-id,executor,task,staffing-hints,description\n"
         "pf,pf-prompt,pf-task,,the pass seat\n", encoding="utf-8")
 
-    pkg = root / "goals" / "pf-goal" / "runs" / "run-2"
+    pkg = root / "goals" / "pf-goal"
     (pkg / "seats").mkdir(parents=True)
     (pkg / "coordination").mkdir()
     (pkg / TASKFORCE_NAME).write_text(",".join(TASKFORCE_HEADER) + "\n",
@@ -5320,7 +4850,7 @@ def _pf_run(fx: dict, binding: str, **over):
         package=str(fx["pkg"]), seat="pf", workflow=None,
         catalog_root=fx["catalog"], after=None, root=True,
         bindings=fx["b"][binding], milestone_id=None, conduct=None,
-        claude_md=None, budget_json=None, run_type=None, dry_run=True,
+        claude_md=None, budget_json=None, dry_run=True,
         as_json=False, force_partial=False, repass=False)
     for k, v in over.items():
         setattr(args, k, v)
@@ -5532,84 +5062,6 @@ def run_selftest() -> int:
               "(F-9a's real radius — one colliding id, not the manifest form)",
               got == "reference-ambiguous", f"got {got}")
 
-    print("SK-10 branch materialization pass (MC10 / 7.452)")
-    with tempfile.TemporaryDirectory() as mc10_td:
-        fx10 = build_fixture(Path(mc10_td))
-        parent10 = Path(fx10["pkg"])
-        seeds10 = ["--conduct", fx10["src_conduct"],
-                   "--claude-md", fx10["src_claude"],
-                   "--budget-json", fx10["src_budget"]]
-        common10 = ["--catalog-root", fx10["catalog"],
-                    "--bindings", fx10["b_both"], "--root", "--json"]
-        outside_before = _hash_tree(Path(mc10_td) / "goals")
-        p10 = _invoke(["--branch-of", str(parent10), "--workflow", "demo-flow"]
-                      + common10 + seeds10, clean_env)
-        home10 = parent10 / BRANCHES_DIR_NAME / "branch-1"
-        res10 = json.loads(p10.stdout) if p10.stdout.strip() else {}
-        check("SK-10: a nested-workflow row materializes into a branch home "
-              "under the parent's branches/",
-              p10.returncode == 0 and (home10 / TASKFORCE_NAME).is_file(),
-              p10.stderr.strip()[:300])
-        # RED ARM — the same act against a path that is NOT a run or branch
-        # compartment: the package bar still refuses, so the admission above is
-        # a decision this command MADE, not a bar it lost.
-        stray = Path(mc10_td) / "goals" / "demo-goal" / "runs" / "run-1" / "seats"
-        p10r = _invoke(["--package", str(stray), "--workflow", "demo-flow"]
-                       + common10 + seeds10, clean_env)
-        check("SK-10 RED: an off-compartment --package is still refused "
-              "package-not-a-run (the branch admission widened nothing else)",
-              p10r.returncode == 1 and "package-not-a-run" in p10r.stderr,
-              p10r.stderr.strip()[:200])
-        # The frozen copy (Rule 13), compared as BYTES against the manifest.
-        manifest10 = sorted(Path(fx10["catalog"]).glob(
-            "*/workflows/demo-flow/demo-flow.csv"))[0]
-        with manifest10.open(encoding="utf-8", newline="") as fh:
-            man10 = {r[MANIFEST_SEAT_COLUMN].strip(): r[MANIFEST_AFTER_COLUMN]
-                     for r in csv.DictReader(fh)}
-        got10 = {r["seat"]: r["after"]
-                 for r in _csv_rows(home10 / TASKFORCE_NAME)}
-        check("SK-10: every branch `after` cell is byte-identical to the "
-              "nested manifest's own (Rule 13, frozen copy)",
-              all(v.encode() == (got10.get(k) or "").encode()
-                  for k, v in man10.items()),
-              json.dumps({k: [v, got10.get(k)] for k, v in man10.items()}))
-        check("SK-10 control: that comparison reports UNEQUAL on a one-byte "
-              "mutation of the same cells",
-              not all((v + "x").encode() == (got10.get(k) or "").encode()
-                      for k, v in man10.items()))
-        check("SK-10: the branch's taskforce-id is derived from the package "
-              "path (tf-1-b1 under runs/run-1)",
-              {r["taskforce-id"] for r in _csv_rows(home10 / TASKFORCE_NAME)}
-              == {"tf-1-b1"},
-              str({r["taskforce-id"]
-                   for r in _csv_rows(home10 / TASKFORCE_NAME)}))
-        # A branch takes NO run-register row, and the skip is reported.
-        check("SK-10: a branch materialize plans no run-register write and "
-              "SAYS so (a branch is never a run — concepts/branch.md)",
-              not any(w["kind"] == "run-register-append"
-                      for w in res10.get("writes", []))
-              and any("BRANCH home" in w for w in res10.get("warnings", [])),
-              json.dumps(res10.get("warnings")))
-        # RED ARM for that skip: the SAME creation act against a RUN package
-        # demands the register and refuses without it — so the branch's
-        # exemption is this command's decision and not a dead code path.
-        p10n = _invoke(["--package", str(parent10.parent / "run-7"),
-                        "--workflow", "demo-flow", "--run-type", "fresh"]
-                       + common10 + seeds10, clean_env)
-        check("SK-10 RED: creating a RUN package still REFUSES without the "
-              "goal's runs.csv (run-register-absent) — the branch skip is a "
-              "decision, not a lost gate",
-              p10n.returncode == 1 and "run-register-absent" in p10n.stderr,
-              p10n.stderr.strip()[:200])
-        check("SK-10: nothing outside the branch home changed — the parent's "
-              "own registry and every goal file are byte-identical",
-              {k: v for k, v in _hash_tree(Path(mc10_td) / "goals").items()
-               if BRANCHES_DIR_NAME + "/" not in k} == outside_before)
-        check("SK-10: a SEAT reference is refused by the branch path "
-              "(branch-not-a-workflow) — it reaches MC9's classifier",
-              _invoke(["--branch-of", str(parent10), "--workflow", "alpha"]
-                      + common10 + seeds10, clean_env).returncode == 1)
-
     print("MCP-1 plugin/MCP registration pass (d-mcp-registration-is-config)")
     with tempfile.TemporaryDirectory() as mcp_td:
         fxm = build_fixture(Path(mcp_td))
@@ -5777,9 +5229,6 @@ def run_selftest() -> int:
 
     print("dag-06 acceptance pass (CP-1..CP-8, both arms each)")
     run_dag06_acceptance(check, clean_env)
-
-    print("run-register acceptance pass (RR-1/RR-2 — the opening half)")
-    run_run_register_acceptance(check, clean_env)
 
     print("pass-folder acceptance pass (PF-1/PF-2/PF-3 — B4, B5, "
           "G-planner-0804-1502; both arms each)")

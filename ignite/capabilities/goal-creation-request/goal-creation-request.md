@@ -84,7 +84,7 @@ queued job is also visible as a goals-root directory absent from `ignite inspect
      --goal <goal> --seat <entry-seat> \
      --args-schema '{"required": {"workflow": "string", "entry-seat": "string", "goal": "string", "workdir": "string"}}'
    ignite add-job --fn <goal>-workflow-start \
-     --args-json '{"workflow": "<workflow>", "entry-seat": "<entry-seat>", "goal": "<goal>", "workdir": "<goal-dir>/runs/run-1"}' \
+     --args-json '{"workflow": "<workflow>", "entry-seat": "<entry-seat>", "goal": "<goal>", "workdir": "<goal-dir>"}' \
      --trigger scheduled --at <ISO-8601 Z>
    ```
 
@@ -104,8 +104,9 @@ queued job is also visible as a goals-root directory absent from `ignite inspect
    `workflow` is the ONE of the four that CANNOT burn an id: `register-job` refuses a
    `start-workflow` schema that omits it (`args_schema.required declares no "workflow"`), so that
    mistake is a refusal rather than a burn — which is precisely why the other three need this
-   warning. `workdir` is the RUN
-   PACKAGE (`<goal-dir>/runs/run-1` — the scaffold's `FRESH_RUN_ID`), NOT the bare goal dir
+   warning. `workdir` is the
+   PACKAGE, which since 7.607 E2b IS THE GOAL DIR (design-lock item 8 — `runs/run-1` and
+   `FRESH_RUN_ID` are extinguished)
    (task C5E: the package expands `{{workdir}}` in the launcher argv AND becomes the fired
    process's CWD).
 
@@ -193,9 +194,9 @@ absent from `config.workflows`; `spawn-profiles.yaml` now carries a `workflows:`
 
 | Was unresolved | Ruled and built |
 |---|---|
-| which `scaffold-seats` call shape | The WHOLE planning DAG — `--workflow planning-deprecated --root --run-type fresh`, **9** manifest seats (`workflows/planning-deprecated/planning-deprecated.csv`; `seats.csv`'s 10 is a different set), `--catalog-root` the SHARED PARENT `.rbtv/mirror/meta/` because `ledger-groomer` resolves from a sibling component |
+| which `scaffold-seats` call shape | The WHOLE planning DAG — `--workflow planning-deprecated --root`, **9** manifest seats (`workflows/planning-deprecated/planning-deprecated.csv`; `seats.csv`'s 10 is a different set), `--catalog-root` the SHARED PARENT `.rbtv/mirror/meta/` because `ledger-groomer` resolves from a sibling component |
 | which bindings file | A goal-generic one authored for this path: `.rbtv/mirror/meta/planning-deprecated/bindings-fresh-goal-planning.json`. It is STATIC, not a filled template — probing found no per-goal value to fill; `pass-folder` is the documented greenfield CONSTANT `planning/m0-bootstrapping/`, which is why the per-PASS hold that blocked run-3's file does not apply to a fresh goal |
-| how the run PACKAGE is resolved | `runs/run-1`, created in this same act. `scaffold-and-queue` now calls `create()` — i.e. the ruled name `scaffold-seats` — which ALSO appends the run's `state=open` row to the goal's `runs.csv`. There is no second writer of that register, and none may be added |
+| how the PACKAGE is resolved | ⚠ 7.607 E2b: IT IS THE GOAL FOLDER (design-lock item 8). `scaffold-and-queue` calls `create()` — the ruled name `scaffold-seats` — which completes the goal folder's WORKING SURFACES. It appends NO register row: `runs.csv` is extinguished, liveness is the derived lease (item 1), and the deadlock that register caused (7.608) dies with it |
 
 **The goal is therefore born WITH a run**, and the full package path rides the queued row's args as
 a whole token — whole-token templating deliberately cannot compose `runs/run-N`, so a row queued at

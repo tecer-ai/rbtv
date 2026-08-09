@@ -30,11 +30,11 @@ function fixture() {
   const peerDir = path.join(runDir, 'seats', 'peer');
   const coordDir = path.join(runDir, 'coordination');
   for (const d of [seatDir, peerDir, coordDir]) fs.mkdirSync(d, { recursive: true });
-  // 7.607 E2a — the `tmpfs:{goalDir}/runs` template line needs its mountpoint to EXIST: with
-  // {goalDir} ro-bound, bwrap refuses `Can't mkdir <goalDir>/runs: Read-only file system`.
+  // 7.607 E2b — the `tmpfs:{goalDir}/runs` template line and its mountpoint mkdir are BOTH gone
+  // (design-lock item 8); this fixture no longer creates a `runs/` and the template no longer
+  // names one.
   // spawn.js#composeCageFor creates it for every real seat; this fixture mirrors that. Both
   // go away with the profile's template line (see the E2a note in spawn.js).
-  fs.mkdirSync(path.join(goalDir, 'runs'), { recursive: true });
 
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,pid,pid-starttime\nmine,1,1\n');
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: mine\n---\nbriefing\n');
@@ -60,19 +60,17 @@ function fixture() {
 
 const TEMPLATE = [
   'ro-bind:{goalDir}',
-  'tmpfs:{goalDir}/runs',
-  'ro-bind:{runDir}',
-  'tmpfs:{runDir}/seats',
+  'tmpfs:{goalDir}/seats',
   'bind:{seatDir}',
   'ro-bind:{seatDir}/seat.md',
-  'bind:{runDir}/coordination',
+  'bind:{goalDir}/coordination',
   'bind:{grant:worktree}',
 ];
 
 function cageFor(f) {
   const spec = composeSeatCage({
     seatBinds: TEMPLATE,
-    values: { workdir: f.seatDir, seatDir: f.seatDir, goalDir: f.goalDir, runDir: f.runDir },
+    values: { workdir: f.seatDir, seatDir: f.seatDir, goalDir: f.goalDir },
     grants: [{ worktree: f.mineWt, worktreeName: 'repo--testgoal--mine' }],
   });
   assertGroundTruthUnwritable(spec, path.join(f.runDir, 'sessions.csv'));
@@ -123,8 +121,8 @@ capture('probe-seat-cage', async (lines) => {
     let refused = false; let code = null;
     try {
       const bad = composeSeatCage({
-        seatBinds: [...TEMPLATE, 'bind:{runDir}'],
-        values: { workdir: f.seatDir, seatDir: f.seatDir, goalDir: f.goalDir, runDir: f.runDir },
+        seatBinds: [...TEMPLATE, 'bind:{goalDir}'],
+        values: { workdir: f.seatDir, seatDir: f.seatDir, goalDir: f.goalDir },
         grants: [],
       });
       assertGroundTruthUnwritable(bad, groundTruth);

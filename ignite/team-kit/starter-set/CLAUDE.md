@@ -20,16 +20,20 @@ Paths are relative to this run folder. The goal root is `../../`.
 
 | Path | What it is |
 |------|-----------|
-| `../../goal.md` | the goal's contract and its done radius |
-| `../../decisions.md` | GOAL-DURABLE rulings (`r-*`/`d-*`) — owner rulings, contract amendments, plan rationale |
-| `./decisions.md` | this run's own PROVISIONAL rulings (`p-*`), mortal with the run |
-| `../../runs.csv` | the run register — the ONLY answer to "is this run live?" |
-| `../../doubts.md` · `../../issues.md` · `../../ideas.md` | owner-decision queue · open questions · framed-but-unruled |
+| `./goal.md` | the goal's contract and its done radius |
+| `./decisions.md` | the goal's rulings — owner rulings, contract amendments, plan rationale, and PROVISIONAL `p-*` anchors (which are DURABLE and pruned by hand, design-lock item 6) |
+| `./doubts.md` · `./issues.md` · `./ideas.md` | owner-decision queue · open questions · framed-but-unruled |
 | `3-resources/tools/rbtv/ignite/team-kit/protocol.md` | the coordination protocol — messaging, identity, lifecycle mechanics (workspace-root-relative) |
 | `3-resources/tools/rbtv/ignite/team-kit/communication.md` | how this run talks |
 
-**Resolve a cited anchor; never scan a ledger.** `r-*`/`d-*` resolve in `../../decisions.md`; `p-*` in
-this folder's `decisions.md`. No seat has a whole-file read duty on either.
+**Resolve a cited anchor; never scan a ledger.** Every anchor — `r-*`, `d-*`, `p-*` — resolves in
+this folder's `decisions.md`. No seat has a whole-file read duty on it.
+
+⚠ 7.607: THE PATHS ABOVE ARE `./`, NOT `../../`, AND THE RUN REGISTER IS GONE. A goal's working
+content sits DIRECTLY under the goal folder — there is no `runs/run-N/` layer (`decisions.md#
+d-runs-extinguished`, `#d-extinguishment-design-lock` item 8), so this file IS the goal folder's
+CLAUDE.md and its ledgers are its siblings. "Is this goal executing?" has no stored answer at all:
+it is DERIVED at ask time from the goal's tmux room and its live seat processes (item 1).
 
 ## Coordination
 
@@ -108,9 +112,11 @@ and do not ask whether to.
 The normative home of the `memory.md` / `handoff-log.md` write contract is the team-kit
 `protocol.md` § Memory — this section cites it and restates nothing.
 
-## Closing this run
+## Finishing this goal
 
-Closing is TWO writes in ONE act, per `.rbtv/goals/CLAUDE.md`: set `state=closed` + the timestamp in
-`../../runs.csv`, AND put the frozen banner at the VERY TOP of this file, above the title. Do not
-split them: a run marked closed in the register with no banner is a trap — the next agent seated here
-reads live-sounding instructions and acts on them.
+⚠ 7.607: THERE IS NO RUN TO CLOSE, AND NO REGISTER TO STAMP. A goal is finished by ONE act — the
+deterministic FINISH EDGE (`#d-extinguishment-design-lock` item 3), fired as `coordinate
+finish-goal`. Firing it is what shuts the watchers off, and nothing else does: an absent room is a
+CRASH the watcher RECOVERS by relaunching, never a finished goal. Do not write a status anywhere to
+mean "over" — a stored status that outlives what it describes is the exact defect the register was
+extinguished for (it deadlocked every fresh goal, 7.608).

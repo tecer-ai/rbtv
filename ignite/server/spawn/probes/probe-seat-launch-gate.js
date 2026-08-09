@@ -71,8 +71,10 @@ function fixture() {
           NoNewPrivileges: true,
           ReadWritePaths: ['{workdir}'],
           SeatBinds: [
-            'ro-bind:{goalDir}', 'tmpfs:{goalDir}/runs', 'ro-bind:{runDir}',
-            'tmpfs:{runDir}/seats', 'bind:{seatDir}', 'ro-bind:{seatDir}/seat.md',
+            // 7.607 E2b — the `{runDir}` slot and the `runs` tmpfs are RETIRED with the run
+            // layer (design-lock item 8); the one `ro-bind:{goalDir}` covers what two lines did.
+            'ro-bind:{goalDir}',
+            'tmpfs:{goalDir}/seats', 'bind:{seatDir}', 'ro-bind:{seatDir}/seat.md',
           ],
         },
       },

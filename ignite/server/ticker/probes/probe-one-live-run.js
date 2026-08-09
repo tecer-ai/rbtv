@@ -163,7 +163,12 @@ async function run(lines) {
       runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,closed,t0,t1\n',
       runFolders: ['run-1'],
     });
-    const room = `${GOAL_LIVE}-run-1`;
+    // 7.607 E2b — the room name IS the goal name (design-lock item 2); the E1 transitional
+    // `<goal>-run-N` spelling is deleted from the lease predicate, so a legacy-named room would
+    // no longer match and this arm would measure a goal with NO room instead of a live one.
+    // The `runs.csv` fixture above STAYS: it is this arm's DECOY — the register says `closed`
+    // while the room is up, which is exactly what proves no stored status is being read.
+    const room = GOAL_LIVE;
     itmux(['new-session', '-d', '-s', room]);
 
     registerRunStart(ctx, { jobId: 'start-live', goal: GOAL_LIVE });

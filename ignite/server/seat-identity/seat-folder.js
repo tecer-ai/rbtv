@@ -35,13 +35,12 @@
 // GOAL level, which is the ruling's memory mechanism: the same goal performed twice boots from the
 // same `seats/<seat>/` folders, and whatever the seat accumulated is still there.
 //
-// ⚠ `parsed.runDir` SURVIVES AS AN ALIAS OF `goalDir`, DELIBERATELY, AND IT IS A DISCLOSED SEAM.
-// `config/spawn-profiles.yaml`'s shipped `SeatBinds` template consumes the cage slots `{goalDir}`
-// and `{runDir}` (`cage.js SCALAR_SLOTS`), and that file is outside this stage's write surface. A
-// dropped field would leave the slot valueless and every caged spawn would die at compose time
-// with `E_CAGE_TEMPLATE`. Aliased to the goal dir the shipped template stays CORRECT under the new
-// layout — `tmpfs:{runDir}/seats` still erases peer seat folders, `bind:{runDir}/coordination` is
-// still the goal's coordination dir. The profile's slot rename is a later stage's one-file edit.
+// ⚠ `parsed.runDir` IS GONE (7.607 E2b). E2a kept it as an alias of `goalDir` for exactly one
+// reason — the shipped `SeatBinds` template still consumed a `{runDir}` slot it could not edit,
+// and a valueless slot kills every caged spawn at `E_CAGE_TEMPLATE`. E2b deleted that slot from
+// `config/spawn-profiles.yaml` and from `cage.js SCALAR_SLOTS` in the same change, so the alias
+// has no consumer. It is deleted rather than kept: an alias for a retired concept is a second
+// name for the goal dir, and the next reader cannot tell which one is meant.
 //
 // Everything here is derived from the PATH and from files on disk. Nothing is asserted by the
 // caller — no env var, no flag, no name passed in. That is G-111's lesson wired into the shape of
@@ -59,7 +58,7 @@ const { deriveLease } = require('../lease/lease');
 // different remedies even though they share this test.
 // r-master-seat-homes (owner, 2026-08-06): a SERVICE SEAT — a seat-shaped folder directly
 // under .rbtv/goals/ named _<seat>, with NO goal apparatus (no goal.md, no taskforce):
-// one seat, many sessions (the channel-master is the first). goalDir/runDir/seatDir all resolve
+// one seat, many sessions (the channel-master is the first). goalDir/seatDir both resolve
 // to the folder itself; the seat name is the folder name WITHOUT its underscore, which is what
 // its seat.md declares (descriptor-agreement unchanged).
 const SERVICE_SEAT_RE = /[\\/]\.rbtv[\\/]goals[\\/](_[a-z0-9-]+)$/;
@@ -73,7 +72,7 @@ function parseServiceSeatPath(absPath) {
     workspaceRoot: parts.slice(0, parts.length - 3).join(path.sep),
     goal: m[1],
     seat: m[1].slice(1),
-    goalDir: norm, runDir: norm, seatDir: norm,
+    goalDir: norm, seatDir: norm,
     sessionsCsv: path.join(norm, 'sessions.csv'),
     service: true,
   };
@@ -119,9 +118,6 @@ function parseSeatPath(absPath) {
     goal,
     seat,
     goalDir,
-    // The disclosed cage-slot alias — see the header. Goal-direct means the goal folder IS the
-    // package, so `{runDir}` and `{goalDir}` resolve to the same real directory.
-    runDir: goalDir,
     seatsDir: parts.slice(0, seatsIdx + 1).join(path.sep),
     seatDir,
     sessionsCsv: path.join(goalDir, 'sessions.csv'),

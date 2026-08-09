@@ -83,7 +83,8 @@ def main():
 
         goal_name = f"zz-finishedge-{os.getpid()}"
         goal = td / "ws" / ".rbtv" / "goals" / goal_name
-        pkg = goal / "runs" / "run-1"
+        # 7.607 E2b — the package IS the goal folder (design-lock item 8).
+        pkg = goal
         (pkg / "coordination").mkdir(parents=True)
         # The register is written ON PURPOSE and says `open`: an arm that omitted it could not tell
         # "the lease ignored the file" from "there was no file".
@@ -91,7 +92,9 @@ def main():
             "run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-08-01,\n",
             encoding="utf-8")
 
-        room = f"{goal_name}-run-1"
+        # 7.607 E2b — the room name IS the goal name (item 2); the E1 transitional
+        # `<goal>-run-N` spelling is deleted from the lease predicate.
+        room = goal_name
         subprocess.run(["tmux", "new-session", "-d", "-s", room], check=True,
                        capture_output=True, timeout=20)
         try:
@@ -104,7 +107,7 @@ def main():
                   detail == "" and lease.get("live") is True, f"detail={detail!r}")
             run_id, why = coord.resolve_live_run(goal)
             check("F6b `resolve_live_run` derives the PACKAGE from the room, not from runs.csv",
-                  run_id == "run-1" and why == "", f"run_id={run_id!r} why={why[:80]!r}")
+                  run_id == goal_name and why == "", f"run_id={run_id!r} why={why[:80]!r}")
 
             # ── F4 — a completion that is not a finish event ───────────────────────────────────
             coord.append_message(pkg / "coordination", "builder", "leader", "completion",
@@ -159,7 +162,7 @@ def main():
             run_id2, why2 = coord.resolve_live_run(goal)
             check("⚠ F6c with NO room, `resolve_live_run` REFUSES and names why — while runs.csv "
                   "still reads `state=open` on disk, which the register-era resolver would have "
-                  "answered `run-1` to. That row is 7.608's shape",
+                  "answered a live package to. That row is 7.608's shape",
                   run_id2 == "" and "NOT EXECUTING" in why2, why2[:120])
         finally:
             subprocess.run(["tmux", "kill-server"], capture_output=True, timeout=20)

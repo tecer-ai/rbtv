@@ -153,7 +153,10 @@ async function run(lines) {
       goal: 'goal-open',
       runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,closed,t0,t1\nrun-7,fresh,closed,t2,t3\n',
     });
-    itmux(['new-session', '-d', '-s', 'goal-open-run-7']);
+    // 7.607 E2b — the room name IS the goal name (design-lock item 2); the E1 transitional
+    // `<goal>-run-N` spelling is deleted from the lease predicate. The register above STAYS as
+    // the decoy that proves the notice follows the ROOM and not the file.
+    itmux(['new-session', '-d', '-s', 'goal-open']);
     registerRunStart(ctx, { jobId: 'start-open', goal: 'goal-open' });
     const q = enqueueDue(ctx, 'start-open', { workflow: WORKFLOW });
     const r1 = await ctx.ticker.tick(new Date());
@@ -181,7 +184,11 @@ async function run(lines) {
       ['the goal, on its own line', /^\s*goal:\s+goal-open\s*$/m],
       ['the held job', /^\s*start held:\s+job start-open\b/m],
       ['its queue row', new RegExp(`\\(queue row ${q.queue_id}\\)`)],
-      ['the live room that held it', /^\s*open run found:\s+goal-open-run-7\b/m],
+      // 7.607 E2b: the room the lease found is the goal's OWN name now (item 2). The
+      // `open run found:` LABEL is E1's deliberate compat field (`event['open-run-found']`,
+      // kept so the unmodified notifier keeps rendering) — renaming it is the E3/E4 rename pass
+      // (E2a §5.5), so this arm asserts the VALUE that changed and leaves the label that did not.
+      ['the live room that held it', /^\s*open run found:\s+goal-open\b/m],
       ['what happened', /was QUEUED/],
     ];
     const missing = mustName.filter(([, re]) => !re.test(text)).map(([label]) => label);

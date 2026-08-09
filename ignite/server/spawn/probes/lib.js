@@ -22,8 +22,9 @@ function setup() {
   // refused, so the fixture provides one INSIDE workdir_root for the probes' live-spawn legs.
   // 7.607 E2a — GOAL-DIRECT: `<ws>/.rbtv/goals/<goal>/seats/<seat>/`, no run compartment. The
   // goal-level sessions.csv carries the real 7.37 header so the at-dispatch row appends cleanly
-  // rather than warning. `runDir` is kept as the NAME the consuming probes destructure and is the
-  // goal dir itself — the same alias `parseSeatPath` returns for the cage's `{runDir}` slot.
+  // rather than warning. `runDir` survives here as a LOCAL VARIABLE NAME the consuming probes
+  // destructure, and it IS the goal dir: the cage slot of that name is retired (7.607 E2b), so
+  // this is a fixture's own spelling and no longer a template contract.
   const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal');
   const seatDir = path.join(runDir, 'seats', 'probe-seat');
   fs.mkdirSync(seatDir, { recursive: true });

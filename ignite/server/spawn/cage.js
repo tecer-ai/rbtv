@@ -8,10 +8,11 @@
 // a read-write bind of a leaf all land in a specific sequence and each one deliberately shadows
 // what came before it:
 //
-//   ro-bind  <goalDir>          decisions.md / issues.md / doubts.md READABLE
-//   tmpfs    <goalDir>/runs     every OTHER run ABSENT
-//   ro-bind  <runDir>           sessions.csv / state.csv / run CLAUDE.md / conduct READABLE
-//   tmpfs    <runDir>/seats     PEER SEAT FOLDERS ABSENT  <- kernel-enforces "never read another
+//   ro-bind  <goalDir>          decisions.md / issues.md / doubts.md / sessions.csv / state.csv
+//                                / CLAUDE.md / conduct READABLE  (7.607 E2b: the goal folder IS
+//                                the package, so the old `tmpfs:<goalDir>/runs` +
+//                                `ro-bind:<runDir>` pair is gone and this one line covers both)
+//   tmpfs    <goalDir>/seats    PEER SEAT FOLDERS ABSENT  <- kernel-enforces "never read another
 //   bind     <seatDir>                                       seat's folder"; the seat's own folder
 //   ro-bind  <seatDir>/seat.md                                is then punched back through it
 //   bind     <worktree>        (per grant)
@@ -50,7 +51,10 @@ const GRANT_SLOT_RE = /\{grant:([a-zA-Z][a-zA-Z0-9_]*)\}/g;
 
 // The scalar slots. `{workdir}` is admitted so a seat template can be written in the vocabulary
 // the rest of the config already speaks; it resolves to the seat folder on this path.
-const SCALAR_SLOTS = new Set(['workdir', 'seatDir', 'goalDir', 'runDir']);
+// `runDir` is RETIRED (7.607 E2b, design-lock item 8: the package IS the goal folder). A template
+// still spelling it now refuses at compose time with `E_CAGE_TEMPLATE`, which is the loud outcome —
+// an unknown slot silently resolving to nothing is how a cage opens a hole nobody sees.
+const SCALAR_SLOTS = new Set(['workdir', 'seatDir', 'goalDir']);
 
 function parseEntry(entry, index) {
   if (typeof entry !== 'string' || entry.length === 0) {

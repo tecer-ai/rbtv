@@ -112,7 +112,12 @@ STALE_AFTER_S = 120
 
 
 def find_package(start=None):
-    """Walk up for the run folder, the way coordinate and teamview do."""
+    """Walk up for the GOAL folder, the way coordinate and teamview do.
+
+    7.607 E2b (design-lock item 8): the package IS the goal folder, so `budget.json` homes at the
+    goal root and this walk terminates there. The PREDICATE is unchanged and needed no re-keying —
+    it never asked for a `runs/run-N` shape, it asks for the two files a package carries — which is
+    why the budget's home moved with the layout instead of against it."""
     d = os.path.abspath(start or os.getcwd())
     while True:
         if os.path.exists(os.path.join(d, "state.json")) and os.path.exists(

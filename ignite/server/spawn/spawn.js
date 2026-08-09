@@ -528,7 +528,7 @@ function leasedGoals(workspaceRoot) {
 // TWO NARROWINGS, both load-bearing:
 //
 //   1. THE SEAT'S OWN GOAL FOLDER IS NEVER GRANTED. A seat would otherwise re-open its own
-//      goal dir read-write ON TOP of `tmpfs:{runDir}/seats` and the `ro-bind:{seatDir}/seat.md`
+//      goal dir read-write ON TOP of `tmpfs:{goalDir}/seats` and the `ro-bind:{seatDir}/seat.md`
 //      carve — un-erasing peer seat folders and handing the occupant its own permission record.
 //      (The ground-truth assertion would then refuse the whole spawn; failing closed is correct
 //      but useless. Excluding the own goal keeps the grant usable AND the carves intact.)
@@ -696,39 +696,28 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   let template = resolvedSandbox && resolvedSandbox.SeatBinds;
   if (!template || template.length === 0) return null;
 
-  // ⚠⚠ 7.607 E2a INTERIM — THE `runs` MOUNTPOINT, AND WHY IT IS CREATED FOR EVERY SEAT ──────────
-  //
-  // MEASURED, not anticipated (2026-08-09, this box): with `{goalDir}` ro-bound, bwrap refuses a
-  // tmpfs whose mountpoint does not exist —
-  //     bwrap: Can't mkdir <goalDir>/runs: Read-only file system
-  // — and the SHIPPED `config/spawn-profiles.yaml` SeatBinds template still carries
-  // `tmpfs:{goalDir}/runs`. Under the goal-direct layout no goal folder has a `runs/` any more, so
-  // WITHOUT this line every caged seat spawn dies at bwrap. Reproduced by probe-seat-rw-paths R5a,
-  // which composes against the shipped template rather than a fixture of its own.
-  //
-  // This creates an EMPTY directory the tmpfs then covers: it erases nothing (there are no other
-  // runs to hide) and it grants nothing. It is kept ONLY because the profile is outside this
-  // stage's write surface, and it is the FIRST thing to delete in the stage that edits that file:
-  // dropping the `tmpfs:{goalDir}/runs` and `ro-bind:{runDir}` template lines retires this mkdir,
-  // the `{runDir}` cage slot, and `parseSeatPath`'s `runDir` alias in one change. Until then a
-  // goal folder acquires a stray empty `runs/` at first caged spawn — inert, and named here so
-  // nobody has to work out where it came from.
-  try { fs.mkdirSync(path.join(seatPath.goalDir, 'runs'), { recursive: true }); } catch { /* best effort */ }
+  // ⚠ 7.607 E2b — THE E2a `runs` MOUNTPOINT mkdir IS DELETED, on the condition E2a itself stated.
+  // E2a had to `mkdirSync(<goalDir>/runs)` for every caged seat because the shipped SeatBinds
+  // template still carried `tmpfs:{goalDir}/runs` and bwrap refuses a tmpfs whose mountpoint is
+  // missing under a ro-bound parent. E2b deleted that template line (and `ro-bind:{runDir}`, and
+  // the `{runDir}` slot) in `config/spawn-profiles.yaml`, so the mountpoint has no consumer and
+  // this mkdir has no reason — and keeping it would re-create, empty, the one directory this epic
+  // exists to delete. `probe-seat-rw-paths` R5a is the arm that proves a caged spawn still
+  // composes against the SHIPPED template with both gone.
 
   if (seatPath.service) {
-    // Service-seat home (r-master-seat-homes): goalDir==runDir==seatDir. Pre-create the bind
+    // Service-seat home (r-master-seat-homes): goalDir==seatDir. Pre-create the bind
     // sources the template expects of a run folder, and carve the IN-FOLDER ground truth
     // read-only — an ordinary seat's sessions.csv lives outside its rw seatDir; here it is
     // inside, and without this carve assertGroundTruthUnwritable below correctly refuses.
     // Appended LAST so it shadows the rw {seatDir} bind (order is the mechanism, as in the
     // template's own seat.md carve).
-    fs.mkdirSync(path.join(seatPath.runDir, 'coordination'), { recursive: true });
+    fs.mkdirSync(path.join(seatPath.goalDir, 'coordination'), { recursive: true });
     // …and the tmpfs MOUNTPOINTS: bwrap cannot mkdir them once the read-root grant has made
     // the folder ro (measured: exec 19427). tmpfs over an existing empty dir is the same
     // absence the template intends.
     //
-    // (the `{goalDir}/runs` mountpoint is created for EVERY seat above — see the E2a note there.)
-    fs.mkdirSync(path.join(seatPath.runDir, 'seats'), { recursive: true });
+    fs.mkdirSync(path.join(seatPath.goalDir, 'seats'), { recursive: true });
     if (!fs.existsSync(seatPath.sessionsCsv)) fs.writeFileSync(seatPath.sessionsCsv, '');
     template = [...template, 'ro-bind:{seatDir}/sessions.csv'];
   }
@@ -741,7 +730,6 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       workdir: resolvedWorkdir,
       seatDir: seatPath.seatDir,
       goalDir: seatPath.goalDir,
-      runDir: seatPath.runDir,
     },
     grants: [
       ...resolveSeatGrants(seatPath),

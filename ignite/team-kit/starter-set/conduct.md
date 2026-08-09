@@ -11,10 +11,10 @@ Two kit files bind in full and this manual restates neither: the coordination pr
 `3-resources/tools/rbtv/ignite/team-kit/protocol.md` (messaging, identity, lifecycle mechanics) and
 `3-resources/tools/rbtv/ignite/team-kit/communication.md` (message form, caps, the volunteer floor).
 
-Paths are workspace-root-relative — the directory that roots `.rbtv/`. From this run folder the goal
-root is `../../`: its contract `../../goal.md`, its goal-durable ledger `../../decisions.md`, its run
-register `../../runs.csv`. Anchors cited `r-*`/`d-*` resolve in `../../decisions.md`; run-scoped
-PROVISIONAL `p-*` anchors resolve in THIS folder's own `decisions.md`. **No seat reads either ledger
+Paths are workspace-root-relative — the directory that roots `.rbtv/`. ⚠ 7.607: THIS FOLDER IS THE
+GOAL FOLDER (`#d-runs-extinguished`; `#d-extinguishment-design-lock` item 8) — there is no
+`runs/run-N/` layer and no run register. Its contract is `./goal.md` and its ledger `./decisions.md`;
+EVERY anchor — `r-*`, `d-*` and the DURABLE, hand-pruned `p-*` (item 6) — resolves there. **No seat reads either ledger
 end to end** — every ruling that binds you is compiled into your `seat.md` or cited to you as an
 anchor you resolve.
 

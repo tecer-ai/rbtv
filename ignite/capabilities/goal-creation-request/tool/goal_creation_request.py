@@ -384,7 +384,9 @@ def create(request, goals_root, package, catalog_root, bindings, conduct, claude
         )
     cmd = [RULED_LAUNCH_NAME, "--package", str(package), "--catalog-root", str(catalog_root),
            "--bindings", str(bindings), "--conduct", str(conduct), "--claude-md", str(claude_md),
-           "--budget-json", str(budget_json), "--run-type", "fresh", "--json"]
+           # ⚠ 7.607 E2b: `--run-type` is GONE with the run register (design-lock item 8). It
+           # named the `type` cell of a `runs.csv` row that is no longer written by anything.
+           "--budget-json", str(budget_json), "--json"]
     cmd += ["--seat", seat] if seat else ["--workflow", workflow]
     cmd += ["--root"] if root else ["--after", after]
     steps.append(_run(cmd, "create-package", dry_run))

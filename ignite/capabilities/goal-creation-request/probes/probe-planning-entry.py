@@ -268,18 +268,28 @@ def main():
         # ---- P1 · the goal is born WITH a run package and an open register row -----
         out, calls, root = drain(tmpdir / "a", flags)
         goal_dir = root / "probe-fresh-goal"
-        pkg = goal_dir / "runs" / "run-1"
+        # 7.607 E2b — THE PACKAGE IS THE GOAL FOLDER (design-lock item 8). There is no
+        # `runs/run-1` compartment, no run id, and no run register.
+        pkg = goal_dir
         report("P1 goal scaffolded", "green", out.get("outcome") == "ACCEPTED", True,
                f"outcome={out.get('outcome')} "
                f"{'' if out.get('outcome') == 'ACCEPTED' else refusal_detail(out)}")
-        report("P1 run-1 package created", "green", pkg.is_dir(), True, str(pkg))
+        report("P1 goal-direct package created", "green", pkg.is_dir(), True, str(pkg))
         seats = sorted(p.name for p in (pkg / "seats").iterdir()) if (pkg / "seats").is_dir() else []
         report("P1 whole planning DAG materialized", "green", len(seats) == 9, True,
                f"{len(seats)} seats: {seats}")
-        reg = (goal_dir / "runs.csv").read_text(encoding="utf-8") if (goal_dir / "runs.csv").is_file() else ""
-        open_row = bool(re.search(r"^run-1,fresh,open,", reg, re.M))
-        report("P1 runs.csv carries the state=open row", "green", open_row, True,
-               reg.strip().replace("\n", " | ") or "runs.csv absent")
+        # ⚠ 7.607 E2b — THE REGISTER IS EXTINGUISHED, so this arm is INVERTED rather than
+        # deleted: it used to assert `runs.csv` carries a `state=open` row, and it now asserts the
+        # file is NEVER MINTED. A shorter arm list would stop CHECKING for the register; it would
+        # not notice one being written again. The `state=open` row this replaces IS the 7.608
+        # deadlock's own carrier (a stored status that outlived what it described), which is why
+        # its absence is worth an assertion rather than a deletion.
+        report("P1 NO run register is minted (item 8: runs.csv is extinguished)", "green",
+               not (goal_dir / "runs.csv").exists(), True,
+               "runs.csv absent" if not (goal_dir / "runs.csv").exists()
+               else (goal_dir / "runs.csv").read_text(encoding="utf-8").strip())
+        report("P1 NO runs/ compartment is minted either", "green",
+               not (goal_dir / "runs").exists(), True, str(goal_dir / "runs"))
 
         # The queue row's args, CAPTURED from the stub rather than composed here.
         addjob = [c for c in calls if c and c[0] == "add-job"]
@@ -335,10 +345,11 @@ def main():
             report("P3 composed argv accepted by the real launcher", "green",
                    r is not None and r.returncode == 0, True,
                    "" if r is None else ((r.stdout + r.stderr).strip().splitlines() or [""])[-1][:200])
-            report("P3 session name is per-run and goal-derived", "green",
-                   r is not None and f"'{args['goal']}-run-1'" in r.stdout, True,
+            report("P3 session name is the BARE GOAL NAME (item 2: one room per goal)", "green",
+                   r is not None and f"'{args['goal']}'" in r.stdout
+                   and f"'{args['goal']}-run-1'" not in r.stdout, True,
                    "" if r is None else
-                   next((l for l in r.stdout.splitlines() if "room for this run" in l), "")[:160])
+                   next((l for l in r.stdout.splitlines() if "room for this goal" in l), "")[:160])
 
             # ---- RED · the injection arms, on the SHIPPED argv --------------------
             # ⚠ `ok` IS "DID IT COMPOSE", NEVER "DID IT REFUSE" — the same polarity every arm above
@@ -362,8 +373,8 @@ def main():
         import workflow_launcher as wl                       # noqa: E402 — the real thing
 
         name = wl.session_name("probe-fresh-goal", pkg)
-        report("P4 name derivation is <goal>-<run-id>", "green", name == "probe-fresh-goal-run-1",
-               True, name)
+        report("P4 name derivation is the BARE GOAL (item 2)", "green",
+               name == "probe-fresh-goal", True, name)
         pane, prov = wl.ensure_session(name, str(tmpdir), SOCKET)
         live = tmux("has-session", "-t", f"={name}").returncode == 0
         report("P4 detached session created", "green", live and bool(pane), True, f"{pane} — {prov}")
@@ -408,9 +419,12 @@ def main():
                False,
                f"outcome={out2.get('outcome')}, add-job calls={sum(1 for c in calls2 if c and c[0] == 'add-job')}")
         disclosed = out2.get("requests", [{}])[0]
+        # 7.607 E2a renamed the disclosure keys `run-package*` -> `package*` (the package IS the
+        # goal folder); this arm's SUBJECT — a refusal DISCLOSES what it left on disk rather than
+        # unwinding it — is unchanged.
         report("R8b the partial state is DISCLOSED, not unwound", "green",
-               "run-package" in disclosed and "goal-dir" in disclosed, True,
-               f"goal-exists={disclosed.get('goal-exists')} run-package-exists={disclosed.get('run-package-exists')}")
+               "package" in disclosed and "goal-dir" in disclosed, True,
+               f"goal-exists={disclosed.get('goal-exists')} package-exists={disclosed.get('package-exists')}")
 
         # ---- F1 · THE ENVIRONMENT ARM the reviewer's finding said this probe could not see ------
         #
@@ -449,9 +463,11 @@ def main():
                    out4.get("outcome") == "ACCEPTED", True,
                    f"outcome={out4.get('outcome')} "
                    f"{'' if out4.get('outcome') == 'ACCEPTED' else refusal_detail(out4)}")
-            report("F1b the goal is born WITH its run package under the fired environment", "green",
-                   (root4 / "probe-f1-carrier" / "runs" / "run-1").is_dir(), True,
-                   "runs/run-1 present")
+            report("F1b the goal is born WITH its working surfaces under the fired environment",
+                   "green",
+                   (root4 / "probe-f1-carrier" / "seats").is_dir()
+                   and not (root4 / "probe-f1-carrier" / "runs").exists(), True,
+                   "goal-direct seats/ present, no runs/ compartment")
             report("F1b the workflow row is queued under the fired environment", "green",
                    sum(1 for c in calls4 if c and c[0] == "add-job") == 1, True,
                    f"add-job calls={sum(1 for c in calls4 if c and c[0] == 'add-job')}")
@@ -472,8 +488,8 @@ def main():
         fire_env.pop("TMUX_PANE", None)
         fire_env.pop("COORD_LAUNCH_TARGET", None)
         _, calls5, root5 = drain(tmpdir / "c", flags, goal="probe-firstfire")
-        pkg5 = root5 / "probe-firstfire" / "runs" / "run-1"
-        room = "probe-firstfire-run-1"
+        pkg5 = root5 / "probe-firstfire"
+        room = "probe-firstfire"
 
         # ⚠ THE STUB BINDS ONLY IF BOTH OF THESE HOLD, and neither is optional (task 7.553):
         #   (1) the seat's pane is a NON-LOGIN shell — `default-command`, which is a SERVER option,
