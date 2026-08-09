@@ -90,6 +90,132 @@ CREATE INDEX IF NOT EXISTS threads_recipient_idx ON threads (recipient);
 CREATE INDEX IF NOT EXISTS threads_reply_to_idx  ON threads (reply_to);
 """
 
+# ------------------------------------- standard goal-folder artifacts (7.582 / R21)
+#
+# Owner ruling R21 (2026-08-08, `build/meta-workflow/interview-findings.md`; meta-planner-v4
+# §9 and §11.12): goal creation writes the standard goal-folder artifacts from DETERMINISTIC
+# TEMPLATES — no agent in the path — and writes the router for EVERY supported harness, so an
+# agent landing on any harness is routed.
+#
+# ⚠ TEMPLATES ARE CODE HERE, NOT DATA FILES. `THREADS_SCHEMA` above already sets that precedent
+# in this file: fixed text one verb emits. A template FILE would add a path to resolve, a
+# shipping surface, and a second place the router's table could disagree with the file set.
+#
+# ROUTER_FILENAMES IS MEASURED, NOT ASSUMED. It is the distinct set of `guidance_file.convention`
+# values across every model package manifest (`orchestration/models/*/manifest.yaml`, the
+# enumerator for "which harnesses this system serves"):
+#     CLAUDE.md  — claude-code-cli
+#     AGENTS.md  — codex-cli, kimi-code-cli, opencode
+# The three API packages (deepseek/gemini/manus) and claude-code-native OMIT `guidance_file`
+# DELIBERATELY — those workers load no workspace guidance file at all, so no router of any name
+# would reach them. TWO is therefore the whole measured set as of 2026-08-09; a package that
+# adopts a third convention adds its filename to this tuple and nothing else changes.
+ROUTER_FILENAMES = ("CLAUDE.md", "AGENTS.md")
+
+# The FOUR write-if-something files R21 names, filename -> what an agent has when it writes there.
+# The router's table below is RENDERED FROM THIS MAPPING, so the routing an agent reads and the
+# files that exist can never drift apart — a router naming a file nobody wrote (or missing one
+# that was) is the one way a router fails without anything noticing.
+WRITE_IF_SOMETHING = {
+    "issues.md": "a defect, blocker, or open problem in the work",
+    "decisions.md": "a settled decision, and the reason it was settled that way",
+    "doubts.md": "a question only the owner can answer",
+    "gotchas.md": "a validated pattern or trap worth carrying forward",
+}
+
+GOAL_ROUTER_TEMPLATE = """\
+# {name}/ — goal folder
+
+Router for any agent working under this goal folder. It carries NO content of its own: it says
+where things are and where to write. What this goal IS lives in `goal.md`.
+
+| File | What it holds |
+|------|---------------|
+| `goal.md` | the goal-descriptor — identity frontmatter plus the goal-radius done contract |
+| `runs.csv` | the run-log — one row per run; the current run resolves through it |
+| `runs/run-<n>/` | a run folder — that run's working state, seats, and coordination |
+| `threads.sql` | the goal-scoped message/completion store schema |
+
+## Write-if-something files
+
+These are NOT logs, and none of them is a reporting obligation. Write to one ONLY when you have
+something to note; an agent with nothing to note writes nothing.
+
+{table}
+
+Scaffolded at goal creation from a deterministic template (owner ruling R21) — no agent was in
+the path that produced this file.
+"""
+
+# Only the NON-`CLAUDE.md` routers carry this. The vault convention is that `CLAUDE.md` is the
+# source and every equivalent is its mirror, so a mirror must say so in its own first line — a
+# reader who edits the mirror instead of the source loses the edit.
+ROUTER_MIRROR_HEADER = """\
+<!-- AUTO-GENERATED MIRROR — DO NOT EDIT. `CLAUDE.md` in this folder is the source of truth. -->
+
+> [!danger] GENERATED FILE — DO NOT EDIT
+> This `{filename}` mirrors this folder's `CLAUDE.md`, emitted for the harnesses that natively
+> load `{filename}` rather than `CLAUDE.md`. To change these instructions, edit `CLAUDE.md` in
+> this folder — hand-edits here are not the source of truth.
+
+---
+
+"""
+
+WRITE_IF_SOMETHING_TEMPLATE = """\
+# {file} — {name}
+
+Write here when you have {what}.
+
+Write-if-something, NOT a log: nothing obliges an entry, and an agent with nothing to note
+writes nothing. Append at the moment you have it — one entry, dated, stating the thing and why
+it matters. The goal folder's routing is in `CLAUDE.md`.
+"""
+
+
+def _write_if_something_table() -> str:
+    return "\n".join(
+        ["| File | Write here when you have… |",
+         "|------|---------------------------|"]
+        + [f"| `{f}` | {what} |" for f, what in WRITE_IF_SOMETHING.items()]
+    )
+
+
+def standard_artifacts(name: str) -> dict:
+    """{filename: content} — every standard goal-folder file R21 rules, for goal `name`.
+
+    ONE mapping so a caller can never write a partial set it does not know is partial: the
+    routers are the same body (mirrors carry a header saying so), and the write-if-something
+    files come off the same dict the router's table is rendered from.
+    """
+    body = GOAL_ROUTER_TEMPLATE.format(name=name, table=_write_if_something_table())
+    files = {fn: (body if fn == "CLAUDE.md"
+                  else ROUTER_MIRROR_HEADER.format(filename=fn) + body)
+             for fn in ROUTER_FILENAMES}
+    for fn, what in WRITE_IF_SOMETHING.items():
+        files[fn] = WRITE_IF_SOMETHING_TEMPLATE.format(file=fn, name=name, what=what)
+    return files
+
+
+def write_standard_artifacts(goal_dir: Path, name: str) -> list:
+    """Write every standard artifact NOT already on disk. Returns the filenames written.
+
+    SKIP-IF-EXISTS, PER FILE, and the property lives HERE rather than in the caller. `cmd_scaffold`
+    refuses an existing goal folder outright, so today this never meets a file — but these are the
+    files agents WRITE INTO, so an overwrite is data loss, and a guard that a future caller has to
+    remember is a guard that eventually is not there. Re-running this over a goal whose
+    `issues.md` carries fifty issues writes nothing.
+    """
+    written = []
+    for fn, text in standard_artifacts(name).items():
+        path = goal_dir / fn
+        if path.exists():
+            continue
+        path.write_text(text, encoding="utf-8", newline="\n")
+        written.append(fn)
+    return written
+
+
 # INVOKED kinds enter an assembly as loader stubs (description + entry-point
 # pointer) and are always @latest; every other kind is ASSEMBLED — its full
 # content is inlined and its reference frozen (d-seat-assembled-projection).
@@ -305,36 +431,39 @@ def cmd_scaffold(args) -> int:
         + "\n"
     )
 
+    # The FULL set, named in one place so the dry-run plan, the writes and the report can never
+    # be three different answers to "what does creating a goal produce". `decisions.md` is no
+    # longer written here: it is one of R21's four write-if-something files and comes off
+    # `standard_artifacts` with the other three (its old body called itself a "decision log",
+    # which is the exact word §9 rules these files are NOT).
+    created_names = ["goal.md", "runs.csv", "threads.sql", *standard_artifacts(name)]
     plan = {
         "goal": name,
         "root": str(root),
-        "creates": [
-            str(goal_dir / f) for f in ("goal.md", "decisions.md", "runs.csv", "threads.sql")
-        ],
+        "creates": [str(goal_dir / f) for f in created_names],
         "then": f"reindex {root / 'goals.csv'}",
     }
     if args.dry_run:
         print(json.dumps({"ok": True, "dry_run": True, **plan}, indent=2)
               if args.json else
               f"dry-run: would create {goal_dir}/ "
-              f"(goal.md, decisions.md, runs.csv, threads.sql) then reindex")
+              f"({', '.join(created_names)}) then reindex")
         return 0
 
     goal_dir.mkdir(parents=True)
     (goal_dir / "goal.md").write_text(goal_md, encoding="utf-8", newline="\n")
-    (goal_dir / "decisions.md").write_text(
-        f"# decisions — {name}\n\nGoal-scoped decision log. Empty at scaffold.\n",
-        encoding="utf-8", newline="\n",
-    )
     write_csv(goal_dir / "runs.csv", RUNS_COLUMNS, [])
     (goal_dir / "threads.sql").write_text(THREADS_SCHEMA, encoding="utf-8", newline="\n")
+    # R21: the per-harness routers + the four write-if-something files, from deterministic
+    # templates. Written LAST so the routers describe a folder that already holds what they name.
+    write_standard_artifacts(goal_dir, name)
 
     write_csv(root / "goals.csv", GOALS_INDEX_COLUMNS, project_goals(root))
 
     if args.json:
         print(json.dumps({"ok": True, **plan}, indent=2))
     else:
-        print(f"scaffolded {goal_dir} — goal.md, decisions.md, runs.csv, threads.sql")
+        print(f"scaffolded {goal_dir} — {', '.join(created_names)}")
         print(f"reindexed {root / 'goals.csv'}")
     return 0
 
@@ -1999,7 +2128,13 @@ def cmd_selftest(args) -> int:
             contract=str(contract), **vars(ns)))
         check("scaffold exits 0", rc == 0)
         gd = root / "demo-goal"
-        for fname in ("goal.md", "decisions.md", "runs.csv", "threads.sql"):
+        # The nine files a created goal carries, spelled as LITERALS rather than read from
+        # ROUTER_FILENAMES/WRITE_IF_SOMETHING — an expectation that reads the constant under test
+        # moves with any edit to it and can never go red (7.582; the goal-kind arm below states
+        # the same rule for the same reason). The probe carries the content proof; this arm is
+        # the selftest's own enumerator staying complete.
+        for fname in ("goal.md", "runs.csv", "threads.sql", "CLAUDE.md", "AGENTS.md",
+                      "issues.md", "decisions.md", "doubts.md", "gotchas.md"):
             check(f"creates {fname}", (gd / fname).is_file())
         idx = list(csv.DictReader((root / "goals.csv").open(encoding="utf-8")))
         check("goals.csv carries the row", len(idx) == 1 and idx[0]["name"] == "demo-goal",

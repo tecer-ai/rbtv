@@ -47,7 +47,7 @@ stand-in pattern, no contract change at fold-in.
 
 | Verb | Does | Never |
 |---|---|---|
-| `scaffold` | Creates the goal root: `goal.md` (identity frontmatter + the contract body), empty `decisions.md`, `runs.csv` (header), `threads.sql` (empty schema) — then reindexes. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes `runs/` compartments or seat folders — run birth is task 7.37's step |
+| `scaffold` | Creates the goal root — NINE files: `goal.md` (identity frontmatter + the contract body), `runs.csv` (header), `threads.sql` (empty schema), plus the standard goal-folder artifacts of § below — then reindexes. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes `runs/` compartments or seat folders — run birth is task 7.37's step |
 | `reindex` | Rebuilds `goals.csv` whole from every `goal.md` frontmatter. Always the full projection; a partial one would leave silent staleness. Fails loud on an unparseable descriptor, naming the file, and leaves `goals.csv` **untouched** — a projection that silently drops a goal is corruption. | Touches any goal folder |
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
 | `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
@@ -64,6 +64,34 @@ seat row · **every guard and alternate is well-formed** (below) · each seat's 
 frontmatter cognitive-unit reference has its assembled block in the body · permissions well-formed
 · dry-run dispatch emulation (would this seat launch under its resolved harness+model+effort — no
 launch, no LLM call).
+
+### The standard goal-folder artifacts `scaffold` writes (7.582 / owner ruling R21)
+
+Six of the nine files are written from **deterministic templates in `goal_cli.py`** — module-level
+strings, the `THREADS_SCHEMA` precedent. **No agent is in the path**, and two scaffolds of the same
+goal name produce byte-identical files.
+
+| Written | What it is |
+|---|---|
+| `CLAUDE.md`, `AGENTS.md` | the ROUTER, one per supported harness. It names the sibling artifacts and carries no content of its own. `AGENTS.md` is `CLAUDE.md`'s body behind a header saying so |
+| `issues.md`, `decisions.md`, `doubts.md`, `gotchas.md` | the four **write-if-something** files — NOT logs. Nothing obliges an entry; an agent with nothing to note writes nothing |
+
+`ROUTER_FILENAMES` is **measured, not assumed**: it is the distinct set of `guidance_file.convention`
+values across every model package manifest (`orchestration/models/*/manifest.yaml`) — `CLAUDE.md`
+(claude-code-cli) and `AGENTS.md` (codex-cli, kimi-code-cli, opencode). The API packages and
+claude-code-native omit `guidance_file` deliberately: those workers load no workspace guidance file,
+so no router of any name reaches them. A package adopting a third convention adds its filename to
+that tuple and nothing else changes.
+
+`write_standard_artifacts` is **skip-if-exists per file**. `scaffold` refuses an existing goal
+outright so it never meets one — the guard lives in the writer because these are the files agents
+write INTO, and an overwrite there is data loss. Scored by
+`probes/probe-goal-scaffold-standard-files.py` (`--only goal-scaffold-standard-files`), whose two
+mutants prove the presence arm and the no-clobber arm can each go red.
+
+**Registry note:** the live `build-core-daemon-mvp` goal folder also carries `ideas.md`. R21's ruled
+set is the FOUR files above; the fifth is **not** scaffolded here — adding it would be this tool
+minting a convention no ruling names.
 
 ### The guard-grammar arm (7.426) and its carve-out
 
