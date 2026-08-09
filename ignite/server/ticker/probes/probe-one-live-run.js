@@ -1,36 +1,46 @@
 'use strict';
 
-// Task 7.129 / M4-14 — R9's one-live-run queue rule: a scheduled start that finds an OPEN run of
-// the same goal is QUEUED, not started, and the decision emits
-// `{scheduled-start, open-run-found, action: "queued"}`.
+// probe-one-live-run — 7.607 E1: the one-live-execution gate RE-FOUNDED ON THE DERIVED LEASE.
 //
-// SEVEN CHECKS, and the ones that carry the weight are the CONTROLS.
+// A scheduled start that finds the same goal EXECUTING is QUEUED, not started; and — the half that
+// is new and that this whole epic exists for — a goal that is NOT executing has its start ADMITTED
+// no matter what any stored register row says.
 //
-//   C1  one open run  -> the row is NOT fired (no jobs_log row, the queue row survives) and the
-//                        tick records `action: 'queued'`.
-//   C2  no open run   -> the row IS fired. THE CONTROL: a scheduler that queues everything passes
-//                        C1 and is not this rule. Without C2, C1 is satisfied by "never start".
-//   C3  the read site -> the answer comes from `<goal>/runs.csv`'s `state` column via the ONE
-//                        reader (`openRunsOfGoal`), and NOT from the run folder existing. Measured
-//                        by giving the goal a run FOLDER for a run whose register row is `closed`:
-//                        a folder-keyed rule starts on that; this one must too (i.e. the folder
-//                        must not make it queue), and then queue when only the register says open.
-//   C4  event fields  -> all three declared fields present; `open-run-found` names WHICH run.
-//   C5  register bad  -> absent / no `state` column / unparseable-state register QUEUES; it never
-//                        silently starts. Fail-closed, and checked, not merely intended.
-//   C6  two open rows -> QUEUED with both run-ids named and no pick made.
-//   C7  not a run start -> a `fire-tool` job homed at the SAME goal with the SAME open run FIRES.
-//                        THE C4-relevant control: the gate must not stop the watchers and self-heal
-//                        jobs that exist precisely to run while a run is open.
+// EIGHT CHECK GROUPS, and the ones that carry the weight are the CONTROLS.
 //
-// `store.config.workflows` is assigned after `setup()` because that object IS the composition
-// root's parameter — the daemon passes it at `openHeartStore`. lib.setup() opens with `{}` and this
-// probe needs one workflow row, so it supplies it the same way the daemon does. Nothing about the
-// rule's inputs is hand-fed: the register is a real file on disk, read by the real reader, and the
-// decision is reached inside a real `ticker.tick()`.
+//   C1  a live ROOM      -> the row is NOT fired (no jobs_log row, the queue row survives) and the
+//                           tick records `action: 'queued'`.
+//   ⚠⚠ C2 THE RED-FIRST DEADLOCK ARM. The goal carries a `runs.csv` row reading `state=open` AND
+//                           run folders on disk — 7.608's EXACT shape, the state that refused
+//                           `d1-throwaway`'s start forever — and NO room. It must START. This
+//                           check is red against the register-era gate by construction: that gate
+//                           read the very row this one must ignore. It is also C1's control (a
+//                           scheduler that queues everything passes C1 and is not this rule).
+//   C3  the read site    -> proven by C1 and C2 DISAGREEING WITH THE REGISTER IN OPPOSITE
+//                           DIRECTIONS: C1's goal has `state=closed` on disk and queues; C2's has
+//                           `state=open` and starts. No reading of runs.csv produces both.
+//   C4  event fields     -> the declared fields present; `live-lease` names WHICH room was found;
+//                           the legacy `open-run-found` key still carries it (the notifier compat
+//                           seam, `one-live-run.js` header).
+//   C5  lease unreadable -> QUEUED, fail-closed. Ignorance never starts a run.
+//   C6  workspace root unresolvable -> QUEUED, same posture, different cause.
+//   C7  not a run start  -> a `fire-tool` job homed at the SAME goal with the SAME live room FIRES.
+//                           The bound: the gate must not stop the watchers and self-heal jobs that
+//                           exist precisely to run WHILE a goal executes.
+//   C8  the gate throws  -> QUEUED and never rethrown; the error rides the event.
+//
+// ⚠ IT NEVER TOUCHES A REAL ROOM. The live scenarios run against an ISOLATED tmux server
+// (`TMUX_TMPDIR` pointed at a scratch dir, `TMUX`/`TMUX_PANE` unset), created and killed inside
+// this probe. The DEFAULT server's session inventory is asserted byte-identical before and after —
+// the owner's `d1-throwaway` acceptance room is on this box and must not be observed or disturbed.
+//
+// Nothing about the rule's inputs is hand-fed on the C1/C2/C7 paths: the rooms are real tmux
+// sessions, read by the real lease module, and the decision is reached inside a real `ticker.tick()`.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { setup, teardown, capture } = require('./lib');
 const { describeGate, oneLiveRunDecision } = require('../one-live-run');
 
@@ -45,8 +55,9 @@ function assert(lines, ok, label, detail = '') {
   passed += 1;
 }
 
-// A real goal tree: goals.csv row + runs.csv. `runsCsv` is written verbatim so a scenario can put
-// any header/state in it, including a broken one.
+// A real goal tree: goals.csv row + a runs.csv written verbatim. The register is written on
+// PURPOSE in the scenarios below — it is the thing the gate must now be blind to, and a scenario
+// that omitted it could not tell blindness from absence.
 function makeGoal(wsRoot, { goal, runsCsv, runFolders = [] }) {
   const goalsDir = path.join(wsRoot, '.rbtv', 'goals');
   const goalDir = path.join(goalsDir, goal);
@@ -106,10 +117,16 @@ function queueRowStillThere(ctx, queueId) {
   return !!ctx.store.getQueueRow(queueId);
 }
 
+function defaultServerSessions() {
+  try {
+    return execFileSync('tmux', ['list-sessions', '-F', '#{session_name}'],
+      { encoding: 'utf8', timeout: 10000, env: { ...process.env, TMUX: '', TMUX_PANE: '' } })
+      .split('\n').map((s) => s.trim()).filter(Boolean).sort().join(',');
+  } catch { return ''; }
+}
+
 async function run(lines) {
   const ctx = setup();
-  // The workflow the run-start job would launch: `/bin/true` so the C2/C7 firing paths cost a
-  // process that exits at once. Assigned the way the composition root assigns it.
   ctx.store.config.workflows = { [WORKFLOW]: { argv: ['/bin/true'] } };
   ctx.store.config.tools = { 'a-watcher': { argv: ['/bin/true'] } };
 
@@ -117,145 +134,159 @@ async function run(lines) {
   fs.mkdirSync(wsRoot, { recursive: true });
   process.env.RBTV_IGNITE_WORKSPACE_ROOT = wsRoot;
 
+  const beforeSessions = defaultServerSessions();
+  const tmuxScratch = fs.mkdtempSync(path.join(os.tmpdir(), 'rbtvolr-'));
+  const savedEnv = { TMUX_TMPDIR: process.env.TMUX_TMPDIR, TMUX: process.env.TMUX, TMUX_PANE: process.env.TMUX_PANE };
+  process.env.TMUX_TMPDIR = tmuxScratch;
+  delete process.env.TMUX;
+  delete process.env.TMUX_PANE;
+  const itmux = (args, { allowFail = false } = {}) => {
+    try { return execFileSync('tmux', args, { encoding: 'utf8', timeout: 10000 }).trim(); } catch (e) {
+      if (allowFail) return null;
+      throw e;
+    }
+  };
+
+  // Unique per run so nothing can collide with a real goal name, here or on the default server.
+  const U = `${process.pid}${Date.now() % 100000}`;
+  const GOAL_LIVE = `zz-olr-live-${U}`;
+  const GOAL_DEAD = `zz-olr-dead-${U}`;
+
   lines.push('--- gate description (the code\'s own output) ---');
   for (const l of describeGate().split('\n')) lines.push(`  ${l}`);
   lines.push('--- scenarios ---');
 
   try {
-    // ── C1 + C4 — one open run: queued, not started, event complete ──────────────────────────────
+    // ── C1 + C4 — the goal is EXECUTING (a real room), while its register says `closed` ─────────
     makeGoal(wsRoot, {
-      goal: 'goal-open',
-      runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,closed,t0,t1\nrun-2,fresh,open,t2,\n',
-      runFolders: ['run-1', 'run-2'],
+      goal: GOAL_LIVE,
+      runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,closed,t0,t1\n',
+      runFolders: ['run-1'],
     });
-    registerRunStart(ctx, { jobId: 'start-open', goal: 'goal-open' });
-    const qOpen = enqueueDue(ctx, 'start-open', { workflow: WORKFLOW });
-    const rOpen = await ctx.ticker.tick(new Date());
-    const aOpen = queuedActionFor(rOpen, qOpen.queue_id);
+    const room = `${GOAL_LIVE}-run-1`;
+    itmux(['new-session', '-d', '-s', room]);
 
-    assert(lines, aOpen !== null, 'C1 a scheduled start against an OPEN run records action "queued"',
-      JSON.stringify(aOpen && aOpen.reason));
-    assert(lines, firedRowsFor(ctx, qOpen.queue_id).length === 0,
+    registerRunStart(ctx, { jobId: 'start-live', goal: GOAL_LIVE });
+    const qLive = enqueueDue(ctx, 'start-live', { workflow: WORKFLOW });
+    const rLive = await ctx.ticker.tick(new Date());
+    const aLive = queuedActionFor(rLive, qLive.queue_id);
+
+    assert(lines, aLive !== null && aLive.reason === 'live-lease',
+      'C1 a scheduled start against a LIVE ROOM records action "queued" with the LEASE reason',
+      JSON.stringify(aLive && aLive.reason));
+    assert(lines, firedRowsFor(ctx, qLive.queue_id).length === 0,
       'C1 it did NOT start — no jobs_log row exists for that queue row');
-    assert(lines, queueRowStillThere(ctx, qOpen.queue_id),
-      'C1 the queued row is OBSERVABLE in the queue, not dropped on the floor (it drains when the run closes)');
+    assert(lines, queueRowStillThere(ctx, qLive.queue_id),
+      'C1 the queued row is OBSERVABLE in the queue, not dropped on the floor (it drains when the room goes)');
+    assert(lines, aLive.reason === 'live-lease' && aLive.reason !== 'open-run',
+      'C1 the refusal vocabulary is LEASE-shaped — the register words are gone, not aliased');
 
-    const ev = aOpen.event;
-    assert(lines, !!ev['scheduled-start'] && !!ev['open-run-found'] && ev.action === 'queued',
+    const ev = aLive.event;
+    assert(lines, !!ev['scheduled-start'] && !!ev['live-lease'] && ev.action === 'queued',
       'C4 the event carries all three declared fields', JSON.stringify(Object.keys(ev)));
-    assert(lines, ev['open-run-found']['run-id'] === 'run-2' && ev['open-run-found'].state === 'open',
-      'C4 open-run-found NAMES which run was found', JSON.stringify(ev['open-run-found']));
-    assert(lines, ev['scheduled-start'].goal === 'goal-open' && ev['scheduled-start']['queue-id'] === qOpen.queue_id,
+    assert(lines, ev['live-lease']['run-id'] === room && ev['live-lease'].state === 'live-lease',
+      'C4 live-lease NAMES which room was found', JSON.stringify(ev['live-lease']));
+    assert(lines, ev['open-run-found'] === ev['live-lease'],
+      'C4 the legacy `open-run-found` key still carries it — the disclosed compat seam that keeps '
+      + 'queued-run-notify.js (out of this stage\'s write surface) rendering');
+    assert(lines, ev['scheduled-start'].goal === GOAL_LIVE && ev['scheduled-start']['queue-id'] === qLive.queue_id,
       'C4 scheduled-start names the gated start', JSON.stringify(ev['scheduled-start']));
-    assert(lines, String(ev['open-run-found'].register).endsWith(path.join('goal-open', 'runs.csv')),
-      'C3 the answer was read from <goal>/runs.csv', String(ev['open-run-found'].register));
+    assert(lines, !/runs\.csv/.test(String(ev['live-lease'].register)),
+      'C3 the answer did NOT come from a register — the evidence field names the ROOM PREDICATE',
+      String(ev['live-lease'].register));
 
-    // ── C2 + C3 — no open run, but run FOLDERS exist: starts normally ───────────────────────────
-    // A rule keyed on a folder's existence queues here. This one must start: two run folders are on
-    // disk and every register row reads `closed`.
+    // ── ⚠⚠ C2 — THE 7.608 DEADLOCK ARM. `state=open` on disk, run folders on disk, NO room ──────
     makeGoal(wsRoot, {
-      goal: 'goal-closed',
-      runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,closed,t0,t1\nrun-2,fresh,closed,t2,t3\n',
+      goal: GOAL_DEAD,
+      runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,open,t0,\n',
       runFolders: ['run-1', 'run-2'],
     });
-    registerRunStart(ctx, { jobId: 'start-closed', goal: 'goal-closed' });
-    const qClosed = enqueueDue(ctx, 'start-closed', { workflow: WORKFLOW });
-    const rClosed = await ctx.ticker.tick(new Date());
-    assert(lines, queuedActionFor(rClosed, qClosed.queue_id) === null,
-      'C2 a scheduled start with NO open run is not queued');
-    assert(lines, firedRowsFor(ctx, qClosed.queue_id).length === 1,
-      'C2 it STARTED — exactly one jobs_log row was created (the control: this rule does not queue everything)');
-    assert(lines, !queueRowStillThere(ctx, qClosed.queue_id),
-      'C3 two run FOLDERS on disk did not make it queue — only the register\'s state column decides');
+    registerRunStart(ctx, { jobId: 'start-dead', goal: GOAL_DEAD });
+    const qDead = enqueueDue(ctx, 'start-dead', { workflow: WORKFLOW });
+    const rDead = await ctx.ticker.tick(new Date());
+    assert(lines, queuedActionFor(rDead, qDead.queue_id) === null,
+      '⚠⚠ C2 THE DEADLOCK IS GONE: a goal whose runs.csv reads `state=open` and whose run folders '
+      + 'exist, but which has NO ROOM, is NOT queued. This is the exact state that refused every '
+      + 'start of a fresh planning goal forever (7.608)');
+    assert(lines, firedRowsFor(ctx, qDead.queue_id).length === 1,
+      '⚠⚠ C2 it STARTED — exactly one jobs_log row. Also C1\'s control: a scheduler that queues '
+      + 'everything passes C1 and is not this rule');
+    assert(lines, !queueRowStillThere(ctx, qDead.queue_id),
+      'C3 neither the `state=open` row NOR the run folders on disk made it queue — with C1\'s '
+      + '`state=closed` goal queueing, the two disagree with the register in OPPOSITE directions, '
+      + 'so no reading of runs.csv produces both');
 
-    // ── C5a — register absent ───────────────────────────────────────────────────────────────────
-    makeGoal(wsRoot, { goal: 'goal-noreg', runsCsv: null, runFolders: ['run-1'] });
-    registerRunStart(ctx, { jobId: 'start-noreg', goal: 'goal-noreg' });
-    const qNoreg = enqueueDue(ctx, 'start-noreg', { workflow: WORKFLOW });
-    const rNoreg = await ctx.ticker.tick(new Date());
-    const aNoreg = queuedActionFor(rNoreg, qNoreg.queue_id);
-    assert(lines, aNoreg !== null && aNoreg.reason === 'register-unreadable',
-      'C5 an ABSENT register queues (fail-closed)', JSON.stringify(aNoreg && aNoreg.reason));
-    assert(lines, firedRowsFor(ctx, qNoreg.queue_id).length === 0,
-      'C5 an absent register does NOT silently start the run');
-
-    // ── C5b — register present but carries no `state` column ────────────────────────────────────
-    makeGoal(wsRoot, { goal: 'goal-nostate', runsCsv: 'run-id,type,opened\nrun-1,fresh,t0\n' });
-    registerRunStart(ctx, { jobId: 'start-nostate', goal: 'goal-nostate' });
-    const qNostate = enqueueDue(ctx, 'start-nostate', { workflow: WORKFLOW });
-    const rNostate = await ctx.ticker.tick(new Date());
-    const aNostate = queuedActionFor(rNostate, qNostate.queue_id);
-    assert(lines, aNostate !== null && aNostate.reason === 'register-unreadable',
-      'C5 a register with no state column queues', JSON.stringify(aNostate && aNostate.reason));
-    assert(lines, firedRowsFor(ctx, qNostate.queue_id).length === 0,
-      'C5 a register with no state column does NOT start the run');
-
-    // ── C5c — a state value that is neither open nor closed ────────────────────────────────────
-    makeGoal(wsRoot, { goal: 'goal-junkstate', runsCsv: 'run-id,type,state\nrun-1,fresh, open\n' });
-    registerRunStart(ctx, { jobId: 'start-junkstate', goal: 'goal-junkstate' });
-    const qJunk = enqueueDue(ctx, 'start-junkstate', { workflow: WORKFLOW });
-    const rJunk = await ctx.ticker.tick(new Date());
-    const aJunk = queuedActionFor(rJunk, qJunk.queue_id);
-    assert(lines, aJunk !== null && aJunk.reason === 'open-run-state-unrecognized',
-      'C5 a state that is neither "open" nor "closed" queues — not provably closed',
-      JSON.stringify(aJunk && aJunk.reason));
-    assert(lines, firedRowsFor(ctx, qJunk.queue_id).length === 0,
-      'C5 an unparseable state does NOT start the run');
-
-    // ── C6 — two open rows: refused, both named, no pick ───────────────────────────────────────
-    makeGoal(wsRoot, {
-      goal: 'goal-two',
-      runsCsv: 'run-id,type,state\nrun-1,fresh,open\nrun-2,fresh,open\n',
-    });
-    registerRunStart(ctx, { jobId: 'start-two', goal: 'goal-two' });
-    const qTwo = enqueueDue(ctx, 'start-two', { workflow: WORKFLOW });
-    const rTwo = await ctx.ticker.tick(new Date());
-    const aTwo = queuedActionFor(rTwo, qTwo.queue_id);
-    assert(lines, aTwo !== null && aTwo.reason === 'open-run-ambiguous',
-      'C6 two open rows queue', JSON.stringify(aTwo && aTwo.reason));
-    assert(lines,
-      Array.isArray(aTwo.event['open-run-found']['run-id'])
-      && aTwo.event['open-run-found']['run-id'].join(',') === 'run-1,run-2'
-      && aTwo.event['open-run-found'].count === 2,
-      'C6 both open runs are NAMED and no pick is made',
-      JSON.stringify(aTwo.event['open-run-found']));
-    assert(lines, firedRowsFor(ctx, qTwo.queue_id).length === 0, 'C6 it did not start');
-
-    // ── C7 — a homed job that is NOT a run start fires while the run is open ────────────────────
-    registerHomedTool(ctx, { jobId: 'watcher-open', goal: 'goal-open' });
-    const qTool = enqueueDue(ctx, 'watcher-open', { tool: 'a-watcher' });
+    // ── C7 — a homed job that is NOT a start fires while the goal executes ─────────────────────
+    registerHomedTool(ctx, { jobId: 'watcher-live', goal: GOAL_LIVE });
+    const qTool = enqueueDue(ctx, 'watcher-live', { tool: 'a-watcher' });
     const rTool = await ctx.ticker.tick(new Date());
     assert(lines, queuedActionFor(rTool, qTool.queue_id) === null,
-      'C7 a fire-tool job homed at the SAME goal with the SAME open run is not gated');
+      'C7 a fire-tool job homed at the SAME goal with the SAME live room is not gated');
     assert(lines, firedRowsFor(ctx, qTool.queue_id).length === 1,
-      'C7 it FIRED — the gate does not stop the watchers and self-heal jobs that must run WHILE a run is open (C4 bound)');
+      'C7 it FIRED — the gate does not stop the watchers and self-heal jobs that must run WHILE a goal executes');
 
-    // ── C8 — the gate's own failure is CONTAINED, and it fails CLOSED ───────────────────────────
+    // ── C5 — the lease is UNREADABLE: fail CLOSED ─────────────────────────────────────────────
+    // Injected through the module's one injection point, because a tmux that cannot be read is not
+    // a state a probe may create on a shared box.
+    const gateRow = { queue_id: 999, job_id: 'start-live', trigger_kind: 'scheduled', run_at: 'now' };
+    const gateJob = { action_type: 'start-workflow', goal_name: GOAL_DEAD, seat_name: 'entry' };
+    const unreadable = oneLiveRunDecision({
+      job: gateJob, queueRow: gateRow, resolveRoot: () => wsRoot,
+      readLease: () => ({ ok: false, reason: 'tmux is unreadable (simulated)' }),
+    });
+    assert(lines, unreadable.action === 'queued' && unreadable.reason === 'lease-unreadable',
+      'C5 an UNREADABLE lease QUEUES (fail-closed) — ignorance is not "not executing"',
+      JSON.stringify(unreadable.reason));
+    assert(lines, String(unreadable.event['live-lease'].reason).includes('tmux is unreadable'),
+      'C5 the cause rides the event, so the tick log says WHY it could not decide');
+
+    // ── C6 — no workspace root ────────────────────────────────────────────────────────────────
+    const noRoot = oneLiveRunDecision({ job: gateJob, queueRow: gateRow, resolveRoot: () => null });
+    assert(lines, noRoot.action === 'queued' && noRoot.reason === 'workspace-root-unresolvable',
+      'C6 an unresolvable workspace root QUEUES — same posture, distinct cause',
+      JSON.stringify(noRoot.reason));
+
+    // ── C8 — the gate's own failure is CONTAINED, and it fails CLOSED ──────────────────────────
     // `dispatch()` has no try around the gate, so an exception here would abandon the whole tick.
-    // Driven by injecting a register reader that throws — the one input a caller can supply, and
-    // the only way to reach the branch without breaking the module on purpose.
-    const thrower = () => { throw new Error('register reader exploded'); };
-    const gateJob = { action_type: 'start-workflow', goal_name: 'goal-open', seat_name: 'entry' };
-    const gateRow = { queue_id: 999, job_id: 'start-open', trigger_kind: 'scheduled', run_at: 'now' };
+    const thrower = () => { throw new Error('lease reader exploded'); };
     let contained;
     try {
-      contained = oneLiveRunDecision({ job: gateJob, queueRow: gateRow, resolveRoot: () => wsRoot, readRegister: thrower });
+      contained = oneLiveRunDecision({ job: gateJob, queueRow: gateRow, resolveRoot: () => wsRoot, readLease: thrower });
     } catch (err) {
       contained = { threw: err.message };
     }
     assert(lines, contained && contained.action === 'queued' && contained.reason === 'gate-error',
       'C8 an error inside the gate QUEUES and is not rethrown — a throw would abandon the whole tick',
       JSON.stringify(contained && (contained.reason || contained.threw)));
-    assert(lines, contained.event['open-run-found'].reason.includes('register reader exploded'),
+    assert(lines, contained.event['live-lease'].reason.includes('lease reader exploded'),
       'C8 the failure is not silent — the error rides the event into the tick log',
-      String(contained.event['open-run-found'].reason).slice(0, 80));
+      String(contained.event['live-lease'].reason).slice(0, 80));
+
+    // ── C9 — the room goes away and the SAME goal now starts ──────────────────────────────────
+    // The queued row from C1 is still due. Nothing on disk changes; only the room does.
+    itmux(['kill-session', '-t', room], { allowFail: true });
+    const rDrain = await ctx.ticker.tick(new Date());
+    assert(lines, queuedActionFor(rDrain, qLive.queue_id) === null
+      && firedRowsFor(ctx, qLive.queue_id).length === 1,
+      '⚠ C9 THE QUEUED ROW DRAINS BY ITSELF once the room is gone — with every file on disk '
+      + 'unchanged, including the `state=closed` register. The room, and only the room, decided');
 
     lines.push(`CHECKS: ${passed}/${passed} passed`);
     lines.push('ONE_LIVE_RUN_OK: true');
   } finally {
+    itmux(['kill-server'], { allowFail: true });
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    fs.rmSync(tmuxScratch, { recursive: true, force: true });
     delete process.env.RBTV_IGNITE_WORKSPACE_ROOT;
     teardown(ctx);
   }
+  if (defaultServerSessions() !== beforeSessions) {
+    throw new Error('the DEFAULT tmux server\'s session inventory changed across this probe — '
+      + `before=${beforeSessions} after=${defaultServerSessions()}`);
+  }
+  lines.push('DEFAULT_TMUX_SERVER_UNTOUCHED: true');
 }
 
 capture('probe-one-live-run', run);

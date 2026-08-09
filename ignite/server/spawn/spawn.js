@@ -9,7 +9,8 @@ const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
 const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags, contains, composeAncestorMasks } = require('./cage');
-const { parseServiceSeatPath, parseSeatPath, checkRunLive, checkMaterializedSeat, openRunsOfGoal } = require('../seat-identity/seat-folder');
+const { parseServiceSeatPath, parseSeatPath, checkRunLive, checkMaterializedSeat } = require('../seat-identity/seat-folder');
+const { deriveLease } = require('../lease/lease');  // 7.607 E1 — the bus/goals authz predicate
 const { appendRow, readCsv } = require('../seat-identity/csv');
 const {
   generateSessionId,
@@ -453,32 +454,69 @@ function resolveReadRootGrant(seatPath) {
 // materializer/master, never the occupant — so no seat can widen its own walls, exactly as
 // `read-root` above. Absent key -> empty grant list -> the template line composes to nothing.
 
-// `bus-write: true` — RW on the coordination dir of every goal's OPEN run. Read through the ONE
-// daemon-side reader of runs.csv (`openRunsOfGoal`), so "open" means here exactly what it means to
-// the ticker's one-live-run invariant. A goal with no open run, an unreadable runs.csv, or a run
-// with no coordination dir contributes NOTHING — this never creates a directory. Goal order is
-// readdirSync's, sorted, so the composed spec is deterministic across runs.
+// ── 7.607 E1 — THE BUS AUTHZ PREDICATE IS THE DERIVED LEASE (design lock item 4, SECURITY) ─────
+//
+// `bus-write: true` — RW on the coordination dir of every goal that is EXECUTING RIGHT NOW.
+//
+// WHAT THIS REPLACED AND WHY IT IS SECURITY, NOT PLUMBING. The predicate was "seats of an OPEN run
+// of the goal", read from `<goal>/runs.csv`. With the run layer extinguished, seat folders become
+// GOAL-DURABLE (`decisions.md#d-runs-extinguished`, owner clarification): every seat a goal ever
+// had persists on disk forever. A register-shaped predicate carried straight over would therefore
+// have WIDENED — a stale `state=open` row, or the mere existence of the goal's accumulated seat
+// tree, would grant the bus to historical seats of an execution that ended months ago. The ruling
+// (item 4) is explicit that today's narrowness is preserved EXACTLY: "a seat reads/writes the
+// coordination bus only while it has a live, ancestry-verified process in the goal's current
+// execution — historical seat folders on disk grant nothing."
+//
+// So the grant is founded on `lease.js deriveLease()`:
+//
+//   the goal contributes a bus  ⟺  its room exists NOW  AND  at least one seat of that room has a
+//                                  live process whose (pid, pid-starttime) matches its registered
+//                                  pair and whose /proc ancestry reaches a pane of that room
+//
+// THE SEAT CONJUNCT IS LOAD-BEARING HERE AND NOWHERE ELSE. The ticker gate treats a bare room as a
+// live lease (a room mid-relaunch is still an execution). AUTHZ may not: a room with no verified
+// occupant is a room nobody is in, and handing the bus to a folder tree on that evidence is the
+// widening the ruling forbids. The two callers legitimately read the same lease with different
+// thresholds, which is why `deriveLease` reports the room and the seat set separately and decides
+// neither.
+//
+// UNREADABLE FAILS CLOSED: `deriveLease` returning `{ok:false}` (tmux gone) contributes NO grant.
+// An authz surface may not be opened on ignorance.
+//
+// This never creates a directory. Goal order is readdirSync's, sorted, so the composed spec is
+// deterministic across spawns.
 function resolveBusWriteGrants(seatPath) {
   if (!seatDeclares(seatPath.seatDir, 'bus-write')) return [];
-  const goalsDir = path.join(seatPath.workspaceRoot, '.rbtv', 'goals');
+  const grants = [];
+  for (const { goal, lease } of leasedGoals(seatPath.workspaceRoot)) {
+    for (const room of lease.rooms) {
+      if (room.seats.length === 0) continue;   // no live occupant ⇒ no bus (the authz narrowing)
+      const coordination = path.join(room.packageDir, 'coordination');
+      if (fs.existsSync(coordination)) grants.push({ busWrite: coordination, busGoal: goal, busRun: room.room });
+    }
+  }
+  return grants;
+}
+
+// The two grant resolvers' shared walk: every goal folder, its lease derived once. Spelled here so
+// the authz predicate has ONE home (PRIN-11) — two copies of "which goals are executing" is the
+// same drift as two copies of "is this run open" was.
+function leasedGoals(workspaceRoot) {
+  const goalsDir = path.join(workspaceRoot, '.rbtv', 'goals');
   let goals;
   try {
     goals = fs.readdirSync(goalsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch {
     return [];
   }
-  const grants = [];
+  const out = [];
   for (const goal of goals) {
-    const register = openRunsOfGoal({ workspaceRoot: seatPath.workspaceRoot, goal });
-    if (!register.ok) continue; // a service-seat folder or a goal with no run log — not a bus
-    for (const row of register.open) {
-      const run = row[register.runCol];
-      if (!run) continue;
-      const coordination = path.join(register.goalDir, 'runs', run, 'coordination');
-      if (fs.existsSync(coordination)) grants.push({ busWrite: coordination, busGoal: goal, busRun: run });
-    }
+    const lease = deriveLease({ workspaceRoot, goal });
+    if (!lease.ok || !lease.live) continue;  // unreadable or not executing — both grant nothing
+    out.push({ goal, lease });
   }
-  return grants;
+  return out;
 }
 
 // `goals-write: true` — RW on the RUN FOLDER of every goal's OPEN run, so a seat holding the
@@ -499,29 +537,22 @@ function resolveBusWriteGrants(seatPath) {
 //      who is sitting in a run; a cross-goal writer of it could spoof any seat's identity.
 //      `assertGroundTruthUnwritable` only guards THIS seat's own sessions.csv — it cannot see the
 //      other runs this grant opens, so the carve is what keeps them shut.
+// 7.607 E1: same lease predicate as `resolveBusWriteGrants` above, same seat conjunct, same
+// fail-closed posture — read that block for the security argument; it is not restated here. The
+// TWO NARROWINGS below are untouched by the re-founding and remain load-bearing.
 function resolveGoalsWriteGrants(seatPath) {
   if (!seatDeclares(seatPath.seatDir, 'goals-write')) return [];
-  const goalsDir = path.join(seatPath.workspaceRoot, '.rbtv', 'goals');
-  let goals;
-  try {
-    goals = fs.readdirSync(goalsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
-  } catch {
-    return [];
-  }
   const grants = [];
-  for (const goal of goals) {
-    const register = openRunsOfGoal({ workspaceRoot: seatPath.workspaceRoot, goal });
-    if (!register.ok) continue; // a service-seat folder or a goal with no run log — nothing to seat into
-    for (const row of register.open) {
-      const run = row[register.runCol];
-      if (!run) continue;
-      const runDir = path.join(register.goalDir, 'runs', run);
-      if (!fs.existsSync(runDir)) continue;        // never created from here
-      if (contains(runDir, seatPath.seatDir)) continue; // narrowing 1 — never the seat's own run
+  for (const { lease } of leasedGoals(seatPath.workspaceRoot)) {
+    for (const room of lease.rooms) {
+      if (room.seats.length === 0) continue;            // no live occupant ⇒ nothing to seat into
+      const runDir = room.packageDir;
+      if (!fs.existsSync(runDir)) continue;             // never created from here
+      if (contains(runDir, seatPath.seatDir)) continue; // narrowing 1 — never the seat's own home
       grants.push({ goalsWrite: runDir });
       const sessions = path.join(runDir, 'sessions.csv');
       // narrowing 2 — a SEPARATE grant so the carve line composes only where the file exists;
-      // a run with no sessions.csv yet has no ground truth to carve back.
+      // a package with no sessions.csv yet has no ground truth to carve back.
       if (fs.existsSync(sessions)) grants.push({ goalsWriteGroundTruth: sessions });
     }
   }

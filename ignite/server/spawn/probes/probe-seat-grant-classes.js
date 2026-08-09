@@ -2,7 +2,15 @@
 
 // Owner ruling "1a" (2026-08-06) — the CROSS-GOAL INSTRUMENT grant classes:
 //
-//   bus-write: true    RW the coordination dir of EVERY goal's OPEN run
+// ⚠ 7.607 E1 RE-FOUNDING. `bus-write` / `goals-write` are no longer scoped by `runs.csv`'s
+// `state` column but by the DERIVED LEASE (`server/lease/lease.js`, design lock item 4, SECURITY):
+// a goal contributes a grant only while its ROOM EXISTS and at least one seat of that room has a
+// live, ancestry-verified process. So the fixture below builds REAL tmux rooms with REAL verified
+// seats — "open" is no longer something a fixture can assert into a CSV, and that is the point:
+// with seat folders becoming goal-durable, a register-shaped predicate would have widened the bus
+// to every historical seat a goal ever had. Legs G8a/G8b are that widening, refused.
+//
+//   bus-write: true    RW the coordination dir of every goal holding a LIVE LEASE
 //   local-bin: true    ro-bind the invoking user's ~/.local/bin
 //   gateway-env: true  IGNITE_GATEWAY_ADDR in the session's environment (a --setenv, not a mount)
 //   tmux-socket: true  ro-bind tmux's socket dir back through bwrap's `--tmpfs /tmp`, so the
@@ -25,6 +33,17 @@ const { capture } = require('./lib');
 const { composeCageFor } = require('../spawn');
 const { buildBwrapArgv } = require('../bwrap');
 
+// ⚠ ISOLATED TMUX SERVER, INSTALLED BEFORE ANY SOCKET PATH IS COMPUTED. The lease is derived
+// from real rooms, so this probe must create some — and it may never create them on the box's
+// DEFAULT server, where the owner's live acceptance room sits. `TMUX_TMPDIR` is redirected here,
+// above `TMUX_SOCK_DIR` below and above every grant resolution, so the probe, the grant resolver
+// and the lease module all agree on one throwaway server. Killed in the finally block.
+const TMUX_SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'grantcls-tmux-'));
+const SAVED_TMUX_ENV = { TMUX_TMPDIR: process.env.TMUX_TMPDIR, TMUX: process.env.TMUX, TMUX_PANE: process.env.TMUX_PANE };
+process.env.TMUX_TMPDIR = TMUX_SCRATCH;
+delete process.env.TMUX;
+delete process.env.TMUX_PANE;
+
 const GATEWAY_ADDR = '127.0.0.1:7431';
 const LOCAL_BIN = path.join(os.homedir(), '.local', 'bin');
 // tmux's OWN default socket dir, derived exactly as resolveTmuxSocketGrant derives it — the same
@@ -38,11 +57,28 @@ function shippedSeatBinds() {
   return cfg.cage.SeatBinds;
 }
 
-// A workspace with FOUR goals, so every branch of the open-run scan is exercised by data rather
-// than by argument: one goal whose open run has a coordination dir (granted) and whose CLOSED run
-// also has one (must NOT be granted), a second goal with an open run (granted — this is the
-// cross-goal opening the ruling is about), a goal whose open run has no coordination dir at all
-// (skipped, never created), and a goal with no open run.
+// The room + verified-seat pair that makes a goal EXECUTING. A room whose pane pid is written
+// into the package's sessions.csv with that process's REAL starttime is the only shape the lease's
+// three conjuncts accept — which is why a fixture can no longer assert liveness into a file.
+function makeRoom(pkgDir, room) {
+  execFileSync('tmux', ['new-session', '-d', '-s', room], { stdio: 'ignore', timeout: 15000 });
+  const pid = execFileSync('tmux', ['list-panes', '-t', room, '-F', '#{pane_pid}'],
+    { encoding: 'utf8', timeout: 15000 }).trim().split('\n')[0];
+  const raw = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+  const starttime = raw.slice(raw.lastIndexOf(')') + 2).trim().split(/\s+/)[22 - 3];
+  fs.mkdirSync(pkgDir, { recursive: true });
+  fs.writeFileSync(path.join(pkgDir, 'sessions.csv'),
+    `seat,session-id,pid,pid-starttime\noccupant,s1,${pid},${starttime}\n`);
+  return { pid, starttime };
+}
+
+// A workspace with SIX goals, so every branch of the LEASE scan is exercised by data rather than
+// by argument: one goal EXECUTING with a coordination dir (granted) whose earlier run also has one
+// (must NOT be granted — no room), a second executing goal (granted — the cross-goal opening the
+// ruling is about), an executing goal with no coordination dir at all (skipped, never created), a
+// goal with no room, and the TWO SECURITY CASES the re-founding exists for: `historical`, whose
+// register still says `open` and whose seat folders are all still on disk but which has NO ROOM;
+// and `ghost`, which HAS a room but whose only registered occupant is a dead pid.
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'grant-classes-'));
   const ws = path.join(root, 'ws');
@@ -63,9 +99,28 @@ function fixture() {
   const beta = mk('beta', `${HEADER}run-1,fresh,open,tf-1,2026-08-02 01:00,\n`, ['runs/run-1/coordination']);
   const gamma = mk('gamma', `${HEADER}run-1,fresh,open,tf-1,2026-08-02 01:00,\n`, ['runs/run-1']);
   const delta = mk('delta', `${HEADER}run-1,fresh,closed,tf-1,2026-08-02 01:00,2026-08-03 01:00\n`, ['runs/run-1/coordination']);
+  // ⚠ THE SECURITY FIXTURES. `historical` is the state the ruling names: a register still reading
+  // `open`, every seat folder the goal ever had still on disk (they are goal-durable now), and NO
+  // ROOM. `ghost` has a room but nobody in it — its only registered occupant is a pid past the
+  // kernel's maximum, so it cannot be alive.
+  const historical = mk('historical', `${HEADER}run-1,fresh,open,tf-1,2026-08-02 01:00,\n`,
+    ['runs/run-1/coordination', 'runs/run-1/seats/ghost-a', 'runs/run-1/seats/ghost-b']);
+  const ghost = mk('ghost', `${HEADER}run-1,fresh,open,tf-1,2026-08-02 01:00,\n`, ['runs/run-1/coordination']);
+  const deadPid = Number(fs.readFileSync('/proc/sys/kernel/pid_max', 'utf8').trim()) + 1;
+  fs.writeFileSync(path.join(historical, 'runs', 'run-1', 'sessions.csv'),
+    `seat,session-id,pid,pid-starttime\nghost-a,s1,${deadPid},1\n`);
+  fs.writeFileSync(path.join(ghost, 'runs', 'run-1', 'sessions.csv'),
+    `seat,session-id,pid,pid-starttime\nnobody,s1,${deadPid},1\n`);
 
   const runDir = path.join(alpha, 'runs', 'run-1');
-  fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,pid,pid-starttime\nmine,s1,1,1\n');
+  // The three EXECUTING goals get real rooms and real verified occupants; alpha/run-0, delta and
+  // `historical` deliberately get none. `ghost` gets a room and no live occupant.
+  const rooms = ['alpha-run-1', 'beta-run-1', 'gamma-run-1'];
+  makeRoom(runDir, 'alpha-run-1');
+  makeRoom(path.join(beta, 'runs', 'run-1'), 'beta-run-1');
+  makeRoom(path.join(gamma, 'runs', 'run-1'), 'gamma-run-1');
+  execFileSync('tmux', ['new-session', '-d', '-s', 'ghost-run-1'], { stdio: 'ignore', timeout: 15000 });
+  rooms.push('ghost-run-1');
 
   // The DECLARING seat — the channel-master's shape (read-root plus the three new keys).
   fs.writeFileSync(path.join(runDir, 'seats', 'mine', 'seat.md'),
@@ -78,10 +133,13 @@ function fixture() {
   // (a seats/ dir, a taskforce.csv) AND the ground truth the grant must carve back read-only.
   fs.mkdirSync(path.join(beta, 'runs', 'run-1', 'seats'), { recursive: true });
   fs.writeFileSync(path.join(beta, 'runs', 'run-1', 'taskforce.csv'), 'taskforce-id,seat\n');
-  fs.writeFileSync(path.join(beta, 'runs', 'run-1', 'sessions.csv'), 'seat,session-id,pid,pid-starttime\nthem,s9,9,9\n');
 
   return {
-    root, ws, runDir,
+    root, ws, runDir, rooms,
+    historicalRun: path.join(historical, 'runs', 'run-1'),
+    historicalCoord: path.join(historical, 'runs', 'run-1', 'coordination'),
+    ghostRun: path.join(ghost, 'runs', 'run-1'),
+    ghostCoord: path.join(ghost, 'runs', 'run-1', 'coordination'),
     betaRun: path.join(beta, 'runs', 'run-1'),
     betaSessions: path.join(beta, 'runs', 'run-1', 'sessions.csv'),
     betaTaskforce: path.join(beta, 'runs', 'run-1', 'taskforce.csv'),
@@ -163,8 +221,29 @@ capture('probe-seat-grant-classes', async (lines) => {
     leg('G1d', 'a goal whose open run has NO coordination dir contributes no bus opening (never created)',
       !granted.includes(path.join(f.gammaRun, 'coordination')) && !fs.existsSync(path.join(f.gammaRun, 'coordination')),
       `gamma coordination in flags: ${granted.includes(path.join(f.gammaRun, 'coordination'))}; dir created on disk: ${fs.existsSync(path.join(f.gammaRun, 'coordination'))}`);
-    leg('G1e', 'a goal with no OPEN run contributes nothing',
-      !granted.includes(f.deltaCoord), `delta (closed-only) coordination present: ${granted.includes(f.deltaCoord)}`);
+    leg('G1e', 'a goal with no room contributes nothing',
+      !granted.includes(f.deltaCoord), `delta (no room) coordination present: ${granted.includes(f.deltaCoord)}`);
+
+    // ── ⚠⚠ G8 — THE SECURITY ARMS OF THE 7.607 E1 RE-FOUNDING (design lock item 4).
+    //
+    // These are the two states a register-shaped predicate carried into the extinguished layout
+    // would have GRANTED, and the ruling forbids both by name: "historical seat folders on disk
+    // grant nothing", and access holds only "while [a seat] has a live, ancestry-verified process".
+    // Each is asserted on BOTH grant classes, because a widening in either is the same breach.
+    leg('G8a', '⚠⚠ a goal whose runs.csv still reads `state=open`, with EVERY seat folder it ever '
+      + 'had still on disk, but with NO ROOM, grants NOTHING — not the bus, not the run folder. '
+      + 'This is the exact widening the extinguished run layer would have produced',
+      !granted.includes(f.historicalCoord) && !granted.includes(f.historicalRun),
+      `historical coordination in flags: ${granted.includes(f.historicalCoord)}; run folder: ${granted.includes(f.historicalRun)}`);
+    leg('G8b', '⚠⚠ a goal that HAS a live room but whose only registered occupant is a DEAD pid '
+      + 'grants NOTHING either — the room alone is a lease for the ticker gate but never for authz; '
+      + 'an unoccupied room is a room nobody is in',
+      !granted.includes(f.ghostCoord) && !granted.includes(f.ghostRun),
+      `ghost coordination in flags: ${granted.includes(f.ghostCoord)}; run folder: ${granted.includes(f.ghostRun)}`);
+    leg('G8c', 'and the CONTROL that makes G8a/G8b mean something: the two executing goals with '
+      + 'live ancestry-verified occupants ARE granted, from the same walk, in the same call',
+      granted.includes(f.betaCoord) && granted.includes(f.ownCoord),
+      `beta bus: ${granted.includes(f.betaCoord)}; own bus: ${granted.includes(f.ownCoord)}`);
 
     // ── G2 — local-bin, ro. Skipped-with-a-verdict when the box has no ~/.local/bin: the grant
     // resolver requires the path to EXIST, so asserting a bind on a box without one would be a
@@ -340,6 +419,13 @@ capture('probe-seat-grant-classes', async (lines) => {
     if (fails.length > 0) throw new Error(`grant-class probes failed: ${fails.join(', ')}`);
   } finally {
     try { execFileSync('tmux', ['-L', `grantprobe-${process.pid}`, 'kill-server'], { stdio: 'ignore', timeout: 15000 }); } catch {}
+    // The throwaway server holding this probe's fixture rooms, and the scratch socket dir it lived
+    // in. Reaped here so the box carries nothing away from this run.
+    try { execFileSync('tmux', ['kill-server'], { stdio: 'ignore', timeout: 15000 }); } catch {}
+    for (const [k, v] of Object.entries(SAVED_TMUX_ENV)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    try { fs.rmSync(TMUX_SCRATCH, { recursive: true, force: true }); } catch {}
     try { fs.rmSync(f.root, { recursive: true, force: true }); } catch {}
   }
 });

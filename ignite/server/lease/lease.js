@@ -1,0 +1,254 @@
+'use strict';
+
+// ── THE DERIVED LEASE — "is this goal executing?", answered from LIVE EVIDENCE ONLY ─────────────
+//
+// Epic 7.607 stage E1, executing `decisions.md#d-extinguishment-design-lock` items 1–4 (which in
+// turn execute `#d-runs-extinguished`). This module REPLACES the run register as the answer to
+// goal liveness. Its whole contract is one sentence:
+//
+//   A goal is EXECUTING iff its tmux room exists right now; the seats holding that lease are the
+//   registered occupants whose (pid, pid-starttime) pair is alive AND whose /proc ancestry reaches
+//   a pane of that room.
+//
+// ⚠ NO STORED STATUS IS READ, ANYWHERE IN THIS FILE, BY CONSTRUCTION. No `runs.csv`, no lease
+// file, no heartbeat, no state.json, no mtime. That is not a style preference — it is the ruling
+// (item 1: "NO stored status of any kind"), and the reason is the defect class the register kept
+// producing: a stored `state=open` outlives the thing it describes, so every reader of it was
+// answering a question about the past while believing it was reading the present (G-103's stale
+// fire, the run-1 sensor writing into a run closed 6h earlier, the 7.608 deadlock where a stale
+// open row refused a start for a run nobody was running). `sessions.csv` IS read here — but ONLY
+// for the pid/starttime PAIR, which is a POINTER AT A PROCESS, never a status: the row asserts
+// nothing about liveness, and every row it names is re-measured against /proc before it counts.
+// A row for a dead process contributes exactly nothing and is not an error.
+//
+// ⚠ TRANSITIONAL ROOM PREDICATE — E1 ONLY, AND IT IS SPELLED AT THE DEFINITION.
+// The design lock (item 2) settles the room name as the BARE GOAL NAME. But E1 is the MECHANISM
+// stage: the layout change is E2, and today's live rooms are `<goal>-run-N` (composed by
+// `workflow_launcher.session_name`, inventory #55). So this stage accepts BOTH spellings and says
+// which one it matched. E2 collapses `ROOM_PATTERNS` to the bare goal name and deletes
+// `packageDirForRoom`'s legacy arm — those two functions are the entire compat seam.
+//
+// ⚠ UNREADABLE IS NOT EMPTY, AND NEVER FAIL-OPEN. `tmux` missing, refusing, or erroring returns
+// `{ ok: false, reason }`. Every caller must treat that as "I do not know", never as "no lease".
+// The distinction is the one the register got wrong in both directions at once: the ticker gate
+// fails CLOSED on ignorance (it may not start on a fact it could not read) while the watchers
+// failed OPEN on it (a broken meter may not stop a healthy loop). Both postures are legitimate;
+// what is not legitimate is a resolver that decides for them. So this reports and never decides.
+
+const fs = require('node:fs');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const { readCsv } = require('../seat-identity/csv');
+
+// The two room spellings this stage accepts, in the order they are reported. See the transitional
+// note above: E2 deletes the second entry.
+function roomNamesForGoal(goal, rooms) {
+  const legacy = new RegExp(`^${goal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-run-\\d+$`);
+  return rooms.filter((r) => r === goal || legacy.test(r));
+}
+
+// Which folder a room's working content lives in — the E1 compat seam's other half. A bare-goal
+// room homes at the goal folder (E2's shape, already expressible); a legacy `<goal>-run-N` room
+// homes at `runs/run-N`. NOTHING here changes any path grammar: it only READS the two shapes that
+// exist on disk today.
+function packageDirForRoom({ goalDir, goal, room }) {
+  if (room === goal) return goalDir;
+  const m = room.match(/-(run-\d+)$/);
+  return m ? path.join(goalDir, 'runs', m[1]) : goalDir;
+}
+
+// /proc/<pid>/stat, parsed from the LAST ')' — the comm field is parenthesised and may itself
+// contain spaces and parentheses, which is the classic way this parse goes quietly wrong.
+// (Deliberate near-duplicate of `seat-identity/identity.js`'s private reader: that file is not in
+// this stage's write surface, so exporting from it is E2's fold. Noted as a compat seam.)
+function readProcStat(pid) {
+  let raw;
+  try { raw = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); } catch { return null; }
+  const close = raw.lastIndexOf(')');
+  if (close < 0) return null;
+  const rest = raw.slice(close + 2).trim().split(/\s+/);
+  const ppid = Number.parseInt(rest[4 - 3], 10);
+  const starttime = rest[22 - 3];
+  if (!Number.isFinite(ppid) || starttime === undefined) return null;
+  return { pid: Number(pid), ppid, starttime };
+}
+
+// The ancestry as a SET of pids, caller-independent by construction (identity.js's own argument:
+// a check asking "is my PARENT X" answers differently under a `timeout` wrapper, which is G-101).
+function ancestryPids(startPid, maxDepth = 64) {
+  const out = [];
+  let pid = Number(startPid);
+  const seen = new Set();
+  for (let i = 0; i < maxDepth; i++) {
+    if (!pid || pid < 1 || seen.has(pid)) break;
+    seen.add(pid);
+    out.push(pid);
+    const st = readProcStat(pid);
+    if (!st || pid === 1) break;
+    pid = st.ppid;
+  }
+  return out;
+}
+
+// The one tmux read. Injectable so a probe supplies a real fixture server's output rather than
+// this module growing an assertion channel.
+function defaultTmuxProbe() {
+  const run = (args) => execFileSync('tmux', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  // `list-sessions` exits 1 with "no server running", or with `error connecting to <socket> (No
+  // such file or directory)`, when nothing is up — that is a legitimate EMPTY, not an unreadable.
+  // ⚠ THE CLASSIFICATION IS BY THE ERRNO PHRASE, NEVER BY THE BARE WORDS "error connecting".
+  // A bare `error connecting` arm swallows every OTHER connect failure — permission denied, a
+  // socket path over the sun_path limit, a half-dead server — and reports it as "no sessions",
+  // which is fail-OPEN on ignorance in this module's PRIMARY evidence and the exact inversion of
+  // the posture the header promises. Measured on this box 2026-08-09 (§2 review): a scratch
+  // `TMUX_TMPDIR` whose socket path exceeded the limit printed `error connecting to … (File name
+  // too long)` and was read as an empty tmux, so the ticker gate would have ADMITTED a start on a
+  // reading it never actually made. The no-server case is still empty — it carries the errno
+  // phrase and matches the second alternative below.
+  let sessions = '';
+  try {
+    sessions = run(['list-sessions', '-F', '#{session_name}']);
+  } catch (err) {
+    const text = `${(err && err.stderr) || ''}${(err && err.message) || ''}`;
+    if (/no server running|no such file or directory/i.test(text)) sessions = '';
+    else throw err;
+  }
+  let panes = '';
+  try {
+    panes = run(['list-panes', '-a', '-F', '#{session_name} #{pane_pid}']);
+  } catch { panes = ''; }
+  return { sessions, panes };
+}
+
+// THE LEASE. `deriveLease({ workspaceRoot, goal })` →
+//   { ok: true, live, goal, goalDir, rooms: [{room, packageDir, panePids, seats:[…]}], seats, evidence }
+//   { ok: false, reason, evidence }   ← UNREADABLE; never a lease verdict
+//
+// `live` is the ROOM's existence (design lock item 2: "the room's existence is the lease's primary
+// evidence"). `seats` is the ancestry-verified occupant set — the AUTHZ half (item 4). A live room
+// with zero verified seats is still a live lease: the room is the goal's execution, and a room
+// mid-relaunch between seat boots would otherwise read as finished, which is the crash case the
+// watcher must NOT mistake for a finish.
+function deriveLease({ workspaceRoot, goal, tmuxProbe = defaultTmuxProbe }) {
+  if (!workspaceRoot || !goal) {
+    return { ok: false, reason: 'deriveLease requires workspaceRoot and goal', evidence: {} };
+  }
+  let raw;
+  try {
+    raw = tmuxProbe();
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `tmux is unreadable (${err && err.message}) — the lease's primary evidence could not `
+        + 'be measured. This is IGNORANCE, not an absent lease; callers must not read it as "no lease".',
+      evidence: { tmux: 'unreadable' },
+    };
+  }
+
+  const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', goal);
+  const allRooms = String(raw.sessions || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  const matched = roomNamesForGoal(goal, allRooms);
+
+  const panesByRoom = new Map();
+  for (const line of String(raw.panes || '').split('\n')) {
+    const [room, pid] = line.trim().split(/\s+/);
+    if (!room || !pid) continue;
+    if (!panesByRoom.has(room)) panesByRoom.set(room, []);
+    panesByRoom.get(room).push(Number(pid));
+  }
+
+  const rooms = matched.map((room) => {
+    const packageDir = packageDirForRoom({ goalDir, goal, room });
+    const panePids = panesByRoom.get(room) || [];
+    return { room, packageDir, panePids, seats: verifiedSeats({ packageDir, panePids }) };
+  });
+
+  const seats = rooms.flatMap((r) => r.seats.map((s) => ({ ...s, room: r.room, packageDir: r.packageDir })));
+  return {
+    ok: true,
+    live: rooms.length > 0,
+    goal,
+    goalDir,
+    rooms,
+    seats,
+    evidence: {
+      'rooms-matched': matched,
+      'room-predicate': `session name === "${goal}" OR /^${goal}-run-\\d+$/ (E1 transitional; E2 keeps only the first)`,
+      'sessions-seen': allRooms.length,
+      'seats-verified': seats.length,
+    },
+  };
+}
+
+// The occupant set of ONE room: `sessions.csv` rows whose recorded process is alive with the
+// recorded starttime AND whose ancestry reaches one of the room's panes.
+//
+// ⚠ ALL THREE CONJUNCTS ARE LOAD-BEARING and each kills a distinct forgery:
+//   pid alive          — a departed seat's row grants nothing (historical seat folders are inert)
+//   starttime matches  — pid reuse cannot inherit a dead seat's standing
+//   ancestry in a pane — a process alive outside the goal's room is not IN this execution
+// A room whose panes could not be listed verifies NOTHING rather than everything: an unmeasurable
+// ancestry is not a satisfied one.
+function verifiedSeats({ packageDir, panePids }) {
+  const log = readCsv(path.join(packageDir, 'sessions.csv'));
+  if (!log.exists) return [];
+  const need = ['seat', 'pid', 'pid-starttime'];
+  if (!need.every((c) => log.header.includes(c))) return [];
+  const hasEnded = log.header.includes('ended');
+  const paneSet = new Set(panePids);
+
+  // Latest non-ended row per seat wins (protocol P1: a re-check-in supersedes its predecessor).
+  const current = new Map();
+  for (const row of log.rows) {
+    if (!row.seat) continue;
+    if (hasEnded && row.ended && row.ended.trim()) { current.delete(row.seat); continue; }
+    current.set(row.seat, row);
+  }
+
+  const out = [];
+  for (const [seat, row] of current) {
+    const pid = Number.parseInt(row.pid, 10);
+    if (!Number.isFinite(pid)) continue;
+    const st = readProcStat(pid);
+    if (!st) continue;                                     // dead — the row is history
+    if (String(st.starttime) !== String(row['pid-starttime']).trim()) continue;  // pid reuse
+    const chain = ancestryPids(pid);
+    if (!chain.some((p) => paneSet.has(p))) continue;       // alive, but not in this room
+    out.push({ seat, pid, 'pid-starttime': st.starttime, seatDir: path.join(packageDir, 'seats', seat) });
+  }
+  return out;
+}
+
+function describeLease() {
+  return [
+    'lease evidence: tmux room existence (primary) + ancestry-verified live seat processes',
+    'room predicate (E1 transitional): session name === <goal> OR <goal>-run-N; E2 keeps only <goal>',
+    'seat predicate: sessions.csv (pid, pid-starttime) alive AND ancestry reaches a pane of that room',
+    'stored status read: NONE — no runs.csv, no lease file, no heartbeat, no mtime',
+    'tmux unreadable: { ok:false, reason } — ignorance, never "no lease"; the caller decides its posture',
+  ].join('\n');
+}
+
+module.exports = {
+  deriveLease, describeLease, roomNamesForGoal, packageDirForRoom, verifiedSeats,
+  // exported for the probe's unreadable-classification arms ONLY — nothing else calls it.
+  defaultTmuxProbe,
+};
+
+// ── THE PY ACCESSOR'S ENTRY POINT (7.607 E1) ───────────────────────────────────────────────────
+//
+// `node lease.js <workspaceRoot> <goal>` prints the lease as ONE JSON object and exits 0 whether
+// the lease is live or not (an absent lease is an ANSWER); exit 1 only when it is UNREADABLE, so a
+// shell caller can tell ignorance from absence without parsing prose.
+//
+// It exists so `team-kit/coord.py resolve_live_run` can be a THIN ACCESSOR over this one home
+// rather than a second implementation of the room predicate in Python. That second implementation
+// is precisely the drift PRIN-11 forbids and precisely what the register era produced: three
+// independent `runs.csv` parsers (inventory #33/#36/#37) that could disagree. One home, two
+// language bindings, one shell hop.
+if (require.main === module) {
+  const [, , workspaceRoot, goal] = process.argv;
+  const out = deriveLease({ workspaceRoot, goal });
+  process.stdout.write(`${JSON.stringify(out)}\n`);
+  process.exit(out.ok ? 0 : 1);
+}

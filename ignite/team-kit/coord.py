@@ -2308,40 +2308,87 @@ def ensure_run_index(pkg):
     return changed
 
 
-def resolve_live_run(goal):
-    """(run-id, detail) — the goal's CURRENT run, resolved from the goal-level index alone.
+# ---------- 7.607 E1: THE DERIVED LEASE, accessed — never re-implemented here ----------------
+#
+# `decisions.md#d-extinguishment-design-lock` item 1: "is this goal executing" is DERIVED at ask
+# time from live evidence — the goal's tmux room existing + ancestry-verified live seat processes —
+# with NO stored status of any kind. The one home of that derivation is
+# `ignite/server/lease/lease.js`. THIS IS A THIN ACCESSOR OVER IT AND NOTHING MORE.
+#
+# ⚠ WHY A SHELL HOP RATHER THAN THREE LINES OF PYTHON. Deriving the room predicate here too would
+# be a SECOND implementation of the sentence that decides whether a goal is running, in a second
+# language, drifting silently — which is exactly what the register era produced: `runs.csv` had
+# THREE independent parsers (inventory #33 / #36 / #37) and nothing made them agree. PRIN-11 says
+# one home; one home with two language bindings costs one subprocess per ask, at a 30-second
+# cadence, and buys a predicate that cannot fork.
 
-    R10: goal-level state must read correctly ACROSS A RUN BOUNDARY. This is the mechanism that
-    makes that possible — one hop from the goal folder, with no knowledge of which run the caller
-    was born in. A sensor that resolves its target this way follows the boundary instead of being
-    pinned to the run it started in; run-1's team-monitor was still writing `run-1/state.json` at
-    19:06 for a run closed at 13:11 precisely because nothing gave it this hop.
+LEASE_JS = Path(__file__).resolve().parent.parent / "server" / "lease" / "lease.js"
 
-    ⚠ R10 RESTS ON R9's ONE-LIVE-RUN GUARANTEE, WHOSE ENFORCEMENT (task 7.77) IS NOT BUILT. So
-    this REFUSES rather than guesses when the guarantee does not hold: zero open runs and two open
-    runs are both reported as such, naming R9. Returning "the first open row" would be right most
-    of the time and silently wrong exactly when the convention has slipped — which, with two
-    writable runs on this box tonight, is not a hypothetical. A resolver that cannot be wrong
-    quietly is the whole point.
+
+def derive_lease(goal):
+    """(lease_dict, detail) — the goal's live lease, or ({}, why-it-is-unreadable).
+
+    `goal` is the goal FOLDER. An UNREADABLE lease (no node, no tmux, a crash) returns ({}, detail)
+    and is NEVER reported as an absent lease: a caller deciding on ignorance is the failure mode
+    the stored register had in both directions at once. A readable lease with no room returns a
+    dict whose `live` is False — that is an ANSWER, and callers may act on it.
     """
-    path = goal / "runs.csv"
-    header, rows = read_csv_table(path, RUNS_INDEX_COLS)
-    if not path.exists():
-        return "", f"no run index at {path}"
-    idx = {c: i for i, c in enumerate(header)}
-    if "run-id" not in idx or "state" not in idx:
-        return "", f"run index carries no run-id/state column (header: {','.join(header)})"
-    live = [r[idx["run-id"]].strip() for r in (pad_row(r, header) for r in rows)
-            if r[idx["state"]].strip() == "open"]
-    if len(live) == 1:
-        return live[0], ""
-    if not live:
-        return "", (f"no OPEN run in {path} — every run is closed; a goal with no live run has no "
-                    f"current state to read")
-    return "", (f"{len(live)} runs are OPEN in {path} ({', '.join(live)}) — R9 guarantees ONE live "
-                f"run per goal and its enforcement (task 7.77) is NOT BUILT, so this is a real "
-                f"state, not an impossible one. Refusing to pick: goal-level state read against "
-                f"the wrong run is worse than a refusal that names the ambiguity.")
+    goal = Path(goal).resolve()
+    workspace_root = goal.parent.parent.parent      # <ws>/.rbtv/goals/<goal>
+    if not LEASE_JS.is_file():
+        return {}, f"the lease module is absent at {LEASE_JS} — liveness cannot be derived"
+    try:
+        r = subprocess.run(["node", str(LEASE_JS), str(workspace_root), goal.name],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {}, f"could not run the lease module ({exc!r}) — liveness cannot be derived"
+    try:
+        out = json.loads(r.stdout or "{}")
+    except json.JSONDecodeError:
+        return {}, (f"the lease module printed no parseable JSON (exit {r.returncode}): "
+                    f"{(r.stderr or r.stdout or '').strip()[:300]}")
+    if not out.get("ok"):
+        return {}, out.get("reason") or f"lease unreadable (exit {r.returncode})"
+    return out, ""
+
+
+def resolve_live_run(goal):
+    """(package-name, detail) — the goal's CURRENT execution, DERIVED from the live lease.
+
+    R10 unchanged in intent: goal-level state must read correctly across an execution boundary,
+    and this is still the one hop from the goal folder that gives a sensor that property. What
+    changed (7.607 E1) is the EVIDENCE. It was `runs.csv`'s `state` column — a stored status that
+    outlives what it describes, and the direct cause of the 7.608 deadlock (a goal whose row read
+    `open` while nothing ran). It is now the room: a goal is executing iff its room exists NOW.
+
+    The return VALUE keeps its shape so the three fire-time callers (`selfheal-watch.py`,
+    `recover-room.py`, `goal-watcher-job.py`, inventory #54) need no change this stage: the
+    PACKAGE NAME under the goal — `run-N` for a legacy `<goal>-run-N` room, the goal's own name for
+    an E2-shape `<goal>` room. E2 collapses that to one spelling.
+
+    ⚠ STILL REFUSES RATHER THAN GUESSES, for the same reason and at three doors: an UNREADABLE
+    lease (ignorance), NO lease (the goal is not executing), and — while the E1 transitional
+    predicate accepts two room spellings — MORE THAN ONE matching room. A resolver that cannot be
+    wrong quietly is the whole point, and it survives the change of evidence unaltered.
+    """
+    goal = Path(goal)
+    lease, detail = derive_lease(goal)
+    if detail:
+        return "", (f"the lease for {goal.name} is UNREADABLE: {detail}. This is ignorance, not an "
+                    f"absent execution — refusing rather than reading it as 'not running'.")
+    rooms = lease.get("rooms") or []
+    if not rooms:
+        return "", (f"goal {goal.name} is NOT EXECUTING — no tmux room matching "
+                    f"{lease.get('evidence', {}).get('room-predicate', 'the room predicate')} "
+                    f"exists right now, so there is no current state to read")
+    if len(rooms) > 1:
+        names = ", ".join(r.get("room", "?") for r in rooms)
+        return "", (f"{len(rooms)} rooms match goal {goal.name} ({names}) — the design lock rules "
+                    f"ONE room per goal (item 2) and the E1 transitional predicate still accepts "
+                    f"the legacy `<goal>-run-N` spelling alongside it, so this is a real state. "
+                    f"Refusing to pick: state read against the wrong room is worse than a refusal "
+                    f"that names the ambiguity.")
+    return Path(rooms[0].get("packageDir") or "").name, ""
 
 
 def cmd_current_run(args):
@@ -2350,8 +2397,109 @@ def cmd_current_run(args):
     if not run_id:
         refuse("state", detail, 1)
     print(run_id)
-    print(c(f"resolved from {goal / 'runs.csv'} — one hop from the goal folder, so goal-level "
-            f"state follows the run boundary (R10)", C_HINT))
+    print(c(f"DERIVED from the live tmux room of {goal.name} (7.607 E1 — no stored status is read; "
+            f"runs.csv is not consulted), so goal-level state follows the execution boundary (R10)",
+            C_HINT))
+
+
+# ---------- 7.607 E1: THE FINISH EDGE — the ONLY thing that finishes a goal -------------------
+#
+# `d-extinguishment-design-lock` item 3 (owner-shaped): a goal can ONLY be finished by an explicit
+# deterministic EDGE, and firing it is what shuts the watchers off. Everything else that used to
+# end a goal's watchers — a closed register row, an empty room, a dead seat — is now a CRASH, and a
+# crash is RECOVERED (the watcher relaunches the room), never mistaken for completion.
+#
+# ⚠ THE EVENT IS AN EVENT, NOT A STATUS, AND THE DISTINCTION IS THE WHOLE DESIGN. It is appended
+# ONCE to the append-only coordination message log and never mutated, never cleared, never read for
+# liveness. `derive_lease` above cannot see it and must never learn to: the moment "finished" is
+# something a reader can consult to decide whether a goal is running, it is a stored status and the
+# 7.608 deadlock is rebuilt one file over. The lease answers "is it executing"; the finish event
+# answers "was it declared done" — two questions, two surfaces, no overlap.
+#
+# ⚠ NO SIXTH MESSAGE TYPE. `MESSAGE_TYPES` is the registry's five canonical types and the SOLE
+# vocabulary (P2, `concepts/message.md`) — inventing `type: finish` would be a registry edit made
+# from the code. The event is a `completion` whose body OPENS with `FINISH_MARKER`, exactly the
+# first-line convention `VERDICT_CLAUSE` / `ESCALATION_MARKER` already established: findable by a
+# scan, excluded from every other walk, and expressible in the settled vocabulary.
+
+FINISH_MARKER = "goal-finished: the finish edge fired"
+
+
+def goal_finished(base):
+    """The finish EVENT for this package, or None. `(number, timestamp)` when it has fired.
+
+    Scans the append-only log for a `completion` whose body opens with FINISH_MARKER. Idempotent
+    by construction: the FIRST such row wins, so a second firing cannot move the moment a goal
+    was declared finished.
+    """
+    _, blocks = load_messages(Path(base) / "coordination")
+    for b in blocks:
+        if b.get("type") != "completion":
+            continue
+        body = "\n".join(b.get("lines", [])[1:]).strip()
+        if body.startswith(FINISH_MARKER):
+            return b["num"], b["ts"]
+    return None
+
+
+def fire_finish_edge(pkg, sender, note=""):
+    """Record the finish event, then tear the room down. Returns (ok, detail).
+
+    ORDER IS THE DESIGN, and it is the opposite of intuition: the EVENT IS WRITTEN FIRST. Tearing
+    the room down first would produce, for the width of one write, a goal with no room and no
+    finish event — which is EXACTLY the crash signature, and a watcher sampling in that window
+    would relaunch the room it was just told to stop watching. Writing the event first makes the
+    intermediate state 'finished, room still up', which every watcher reads correctly.
+
+    NOT idempotent-by-overwrite: an already-finished goal is REFUSED rather than re-stamped, so a
+    second firing cannot quietly move a historical moment. Re-finishing is a correction, and a
+    correction should be visible. (`close_run_index`'s posture, carried over deliberately.)
+    """
+    pkg = Path(pkg)
+    already = goal_finished(pkg)
+    if already:
+        return False, (f"this goal was ALREADY finished by message #{already[0]} at {already[1]} — "
+                       f"refusing to re-fire; a correction must be visible, not silent")
+    body = (f"{FINISH_MARKER}\n\n"
+            f"The goal's execution is over by the deterministic finish edge (7.607 E1, design lock "
+            f"item 3). Watchers terminate on THIS event and on nothing else: from here on, an "
+            f"absent room is a finished goal rather than a crash to recover."
+            + (f"\n\n{note}" if note else ""))
+    num = append_message(pkg / "coordination", sender, "all", "completion", body)
+
+    # The room to tear down is ASKED OF THE LEASE, never derived from the package path (`G-296`:
+    # a path-derived session name was right only by coincidence and produced a sensor watching
+    # nothing). The lease already measured which rooms exist; this tears down the one homed here.
+    lease, lease_detail = derive_lease(goal_dir(pkg))
+    if lease_detail:
+        return True, (f"finish event recorded as message #{num}; the room could NOT be resolved for "
+                      f"teardown ({lease_detail}) — tear it down by hand")
+    rooms = [r for r in (lease.get("rooms") or [])
+             if Path(r.get("packageDir") or "") == pkg.resolve()] or (lease.get("rooms") or [])
+    if not rooms:
+        return True, f"finish event recorded as message #{num}; no live room to tear down"
+    torn, failed = [], []
+    for r in rooms:
+        room = r.get("room")
+        k = subprocess.run(["tmux", "kill-session", "-t", room], capture_output=True, text=True)
+        (torn if k.returncode == 0 else failed).append(room)
+    detail = f"; room(s) torn down: {', '.join(torn)}" if torn else ""
+    if failed:
+        detail += (f"; `tmux kill-session` FAILED for {', '.join(failed)} — the event stands, "
+                   f"tear them down by hand")
+    return True, f"finish event recorded as message #{num}{detail}"
+
+
+def cmd_finish_goal(args):
+    gate(args, "finish-goal", lambda a: a == "leader",
+         "leader's alone (it is the ONE edge that ends the goal and stops every watcher)")
+    pkg = package_dir(args)
+    ok, detail = fire_finish_edge(pkg, args.as_agent or "leader", getattr(args, "note", "") or "")
+    if not ok:
+        refuse("state", detail, 1)
+    print(detail)
+    print(c("watchers terminate on this event alone. Until it fired, an absent room was a CRASH "
+            "and the watcher relaunched it; from here it is a finished goal", C_HINT))
 
 
 def close_run_index(pkg, when=None):
@@ -26966,7 +27114,7 @@ HELP_EPILOG = """everyday
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / current-run / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / close-run / finish-goal / current-run / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · end / resolve the run · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -27668,11 +27816,25 @@ def build_parser():
     s.set_defaults(func=cmd_close_run)
 
     s = command(
+        "finish-goal",
+        "THE FINISH EDGE (7.607 E1) — the ONE thing that finishes a goal and the ONE thing that\n"
+        "stops its watchers. Records an append-only finish EVENT in the coordination log, then\n"
+        "tears the room down. Until it fires, an absent room is a CRASH and the watcher relaunches\n"
+        "it; nothing else — no closed row, no empty room, no dead seat — finishes a goal.",
+        "example:\n"
+        "  coordinate finish-goal --note 'milestones all accepted'\n"
+        "next: nothing. The goal is over; the watchers exit on their next pass")
+    s.add_argument("--note", default="", help="free text appended to the finish event's body")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_finish_goal)
+
+    s = command(
         "current-run",
-        "Which run of this goal is LIVE, resolved from the goal-level runs.csv alone (R10).\n"
-        "One hop from the goal folder, so a sensor follows a run boundary instead of staying\n"
-        "pinned to the run it was born in. Refuses — never guesses — when zero or several runs\n"
-        "are open, because R9's one-live-run enforcement (task 7.77) is not built yet.",
+        "Which package of this goal is EXECUTING, DERIVED from the live tmux room (7.607 E1).\n"
+        "NO stored status is read — runs.csv is not consulted at any point. One hop from the goal\n"
+        "folder, so a sensor follows an execution boundary instead of staying pinned to the one it\n"
+        "was born in. Refuses — never guesses — at three doors: the lease is UNREADABLE, the goal\n"
+        "is NOT EXECUTING, or more than one room matches the E1 transitional predicate.",
         "example:\n"
         "  coordinate current-run\n"
         "next: coordinate --run <that run> workers — read the live run's roster")

@@ -1,75 +1,74 @@
 'use strict';
 
-// ── R9's ONE-LIVE-RUN RULE on the daemon's job-scheduling path (task 7.77 → 7.129 / M4-14) ──────
+// ── ONE-LIVE-EXECUTION ON THE DAEMON'S JOB-SCHEDULING PATH — RE-FOUNDED ON THE DERIVED LEASE ────
 //
-// A scheduled start that lands while a run of the SAME GOAL is open is QUEUED, never started.
+// Epic 7.607 stage E1 (`decisions.md#d-extinguishment-design-lock` items 1, 2, 4). A scheduled
+// start that lands while the SAME GOAL is EXECUTING is QUEUED, never started.
 //
-// THE FAILURE THIS PREVENTS: two runs of one goal live at once. A run folder is the mortal working
-// state of exactly ONE run; two live runs write the same registers, and the resulting state is not
-// recoverable by reading it — afterwards nothing tells you which run wrote which row. Until this
-// landed, one-live-run was a CONVENTION the room held by hand, and R10's goal-level watcher state
-// was valid only because of that hand-held guarantee (`coord.py resolve_live_run`'s own comment
-// says so, and `seat-folder.js` refuses rather than guesses for the same reason).
+// WHAT CHANGED, AND WHY IT IS A RE-FOUNDING RATHER THAN A SWAP OF READERS. Until this stage the
+// answer came from `<goal>/runs.csv`'s `state` column — a STORED STATUS. That register produced
+// the 7.608 deadlock: a goal whose run row read `open` while nothing at all was executing refused
+// its own start FOREVER, because the only thing that could clear the row was the run that the row
+// was refusing to start. A stored status has no way to be wrong quietly ONCE — it is wrong until
+// somebody edits a file. So the register is not read here any more, by anything, ever:
 //
-// A SKIP IS NOT AN ACCEPTABLE OUTCOME EITHER — 7.77 is explicit that the rule "never silently
-// skips", and that "a probe that only shows 'no second run started' is satisfiable by a scheduler
-// that dropped the start on the floor". So this rule does not cancel, delete or consume the queue
-// row: it declines to FIRE it. The row stays in the queue with its due `run_at`, is re-evaluated
-// every tick, and therefore STARTS BY ITSELF once the open run closes (`fireQueueRow` is the only
-// thing that removes or re-arms a row, and it is never reached on this branch). The queued row is
-// observable in the queue table, not inferred from an absence.
+//   the goal is executing  ⟺  its tmux ROOM EXISTS RIGHT NOW  (server/lease/lease.js)
 //
-// THE OPEN-RUN ANSWER IS NOT COMPUTED HERE. It comes from `seat-folder.js openRunsOfGoal()` — the
-// one daemon-side reader of `<goal>/runs.csv`'s `state`/`run-id` columns, which `resolveSeatHome`
-// also calls. PRIN-11 forbids a second place that answers "is this run live?", and two readers of
-// one file that can disagree is `issues.md` G-301's shape. Nothing here reads the folder's
-// existence: a run folder exists for every run that ever ran, so its presence answers nothing.
+// The deadlock's gate half dies with that sentence: a fresh goal has no room, so `deriveLease`
+// reports no lease and the start is ADMITTED. That is the probe's red-first arm — it reproduces
+// the deadlock's exact shape (a goal carrying a stale `state=open` register row) and asserts the
+// start fires anyway, which is only possible because nothing here can see the register.
 //
-// ⚠ WHAT COUNTS AS A "SCHEDULED START" — the discriminator, stated because it is the one judgment
-// in this file. A queue row is a run start when its CATALOGUE row is `action_type =
-// 'start-workflow'` and is homed at a goal (`goal_name`): m4's workflow-as-a-schedulable-job is
-// the run start (task 7.79: "the scheduled job IS a workflow job"), and the goal it is homed at is
-// the goal whose register is read. Everything else is deliberately NOT gated, and each exclusion
-// matters: `launch-agent` rows are the edge-runner's seat launches INSIDE an open run, and
-// `fire-tool` rows are the watchers and self-heal jobs that must keep firing precisely BECAUSE a
-// run is open. Gating those would stop the room the moment it started working. The predicate is
-// this file's `isRunStart()` and it is one line; a run start that later arrives under a different
-// action type changes that line and nothing else.
+// A SKIP IS STILL NOT AN ACCEPTABLE OUTCOME (7.77, unchanged). This rule does not cancel, delete
+// or consume the queue row: it declines to FIRE it. The row stays in the queue with its due
+// `run_at`, is re-evaluated every tick, and therefore STARTS BY ITSELF once the goal's room is
+// gone (`fireQueueRow` is the only thing that removes or re-arms a row, and it is never reached on
+// this branch). The queued row is observable in the queue table, not inferred from an absence.
 //
-// ⚠ THIS GATE CANNOT FIRE ON THIS BOX TODAY, AND THAT IS MEASURED, NOT ASSUMED. On the live store
-// (2026-07-30) `pragma table_info(jobs)` carries NO `goal_name`/`seat_name` columns — the task-7.12
-// migration has not run here — and no `start-workflow` job is registered (11 jobs: `launch-agent`,
-// `fire-tool`, `send-message` only), with an EMPTY queue. So `action: "queued"` is a value that
-// cannot currently occur on this box, and it is said here rather than left to read later as "the
-// case did not arise" when the truth is "the case cannot arise yet". `describeGate()` prints this
-// precondition so a caller does not have to find it in a comment.
+// THE LEASE IS NOT COMPUTED HERE (PRIN-11). `server/lease/lease.js` is the one home of "is this
+// goal executing"; two places answering it is `issues.md` G-301's shape whichever evidence they
+// read. This file owns exactly one judgment — the run-start DISCRIMINATOR below — and the posture
+// it takes when the lease says "I do not know".
 //
-// C4 (`decisions.md#r-cutover-gated`): the gate is armed by a job's own homing, so it acts only on
-// the goal a run-start job names. It alters this run's own scheduling in no way — this run's seats
-// are tmux/team-kit launched and no `start-workflow` job exists on this box.
+// ⚠ WHAT COUNTS AS A "SCHEDULED START", unchanged from 7.77 and still the one judgment in this
+// file: a queue row is a start when its CATALOGUE row is `action_type = 'start-workflow'` and is
+// homed at a goal (`goal_name`). Everything else is deliberately NOT gated, and each exclusion
+// matters: `launch-agent` rows are the edge-runner's seat launches INSIDE a live execution, and
+// `fire-tool` rows are the watchers and self-heal jobs that must keep firing precisely BECAUSE
+// one is live. Gating those would stop the room the moment it started working. (Item 7 of the
+// design lock renames this verb's vocabulary — "run start" becomes "start the goal's execution".
+// The RENAME is a later stage's; this stage changes the BEHAVIOR under the existing names so the
+// two changes stay separable in the history.)
+//
+// ⚠ EVENT-FIELD COMPAT SEAM, DISCLOSED RATHER THAN SILENTLY RENAMED. `queued-run-notify.js` (the
+// owner notification, inventory #49) reads `event['open-run-found']`, and it is NOT in this
+// stage's write surface. So the field KEEPS ITS NAME and carries lease values (`run-id` = the
+// matched room name(s), `state` = the lease verdict word, `register` = the room predicate), and a
+// second field `live-lease` carries the full evidence for anything reading the event fresh. E2's
+// rename pass collapses the two. A rename here would have broken the notifier silently.
 //
 // THRESHOLDS: this rule has NONE. It reads no floor, no cap, no interval, and therefore reads
-// nothing from `budget.json` and carries no policy number in argv or the environment — there is no
-// number in it to carry (`r-floor-single-source` satisfied by absence, which is stated rather than
-// claimed as a read that did not happen).
+// nothing from `budget.json` and carries no policy number in argv or the environment.
 
-const { openRunsOfGoal } = require('../seat-identity/seat-folder');
+const { deriveLease } = require('../lease/lease');
 
-// The catalogue-side action type that STARTS A RUN. Spelled once.
+// The catalogue-side action type that STARTS A GOAL'S EXECUTION. Spelled once.
 const RUN_START_ACTION_TYPE = 'start-workflow';
 
 // The `action` value the decision emits. 7.77's vocabulary, and `M4-15`'s notification path fires
 // on the event carrying it, so it is load-bearing and not a log word.
 const QUEUED = 'queued';
 
-// Why a start was queued. Every value here means "did NOT start"; they differ in what was found.
+// Why a start was queued. LEASE vocabulary — the register-shaped set (`open-run`,
+// `open-run-ambiguous`, `open-run-state-unrecognized`, `register-unreadable`) is DELETED with the
+// layer, not aliased. Two rooms matching the E1 transitional predicate need no `ambiguous` value:
+// both are live evidence of the same goal executing, so there is nothing to arbitrate — the gate
+// queues and names both.
 const REASONS = {
-  OPEN_RUN: 'open-run',                            // exactly one open run — the ordinary case
-  AMBIGUOUS: 'open-run-ambiguous',                 // >1 open row: a state this code may not arbitrate
-  UNRECOGNIZED_STATE: 'open-run-state-unrecognized', // a `state` value that is neither open nor closed
-  REGISTER_UNREADABLE: 'register-unreadable',      // absent / no run-id / no state column / unparseable
-  WORKSPACE_UNRESOLVABLE: 'workspace-root-unresolvable', // no workspace root ⇒ no register to read
-  GATE_ERROR: 'gate-error',                        // the rule itself threw — contained, see below
+  LIVE_LEASE: 'live-lease',                              // the goal is executing — the ordinary case
+  LEASE_UNREADABLE: 'lease-unreadable',                  // tmux unreadable: ignorance, never "no lease"
+  WORKSPACE_UNRESOLVABLE: 'workspace-root-unresolvable', // no workspace root ⇒ no goal tree to derive from
+  GATE_ERROR: 'gate-error',                              // the rule itself threw — contained, see below
 };
 
 function isRunStart(job) {
@@ -79,9 +78,11 @@ function isRunStart(job) {
 function describeGate() {
   return [
     `run-start discriminator: jobs.action_type === "${RUN_START_ACTION_TYPE}" AND jobs.goal_name is set`,
-    'open-run answer: seat-folder.js openRunsOfGoal() over <goal>/runs.csv {run-id, state}; state === "open" exactly',
-    `emitted on a gated start: {scheduled-start, open-run-found, action: "${QUEUED}"} + reason`,
-    'unreadable/absent/unparseable register, >1 open row, or an unrecognized state value: QUEUED (fail-closed), never started',
+    'executing answer: server/lease/lease.js deriveLease() — the goal\'s tmux room existing NOW',
+    'stored status read: NONE — runs.csv is not read by this gate at any point',
+    `emitted on a gated start: {scheduled-start, live-lease, open-run-found (compat), action: "${QUEUED}"} + reason`,
+    'lease unreadable (tmux missing/erroring): QUEUED (fail-closed), never started',
+    'no live lease: START — a fresh goal with no room admits its start (the 7.608 deadlock is gone)',
     'an error inside the gate itself: QUEUED and never rethrown — a throw here would abandon the whole tick',
     'thresholds: none — this rule reads no policy number',
   ].join('\n');
@@ -100,13 +101,16 @@ function scheduledStartOf(job, queueRow) {
   };
 }
 
-function queuedResult(job, queueRow, reason, openRunFound) {
+function queuedResult(job, queueRow, reason, leaseFound) {
   return {
     action: QUEUED,
     reason,
     event: {
       'scheduled-start': scheduledStartOf(job, queueRow),
-      'open-run-found': openRunFound,
+      'live-lease': leaseFound,
+      // Compat seam — see the header note. Same object, legacy key, so the unmodified notifier
+      // keeps rendering. E2 deletes this line in the same pass that renames the notifier.
+      'open-run-found': leaseFound,
       action: QUEUED,
       reason,
     },
@@ -118,76 +122,62 @@ function queuedResult(job, queueRow, reason, openRunFound) {
 //
 // `resolveRoot` is a thunk and is called ONLY for a run-start row: resolving a workspace root on
 // every due row of every tick would be work done to answer a question that was already `no`.
-function decide({ job, queueRow, resolveRoot, readRegister = openRunsOfGoal }) {
+// `readLease` is the injection point a probe supplies a fixture tmux server through — a probe
+// supplies real measurables, never a claimed verdict.
+function decide({ job, queueRow, resolveRoot, readLease = deriveLease }) {
   if (!isRunStart(job)) return { action: 'start' };
 
   const workspaceRoot = typeof resolveRoot === 'function' ? resolveRoot() : resolveRoot;
-  const queued = (reason, openRunFound) => queuedResult(job, queueRow, reason, openRunFound);
+  const queued = (reason, leaseFound) => queuedResult(job, queueRow, reason, leaseFound);
 
   if (!workspaceRoot) {
-    // Fail CLOSED. "I could not find the register" is not "there is no open run": the second is a
-    // fact, the first is ignorance, and starting a run on ignorance is the overlap this prevents.
+    // Fail CLOSED. "I could not find the goal tree" is not "this goal is not executing": the
+    // second is a fact, the first is ignorance, and starting on ignorance is the overlap this
+    // prevents.
     return queued(REASONS.WORKSPACE_UNRESOLVABLE, {
       'run-id': null,
       state: null,
       count: null,
       register: null,
-      reason: 'no workspace root resolvable from the heart store path — the run register cannot be located',
+      rooms: [],
+      seats: [],
+      reason: 'no workspace root resolvable from the heart store path — the lease cannot be derived',
     });
   }
 
-  const register = readRegister({ workspaceRoot, goal: job.goal_name });
-  if (!register.ok) {
-    return queued(REASONS.REGISTER_UNREADABLE, {
+  const lease = readLease({ workspaceRoot, goal: job.goal_name });
+  if (!lease.ok) {
+    // UNREADABLE ≠ EMPTY, and this gate's posture on ignorance is CLOSED. The watchers take the
+    // opposite posture on the same signal (a broken meter may not stop a healthy loop) — which is
+    // exactly why the lease module reports and never decides.
+    return queued(REASONS.LEASE_UNREADABLE, {
       'run-id': null,
       state: null,
       count: null,
-      register: register.register || null,
-      reason: register.reason,
+      register: null,
+      rooms: [],
+      seats: [],
+      reason: lease.reason,
     });
   }
 
-  // An unrecognized `state` is not "closed". The comparison against `open` is exact by design (the
-  // register's writer emits exactly `open`/`closed`), so a third value — a typo, a hand edit, a
-  // future vocabulary — means the record does not say this run is closed, and the gate may not
-  // supply the optimistic default for a fact the record declines to state.
-  if (register.unrecognized.length > 0) {
-    return queued(REASONS.UNRECOGNIZED_STATE, {
-      'run-id': register.unrecognized.map((r) => r[register.runCol]),
-      state: register.unrecognized.map((r) => r.state),
-      count: register.unrecognized.length,
-      register: register.register,
-      reason: 'a run row carries a state that is neither "open" nor "closed" — not provably closed',
+  if (lease.live) {
+    const rooms = lease.rooms.map((r) => r.room);
+    return queued(REASONS.LIVE_LEASE, {
+      'run-id': rooms.length === 1 ? rooms[0] : rooms,
+      state: 'live-lease',
+      count: rooms.length,
+      register: lease.evidence['room-predicate'],
+      rooms,
+      seats: lease.seats.map((s) => s.seat),
+      reason: `goal ${job.goal_name} is executing: room(s) ${rooms.join(', ')} exist now`
+        + ` with ${lease.seats.length} ancestry-verified seat process(es)`,
     });
   }
 
-  if (register.open.length === 1) {
-    const row = register.open[0];
-    return queued(REASONS.OPEN_RUN, {
-      'run-id': row[register.runCol],
-      state: row.state,
-      count: 1,
-      register: register.register,
-    });
-  }
-
-  if (register.open.length > 1) {
-    // Two open rows is the very state R9 exists to make impossible, so it is REFUSED and never
-    // ranked: picking one — the newest, the first, any rule at all — would start a run against a
-    // register that does not say which run is live. It is also reported to the leader as an ask,
-    // once, by the seat that observes it; this code's part is to not start.
-    return queued(REASONS.AMBIGUOUS, {
-      'run-id': register.open.map((r) => r[register.runCol]),
-      state: 'open',
-      count: register.open.length,
-      register: register.register,
-      reason: 'more than one run is open — R9 is already violated and this refuses to choose between them',
-    });
-  }
-
-  // Zero open runs: nothing to overlap. The start proceeds normally — the control that keeps this
-  // rule from being "a scheduler that queues everything", which would satisfy every absence-shaped
-  // check while starting nothing at all.
+  // NO LIVE LEASE: nothing to overlap, the start proceeds. This is the branch that kills 7.608's
+  // gate half AND the control that keeps this rule from being "a scheduler that queues
+  // everything", which would satisfy every absence-shaped check while starting nothing at all.
   return { action: 'start' };
 }
 
@@ -196,14 +186,13 @@ function decide({ job, queueRow, resolveRoot, readRegister = openRunsOfGoal }) {
 // `dispatch()` runs this per due row with no try around it, so an exception raised here would
 // abandon the WHOLE tick — advance already done, every later due row unserved, and the daemon's
 // scheduling pass dead for as long as the condition lasts. Measured, not hypothetical: a mutant of
-// this file that reached `open[0]` on an empty set threw `TypeError` out of `oneLiveRunDecision` →
-// `dispatch` → `tick`, and the tick died at the first row.
+// the register-era body that reached `open[0]` on an empty set threw `TypeError` out of
+// `oneLiveRunDecision` → `dispatch` → `tick`, and the tick died at the first row.
 //
-// So an internal error QUEUES: it does not start the run (starting on a rule that just crashed is
-// the overlap this whole file exists to prevent) and it does not propagate (a bug in R9's gate must
-// not take the scheduler with it). It is never SILENT — the error message rides the event's
-// `open-run-found.reason`, so the tick log carries it and M4-15's notification path fires on it
-// like any other queue.
+// So an internal error QUEUES: it does not start (starting on a rule that just crashed is the
+// overlap this whole file exists to prevent) and it does not propagate. It is never SILENT — the
+// error message rides the event, so the tick log carries it and M4-15's notification path fires on
+// it like any other queue.
 function oneLiveRunDecision(input) {
   try {
     return decide(input);
@@ -214,8 +203,10 @@ function oneLiveRunDecision(input) {
       state: null,
       count: null,
       register: null,
-      reason: `the one-live-run gate itself failed (${err && err.message}) — queued rather than started, `
-        + 'and never rethrown: a throw here would abandon the whole tick',
+      rooms: [],
+      seats: [],
+      reason: `the one-live-execution gate itself failed (${err && err.message}) — queued rather than `
+        + 'started, and never rethrown: a throw here would abandon the whole tick',
     });
   }
 }

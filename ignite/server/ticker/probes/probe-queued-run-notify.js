@@ -31,7 +31,9 @@
 // on purpose.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { setup, teardown, capture } = require('./lib');
 const {
   createQueuedRunNotifier, renderQueuedRunNotice, describeNotifier, SKIPPED,
@@ -121,16 +123,37 @@ async function run(lines) {
   fs.mkdirSync(wsRoot, { recursive: true });
   process.env.RBTV_IGNITE_WORKSPACE_ROOT = wsRoot;
 
+  // The isolated tmux server this probe's fixture rooms live on. Installed on THIS process's env
+  // because the lease module reads it, and torn down in the finally block.
+  const tmuxScratch = fs.mkdtempSync(path.join(os.tmpdir(), 'rbtvqrn-'));
+  const savedTmuxEnv = { TMUX_TMPDIR: process.env.TMUX_TMPDIR, TMUX: process.env.TMUX, TMUX_PANE: process.env.TMUX_PANE };
+  process.env.TMUX_TMPDIR = tmuxScratch;
+  delete process.env.TMUX;
+  delete process.env.TMUX_PANE;
+  const itmux = (args, { allowFail = false } = {}) => {
+    try { return execFileSync('tmux', args, { encoding: 'utf8', timeout: 10000 }).trim(); } catch (e) {
+      if (allowFail) return null;
+      throw e;
+    }
+  };
+
   lines.push('--- notifier description (the code\'s own output) ---');
   for (const l of describeNotifier().split('\n')) lines.push(`  ${l}`);
   lines.push('--- scenarios ---');
 
   try {
     // ── N1 + N3 + N4 — a queued row notifies, names both halves, and does it ONCE ───────────────
+    //
+    // ⚠ 7.607 E1: what HOLDS the start is no longer a `state=open` register row but a LIVE ROOM
+    // (`server/lease/lease.js`). The register below is still written — deliberately, so the
+    // fixture proves the notice follows the room and not the file — and the room is what makes
+    // the gate queue. It lives on an ISOLATED tmux server (see the finally block) so this probe
+    // cannot see or disturb the box's real rooms.
     makeGoal(wsRoot, {
       goal: 'goal-open',
-      runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,closed,t0,t1\nrun-7,fresh,open,t2,\n',
+      runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,closed,t0,t1\nrun-7,fresh,closed,t2,t3\n',
     });
+    itmux(['new-session', '-d', '-s', 'goal-open-run-7']);
     registerRunStart(ctx, { jobId: 'start-open', goal: 'goal-open' });
     const q = enqueueDue(ctx, 'start-open', { workflow: WORKFLOW });
     const r1 = await ctx.ticker.tick(new Date());
@@ -158,12 +181,12 @@ async function run(lines) {
       ['the goal, on its own line', /^\s*goal:\s+goal-open\s*$/m],
       ['the held job', /^\s*start held:\s+job start-open\b/m],
       ['its queue row', new RegExp(`\\(queue row ${q.queue_id}\\)`)],
-      ['the open run that held it', /^\s*open run found:\s+run-7\b/m],
+      ['the live room that held it', /^\s*open run found:\s+goal-open-run-7\b/m],
       ['what happened', /was QUEUED/],
     ];
     const missing = mustName.filter(([, re]) => !re.test(text)).map(([label]) => label);
     assert(lines, missing.length === 0,
-      'N3 the notice NAMES the goal, the held job, its queue row and the open run that held it',
+      'N3 the notice NAMES the goal, the held job, its queue row and the live room that held it',
       missing.length ? `missing: ${missing.join(', ')}` : mustName.map(([l]) => l).join(' · '));
     assert(lines, /not lost/.test(text) && /re-schedule it by hand/.test(text),
       'N3 and it tells the reader the start is not lost, so nobody hand-schedules a second racing row');
@@ -175,19 +198,21 @@ async function run(lines) {
       'N4 three ticks with the row still queued produced ONE message, not one per tick',
       `messages=${ownerFeedNotices(ctx).length}`);
 
-    // ── N2 — THE CONTROL: no open run ⇒ no notification ─────────────────────────────────────────
+    // ── N2 — THE CONTROL: no live room ⇒ no notification ────────────────────────────────────────
+    // ⚠ its register says `state=open` and it still starts — the control now also witnesses that
+    // the notice follows the ROOM, not the file.
     makeGoal(wsRoot, {
       goal: 'goal-closed',
-      runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,closed,t0,t1\n',
+      runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,open,t0,\n',
     });
     registerRunStart(ctx, { jobId: 'start-closed', goal: 'goal-closed' });
     const qc = enqueueDue(ctx, 'start-closed', { workflow: WORKFLOW });
     const rc = await ctx.ticker.tick(new Date());
     assert(lines, ownerFeedNotices(ctx).length === 1,
-      'N2 CONTROL: a start with NO open run added no notification (the path does not notify on every row)',
+      'N2 CONTROL: a start with NO live room added no notification (the path does not notify on every row)',
       `messages still=${ownerFeedNotices(ctx).length}`);
     assert(lines, firedRowsFor(ctx, qc.queue_id).length === 1,
-      'N2 and it STARTED — exactly one jobs_log row, so the control really exercised the un-gated path');
+      'N2 and it STARTED — exactly one jobs_log row, so the control really exercised the un-gated path (with `state=open` on disk: the room decides, the register does not)');
     assert(lines, actionsOf(rc, 'queued-notified', qc.queue_id).length === 0,
       'N2 no queued-notified action for a row that was never queued');
 
@@ -254,7 +279,7 @@ async function run(lines) {
     const good = await picky(queueEvent());
     assert(lines, good.notified === true && good.delivered === true && sent.length === 1,
       'N8 CONTROL: the same notifier DID fire on a real queue event — the refusals above are discriminating, not deafness');
-    const changedReason = await picky(queueEvent({ reason: 'open-run-ambiguous' }));
+    const changedReason = await picky(queueEvent({ reason: 'lease-unreadable' }));
     assert(lines, changedReason.delivered === true && sent.length === 2,
       'N4 a CHANGED reason on the same queue row notifies again — it is new information, not a repeat');
     const repeat = await picky(queueEvent());
@@ -272,6 +297,11 @@ async function run(lines) {
     lines.push(`CHECKS: ${passed}/${passed} passed`);
     lines.push('QUEUED_RUN_NOTIFY_OK: true');
   } finally {
+    itmux(['kill-server'], { allowFail: true });
+    for (const [k, v] of Object.entries(savedTmuxEnv)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    fs.rmSync(tmuxScratch, { recursive: true, force: true });
     delete process.env.RBTV_IGNITE_WORKSPACE_ROOT;
     teardown(ctx);
   }

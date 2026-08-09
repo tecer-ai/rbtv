@@ -506,42 +506,100 @@ def goal_state(base):
         return None, None
 
 
-RUN_CLOSED_LINE = "run closed in runs.csv — watch exiting (deterministic close)"
+# ── 7.607 E1 — TERMINATION IS THE FINISH EDGE; AN ABSENT ROOM IS A CRASH TO RECOVER ────────────
+#
+# `decisions.md#d-extinguishment-design-lock` item 3, owner-shaped: "A goal can ONLY be finished by
+# this edge; firing it is what shuts the watchers off. Crash case: the watcher RELAUNCHES the room
+# — recovery, not exit. An unfinished goal therefore always has either a live room or a watcher
+# restoring one; watcher termination happens ONLY on the finish edge."
+#
+# ⚠ THE OLD `run_closed()` REGISTER POLL IS DELETED, NOT RE-POINTED. It read `runs.csv`'s `state`
+# column — a stored status — and it conflated TWO different facts under one word: "somebody ruled
+# this over" and "nothing is running any more". Those are opposite situations and they now have
+# opposite handlers. The register could not tell them apart, so a crashed run and a finished run
+# both silently stopped the sensor, and a room that died at 03:00 was simply never watched again.
+#
+#   finish event present  -> TERMINATE. The one deterministic exit. Nothing else exits this loop.
+#   no event, room gone   -> CRASH. Relaunch the room, bounded, then escalate loudly on the bus.
+#   no event, room live   -> normal pass.
+#   evidence UNREADABLE   -> loud error + bounded retry. NEVER a silent exit, NEVER fail-open into
+#                            "finished": a meter this loop cannot read says nothing about the goal.
+#
+# The fail-OPEN posture the register era took here is preserved in the only direction it was ever
+# right: an unreadable meter never stops a healthy loop. What it may no longer do is let an absent
+# meter mean "over".
+
+FINISH_EXIT_LINE = "finish edge fired — watch exiting (the ONE deterministic termination)"
+# Bounded by construction: the tuple's LENGTH is the max attempt count, so there is no second
+# constant that can disagree with it, and no configuration in which the loop relaunches forever.
+# Seconds, as resolved — no unit arithmetic on this path (the `--loop` retirement's lesson).
+RELAUNCH_BACKOFF_S = (10, 30, 60, 120, 300)
+RELAUNCH_EXHAUSTED_LINE = ("watch: RELAUNCH EXHAUSTED — the room did not come back after "
+                           f"{len(RELAUNCH_BACKOFF_S)} bounded attempts and NO finish event exists")
 
 
-def run_closed(package):
-    """True once THIS RUN's own row in the goal's runs.csv reads closed (G-297).
+def goal_finished(package):
+    """True once this goal's FINISH EVENT is in the append-only coordination log.
 
-    MATCHED FROM `team_monitor.py:410 run_closed`, DELIBERATELY NOT IMPORTED — the two modules are
-    separate custody, the same reason goal_state resolves the goal here instead of reaching into
-    coord.base_dir. Until this existed the two sibling loops of ONE watch layer disagreed about a
-    closed run: team-monitor exited, this loop did not, and a watch loop outlived run-2 by ~9.5h
-    while still WRITING into a folder `.rbtv/goals/CLAUDE.md` rules is append-only HISTORY. A live
-    process editing frozen record is a correctness defect, not untidiness.
+    Delegates to `coord.goal_finished` — the event's ONE reader on this side (watch.py already
+    `import coord` for roster/messaging, so this is not a new coupling). `team_monitor.py` MATCHES
+    this rather than importing it, deliberately, for the reason its own note gives: separate
+    custody. Two spellings of one predicate is what let the sibling loops disagree about a closed
+    run for 9.5 hours, so the cost is stated rather than hidden: `team_monitor.FINISH_MARKER` is a
+    SECOND SPELLING of `coord.FINISH_MARKER`, kept identical BY REVIEW. THIS side has no such copy —
+    it reads `coord.FINISH_MARKER` directly, because watch.py already imports coord.
 
-    FAILS OPEN BY CONSTRUCTION: absent, unreadable or unparseable runs.csv -> False, so a BROKEN
-    METER CAN NEVER STOP A HEALTHY LOOP. The reasoning is the sibling's and transfers verbatim —
-    this loop is the run's only source of liveness, approval, context and RAM flags, and silencing
-    it over an unreadable CSV costs more than letting it run one run too long.
-
-    THE ROW IS FOUND BY RUN-ID, never by position — and the `runs` layer is asserted BEFORE the file
-    is opened, which the sibling does not do and this file needs: `run-1` exists in EVERY goal, so a
-    package path that resolved the wrong directory would match a FOREIGN goal's `run-1` row and stop
-    this loop on a stranger's state. That check can only ever return False, so it cannot weaken the
-    fail-open posture. It is R11's discipline, the one goal_state states at :336.
+    ⚠ UNREADABLE -> False, and here that is the SAFE direction rather than the convenient one: a
+    watcher that cannot read the log must not conclude the goal is over and walk away from a live
+    room. The reading is reported by the caller, not swallowed.
     """
-    import csv
-    p = Path(package).resolve()
-    if p.parent.name != "runs":
-        return False
     try:
-        with (p.parent.parent / "runs.csv").open(newline="", encoding="utf-8") as fh:
-            for row in csv.DictReader(fh):
-                if (row.get("run-id") or "").strip() == p.name:
-                    return (row.get("state") or "").strip().lower() == "closed"
-    except (OSError, csv.Error, UnicodeDecodeError):
+        return coord.goal_finished(Path(package)) is not None
+    except Exception:                                          # noqa: BLE001
         return False
-    return False
+
+
+def lease_evidence(package):
+    """('live'|'gone'|'unreadable', room_name_or_'', detail) — the goal's live-lease evidence.
+
+    A THIN read of `coord.derive_lease`, which is itself a thin accessor over the ONE home of the
+    lease (`server/lease/lease.js`). Nothing about the room predicate is spelled here: a watcher
+    holding its own opinion of what "executing" means is the second-implementation drift the
+    register era died of.
+    """
+    p = Path(package).resolve()
+    goal = p.parent.parent if p.parent.name == "runs" else p
+    try:
+        lease, detail = coord.derive_lease(goal)
+    except Exception as exc:                                   # noqa: BLE001
+        return "unreadable", "", f"the lease accessor raised {exc!r}"
+    if detail:
+        return "unreadable", "", detail
+    rooms = lease.get("rooms") or []
+    if not rooms:
+        return "gone", "", f"no room matches {lease.get('evidence', {}).get('room-predicate', '?')}"
+    return "live", (rooms[0].get("room") or ""), f"{len(lease.get('seats') or [])} verified seat(s)"
+
+
+def relaunch_room(room, run_fn=None):
+    """Restore the lease's PRIMARY evidence — the room — idempotently. (ok, detail).
+
+    ponytail: this restores the ROOM, not the seats inside it. Re-seating is the existing
+    self-heal/recover-room path's job (`jobs/recover-room.py`, `jobs/selfheal-watch.py`), which
+    resolves its target through `coord.resolve_live_run` and therefore starts working again the
+    moment a room exists. Upgrade path if that proves insufficient: have this call the recover-room
+    job directly instead of tmux.
+    """
+    run_fn = subprocess.run if run_fn is None else run_fn
+    if not room:
+        return False, "no room name is known to this loop — nothing to relaunch"
+    r = run_fn(["tmux", "new-session", "-d", "-s", room], capture_output=True, text=True)
+    if r.returncode == 0:
+        return True, f"room {room} relaunched"
+    err = (getattr(r, "stderr", "") or "").strip()
+    if "duplicate session" in err:
+        return True, f"room {room} already exists (another actor restored it first)"
+    return False, f"`tmux new-session -d -s {room}` failed: {err[:200]}"
 
 
 def _migrate_runs(goal):
@@ -6737,102 +6795,130 @@ def cmd_selftest():
               "its own state file takes the run's only sensor down with it",
               load_state(gbase2) == {})
 
-        # ---- G-297: THE RUN-CLOSED LOOP-TURN GUARD ----
-        # ⚠ EVERY ROW BELOW DRIVES `watch_loop`, NOT `run_closed`. A suite that only asserted the
+        # ---- 7.607 E1: THE FINISH-EDGE LOOP-TURN GUARD (re-founded from G-297) ----
+        # ⚠ EVERY ROW BELOW DRIVES `watch_loop`, NOT its predicates. A suite that only asserted a
         # predicate's verdicts would stay green with the guard DELETED from the loop — and that is
-        # this defect's own shape: team_monitor.py:936 asserted its session derivation was
-        # self-consistent, never that it agreed with a live room, and stayed green through the whole
-        # defect. So the fixture counts the turns the LOOP actually took.
+        # G-297's own shape. So the fixture counts the turns the LOOP actually took, and injects
+        # the lease/finish evidence rather than the register the layer no longer has.
         import io
         import contextlib
 
         class _RCLoopRanOn(Exception):
             """Raised BY THE FIXTURE to escape a loop that did NOT stop — never by watch_loop."""
 
-        rcgoal = Path(td) / "runclosed-goal"
+        rcgoal = Path(td) / "finishedge-goal"
         rcrun = rcgoal / "runs" / "run-7"
-        rcrun.mkdir(parents=True)
-        rccsv = rcgoal / "runs.csv"
-        # `cadence_s`, not `loop`: task 7.112 retired the minute-denominated flag, and this fixture
-        # is a CALLER of `watch_loop`, so it moves with the signature. It carried `loop=1` — the
-        # interim 60 s overshoot — which no longer means anything to the loop.
+        (rcrun / "coordination").mkdir(parents=True)
         rcargs = argparse.Namespace(cadence_s=30)
 
-        def _rcturns(payload, root=rcrun, limit=3):
-            """(stopped_by_the_guard, turns_taken, printed) for one runs.csv payload.
+        _orig_finished, _orig_lease, _orig_relaunch = goal_finished, lease_evidence, relaunch_room
 
-            `payload` None deletes the file; bytes are written raw (the undecodable case). `limit`
-            turns with no stop IS the negative result — an unguarded loop never returns on its own.
+        def _rcturns(finished, lease, limit=3, relaunches=None):
+            """(stopped_by_the_guard, turns_taken, printed, relaunch_calls) for one evidence pair.
+
+            `finished` is what the finish-event reader returns; `lease` is the
+            ('live'|'gone'|'unreadable', room, detail) triple. `limit` turns with no stop IS the
+            negative result — an unguarded loop never returns on its own.
             """
-            if payload is None:
-                if rccsv.exists():
-                    rccsv.unlink()
-            elif isinstance(payload, bytes):
-                rccsv.write_bytes(payload)
-            else:
-                rccsv.write_text(payload, encoding="utf-8")
-            turns = []
+            turns, calls = [], []
 
             def _pass(_a):
                 turns.append(1)
                 if len(turns) >= limit:
                     raise _RCLoopRanOn
 
-            stopped, buf = True, io.StringIO()
+            def _relaunch(room):
+                calls.append(room)
+                return (relaunches if relaunches is not None else True), f"fixture relaunch {room!r}"
+
+            g = globals()
+            g["goal_finished"] = lambda _p: finished
+            g["lease_evidence"] = lambda _p: lease
+            stopped, buf, ebuf = True, io.StringIO(), io.StringIO()
             try:
-                with contextlib.redirect_stdout(buf):
-                    watch_loop(rcargs, root, do_pass=_pass, sleep_fn=lambda _s: None)
+                with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(ebuf):
+                    watch_loop(rcargs, rcrun, do_pass=_pass, sleep_fn=lambda _s: None,
+                               relaunch_fn=_relaunch)
             except _RCLoopRanOn:
                 stopped = False
-            return stopped, len(turns), buf.getvalue()
+            finally:
+                g["goal_finished"], g["lease_evidence"] = _orig_finished, _orig_lease
+            return stopped, len(turns), buf.getvalue() + ebuf.getvalue(), calls
 
-        _CLOSED = "run-id,type,state,taskforce-ids,opened,closed\nrun-7,build,closed,,,2026-07-29\n"
-        _OPEN = "run-id,type,state,taskforce-ids,opened,closed\nrun-7,build,open,,,\n"
-
-        _st, _turns, _out = _rcturns(_CLOSED)
-        check("⚠ G-297 THE CRITERION ITSELF: with THIS run's row reading closed the LOOP RETURNS — "
-              "and it returns BEFORE taking a pass, so a loop started against a closed run never "
-              "writes into it. Unguarded, this loop outlived run-2 by ~9.5h still mutating a folder "
-              ".rbtv/goals/CLAUDE.md rules is append-only history",
+        _st, _turns, _out, _calls = _rcturns(True, ("live", "room-a", "1 verified seat(s)"))
+        check("⚠ 7.607 E1 THE CRITERION ITSELF: with the FINISH EVENT present the LOOP RETURNS — "
+              "and it returns BEFORE taking a pass, so a loop started against a finished goal "
+              "never writes into it. This is the ONE deterministic termination",
               (_st, _turns) == (True, 0))
-        check("G-297: the exit prints ONE distinct deterministic-close line, so a reader of the log "
-              "can tell a ruled close from a crash or a reap",
-              _out.strip() == RUN_CLOSED_LINE and RUN_CLOSED_LINE.strip() != "")
-        check("⚠ G-297 CONTROL, the row that makes the one above mean something: with the SAME "
-              "fixture reading open the loop does NOT stop — it keeps taking turns until the "
+        check("7.607 E1: the exit prints ONE distinct finish line, so a reader of the log can tell "
+              "a fired finish edge from a crash or a reap",
+              _out.strip().startswith(FINISH_EXIT_LINE) and FINISH_EXIT_LINE.strip() != "")
+        check("⚠ 7.607 E1 CONTROL, the row that makes the one above mean something: no finish "
+              "event + a LIVE room and the loop does NOT stop — it keeps taking turns until the "
               "fixture forces it out. Without this pair a guard that returned unconditionally "
               "would pass",
-              _rcturns(_OPEN)[:2] == (False, 3))
-        check("⚠ G-297 FAILS OPEN — runs.csv ABSENT: the loop keeps running. A broken meter must "
-              "never stop a healthy loop; this loop is the run's ONLY source of liveness, approval, "
-              "context and RAM flags, and silencing it over a missing file costs more than letting "
-              "it run one run too long",
-              _rcturns(None)[:2] == (False, 3))
-        check("G-297 FAILS OPEN — runs.csv UNDECODABLE (not UTF-8): the loop keeps running",
-              _rcturns(b"\xff\xfe\x00run-id,state\n")[:2] == (False, 3))
-        check("G-297 FAILS OPEN — runs.csv present but SCHEMA-LESS (no run-id/state columns, the "
-              "shape the R10 fixture above happens to write): no row matches, the loop keeps running",
-              _rcturns("run,status\nrun-7,closed\n")[:2] == (False, 3))
-        check("⚠ G-297 THE ROW IS FOUND BY RUN-ID, NOT BY POSITION: a runs.csv whose FIRST row is a "
-              "DIFFERENT run reading closed does not stop this loop. A first-row or last-row read "
-              "would stop run-7 on run-1's state — every goal's runs.csv accumulates closed rows",
-              _rcturns("run-id,type,state\nrun-1,build,closed\nrun-7,build,open,\n")[:2]
-              == (False, 3))
-        # UNREADABLE, expressed as a DIRECTORY where the file belongs rather than as chmod 000 —
-        # a mode-based fixture is a no-op for root and would pass vacuously in a root container.
-        rcdir = Path(td) / "runclosed-unreadable"
-        (rcdir / "runs" / "run-7").mkdir(parents=True)
-        (rcdir / "runs.csv").mkdir()
-        check("G-297 FAILS OPEN — runs.csv UNREADABLE (OSError at open): the loop keeps running",
-              _rcturns(None, root=rcdir / "runs" / "run-7")[:2] == (False, 3))
+              _rcturns(False, ("live", "room-a", "ok"))[:2] == (False, 3))
+        check("⚠ 7.607 E1 CRASH IS RECOVERY, NEVER EXIT (design lock item 3): room GONE with NO "
+              "finish event does NOT stop the loop and DOES relaunch the room. Under the register "
+              "this was indistinguishable from a close and silently killed the sensor",
+              _rcturns(False, ("gone", "", "no room"))[:2] == (False, 3))
+        _st4, _t4, _o4, _calls4 = _rcturns(False, ("gone", "", "no room"), limit=9)
+        check("⚠ 7.607 E1 THE RELAUNCH IS BOUNDED — never a storm: at most "
+              f"{len(RELAUNCH_BACKOFF_S)} attempts however many passes the loop takes, then a "
+              "LOUD escalation line, and STILL no exit",
+              len(_calls4) == len(RELAUNCH_BACKOFF_S)
+              and RELAUNCH_EXHAUSTED_LINE.split(" — ")[0] in _o4
+              and (_st4, _t4) == (False, 9))
+        check("⚠ 7.607 E1 UNREADABLE EVIDENCE IS NEITHER FINISHED NOR CRASHED: a loud line, no "
+              "exit, and NO relaunch. Fail-open in the one direction it was ever right — a broken "
+              "meter must never stop a healthy loop, and must never be read as 'over'",
+              _rcturns(False, ("unreadable", "", "tmux is unreadable"))[:2] == (False, 3)
+              and _rcturns(False, ("unreadable", "", "tmux is unreadable"))[3] == []
+              and "UNREADABLE" in _rcturns(False, ("unreadable", "", "x"))[2])
+        check("7.607 E1: a FINISH EVENT wins over live-lease evidence — the finish edge is the "
+              "termination, the lease never is",
+              _rcturns(True, ("gone", "", "no room"))[:2] == (True, 0))
+        # ---- the REAL readers, not the injection point: `goal_finished` and `lease_evidence`
+        # driven against files on disk. The six rows below replace the register-era fail-open set
+        # arm for arm — same properties (absent / undecodable / unreadable / wrong shape / refuses
+        # to guess a goal), asserted against the surface that replaced runs.csv.
+        rcoord = rcrun / "coordination"
+        _HDR = "\n## 1 | from: leader | to: all | type: %s | 2026-08-09 12:00\n\n%s\n"
 
-        (rcgoal / "notruns" / "run-7").mkdir(parents=True)
-        rccsv.write_text(_CLOSED, encoding="utf-8")
-        check("⚠ G-297 REFUSES TO GUESS A GOAL (R11, goal_state's discipline at :336): a package "
-              "that is not {goal}/runs/run-N resolves NO goal and the loop keeps running — even "
-              "though a closed run-7 row sits one directory away. `run-1` exists in EVERY goal, so "
-              "a walk that resolved the wrong directory would stop this loop on a STRANGER's state",
-              _rcturns(_CLOSED, root=rcgoal / "notruns" / "run-7")[:2] == (False, 3))
+        def _wrote(path, text):
+            """True after writing — `write_text` returns a CHAR COUNT, and `... is None` on it is
+            silently False, which turned two real assertions into unconditional failures once."""
+            path.write_text(text, encoding="utf-8")
+            return True
+        check("7.607 E1 POSITIVE CONTROL for the REAL reader: a `completion` whose body opens with "
+              "coord.FINISH_MARKER IS the finish event. Without this row the five negatives below "
+              "are satisfied by a reader that always says False",
+              _wrote(rcoord / "messages.md", _HDR % ("completion", coord.FINISH_MARKER))
+              and goal_finished(rcrun) is True)
+        check("⚠ 7.607 E1 THE TYPE IS PART OF THE EVENT: the same marker under a `note` header is "
+              "NOT a finish event. A body-only scan would let any seat end the goal by quoting it",
+              _wrote(rcoord / "messages.md", _HDR % ("note", coord.FINISH_MARKER))
+              and goal_finished(rcrun) is False)
+        check("7.607 E1 the log ABSENT is NOT finished — a goal whose room never opened a bus has "
+              "not been declared over, and the loop keeps running",
+              ((rcoord / "messages.md").unlink() or True) and goal_finished(rcrun) is False)
+        check("7.607 E1 the log UNDECODABLE (not UTF-8) is NOT finished — never read as 'over'",
+              ((rcoord / "messages.md").write_bytes(b"\xff\xfe\x00## 1 | type: completion\n") or True)
+              and goal_finished(rcrun) is False)
+        # UNREADABLE expressed as a DIRECTORY where the file belongs rather than as chmod 000 — a
+        # mode-based fixture is a no-op for root and would pass vacuously in a root container.
+        (rcoord / "messages.md").unlink()
+        (rcoord / "messages.md").mkdir()
+        check("7.607 E1 the log UNREADABLE (OSError at open) is NOT finished — a broken meter must "
+              "never be read as a fired finish edge, which would abandon a live room",
+              goal_finished(rcrun) is False)
+        (rcoord / "messages.md").rmdir()
+        check("⚠ 7.607 E1 REFUSES TO GUESS A GOAL (R11, goal_state's discipline at :336): a "
+              "package that is not {goal}/runs/run-N resolves the package itself as the goal and "
+              "the lease derivation reports UNREADABLE or GONE — never a stranger's live room. "
+              "`run-1` exists in EVERY goal, so a walk that resolved the wrong directory would "
+              "answer this loop with someone else's execution",
+              lease_evidence(Path(td) / "no-such-package-here")[0] in ("gone", "unreadable"))
 
     # ---------- 7.112: the ruled ≤30 s cadence — the flag REFUSES, and the loop SLEEPS SECONDS ----
     #
@@ -6901,11 +6987,22 @@ def cmd_selftest():
             _slept.append(seconds)
             raise _CadStop
 
+        # ⚠ 7.607 E1 — THE LEASE IS PINNED LIVE FOR THIS ROW, and the reason is a real behaviour
+        # this row CAUGHT rather than a fixture convenience: on the CRASH path the loop now sleeps
+        # a RELAUNCH BACKOFF, not the cadence, so a package with no room measured 10 s here and
+        # this check went red. That backoff is correct and is asserted by the bounded-relaunch row
+        # above; the cadence claim is about the NORMAL pass, so the normal pass is what it drives.
+        _g = globals()
+        _orig_le, _orig_gf = lease_evidence, goal_finished
+        _g["lease_evidence"] = lambda _p: ("live", "room-cadence", "pinned for the cadence row")
+        _g["goal_finished"] = lambda _p: False
         try:
             watch_loop(argparse.Namespace(cadence_s=30), Path(td) / "no-such-run",
                        do_pass=lambda _a: None, sleep_fn=_record_sleep)
         except _CadStop:
             pass
+        finally:
+            _g["lease_evidence"], _g["goal_finished"] = _orig_le, _orig_gf
         check("⚠ 7.112 (4) THE CRITERION ITSELF — 30 SECONDS IS WHAT THE LOOP SLEEPS, exactly, with "
               "no unit arithmetic on the way: asserted on the ARGUMENT sleep actually received, not "
               "on the flag's metavar. Under the old `args.loop * 60` this value slept 30 MINUTES and "
@@ -6986,23 +7083,83 @@ def cmd_selftest():
     sys.exit(1 if failures else 0)
 
 
-def watch_loop(args, run_root, do_pass=None, sleep_fn=None):
+def _escalate_relaunch_exhausted(run_root, room, detail):
+    """The LOUD BUS escalation the ruling requires — once, on the coordination bus the leader reads.
+
+    A stderr line alone is not an escalation: this loop runs detached and its stderr is a log file
+    nobody is tailing at 03:00. The bus is where a human is addressed. Failing to send is itself
+    reported and never swallowed — but it cannot stop the loop.
+    """
+    try:
+        coord.append_message(
+            Path(run_root) / "coordination", "watch", "leader", "ask",
+            f"{RELAUNCH_EXHAUSTED_LINE}\n\nroom: {room or 'UNKNOWN'}\nlease: {detail}\n\n"
+            f"The goal has NO finish event, so it is unfinished, and its room could not be "
+            f"restored. The watch loop is still running and will keep reporting, but nothing is "
+            f"executing this goal. Either restore the room by hand or fire the finish edge "
+            f"(`coordinate finish-goal`) if the goal is genuinely over.")
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"watch: the relaunch escalation could NOT be delivered to the bus ({exc!r}) — "
+              f"the condition stands and is unreported to the leader", file=sys.stderr, flush=True)
+
+
+def watch_loop(args, run_root, do_pass=None, sleep_fn=None, relaunch_fn=None):
     """The `--loop-forever` body — and the ONE place this loop decides whether to take another turn.
 
     EXTRACTED FROM main() SO A CHECK CAN DRIVE IT, and that is the whole reason it is a function:
-    the criterion is that THE LOOP exits on a closed run, and a check on run_closed() alone would
-    stay green with the guard deleted from the loop. A green that cannot go red is not evidence
+    the criterion is that THE LOOP terminates on the finish edge, and a check on `goal_finished()`
+    alone would stay green with the guard deleted from the loop. A green that cannot go red is not evidence
     (conduct §9) — and this defect's own history is a builder's green guarding a builder's
     assumption, so the seam is placed where the mutation has to be observable.
 
-    `do_pass` / `sleep_fn` are the fixture's only injection points and default to the real ones.
+    `do_pass` / `sleep_fn` / `relaunch_fn` are the fixture's only injection points and default to
+    the real ones.
+
+    ⚠ 7.607 E1 — THE TERMINATION CONDITION IS THE FINISH EVENT AND NOTHING ELSE. The three
+    outcomes and their reasons are argued at `FINISH_EXIT_LINE` above; the loop body is deliberately
+    a flat transcription of them so a reader can check the mapping without holding state.
     """
     do_pass = run_pass if do_pass is None else do_pass
     sleep_fn = time.sleep if sleep_fn is None else sleep_fn
+    relaunch_fn = relaunch_room if relaunch_fn is None else relaunch_fn
+    # The room name is LEARNED from the lease, never derived from the package path (`G-296`: a
+    # path-derived session name is right only by coincidence). Once learned it is what a relaunch
+    # restores — a crashed room cannot be asked its own name.
+    known_room, relaunch_attempts, escalated = "", 0, False
     while True:
-        if run_closed(run_root):
-            print(RUN_CLOSED_LINE, flush=True)
+        if goal_finished(run_root):
+            print(FINISH_EXIT_LINE, flush=True)
             return 0
+
+        state, room, detail = lease_evidence(run_root)
+        if state == "live":
+            if room:
+                known_room = room
+            relaunch_attempts, escalated = 0, False      # the room is back: the budget resets
+        elif state == "unreadable":
+            # LOUD, and the loop keeps going. Never a silent exit, never read as "finished".
+            print(f"watch: LEASE EVIDENCE UNREADABLE — {detail}. NOT treating this as a finished "
+                  f"goal; retrying next pass", file=sys.stderr, flush=True)
+        else:  # 'gone' — no room AND no finish event, which is the CRASH case, not the end
+            if relaunch_attempts < len(RELAUNCH_BACKOFF_S):
+                backoff = RELAUNCH_BACKOFF_S[relaunch_attempts]
+                relaunch_attempts += 1
+                ok, rdetail = relaunch_fn(known_room)
+                print(f"watch: room GONE with no finish event — CRASH, not completion. "
+                      f"relaunch attempt {relaunch_attempts}/{len(RELAUNCH_BACKOFF_S)}: {rdetail}",
+                      file=sys.stderr, flush=True)
+                if not ok:
+                    # The backoff is what keeps a failing relaunch from becoming a storm; it is
+                    # applied BEFORE the next pass and is never skipped on a failure.
+                    sleep_fn(backoff)
+                    continue
+            elif not escalated:
+                escalated = True
+                print(f"{RELAUNCH_EXHAUSTED_LINE} (room {known_room or 'UNKNOWN'}): {detail}. "
+                      f"This loop does NOT exit — a goal with no finish event is unfinished, and a "
+                      f"silent exit here is how a room dies unwatched.", file=sys.stderr, flush=True)
+                _escalate_relaunch_exhausted(run_root, known_room, detail)
+
         do_pass(args)
         # SECONDS, AS RESOLVED. No `* 60` and no unit arithmetic anywhere on this path: the flag
         # carries its unit in its name, `budget.json` declares the same unit, and the one conversion

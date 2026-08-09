@@ -482,30 +482,77 @@ def session_alive(session):
                           capture_output=True).returncode == 0
 
 
-def run_closed(package):
-    """True once THIS RUN's row in the goal's runs.csv reads closed.
+# ── 7.607 E1 — TERMINATION IS THE FINISH EDGE; THE ROOM GOING AWAY IS A CRASH ──────────────────
+#
+# `decisions.md#d-extinguishment-design-lock` item 3. The register poll this replaces
+# (`run_closed`, reading `<goal>/runs.csv`'s `state` column) is DELETED with the run layer, and so
+# is the room-gone exit. Both said "stop watching" for facts that are not completion:
+#
+#   a closed register row  — a stored status that outlives what it describes (the 7.608 deadlock's
+#                            other half; the same row also refused fresh starts forever)
+#   an absent room         — which is a CRASH nine times in ten, and this sensor treating it as a
+#                            deterministic close is how run-1's room died unwatched (`G-296`)
+#
+# Now: the FINISH EVENT terminates and nothing else does. An absent room with no finish event is
+# recovered — relaunched, bounded — and the sensor keeps running.
+#
+# ⚠ THE MARKER STRING IS MATCHED FROM `coord.FINISH_MARKER`, DELIBERATELY NOT IMPORTED. Same
+# custody argument `run_closed` carried and the same one `ignite/CLAUDE.md` rule 4 makes from the
+# other side (ignite must not be reached into at import level, and this file is in `orchestration/`).
+# The cost is real and is stated rather than hidden: TWO SPELLINGS OF ONE CONSTANT, kept identical
+# by review. A drift between them makes this sensor blind to a finish edge the room already fired.
+FINISH_MARKER = "goal-finished: the finish edge fired"
+# Bounded by construction — the tuple's LENGTH is the max attempt count, so no second constant can
+# disagree with it and no configuration relaunches forever. Seconds, as resolved.
+RELAUNCH_BACKOFF_S = (10, 30, 60, 120, 300)
 
-    The session is the GOAL's room, shared by every run of that goal, so `tmux has-session`
-    cannot tell a closed run from a live one: run-2 was bootstrapped inside run-1's session,
-    and run-1's sensor went on writing run-1/state.json for nearly six hours after run-1
-    closed at 13:11 — a stale sensor watching a corpse (G-103's shape at the sensor layer,
-    found while verifying task 7.33). The run-level close signal is the run-log row, not the
-    room.
 
-    FAILS OPEN by construction: an absent, unreadable or unparseable runs.csv returns False,
-    so a broken meter can never stop a healthy sensor — the posture coord.py already takes on
-    its own memory gate.
+def goal_finished(package):
+    """True once this goal's FINISH EVENT is in the append-only coordination log.
+
+    Scans `{package}/coordination/messages.md` for a `type: completion` header whose body OPENS
+    with FINISH_MARKER — the first-line convention coord.py's verdict/escalation records already
+    use, so no sixth message type is invented (the registry's five are the sole vocabulary, P2).
+
+    ⚠ UNREADABLE -> False, and here that is the SAFE direction rather than the convenient one: a
+    sensor that cannot read the log must not conclude the goal is over and walk away from a live
+    room. The caller reports the unreadable case; it is never swallowed into "finished".
     """
-    import csv
-    p = Path(package).resolve()
+    p = Path(package).resolve() / "coordination" / "messages.md"
     try:
-        with (p.parent.parent / "runs.csv").open(newline="", encoding="utf-8") as fh:
-            for row in csv.DictReader(fh):
-                if (row.get("run-id") or "").strip() == p.name:
-                    return (row.get("state") or "").strip().lower() == "closed"
-    except (OSError, csv.Error, UnicodeDecodeError):
+        text = p.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
         return False
+    in_completion = False
+    for line in text.splitlines():
+        m = MSG_HDR_RE.match(line)
+        if m:
+            in_completion = m.group(4) == "completion"
+            continue
+        if in_completion and line.strip():
+            if line.strip().startswith(FINISH_MARKER):
+                return True
+            in_completion = False       # the body opened with something else — not a finish event
     return False
+
+
+def relaunch_room(session, run_fn=None):
+    """Restore the lease's PRIMARY evidence — the room. (ok, detail). Idempotent.
+
+    ponytail: restores the ROOM, not the seats inside it — re-seating is the self-heal path's job
+    (`ignite/jobs/recover-room.py`), which resolves its target the moment a room exists. Upgrade
+    path if that proves insufficient: call that job here instead of tmux.
+    """
+    run_fn = subprocess.run if run_fn is None else run_fn
+    if not session:
+        return False, "no room name is known to this sensor — nothing to relaunch"
+    r = run_fn(["tmux", "new-session", "-d", "-s", session], capture_output=True, text=True)
+    if r.returncode == 0:
+        return True, f"room {session} relaunched"
+    err = (getattr(r, "stderr", "") or "").strip()
+    if "duplicate session" in err:
+        return True, f"room {session} already exists (another actor restored it first)"
+    return False, f"`tmux new-session -d -s {session}` failed: {err[:200]}"
 
 
 MSG_HDR_RE = re.compile(
@@ -1131,8 +1178,12 @@ def cmd_once(args):
 
 EXIT_SESSION_UNRESOLVED = 4
 EXIT_SESSION_NEVER_ALIVE = 5
-RUN_EXIT_ROOM_GONE = ("room gone — team-monitor exiting (deterministic close)", 0)
-RUN_EXIT_RUN_CLOSED = ("run closed in runs.csv — team-monitor exiting (deterministic close)", 0)
+# 7.607 E1: ONE loop ending survives — the finish edge. `RUN_EXIT_ROOM_GONE` is DELETED rather
+# than renamed: a room going away is no longer an ending at all, it is a crash to recover, and
+# keeping the constant would leave a reader believing the exit still exists somewhere.
+RUN_EXIT_FINISHED = ("finish edge fired — team-monitor exiting (the ONE deterministic termination)", 0)
+RELAUNCH_EXHAUSTED_LINE = ("team-monitor: RELAUNCH EXHAUSTED — the room did not come back after "
+                           f"{len(RELAUNCH_BACKOFF_S)} bounded attempts and NO finish event exists")
 
 
 def run_exit_never_alive(session, how):
@@ -1172,16 +1223,38 @@ def cmd_run(args):
         return 3
     print(f"team-monitor up: pid {os.getpid()} session {session} "
           f"interval {args.interval}s -> {state_path(args.package)}", flush=True)
+    relaunch_attempts, escalated = 0, False
     try:
         while True:
+            # 7.607 E1 — the ONE termination, tested FIRST so a finished goal is never relaunched
+            # in the window between its finish event and its room's teardown (`fire_finish_edge`
+            # writes the event BEFORE tearing down precisely so this ordering is observable).
+            if goal_finished(args.package):
+                msg, code = RUN_EXIT_FINISHED
+                print(msg, flush=True)
+                return code
             if not session_alive(session):
-                msg, code = RUN_EXIT_ROOM_GONE
-                print(msg, flush=True)
-                return code
-            if run_closed(args.package):
-                msg, code = RUN_EXIT_RUN_CLOSED
-                print(msg, flush=True)
-                return code
+                # NOT an ending any more. No finish event + no room = CRASH, and a sensor that
+                # exits here is how `G-296`'s room ran unobserved behind a log that read healthy.
+                if relaunch_attempts < len(RELAUNCH_BACKOFF_S):
+                    backoff = RELAUNCH_BACKOFF_S[relaunch_attempts]
+                    relaunch_attempts += 1
+                    ok, detail = relaunch_room(session)
+                    print(f"room GONE with no finish event — CRASH, not completion. relaunch "
+                          f"attempt {relaunch_attempts}/{len(RELAUNCH_BACKOFF_S)}: {detail}",
+                          file=sys.stderr, flush=True)
+                    if not ok:
+                        time.sleep(backoff)   # the bound that keeps a failing relaunch from storming
+                        continue
+                elif not escalated:
+                    escalated = True
+                    print(f"{RELAUNCH_EXHAUSTED_LINE} (room {session}). This sensor does NOT exit: "
+                          f"a goal with no finish event is unfinished, and a silent exit here is "
+                          f"how a room dies unwatched. Restore the room, or fire the finish edge "
+                          f"(`coordinate finish-goal`) if the goal is genuinely over.",
+                          file=sys.stderr, flush=True)
+            else:
+                relaunch_attempts, escalated = 0, False   # the room is back: the budget resets
             try:
                 write_snapshot(capture(args.package, session, args.sensor, args.heart_db), args.package)
             except Exception as e:  # noqa: BLE001 — a bad pass must never kill the sensor
@@ -1631,9 +1704,14 @@ def cmd_selftest(args):
         check(f"7.110 fixture: throwaway room `{sess}` built for the legitimate-close ending "
               f"(rc={made.returncode}, stderr={made.stderr.strip()!r})", made.returncode == 0)
         try:
-            (pkg.parent.parent / "runs.csv").write_text(
-                "run-id,type,state,taskforce-ids,opened,closed\n"
-                "run-1,build,closed,,2026-07-30 00:00,2026-07-30 01:00\n")
+            # 7.607 E1: the legitimate close is now the FINISH EVENT in the append-only log, not a
+            # `state=closed` register row. The fixture writes the event exactly as coord.py's
+            # `fire_finish_edge` does — a real header + a body opening with the marker — so this
+            # row scores the real reader against the real shape, never a hand-shaped stub.
+            (pkg / "coordination").mkdir(parents=True, exist_ok=True)
+            (pkg / "coordination" / "messages.md").write_text(
+                "\n## 1 | from: leader | to: all | type: completion | 2026-08-09 12:00\n\n"
+                f"{FINISH_MARKER}\n\nthe goal's execution is over by the deterministic finish edge\n")
             endings["legitimate-close"] = drive_run(pkg, session=sess)
         finally:
             subprocess.run(["tmux", "kill-session", "-t", sess], capture_output=True)
@@ -1657,13 +1735,21 @@ def cmd_selftest(args):
     # criteria 3+4: the legitimate close is UNCHANGED. The expected strings are spelled out as
     # LITERALS rather than read from the constants they guard — a guard that reads the value under
     # test moves with any edit to it and would pass a rewording silently.
-    check("7.110 criterion 3: the room-gone line is unchanged, byte for byte",
-          RUN_EXIT_ROOM_GONE == ("room gone — team-monitor exiting (deterministic close)", 0))
-    check("7.110 criterion 4: run_closed's line and its exit 0 are unchanged, byte for byte",
-          RUN_EXIT_RUN_CLOSED
-          == ("run closed in runs.csv — team-monitor exiting (deterministic close)", 0))
-    check("7.110: the legitimate close observed from `cmd_run` IS that unchanged pair",
-          endings["legitimate-close"] == RUN_EXIT_RUN_CLOSED)
+    # 7.607 E1 re-founds criteria 3+4. The room-gone EXIT is gone — a room going away is a crash to
+    # recover, not an ending — so the check that it is unchanged is replaced by the check that it
+    # NO LONGER EXISTS as a module-level name. That is the strongest form available: a renamed-but-
+    # surviving exit would pass any check written about the new one.
+    check("⚠ 7.607 E1: the room-gone EXIT is DELETED, not renamed — `RUN_EXIT_ROOM_GONE` is not a "
+          "name this module carries any more, so no path can still exit on an absent room",
+          "RUN_EXIT_ROOM_GONE" not in globals() and "RUN_EXIT_RUN_CLOSED" not in globals())
+    # The expected string is spelled out as a LITERAL rather than read from the constant it guards —
+    # a guard that reads the value under test moves with any edit to it and passes a rewording.
+    check("7.607 E1: the finish-edge line and its exit 0 are what a log reader will see, byte for byte",
+          RUN_EXIT_FINISHED
+          == ("finish edge fired — team-monitor exiting (the ONE deterministic termination)", 0))
+    check("⚠ 7.607 E1 THE CRITERION: the legitimate close observed from `cmd_run` IS the finish-edge "
+          "pair — driven by a real finish EVENT in a real messages.md, through the real reader",
+          endings["legitimate-close"] == RUN_EXIT_FINISHED)
 
     # ---- the declared agent type (task 7.80) ----
     # Four descriptor states, and the ABSENCES are checked as hard as the presence: an
