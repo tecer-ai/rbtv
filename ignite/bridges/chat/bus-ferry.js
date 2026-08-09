@@ -311,6 +311,15 @@ function createBusFerry({
   // the gated row takes the owner-DM leg above — same signature, same `{ delivered, ts }`
   // contract — so this is additive, never a second delivery model.
   routeToAgentThread = null,
+  // DOES THE BRIDGE KNOW THIS THREAD? (S-13 ruling `d-s13-chat-thread-token-verified`.) The token
+  // in a bus row is text an agent wrote, so it is a CLAIM, and this predicate is who checks it —
+  // the bridge, which owns the three conversation tables this module deliberately does not hold.
+  //
+  // ⚑ THE DEFAULT VOUCHES FOR NOTHING, deliberately fail-closed: an embedder that wires a
+  // destination but no verifier gets the ruled behaviour (tokens ignored, rows take the normal
+  // path), never the pre-ruling behaviour (any named thread obeyed). A wiring omission must not
+  // silently restore the surface the ruling closed.
+  knowsThread = () => false,
 } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -427,7 +436,17 @@ function createBusFerry({
           // THE RETURN LEG. A row naming its own chat thread is routed there and skips BOTH
           // gates below — neither is about it. Read `chatThreadToken`'s header for why this
           // is a token and not a seat name.
-          const chatThread = chatThreadToken(row.body);
+          //
+          // ⚑ THE TOKEN IS VERIFIED BEFORE IT COUNTS (S-13). A row can NAME any thread; only one
+          // the bridge already knows is honoured. An unknown one is treated as if the row carried
+          // NO token at all — so it falls through to the ordinary path below (`to: owner` → gates
+          // → thread or PARK; anything else → cursor advance) rather than being dropped, and
+          // nothing is ever posted to, or minted on, a thread the sender invented.
+          const namedThread = chatThreadToken(row.body);
+          const chatThread = namedThread && knowsThread(namedThread) ? namedThread : null;
+          if (namedThread && !chatThread) {
+            log('info', 'bus row named a chat thread the bridge does not know — token IGNORED, row takes the ordinary path', { key, msgId: row.id, from: row.from, namedThread });
+          }
           // NOT ADDRESSED TO THE OWNER AND NOT NAMING A THREAD → not this ferry's business, at
           // all. `to: master`, `to: leader`, `to: some-seat` are all one case now (ruling
           // `d-agents-address-owner-not-master`): the bus delivers them to seats, and the cursor

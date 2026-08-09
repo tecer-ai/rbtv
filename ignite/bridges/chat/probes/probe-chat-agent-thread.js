@@ -221,7 +221,20 @@ const MUTATIONS = [
   { name: 'routeof-agent-branch-removed', file: 'chat-bridge.js', from: "if (agent) return { kind: 'agent'", to: "if (false) return { kind: 'agent'",
     expect: ['routes as kind `agent`', 'HOMED AT THE ASKING SEAT'] },
   { name: 'return-leg-guard-removed', file: 'chat-bridge.js', from: 'if (tokenGoalId) {', to: 'if (false) {',
-    expect: ['posted into that thread verbatim', 'CONTROL: a token naming a DM thread'] },
+    expect: ['posted into that thread verbatim', 'S-13 (c)'] },
+  // S-13 — the two sides of the verification, and the two sides of the known set.
+  { name: 's13-token-not-verified', file: 'bus-ferry.js',
+    from: 'const chatThread = namedThread && knowsThread(namedThread) ? namedThread : null;', to: 'const chatThread = namedThread;',
+    expect: ['S-13 (a)', 'S-13 (b)'] },
+  { name: 's13-knowsthread-vouches-for-everything', file: 'chat-bridge.js',
+    from: 'if (replyAddr.has(id) || threadMap.has(id)) return true;', to: 'if (true) return true;',
+    expect: ['S-13 (a)', 'S-13 (b)'] },
+  // The GREEN half's red arm: with the two live-state clauses cut, a restored conversation stops
+  // being known and the restart leg dies — while an ANCHORED AGENT THREAD stays known through the
+  // third clause, which is exactly the asymmetry the ruling's known set describes.
+  { name: 's13-knowsthread-vouches-for-nothing', file: 'chat-bridge.js',
+    from: 'if (replyAddr.has(id) || threadMap.has(id)) return true;', to: 'if (false) return true;',
+    expect: ['S-13 RESTART', 'CONTROL: a token naming a KNOWN DM thread'] },
   { name: 'agentthreads-not-persisted', file: 'chat-bridge.js', from: 'agentThreads: Object.fromEntries(agentThreads),', to: '',
     expect: ['the anchored thread is persisted', 'start() restores'] },
   { name: 'agent-homed-at-goal-master', file: 'forward-path.js', from: "route.kind === 'agent' ? route.agent : 'goal-master'", to: "'goal-master'",
@@ -611,17 +624,139 @@ async function main() {
       && a.bridge.busFerry._cursors.get('goal-return/run-1') === 2,
       { cursor: a.bridge.busFerry._cursors.get('goal-return/run-1') });
 
-    // THE CONTROL: a token naming a DM thread still mints the channel-master sitting. Without
-    // it, the guard above could be passing because the return leg mints nothing ANYWHERE.
-    append(file, msgRow(3, 'leader', 'channel-master', 'answer', `to the DM thread\n\n[chat-thread: ${DM}:1.0]`));
+    // THE CONTROL: a token naming a KNOWN DM thread still mints the channel-master sitting.
+    // Without it, the guard above could be passing because the return leg mints nothing ANYWHERE.
+    //
+    // ⚑ THE THREAD IS MADE KNOWN THE ONLY WAY THAT COUNTS SINCE S-13 — by the owner actually
+    // writing in it. A DM inbound sets the reply address and mints the conversation, and it is
+    // THAT id the row names. A fabricated DM id would now be ignored (arm 10), which is exactly
+    // why this control had to change with the ruling rather than being asserted around it (arm 10).
+    await a.bridge.onChatMessage({
+      chatUserId: USER, chatThreadId: `${DM}:77.7`, text: 'owner opens a DM thread',
+      _channel: DM, _channelType: 'im', _threadTs: '77.7', _msgTs: '77.7', _inThread: false,
+    });
+    const createsBeforeControl = a.forwarder.creates().length;
+    append(file, msgRow(3, 'leader', 'channel-master', 'answer', `to the DM thread\n\n[chat-thread: ${DM}:77.7]`));
     await a.bridge.busFerry.tick();
-    check('CONTROL: a token naming a DM thread STILL mints a channel-master sitting — only goal-channel tokens post-and-return',
-      a.forwarder.creates().length === 1 && a.slack.postsIn(DM).length === 0,
-      { creates: a.forwarder.creates().length, dmPosts: a.slack.postsIn(DM).length });
+    check('CONTROL: a token naming a KNOWN DM thread STILL routes on the master leg (a sitting, no goal-channel post) — only goal-channel tokens post-and-return',
+      a.forwarder.creates().length === createsBeforeControl + 1 && a.slack.postsIn(DM).length === 0
+      && a.bridge.knowsThread(`${DM}:77.7`) === true,
+      { creates: a.forwarder.creates().length, before: createsBeforeControl, dmPosts: a.slack.postsIn(DM).length });
     a.bridge.stop();
   }
 
-  // 10 — STATE. The agent threads ride the existing state file ADDITIVELY, and a restarted
+  // 10 — S-13: THE TOKEN IS A CLAIM, NOT AN INSTRUCTION (`d-s13-chat-thread-token-verified`).
+  //      A bus row is text an agent wrote. Before this ruling a named thread was obeyed on sight,
+  //      so any agent could post into any Slack thread it cared to name and mint a channel-master
+  //      sitting on it. Now the bridge vouches for the token against its OWN state, and an unknown
+  //      one is treated as if the row carried none: NOT dropped, NOT posted to the invented thread,
+  //      nothing minted — it takes the ordinary path.
+  {
+    const root = mkroot();
+    // Gates SHUT (mode absent, seat undeclared) so the ordinary path's outcome is a PARK, which is
+    // observable and distinguishable from "the token was obeyed" and from "the row vanished".
+    const { file } = seedRun(root, 'goal-forged', { executionMode: null, seats: { leader: null } });
+    const logs = [];
+    const a = makeBridge({ workspaceRoot: root, logs });
+    await a.bridge.start();
+    const reg = await a.bridge.registerGoal('goal-forged');
+    await a.bridge.busFerry.tick();
+
+    const forgedGoalTs = '9999.9';   // a ts in a REAL goal channel that no agent ever anchored
+    check('the fabricated threads are genuinely UNKNOWN to the bridge (the premise of every check below)',
+      a.bridge.knowsThread(`${reg.channelId}:${forgedGoalTs}`) === false
+      && a.bridge.knowsThread(`${DM}:1.0`) === false
+      && a.bridge.knowsThread('') === false && a.bridge.knowsThread('nonsense') === false,
+      {});
+
+    // (a) FABRICATED TOKEN ON A REAL GOAL CHANNEL, addressed `to: owner` → the row must take the
+    //     ordinary path and PARK on the gates, with nothing posted into the invented thread.
+    append(file, msgRow(2, 'leader', 'owner', 'ask', `forged goal-channel thread\n\n[chat-thread: ${reg.channelId}:${forgedGoalTs}]`));
+    await a.bridge.busFerry.tick();
+    const ignored = logs.filter((l) => /does not know/.test(l.message));
+    const parked = logs.filter((l) => /PARKED/.test(l.message));
+    check('S-13 (a): a FABRICATED goal-channel token posts NOTHING into the invented thread and mints NOTHING — the row falls to the ordinary path and PARKS on the gates',
+      a.slack.posted.length === 0 && a.forwarder.enqueued.length === 0
+      && ignored.length === 1 && ignored[0].namedThread === `${reg.channelId}:${forgedGoalTs}`
+      && parked.length === 1 && parked[0].msgId === 2
+      && a.bridge.busFerry._cursors.get('goal-forged/run-1') === 2,
+      { posted: a.slack.posted.length, enqueued: a.forwarder.enqueued.length, ignored: ignored.length, parked: parked.map((l) => l.gate) });
+
+    // (b) FABRICATED DM-SHAPED TOKEN → must mint NO sitting. Same row shape, different invented
+    //     surface: this is the leg that used to hand an agent a channel-master sitting on demand.
+    append(file, msgRow(3, 'leader', 'channel-master', 'answer', `forged DM thread\n\n[chat-thread: ${DM}:1.0]`));
+    await a.bridge.busFerry.tick();
+    check('S-13 (b): a FABRICATED DM-shaped token mints NO sitting and posts nothing — and being `to: channel-master` the row is not even owner-bound, so the ordinary path just advances the cursor',
+      a.forwarder.creates().length === 0 && a.slack.posted.length === 0
+      && a.bridge.busFerry._cursors.get('goal-forged/run-1') === 3,
+      { creates: a.forwarder.creates().length, posted: a.slack.posted.length });
+
+    // (c) THE GREEN HALF, same run, same seat, same shut gates: make the thread KNOWN by anchoring
+    //     it through the bridge, and the very same token shape now routes verbatim into it. Without
+    //     this pair, (a) and (b) would pass just as well against a ferry that had stopped reading
+    //     tokens at all.
+    const opened = await a.bridge.routeToAgentThread({ goalId: 'goal-forged', agent: 'leader', text: 'anchor' });
+    const postsBefore = a.slack.posted.length;
+    append(file, msgRow(4, 'leader', 'channel-master', 'answer', `known thread\n\n[chat-thread: ${reg.channelId}:${opened.ts}]`));
+    await a.bridge.busFerry.tick();
+    const landed = a.slack.posted[a.slack.posted.length - 1];
+    check('S-13 (c) MUTATION-PAIR: the SAME token shape naming a thread the bridge KNOWS routes verbatim into it — so (a) and (b) are the verification, not a dead return leg',
+      a.slack.posted.length === postsBefore + 1
+      && landed.channel === reg.channelId && landed.threadTs === opened.ts
+      && /known thread/.test(landed.text) && a.forwarder.creates().length === 0,
+      { landed: landed && { channel: landed.channel, threadTs: landed.threadTs } });
+    a.bridge.stop();
+  }
+
+  // 11 — S-13 RESTART: the token of a pre-restart conversation is known because the STATE FILE
+  //      restored it, never because the row asserted it. This is the case the deleted
+  //      derive-the-address branch used to cover by trusting the token's text.
+  {
+    const root = mkroot();
+    const stateFile = path.join(mkroot(), 'chat-state.json');
+    const { file } = seedRun(root, 'goal-restart', { executionMode: null, seats: { leader: null } });
+    const daemon = makeFakeForwarder();
+    const a = makeBridge({ workspaceRoot: root, stateFile, forwarder: daemon });
+    await a.bridge.start();
+    await a.bridge.onChatMessage({
+      chatUserId: USER, chatThreadId: `${DM}:55.5`, text: 'owner opens a DM thread before the restart',
+      _channel: DM, _channelType: 'im', _threadTs: '55.5', _msgTs: '55.5', _inThread: false,
+    });
+    await a.bridge.busFerry.tick();
+    a.bridge.stop();
+
+    // The restart: a brand-new bridge, empty maps, same file, same still-running daemon.
+    const b = makeBridge({ workspaceRoot: root, stateFile, forwarder: daemon });
+    check('before start() the restarted bridge knows NOTHING — so the acceptance below cannot come from memory',
+      b.bridge.knowsThread(`${DM}:55.5`) === false, {});
+    await b.bridge.start();
+    b.bridge.busFerry._cursors.set('goal-restart/run-1', 1);
+    const createsBefore = daemon.creates().length;
+    append(file, msgRow(2, 'leader', 'channel-master', 'answer', `answering after the restart\n\n[chat-thread: ${DM}:55.5]`));
+    await b.bridge.busFerry.tick();
+    check('S-13 RESTART: the token is accepted because start() RESTORED the conversation from the state file — persistence, not trust',
+      b.bridge.knowsThread(`${DM}:55.5`) === true
+      && daemon.creates().length === createsBefore + 1,
+      { creates: daemon.creates().length, before: createsBefore });
+
+    // THE CONTROL: the same restart with NO state file forgets, so the same token is UNKNOWN and
+    // the row takes the ordinary path — which is the honest decline, not a reason to believe it.
+    const root2 = mkroot();
+    const { file: file2 } = seedRun(root2, 'goal-nostate', { executionMode: null, seats: { leader: null } });
+    const c = makeBridge({ workspaceRoot: root2, stateFile: null, forwarder: makeFakeForwarder() });
+    await c.bridge.start();
+    await c.bridge.busFerry.tick();
+    append(file2, msgRow(2, 'leader', 'channel-master', 'answer', `answering with no state file\n\n[chat-thread: ${DM}:55.5]`));
+    await c.bridge.busFerry.tick();
+    check('CONTROL: with no state_file the same token is UNKNOWN after a restart — nothing minted, nothing posted, cursor advanced (the amnesia is disclosed, never papered over by trusting the row)',
+      c.bridge.knowsThread(`${DM}:55.5`) === false
+      && c.forwarder.creates().length === 0 && c.slack.posted.length === 0
+      && c.bridge.busFerry._cursors.get('goal-nostate/run-1') === 2,
+      { creates: c.forwarder.creates().length, posted: c.slack.posted.length });
+    b.bridge.stop(); c.bridge.stop();
+  }
+
+  // 12 — STATE. The agent threads ride the existing state file ADDITIVELY, and a restarted
   //      bridge routes the owner's reply in a pre-restart thread as 'agent' — without the map
   //      that reply would be handled as ordinary goal traffic by the goal-master.
   {
@@ -661,7 +796,7 @@ async function main() {
 
   for (const r of roots) { try { fs.rmSync(r, { recursive: true, force: true }); } catch {} }
 
-  // 11 — THE RED ARMS. Skipped in a mutant child (it IS one of them) — see the harness header.
+  // 13 — THE RED ARMS. Skipped in a mutant child (it IS one of them) — see the harness header.
   if (!process.env[MUTANT_ENV]) await runMutationArms(check, checks.length);
 
   const pass = checks.every((c) => c.pass);

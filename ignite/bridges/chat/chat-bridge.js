@@ -47,9 +47,10 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // shape in the state file whether or not the ferry ran. It holds no forwarder and no
   // thread map: it reads workspace files and posts through the transport, nothing else.
   //
-  // ⚑ WHERE A ROLE-ADDRESSED ROW GOES WHEN NOBODY HOLDS THE ROLE (owner ruling 2026-08-07).
-  // The ferry decides WHETHER a row travels (its roster check); this decides WHERE. Both
-  // halves of the owner's two complaints are one seam:
+  // ⚑ WHERE AN OWNER-ADDRESSED ROW GOES WHEN IT HAS NO GOAL CHANNEL (owner ruling 2026-08-07,
+  // retargeted to `to: owner` by `d-agents-address-owner-not-master`). The ferry decides WHETHER a
+  // row travels (the two gates); this decides WHERE. Both halves of the owner's two complaints are
+  // one seam:
   //   (1) the row reached the OWNER as work instead of reaching an AGENT — so the post is
   //       followed by a session-create at the channel-master seat, and the owner reads the
   //       agent's handling rather than triaging the raw row;
@@ -99,12 +100,16 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         log('warn', 'bus row could NOT be posted into its goal-channel thread — the ferry retries it (no master sitting minted on a goal channel)', { chatThreadId: chatThread, goalId: tokenGoalId, error: intoThread && intoThread.error });
         return intoThread || { delivered: false, reason: 'post-failed' };
       }
-      // The reply leg posts by CHAT THREAD ID, so a thread this process has never seen (a
-      // bridge restart, or the first return row of a conversation minted before the state
-      // file existed) needs its reply address derived. `<channel>:<ts>` is the id's grammar.
-      if (!replyAddr.has(chatThread) && tokenChannel) {
-        replyAddr.set(chatThread, { channel: tokenChannel, threadTs: tokenThreadTs });
-      }
+      // ⚑ THE REPLY ADDRESS IS NO LONGER DERIVED FROM THE TOKEN'S TEXT (S-13 ruling
+      // `d-s13-chat-thread-token-verified`). A `derive it from `<channel>:<ts>`' branch used to
+      // stand here for a thread this process had never seen. It is DELETED, not disabled: the
+      // token is now verified against the bridge's own state before the ferry hands it over
+      // (`knowsThread` below), so an unseen thread never reaches this line, and the restart case
+      // it was written for is covered by the state file restoring both tables at `start()` —
+      // persistence, not trust. What remains reachable is the narrow torn-state case (a thread the
+      // thread map knows with no reply address beside it); that gets `deliverToOwner`'s honest
+      // `no-reply-address` warn rather than a fabricated address, which is the same posture as
+      // every other cannot-tell here.
       const back = await forwardPath.forwardSessionCreate({
         chatThreadId: chatThread, text, route: { kind: 'master', goalId: null },
       });
@@ -138,6 +143,47 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     }
     saveState();
     return posted;
+  }
+
+  // ── IS THIS A THREAD WE KNOW? (S-13 owner ruling `d-s13-chat-thread-token-verified`) ─────
+  //
+  // A `[chat-thread:]` token is TEXT IN A BUS ROW — written by an agent, parsed by a regex, and
+  // until this ruling obeyed on sight. Obeying it made the token an instruction to post into any
+  // Slack thread the sender cared to name, and to mint a channel-master sitting on it. So the
+  // bridge now vouches for the token or it does not travel: a token counts only when it names a
+  // thread THIS BRIDGE ALREADY KNOWS.
+  //
+  // ⚑ THE KNOWN SET IS THE BRIDGE'S OWN LIVE STATE, all three tables:
+  //   • `replyAddr`   — every conversation the bridge has an address for,
+  //   • `threadMap`   — every conversation with a turn chain,
+  //   • `agentThreads`— every thread an agent anchored in a goal channel (the return-leg guard's
+  //     own subject, so that leg keeps working BY CONSTRUCTION rather than by exemption).
+  // ⚑ THE THIRD CLAUSE IS COMPLIANCE, NOT COVERAGE — stated plainly because the difference is
+  // invisible from the code: `routeToAgentThread` writes a `replyAddr` entry beside every thread it
+  // anchors, so the first clause already answers for every agent thread that exists today, and no
+  // mutation of this clause alone can turn a probe red. It stays because the RULING names all three
+  // tables, and because it is what keeps the return-leg guard known BY CONSTRUCTION rather than by
+  // a write in another function that a future prune could drop.
+  //
+  // ⚑ THE RESTART CASE IS COVERED BY PERSISTENCE, NOT BY TRUST. `state_file` restores
+  // `replyAddr`, the thread map and the agent threads BEFORE the transport listens, so a token
+  // naming a pre-restart conversation is known. Where the file is not configured the bridge
+  // forgets — and then it says so by declining, which is the honest answer, not a reason to
+  // believe the row instead.
+  //
+  // ⚑ UNKNOWN = AS IF THE ROW CARRIED NO TOKEN (ruled). Not dropped, not posted to the invented
+  // thread, nothing minted: the row falls back to the ordinary path in the ferry — `to: owner` →
+  // the two gates → the agent's thread or a PARK; anything else → cursor advance. That is why the
+  // check lives at the FERRY's hand-over (an injected predicate, the same shape as
+  // `routeToMaster`) and not only here: only there is the normal path still available.
+  function knowsThread(chatThread) {
+    const id = String(chatThread || '');
+    if (!id) return false;
+    if (replyAddr.has(id) || threadMap.has(id)) return true;
+    const cut = id.lastIndexOf(':');
+    if (cut <= 0) return false;
+    const goalId = goalChannels ? goalChannels.goalForChannel(id.slice(0, cut)) : null;
+    return Boolean(goalId && agentForThread(goalId, id.slice(cut + 1)));
   }
 
   // ── THREAD PER AGENT IN A GOAL CHANNEL (ratified 2026-08-09) ─────────────────
@@ -224,6 +270,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     onMutate: () => saveState(),
     routeToMaster: (args) => routeBusRowToMaster(args),
     routeToAgentThread: (args) => routeToAgentThread(args),
+    knowsThread: (t) => knowsThread(t),
     ...busFerryOptions,
   });
 
@@ -633,7 +680,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   return {
     onChatMessage, deliverToOwner, start, stop,
     registerGoal, closeGoal, routeOf,
-    routeToAgentThread, agentThreadFor, agentForThread,
+    routeToAgentThread, agentThreadFor, agentForThread, knowsThread,
     _replyAddr: replyAddr, _agentThreads: agentThreads, forwardPath, replyLeg, busFerry, goalChannels,
     _saveState: saveState, _loadState: loadState, stateFile,
   };
