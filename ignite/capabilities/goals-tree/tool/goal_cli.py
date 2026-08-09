@@ -273,10 +273,19 @@ def cmd_scaffold(args) -> int:
             f"{goal_dir}: already exists — scaffold is create-only and never overwrites"
         )
 
-    contract = (
-        sys.stdin.read() if args.contract == "-"
-        else Path(args.contract).read_text(encoding="utf-8")
-    )
+    # G-118: the read is GUARDED. An unreadable `--contract` (absent file, a directory, a
+    # permission denial) used to escape `main()` — which catches `Refusal` only — as a raw
+    # FileNotFoundError/IsADirectoryError traceback, breaking the never-a-crash contract the
+    # README's exit-code table states (`1` refusal/not-found, never an unhandled exception).
+    # Every OTHER path-taking verb already refuses cleanly, so the defect is this one read,
+    # not a missing global handler: the narrow guard is the whole fix.
+    try:
+        contract = (
+            sys.stdin.read() if args.contract == "-"
+            else Path(args.contract).read_text(encoding="utf-8")
+        )
+    except OSError as exc:
+        raise Refusal(f"--contract {args.contract}: {exc.strerror or exc}") from exc
     if not contract.strip():
         raise Refusal("--contract resolved to empty text — a goal is born with its contract")
 
@@ -372,11 +381,16 @@ def current_run_dir(goal_dir: Path, f: Findings) -> Path | None:
         cand = runs_dir / rid
         if cand.is_dir():
             return cand
-    folders = sorted(
-        (p for p in runs_dir.iterdir() if p.is_dir() and p.name.startswith("run-")),
-        key=lambda p: p.name,
-    )
-    return folders[-1] if folders else None
+    # G-117: highest-numbered means NUMERICALLY highest. A lexicographic sort on the folder
+    # name returned `run-9` while `run-11` existed — latent while a goal had fewer than ten
+    # runs and certain to fire at run-10. `RUN_NAME_RE` (defined with the branch-numbering
+    # rule below) is the repo's one spelling of a run folder name, so the ordering key and
+    # the `branch-{M+1}` mint now read the suffix the same way. A name that is not
+    # `run-<digits>` carries no number to be highest, so it no longer enters the ordering
+    # at all — the fallback returns None instead of a folder whose position was an accident.
+    numbered = [(int(m.group(1)), p) for p in runs_dir.iterdir()
+                if p.is_dir() and (m := RUN_NAME_RE.match(p.name))]
+    return max(numbered)[1] if numbered else None
 
 
 # ---------------------------------------------------------------- branch home (MC8 / 7.450)
@@ -2046,6 +2060,44 @@ def cmd_selftest(args) -> int:
                 check(label, False, "did not refuse")
             except Refusal:
                 check(label, True)
+
+        # G-118 regression. An unreadable `--contract` takes the Refusal path, never a crash.
+        # `main()` catches `Refusal` ONLY, so a raw OSError from this read reached the operator
+        # as a traceback and broke the never-a-crash contract of the README's exit-code table.
+        # OSError is caught SEPARATELY from Refusal on purpose: with the guard removed this arm
+        # reports FAIL naming the defect, instead of aborting the whole selftest with the very
+        # traceback under test — a red arm has to stay legible when it goes red.
+        # Both arms scaffold a goal that does NOT exist, so the refusal comes from the contract
+        # read and from nothing earlier, and neither arm writes anything.
+        print("contract read (G-118)")
+        for label, bad in (("a missing file", tmp / "no-such-contract.md"),
+                           ("a directory", tmp)):
+            arm = f"unreadable --contract ({label}) refuses instead of crashing"
+            try:
+                cmd_scaffold(argparse.Namespace(
+                    goal_name="contract-goal", type="one-shot", due=None,
+                    contract=str(bad), **vars(ns)))
+                check(arm, False, "did not refuse")
+            except Refusal:
+                check(arm, True)
+            except OSError as exc:
+                check(arm, False, f"G-118: a raw {type(exc).__name__} escaped as a crash")
+
+        # G-117 regression. The no-open-row fallback returns the NUMERICALLY highest run: a
+        # lexicographic sort on the folder name returned `run-9` while `run-11` existed.
+        # THE FIXTURE SPANS THE SINGLE/DOUBLE-DIGIT BOUNDARY BECAUSE THAT IS THE ONLY PLACE THE
+        # TWO ORDERINGS DIFFER — over runs 1..9 alone the broken sort and the correct one agree
+        # and this check would pass against the defect. Built outside the goals root: it needs a
+        # goal_dir and a `runs/` listing, and nothing here should add a goal the index then sees.
+        print("run ordering (G-117)")
+        order_goal = tmp / "runorder-goal"
+        (order_goal / "runs").mkdir(parents=True)
+        for n in (2, 9, 11):
+            (order_goal / "runs" / f"run-{n}").mkdir()
+        picked = current_run_dir(order_goal, Findings())
+        check("no-open-row fallback picks the numerically highest run",
+              picked is not None and picked.name == "run-11",
+              f"picked {picked.name if picked else None} — lexicographic order returns run-9")
 
         print("lint")
         f = lint_goal(root, "demo-goal")

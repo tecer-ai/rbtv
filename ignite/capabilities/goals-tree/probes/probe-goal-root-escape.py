@@ -187,7 +187,24 @@ def main() -> int:
                   f"stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
 
         # ── 3. THE RED CONTROL — the pre-fix code MUST escape, or rows 1-2 score nothing ───────
-        mutant = td / "goal_cli_prefix.py"
+        #
+        # THE MUTANT MUST SIT AT THE TOOL'S OWN DEPTH. `goal_cli.py` resolves the `after`-member
+        # grammar through `coord_source_path()`, which is `Path(__file__).resolve().parents[3] /
+        # "team-kit" / "coord.py"`. A mutant dropped in a FLAT temp dir has no such ancestor, so
+        # the grammar import failed and `materialize` died inside `after_pred_names` with a
+        # traceback — before it ever reached the escape this arm exists to reproduce. The arm
+        # then reported `mutant exit=1, wrote nothing` and declared itself INOPERATIVE, which is
+        # exactly right and exactly useless: the red control for a CRITICAL defect could not
+        # fire, so rows 1-2 had been scoring nothing since the day it was written.
+        #
+        # So the temp tree MIRRORS the real depth (`<mut>/capabilities/goals-tree/tool/`) and
+        # `team-kit` is symlinked to the real one, putting `coord.py` exactly where
+        # `parents[3]` looks. The link is READ-ONLY by construction — nothing here writes
+        # through it, and `coord.py` is certified and never edited by a probe.
+        mut_root = td / "mut"
+        mutant = mut_root / "capabilities" / "goals-tree" / "tool" / TOOL.name
+        mutant.parent.mkdir(parents=True)
+        (mut_root / "team-kit").symlink_to(TOOL.resolve().parents[3] / "team-kit")
         src = TOOL.read_text(encoding="utf-8")
         mutated = src
         applied = 0
