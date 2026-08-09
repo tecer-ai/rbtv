@@ -1512,9 +1512,30 @@ REVIVAL_STALE_LINE = "REVIVAL paused — snapshot stale"
 # ⚠ AND `ensure`, NOT `run` OR `start`: it is the idempotent verb — a sensor that is actually alive
 # must not gain a second writer from a remedy aimed at a stale snapshot, and `state.json` has
 # exactly one writer by construction (task 7.33).
+#
+# ⚠ AND IT CARRIES `--session` WHENEVER THE ROOM'S NAME IS KNOWN (task 7.561). Sessionless, this
+# remedy is the one call proven UNABLE to start a sensor in the state it is handed to fix:
+# team-monitor's `resolve_session` asks the ROSTER for a pane that still resolves to a live tmux
+# session and REFUSES when none does (`SessionUnresolved`, `G-296`) — and a room whose sensor died
+# with its panes IS that state (measured on run-3: 432 roster seats, 408 pane cells, 0 resolving).
+# A remedy the recipient cannot execute is the alert-only shape this leaf exists to supersede.
 SENSOR_RESTART_CMD = ("python3 3-resources/tools/rbtv/orchestration/cli/team-monitor/"
-                      "team_monitor.py ensure --package {package}")
+                      "team_monitor.py ensure --package {package}{session}")
 SENSOR_WAKE_LINE = "WAKE chief-of-staff — RESTART THE SENSOR"
+
+
+def sensor_restart_cmd(package, session=""):
+    """The remedy command, with `--session` when the room's name is known (task 7.561).
+
+    ⚠ REMEMBERED, NEVER DERIVED — the name comes from the snapshot's own `session` field, the
+    same source `revival_anchor` reads ("THE SNAPSHOT SUPPLIES THE SESSION, NOT tmux"), banked in
+    the persisted room state so the unreadable-snapshot tick still has it. Unknown -> the command
+    is UNCHANGED from its sessionless form, which is a remedy that may fail rather than one that
+    names a session nobody can confirm. `G-296`: a derived session name is right by coincidence
+    only, and it once ran a whole room unobserved behind a log that read healthy."""
+    session = (session or "").strip()
+    return SENSOR_RESTART_CMD.format(package=package,
+                                     session=f" --session {session}" if session else "")
 
 # ---- s4-04: the COMPLETED-ONE-SHOT gate's literals ----
 #
@@ -2513,6 +2534,14 @@ def check_revival(args, base, snap, snap_err, state, notes):
     room = state.setdefault("_revival_room", {})   # room-level, not a seat: nothing in this module
     lines = []                                     # iterates `state` as a seat map (verified).
 
+    # ⚠ task 7.561 — BANK THE ROOM'S SESSION EVERY TICK IT IS READABLE, before the staleness gate
+    # below. The tick that needs the name is the one whose snapshot is unreadable, so it has to
+    # have been banked while the sensor was still writing; banking it inside the flag would bank
+    # it only on ticks that already flagged, which is never before the outage. `state` is
+    # persisted (`watch-state.json`), so the name also survives a restart of this loop.
+    if isinstance(snap, dict) and (snap.get("session") or "").strip():
+        room["session"] = snap["session"].strip()
+
     # ---- 1. SENSOR STALENESS PAUSES ENFORCEMENT (CMP-21 invariant 2) ----
     # A stale snapshot is evidence in NEITHER direction, so the debounce counters are FROZEN —
     # neither incremented nor reset. `snap_err` with the file PRESENT (unreadable) is stale too,
@@ -2538,7 +2567,7 @@ def check_revival(args, base, snap, snap_err, state, notes):
                 f"so the detector takes no action in either direction and its debounce counters "
                 f"are frozen. Silence from this check is not a green.\n"
                 f"{SENSOR_WAKE_LINE}: "
-                + SENSOR_RESTART_CMD.format(package=coord.package_dir(args)) +
+                + sensor_restart_cmd(coord.package_dir(args), room.get("session")) +
                 f"\nEnforcement RESUMES BY ITSELF on the first fresh snapshot — the pause is keyed "
                 f"on the snapshot's age, not on anything anyone has to un-set, so nothing needs "
                 f"re-arming after the restart and no second flag will announce the resumption. "
@@ -4745,9 +4774,17 @@ def cmd_selftest():
               "for raising an incident that left the room unobserved with nothing recovering it — "
               "a remedy no reader can execute is that state with more words",
               SENSOR_WAKE_LINE in p3[0]
-              and SENSOR_RESTART_CMD.format(package=rpkg) in p3[0]
-              and "{package}" not in p3[0]
+              and sensor_restart_cmd(rpkg, "revsess") in p3[0]
+              and "{package}" not in p3[0] and "{session}" not in p3[0]
               and "RESUMES BY ITSELF" in p3[0])
+        check("⚠ 7.561 THE REMEDY CARRIES `--session`, WHICH IS WHAT MAKES IT EXECUTABLE ON THE "
+              "ROOM IT IS HANDED. Sessionless, `team_monitor ensure` asks the ROSTER for a pane "
+              "that still resolves to a live tmux session and REFUSES when none does "
+              "(`SessionUnresolved`, `G-296`) — precisely the state a dead sensor leaves behind, "
+              "so the old remedy could not repair the case it was raised for. The name is the "
+              "SNAPSHOT'S OWN, banked while it was still readable, never derived from the path",
+              " --session revsess" in p3[0] and str(rpkg) in p3[0]
+              and rstate["_revival_room"].get("session") == "revsess")
         check("⚠ 7.32 (v) IT IS A WAKE, NOT AN ACTUATION, AND THE FLAG SAYS SO — [S6]: the loop's "
               "ONE actuator stays `fire_revival`. `check_revival` names no subprocess, no tmux and "
               "no restart call anywhere in its own source; restarting a resident service is the "
@@ -4756,6 +4793,18 @@ def cmd_selftest():
               "chief-of-staff's" in p3[0]
               and not any(t in inspect.getsource(check_revival)
                           for t in ("subprocess.", "Popen", "team_monitor.py ensure", "os.system")))
+        rstate.clear(); rnotes.clear()
+
+        # ⚠ 7.561 CONTROL — THE OTHER DIRECTION, and it is what makes the arm above a measurement
+        # rather than a restatement of the fixture: a room whose session was NEVER banked must
+        # degrade to the SESSIONLESS command, not render an empty `--session ` for the recipient
+        # to paste blind. Same three stale ticks, same flag, snapshots carrying no session.
+        c3 = []
+        for _ in range(REVIVAL_STALE_NOTE_TICKS):
+            _, c3 = rev(dict(rsnap(absent=[gone()], age_s=9999), session=""))
+        check("7.561 CONTROL: with NO session ever banked the remedy degrades to its sessionless "
+              "form — an unknown room name is never rendered as an empty flag",
+              len(c3) == 1 and "--session" not in c3[0] and sensor_restart_cmd(rpkg) in c3[0])
         rstate.clear(); rnotes.clear()
 
         # THE DISCRIMINATING CONTROL FOR THE WHOLE TRIPWIRE — and it is the "enforcement RESUMES"

@@ -305,6 +305,45 @@ def run_inline(script, tail, timeout=INLINE_FIX_TIMEOUT_S):
                                + (f"; {lines[-1].strip()[:160]}" if lines else ""))
 
 
+# ---- THE ROOM'S SESSION, for the sensor's own `ensure` (task 7.561).
+
+def remember_session(state, snap):
+    """Bank the room's session name from the SENSOR'S OWN snapshot. Called on EVERY pass.
+
+    ⚠ EVERY pass, not only the flagging ones, and that is the whole point: the arm that NEEDS
+    the name is the one with NO readable snapshot to take it from. Banking it inside the fix
+    builder would bank it only on passes that already flagged — i.e. never before the outage.
+    `_`-prefixed keys survive the end-of-pass state sweep, so ONE good snapshot ever is enough.
+    """
+    name = ((snap or {}).get("session") or "").strip()
+    if name:
+        state["_session"] = name
+
+
+def sensor_ensure(args, state):
+    """The ONE argv tail for the sensor's idempotent `ensure` — WITH the room's session.
+
+    ⚠ WHY A SESSION IS PASSED AT ALL — this is the whole of task 7.561. team-monitor's
+    `resolve_session` takes an explicit `--session` first and otherwise asks the ROSTER for a
+    pane that still resolves to a live tmux session; with none it REFUSES (`SessionUnresolved`,
+    `G-296`). A room whose sensor has died and whose roster panes are all gone IS that state, so
+    the sessionless `ensure` this row used to build could not start a sensor in precisely the
+    state the row exists to recover from. Measured on the live run-3 package: 432 roster seats,
+    408 carrying a pane cell, 0 resolving.
+
+    ⚠ REMEMBERED, NEVER DERIVED. The name comes from `state.json`'s own `session` field — the
+    room has exactly one and team-monitor writes it — which is the SAME source `watch.py`'s
+    revival anchor already reads ("THE SNAPSHOT SUPPLIES THE SESSION, NOT tmux"). Deriving a
+    name from the goal-folder path is what `G-296` outlawed after four auto-ensures ran a room
+    unobserved behind a log that read healthy. With no name banked the tail is UNCHANGED — the
+    row degrades to exactly today's behaviour rather than inventing one.
+
+    Both call sites render the remedy TEXT from this same list, so what the leader is told to
+    run and what the job actually runs cannot drift apart."""
+    name = (state.get("_session") or "").strip()
+    return ["ensure", "--package", str(args.package)] + (["--session", name] if name else [])
+
+
 # ---------------------------------------------------------------- snapshot
 
 def read_snapshot(path):
@@ -583,6 +622,7 @@ def evaluate(snap, args, state, dispositions, now):
     age = snapshot_age_s(snap, now)
     if age is None or age > tolerance:
         shown = "unknown" if age is None else f"{age:.0f}s"
+        tail = sensor_ensure(args, state)
         decisions.append(decision(
             "STALE-SENSOR", "team-monitor", "inline fix: restart the sensor (idempotent ensure)",
             f"snapshot age {shown} > tolerance {tolerance:.0f}s "
@@ -591,9 +631,9 @@ def evaluate(snap, args, state, dispositions, now):
             f"UNOBSERVED for as long as this lasts. The sensor's own `ensure` is idempotent, so "
             f"restarting it is a mechanical fix and not a judgment (CMP-21 invariant 2); only a "
             f"sensor that does NOT come back is the leader's.",
-            f"python3 {args.team_monitor} ensure --package {args.package}",
+            f"python3 {args.team_monitor} {' '.join(tail)}",
             nudge="leader",
-            fix=(args.team_monitor, ["ensure", "--package", str(args.package)])))
+            fix=(args.team_monitor, tail)))
         # The shadow arm is gated by the SAME tripwire as every threshold: a would-be decision
         # computed off a frozen snapshot is a would-be decision about a room that no longer
         # exists, and a trail of those is worse than an empty trail.
@@ -1330,23 +1370,27 @@ def main():
 
     now = time.time()
     snap, err = read_snapshot(snap_path)
+    # ⚠ LOADED AND BANKED BEFORE THE BRANCH, deliberately (task 7.561): both arms below build the
+    # sensor's `ensure`, and the one that needs the room's session most is the arm that has no
+    # snapshot to read it from. `remember_session` runs on every pass — including the healthy
+    # ones, which are the only passes that HAVE a session to bank.
+    state = load_state(state_path)
+    remember_session(state, snap)
     if snap is None:
         # An unreadable snapshot IS the stale-sensor incident: the job cannot see the room,
         # so enforcement is paused for exactly the same reason. It is never a silent no-op.
         print(f"goal-watcher-job: {err} — ENFORCEMENT PAUSED (sensor incident).",
               file=sys.stderr)
         snap = {"seats": [], "captured_at_iso": "?"}
+        tail = sensor_ensure(args, state)
         decisions = [decision("STALE-SENSOR", "team-monitor",
                               "inline fix: restart the sensor (idempotent ensure)", err,
-                              f"python3 {args.team_monitor} ensure --package {args.package}",
+                              f"python3 {args.team_monitor} {' '.join(tail)}",
                               nudge="leader",
-                              fix=(args.team_monitor,
-                                   ["ensure", "--package", str(args.package)]))]
+                              fix=(args.team_monitor, tail))]
         paused = True
         trail = []
-        state = load_state(state_path)
     else:
-        state = load_state(state_path)
         # The seats the DURABLE check-out record is asked about, and only these. Two rows need
         # it and they need it for the SAME question — did this seat check out cleanly:
         #   roster_absent  -> the SHADOW BACKSTOP's without-clean-check-out half

@@ -30,6 +30,17 @@ alignment landed as work-list item B2. What a reader of the older docstrings mus
   observe-only `reap` pass over the awaiting-close debt. `run_inline` is the file's ONE exec door
   and it refuses any program outside `INLINE_FIX_SCRIPTS` — which is what keeps the shadow
   backstop's "no queue door is reachable from here" claim checkable now that the file spawns.
+- **The staleness row's `ensure` carries `--session`, and without it the row could not repair the
+  case it exists for** (task 7.561). team-monitor resolves the room's session from a ROSTER PANE
+  and REFUSES when none resolves (`SessionUnresolved`, `G-296`) — which is exactly a room whose
+  sensor died with its panes. The name is BANKED every pass from the snapshot's own `session`
+  field (`remember_session`) and NEVER derived from the package path, so the arm with no readable
+  snapshot — the dead-room arm — still has one. Both call sites build the argv through
+  `sensor_ensure`, so the remedy text the leader is told to run and the argv the job execs cannot
+  drift apart. A room whose session was never banked degrades to the sessionless call and the
+  failing exit reaches the leader, which is CMP-21 invariant 2's own "a sensor that will not come
+  back is the leader's". Proven end-to-end on a deliberately-built dead room by
+  `probes/probe-dead-room-sensor-session.py`.
 - **The recipient is per DECISION, not per pass.** `--to` now names the **LEADER** seat and takes
   every judgment row; `QUIET` and `CONTEXT` go to the SUBJECT SEAT itself and escalate to the
   leader after `--escalate-after` consecutive unresolved passes.
