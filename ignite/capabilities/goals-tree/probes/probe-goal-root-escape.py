@@ -13,10 +13,13 @@ instead of a live goals package, so an escape defeats the one sandbox this tool 
 what a tool that refuses everything, or that never found the goal, would produce. So every green
 arm has a control:
 
-  - the MUTANT arm (row 3) runs a copy of `goal_cli.py` with `resolve_goal_dir(root, name)` textually
-    reverted to the pre-fix `root / name` and REQUIRES the escape to succeed there — a write landing
-    outside the root, exit 0. If the mutant does NOT escape, this probe is vacuous and exits 2
-    (INOPERATIVE), never 0: an assertion that cannot go red has scored nothing.
+  - the MUTANT arm (row 3) runs a copy of `goal_cli.py` with EVERY `resolve_goal_dir` call site
+    textually reverted to the pre-fix `root / <name>` and REQUIRES the escape to succeed there — a
+    write landing outside the root, exit 0. If the mutant does NOT escape, this probe is vacuous
+    and exits 2 (INOPERATIVE), never 0: an assertion that cannot go red has scored nothing. Row 3
+    also counts CALL SITES against MUTATED sites and refuses to proceed unless they match, so a
+    call site written in a textual form the mutation cannot reach cannot silently shrink the
+    guard (see `CALL_SITE_RE` / `MUTATE_RE`).
   - the POSITIVE arm (row 4) requires an ordinary in-root goal name to still lint and materialize,
     so the refusal is discriminating rather than a blanket ban.
 
@@ -30,6 +33,7 @@ broken · 2 = INOPERATIVE (could not run, or the red control did not go red).
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -43,17 +47,39 @@ HERE = Path(__file__).resolve().parent
 TOOL = HERE.parent / "tool" / "goal_cli.py"
 OUT = HERE / "probe-goal-root-escape.out"
 
-# The pre-fix expression and the fixed call, as they appear on disk. The mutant is built by
-# replacing the second with the first — so if the fix is ever reshaped, the mutation stops applying
-# and row 3 turns this probe INOPERATIVE rather than quietly green.
-FIXED_CALLS = (
-    "goal_dir = resolve_goal_dir(root, name)",
-    "goal_dir = resolve_goal_dir(root, args.goal_name)",
-)
-PREFIX_CALLS = (
-    "goal_dir = root / name",
-    "goal_dir = root / args.goal_name",
-)
+# The mutation, as a FORM rather than as literals. `CALL_SITE_RE` counts every `resolve_goal_dir`
+# CALL in the landed source (its definition excluded); `MUTATE_RE` is the subset the mutant can
+# actually revert to the pre-fix `root / <name>`. Row 3 requires those two counts to be EQUAL and
+# nonzero.
+#
+# WHY IT COUNTS CALL SITES AND NOT PATTERNS (task 7.576): the earlier form held two literal
+# strings and asserted `applied == 2` — but `goal_cli.py` carries FIVE call sites in THREE textual
+# forms (`resolve_goal_dir(root, name)` · `(root, args.goal_name)` · `(root, goal_name)`), so
+# `applied == 2` was satisfied while a whole form went unmutated. A future call site in that
+# unmutated form, inside a verb rows 1–2b score, would have shrunk this guard with no signal —
+# the same failure class this probe itself recovered from, one level down. Counting the calls in
+# the source makes the shortfall unmissable.
+#
+# The census is WHOLE-FILE on purpose: which verbs this probe scores is a judgement, and gating
+# the count on that judgement re-introduces the silence. If this ever fires on a call site that
+# genuinely must not be mutated, widen `MUTATE_RE` or record the exclusion HERE, on the probe,
+# with its reason — never let it pass silent.
+#
+# ⚠ WHAT THE CENSUS CANNOT SEE — the residual, MEASURED and RECORDED rather than guarded (§2
+# review of 7.576). Both regexes key on the literal text `resolve_goal_dir(`, so an INDIRECT
+# callee is invisible to BOTH of them: the two counts stay EQUAL and the shortfall passes
+# SILENTLY, exit 0. Measured on scratch copies: an alias binding (`_rgd = resolve_goal_dir` …
+# `_rgd(root, name)`) and a lookup callee (`globals()["resolve_goal_dir"](root, name)`) each
+# moved sites 5→4 AND applied 5→4 — 20/20 green, nothing reported. Every DIRECT form does trip
+# INOPERATIVE (each measured `4 of 5`, exit 2): a multiline call, keyword arguments
+# (`root=root`), a first argument that is not literally `root`, and a nested argument expression
+# (`str(name)`). It is stated instead of widened because a bare-name regex would fire on the
+# comment in `goal_cli.py` that merely NAMES this function, and every call in that file is
+# direct. IF AN INDIRECT CALLEE IS EVER INTRODUCED, add its form to both regexes by hand — this
+# census cannot warn you about it.
+CALL_SITE_RE = re.compile(r"(?<!def )resolve_goal_dir\(")
+MUTATE_RE = re.compile(r"resolve_goal_dir\(root, ([A-Za-z_][A-Za-z0-9_.]*)\)")
+MUTATE_SUB = r"root / \1"
 
 RESULTS = []
 INOPERATIVE = []
@@ -186,6 +212,29 @@ def main() -> int:
                   "escapes --root" in se and "finding(s)" not in so,
                   f"stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
 
+        # ── 2b. gate-key-check (the OTHER read verb) — SCORED, not assumed ─────────────────────
+        #
+        # `gate_key_check(root, goal_name, …)` is the third textual form, and until task 7.576 it
+        # was a guarded call site with no arm at all: nothing here distinguished "guarded" from
+        # "unguarded", and silence reads exactly like the defect. It is scored rather than
+        # excluded. It writes nothing without `--override`, which is never passed here.
+        #
+        # WHICH CALL SITE EACH ARM ACTUALLY SCORES, measured by reverting ONE site at a time to
+        # the pre-fix `root / <name>` (§2 review of 7.576): `lint_goal` → rows 2 (2 arms red) ·
+        # `gate_key_check` → rows 2b (2 arms red) · `cmd_materialize` → rows 1 (5 arms red).
+        # TWO censused call sites carry NO arm and turn nothing red: `cmd_branch_home`, and the
+        # `--override` branch of `cmd_gate_key_check` (that branch WRITES, so this probe never
+        # passes the flag). Recorded rather than left silent — they are still CENSUSED, so the
+        # mutation must still reach them; an arm for either is a separate task, never an
+        # assumption of coverage.
+        for label, name in (("absolute path", abs_name), ("`..` traversal", dots_name)):
+            rc, so, se = run(TOOL, ["--root", str(root), "gate-key-check", name,
+                                    "--pass-folder", "pass-1"])
+            check(f"2b.{label} — gate-key-check exits nonzero", rc != 0, f"exit={rc}")
+            check(f"2b.{label} — gate-key-check refuses instead of checking outside the root",
+                  "escapes --root" in se and "gate-key-check pass-1" not in so,
+                  f"stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
+
         # ── 3. THE RED CONTROL — the pre-fix code MUST escape, or rows 1-2 score nothing ───────
         #
         # THE MUTANT MUST SIT AT THE TOOL'S OWN DEPTH. `goal_cli.py` resolves the `after`-member
@@ -206,18 +255,25 @@ def main() -> int:
         mutant.parent.mkdir(parents=True)
         (mut_root / "team-kit").symlink_to(TOOL.resolve().parents[3] / "team-kit")
         src = TOOL.read_text(encoding="utf-8")
-        mutated = src
-        applied = 0
-        for fixed, prefix in zip(FIXED_CALLS, PREFIX_CALLS):
-            if fixed in mutated:
-                mutated = mutated.replace(fixed, prefix)
-                applied += 1
-        if applied != len(FIXED_CALLS):
+        sites = len(CALL_SITE_RE.findall(src))
+        mutated, applied = MUTATE_RE.subn(MUTATE_SUB, src)
+        # NAME the offending lines: "4 of 5" alone sends the next agent hunting through the file
+        # for the one call the mutation could not reach.
+        unreached = [f"{TOOL.name}:{i}: {ln.strip()}"
+                     for i, ln in enumerate(src.splitlines(), 1)
+                     if CALL_SITE_RE.search(ln) and not MUTATE_RE.search(ln)]
+        if sites == 0 or applied != sites:
             inoperative(
-                "3. mutation applies to the landed source",
-                f"only {applied}/{len(FIXED_CALLS)} guarded call sites matched — the fix has been "
-                "reshaped and this probe's red control no longer bites; rows 1-2 are therefore "
-                "unproven, not green",
+                "3. the mutation reaches EVERY resolve_goal_dir call site",
+                f"{applied} of {sites} `resolve_goal_dir` call sites in {TOOL.name} were reverted "
+                "to the pre-fix form (the counts must MATCH and be nonzero) — a call site the "
+                "mutation cannot reach, or a source carrying none at all, means this probe's red "
+                "control no longer bites every guarded path; rows 1-2b are therefore unproven, "
+                "not green. Widen MUTATE_RE to the new call form, or record the exclusion and its "
+                "reason on this probe. UNREACHED: "
+                + ("; ".join(unreached) if unreached
+                   else "no line matched CALL_SITE_RE at all — the source carries no direct "
+                        "`resolve_goal_dir(` call, so there is nothing left to mutate"),
             )
         else:
             mutant.write_text(mutated, encoding="utf-8")
@@ -249,6 +305,14 @@ def main() -> int:
         rc, so, se = run(TOOL, ["--root", str(root), "lint", "inside-goal"])
         check("4. an in-root goal is LINTED, not refused as an escape",
               "escapes --root" not in se and "goal-lint inside-goal" in so,
+              f"exit={rc} stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
+        # gate-key-check's own positive control: it refuses row 2b's names for the ESCAPE, not
+        # because it refuses every name. (It still exits nonzero here — no run compartment — so
+        # the discriminating property is the absence of the escape refusal, not the exit code.)
+        rc, so, se = run(TOOL, ["--root", str(root), "gate-key-check", "inside-goal",
+                                "--pass-folder", "pass-1"])
+        check("4. an in-root goal is not refused by gate-key-check as an escape",
+              "escapes --root" not in se and "escapes --root" not in so,
               f"exit={rc} stdout={so.strip()[:200]} stderr={se.strip()[:200]}")
 
     failures = [lbl for ok, lbl in RESULTS if not ok]
