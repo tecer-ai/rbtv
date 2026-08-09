@@ -57,6 +57,7 @@ that first (`chat-bridge.js` `routeOf`):
 |---------|-------|-----------------|
 | **DM** to the bot (`channel_type: 'im'`) | **master** traffic — cold contact, unchanged by the ruling. A DM has no goal, so it can never be attributed to one. | the Slack thread `channel:thread_ts` |
 | Message in a **mapped goal channel** | **goal** traffic | the **channel id** — the goal thread IS the channel; sharding by `thread_ts` would split one goal thread into many |
+| Reply inside a thread of a mapped goal channel that **this bridge anchored for a named agent** | **agent** traffic (*thread per agent*, ratified 2026-08-09) — homed at that agent's own seat | the Slack thread `channel:thread_ts`. The ONE admitted exception to the row above, and it does not weaken it: the thread exists only because that agent opened it. An **unknown** thread in a goal channel is still **goal** traffic |
 | Message **mentioning the bot** (`<@BOTID>`) in an **unmapped** channel or group | **master** traffic (the *mention route*, owner ruling 2026-08-06). A mention **MINTS** the conversation. Replies always post **in-thread**, so each thread is its own parallel sitting and a new thread is a new sitting. | the Slack thread `channel:thread_ts` |
 | An **unmentioned** message in an unmapped channel whose thread **already is a conversation** (`threadMap.has(channel:thread_ts)`) | **master** traffic — membership **CONTINUES** the sitting (it takes the follow-up leg). | the same Slack thread `channel:thread_ts` |
 | An **unmentioned** message in a channel mapping to no goal and to no known conversation, or a group DM (`mpim`) | **refused**, nothing enqueued | — |
@@ -137,6 +138,83 @@ the answer lands (chat-bridge.js § pending marker). Without it every reaction c
 one info line is logged for the whole run, and nothing else changes: message handling and
 reply delivery never read the result.
 
+## Thread per agent in a goal channel (ratified 2026-08-09) — `chat-bridge.js` + `bus-ferry.js`
+
+An agent that needs the owner gets its **own Slack thread in its goal's channel**; the first
+message of that thread states which agent is talking, and the owner's reply **in that thread
+reaches that agent** — with **no LLM in the middle**. The whole store is one map in the bridge:
+
+| | |
+|---|---|
+| **Key** | `<goalId>#<agent>` → `{ threadTs }`. **Never a run id** — an agent's conversation with the owner is not a property of the run it started in, and the goals layout moves under it. |
+| **The channel is NOT stored** | resolved at use time via `goalChannels.channelForGoal(goalId)`, so a channel re-adoption cannot leave a stale id here. The map holds the one fact only Slack can tell us: which **thread** is this agent's. |
+| **Persistence** | additive `agentThreads` key in the existing `state_file`; `version` stays `1`. Losing the map would orphan every open thread — the owner's reply would be handled as ordinary goal traffic by the goal-master. |
+
+**Outbound (agent → owner).** For every gated `to: owner` row the ferry calls the bridge's
+`routeToAgentThread`. No thread yet for that `(goal, agent)` → the row is posted **top-level**
+and *that post is the thread anchor*, its header led by the agent's name
+(`*🧵 <agent>* — <goal> · <type> · #<id>`). A thread already exists → the row is a **reply** on
+it. **No sitting is minted by any of this**: the agent already exists and is homed at its seat;
+a sitting is minted only when the *owner* replies. When the goal has **no channel at all** the
+call returns `no-channel` and the ferry falls back to the **owner DM** leg unchanged — a row
+must not be lost over a channel that was never created. Any *other* post failure takes the
+ferry's normal bounded retry, so a rate limit is never silently downgraded to another surface.
+
+**Inbound (owner → agent).** `routeOf` resolves `kind: 'agent'` and `forward-path.js` homes the
+session at **that agent's seat** (`resolveGoalSeat(workspaceRoot, goalId, agent)`) on the
+**goal** profile: a new conversation is a `session-create` there — which **revives** the seat
+headless with the owner's reply as its bare prompt — and an existing one is the unchanged
+`send-message` follow-up on the chain the seat already holds. If a live turn still holds that
+seat, the daemon's idempotent door suppresses the create and the owner gets the existing
+seat-busy notice; if the seat is **gone** (its run closed, or it was never materialized under
+the currently-open run) nothing is enqueued and the thread gets the fixed notice
+`⚠ that agent's seat is no longer open — its thread can't be answered`.
+
+### The two gates on agent-initiated contact
+
+⚠ **This is the one rung where the ferry's "fail toward delivery" default is deliberately
+REVERSED.** Every other branch routes a row because *nobody read it* — a defect. An agent
+*opening* a conversation at the owner is the opposite kind of thing, so the ratified default is
+**zero pings** and these two declarations are what earn one.
+
+| Gate | Where it is declared | Absent means |
+|------|----------------------|--------------|
+| **1 — the seat is human-interactive** | `human-interactive: yes\|true` in the sending seat's `seat.md` **frontmatter** — the first `---`-fenced block only, so a briefing line in the BODY that quotes the flag cannot open the gate (one file read, memoized per pass) | not human-interactive |
+| **2 — the goal is interactive** | one word in `.rbtv/goals/<goal>/execution-mode` | **`autonomous`** — and so does an unreadable file and any other word. A goal nobody declared reachable is not reachable; the owner flips it when he is |
+
+**A blocked row PARKS ON THE BUS.** It is not re-routed, not downgraded into the owner's DM and
+not swallowed: **nothing is posted anywhere**, the cursor advances because the row was disposed
+of *by policy* (logged, naming which gate), and the durable record is the goal's own escalation
+ladder / `doubts.md` park — where an unanswered escalation already belongs. Flipping the mode
+therefore applies to **future rows only**, by construction; the gate never replays what it
+parked.
+
+**The gates apply to every `to: owner` row** — that address IS agent-initiated contact, so there is no nobody-home precondition. Owner-initiated flows are untouched by
+construction: DMs, mentions, owner replies, and a row answering **into** a thread the owner
+wrote in — the latter carries a `[chat-thread:]` token and takes the return leg *before* either
+gate is read.
+
+### The return leg into a goal channel
+
+A bus row whose `[chat-thread: <channel>:<ts>]` token names a channel that **maps to a goal** is
+posted into that thread **verbatim, minting nothing**. The DM-thread mint exists to give the
+*channel master* a sitting for a row the owner would otherwise triage; a thread inside a goal
+channel is already an agent's conversation, and minting a `kind: 'master'` sitting for it would
+home a channel-master at the master workdir on a goal's surface — exactly the widening the
+`CHAT_THREAD_RE` note in `bus-ferry.js` warns against. A **failed** post there returns the
+failure rather than falling through to the DM leg (which would mint that wrong seat on a
+transient rate limit); the ferry retries it bounded and then gives up loudly, like any other
+undeliverable row.
+
+### The loop, end to end
+
+Agent X posts a bus row `to: owner` → both gates pass → the row anchors
+X's thread in the goal channel (**no sitting**). The owner replies in that thread → `kind:
+'agent'` → a `session-create` at **X's own seat** revives X with the reply as its bare prompt (a
+chain is minted). X's next `to: owner` row → ferried into the **same** thread (the map is keyed
+on `from`). The owner's next reply → a `send-message` **follow-up** on X's chain. No relay LLM
+anywhere; the only sittings are the agents themselves.
+
 ## The forward contract (D104/D105) — `forward-path.js`
 
 One chat thread = one conversation. A message from an admitted principal becomes
@@ -187,6 +265,7 @@ sitting from it — the question returning to its own thread.
 |-----|----------------|
 | master (DM) and mention | `config.workdir`, unchanged |
 | **goal channel** | the goal's **`goal-master` seat**: `<workspace_root>/.rbtv/goals/<goalId>/runs/<open run-id>/seats/goal-master`, resolved per message from that goal's `runs.csv` row with `state=open` |
+| **agent thread** in a goal channel | **that agent's own seat** — the same resolution with the seat name parameterized (`resolveGoalSeat(..., route.agent)`). The owner is answering the seat that asked, so homing the answer anywhere else would need a relay to carry the question back. The name is validated as a seat NAME (it arrives from a bus row's `from:` field, and a traversing token would resolve a dir outside the run — which becomes a session's cwd). Missing seat → nothing enqueued + `⚠ that agent's seat is no longer open — its thread can't be answered` |
 
 If `workspace_root` is unset, `runs.csv` is missing, no run is open, or the
 `goal-master` seat directory does not exist, the bridge enqueues **nothing** and posts
@@ -276,45 +355,57 @@ failed post is logged and dropped, never retried into a loop), and are posted ON
 for mapped conversations — never on an allowlist/pairing refusal (unpaired users get
 nothing, by security posture).
 
-## Bus ferry (`bus-ferry.js`) — coordination bus → the master's seat, whichever one is live
+## Bus ferry (`bus-ferry.js`) — coordination bus → the owner
 
-Run agents answer the master over the team-kit **coordination bus**
-(`<goal>/runs/<run>/coordination/messages.md`). The channel-master's Slack sittings are
-**one-turn headless sessions**, so a bus row addressed to `master` — a leader's ack, a
-question, a blocked report — sat unread until somebody opened the file. The ferry is the
-missing push.
+Run agents raise things a human must answer on the team-kit **coordination bus**
+(`<goal>/runs/<run>/coordination/messages.md`), and a bus row sat unread until somebody opened
+the file — the channel-master's Slack sittings are **one-turn headless sessions**, so nothing
+pushed one anywhere. The ferry is that push, and only that push.
 
-**`master` is an ADDRESS, not a seat name** (owner ruling 2026-08-07). A sender always
-writes `to: master` and never learns which seat received it — the bus resolves the role word
-through `relays:` on the seat descriptors (coord.py `relay_seats`), and the daemon decides
-which of the master's three seats the row reaches. The seat holding the role is `goal-master`
-in a run and may be named otherwise in the next one, so no rung of this module may key on a
-name it hardcodes.
+### The addressing rule (owner ruling `d-agents-address-owner-not-master`, 2026-08-09)
 
-⚠ **But the ferry DOES match the holder seat's own name — because senders drift, measured.**
-Within two hours of that seat being renamed `master` → `goal-master`, the leader was writing
-`to: goal-master` (rows #5585 / #5606 / #5616, 2026-08-07). coord.py delivers those fine — it is
-a real roster name — so nothing looks wrong **while the seat is checked in**, and the moment it
-checks out they reach nobody: no seat reading them, no fallback, nothing in the owner's DM. That
-is the 2026-08-06 failure returning through the new name. So `addressesMaster` matches the role
-token **plus any seat whose descriptor declares it**, resolved lazily (one descriptor read per
-distinct `to:` name, memoized per pass, zero when senders use the role address as they should).
-The convention still stands; it is simply no longer what the fallback depends on.
+The closed rule every agent is taught, verbatim:
+
+> - **initiate → `owner`**
+> - **answer → the asker** (master included)
+> - **else → the seat, by name**
+
+**This ferry carries exactly one of those: `to: owner`.** That token is a NEW RESERVED bus
+address; the ferry matches it comma/space-tolerantly (`owner`, `owner, leader`, `leader owner`),
+and a token that merely CONTAINS the word (`goal-owner`) is a seat name and does not match.
+
+⚠ **`to: master` is NOT a ferry address, and that is the point of the ruling.** A master-addressed
+row from an agent is legal only as an ANSWER to something master sent it, so it is bus traffic
+between seats end to end: it takes the ordinary cursor-advance path here, exactly like a row
+addressed to any other seat, and reaches chat through no leg at all.
+
+**What this DELETED.** The `roleHeldLive` / `seatDeclaresRole` roster machinery is gone —
+`workers.md` liveness reads, `relays:` descriptor reads, holder-name matching, the stand-down
+branch, and the `master` role token itself. It existed to answer *"is anybody home to read this
+`master` row"*, and nobody asks that anymore: an agent-initiated row is addressed to the OWNER,
+and whether it reaches him is the two gates' question, not a roster's. It also existed because the
+role word and the holder's seat name had drifted apart within two hours of a rename (rows #5585 /
+#5606 / #5616, 2026-08-07) — `owner` cannot drift, because it is a **reserved name no seat may
+carry**: `resolveGoalSeat` and the gate-1 reader both refuse it (`owner-is-reserved`), so there is
+no holder to name and no roster to consult.
+
+**Legacy rows.** Existing `to: master` escalations sitting on a bus park like any master row — no
+regression against the ratified autonomous default, which already parked everything owner-bound.
 
 **Scope is one way, deliberately: bus → Slack only.** Slack → bus stays the sittings'
 job. The ferry adds no gateway capability, no store handle, no listener and never writes
 to the bus; it reads workspace files and posts outbound through the transport.
 
-### Where a role-addressed row goes — the two branches
+### Where a row goes — one address, three outcomes
 
-| The run's roster says | The row |
+| The row | Where it goes |
 |---|---|
-| a seat is **checked in** (`workers.md` `active=yes`, last row per agent wins) **and declares `relays: master`** | is **not ferried at all** — that seat's own inbox and wake already deliver it. The cursor still advances: the row was disposed of by a better-placed reader, and re-offering it when that seat checks out would deliver it twice. |
-| **nobody** holds the role — or the roster cannot be read at all | is **routed to the standing `channel master`**: posted to the owner's DM, and that post's own thread is **minted as a sitting** (`chat-bridge.js` `routeBusRowToMaster`), so an agent handles the row and the owner reads the handling instead of triaging the raw row. |
+| `to:` does **not** contain `owner`, and it names no chat thread | **nowhere** — not this ferry's business. The cursor advances because the ferry never had a claim on it; the bus delivers it to seats. |
+| `to: owner`, **gates shut** | **PARKS on the bus.** Nothing posted anywhere — not the goal channel, not the owner's DM — and nothing minted. Logged naming the gate (§ *The two gates on agent-initiated contact*). |
+| `to: owner`, **gates open** | **the sending agent's own thread in the goal channel** (§ *Thread per agent*). Only when that goal has **no channel** does it fall back to the historical leg: posted to the owner's DM with that post's thread **minted as a sitting** (`chat-bridge.js` `routeBusRowToMaster`), so an agent handles the row and the owner reads the handling instead of triaging it. |
 
-**Cannot-tell routes.** A missing roster, an unreadable one and a roster where nobody holds
-the role are one branch, not three: the failure this module exists to fix was a row nobody
-read, so ambiguity always resolves toward delivery.
+A row carrying a `[chat-thread:]` token is none of the three: it is an ANSWER into a thread the
+owner wrote in, so it is read **before** the gates and travels with both of them shut.
 
 **The minted sitting is why the owner can reply at all.** `sendToOwner` already returns the
 post's `ts`; the bridge keys the conversation `<dmChannel>:<ts>`, which is exactly the id
@@ -334,9 +425,9 @@ text authored here; the 2026-08-06 bare-prompt ruling is untouched.
 
 **How it runs.** Every ~15 s (an `unref`'d, re-entrancy-guarded timer, the reply leg's
 pattern) it enumerates `<workspace_root>/.rbtv/goals/*/runs.csv` rows with `state=open`,
-reads each run's `messages.md`, and posts every new row whose `to:` field contains the
-token `master` (comma/space tolerant; `goal-master` does **not** match) to the owner's
-DM. The DM channel is resolved once at start via `conversations.open`
+reads each run's `messages.md`, and routes every new row whose `to:` field contains the
+token `owner` (comma/space tolerant; `goal-owner` does **not** match) — to that agent's thread,
+or to the owner's DM when the goal has no channel. The DM channel is resolved once at start via `conversations.open`
 (`slack-socket-mode.js` `openDm`); **failure fails closed** — loud log, ferry disabled,
 rest of the bridge untouched.
 
@@ -365,10 +456,10 @@ Bodies over ~3000 chars are cut at a **line boundary** and end
 | File | Role |
 |------|------|
 | `index.js` | process entry + `buildBridge()` composition |
-| `chat-bridge.js` | wires transport + allowlist + thread-map + forward-path + reply-leg; inbound + outbound |
+| `chat-bridge.js` | wires transport + allowlist + thread-map + forward-path + reply-leg; inbound + outbound; owns the reply addresses and the `(goal, agent)` → thread map |
 | `forward-path.js` | the D104/D105 forward contract (session-create / follow-up / reply type) |
 | `reply-leg.js` | the D110 outbound driver: worker turn finishes → fetch its answer via `inspect` → `deliverToOwner` into the Slack thread |
-| `bus-ferry.js` | the bus ferry: coordination-bus rows addressed to the `master` ROLE → the live role-holding seat (stand down) or the channel master (post + mint a sitting). One way; cursor-at-tail, persisted |
+| `bus-ferry.js` | the bus ferry: coordination-bus rows addressed `to: owner` → through the two gates on agent-initiated contact → the sending agent's own thread in the goal channel, else the channel master (post + mint a sitting); everything else, `to: master` included, is not its business. One way; cursor-at-tail, persisted |
 | `slack-socket-mode.js` | Slack Socket Mode transport (outbound WS + chat.postMessage) |
 | `allowlist.js` | chat-user allowlist + DM pairing (admission control) |
 | `thread-map.js` | chat-thread ↔ turn-chain map + two-tier chain-thread resolution (live_sessions, else the `exec-<first exec_id>` convention derivation; first-wins immutable exec-id) |
@@ -403,9 +494,12 @@ somewhere arbitrary.
 ### Conversation state across restarts — `state_file` (owner ruling 2026-08-06)
 
 The bridge runs as a systemd unit with `Restart=on-failure`, so restarts happen
-unattended. Set `state_file` to an **absolute** path and the two conversation tables —
-the **thread map** (`queueId` / `sessionExecId` / `chainThread` / `pendingAsk`) and the
-**reply-address map** (conversation → `{ channel, threadTs }`) — survive one.
+unattended. Set `state_file` to an **absolute** path and the conversation tables survive one:
+the **thread map** (`queueId` / `sessionExecId` / `chainThread` / `pendingAsk`), the
+**reply-address map** (conversation → `{ channel, threadTs }`), the ferry's per-run
+**cursors**, and the **agent threads** (`<goalId>#<agent>` → `{ threadTs }`). The last two are
+**additive keys** — `version` stays `1`, so a version-1 loader that knows neither reads the file
+exactly as before.
 
 | Property | Behaviour |
 |----------|-----------|
@@ -449,8 +543,9 @@ graded for staleness (`ignite/CLAUDE.md` § probes). Evidence → `probe-chat-<n
 | `probe-chat-reply-leg` | #4 | the D110 driver, armed through the REAL inbound wiring (Slack event → forward path → arm): spawn captured from `recent_ticks` → `live:false` → LAST stream-json result line extracted (multi-page logs paged to the end) → posted to the conversation's channel+thread, text-EQUAL to the result string; no-result log delivers the fixed fallback (never the raw log); no exec delivered twice; a follow-up turn (new exec, same queue) delivers a second reply; a transient logs failure or refused post is retried (nothing burned), persistent failure retires the exec undelivered at a bounded attempt cap AND posts the honest give-up notice (D111 part 2) |
 | `probe-chat-mention-route` | — | the 2026-08-06 rulings: a mention in an unmapped channel routes as master with a thread-scoped conversation and an in-thread reply address; an unmentioned (or someone-else-mentioning) message there stays refused with nothing enqueued; `mpim` stays refused even when mentioned; a failed `auth.test` DISABLES the mention route while the DM path keeps working; a goal session-create is homed at the open run's `goal-master` seat; each of the four unresolvable-seat states (no open run · run open but unseated · goal absent · `workspace_root` unset) enqueues nothing and posts the fixed no-seat notice; every session-create prompt equals the user text verbatim; the runtime source carries no instance path and no `MASTER_CHARTER`; and the **mint-vs-continue** rule — a mention mints, an un-mentioned reply in a KNOWN thread continues as a follow-up `send-message`, while an unknown thread, a top-level message, and the same `thread_ts` in another channel each stay refused with nothing enqueued |
 | `probe-chat-state-persistence` | — | the 2026-08-06 `state_file` ruling, modelled as a real restart (a SECOND `buildBridge` on the same file, fresh maps, the same still-running daemon): a mutation writes the file (0600, directory created) carrying BOTH tables; the restarted bridge starts empty, restores at `start()`, and an **un-mentioned reply in the restored thread CONTINUES** — the owner's amnesia repro, now green — with the restored reply address still addressing the original channel+thread; the CONTROL run with no `state_file` refuses that same reply; with no `state_file` **nothing is written anywhere** (asserted against an empty cwd); a corrupt file is renamed aside `.corrupt-<ts>`, logged at `error`, starts EMPTY without crashing, and still mints and re-persists afterwards; `closeGoal`'s reply-address DELETE is persisted; a relative `state_file` is refused at config resolution while unset stays `null` |
-| `probe-chat-bus-ferry` | — | the bus ferry: a 50-row `to: master` backlog is NOT ferried at first sight and the cursor lands at the tail; a row appended after IS ferried once with the exact header; `to: leader` is ignored while `to: master, leader` ferries and `goal-master` does not; an over-long body truncates at a line boundary naming the workspace-relative source; a torn trailing row is left unposted until it completes; malformed headers warn once then drop to debug without stopping the rows around them; a failed post is retried without advancing the cursor and without letting the next row jump it, then is skipped loudly at the attempt cap leaving the ferry UNWEDGED; the cursor survives a real restart (second `buildBridge`, same `state_file` → no double-post, no re-flood) with the state file EXTENDED not restructured; a `state=closed` run is never enumerated; and the fail-closed set — off by default, on-without-`workspace_root`, and a failed `conversations.open` — each disables the ferry loudly while the bridge starts fine. **The 2026-08-07 role route:** a LIVE roster seat declaring `relays: master` stands the ferry down with nothing posted and the cursor advanced, while the same seat CHECKED OUT routes and a LIVE seat with NO `relays:` declaration also routes (so the decision reads the DECLARATION, not "some seat is alive" — the fixture seat is named `goal-master`, a name the `to:` matcher does not match, so keying on the name fails these legs); with no holder the post MINTS a sitting whose session-create prompt equals the posted row byte-for-byte, the conversation is keyed on the post's own `ts`, and an un-mentioned reply in that thread CONTINUES it as a `send-message` on the row's own chain instead of minting a second session; an ABSENT roster routes. Every leg mutation-tested (3 mutations, 3 red on exactly their own legs). **The 7.546 birth route:** a run enumerated open with NO `messages.md` yet takes no cursor on that pass and its FIRST row is then ferried on the very pass that reads it, while a run first seen WITH a 40-row backlog — in the same workspace, on the same passes — keeps the tail rule and ferries none of it; plus the one check no fixture can make, that a standing correspondent of the LIVE workspace declares BOTH `addressable: non-member` and `relays: master`, resolved by walking up from the probe. It SKIPS on exactly one condition — **no readable goals tree at all** (this repo checked out with no workspace around it); a workspace that HAS a goals tree and no addressable door is the dead route itself and REDS. Both halves are mutation-proven at the full check count, never degrading to a skip: removing `relays:`, removing `addressable: non-member`, and deleting the descriptor outright each flip it red |
-| `probe-chat-dedup-refusal` | — | **two threads at ONE seat** — the coverage no other probe here had (each drives one conversation, and the whole defect lives in the second). Against the REAL door (throwaway daemon, thread A's row FIRED so a live turn genuinely holds the seat): a suppressed session-create writes **no** thread mapping, is never reported as a queued success, posts the seat-busy notice to *that* thread, and carries the undelivered text on `undeliveredText` — proven on BOTH shared-seat derivations, `config.workdir` (master) and `resolveGoalMasterSeat` (goal). The review's control is re-measured (thread A's text in the store, thread B's nowhere); the first thread's follow-up leg still enqueues, which is also the **tolerance sweep** — `send-message` is the only other bridge-side reader of an enqueue response and the door never keys it. RED ARM: a scratch copy of `forward-path.js` with the guard cut out — the pre-fix code exactly — maps the new thread to the held queue id and posts nothing, and the mutation is asserted to have altered the source first. NO-REGRESSION ARM (§2 review): the guard fires on `deduped` being TRUE, never on the field being present — a bare `{jobId}` (the shape the pre-door daemon running today returns) and an explicit `deduped:false` each map normally and post no notice, so the fix cannot break the deployment it ships onto |
+| `probe-chat-bus-ferry` | — | the bus ferry: a 50-row `to: owner` backlog is NOT ferried at first sight and the cursor lands at the tail; a row appended after IS ferried once with the exact header; the token grammar — `to: leader` ignored, `to: owner, leader` ferried, `goal-owner` NOT; **the ruling's red/green pair** — a `to: master` row is NEVER ferried while a `to: owner` row from the SAME seat on the SAME pass is; an over-long body truncates at a line boundary naming the workspace-relative source; a torn trailing row is left unposted until it completes; malformed headers warn once then drop to debug without stopping the rows around them; a failed post is retried without advancing the cursor and without letting the next row jump it, then is skipped loudly at the attempt cap leaving the ferry UNWEDGED; the cursor survives a real restart (second `buildBridge`, same `state_file` → no double-post, no re-flood) with the state file EXTENDED not restructured; a `state=closed` run is never enumerated; the fail-closed set — off by default, on-without-`workspace_root`, and a failed `conversations.open` — each disables the ferry loudly while the bridge starts fine; **the DM half of the owner leg** — a goal with no channel still posts to the DM, MINTS a sitting whose session-create prompt equals the posted row byte-for-byte behind the one correlation line, keys the conversation on the post's own `ts`, and an un-mentioned reply there CONTINUES it as a `send-message` on the row's own chain instead of minting a second session; **the 7.546 birth route** — a run enumerated open with NO `messages.md` yet takes no cursor on that pass and its FIRST row is then ferried on the very pass that reads it, while a run first seen WITH a 40-row backlog — same workspace, same passes — keeps the tail rule and ferries none of it. ⚠ **Two arms were DELETED with the machinery they tested** (`d-agents-address-owner-not-master`): the roster stand-down / holder-by-name legs, and the live-descriptor arm that required a standing correspondent to declare `relays: master` — the ferry now reads neither a roster nor `relays:`. The live tree is still MEASURED in their place and filed as a SKIP (goals declaring `execution-mode: interactive`), for the reviewer to turn into an assertion once the F-115 mints land — asserting it today would red the suite for work deliberately not done |
+| `probe-chat-dedup-refusal` | — | **two threads at ONE seat** — the coverage no other probe here had (each drives one conversation, and the whole defect lives in the second). Against the REAL door (throwaway daemon, thread A's row FIRED so a live turn genuinely holds the seat): a suppressed session-create writes **no** thread mapping, is never reported as a queued success, posts the seat-busy notice to *that* thread, and carries the undelivered text on `undeliveredText` — proven on BOTH shared-seat derivations, `config.workdir` (master) and `resolveGoalSeat` (goal). The review's control is re-measured (thread A's text in the store, thread B's nowhere); the first thread's follow-up leg still enqueues, which is also the **tolerance sweep** — `send-message` is the only other bridge-side reader of an enqueue response and the door never keys it. RED ARM: a scratch copy of `forward-path.js` with the guard cut out — the pre-fix code exactly — maps the new thread to the held queue id and posts nothing, and the mutation is asserted to have altered the source first. NO-REGRESSION ARM (§2 review): the guard fires on `deduped` being TRUE, never on the field being present — a bare `{jobId}` (the shape the pre-door daemon running today returns) and an explicit `deduped:false` each map normally and post no notice, so the fix cannot break the deployment it ships onto |
+| `probe-chat-agent-thread` | — | **thread per agent** (ratified 2026-08-09), gates first: the gate readers in isolation — an **absent** `execution-mode` file, an unreadable one and a junk word are ONE answer (`autonomous`) while only `interactive` (trimmed, case-insensitive) is the other; `yes`/`true` declare a seat, `no` / a missing line / a missing descriptor do not; a traversing `from:` token resolves nothing. Then the ferry: a row PARKS on either gate with **nothing posted to the goal channel AND nothing to the owner DM**, nothing minted, cursor advanced, the log naming the gate — each park **paired with the same row travelling once its own gate opens**, so "not posted" can never pass for "this ferry ferries nothing". The thread: the first row **anchors** top-level with the agent-led header and is recorded on the `(goal, agent)` key (no run id), mints **no** sitting and posts **nothing** to the DM; the same agent's next row replies on the **same** `threadTs` while a different agent anchors its own; a goal with **no channel** falls back to the DM leg and mints the channel-master sitting as before. Inbound: a reply in an anchored thread routes `kind: 'agent'` while an unknown thread and an unthreaded message stay `kind: 'goal'` on the channel, and the same `thread_ts` in an unmapped channel is nothing; the owner's reply mints a session-create **homed at the asking seat** on the goal profile with the prompt equal to his bare text behind the one correlation line, and a second reply is a **follow-up** on that chain (never a second session); an agent whose seat has LEFT gets nothing enqueued and the fixed no-agent-seat notice **in its own thread**. The return leg posts a goal-channel-token row into that thread **verbatim with nothing minted**, and does so **with both gates shut** (owner-initiated legs are never gated), with a CONTROL proving a DM-thread token still mints. State: the map is persisted **additively** (version 1, `threads` + `replyAddr` + `busFerry` all still present), a fresh bridge holds none before `start()`, restores at `start()`, and routes a pre-restart thread's reply to the AGENT. the ruling's own pair — a `to: master` row reaches NOTHING with the gates OPEN *and* with them shut, where the discriminator is the DISPOSITION (an owner row PARKS and is logged; a master row was never this ferry's business and is not), plus `owner` refused as a seat name by BOTH readers and gate 1 scoped to the frontmatter so a body line cannot open it. **13 MUTATION ARMS RUN BY THE PROBE ITSELF** (arm 11, the `probe-chat-dedup-refusal` scratch-copy pattern scaled to the tree): each copies `bridges/chat` beside itself, strips the copied `probe-*` scripts so suite discovery can never see it, applies ONE asserted single-string mutation, and requires the copy to go red on exactly the named claims — gates removed · owner token is `master` · every address ferried · gate 1 unscoped · `owner` un-reserved in each of the two readers · absent mode read as interactive · agent-thread leg not tried · header not agent-led · `routeOf` agent branch removed · return-leg guard removed · `agentThreads` not persisted · agent homed at `goal-master`. A CONTROL copy runs UNMUTATED and must be green **at the same check count as the parent run**, so a red can never be the copy being broken and a silently shrunken arm count is caught; a mutant child is marked by env so it runs the checks and not the harness (else mutants spawn mutants forever) |
 | `probe-chat-boundary` | #5 | bridge source holds no spawn/queue handle, opens no server, imports no sibling |
 | `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; **exec KNOWN but NOT live → derives `exec-<firstExecId>`** (D111 convention fallback); **first-exec immutability** (a later exec-id bind is ignored); **exec-id-unknown DECLINES** (nothing enqueued) and posts the exact decline notice to the mapped thread while an allowlist-refused user gets nothing; a failed notice post is logged and dropped (no retry loop) |
 

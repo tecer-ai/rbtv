@@ -74,12 +74,36 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // same "the row IS delivered either way" discipline the post-first path already keeps.
   async function routeBusRowToMaster({ channel, text, chatThread = null }) {
     if (chatThread) {
+      const cut = chatThread.lastIndexOf(':');
+      const tokenChannel = cut > 0 ? chatThread.slice(0, cut) : null;
+      const tokenThreadTs = cut > 0 ? chatThread.slice(cut + 1) : null;
+      // ⚑ A GOAL CHANNEL'S THREAD TAKES THE ROW VERBATIM AND MINTS NOTHING (ratified
+      // 2026-08-09). The mint below exists to give the CHANNEL MASTER a sitting that can handle
+      // a row the owner would otherwise have to triage. A thread inside a GOAL channel is
+      // already an agent's conversation with the owner: the row is that agent's own answer, and
+      // minting a `kind: 'master'` sitting for it would home a channel-master at the master
+      // workdir on a goal's surface — precisely the widening the CHAT_THREAD_RE note in
+      // bus-ferry.js warns against. So this posts and returns; nobody new is seated.
+      //
+      // ⚑ A FAILED POST RETURNS THE FAILURE — it does NOT fall through to the DM leg below.
+      // Falling through would mint exactly the wrong seat on a transient rate limit. The ferry
+      // owns this failure: it retries the row next pass, bounded, then gives up loudly with the
+      // cursor advanced, which is the same discipline every other undeliverable row gets.
+      const tokenGoalId = tokenChannel && goalChannels ? goalChannels.goalForChannel(tokenChannel) : null;
+      if (tokenGoalId) {
+        const intoThread = await transport.sendToOwner({ channel: tokenChannel, threadTs: tokenThreadTs, text });
+        if (intoThread && intoThread.delivered) {
+          log('info', 'bus row posted verbatim into its goal-channel thread — no sitting minted', { chatThreadId: chatThread, goalId: tokenGoalId });
+          return intoThread;
+        }
+        log('warn', 'bus row could NOT be posted into its goal-channel thread — the ferry retries it (no master sitting minted on a goal channel)', { chatThreadId: chatThread, goalId: tokenGoalId, error: intoThread && intoThread.error });
+        return intoThread || { delivered: false, reason: 'post-failed' };
+      }
       // The reply leg posts by CHAT THREAD ID, so a thread this process has never seen (a
       // bridge restart, or the first return row of a conversation minted before the state
       // file existed) needs its reply address derived. `<channel>:<ts>` is the id's grammar.
-      if (!replyAddr.has(chatThread)) {
-        const cut = chatThread.lastIndexOf(':');
-        if (cut > 0) replyAddr.set(chatThread, { channel: chatThread.slice(0, cut), threadTs: chatThread.slice(cut + 1) });
+      if (!replyAddr.has(chatThread) && tokenChannel) {
+        replyAddr.set(chatThread, { channel: tokenChannel, threadTs: tokenThreadTs });
       }
       const back = await forwardPath.forwardSessionCreate({
         chatThreadId: chatThread, text, route: { kind: 'master', goalId: null },
@@ -116,6 +140,82 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     return posted;
   }
 
+  // ── THREAD PER AGENT IN A GOAL CHANNEL (ratified 2026-08-09) ─────────────────
+  //
+  // An agent that needs the owner gets its OWN Slack thread in its goal's channel, and the
+  // owner's reply in that thread reaches THAT agent. This map is the whole store: key
+  // `<goalId>#<agent>`, value the thread's anchor `ts`.
+  //
+  // ⚑ THE CHANNEL IS NEVER STORED HERE, deliberately. `goalChannels` re-derives every
+  // goal↔channel binding from Slack at each start (name-derivation is a bijection), so a
+  // channel id cached beside the thread would be a SECOND answer to "which channel is this
+  // goal" — stale the moment a channel is re-adopted, and unfalsifiable from this side. The
+  // map holds the one fact only Slack can tell us: WHICH THREAD in that channel is this
+  // agent's.
+  //
+  // ⚑ NO RUN ID IN THE KEY, and that is a load-bearing choice: the goals layout is mid-rewrite
+  // elsewhere, and an agent's conversation with the owner is not a property of the run it
+  // happened to start in. (goal, agent) is the identity the owner recognizes.
+  //
+  // ⚑ PERSISTED ADDITIVELY, `STATE_VERSION` unchanged — same discipline as the ferry's
+  // cursors: a version-1 loader that knows nothing of agent threads reads the file exactly as
+  // before and ignores the key.
+  const agentThreads = new Map(); // `<goalId>#<agent>` -> { threadTs }
+  const agentKey = (goalId, agent) => `${goalId}#${agent}`;
+
+  function agentThreadFor(goalId, agent) {
+    const e = agentThreads.get(agentKey(goalId, agent));
+    return e ? e.threadTs : null;
+  }
+
+  // The reverse lookup, by ITERATION on purpose: entries are one per (goal, agent) that has
+  // actually spoken to the owner — a handful — so a second index would be state to keep
+  // consistent in exchange for nothing measurable.
+  function agentForThread(goalId, threadTs) {
+    const prefix = `${goalId}#`;
+    for (const [k, v] of agentThreads) {
+      if (k.startsWith(prefix) && v && String(v.threadTs) === String(threadTs)) return k.slice(prefix.length);
+    }
+    return null;
+  }
+
+  // WHERE A GATED AGENT-INITIATED ROW GOES (the ferry's `routeToAgentThread`). First row for a
+  // (goal, agent) posts TOP-LEVEL — that post IS the thread anchor, and its first line names the
+  // agent (bus-ferry.js `formatMessage` § agentLead). Every later row replies on that anchor.
+  //
+  // ⚑ NO SITTING IS MINTED HERE. The row is the agent's own message; the agent already exists
+  // and is homed at its seat. A sitting is minted only when the OWNER replies — and it is minted
+  // AT THAT AGENT'S SEAT (forward-path.js § kind 'agent'), which is what makes the reply reach
+  // the asker instead of some relay.
+  //
+  // ⚑ NO CHANNEL → `no-channel`, never a post somewhere else. The ferry reads that one reason
+  // and falls back to the owner DM, so the decision "is a missing channel worth a lost row"
+  // lives in one place (there) instead of being taken twice.
+  async function routeToAgentThread({ goalId, agent, text }) {
+    const channel = goalChannels ? goalChannels.channelForGoal(goalId) : null;
+    if (!channel) return { delivered: false, reason: 'no-channel' };
+    const known = agentThreadFor(goalId, agent);
+    const posted = await transport.sendToOwner({ channel, threadTs: known, text });
+    if (!posted || !posted.delivered) return posted || { delivered: false, reason: 'post-failed' };
+    const threadTs = known || posted.ts;
+    if (!threadTs) {
+      // Delivered but unthreadable. The row IS in the channel — keep the delivery — and record
+      // NOTHING: binding this agent to a missing ts would key a thread the owner cannot reply
+      // into, while recording nothing means the next row anchors a real one.
+      log('warn', 'agent-thread anchor posted but Slack returned no ts — no thread recorded', { goalId, agent, channel });
+      return posted;
+    }
+    if (!known) {
+      agentThreads.set(agentKey(goalId, agent), { threadTs });
+      log('info', 'agent opened its own owner thread in the goal channel', { goalId, agent, channel, threadTs });
+    }
+    // The reply address for this conversation, so `deliverToOwner` can address the thread later
+    // (the reply leg posts by conversation id and knows no channel).
+    replyAddr.set(`${channel}:${threadTs}`, { channel, threadTs });
+    saveState();
+    return posted;
+  }
+
   const busFerry = createBusFerry({
     workspaceRoot: (config && config.workspaceRoot) || null,
     transport,
@@ -123,6 +223,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     logger,
     onMutate: () => saveState(),
     routeToMaster: (args) => routeBusRowToMaster(args),
+    routeToAgentThread: (args) => routeToAgentThread(args),
     ...busFerryOptions,
   });
 
@@ -143,6 +244,11 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   //              the channel, so the CONVERSATION IS THE CHANNEL — sharding it by
   //              `thread_ts` would split one goal thread into many and break the 1:1
   //              the ruling exists to establish.
+  //   'agent'  — a reply inside a thread of a mapped goal channel that THIS BRIDGE anchored
+  //              for a named agent (ratified 2026-08-09). The ONE admitted exception to the
+  //              rule above, and it does not weaken it: the thread exists only because that
+  //              agent opened it, so the conversation is the thread and it is homed at that
+  //              agent's seat. An unknown thread in a goal channel is still 'goal'.
   //   null     — an UNMENTIONED message in a channel that maps to no goal, in no
   //              already-known conversation thread. REFUSED,
   //              nothing enqueued: unattributable traffic must never mint work. The
@@ -205,6 +311,18 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         return { kind: 'master', goalId: null, conversationId: chatMsg.chatThreadId };
       }
       return null;
+    }
+    // AN AGENT'S OWN THREAD inside a mapped goal channel (ratified 2026-08-09) — 'agent'
+    // traffic: the conversation is the Slack thread, and it is homed at THAT AGENT's seat.
+    //
+    // ⚑ ONLY A THREAD THIS MAP KNOWS resolves. An UNKNOWN thread in a goal channel and every
+    // unthreaded message stay `kind: 'goal'` on the channel-as-conversation — the goal-master
+    // surface the 1:1 ruling established. That is not a gap being left: sharding a goal channel
+    // by `thread_ts` in general is exactly what d-channel-per-goal forbids, and the only
+    // exception is a thread THIS bridge anchored for a named agent.
+    if (chatMsg._inThread && chatMsg._threadTs) {
+      const agent = agentForThread(goalId, chatMsg._threadTs);
+      if (agent) return { kind: 'agent', goalId, agent, conversationId: `${channel}:${chatMsg._threadTs}` };
     }
     return { kind: 'goal', goalId, conversationId: String(channel) };
   }
@@ -350,6 +468,10 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       // ferry reads this file exactly as before and ignores the extra key. That is why
       // STATE_VERSION does not move — the shape is extended, not changed.
       busFerry: busFerry.toJSON(),
+      // Same rule again, for the agent threads (ratified 2026-08-09). Losing this map would
+      // orphan every open agent thread: the owner's reply would land in a thread the bridge no
+      // longer attributes to anybody and be handled as ordinary goal traffic.
+      agentThreads: Object.fromEntries(agentThreads),
     };
     // Atomic: temp file in the SAME directory (rename is only atomic within a
     // filesystem) + rename over the target. A reader never sees a half-written file,
@@ -391,8 +513,14 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // The ferry's cursors ride the same file. Restoring them is what stops a restart
     // from re-arming the first-sight flood on every open run.
     const busCursors = busFerry.load(doc.busFerry);
-    log('info', 'chat bridge conversation state restored', { stateFile, threads, replyAddresses: replyAddr.size, busCursors, savedAt: doc.savedAt || null });
-    return { loaded: true, threads, replyAddresses: replyAddr.size, busCursors };
+    // The agent threads ride it too. A row missing its `threadTs` is DROPPED rather than
+    // half-restored: an entry with no anchor would make the next row reply to nothing.
+    agentThreads.clear();
+    for (const [k, v] of Object.entries(doc.agentThreads || {})) {
+      if (v && typeof v === 'object' && v.threadTs) agentThreads.set(String(k), { threadTs: String(v.threadTs) });
+    }
+    log('info', 'chat bridge conversation state restored', { stateFile, threads, replyAddresses: replyAddr.size, busCursors, agentThreads: agentThreads.size, savedAt: doc.savedAt || null });
+    return { loaded: true, threads, replyAddresses: replyAddr.size, busCursors, agentThreads: agentThreads.size };
   }
 
   // Every thread-map mutation persists — including the ones resolveChainThread makes
@@ -505,7 +633,8 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   return {
     onChatMessage, deliverToOwner, start, stop,
     registerGoal, closeGoal, routeOf,
-    _replyAddr: replyAddr, forwardPath, replyLeg, busFerry, goalChannels,
+    routeToAgentThread, agentThreadFor, agentForThread,
+    _replyAddr: replyAddr, _agentThreads: agentThreads, forwardPath, replyLeg, busFerry, goalChannels,
     _saveState: saveState, _loadState: loadState, stateFile,
   };
 }

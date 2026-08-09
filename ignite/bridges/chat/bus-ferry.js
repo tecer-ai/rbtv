@@ -1,13 +1,16 @@
 'use strict';
 
-// THE BUS FERRY — coordination bus → the owner's Slack DM. One way, outbound only.
+// THE BUS FERRY — coordination bus → the owner (a thread in the goal's channel, else his DM).
+// One way, outbound only.
 //
-// The problem it solves (owner-hit 2026-08-06): run agents answer the master over the
-// team-kit coordination bus (`<goal>/runs/<run>/coordination/messages.md`). The
-// channel-master's Slack sittings are ONE-TURN HEADLESS sessions, so a bus row
-// addressed to `master` — a leader's ack, a question, a blocked report — sits unread
-// until somebody happens to open the file. Nothing pushed it anywhere. This module is
-// that push, and ONLY that push: Slack → bus stays the sittings' job.
+// The problem it solves (owner-hit 2026-08-06): an agent raises something a human must answer on
+// the team-kit coordination bus (`<goal>/runs/<run>/coordination/messages.md`) and it sits unread
+// until somebody happens to open the file. Nothing pushed it anywhere. This module is that push,
+// and ONLY that push: Slack → bus stays the sittings' job.
+//
+// ⚑ IT CARRIES EXACTLY ONE ADDRESS — `to: owner` (ruling `d-agents-address-owner-not-master`,
+// 2026-08-09). `to: master` is NOT a ferry address: an agent may write it only as an ANSWER to
+// something master sent, which is bus traffic between seats end to end. See § THE ONE ADDRESS.
 //
 // ⚑ NO NEW CAPABILITY. The ferry reads workspace FILES and posts OUTBOUND through the
 // bridge's existing transport. No gateway intent, no store handle, no listener, no
@@ -29,6 +32,12 @@
 // ⚑ A ROW IS FERRIED ONLY AFTER A CONFIRMED DELIVERY. The cursor advances on
 // `delivered: true` — a failed post is retried next pass, bounded, then skipped loudly.
 // One undeliverable row must never wedge the ferry behind it forever.
+//
+// ⚑ EVERY `to: owner` ROW IS GATED, and that REVERSES this module's fail-toward-delivery default
+// for exactly one rung: an agent-INITIATED row travels only when the goal is in `interactive`
+// execution mode AND the sending seat declares itself human-interactive; otherwise it PARKS on
+// the bus and nothing is posted anywhere. Read the gate block below (§ THE TWO GATES) before
+// changing anything there — the reversal is an owner ruling with a named cost, not an oversight.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -62,88 +71,109 @@ function parseHeader(line) {
   return { id: Number(m[1]), from: f.from, to: f.to, type: f.type, body: [] };
 }
 
-// The ROLE TOKEN this ferry carries. `master` is an ADDRESS, not a seat name: the bus
-// resolves it through `relays:` on the seat descriptors (coord.py `relay_seats`), so the
-// seat holding the role may be called anything — `goal-master`, or a name a future run
-// picks. Nothing here may key on a seat's NAME; that is the defect `relay_seats`'s own
-// docstring exists to prevent.
-const ROLE_TOKEN = 'master';
+// ── THE ONE ADDRESS THIS FERRY CARRIES: `owner` (ruling `d-agents-address-owner-not-master`,
+// owner, 2026-08-09) ──────────────────────────────────────────────────────────────────────
+//
+// The closed addressing rule for every agent, which this token IS the mechanical half of:
+//   • initiate → `to: owner`
+//   • answer   → the asker (master included)
+//   • else     → the seat, BY NAME
+//
+// ⚑ `master` IS NO LONGER A FERRY ADDRESS AT ALL, and the deletion is the point. A row
+// `to: master` from an agent is legal ONLY as an ANSWER to something master sent it, so it is
+// the bus's business end to end: it takes the ordinary cursor-advance path here, exactly like a
+// row addressed to any other seat. That replaced ~90 lines of role-holder machinery — a roster
+// liveness read, a `relays:` descriptor read, and holder-name matching — which existed to answer
+// "is anybody home to read this `master` row". Nobody asks that question anymore: an
+// agent-initiated row is addressed to the OWNER, and whether it reaches him is the two gates'
+// question, not a roster's.
+//
+// ⚑ WHY THE ROLE MACHINERY WENT RATHER THAN GAINING A CASE. It existed because the role word
+// and the holder's seat name drifted apart (the `goal-master` rename incident, rows #5585 /
+// #5606 / #5616 on 2026-08-07), and the fix was to match both. `owner` cannot drift: it is a
+// RESERVED name that no seat may carry (`SAFE_NAME_RE` callers refuse it), so there is no holder
+// to name, no roster to consult, and one trivially teachable rule instead of a role-vs-name
+// judgment that measurably failed within two hours.
+const OWNER_TOKEN = 'owner';
 
-// Does `to:` address the master ROLE? Comma/space tolerant — `master`, `master, leader`,
-// `leader master` all match.
-//
-// ⚑ THE SEAT'S OWN NAME COUNTS TOO, and that is not tidiness — it is a measured defect.
-// A sender is supposed to write the role address `master` and stay ignorant of which seat
-// holds it (owner ruling). Within TWO HOURS of the seat being renamed `master` →
-// `goal-master`, the leader was writing `to: goal-master` instead (rows #5585, #5606,
-// #5616 on 2026-08-07). coord.py delivers those fine — it is a real roster name — so
-// nothing looks wrong WHILE the seat is checked in. But a role-addressed row is the only
-// thing this ferry matches, so those rows were invisible to it: the moment that seat
-// checks out they reach NOBODY — no seat reading them, no fallback, nothing in the owner's
-// DM. That is exactly the 2026-08-06 failure this module was built for, returning through
-// the new name. Matching the holder seats' own names closes it MECHANICALLY, instead of
-// asking every sender to remember a convention that had already drifted.
-//
-// `isRoleSeat` is a PREDICATE, not a set, and is consulted only for tokens the role address
-// did not already match — resolved LAZILY for that reason. A run holds hundreds of seat
-// folders; reading every descriptor each pass to pre-build a set would trade a real defect
-// for a real cost, when the only names that can matter are the few actually written in a
-// `to:` field. Check-in state is deliberately NOT part of this question: a row addressed to
-// a checked-OUT holder is precisely the row that must travel.
-function addressesMaster(to, isRoleSeat = null) {
-  const parts = String(to).split(/[,\s]+/);
-  if (parts.some((t) => t === ROLE_TOKEN)) return true;
-  return typeof isRoleSeat === 'function' && parts.some((t) => t && isRoleSeat(t));
+// Does `to:` address the owner? Comma/space tolerant — `owner`, `owner, leader`,
+// `leader owner` all match; `goal-owner` does NOT (a token that merely CONTAINS the word is a
+// seat name, and seat names are the third arm of the rule above).
+function addressesOwner(to) {
+  return String(to).split(/[,\s]+/).some((t) => t === OWNER_TOKEN);
 }
 
-// Does this seat's descriptor declare the role token? One file read, memoized by the caller.
-function seatDeclaresRole(runDir, seat) {
+// A NAME, never a path — for a seat name out of a row's `from:` field and for a goal id out of
+// the goals tree alike. A token carrying `..` or a separator would read a descriptor OUTSIDE the
+// run (or a file outside `.rbtv/goals/`) and answer a question about the wrong thing. Refused
+// here rather than sanitized, for the same reason goal ids are (goal-channel-map.js § header).
+//
+// ⚑ `owner` IS REJECTED AS A NAME even though its shape passes: it is an ADDRESS, never a seat
+// (ruling above), so a descriptor read for a seat called `owner` is a question with no answer.
+const SAFE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function isSafeName(name) {
+  const n = String(name);
+  return SAFE_NAME_RE.test(n) && n !== OWNER_TOKEN;
+}
+
+// The first `---`-fenced block of a descriptor, or '' when the file does not open with one.
+// ⚑ FRONTMATTER ONLY, because that is what the ruling declares the flag lives in: an unscoped
+// read would let a seat's PROSE — a line in a briefing that quotes `human-interactive: yes` —
+// open gate 1 for a seat nobody declared.
+function frontmatterOf(text) {
+  const m = String(text).match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  return m ? m[1] : '';
+}
+
+// ── THE TWO GATES ON AGENT-INITIATED CONTACT (owner ruling 2026-08-09) ────────────────
+//
+// ⚑ THIS IS THE ONE RUNG WHERE "FAIL TOWARD DELIVERY" IS DELIBERATELY REVERSED, and only
+// here. The `[chat-thread:]` return leg below routes a row because it ANSWERS a thread the owner
+// wrote in. An agent OPENING a conversation at the owner is a different kind of thing — an
+// interruption whose cost lands on a human who may be asleep — so the ratified default is ZERO
+// PINGS and these two declarations are what earn one. Owner-INITIATED flows are untouched by
+// construction: DMs, mentions, owner replies, and that return leg (which is read BEFORE either
+// gate). Since the `owner` ruling the gates apply to EVERY `to: owner` row — there is no
+// nobody-home precondition left to qualify them.
+//
+// Gate 1 — THE SEAT DECLARES ITSELF human-interactive: `human-interactive: yes|true` in its
+// `seat.md` FRONTMATTER (one file read, memoized per pass). A seat nobody declared able to talk
+// to a human must not be able to.
+// Gate 2 — THE GOAL IS IN `interactive` EXECUTION MODE: one word in
+// `.rbtv/goals/<goal>/execution-mode`. ⚑ ABSENT MEANS `autonomous` (ratified default) — and
+// so does an unreadable file and any other word. A goal nobody declared reachable is not
+// reachable; the owner flips it when he is.
+//
+// ⚑ A BLOCKED ROW PARKS ON THE BUS — it is not re-routed, not downgraded into the owner's DM,
+// and not swallowed (ratified). The cursor advances because the row was disposed of BY POLICY
+// and is logged as such; the durable record is the goal's own escalation ladder / doubts park,
+// which is where an unanswered escalation already belongs. Flipping the mode therefore applies
+// to FUTURE rows only, by construction — never a replay of what the gate already parked.
+const INTERACTIVE_MODE = 'interactive';
+const AUTONOMOUS_MODE = 'autonomous';
+
+function goalExecutionMode(workspaceRoot, goalId) {
+  // The goal id is a NAME here too. Today it always arrives from `openRuns`' own directory
+  // listing, but this reader is exported and a future caller could hand it a `to:`/`from:` token
+  // — and a traversing id would read `execution-mode` from outside `.rbtv/goals/` entirely,
+  // making some unrelated file the gate. Autonomous is the safe answer, as it is for every other
+  // cannot-tell here.
+  if (!isSafeName(goalId)) return AUTONOMOUS_MODE;
+  let raw;
+  try {
+    raw = fs.readFileSync(path.join(workspaceRoot, '.rbtv', 'goals', String(goalId), 'execution-mode'), 'utf8');
+  } catch { return AUTONOMOUS_MODE; }
+  return raw.trim().toLowerCase() === INTERACTIVE_MODE ? INTERACTIVE_MODE : AUTONOMOUS_MODE;
+}
+
+function seatIsHumanInteractive(runDir, seat) {
+  if (!isSafeName(seat)) return false;
   let fm;
   try { fm = fs.readFileSync(path.join(runDir, 'seats', seat, 'seat.md'), 'utf8'); } catch { return false; }
-  const m = fm.match(/^relays:[ \t]*(.+?)[ \t]*$/m);
-  return Boolean(m) && m[1].split(/[,\s]+/).some((t) => t.toLowerCase() === ROLE_TOKEN);
-}
-
-// ── IS ANYBODY HOLDING THE ROLE RIGHT NOW? (owner ruling 2026-08-07) ──────────────────
-//
-// A row addressed to `master` is addressed to the ROLE, and the role has three seats. When
-// a seat inside this run holds it and is CHECKED IN, that seat's own inbox and wake already
-// deliver the row — ferrying it as well would push a message at the owner that an agent is
-// about to answer. When nobody holds it, the row must reach the standing `channel master`
-// instead of the owner's triage queue.
-//
-// ⚑ THE LIVENESS SIGNAL IS THE RUN'S OWN ROSTER, NOT A PROBE. `coordination/workers.md` is
-// written by `coordinate checkin`/`checkout`; the roster's `active` column IS the check-in
-// state, and LAST ROW PER AGENT WINS (coord.py `latest_rows`). Asking the process table
-// instead would be a second answer to a question the run already answers — and a seat's own
-// status line freezes at its last good value when it dies, which the roster does not.
-//
-// ⚑ FAIL TOWARD DELIVERY. An empty return means ROUTE, and an unreadable roster, a missing
-// one, and a roster where nobody holds the role all return it — cannot-tell is never
-// distinguished from nobody-home, because both take the same branch. The failure this whole
-// module exists to fix was a row nobody read.
-//
-// Roster grammar: `| agent | active | pane | working on | in | out | last-read |`, LAST ROW
-// PER AGENT WINS. Only the live seats' descriptors are read — a run holds hundreds of seat
-// folders and all but a handful are checked out, so this is a few reads per pass, never a
-// directory sweep.
-function roleHeldLive(workspaceRoot, goalId, runId) {
-  const runDir = path.join(workspaceRoot, '.rbtv', 'goals', goalId, 'runs', runId);
-  let text;
-  try { text = fs.readFileSync(path.join(runDir, 'coordination', 'workers.md'), 'utf8'); } catch { return []; }
-  const live = new Map();
-  for (const line of text.split('\n')) {
-    if (!line.startsWith('| ')) continue;
-    const cells = line.split('|').map((s) => s.trim()); // leading + trailing empty cell
-    const [, agent, active] = cells;
-    if (cells.length < 8 || !agent || agent === 'agent' || agent.startsWith('---')) continue;
-    live.set(agent, active === 'yes');
-  }
-  const holders = [];
-  for (const [agent, isLive] of live) {
-    if (isLive && seatDeclaresRole(runDir, agent)) holders.push(agent);
-  }
-  return holders;
+  const m = frontmatterOf(fm).match(/^human-interactive:[ \t]*(.+?)[ \t]*$/m);
+  const v = m ? m[1].toLowerCase() : '';
+  return v === 'yes' || v === 'true';
 }
 
 // Parse a messages.md body into rows. DEFENSIVE by construction: the file is appended
@@ -177,19 +207,17 @@ function parseMessages(text, onMalformed) {
 
 // ── THE RETURN LEG: A ROW THAT NAMES ITS OWN CHAT THREAD ─────────────────────────────
 //
-// Everything above answers "a bus row is addressed to the master role and nobody live
-// holds it". This answers the OPPOSITE direction, which had no leg at all: the master
-// seat ANSWERING the channel-master. Owner-ruled 2026-08-07 after both gates above were
-// measured refusing it — `to: channel-master` matches neither the role token nor any run
-// seat (none can be named that), and a row addressed `to: master` stands down because the
-// live holder of the role IS the sender.
+// Everything above answers "an agent is addressing the OWNER on its own initiative". This
+// answers the OPPOSITE direction, which had no leg at all: a seat ANSWERING the channel-master.
+// Owner-ruled 2026-08-07 after both gates of the day were measured refusing it — `to:
+// channel-master` matched no address this ferry carried, and no address it could carry would
+// have named a Slack thread.
 //
-// ⚑ THE TOKEN IS THE ADDRESS, NOT A SEAT NAME — deliberately. This module's own rule is
-// that nothing here may key on a seat's NAME (see `ROLE_TOKEN`), and a `channel-master`
-// literal would have broken it. A row carrying `[chat-thread: <channel>:<ts>]` states
-// WHERE it belongs, so the ferry routes on a declaration the sender made, not on a name
-// this file had to know. It also needs no `holders` check: the destination is a Slack
-// thread, which no run seat can ever be holding.
+// ⚑ THE TOKEN IS THE ADDRESS, NOT A SEAT NAME — deliberately. A `channel-master` literal would
+// have made this file know a name; a row carrying `[chat-thread: <channel>:<ts>]` instead states
+// WHERE it belongs, so the ferry routes on a declaration the sender made. It is also NOT
+// initiation — it answers into a thread the owner wrote in — which is why it is read BEFORE the
+// two gates and passes with both of them shut.
 //
 // ⚑ THE BRACKETS ARE THE LOOP GUARD. `forward-path.js` tells every sitting its own thread
 // in the PLAIN form (`chat-thread: <id>`), so a sitting relaying a QUESTION onto the bus can
@@ -221,8 +249,16 @@ function chatThreadToken(body) {
 // The Slack message: one mrkdwn header line, then the body. Truncation cuts at a LINE
 // boundary so a wrapped table or list never ends mid-token, and names where the full
 // text lives.
-function formatMessage(row, { goalId, runId, relPath, maxBodyChars = DEFAULT_MAX_BODY_CHARS }) {
-  const header = `*bus → you* — ${goalId}/${runId} · from ${row.from} · ${row.type} · #${row.id}`;
+//
+// ⚑ `agentLead` IS THE AGENT-THREAD HEADER, and the lead position is the whole point: the
+// first message of an agent's own thread must state WHO IS TALKING (ratified 2026-08-09), and
+// in a goal channel the goal is the room — so the goal/run/`from` triple that a DM needs to be
+// legible is redundant there, while the agent's name is what the owner is looking for. Same
+// body, same truncation; only the header line differs.
+function formatMessage(row, { goalId, runId, relPath, maxBodyChars = DEFAULT_MAX_BODY_CHARS, agentLead = false }) {
+  const header = agentLead
+    ? `*🧵 ${row.from}* — ${goalId} · ${row.type} · #${row.id}`
+    : `*bus → you* — ${goalId}/${runId} · from ${row.from} · ${row.type} · #${row.id}`;
   let body = row.body;
   if (body.length > maxBodyChars) {
     const cut = body.slice(0, maxBodyChars);
@@ -268,6 +304,13 @@ function createBusFerry({
   // in its history. Default (probes, any embedder that wires nothing) is the plain DM post
   // this module shipped with — same signature, same `{ delivered, ts }` contract.
   routeToMaster = null,
+  // WHERE a gated row goes when the agent that raised it is allowed to reach the owner
+  // directly: its OWN thread in the goal's Slack channel (ratified 2026-08-09). Injected by
+  // the bridge, which owns the (goal, agent) → thread map and the goal↔channel resolution
+  // this module deliberately does not hold. Unwired (probes, any embedder that wires nothing)
+  // the gated row takes the owner-DM leg above — same signature, same `{ delivered, ts }`
+  // contract — so this is additive, never a second delivery model.
+  routeToAgentThread = null,
 } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -366,16 +409,16 @@ function createBusFerry({
           }
         }
 
-        // WHO HOLDS THE ROLE, resolved ONCE per pass per run — not per row. The roster does
-        // not change between two rows of the same read.
-        const holders = roleHeldLive(workspaceRoot, goalId, runId);
-        // Memoized per pass: at most one descriptor read per distinct name written in a
-        // `to:` field, and zero when every row uses the role address as it should.
+        // GATE 2 is a property of the GOAL, so it is read once per run pass — never per row.
+        // GATE 1 is a property of the SENDING SEAT, memoized per pass: at most one descriptor
+        // read per distinct `from:` name actually seen, and zero on a pass with no `to: owner`
+        // row at all.
         const runDir = path.join(workspaceRoot, '.rbtv', 'goals', goalId, 'runs', runId);
-        const roleSeatMemo = new Map();
-        const isRoleSeat = (name) => {
-          if (!roleSeatMemo.has(name)) roleSeatMemo.set(name, seatDeclaresRole(runDir, name));
-          return roleSeatMemo.get(name);
+        const executionMode = goalExecutionMode(workspaceRoot, goalId);
+        const humanInteractiveMemo = new Map();
+        const isHumanInteractive = (name) => {
+          if (!humanInteractiveMemo.has(name)) humanInteractiveMemo.set(name, seatIsHumanInteractive(runDir, name));
+          return humanInteractiveMemo.get(name);
         };
 
         // In id order, so one undeliverable row does not let a later one jump it.
@@ -385,23 +428,59 @@ function createBusFerry({
           // gates below — neither is about it. Read `chatThreadToken`'s header for why this
           // is a token and not a seat name.
           const chatThread = chatThreadToken(row.body);
-          if (!chatThread && !addressesMaster(row.to, isRoleSeat)) { cursors.set(key, row.id); persist(); continue; }
-          // A LIVE SEAT HOLDS THE ROLE — that seat's own inbox and wake carry this row, so
-          // the ferry stands down. The cursor still advances: the row was DISPOSED OF, by a
-          // reader better placed than the ferry, and re-offering it when that seat later
-          // checks out would deliver the same row twice.
-          if (holders.length && !chatThread) {
-            cursors.set(key, row.id);
-            persist();
-            log('info', 'bus ferry stood down — a live seat holds the role and receives this row directly', { key, msgId: row.id, from: row.from, holders });
-            continue;
+          // NOT ADDRESSED TO THE OWNER AND NOT NAMING A THREAD → not this ferry's business, at
+          // all. `to: master`, `to: leader`, `to: some-seat` are all one case now (ruling
+          // `d-agents-address-owner-not-master`): the bus delivers them to seats, and the cursor
+          // advances because the ferry never had a claim on them.
+          if (!chatThread && !addressesOwner(row.to)) { cursors.set(key, row.id); persist(); continue; }
+          // THE TWO GATES — on AGENT-INITIATED contact only (read their header above). A row
+          // carrying a chat-thread token is answering INTO the owner's own thread and is never
+          // gated; every other row reaching here is `to: owner`, i.e. initiation.
+          if (!chatThread) {
+            const gate = executionMode !== INTERACTIVE_MODE ? 'execution-mode'
+              : !isHumanInteractive(row.from) ? 'human-interactive'
+              : null;
+            if (gate) {
+              cursors.set(key, row.id);
+              persist();
+              log('info', 'bus ferry PARKED a row — agent-initiated contact is gated, nothing posted anywhere', { key, msgId: row.id, from: row.from, gate, executionMode });
+              continue;
+            }
           }
           const text = formatMessage(row, { goalId, runId, relPath, maxBodyChars });
           let delivered = false;
           let error = null;
+          let viaAgentThread = false;
+          // The render ACTUALLY posted — the two legs render the same row differently (the
+          // agent-thread header leads with the agent name), so a log that always reported the DM
+          // render's length would misreport the agent leg's every time.
+          let postedText = text;
           try {
-            const send = routeToMaster || ((a) => transport.sendToOwner(a));
-            const res = await send({ channel: dmChannel, threadTs: null, text, chatThread });
+            let res = null;
+            // THE AGENT'S OWN THREAD FIRST (ratified 2026-08-09). A row that PASSED both gates
+            // belongs in the goal channel, in the thread that is this agent's conversation with
+            // the owner — not in the owner's undifferentiated DM queue.
+            //
+            // ⚑ `no-channel` IS THE ONLY REASON THAT FALLS BACK, and it falls back on purpose:
+            // the goal has no Slack surface at all (never registered, or the map has not
+            // recovered), so the DM leg is the difference between a degraded delivery and a lost
+            // row. Any OTHER failure is a real post failure and takes the bounded-retry path
+            // below — a rate limit must never be silently downgraded into a different surface.
+            if (!chatThread && routeToAgentThread) {
+              const threadText = formatMessage(row, { goalId, runId, relPath, maxBodyChars, agentLead: true });
+              res = await routeToAgentThread({ goalId, agent: row.from, text: threadText });
+              if (res && !res.delivered && res.reason === 'no-channel') res = null;
+              // ⚑ `else if (res)`, never a bare `else`: an injected `routeToAgentThread` that
+              // returns nothing at all (an embedder's stub, a forgotten `return`) falls through to
+              // the DM leg below, and flagging it as thread-routed would make the log claim a
+              // surface the row never reached.
+              else if (res) { viaAgentThread = true; postedText = threadText; }
+            }
+            if (!res) {
+              const send = routeToMaster || ((a) => transport.sendToOwner(a));
+              res = await send({ channel: dmChannel, threadTs: null, text, chatThread });
+              postedText = text;
+            }
             delivered = Boolean(res && res.delivered);
             error = res && res.error;
           } catch (err) {
@@ -411,8 +490,10 @@ function createBusFerry({
             attempts.delete(`${key}#${row.id}`);
             cursors.set(key, row.id);
             persist();
-            log('info', chatThread ? 'bus ferry routed a bus row to its named chat thread' : 'bus ferry delivered a bus row to the owner DM',
-                { key, msgId: row.id, from: row.from, chars: text.length, ...(chatThread ? { chatThread } : {}) });
+            log('info', chatThread ? 'bus ferry routed a bus row to its named chat thread'
+              : viaAgentThread ? 'bus ferry routed a bus row into the agent\'s own thread in the goal channel'
+              : 'bus ferry delivered a bus row to the owner DM',
+                { key, msgId: row.id, from: row.from, chars: postedText.length, ...(chatThread ? { chatThread } : {}) });
             continue;
           }
           const akey = `${key}#${row.id}`;
@@ -490,6 +571,7 @@ function createBusFerry({
 }
 
 module.exports = {
-  createBusFerry, parseMessages, formatMessage, addressesMaster, openRuns,
-  roleHeldLive, seatDeclaresRole, ROLE_TOKEN, DEFAULT_MAX_BODY_CHARS,
+  createBusFerry, parseMessages, formatMessage, addressesOwner, openRuns,
+  OWNER_TOKEN, DEFAULT_MAX_BODY_CHARS,
+  goalExecutionMode, seatIsHumanInteractive, isSafeName, INTERACTIVE_MODE, AUTONOMOUS_MODE,
 };

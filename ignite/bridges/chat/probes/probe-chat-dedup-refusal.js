@@ -46,7 +46,7 @@ const TEXT_A = 'first thread: please start the audit';
 const TEXT_B = 'second thread: SHIP THE INVOICE TODAY';  // the text the pre-fix bridge swallowed
 
 // A goal workspace whose `.rbtv/goals/<goal>/` carries an OPEN run with a goal-master seat — what
-// `resolveGoalMasterSeat` reads a goal session's workdir from (2026-08-06 ruling).
+// `resolveGoalSeat` reads a goal session's workdir from (2026-08-06 ruling).
 function seedGoalWorkspace(goalId) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-dedupws-'));
   const goalDir = path.join(root, '.rbtv', 'goals', goalId);
@@ -174,7 +174,7 @@ async function main() {
 
     // ── ARM 2 · GOAL traffic — the path the Q9 review actually named ──────────────────────────
     //
-    // `resolveGoalMasterSeat` homes goal traffic at that goal's OPEN run's goal-master seat, a
+    // `resolveGoalSeat` homes goal traffic at that goal's OPEN run's goal-master seat, a
     // completely different workdir derivation from arm 1 reaching the same shared-seat outcome.
     // The second create models the reachable shape: a thread map that does not hold the
     // conversation (a bridge restart before `state_file` persisted it, or a re-minted channel).

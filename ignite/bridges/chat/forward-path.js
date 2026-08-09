@@ -56,16 +56,45 @@ const NO_GOAL_SEAT_NOTICE = "⚠ no goal-master seat is open for this goal — a
 // unlike the two notices above, nobody else can act on this one: it clears on its own.
 const SEAT_BUSY_NOTICE = "⚠ that work is still busy with the previous message — yours was NOT delivered, please send it again shortly";
 
-// Where a goal-channel session is HOMED: the goal-master seat of that goal's OPEN run.
+// The FOURTH honest refusal (ratified 2026-08-09): the owner replied in an agent's own thread,
+// but that agent's seat is no longer on disk — its run closed, or the seat was never
+// materialized under the goal's currently-open run. Nothing is enqueued, and the owner is told
+// in the thread he typed in, because silence there reads as the agent ignoring him. Fixed
+// string, no internals: which seat and which run are the deployment's business, not chat's.
+const NO_AGENT_SEAT_NOTICE = "⚠ that agent's seat is no longer open — its thread can't be answered";
+
+// Where a session on a GOAL surface is HOMED: a named seat of that goal's OPEN run.
 //   <workspaceRoot>/.rbtv/goals/<goalId>/runs.csv  → the row with state=open
-//   <workspaceRoot>/.rbtv/goals/<goalId>/runs/<run-id>/seats/goal-master
+//   <workspaceRoot>/.rbtv/goals/<goalId>/runs/<run-id>/seats/<seatName>
 // Every step is a refusal point, and each returns a REASON rather than a fallback: an
 // unresolvable seat must never degrade into launching at some default workdir, where the
 // session would run with no descriptor and no goal identity at all.
+//
+// ⚑ THE SEAT NAME IS A PARAMETER (ratified 2026-08-09), because there are now two homes on
+// the goal surface and they answer different questions. Channel traffic goes to the goal's
+// standing `goal-master` — the surface has no other addressee. A reply in an AGENT'S OWN
+// THREAD goes to THAT AGENT's seat: the owner is answering the seat that asked, and homing the
+// answer anywhere else is what would need a relay to carry the question back — the exact thing
+// the no-LLM-in-the-middle ruling forbids. `goal-master` stays the default, so every existing
+// caller is byte-identical in behaviour.
+//
+// ⚑ THE NAME IS VALIDATED, because it now comes from a bus row's `from:` field rather than
+// from a literal in this file. A name carrying `..` or a separator would resolve a seat dir
+// OUTSIDE the run — and that dir becomes a session's cwd.
 // ponytail: plain split on ',' — runs.csv columns are ids and timestamps, no quoted
 // fields; if a column ever needs escaping this needs a real CSV reader.
-function resolveGoalMasterSeat(workspaceRoot, goalId) {
+//
+// ⚑ `owner` IS A RESERVED ADDRESS, NEVER A SEAT (ruling `d-agents-address-owner-not-master`): no
+// seat may carry the name, so a seat dir called `owner` is a question with no answer and is
+// refused rather than resolved. Without this a run that materialized such a folder would make the
+// bus's owner ADDRESS resolvable as a session home.
+const SEAT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const RESERVED_SEAT_NAME = 'owner';
+
+function resolveGoalSeat(workspaceRoot, goalId, seatName = 'goal-master') {
   if (!workspaceRoot) return { ok: false, reason: 'no-workspace-root-configured' };
+  if (!SEAT_NAME_RE.test(String(seatName))) return { ok: false, reason: 'seat-name-not-a-name' };
+  if (String(seatName) === RESERVED_SEAT_NAME) return { ok: false, reason: 'owner-is-reserved' };
   const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', String(goalId));
   const runsCsv = path.join(goalDir, 'runs.csv');
   let raw;
@@ -75,13 +104,14 @@ function resolveGoalMasterSeat(workspaceRoot, goalId) {
   if (!open) return { ok: false, reason: 'no-open-run' };
   const runId = (open[0] || '').trim();
   if (!runId) return { ok: false, reason: 'no-open-run' };
-  const seatDir = path.join(goalDir, 'runs', runId, 'seats', 'goal-master');
-  // The seat must EXIST — a run can be open with no goal-master seated, and launching
-  // at a path that is not there is the failure this check exists to make visible.
+  const seatDir = path.join(goalDir, 'runs', runId, 'seats', String(seatName));
+  // The seat must EXIST — a run can be open with the seat never materialized (or checked out
+  // and cleaned up), and launching at a path that is not there is the failure this check
+  // exists to make visible.
   try {
-    if (!fs.statSync(seatDir).isDirectory()) return { ok: false, reason: 'goal-master-seat-missing', seatDir };
-  } catch { return { ok: false, reason: 'goal-master-seat-missing', seatDir }; }
-  return { ok: true, runId, seatDir };
+    if (!fs.statSync(seatDir).isDirectory()) return { ok: false, reason: 'seat-missing', seat: String(seatName), seatDir };
+  } catch { return { ok: false, reason: 'seat-missing', seat: String(seatName), seatDir }; }
+  return { ok: true, runId, seatDir, seat: String(seatName) };
 }
 
 function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null, deliver = null }) {
@@ -118,8 +148,11 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // it did before this task. No new job payload field is introduced anywhere: the
   // surface distinction rides the EXISTING `profile` arg, because inventing a wire
   // field would put the bridge ahead of the job catalogue's own args schema.
+  // 'agent' rides the GOAL profile: an agent thread is goal work seen through one seat's
+  // conversation, not cold-contact intake — and minting a third profile key would be a config
+  // surface nobody asked for (ratified 2026-08-09).
   function profileFor(route) {
-    if (route && route.kind === 'goal') return config.goalProfile || config.sessionProfile;
+    if (route && (route.kind === 'goal' || route.kind === 'agent')) return config.goalProfile || config.sessionProfile;
     return config.masterProfile || config.sessionProfile;
   }
 
@@ -127,10 +160,15 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // `workdir` as it always has. GOAL traffic is homed at that goal's OPEN run's
   // goal-master seat, so the session boots inside the seat folder whose descriptor
   // chain IS its identity — the reason the prompt can be the bare user text.
+  //
+  // 'agent' traffic (ratified 2026-08-09) is homed at THE ASKING AGENT'S OWN seat. That is what
+  // makes the owner's reply reach the asker with NO relay in the middle: a session-create there
+  // REVIVES that seat headless with the reply as its prompt, and a follow-up rides the chain the
+  // seat already holds. The seat's descriptor supplies the identity, exactly as for goal-master.
   // Returns { ok, workdir } or { ok: false, reason } — never a fallback.
   function workdirFor(route) {
-    if (!route || route.kind !== 'goal') return { ok: true, workdir: config.workdir || null };
-    const seat = resolveGoalMasterSeat(config.workspaceRoot, route.goalId);
+    if (!route || (route.kind !== 'goal' && route.kind !== 'agent')) return { ok: true, workdir: config.workdir || null };
+    const seat = resolveGoalSeat(config.workspaceRoot, route.goalId, route.kind === 'agent' ? route.agent : 'goal-master');
     if (!seat.ok) return seat;
     return { ok: true, workdir: seat.seatDir, runId: seat.runId };
   }
@@ -145,11 +183,13 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     }
     const home = workdirFor(route);
     if (!home.ok) {
-      // Nothing is enqueued. The owner gets the fixed notice on the goal's own channel,
-      // because the fix — seating a goal-master on the open run — is a human act.
-      log('warn', 'goal session-create refused: no goal-master seat resolved', { chatThreadId, goalId: route && route.goalId, reason: home.reason });
-      await postDeclineNotice(chatThreadId, NO_GOAL_SEAT_NOTICE);
-      return { forwarded: false, leg: 'session-create', reason: `no-goal-master-seat:${home.reason}`, goalId: (route && route.goalId) || null };
+      // Nothing is enqueued. The owner gets a fixed notice on the surface he typed on, because
+      // the fix — seating a goal-master on the open run, or accepting that an agent's seat is
+      // gone — is a human act. The two surfaces get DIFFERENT notices: they name different acts.
+      const isAgent = Boolean(route && route.kind === 'agent');
+      log('warn', 'goal-surface session-create refused: no seat resolved', { chatThreadId, kind: route && route.kind, goalId: route && route.goalId, agent: route && route.agent, reason: home.reason });
+      await postDeclineNotice(chatThreadId, isAgent ? NO_AGENT_SEAT_NOTICE : NO_GOAL_SEAT_NOTICE);
+      return { forwarded: false, leg: 'session-create', reason: `${isAgent ? 'no-agent-seat' : 'no-goal-master-seat'}:${home.reason}`, goalId: (route && route.goalId) || null };
     }
     // WHICH CHAT THREAD THIS SITTING IS — the ONE prefix the bare-prompt ruling admits
     // (owner amendment 2026-08-07, goal ledger `r-bare-prompt-admits-one-correlation-id`;
@@ -197,6 +237,12 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     // Mapping the thread to that id would bind this conversation to a turn it did not create,
     // and the user's message would be neither enqueued nor delivered while the bridge logged a
     // success (measured, Q9 review 2026-08-08). So nothing is mapped and the human is told.
+    //
+    // ⚑ ON THE 'agent' LEG THIS DOOR IS THE WHOLE REVIVE MECHANISM, not a hazard to work around
+    // (ratified 2026-08-09): a session-create at the asking agent's seat REVIVES it when its
+    // chain is dead, and when a live turn still holds that seat the door suppresses the create
+    // and the owner gets the seat-busy notice below — honest, and the same answer every other
+    // shared-seat surface gets.
     if (res.result && res.result.deduped) {
       log('warn', 'session-create suppressed at the door — seat busy, NOTHING enqueued', {
         chatThreadId, route: route && route.kind, goalId: route && route.goalId,
@@ -267,8 +313,9 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // by whether the conversation already exists.
   //
   // `route` (task 7.58) is resolved by the bridge and says which surface the message
-  // arrived on — 'master' (a DM, or a mention in an unmapped channel) or 'goal' (a
-  // mapped goal channel). It never changes the ADMISSION decision (DEC-6's gate is
+  // arrived on — 'master' (a DM, or a mention in an unmapped channel), 'goal' (a
+  // mapped goal channel), or 'agent' (a thread in a goal channel that a named agent opened,
+  // ratified 2026-08-09). It never changes the ADMISSION decision (DEC-6's gate is
   // per-principal, not per-surface) and it never changes the forward CONTRACT (still
   // exactly two enqueue-job legs). It selects the launch profile AND the session's
   // workdir, and is logged, so a goal's traffic is attributable.
@@ -298,4 +345,4 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   return { onChatMessage, forwardSessionCreate, forwardFollowUp, CMP8_TYPES };
 }
 
-module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, SEAT_BUSY_NOTICE, resolveGoalMasterSeat };
+module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, resolveGoalSeat };

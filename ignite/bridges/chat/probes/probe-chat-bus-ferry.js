@@ -2,13 +2,17 @@
 
 // THE BUS FERRY (bus-ferry.js) — coordination bus → the owner's Slack DM, one way.
 //
-// The owner-hit problem: a run agent answers the master over the coordination bus and
-// the answer sits unread, because the channel-master's Slack sittings are one-turn
-// headless sessions and nothing pushes a bus row anywhere.
+// The owner-hit problem: a run agent raises something a human must answer over the coordination
+// bus and it sits unread, because the channel-master's Slack sittings are one-turn headless
+// sessions and nothing pushes a bus row anywhere.
+//
+// ⚑ THE ADDRESS IS `to: owner` (ruling `d-agents-address-owner-not-master`, 2026-08-09). Agents
+// never INITIATE to `master`; a master-addressed row is an ANSWER between seats and this ferry
+// must never carry one — arm 3b is that claim's red/green pair.
 //
 // The claim that MATTERS most here is a NEGATIVE one: a run's existing backlog —
 // thousands of rows on a live run — is NEVER ferried. So the fixture builds a run with a
-// real backlog of `to: master` rows, and the flood check asserts against the mock
+// real backlog of `to: owner` rows, and the flood check asserts against the mock
 // transport's post log, not against the absence of an error.
 //
 // No daemon: every claim is about the ferry's own file reading and posting. The gateway
@@ -20,7 +24,7 @@ const os = require('node:os');
 const { makeCapture, nowMs } = require('./lib');
 const { buildBridge } = require('../index');
 const { resolveConfig } = require('../config');
-const { DEFAULT_MAX_BODY_CHARS, ROLE_TOKEN } = require('../bus-ferry');
+const { DEFAULT_MAX_BODY_CHARS } = require('../bus-ferry');
 
 const OUT = path.join(__dirname, 'probe-chat-bus-ferry.out');
 
@@ -68,17 +72,36 @@ function msgRow(id, from, to, type, body) {
   return `## ${id} | from: ${from} | to: ${to} | type: ${type} | 2026-08-06 14:23\n\n${body}\n\n`;
 }
 
-function seedRun(root, goalId, runId, { state = 'open', backlogRows = 0 } = {}) {
+// EVERY SENDER NAME ANY ARM BELOW WRITES IN A `from:` FIELD. Since 2026-08-09 the ferry's
+// nobody-home branch is GATED on agent-initiated contact (bus-ferry.js § THE TWO GATES), so a
+// fixture that seeds neither gate parks every row and every delivery claim here would go green
+// for the wrong reason — asserting "not posted" while measuring "not allowed to post". The arms
+// below are about PARSING, TRUNCATION, RETRY, CURSORS and the ROSTER, so they hold both gates
+// OPEN and the gate decision itself is proven in `probe-chat-agent-thread` (both defaults, both
+// flag values, and the park).
+const SENDERS = ['leader', 'master', 'chief-of-staff', 'planning-strategist', 'fixture-seat-a', 'x', 'some-worker'];
+
+function writeSeatDescriptor(runDir, seat, { humanInteractive = true } = {}) {
+  const dir = path.join(runDir, 'seats', seat);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'seat.md'),
+    `---\nseat: ${seat}\n${humanInteractive ? 'human-interactive: yes\n' : ''}---\nbody\n`);
+}
+
+function seedRun(root, goalId, runId, { state = 'open', backlogRows = 0, executionMode = 'interactive', senders = SENDERS } = {}) {
   const goalDir = path.join(root, '.rbtv', 'goals', goalId);
   const coord = path.join(goalDir, 'runs', runId, 'coordination');
   fs.mkdirSync(coord, { recursive: true });
   fs.writeFileSync(path.join(goalDir, 'runs.csv'),
     'run-id,type,state,taskforce-ids,opened,closed\n' +
     `${runId},fresh,${state},tf-1,2026-08-03 00:00,\n`);
+  // Gate 2, then gate 1 — see SENDERS above.
+  if (executionMode) fs.writeFileSync(path.join(goalDir, 'execution-mode'), `${executionMode}\n`);
+  for (const s of senders) writeSeatDescriptor(path.join(goalDir, 'runs', runId), s);
   const file = path.join(coord, 'messages.md');
   let text = '# messages — append-only coordination log (script-managed, do not edit by hand)\n\n';
-  // A REAL backlog, every row addressed to master — exactly what must NOT be ferried.
-  for (let i = 1; i <= backlogRows; i++) text += msgRow(i, 'leader', 'master', 'note', `historical row ${i}`);
+  // A REAL backlog, every row addressed to the owner — exactly what must NOT be ferried.
+  for (let i = 1; i <= backlogRows; i++) text += msgRow(i, 'leader', 'owner', 'note', `historical row ${i}`);
   fs.writeFileSync(file, text);
   return { file, lastId: backlogRows };
 }
@@ -124,7 +147,7 @@ async function main() {
   const roots = [];
   const mkroot = () => { const r = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-busferry-')); roots.push(r); return r; };
 
-  // 1 — FIRST SIGHT: a run with a 50-row `to: master` backlog ferries NOTHING, and the
+  // 1 — FIRST SIGHT: a run with a 50-row `to: owner` backlog ferries NOTHING, and the
   //     cursor lands AT THE TAIL. This is the check the whole module is shaped around.
   {
     const root = mkroot();
@@ -137,7 +160,7 @@ async function main() {
       a.bridge.busFerry.enabled === true && a.bridge.busFerry.dmChannel === DM && a.slack.opened.length === 1,
       { opened: a.slack.opened, dmChannel: a.bridge.busFerry.dmChannel });
 
-    check('FIRST SIGHT: a 50-row to:master backlog is NOT ferried (nothing posted)',
+    check('FIRST SIGHT: a 50-row to:owner backlog is NOT ferried (nothing posted)',
       a.slack.posted.length === 0, { backlogRows: lastId, posted: a.slack.posted.length });
 
     check('FIRST SIGHT: the cursor is initialized AT THE TAIL',
@@ -145,7 +168,7 @@ async function main() {
       { cursor: a.bridge.busFerry._cursors.get('goal-a/run-1'), tail: lastId });
 
     // 2 — A row appended AFTER first sight IS ferried, exactly once, with the header.
-    append(file, msgRow(51, 'leader', 'master', 'note', 'ack — the m6 pass is running'));
+    append(file, msgRow(51, 'leader', 'owner', 'note', 'ack — the m6 pass is running'));
     await a.bridge.busFerry.tick();
     const p = a.slack.posted[0];
     check('a row appended after first sight IS ferried, once, to the DM channel',
@@ -160,14 +183,31 @@ async function main() {
     check('a second pass over an unchanged file ferries nothing again',
       a.slack.posted.length === 1, { posted: a.slack.posted.length });
 
-    // 3 — `to: leader` is not the owner's mail. Ignored, and the cursor still advances.
+    // 3 — THE TOKEN GRAMMAR. `to: leader` is not the owner's mail; a comma-separated list that
+    //     CONTAINS `owner` is; a token that merely contains the WORD (`goal-owner`) is a seat
+    //     name and is not. The cursor advances past every one of them either way.
     append(file, msgRow(52, 'master', 'leader', 'note', 'do the thing'));
-    append(file, msgRow(53, 'chief-of-staff', 'master, leader', 'note', 'multi-recipient reaches master'));
-    append(file, msgRow(54, 'x', 'goal-master', 'note', 'a token that merely CONTAINS master'));
+    append(file, msgRow(53, 'chief-of-staff', 'owner, leader', 'note', 'multi-recipient reaches the owner'));
+    append(file, msgRow(54, 'x', 'goal-owner', 'note', 'a token that merely CONTAINS owner'));
     await a.bridge.busFerry.tick();
-    check('a `to: leader` row is ignored; a comma-separated `to: master, leader` row IS ferried; `goal-master` is NOT',
+    check('a `to: leader` row is ignored; a comma-separated `to: owner, leader` row IS ferried; `goal-owner` is NOT',
       a.slack.posted.length === 2 && /#53/.test(a.slack.posted[1].text)
       && a.bridge.busFerry._cursors.get('goal-a/run-1') === 54,
+      { posted: a.slack.posted.map((x) => x.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-a/run-1') });
+
+    // 3b — THE RULING'S RED HALF (`d-agents-address-owner-not-master`, 2026-08-09): a `to: master`
+    //      row is NEVER ferried anywhere, from the same seat, in the same run, on the same pass
+    //      that a `to: owner` row from that seat travels. Master-addressed traffic is an ANSWER
+    //      between seats and stays the bus's business end to end; the GREEN half beside it is what
+    //      keeps this from passing against a ferry that had simply stopped working.
+    append(file, msgRow(55, 'leader', 'master', 'ask', 'MASTER-ADDRESSED — must never reach chat'));
+    append(file, msgRow(56, 'leader', 'owner', 'ask', 'OWNER-ADDRESSED — must reach chat'));
+    await a.bridge.busFerry.tick();
+    check('RULING: a `to: master` row is NEVER ferried, while a `to: owner` row from the SAME seat on the SAME pass IS',
+      a.slack.posted.length === 3
+      && !a.slack.posted.some((x) => /MASTER-ADDRESSED/.test(x.text))
+      && /OWNER-ADDRESSED/.test(a.slack.posted[2].text)
+      && a.bridge.busFerry._cursors.get('goal-a/run-1') === 56,
       { posted: a.slack.posted.map((x) => x.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-a/run-1') });
 
     a.bridge.stop();
@@ -182,7 +222,7 @@ async function main() {
     await a.bridge.busFerry.tick(); // first sight
 
     const long = Array.from({ length: 400 }, (_, i) => `line ${i} ${'x'.repeat(20)}`).join('\n');
-    append(file, msgRow(2, 'leader', 'master', 'note', long));
+    append(file, msgRow(2, 'leader', 'owner', 'note', long));
     await a.bridge.busFerry.tick();
     const text = a.slack.posted[0].text;
     const lines = text.split('\n');
@@ -207,7 +247,7 @@ async function main() {
     await a.bridge.start();
     await a.bridge.busFerry.tick();
 
-    fs.appendFileSync(file, '## 2 | from: leader | to: master | type: note | 2026-08-06 14:23\n\nhalf-writ');
+    fs.appendFileSync(file, '## 2 | from: leader | to: owner | type: note | 2026-08-06 14:23\n\nhalf-writ');
     await a.bridge.busFerry.tick();
     check('a torn trailing row (no terminating newline) is NOT posted',
       a.slack.posted.length === 0 && a.bridge.busFerry._cursors.get('goal-c/run-1') === 1,
@@ -225,9 +265,9 @@ async function main() {
     await b.bridge.start();
     b.bridge.busFerry._cursors.set('goal-c/run-1', 2); // pretend we already saw the run
     fs.appendFileSync(file, '## not-a-header at all\n\njunk\n\n');
-    fs.appendFileSync(file, msgRow(3, 'leader', 'master', 'note', 'after the junk'));
+    fs.appendFileSync(file, msgRow(3, 'leader', 'owner', 'note', 'after the junk'));
     fs.appendFileSync(file, '## also not a header\n\nmore junk\n\n');
-    fs.appendFileSync(file, msgRow(4, 'leader', 'master', 'note', 'after more junk'));
+    fs.appendFileSync(file, msgRow(4, 'leader', 'owner', 'note', 'after more junk'));
     await b.bridge.busFerry.tick();
     const warns = logs.filter((l) => l.level === 'warn' && /malformed/.test(l.message));
     const debugs = logs.filter((l) => l.level === 'debug' && /malformed/.test(l.message));
@@ -240,7 +280,7 @@ async function main() {
     // SILENT loss of exactly the cross-package send the ferry exists for. Observed live
     // on build-core-daemon-mvp/run-3 #2366. `re:`/`why:` ride along to hold the tail too.
     fs.appendFileSync(file,
-      '## 5 | from: fixture-seat-a | from-pkg: throwaway-fixture | to: master | type: completion'
+      '## 5 | from: fixture-seat-a | from-pkg: throwaway-fixture | to: owner | type: completion'
       + ' | re: 3 | why: the cross-package answer | 2026-08-06 14:23\n\nfrom outside the package\n\n');
     await b.bridge.busFerry.tick();
     // Assert on THIS line, not on a count: the two junk headers above stay in the file and
@@ -264,8 +304,8 @@ async function main() {
     await a.bridge.start();
     await a.bridge.busFerry.tick();
 
-    append(file, msgRow(2, 'leader', 'master', 'note', 'the poisoned row'));
-    append(file, msgRow(3, 'leader', 'master', 'note', 'the row behind it'));
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'the poisoned row'));
+    append(file, msgRow(3, 'leader', 'owner', 'note', 'the row behind it'));
     slack.failNextPosts(100);
     await a.bridge.busFerry.tick();
     await a.bridge.busFerry.tick();
@@ -296,7 +336,7 @@ async function main() {
     const a = makeBridge({ workspaceRoot: root, stateFile });
     await a.bridge.start();
     await a.bridge.busFerry.tick();
-    append(file, msgRow(21, 'leader', 'master', 'note', 'delivered before the restart'));
+    append(file, msgRow(21, 'leader', 'owner', 'note', 'delivered before the restart'));
     await a.bridge.busFerry.tick();
     a.bridge.stop();
     check('pre-restart: one row ferried, cursor persisted to the state file',
@@ -313,7 +353,7 @@ async function main() {
     check('AFTER A RESTART nothing is re-posted — no double-post, no re-flood of the 20-row backlog',
       b.slack.posted.length === 0, { posted: b.slack.posted.length });
 
-    append(file, msgRow(22, 'leader', 'master', 'note', 'after the restart'));
+    append(file, msgRow(22, 'leader', 'owner', 'note', 'after the restart'));
     await b.bridge.busFerry.tick();
     check('the restarted ferry keeps ferrying from where it left off',
       b.slack.posted.length === 1 && /#22/.test(b.slack.posted[0].text), { text: b.slack.posted[0] && b.slack.posted[0].text });
@@ -331,7 +371,7 @@ async function main() {
   {
     const root = mkroot();
     const { file } = seedRun(root, 'goal-f', 'run-1', { state: 'closed', backlogRows: 1 });
-    append(file, msgRow(2, 'leader', 'master', 'note', 'from a closed run'));
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'from a closed run'));
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();
     await a.bridge.busFerry.tick();
@@ -346,7 +386,7 @@ async function main() {
   {
     const root = mkroot();
     const { file } = seedRun(root, 'goal-g', 'run-1', { backlogRows: 1 });
-    append(file, msgRow(2, 'leader', 'master', 'note', 'should never be ferried'));
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'should never be ferried'));
 
     const off = makeBridge({ workspaceRoot: root, busFerry: false });
     await off.bridge.start();
@@ -392,66 +432,17 @@ async function main() {
       { def: { busFerry: def.busFerry, dm: def.busFerryDmUser }, on: on.busFerryDmUser, explicit: explicit.busFerryDmUser });
   }
 
-  // 11 — THE ROLE ROUTE (owner ruling 2026-08-07). Two defects, one seam:
-  //      (a) a row addressed to the ROLE reached the OWNER even when a live seat held the
-  //          role and was about to read it;
-  //      (b) the owner's reply in the ferry's own thread opened a sitting that could NOT
-  //          see the row that started it — the ferry's post was never a conversation.
-  //
-  //      ⚑ EVERY LEG HERE IS KEYED ON `relays:`, NEVER ON A SEAT NAME. The fixture seat is
-  //      deliberately called `goal-master` — a name the ferry's `to:` matcher does NOT match
-  //      — so a fix that keyed on the name would fail leg (a) instead of passing it.
+  // 11 — THE OWNER LEG'S DM HALF (owner ruling 2026-08-07, retargeted to `to: owner` by
+  //      `d-agents-address-owner-not-master`): when the goal has NO Slack channel the row still
+  //      reaches the owner's DM, that post's own thread is MINTED as a sitting, and the owner's
+  //      un-mentioned reply CONTINUES it — so the sitting holds the bus row that opened its
+  //      thread. (The roster stand-down and holder-name legs that used to open this arm are GONE
+  //      with the machinery they tested: the ferry no longer reads `workers.md`, no longer reads
+  //      `relays:`, and never carries `master` at all. Arm 3b above is what replaced them.)
   {
-    const root = mkroot();
-    const { file } = seedRun(root, 'goal-r', 'run-1', { backlogRows: 1 });
-    const runDir = path.join(root, '.rbtv', 'goals', 'goal-r', 'runs', 'run-1');
-    const roster = path.join(runDir, 'coordination', 'workers.md');
-    const seatMd = (seat) => path.join(runDir, 'seats', seat, 'seat.md');
-    const writeSeat = (seat, relays) => {
-      fs.mkdirSync(path.dirname(seatMd(seat)), { recursive: true });
-      fs.writeFileSync(seatMd(seat), `---\nseat: ${seat}\n${relays ? `relays: ${relays}\n` : ''}---\nbody\n`);
-    };
-    const writeRoster = (rows) => fs.writeFileSync(roster,
-      '# workers — agent sessions (script-managed, do not edit by hand)\n\n'
-      + '| agent | active | tmux pane | working on | checked in | checked out | last-read |\n'
-      + '|-------|--------|-----------|------------|------------|-------------|-----------|\n'
-      + rows.map(([a, live]) => `| ${a} | ${live ? 'yes' : 'no'} | %1 | w | t1 | ${live ? '' : 't2'} | 0 |\n`).join(''));
-
-    // (a) A LIVE role holder → the row is NOT ferried at all, and the cursor still advances.
-    writeSeat('goal-master', 'master');
-    writeSeat('leader', null);
-    writeRoster([['leader', true], ['goal-master', true]]);
-    const held = makeBridge({ workspaceRoot: root });
-    await held.bridge.start();
-    await held.bridge.busFerry.tick();                  // first sight → cursor at tail
-    append(file, msgRow(2, 'leader', 'master', 'ask', 'ruling needed on the branch shape'));
-    await held.bridge.busFerry.tick();
-    check('a LIVE seat declaring relays:master stands the ferry down — nothing posted, cursor advanced',
-      held.slack.posted.length === 0 && held.bridge.busFerry._cursors.get('goal-r/run-1') === 2,
-      { posted: held.slack.posted.length, cursor: held.bridge.busFerry._cursors.get('goal-r/run-1') });
-
-    // MUTATION 1 — the same seat CHECKED OUT must flip the decision to route.
-    writeRoster([['leader', true], ['goal-master', false]]);
-    append(file, msgRow(3, 'leader', 'master', 'note', 'seat parked — nobody is reading'));
-    await held.bridge.busFerry.tick();
-    check('MUTATION: the role holder checked out → the row IS routed (fail toward delivery)',
-      held.slack.posted.length === 1 && /#3/.test(held.slack.posted[0].text),
-      { posted: held.slack.posted.length, text: held.slack.posted[0] && held.slack.posted[0].text });
-
-    // MUTATION 2 — live, but the descriptor declares no `relays:` → route. Proves the
-    // decision reads the DECLARATION and not merely "some seat is alive".
-    writeSeat('goal-master', null);
-    writeRoster([['leader', true], ['goal-master', true]]);
-    append(file, msgRow(4, 'leader', 'master', 'note', 'live seat, no relays declaration'));
-    await held.bridge.busFerry.tick();
-    check('MUTATION: a LIVE seat with no relays: declaration does NOT stand the ferry down',
-      held.slack.posted.length === 2 && /#4/.test(held.slack.posted[1].text),
-      { posted: held.slack.posted.length });
-    held.bridge.stop();
-
-    // (b) NO role holder → the post MINTS a sitting, and the owner's un-mentioned reply in
-    //     that thread CONTINUES it as a follow-up. This is the Slack transcript defect: the
-    //     sitting must now hold the bus row that opened its thread.
+    // NO GOAL CHANNEL → the DM post MINTS a sitting, and the owner's un-mentioned reply in that
+    // thread CONTINUES it as a follow-up. This is the Slack transcript defect: the sitting must
+    // hold the bus row that opened its thread.
     const root2 = mkroot();
     const { file: file2 } = seedRun(root2, 'goal-s', 'run-1', { backlogRows: 1 });
     const forwards = [];
@@ -477,13 +468,13 @@ async function main() {
     });
     await b2.bridge.start();
     await b2.bridge.busFerry.tick();
-    append(file2, msgRow(2, 'leader', 'master', 'note', 'the owner-review doc is ready'));
+    append(file2, msgRow(2, 'leader', 'owner', 'note', 'the owner-review doc is ready'));
     await b2.bridge.busFerry.tick();
 
     const rowText = slack2.posted[0] && slack2.posted[0].text;
     const minted = `${DM}:1.0`;                          // the fake's post ts
     const create = forwards.find((f) => f.payload && f.payload.job_id === 'chat-launch');
-    check('with NO role holder the row is posted AND mints a channel-master session-create',
+    check('with NO goal channel the row is posted to the DM AND mints a channel-master session-create',
       slack2.posted.length === 1 && Boolean(create) && create.intent === 'enqueue-job',
       { posted: slack2.posted.length, forwards: forwards.map((f) => f.payload && f.payload.job_id) });
     // NARROWED 2026-08-07 (owner amendment `r-bare-prompt-admits-one-correlation-id`): the
@@ -516,46 +507,6 @@ async function main() {
       { jobs: after.map((f) => f.payload && f.payload.job_id), thread: after[0] && after[0].payload.args.thread });
     b2.bridge.stop();
 
-    // (b2) THE SENDER USED THE SEAT'S NAME INSTEAD OF THE ROLE ADDRESS — measured live on
-    //      2026-08-07: within two hours of the rename the leader was writing `to: goal-master`
-    //      (#5585/#5606/#5616). coord.py delivers those, so nothing looks wrong WHILE the seat
-    //      is checked in — and the moment it checks out they reach nobody, which is the exact
-    //      failure this module exists to prevent. The name must travel like the role address.
-    const rootN = mkroot();
-    const { file: fileN } = seedRun(rootN, 'goal-n', 'run-1', { backlogRows: 1 });
-    const runDirN = path.join(rootN, '.rbtv', 'goals', 'goal-n', 'runs', 'run-1');
-    fs.mkdirSync(path.join(runDirN, 'seats', 'goal-master'), { recursive: true });
-    fs.writeFileSync(path.join(runDirN, 'seats', 'goal-master', 'seat.md'),
-      '---\nseat: goal-master\nrelays: master\n---\nbody\n');
-    fs.writeFileSync(path.join(runDirN, 'coordination', 'workers.md'),
-      '| agent | active | tmux pane | working on | checked in | checked out | last-read |\n'
-      + '|-------|--------|-----------|------------|------------|-------------|-----------|\n'
-      + '| goal-master | no | %1 | parked | t1 | t2 | 0 |\n');
-    const byName = makeBridge({ workspaceRoot: rootN });
-    await byName.bridge.start();
-    await byName.bridge.busFerry.tick();
-    append(fileN, msgRow(2, 'leader', 'goal-master', 'verdict', 'addressed to the SEAT, not the role'));
-    append(fileN, msgRow(3, 'leader', 'some-worker', 'note', 'a seat that does NOT hold the role'));
-    await byName.bridge.busFerry.tick();
-    check('a row addressed to the HOLDER SEAT BY NAME travels when that seat is checked out',
-      byName.slack.posted.length === 1 && /#2/.test(byName.slack.posted[0].text),
-      { posted: byName.slack.posted.map((p) => p.text.slice(0, 60)) });
-    check('a row addressed to a seat that does NOT declare the role is still ignored (no over-match)',
-      !byName.slack.posted.some((p) => /#3/.test(p.text)),
-      { posted: byName.slack.posted.length });
-    byName.bridge.stop();
-
-    // (c) CANNOT TELL — no roster at all → route, never swallow.
-    const root3 = mkroot();
-    const { file: file3 } = seedRun(root3, 'goal-t', 'run-1', { backlogRows: 1 });
-    const b3 = makeBridge({ workspaceRoot: root3 });
-    await b3.bridge.start();
-    await b3.bridge.busFerry.tick();
-    append(file3, msgRow(2, 'leader', 'master', 'note', 'no roster on disk'));
-    await b3.bridge.busFerry.tick();
-    check('an ABSENT roster is cannot-tell and routes the row (never silence)',
-      b3.slack.posted.length === 1, { posted: b3.slack.posted.length });
-    b3.bridge.stop();
   }
 
   // 9 (7.546) — BORN-WATCHED. The first-sight rule protects a run's HISTORY, and a run this
@@ -572,6 +523,9 @@ async function main() {
     fs.mkdirSync(path.join(newRun, 'coordination'), { recursive: true });
     fs.writeFileSync(path.join(goalDir, 'runs.csv'),
       'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-08-08 22:00,\n');
+    // Both gates open — this arm is about the BIRTH observation, not the gate (see SENDERS).
+    fs.writeFileSync(path.join(goalDir, 'execution-mode'), 'interactive\n');
+    writeSeatDescriptor(newRun, 'planning-strategist');
     // THE CONTROL, in the same workspace and the same passes: a second run that already HAS a
     // 40-row backlog. The flood rule must be untouched for it — the exception is "we watched it
     // be born", never "the ferry started recently".
@@ -587,7 +541,7 @@ async function main() {
 
     fs.writeFileSync(path.join(newRun, 'coordination', 'messages.md'),
       '# messages — append-only coordination log (script-managed, do not edit by hand)\n\n'
-      + msgRow(1, 'planning-strategist', 'master', 'note', 'ESCALATION: this run rosters no authority seat'));
+      + msgRow(1, 'planning-strategist', 'owner', 'note', 'ESCALATION: this run rosters no authority seat'));
     await a.bridge.busFerry.tick();
     check("7.546 BORN-WATCHED: the newborn run's FIRST row IS ferried, on the very pass that first reads it — not held for a second message that may never come",
       a.slack.posted.length === 1 && /ESCALATION/.test(a.slack.posted[0].text)
@@ -595,7 +549,7 @@ async function main() {
       { posted: a.slack.posted.map((p) => p.text.slice(0, 70)),
         cursor: a.bridge.busFerry._cursors.get('goal-newborn/run-1') });
 
-    append(oldFile, msgRow(41, 'leader', 'master', 'note', 'the elderly run keeps the tail rule'));
+    append(oldFile, msgRow(41, 'leader', 'owner', 'note', 'the elderly run keeps the tail rule'));
     await a.bridge.busFerry.tick();
     check('7.546 CONTROL: the run that was NOT watched being born still ferries nothing of its 40-row backlog — only the row appended after first sight travels',
       a.slack.posted.length === 2 && /#41/.test(a.slack.posted[1].text)
@@ -604,49 +558,41 @@ async function main() {
     a.bridge.stop();
   }
 
-  // 10 (7.546) — THE LIVE DESCRIPTOR, NOT A FIXTURE. Every arm above writes its own seat files,
-  //     so all of them stay green while the REAL standing correspondent declares no role at all —
-  //     which is the state this workspace was actually in when 7.546 was built
-  //     (`.rbtv/goals/_channel-master/seat.md` carried `addressable: non-member` and NO `relays:`
-  //     line, so `coord.py` refused `to: master` and the route was inert end to end). A
-  //     fixture-only green is precisely the failure this check exists to prevent, so it reads the
-  //     workspace on disk. The workspace is RESOLVED by walking up from this file — never a path
-  //     written here.
+  // 10 — THE LIVE ROUTE'S READINESS, REPORTED AND NOT ASSERTED (was: 7.546 LIVE DESCRIPTOR).
   //
-  //     ⚑ THE SKIP GATES ON "NO GOALS TREE AT ALL", NEVER ON "NO DOOR FOUND" (§2 review, 7.546).
-  //     The route needs BOTH halves of the descriptor — `addressable: non-member` (which admits the
-  //     correspondent to coord.py) and `relays: <role>` (which is what this ferry delivers on). The
-  //     first draft derived its SKIP from the first half and its ASSERTION from the second, so
-  //     removing `addressable:`, or deleting the descriptor outright, emptied the door list and the
-  //     arm STOOD DOWN: pass=true, 40 checks, suite GREEN — while `load_addressable` refused the
-  //     correspondent outright and the live route was exactly as dead as in the state this arm was
-  //     built to catch. A workspace that HAS a goals tree and no addressable door is that dead
-  //     route, so it is a RED. Only a checkout with no readable goals tree — this repo cloned
-  //     somewhere with no workspace around it — has nothing real to exercise and skips.
+  //     ⚠ THE ARM THAT STOOD HERE ASSERTED A PROPERTY OF DELETED CODE. It required this
+  //     workspace's standing correspondent to declare `relays: master`, because the ferry
+  //     delivered on the ROLE WORD and coord.py admitted only the correspondent's NAME. Since
+  //     `d-agents-address-owner-not-master` the ferry reads no `relays:`, consults no roster, and
+  //     never carries `master` at all — so that assertion now guards nothing, and keeping it
+  //     green would be the fixture-only green it was written to prevent, one level up.
+  //
+  //     ⚠ ITS SUCCESSOR QUESTION IS REAL BUT NOT YET ASSERTABLE. The live equivalent is "can an
+  //     agent-initiated `to: owner` row reach the owner on THIS workspace", whose two on-disk
+  //     halves are a goal in `interactive` mode and a seat declaring `human-interactive`. Both are
+  //     registry mints the ratified design lists as OPEN FOLLOW-UPS (F-115), so on a correct
+  //     deployment today both counts are legitimately ZERO — asserting on them would red the suite
+  //     for work that is deliberately not done, and defaulting them to pass would be a check that
+  //     cannot fail. So this arm MEASURES the live tree and files the counts as a SKIP (visible in
+  //     the capture's SKIPPED_COUNT), for the reviewer to turn into an assertion the day the mints
+  //     land. It reads the workspace by walking up from this file — never a path written here.
   {
     let ws = path.resolve(__dirname);
     while (ws !== path.dirname(ws) && !fs.existsSync(path.join(ws, '.rbtv', 'goals'))) ws = path.dirname(ws);
     const goalsDir = path.join(ws, '.rbtv', 'goals');
-    let entries = null;   // stays null when the tree is absent/unreadable — the ONLY skip condition
+    let entries = null;
     try { entries = fs.readdirSync(goalsDir, { withFileTypes: true }); } catch {}
-    const doors = [];
-    const holders = [];
+    const interactiveGoals = [];
     for (const d of entries || []) {
       if (!d.isDirectory()) continue;
-      let fm;
-      try { fm = fs.readFileSync(path.join(goalsDir, d.name, 'seat.md'), 'utf8'); } catch { continue; }
-      if (!/^addressable:[ \t]*non-member[ \t]*$/m.test(fm)) continue;
-      doors.push(d.name);
-      const m = fm.match(/^relays:[ \t]*(.+?)[ \t]*$/m);
-      if (m && m[1].split(/[,\s]+/).some((t) => t.toLowerCase() === ROLE_TOKEN)) holders.push(d.name);
+      let mode = null;
+      try { mode = fs.readFileSync(path.join(goalsDir, d.name, 'execution-mode'), 'utf8').trim().toLowerCase(); } catch { continue; }
+      if (mode === 'interactive') interactiveGoals.push(d.name);
     }
-    if (!entries) {
-      skipped.push(`live descriptor: no readable goals tree at ${goalsDir} — this checkout has no workspace around it, so there is nothing real to exercise. (A workspace that HAS a goals tree and no addressable door is a RED here, never a skip.)`);
-      cap.log({ skip: skipped[skipped.length - 1] });
-    } else {
-      check(`7.546 LIVE DESCRIPTOR: this workspace has a standing correspondent declaring BOTH \`addressable: non-member\` AND \`relays: ${ROLE_TOKEN}\` — the half no fixture can prove. Missing either one kills the live route while every arm above still passes: without the first coord.py refuses the correspondent outright, and without the second this ferry never delivers on it, because coord.py admits the correspondent's NAME and the ferry carries only the ROLE WORD`,
-        holders.length > 0, { goalsDir, doors, holders });
-    }
+    skipped.push(entries
+      ? `live route readiness (NOT asserted — F-115 mints pending): goals declaring execution-mode:interactive = ${interactiveGoals.length}${interactiveGoals.length ? ' (' + interactiveGoals.join(', ') + ')' : ''}. Until a goal is flipped interactive AND its seats declare human-interactive, every agent-initiated to:owner row on this workspace PARKS by ratified default — which is correct, not a defect.`
+      : `live route readiness: no readable goals tree at ${goalsDir} — this checkout has no workspace around it.`);
+    cap.log({ skip: skipped[skipped.length - 1], goalsDir, interactiveGoals });
   }
 
   for (const r of roots) { try { fs.rmSync(r, { recursive: true, force: true }); } catch {} }
