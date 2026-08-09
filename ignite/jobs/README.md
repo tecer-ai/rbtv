@@ -88,12 +88,32 @@ first so the boot-read catalogue carries the entry):
 
 ```bash
 ignite register-job edge-runner --action-type fire-tool \
-  --args-schema '{"required":{"tool":"string"},"optional":{"workdir":"string"}}'
+  --args-schema '{"required":{"tool":"string","goal":"string"},"optional":{"workdir":"string"}}'
 # `workdir` is PASSED, not merely permitted — see the door-resolution warning below.
 ignite add-job --fn edge-runner \
-  --args-json '{"tool":"edge-runner","workdir":"<the workspace root — the dir holding .rbtv/>"}' \
+  --args-json '{"tool":"edge-runner","goal":"/home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp","workdir":"<the workspace root — the dir holding .rbtv/>"}' \
   --trigger periodic --every 300
 ```
+
+⚠⚠ **`goal` MUST be in the `--args-schema` AND in every `--args-json`, and getting the schema wrong
+BURNS THE ID PERMANENTLY.** Since task 7.559 the catalogue entry's `--goal` is a `{{goal}}`
+placeholder backed by the entry's `args_allowlist` (`config/spawn-profiles.yaml`), so every queue
+row must carry `goal`. A job registered WITHOUT `goal` in its schema has no route to that operand:
+an enqueue that carries `goal` is refused at the door (`unknown argument: goal`, `E_BAD_ARGS`), and
+an enqueue without it passes the door and then REFUSES AT EVERY FIRE
+(`placeholder {{goal}} has no value in the row args`, recorded `failed`). Registration is
+CREATE-ONLY with a typed duplicate refusal (`E_JOB_EXISTS`), and there is no UPDATE surface and no
+DELETE surface (`heart-store.js` above `registerJob`) — a schema registered without `goal` cannot be
+repaired in-band; the id is burnt forever. What you CAN do is stop the bleeding:
+`ignite deregister-job edge-runner` (task 7.364) sets `enabled = 0`, after which the ticker DEFERS
+every due row of that job and `add-job` refuses it; `ignite remove-job <queue-id>` then clears the
+pending rows a disable leaves behind (it defers them, it does not delete them). Neither frees the
+id — re-registering it is still `E_JOB_EXISTS`.
+Read the printed schema back before moving on.
+
+The example `goal` above is a REAL member of the entry's `args_allowlist` — today its only one.
+The value is admitted by `===` identity against that list, so an invented path, a trailing slash,
+or a near miss of any kind is itself refused; use a path that is literally on the list.
 
 ⚠ **`--ignite-bin` in that entry is load-bearing.** STEP 4's door is the `ignite` CLI, and a
 `fire-tool` exec inherits the systemd `--user` MANAGER's PATH, which does not carry `~/.local/bin`.

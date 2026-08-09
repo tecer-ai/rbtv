@@ -82,15 +82,32 @@ queued job is also visible as a goals-root directory absent from `ignite inspect
    ```
    ignite register-job <goal>-workflow-start --action-type start-workflow \
      --goal <goal> --seat <entry-seat> \
-     --args-schema '{"required": {"workflow": "string", "entry-seat": "string"}, "optional": {"workdir": "string"}}'
+     --args-schema '{"required": {"workflow": "string", "entry-seat": "string", "goal": "string", "workdir": "string"}}'
    ignite add-job --fn <goal>-workflow-start \
-     --args-json '{"workflow": "<workflow>", "entry-seat": "<entry-seat>", "workdir": "<goal-dir>"}' \
+     --args-json '{"workflow": "<workflow>", "entry-seat": "<entry-seat>", "goal": "<goal>", "workdir": "<goal-dir>/runs/run-1"}' \
      --trigger scheduled --at <ISO-8601 Z>
    ```
 
    `<entry-seat>` and `<workflow>` are the catalogue entry's own `--entry-seat` / `--workflow`
    values; `<goal-dir>` is the refusal record's. If `register-job` reports the id already exists,
    the row was minted before the failure — skip to `add-job`.
+
+   ⚠⚠ **All four schema keys are `required`, exactly as the tool itself registers them**
+   (`tool/goal_creation_request.py` `register-workflow-job`) — the launcher's argv templates
+   `{{entry-seat}}` / `{{goal}}` / `{{workdir}}` (a row missing one REFUSES AT EVERY FIRE:
+   `placeholder {{...}} has no value in the row args`, recorded `failed`), and `workflow` is what
+   `launchStartWorkflow` selects the catalogue entry by (a row naming a workflow the boot-read
+   config does not carry DEFERS every tick, forever; a row carrying no `workflow` at all cannot
+   exist — `add-job` refuses it).
+   `register-job` is create-only (`E_JOB_EXISTS`, no update surface), so a schema registered
+   without `goal`, `entry-seat`, or `workdir` cannot be repaired in-band — the id is burnt.
+   `workflow` is the ONE of the four that CANNOT burn an id: `register-job` refuses a
+   `start-workflow` schema that omits it (`args_schema.required declares no "workflow"`), so that
+   mistake is a refusal rather than a burn — which is precisely why the other three need this
+   warning. `workdir` is the RUN
+   PACKAGE (`<goal-dir>/runs/run-1` — the scaffold's `FRESH_RUN_ID`), NOT the bare goal dir
+   (task C5E: the package expands `{{workdir}}` in the launcher argv AND becomes the fired
+   process's CWD).
 
    ⚠ **`entry-seat` appears TWICE and both are required** (task C5). `--seat` HOMES the job — the
    ticker resolves the seat FOLDER from it at fire — while the `entry-seat` ARG is what the
