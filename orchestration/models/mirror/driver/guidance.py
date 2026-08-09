@@ -49,6 +49,25 @@ from mirror import make_banner, write_if_changed  # noqa: E402  (path manipulati
 
 SKIP_DIR_NAMES: frozenset[str] = frozenset({".git", "node_modules"})
 
+#: Path prefixes the walk ALWAYS skips, on top of the workspace's configured
+#: ``excluded_paths``.  ``.rbtv/goals`` holds goal folders whose routers — BOTH
+#: ``CLAUDE.md`` and ``AGENTS.md`` — are written by the goals-tree scaffold
+#: (owner ruling Q18, 2026-08-09): the scaffold owns them, so the mirror must
+#: neither render over them nor claim them as managed files.
+#:
+#: A driver DEFAULT rather than a per-workspace ``excluded_paths`` entry: ``.rbtv/``
+#: is rbtv's own runtime root and exists in EVERY workspace rbtv serves, so the
+#: collision is structural, not per-user; and ``--exclude`` REPLACES the recorded
+#: list, so a per-vault entry would silently vanish on the next install.
+#:
+#: Deliberately NOT fed to ``__init__._prune_newly_excluded_guidance``: prune deletes
+#: guidance orphaned by a NEWLY-excluded path, which for a scaffold-owned router is
+#: exactly the data loss this exclusion exists to prevent (the scaffold's own header
+#: carries the same DO-NOT-EDIT sentinel, so the banner-guard would NOT spare it).
+#: Dropping the record — which a render does automatically, since the walk no longer
+#: emits it — is what un-manages the file; the file itself stays on disk.
+ALWAYS_EXCLUDED_PREFIXES: tuple[str, ...] = (".rbtv/goals",)
+
 ROOT_PREAMBLE = """\
 # Mandatory Rule Loading — Read Before ANY Action
 
@@ -245,7 +264,9 @@ def render_guidance(
         ``write_if_changed`` returns ``"stale"`` for missing or drifted files.
     excluded_paths:
         List of workspace-root-relative path prefixes (posix) that should be
-        skipped when walking for CLAUDE.md files.
+        skipped when walking for CLAUDE.md files.  ``ALWAYS_EXCLUDED_PREFIXES``
+        is added to whatever the caller passes — those prefixes are never
+        walkable, however the workspace is configured.
     banner_label:
         Short human label naming the consuming worker, interpolated into the
         DO-NOT-EDIT banner by ``make_banner`` (e.g. ``"the Codex CLI worker"``).
@@ -266,7 +287,9 @@ def render_guidance(
         Records are sorted by path for deterministic state-layer writes.
     """
     target_root = Path(target_root).resolve()
-    excluded_prefixes = [_normalize_rel_path(p) for p in excluded_paths]
+    excluded_prefixes = [
+        _normalize_rel_path(p) for p in (*excluded_paths, *ALWAYS_EXCLUDED_PREFIXES)
+    ]
     owner_tag = _guidance_owner(guidance_filename)
 
     claude_mds = _walk_claude_mds(target_root, excluded_prefixes)
