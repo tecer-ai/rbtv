@@ -66,6 +66,14 @@ SKIP_DIR_NAMES: frozenset[str] = frozenset({".git", "node_modules"})
 #: carries the same DO-NOT-EDIT sentinel, so the banner-guard would NOT spare it).
 #: Dropping the record — which a render does automatically, since the walk no longer
 #: emits it — is what un-manages the file; the file itself stays on disk.
+#:
+#: ``__init__.uninstall`` DOES consult this set (row 7.597): a workspace upgraded
+#: from a driver that recorded these paths, and torn down BEFORE its first
+#: post-upgrade render, still carries the records — uninstall drops them from its
+#: delete set (they stay on disk, un-managed) instead of deleting them. That is the
+#: mirror image of the prune carve-out above: prune must NOT read this set (it would
+#: delete previously-recorded routers), uninstall MUST (it would too, but a teardown
+#: is exactly when the file must survive).
 ALWAYS_EXCLUDED_PREFIXES: tuple[str, ...] = (".rbtv/goals",)
 
 ROOT_PREAMBLE = """\

@@ -174,6 +174,13 @@ def _run_uninstall(target_root: Path, deselected: list[str],
         print(f"  spared {len(result.spared)} hand-authored guidance file(s) (no banner):")
         for p in result.spared:
             print(f"    ~ {p}")
+    if result.protected:
+        print(
+            f"  protected {len(result.protected)} recorded file(s) under an "
+            "always-excluded prefix (owned elsewhere — left on disk, un-managed):"
+        )
+        for p in result.protected:
+            print(f"    ~ {p}")
     if result.leftover_dirs:
         print(
             f"  left {len(result.leftover_dirs)} worker dir(s) in place — they still "

@@ -165,6 +165,12 @@ class UninstallResult:
 
     deleted: list[str] = field(default_factory=list)
     spared: list[str] = field(default_factory=list)
+    #: Recorded managed files dropped from the delete set because they lie under
+    #: ``guidance.ALWAYS_EXCLUDED_PREFIXES`` — someone else's files that a
+    #: pre-exclusion render had recorded. Left on disk AND dropped from state.
+    #: Distinct from ``spared`` (hand-authored, banner-less): these DO carry the
+    #: sentinel, so the banner-guard cannot protect them.
+    protected: list[str] = field(default_factory=list)
     kept_records: list[dict] = field(default_factory=list)
     #: Known worker dirs that survived this uninstall because they still hold
     #: files rbtv did not create (tool-written leftovers / prior-install orphans).
@@ -552,6 +558,22 @@ def uninstall(
         owner_to_guidance_group=owner_to_guidance_group(),
     )
 
+    # A record under ALWAYS_EXCLUDED_PREFIXES is someone else's file that only a
+    # PRE-exclusion render could have recorded (the walk no longer emits those
+    # paths). On such a workspace an uninstall running before the first
+    # post-upgrade render would delete it, and the banner-guard cannot help — the
+    # goals-tree scaffold's own router header carries the SAME DO-NOT-EDIT
+    # sentinel ``state.BANNER_SENTINEL`` keys on. So drop these from the delete
+    # set here: they stay on disk, and — like a spared file — they are dropped
+    # from ``managed_files`` (they are not in ``to_keep``), which un-manages them.
+    always_excluded = list(guidance.ALWAYS_EXCLUDED_PREFIXES)
+    protected = [
+        rec for rec in to_delete
+        if _path_under_any_exclusion(rec["path"], always_excluded)
+    ]
+    if protected:
+        to_delete = [rec for rec in to_delete if rec not in protected]
+
     deleted, spared = state.apply_deletions(target_root, to_delete)
 
     # After deletion + empty-dir prune: any known worker dir still on disk holds
@@ -573,6 +595,7 @@ def uninstall(
     return UninstallResult(
         deleted=deleted,
         spared=spared,
+        protected=sorted(rec["path"] for rec in protected),
         kept_records=to_keep,
         leftover_dirs=leftover_dirs,
     )
