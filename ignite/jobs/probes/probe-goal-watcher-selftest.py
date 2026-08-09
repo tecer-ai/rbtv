@@ -56,8 +56,10 @@ HERE = Path(__file__).resolve().parent
 TARGET = HERE.parent / "goal-watcher-job.py"
 OUT = HERE / "probe-goal-watcher-selftest.out"
 
-# The count the selftest carried at 2026-08-09 (task 7.575). See R2.
-ARM_FLOOR = 29
+# The count the selftest carried at 2026-08-09 (task 7.575, raised 29 -> 35 by task 7.590's six
+# arms — the floor is RAISED IN THE SAME CHANGE that adds arms, or the new coverage is deletable
+# without reddening anything). See R2.
+ARM_FLOOR = 35
 # Label prefixes whose disappearance is a silent loss of coverage. Each names a guard whose
 # failure mode is invisible without it — the two 7.578 rows are the text/exec split the row was
 # filed over, and RETIRED ROLE is the AST scan that makes `d-watcher-deterministic-chain`
@@ -70,6 +72,15 @@ REQUIRED_FAMILIES = (
     "RETIRED ROLE:",
     "7.578 TEXT PATH:",
     "7.578 EXEC PATH UNCHANGED:",
+    # Task 7.590 — the SAME text/exec split at the two sites 7.578's criterion did not word. The
+    # two TEXT PATH arms are the guards; CALL SITE is the guard-vacuity closer (a renderer nothing
+    # calls would pass the TEXT PATH arm alone); EXEC PATH UNCHANGED asserts the path that must
+    # NOT move. Named individually rather than by a bare `7.590` prefix, so losing FIVE of the six
+    # cannot still satisfy this check.
+    "7.590 TEXT PATH (package):",
+    "7.590 TEXT PATH (goal name):",
+    "7.590 CALL SITE (goal name):",
+    "7.590 EXEC PATH UNCHANGED:",
 )
 
 lines, failures, inoperative = [], [], []

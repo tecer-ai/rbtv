@@ -364,6 +364,31 @@ def sensor_ensure_text(team_monitor, tail):
     return "python3 " + shlex.join([str(team_monitor)] + list(tail))
 
 
+def coord_text(coord, package):
+    """The leader-facing REMEDY-TEXT PREFIX every `coord.py` remedy in `evaluate` is built on
+    (task 7.590 — 7.578's shape at the site its criterion's wording missed).
+
+    ⚠ THE TEXT PATH ONLY, exactly as `sensor_ensure_text` above, and for the same reason. The
+    package reaches the EXEC path as list-argv (`sensor_ensure` -> `fix=` -> `run_inline`, no
+    shell), where a quote would be handed to the program as a literal character. What is unsafe
+    is this string: a leader — or an agent acting on a leader-addressed flag — PASTES it, so a
+    package path or a `--coord` path carrying a space renders as extra operands and one carrying
+    `;` renders as a second command.
+
+    ONE renderer, and that is why this is a function rather than a quote at each site: TEN remedy
+    strings in `evaluate` are built by appending a subcommand to its return value, so a second
+    copy cannot go unquoted while this one is fixed (the 7.561 property). `shlex.join` quotes only
+    what needs quoting, so an ordinary path renders byte-identically to the pre-fix text."""
+    return "python3 " + shlex.join([str(coord), "--package", str(package)])
+
+
+def worktree_flow_text(flow, goal_name):
+    """The leader-facing REMEDY TEXT for the worktree sweep (task 7.590). Text path only —
+    nothing execs this line; `worktree_leftovers` runs its own list-argv git calls, and the goal
+    name reaching this string comes off a path the operator supplied."""
+    return "python3 " + shlex.join([str(flow), "list", "--goal", str(goal_name)])
+
+
 # ---------------------------------------------------------------- snapshot
 
 def read_snapshot(path):
@@ -633,7 +658,7 @@ def evaluate(snap, args, state, dispositions, now):
     and did not act on. It was an always-empty `notes` slot before."""
     decisions = []
     trail = []
-    coord_cmd = f"python3 {args.coord} --package {args.package}"
+    coord_cmd = coord_text(args.coord, args.package)
     repeats = state.get("_repeat") or {}
     held = {}          # condition-key -> consecutive passes it has held, THIS pass
 
@@ -1261,6 +1286,51 @@ def selftest():
           "unquoted in the text",
           ok_d["fix"][1][-1] == "run-3"
           and ok_d["remedy"] == f"python3 {a.team_monitor} {' '.join(ok_d['fix'][1])}")
+    # ---- task 7.590: the SAME text/exec split, at the TWO sites 7.578's criterion did not word.
+    # ⚠ THE PACKAGE ARM IS DRIVEN OFF `evaluate`'s REAL ROOM-DEAD DECISION, never a local
+    # re-render — `coord_text` feeds ten remedy strings, and what has to hold is what those call
+    # sites emit.
+    hostile_pkg = "/tmp/pk g; touch /tmp/PWNED"
+    hostile_coord = "/tmp/co ord.py; touch /tmp/PWNED2"
+    b = _ns(coord=hostile_coord, package=hostile_pkg)
+    dead = snap()
+    dead["session_alive"] = False
+    rd = next(x for x in evaluate(dead, b, {}, {}, fresh)[0] if x["class"] == "ROOM-DEAD")
+    check("7.590 TEXT PATH (package): a `--coord` path and a package path carrying a space and "
+          "`;` render as ONE command — the remedy shell-parses back to EXACTLY those operands, so "
+          f"both `touch`es are quoted WORDS and not two more commands a paste would execute "
+          f"({rd['remedy'][:46]!r}…)",
+          shlex.split(rd["remedy"])[:4] == ["python3", hostile_coord, "--package", hostile_pkg])
+    # THE CONTROL, and it is what makes the arm above a measurement rather than a restatement:
+    # the pre-7.590 interpolation splits those two paths into six words and smuggles in two `;`.
+    check("7.590 CONTROL (package): the pre-fix f-string rendering does NOT survive a shell parse",
+          shlex.split(f"python3 {hostile_coord} --package {hostile_pkg}")[:4]
+          != ["python3", hostile_coord, "--package", hostile_pkg])
+    # A LEGITIMATE path still renders byte-identically to the pre-fix text — quoting that fired on
+    # ordinary values would rewrite every remedy line in the run's logs.
+    check("7.590 (2) an ordinary path is UNCHANGED by the renderer",
+          coord_text("/a/coord.py", "/b/pkg") == "python3 /a/coord.py --package /b/pkg")
+    check("7.590 EXEC PATH UNCHANGED: the hostile package reaches the fix ARGV raw and unquoted — "
+          "`sensor_ensure` hands it to `run_inline` as list-argv with no shell, where a quote "
+          "would be passed to team-monitor as a literal character",
+          evaluate(dict(snap(), captured_at=fresh - 10_000), b, {"_session": "run-3"}, {},
+                   fresh)[0][0]["fix"][1][:3] == ["ensure", "--package", hostile_pkg])
+    hostile_goal = "goal; touch /tmp/PWNED"
+    hostile_flow = "/tmp/wf low.py"
+    check("7.590 TEXT PATH (goal name): the worktree-sweep remedy shell-parses as ONE command "
+          "even when the goal directory's name carries a space and `;`",
+          shlex.split(worktree_flow_text(hostile_flow, hostile_goal))
+          == ["python3", hostile_flow, "list", "--goal", hostile_goal])
+    # ⚠ THE ARM ABOVE WOULD PASS AGAINST AN UNUSED RENDERER — an absent call site is the failure,
+    # so the call site is asserted too. The forbidden literal is spelled in two halves on purpose:
+    # written whole, this very line would be the match and the check would fire on its own
+    # statement of the rule.
+    src_text = Path(__file__).read_text(encoding="utf-8")
+    check("7.590 CALL SITE (goal name): the worktree-sweep line renders THROUGH "
+          "`worktree_flow_text`, and no unquoted interpolation of it survives",
+          "worktree_flow_text(flow, goal_name)" in src_text
+          and ("list --goal {" + "goal_name}") not in src_text)
+
     # ⚠ EVERY `decision(...)` CALL SITE, not only the rows this selftest happens to reach: parsed
     # off this file's own AST, so an unreachable row carrying a retired name is caught too.
     import ast
@@ -1384,7 +1454,7 @@ def main():
             print(f"goal-watcher-job [WORKTREE-SWEEP] {goal_name} — "
                   f"{len(left)} leftover worktree(s): {', '.join(left) or '(none)'}")
             if left:
-                print(f"  remedy: python3 {flow} list --goal {goal_name}   (then merge-seat / "
+                print(f"  remedy: {worktree_flow_text(flow, goal_name)}   (then merge-seat / "
                       f"close-goal — removal REFUSES on a dirty tree and is never forced here)")
         print("goal-watcher-job: REFUSING TO START — %s\n"
               "  The room flags are DELIVERED into must be the LIVE run, and this job will not "

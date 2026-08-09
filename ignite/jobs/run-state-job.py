@@ -87,7 +87,7 @@ does not resolve it.
 THE REGISTRATION — DECLARED, AUTHORED VERBATIM, AND *NOT* PERFORMED
 ------------------------------------------------------------------
 `REGISTER_INVOCATION` below is the exact command that registers this file as a job. **It has not
-been run.** Two independent obstacles, both measured rather than assumed:
+been run.** Three independent obstacles, all measured rather than assumed:
 
   1. NO CREDENTIAL. `ignite inspect jobs` and `ignite register-job … --dry-run` BOTH return
      `ERROR [AUTH_REFUSED] authentication required` — even the validate-only path — and
@@ -95,6 +95,10 @@ been run.** Two independent obstacles, both measured rather than assumed:
      unrelated calls of task 7.53 (`decisions.md#r-owner-token-reseed`).
   2. NOT THIS SEAT'S VERB. `register-job` belongs to another seat's grant; this seat's floor is
      `ignite inspect` only.
+  3. NO `run-state` TOOL ENTRY (task 7.587). `config/spawn-profiles.yaml` carries no `run-state`
+     key, so the `add-job` that schedules the registered row is refused `E_UNKNOWN_TOOL` at the
+     enqueue door. `--registration` prints this obstacle in full; this list is the SAME three, and
+     the two must not drift apart.
 
 Ruled by the `leader` (#271, answering #270): author the invocation verbatim-and-unrun, land
 everything else, and disclose the criterion as UNMET-FOR-CREDENTIAL. **It is disclosed, never
@@ -1051,7 +1055,15 @@ REGISTER_INVOCATION = (
     "ignite register-job run-state-recompute "
     "--action-type fire-tool "
     "--description 'Recompute every seat run state from disk (task 7.127 / M4-12)' "
-    "--args-schema '{\"package\": \"string\"}'"
+    # ⚠ THE SCHEMA SHAPE IS THE STORE'S, NOT A SKETCH (task 7.587). It read
+    # `'{"package": "string"}'` until 2026-08-09 — three defects in one string, all of which
+    # `heart-store.js` refuses AT REGISTRATION, before the INSERT, so no id was ever burnt:
+    # `package` is an unknown TOP-LEVEL key (`validateSchemaTypes` accepts only `required` and
+    # `optional`); a `fire-tool` schema must declare `tool` in `required`
+    # (`REQUIRED_ARGS_BY_ACTION['fire-tool'] === ['tool']`, enforced by the S-2(a) guard in
+    # `registerJob`); and `package` — this file's one real operand — was declared where nothing
+    # reads it. The shape below is what those two checks accept.
+    "--args-schema '{\"required\":{\"tool\":\"string\",\"package\":\"string\"}}'"
 )
 
 
@@ -1062,14 +1074,21 @@ def cmd_registration():
     print("  %s\n" % REGISTER_INVOCATION)
     print("STATUS: NOT REGISTERED. Criterion 6 of task 7.127 is UNMET-FOR-CREDENTIAL, disclosed\n"
           "and never claimed (leader ruling, message #271 answering ask #270).\n")
-    print("Two independent obstacles, both measured rather than assumed:\n"
+    print("Three independent obstacles, all measured rather than assumed:\n"
           "  1. NO CREDENTIAL. `ignite inspect jobs` and the command above with --dry-run BOTH\n"
           "     return `ERROR [AUTH_REFUSED] authentication required` — the validate-only path\n"
           "     included, so the payload could not even be proven well-formed. IGNITE_SENDER_TOKEN\n"
           "     is unset; the only owner-token grant on record covers exactly two unrelated calls\n"
           "     of task 7.53 (decisions.md#r-owner-token-reseed).\n"
           "  2. NOT THIS SEAT'S VERB. `register-job` sits in another seat's grant; this seat's\n"
-          "     floor is `ignite inspect` only.\n")
+          "     floor is `ignite inspect` only.\n"
+          "  3. NO `run-state` TOOL ENTRY (task 7.587). The command above would REGISTER, but the\n"
+          "     `add-job` that schedules it would then be refused `E_UNKNOWN_TOOL` — the enqueue\n"
+          "     door checks the row's `tool` against the boot-read `tools:` catalogue\n"
+          "     (`heart-store.js` enqueue, `Object.hasOwn(this.config.tools, args.tool)`), and\n"
+          "     `config/spawn-profiles.yaml` carries no `run-state` key. Registering first costs\n"
+          "     nothing (create-only, and the id is not burnt by a MISSING catalogue entry — only\n"
+          "     by a wrong SCHEMA), but the entry must land before any row can fire.\n")
     print("VERIFY IT, DO NOT TRUST THIS: `ignite inspect jobs` and look for `run-state-recompute`.\n"
           "The register command's own success line is NOT evidence — the job list is.\n")
     print("NOTE, so nobody re-decides this as an arming question: `register-job` is CREATE-ONLY and\n"
