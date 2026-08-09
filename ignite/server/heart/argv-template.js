@@ -39,11 +39,15 @@
 // `workflows:` (C5) admits by GRAMMAR — `NAME_RE`, a genuinely name-shaped space of workflow and
 // seat names. `tools:` (7.559) admits by IDENTITY, because a fired tool runs with NO sandbox at all
 // (`ticker.js` runToolLikeExec passes literal `caps: {}` / `sandbox: {}`) and its operands are
-// absolute paths, which no name grammar can bound. MEASURED, not asserted: with the membership test
-// deleted, 12 hostile arms flip from refused to composed — shell metacharacters, traversal,
-// `/etc/passwd`, `--dry-run`, a 10 000-byte value, and case and homoglyph near-misses ALL compose
-// under grammar alone. A grammar is "a pattern that looks safe"; on this path that is not an
-// admission mechanism.
+// absolute paths, which no name grammar can bound. MEASURED, not asserted — and the measurement is
+// RE-TAKEN EVERY RUN rather than quoted here: arm F10 of `ticker/probes/probe-argv-template.js`
+// deletes the membership test from a scratch copy and prints how many of its hostile arms flip from
+// refused to composed. Shell metacharacters, traversal, `/etc/passwd`, `--dry-run`, a 10 000-byte
+// value, and case and homoglyph near-misses ALL compose under grammar alone. ⚠ NO FIGURE IS WRITTEN
+// HERE, ON PURPOSE (task 7.577): this sentence used to say "12" — a design-time unit-level count —
+// while the shipped probe measured a different number, and a reader reproducing it had no way to
+// tell which was wrong. The arm's own output IS the number. A grammar is "a pattern that looks
+// safe"; on this path that is not an admission mechanism.
 //
 // ⚠ WHERE THE ALLOWLIST MAY LIVE — THE WHOLE SECURITY CONDITION (owner ruling B1). `allow` is read
 // from the BOOT-READ MERGED CONFIG (`config/spawn-profiles.yaml` → `loadMergedConfig`, no
@@ -158,12 +162,33 @@ const CONTROL_RE = /[\x00-\x1f\x7f]/;
 // module's business — `validateArgs`'s args_schema check already refuses an undeclared argument.
 // Returns null when clean, else the refusal reason (a string), so both callers can raise it in
 // their own idiom: a typed store error at enqueue, a recorded failure action at fire.
-// `allow` (7.559) is the entry's `args_allowlist`: `{ <key>: [ …permitted literal values… ] }`.
+// `allow` (7.559) is the entry's `args_allowlist`, and its SHAPE IS A MAPPING OF KEY → LIST:
+// `{ <key>: [ …permitted literal values… ] }`. Anything else truthy — a scalar, a bare list — is a
+// config typo and is refused as a shape error by the first test below (7.577), never raised.
 // When present, the keys it names are checked by MEMBERSHIP and the grammar rules above never run;
 // a key it does not name carries no value rule here, because such a key can never reach the argv —
 // the placeholder branch in `expandArgv` refuses `{{key}}` BY NAME when the key has no allowlist on
 // that entry. So the admissible operand set is exactly the allowlist, and nothing else is reachable.
 function checkTemplateArgs(args, allow = null) {
+  // ⚠ A NON-MAPPING `allow` IS REFUSED AS A SHAPE ERROR — NEVER THROWN (task 7.577). A SCALAR
+  // `args_allowlist:` (`goal`, `5`, `true` — the YAML typo where a mapping of key → list is meant)
+  // made `key in allow` raise a TypeError out of `expandArgv`, against the never-throws contract
+  // that function's own header states. `tick()` is `try/finally` with NO `catch`, so the throw
+  // abandoned enforce, broadcast and `recordTick` for the WHOLE tick and repeated every cadence
+  // until the config was fixed. ⚠ THE FIX IS A REFUSAL, NOT A RESCUE: catching it downstream would
+  // leave this module throwing and merely hide it — the property being restored is the one written
+  // above `expandArgv`, that a refusal is RECORDED rather than raised. Refused HERE because this is
+  // the gate `expandArgv` calls before its first `in` on `allow` AND the one `heart-store.js`
+  // shares, so one test covers every caller.
+  //
+  // The predicate is the one `heart/catalogue-paths.js` already applies to this same field at boot
+  // — an array is `typeof 'object'` and is still not a mapping of key → list, the same reason the
+  // `args` test below carries `Array.isArray`. A FALSY `allow` keeps meaning "this entry declares
+  // no allowlist" (ticker.js normalises with `|| null`), so the frozen default narrows by nothing.
+  if (allow && (typeof allow !== 'object' || Array.isArray(allow))) {
+    return 'args_allowlist must be a mapping of key to a list of permitted values, got '
+      + `${Array.isArray(allow) ? 'array' : typeof allow}`;
+  }
   // `Array.isArray` is not pedantry: an array IS `typeof 'object'`, so without it a row whose args
   // are `["…"]` passes a check that says "must be a JSON object", carries no templatable key, and
   // is then treated as an empty args object. `validateArgs` already spells the same three-part test

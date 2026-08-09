@@ -248,8 +248,11 @@ function reportCataloguePaths(mergedConfig) {
   const findings = validateCataloguePaths(mergedConfig);
   for (const f of findings) {
     log('error', 'catalogue entry references a path that does not exist', {
+      // `argvIndex` locates an argv finding, `key` an allowlist one — exactly one is set, and
+      // JSON.stringify drops the other. Without `key` an operator meeting a stale-permission error
+      // learned WHICH PATH was stale but not WHICH allowlist key declared it (task 7.577).
       check: 'catalogue-paths', section: f.section, entry: f.name,
-      argvIndex: f.index, path: f.path, why: f.why,
+      argvIndex: f.index, key: f.key, path: f.path, why: f.why,
     });
   }
   log(findings.length ? 'error' : 'info', 'catalogue path validation complete', {

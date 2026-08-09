@@ -35,10 +35,14 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const yaml = require('js-yaml');
 const { setup, teardown, capture } = require('./lib');
 const { expandArgv, checkTemplateArgs, MAX_NAME, MAX_PATH } = require('../../heart/argv-template');
 
 const TEMPLATE_SRC = path.join(__dirname, '..', '..', 'heart', 'argv-template.js');
+// The REAL catalogue, not a fixture — task 7.577 criterion (9) asks whether the entries that fire
+// on this box still compose, and a hand-built map would answer a different question.
+const SHIPPED_CONFIG = path.join(__dirname, '..', '..', '..', 'config', 'spawn-profiles.yaml');
 const HEART_STORE_SRC = path.join(__dirname, '..', '..', 'heart', 'heart-store.js');
 // Scratch copies MUST live beside their originals: both resolve siblings (`./errors`,
 // `./argv-template`, `schema.sql`) off their own __dirname. Removed in `finally`.
@@ -594,6 +598,135 @@ async function run(lines) {
         'F10 CONTROL the LIVE module still refuses the same value — the mutation touched only the scratch copy',
         guardedAgain.refused || JSON.stringify(guardedAgain));
     }
+
+    // ══ TASK 7.577 · A MALFORMED `args_allowlist` IS A REFUSAL, NEVER AN ABANDONED TICK ════════
+    // Measured by the §2 review of 7.559 (`evidence/w7559-review/r04`): a SCALAR `args_allowlist`
+    // — `goal`, `5`, `true`, the YAML typo where a mapping of key → list is meant — made
+    // `key in allow` raise a TypeError out of `expandArgv`, against the never-throws contract that
+    // function's own header states. `tick()` is `try/finally` with NO `catch`, so the throw took
+    // enforce, broadcast and `recordTick` with it for the WHOLE tick, and repeated every cadence
+    // until the config was fixed.
+    //
+    // ⚠ NO MUTATION ARM HERE, and the absence is reasoned rather than forgotten. R1/F10 need one
+    // because deleting a membership test leaves a REFUSAL behind, and only a mutant can say WHICH
+    // check refused. Deleting THIS guard leaves a THROW — a different observable — so S1 below goes
+    // red by itself the moment the guard goes, which is the whole thing a mutation arm buys.
+    const SHAPE_REASON = 'args_allowlist must be a mapping of key to a list of permitted values';
+    for (const [label, badAllow] of [
+      ['S1a a YAML STRING', 'goal'],
+      ['S1b a YAML NUMBER', 5],
+      ['S1c a YAML BOOLEAN', true],
+      ['S1d a YAML LIST — an array is `typeof object` and still not a mapping of key → list', [goalA]],
+    ]) {
+      const e = attempt(() => expandArgv(FIRE_TEMPLATE, { goal: goalA }, badAllow));
+      check(lines, e.ok && !!e.value.refused && e.value.refused.includes(SHAPE_REASON),
+        `${label} \`args_allowlist\` is REFUSED as a shape error and expandArgv does NOT throw`,
+        e.ok ? JSON.stringify(e.value) : `THREW ${e.message}`);
+      const g = attempt(() => checkTemplateArgs({ goal: goalA }, badAllow));
+      check(lines, g.ok && typeof g.value === 'string' && g.value.includes(SHAPE_REASON),
+        `${label} \`args_allowlist\` is REFUSED by checkTemplateArgs too — the gate the store shares`,
+        g.ok ? String(g.value) : `THREW ${g.message}`);
+    }
+
+    // ── S2 · CRITERION (3): THE TICK SURVIVES, ASSERTED AT ITS COMPLETION ────────────────────────
+    // ⚠ "no exception was seen" is NOT the assertion here, and that is the whole point: a
+    // `try/catch` swallowing the TypeError would pass a no-throw arm while still eating the rest of
+    // the tick. So each phase AFTER `dispatch` is observed DIRECTLY — enforce by the unconditional
+    // `state` action it ends with, broadcast by a note stamped with THIS tick's number, recordTick
+    // by the `ticks` row. Each of the three is a positive observation of work done, not of harm
+    // absent.
+    ctx.store.config.tools['c7577-bad-shape'] = { argv: FIRE_TEMPLATE, args_allowlist: 'goal' };
+    const shapeDir = path.join(ctx.workRoot, 'shape-7577');
+    fs.mkdirSync(shapeDir, { recursive: true });
+    const marker = attempt(() => ctx.store.recordMessage({
+      type: 'note', sender: 'probe-7577', thread: 'probe-7577', corpus: 'broadcast marker for S2e',
+    }));
+    // A fixture that could not be BUILT is a FAIL, never a skip — an absent target IS the failure.
+    check(lines, marker.ok && marker.value && marker.value.broadcast_at_tick === null,
+      'S2a the broadcast marker note exists and is UNBROADCAST before the tick — without this S2e would pass vacuously',
+      marker.ok ? `msg_id=${marker.value.msg_id} broadcast_at_tick=${marker.value.broadcast_at_tick}` : `THREW ${marker.message}`);
+    const shapeEnq = attempt(() => ctx.store.enqueue({
+      jobId: 'c7559-fire',
+      args: JSON.stringify({ tool: 'c7577-bad-shape', goal: goalA, workdir: shapeDir }),
+      triggerKind: 'scheduled',
+      runAt: dueNow(),
+      enqueuedBy: 'probe',
+    }));
+    check(lines, shapeEnq.ok, 'S2b the malformed-entry row was ENQUEUED — the fixture every arm below needs',
+      shapeEnq.ok ? `queue_id=${shapeEnq.value.queue_id}` : `${shapeEnq.code}: ${shapeEnq.message}`);
+    // The catch is the PROBE's, so a throwing tick reports as failed arms instead of aborting the
+    // suite mid-file. It is not the shape the fix may take: the guard refuses, it does not rescue.
+    let shapeTick = null;
+    let shapeThrew = null;
+    try { shapeTick = await ctx.ticker.tick(new Date()); } catch (err) { shapeThrew = `${err.name}: ${err.message}`; }
+    check(lines, shapeThrew === null,
+      'S2c the tick did NOT throw on the malformed entry — necessary, and on its own NOT sufficient (S2e-S2g are what a swallowing catch could not fake)',
+      shapeThrew || 'no exception');
+    const shapeActs = JSON.stringify((shapeTick && shapeTick.actions) || []);
+    check(lines, shapeActs.includes('fire-tool-failed') && shapeActs.includes('argv-template:') && shapeActs.includes(SHAPE_REASON),
+      'S2d CRITERION (2) the malformed shape is RECORDED on the fire path as a typed refusal, exactly like every other refusal',
+      shapeActs.slice(0, 260) || 'no actions — the tick never returned');
+    check(lines, shapeActs.includes('"phase":"enforce","action":"state"'),
+      'S2e ENFORCE still ran for that tick — its unconditional closing action is present',
+      shapeActs.includes('"phase":"enforce"') ? 'enforce state action present' : 'NO enforce action — the tick was abandoned');
+    const markerAfter = marker.ok ? ctx.store.getMessage(marker.value.msg_id) : null;
+    check(lines, !!shapeTick && !!markerAfter && markerAfter.broadcast_at_tick === shapeTick.tick,
+      'S2f BROADCAST still ran for that tick — the marker note is stamped with THIS tick number, not merely left alone',
+      markerAfter ? `broadcast_at_tick=${markerAfter.broadcast_at_tick} tick=${shapeTick && shapeTick.tick}` : 'marker unreadable');
+    const tickRow = shapeTick ? ctx.store._prepare('SELECT tick FROM ticks WHERE tick = ?').get(shapeTick.tick) : null;
+    check(lines, !!tickRow,
+      'S2g RECORDTICK still ran for that tick — the `ticks` row is on disk',
+      tickRow ? `ticks row tick=${tickRow.tick}` : 'NO ticks row — recordTick never ran');
+    const shapeLeaked = await waitFor(() => fs.existsSync(path.join(shapeDir, 'argv-echo.json')), 3000);
+    check(lines, !shapeLeaked,
+      'S2h and NO child was exec\'d for the malformed entry — the refusal is the outcome, not just a log line',
+      shapeLeaked ? 'argv-echo.json EXISTS — a shape refusal still reached the exec' : 'no argv-echo.json');
+
+    // ── S3 · CRITERION (9): THE SHIPPED CATALOGUE STILL COMPOSES, ENTRY BY ENTRY, BY EXECUTION ───
+    // Not by inspection: every `tools:` entry of the REAL `config/spawn-profiles.yaml` goes through
+    // ticker.js's own resolver expression and the REAL expander. A FROZEN entry must resolve `allow`
+    // to null, carry no placeholder, and compose BYTE-IDENTICALLY to its registered argv; the
+    // allowlisted entry must still admit every listed member. The count is deliberately not a
+    // literal here — it is computed and printed, because a figure written into an assertion is the
+    // very defect item 2 of this row corrects.
+    const shippedTools = (yaml.load(fs.readFileSync(SHIPPED_CONFIG, 'utf8')) || {}).tools || {};
+    const shippedNames = Object.keys(shippedTools);
+    check(lines, shippedNames.length > 0,
+      'S3a the SHIPPED tools catalogue was read and is NON-EMPTY — an empty read would make every arm below vacuous',
+      `${shippedNames.length} entries: ${shippedNames.join(' ')}`);
+    let frozenEntries = 0;
+    let listedEntries = 0;
+    const drift = [];
+    for (const name of shippedNames) {
+      const entry = shippedTools[name] || {};
+      const argv = Array.isArray(entry.argv) ? entry.argv : [];
+      const allow = (entry && entry.args_allowlist) || null;  // ticker.js's own resolver expression
+      if (!allow && !argv.some((t) => typeof t === 'string' && t.includes('{{'))) {
+        frozenEntries += 1;
+        const composed = expandArgv(argv, {}, null);
+        if (composed.refused || JSON.stringify(composed.argv) !== JSON.stringify(argv)) {
+          drift.push(`${name}: ${composed.refused || JSON.stringify(composed.argv)}`);
+        }
+        continue;
+      }
+      listedEntries += 1;
+      const shapeBad = checkTemplateArgs({}, allow);
+      if (shapeBad) { drift.push(`${name}: SHAPE ${shapeBad}`); continue; }
+      for (const [key, permitted] of Object.entries(allow || {})) {
+        for (const value of (Array.isArray(permitted) ? permitted : [])) {
+          const c = expandArgv(argv, { [key]: value }, allow);
+          if (c.refused || !c.argv.includes(value)) drift.push(`${name}.${key}: ${c.refused || 'listed value absent from the composed argv'}`);
+        }
+      }
+    }
+    check(lines, drift.length === 0 && frozenEntries > 0 && listedEntries > 0,
+      `S3b every SHIPPED tools entry still composes unchanged — ${frozenEntries} frozen byte-identical, ${listedEntries} allowlisted admitting every listed member`,
+      drift.length ? `DRIFT: ${drift.join(' | ')}` : `frozen=${frozenEntries} allowlisted=${listedEntries} of ${shippedNames.length}`);
+    const liveRowTool = shippedTools['goal-creation-request'] || null;
+    check(lines, !!liveRowTool && !liveRowTool.args_allowlist
+      && !(liveRowTool.argv || []).some((t) => typeof t === 'string' && t.includes('{{')),
+      'S3c `goal-creation-request` — the tool the LIVE 300 s queue row fires — is still FROZEN: no allowlist, no placeholder, so the new guard is not even on its path',
+      liveRowTool ? JSON.stringify(liveRowTool.argv) : 'ENTRY ABSENT from the shipped catalogue');
 
     // ── The pure gate answers `null` on the legal row — the module-level control for every H arm ─
     check(lines, checkTemplateArgs(goodArgs) === null,

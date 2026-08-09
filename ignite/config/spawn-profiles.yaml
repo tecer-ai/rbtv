@@ -615,7 +615,7 @@ profiles:
 #      author drops silently, and the failure it causes appears in the recovered process,
 #      not in the detector — hours away from the change that caused it.
 #
-# ── AND IF THE ENTRY DECLARES AN `args_allowlist` (task 7.559), FOUR MORE RULES ──────────
+# ── AND IF THE ENTRY DECLARES AN `args_allowlist` (task 7.559), FIVE MORE RULES ──────────
 #   5. THE LIST LIVES HERE AND NOWHERE ELSE. Never in a job registration's `args_schema`,
 #      never in a runtime settings file, never in an env var. `register-job` is reachable by
 #      any enrolled AGENT token, so a list living there is extensible by the agents it
@@ -629,7 +629,22 @@ profiles:
 #      token — `--goal={{goal}}` is refused, so a value can never be welded onto a flag.
 #   8. EVERY MEMBER IS A LIFETIME COMMITMENT, exactly like an argv path: the boot check walks
 #      allowlist values too, so a member naming a folder that is gone logs one error per boot
-#      forever. Retiring the target means deleting the line — same act, same restart.
+#      forever (naming BOTH the stale path and the `key` that declared it). Retiring the target
+#      means deleting the line — same act, same restart.
+#   9. THE SHAPE IS A MAPPING OF KEY → LIST, and nothing else:
+#
+#          args_allowlist:
+#            <key>:
+#              - <permitted literal value>
+#
+#      NOT a scalar (`args_allowlist: goal`) and NOT a bare list (`args_allowlist: [ … ]`). YAML
+#      accepts both of those happily, so the daemon refuses them at FIRE as a shape error and
+#      records the execution `failed` — the entry then fires NEVER, on every cadence, until the
+#      shape is fixed. ⚠ IT USED TO BE MUCH WORSE: a scalar raised a TypeError out of the expander,
+#      and `tick()` has a `finally` with no `catch`, so ONE typo on this line abandoned enforce,
+#      broadcast and the whole tick record EVERY TICK until a human noticed (task 7.577; the
+#      §2 review of 7.559 measured it). It is guarded now, and the guard is a REFUSAL rather than a
+#      rescue — so get the shape right rather than trusting the refusal to be loud enough.
 #
 # A COMMENT IS NOT A WALL. It is here because the wall is missing and the absence needs to
 # be visible at the moment someone adds an entry. The daemon-side fix — enforcing caps on
@@ -1030,9 +1045,13 @@ tools:
     # A queue row does NOT supply a string — it SELECTS one of these literals. The exact bytes that
     # reach the command line are the bytes written here, by a human, in a reviewed diff. Admission is
     # by IDENTITY (`===`): no case folding, no trimming, no prefix match, no pattern. A near miss is
-    # a miss, which is exactly what a "looks safe" grammar cannot give you — MEASURED: with the
-    # membership test deleted, 12 hostile arms flip from refused to composed (`;`-metacharacters,
+    # a miss, which is exactly what a "looks safe" grammar cannot give you — MEASURED, and measured
+    # AFRESH ON EVERY RUN rather than quoted here: arm F10 of
+    # `server/ticker/probes/probe-argv-template.js` deletes the membership test from a scratch copy
+    # and prints how many of its hostile arms flip from refused to composed (`;`-metacharacters,
     # `..` traversal, `/etc/passwd`, `--dry-run`, a 10 000-byte value, a Cyrillic homoglyph).
+    # ⚠ THE FIGURE THAT USED TO STAND HERE SAID "12" AND THE PROBE SAID OTHERWISE (task 7.577) —
+    # run the arm for the number, and do not write one back into this comment.
     # A value that is not on this list is a TYPED REFUSAL and the execution is recorded `failed` —
     # never a pass-through, never an empty operand.
     #
