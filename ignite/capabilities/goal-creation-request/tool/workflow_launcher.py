@@ -161,6 +161,34 @@ def panes_in(name, socket=None):
     return {ln.strip() for ln in r.stdout.splitlines() if ln.strip()}
 
 
+# `coordinate launch`'s own per-seat success line — `launched <seat> (<harness>/<model>, <place>) in
+# %N`, printed once per seat that came up (team-kit/coord.py, `cmd_launch`'s launch loop). It is
+# the ONLY per-fire identity that exists: see `panes_launched`.
+LAUNCHED_PANE_RE = re.compile(r"^launched .* in (%\d+)\b")
+
+
+def panes_launched(stdout):
+    """The pane ids THIS FIRE's delegated launch reported opening, in the order it named them.
+
+    ⚠ PER-FIRE IDENTITY, NOT A ROOM-WIDE DELTA, and the difference is the whole point (task 7.588).
+    The room is SHARED BY CONSTRUCTION — `ensure_session` is idempotent by design, so every fire
+    into a run joins the ONE session — and a before/after set difference over that room attributes
+    whatever appeared in the window to whichever fire happened to look last. Two fires racing into
+    one room therefore mis-attribute in BOTH directions: a fire that opened NOTHING finds the
+    neighbour's pane in its delta and exits 0 (the store writes `done` for a fire that achieved
+    nothing — exactly the false success EXIT_NO_SEAT was minted to make impossible), and a fire
+    that opened one claims the neighbour's as well. The launch itself already knows the answer: it
+    names the pane it opened for each seat, so nothing has to be inferred from the room's history.
+
+    A parse rather than a flag because the line is coord's EXISTING contract with every caller —
+    adding a second, machine-readable carrier of the same fact is two carriers to disagree. The
+    coupling is pinned by `probes/probe-launcher-attribution.py` arm D, which fails if that line
+    is renamed; without it a rename would silently downgrade every real launch to a WAIT.
+    """
+    return [m.group(1) for m in
+            (LAUNCHED_PANE_RE.match(ln.strip()) for ln in (stdout or "").splitlines()) if m]
+
+
 def launch_argv(coord, package, entry_seat, pane):
     """The EXACT argv the launch delegates to. Built above every early return so --dry-run prints
     the real thing.
@@ -225,12 +253,6 @@ def main(argv=None):
         return 1
     log(f"target {pane} verified in session {name!r} — {provenance}")
 
-    # READ BEFORE, so the verdict below is about THIS FIRE and not about the room's history. An
-    # absolute count cannot tell "a seat opened" from "a seat was already there": a re-fire joins a
-    # room it already populated (`ensure_session` is idempotent by design), and a count-based test
-    # would report that re-fire as a fresh success while it opened nothing.
-    before = panes_in(name, args.tmux_socket)
-
     env = dict(os.environ)
     env.pop("TMUX_PANE", None)      # never let an inherited pane win over the one just proven
     env.pop("COORD_LAUNCH_TARGET", None)
@@ -251,8 +273,17 @@ def main(argv=None):
         log(f"launch exited {res.returncode}")
         return res.returncode
 
-    # ⚠ EXIT 0 MEANS "A SEAT OPENED", AND THIS IS WHERE THAT IS PROVEN — from the pane set THIS
-    # FIRE ADDED. Two measured facts decide the shape, and both correct what this file used to say:
+    # ⚠ EXIT 0 MEANS "A SEAT OPENED", AND THIS IS WHERE THAT IS PROVEN — from the pane THIS FIRE'S
+    # OWN LAUNCH REPORTED, re-read in the room to prove it is really there. It used to be proven
+    # from a before/after delta over the WHOLE room, which is not concurrency-safe: `panes_launched`
+    # above carries the reason in full (task 7.588). The room read stays, in a narrower role — it
+    # answers "is the pane this fire opened actually in this room, right now", never "what changed
+    # in this room" — so an unreadable room is still an UNPROVEN launch and still refuses to record
+    # a success. A count is not the proof either way: a re-fire joins a room it already populated
+    # (`ensure_session` is idempotent by design), and a count-based test would report that re-fire
+    # as a fresh success while it opened nothing.
+    #
+    # Two measured facts decide the rest of the shape, and both correct what this file used to say:
     #
     #  · A VIRGIN PACKAGE'S FIRST FIRE DOES OPEN ITS ENTRY SEAT. `coordinate launch` carries a
     #    COLD-START admission (team-kit task 7.406): a package no sensor has ever run against and no
@@ -284,17 +315,21 @@ def main(argv=None):
     # row at fire (server/heart/heart-store.js). So there is no cadence for a failure to recur on —
     # one fire, one honest record. `probe-planning-entry.py` P7 pins that, because the day the row
     # becomes periodic this exit code starts writing a `failed` every pass.
-    after = panes_in(name, args.tmux_socket)
-    opened = (after - before) if (after is not None and before is not None) else None
+    room = panes_in(name, args.tmux_socket)
+    reported = panes_launched(res.stdout)
+    opened = [p for p in reported if p in room] if room is not None else None
     if opened is None:
-        log(f"NO SEAT PROVEN — the delegated launch exited 0, but session {name!r}'s panes could "
-            f"not be read either before or after it, so NOTHING here proves a seat opened. Exiting "
+        log(f"NO SEAT PROVEN — the delegated launch exited 0 and reported "
+            f"{len(reported)} pane(s), but session {name!r}'s panes could not be read, so NOTHING "
+            f"here proves a seat opened in this room. Exiting "
             f"{EXIT_NO_SEAT} rather than 0: an unproven launch must not be recorded as a success.")
         return EXIT_NO_SEAT
     if not opened:
-        log(f"WAIT — the delegated launch exited 0 and opened NO seat pane in session {name!r} "
-            f"({len(after)} pane(s), UNCHANGED by this fire — a room that already held panes is "
-            f"not evidence this fire opened one). This is a "
+        log(f"WAIT — the delegated launch exited 0 and reported NO seat pane of its own in session "
+            f"{name!r} ({len(room)} pane(s) in the room, none of them opened by THIS fire — a pane "
+            f"this fire did not open is not evidence that it did"
+            + (f"; it reported {' '.join(reported)}, which the room does not hold" if reported
+               else "") + "). This is a "
             f"WAIT, not a refusal, in `coordinate launch`'s own terms — but it is NOT a success, so "
             f"this program exits {EXIT_NO_SEAT} and the store records `failed` instead of `done`. "
             f"Read the `launch|` lines above for the reason it named; the usual one is a package "
@@ -303,7 +338,7 @@ def main(argv=None):
             f"again.")
         return EXIT_NO_SEAT
     log(f"LAUNCHED — this fire opened {len(opened)} seat pane(s) in session {name!r}: "
-        f"{' '.join(sorted(opened))} ({len(after)} pane(s) in the room)")
+        f"{' '.join(opened)} ({len(room)} pane(s) in the room, the rest not this fire's)")
     return 0
 
 

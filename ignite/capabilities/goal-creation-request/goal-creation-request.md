@@ -365,9 +365,12 @@ closes no general arming issue.
 
 ## The probes
 
-Four, and they guard different things. Two arrived after this section was first written and are
-named here so the count stays true: `probes/probe-sensor-start.py` (task 7.552) and
-`probes/probe-goal-type-carrier.py` (task 7.533) — the latter is the goal-type carrier's
+Five, and they guard different things. Three arrived after this section was first written and are
+named here so the count stays true: `probes/probe-sensor-start.py` (task 7.552),
+`probes/probe-launcher-attribution.py` (task 7.588 — the launcher grades a fire by the pane its
+own delegated launch reported, never by a room-wide before/after delta, so two fires racing into
+one room cross-attribute neither the exit code nor the pane ids) and
+`probes/probe-goal-type-carrier.py` (task 7.533) — the last is the goal-type carrier's
 end-to-end witness, standing guard over the fact that a request carrying `--type recurring`
 produces a recurring goal, checked against the created goal's own descriptor on disk rather than
 against the request that asked for it. `probes/probe-planning-entry.py` (task C5E) is the
