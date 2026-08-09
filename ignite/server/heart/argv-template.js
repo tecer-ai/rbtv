@@ -130,7 +130,15 @@ function workdirRule(value) {
 function allowValue(key, permitted, value) {
   // An entry that declares a key with nothing in it admits NOTHING. Failing open here would turn a
   // typo (`goal:` with an empty list) into an unbounded operand, which is the whole defect class.
-  if (!Array.isArray(permitted) || permitted.length === 0) {
+  // ⚠ TWO REFUSALS, ONE OUTCOME (task 7.585). `Array.isArray` STAYS FIRST — that ordering is the
+  // security condition, and neither branch changes what is admitted. The split is for the OPERATOR:
+  // a per-key value that is a scalar (`goal: "/some/path"` where `goal: ["/some/path"]` was meant)
+  // was reported as an empty list, so the reader was sent to fix an emptiness that was never there.
+  if (!Array.isArray(permitted)) {
+    return `${key} does not carry a list of permitted values on this entry — got `
+      + `${permitted === null ? 'null' : typeof permitted}, and a value that is not a list admits nothing`;
+  }
+  if (permitted.length === 0) {
     return `${key} has an empty positive list on this entry — an empty positive list admits nothing`;
   }
   if (typeof value !== 'string') {

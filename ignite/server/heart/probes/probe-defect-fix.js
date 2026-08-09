@@ -22,6 +22,10 @@
 //       number is printed, not asserted: today it is zero because the ephemeral folders still exist,
 //       and a probe that asserted zero would go red the day the defect it guards against occurs.
 //
+//   7.585 allowlist wording — a per-key allowlist value that is a SCALAR is refused for being a
+//       non-list, distinguishably from a genuinely EMPTY list. Both always failed closed; the arms
+//       score the MESSAGE, plus a control that admission/refusal outcomes did not move.
+//
 // Everything runs in a temp directory. The live heart store and the live config are never written.
 //
 // Run: node probe-defect-fix.js   ->  exit 0 all green, exit 1 on any failure.
@@ -33,6 +37,7 @@ const yaml = require('js-yaml');
 
 const { HeartStore, jobFireability } = require('../heart-store');
 const { validateCataloguePaths } = require('../catalogue-paths');
+const { checkTemplateArgs } = require('../argv-template');
 const { createAuthzPolicy } = require('../../internal-api/authz');
 
 const results = [];
@@ -216,6 +221,32 @@ check('S-6(b)/7.559: a malformed `args_allowlist` (not an object / not a list) i
       c: { argv: ['/bin/true'], args_allowlist: { goal: [null, 7, { x: 1 }] } },
     },
   }).length === 0);
+
+// ── task 7.585 · A SCALAR PER-KEY VALUE AND AN EMPTY LIST ARE DIFFERENT PROBLEMS ─────────────
+// Both fail closed and always did — the defect was the REASON the operator was given. A mapping
+// written `args_allowlist: { goal: "/some/path" }` (the scalar typo for `{ goal: ["/some/path"] }`)
+// was refused as `goal has an empty positive list`, sending the reader to fix an emptiness that was
+// never there. The arms assert the MESSAGE, and each asserts the OTHER message is absent — a check
+// that only asked "was it refused?" was green before the fix and would stay green through a
+// regression of it.
+check('7.585: a SCALAR per-key allowlist value is refused for what it actually is — not a list — ' +
+      'and is NOT reported as an empty positive list',
+  (() => {
+    const r = checkTemplateArgs({ goal: '/some/path' }, { goal: '/some/path' });
+    return typeof r === 'string' && /does not carry a list of permitted values/.test(r)
+      && /got string/.test(r) && !/empty positive list/.test(r);
+  })(), JSON.stringify(checkTemplateArgs({ goal: '/some/path' }, { goal: '/some/path' })));
+check('7.585: a genuinely EMPTY list keeps its own wording, so the two typos stay distinguishable ' +
+      'to the reader who has to fix one of them',
+  (() => {
+    const r = checkTemplateArgs({ goal: '/some/path' }, { goal: [] });
+    return typeof r === 'string' && /empty positive list admits nothing/.test(r)
+      && !/does not carry a list/.test(r);
+  })(), JSON.stringify(checkTemplateArgs({ goal: '/some/path' }, { goal: [] })));
+check('7.585 boundary control: the ADMISSION outcomes are untouched by the wording split — an ' +
+      'identity-exact member is still admitted, a near miss is still refused',
+  checkTemplateArgs({ goal: '/some/path' }, { goal: ['/some/path'] }) === null
+  && /is not on this entry's allowlist/.test(checkTemplateArgs({ goal: '/Some/path' }, { goal: ['/some/path'] })));
 
 // The LIVE config: reported, never asserted. Asserting zero would go red on the day the defect
 // this guards against actually happens, which is precisely when the check must stay green.
