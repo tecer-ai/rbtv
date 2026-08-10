@@ -81,4 +81,11 @@ a temp file + rename so a crash can never leave a run holding a truncated budget
 
 The `sd-graph` / `rbtv-goal` convention, extended by exactly the two `rbtv-ignite-ticker` extends it
 by: `0` the act/read succeeded · `1` refused, or the read FAILED · `2` usage error · `3` the cadence
-is out of range, **nothing written** · `4` the write landed but the restart failed.
+is out of range, **nothing written** · `4` the write landed but the restart failed · `5` the target
+`budget.json` is **malformed** — it does not parse, or its `cadence` key is present and is not an
+object — **nothing written**, and the file is byte-identical (proven by sha256 in the selftest).
+
+`5` exists because a malformed budget was the one bad input with no house-grammar answer: an
+unparseable file raised a raw traceback, and a non-object `cadence` was silently replaced. This
+writer promises to preserve every other key in a hand-authored budget, and that promise is only
+keepable over a file it can parse — so it refuses rather than rewrites.

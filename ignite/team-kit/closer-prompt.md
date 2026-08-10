@@ -29,7 +29,7 @@ close the worker's seat and your own. {RENEW_NOTE}
 
 5. **Co-author with the worker — this is why you exist.**
    If '{TARGET}' is still live (check `{COORD} workers`), send it your draft:
-   `{COORD} send {TARGET} "<draft 'Resume here' + your open questions>" --type ask`
+   `{COORD} send {TARGET} "<draft 'Resume here' + your open questions>" --type ask --inline`
    Then `{COORD} read` for the reply (a `[coord wake]` line may appear in your pane —
    run the read command it carries). Fold in corrections. Wait up to ~5 minutes; nudge ONCE.
    If the worker never answers or its pane is dead, proceed alone and record in the memory:
@@ -78,7 +78,7 @@ close the worker's seat and your own. {RENEW_NOTE}
 7. **Close the worker's seat.**
    `{COORD} close-seat {TARGET}{RENEW_FLAG}`
 
-8. **Depart.** Send leader one line — `{COORD} send leader "closed {TARGET}; memory at {MEMORY}" --type completion` — then
+8. **Depart.** Send leader one line — `{COORD} send leader "closed {TARGET}; memory at {MEMORY}" --type completion --inline` — then
    `{COORD} depart` (exports your own transcript, checks you out, kills your own pane).
 
 ## Never

@@ -28,6 +28,7 @@ import os
 import resource
 import shutil
 import signal
+import subprocess
 import sys
 
 _ORIGINAL_LIMITS = {}
@@ -35,6 +36,28 @@ _ORIGINAL_LIMITS = {}
 
 class _Timeout(Exception):
     pass
+
+
+class CarrierEnvMissing(RuntimeError):
+    """`detach_argv` was asked to detach a process when there is NO PATH to forward.
+
+    REFUSES LOUDLY BY DESIGN (task 7.564). The alternative — forward some explicit safe default —
+    was considered and REJECTED for two reasons. (1) PRIN-11: there is exactly ONE composer of this
+    value (`server/spawn/carrier.js` `toolExecEnv()`, ruling `d-owner-f1-carrier-env-0808`); a
+    default invented here would make `jobcontain` a SECOND composer, which is the precise failure
+    probe arm R2 exists to catch, and it would produce a PATH that LOOKS right while omitting
+    whatever the carrier actually composed. (2) An unset PATH is not a normal state on any live
+    path — under the daemon `os.environ["PATH"]` IS `toolExecEnv()`'s output, and from a shell it
+    is that shell's own PATH — so it means the carrier environment was already lost UPSTREAM. A
+    default would convert that loud upstream bug into a quiet wrong-PATH failure much later, in
+    the detached process, which is the hardest place to trace it back from.
+
+    What is ruled OUT either way is the pre-fix behaviour this replaces: proceeding with no
+    `--setenv` at all. `shutil.which` still finds `systemd-run` with PATH unset (the C library's
+    `CS_PATH` fallback), so the launch went ahead and the child silently received the systemd
+    MANAGER's PATH — measured, and exactly the defect task 7.551 exists to fix, reappearing
+    quietly instead of failing loud.
+    """
 
 
 def _on_alarm(signum, frame):
@@ -105,10 +128,61 @@ def detach_argv(argv, unit, daemonizes=False):
     # output byte-for-byte (measured), and from a human shell it is that shell's own PATH — both
     # correct, neither a second composer. Positional, not separated by `--`: the flag must precede
     # the argv tail or systemd-run hands it to the child as an argument (probes/probe-detach-env.py).
+    # REFUSE rather than degrade (task 7.564 — see CarrierEnvMissing for the decision and the
+    # rejected alternative). The old spelling was `[...] if path else []`, which looked like a
+    # guard and protected nothing: with PATH unset it emitted no --setenv and let the launch
+    # proceed, handing the child the manager's PATH — the very defect this fix exists to prevent.
+    #
+    # THE EMPTY-STRING HALF OF THAT OLD GUARD WAS UNREACHABLE, and still is: `shutil.which`
+    # treats PATH="" as a real (empty) search path rather than falling back to CS_PATH, so it
+    # returns None and the bare-argv fallback above has ALREADY returned before this line. Only
+    # PATH being genuinely UNSET reaches here, because that is the one case where which() still
+    # resolves systemd-run. Probe arm P2 pins that short-circuit so this reasoning cannot rot.
     path = os.environ.get("PATH")
-    setenv = [f"--setenv=PATH={path}"] if path else []
+    if path is None:
+        raise CarrierEnvMissing(
+            "detach_argv: PATH is unset, so there is nothing to forward across the systemd-run "
+            "hop. REFUSING to detach rather than launching without --setenv: the inner hop goes "
+            "back through the systemd USER MANAGER, whose environment is not this process's, so "
+            "the child would silently receive the MANAGER's PATH. ~/.local/bin and "
+            "~/.opencode/bin are not on it, so claude / codex / opencode / coordinate would not "
+            "resolve BY NAME in the detached process (task 7.551). Fix the CALLER's environment "
+            "— under the daemon PATH is carrier.js toolExecEnv()'s output, from a shell it is "
+            "the shell's own PATH. This module never composes one: there is exactly one "
+            "composer (PRIN-11).")
+    setenv = [f"--setenv=PATH={path}"]
     return ["systemd-run", "--user", "--collect", "--quiet", *setenv, *props,
             f"--unit={unit}", *argv], unit
+
+
+def launch_detached(launch, unit, preexec_fn=None, timeout=60):
+    """Fire a `detach_argv` launch and return (launcher_output, exit_code) — never waiting on a
+    process that is not a launcher.
+
+    THE LATENT HANG THIS EXISTS TO REMOVE (task 7.527). `detach_argv` returns two SHAPES and only
+    one of them is a launcher, which is exactly what `unit` already tells us. With `systemd-run`
+    present the argv IS a launcher: it exits the moment the unit is up, so waiting on it under a
+    timeout is right and its output and exit code are worth having. With `systemd-run` ABSENT the
+    fallback argv is the BARE COMMAND — not a launcher, but the long-lived process itself — and
+    both callers pass `watch.py --loop-forever`, which is designed never to exit. Waiting on THAT
+    with `timeout=60` blocked the caller for a full minute and then KILLED a loop that was working.
+
+    So the shape decides: the launcher is waited on, the bare fallback is started in its own
+    session and never waited on. `start_new_session=True` is what the fallback has instead of a
+    cgroup — the child must not die with the caller's terminal or job.
+
+    `preexec_fn` is the two callers' one real difference and is passed through, never assumed:
+    `selfheal-watch.py` calls `contain()` first and MUST restore the pre-contain limits in the
+    child (`child_preexec`) or the relaunched sensor inherits the detector's 256 MB cap;
+    `rbtv-ignite-watch` never contains itself and correctly passes nothing.
+    """
+    if unit is None:
+        subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, start_new_session=True, preexec_fn=preexec_fn)
+        return "", 0
+    res = subprocess.run(launch, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, timeout=timeout, preexec_fn=preexec_fn)
+    return (res.stdout or b"").decode("utf-8", "replace").strip(), res.returncode
 
 
 def unit_name(prefix, key):

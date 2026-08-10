@@ -241,6 +241,13 @@ DEFAULT_ESCALATE_AFTER = 3
 # default that documents its own drift is still a home. Task 7.82 / `r-floor-single-source` deletes
 # it: the floor is READ from the run's budget.json (this job already requires `--package`), and
 # `--mem-floor-mb` survives ONLY as a deliberate operator override. No fallback number lives here.
+
+# How many passes may ATTEMPT to deliver one flag before the episode is armed anyway (task
+# 7.536). The dedup state records DELIVERY, not INTENT: a `deliver()` that failed leaves the
+# episode RETRYABLE, so the next pass re-nudges. BOUNDED, because an unreachable coord would
+# otherwise re-nudge forever — at the bound the flag is armed and the failure stands on the
+# record. The counter resets the pass the condition clears.
+DELIVER_RETRIES = 3
 DEFAULT_LOAD_PER_CORE = 1.5
 SWAP_RISE_READS = 3
 
@@ -1684,7 +1691,9 @@ def main():
         emitted.add(key)
         fresh.append(d)
     state = {k: v for k, v in state.items() if k.startswith("_")}
-    state.update({k: True for k in seen})
+    # ⚠ THE ARMING MOVED BELOW THE DELIVERY LOOP (task 7.536). It stood here, so an episode was
+    # armed on INTENT — a `deliver()` that failed was indistinguishable from a nudge that was
+    # ignored, and the row was never retried inside the episode.
 
     stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
     print(f"goal-watcher-job pass {stamp} — {len(decisions)} decision(s), {len(fresh)} new"
@@ -1715,6 +1724,7 @@ def main():
         print("  (dry: --notify not set — inline mechanical fixes NOT run)")
 
     sent = failed = suppressed = 0
+    undelivered = set()
     delivery_note = ""
     if args.notify and fresh:
         room_snap = snap
@@ -1724,6 +1734,7 @@ def main():
         for d in fresh:
             # ⚠ RESOLVED PER DECISION. A seat row goes to its own seat and a judgment row to the
             # leader, so one recipient for the pass cannot express this chain (CMP-21).
+            key = f"{d['class']}:{d['subject']}"
             to, why = resolve_recipient(room_snap, args, d)
             delivery_note = why
             if to is None:
@@ -1731,6 +1742,7 @@ def main():
                 print(f"goal-watcher-job: {why} — flag [{d['class']}] {d['subject']} NOT "
                       f"DELIVERED. The detection is sound and the delivery is not; treat this "
                       f"as an incident.", file=sys.stderr)
+                undelivered.add(key)
                 failed += 1
                 continue
             head = f"goal-watcher-job [{d['class']}] {d['subject']} —"
@@ -1745,12 +1757,32 @@ def main():
             if ok:
                 sent += 1
             else:
+                undelivered.add(key)
                 failed += 1
                 print(f"goal-watcher-job: {msg} — flag [{d['class']}] "
                       f"{d['subject']} NOT DELIVERED", file=sys.stderr)
     elif fresh:
         print("  (dry: --notify not set — flags NOT delivered)")
 
+    # ---- ARMED BY DELIVERY (task 7.536). A key that was NOT delivered this pass is left
+    # UNARMED so the next pass re-nudges it, up to DELIVER_RETRIES attempts; `_undelivered`
+    # counts them and is pruned to conditions still seen, so the budget resets with the episode.
+    # A dry pass (no --notify) attempts no delivery and arms as it always did.
+    tries = {k: v for k, v in (state.get("_undelivered") or {}).items() if k in seen}
+    for key in seen:
+        if key not in undelivered:
+            tries.pop(key, None)
+            state[key] = True
+            continue
+        tries[key] = attempt = tries.get(key, 0) + 1
+        if attempt >= DELIVER_RETRIES:
+            state[key] = True
+            print(f"  UNDELIVERED {key} — retry bound reached "
+                  f"({attempt}/{DELIVER_RETRIES}); armed anyway, the failure stands here")
+        else:
+            print(f"  UNDELIVERED {key} — left RETRYABLE for the next pass "
+                  f"(attempt {attempt}/{DELIVER_RETRIES})")
+    state["_undelivered"] = tries
     save_state(state_path, state)
     trailed = append_trail(trail_path, trail)
     if trailed:
@@ -1767,6 +1799,8 @@ def main():
             "new": [f"{d['class']}:{d['subject']}" for d in fresh],
             "delivered": sent, "delivery_failed": failed,
             "suppressed_as_repeat": suppressed,
+            "undelivered": sorted(undelivered),
+            "retry_bound": DELIVER_RETRIES,
             "delivery": delivery_note,
             "shadow_trail": trail,
             "shadow_trail_path": trail_path,

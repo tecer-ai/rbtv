@@ -274,6 +274,7 @@ while [ "$#" -gt 0 ]; do
       printf 'usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--service NAME] [--json]\n'
       printf '  --service ignite|chat-bridge|probe-suite   which service the verb acts on (default ignite)\n'
       printf '            probe-suite acts on rbtv-probe-suite.timer — the schedule IS the on/off switch.\n'
+      printf '            (conductor default D3, provisional -- the owner may veto it).\n'
       printf '            fire one suite run now instead: RBTV_IGNITE_UNIT=rbtv-probe-suite.service ... start\n'
       printf '  env: RBTV_IGNITE_UNIT (default rbtv-ignite.service; WINS over --service) · RBTV_IGNITE_SETTLE_SECONDS\n'
       printf '       RBTV_IGNITE_JOURNAL_LINES · RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS\n'

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""probe-detach-env.py — `jobcontain.detach_argv` carries the caller's PATH across its inner hop.
+"""probe-detach-env.py — `jobcontain`'s detached-launch contract: the PATH crosses the inner hop,
+and the fallback that is NOT a launcher is never waited on.
 
 WHAT IT SCORES (task 7.551). `detach_argv` wraps a command in its OWN `systemd-run --user`
 transient unit so it outlives the job that started it. That inner hop goes back through the systemd
@@ -29,10 +30,30 @@ ARMS
       Kills a fix that RE-DERIVES a PATH inside `jobcontain.py` — that would pass R1 and fail here.
   R3  with `systemd-run` reported ABSENT, the returned argv is the caller's argv UNCHANGED and
       carries no `--setenv` (the shell fallback stays a bare exec). Kills an unconditional append.
-  R4  in the returned argv `--setenv=PATH=` appears EXACTLY ONCE and BEFORE `--unit=` and before the
-      caller's own argv[0]. `detach_argv` emits no `--` separator, so ordering is positional: a flag
-      after the command is passed TO THE CHILD as an argument instead of setting the environment,
-      which a substring check alone would not catch.
+  R4  in the returned argv `--setenv=PATH=` appears EXACTLY ONCE and BEFORE THE CALLER'S OWN
+      argv[0] — and the arm MEASURES why that is the property that matters: the same flag placed
+      AFTER the command is shown not reaching the child at all. `detach_argv` emits no `--`
+      separator, so a flag after the command is passed TO THE CHILD as an argument instead of
+      setting the environment, which a substring check alone would not catch.
+      ⚠ CORRECTED (task 7.564): R4 used to pin a TOTAL order, `setenv < unit < argv0`, and so it
+      RED on a BENIGN reorder — a `--setenv` after `--unit=` but still before the command DELIVERS
+      the environment (R1 and R2 both pass on that argv; measured). Only "before the command" is
+      load-bearing. An over-strict arm trains the next worker to weaken assertions, which is how
+      a real guard gets lost. The relaxation does NOT cost a single certified kill: M1
+      (no-thread) still reds on the exactly-once clause, M3 (flag moved AFTER the command) still
+      reds on the ordering clause AND on R1/R2, M4 (emitted twice) still reds on exactly-once.
+  P1  RED ARM (task 7.564) — with PATH UNSET, `detach_argv` REFUSES with the typed
+      `CarrierEnvMissing` instead of launching with no `--setenv`. Pre-fix it proceeded and the
+      child silently received the systemd MANAGER's PATH — the 7.551 defect, quietly restored.
+      Delete the refusal and this arm reds.
+  P2  with PATH set to the EMPTY STRING the refusal is UNREACHABLE and must stay so: `shutil.which`
+      treats "" as a real (empty) search path, returns None, and the bare-argv fallback returns
+      before the guard. Pins the short-circuit that makes the old guard's `else []` half dead.
+  B1  RED ARM (task 7.527) — the OLD shape, `subprocess.run(launch, timeout=T)`, on the bare
+      fallback whose child never exits: it blocks for the whole timeout and then KILLS the child.
+      This is the defect, pinned so the fix cannot be mistaken for a no-op.
+  B2  the NEW shape, `jobcontain.launch_detached`, returns AT ONCE on that same argv and the
+      loop-forever child is still alive afterwards.
 
 TWO EXECUTION TRAPS, both hit while designing this (dossier §5) — every arm reads the CAPTURE FILE
 the child wrote, never the launcher's exit code: `systemd-run --collect --quiet` returns 0 as soon
@@ -47,6 +68,7 @@ control proved an arm could not have failed).
 import importlib.util
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -79,6 +101,26 @@ def check(arm, ok, detail):
 def stop(arm, why):
     say(f"INOPERATIVE  {arm}  {why}")
     inoperative.append(arm)
+
+
+def alive(token):
+    """pids of live processes carrying `token` in their argv — this probe's stand-in children.
+
+    Read straight from /proc rather than through `pgrep`: arms B1/B2 deliberately strip PATH down
+    to a stub directory, where no external binary resolves at all. A reaped child leaves an empty
+    cmdline, so a zombie never counts as alive.
+    """
+    out = []
+    for d in os.listdir("/proc"):
+        if not d.isdigit():
+            continue
+        try:
+            with open(f"/proc/{d}/cmdline", "rb") as fh:
+                if token.encode() in fh.read():
+                    out.append(int(d))
+        except OSError:
+            continue
+    return out
 
 
 def load_jobcontain():
@@ -184,12 +226,104 @@ def main():
 
         # ---- R4: positional ordering ------------------------------------------------------------
         setenvs = [i for i, a in enumerate(launch) if str(a).startswith("--setenv=PATH=")]
-        unit_ix = [i for i, a in enumerate(launch) if str(a).startswith("--unit=")]
         argv0_ix = launch.index("/bin/sh")
-        ok4 = len(setenvs) == 1 and len(unit_ix) == 1 and setenvs[0] < unit_ix[0] < argv0_ix
+        # The property, MEASURED rather than assumed: move the same flag AFTER the command and
+        # the child does not receive it. That is what makes "before the command" load-bearing —
+        # and it is why R4 reds for a reason it can demonstrate, not for an index it prefers.
+        cap4 = tmp / "r4.txt"
+        after_cmd = ["systemd-run", "--user", "--collect", "--quiet",
+                     f"--unit=probe-detach-env-r4-{os.getpid()}", *child(cap4),
+                     f"--setenv=PATH={caller_path}"]
+        got4, why4 = run_and_capture(after_cmd, cap4)
+        if got4 is None:
+            stop("R4", f"could not measure the after-the-command placement: {why4}")
+            return
+        delivered_after = got4.get("PATH") == caller_path
+        ok4 = len(setenvs) == 1 and setenvs[0] < argv0_ix and not delivered_after
         check("R4", ok4,
-              f"--setenv=PATH= at {setenvs}, --unit= at {unit_ix}, caller argv[0] at {argv0_ix} "
-              "(must be exactly one --setenv, before --unit and before the command)")
+              f"--setenv=PATH= at {setenvs}, caller argv[0] at {argv0_ix} (exactly one, before "
+              f"the command); the same flag placed AFTER the command delivered={delivered_after} "
+              f"(child saw PATH={got4.get('PATH')!r})")
+
+        # ---- P1 / P2: an UNSET PATH refuses loudly; an EMPTY PATH cannot reach the refusal ------
+        saved_p = os.environ.pop("PATH")
+        try:
+            raised = None
+            got = None
+            try:
+                got = jc.detach_argv(["/bin/true"], "probe-detach-env-p1-never-created")
+            except Exception as exc:  # noqa: BLE001 — WHICH error it is, is the assertion below
+                raised = exc
+            check("P1",
+                  isinstance(raised, getattr(jc, "CarrierEnvMissing", ()))
+                  and "PATH is unset" in str(raised),
+                  f"PATH unset -> {type(raised).__name__}: {str(raised)[:80]!r}" if raised
+                  else f"PATH unset -> NO refusal, returned {got!r} (the pre-fix silent degrade: "
+                       "no --setenv, so the child gets the systemd MANAGER's PATH)")
+
+            os.environ["PATH"] = ""
+            ep_which = shutil.which("systemd-run")
+            ep_argv, ep_unit = jc.detach_argv(["/bin/true", "y"], "probe-detach-env-p2")
+            check("P2", ep_which is None and ep_unit is None and ep_argv == ["/bin/true", "y"],
+                  f"PATH='' -> which(systemd-run)={ep_which!r}, bare fallback {ep_argv!r} "
+                  f"unit={ep_unit!r} (the refusal is unreachable here, by short-circuit)")
+        finally:
+            os.environ["PATH"] = saved_p
+
+        # ---- B1 / B2: the loop-forever fallback is DETACHED, never waited on (task 7.527) --------
+        # `systemd-run` is PATH-SHADOWED BY A STUB that is present but NOT EXECUTABLE, so
+        # `shutil.which` genuinely returns None — no monkeypatch — and `detach_argv` takes its bare
+        # fallback, the shape whose child is the long-lived process itself rather than a launcher.
+        # The stand-in child is a plain sleep, never `watch.py`: nothing real is launched, no unit
+        # is created, and both arms reap their own children.
+        stub = bindir / "systemd-run"
+        stub.write_text("#!/bin/sh\nexit 1\n")
+        stub.chmod(0o644)
+        token = f"probe-detach-blocking-{os.getpid()}"
+        forever = [sys.executable, "-c", f"import time  # {token}\ntime.sleep(600)"]
+        saved_path = os.environ["PATH"]
+        os.environ["PATH"] = str(bindir)
+        try:
+            if shutil.which("systemd-run"):
+                stop("B1/B2", "systemd-run still resolves under the stubbed PATH — the bare "
+                              "fallback is unreachable and neither arm could fail")
+                return
+            blaunch, bunit = jc.detach_argv(forever, "probe-detach-blocking-never-created")
+            if bunit is not None or blaunch != forever:
+                stop("B1/B2", f"expected the bare fallback, got unit={bunit!r} argv={blaunch!r}")
+                return
+
+            # B1 — THE OLD SHAPE, reproduced verbatim except for the timeout NUMBER: 3s instead of
+            # the shipped 60 purely so the probe is quick. The SHAPE is what the fix removes.
+            t0 = time.time()
+            timed_out = False
+            try:
+                subprocess.run(blaunch, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               stdin=subprocess.DEVNULL, timeout=3)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            b1_wall = time.time() - t0
+            b1_survivors = alive(token)
+            check("B1", timed_out and b1_wall >= 3 and not b1_survivors,
+                  f"OLD shape blocked {b1_wall:.1f}s on a loop-forever child and then KILLED it "
+                  f"(timed_out={timed_out}, survivors={b1_survivors})")
+
+            # B2 — THE NEW SHAPE on the SAME argv and the same absent systemd-run.
+            t0 = time.time()
+            out, rc = jc.launch_detached(blaunch, bunit)
+            b2_wall = time.time() - t0
+            time.sleep(1.0)
+            b2_survivors = alive(token)
+            check("B2", b2_wall < 2 and bool(b2_survivors) and rc == 0,
+                  f"NEW shape returned in {b2_wall:.1f}s (rc={rc}, out={out!r}) and the "
+                  f"loop-forever child is STILL ALIVE: pid(s) {b2_survivors}")
+        finally:
+            os.environ["PATH"] = saved_path
+            for pid in alive(token):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 try:

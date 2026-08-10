@@ -18,6 +18,15 @@ recovery agent every period regardless of health — an unbounded paid path.
 in the table above — noticed while adding the `edge-runner` row, left alone rather than back-filled
 from guesswork.)
 
+`agent-tmp-clean.py` (task 7.404) is also in this folder and is **not** a `fire-tool` job — it has
+no catalogue entry and nothing fires it. It ages out `~/.cache/agent-tmp`, the disk-backed location
+`coord.py` hands kit-launched seats as their `TMPDIR` (its `AGENT_TMPDIR`, task 7.400), which had
+nothing aging it out. It is a DRY RUN unless `--go`, refuses an age floor below 7 days, and refuses
+a root that is `/tmp` or on tmpfs — the two locations the owner ruled off-limits. The owner ruled its schedule on
+2026-08-10: a **systemd user timer, daily** — `agent-tmp-clean.{service,timer}` under
+`~/.config/systemd/user/` on the ignite VPS (`OnCalendar=daily`, `Persistent=true`, running with
+`--go`). Those unit files are per-machine runtime state and are deliberately NOT in this repo.
+
 ## `goal-watcher-job.py` is the one that ACTS on a threshold, not only reports it (CMP-21)
 
 Owner ruling `decisions.md#d-watcher-deterministic-chain` (2026-08-08) settles CMP-21 and RETIRES

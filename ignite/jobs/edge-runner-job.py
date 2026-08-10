@@ -892,7 +892,7 @@ def readiness(coord, pkg, marks=None):
 # self-state exclusion and a conditional-edge exclusion are two different claims; giving them one
 # word in one file is how a later reader collapses them. The leader's bar is that every exclusion is
 # NAMED and that the list is present even when empty — both hold under this key.
-ENQUEUE_RESULT_KEYS = ("enqueued", "validated", "excluded", "failed", "caveats")
+ENQUEUE_RESULT_KEYS = ("enqueued", "held", "validated", "excluded", "failed", "caveats")
 ENQUEUE_ROW_KEYS = ("seat", "job-id", "seed")
 
 # The daemon's enqueue door. `ignite add-job` wraps the gateway's `enqueue-job` intent; this stage
@@ -922,6 +922,31 @@ def default_submitter(argv):
     caller decides what a non-zero return means, so a failure is data rather than a traceback."""
     res = subprocess.run(argv, capture_output=True, text=True)
     return res.returncode, res.stdout, res.stderr
+
+
+def _door_result(out):
+    """The door's own MACHINE surface, or None when it did not speak it.
+
+    ⚠ THIS IS WHAT THE PASS RECORD KEYS ON, AND THE REASON `--json` IS ON THE ARGV (task 7.538,
+    ruling `d-q9-door`). The Q9 idempotent door dedups a (run, seat) against pending queue rows
+    AND live turns, and ON SUPPRESSION it RETURNS THE ORIGINATING QUEUE ID — deliberately, so this
+    stage's exit-0-plus-parseable-id contract holds with zero edits here. The consequence the
+    ruling left behind is that the id ALONE cannot tell a real enqueue from a suppressed one: both
+    are a valid id on a zero exit. The door's own marker can: `deduped` on the result, minted
+    beside the daemon's `idempotent-suppress` log line (`server/internal-api/dispatch.js`), with
+    `because` naming WHAT holds the seat. The human wording (`queued: queue id N`) carries no such
+    marker, which is why the record reads the envelope and NEVER infers suppression from the id.
+
+    Returns the envelope's `result` dict, or None when stdout is not a successful JSON envelope —
+    a text-mode or injected stub door simply has no marker, and the caller falls back to the id in
+    the door's success wording exactly as before."""
+    try:
+        env = json.loads((out or "").strip())
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(env, dict) or not env.get("ok") or not isinstance(env.get("result"), dict):
+        return None
+    return env["result"]
 
 
 def _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run, prompt):
@@ -963,6 +988,10 @@ def _enqueue_argv(job_id, profile, pkg, seat, seed, at, dry_run, prompt):
             "--at", at]
     if dry_run:
         argv.append("--dry-run")
+    # `--json` (task 7.538): the door's ENVELOPE rather than its human wording, because the
+    # suppress path's marker (`deduped`/`because`) exists only there. The id is read off the same
+    # envelope; `_door_result` falls back to the wording when a caller injects a text-mode door.
+    argv.append("--json")
     return argv
 
 
@@ -1496,10 +1525,17 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
     nothing, wrote `''`, and the seat booted with an empty message. A candidate whose prompt cannot
     be composed is REFUSED into `failed` rather than queued promptless.
 
-    Returns `{enqueued: [{seat, job-id, seed}], validated, excluded, failed, caveats}`.
+    Returns `{enqueued: [{seat, job-id, seed}], held, validated, excluded, failed, caveats}`.
 
       enqueued   one row per seat that reached the queue, each carrying the job id the door
-                 returned. A row is here ONLY with a real id.
+                 returned. A row is here ONLY with a real id, and ONLY when the door actually
+                 QUEUED it — see `held`.
+      held       one row per seat the Q9 idempotent door SUPPRESSED because the (run, seat) is
+                 already held by a live turn or a pending row (`d-q9-door`). The row carries the
+                 ORIGINATING queue id — the door returns it by design, so the pass still exits 0
+                 with a parseable id — plus `held-by`, the door's own reason. A THIRD state, not a
+                 flavour of the other two: `enqueued` claims a row was minted and `validated`
+                 claims nothing was written, and a suppressed pass is neither.
       validated  the same rows under `dry_run=True`, where the door validates and writes nothing,
                  so no id exists. A separate key rather than an `enqueued` row with a null id:
                  "validated" and "enqueued" are two different claims about the queue.
@@ -1524,7 +1560,7 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
     # boolean for every candidate below, not a per-seat question.
     caged = profile_launches_caged(profile)
 
-    enqueued, validated, failed = [], [], []
+    enqueued, held, validated, failed = [], [], [], []
     for seat in candidates:
         prompt, perr = seat_boot_prompt(coord, pkg, seats, seat)
         if perr:
@@ -1558,16 +1594,29 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
         if dry_run:
             validated.append({"seat": seat, "job-id": None, "seed": seed})
             continue
-        m = _QUEUE_ID.search(out or "")
-        if not m:
+        door = _door_result(out)
+        if door is not None and door.get("jobId") is not None:
+            job_ref = str(door["jobId"])
+        else:
+            m = _QUEUE_ID.search(out or "")
+            job_ref = m.group(1) if m else None
+        if not job_ref:
             failed.append({"seat": seat, "missing-seed-paths": [], "detail": [],
                            "reason": "the enqueue door returned 0 but named NO queue id: %r. A row "
                                      "with no id is not evidence of a queued job." % (out or "")})
             continue
-        enqueued.append({"seat": seat, "job-id": m.group(1), "seed": seed})
+        # THE RECORD KEYS ON THE DOOR'S OWN MARKER, NEVER ON THE ID (task 7.538 / `d-q9-door`).
+        # A suppressed pass and a real one are the SAME id shape on the SAME zero exit; only
+        # `deduped` tells them apart, so an id-shaped inference here would be a guess.
+        if door is not None and door.get("deduped"):
+            held.append({"seat": seat, "job-id": job_ref, "seed": seed,
+                         "held-by": door.get("because") or "unnamed-hold"})
+            continue
+        enqueued.append({"seat": seat, "job-id": job_ref, "seed": seed})
 
     return {
         "enqueued": enqueued,
+        "held": held,
         "validated": validated,
         "excluded": excluded,
         "failed": failed,
@@ -1800,6 +1849,11 @@ def fastpath_lines(res):
     eq = res.get("enqueue") or {}
     for r in eq.get("enqueued", []):
         lines.append("edge fast path: QUEUED %s as job %s" % (r["seat"], r["job-id"]))
+    for r in eq.get("held", []):
+        # 7.538: the suppressed pass SAYS it was suppressed. It is not `enqueued` — nothing was
+        # minted — and the id it names is the ORIGINATING one the door handed back.
+        lines.append("edge fast path: held-by-%s (originating queue id %s) — %s"
+                     % (r["held-by"], r["job-id"], r["seat"]))
     for r in eq.get("validated", []):
         lines.append("edge fast path: VALIDATED %s (dry run — the door wrote nothing)" % r["seat"])
     for r in eq.get("failed", []):
@@ -2886,6 +2940,95 @@ def _stub_door():
     return _door, calls
 
 
+def _stub_json_door(deduped_seats=()):
+    """A submitter answering in the door's MACHINE surface — the envelope `ignite add-job --json`
+    prints. A seat named in `deduped_seats` is answered exactly as the Q9 idempotent door answers a
+    HELD (run, seat): exit 0, a real ORIGINATING queue id, and `deduped: true` + `because`.
+
+    ⚠ THE TWO ANSWERS DIFFER IN NOTHING BUT THE MARKER. Same exit, same id shape, same counter —
+    so a record that discriminated them would have to be reading `deduped`, which is the property
+    task 7.538 exists to pin. Arms nothing: no daemon, no credential, no row."""
+    calls = []
+
+    def _door(argv):
+        calls.append(argv)
+        n = len(calls)
+        blob = json.loads(argv[argv.index("--args-json") + 1])
+        seat = Path(blob["workdir"]).name
+        result = {"jobId": 400 + n}
+        if seat in deduped_seats:
+            result.update({"deduped": True, "because": "live-turn",
+                           "seat_key": "goal:fx/seat:%s" % seat, "exec_id": 900 + n})
+        return 0, json.dumps({"ok": True, "result": result}) + "\n", ""
+    return _door, calls
+
+
+def check_held_pass_is_not_recorded_enqueued(coord, pkg):
+    """7.538 (ruling `d-q9-door`): a pass the idempotent door SUPPRESSED is recorded `held-by-…`
+    with the ORIGINATING id — never `enqueued` — it still exits 0 with a parseable id, a REAL
+    enqueue in the SAME run still reads `enqueued`, and `validated` keeps its own meaning."""
+    plain, _ = _stub_json_door()
+    base = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, submit=plain)
+    seats = [r["seat"] for r in base["enqueued"]]
+    if len(seats) < 2:
+        return False, ("the fixture yielded %d launch candidate(s); the control arm needs at least "
+                       "two so a suppressed pass and a real one can be discriminated IN THE SAME "
+                       "run" % len(seats))
+    if base["held"]:
+        return False, ("criterion 3: with NO marker on the envelope every row must be `enqueued`, "
+                       "yet `held` carries %r — the record is keying on something other than the "
+                       "door's own marker" % base["held"])
+    victim = seats[0]
+
+    submit, calls = _stub_json_door(deduped_seats={victim})
+    res = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, submit=submit)
+
+    if any(r["seat"] == victim for r in res["enqueued"]):
+        return False, ("criterion 1: the door SUPPRESSED `%s`, and the pass still records it "
+                       "`enqueued` — the record is wrong about the CLAIM, which is this row's "
+                       "whole subject" % victim)
+    rows = [r for r in res["held"] if r["seat"] == victim]
+    if len(rows) != 1:
+        return False, "criterion 1: `%s` is not in `held` (held=%r)" % (victim, res["held"])
+    row = rows[0]
+    if not row["job-id"]:
+        return False, ("criterion 2: the held row names NO id — the door returns the originating "
+                       "id precisely so the exit-0 + parseable-id contract survives suppression, "
+                       "and a fix that loses it has defeated the ruling")
+    if row["held-by"] != "live-turn":
+        return False, ("criterion 3: the held row does not carry the door's own `because`: %r"
+                       % row)
+
+    control = [r["seat"] for r in res["enqueued"]]
+    if not control:
+        return False, ("criterion 4: no REAL enqueue landed in the same run, so the two outcomes "
+                       "were never discriminated by the instrument")
+    if res["validated"]:
+        return False, ("criterion 5: `validated` is a dry-run-only claim and must stay empty here, "
+                       "yet it carries %r — the third state has collapsed into it" % res["validated"])
+
+    lines = fastpath_lines({"armed": True, "enqueue": res})
+    want = "held-by-live-turn (originating queue id %s)" % row["job-id"]
+    if not any(want in ln for ln in lines):
+        return False, "criterion 1: no printed line carries %r. Printed: %r" % (want, lines)
+    if not any(ln.startswith("edge fast path: QUEUED %s " % control[0]) for ln in lines):
+        return False, ("criterion 4: the control seat `%s` really was queued, yet no line says so: "
+                       "%r" % (control[0], lines))
+    if any("QUEUED %s " % victim in ln for ln in lines):
+        return False, "criterion 1: the suppressed seat is ALSO printed as queued: %r" % lines
+    if not all("--json" in argv for argv in calls):
+        return False, ("criterion 3: the door was called without `--json`, so the suppress marker "
+                       "could not have been read and the record could only be inferring: %r"
+                       % calls[:1])
+
+    return True, ("criteria 1-5: `%s` was suppressed and is recorded `%s` with the originating id "
+                  "%s (never `enqueued`); the control seat `%s` in the SAME run still records "
+                  "`enqueued`; both answers carried the same exit, the same id shape and the same "
+                  "counter, so the ONLY discriminator was the door's own `deduped` marker; "
+                  "`validated` stayed empty"
+                  % (victim, want, row["job-id"], control[0]))
+
+
 def check_enqueue_schema(coord, pkg):
     """The declared output shape, asserted literally: `{enqueued: [{seat, job-id, seed}], ...}`,
     with a row in `enqueued` ONLY when the door named a real id, and `excluded` always present."""
@@ -3519,10 +3662,10 @@ def check_fastpath_nothing_ready_is_clean(coord):
             return False, ("an armed `%s` check-out did NOT fire, so criterion 6 measures nothing: "
                            "%s" % (FASTPATH_ADVANCES, res["why-not"]))
         eq = res["enqueue"] or {}
-        if eq.get("enqueued") or eq.get("validated") or eq.get("failed"):
-            return False, ("nothing was ready, yet the result carries enqueued=%r validated=%r "
-                           "failed=%r" % (eq.get("enqueued"), eq.get("validated"),
-                                          eq.get("failed")))
+        if eq.get("enqueued") or eq.get("held") or eq.get("validated") or eq.get("failed"):
+            return False, ("nothing was ready, yet the result carries enqueued=%r held=%r "
+                           "validated=%r failed=%r" % (eq.get("enqueued"), eq.get("held"),
+                                                       eq.get("validated"), eq.get("failed")))
         if calls:
             return False, ("nothing was ready, yet the door was reached %d time(s)" % len(calls))
         lines = fastpath_lines(res)
@@ -3997,6 +4140,7 @@ def cmd_selftest(fixture):
         ("seed-carries-pred-outputs", lambda: check_seed_carries_predecessor_outputs(coord, pkg)),
         ("root-seat-empty-seed", lambda: check_root_seat_empty_seed(coord, pkg)),
         ("missing-seed-path-fails", lambda: check_missing_seed_path_fails_loudly(coord, pkg)),
+        ("held-pass-not-enqueued", lambda: check_held_pass_is_not_recorded_enqueued(coord, pkg)),
         ("single-enqueue-call-site", lambda: check_single_enqueue_call_site()),
         ("enqueue-signature-recorded", lambda: check_enqueue_signature_is_recorded()),
         # STEP 4a (7.469) — the declared-output admission check
@@ -4416,6 +4560,8 @@ def main():
         print("\n  -> {%s}" % ", ".join(ENQUEUE_RESULT_KEYS))
         print("     enqueued  [{%s}] — a row ONLY when the door returned a real id"
               % ", ".join(ENQUEUE_ROW_KEYS))
+        print("     held      [{seat, job-id, seed, held-by}] — the Q9 door SUPPRESSED this pass; "
+              "the id is the ORIGINATING row's")
         print("     validated the same rows under dry_run=True; the door wrote nothing, so no id")
         print("     excluded   every ready seat the self-state intersection excluded, with its "
               "term and value. Present even when empty")
@@ -4512,6 +4658,9 @@ def main():
             for r in res["enqueued"]:
                 print("QUEUED    %-28s job %-12s seed: %s"
                       % (r["seat"], r["job-id"], ", ".join(r["seed"]) or "(none — root seat)"))
+            for r in res["held"]:
+                print("HELD      %-28s held-by-%s (originating queue id %s)"
+                      % (r["seat"], r["held-by"], r["job-id"]))
             for r in res["validated"]:
                 print("VALIDATED %-28s (dry run — nothing written) seed: %s"
                       % (r["seat"], ", ".join(r["seed"]) or "(none — root seat)"))

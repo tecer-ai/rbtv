@@ -243,8 +243,52 @@ function checkGoalExecuting(parsed, { readLease = deriveLease } = {}) {
 // for a goal it knows only by NAME), and a private copy of a layout constant is the cheapest drift —
 // `<ws>/.rbtv/goals/` moving would leave one of the two copies right. It is a pure join and reads
 // nothing: an absent folder is the caller's answer to give, not this function's.
+// D10 (task 7.529) — CONTAINMENT. The goal id reaching this join is DAEMON-SUPPLIED: the ticker
+// call site takes it off a queue row, never off an operator's keyboard, which is the hostile-input
+// surface `d-q10-launcher` makes a mandatory review criterion. A `..`, an absolute path or a
+// symlinked component would resolve OUTSIDE `<ws>/.rbtv/goals/`, and every caller below treats
+// what comes back as a goal folder it may read, materialize into, or bind into a cage.
+//
+// The refusal is TYPED and it THROWS rather than returning null, because null is already this
+// function's answer for "you gave me no goal" — a refusal that shares a value with a missing
+// argument is a refusal no caller can act on. Both call sites already contain a throw:
+// `resolveSeatHome` turns it into its own `{ok:false, reason}` below, and the ticker's
+// `channelEnsureDecision` catches into `skip('decision-error: …')` (goal-channel-start.js:110).
+class GoalPathError extends Error {
+  constructor(goal, why) {
+    super(`E_GOAL_PATH_REFUSED: goal ${JSON.stringify(goal)} ${why}`);
+    this.name = 'GoalPathError';
+    this.code = 'E_GOAL_PATH_REFUSED';
+    this.goal = goal;
+  }
+}
+
+// The real path of `p`, or its lexical resolution when it does not exist yet — `goalDirOf` is a
+// pure join and an absent goal folder stays the caller's answer to give, not a refusal here.
+function realOrResolved(p) {
+  try { return fs.realpathSync(p); } catch { return path.resolve(p); }
+}
+
 function goalDirOf({ workspaceRoot, goal }) {
-  if (!workspaceRoot || !goal) return null;
+  // A MISSING goal stays null (this function's long-standing answer to "you gave me no goal");
+  // an empty or blank goal is a supplied value and gets the typed refusal below, not that null.
+  if (!workspaceRoot || goal === undefined || goal === null) return null;
+  // A goal id is ONE path segment. This refuses `..`, any absolute or nested path, and a
+  // percent-encoded traversal (`%2e%2e` — never decoded by `path`, so containment alone would
+  // admit it as a literal directory name).
+  if (typeof goal !== 'string' || goal === '.' || goal === '..' || !/^[A-Za-z0-9._-]+$/.test(goal)) {
+    throw new GoalPathError(goal, 'is not a single safe path segment');
+  }
+  // ...and the containment check itself is on the RESOLVED REAL path, so a goal folder that is a
+  // symlink out of the tree is refused even though its NAME is clean. The root is resolved first,
+  // so a symlinked `.rbtv/` (or an absent goal folder) is not mistaken for an escape.
+  const realRoot = realOrResolved(path.join(workspaceRoot, '.rbtv', 'goals'));
+  const realDir = realOrResolved(path.join(realRoot, goal));
+  if (realDir !== realRoot && !realDir.startsWith(realRoot + path.sep)) {
+    throw new GoalPathError(goal, `resolves to ${realDir}, outside the goals root ${realRoot}`);
+  }
+  // The RETURN is the unchanged lexical join — every goal that resolves today resolves to a
+  // byte-identical path after this guard.
   return path.join(workspaceRoot, '.rbtv', 'goals', goal);
 }
 
@@ -305,7 +349,14 @@ function resolveSeatHome({ workspaceRoot, goal, seat, materialize = null, readLe
   if (!workspaceRoot || !goal || !seat) {
     return { ok: false, reason: 'resolveSeatHome requires workspaceRoot, goal and seat' };
   }
-  const seatDir = path.join(goalDirOf({ workspaceRoot, goal }), 'seats', seat);
+  let seatDir;
+  try {
+    seatDir = path.join(goalDirOf({ workspaceRoot, goal }), 'seats', seat);
+  } catch (err) {
+    // D10 (7.529): a goal id that is not contained by the goals root never becomes a seat home.
+    if (err instanceof GoalPathError) return { ok: false, reason: err.message };
+    throw err;
+  }
   // Round-tripped through the SAME parser every other caller uses, so a pointer that assembles a
   // path this module would not itself recognise as a seat folder fails here rather than at spawn.
   const parsed = parseSeatPath(seatDir);
@@ -450,6 +501,7 @@ module.exports = {
   parseGoalScope,
   resolveSeatFromCwd,
   goalDirOf,
+  GoalPathError,
   materializeSeatFolder,
   resolveSeatHome,
   checkGoalExecuting,

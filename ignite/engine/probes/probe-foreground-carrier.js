@@ -142,6 +142,25 @@ function makeGoal(name, { executionMode = 'interactive', humanInteractive = ['al
   return dir;
 }
 
+// B1j's fixture: N held seats with NO dependencies between them, so they are ALL ready in the SAME
+// wave. `makeGoal` above deliberately chains bravo behind alpha (that chain is what B1a reads one
+// carriage against the other with); a wave is the other shape, and 7.619 is only expressible on it.
+function makeWaveGoal(name, seats) {
+  const dir = path.join(workspace, '.rbtv', 'goals', name);
+  fs.mkdirSync(path.join(dir, 'coordination'), { recursive: true });
+  const rows = ['taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id'];
+  for (const s of seats) {
+    fs.mkdirSync(path.join(dir, 'seats', s), { recursive: true });
+    rows.push(`tf-wave,${s},,claude,claude-opus-5,medium,50,m1`);
+    fs.writeFileSync(path.join(dir, 'seats', s, 'seat.md'),
+      `---\nseat: ${s}\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n`);
+  }
+  rows.push('');
+  fs.writeFileSync(path.join(dir, 'taskforce.csv'), rows.join('\n'));
+  fs.writeFileSync(path.join(dir, 'execution-mode'), 'interactive\n');
+  return dir;
+}
+
 function rowsFor(storePath, seat) {
   const store = openHeartStore({ dbPath: storePath });
   try {
@@ -695,6 +714,40 @@ print('DISP=' + ','.join('%s:%s' % (s, coord.session_disposition(pkg, s)) for s 
     pinArgv.slice(0, 3).join(' ') === 'claude --model claude-fable-5'
       && pinArgv.includes('--append-system-prompt-file'),
     JSON.stringify(pinArgv));
+
+  // ── B1j · 7.619 — consecutive held seats carry BACK-TO-BACK, not one per tick ────────────────
+  //
+  // Three held seats with no dependency between them are all ready in ONE wave. The old shape
+  // carried one per pass and slept `intervalMs` between them, so the measurable signature is the
+  // TICK COUNT: 3 carriages across 3 ticks, with (N-1) intervals of blank terminal in between.
+  // The interval is set deliberately large relative to the work so the two shapes cannot be
+  // confused by timing noise — restoring the sleep reds this arm on the tick count alone.
+  say('');
+  say('B1j — three held seats ready in one wave are carried back-to-back in ONE pass (7.619)');
+
+  const waveSeats = ['w-one', 'w-two', 'w-three'];
+  const wave = makeWaveGoal('fg-goal-wave', waveSeats);
+  const waveIntervalMs = 2000;
+  const waveStart = Date.now();
+  const waveResult = await attached.executeAttached({
+    goalFolder: wave,
+    profile: 'probe-fg',
+    spawnConfigPath: configPath,
+    tickIntervalMs: waveIntervalMs,
+    maxTicks: 10,
+    spawnForeground: () => ({ status: 0 }),
+  });
+  const waveMs = Date.now() - waveStart;
+  check('B1j all three held seats were carried in ONE tick — no inter-seat interval sleep',
+    waveResult.foreground.length === 3 && waveResult.ticks === 1,
+    `carried=${waveResult.foreground.length} ticks=${waveResult.ticks} wall=${waveMs}ms interval=${waveIntervalMs}ms`);
+  check('B1j …and the gap it removes is real: the run finished inside ONE interval',
+    waveMs < waveIntervalMs,
+    `wall=${waveMs}ms < ${waveIntervalMs}ms (the old shape paid ${(waveSeats.length - 1) * waveIntervalMs}ms of blank terminal here)`);
+  check('B1j every carried seat is on record exactly once — the drain never re-carries one',
+    waveSeats.every((s) => rowsFor(path.join(wave, 'heart.db'), s).length === 1)
+      && waveResult.outcome === 'complete',
+    `outcome=${waveResult.outcome}`);
 
   fs.rmSync(tmp, { recursive: true, force: true });
 }

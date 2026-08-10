@@ -351,10 +351,10 @@ def main():
 
     # preexec restores the pre-contain() limits: the relaunched sensor must NOT inherit
     # this detector's 256 MB cap, or self-healing would guarantee the next death.
-    res = subprocess.run(launch, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         stdin=subprocess.DEVNULL, timeout=60,
-                         preexec_fn=jobcontain.child_preexec)
-    out = (res.stdout or b"").decode("utf-8", "replace").strip()
+    # WAITED ON ONLY WHEN IT IS A LAUNCHER (task 7.527): with no systemd-run the argv is the bare
+    # `watch.py --loop-forever`, which never exits — the old `timeout=60` here blocked for a minute
+    # and then killed a working loop. Same fix, same commit, as the watch-operator's `start`.
+    out, launch_rc = jobcontain.launch_detached(launch, unit, preexec_fn=jobcontain.child_preexec)
     if out:
         log(f"  launcher| {out}")
 
@@ -367,7 +367,7 @@ def main():
             return 0
         time.sleep(0.5)
     log(f"RELAUNCH DID NOT TAKE — no live watch.py for this package after 10s "
-        f"(launcher exit {res.returncode}). Next period retries. Fall back by hand: "
+        f"(launcher exit {launch_rc}). Next period retries. Fall back by hand: "
         f"nohup {' '.join(cmd)} >/dev/null 2>&1 &")
     return 1
 

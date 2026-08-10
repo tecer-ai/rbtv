@@ -35,6 +35,8 @@ Returns:
 
 ```
 {enqueued:  [{seat, job-id, seed: [artifact-path]}],   # a row ONLY when the door named a real id
+ held:      [{seat, job-id, seed, held-by}],           # the Q9 door SUPPRESSED it (d-q9-door / task 7.538);
+                                                       #   the id is the ORIGINATING row's and the pass still exits 0
  validated: [{seat, job-id: None, seed}],              # dry_run — the door wrote nothing, so no id
  excluded:  [{seat, term, value, reason}],             # every ready seat the self-state intersection removed
  failed:    [{seat, missing-seed-paths, detail, reason}],

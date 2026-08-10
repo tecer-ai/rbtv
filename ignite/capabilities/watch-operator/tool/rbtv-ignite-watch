@@ -40,6 +40,8 @@ already extends it by):
   2  usage error
   3  the cadence is out of range — NOTHING was written
   4  the write landed but the restart failed (the edit is durable and is NOT reverted)
+  5  the target `budget.json` is MALFORMED — unparseable, or its `cadence` is not an object;
+     NOTHING was written and the file is byte-identical
 """
 
 import argparse
@@ -193,9 +195,10 @@ def cmd_start(package, unit, sw, args):
 
     # No preexec_fn: unlike the self-heal job this process never called jobcontain.contain(), so
     # there are no lowered limits for a child to inherit and nothing to restore.
-    res = subprocess.run(launch, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         stdin=subprocess.DEVNULL, timeout=60)
-    out = (res.stdout or b"").decode("utf-8", "replace").strip()
+    # WAITED ON ONLY WHEN IT IS A LAUNCHER (task 7.527): with no systemd-run the argv is the bare
+    # `watch.py --loop-forever`, which never exits — the old `timeout=60` here blocked for a minute
+    # and then killed a working loop. jobcontain owns that distinction for both callers.
+    out, launch_rc = sw.jobcontain.launch_detached(launch, launched_unit)
     if out:
         print(f"  launcher| {out}")
     # The launcher's exit code is not the verdict — a LIVE watch.py is.
@@ -207,7 +210,7 @@ def cmd_start(package, unit, sw, args):
             return 0
         time.sleep(0.5)
     die(f"LAUNCH DID NOT TAKE — no live watch.py for this package after 10s "
-        f"(launcher exit {res.returncode}). Fall back by hand: "
+        f"(launcher exit {launch_rc}). Fall back by hand: "
         f"nohup {' '.join(cmd)} >/dev/null 2>&1 &")
 
 
@@ -235,6 +238,23 @@ def cmd_heartbeat_show(package, unit, sw, args):
     return 0
 
 
+def _refuse_malformed_budget(path, detail):
+    """REFUSE a `budget.json` this writer cannot read whole. NOTHING is written.
+
+    EXIT 5, because 1/2/3/4 are taken and none of them says THIS: the file exists and is
+    unreadable, so it is not written at all. The one bad input on this surface that had no
+    house-grammar answer (A1 review) — an unparseable file raised a RAW traceback, and a `cadence`
+    that parsed to a NON-dict was SILENTLY REPLACED, a hand-authored value destroyed by a machine
+    write. Both land here, BEFORE the temp file exists, so the file stays byte-identical.
+
+    This writer PRESERVES every other key (see _write_cadence), and that promise is only keepable
+    over a file it can parse — which is why an unreadable budget is refused rather than rewritten.
+    """
+    die(f"REFUSED, nothing written: {path} is MALFORMED — {detail}. This writer preserves every "
+        f"other key in a hand-authored budget, so it will not rewrite a file it cannot read "
+        f"whole. Repair the file by hand, then retry.", 5)
+
+
 def _write_cadence(path, seconds):
     """Set cadence.<field>, preserving every other key AND the file's own indentation.
 
@@ -244,12 +264,24 @@ def _write_cadence(path, seconds):
     holding a truncated budget.
     """
     raw = path.read_text(encoding="utf-8") if path.exists() else None
-    data = json.loads(raw) if raw else {}
+    try:
+        data = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as exc:
+        _refuse_malformed_budget(path, f"it is not parseable JSON ({exc})")
     if not isinstance(data, dict):
-        die(f"{path} does not hold a JSON object")
+        _refuse_malformed_budget(
+            path, f"its top level is a JSON {type(data).__name__}, not an object")
     m = re.match(r"\{\s*\n(\s+)\S", raw) if raw else None
     indent = len(m.group(1)) if m else 2
     cadence = data.get("cadence")
+    if "cadence" in data and not isinstance(cadence, dict):
+        # An ABSENT cadence is created below — that is the normal empty-package path. A cadence
+        # that is PRESENT and not an object is a different thing entirely: replacing it would
+        # discard whatever the master wrote there, which is exactly the silent overwrite this
+        # refusal exists to stop.
+        _refuse_malformed_budget(
+            path, f"`cadence` is a JSON {type(cadence).__name__}, not an object — replacing it "
+                  f"would discard a hand-authored value")
     if not isinstance(cadence, dict):
         cadence = {}
         data["cadence"] = cadence
@@ -386,6 +418,36 @@ def cmd_selftest(_args):
         check("a non-positive cadence refuses with exit 3", r.returncode == 3, f"(exit {r.returncode})")
         check("a refused set STILL writes nothing", bj.read_bytes() == frozen)
 
+        # ---- MALFORMED budget.json: a NAMED refusal (exit 5), never a traceback, never a
+        # silent overwrite. Proven with the A1 review's own instrument — sha256 before and after,
+        # so "refused" means the bytes did not move, not merely that a message was printed.
+        import hashlib as _hl
+
+        def _sha(f):
+            return _hl.sha256(f.read_bytes()).hexdigest()
+
+        for label, body, want_in in (
+            ("unparseable", "{ not json at all\n", "not parseable JSON"),
+            ("cadence-not-object",
+             json.dumps({"schema": "run-budget/1", "cadence": 30}, indent=1) + "\n",
+             "`cadence` is a JSON int, not an object"),
+            ("toplevel-not-object", "[1, 2, 3]\n", "top level is a JSON list"),
+        ):
+            bad = Path(td) / ("run-bad-" + label)
+            bad.mkdir()
+            bf = bad / "budget.json"
+            bf.write_text(body, encoding="utf-8")
+            before = _sha(bf)
+            r = run("heartbeat-set", "20", "--package", str(bad))
+            check(f"malformed budget ({label}) refuses with exit 5",
+                  r.returncode == 5, f"(exit {r.returncode}: {r.stdout}{r.stderr})")
+            check(f"malformed budget ({label}) names WHY, with no traceback",
+                  want_in in r.stderr and "Traceback" not in r.stderr, f"(stderr {r.stderr})")
+            check(f"malformed budget ({label}) leaves the file BYTE-IDENTICAL (sha256)",
+                  _sha(bf) == before, f"(before {before[:16]} after {_sha(bf)[:16]})")
+            check(f"malformed budget ({label}) leaves no .json.tmp behind",
+                  not (bad / "budget.json.tmp").exists())
+
         # An empty package: the file is created rather than the verb refusing.
         fresh = Path(td) / "run-y"
         fresh.mkdir()
@@ -429,7 +491,13 @@ def main():
                     "and the watch cadence (NOT the ticker's — see `rbtv ignite ticker`).",
         epilog="⚠ `start` and `restart` are NOT symmetric here. There is no unit until the first "
                "launch: `start` CREATES the transient unit around a fresh watch.py; `restart` acts "
-               "on one that already exists and refuses when none does.")
+               "on one that already exists and refuses when none does.\n"
+               "\n"
+               "exit codes: 0 succeeded · 1 refused, or the read FAILED · 2 usage error · "
+               f"3 the cadence is outside 1..{CEILING_S}s, NOTHING written · 4 the write landed "
+               "but the restart failed · 5 the target budget.json is MALFORMED (unparseable, or "
+               "its `cadence` is not an object), NOTHING written and the file is byte-identical",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("verb", choices=VERBS)
     ap.add_argument("seconds", nargs="?", type=int, help="heartbeat-set only: the new cadence in "
                                                          f"seconds (1..{CEILING_S})")

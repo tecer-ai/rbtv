@@ -3040,7 +3040,11 @@ def resume_command(w, ref, prompt_path):
     if ref["harness"] == "claude":
         return f"{env}{CLAUDE_BIN} --resume {sid} {arg}", ""
     if ref["harness"] == "codex":
-        return f"{env}{CODEX_BIN} resume {sid} {arg}", ""
+        # 7.612 / `d-codex-hook-trust-bypass`. POSITION IS LOAD-BEARING: codex's grammar is
+        # `codex [OPTIONS] <COMMAND>`, so the flag must precede the `resume` SUBCOMMAND —
+        # placed after it, codex parses it as one of resume's own options and the hook trust
+        # gate stays armed. Same G-13 class as opencode's `--auto`.
+        return f"{env}{CODEX_BIN} --dangerously-bypass-hook-trust resume {sid} {arg}", ""
     if ref["harness"] == "opencode":
         # `--continue` continues the last session IN THIS CWD, which is exactly what
         # `session_ref: {source: cwd-implicit}` declares the ref to be. `--auto` after `run` —
@@ -5007,16 +5011,23 @@ def confirm_reap(base, seat, blocked):
 
 
 def set_closing(base, seat, closer):
-    """Mark `seat` as closing. Best-effort like every other coordination side-effect: a failure to
-    write must never abort a close that has already spawned its closer."""
+    """Mark `seat` as closing -> `(ok, detail)`. Best-effort like every other coordination
+    side-effect: a failure to write must never abort a close that has already spawned its closer.
+
+    7.102 (s12-09): THE BOUNDARY'S OWN REASON TRAVELS WITH THE VERDICT. This returned a bare
+    False, so the reason died here and `checkout_renew_arm`'s WARNING could only say the mute
+    could not be written — leaving a seat unable to tell a harness-classifier DENIAL from a FULL
+    DISK, two failures needing opposite responses. `detail` is "" on success and carries the
+    exception's own text on failure; the caller prints it verbatim rather than re-deriving it.
+    """
     try:
         with coord_lock(base):
             data = load_closing(base)
             data[seat] = {"since": now(), "closer": closer}
             atomic_write(closing_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
-        return True
-    except (OSError, ValueError):
-        return False
+        return True, ""
+    except (OSError, ValueError) as e:
+        return False, f"{type(e).__name__}: {e}"
 
 
 def clear_closing(base, seat):
@@ -8096,10 +8107,13 @@ def checkout_renew_arm(args, base, me):
             f"End this session with `{coord_invocation(args)} checkout` instead; leader relaunches "
             f"the seat if it must come back.",
             2)
-    if not set_closing(base, me, me):
-        print(c(f"WARNING the wake mute could NOT be written — your inbox is NOT narrowed and "
-                f"wakes keep arriving. The renewal below is still yours to finish; expect "
-                f"interruptions, and tell leader.", C_DEAD), file=sys.stderr)
+    # 7.102: the reason is printed VERBATIM from the boundary, never re-derived here — a second
+    # derivation is the skew this row exists to close.
+    _mute_ok, _mute_why = set_closing(base, me, me)
+    if not _mute_ok:
+        print(c(f"WARNING the wake mute could NOT be written ({_mute_why}) — your inbox is NOT "
+                f"narrowed and wakes keep arriving. The renewal below is still yours to finish; "
+                f"expect interruptions, and tell leader.", C_DEAD), file=sys.stderr)
     # ⚠ VERBATIM (stage-1-2-gate-checkout-spec.md §2.2), WITH ONE AMENDED PARAGRAPH. This text IS
     # the mechanism — it is the CLI teaching the seat the second step, and its wording, its order
     # and its line breaks are the spec's, not this function's. The minute figure is DERIVED from
@@ -12142,7 +12156,16 @@ def harness_command(w, prompt=None, prompt_path=None):
         return f"{env}{CLAUDE_BIN} --model {w['model']} --effort {w['effort']} {arg}", ""
     if w["harness"] == "codex":
         model = f" -m {shlex.quote(w['model'])}" if w["model"] else ""
-        return f"{env}{CODEX_BIN}{model} {arg}", ""
+        # 7.612 / `d-codex-hook-trust-bypass` (2026-08-09): codex trust-gates hooks BY HASH,
+        # and a seat folder's hooks.json is DERIVED — regenerated on every re-materialize —
+        # so persisted trust re-breaks and the seat boots with its hooks SKIPPED, pending an
+        # interactive `/hooks` review no agent performs. The daemon half of the ruling already
+        # carries it (config/spawn-profiles.yaml, `codex-gpt-5-5`); this is the kit half.
+        # ⚠ SCOPE GUARD, CHECKED NOT ASSUMED: `harness_command` and `resume_command` are the
+        # only two codex compositions in this file, and BOTH build agent-seat commands. The
+        # flag rides agent seats ONLY — if a human-interactive codex composition is ever added
+        # here, it stays clean.
+        return f"{env}{CODEX_BIN} --dangerously-bypass-hook-trust{model} {arg}", ""
     if w["harness"] == "opencode":
         if not w["model"]:
             return None, "opencode seats require an explicit model: (provider/model slug)"
@@ -15455,6 +15478,14 @@ def _selftest_checks(args, failures, names):
         check("7.400: the codex command carries TMPDIR ahead of the binary",
               f"TMPDIR={AGENT_TMPDIR} " in cmd
               and cmd.index(f"TMPDIR={AGENT_TMPDIR} ") < cmd.index(CODEX_BIN))
+        check("7.612 (`d-codex-hook-trust-bypass`): the codex LAUNCH carries --dangerously-bypass-hook-trust "
+              "so a seat folder's freshly re-materialized hooks are not SKIPPED pending an "
+              "interactive review no agent performs. THE SCOPE GUARD IS THE OTHER HALF OF THIS "
+              "ROW and is asserted, not assumed: the claude and opencode compositions do NOT "
+              "carry it, so the flag rides the codex agent-seat command alone",
+              "--dangerously-bypass-hook-trust" in cmd
+              and "--dangerously-bypass-hook-trust" not in harness_command(by["alpha"], "P")[0]
+              and "--dangerously-bypass-hook-trust" not in harness_command(by["gamma"], "P")[0])
         bad = dict(by["gamma"], model="")
         cmd, err = harness_command(bad, "P")
         check("v2: opencode without model refused", cmd is None and "require" in err)
@@ -16809,6 +16840,41 @@ def _selftest_checks(args, failures, names):
         # protocol.md is loader step 4 for every seat, so a refused shape here mis-teaches the
         # room at BOOT. The skip count is asserted too: a guard that silently exempts lines is a
         # check that stops catching things while still reading green.
+        # ---- 7.570 COVERAGE: the detector's own blindness is asserted, not enumerated once ----
+        # ONE fixture carrying BOTH properties: a coached send that is in a SUBDIRECTORY *and*
+        # backtick-inline in prose. That is deliberate — it is the shape of the real pre-fix
+        # `conduct.md` clause (rbtv f420519) whose invisibility blocked 7.546's certification,
+        # and it is the only shape that reds on the removal of EITHER half of the fix. A
+        # recursion-only detector reaches this file and reads nothing in it; a line-start-only
+        # detector never opens it. The second file is the control: a compliant top-level site
+        # must still be SEEN and must NOT be reported as an offender, so the row cannot be
+        # satisfied by a detector that simply flags everything it finds.
+        _cov = Path(td) / "advcov"
+        (_cov / "starter-set").mkdir(parents=True)
+        (_cov / "starter-set" / "conduct.md").write_text(
+            "prose above\n"
+            "  `coordinate send master \"<the escalation>\" --type note` — the ROLE ADDRESS\n",
+            encoding="utf-8")
+        (_cov / "closer-prompt.md").write_text(
+            '8. **Depart.** Send leader one line — `{COORD} send leader "done" '
+            '--type completion --inline` — then depart.\n', encoding="utf-8")
+        _cov_sites, _ = advice_doc_sends(_cov)
+        _cov_bad = [s for s in _cov_sites if not s[3]]
+        check("7.570 COVERAGE: the doc detector reads a coached send that is BOTH in a "
+              "SUBDIRECTORY and BACKTICK-INLINE in prose, and reports it by its RELATIVE path. "
+              "⚠ THIS ROW REDS IF EITHER BLINDNESS RETURNS, which is why one fixture carries "
+              "both: recursion alone would newly REACH `starter-set/conduct.md` and still match "
+              "nothing in it, reporting CLEAN over a document it cannot read — worse than never "
+              "reaching it. The compliant top-level site is the control: it is SEEN and is NOT "
+              "an offender, so a detector that flags everything fails here too. It is ALSO "
+              "written with the `{COORD}` TEMPLATE TOKEN, the third form whose absence left "
+              "`closer-prompt.md` opened-but-unread; dropping that arm reds this row as well",
+              len(_cov_sites) == 2
+              and [s[0] for s in _cov_bad] == ["starter-set/conduct.md"]
+              and _cov_bad[0][1] == 2
+              and sorted(s[0] for s in _cov_sites)
+                  == ["closer-prompt.md", "starter-set/conduct.md"])
+
         g181_docs, g181_skipped = advice_doc_sends()
         g181_doc_bad = [d for d in g181_docs if not d[3]]
         check("G-181: no kit .md teaches a `send` shape the tool refuses — a doc synopsis is a "
@@ -24492,14 +24558,27 @@ def _selftest_checks(args, failures, names):
         check("s12-09 S9-a2: the arm's failure line is DISTINGUISHABLE from a coord.py refusal — "
               "it names the act that failed (the wake mute could not be written) and carries no "
               "`refused [coord` prefix, so a reader can tell 'the boundary write failed' from "
-              "'coord.py refused me'. ⚠ Known residue, surfaced to s12-05 and deliberately NOT "
-              "asserted either way: `set_closing` returns a bare False, so the boundary's OWN "
-              "reason string is dropped before this surface — the seat cannot tell a classifier "
-              "denial from a full disk. IMPLICATION FORM for red-arm isolation: the presence of "
-              "the failure line is S9-a1's subject, its grammar is this row's",
+              "'coord.py refused me'. ⚠ THE RESIDUE THIS ROW ONCE CARRIED IS CLOSED BY 7.102: "
+              "`set_closing` returned a bare False, so the boundary's OWN reason string died "
+              "before this surface and the seat could not tell a classifier denial from a full "
+              "disk. It now returns `(ok, detail)` and the WARNING carries that reason — which "
+              "S9-a4 below asserts, because that is where the claim is falsifiable. THIS row "
+              "stays deliberately silent about the reason: its subject is the failure line's "
+              "GRAMMAR (S9-a1 owns its presence), and folding the reason in here would fuse "
+              "three independent claims into one check that no single regression can red",
               "WARNING" not in _s9a_e
               or ("wake mute could NOT be written" in _s9a_e
                   and "refused [coord" not in _s9a_e))
+        check("s12-09 S9-a4 (7.102): THE BOUNDARY'S OWN REASON REACHES THE SEAT VERBATIM — the "
+              "arm's WARNING carries the classifier's exact refusal text, not merely the fact "
+              "that some write failed. THIS IS THE ROW THAT REDS IF THE REASON IS EVER DROPPED "
+              "AGAIN: the fixture raises its denial with a DISTINCTIVE string, and this asserts "
+              "that exact string surfaced, so losing `detail` anywhere between `set_closing` and "
+              "the print fails HERE and nowhere else — S9-a1 and S9-a2 both stay green on a bare "
+              "verdict, which is precisely why neither could carry this claim. What it buys the "
+              "seat: a harness denial and a full disk stop reading identically, and they need "
+              "opposite responses",
+              _s9_reason in _s9a_e)
         check("s12-09 S9-a3: NO HALF-WRITE — after the denied arm the roster row is still "
               "`active == yes` with no checkout stamp (the arm never flips it; the roster clause "
               "is also pinned by s12-05 S2-a, whose coverage it shares) and the seat's memory.md "
@@ -26085,6 +26164,17 @@ def _selftest_checks(args, failures, names):
               and resume_command({"agent": "x"}, {"harness": "zsh", "native-session-id": "",
                                                   "workdir": "/w", "session-id": "s"},
                                  Path("/tmp/p.txt"))[0] is None)
+        check("7.612 (`d-codex-hook-trust-bypass`): the codex RESUME carries the flag too, and "
+              "BEFORE the `resume` subcommand. POSITION IS THE POINT: codex's grammar is "
+              "`codex [OPTIONS] <COMMAND>`, so a flag placed after the subcommand is parsed as "
+              "resume's own and the hook trust gate stays armed — a check that only asserted "
+              "the flag was PRESENT would pass on exactly that broken form (the G-13 class). "
+              "Claude and opencode resumes stay clean: the scope guard holds on this path too",
+              "--dangerously-bypass-hook-trust" in _s732_forms["codex"]
+              and _s732_forms["codex"].index("--dangerously-bypass-hook-trust")
+                  < _s732_forms["codex"].index(" resume ")
+              and all("--dangerously-bypass-hook-trust" not in _s732_forms[h]
+                      for h in ("claude", "opencode")))
         check("7.400: a RENEW (resume_command) carries TMPDIR too — identity_prefix is the one "
               "door both `harness_command` and `resume_command` build from, so a resumed seat's "
               "tmp writes redirect exactly like a freshly launched one's",
@@ -27627,7 +27717,20 @@ def advice_coached_sends(path=None):
 # The invocation is DERIVED, never a literal: the docs write `$COORD`, and a scan keyed on
 # `coordinate` returned ZERO and nearly certified them clean — verify-absence violated by the
 # wrong pattern, which is the same class this whole check exists for.
-ADVICE_INVOCATION = re.compile(r'^\s*(?:\$?COORD|coordinate|python3?\s+coord\.py)\s+', re.I)
+# 7.570: NO `^\s*` ANCHOR, and its absence is the point. The anchor made this a LINE-START test,
+# so every invocation written backtick-inline in prose — which is how `conduct.md` and
+# `closer-prompt.md` teach their commands — was unreadable to the detector. Used with `.search`
+# (never `.match`) at the one call site below.
+#
+# `\{COORD\}` IS IN THE ALTERNATION BECAUSE THE FIX WAS MEASURED, NOT ASSUMED. With recursion and
+# inline matching alone, `closer-prompt.md` became REACHED AND READ and still matched NOTHING:
+# it is a {TOKEN}-substituted template, so its invocations read `{COORD} send ...` and the bare
+# `COORD\s+` arm dies on the closing brace. That is the SAME vacuous-guard trap this row exists
+# to stop — a detector reporting clean over a document it opened and could not read — one level
+# down, and it was found only by enumerating the widened detector's real hits. The two offenders
+# it exposed (`closer-prompt.md` steps 5 and 8) are fixed in the same change.
+ADVICE_INVOCATION = re.compile(
+    r'(?:\$?COORD|\{COORD\}|coordinate|python3?\s+coord\.py)\s+', re.I)
 # A doc may QUOTE a refused form in order to FORBID it, and flagging that would delete the warning
 # that prevents the defect — G-176's trap one layer out. The first design keyed on negation words
 # near the line. The leader found the residual and it points the DANGEROUS way — a FALSE GREEN:
@@ -27647,30 +27750,63 @@ ADVICE_DOC_OPTOUT = re.compile(r'<!--\s*advice-check:\s*refused-example\s*-->', 
 
 
 def advice_doc_sends(root=None):
-    """-> (sites, skipped_as_warnings). Coached sends in the kit's own .md files.
+    """-> (sites, skipped_as_warnings). Coached sends in the kit's own .md files, at ANY depth
+    and ANYWHERE ON THE LINE.
 
-    TAUGHT vs QUOTED-AS-WRONG: a candidate must be a COMMAND LINE — the invocation at line start,
-    which is how a synopsis presents something to run. A prose mention mid-sentence is not a
-    command being taught. A doc that deliberately shows a refused form marks it with the explicit
-    opt-out comment; every skipped line is RETURNED IN FULL, never counted, because a count in
-    permanent output has no maintainer and only grows, while three lines of real text are
-    auditable at a glance.
+    TAUGHT vs QUOTED-AS-WRONG: a candidate is an invocation carrying a QUOTED BODY. A doc that
+    deliberately shows a refused form marks it with the explicit opt-out comment; every skipped
+    line is RETURNED IN FULL, never counted, because a count in permanent output has no
+    maintainer and only grows, while three lines of real text are auditable at a glance.
+
+    ---- 7.570: THIS FUNCTION WAS BLIND TO `starter-set/conduct.md` TWICE OVER ----------------
+
+    It is the root cause of the finding that blocked 7.546's certification: a rulebook clause
+    coached an escalation to the `master` role address with a POSITIONAL BODY AND NO `--inline`,
+    which the real send path refuses unconditionally, and THIS detector — built for exactly that
+    class — reported clean.
+
+    ⚠ THE OFFENDING FORM IS DESCRIBED ABOVE AND DELIBERATELY NOT REPRODUCED. The sibling CODE
+    scanner `advice_refused_sends` EXECUTES every coached send it finds in this file's own
+    string literals, so pasting the refused command here would make this docstring itself an
+    offender and red G-181 — which is exactly what happened while this change was being written.
+    Recover the verbatim clause from `git show f420519` if you need it.
+
+    (1) It globbed `*.md` NON-RECURSIVELY, so nothing in a subdirectory was ever opened, and
+        `starter-set/` is a subdirectory. Now `rglob`.
+    (2) It matched only an invocation at LINE START, while both `conduct.md` and
+        `closer-prompt.md` write their commands backtick-inline in prose. Now `.search` against
+        an unanchored ADVICE_INVOCATION.
+
+    ⚠⚠ WHY A GLOB-ONLY FIX WAS REJECTED, AND THIS IS THE WHOLE POINT OF THE ROW. Recursion alone
+    would newly REACH `conduct.md` and still match NOTHING in it, because every command in that
+    file is backtick-inline. The detector would then report CLEAN over a document it cannot
+    read — strictly worse than never reaching it, since the clean report is now evidence the
+    file was checked. That is the vacuous-guard class, and a glob-only fix would have
+    INTRODUCED it here. This is not a judgement call: MEASURED at this HEAD, recursion alone
+    buys ZERO new sites, and the inline half is what finds all three of the previously unread
+    files. The two fixes ship together or neither ships; `selftest`'s 7.570 COVERAGE row pins
+    that with one fixture carrying BOTH properties, so removing either half reds it.
+
+    Sites are reported by their path RELATIVE TO `root`, not by bare filename: with recursion on,
+    two different `CLAUDE.md` files exist under the kit and a bare name cannot say which one an
+    offender is in.
     """
     root = Path(root or Path(__file__).resolve().parent)
     sites, skipped = [], []
-    for md in sorted(root.glob("*.md")):
+    for md in sorted(root.rglob("*.md")):
+        rel = md.relative_to(root).as_posix()
         lines = md.read_text(encoding="utf-8").splitlines()
         for i, line in enumerate(lines):
-            if not ADVICE_INVOCATION.match(line) or " send " not in f" {line} ":
+            if not ADVICE_INVOCATION.search(line) or " send " not in f" {line} ":
                 continue
             m = ADVICE_SEND.search(line)
             if not m:
                 continue
             prev = next((x for x in reversed(lines[:i]) if x.strip()), "")
             if ADVICE_DOC_OPTOUT.search(line) or ADVICE_DOC_OPTOUT.search(prev):
-                skipped.append((md.name, i + 1, line.strip()[:90]))
+                skipped.append((rel, i + 1, line.strip()[:90]))
                 continue
-            sites.append((md.name, i + 1, line.strip()[:110],
+            sites.append((rel, i + 1, line.strip()[:110],
                           bool(re.search(r"--inline|--file", line))))
     return sites, skipped
 

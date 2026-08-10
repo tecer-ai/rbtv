@@ -161,6 +161,16 @@ D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10; harness-keyed per CMP-12
     the mirror over from `install.py`'s `model_mirror` on the maintainer's vault
     without a human hand-deleting another tool's artifact.
 
+    A PARTIAL UNINSTALL CAN UN-MANAGE A MIRROR, briefly (task 7.623(c)).
+    Removing a component must NEVER be blocked by a mirror problem, so when the
+    replan refuses (a deleted basis, a hand-edited book) the mirror is SKIPPED
+    and every guidance file the book holds is held off the delete set: the file
+    STAYS ON DISK BUT LEAVES THE BOOK. In that window it is an unbooked file
+    under a mirror name, so an install carrying a DIFFERENT basis refuses
+    `guidance-mirror-collision` on it unless its own banner lets ADOPTION take
+    it. The next successful install re-books it. Correct — un-managed beats
+    deleted — and surprising enough to say here rather than only at the code.
+
     THE EXPOSURE BLOCK is rendered at the ROOT only (the installer exposes
     components at the install root — see BOUNDARY above), inside the fenced
     `rbtv2:` block D8 describes. A nested mirror is a pure per-folder guidance
@@ -1458,6 +1468,7 @@ def print_result(data: dict) -> None:
             print(f"  - {rel}")
         for rel in data.get("shared_removed") or []:
             print(f"  ~- {rel}")
+        _print_report_rows(data.get("report") or {}, planned=True)
         _print_guidance(data.get("report") or {}, planned=True)
         return
     for rel in data.get("written") or []:
@@ -1471,15 +1482,27 @@ def print_result(data: dict) -> None:
     for rel in data.get("shared_removed") or []:
         print(f"  ~- {rel}")
     report = data.get("report") or {}
+    _print_report_rows(report, planned=False)
+    _print_guidance(report, planned=False)
+
+
+def _print_report_rows(report: dict, planned: bool) -> None:
+    """Why a manifest row minted nothing. Printed on DRY RUNS TOO, marked as
+    planned (task 7.622): `install --component X --dry-run` is the command the
+    acceptance sketches name, and suppressing these rows there left the human
+    ~11 lines with no per-row detail while the data sat in `--json` all along.
+    The two lists are the SAME data a real run prints; only the tense moves."""
+    verb = "would skip" if planned else "skipped"
+    tail = "would mint nothing" if planned else "nothing minted"
     for row in report.get("skipped_inventory_rows") or []:
-        print(f"  · skipped `{row['method']}` row {row['component']}/"
+        print(f"  · {verb} `{row['method']}` row {row['component']}/"
               f"{row['part']} ({row['entry_point']}) — inventory only, "
               "mints nothing")
     for row in report.get("no_realization") or []:
         print(f"  · {row['harness']} has no realization for method "
-              f"{row['method']} ({row['component']}/{row['part']}) — nothing "
-              "minted")
-    _print_guidance(report, planned=False)
+              f"{row['method']} ({row['component']}/{row['part']}) — {tail}")
+
+
 def _print_guidance(report: dict, planned: bool) -> None:
     """The guidance-mirror summary and the blocks the human must place. Printed
     on DRY RUNS TOO: the basis is never written, so this is the only channel
@@ -1523,6 +1546,30 @@ def _print_guidance(report: dict, planned: bool) -> None:
 
 
 # ── interactive ─────────────────────────────────────────────────────────────
+
+def prompt_basis(ask=input, tries: int = 3) -> str:
+    """Ask for the guidance basis, RE-PROMPTING on a typo (task 7.623(b)).
+
+    The basis is the LAST thing `interactive` asks. A mistyped answer used to
+    raise `Refuse` straight past the caller, throwing away the target, the
+    component picks and the harness picks the human had already given. Bounded
+    by `tries`: the FINAL try's refusal propagates unchanged, so a stdin that
+    never answers cannot loop forever and the refusal stays reachable. Every
+    NON-interactive path still calls `resolve_basis` directly and still refuses
+    on the first bad value — no re-prompt exists to reach there.
+    """
+    for attempt in range(1, tries + 1):
+        raw = ask(f"Basis [{'/'.join(GUIDANCE_NAMES)}/{BASIS_NONE}] "
+                  f"[{BASIS_NONE}]: ").strip()
+        try:
+            return resolve_basis(None, raw or BASIS_NONE) or BASIS_NONE
+        except Refuse as exc:
+            if attempt == tries:
+                raise
+            print(f"  {exc.message}")
+            print(f"  {tries - attempt} more attempt(s) — blank answer "
+                  f"means {BASIS_NONE}.")
+
 
 def interactive(target: Path, catalog: dict[str, dict]) -> int:
     print("rbtv installer (install2) — interactive\n")
@@ -1568,9 +1615,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
         print("\nRoot guidance basis — which root file do you author? The other "
               "one is GENERATED from it on every run; the basis is never "
               "written.")
-        braw = input(f"Basis [{'/'.join(GUIDANCE_NAMES)}/{BASIS_NONE}] "
-                     f"[{BASIS_NONE}]: ").strip()
-        basis = resolve_basis(None, braw or BASIS_NONE) or BASIS_NONE
+        basis = prompt_basis()
 
     print(f"\nInstalling {', '.join(picked)} for {', '.join(harnesses)} "
           f"into {target}")
@@ -2397,6 +2442,91 @@ def selftest() -> int:
               do_install(fb, catalog, ["fixmod/goodcomp"], ["claude"],
                          dry_run=False)["report"]["guidance_debannered"] == []
               and (fb / "CLAUDE.md").read_text() == cleaned)
+
+        print("\n7.622 — a DRY RUN prints the report rows a real run prints")
+        rr = tmp / "ws-report-rows"
+        rr.mkdir()
+        rr_dry = do_install(rr, catalog, ["fixmod/goodcomp"], list(HARNESSES),
+                            dry_run=True)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            print_result(rr_dry)
+        dry_out = buf.getvalue()
+        rr_real = do_install(rr, catalog, ["fixmod/goodcomp"], list(HARNESSES),
+                             dry_run=False)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            print_result(rr_real)
+        real_out = buf.getvalue()
+        check("7.622 — setup: the fixture HAS rows of both kinds to print",
+              bool(rr_dry["report"]["skipped_inventory_rows"])
+              and bool(rr_dry["report"]["no_realization"]),
+              str(rr_dry["report"]))
+        check("7.622 — every skipped-inventory row is named in the dry run",
+              all(f"`{row['method']}` row {row['component']}/{row['part']}"
+                  in dry_out
+                  for row in rr_dry["report"]["skipped_inventory_rows"]),
+              dry_out)
+        check("7.622 — every no-realization row is named in the dry run",
+              all(f"{row['harness']} has no realization for method "
+                  f"{row['method']} ({row['component']}/{row['part']})"
+                  in dry_out
+                  for row in rr_dry["report"]["no_realization"]),
+              dry_out)
+        check("7.622 — the dry run carries the SAME row count as the real run",
+              sum(1 for ln in dry_out.splitlines() if ln.startswith("  · "))
+              == sum(1 for ln in real_out.splitlines()
+                     if ln.startswith("  · ")),
+              f"dry={dry_out}\nreal={real_out}")
+        check("7.622 — planned rows read as planned, real rows as done",
+              "would skip `pool` row" in dry_out
+              and "would mint nothing" in dry_out
+              and "skipped `pool` row" in real_out
+              and "nothing minted" in real_out,
+              dry_out + "\n=====\n" + real_out)
+        check("7.622 — the JSON shape is untouched by the printing change",
+              set(rr_dry["report"]) == set(rr_real["report"])
+              and rr_dry["report"]["skipped_inventory_rows"]
+              == rr_real["report"]["skipped_inventory_rows"],
+              str(sorted(set(rr_dry["report"]) ^ set(rr_real["report"]))))
+
+        print("\n7.623(b) — an interactive basis typo RE-PROMPTS")
+        answers = ["CLAUDE.MD", "claude.md", "CLAUDE.md"]
+        asked: list[str] = []
+
+        def _ask(prompt: str) -> str:
+            asked.append(prompt)
+            return answers[len(asked) - 1]
+
+        check("7.623b — two typos then a good answer returns the basis",
+              prompt_basis(ask=_ask, tries=3) == "CLAUDE.md"
+              and len(asked) == 3, str(asked))
+        try:
+            prompt_basis(ask=lambda _p: "CLAUDE.MD", tries=1)
+            single = "no refusal"
+        except Refuse as exc:
+            single = exc.code
+        check("7.623b — RED ARM: with no retry (the pre-fix shape) the same "
+              "typo refuses",
+              single == "guidance-basis-invalid", single)
+        tried: list[int] = []
+        try:
+            prompt_basis(ask=lambda _p: tried.append(1) or "nope", tries=3)
+            bounded = "no refusal"
+        except Refuse as exc:
+            bounded = exc.code
+        check("7.623b — the retry is BOUNDED: the last try still refuses",
+              bounded == "guidance-basis-invalid" and len(tried) == 3,
+              f"{bounded} after {len(tried)} prompt(s)")
+        check("7.623b — a blank answer still means `none`, not a retry",
+              prompt_basis(ask=lambda _p: "", tries=3) == BASIS_NONE)
+        try:
+            resolve_basis(None, "CLAUDE.MD")
+            direct = "no refusal"
+        except Refuse as exc:
+            direct = exc.code
+        check("7.623b — NON-interactive resolve_basis is unchanged: no retry "
+              "exists there", direct == "guidance-basis-invalid", direct)
 
         print("\nuninstall")
         res = do_uninstall(target, catalog, ["fixmod/goodcomp"], dry_run=False)
