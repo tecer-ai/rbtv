@@ -43,6 +43,9 @@ function isoNow() {
 // probe can assert on them. Every probe writes its evidence to disk (never prose).
 function makeCapture(outPath) {
   const lines = [];
+  // 7.50: stamp the capture at START. A probe that dies before its flush() used to leave the
+  // PREVIOUS run's PASS on disk; now an aborted run leaves an explicit INCOMPLETE summary.
+  fs.writeFileSync(outPath, JSON.stringify({ summary: `STARTED ${isoNow()} — INCOMPLETE`, entries: [] }, null, 2) + '\n');
   return {
     log(obj) {
       const entry = { ts: isoNow(), ...obj };

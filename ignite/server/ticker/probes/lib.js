@@ -185,6 +185,9 @@ function capture(name, fn) {
   let exit = 0;
   let skipped = 0;
   const lines = [`probe: ${name}`, `started: ${now()}`, `command: node probes/${name}.js`];
+  // 7.50: stamp the capture at START. A probe that dies before its completion write used to
+  // leave the PREVIOUS run's PASS on disk; now an aborted run leaves an explicit INCOMPLETE.
+  fs.writeFileSync(outPath, lines.join('\n') + '\nstatus: INCOMPLETE\n', 'utf8');
 
   return fn(lines)
     .then(() => {
