@@ -1155,18 +1155,25 @@ def validate_after(args, package: Path, added: list[str]) -> list[str]:
     return members
 
 
+def resolved_milestones(package: Path) -> set[str]:
+    """The milestone-ids `milestones.csv` resolves — the ONE predicate BOTH
+    milestone guards read (`--milestone-id` here, a MILESTONE pass folder's
+    m{N} in `_pass_values`), so the two can never drift into disagreeing
+    about what a resolvable milestone is (task 7.678)."""
+    return {(r.get("milestone-id") or "").strip()
+            for r in _csv_rows(package / MILESTONES_NAME)}
+
+
 def validate_milestone(args, package: Path) -> None:
     """--milestone-id must resolve to a milestones.csv row or the run refuses."""
     if not args.milestone_id:
         return
-    mpath = package / MILESTONES_NAME
-    rows = _csv_rows(mpath)
-    if not any((r.get("milestone-id") or "").strip() == args.milestone_id for r in rows):
+    if args.milestone_id not in resolved_milestones(package):
         raise Refuse(
             "milestone-unresolved",
             f"--milestone-id '{args.milestone_id}' resolves to no "
             f"{MILESTONES_NAME} row — nothing materialized",
-            str(mpath),
+            str(package / MILESTONES_NAME),
         )
 
 
@@ -1349,6 +1356,35 @@ def _pass_values(seat: str, b: dict, package: str) -> tuple[str, str]:
             "never coerced",
         )
     pass_id = folder[len("planning/"):-1]
+
+    # Task 7.678 — the ROW half. A MILESTONE pass folder names an m{N}; that
+    # m{N} must resolve to a milestones.csv ROW, the SAME guarantee
+    # --milestone-id carries (validate_milestone), through the same predicate
+    # and the same refusal code. Shape was validated above and the pass may be
+    # open, and neither says the milestone EXISTS: a planning pass ran live
+    # under `m0-bootstrapping` against a ZERO-ROW milestones.csv and nothing
+    # objected.
+    #
+    # ⚠ REFUSED HARD — no `if rows:` bootstrap tolerance like the passes.csv
+    # guard below. That tolerance is not a precedent to copy here, it is the
+    # mechanism of the incident: an empty registry is exactly the state the
+    # unbacked pass ran in, so tolerating it re-opens the hole this closes.
+    # The m{N} NAME stays fully legitimate (`d-planning-is-milestone-zero` —
+    # planning IS milestone zero); what is required is the ROW, and writing it
+    # is the remedy the refusal names.
+    mid = m.group(1)
+    if mid and mid not in resolved_milestones(Path(package)):
+        raise Refuse(
+            "milestone-unresolved",
+            f"seat '{seat}' would be rendered for pass folder '{raw}', whose "
+            f"milestone '{mid}' resolves to no {MILESTONES_NAME} row — the "
+            "same guarantee --milestone-id carries. The m{N} naming is legal "
+            "(d-planning-is-milestone-zero); the ROW is what is missing, so "
+            f"write '{mid}' into {MILESTONES_NAME} and re-run. Refused with "
+            "no bootstrap tolerance: an empty registry is the state the "
+            "unbacked planning pass ran in",
+            str(Path(package) / MILESTONES_NAME),
+        )
 
     # G-planner-0804-1502, the staleness half: the pass a descriptor is
     # rendered FOR must be a pass this run has OPEN. A package carrying no
@@ -5747,6 +5783,8 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "PF-1": (("PF-1 green",), ("PF-1 red",)),
     "PF-2": (("PF-2 green",), ("PF-2 red",)),
     "PF-3": (("PF-3 green",), ("PF-3 red",)),
+    # The pass folder's m{N} row-check (task 7.678).
+    "PF-4": (("PF-4 green",), ("PF-4 red",)),
 }
 
 
@@ -5834,9 +5872,18 @@ def _pf_fixture(root: Path) -> dict:
     (pkg / PASSES_NAME).write_text(
         "pass-id,clause-tag,declared-budget,opened,closed,outcome\n"
         "m1-first-milestone,PRODUCT,seats=1;rounds=1,2026-01-01 00:00,,\n"
+        "m0-bootstrapping,PRODUCT,seats=1;rounds=1,2026-01-01 00:00,,\n"
+        "m9-unbacked-milestone,PRODUCT,seats=1;rounds=1,2026-01-01 00:00,,\n"
         "briefing-a-briefing,META,seats=1;rounds=1,2026-01-02 00:00,,\n"
         "briefing-closed-one,META,seats=1;rounds=1,2026-01-01 00:00,"
         "2026-01-01 12:00,ACCEPTED\n", encoding="utf-8")
+    # PF-4's substrate: the milestone ROWS. `m9-unbacked-milestone` is a
+    # deliberately OPEN pass with NO row here, so PF-4's red arm can only be
+    # the milestone guard — never pass-not-open wearing its coat.
+    (pkg / MILESTONES_NAME).write_text(
+        "milestone-id,name,status\n"
+        "m0,planning,open\n"
+        "m1,first milestone,pending\n", encoding="utf-8")
 
     bdir = root / "bindings"
     bdir.mkdir()
@@ -5848,6 +5895,8 @@ def _pf_fixture(root: Path) -> dict:
                            ("none", PASS_FOLDER_NONE),
                            ("bad", "planning/a-briefing/"),
                            ("closed", "planning/briefing-closed-one/"),
+                           ("m0", "planning/m0-bootstrapping/"),
+                           ("m9", "planning/m9-unbacked-milestone/"),
                            ("absent", None)):
         entry = dict(base)
         if pf_value is not None:
@@ -5877,7 +5926,8 @@ def _pf_run(fx: dict, binding: str, **over):
 
 
 def run_pass_substitution_acceptance(check) -> None:
-    """PF-1..PF-3 — B4, B5 and G-planner-0804-1502, both arms each."""
+    """PF-1..PF-4 — B4, B5, G-planner-0804-1502 and task 7.678's milestone
+    row-check, both arms each."""
     root = Path(tempfile.mkdtemp(prefix="ms-pf-"))
     try:
         fx = _pf_fixture(root)
@@ -5921,6 +5971,40 @@ def run_pass_substitution_acceptance(check) -> None:
               "(G-planner-0804-1502's staleness guard)",
               isinstance(closed, Refuse) and closed.code == "pass-not-open",
               str(closed)[:300])
+
+        # ---- PF-4 (task 7.678): a MILESTONE pass folder's m{N} must resolve
+        # to a milestones.csv ROW — the same guarantee --milestone-id carries
+        # (validate_milestone), through the same predicate and the same
+        # refusal code. Runs BEFORE PF-3 deliberately: PF-3 materializes for
+        # real, and every arm here wants the pristine (dry-run) package.
+        m0 = _pf_run(fx, "m0")
+        check("PF-4 green: the m0 NAMING CONVENTION still works where the row "
+              "exists — d-planning-is-milestone-zero is not broken; the row "
+              "is what is required, never the name",
+              not isinstance(m0, Refuse)
+              and "planning/m0-bootstrapping/brief.md" in m0["descriptors"]["pf"]
+              and "m{N}" not in m0["descriptors"]["pf"], str(m0)[:300])
+        m9 = _pf_run(fx, "m9")
+        check("PF-4 red: a pass folder naming m9, whose pass row is OPEN but "
+              "which resolves to no milestones.csv row, is refused "
+              "milestone-unresolved — the sibling --milestone-id guarantee, "
+              "now carried by the pass folder too",
+              isinstance(m9, Refuse) and m9.code == "milestone-unresolved",
+              str(m9)[:300])
+        # The observed incident, exactly: a planning pass under `m0-*` against
+        # a milestones.csv with ZERO rows. A bootstrap-tolerant `if rows:`
+        # skip (the _pass_values passes.csv guard's shape) passes this arm
+        # green — which is precisely why the refusal is HARD.
+        ms_file = fx["pkg"] / MILESTONES_NAME
+        ms_text = ms_file.read_text(encoding="utf-8")
+        ms_file.write_text("milestone-id,name,status\n", encoding="utf-8")
+        empty = _pf_run(fx, "m0")
+        ms_file.write_text(ms_text, encoding="utf-8")
+        check("PF-4 red: a ZERO-ROW milestones.csv refuses HARD — no "
+              "bootstrap tolerance, because that tolerance is how the live "
+              "m0-bootstrapping pass ran unbacked and nothing objected",
+              isinstance(empty, Refuse)
+              and empty.code == "milestone-unresolved", str(empty)[:300])
 
         # ---- PF-3: --repass, the chosen G-planner-0804-1502 fix. Materialize
         # for the milestone pass, CLOSE it, then re-render for the open one.
@@ -6721,8 +6805,8 @@ def run_selftest() -> int:
     print("dag-06 acceptance pass (CP-1..CP-8, both arms each)")
     run_dag06_acceptance(check, clean_env)
 
-    print("pass-folder acceptance pass (PF-1/PF-2/PF-3 — B4, B5, "
-          "G-planner-0804-1502; both arms each)")
+    print("pass-folder acceptance pass (PF-1/PF-2/PF-3/PF-4 — B4, B5, "
+          "G-planner-0804-1502, task 7.678; both arms each)")
     run_pass_substitution_acceptance(check)
 
     print("\ndag-07 row rollup — one line per acceptance row; a row passes "
