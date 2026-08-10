@@ -110,7 +110,40 @@ fs.writeFileSync(path.join(goalFolder, 'seats', 'alpha', 'seat.md'), '---\nseat:
 check('gate A closed ALONE (goal still interactive): held set empties',
   attached.statusAttached({ goalFolder }).heldForUser.length === 0);
 
-// ARM 4 — the two refusals, and they are DIFFERENT refusals.
+// ARM 4 — ANSWERED asks stop being listed; unanswered ones do not.
+//
+// Asks and answers correlate only by `thread` — nothing marks the ask row itself — so an
+// answered question printed under UNANSWERED QUESTIONS forever, which trains the reader to
+// ignore the one section written to be read. Driven through the real `messages` shape
+// (server/heart/schema.sql), ordered by msg_id as the store's own dump returns them.
+const msgs = [
+  { msg_id: 1, type: 'ask', sender: 'alpha', thread: 'exec-1', corpus: 'answered question' },
+  { msg_id: 2, type: 'answer', sender: 'owner', thread: 'exec-1', corpus: 'here you go' },
+  { msg_id: 3, type: 'ask', sender: 'beta', thread: 'exec-2', corpus: 'still waiting' },
+  { msg_id: 4, type: 'note', sender: 'beta', thread: 'exec-2', corpus: 'unrelated chatter' },
+];
+const open1 = attached.unansweredAsks(msgs);
+check('an ANSWERED ask is not listed, and the unanswered one still is',
+  open1.map((a) => a.msgId).join() === '3', JSON.stringify(open1));
+check('a `note` on the thread does NOT count as an answer',
+  open1.length === 1 && open1[0].corpus === 'still waiting', JSON.stringify(open1));
+// TWO asks, ONE answer, same thread. The cheap test ("an answer exists on this thread")
+// would call both answered — erring toward HIDING an unanswered question, the one direction
+// this surface must never err in.
+const open2 = attached.unansweredAsks([
+  { msg_id: 1, type: 'ask', sender: 'a', thread: 't', corpus: 'first' },
+  { msg_id: 2, type: 'ask', sender: 'a', thread: 't', corpus: 'second' },
+  { msg_id: 3, type: 'answer', sender: 'owner', thread: 't', corpus: 'answers the first' },
+]);
+check('two asks and one answer on one thread leaves the SECOND ask open',
+  open2.map((a) => a.corpus).join() === 'second', JSON.stringify(open2));
+check('an answer on a DIFFERENT thread answers nothing',
+  attached.unansweredAsks([
+    { msg_id: 1, type: 'ask', sender: 'a', thread: 't1', corpus: 'q' },
+    { msg_id: 2, type: 'answer', sender: 'owner', thread: 't2', corpus: 'a' },
+  ]).length === 1);
+
+// ARM 5 — the two refusals, and they are DIFFERENT refusals.
 function refusal(fn) {
   try { fn(); return null; } catch (err) { return err.message; }
 }

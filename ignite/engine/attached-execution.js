@@ -281,6 +281,36 @@ function evaluateExit(heartStore, rows, seenAskIds) {
 // `human-interactive:` in its descriptor AND the goal's execution mode is `interactive`. Both
 // readers are the chat bridge's own (`bridges/chat/bus-ferry.js`) so the status surface and the
 // gate that actually parks a message can never drift apart.
+// Which `ask` rows are still WAITING. Asks and answers correlate by `thread` — the chat bridge
+// writes the reply to a pending ask as an `answer` on the chain's own thread
+// (bridges/chat/forward-path.js) — and nothing marks the ask row itself. Without this every
+// answered question printed under UNANSWERED QUESTIONS forever, which trains the reader to
+// ignore the section that exists to be read.
+//
+// GREEDY PAIRING IN msg_id ORDER, not "an answer exists on this thread": a thread can carry two
+// asks and one answer, and the cheap test would call BOTH answered. It errs toward hiding an
+// unanswered question, which is the one direction this surface must never err in. `messages` is
+// already ordered by msg_id (heart-store dump), and msg_id is the autoincrement, so the nth
+// answer on a thread pairs with the nth ask before it.
+function unansweredAsks(messages) {
+  const pending = new Map();   // thread -> [ask rows, oldest first]
+  const out = [];
+  for (const m of messages) {
+    if (m.type === 'ask') {
+      const list = pending.get(m.thread) || [];
+      list.push(m);
+      pending.set(m.thread, list);
+    } else if (m.type === 'answer') {
+      const list = pending.get(m.thread);
+      if (list && list.length) list.shift();   // answers the OLDEST open ask on this thread
+    }
+  }
+  for (const list of pending.values()) {
+    for (const a of list) out.push({ msgId: a.msg_id, sender: a.sender, thread: a.thread, corpus: a.corpus });
+  }
+  return out.sort((x, y) => x.msgId - y.msgId);
+}
+
 function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
   const goalFolder = resolveGoalFolder(goalFolderInput);
   const tfPath = path.join(goalFolder, TASKFORCE);
@@ -303,9 +333,7 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
     try {
       byJob = executionsByJob(store);
       queued = new Set(store.listQueue().map((q) => q.job_id));
-      asks = store.dump().messages
-        .filter((m) => m.type === 'ask')
-        .map((a) => ({ msgId: a.msg_id, sender: a.sender, corpus: a.corpus }));
+      asks = unansweredAsks(store.dump().messages);
     } finally {
       store.close();
     }
@@ -456,6 +484,7 @@ async function executeAttached({
 module.exports = {
   executeAttached,
   statusAttached,
+  unansweredAsks,
   seatState,
   SEAT_STATES,
   // Exported for the probe, which must be able to exercise each decision on its own rather than
