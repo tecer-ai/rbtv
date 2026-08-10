@@ -140,10 +140,22 @@ function frontmatterOf(text) {
 // Gate 1 — THE SEAT DECLARES ITSELF human-interactive: `human-interactive: yes|true` in its
 // `seat.md` FRONTMATTER (one file read, memoized per pass). A seat nobody declared able to talk
 // to a human must not be able to.
-// Gate 2 — THE GOAL IS IN `interactive` EXECUTION MODE: one word in
-// `.rbtv/goals/<goal>/execution-mode`. ⚑ ABSENT MEANS `autonomous` (ratified default) — and
-// so does an unreadable file and any other word. A goal nobody declared reachable is not
-// reachable; the owner flips it when he is.
+// Gate 2 — THE GOAL IS IN `interactive` EXECUTION MODE, resolved down a THREE-RUNG LADDER
+// (owner ruling 2026-08-10, issue C-4). The two representations of "can this goal talk to the
+// owner" were never wired to each other: creation persists `goal-kind: interactive` into
+// `goal.md` frontmatter and NO creation path has ever written `execution-mode`, so every
+// interactive goal was born with this gate defaulted shut and every ask parked silently.
+//   1. `.rbtv/goals/<goal>/execution-mode` present and readable → OBEY IT, exactly as before.
+//      ⚑ THE FILE KEEPS PRECEDENCE and that is the whole point of the rung order: it is the
+//      PER-RUN POSTURE — the console flow writes `autonomous` there when the owner walks away,
+//      and a birth attribute must never override a human saying "not now".
+//   2. file ABSENT → the goal's BIRTH ATTRIBUTE, `goal-kind:` in `goal.md` frontmatter. Exactly
+//      `interactive` opens the gate; any other value, no key, no frontmatter, no file → rung 3.
+//      ⚑ NOT `seat-folder.js#goalKind()`, deliberately: that reader answers "which kind do I
+//      treat this goal as" and defaults ABSENCE to `interactive`, which would open this gate for
+//      every goal that never declared anything. Here absence must stay shut.
+//   3. neither resolves → `autonomous` — the ratified default, untouched, one rung deeper. A
+//      goal nobody declared reachable is not reachable; the owner flips it when he is.
 //
 // ⚑ A BLOCKED ROW PARKS ON THE BUS — it is not re-routed, not downgraded into the owner's DM,
 // and not swallowed (ratified). The cursor advances because the row was disposed of BY POLICY
@@ -160,11 +172,24 @@ function goalExecutionMode(workspaceRoot, goalId) {
   // making some unrelated file the gate. Autonomous is the safe answer, as it is for every other
   // cannot-tell here.
   if (!isSafeName(goalId)) return AUTONOMOUS_MODE;
+  const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', String(goalId));
   let raw;
   try {
-    raw = fs.readFileSync(path.join(workspaceRoot, '.rbtv', 'goals', String(goalId), 'execution-mode'), 'utf8');
-  } catch { return AUTONOMOUS_MODE; }
+    raw = fs.readFileSync(path.join(goalDir, 'execution-mode'), 'utf8');
+  } catch { return goalKindMode(goalDir); }
   return raw.trim().toLowerCase() === INTERACTIVE_MODE ? INTERACTIVE_MODE : AUTONOMOUS_MODE;
+}
+
+// Rung 2 of the ladder above — the goal's BIRTH ATTRIBUTE, read only when rung 1 found no file.
+// The trailing-comment strip and the quote strip are `seat-folder.js#goalKind()`'s, for the reason
+// stated there: `goal-kind: interactive # ...` is `interactive` to the `yaml.safe_load` that lints
+// it, and two readers of one file free to disagree is a defect with no reporting surface.
+function goalKindMode(goalDir) {
+  let raw = null;
+  try { raw = fs.readFileSync(path.join(goalDir, 'goal.md'), 'utf8'); } catch { /* rung 3 */ }
+  const m = raw === null ? null : frontmatterOf(raw).match(/^goal-kind:[ \t]*(.+?)[ \t]*$/m);
+  const kind = m ? m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '').toLowerCase() : '';
+  return kind === INTERACTIVE_MODE ? INTERACTIVE_MODE : AUTONOMOUS_MODE;
 }
 
 function seatIsHumanInteractive(goalDir, seat) {

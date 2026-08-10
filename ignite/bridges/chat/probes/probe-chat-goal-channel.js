@@ -2,7 +2,8 @@
 
 // TASK 7.58 — the goal↔channel bridge (owner ruling d-channel-per-goal). Proves the
 // five task criteria plus the two settled open points (goal-channel-design.md), and
-// the run's `r-slack-etiquette` never-invite guard.
+// the OWNER-INVITE guard (owner ruling 2026-08-10, issue C-3 — supersedes the former
+// never-invite guard this probe used to assert as a source ABSENCE).
 //
 // Deliberately NOT a daemon probe: every claim here is about the bridge's own
 // routing and lifecycle, so the gateway is a stub and Slack is a fake admin surface
@@ -21,13 +22,14 @@ const OUT = path.join(__dirname, 'probe-chat-goal-channel.out');
 const SRC_DIR = path.join(__dirname, '..');
 
 const USER = 'U_OWNER';
-const PREFIX = 'test-';
+const PREFIX = 'test-';        // the TEST namespace — `r-slack-etiquette`'s surface: no invite here
+const REAL_PREFIX = 'goal-';   // a REAL goal deployment — where the owner IS invited at creation
 
 // ── fakes ────────────────────────────────────────────────────────────────────
 
 // A Slack workspace that records every admin call. `existing` seeds channels that
 // were created out-of-band (the adopt + recover paths).
-function makeFakeSlack({ existing = [] } = {}) {
+function makeFakeSlack({ existing = [], inviteError = null } = {}) {
   const channels = existing.map((c) => ({ ...c }));
   const calls = [];
   let nextId = 1;
@@ -53,6 +55,17 @@ function makeFakeSlack({ existing = [] } = {}) {
       if (ch.is_archived) return { ok: false, error: 'already_archived' };
       ch.is_archived = true;
       return { ok: true };
+    },
+    // The C-3 invite surface. Recording it is what makes both the POSITIVE claim ("the
+    // owner is invited on a real creation") and the NEGATIVE ones ("never on a test
+    // channel", "never on adopt", "never twice") call-log assertions.
+    async inviteToChannel({ channel, users }) {
+      calls.push({ method: 'conversations.invite', channel, users: [...users] });
+      if (inviteError) return { ok: false, error: inviteError };
+      const ch = channels.find((c) => c.id === channel);
+      if (!ch) return { ok: false, error: 'channel_not_found' };
+      ch.members = Array.from(new Set([...(ch.members || []), ...users]));
+      return { ok: true, already: false };
     },
     async sendToOwner({ channel, threadTs, text }) {
       calls.push({ method: 'chat.postMessage', channel, threadTs });
@@ -105,9 +118,9 @@ function seedWorkspace(goalIds) {
   return root;
 }
 
-function makeBridge({ existing = [], goals = [] } = {}) {
+function makeBridge({ existing = [], goals = [], prefix = PREFIX, ownerUser = USER, inviteError = null } = {}) {
   const workspaceRoot = seedWorkspace(goals);
-  const slack = makeFakeSlack({ existing });
+  const slack = makeFakeSlack({ existing, inviteError });
   const forwarder = makeFakeForwarder();
   const config = {
     gatewayAddr: '127.0.0.1:0',
@@ -119,7 +132,8 @@ function makeBridge({ existing = [], goals = [] } = {}) {
     sendMessageJobId: 'send-message',
     workdir: null,
     workspaceRoot,
-    channelPrefix: PREFIX,
+    channelPrefix: prefix,
+    ownerUser,
     allowlist: [USER],
     slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
   };
@@ -279,21 +293,90 @@ async function main() {
     check('a refused archive fails loud and KEEPS the binding', failed.ok === false && goalChannels.channelForGoal('goal-seven') === reg2.channelId, { failed });
   }
 
-  // 9 — THE NEVER-INVITE GUARD (`r-slack-etiquette`), enforced as an ABSENCE in the
-  //     runtime source. A guard the code cannot hold is stronger than a policy an
-  //     agent must remember at 4 AM.
+  // 9 — THE OWNER-INVITE GUARD (owner ruling 2026-08-10, issue C-3). The former
+  //     never-invite ABSENCE assertion is SUPERSEDED, not deleted: its real content —
+  //     `r-slack-etiquette`'s "the owner is added to NO test channel", plus "the bridge
+  //     adds nobody else to anything" — is re-asserted below as four call-log claims on
+  //     a workspace that records every invite, which is strictly stronger than a grep.
+  const inviteCalls = (slack) => slack.calls.filter((c) => c.method === 'conversations.invite');
+
+  // 9a — POSITIVE: a REAL goal channel, freshly CREATED ⇒ exactly one invite, of the
+  //      configured owner and nobody else, into that same channel.
+  {
+    const { bridge, slack } = makeBridge({ prefix: REAL_PREFIX });
+    const reg = await bridge.registerGoal('goal-eight');
+    const invites = inviteCalls(slack);
+    check('real goal-channel creation invites the OWNER, exactly once, and nobody else',
+      reg.ok && reg.created === true && reg.ownerInvited === true
+        && invites.length === 1 && invites[0].channel === reg.channelId
+        && invites[0].users.length === 1 && invites[0].users[0] === USER,
+      { reg, invites });
+
+    // 9b — the cached arm invites nothing: idempotence covers the invite too.
+    await bridge.registerGoal('goal-eight');
+    check('a second registerGoal (cached) invites nobody again', inviteCalls(slack).length === 1, { invites: inviteCalls(slack).length });
+  }
+
+  // 9c — NEGATIVE, ADOPT: a channel that already existed is not a creation. No invite,
+  //      and no backfill of channels the bridge did not just make.
+  {
+    const { bridge, slack } = makeBridge({ prefix: REAL_PREFIX, existing: [{ id: 'C_PRE2', name: 'goal-goal-nine', is_archived: false }] });
+    const res = await bridge.registerGoal('goal-nine');
+    check('the ADOPT path invites nobody (new channels only — no backfill)',
+      res.ok && res.created === false && res.reason === 'adopted' && inviteCalls(slack).length === 0,
+      { res, invites: inviteCalls(slack).length });
+  }
+
+  // 9d — NEGATIVE, TEST NAMESPACE: `r-slack-etiquette`'s actual scope. Under a `test-`
+  //      prefix the owner is invited NOWHERE, creation or not.
+  {
+    const { bridge, slack } = makeBridge({ prefix: PREFIX });
+    const reg = await bridge.registerGoal('goal-ten');
+    check('a TEST-prefixed channel NEVER invites the owner (r-slack-etiquette)',
+      reg.ok && reg.created === true && reg.ownerInvited === false && inviteCalls(slack).length === 0,
+      { reg, invites: inviteCalls(slack).length });
+  }
+
+  // 9e — GRACEFUL DEGRADATION: a refused invite (the missing-scope case) must not fail
+  //      the creation, the binding, or the goal's message flow.
+  {
+    const { bridge, slack, goalChannels } = makeBridge({ prefix: REAL_PREFIX, goals: ['goal-eleven'], inviteError: 'missing_scope' });
+    const reg = await bridge.registerGoal('goal-eleven');
+    const inbound = await bridge.onChatMessage(msg({ channel: reg.channelId, ts: '30.1', channelType: 'channel' }));
+    check('a REFUSED invite is loud but harmless — channel created, bound, and carrying traffic',
+      reg.ok === true && reg.created === true && reg.ownerInvited === false
+        && goalChannels.channelForGoal('goal-eleven') === reg.channelId
+        && inbound.forwarded === true && inbound.route === 'goal'
+        && inviteCalls(slack).length === 1,
+      { reg, inbound: { forwarded: inbound.forwarded, route: inbound.route } });
+  }
+
+  // 9f — NO OWNER CONFIGURED ⇒ the pre-ruling behaviour exactly: create, invite nobody.
+  {
+    const { bridge, slack } = makeBridge({ prefix: REAL_PREFIX, ownerUser: null });
+    const reg = await bridge.registerGoal('goal-twelve');
+    check('no configured owner ⇒ no invite attempted, creation unaffected',
+      reg.ok && reg.created === true && reg.ownerInvited === false && inviteCalls(slack).length === 0,
+      { reg, invites: inviteCalls(slack).length });
+  }
+
+  // 9g — THE SURVIVING ABSENCES. The invite is the ONE membership call that exists, and
+  //      it lives in the transport; kick/delete/admin.* must still be nowhere.
   {
     const runtime = fs.readdirSync(SRC_DIR).filter((f) => f.endsWith('.js')).sort();
     const hits = [];
+    let inviteInTransport = false;
     for (const f of runtime) {
       const code = fs.readFileSync(path.join(SRC_DIR, f), 'utf8')
         .replace(/\/\*[\s\S]*?\*\//g, ' ')
         .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-      for (const re of [/conversations\.invite/, /conversations\.kick/, /conversations\.delete/, /admin\.conversations/]) {
+      if (f === 'slack-socket-mode.js' && /conversations\.invite/.test(code)) inviteInTransport = true;
+      for (const re of [/conversations\.kick/, /conversations\.delete/, /admin\.conversations/]) {
         if (re.test(code)) hits.push({ file: f, pattern: String(re) });
       }
     }
-    check('bridge source contains NO invite/kick/delete channel call', hits.length === 0, { scanned: runtime, hits });
+    check('bridge source still contains NO kick/delete/admin channel call', hits.length === 0, { scanned: runtime, hits });
+    check('the ONE conversations.invite lives in the transport (slack-socket-mode.js)', inviteInTransport, {});
   }
 
   const pass = checks.every((c) => c.pass);

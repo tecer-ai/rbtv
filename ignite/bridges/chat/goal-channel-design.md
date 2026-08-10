@@ -62,10 +62,45 @@ degraded — only its caller is.
 > goal's channel is an empty room. Requires the systemd carrier — the credential reaches
 > the child only as `EnvironmentFile=`, which the setsid carrier cannot set.
 
-**Never-invite, by construction.** The bridge has NO `conversations.invite` code path at all.
-Membership is a human act in the Slack UI. This is what makes `r-slack-etiquette`'s "the owner
-is added to NO test channel" mechanically true rather than a policy nobody enforces — a probe
-asserts the string's absence from the source, the same shape as `probe-chat-boundary`.
+### Membership — the owner is INVITED at real-goal-channel creation
+
+> **SUPERSEDED 2026-08-10 (owner ruling, issue C-3).** The paragraph this replaces read:
+> *"**Never-invite, by construction.** The bridge has NO `conversations.invite` code path at
+> all. Membership is a human act in the Slack UI. This is what makes `r-slack-etiquette`'s
+> 'the owner is added to NO test channel' mechanically true rather than a policy nobody
+> enforces — a probe asserts the string's absence from the source, the same shape as
+> `probe-chat-boundary`."*
+
+**SETTLED: the bridge invites the OWNER, and only the owner, into a REAL goal channel at the
+moment it CREATES it. Four conjunctive conditions, all probe-asserted:**
+
+1. **Owner only.** The one id resolved by `config.js` as `ownerUser` (config `owner_user`,
+   defaulting to the first allowlist entry — the allowlist exists for the owner). Never a
+   list, never a discovered member, never a second target.
+2. **Real goals only.** Refused whenever the deployment's `channelPrefix` is a test namespace
+   (`test-` / `test_`). The prefix bounds every name this map can create, so guarding on it
+   guards the whole test surface — which is exactly and only what `r-slack-etiquette`
+   protects.
+3. **Creation only.** The `created: true` arm of `ensureChannel`. Never the ADOPT path, never
+   `recover()`, and **no backfill sweep of channels that already exist** — the owner ruled
+   new channels only.
+4. **Graceful degradation.** An invite refusal (missing scope, restricted workspace) is logged
+   loudly and then discarded. Channel creation, the binding, and the goal's message flow never
+   depend on it: the channel is the goal's surface whether or not the owner is in it yet.
+
+**Why never-invite existed, and why it over-reached.** The construction made a real guarantee
+cheap: an absence in the source cannot be forgotten under pressure at 4 AM, unlike a policy.
+But the guarantee it was purchased for — `r-slack-etiquette` — is scoped to **test/throwaway
+channels and overnight DM timing** ("no DM to the owner before morning, `test-*` channels
+only"), not to every channel the bridge will ever make. Forbidding the whole mechanism to
+enforce a rule about one namespace also forbade auto-inviting the owner into a channel the
+owner had *just asked to be created*, leaving a manual join on every real goal. The mechanism
+now exists in `slack-socket-mode.js#inviteToChannel`; the narrowness moved to the one caller,
+where the etiquette rule's actual scope is expressed as condition 2 rather than as an absence.
+
+**Required scope:** `channels:write.invites` (public) / `groups:write.invites` (private).
+Absent, condition 4 carries it: every creation still succeeds and one loud warning names the
+fix.
 
 **FLAG → registry transcription:** `concepts/channel.md` § v1 realization (replace "creation …
 OPEN" with this answer) and `DEC-6`. Filed, not applied.

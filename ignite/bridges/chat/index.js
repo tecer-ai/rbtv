@@ -56,12 +56,14 @@ function buildBridge(config, { logger = jsonLog, makeTransport = null, forwarder
   const transport = factory(onMessage);
 
   // The goal↔channel map (task 7.58) rides the transport's narrow admin surface
-  // (create/list/archive — no invite, by construction). A transport that does not
-  // expose it (an older mock) simply yields no map: the bridge then serves master
-  // (DM) traffic and treats every channel as unroutable, which is the honest
-  // degradation, never a silent fallback to goal traffic.
+  // (create/list/archive, plus the owner-only creation-time invite ruled 2026-08-10 —
+  // goal-channel-map.js § header). A transport that does not expose it (an older mock)
+  // simply yields no map: the bridge then serves master (DM) traffic and treats every
+  // channel as unroutable, which is the honest degradation, never a silent fallback to
+  // goal traffic. A transport with `createChannel` but no `inviteToChannel` still gets
+  // a map — it creates channels and invites nobody, exactly the pre-ruling behaviour.
   const goalChannels = (typeof transport.createChannel === 'function')
-    ? createGoalChannelMap({ slack: transport, prefix: config.channelPrefix, logger })
+    ? createGoalChannelMap({ slack: transport, prefix: config.channelPrefix, ownerUser: config.ownerUser, logger })
     : null;
   if (!goalChannels) log_noGoalChannels(logger);
 

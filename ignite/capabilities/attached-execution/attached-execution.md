@@ -49,7 +49,9 @@ copy of what the run can compute; the record carries what a single lane's store 
   second copy of the wave math is a status surface that can disagree with the engine it reports on.
 - **Held-for-user is TWO gates**, the D14 pair the console-run design's ruling 5 names: the seat
   declares `human-interactive:` in its descriptor AND the goal's `execution-mode` reads
-  `interactive` (absent = `autonomous`, the ratified default). Both readers are the chat bridge's
+  `interactive` — or, with no such file, its `goal.md` declares `goal-kind: interactive` (the
+  three-rung ladder of issue C-4, owner-ruled 2026-08-10; neither resolving = `autonomous`, the
+  ratified default). Both readers are the chat bridge's
   own (`bridges/chat/bus-ferry.js`), so this surface and the gate that actually parks an
   owner-addressed message cannot drift apart.
 - **Only UNANSWERED questions are listed** — and since console-run B1 the RUN LOOP uses the same
@@ -385,11 +387,27 @@ whole tree on the first tick after deploy. "Assigned to the console" and "assign
 deliberately not distinguished — neither is the daemon's business, and a third state would be a
 state nothing reads.
 
-⚠ **A `daemon` assignment MUST name a launch profile, and the CLI refuses `--set daemon` without
-one.** Seeding takes a profile BY NAME from the one shared config and never derives one (`DEC-1`
-§ Shared profile source — the same argument `rbtv run --profile` makes); `taskforce.csv`'s
-harness/model columns are task **7.54**'s catalog, not a profile name. There is no third place to
-read it from, so the marker carries it.
+⚠ **A `daemon` assignment MUST name a launch profile, and the NAME IS VALIDATED — at both doors.**
+Seeding takes a profile BY NAME from the one shared config and never derives one (`DEC-1` § Shared
+profile source — the same argument `rbtv run --profile` makes); `taskforce.csv`'s harness/model
+columns are task **7.54**'s catalog, not a profile name. There is no third place to read it from, so
+the marker carries it.
+
+- **At the CLI**, `--set daemon` refuses without `--profile`, *and* refuses a name `profiles:` in the
+  shared config does not carry — naming the valid set. Presence alone was not enough: `enqueue`'s
+  `args_schema` only asks that `profile` be a STRING, so a typo passed every gate and surfaced as a
+  spawn failure per seat, long after the person who typed it stopped watching.
+- **At the watch**, the same name is checked against the store's own profile catalogue **before
+  `seedGoal` is called at all**, and the ORDERING is the fix rather than the check: `seedTaskforce`
+  registers one job row per seat and `registerJob` is create-only, so an unknown profile used to
+  leave PERMANENT orphan rows on the first pass and then throw every cadence after. Refused there,
+  nothing is written. (`Object.hasOwn`, not truthiness — `constructor` is a legal kebab-case name.)
+
+⚠ **A goal that cannot be seeded says so ONCE per marker text, not once per tick.** At a 10 s cadence
+the unbounded version is ~8,600 identical lines a day for a condition only a human can change.
+The memo is keyed on the marker's exact content, so the moment somebody EDITS it the goal is loud
+again — quiet must never come to mean forgotten. A goal that seeds successfully, or is handed back
+to the console, forgets its failure.
 
 **What the pass skips, and why:**
 
@@ -411,13 +429,21 @@ button: the daemon lets go on its very next pass, and the other lane resumes fro
 record with nothing re-run. Measured end to end, in the owner's own direction — the daemon enqueues
 and dispatches `alpha`, its own tick publishes `alpha=done`, the marker flips to `console`, and
 `rbtv run` runs `bravo` and never touches `alpha` (`engine/probes/probe-daemon-lane-watch.js` L6,
-with three mutations red at L8).
+with six mutations red at L8).
 
-⚠ **The human-interactive fallback gap is NOT solved here and the existing behaviour stands.** The
-pass passes no `isHeld` predicate, so the daemon dispatches a human-interactive seat exactly as it
-does today; what *should* happen to a seat with no terminal to reach is migrate task **7.626**.
-Passing a predicate here would have parked such seats forever — a new behaviour wearing a bug fix's
-clothes.
+⚠ **THE DIVERGENCE THE PASS KNOWINGLY STEPS OVER — the two lanes do NOT treat a human-interactive
+seat the same way, and this trigger made the difference reachable by default.** A seat that declares
+`human-interactive:` in an `interactive` goal is carried in the TERMINAL by the attached lane, which
+refuses rather than dispatches it when no terminal exists. Over here there is no terminal at all, so
+the daemon dispatches it as an ordinary detached child and its `fallback:` fires nowhere.
+
+That behaviour is **unchanged and is the owner's ruled default** — the pass passes no `isHeld`
+predicate, because parking such seats forever would be a new behaviour wearing a bug fix's clothes,
+and migrate task **7.626** owns the actual fix. What this build DID change is that it is no longer
+silent: the pass logs the condition at `warn`, names 7.626, and carries
+`humanInteractiveDispatched` on its per-goal report. The reason that matters: a channel-master goal
+is assigned `daemon` at birth, so this is the AFK default path, and a lane that dispatched silently
+beside a lane that refuses loudly read as equivalent when it is not.
 
 ⚠ **The marker's TERM is being minted registry-side; the filename is descriptive and this build
 coined no noun for it** (the same discipline `executions.csv` followed before
@@ -540,11 +566,17 @@ the other lane has not finished HELD **and reported on the log line** · the SWI
 daemon enqueues and dispatches `alpha`, its own tick publishes `alpha=done/daemon`, the owner flips
 the marker, the daemon lets go on the next pass, and `rbtv run` runs `bravo` having never fired
 `alpha` · the call site asserted in `server/index.js` with comments stripped, and asserted to run
-BEFORE the tick. Three mutations, each an asserted single-string change compiled in memory and
-required to go red: **the assignment ignored** (the daemon seeds a console goal) · **the run lock
-ignored** (it seeds a goal a live console runner is attached to) · **the watch call removed** from the
-loop (the state this build closed). Substitutions disclosed in its header: no daemon PROCESS, one
-synthesized completion (the dispatch itself is real), and `sleep` for a harness.
+BEFORE the tick. Then the FAILURE SURFACE (review F1/F2/F3): both broken markers a hand-edit can
+still produce — an unknown profile (skipped typed, with **nothing registered in the store**) and no
+profile at all (skipped with its own fix hint) — each loud ONCE and loud AGAIN the moment the marker
+text changes, plus the human-interactive seat dispatched **and reported**, with an autonomous CONTROL
+so the report tracks the two gates rather than the pass's mere presence. Six mutations, each an
+asserted single-string change compiled in memory and required to go red: **the assignment ignored**
+(the daemon seeds a console goal) · **the run lock ignored** (it seeds a goal a live console runner is
+attached to) · **the watch call removed** from the loop (the state this build closed) · **the
+unknown-profile guard removed** (orphan job rows for an unrunnable goal) · **the no-profile branch
+silenced** · **the human-interactive report removed**. Substitutions disclosed in its header: no
+daemon PROCESS, one synthesized completion (the dispatch itself is real), and `sleep` for a harness.
 
 `ignite/engine/probes/probe-attached-status.js` — the `--status` verb (A3).
 

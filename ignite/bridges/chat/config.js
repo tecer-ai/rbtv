@@ -50,6 +50,8 @@ const DEFAULT_SLACK_API_BASE = 'https://slack.com/api';
 //     "state_file": "/abs/path/chat-state.json", // conversation state across restarts (opt-in; see below)
 //     "bus_ferry": false,                  // push coordination-bus rows addressed to `master` to the owner DM
 //     "bus_ferry_dm_user": "U0123ABC",     // whose DM (default: the FIRST allowlist entry)
+//     "owner_user": "U0123ABC",            // the ONE user auto-invited to a new REAL goal channel
+//                                          // (default: the FIRST allowlist entry)
 //     "allowlist": ["U0123ABC", "U0456DEF"] // Slack user IDs allowed to drive the bridge
 //   }
 function readConfigFile(filePath) {
@@ -137,6 +139,13 @@ function resolveConfig(overrides = {}) {
   const busFerryDmUser =
     overrides.busFerryDmUser || file.bus_ferry_dm_user || (allowlist.length ? allowlist[0] : null);
 
+  // The owner's Slack user id — the ONLY id `goal-channel-map.js#ensureChannel` may
+  // invite into a channel it just created (owner ruling 2026-08-10, issue C-3). Same
+  // default as the ferry's DM target and for the same reason: the allowlist exists for
+  // the owner, so its first entry IS the owner. Unset ⇒ no invite is ever attempted.
+  const ownerUser =
+    overrides.ownerUser || file.owner_user || (allowlist.length ? allowlist[0] : null);
+
   const slackApiBase =
     overrides.slackApiBase || env[ENV.slackApiBase] || file.slack_api_base || DEFAULT_SLACK_API_BASE;
   const slackAppToken = overrides.slackAppToken || env[ENV.slackAppToken] || null;
@@ -156,6 +165,7 @@ function resolveConfig(overrides = {}) {
     stateFile,
     busFerry,
     busFerryDmUser,
+    ownerUser,
     allowlist,
     slack: {
       apiBase: slackApiBase,

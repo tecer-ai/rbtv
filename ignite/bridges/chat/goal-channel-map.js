@@ -25,12 +25,23 @@
 // a non-derivable goal id is REFUSED rather than sanitized: a lossy transform would
 // break the inverse, and two goal ids could silently share one channel.
 //
-// ⚑ NO `conversations.invite` CODE PATH EXISTS HERE, BY CONSTRUCTION. The bridge never
-// adds anyone to a channel; membership is a human act in the Slack UI. This is what
-// makes the run's `r-slack-etiquette` guard ("the owner is added to NO test channel")
-// mechanically true rather than a policy nobody enforces — `probe-chat-goal-channel`
-// asserts the absence of the string from the bridge source, the same shape as
-// `probe-chat-boundary`.
+// ⚑ THE OWNER IS INVITED AT REAL-GOAL-CHANNEL CREATION (owner ruling 2026-08-10, issue
+// C-3), and NOBODY else is ever added to anything. This SUPERSEDES the former
+// never-invite-by-construction bound, which enforced `r-slack-etiquette` ("the owner is
+// added to NO test channel") by forbidding the whole mechanism — over-reaching that
+// rule's real scope (test/throwaway channels and overnight DM timing) into the real,
+// owner-requested goal channels it was never written to cover. The narrow rule is now
+// carried by four conjunctive conditions in `ensureChannel`, all asserted by
+// `probe-chat-goal-channel`:
+//   1. OWNER ONLY — the one configured `ownerUser` id, never a list, never a discovered
+//      member. Nothing else can ever be an invite target.
+//   2. REAL GOALS ONLY — refused whenever the channel PREFIX is a test namespace
+//      (`test-`/`test_`), which is exactly the surface `r-slack-etiquette` protects.
+//   3. CREATION ONLY — the `created: true` arm. Never the adopt path, never `recover()`,
+//      never a backfill sweep of channels that already exist.
+//   4. GRACEFUL — an invite refusal (missing scope, restricted workspace) is logged
+//      loudly and DISCARDED. Channel creation and the goal's message flow never depend
+//      on it: the channel is the goal's surface whether or not the owner is in it yet.
 
 // Slack channel names: lowercase, ≤ 80 chars, letters/digits/hyphen/underscore only.
 const SLACK_NAME_MAX = 80;
@@ -68,8 +79,19 @@ function goalIdFromChannelName(name, prefix) {
 //   createChannel({ name })      → { ok, channel: { id, name } } | { ok:false, error }
 //   listChannels({ cursor, excludeArchived }) → { ok, channels:[{id,name}], nextCursor }
 //   archiveChannel({ channel })  → { ok } | { ok:false, error }
-// Nothing else. There is deliberately no invite/kick/setTopic here.
-function createGoalChannelMap({ slack, prefix, logger = null } = {}) {
+//   inviteToChannel({ channel, users }) → { ok, already } | { ok:false, error }
+// Nothing else. There is deliberately no kick/setTopic here.
+//
+// `ownerUser` is the ONE id the invite above may ever target (config `owner_user`,
+// defaulting to the first allowlist entry — the allowlist exists for the owner). Unset,
+// or a transport with no `inviteToChannel`, degrades to the pre-C-3 behaviour: channels
+// are created and nobody is invited.
+
+// A test/throwaway namespace, the surface `r-slack-etiquette` protects. Matched on the
+// PREFIX, which is what bounds every name this map can create (config.js § channelPrefix).
+const TEST_PREFIX_RE = /^test[-_]/;
+
+function createGoalChannelMap({ slack, prefix, ownerUser = null, logger = null } = {}) {
   if (!slack) throw new Error('createGoalChannelMap requires a slack admin surface');
   if (!PREFIX_RE.test(String(prefix || ''))) {
     throw new Error('createGoalChannelMap requires a valid channel prefix (e.g. "goal-", or "test-" under a test-channels-only ruling)');
@@ -116,6 +138,29 @@ function createGoalChannelMap({ slack, prefix, logger = null } = {}) {
     return { ok: true, channel: null };
   }
 
+  // THE OWNER INVITE — see the header's four conditions. Called on ONE arm of
+  // `ensureChannel` (the freshly-created one) and awaited only so its outcome can be
+  // logged; the result is never returned to the caller and never gates anything.
+  async function inviteOwner(goalId, channelId, name) {
+    if (!ownerUser) return { ok: false, skipped: 'no-owner-configured' };
+    if (TEST_PREFIX_RE.test(pfx)) return { ok: false, skipped: 'test-channel' };
+    if (typeof slack.inviteToChannel !== 'function') return { ok: false, skipped: 'transport-has-no-invite' };
+    let res;
+    try {
+      res = await slack.inviteToChannel({ channel: channelId, users: [ownerUser] });
+    } catch (err) {
+      res = { ok: false, error: `invite-threw: ${err && err.message}` };
+    }
+    if (res && res.ok) {
+      log('info', 'owner invited to the new goal channel', { goalId, channelId, name, user: ownerUser, already: Boolean(res.already) });
+      return res;
+    }
+    // Loud, and swallowed: the channel exists and carries goal traffic either way. A
+    // missing invite scope is an owner-side Slack-app fix, not a reason to fail a goal.
+    log('warn', 'OWNER INVITE FAILED — the channel is live but the owner is NOT in it; add them by hand (or grant the bot channels:write.invites / groups:write.invites and reinstall the app)', { goalId, channelId, name, user: ownerUser, error: res && res.error });
+    return res || { ok: false, error: 'invite-failed' };
+  }
+
   // (a) THE CREATION CALL — idempotent, name-derived. The goal-registration hook is
   // its caller once it exists (task 7.63 `rbtv goal scaffold`); until then an explicit
   // call stands in (the ANSWER is unchanged, only its caller — see the design doc).
@@ -133,7 +178,8 @@ function createGoalChannelMap({ slack, prefix, logger = null } = {}) {
     if (res && res.ok && res.channel && res.channel.id) {
       bind(gid, res.channel.id);
       log('info', 'goal channel created and bound', { goalId: gid, channelId: res.channel.id, name });
-      return { ok: true, goalId: gid, channelId: res.channel.id, created: true, reason: 'created', name };
+      const invited = await inviteOwner(gid, res.channel.id, name);
+      return { ok: true, goalId: gid, channelId: res.channel.id, created: true, reason: 'created', name, ownerInvited: Boolean(invited && invited.ok) };
     }
     if (res && res.error === 'name_taken') {
       const found = await findByName(name);

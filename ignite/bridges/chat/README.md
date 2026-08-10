@@ -111,10 +111,13 @@ registry-transcription flags are in `goal-channel-design.md`:
   refused archive **keeps** the binding: the channel is still live, and dropping it
   would leave goal traffic pointed at a channel nobody believes is in use.
 
-**There is no `conversations.invite` code path anywhere in this module, and there must
-never be one.** The bridge cannot add a member to a channel; membership is a human act
-in the Slack UI. `probe-chat-goal-channel` asserts that absence against the source, so
-"the owner is in no channel" is a mechanical guarantee rather than a procedural one.
+**The OWNER — and nobody else — is invited when a REAL goal channel is CREATED** (owner
+ruling 2026-08-10, issue C-3; supersedes the former never-invite-by-construction bound).
+Four conjunctive conditions, all asserted by `probe-chat-goal-channel`: the one configured
+`owner_user` (default: the first allowlist entry) · never under a `test-`/`test_` prefix ·
+the `created: true` arm only, never adopt, never a backfill · and an invite refusal is
+logged loudly and discarded, so creation and message flow never depend on it. Rationale and
+the superseded text: `goal-channel-design.md` § Membership.
 
 **Reaching the current phase-owner voice** (CMP-8 § Thread-model routing) is the
 SERVER's derivation, not the bridge's: a sender types its message and never addresses a
@@ -132,7 +135,9 @@ than by an event.
 (+ `groups:read`, for list/members), `chat:write`, `channels:history`, `im:history`,
 `files:read` — not used by the bridge itself, but the SAME bot token is what agents
 use (via stools) to download the attachments the bridge's pointer lines announce; without
-it every download fails with a scope error. Deliberately **not** required: any invite scope. **Optional:** `reactions:write` — the ⏳
+it every download fails with a scope error. **Optional:** `channels:write.invites` (+
+`groups:write.invites` for private channels) — the owner auto-invite above; without it
+channel creation still succeeds and one loud warning per creation names the fix. **Optional:** `reactions:write` — the ⏳
 pending marker the bridge puts on an owner message while its turn runs and removes when
 the answer lands (chat-bridge.js § pending marker). Without it every reaction call fails,
 one info line is logged for the whole run, and nothing else changes: message handling and
@@ -180,7 +185,7 @@ REVERSED.** Every other branch routes a row because *nobody read it* — a defec
 | Gate | Where it is declared | Absent means |
 |------|----------------------|--------------|
 | **1 — the seat is human-interactive** | `human-interactive: yes\|true` in the sending seat's `seat.md` **frontmatter** — the first `---`-fenced block only, so a briefing line in the BODY that quotes the flag cannot open the gate (one file read, memoized per pass) | not human-interactive |
-| **2 — the goal is interactive** | one word in `.rbtv/goals/<goal>/execution-mode` | **`autonomous`** — and so does an unreadable file and any other word. A goal nobody declared reachable is not reachable; the owner flips it when he is |
+| **2 — the goal is interactive** | a THREE-RUNG ladder (owner ruling 2026-08-10, issue C-4): **(1)** one word in `.rbtv/goals/<goal>/execution-mode` if that file is there — the PER-RUN POSTURE, which always wins, because the console flow writes `autonomous` there when the owner walks away and a birth attribute must not override a human saying "not now"; **(2)** file absent → the goal's BIRTH ATTRIBUTE, `goal-kind: interactive` in `goal.md` frontmatter (no creation path has ever written `execution-mode`, so without this rung every interactive goal was born with the gate shut and every ask parked silently); **(3)** neither → `autonomous` | **`autonomous`** — an unreadable file and any other word read that way at rung 1, and so does any `goal-kind` that is not exactly `interactive`, no key, no frontmatter or no `goal.md` at rung 2. A goal nobody declared reachable is not reachable; the owner flips it when he is |
 
 **A blocked row PARKS ON THE BUS.** It is not re-routed, not downgraded into the owner's DM and
 not swallowed: **nothing is posted anywhere**, the cursor advances because the row was disposed

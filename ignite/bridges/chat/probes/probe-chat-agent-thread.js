@@ -34,8 +34,9 @@ const PREFIX = 'test-';
 
 // ── fakes ────────────────────────────────────────────────────────────────────
 
-// One Slack workspace: the narrow channel-admin surface (create/list/archive — no invite,
-// by construction), `openDm` for the ferry, and a post log that hands back a DISTINCT `ts`
+// One Slack workspace: the narrow channel-admin surface (create/list/archive — this fake
+// exposes no `inviteToChannel`, so the C-3 owner invite is simply not reachable here; it
+// is `probe-chat-goal-channel` that owns that claim), `openDm` for the ferry, and a post log that hands back a DISTINCT `ts`
 // per post, because "the second row replied on the FIRST row's thread" is only checkable
 // when two posts cannot accidentally share one.
 function makeFakeSlack() {
@@ -212,8 +213,13 @@ const MUTATIONS = [
   { name: 'owner-not-reserved-in-seat-resolver', file: 'forward-path.js',
     from: "if (String(seatName) === RESERVED_SEAT_NAME) return { ok: false, reason: 'owner-is-reserved' };", to: '',
     expect: ['`owner` is RESERVED'] },
-  { name: 'absent-mode-reads-interactive', file: 'bus-ferry.js', from: '} catch { return AUTONOMOUS_MODE; }', to: '} catch { return INTERACTIVE_MODE; }',
+  { name: 'absent-mode-reads-interactive', file: 'bus-ferry.js', from: '} catch { return goalKindMode(goalDir); }', to: '} catch { return INTERACTIVE_MODE; }',
     expect: ['an ABSENT execution-mode file reads as autonomous', 'GATE 2 (absent'] },
+  // C-4's fix and its red arm: cut rung 2 back to the old behaviour and the goal-kind fallback
+  // arm must die, while the two arms around it (file wins, neither resolves) stay green — which
+  // is what makes the fallback the discriminator rather than a check that passes either way.
+  { name: 'goal-kind-fallback-removed', file: 'bus-ferry.js', from: '} catch { return goalKindMode(goalDir); }', to: '} catch { return AUTONOMOUS_MODE; }',
+    expect: ['THE THREE-RUNG LADDER'] },
   { name: 'agent-thread-leg-not-tried', file: 'bus-ferry.js', from: 'if (!chatThread && routeToAgentThread) {', to: 'if (false) {',
     expect: ['ANCHORS a thread', 'MUTATION (gate 2)'] },
   { name: 'header-not-agent-led', file: 'bus-ferry.js', from: 'const header = agentLead', to: 'const header = false',
@@ -332,6 +338,32 @@ async function main() {
       absent === 'autonomous' && junk === 'autonomous' && interactive === 'interactive'
       && goalExecutionMode(root, 'goal-never-scaffolded') === 'autonomous',
       { absent, interactive, junk });
+
+    // C-4 (owner-ruled 2026-08-10): the file is the per-run posture, `goal-kind` the birth
+    // attribute. All three rungs on ONE hermetic goal folder, and the middle rung is the fix.
+    {
+      const kroot = mkroot();
+      const kdir = path.join(kroot, '.rbtv', 'goals', 'goal-kind');
+      fs.mkdirSync(kdir, { recursive: true });
+      fs.writeFileSync(path.join(kdir, 'goal.md'), '---\nname: goal-kind\ngoal-kind: interactive\n---\nbody\n');
+      const fallback = goalExecutionMode(kroot, 'goal-kind');            // rung 2 — no file
+      fs.writeFileSync(path.join(kdir, 'execution-mode'), 'autonomous\n');
+      const fileWins = goalExecutionMode(kroot, 'goal-kind');            // rung 1 — file overrides
+      fs.unlinkSync(path.join(kdir, 'execution-mode'));
+      fs.writeFileSync(path.join(kdir, 'goal.md'), '---\nname: goal-kind\ngoal-kind: non-interactive\n---\nbody\n');
+      const nonInteractive = goalExecutionMode(kroot, 'goal-kind');      // rung 3 — other value
+      fs.writeFileSync(path.join(kdir, 'goal.md'), '---\nname: goal-kind\n---\nbody\n');
+      const noKey = goalExecutionMode(kroot, 'goal-kind');               // rung 3 — no key
+      fs.writeFileSync(path.join(kdir, 'goal.md'), 'no frontmatter here\n');
+      const noFm = goalExecutionMode(kroot, 'goal-kind');                // rung 3 — no frontmatter
+      fs.writeFileSync(path.join(kdir, 'goal.md'), '---\ngoal-kind: interactive # the owner is in the room\n---\n');
+      const commented = goalExecutionMode(kroot, 'goal-kind');           // rung 2 — lint agreement
+      check('gate 2 THE THREE-RUNG LADDER: an `execution-mode` file WINS (per-run posture beats birth attribute); ABSENT falls back to `goal-kind: interactive` in goal.md (a trailing YAML comment does not defeat it); and neither resolving — other value, no key, no frontmatter, no goal.md — is `autonomous`',
+        fallback === 'interactive' && fileWins === 'autonomous' && commented === 'interactive'
+        && nonInteractive === 'autonomous' && noKey === 'autonomous' && noFm === 'autonomous'
+        && goalExecutionMode(kroot, 'goal-nothing-at-all') === 'autonomous',
+        { fallback, fileWins, commented, nonInteractive, noKey, noFm });
+    }
 
     check('gate 1: `yes`/`true` declare a seat human-interactive; `no`, a missing line, and a missing descriptor do not',
       seatIsHumanInteractive(goalDir, 'seat-yes') === true

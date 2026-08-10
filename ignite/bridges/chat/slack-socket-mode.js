@@ -324,15 +324,18 @@ function createSlackSocketMode({
 
   // ── The goal-channel ADMIN surface (task 7.58) ──────────────────────────────
   //
-  // Three calls, and deliberately only three: create, list, archive. All are
+  // Four calls, and deliberately only four: create, list, archive, invite. All are
   // OUTBOUND HTTP POSTs on the bot token — the outbound-only property this module
   // exists to preserve is untouched, and `probe-chat-outbound` still holds.
   //
-  // ⚑ THERE IS NO `conversations.invite` CALL HERE, AND THERE MUST NEVER BE ONE.
-  // The bridge never adds a member to a channel; membership is a human act in the
-  // Slack UI. The run's `r-slack-etiquette` guard ("the owner is added to NO test
-  // channel") is enforced by this ABSENCE, which a probe asserts against the source
-  // — a guard that cannot be forgotten under pressure, unlike a policy.
+  // ⚑ `conversations.invite` EXISTS HERE SINCE 2026-08-10 (owner ruling, issue C-3).
+  // It replaces the former never-invite-by-construction bound, which over-reached its
+  // own justification: `r-slack-etiquette` is scoped to TEST/THROWAWAY channels and
+  // overnight DM timing, never to a real goal channel the owner themselves asked for.
+  // The narrow rule now lives at the ONE caller — `goal-channel-map.js#ensureChannel`
+  // invites the CONFIGURED OWNER ONLY, on a REAL goal channel it just CREATED, never
+  // on a test-prefixed one. This transport function is the mechanism; the policy is
+  // the caller's, and `probe-chat-goal-channel` asserts both.
 
   async function createChannel({ name, isPrivate = false }) {
     if (!botToken) throw new Error('SLACK_BOT_TOKEN is required to create a channel');
@@ -376,6 +379,21 @@ function createSlackSocketMode({
     return { ok: true };
   }
 
+  // `already_in_channel` is SUCCESS: the post-condition ("this user is in this
+  // channel") holds either way, the same idempotence rule `archiveChannel` follows.
+  const INVITE_BENIGN = new Set(['already_in_channel']);
+  async function inviteToChannel({ channel, users }) {
+    if (!botToken) throw new Error('SLACK_BOT_TOKEN is required to invite to a channel');
+    const list = Array.isArray(users) ? users.join(',') : String(users || '');
+    const resp = await slackPost('conversations.invite', botToken, { channel, users: list });
+    if (!resp || !resp.ok) {
+      if (resp && INVITE_BENIGN.has(resp.error)) return { ok: true, already: true };
+      log('warn', 'conversations.invite did not invite', { channel, users: list, error: resp && resp.error });
+      return { ok: false, error: (resp && resp.error) || 'invite-failed' };
+    }
+    return { ok: true, already: false };
+  }
+
   function stop() {
     closedByUs = true;
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
@@ -385,7 +403,7 @@ function createSlackSocketMode({
 
   return {
     start, stop, sendToOwner, react, unreact, authTest, openDm, openConnection, toChatMessage,
-    createChannel, listChannels, archiveChannel,
+    createChannel, listChannels, archiveChannel, inviteToChannel,
   };
 }
 

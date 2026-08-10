@@ -22,9 +22,17 @@
 // Slack itself reports back from `auth.test` (team + bot user), which is not a
 // credential.
 //
-// ⚑ There is no invite/kick path here either — see goal-channel-map.js. This CLI
-// cannot add anyone to a channel, which is what makes a "the owner is in no test
-// channel" guarantee mechanical rather than procedural.
+// ⚑ `ensure` INVITES THE OWNER when it CREATES a real goal channel (owner ruling
+// 2026-08-10, issue C-3) — the policy and its four conditions live in
+// `goal-channel-map.js` § header, never here, because this CLI and the long-running
+// bridge must not hold two answers. This CLI still has no kick path and can add nobody
+// but the ONE configured owner. Under `--prefix test-` it invites nobody at all, which
+// is what keeps `r-slack-etiquette`'s "the owner is in no test channel" mechanical.
+//
+// The owner id is resolved through the bridge's own `resolveConfig` (config
+// `owner_user`, defaulting to the first allowlist entry) off `IGNITE_CHAT_BRIDGE_CONFIG`
+// — the same file the bridge reads, arriving through the same `EnvironmentFile=` as the
+// bot token. Unresolvable ⇒ no invite is attempted and the create still succeeds.
 //
 // Usage:
 //   node goal-channel-cli.js whoami
@@ -36,6 +44,7 @@
 
 const { createSlackSocketMode } = require('./slack-socket-mode');
 const { createGoalChannelMap, channelNameForGoal } = require('./goal-channel-map');
+const { resolveConfig } = require('./config');
 
 function parseArgs(argv) {
   const positional = [];
@@ -63,7 +72,15 @@ async function main() {
     onMessage: () => {},          // this CLI never listens; the callback is required by the factory
     logger: null,
   });
-  const map = createGoalChannelMap({ slack: transport, prefix, logger: null });
+  // A misconfigured/absent bridge config must not break an operator's `ensure`: it only
+  // means no owner is known, so no invite is attempted.
+  let ownerUser = null;
+  try { ownerUser = resolveConfig().ownerUser; } catch { ownerUser = null; }
+
+  // The map's loud invite warning is worth a line — this CLI is what the daemon runs, so
+  // its stderr is the job log. stdout stays the machine-readable verb result, untouched.
+  const cliLog = (row) => { try { process.stderr.write(JSON.stringify(row) + '\n'); } catch {} };
+  const map = createGoalChannelMap({ slack: transport, prefix, ownerUser, logger: cliLog });
 
   // A raw Slack read the map does not need but an operator does. Still an outbound
   // HTTPS call on the bot token — no new capability.
