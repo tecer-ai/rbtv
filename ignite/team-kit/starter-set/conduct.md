@@ -222,8 +222,14 @@ anchor you resolve.
 - When two records disagree on a policy value, adopt the SAFE reading immediately — the one that
   cannot overshoot what the owner authorized under either reading — and put the conflict to the
   authority. Never average, never pick a winner, never quietly "harmonise".
-- **Model policy.** **EVERY planning and staffing seat binds `claude-opus-5` at effort `max` — no
-  exceptions** (owner, 2026-08-06). This binds the whole planning workflow — `elicitator`,
+- **Model policy.** **EVERY planning and staffing seat binds `claude-opus-5` at effort `max`**
+  (owner, 2026-08-06). That is the DEFAULT and it stands unless a waiver is WRITTEN. **Only the
+  OWNER waives it, and a waiver TAKES EFFECT ONLY ONCE IT IS AN ANCHORED ENTRY IN THIS FOLDER'S
+  `./decisions.md`** — anchor `d-model-policy-waiver-<MMDD>`, carrying the date, WHO granted it, the
+  exact scope it covers (which seats, which sitting or milestone), and the substitute binding.
+  Unwritten, a waiver does not exist: a ruling no later reader can resolve BY ANCHOR is not a
+  ruling, and until the entry lands the default above binds. A roster summary, a message, or a
+  remembered say-so is none of these. This binds the whole planning workflow — `elicitator`,
   `planning-strategist`, `execution-strategist`, `execution-tactical-designer`, `execution-tactical`,
   `workflow-designer`, `seat-designer`, `staffer`, `ledger-groomer` — plus the collapsed-mode
   `planner`. It binds at BINDING time AND sweeps every already-bound seat; a seat ALREADY LIVE on
