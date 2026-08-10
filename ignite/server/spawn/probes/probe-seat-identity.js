@@ -192,7 +192,20 @@ capture('probe-seat-identity', async (lines) => {
     // isolated socket precisely because the probe may not touch the box's default tmux server.
     // Dropping it from `env -i` would not test caller-independence, it would point that one shape
     // at a different machine-wide server — a fixture defect wearing a bar's clothes.
-    const SOCK = `TMUX_TMPDIR=${ROOM_TMPDIR}`;
+    // ⚠ AND `$TMUX` IS CLEARED ON EVERY SHAPE FOR THE SAME REASON, NOT A DIFFERENT ONE.
+    // `$TMUX` is an ADDRESS too, and `server/lease/lease.js` (§ `$TMUX` IS CONSULTED FIRST
+    // BECAUSE IT WINS) reads it BEFORE `TMUX_TMPDIR` and lets it select the socket outright.
+    // So a suite run launched from inside a pane leaked `$TMUX` into five of the six shapes --
+    // `env -i` being the one that dropped it -- and those five addressed the OPERATOR's server
+    // instead of the fixture room: bare/timeout/nested-sh/exec-away/nohup all answered
+    // `E_GOAL_NOT_LIVE` while `env -i` answered `E_IDENTITY_MISMATCH`, i.e. P10 and P10-ii went
+    // RED for a socket-ADDRESS reason with nothing to do with caller-independence (task 7.627,
+    // measured on the ignite VPS). The runner has stripped `$TMUX` from every probe child since
+    // a3f8f90f, which is what turned these legs green again -- but a probe that only holds
+    // because its RUNNER isolates it is not isolated, it is lucky. Clearing it here keeps the
+    // shapes pointed at the fixture room under a leaking caller too, and the bar is untouched:
+    // an address is not an assertion, exactly as the paragraph above rules for `TMUX_TMPDIR`.
+    const SOCK = `TMUX_TMPDIR=${ROOM_TMPDIR} TMUX= TMUX_PANE=`;
     const shapes = [
       ['bare',      `cd ${f5.seatDir} && ${SOCK} ${CLI} 2>&1; echo "RAN exit=$?"`],
       ['timeout',   `cd ${f5.seatDir} && ${SOCK} timeout 30 ${CLI} 2>&1; echo "RAN exit=$?"`],

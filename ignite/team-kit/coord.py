@@ -2371,6 +2371,78 @@ def seat_scratchpad(folder, session_id):
         return None
     return Path(folder) / SEAT_SCRATCHPAD_DIR / session_id
 
+# ---- 7.31: THE PIPE-PANE TRANSCRIPT — where it lands, and how its name is minted ---------------
+#
+# R31 (`system-definition/decisions.md#d-transcript-placement`) rules the home as
+# `{goal}/runs/run-{n}/seats/{seat}/sessions/{session-id}/`. THE `runs/run-{n}` LAYER NO LONGER
+# EXISTS: 7.607 E2b extinguished it (design-lock item 8 — the package IS the goal folder, see
+# `goal_dir` above, whose own walk `pkg.parent.parent if pkg.parent.name == "runs"` died with it).
+# So the ruled path is followed MINUS the layer that was deleted under it — the per-session subtree
+# of the seat folder holding the session it records. Everything R31 actually decides is intact:
+# workspace-side under the goals tree (never the per-machine ignite root), and ONE transcript per
+# session BY CONSTRUCTION, since a new session gets a new `sessions/<session-id>/` folder.
+#
+# The seats/workers fork mirrors `workers_dir`'s exactly — KG run-folder form wins when present,
+# legacy `workers/` otherwise — and it is re-derived here rather than reached through `workers_dir`
+# because that resolver takes `args` (and honours a `--workers-dir` override) while every caller
+# here holds only the package.
+def seat_sessions_dir(pkg, seat):
+    seats = pkg / "seats"
+    return (seats if seats.is_dir() else pkg / "workers") / seat / "sessions"
+
+
+def session_transcript_path(pkg, seat, sid):
+    """The one file `tmux pipe-pane` writes for this session, and the value of `recorded`."""
+    return seat_sessions_dir(pkg, seat) / sid / "transcript.log"
+
+
+def mint_session_id_from(taken, seat):
+    stem = f"{seat}-{file_stamp()}"
+    sid, n = stem, 2
+    while sid in taken:          # two sessions of one seat inside one minute
+        sid, n = f"{stem}-{n}", n + 1
+    return sid
+
+
+def mint_session_id(pkg, seat):
+    """A session-id unique against the trace ON DISK — minted WITHOUT writing a row.
+
+    Split out of `session_open` because 7.31 needs the id BEFORE the row exists: the transcript
+    path carries the session-id, and capture must start at pane BIRTH, which is before the harness
+    is verified up and therefore before the row may HONESTLY be appended (a row for a seat that
+    never booted is the G-11 lie in a second file). Minting reads; it never writes, so a boot that
+    dies between the mint and the append leaves no phantom row — only an empty transcript folder.
+    """
+    header, rows = read_csv_table(sessions_csv(pkg), SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    taken = {r[idx["session-id"]].strip() for r in rows
+             if "session-id" in idx and idx["session-id"] < len(r)}
+    return mint_session_id_from(taken, seat)
+
+
+def start_pane_capture(pane, logpath):
+    """`tmux pipe-pane` this pane into `logpath` from now on. Returns (ok, err).
+
+    ⚠ NEVER `capture-pane` AT CLOSE. tmux scrollback dies with the tmux server, so a close-time
+    capture returns NOTHING exactly when the backup matters. `pipe-pane` hands the pane's output to
+    a process that appends to a file as it arrives, so whatever the pane had produced is already on
+    disk when the server dies.
+
+    `cat >> file` and not `tee`/`cat > file`: append is what survives a re-arm on the same pane
+    (a renew respawning in place re-points the pipe), and `cat` writes through with no stdio
+    buffering of its own, which is what makes the kill test come back non-empty.
+    """
+    logpath = Path(logpath)
+    try:
+        logpath.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return False, f"cannot create {logpath.parent}: {exc}"
+    r = subprocess.run(["tmux", "pipe-pane", "-t", pane, f"cat >> {shlex.quote(str(logpath))}"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return False, r.stderr.strip() or "tmux pipe-pane failed"
+    return True, ""
+
 
 def widen_header(header, cols):
     """(header, changed) — the on-disk header plus any of `cols` it is MISSING, appended in order.
@@ -2769,7 +2841,7 @@ def pane_identity(pane):
     return (str(pid), start, tty) if start else ("", "", "")
 
 
-def session_open(args, w, since=None, wait=None, pane=None):
+def session_open(args, w, since=None, wait=None, pane=None, session_id=None, recorded=""):
     """Append this seat's session row the moment it boots. Returns (session-id, note).
 
     `note` is non-empty when a field could not be resolved — the caller PRINTS it. A blank cell
@@ -2799,9 +2871,15 @@ def session_open(args, w, since=None, wait=None, pane=None):
     pid, pid_start, tty = pane_identity(pane)
     rec = {"session-id": "", "seat": w.get("agent", ""), "harness": w.get("harness", ""),
            "native-session-id": native, "workdir": str(w.get("cwd") or ""),
-           # `recorded` is the pipe-pane marker of task 7.31, which is NOT BUILT (no pipe-pane
-           # anywhere in this file). The column stays, blank, rather than being invented.
-           "recorded": "", "started": now(), "ended": "",
+           # `recorded` is the pipe-pane marker of task 7.31, and it is written AT BIRTH by the
+           # launch step that armed the capture (`launch_seat`) — never at close, never by a later
+           # pass. It resolves to THIS session's transcript (`session_transcript_path`). It is
+           # PASSED IN rather than derived here because the arming happened at pane birth, and the
+           # marker must name the file the pipe is actually writing, not a path re-computed after
+           # the fact. Blank still means exactly what it always meant: nothing was recorded — the
+           # reading every row written before 7.31 carries, and the honest reading for a boot whose
+           # capture failed to arm.
+           "recorded": str(recorded or ""), "started": now(), "ended": "",
            "pid": pid, "pid-starttime": pid_start, "tty": tty,
            # The DATED EXECUTION STAMP this session was opened under (design-lock item 5): the
            # delimiter that separates this boot's rows from every previous boot's in a file that
@@ -2821,10 +2899,19 @@ def session_open(args, w, since=None, wait=None, pane=None):
         idx = {c: i for i, c in enumerate(header)}
         taken = {r[idx["session-id"]].strip() for r in rows
                  if "session-id" in idx and idx["session-id"] < len(r)}
-        stem = f"{rec['seat']}-{file_stamp()}"
-        sid, n = stem, 2
-        while sid in taken:          # two sessions of one seat inside one minute
-            sid, n = f"{stem}-{n}", n + 1
+        if session_id:
+            # 7.31: the id was minted at PANE BIRTH (`mint_session_id`, under this same lock)
+            # because the transcript path carries it. A collision here means a row appeared under
+            # that id in between — vanishingly unlikely, and never guessed past: raising is caught
+            # by `session_trace_safe`, which prints LOUDLY and leaves the live seat alone. Silently
+            # bumping the id would file the row away from the transcript already recording.
+            if session_id in taken:
+                raise RuntimeError(
+                    f"session-id {session_id!r} was taken between its mint at pane birth and this "
+                    f"append — the transcript already recording under it would be mis-filed")
+            sid = session_id
+        else:
+            sid = mint_session_id_from(taken, rec["seat"])
         rec["session-id"] = sid
         rows.append([rec.get(c, "") for c in header])
         write_csv_table(path, header, rows)
@@ -12879,6 +12966,32 @@ def launch_seat(w, args, target, prompt=None, pane=None, resume=None):
         if not pane:
             return "", err
     set_pane_title(pane, w["agent"])
+    # 7.31: TRANSCRIPT CAPTURE IS ARMED HERE — in the step that composes the pane command, at pane
+    # BIRTH, before the harness is woken — and never at close: tmux scrollback dies with the tmux
+    # server, so a close-time capture returns nothing exactly when the substrate-level backup
+    # matters. The session-id is minted before the row because the transcript path CARRIES it
+    # (R31); the ROW still waits for `wait_harness_up`, so nothing here weakens 7.37's rule that a
+    # session row means a seat that provably booted. A renew respawning into an existing pane
+    # re-points the pipe at its own new session folder, which is why this sits after the `pane`
+    # branch and not inside it.
+    sid31, rec31 = "", ""
+    try:
+        pkg31 = package_dir(args)
+        sid31 = mint_session_id(pkg31, w["agent"])
+        tpath31 = session_transcript_path(pkg31, w["agent"], sid31)
+        started31, cerr31 = start_pane_capture(pane, tpath31)
+        rec31 = str(tpath31) if started31 else ""
+        if not started31:
+            print(c(f"WARNING {w['agent']}: pane transcript capture did NOT arm — {cerr31}. The "
+                    f"seat is fine and its harness-native transcript is unaffected; the "
+                    f"substrate-level backup is NOT being written, and `recorded` stays blank "
+                    f"rather than naming a file nothing writes.", C_DEAD), file=sys.stderr)
+    except Exception as exc:                                   # noqa: BLE001 — deliberate
+        # Same trade-off `session_trace_safe` makes one act later: bookkeeping ABOUT the boot must
+        # never become a gate ON it. Loud, and swallowed.
+        print(c(f"WARNING {w['agent']}: pane transcript capture could not be armed — "
+                f"{type(exc).__name__}: {exc}", C_DEAD), file=sys.stderr)
+        sid31, rec31 = "", ""
     write_seat_statusline(w)   # 7.69: before the harness reads its settings, never after
     since = time.time()        # 7.37: the instant the transcript must post-date (renew-correct)
     ok, terr = wake(pane, cmd)
@@ -12894,7 +13007,8 @@ def launch_seat(w, args, target, prompt=None, pane=None, resume=None):
     # seat, which is exactly the "one seat, several sessions within one run" the KG names.
     # Only AFTER the harness is verified up: a row for a seat that never booted is the G-11 lie
     # in a second file.
-    res, terr2 = session_trace_safe(session_open, args, w, since=since, pane=pane)
+    res, terr2 = session_trace_safe(session_open, args, w, since=since, pane=pane,
+                                    session_id=sid31 or None, recorded=rec31)
     if terr2:
         print(c(f"WARNING {w['agent']}: the seat IS UP but its sessions.csv row was NOT written "
                 f"— {terr2}. The trace is incomplete; the seat is fine.", C_DEAD), file=sys.stderr)
@@ -27724,7 +27838,13 @@ def _selftest_checks(args, failures, names):
               {"session_open", "sessions_csv", "current_execution",
                "mint_execution"} <= set(globals()))
 
-        sid4, note4 = session_open(a4, seat4, since=time.time(), wait=0.0)
+        # 7.31: the launch path mints the id and computes the transcript path AT PANE BIRTH and
+        # hands both to the writer — the same two acts `launch_seat` performs — so this fixture
+        # drives the real shape instead of the writer's degenerate no-marker one.
+        sid4pre = mint_session_id(pkg4, "alpha")
+        tpath4 = session_transcript_path(pkg4, "alpha", sid4pre)
+        sid4, note4 = session_open(a4, seat4, since=time.time(), wait=0.0,
+                                   session_id=sid4pre, recorded=str(tpath4))
         hdr4, rows4 = read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)
         r4 = rows4[0] if rows4 else []
         pad_row(r4, hdr4)
@@ -27738,9 +27858,25 @@ def _selftest_checks(args, failures, names):
         check("7.37: the row carries the RESUME REFS task 7.32 needs from this file alone — "
               "harness and workdir, with the native-session-id column present to be filled",
               r4[cix.get("workdir", 0)] == seat4["cwd"] and "native-session-id" in cix)
-        check("7.37: `recorded` (the pipe-pane marker of task 7.31) is left EMPTY, not invented — "
-              "7.31 is not built and a fabricated marker would point at no recording",
-              "recorded" in cix and r4[cix["recorded"]] == "")
+        check("7.31: `recorded` (the pipe-pane marker) is WRITTEN AT BIRTH and RESOLVES to this "
+              "session's transcript — the seat's own `sessions/<session-id>/transcript.log` under "
+              "the goals tree (R31, minus the run layer 7.607 E2b extinguished). The id the row "
+              "carries is the one minted BEFORE the row, so the marker names the file the pipe is "
+              "actually writing. ⚠ THIS ROW REPLACED ITS OWN NEGATION: until 7.31 it asserted the "
+              "cell was EMPTY, so a suite staying green on that assertion is proof the wiring did "
+              "NOT land",
+              "recorded" in cix and sid4 == sid4pre
+              and r4[cix["recorded"]] == str(tpath4)
+              and Path(r4[cix["recorded"]]) == session_transcript_path(pkg4, "alpha", sid4)
+              and Path(r4[cix["recorded"]]).parent.parent.parent == pkg4 / "seats" / "alpha")
+        check("7.31 CONTROL: the marker is not merely non-empty — a DIFFERENT session's id yields "
+              "a DIFFERENT path (one transcript per session holds BY CONSTRUCTION, not by "
+              "convention), and the home follows the SAME seats/workers fork `workers_dir` uses "
+              "rather than a hardcoded shape: a package with no `seats/` resolves under `workers/`",
+              session_transcript_path(pkg4, "alpha", "other-sid") != tpath4
+              and seat_sessions_dir(pkg4, "alpha") == pkg4 / "seats" / "alpha" / "sessions"
+              and seat_sessions_dir(Path(td4) / "no-such-pkg", "alpha")
+              == Path(td4) / "no-such-pkg" / "workers" / "alpha" / "sessions")
 
         check("7.607 E2b: a launch writes NO register row — `runs.csv` is not created beside the "
               "trace, and the three cells the old writer agonised over (`type`, `state`, "
