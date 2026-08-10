@@ -9447,9 +9447,15 @@ def cmd_send(args):
             f"silently — its footer names it): --force",
             1)
     if len(body) > MESSAGE_MAX and not force:
+        # G-280 / task 7.94 criterion 3: this is the SECOND silent-failure path onto the same
+        # surface argparse's echo bug hid behind — a seat that corrects its flags still loses a
+        # long message here unless the failure is equally explicit. NOT SENT in those words,
+        # matching the success path's "sent message #N": absence of that line is what a prose
+        # reader does not notice. The cap itself (MESSAGE_MAX, communication.md's ratified rule)
+        # is UNCHANGED — this only makes its refusal legible.
         refuse(
             "input",
-            f"message is {len(body)} chars — max {MESSAGE_MAX}.\n"
+            f"message NOT SENT — {len(body)} chars, max {MESSAGE_MAX}.\n"
             f"A body this long is a document, and every agent pays for it at every checkpoint. "
             f"Write it to a file, then send the PATH plus a 3-line summary: what it says, what "
             f"you want done with it, and by whom.\noverride: --force",
@@ -16425,9 +16431,62 @@ def _selftest_checks(args, failures, names):
                            supersedes=None, re_num=None, file=None)
         check("T3 length guard: an oversized body is refused and TEACHES the file+summary fix",
               code == 1 and str(MESSAGE_MAX) in out and "Write it to a file" in out)
+        # ⚠ 7.94 G-336: `out` is captured HERE, under its own name, BEFORE the very next line
+        # overwrites the shared `out`/`code` locals with the `--force` call's (successful) output.
+        # A first attempt at this row read the shared `out` AFTER both calls ran and silently
+        # graded the --force SEND's "sent message #N" text against a refusal assertion — caught
+        # only because the real, harness-driven selftest (unlike this row read in isolation) still
+        # had `--force`'s own row between the two, so the NOT SENT assertion below saw the
+        # overwritten value and failed for real. Exactly the class of bug this task exists to
+        # catch in coord.py's OWN output — it caught one in its own test suite first.
+        _g280_cap_refusal = out
         out, code = refuse(cmd_send, agent="alpha", to="beta", message=long_body, type="note",
                            supersedes=None, re_num=None, file=None, force=True)
         check("T3 length guard: --force escapes it", code == 0 and "sent message #" in out)
+
+        # ---- 7.94 / G-280: a failed `coordinate` call must never read as a successful one ----
+        # Criterion 3: the oversized-body refusal is covered by the SAME proof as the argparse
+        # shape below — it says NOT SENT, and the cap value (MESSAGE_MAX) is unweakened.
+        check("7.94 criterion 2/3: the oversized-body refusal says NOT SENT in those words (the "
+              "success path prints 'sent message #N'; absence of that line is not enough) and the "
+              "2000-char cap itself is unchanged",
+              "NOT SENT" in _g280_cap_refusal and str(MESSAGE_MAX) in _g280_cap_refusal
+              and "sent message #" not in _g280_cap_refusal)
+
+        # Criterion 1/2/4: the leader's exact G-280 repro — a misplaced `--from` flag ahead of the
+        # positional message body — must never echo that body back, on ANY command, and `send`
+        # specifically must say NOT SENT. Driven through the REAL `build_parser()`, not a stub: the
+        # bug lived in argparse's own `error()`, which only the real parser exercises.
+        _g280_body = "G280-CANARY-BODY-must-never-appear-in-any-refusal-output"
+        _g280_argv = ["send", "--type", "note", "--from", "leader", "--to", "owner-liaison",
+                     _g280_body]
+        _g280_out, _g280_err, _g280_code = harness_outcome(
+            lambda _a: build_parser().parse_args(_g280_argv), ns())
+        _g280_all = _g280_out + _g280_err
+        check("7.94 criterion 1: the leader's exact failure shape (`send --type note --from X "
+              "--to Y \"<body>\"`) is REFUSED (argparse exit 2) and the message body NEVER appears "
+              "anywhere in the output — not truncated-in, not partially visible",
+              _g280_code == 2 and _g280_body not in _g280_all)
+        check("7.94 criterion 2: that same `send` failure says NOT SENT in those words — a prose "
+              "reader who never checks the exit code still sees the discriminator",
+              "NOT SENT" in _g280_all)
+        check("7.94 criterion 4: the fixed output plainly distinguishes failure from the success "
+              "line a prose reader would otherwise conflate it with",
+              "sent message #" not in _g280_all)
+
+        # Control: the SAME malformed shape on a non-`send` command must still suppress the
+        # offending text (criterion 1 is general, not `send`-only) but must NOT falsely claim
+        # NOT SENT for a command that never sends anything.
+        _g280_other_argv = ["checkin", "--from", "leader", "--to", "owner-liaison", _g280_body]
+        _g280_other_out, _g280_other_err, _g280_other_code = harness_outcome(
+            lambda _a: build_parser().parse_args(_g280_other_argv), ns())
+        _g280_other_all = _g280_other_out + _g280_other_err
+        check("7.94 control: the same echo-suppression applies to a non-`send` command too "
+              "(criterion 1 is general), and it does NOT claim NOT SENT for a command that never "
+              "sends",
+              _g280_other_code == 2 and _g280_body not in _g280_other_all
+              and "NOT SENT" not in _g280_other_all)
+
         body_file = Path(td) / "body.md"
         body_file.write_text("holds `backticks`, \"quotes\" and $(substitution)\nsecond line\n",
                              encoding="utf-8")
@@ -27760,17 +27819,48 @@ class _RefusingParser(argparse.ArgumentParser):
     a caller piping through `2>&1 | tail -N` sees the tail of its own message where a receipt
     would be, and reads a usage error as delivery (this silently dropped every staffer send for
     50 minutes on 2026-07-31; the one line that said "error" was cropped off the TOP by tail).
-    Two properties close the trap: the echoed value is truncated so body text can never dominate
-    the output, and the LAST line is a layered refusal — tail keeps the END of a stream, so the
-    refusal survives any `| tail -N`. Exit stays 2 (argparse's own convention; scripted callers
-    and watch.py key on codes)."""
+
+    G-280 (task 7.94): the length-only truncation this class used to carry (cut past 200 chars)
+    still echoed a SHORT body verbatim — and the campaign's exact repro, `send --type note --from
+    leader --to owner-liaison "<body>"`, produced an `unrecognized arguments:` line under 200
+    chars, so the body rode straight through. The fix is to never echo unrecognized-argument TEXT
+    at all, regardless of length — only a token/char COUNT, which carries the same "something is
+    wrong" signal with nothing a prose reader could mistake for their own message. The two
+    properties that close the trap: (1) the offending text is suppressed, never merely truncated,
+    so a message body can never appear in a failure line at any length, and (2) the LAST line is a
+    layered refusal — tail keeps the END of a stream, so the refusal survives any `| tail -N`.
+    On `send` specifically the refusal also says "NOT SENT" in those words (criterion 2): the
+    success path prints "sent message #N", so the failure path must be equally explicit rather
+    than merely lacking that line — a reader treating output as prose does not notice an absence.
+    Exit stays 2 (argparse's own convention; scripted callers and watch.py key on codes)."""
+
+    def parse_args(self, args=None, namespace=None):
+        # Mirrors argparse.ArgumentParser.parse_args() exactly, except it stashes the partially
+        # resolved subcommand on self BEFORE erroring on leftover args. `error()` needs to know
+        # whether this refusal belongs to `send` so it can say NOT SENT (criterion 2), and by the
+        # time error() runs — called from here, below — only `self` is still in scope.
+        parsed, extras = self.parse_known_args(args, namespace)
+        if extras:
+            self._coord_failed_cmd = getattr(parsed, "cmd", None)
+            self.error("unrecognized arguments: %s" % " ".join(extras))
+        return parsed
 
     def error(self, message):
-        if len(message) > 200:
+        is_send = getattr(self, "_coord_failed_cmd", None) == "send" or self.prog.endswith(" send")
+        if message.startswith("unrecognized arguments:"):
+            # NEVER echo the offending text — a message body can be exactly this (G-280). Report
+            # only a count: enough to tell the caller something was rejected, nothing a prose
+            # reader could confuse with their own content.
+            offending = message[len("unrecognized arguments:"):].strip()
+            message = (f"unrecognized arguments: {len(offending.split())} token(s), "
+                       f"{len(offending)} char(s) — text suppressed, never echoed (a misplaced "
+                       f"flag can put your message body exactly here)")
+        elif len(message) > 200:
             message = message[:200] + f" ...[+{len(message) - 200} more chars cut]"
         self.print_usage(sys.stderr)
-        print(refusal_text("input", f"usage error — {message}. NOTHING WAS SENT OR WRITTEN. "
-                           f"Run `coordinate <command> --help` for the exact signature "
+        sent_note = " Message NOT SENT." if is_send else ""
+        print(refusal_text("input", f"usage error — {message}.{sent_note} NOTHING WAS SENT OR "
+                           f"WRITTEN. Run `coordinate <command> --help` for the exact signature "
                            f"(send takes TWO positionals: <to> [message] — never your own name)."),
               file=sys.stderr)
         sys.exit(2)
