@@ -101,6 +101,14 @@ const FALLBACK_TEXT = '⚠ agent run ended without a parseable reply';
 // is logged and dropped, never retried.
 const GIVE_UP_NOTICE = "⚠ the agent finished but its reply couldn't be delivered";
 
+// The dead-air notice: a DISARM means nothing will ever answer this turn — the expected
+// run never appeared (spawn refused, or crashed before the carrier saw it) or the driver
+// lost its ability to watch. Measured live 2026-08-10: kimi's binary failed execvp inside
+// the cage, the corrective revive's spawn never materialized, and the conversation pended
+// FOREVER in silence — the owner's exact original complaint, resurfacing one layer down.
+// Every disarm now says so. Fixed string, NO internals, best-effort, never retried.
+const DEAD_AIR_NOTICE = '⚠ no reply is coming for this turn — the agent run never completed';
+
 const DEFAULT_POLL_MS = 3000;                 // single driver cadence (D110 step 3)
 const DEFAULT_WINDOW_MS = 10 * 60 * 1000;     // bound: wait for a spawn ≤ 10 min (step 6)
 const DEFAULT_LOG_LIMIT = 1000;               // per-page log fetch bound (server clamps to its MAX_PAGE)
@@ -512,17 +520,39 @@ function createReplyLeg({
 
       // 3. Bound (step 6): disarm a conversation that errored persistently, or whose
       //    expected spawn never appeared within the window (never delivered, nothing
-      //    in flight). No crash, no unbounded retry.
+      //    in flight). No crash, no unbounded retry. EVERY disarm posts the dead-air
+      //    notice: a disarm is the driver declaring "nobody will answer this turn",
+      //    and the one thing worse than that is declaring it only to the log.
+      const deadAir = async (id, reason) => {
+        try {
+          const n = await deliver({ chatThreadId: id, text: DEAD_AIR_NOTICE, markAsk: false });
+          if (n && n.delivered === false) log('warn', 'reply leg dead-air notice not delivered (best-effort, dropped)', { chatThreadId: id, reason });
+        } catch (err) {
+          log('warn', 'reply leg dead-air notice threw (best-effort, dropped)', { chatThreadId: id, reason, error: err.message });
+        }
+      };
       const now = Date.now();
       for (const [id, p] of Array.from(pending.entries())) {
         if (p.statusErrors >= maxStatusErrors) {
           log('warn', 'reply leg disarming conversation — persistent status errors', { chatThreadId: id, statusErrors: p.statusErrors });
           pending.delete(id);
+          await deadAir(id, 'status-errors');
+          continue;
+        }
+        // A corrective turn was ordered and its spawn never came. Without this rung the
+        // conversation pends FOREVER: the revive retired its exec into `delivered`, so the
+        // never-delivered rung below can never match again. Measured live 2026-08-10 (kimi
+        // execvp failure): revive issued 12:49:47, no spawn ever followed, silence.
+        if (p.revives > 0 && p.watching.size === 0 && (now - p.armedAt) > windowMs) {
+          log('warn', 'reply leg disarming conversation — corrective spawn never appeared', { chatThreadId: id, revives: p.revives, windowMs });
+          pending.delete(id);
+          await deadAir(id, 'revive-no-spawn');
           continue;
         }
         if (p.watching.size === 0 && p.delivered.size === 0 && (now - p.armedAt) > windowMs) {
           log('warn', 'reply leg disarming conversation — no spawn within window', { chatThreadId: id, queueId: p.queueId, windowMs });
           pending.delete(id);
+          await deadAir(id, 'no-spawn');
         }
       }
     } finally {
@@ -554,5 +584,5 @@ function clampBestEffort(s) {
 module.exports = {
   createReplyLeg, extractReplyText, extractCodexText, normalizeLog, extractFenced,
   checkReplyContract, buildFeedback,
-  FALLBACK_TEXT, GIVE_UP_NOTICE, FENCE_OPEN, FENCE_CLOSE, CONTRACT_TEMPLATE, UNFORMATTED_PREFIX,
+  FALLBACK_TEXT, GIVE_UP_NOTICE, DEAD_AIR_NOTICE, FENCE_OPEN, FENCE_CLOSE, CONTRACT_TEMPLATE, UNFORMATTED_PREFIX,
 };

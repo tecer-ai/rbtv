@@ -84,7 +84,7 @@ const { startMockSlack, makeCapture, nowMs, sleep } = require('./lib');
 const { resolveConfig } = require('../config');
 const { createSlackSocketMode } = require('../slack-socket-mode');
 const { buildBridge } = require('../index');
-const { FALLBACK_TEXT, GIVE_UP_NOTICE, FENCE_OPEN, FENCE_CLOSE, UNFORMATTED_PREFIX } = require('../reply-leg');
+const { FALLBACK_TEXT, GIVE_UP_NOTICE, DEAD_AIR_NOTICE, FENCE_OPEN, FENCE_CLOSE, UNFORMATTED_PREFIX } = require('../reply-leg');
 const { toMrkdwn } = require('../mrkdwn');
 
 const OUT = path.join(__dirname, 'probe-chat-reply-leg.out');
@@ -530,6 +530,23 @@ async function main() {
     record('q3:a textless log still delivers the BARE fallback and is never revived',
       sent.length === 14 && lastText() === FALLBACK_TEXT && state.forwarded.length === fwdBeforeQ4,
       { sentCount: sent.length, text: lastText(), extraForwards: state.forwarded.length - fwdBeforeQ4 });
+
+    // ── (r) A REVIVE WHOSE SPAWN NEVER COMES ENDS IN THE DEAD-AIR NOTICE, NOT SILENCE ─────────
+    // Measured live 2026-08-10 (kimi execvp failure): the revive retired its exec into
+    // `delivered`, the corrective spawn never materialized, and the conversation pended forever —
+    // the never-delivered disarm rung can no longer match once `delivered` is non-empty. This leg
+    // replays it: a non-conformant turn spends a revive (q2 reset the budget), then the spawn-wait
+    // window blows with nothing spawned. The conversation must DISARM and the owner must be told.
+    state.status.set(48, { live: false, status: 'done', profile: 'claude-opus' });
+    state.logs.set(48, [bareResultLine('one more fenceless answer')]);
+    state.recentTicks.push({ tick: 18, actions: [{ action: 'spawn', execId: 48, queueId: QUEUE }] });
+    await leg().tick();
+    const revivedR = pend() && pend().revives === 1 && pend().watching.size === 0;
+    pend().armedAt = nowMs() - (10 * 60 * 1000) - 1; // backdate past the default spawn-wait window
+    await leg().tick();
+    record('r:a spent revive with no spawn inside the window disarms AND posts the dead-air notice',
+      revivedR && !pend() && lastText() === DEAD_AIR_NOTICE,
+      { revivedR, stillPending: Boolean(pend()), text: lastText() });
   } catch (err) {
     cap.log({ error: err.message, stack: err.stack });
     checks.push({ name: 'no-exception', ok: false, error: err.message });
