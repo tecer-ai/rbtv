@@ -191,10 +191,22 @@ READS = [
     (DECLARED_ARTIFACTS, None),  # the guard's field, read off the predecessor's VALIDATED OUTPUT
 ]
 
-# coord's closed enum, restated here ONLY as the literal this file's checks compare against, so a
+# coord's closed enum, restated here ONLY as the literal this file's CHECKS compare against, so a
 # check's expectation is never read from the value under test. `check_enum_matches_coord` asserts
 # it equals coord's own `RECORD_DISPOSITION_WRITER` keys — drift makes that check red, not silent.
-EXPECTED_ENUM = {"done", "renew", "revive", "exited"}
+#
+# ⚠ 7.689: IT IS NOT WHAT THE STAGE GRADES AGAINST. `verify` reads the membership test straight off
+# `coord.RECORD_DISPOSITION_WRITER`, because "would the kit admit this value?" is a question about
+# COORD and a copy of the answer can only ever desync from it. When 7.676 added `incomplete`, this
+# literal was the grading enum, so an honestly-incomplete seat graded UNDECIDED ("cannot have been
+# written through the kit") and — because UNDECIDED is not a terminal mark — stayed a LAUNCH
+# CANDIDATE. Widening the literal would have fixed that one value and rebuilt the class for the
+# next one. So the two jobs are split: coord's set decides membership; this literal is only the
+# REVIEW GATE, the record of which dispositions a human has ruled the NOT-done handling for. A new
+# coord disposition now grades correctly (not-`done` ⇒ not-done) AND turns this check red, asking
+# for the ruling. `incomplete` is listed because 7.689 ruled it: see `ADVANCES_EDGE` below — it is
+# a declared ending, not-done, terminal, and NOT relaunched.
+EXPECTED_ENUM = {"done", "renew", "revive", "exited", "incomplete"}
 
 ADVANCES_EDGE = "done"   # the ONE value. Not a default, not a fallback, not a prefix match.
 
@@ -344,11 +356,14 @@ def verify(coord, pkg, seat):
                            "No check-out was made, so no edge advances.")
         result["grades-applied"].append("shape")
         return result
-    if value not in EXPECTED_ENUM:
+    # 7.689: DERIVED, never a copy. The question is "would coord's own writer admit this value?", so
+    # it is asked of coord's enum at read time — a restated set answers for whatever coord looked
+    # like when the set was typed, which is how `incomplete` came to grade UNDECIDED.
+    if value not in coord.RECORD_DISPOSITION_WRITER:
         result["undecided-reason"] = (
             "disposition %r is outside coord's closed enum %s. `validate_disposition` raises rather "
             "than normalizing, so this value cannot have been written through the kit — refusing to "
-            "interpret it." % (value, sorted(EXPECTED_ENUM)))
+            "interpret it." % (value, sorted(coord.RECORD_DISPOSITION_WRITER)))
         return result
     result["grades-applied"].append("shape")
     if value != ADVANCES_EDGE:
@@ -1754,8 +1769,9 @@ def checkout_fastpath(coord, pkg, seat, disposition, submit=None, at=None):
 
     THREE GATES, and all three are load-bearing:
 
-      1. **`disposition` must be `done`.** `renew`, `revive` and `exited` each name a seat that has
-         NOT finished its work. Enqueuing on one of them advances a dead seat silently, which is
+      1. **`disposition` must be `done`.** `renew`, `revive`, `exited` and `incomplete` each name a
+         seat that has NOT finished its work (`incomplete` says so in the seat's own words — 7.676).
+         Enqueuing on one of them advances a dead seat silently, which is
          precisely the failure the closed disposition enum exists to make visible. The gate is an
          equality against ONE value — never a truthiness test, never a prefix match, never
          "not renew".
@@ -1802,9 +1818,9 @@ def checkout_fastpath(coord, pkg, seat, disposition, submit=None, at=None):
         arm, scope = fastpath_arm(pkg)
         res["scope"] = scope
         if disposition != ADVANCES_EDGE:
-            res["why-not"] = ("disposition is `%s`, and only `%s` advances an edge. `renew`, "
-                              "`revive` and `exited` each name a seat that has NOT finished; "
-                              "enqueuing on one of them advances a dead seat."
+            res["why-not"] = ("disposition is `%s`, and only `%s` advances an edge. Every other "
+                              "value coord admits names a seat that has NOT finished; enqueuing on "
+                              "one of them advances a dead seat."
                               % (disposition, ADVANCES_EDGE))
             return res
         if arm is None:
@@ -3516,12 +3532,12 @@ def check_admission_truth_table(_coord, _pkg):
 
 # ---- STEP 4b's checks (M4-11) -----------------------------------------------------------------
 
-# The four values of coord's closed disposition enum, spelled out as LITERALS. Not one is read from
+# Every value of coord's closed disposition enum, spelled out as LITERALS. Not one is read from
 # `ADVANCES_EDGE` or `EXPECTED_ENUM`: a check whose expectation is read from the constant under test
 # moves with that constant and passes any change to it. `check_enum_matches_coord` separately binds
 # these words to coord's own enum, so a rename there goes RED here instead of going silent.
 FASTPATH_ADVANCES = "done"
-FASTPATH_DOES_NOT_ADVANCE = ("renew", "revive", "exited")
+FASTPATH_DOES_NOT_ADVANCE = ("renew", "revive", "exited", "incomplete")
 
 FASTPATH_FIXTURE_ARM = {"job-id": "fx-edge-runner", "profile": "fx-profile"}
 
