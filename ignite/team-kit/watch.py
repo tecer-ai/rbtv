@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""watch — deterministic liveness + context monitor for team-kit runs.
+"""watch — deterministic liveness monitor for team-kit runs.
 
 The watcher seat's tool (deterministic-first: the SCRIPT measures, the watcher agent only runs
 it and relays judgment). One pass checks every ACTIVE roster seat and reports:
 
-  liveness   registered pane still exists (a DEAD pane means wakes cannot reach the seat)
+  liveness   a seat whose registered pane is GONE is SKIPPED, silently. ⚠ THE DEAD FLAG WAS
+             REMOVED FROM THIS FILE (task 7.664, behaviour-map B12): the sensing is
+             `team_monitor.absent_rows()` and the remedy is `goal-watcher-job.py`'s DEAD row.
+             What stays here is only the skip, so a gone pane is never reported `ok`.
   ghostrow   a roster-ACTIVE row whose pane runs NO harness process (PROP-11, leader ruling
              2026-07-27): the row claims a seat that is not there, so its work is stopped and
              every wake sent to it is typed into a bare shell. It is the gap common to five
@@ -16,11 +19,12 @@ it and relays judgment). One pass checks every ACTIVE roster seat and reports:
              the PROP-11 loop in `run_pass`.
   activity   minutes since the pane's visible content last changed (content-hash based, so it
              works for panes sharing a window, where tmux window_activity cannot distinguish)
-  context    for claude-harness seats: % of the context window used, computed from the seat's
-             session transcript JSONL exactly like the rbtv context-monitor hook (last
-             non-sidechain assistant turn: input + cache_read + cache_creation tokens over the
-             window; window from $RBTV_CONTEXT_WINDOW, default 1,000,000). codex/opencode seats
-             have no externally readable transcript — activity watching only.
+  context    ⚠ REMOVED FROM THIS FILE (task 7.664, behaviour-map B14/B16). It read a claude
+             seat's transcript JSONL and flagged a per-seat `ctx-refresh` threshold. Both halves
+             are carried and upgraded elsewhere: `team_monitor.capture()` publishes `ctx_pct`
+             and `ctx_refresh` for EVERY harness from the inherited ctx-monitor engine, and
+             `goal-watcher-job.py`'s CONTEXT / CONTEXT-ESCALATED rows enforce them with the
+             identical threshold precedence.
   approval   the seat's pane TITLE says its harness is parked on an interactive approval prompt
              (P38 — a codex seat at "Action Required" stalls silently: its pane content is frozen,
              so it reads as a healthy idle seat until the inactivity threshold finally fires
@@ -44,11 +48,16 @@ Every pass stamps `<package>/coordination/watch-heartbeat.json` (P32 — nothing
 watcher: this loop runs detached, so a dead loop is indistinguishable from a quiet run). `coordinate
 workers` reads the stamp and reports the watcher STALE past three missed passes.
 
-Thresholds (watcher defaults, owner-ruled 2026-07-24): --inactive-min 30, --context-pct 50.
-With --notify each crossing sends ONE coordination `note` (via coord.py, so it is logged and wakes
-the pane) telling the recipient exactly what to run — e.g. the seat's OWN
-`checkout --renew --handoff "<note>"` at the context threshold. A crossing re-arms only when the
-condition clears (activity resumes / the seat's pane changes, i.e. it was renewed).
+Thresholds (watcher defaults, owner-ruled 2026-07-24): --inactive-min 30. With --notify each
+crossing sends ONE coordination `note` (via coord.py, so it is logged and wakes the pane) telling
+the recipient exactly what to run — e.g. the seat's OWN `checkout --renew` at the inactivity
+threshold. A crossing re-arms only when the condition clears (activity resumes / the seat's pane
+changes, i.e. it was renewed).
+
+⚠ THIS FILE ACTUATES NOTHING ON THE ROOM (task 7.664). Its bounded room-relaunch ladder was a
+SECOND ladder acting on the same room as `orchestration/cli/team-monitor/team_monitor.py`'s, and
+it is deleted; a crashed or hollow room is REPORTED here and relaunched only there. The one
+actuator this file still holds is the seat-down revival arm (`fire_revival`).
 
 ⚠ A FLAG IS NEVER SENT TO THE SEAT IT IS ABOUT. `--notify-to` (default `leader`) takes the flags;
 a flag whose SUBJECT is that seat is diverted to `--notify-fallback` (default `leader`), because a
@@ -150,7 +159,6 @@ def _loaded_code_fingerprint():
 # this run has paid for repeatedly (the harness supplying the value under test).
 LOADED_CODE = _loaded_code_fingerprint()
 
-WINDOW_DEFAULT = 1_000_000
 TAIL_LINES = 60  # pane-content hash window: enough to see any output change, cheap to capture
 
 
@@ -158,14 +166,10 @@ def now_dt():
     return datetime.now()
 
 
-def window_size():
-    try:
-        v = int(os.environ.get("RBTV_CONTEXT_WINDOW", ""))
-        if v > 0:
-            return v
-    except ValueError:
-        pass
-    return WINDOW_DEFAULT
+# ⚠ `WINDOW_DEFAULT` / `window_size()` WERE HERE AND ARE DELETED WITH THE CONTEXT READ THEY SIZED
+# (task 7.664, behaviour-map row B14). The context window now belongs to the ctx-monitor engine
+# `team_monitor` inherits; a second reading of `$RBTV_CONTEXT_WINDOW` in this file would be a
+# second home for it.
 
 
 # ---------- tmux (stubbable) ----------
@@ -385,101 +389,21 @@ def check_tmp_quota(args, sysstate, notes, run_root):
             f"{trend}  {floor_note}")
 
 
-# ---------- claude transcript matching ----------
-
-def munge_cwd(cwd):
-    # A declared seat cwd may carry a trailing slash (materialize's `cwd-mode: seat-folder`
-    # bakes one into the frontmatter); the harness's project-dir name never does. Munging the
-    # slash into a trailing `-` names a directory that does not exist, so every transcript
-    # lookup from a declared cwd returns None and the CONTEXT flag can never fire.
-    return re.sub(r"[/.]", "-", str(cwd).rstrip("/") or "/")
-
-
-def projects_dir(override=None):
-    if override:
-        return Path(override)
-    return Path.home() / ".claude" / "projects"
-
-
-def first_user_text(path, max_lines=40):
-    """Text of the first user entry in a transcript JSONL ('' on any failure)."""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                if i >= max_lines:
-                    break
-                try:
-                    e = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(e, dict) or e.get("type") != "user":
-                    continue
-                msg = e.get("message") or {}
-                content = msg.get("content")
-                if isinstance(content, str):
-                    return content
-                if isinstance(content, list):
-                    return " ".join(b.get("text", "") for b in content if isinstance(b, dict))
-    except OSError:
-        pass
-    return ""
-
-
-def find_transcript(agent, cwd, proj_override=None):
-    """Newest transcript JSONL in cwd's project dir whose boot prompt names this agent."""
-    pdir = projects_dir(proj_override) / munge_cwd(cwd)
-    if not pdir.is_dir():
-        return None
-    marks = (f"You are agent '{agent}'", f"You are **{agent}**")
-    candidates = []
-    for p in sorted(pdir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
-        head = first_user_text(p)
-        if any(m in head for m in marks):
-            candidates.append(p)
-    return candidates[0] if candidates else None
-
-
-def find_transcript_by_path_fragment(agent, cwd, proj_override=None):
-    """Fallback for a seat whose boot prompt never carries the standard launch phrasing (a
-    hand-started seat, e.g. leader). Newest transcript JSONL in cwd's project dir whose first
-    user text references this seat's own `seats/<agent>/` (or legacy `workers/<agent>/`) path
-    fragment. mtime alone is never sufficient — the fragment match is required."""
-    pdir = projects_dir(proj_override) / munge_cwd(cwd)
-    if not pdir.is_dir():
-        return None
-    fragments = (f"seats/{agent}/", f"workers/{agent}/")
-    candidates = []
-    for p in sorted(pdir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
-        head = first_user_text(p)
-        if any(f in head for f in fragments):
-            candidates.append(p)
-    return candidates[0] if candidates else None
-
-
-def transcript_usage(path):
-    """(tokens, pct) from the LAST non-sidechain assistant turn — context-monitor hook math."""
-    last = 0
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    e = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(e, dict) or e.get("type") != "assistant" or e.get("isSidechain"):
-                    continue
-                usage = (e.get("message") or {}).get("usage") or {}
-                total = (usage.get("input_tokens", 0)
-                         + usage.get("cache_read_input_tokens", 0)
-                         + usage.get("cache_creation_input_tokens", 0))
-                if total:
-                    last = total
-    except OSError:
-        return 0, 0.0
-    return last, round(100.0 * last / window_size(), 1)
+# ---------- claude transcript matching — DELETED (task 7.664, behaviour-map row B14) ----------
+#
+# `munge_cwd()`, `projects_dir()`, `first_user_text()`, `find_transcript()`,
+# `find_transcript_by_path_fragment()` and `transcript_usage()` lived here. They existed for ONE
+# consumer — the CONTEXT flag in `run_pass` — and that flag is gone with them.
+#
+# The behaviour is carried, and UPGRADED, at its destination: `team_monitor.py` INHERITS the
+# ctx-monitor engine (`SENSOR_PATH` -> `../ctx-monitor/ctx_monitor.py`) and `capture()` publishes
+# `ctx_pct` / `ctx_tokens` / `window_tokens` / `ctx_ambiguous` / `ctx_source` on every seat row for
+# EVERY harness, where this file could only read a claude transcript. Enforcement is
+# `goal-watcher-job.py`'s CONTEXT / CONTEXT-ESCALATED rows.
+#
+# ⚠ NOTHING HERE IS "THE SAME FUNCTION, MOVED". The destination reads the harness's own accounting
+# rather than re-deriving a percentage from a transcript file, so re-adding any of these as a
+# helper would be a SECOND measurement of context, which is the drift the removal closes.
 
 
 # ---------- state ----------
@@ -516,12 +440,22 @@ def goal_state(base):
         return None, None
 
 
-# ── 7.607 E1 — TERMINATION IS THE FINISH EDGE; AN ABSENT ROOM IS A CRASH TO RECOVER ────────────
+# ── 7.607 E1 — TERMINATION IS THE FINISH EDGE; AN ABSENT ROOM IS A CRASH, NOT AN ENDING ────────
 #
 # `decisions.md#d-extinguishment-design-lock` item 3, owner-shaped: "A goal can ONLY be finished by
 # this edge; firing it is what shuts the watchers off. Crash case: the watcher RELAUNCHES the room
 # — recovery, not exit. An unfinished goal therefore always has either a live room or a watcher
 # restoring one; watcher termination happens ONLY on the finish edge."
+#
+# ⚠⚠ THE "RELAUNCHES THE ROOM" HALF IS NO LONGER THIS FILE'S (task 7.664). The ruling still holds
+# for the SYSTEM; what changed is WHICH watcher performs it. There were TWO independent bounded
+# ladders acting on the SAME room — this file's and `orchestration/cli/team-monitor/
+# team_monitor.py:643` — each with its own lease reading and its own budget, both running
+# `tmux new-session -d -s <room>` on the same name. Two mechanisms that can disagree and BOTH ACT
+# is precisely the failure `ignite/jobs/goal-watcher-job.py` says the architecture exists to
+# prevent. `team_monitor.relaunch_room()` is the survivor and the SOLE ladder; this loop now
+# OBSERVES the crash and reports it, and actuates nothing on the room.
+# The count is held at ONE — driven, not read — by `probes/probe-one-room-relaunch-ladder.py`.
 #
 # ⚠ THE OLD `run_closed()` REGISTER POLL IS DELETED, NOT RE-POINTED. It read `runs.csv`'s `state`
 # column — a stored status — and it conflated TWO different facts under one word: "somebody ruled
@@ -530,7 +464,8 @@ def goal_state(base):
 # both silently stopped the sensor, and a room that died at 03:00 was simply never watched again.
 #
 #   finish event present  -> TERMINATE. The one deterministic exit. Nothing else exits this loop.
-#   no event, room gone   -> CRASH. Relaunch the room, bounded, then escalate loudly on the bus.
+#   no event, room gone   -> CRASH, not completion. REPORTED here; the relaunch belongs to the one
+#                            surviving ladder in `team_monitor` (7.664).
 #   no event, room live   -> normal pass.
 #   evidence UNREADABLE   -> loud error + bounded retry. NEVER a silent exit, NEVER fail-open into
 #                            "finished": a meter this loop cannot read says nothing about the goal.
@@ -540,10 +475,9 @@ def goal_state(base):
 # meter mean "over".
 
 FINISH_EXIT_LINE = "finish edge fired — watch exiting (the ONE deterministic termination)"
-# Bounded by construction: the tuple's LENGTH is the max attempt count, so there is no second
-# constant that can disagree with it, and no configuration in which the loop relaunches forever.
-# Seconds, as resolved — no unit arithmetic on this path (the `--loop` retirement's lesson).
-RELAUNCH_BACKOFF_S = (10, 30, 60, 120, 300)
+ROOM_CRASH_LINE = ("watch: room absent or EMPTY with no finish event — CRASH, not completion. "
+                   "This loop does NOT relaunch it (7.664): the ONE bounded room-relaunch ladder "
+                   "is team_monitor.relaunch_room()")
 
 # ---- THE IGNORANCE BOUND (7.607 E2b; the E1b §2 review's standing concern) --------------------
 #
@@ -564,16 +498,14 @@ RELAUNCH_BACKOFF_S = (10, 30, 60, 120, 300)
 # (`--cadence-s`), so 5 consecutive passes is ~2.5 minutes of continuous ignorance. That is long
 # enough to ride out the transients this actually sees — a `node` process losing a race, one tmux
 # invocation timing out, a momentary fork failure under memory pressure — and short enough that a
-# real outage reaches the leader in the same order of minutes the relaunch ladder takes
-# (10+30+60+120+300 s ≈ 8.7 min to exhaustion). A bound so loose it never fires is the defect it
-# is meant to fix, one number over.
+# real outage reaches the leader in the same order of minutes the surviving relaunch ladder takes
+# (`team_monitor.RELAUNCH_BACKOFF_S`, 10+30+60+120+300 s ≈ 8.7 min to exhaustion). A bound so
+# loose it never fires is the defect it is meant to fix, one number over.
 UNREADABLE_BOUND = 5
 UNREADABLE_ESCALATION_LINE = ("watch: LEASE UNREADABLE FOR "
                               f"{UNREADABLE_BOUND} CONSECUTIVE PASSES — this loop cannot tell "
                               "whether the goal is executing, and has not been able to for the "
                               "whole window")
-RELAUNCH_EXHAUSTED_LINE = ("watch: RELAUNCH EXHAUSTED — the room did not come back after "
-                           f"{len(RELAUNCH_BACKOFF_S)} bounded attempts and NO finish event exists")
 
 
 def goal_finished(package):
@@ -610,9 +542,11 @@ def lease_evidence(package):
     with zero verified seats is still a live lease" (`lease.js`), because a room mid-relaunch
     between seat boots must not read as finished. What the COUNT adds is the other half that
     ruling deliberately does not answer: whether anything is actually executing IN that room.
-    `watch_loop` needs both, because the room its own `relaunch_room` restores comes back EMPTY —
-    a relaunch budget reset on `live` alone is reset by the very event it counts (measured: 30
-    passes, 1 attempt, escalation never reached, the goal reporting healthy forever).
+    `watch_loop` needs both, because the room a relaunch restores comes back EMPTY — a relaunch
+    budget reset on `live` alone is reset by the very event it counts (measured: 30 passes, 1
+    attempt, escalation never reached, the goal reporting healthy forever). Since 7.664 the budget
+    that reasoning guards lives in `team_monitor`, the sole ladder; what this side still needs the
+    count for is telling an OCCUPIED room from a hollow shell when it REPORTS the crash.
 
     The count is 0 for every non-live state. That is not a measurement of those states — an
     UNREADABLE lease is reported by `state`, and a caller may never read this 0 as "empty".
@@ -633,26 +567,10 @@ def lease_evidence(package):
     return "live", (rooms[0].get("room") or ""), seats, f"{seats} verified seat(s)"
 
 
-def relaunch_room(room, run_fn=None):
-    """Restore the lease's PRIMARY evidence — the room — idempotently. (ok, detail).
-
-    ponytail: this restores the ROOM, not the seats inside it. Re-seating is the existing
-    self-heal/recover-room path's job (`jobs/recover-room.py`, `jobs/selfheal-watch.py`), which
-    resolves its target through `coord.derive_lease` and therefore starts working again the
-    moment a room exists. Upgrade path if that proves insufficient: have this call the recover-room
-    job directly instead of tmux.
-    """
-    run_fn = subprocess.run if run_fn is None else run_fn
-    if not room:
-        return False, "no room name is known to this loop — nothing to relaunch"
-    r = run_fn(["tmux", "new-session", "-d", "-s", room], capture_output=True, text=True)
-    if r.returncode == 0:
-        return True, f"room {room} relaunched"
-    err = (getattr(r, "stderr", "") or "").strip()
-    if "duplicate session" in err:
-        return True, (f"room {room} already exists — NOTHING was restored by this attempt "
-                      f"(it was already up, or it is the empty shell a previous attempt created)")
-    return False, f"`tmux new-session -d -s {room}` failed: {err[:200]}"
+# ⚠ `relaunch_room()` WAS HERE AND IS DELETED (task 7.664) — NOT moved, NOT re-pointed. It was the
+# SECOND `tmux new-session -d -s <room>` acting on the same room as
+# `team_monitor.relaunch_room()`. Nothing in this file restores a room now, and the seat-revival
+# arm below (`fire_revival`) remains this file's ONE actuator, unchanged.
 
 
 def _migrate_runs(goal):
@@ -3600,14 +3518,18 @@ def run_pass(args):
         seat = seats.get(agent, {})
         harness = seat.get("harness", "claude")
 
-        # liveness
+        # ⚠ THE DEAD-PANE FLAG WAS HERE AND IS DELETED (task 7.664, behaviour-map row B12). Sensing
+        # it is `team_monitor.absent_rows()` (`liveness: "absent"`, reason "roster row active, pane
+        # not in the room"); the flag and its remedy are `goal-watcher-job.py`'s DEAD row
+        # (`close-seat <name> --no-export`, nudge=leader). Both are live — that is the R24 split
+        # exactly, and this file's copy was the second one.
+        #
+        # ⚠ THE GUARD ITSELF STAYS, AND IT IS NOT THE BEHAVIOUR. A gone pane must still SKIP the
+        # rows below: without the skip a dead seat falls through to the activity/approval reads,
+        # every one of which returns nothing, and the pass would print it as `ok` — which is not
+        # "the flag moved elsewhere", it is this file asserting a seat is healthy while its pane is
+        # gone. Silence is the correct removal; a false green is not.
         if pane and live and pane not in live:
-            report.append(f"{agent:<18} DEAD    pane {pane} gone")
-            if not st.get("notified_dead"):
-                notes.append(Flag(agent, f"watch: '{agent}' is ACTIVE in the roster but its pane {pane} is gone "
-                             f"— wakes cannot reach it. Mark it closed ({coord.coord_invocation(args)} "
-                             f"close-seat {agent} --no-export) or relaunch it."))
-                st["notified_dead"] = True
             state[agent] = st
             continue
 
@@ -3624,19 +3546,12 @@ def run_pass(args):
             if since:
                 inact_min = int((nnow - datetime.fromisoformat(since)).total_seconds() // 60)
 
-        # context (claude seats only)
-        pct = None
-        if harness == "claude":
-            t = find_transcript(agent, seat.get("cwd", coord.VAULT_ROOT),
-                                getattr(args, "claude_projects_dir", None))
-            if t is None and pane:
-                fb_cwd = pane_cwd(pane)
-                if fb_cwd:
-                    t = find_transcript_by_path_fragment(agent, fb_cwd,
-                                                         getattr(args, "claude_projects_dir", None))
-            if t:
-                _, pct = transcript_usage(t)
-
+        # ⚠ THE CONTEXT-% READ WAS HERE AND IS DELETED (task 7.664, behaviour-map row B14), with
+        # the transcript locators it drove. `team_monitor.capture()` publishes `ctx_pct` per seat
+        # row from the INHERITED ctx-monitor engine — for EVERY harness, not claude only — and
+        # `goal-watcher-job.py`'s CONTEXT / CONTEXT-ESCALATED rows enforce it, additionally
+        # skipping one-shot seats, which this file got right only by the accident of computing
+        # context for claude seats alone.
         flags = []
         # P38: an approval gate is checked BEFORE inactivity, because it explains inactivity. A
         # gated pane is frozen, so its content hash never changes and it would eventually trip
@@ -3704,34 +3619,14 @@ def run_pass(args):
                                  f"failure path and it is yours: "
                                  f"{coord.coord_invocation(args)} close-seat {agent} --renew"))
                 st["notified_inactive"] = True
-        # A seat may declare its OWN refresh threshold in its briefing (`ctx-refresh: 60`) — a
-        # cheap ephemeral seat and a long-lived builder do not want the same one. The watcher's
-        # --context-pct is the fallback for every seat that declares none.
-        seat_pct = seat.get("ctx_refresh")
-        threshold = seat_pct if seat_pct else args.context_pct
-        if pct is not None and pct >= threshold:
-            flags.append(f"CONTEXT {pct}%")
-            if not st.get("notified_context"):
-                source = " from its briefing ctx-refresh" if seat_pct else ""
-                # s4-08: same correction as the inactivity flag above. A seat past its ctx
-                # threshold is ALIVE — it is exactly the seat that CAN check itself out — so the
-                # remedy is the seat's OWN two-step `checkout --renew --handoff`, and the closer is
-                # not in that path at all. ⚠ THE READER OF THIS TEXT IS THE LEADER, NOT THE SEAT
-                # (`--notify-to`, and a flag is never sent to the seat it is about), so it is
-                # written as something to RELAY — an instruction phrased at the seat would be read
-                # by whoever cannot perform it.
-                notes.append(Flag(agent, f"watch: '{agent}' context is at {pct}% (threshold {threshold}%"
-                             f"{source}). Renewal is the SEAT'S OWN act, not yours: tell '{agent}' to run "
-                             f"`{coord.coord_invocation(args)} checkout --renew` (that arms it and prints "
-                             f"the second call, which carries `--handoff \"<what its next session must "
-                             f"do>\"`; nothing is closed until that second call). Reach for "
-                             f"`{coord.coord_invocation(args)} close {agent} --renew` — a THIRD-PARTY "
-                             f"close, the FAILURE path — only if '{agent}' cannot check itself out."))
-                st["notified_context"] = True
+        # ⚠ THE CONTEXT FLAG AND ITS PER-SEAT THRESHOLD WERE HERE AND ARE DELETED (task 7.664,
+        # behaviour-map rows B14 enforcement + B16). The per-seat `ctx-refresh` declaration is
+        # carried by `team_monitor.capture()` as the row's `ctx_refresh` (resolved by
+        # `declared_ctx_refresh`), and `goal-watcher-job.py` applies the IDENTICAL precedence —
+        # `args.context_pct_override or s.get("ctx_refresh") or args.context_pct`.
 
-        ctx = f" ctx={pct}%" if pct is not None else ""
         act = f" idle={inact_min}min" if inact_min is not None else ""
-        report.append(f"{agent:<18} {'FLAG' if flags else 'ok':<7} {harness:<9}{ctx}{act}"
+        report.append(f"{agent:<18} {'FLAG' if flags else 'ok':<7} {harness:<9}{act}"
                       f"  {' '.join(flags)}")
         state[agent] = st
 
@@ -3860,58 +3755,25 @@ def cmd_selftest():
         (wdir / "door" / "agent.md").write_text(
             "---\nagent: door\nharness: claude\nrelays: master\n---\nb\n")
 
-        # fake claude projects dir with a matching transcript at 57% of a 1M window
-        proj = Path(td) / "projects" / munge_cwd("/w/one")
-        proj.mkdir(parents=True)
-        tr = proj / "s1.jsonl"
-        tr.write_text(
-            json.dumps({"type": "user", "message": {"content": "You are agent 'alpha' of the run"}}) + "\n"
-            + json.dumps({"type": "assistant", "message": {"usage": {"input_tokens": 100}}}) + "\n"
-            + json.dumps({"type": "assistant", "isSidechain": True,
-                          "message": {"usage": {"input_tokens": 999999}}}) + "\n"
-            + json.dumps({"type": "assistant", "message": {"usage": {
-                "input_tokens": 200000, "cache_read_input_tokens": 350000,
-                "cache_creation_input_tokens": 20000}}}) + "\n")
+        # ⚠ THE CLAUDE-TRANSCRIPT FIXTURE AND ITS SIX ARMS WERE HERE AND ARE DELETED (task 7.664,
+        # rows B14/B16). They exercised `find_transcript` / `find_transcript_by_path_fragment` /
+        # `transcript_usage` — all removed with the CONTEXT flag they served. The property they
+        # guarded is guarded at its destination, by that side's own arms.
 
         def ns(**kw):
             d = {"package": str(pkg), "base": None, "workers_dir": None, "notify": True,
-                 "inactive_min": 30, "context_pct": 50, "mem_floor_mb": 500,
-                 "load_per_core": 1.0, "claude_projects_dir": str(Path(td) / "projects")}
+                 "inactive_min": 30, "mem_floor_mb": 500, "load_per_core": 1.0}
             d.update(kw)
             return argparse.Namespace(**d)
 
-        check("transcript: boot-prompt match finds the file",
-              find_transcript("alpha", "/w/one", str(Path(td) / "projects")) == tr)
-        check("transcript: no match for unknown agent",
-              find_transcript("zeta", "/w/one", str(Path(td) / "projects")) is None)
-        toks, pct = transcript_usage(tr)
-        check("context: last main-chain assistant wins, sidechain ignored",
-              toks == 570000 and pct == 57.0)
-
-        # fallback: a hand-started seat (e.g. leader) never carries the standard boot-prompt
-        # phrasing. Its recorded frontmatter cwd is deliberately WRONG here — only the seat's
-        # LIVE pane cwd (tmux #{pane_current_path}, stubbed via pane_cwd below) carries a
-        # transcript whose first user text references its own workers/<agent>/ fragment.
+        # beta / delta remain as ORDINARY claude seats: later arms check them in and drive passes
+        # over them. Their deliberately-wrong `cwd` was the transcript fallback's fixture and is
+        # now inert — kept rather than rewritten, because rewriting an unrelated fixture is how a
+        # removal grows a blast radius.
         (wdir / "beta").mkdir(parents=True)
         (wdir / "beta" / "agent.md").write_text("---\nagent: beta\nharness: claude\ncwd: /w/wrong\n---\nb\n")
         (wdir / "delta").mkdir(parents=True)
         (wdir / "delta" / "agent.md").write_text("---\nagent: delta\nharness: claude\ncwd: /w/wrong\n---\nb\n")
-
-        beta_proj = Path(td) / "projects" / munge_cwd("/w/real-beta")
-        beta_proj.mkdir(parents=True)
-        beta_tr = beta_proj / "s1.jsonl"
-        beta_tr.write_text(
-            json.dumps({"type": "user", "message": {"content": "execute workers/beta/agent.md"}}) + "\n"
-            + json.dumps({"type": "assistant", "message": {"usage": {
-                "input_tokens": 100000, "cache_read_input_tokens": 250000,
-                "cache_creation_input_tokens": 30000}}}) + "\n")
-
-        check("fallback: boot-prompt match fails for a hand-started seat (recorded cwd)",
-              find_transcript("beta", "/w/wrong", str(Path(td) / "projects")) is None)
-        check("fallback: path-fragment match finds the transcript via the pane's live cwd",
-              find_transcript_by_path_fragment("beta", "/w/real-beta", str(Path(td) / "projects")) == beta_tr)
-        check("fallback: no match for an unrelated agent even in the right directory",
-              find_transcript_by_path_fragment("zeta", "/w/real-beta", str(Path(td) / "projects")) is None)
 
         coord.cmd_checkin(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
                                              agent="alpha", summary="w", pane="%1"))
@@ -3920,13 +3782,8 @@ def cmd_selftest():
         tails["%1"] = "one"
         tails["%2"] = "two"
 
-        notes = run_pass(ns())
-        check("pass 1: context flag fires for the claude seat (57% >= 50%)",
-              any("alpha" in n and "57" in n for n in notes))
-        check("pass 1: opencode seat gets no context flag", not any("gamma" in n and "%" in n for n in notes))
-        notes = run_pass(ns())
-        check("pass 2: context flag does NOT re-fire (armed once per seat/pane)",
-              not any("context is at" in n for n in notes))
+        run_pass(ns())
+        run_pass(ns())
 
         # age alpha's stability timestamp -> inactivity fires; gamma changes -> no flag
         base = pkg / "coordination"
@@ -3997,38 +3854,34 @@ def cmd_selftest():
               "check is what separates a scoped fix from a blanket rewrite of the remedy",
               "--renew" in alpha_note and "DOOR" not in alpha_note)
 
-        # dead pane
+        # ⚠ THE DEAD-PANE ARMS WERE HERE AND ARE DELETED (task 7.664, row B12) — the flag they
+        # scored is `team_monitor.absent_rows()` + `goal-watcher-job.py`'s DEAD row now. The
+        # gone-pane SKIP that replaced them is asserted by the arm below instead: a seat whose pane
+        # is gone must be SILENT, and must not be reported `ok`, which would be this file claiming
+        # a seat is healthy while its pane is gone.
         live_panes_backup = live_panes
         globals()["live_panes"] = lambda: {"%2"}
-        notes = run_pass(ns())
-        check("dead pane: flagged once with close-seat hint",
-              any("alpha" in n and "pane %1 is gone" in n for n in notes))
-        notes = run_pass(ns())
-        check("dead pane: does not re-fire", not any("pane %1 is gone" in n for n in notes))
+
+        import io
+        import contextlib
+        _dbuf = io.StringIO()
+        with contextlib.redirect_stdout(_dbuf):
+            _dnotes = run_pass(ns())
+        _dlines = _dbuf.getvalue().splitlines()
+        check("⚠ 7.664 B12: a seat whose pane is GONE raises NO flag here (the DEAD row is "
+              "`goal-watcher-job.py`'s now) AND is never printed `ok` — falling through to the "
+              "activity reads would have this file assert a healthy seat behind a missing pane",
+              not any("pane %1 is gone" in n for n in _dnotes)
+              and not any(ln.strip().startswith("alpha") for ln in _dlines))
         globals()["live_panes"] = live_panes_backup
 
-        # fallback, end to end: beta (pane-cwd fallback resolves) vs delta (neither path
-        # resolves, no transcript anywhere) — run through run_pass exactly like a live pass.
-        pane_cwds["%3"] = "/w/real-beta"
-        pane_cwds["%4"] = "/w/nowhere-real"
         coord.cmd_checkin(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
                                              agent="beta", summary="w", pane="%3"))
         coord.cmd_checkin(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
                                              agent="delta", summary="w", pane="%4"))
         tails["%3"] = "beta-tail"
         tails["%4"] = "delta-tail"
-
-        import io
-        import contextlib
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            run_pass(ns())
-        printed_lines = buf.getvalue().splitlines()
-        check("fallback (live pass): hand-started seat gets ctx= via the pane-cwd fallback",
-              any(ln.strip().startswith("beta") and "ctx=" in ln for ln in printed_lines))
-        check("fallback (live pass): seat with no match on either path stays unmeasured, no crash",
-              any(ln.strip().startswith("delta") for ln in printed_lines)
-              and not any(ln.strip().startswith("delta") and "ctx=" in ln for ln in printed_lines))
+        run_pass(ns())
 
         raw = (base / "messages.md").read_text()
         # ⚠ THIS CHECK ASSERTED `type: ask` AND HAD BEEN FAILING SINCE THE ask->note FIX LANDED
@@ -4086,15 +3939,13 @@ def cmd_selftest():
               "routed to you: this flag is ABOUT 'alpha'" in raw2
               and raw2.index("divert probe") > raw2.index("to: leader | type: note"))
 
-        # ---- per-seat ctx-refresh threshold (coord exposes it, watch.py enforces it) ----
-        for seat, marker in (("epsilon", "s_eps.jsonl"), ("zeta", "s_zet.jsonl"),
-                             ("eta", "s_eta.jsonl")):
-            (proj / marker).write_text(
-                json.dumps({"type": "user",
-                            "message": {"content": f"You are agent '{seat}' of the run"}}) + "\n"
-                + json.dumps({"type": "assistant", "message": {"usage": {
-                    "input_tokens": 200000, "cache_read_input_tokens": 350000,
-                    "cache_creation_input_tokens": 20000}}}) + "\n")
+        # ---- per-seat ctx-refresh threshold — COORD'S HALF ONLY (task 7.664) ----
+        # ⚠ watch.py's ENFORCEMENT of this threshold is deleted with the CONTEXT flag (row B16);
+        # `goal-watcher-job.py:1056` applies the identical precedence
+        # (`context_pct_override or ctx_refresh or context_pct`) over `team_monitor`'s published
+        # `ctx_refresh`. The arm below is kept because its subject is `coord.discover_workers`
+        # EXPOSING the briefing key — a different file's property, which this removal does not
+        # touch and which nothing else in this selftest asserts.
         (wdir / "eta").mkdir(parents=True)
         (wdir / "eta" / "agent.md").write_text(
             "---\nagent: eta\nharness: claude\ncwd: /w/one\n---\nb\n")
@@ -4106,33 +3957,15 @@ def cmd_selftest():
             coord.cmd_checkin(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
                                                  agent=seat, summary="w", pane=seat_pane))
             tails[seat_pane] = seat
-        # All three sit at the SAME measured 57%. With the watcher's global at 60: zeta's own 40
-        # must fire anyway, epsilon's own 90 must suppress, and eta (no per-seat value) must
-        # follow the global and stay quiet.
-        notes = run_pass(ns(context_pct=60))
-        check("ctx-refresh: a seat's own threshold fires BELOW the watcher's global one",
-              any("zeta" in n and "57" in n and "threshold 40" in n
-                  and "briefing ctx-refresh" in n for n in notes))
-        check("ctx-refresh: a seat's own HIGHER threshold suppresses the flag at 57%",
-              not any("epsilon" in n for n in notes))
-        check("ctx-refresh: a seat declaring none follows the global (57 < 60, quiet)",
-              not any("'eta'" in n and "context is at" in n for n in notes))
-        notes = run_pass(ns(context_pct=50))
-        check("ctx-refresh: the global governs seats that declare none (eta at 57 >= 50)",
-              any("'eta'" in n and "context is at" in n and "threshold 50" in n for n in notes))
-        check("ctx-refresh: epsilon (own threshold 90) stays quiet even under the lower global",
-              not any("epsilon" in n for n in notes))
-        # s4-08: the ctx flag's REMEDY had no assertion at all — every ctx row above tests WHEN it
-        # fires and none tested WHAT it tells the reader to do, so the superseded "have the closer
-        # close and RENEW it now" survived every green this suite ever produced. Asserted now, in
-        # both directions: the seat's own two-step must be named AND the superseded bare
-        # `close <seat> --renew` must be absent as the primary remedy.
-        check("⚠ s4-08: the ctx flag names the SEAT'S OWN `checkout --renew` (+ `--handoff`) as the "
-              "remedy and the closer only as the failure path — the amended charter's coaching, "
-              "which nothing asserted before this row existed",
-              any("'eta'" in n and "checkout --renew" in n and "--handoff" in n
-                  and "cannot check itself out" in n
-                  and "Have the closer close and RENEW it now" not in n for n in notes))
+        # ⚠ SIX CONTEXT-THRESHOLD ARMS AND THE ctx-REMEDY ARM WERE HERE AND ARE DELETED WITH THE
+        # FLAG THEY SCORED (task 7.664, rows B14/B16). One arm survives as a NEGATIVE, because
+        # "the flag is gone" is a property in its own right and nothing else would notice it
+        # coming back:
+        notes = run_pass(ns())
+        check("⚠ 7.664 B14/B16: NO context flag is raised by this file for ANY seat — the ctx read, "
+              "its per-seat threshold and its remedy all belong to team_monitor + "
+              "goal-watcher-job now, and a second one raised here is the duplication this removed",
+              not any("context is at" in n for n in notes))
 
         # ---- P38: an approval-gated seat is seen from its pane title, not 30 minutes later ----
         pane_titles["%7"] = "eta — Action Required"
@@ -6894,29 +6727,34 @@ def cmd_selftest():
         rcgoal = Path(td) / "finishedge-goal"
         rcrun = rcgoal / "runs" / "run-7"
         (rcrun / "coordination").mkdir(parents=True)
-        # ⚠ THE CADENCE HERE IS A SENTINEL, NOT A CADENCE (7.607 E1b). `sleep_fn` is injected, so
-        # no wall time is ever spent; the value exists only so the per-pass cadence sleep can be
-        # told from a BACKOFF sleep BY VALUE. -1 is not a member of `RELAUNCH_BACKOFF_S` and the
-        # arm that relies on that asserts it rather than assuming it.
+        # ⚠ THE CADENCE HERE IS A SENTINEL, NOT A CADENCE. `sleep_fn` is injected, so no wall time
+        # is ever spent; the value exists so a cadence sleep is identifiable BY VALUE. It used to
+        # separate cadence sleeps from BACKOFF sleeps — the backoff went with the relaunch ladder
+        # (task 7.664), and the only sleeps this loop takes now are cadence sleeps, which is
+        # itself the property `_rcsleeps`'s successor arm below asserts.
         _RC_CADENCE_SENTINEL = -1
         rcargs = argparse.Namespace(cadence_s=_RC_CADENCE_SENTINEL)
         sleeps = []
 
-        _orig_finished, _orig_lease, _orig_relaunch = goal_finished, lease_evidence, relaunch_room
+        _orig_finished, _orig_lease = goal_finished, lease_evidence
 
-        def _rcturns(finished, lease, limit=3, relaunches=None):
-            """(stopped_by_the_guard, turns_taken, printed, relaunch_calls) for one evidence pair.
+        def _rcturns(finished, lease, limit=3):
+            """(stopped_by_the_guard, turns_taken, printed) for one evidence pair.
 
             `finished` is what the finish-event reader returns; `lease` is the
             ('live'|'gone'|'unreadable', room, verified_seat_count, detail) QUADRUPLE — the count
             is the E1b addition and every arm below states it explicitly, because an arm that
             omitted it is exactly the F-1 blind spot. A LIST of quadruples is consumed one per
-            pass (the last one sticks), which is how an arm expresses evidence that CHANGES —
-            a fixed lease can never score a budget that resets after a partial spend.
+            pass (the last one sticks), which is how an arm expresses evidence that CHANGES.
             `limit` turns with no stop IS the negative result — an unguarded loop never returns
             on its own. `sleeps` collects every sleep argument the loop passed.
+
+            ⚠ THE FOURTH ELEMENT (relaunch calls) AND THE `relaunches` KNOB ARE GONE with the
+            ladder they injected (task 7.664). A fixture seam kept alive for a removed actuator is
+            an invitation to plug a second one back in; `probes/probe-one-room-relaunch-ladder.py`
+            measures the zero from outside instead.
             """
-            turns, calls = [], []
+            turns = []
             leases = list(lease) if isinstance(lease, list) else [lease]
 
             def _pass(_a):
@@ -6924,37 +6762,32 @@ def cmd_selftest():
                 if len(turns) >= limit:
                     raise _RCLoopRanOn
 
-            def _relaunch(room):
-                calls.append(room)
-                return (relaunches if relaunches is not None else True), f"fixture relaunch {room!r}"
-
             g = globals()
             g["goal_finished"] = lambda _p: finished
             g["lease_evidence"] = lambda _p: leases[min(len(turns), len(leases) - 1)]
             stopped, buf, ebuf = True, io.StringIO(), io.StringIO()
             try:
                 with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(ebuf):
-                    watch_loop(rcargs, rcrun, do_pass=_pass, sleep_fn=sleeps.append,
-                               relaunch_fn=_relaunch)
+                    watch_loop(rcargs, rcrun, do_pass=_pass, sleep_fn=sleeps.append)
             except _RCLoopRanOn:
                 stopped = False
             finally:
                 g["goal_finished"], g["lease_evidence"] = _orig_finished, _orig_lease
-            return stopped, len(turns), buf.getvalue() + ebuf.getvalue(), calls
+            return stopped, len(turns), buf.getvalue() + ebuf.getvalue()
 
         def _rcsleeps(lease, limit=3):
-            """The BACKOFF sleeps one evidence quadruple produces, in order — cadence removed.
+            """Every sleep one evidence quadruple produces, in order.
 
-            The loop sleeps twice per turn (the backoff, then the cadence), and the two are told
-            apart by a SENTINEL CADENCE that is provably not a backoff value rather than by
-            position: a positional split silently mis-attributes the moment the loop body's order
-            changes, which is the class of blind spot this whole row exists to close.
+            ⚠ IT NO LONGER FILTERS (task 7.664). It used to strip the sentinel cadence to isolate
+            the BACKOFF sleeps; with the ladder gone the CADENCE IS THE ONLY SLEEP, and that is
+            the property the surviving arm asserts — a filter here would hide a backoff sneaking
+            back in behind exactly the seam that used to reveal it.
             """
             del sleeps[:]
             _rcturns(False, lease, limit=limit)
-            return [s for s in sleeps if s != _RC_CADENCE_SENTINEL]
+            return list(sleeps)
 
-        _st, _turns, _out, _calls = _rcturns(True, ("live", "room-a", 1, "1 verified seat(s)"))
+        _st, _turns, _out = _rcturns(True, ("live", "room-a", 1, "1 verified seat(s)"))
         check("⚠ 7.607 E1 THE CRITERION ITSELF: with the FINISH EVENT present the LOOP RETURNS — "
               "and it returns BEFORE taking a pass, so a loop started against a finished goal "
               "never writes into it. This is the ONE deterministic termination",
@@ -6967,22 +6800,40 @@ def cmd_selftest():
               "fixture forces it out. Without this pair a guard that returned unconditionally "
               "would pass",
               _rcturns(False, ("live", "room-a", 2, "2 verified seat(s)"))[:2] == (False, 3))
-        check("⚠ 7.607 E1 CRASH IS RECOVERY, NEVER EXIT (design lock item 3): room GONE with NO "
-              "finish event does NOT stop the loop and DOES relaunch the room. Under the register "
-              "this was indistinguishable from a close and silently killed the sensor",
+        check("⚠ 7.607 E1 A CRASH IS NEVER AN EXIT (design lock item 3): room GONE with NO finish "
+              "event does NOT stop the loop. Under the register this was indistinguishable from a "
+              "close and silently killed the sensor",
               _rcturns(False, ("gone", "", 0, "no room"))[:2] == (False, 3))
-        _st4, _t4, _o4, _calls4 = _rcturns(False, ("gone", "", 0, "no room"), limit=9)
-        check("⚠ 7.607 E1 THE RELAUNCH IS BOUNDED — never a storm: at most "
-              f"{len(RELAUNCH_BACKOFF_S)} attempts however many passes the loop takes, then a "
-              "LOUD escalation line, and STILL no exit",
-              len(_calls4) == len(RELAUNCH_BACKOFF_S)
-              and RELAUNCH_EXHAUSTED_LINE.split(" — ")[0] in _o4
+        _st4, _t4, _o4 = _rcturns(False, ("gone", "", 0, "no room"), limit=9)
+        check("⚠⚠ 7.664 THE CRASH IS REPORTED AND NOT ACTED ON: nine passes over a GONE room say "
+              "so on every pass, name the ONE surviving ladder, and STILL do not exit. The bounded "
+              "relaunch this loop used to walk is `team_monitor.relaunch_room()`'s alone now — two "
+              "ladders on one room is the failure the split exists to prevent",
+              _o4.count(ROOM_CRASH_LINE) == 9
+              and "team_monitor.relaunch_room()" in _o4
               and (_st4, _t4) == (False, 9))
+        check("⚠ 7.664 THE HOLLOW ROOM IS THE SAME CRASH: a room the lease reads LIVE with ZERO "
+              "verified seats — the empty shell a relaunch restores — is reported exactly like an "
+              "absent one. Keying on `live` alone is how the goal reported healthy for 30 passes "
+              "while nothing executed it (7.607 E1b F-1); the seat count is the test",
+              _rcturns(False, ("live", "room-a", 0, "0 verified seat(s)"), limit=4)[2]
+              .count(ROOM_CRASH_LINE) == 4)
+        check("⚠ 7.664 CONTROL, WITHOUT WHICH THE TWO ABOVE PASS ON A LOOP THAT SHOUTS ALWAYS: an "
+              "OCCUPIED live room (seats > 0) reports NOTHING over nine passes",
+              ROOM_CRASH_LINE not in
+              _rcturns(False, ("live", "room-a", 3, "3 verified seat(s)"), limit=9)[2])
+        check("⚠ 7.664 NO BACKOFF SLEEP SURVIVES THE LADDER: over a crashed room the loop sleeps "
+              "ONLY its cadence, once per pass — five sleeps for six passes, because the fixture "
+              "escapes ON the sixth pass before its cadence sleep. A sleep of any OTHER value here "
+              "would mean a relaunch attempt was spent, i.e. a second ladder is back",
+              _rcsleeps(("gone", "", 0, "no room"), limit=6)
+              == [_RC_CADENCE_SENTINEL] * 5)
         check("⚠ 7.607 E1 UNREADABLE EVIDENCE IS NEITHER FINISHED NOR CRASHED: a loud line, no "
               "exit, and NO relaunch. Fail-open in the one direction it was ever right — a broken "
               "meter must never stop a healthy loop, and must never be read as 'over'",
               _rcturns(False, ("unreadable", "", 0, "tmux is unreadable"))[:2] == (False, 3)
-              and _rcturns(False, ("unreadable", "", 0, "tmux is unreadable"))[3] == []
+              and ROOM_CRASH_LINE
+              not in _rcturns(False, ("unreadable", "", 0, "tmux is unreadable"))[2]
               and "UNREADABLE" in _rcturns(False, ("unreadable", "", 0, "x"))[2])
         check("7.607 E1: a FINISH EVENT wins over live-lease evidence — the finish edge is the "
               "termination, the lease never is",
@@ -6991,14 +6842,14 @@ def cmd_selftest():
         # BOUNDED arm must reach the escalation and the CLEARING arm must not, so neither is
         # satisfied by a loop that always escalates or by one that never does.
         _un = ("unreadable", "", 0, "node is not on PATH")
-        _stu, _tu, _ou, _callsu = _rcturns(False, _un, limit=UNREADABLE_BOUND + 3)
+        _stu, _tu, _ou = _rcturns(False, _un, limit=UNREADABLE_BOUND + 3)
         check("⚠⚠ 7.607 E2b THE IGNORANCE BOUND: %d CONSECUTIVE unreadable passes reach the LOUD "
               "escalation — an unbounded fail-open is silence with a good excuse, and a meter that "
               "has been dead for hours must reach the leader. The loop still does NOT exit and "
-              "still spends NO relaunch attempt: escalation is a REPORT, never an act on a "
+              "still reads the ignorance as a crash: escalation is a REPORT, never an act on a "
               "reading that was never taken" % UNREADABLE_BOUND,
               UNREADABLE_ESCALATION_LINE.split(" — ")[0] in _ou
-              and _callsu == [] and _stu is False)
+              and ROOM_CRASH_LINE not in _ou and _stu is False)
         check("⚠ 7.607 E2b THE BOUND'S CONTROL — it CANNOT fire early: %d-1 unreadable passes "
               "raise NOTHING. Without this the row above would pass on a loop that escalated on "
               "the first unreadable pass, which is the false-alarm failure, not the fix"
@@ -7024,47 +6875,14 @@ def cmd_selftest():
               "above read the constant as their own expectation, so nothing else in this file "
               "notices the number moving" % UNREADABLE_BOUND,
               UNREADABLE_BOUND == 5)
-        # ---- 7.607 E1b — F-1: ONLY AN OCCUPIED ROOM RESETS THE RELAUNCH BUDGET.
-        # The pair below is the whole fix, and it is a PAIR on purpose: the OCCUPIED arm must
-        # stay silent (a bound that fires on a healthy room is a false escalation) and the HOLLOW
-        # arm must reach the escalation (a bound that never fires is F-1). One without the other
-        # is satisfied by a loop that always escalates, or by one that never does.
-        _st5, _t5, _o5, _calls5 = _rcturns(False, ("live", "room-a", 0, "0 verified seat(s)"),
-                                           limit=9)
-        check("⚠⚠ 7.607 E1b F-1 THE FIX: a room that is LIVE but carries ZERO VERIFIED SEATS — "
-              "the EMPTY SHELL `relaunch_room` itself creates — walks the SAME bounded backoff as "
-              "an absent room and REACHES the loud escalation. Before this fix the reset keyed on "
-              "`live` alone, so the ordinary crash reset the bound on the very event it counts: "
-              "30 passes, 1 attempt, escalation unreachable, the goal reporting healthy forever",
-              len(_calls5) == len(RELAUNCH_BACKOFF_S)
-              and RELAUNCH_EXHAUSTED_LINE.split(" — ")[0] in _o5
-              and (_st5, _t5) == (False, 9))
-        check("⚠ 7.607 E1b F-1 THE CONTROL THAT BOUNDS THE FIX: an OCCUPIED live room (seats > 0) "
-              "spends NO relaunch attempt and raises NO escalation however many passes it takes — "
-              "so the fix cannot false-escalate on a healthy room, and the row above is not "
-              "passing because the loop escalates on everything",
-              _rcturns(False, ("live", "room-a", 3, "3 verified seat(s)"), limit=9)[3] == []
-              and RELAUNCH_EXHAUSTED_LINE.split(" — ")[0]
-              not in _rcturns(False, ("live", "room-a", 3, "3 verified seat(s)"), limit=9)[2])
-        _hollow = ("live", "room-a", 0, "0 verified seat(s)")
-        _seated = ("live", "room-a", 2, "2 verified seat(s)")
-        _recov = _rcturns(False, [_hollow, _hollow, _hollow, _seated] + [_hollow] * 10, limit=14)
-        check("⚠ 7.607 E1b F-1 THE RECOVERY HALF: an occupied room RESETS a budget already partly "
-              "spent. Three hollow passes spend three attempts, ONE occupied pass gives the whole "
-              f"bound back, and the eight hollow passes after it spend the full "
-              f"{len(RELAUNCH_BACKOFF_S)} again — {3 + len(RELAUNCH_BACKOFF_S)} attempts in all. "
-              "Without the reset a genuinely recovering goal would sit one attempt from a "
-              "spurious escalation forever after one bad patch",
-              len(_recov[3]) == 3 + len(RELAUNCH_BACKOFF_S)
-              and RELAUNCH_EXHAUSTED_LINE.split(" — ")[0] in _recov[2])
-        check("⚠ 7.607 E1b: the GRACE WINDOW IS THE BACKOFF, NEVER THE CADENCE — every attempt on "
-              "a hollow room sleeps its own backoff BEFORE the next pass, so a cadence lowered to "
-              "5 s cannot shrink the seconds a legitimately-booting room is given to acquire its "
-              f"first verified seat. The whole bound is {sum(RELAUNCH_BACKOFF_S)}s of grace, and "
-              "an OCCUPIED room spends none of it",
-              _RC_CADENCE_SENTINEL not in RELAUNCH_BACKOFF_S
-              and _rcsleeps(_hollow, limit=9) == list(RELAUNCH_BACKOFF_S)
-              and _rcsleeps(_seated, limit=9) == [])
+        # ---- 7.607 E1b — F-1's FOUR ARMS WERE HERE AND ARE DELETED (task 7.664).
+        # Their subject was the RELAUNCH BUDGET — which room resets it, how a partly-spent budget
+        # recovers, and that the grace window is the backoff and not the cadence. This loop holds
+        # no budget any more, so those arms have no referent here; the budget and its F-1 fix live
+        # in `team_monitor` and are that file's to guard. What SURVIVES of F-1 on this side is the
+        # part that is still this loop's: a hollow room is the same crash as an absent one, and
+        # the seat count is what tells them apart from an occupied one — asserted above, alongside
+        # the zero-backoff-sleep arm that would catch a budget coming back.
         # ---- the REAL readers, not the injection point: `goal_finished` and `lease_evidence`
         # driven against files on disk. The six rows below replace the register-era fail-open set
         # arm for arm — same properties (absent / undecodable / unreadable / wrong shape / refuses
@@ -7274,25 +7092,13 @@ def cmd_selftest():
     sys.exit(1 if failures else 0)
 
 
-def _escalate_relaunch_exhausted(run_root, room, detail):
-    """The LOUD BUS escalation the ruling requires — once, on the coordination bus the leader reads.
-
-    A stderr line alone is not an escalation: this loop runs detached and its stderr is a log file
-    nobody is tailing at 03:00. The bus is where a human is addressed. Failing to send is itself
-    reported and never swallowed — but it cannot stop the loop.
-    """
-    try:
-        coord.append_message(
-            Path(run_root) / "coordination", "watch", "leader", "ask",
-            f"{RELAUNCH_EXHAUSTED_LINE}\n\nroom: {room or 'UNKNOWN'}\nlease: {detail}\n\n"
-            f"The goal has NO finish event, so it is unfinished, and no verified seat is "
-            f"executing it — the room is either absent or an EMPTY shell a relaunch restored "
-            f"without occupants. The watch loop is still running and will keep reporting, but "
-            f"nothing is executing this goal. Either re-seat the room by hand or fire the finish "
-            f"edge (`coordinate finish-goal`) if the goal is genuinely over.")
-    except Exception as exc:                                   # noqa: BLE001
-        print(f"watch: the relaunch escalation could NOT be delivered to the bus ({exc!r}) — "
-              f"the condition stands and is unreported to the leader", file=sys.stderr, flush=True)
+# ⚠ `_escalate_relaunch_exhausted()` WAS HERE AND IS DELETED WITH THE LADDER IT BELONGED TO
+# (task 7.664). "RELAUNCH EXHAUSTED" is the ladder's own terminal rung — it cannot fire in a loop
+# that spends no attempts, so keeping it would be a message about a budget this file no longer
+# holds. The surviving ladder carries its own exhaustion escalation
+# (`team_monitor.RELAUNCH_EXHAUSTED_LINE`); ⚠ that one prints to STDERR ONLY and never reaches the
+# bus, which is behaviour-map row B23's still-open PARTIAL and is NOT this task's to close.
+# The IGNORANCE bound below (B22) is untouched and still escalates on the bus.
 
 
 def _escalate_unreadable(run_root, passes, detail):
@@ -7316,7 +7122,7 @@ def _escalate_unreadable(run_root, passes, detail):
               file=sys.stderr, flush=True)
 
 
-def watch_loop(args, run_root, do_pass=None, sleep_fn=None, relaunch_fn=None):
+def watch_loop(args, run_root, do_pass=None, sleep_fn=None):
     """The `--loop-forever` body — and the ONE place this loop decides whether to take another turn.
 
     EXTRACTED FROM main() SO A CHECK CAN DRIVE IT, and that is the whole reason it is a function:
@@ -7325,8 +7131,11 @@ def watch_loop(args, run_root, do_pass=None, sleep_fn=None, relaunch_fn=None):
     (conduct §9) — and this defect's own history is a builder's green guarding a builder's
     assumption, so the seam is placed where the mutation has to be observable.
 
-    `do_pass` / `sleep_fn` / `relaunch_fn` are the fixture's only injection points and default to
-    the real ones.
+    `do_pass` / `sleep_fn` are the fixture's only injection points and default to the real ones.
+    ⚠ THE `relaunch_fn` SEAM IS GONE, DELIBERATELY (task 7.664): the seam existed to inject the
+    ladder this loop no longer has, and leaving an injection point for a removed actuator is an
+    invitation to plug a second one back in. `probes/probe-one-room-relaunch-ladder.py` asserts its
+    absence alongside the driven zero-relaunch measurement.
 
     ⚠ 7.607 E1 — THE TERMINATION CONDITION IS THE FINISH EVENT AND NOTHING ELSE. The three
     outcomes and their reasons are argued at `FINISH_EXIT_LINE` above; the loop body is deliberately
@@ -7334,11 +7143,10 @@ def watch_loop(args, run_root, do_pass=None, sleep_fn=None, relaunch_fn=None):
     """
     do_pass = run_pass if do_pass is None else do_pass
     sleep_fn = time.sleep if sleep_fn is None else sleep_fn
-    relaunch_fn = relaunch_room if relaunch_fn is None else relaunch_fn
     # The room name is LEARNED from the lease, never derived from the package path (`G-296`: a
-    # path-derived session name is right only by coincidence). Once learned it is what a relaunch
-    # restores — a crashed room cannot be asked its own name.
-    known_room, relaunch_attempts, escalated = "", 0, False
+    # path-derived session name is right only by coincidence). It is carried only to NAME the room
+    # in the crash report — a crashed room cannot be asked its own name.
+    known_room = ""
     unreadable_passes, unreadable_escalated = 0, False
     while True:
         if goal_finished(run_root):
@@ -7361,47 +7169,26 @@ def watch_loop(args, run_root, do_pass=None, sleep_fn=None, relaunch_fn=None):
                       f"This loop does NOT exit and does NOT act on the unread state — it "
                       f"escalates and keeps watching.", file=sys.stderr, flush=True)
                 _escalate_unreadable(run_root, unreadable_passes, detail)
-        elif state == "live" and seats > 0:
-            unreadable_passes, unreadable_escalated = 0, False   # the meter reads again
-            relaunch_attempts, escalated = 0, False  # an OCCUPIED room is back: the budget resets
         else:
-            # 'gone' — no room — OR a room that is LIVE AND EMPTY, which is precisely what
-            # `relaunch_room` below creates. Both mean the same thing to THIS loop: no finish
-            # event and nothing executing the goal, i.e. the CRASH case, not the end.
-            #
-            # ⚠ ONLY AN OCCUPIED ROOM RESETS THE BOUND (7.607 E1b, fixing F-1 of the E1 §2
-            # review). The reset used to key on `live` alone, and `relaunch_room` restores the
-            # room as an EMPTY tmux shell that the lease correctly reports as live — so the
-            # bound reset on the very event it was counting. Measured before this fix: the
-            # ordinary crash (room killed) walked 30 passes on 1 relaunch attempt, RELAUNCH
-            # EXHAUSTED never fired, the lease read `live` with `0 verified seat(s)` forever, and
-            # every `start-workflow` for that goal would queue behind a goal that reports healthy
-            # and executes nothing — the 7.608 deadlock's shape with tmux as the stale-status
-            # carrier. The lease's own posture is untouched: a hollow room IS a live lease. What
-            # is no longer read as RECOVERY is a room with nobody in it.
             unreadable_passes, unreadable_escalated = 0, False   # the meter reads again
-            if relaunch_attempts < len(RELAUNCH_BACKOFF_S):
-                backoff = RELAUNCH_BACKOFF_S[relaunch_attempts]
-                relaunch_attempts += 1
-                ok, rdetail = relaunch_fn(known_room)
-                print(f"watch: room {'EMPTY' if state == 'live' else 'GONE'} with no finish "
-                      f"event — CRASH, not completion. relaunch attempt "
-                      f"{relaunch_attempts}/{len(RELAUNCH_BACKOFF_S)}: {rdetail}",
+            if not (state == "live" and seats > 0):
+                # 'gone' — no room — OR a room that is LIVE AND EMPTY, which is what a relaunch
+                # restores. Both mean the same thing here: no finish event and nothing executing
+                # the goal, i.e. the CRASH case, not the end. THE SEAT COUNT IS PART OF THE TEST
+                # and not an ornament (7.607 E1b, F-1): a hollow room reads `live` to the lease —
+                # deliberately, so a room mid-boot is not called finished — so `live` alone would
+                # read the empty shell as recovery. Measured before that was fixed: 30 passes, the
+                # lease reading `live` with `0 verified seat(s)` forever, and the goal reporting
+                # healthy while nothing executed it.
+                #
+                # ⚠ REPORT ONLY, AND EVERY PASS (task 7.664). This loop no longer relaunches: the
+                # ONE bounded ladder is `team_monitor.relaunch_room()` and it carries its own
+                # budget and its own escalation. Printing every pass rather than once is
+                # deliberate — a condition that goes quiet reads as a condition that cleared, and
+                # the rung that used to say it out loud went with the ladder.
+                print(f"{ROOM_CRASH_LINE}. room={known_room or 'UNKNOWN'} "
+                      f"({'EMPTY' if state == 'live' else 'GONE'}); lease: {detail}",
                       file=sys.stderr, flush=True)
-                # The backoff is the storm bound AND the GRACE WINDOW — the seconds a legitimately
-                # booting room is given to acquire its first verified seat before the next attempt
-                # is spent. It is applied BEFORE the next pass and never skipped, which also makes
-                # the grace CADENCE-INDEPENDENT: a cadence lowered to 5 s must not shrink it. A
-                # FAILED relaunch additionally skips the pass — that is the only difference.
-                sleep_fn(backoff)
-                if not ok:
-                    continue
-            elif not escalated:
-                escalated = True
-                print(f"{RELAUNCH_EXHAUSTED_LINE} (room {known_room or 'UNKNOWN'}): {detail}. "
-                      f"This loop does NOT exit — a goal with no finish event is unfinished, and a "
-                      f"silent exit here is how a room dies unwatched.", file=sys.stderr, flush=True)
-                _escalate_relaunch_exhausted(run_root, known_room, detail)
 
         do_pass(args)
         # SECONDS, AS RESOLVED. No `* 60` and no unit arithmetic anywhere on this path: the flag
@@ -7419,7 +7206,13 @@ def main():
     p.add_argument("--base", help="override state-file directory (testing only)")
     p.add_argument("--workers-dir", help="override worker-briefings directory (testing only)")
     p.add_argument("--inactive-min", type=int, default=30, help="flag a seat after this many minutes without pane activity (default 30)")
-    p.add_argument("--context-pct", type=float, default=50, help="flag a claude seat at this context percentage (default 50)")
+    # ⚠ `--context-pct` AND `--claude-projects-dir` WERE HERE AND ARE DELETED WITH THE CONTEXT
+    # FLAG THEY TUNED (task 7.664, rows B14/B16). They are REMOVED rather than accepted-and-ignored:
+    # a flag that takes a threshold and silently changes nothing tells its caller the seat is
+    # watched at a bar nobody applies, which is the `--loop` retirement's lesson one flag over.
+    # No live caller passes either — checked against `config/spawn-profiles.yaml`,
+    # `jobs/selfheal-watch.py`'s relaunch argv, and the whole probe set via the runner's
+    # enumerator. The context threshold's home is now `goal-watcher-job.py --context-pct`.
     # ⚠ DEFAULT None, NOT 500 (task 7.82 criterion 3, leader ruling #1409). The old default was
     # the exact defect criterion 5 names: it let the loop START WITHOUT READING the declaration,
     # so a relaunch that dropped the flag watched against a floor 4x under the ruled one and said
@@ -7468,7 +7261,6 @@ def main():
                         "the run's budget.json cadence.watch_loop_max_seconds "
                         "(r-bar-home-is-the-run-budget-json). The loop reports which value it used "
                         "and why")
-    p.add_argument("--claude-projects-dir", help="override ~/.claude/projects (testing only)")
     p.add_argument("--selftest", action="store_true")
     args = p.parse_args()
     # ⚠ FIRST, BEFORE --selftest AND BEFORE ANY WORK. A retired policy flag must refuse at STARTUP:
