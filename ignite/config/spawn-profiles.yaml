@@ -270,6 +270,12 @@ profiles:
   # construction where the owner joins; no prompt carriage — a seat is driven by its DESCRIPTOR
   # and by the room, never by argv text (R7, D86).
   #
+  # ⚑ `headed.tui` PINS THE PROFILE'S MODEL (owner ruling core-build decisions.md#d-s21-headed-tui-pins-model,
+  # 2026-08-10): a profile named `claude-opus` that runs the harness default in one lane and opus in
+  # the other is a profile whose name means two things. The pin is `--model`, the same flag and the
+  # same value the `exec`/`resume` templates carry. Blast radius INCLUDES the daemon-headed lane
+  # (tmux-pane seats), ruled knowingly.
+  #
   # ⚑ exec/resume ARE A PAIR (r-chat-chain-resumes-session, owner 2026-08-07). The exec ASSIGNS
   # the harness session id (`--session-id {session_ref}`, so the rbtv session id and the harness
   # session id are ONE value and `session_ref: { source: assigned }` needs to read nothing back);
@@ -296,7 +302,7 @@ profiles:
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
       prompt: stdin
     headed:
-      tui: { argv: ["claude"] }
+      tui: { argv: ["claude", "--model", "claude-fable-5"] }
     effort:
       dialect: effort
       values: { low: low, medium: medium, high: high, max: max }
@@ -324,7 +330,7 @@ profiles:
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
       prompt: stdin
     headed:
-      tui: { argv: ["claude"] }
+      tui: { argv: ["claude", "--model", "opus"] }
     effort:
       dialect: effort
       values: { low: low, medium: medium, high: high, max: max }
@@ -349,7 +355,7 @@ profiles:
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
       prompt: stdin
     headed:
-      tui: { argv: ["claude"] }
+      tui: { argv: ["claude", "--model", "sonnet"] }
     effort:
       dialect: effort
       values: { low: low, medium: medium, high: high, max: max }
@@ -378,7 +384,7 @@ profiles:
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
       prompt: stdin
     headed:
-      tui: { argv: ["claude"] }
+      tui: { argv: ["claude", "--model", "haiku"] }
     effort: { inert: true }
     session_ref: { source: assigned }
     toolset_ceiling: full
@@ -439,9 +445,13 @@ profiles:
   # unprompted) — containment is entirely the seat cage's. Effort is INERT on all seven and that
   # is MEASURED, not assumed: a 2026-07-09 probe found opencode forwards `--variant` to the
   # provider without validating it, so there is no honored ladder. session_ref cwd-implicit:
-  # opencode resumes per-cwd; the seat folder IS the ref. Headed: bare TUI argv, no prompt
-  # carriage (D86 — carriage declaration awaits the real-terminal `--prompt` verification; a
-  # `{prompt}` slot would make the prompt mandatory and break the bare owner-driven entry path).
+  # opencode resumes per-cwd; the seat folder IS the ref. Headed: TUI argv pinning the profile's
+  # model with `-m` (d-s21-headed-tui-pins-model — same flag and value as `exec`, verified against
+  # `opencode --help` on this box: `-m, --model  model to use in the format of provider/model`, a
+  # ROOT option, so it applies to the default `opencode [project]` TUI command and not only to
+  # `run`), and no prompt carriage (D86 — carriage declaration awaits the real-terminal `--prompt`
+  # verification; a `{prompt}` slot would make the prompt mandatory and break the bare
+  # owner-driven entry path).
   # 8h caps overrides: carried from the pre-doctrine per-profile blocks, pending ruling.
   # Roster owner-ruled 2026-08-06; model IDs verified live on this box via `opencode models`
   # (Google, DeepSeek, Sakana AI, Z.AI all authenticated per `opencode auth list`).
@@ -451,7 +461,7 @@ profiles:
       argv: ["opencode", "run", "-m", "zai-coding-plan/glm-5.2"]
       prompt: stdin
     headed:
-      tui: { argv: ["opencode"] }
+      tui: { argv: ["opencode", "-m", "zai-coding-plan/glm-5.2"] }
     effort: { inert: true }
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
@@ -463,7 +473,7 @@ profiles:
       argv: ["opencode", "run", "-m", "deepseek/deepseek-v4-flash"]
       prompt: stdin
     headed:
-      tui: { argv: ["opencode"] }
+      tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-flash"] }
     effort: { inert: true }
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
@@ -475,7 +485,7 @@ profiles:
       argv: ["opencode", "run", "-m", "deepseek/deepseek-v4-pro"]
       prompt: stdin
     headed:
-      tui: { argv: ["opencode"] }
+      tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-pro"] }
     effort: { inert: true }
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
@@ -487,7 +497,7 @@ profiles:
       argv: ["opencode", "run", "-m", "sakana/fugu"]
       prompt: stdin
     headed:
-      tui: { argv: ["opencode"] }
+      tui: { argv: ["opencode", "-m", "sakana/fugu"] }
     effort: { inert: true }
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
@@ -499,7 +509,7 @@ profiles:
       argv: ["opencode", "run", "-m", "sakana/fugu-ultra"]
       prompt: stdin
     headed:
-      tui: { argv: ["opencode"] }
+      tui: { argv: ["opencode", "-m", "sakana/fugu-ultra"] }
     effort: { inert: true }
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
@@ -512,7 +522,7 @@ profiles:
       argv: ["opencode", "run", "-m", "google/gemini-flash-latest"]
       prompt: stdin
     headed:
-      tui: { argv: ["opencode"] }
+      tui: { argv: ["opencode", "-m", "google/gemini-flash-latest"] }
     effort: { inert: true }
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
@@ -525,7 +535,7 @@ profiles:
       argv: ["opencode", "run", "-m", "google/gemini-3.1-pro-preview"]
       prompt: stdin
     headed:
-      tui: { argv: ["opencode"] }
+      tui: { argv: ["opencode", "-m", "google/gemini-3.1-pro-preview"] }
     effort: { inert: true }
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full

@@ -96,10 +96,14 @@ the carrier is a spawn variant.
   profile with no `headed.tui` **refuses**, naming the seat and the profile — the headed block IS the
   declaration that a profile can carry a human (D17). `seat.md` still rides the system prompt through
   the one composer (`--append-system-prompt-file`, claude-only and conditional on the file existing).
-- ⚠ **Known bound — the shipped claude profiles pin no `--model` in `headed.tui`** (`argv: ["claude"]`),
-  so a foreground seat runs the harness's default model rather than the profile's. The harness binds;
-  the model does not. Fixing it is a one-line change per profile in `config/spawn-profiles.yaml` with
-  daemon-headed blast radius — **filed, not smuggled in.**
+- **`headed.tui` pins the profile's model** (owner ruling `decisions.md#d-s21-headed-tui-pins-model`,
+  closing S-21). It did not: `argv: ["claude"]` bound the harness and left the model to the harness
+  default, so `claude-opus` meant opus detached and *whatever claude defaults to* in a terminal. All
+  11 shipped profiles with a headed block now carry the same flag and the same value their detached
+  templates do (`--model <m>` for claude, `-m <provider/model>` for opencode — a ROOT option there,
+  so it applies to the bare TUI command and not only to `run`). **This changes the daemon-headed lane
+  too** (tmux-pane seats), ruled knowingly. `codex` and `kimi` declare no `headed:` block at all, so
+  no profile is left inconsistent with its detached half.
 - ⚠ **No cage.** A session sharing the owner's terminal has neither bwrap nor a systemd slice —
   the accepted bound of the console-run design (§ Cautions), the same one d1's hand-run elicitator
   had. The detached seats of the same run are caged exactly as before.
@@ -115,10 +119,25 @@ the carrier is a spawn variant.
   will detach. Stop the run and re-run it to change the answer.
 - **It needs a real tty**, so `rbtv run` on a goal with held seats cannot be a skill session's Bash
   call. The entry skill hands the user the command to type.
-- **No `sessions.csv` row is written for a foreground seat** — that row is the daemon spawn path's,
-  which this carriage deliberately does not go through. Consequence: a package whose seats were all
-  carried in the terminal has no launch trace, and the edge-runner's check-out fast path refuses a
-  traceless package wholesale. Filed for a ruling rather than patched here.
+- **A foreground seat writes the goal's `sessions.csv` row, like any other launch** (owner ruling
+  `decisions.md#d-s20-foreground-seat-writes-session-row`, closing S-20). It did not — that row was
+  written only by the daemon spawn path this carriage deliberately does not go through — so a package
+  whose seats were ALL carried in the terminal was traceless, and the edge-runner's check-out fast
+  path refuses a traceless package wholesale. That case is now gone rather than carved out.
+
+  | | daemon at-dispatch row | foreground row |
+  |---|---|---|
+  | writer | `spawn.js` (task 7.75) | `attached-execution.js` — same schema, same moment (before the child starts), same key |
+  | `session-id` | the launch's, joining its `jobs_log` row | **the same**: the join (task 7.73) is what marks it foreground — its execution carries `enqueued_by = attached-foreground` |
+  | `pid` / `pid-starttime` | the worker process's | **the runner's** — `coord.py pane_identity`'s rule: every process the seat runs is a descendant of `rbtv run`, and the identity gate matches against the caller's ANCESTRY. (`spawnSync` yields the child's pid only once it is dead, so there is no other honest choice.) |
+  | `tty` | always empty | the runner's numeric `tty_nr` — non-zero exactly when the run has a real terminal, which is the human-readable mark of a terminal-carried row |
+
+  The header is **not spelled in the engine**: `coord.py` owns `SESSIONS_COLS` and is asked for it, at
+  run time, only when the append has already refused for want of one — the same contract `spawn.js`
+  follows, so an all-foreground package's trace is born with the owner's header. A failure to record
+  is **loud and never fatal**: the seat is about to own the terminal, and refusing a launch over its
+  trace would be the worse outcome. (`appendRowEnsuringHeader` is not exported from `spawn.js`, so
+  the ~10 lines of *mechanism* exist twice while the *schema* still has one owner — flagged.)
 
 ### Crash semantics — the contract, stated explicitly
 
@@ -171,6 +190,40 @@ time**, released on the normal path and on a signal, and only ever released if i
 - **Belt and braces:** if a foreign writer ever ends a foreground row anyway, the carrier REFUSES to
   overwrite the terminal row and says so, rather than replacing another writer's outcome silently.
 
+## The cross-lane refusal — v1, and it has a retirement date
+
+**Owner ruling `decisions.md#d-s18-cross-lane-refusal`, closing S-18.** Each lane keeps its own heart
+store, and seeding is create-only **within a store** — so a goal half-run in one lane and picked up by
+the other RE-RUNS finished seats. Measured, not feared (`probe-cross-lane-resume.js` D2: the attached
+lane re-ran a seat the daemon store recorded as done, under the most generous key-matching assumption
+available). v1 answer: **a lane refuses a goal carrying execution evidence its own store cannot
+account for, naming what it found.**
+
+**What counts as evidence, and why it is not the obvious thing.** "The goal folder has a
+`sessions.csv`" is NOT lane-discriminating: an attached run's own detached seats go through the daemon
+spawn path and write exactly those rows. The deciding fact is the **join**: a trace row for a seat of
+this taskforce whose `session-id` no execution in **this goal's own store** owns. That is the cheapest
+honest detector available today, and it needs no new record.
+
+- It **refuses before the goal is touched** — before the run lock and before the store: a refusal that
+  first created and migrated a `heart.db` would have changed the goal it declined to run.
+- It reads the goal's store **only if one already exists** (same bar `--status` holds). No store plus
+  trace rows ⇒ every row is somebody else's by construction.
+- **`--status` never refuses.** Orientation is read-only, and a goal you cannot run is the goal you
+  most need to orient on.
+- It also catches a seat **run by hand** (a team-kit tmux sitting writes its own row through
+  `coord.py`). That is the same hazard in another coat — work this store has no record of — so the
+  message says what was measured rather than asserting which lane wrote it.
+- **The daemon direction is VACUOUSLY HELD, and that was measured rather than assumed.** One function
+  seeds a goal's taskforce (`seedTaskforce`) and its only non-probe caller is the attached lane's own
+  boot, so there is no daemon-side path that could pick up a goal and re-run its seats. A symmetric
+  refusal on that side would be dead code today; it becomes live the moment anything under `server/`
+  seeds a taskforce.
+- ⚠ **v1, with its successor already filed.** The full fix is Phase-6 work in
+  `rbtv-sb-merge-refactor-migrate` — *"Build the lane-independent execution record so a goal can move
+  between the daemon and console lanes"*: both lanes read/write ONE goal-folder record, and **this
+  guard retires when it lands**. Do not grow it into that record.
+
 ## What it runs
 
 The goal folder's `taskforce.csv` is the workflow. Each row is a seat; the row's **`after` column is
@@ -219,17 +272,28 @@ descriptor injection; the no-headed-block refusal with its control; and the cras
 — a `rbtv run` subprocess SIGKILLed while a foreground seat holds it, then re-run. Every arm proven
 red by mutation (drop the enqueue bar · force the predicate true · no-op the reconciliation · let a
 grant re-open finished work · drop the `seat-failed` verdict · remove the run lock · treat a live
-holder as stale · treat a dead holder as live · overwrite a foreign terminal row).
+holder as stale · treat a dead holder as live · overwrite a foreign terminal row). Sections **B1h**
+(S-20) and **B1i** (S-21) carry the two later rulings: the foreground row joins its own execution by
+session id, is schema-conformant against the file's OWN header, carries the runner's identity pair,
+and an ALL-FOREGROUND package's trace is born with the schema owner's header; every shipped
+`headed.tui` pins its profile's own model, and the pin survives composition on the real carrier path
+with a shipped profile. Mutations, all red: no-op the trace row · unpin one profile · pin the WRONG
+model on one profile. `tty` is REPORTED, never asserted — a probe cannot own a terminal.
 
-`ignite/engine/probes/probe-cross-lane-resume.js` — **B3, and its verdict is negative.** Cross-lane
-resume does not hold in either direction: the daemon lane has no path that seeds a goal's taskforce
-into its own store (one seeding function, one non-probe caller), and the attached lane re-ran a seat
-the daemon store recorded as done, under the most generous key-matching assumption available. The
-goal folder DOES carry a lane-independent trace (`sessions.csv`) — no engine module reads it. And
-nothing under `server/` asks whether a seat is `human-interactive`, so a held seat dispatched by the
-daemon lane is spawned as an ordinary detached child and the `fallback:` it is required to declare
-can fire nowhere. The daemon-side behavioural half is a **measured refusal**: it needs a live daemon,
-a gateway and an armed `edge-fastpath.json`, and the probe says so instead of faking it.
+`ignite/engine/probes/probe-cross-lane-resume.js` — **B3's negative verdict, and now the S-18 guard
+that answers it.** Cross-lane resume does not hold in either direction: the daemon lane has no path
+that seeds a goal's taskforce into its own store (one seeding function, one non-probe caller), and the
+attached lane re-ran a seat the daemon store recorded as done, under the most generous key-matching
+assumption available. Nothing under `server/` asks whether a seat is `human-interactive`, so a held
+seat dispatched by the daemon lane is spawned as an ordinary detached child and the `fallback:` it is
+required to declare can fire nowhere. The daemon-side behavioural half is a **measured refusal**: it
+needs a live daemon, a gateway and an armed `edge-fastpath.json`, and the probe says so instead of
+faking it. Section **D4** measures the refusal built on that basis — the message names the seat and
+the session id, no store or lock is left behind, `--status` still answers, and the guard is proven
+DISCRIMINATING by a pair: give the goal's own store an execution for that session id and the very same
+goal runs, while a goal the attached lane ran itself (two trace rows, one per carriage) is never
+refused. Mutations, all red: disable the guard · make it ignore the store join · no-op the foreground
+trace row.
 
 `ignite/engine/probes/probe-attached-status.js` — the `--status` verb (A3).
 

@@ -28,10 +28,14 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync, execFileSync } = require('node:child_process');
 const { createEngine } = require('./index');
 const substrate = require('./substrate');
 const { loadConfig } = require('../server/spawn/config');
+// The launch trace's own reader/writer — quote-aware and HEADER-DRIVEN (seat-identity/csv.js), the
+// same pair the daemon's at-dispatch row goes through. Not the minimal `readCsv` below: a
+// `sessions.csv` carries quoted fields, and a positional parse of it is wrong today.
+const { readCsv: readTraceCsv, appendRow: appendTraceRow } = require('../server/seat-identity/csv');
 
 // The goal folder's shape is the goals tree's (CMP-4), not ours to redefine. GOAL-DIRECT since
 // 7.607 (design-lock items 7-8 — the `runs/run-{n}` segment is extinguished, not optional):
@@ -40,6 +44,9 @@ const GOAL_FOLDER_RE = /[/\\]\.rbtv[/\\]goals[/\\][^/\\]+[/\\]?$/;
 
 const STORE_FILENAME = 'heart.db';
 const TASKFORCE = 'taskforce.csv';
+// The goal's LAUNCH TRACE — one row per launched session, schema owned by `coord.py SESSIONS_COLS`
+// (task 7.37). Read here by the cross-lane guard, written here by the foreground carrier.
+const SESSIONS_CSV = 'sessions.csv';
 
 // Every turn status the store knows (heart-store TURN_STATUSES). Enumerated so "is this seat
 // finished" is answered from the store's OWN partition of jobs_log rather than from a guess about
@@ -252,6 +259,83 @@ function enqueueEligible(heartStore, rows, { profile, goalFolder, logger, isHeld
   return enqueued;
 }
 
+// ── S-18 · THE CROSS-LANE REFUSAL, v1 (owner ruling decisions.md#d-s18-cross-lane-refusal) ────
+//
+// MEASURED BASIS (probe-cross-lane-resume.js): create-only seeding is create-only WITHIN A STORE,
+// and the two lanes keep two disjoint stores — the attached lane's `<goal>/heart.db` and the
+// daemon's `{state_root}/heart.db`. So a goal half-run in one lane and picked up by the other
+// RE-RUNS finished seats. Owner ruled v1 = REFUSE the crossover, naming the evidence found.
+//
+// THE DETECTOR, and why this one rather than something cheaper-looking. The obvious candidate —
+// "does the goal folder carry `sessions.csv` rows?" — is NOT lane-discriminating: an attached run's
+// own DETACHED seats go through the daemon spawn path and write exactly the same rows. What IS
+// discriminating is WHICH STORE the launch was recorded in, and the trace carries the join key for
+// that question: `session-id`. So the evidence of another lane is a launch trace row for a seat of
+// THIS taskforce whose session-id no execution in THIS goal's own store owns.
+//
+// It follows that the guard also catches a seat run BY HAND (a team-kit tmux sitting writes its own
+// `sessions.csv` row through coord.py). That is not a miss — it is the same hazard wearing another
+// coat: work was executed against this goal that this lane's store has no record of, and re-running
+// the seat would re-do it. The message therefore says what was MEASURED ("not recorded in this
+// goal's own store") rather than asserting which lane wrote it.
+//
+// ⚠ v1, WITH A SUCCESSOR ALREADY FILED. The full fix is Phase-6 work in the migrate member
+// (`rbtv-sb-merge-refactor-migrate`): "Build the lane-independent execution record so a goal can
+// move between the daemon and console lanes" — both lanes read/write ONE goal-folder record, and
+// THIS FUNCTION RETIRES when it lands. Do not grow it into that record.
+function crossLaneEvidence(goalFolder, { openStore = null } = {}) {
+  const tracePath = path.join(goalFolder, SESSIONS_CSV);
+  const tfPath = path.join(goalFolder, TASKFORCE);
+  if (!fs.existsSync(tracePath) || !fs.existsSync(tfPath)) return [];
+  const seats = new Set(readCsv(tfPath).map((r) => r.seat).filter(Boolean));
+  const rows = readTraceCsv(tracePath).rows
+    .filter((r) => r['session-id'] && seats.has(r.seat));
+  if (!rows.length) return [];
+
+  // The goal's own store is opened ONLY if it already exists — the same bar `--status` holds: a
+  // refusal must not leave a `heart.db` behind on a goal that never ran, which would make "has this
+  // goal ever run?" unanswerable from disk forever after. Absent store + trace rows ⇒ every one of
+  // them is somebody else's by construction.
+  const ours = new Set();
+  const storePath = path.join(goalFolder, STORE_FILENAME);
+  if (fs.existsSync(storePath)) {
+    const open = openStore || ((p) => require('../server/heart/heart-store').openHeartStore({ dbPath: p }));
+    const store = open(storePath);
+    try {
+      for (const status of ALL_TURN_STATUSES) {
+        for (const row of store.listExecutionsByStatus(status)) {
+          if (row.session_id) ours.add(row.session_id);
+        }
+      }
+    } finally {
+      store.close();
+    }
+  }
+  return rows
+    .filter((r) => !ours.has(r['session-id']))
+    .map((r) => ({ seat: r.seat, sessionId: r['session-id'], started: r.started || '', workdir: r.workdir || '' }));
+}
+
+function assertNoCrossLaneEvidence(goalFolder, opts) {
+  const foreign = crossLaneEvidence(goalFolder, opts);
+  if (!foreign.length) return;
+  const named = foreign.slice(0, 6)
+    .map((e) => `  seat ${e.seat}  session ${e.sessionId}${e.started ? `  started ${e.started}` : ''}`)
+    .join('\n');
+  throw new Error(
+    `REFUSING TO RUN: ${path.join(goalFolder, SESSIONS_CSV)} records ${foreign.length} launched ` +
+    `session(s) for this taskforce's seats that this goal's own store (${path.join(goalFolder, STORE_FILENAME)}) ` +
+    `has NO execution for — so they were run by ANOTHER LANE (the daemon), or by hand:\n${named}` +
+    `${foreign.length > 6 ? `\n  … and ${foreign.length - 6} more` : ''}\n` +
+    `Each lane keeps its own heart store and seeding is create-only WITHIN a store, so running this ` +
+    `goal here would RE-RUN work that lane already finished (measured: engine/probes/probe-cross-lane-resume.js). ` +
+    `v1 refuses the crossover (decisions.md#d-s18-cross-lane-refusal); the lane-independent execution ` +
+    `record that makes a goal portable between lanes is Phase-6 work. Finish the goal in the lane that ` +
+    `started it, or start a fresh goal. \`rbtv run <goal> --status\` still works here — orientation is ` +
+    `read-only and never refuses.`
+  );
+}
+
 // ── ONE RUNNER PER GOAL, ENFORCED (review finding 1, wave-B review) ───────────────────────────
 //
 // Everything below assumed a premise nobody enforced: that one attached run owns a goal at a time.
@@ -275,13 +359,29 @@ function enqueueEligible(heartStore, rows, { profile, goalFolder, logger, isHeld
 // interlock that cannot survive the process it names.
 const RUN_LOCK = '.attached-run.lock';
 
-// Field 22 of /proc/<pid>/stat, read from AFTER the comm field's closing paren — the comm can
-// contain spaces and parens, so a plain split() on the whole line is the classic wrong answer.
-function processStartTime(pid) {
+// /proc/<pid>/stat fields, read from AFTER the comm field's closing paren — the comm can contain
+// spaces and parens, so a plain split() on the whole line is the classic wrong answer. Index 0 of
+// what this returns is field 3, so field N is index N-3.
+function procStatFields(pid) {
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
-    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] || null;
+    return stat.slice(stat.lastIndexOf(')') + 2).split(' ');
   } catch { return null; }   // not Linux, or the process is gone — the caller degrades, not fails
+}
+
+// Field 22 — the process start time, in clock ticks since boot.
+function processStartTime(pid) {
+  const f = procStatFields(pid);
+  return (f && f[19]) || null;
+}
+
+// Field 7 — the NUMERIC `tty_nr` of the controlling terminal (0 = none). Numeric, not the
+// `/dev/pts/N` path, because that is what `coord.py pane_identity` records in this column and the
+// seat-identity gate corroborates against: two spellings of one column would read as a mismatch on
+// every seat.
+function processTtyNr(pid) {
+  const f = procStatFields(pid);
+  return (f && f[4]) || '';
 }
 
 function runnerAlive(pid, startTime) {
@@ -390,6 +490,80 @@ function spawnForegroundInTerminal(argv, cwd) {
   return spawnSync(argv[0], argv.slice(1), { cwd, stdio: 'inherit' });
 }
 
+// ── S-20 · THE FOREGROUND SEAT'S LAUNCH TRACE (owner ruling #d-s20-foreground-seat-writes-session-row)
+//
+// A terminal-carried seat IS a launched session, so it writes the goal's `sessions.csv` row like any
+// other launch. Before this, the row was written only by the daemon spawn path (`spawn.js`, task
+// 7.75's at-dispatch record) — which this carriage deliberately does not go through — so a package
+// whose seats were ALL carried in the terminal was traceless, and the edge-runner's check-out fast
+// path refuses a traceless package wholesale. That case now disappears rather than gaining a carve-out.
+//
+// SAME SCHEMA, SAME MOMENT, SAME KEY as the daemon's row, deliberately:
+//   · written IN THE DISPATCHING ACT, before the child starts — never post-hoc, never inferred.
+//   · keyed by the SAME `session_id` this seat's `jobs_log` row carries, which is what task 7.73's
+//     join reads. That join is also what makes the row IDENTIFIABLE AS FOREGROUND without a new
+//     column: its execution carries `enqueued_by = attached-foreground`.
+//   · appended BY COLUMN NAME against the file's own header (`seat-identity/csv.js`), so a reordered
+//     or widened trace keeps receiving correct rows.
+//
+// THE IDENTITY PAIR IS THE RUNNER'S, and that is the coord.py `pane_identity` rule applied here
+// rather than a shortcut: the gate matches a registered pid against the CALLER'S ANCESTRY, and every
+// process this seat runs is a descendant of `rbtv run`. Recording the child's pid is impossible in
+// any case — `spawnSync` yields it only after the child is dead. `tty` is therefore non-empty and
+// non-zero exactly when the run has a real terminal, which is the second, human-readable mark of a
+// foreground row: the daemon's at-dispatch row always writes it empty.
+//
+// THE HEADER IS NOT SPELLED HERE. `coord.py` owns this schema (`SESSIONS_COLS`, task 7.37) and is
+// ASKED for it, at run time, only on the path where the append has ALREADY refused for want of one —
+// exactly the contract `spawn.js`'s `appendRowEnsuringHeader` follows. (Two callers of one schema
+// owner, not two schemas; that helper is not exported, and unifying them is a flagged loose end.)
+const SESSIONS_HEADER_ARGV = ['-c',
+  'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))'];
+
+function appendForegroundSessionRow({ goalFolder, seat, sessionId, harness, workdir, logger = null }) {
+  const csvPath = path.join(goalFolder, SESSIONS_CSV);
+  const values = {
+    'session-id': sessionId,
+    seat,
+    harness: harness || '',
+    workdir,
+    pid: String(process.pid),
+    'pid-starttime': processStartTime(process.pid) || '',
+    tty: processTtyNr(process.pid),
+    started: isoNow(),
+  };
+  const warn = (message, extra) => {
+    if (logger) logger({ level: 'warn', message, seat, sessionsCsv: csvPath, sessionId, ...extra });
+  };
+  try {
+    let written = appendTraceRow(csvPath, values);
+    if (!written.appended) {
+      // Only the missing-header refusal is answered, and structurally: a file that already has a
+      // header is not ours to touch, whatever the refusal said.
+      const before = readTraceCsv(csvPath);
+      if (before.exists && before.header.length > 0) {
+        warn('foreground session row NOT recorded — this seat will be UNATTRIBUTABLE', { reason: written.reason });
+        return written;
+      }
+      const kit = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '..'), 'team-kit');
+      const header = execFileSync('python3', [...SESSIONS_HEADER_ARGV, kit], { encoding: 'utf8', timeout: 30000 }).trim();
+      if (!header.includes(',')) throw new Error(`the schema owner returned no header: ${JSON.stringify(header)}`);
+      fs.writeFileSync(csvPath, `${header}\n`, 'utf8');
+      if (logger) logger({ level: 'info', message: 'session trace had no header; created it from coord.py SESSIONS_COLS', sessionsCsv: csvPath, header });
+      written = appendTraceRow(csvPath, values);
+    }
+    if (written.appended && written.dropped.length && logger) {
+      logger({ level: 'warn', message: 'session log lacks columns; they were dropped, not invented (task 7.37 owns the schema)', seat, sessionsCsv: csvPath, dropped: written.dropped });
+    }
+    return written;
+  } catch (err) {
+    // NEVER fatal, for the daemon door's own reason: the seat is about to own this terminal, and
+    // refusing the launch over its trace would be a worse outcome than an unattributable session.
+    warn('foreground session row append failed — this seat will be UNATTRIBUTABLE', { error: err.message });
+    return { appended: false, reason: err.message, dropped: [] };
+  }
+}
+
 function nextHeldReadySeat(heartStore, rows, isHeld, relaunch) {
   const byJob = executionsByJob(heartStore, relaunch);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
@@ -436,6 +610,12 @@ function runForegroundSeat({
     workdir: seatDir,
   });
   if (logger) logger({ level: 'info', message: 'foreground seat — your terminal is now this seat\'s session', seat, argv: argv.join(' ') });
+
+  // S-20: the launch trace row, in the dispatching act, before the child owns the terminal.
+  const { harnessOf } = require('../server/spawn/harness-config');
+  appendForegroundSessionRow({
+    goalFolder, seat, sessionId, harness: harnessOf(profile), workdir: seatDir, logger,
+  });
 
   const res = spawnForeground(argv, seatDir) || {};
   const exitCode = typeof res.status === 'number' ? res.status : null;
@@ -713,6 +893,11 @@ async function executeAttached({
     );
   }
 
+  // S-18, BEFORE THE LOCK AND BEFORE THE STORE. Before the lock because this refusal is read-only
+  // and must not leave a lock file behind on its way out; before the store for the reason the lock
+  // is: a refusal that first creates and migrates a heart store has already changed the goal.
+  assertNoCrossLaneEvidence(goalFolder);
+
   // THE LOCK, BEFORE THE STORE IS OPENED. Refusing after opening it would already have created and
   // migrated a store behind a live runner's back.
   const runLock = acquireRunLock(goalFolder);
@@ -835,8 +1020,12 @@ module.exports = {
   spawnForegroundInTerminal,
   acquireRunLock,
   runnerAlive,
+  crossLaneEvidence,
+  assertNoCrossLaneEvidence,
+  appendForegroundSessionRow,
   FOREGROUND_ENQUEUER,
   RUN_LOCK,
+  SESSIONS_CSV,
   jobIdFor,
   GOAL_FOLDER_RE,
   STORE_FILENAME,

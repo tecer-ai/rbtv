@@ -546,6 +546,102 @@ async function main() {
     scopeRows.map((r) => `${r.job_id}=${r.status}`).join(' '));
   scopeStore.close();
 
+  // ── B1h · S-20 — a terminal-carried seat IS a launched session, and leaves the row ───────────
+  //
+  // Owner ruling `decisions.md#d-s20-foreground-seat-writes-session-row`. The row is the daemon
+  // spawn path's schema (`coord.py SESSIONS_COLS`), written by the carrier in the dispatching act
+  // and keyed by the SAME session id its `jobs_log` row carries — which is the join that makes it
+  // identifiable as foreground without inventing a column.
+  say('');
+  say('B1h — the foreground carrier writes the goal\'s sessions.csv row (S-20)');
+
+  const { readCsv: readTrace } = require('../../server/seat-identity/csv');
+  const fgTrace = readTrace(path.join(goal, 'sessions.csv'));
+  const alphaTraceRows = fgTrace.rows.filter((r) => r.seat === 'alpha');
+  const alphaExec = rowsFor(storePath, 'alpha')[0];
+  check('B1h the held seat has EXACTLY ONE trace row, and it joins its own execution by session id',
+    alphaTraceRows.length === 1 && alphaTraceRows[0]['session-id'] === alphaExec.session_id
+      && alphaExec.enqueued_by === attached.FOREGROUND_ENQUEUER,
+    `trace session-id=${alphaTraceRows[0] && alphaTraceRows[0]['session-id']} · jobs_log session_id=${alphaExec.session_id}`);
+  check('B1h the row is schema-conformant — every cell is a column of the file\'s OWN header',
+    fgTrace.header.includes('session-id') && fgTrace.header.includes('pid-starttime')
+      && alphaTraceRows[0].workdir === path.join(goal, 'seats', 'alpha')
+      && alphaTraceRows[0].harness === ''    // `probe-fg` runs `sleep`/`true`: no harness to name
+      && /^\d{4}-\d{2}-\d{2}T/.test(alphaTraceRows[0].started),
+    `header=${fgTrace.header.join('|')}`);
+  // The IDENTITY PAIR is the RUNNER's — the coord.py `pane_identity` rule: the seat's processes are
+  // all descendants of `rbtv run`, and the gate matches a registered pid against the caller's
+  // ancestry. `tty` is the numeric tty_nr and is only non-zero when the run really has a terminal,
+  // which a probe does not — so it is REPORTED here, never asserted (a probe cannot own a tty).
+  check('B1h the row carries the RUNNER\'s identity pair (its descendants are the seat\'s processes)',
+    alphaTraceRows[0].pid === String(process.pid) && alphaTraceRows[0]['pid-starttime'].length > 0,
+    `pid=${alphaTraceRows[0].pid} starttime=${alphaTraceRows[0]['pid-starttime']} tty=${alphaTraceRows[0].tty || '(none — this probe has no terminal)'}`);
+  check('B1h POSITIVE CONTROL: the detached sibling\'s row is there too, written by the daemon door',
+    fgTrace.rows.filter((r) => r.seat === 'bravo').length === 1,
+    fgTrace.rows.map((r) => `${r.seat}:${r['session-id'].slice(0, 8)}`).join(' '));
+
+  // THE CASE THE RULING EXISTS FOR: a package whose seats are ALL carried in the terminal. Before
+  // S-20 it was traceless — no launch ever went through the daemon door — and the edge-runner's
+  // check-out fast path refuses a traceless package wholesale. The header itself must be born here,
+  // from the schema owner, since nothing else has written the file.
+  const allFg = makeGoal('fg-goal-all-foreground', { humanInteractive: ['alpha', 'bravo'] });
+  await attached.executeAttached({
+    goalFolder: allFg,
+    profile: 'probe-fg',
+    spawnConfigPath: configPath,
+    tickIntervalMs: 200,
+    maxTicks: 40,
+    spawnForeground: () => ({ status: 0 }),
+  });
+  const allTrace = readTrace(path.join(allFg, 'sessions.csv'));
+  check('B1h an ALL-FOREGROUND package is no longer traceless — the file is born with the owner\'s header',
+    allTrace.exists && allTrace.header[0] === 'session-id' && allTrace.header.length >= 14
+      && allTrace.rows.map((r) => r.seat).sort().join() === 'alpha,bravo',
+    `${allTrace.rows.length} row(s): ${allTrace.rows.map((r) => r.seat).join(' ')}`);
+
+  // ── B1i · S-21 — every `headed.tui` pins its profile's model ─────────────────────────────────
+  //
+  // Owner ruling `decisions.md#d-s21-headed-tui-pins-model`. Measured against the COMMITTED config
+  // (not a fixture): a profile that pins its model in `exec` and not in `headed.tui` is a profile
+  // whose name means one model detached and the harness default in a terminal.
+  say('');
+  say('B1i — the shipped headed.tui blocks pin the profile\'s model (S-21)');
+
+  const shipped = loadConfig(COMMITTED_CONFIG).profiles;
+  const headedProfiles = Object.entries(shipped).filter(([, p]) => p.headed && p.headed.tui);
+  const MODEL_FLAGS = ['--model', '-m'];
+  const unpinned = headedProfiles.filter(([, p]) => {
+    const tui = p.headed.tui.argv;
+    const i = tui.findIndex((a) => MODEL_FLAGS.includes(a));
+    if (i < 0 || !tui[i + 1]) return true;
+    // …and it must be the profile's OWN model — the value its detached template pins. A pin that
+    // names a DIFFERENT model would satisfy "carries a model flag" and be worse than none.
+    const exec = (p.exec && p.exec.argv) || [];
+    const j = exec.findIndex((a) => MODEL_FLAGS.includes(a));
+    return j < 0 ? false : exec[j + 1] !== tui[i + 1];
+  });
+  check('B1i EVERY shipped profile with a headed.tui pins its own model there',
+    headedProfiles.length >= 11 && unpinned.length === 0,
+    `${headedProfiles.length} headed profile(s); unpinned/mismatched: ${unpinned.map(([n]) => n).join(', ') || 'none'}`);
+
+  // …and the pin survives COMPOSITION, on the real carrier path with a SHIPPED profile — the argv a
+  // foreground seat would actually receive, not the config line it came from.
+  const pinGoal = makeGoal('fg-goal-model-pin');
+  const pinStore = openHeartStore({ dbPath: path.join(pinGoal, 'heart.db'), profiles: shipped });
+  attached.seedTaskforce(pinStore, pinGoal, { profile: 'claude-fable' });
+  let pinArgv = null;
+  attached.runForegroundSeat({
+    heartStore: pinStore, seat: 'alpha', goalFolder: pinGoal,
+    profileName: 'claude-fable', profile: shipped['claude-fable'],
+    tick: 1, now: new Date(),
+    spawnForeground: (argv) => { pinArgv = argv; return { status: 0 }; },
+  });
+  pinStore.close();
+  check('B1i composeArgv gives the carrier the pinned model — measured on a SHIPPED profile',
+    pinArgv.slice(0, 3).join(' ') === 'claude --model claude-fable-5'
+      && pinArgv.includes('--append-system-prompt-file'),
+    JSON.stringify(pinArgv));
+
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 

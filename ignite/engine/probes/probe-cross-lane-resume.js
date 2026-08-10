@@ -133,31 +133,28 @@ async function main() {
 
   // ⚠ THE GOAL FOLDER DOES CARRY A LANE-INDEPENDENT RECORD, and this arm was written expecting the
   // opposite: `sessions.csv`, the launch trace the spawn path guarantees a header for (7.449). So a
-  // shared record EXISTS — what is missing is any reader that uses it to decide eligibility.
+  // shared record EXISTS — and since S-20 the engine both WRITES to it (the foreground carrier) and
+  // READS it (the D4 refusal below).
   const trace = path.join(goalFolder, 'sessions.csv');
   const traceRows = fs.existsSync(trace) ? fs.readFileSync(trace, 'utf8').trim().split('\n') : [];
   check('D1 the goal folder DOES carry a lane-independent trace — `sessions.csv`, written at launch',
     traceRows.length > 1, `${Math.max(0, traceRows.length - 1)} row(s)`);
-  // ⚑ THE PATTERN IS A QUOTED PATH, not the bare word: `attached-execution.js` NAMES the trace in a
-  // comment, and a match on prose would have this check fire on the sentence that describes the
-  // absence it is measuring. A read is a string literal; the control below proves the pattern finds
-  // one where one exists.
+  // ⚑ THE PATTERN IS A QUOTED PATH, not the bare word: a match on prose would fire on the sentences
+  // that merely NAME the trace. The control proves the pattern finds a real reader where one exists.
   const TRACE_READ = /['"]sessions\.csv['"]/;      // quotes only — a backticked mention is prose
-  const traceReaders = filesMatching(TRACE_READ).filter((f) => f.startsWith('engine/'));
   const traceReadersAnywhere = filesMatching(TRACE_READ);
-  check('D1 …and NOTHING in the engine reads it: eligibility is `jobs_log` and nothing else',
-    traceReaders.length === 0 && traceReadersAnywhere.includes('server/spawn/spawn.js'),
-    `engine/: ${traceReaders.join(', ') || 'none'} · control (a real reader exists): ${traceReadersAnywhere.join(', ')}`);
+  check('D1 …and since S-18 the ENGINE reads it too — the refusal below is that read',
+    traceReadersAnywhere.includes('engine/attached-execution.js')
+      && traceReadersAnywhere.includes('server/spawn/spawn.js'),
+    `readers: ${traceReadersAnywhere.join(', ')}`);
+  // S-20 (owner ruling #d-s20-foreground-seat-writes-session-row) FLIPPED THIS ARM, and the flip is
+  // the acceptance: a terminal-carried seat IS a launched session, so BOTH carriages of one run now
+  // appear in the one trace. The pre-ruling finding (D1b, "the carrier leaves no row") is retired,
+  // not merely edited — the traceless-package case it filed no longer exists.
   const tracedSeats = traceRows.slice(1).join('\n');
-  check('D1 the FOREGROUND carrier writes no trace row — only the detached seat of the same run appears',
-    /bravo/.test(tracedSeats) && !/alpha/.test(tracedSeats),
+  check('D1 BOTH carriages of the run leave a trace row — the foreground seat and the detached one',
+    /alpha/.test(tracedSeats) && /bravo/.test(tracedSeats),
     traceRows.slice(1).map((r) => r.split(',').slice(0, 3).join(',')).join(' | ') || 'empty');
-  finding('D1b the foreground carrier leaves NO `sessions.csv` row, because that row is written by '
-    + 'the daemon spawn path it deliberately does not go through. Consequence, stated rather than '
-    + 'discovered later: the edge-runner\'s check-out fast path refuses a package with no trace '
-    + 'WHOLESALE, and a package whose seats were ALL carried in the terminal would have none. Filed '
-    + 'for a ruling — the trace records LAUNCHED sessions, and whether a terminal-carried seat is '
-    + 'one of those is a definition question, not a bug to patch from here.');
 
   const daemonStore = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
   const daemonKnows = daemonStore.dump().jobs_log.filter((r) => /^seat-/.test(r.job_id));
@@ -267,6 +264,92 @@ async function main() {
     + 'message gate and, since B1, the attached engine\'s carrier. The daemon lane is not one of '
     + 'them. Filed for a ruling: either the daemon lane REFUSES to dispatch a held seat of an '
     + 'interactive goal, or something must execute the fallback it already requires them to declare.');
+
+  // ── D4 · THE S-18 REFUSAL (owner ruling decisions.md#d-s18-cross-lane-refusal) ───────────────
+  //
+  // D2 measured the harm; this measures the v1 answer to it. The whole difficulty is that the
+  // evidence is NOT "the goal has a launch trace" — an attached run's own detached seats write the
+  // same rows (D1). The deciding fact is the JOIN: a trace row for a seat of this taskforce whose
+  // `session-id` no execution in THIS goal's store owns. So the arms below are a discriminating
+  // pair over exactly that fact, plus the false-positive control that matters most in practice.
+  say('');
+  say('D4 — a lane REFUSES a goal carrying execution evidence its own store has no record of');
+
+  const foreignGoal = path.join(workspace, '.rbtv', 'goals', 'lane-goal-3');
+  for (const s of ['alpha', 'bravo']) fs.mkdirSync(path.join(foreignGoal, 'seats', s), { recursive: true });
+  fs.mkdirSync(path.join(foreignGoal, 'coordination'), { recursive: true });
+  fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(foreignGoal, 'taskforce.csv'));
+  for (const s of ['alpha', 'bravo']) {
+    fs.copyFileSync(path.join(goalFolder, 'seats', s, 'seat.md'), path.join(foreignGoal, 'seats', s, 'seat.md'));
+  }
+  fs.writeFileSync(path.join(foreignGoal, 'execution-mode'), 'interactive\n');
+  // The header comes from the SCHEMA OWNER (coord.py SESSIONS_COLS), never spelled here — the same
+  // contract the two writers follow. A fixture that invents the header would prove nothing about a
+  // real trace.
+  const HEADER = require('node:child_process').execFileSync('python3',
+    ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
+      path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim();
+  const FOREIGN_SESSION = '11111111-2222-3333-4444-555555555555';
+  const foreignTrace = path.join(foreignGoal, 'sessions.csv');
+  const idx = HEADER.split(',');
+  const cell = (m) => idx.map((c) => m[c] || '').join(',');
+  fs.writeFileSync(foreignTrace, `${HEADER}\n${cell({
+    'session-id': FOREIGN_SESSION, seat: 'alpha', harness: 'claude',
+    workdir: path.join(foreignGoal, 'seats', 'alpha'), started: isoNow(),
+  })}\n`);
+
+  const attempt = async (goal) => {
+    try { await attached.executeAttached({ goalFolder: goal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200, maxTicks: 1, spawnForeground: () => ({ status: 0 }) }); return null; }
+    catch (err) { return err.message; }
+  };
+
+  const refusal = await attempt(foreignGoal);
+  check('D4 `rbtv run` REFUSES a goal carrying a launched session its own store never recorded',
+    Boolean(refusal) && /REFUSING TO RUN/.test(refusal) && refusal.includes(FOREIGN_SESSION) && /seat alpha/.test(refusal),
+    (refusal || 'NO REFUSAL').split('\n').slice(0, 2).join(' / '));
+  check('D4 …and it refuses BEFORE touching the goal: no heart store created, no run lock left behind',
+    !fs.existsSync(path.join(foreignGoal, 'heart.db')) && !fs.existsSync(path.join(foreignGoal, attached.RUN_LOCK)),
+    fs.readdirSync(foreignGoal).join(' '));
+  check('D4 orientation is READ-ONLY and never refuses — `--status` still answers on that same goal',
+    (() => {
+      const st = attached.statusAttached({ goalFolder: foreignGoal });
+      return st.everRun === false && st.seats.length === 2 && !fs.existsSync(path.join(foreignGoal, 'heart.db'));
+    })(), 'a goal you cannot run is exactly the goal you most need to orient on');
+
+  // THE DISCRIMINATING HALF. Nothing about the goal changes except the ONE fact the guard decides
+  // on: the goal's own store gains an execution carrying that session id. If the refusal were
+  // firing on "there is a trace" (or on the seat, or on the file), this would still refuse.
+  const ownStore = openHeartStore({ dbPath: path.join(foreignGoal, 'heart.db'), profiles: cfg.profiles });
+  ownStore.registerJob({
+    jobId: attached.jobIdFor('alpha'), actionType: 'launch-agent',
+    args: undefined, argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string' } }),
+    function: 'seat alpha', description: 'seat alpha', createdAt: isoNow(), updatedAt: isoNow(),
+  });
+  ownStore.recordExecutionStart({
+    jobId: attached.jobIdFor('alpha'), actionType: 'launch-agent',
+    args: JSON.stringify({ profile: 'probe-lane' }), enqueuedBy: attached.FOREGROUND_ENQUEUER,
+    sessionMode: 'headed', firedTick: 1, firedAt: new Date(), sessionId: FOREIGN_SESSION,
+  });
+  ownStore.close();
+  check('D4 MUTATION OF THE DECIDING FACT: give THIS store an execution for that session id and the '
+    + 'very same goal runs — the guard reads the JOIN, not the file',
+    (await attempt(foreignGoal)) === null,
+    `evidence = a trace row this store cannot account for, and nothing else`);
+
+  // THE FALSE-POSITIVE CONTROL, and the one that decides whether this guard is shippable: a goal
+  // the attached lane ran itself carries TWO trace rows (D1) — one per carriage — and neither is
+  // evidence of another lane. A guard that refused here would brick every resume.
+  check('D4 CONTROL: the attached lane RE-RUNS its own goal — its own two rows are not evidence',
+    (await attempt(goalFolder)) === null,
+    'both carriages\' rows join to executions in this goal\'s own store');
+
+  finding('D4 the refusal\'s DAEMON half is VACUOUSLY HELD, not built, and that is measured rather '
+    + 'than assumed: D1 shows ONE function seeds a goal\'s taskforce (`seedTaskforce`) and its only '
+    + 'non-probe caller is the attached lane\'s own boot, so there is no daemon-side path that could '
+    + 'pick up a goal and re-run its seats — the direction the guard would protect does not exist to '
+    + 'be guarded. Building a symmetric refusal on the daemon side today would be dead code. It '
+    + 'becomes live the moment anything under `server/` seeds a taskforce; the Phase-6 '
+    + 'lane-independent execution record retires the question for both lanes at once.');
 
   fs.rmSync(tmp, { recursive: true, force: true });
 }
