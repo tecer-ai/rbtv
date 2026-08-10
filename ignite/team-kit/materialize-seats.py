@@ -157,7 +157,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -289,8 +289,101 @@ ALLOWED_BINDING_KEYS = frozenset((
     "after", "cwd-mode", "description", "agent_type", "harness", "model",
     "effort", "mode", "ctx-refresh", "window", "senders", "close",
     "auto-wake", "ephemeral", "broadcast", "component", "relays",
-    "pass-folder",
+    "addressable", "pass-folder",
 ))
+
+# ---- the SEAT CAGE declaration (owner-ruled 2026-08-10) ----
+#
+# The bwrap sandbox a daemon-spawned seat runs inside is composed by
+# `ignite/server/spawn/spawn.js` from keys it reads OUT OF `seat.md`'s
+# frontmatter at spawn time (`seatDeclares` / `seatDeclaresList`). Until this
+# ruling those keys had NO SOURCE: they were typed into the live descriptors by
+# hand and existed nowhere else, so nothing could re-render a seat.md without
+# silently deleting the seat's whole sandbox. Absence is the mechanism there —
+# a key that is not present is a mount that is never made — so the loss is
+# silent and CRIPPLING rather than permissive: the channel master would come up
+# unable to read the vault, write anything, reach any run's bus, or execute the
+# CLIs its own skills route to.
+#
+# The ruled home is the SEAT CATALOG ROW — these are properties of what the
+# seat IS (the same seat wants ~/.local/bin on any machine), not of how one
+# launch happens to be configured, which is what `bindings` carries. Two
+# columns, never one per grant: `cage-grants` names which grants the seat
+# wants, and the cage TEMPLATE in spawn-profiles.yaml already knows what each
+# one means.
+#
+#   seats.csv:  cage-grants          "read-root bus-write local-bin"
+#               rw-paths             "1-projects,2-areas"
+#
+# `exposed-clis:` is DELIBERATELY NOT HERE. It is the sandbox realization of a
+# prompt card's `exposes: path:` declaration, so it is DERIVED from the card
+# like every other loader — a seat that could hand-declare it in the catalog
+# would be a second, disagreeing home for the same fact.
+CAGE_GRANTS = (
+    "read-root", "keep-instruction-files", "bus-write", "goals-write",
+    "local-bin", "gateway-env", "tmux-socket",
+)
+CAGE_RW_COLUMN = "rw-paths"
+CAGE_GRANTS_COLUMN = "cage-grants"
+
+
+def _cage_frontmatter(seat: str, seats_cat: dict) -> dict:
+    """The seat's cage declaration, read off its catalog row, ready to emit
+    into the descriptor frontmatter. `{}` when the row declares none — a seat
+    with no cage keys is the normal case (an uncaged tmux seat), never a
+    defect.
+
+    Both columns REFUSE rather than skip on a bad value. spawn.js warns and
+    drops a bad `rw-paths` entry, which is right at spawn time (one bad line
+    must not take the seat down) and wrong at authoring time: a dropped grant
+    surfaces as a seat that mysteriously cannot write, hours later, in a log
+    nobody is reading. Here the author is still holding the file."""
+    row = seats_cat.get(seat) or {}
+    fm: dict = {}
+    raw = str(row.get(CAGE_GRANTS_COLUMN, "") or "").replace(",", " ").split()
+    for grant in raw:
+        if grant not in CAGE_GRANTS:
+            raise Refuse(
+                "cage-grant-unknown",
+                f"seat '{seat}' declares cage-grant '{grant}' — the sandbox "
+                "composes only " + " | ".join(CAGE_GRANTS)
+                + "; an unknown grant is a refusal, never a silently-dropped "
+                "mount (`exposed-clis` is DERIVED from the prompt card's "
+                "`exposes: path:` and is never declared here)",
+            )
+    for grant in CAGE_GRANTS:          # canonical order, never the row's
+        if grant in raw:
+            fm[grant] = True
+    rw = [e.strip() for e in
+          str(row.get(CAGE_RW_COLUMN, "") or "").split(",") if e.strip()]
+    for entry in rw:
+        # The three spawn.js rejects, applied where the author can still act.
+        if PurePosixPath(entry).is_absolute():
+            raise Refuse(
+                "cage-rw-path-absolute",
+                f"seat '{seat}' declares rw-path '{entry}' — rw-paths entries "
+                "are WORKSPACE-RELATIVE; spawn.js drops an absolute one with "
+                "a warning nobody reads",
+            )
+        parts = PurePosixPath(entry).parts
+        if ".." in parts:
+            raise Refuse(
+                "cage-rw-path-escapes",
+                f"seat '{seat}' declares rw-path '{entry}' — an entry that "
+                "climbs out of the workspace root resolves to a grant the "
+                "sandbox refuses",
+            )
+        if parts[:2] == (".rbtv", "goals"):
+            raise Refuse(
+                "cage-rw-path-ground-truth",
+                f"seat '{seat}' declares rw-path '{entry}' — .rbtv/goals is "
+                "where the identity ground truth lives (sessions.csv, every "
+                "seat.md); a cage whose occupant can rewrite the gate's own "
+                "input is decoration, and spawn.js refuses this entry too",
+            )
+    if rw:
+        fm[CAGE_RW_COLUMN] = rw
+    return fm
 
 # ---- pass-folder substitution (B4, B5, G-planner-0804-1502) ----
 
@@ -863,7 +956,8 @@ def check_repass(package: Path, added: list[str]) -> None:
                 "seat is the plain run, never --repass",
                 str(target),
             )
-        if seat not in rows:
+        if seat not in rows and not standing_seat(package):
+            # A standing-seat home has no taskforce.csv to disagree with.
             raise Refuse(
                 "repass-no-row",
                 f"--repass leaves the registry untouched and {TASKFORCE_NAME} "
@@ -1131,7 +1225,7 @@ def _descriptor_frontmatter(seat: str, b: dict, package: str,
             "'seat-folder' ({package}/seats/<seat>/); an undecidable cwd is "
             "refused, never defaulted",
         )
-    cwd = f"{package}/seats/{seat}/"
+    cwd = str(seat_home(Path(package), seat)) + "/"
 
     mode = str(b.get("mode", "") or "").strip()
     if mode and mode not in DESCRIPTOR_MODES:
@@ -1241,10 +1335,14 @@ def _descriptor_frontmatter(seat: str, b: dict, package: str,
     # when A-40 was ruled (a) — d-relays-frontmatter-passthrough; it is the
     # seat's relay-path declaration for a role word, and both the addressing
     # resolution and the reap exemption hang off it (module docstring).
-    for key in ("auto-wake", "ephemeral", "broadcast", "component", "relays"):
+    for key in ("auto-wake", "ephemeral", "broadcast", "component",
+                "relays", "addressable"):
         val = b.get(key)
         if val not in (None, ""):
             fm[key] = val
+    # The SEAT CAGE, last: the bwrap sandbox spawn.js composes by reading these
+    # very keys back out of the emitted file (owner-ruled 2026-08-10).
+    fm |= _cage_frontmatter(seat, seats_cat)
     return fm
 
 
@@ -1343,6 +1441,21 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
         exp = (plan.get("exposes") or {}).get(seat)
         if exp:
             fm["exposes"] = exp
+
+        # …and the SANDBOX-realized half (d-path-exposes-authorable): the
+        # `path` parts resolved to `<part-id> <abs entry point>`. The cage's
+        # ONE declaration reader (spawn.js seatDeclaresList) consumes this
+        # key, so the enabled-CLI set rides the seat.md surface every other
+        # grant class rides — an occupant cannot widen it, because seat.md is
+        # ro-carved inside the cage. It is emitted HERE and not by the
+        # derived-surface pass on purpose: a file beside seat.md is WRITABLE
+        # from inside the seat, which would make a grant self-grantable.
+        clis = [f"{pid} {(rdir / (row.get('entry-point') or '').strip()).resolve()}"
+                for m, pid, row, rdir
+                in (plan.get("expose_parts") or {}).get(seat, ())
+                if m == "path"]
+        if clis:
+            fm["exposed-clis"] = clis
 
         tail = ""
         if fm["mode"] == "one-shot":
@@ -1953,7 +2066,16 @@ def emit_harness_configs(plan: dict) -> list[str]:
 # collision refusal. A prompt with no `exposes:` (or no prompt FILE at all —
 # csv-shaped prompts, tool seats) generates nothing: absence is normal.
 
-SEAT_EXPOSE_METHODS = ("skill", "command", "rule", "hook", "sub-agent")
+#   path       NO harness cell (CMP-12 keeps none) — the SANDBOX realizes it
+#              (d-path-exposes-authorable, owner 2026-08-10). Nothing is
+#              written beside seat.md; instead the resolved entry point lands
+#              in the DESCRIPTOR frontmatter as `exposed-clis:` (one
+#              `<part-id> <abs entry path>` per line), which the cage's one
+#              declaration reader picks up and binds read-only — the code tree
+#              at its real path plus a sandbox symlink carrying the installed
+#              NAME, both ends of the host symlink. An UNCAGED seat's
+#              declaration realizes nothing, exactly as before.
+SEAT_EXPOSE_METHODS = ("skill", "command", "rule", "hook", "sub-agent", "path")
 
 _LOADER_NOTE = ("Generated by materialize-seats.py from the component's "
                 "exposure manifest (d-materializer-seat-loaders) — a thin "
@@ -2049,6 +2171,77 @@ def _exposure_rows(comp_dir: Path) -> dict[str, dict]:
     return rows
 
 
+def _rbtv_repo_root(comp_dir: Path) -> Path:
+    """The rbtv REPO tree — the second resolution root a `rbtv:`-prefixed
+    reference addresses (owner ruling, 2026-08-10).
+
+    The catalog root and the repo are DIFFERENT TREES: a mirror component
+    (`.rbtv/mirror/<module>/<component>/`) cannot reach the repo with the
+    3-segment grammar, whose arithmetic is relative to the referencing
+    component's own position. The entry book is `.rbtv/config/install.json`
+    (install2's record) — found by walking UP from the referencing component,
+    so the workspace is derived, never guessed. install.json records the
+    workspace as `target` but carries NO repo source path; the repo path is
+    `rbtv.json`'s `rbtv_path` at that workspace root (the same book
+    `{rbtv_path}` is resolved from everywhere else). Both books must be
+    present and carry their field, else REFUSE with what was found."""
+    book = None
+    for parent in (comp_dir, *comp_dir.parents):
+        cand = parent / ".rbtv" / "config" / "install.json"
+        if cand.is_file():
+            book = cand
+            break
+    if book is None:
+        raise Refuse(
+            "exposes-repo-root-underivable",
+            "a `rbtv:` reference resolves through the install book and no "
+            ".rbtv/config/install.json exists at or above the referencing "
+            "component — nothing addresses the repo tree",
+            str(comp_dir))
+    try:
+        data = json.loads(book.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise Refuse(
+            "exposes-repo-root-underivable",
+            f"install book is not readable JSON — {exc}",
+            str(book)) from exc
+    target = str((data or {}).get("target") or "").strip()
+    workspace = Path(target) if target else book.parent.parent.parent
+    rbtv_book = workspace / "rbtv.json"
+    if not rbtv_book.is_file():
+        raise Refuse(
+            "exposes-repo-root-underivable",
+            "install.json carries no repo source path (its keys: "
+            + ", ".join(sorted((data or {}).keys()))
+            + f") and {rbtv_book} — the book that records `rbtv_path` — does "
+            "not exist; a `rbtv:` reference has no tree to resolve against",
+            str(book))
+    try:
+        rbtv_path = str((json.loads(rbtv_book.read_text(encoding="utf-8"))
+                         or {}).get("rbtv_path") or "").strip()
+    except (OSError, ValueError) as exc:
+        raise Refuse(
+            "exposes-repo-root-underivable",
+            f"rbtv.json is not readable JSON — {exc}",
+            str(rbtv_book)) from exc
+    if not rbtv_path:
+        raise Refuse(
+            "exposes-repo-root-underivable",
+            "rbtv.json carries no `rbtv_path` — a `rbtv:` reference has no "
+            "tree to resolve against",
+            str(rbtv_book))
+    root = Path(rbtv_path)
+    if not root.is_absolute():
+        root = workspace / root
+    if not root.is_dir():
+        raise Refuse(
+            "exposes-repo-root-underivable",
+            f"rbtv.json's `rbtv_path` resolves to {root}, which is not a "
+            "directory",
+            str(rbtv_book))
+    return root
+
+
 def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
     """Resolve + validate every added seat's `exposes:` declaration (ALL
     gates fire here, before any render and any write):
@@ -2079,21 +2272,40 @@ def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
                 # position (comp_dir.parent.parent = the tree root above
                 # the modules) — identical arithmetic for the mirror and
                 # the rbtv repo, both `<tree>/<module>/<component>/`.
-                segs = ref.split("/")
-                if not all(s.strip() for s in segs) or len(segs) > 3:
-                    raise Refuse(
-                        "exposes-invalid",
-                        f"seat '{seat}' exposes '{ref}' ({method}) — a "
-                        "reference is `part`, `component/part`, or "
-                        "`module/component/part`; empty segments or deeper "
-                        "nesting are not expressible",
-                    )
-                if len(segs) == 1:
-                    ref_dir = comp_dir
-                elif len(segs) == 2:
-                    ref_dir = comp_dir.parent / segs[0]
+                # …plus the SECOND ROOT (owner-ruled 2026-08-10): a
+                # `rbtv:`-prefixed reference resolves against the rbtv REPO
+                # tree instead of the referencing component's own tree —
+                # `rbtv:<component>/<part>` at whatever depth the repo puts
+                # the manifest (`rbtv:ignite/coordinate` today, module root;
+                # `rbtv:ignite/team-kit/coordinate` after the CMP-5 move,
+                # same line). Unprefixed references are untouched.
+                if ref.startswith("rbtv:"):
+                    segs = ref[len("rbtv:"):].split("/")
+                    if len(segs) < 2 or not all(s.strip() for s in segs):
+                        raise Refuse(
+                            "exposes-invalid",
+                            f"seat '{seat}' exposes '{ref}' ({method}) — a "
+                            "`rbtv:` reference is "
+                            "`rbtv:<path-under-the-repo>/<part>` and needs at "
+                            "least one directory segment before the part-id",
+                        )
+                    ref_dir = _rbtv_repo_root(comp_dir).joinpath(*segs[:-1])
                 else:
-                    ref_dir = comp_dir.parent.parent / segs[0] / segs[1]
+                    segs = ref.split("/")
+                    if not all(s.strip() for s in segs) or len(segs) > 3:
+                        raise Refuse(
+                            "exposes-invalid",
+                            f"seat '{seat}' exposes '{ref}' ({method}) — a "
+                            "reference is `part`, `component/part`, or "
+                            "`module/component/part`; empty segments or "
+                            "deeper nesting are not expressible",
+                        )
+                    if len(segs) == 1:
+                        ref_dir = comp_dir
+                    elif len(segs) == 2:
+                        ref_dir = comp_dir.parent / segs[0]
+                    else:
+                        ref_dir = comp_dir.parent.parent / segs[0] / segs[1]
                 pid = segs[-1]
                 rows = _exposure_rows(ref_dir)
                 if pid not in rows:
@@ -2685,7 +2897,26 @@ def run(args) -> dict:
                 "a descriptor deliberately, the other refuses anything that "
                 "does not byte-match",
             )
-    creation = plan_package_creation(package, args)  # dag-06 (plans, no write)
+    if standing_seat(package):
+        # A standing-seat home is ONE seat with many sessions and no goal
+        # around it (r-master-seat-homes): no conduct.md, no budget.json, no
+        # taskforce.csv, no run register. Demanding those surfaces here is
+        # what refused every attempt to re-render the channel master's
+        # descriptor. It also may not be MINTED from here — a plain
+        # materialize appends a registry row, and there is no registry.
+        if not (repass or getattr(args, "refresh", False)):
+            raise Refuse(
+                "standing-seat-plain-materialize",
+                f"package '{package.name}' is a STANDING-SEAT home (one seat, "
+                "many sessions, no goal apparatus) — it is UPDATED with "
+                "--refresh or re-rendered with --repass, never minted by a "
+                "plain materialize, which would append a taskforce.csv row to "
+                "a package that has no registry",
+                str(package),
+            )
+        creation = []
+    else:
+        creation = plan_package_creation(package, args)  # dag-06 (plans, no write)
     if repass and creation:
         raise Refuse(
             "repass-incomplete-package",
@@ -3120,8 +3351,10 @@ def build_fixture(tmp: Path) -> dict:
     expc = tmp / "catalog" / "exp-comp"
     expc.mkdir(parents=True)
     expc.joinpath("seats.csv").write_text(
-        "seat-id,executor,task,staffing-hints,description\n"
-        "exp-seat,alpha-prompt,alpha-task,,the exposure seat\n",
+        "seat-id,executor,task,staffing-hints,description,cage-grants,"
+        "rw-paths\n"
+        "exp-seat,alpha-prompt,alpha-task,,the exposure seat,"
+        "read-root bus-write local-bin,1-projects\n",
         encoding="utf-8")
     expc.joinpath("exposure.csv").write_text(
         "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
@@ -3131,6 +3364,32 @@ def build_fixture(tmp: Path) -> dict:
         "hk1,capability,hook,,hooks/hk1.json,post-write lint\n"
         "res1,prompt,sub-agent,,prompts/res1.md,fixture researcher\n",
         encoding="utf-8")
+    # The SECOND RESOLUTION ROOT (d-path-exposes-authorable): a `rbtv:` ref
+    # addresses the rbtv REPO tree, found by walking up from the referencing
+    # component to `.rbtv/config/install.json` and reading `rbtv.json`'s
+    # `rbtv_path` at the workspace that book records. `tmp` stands in for the
+    # workspace; `tmp/repo` for the rbtv repo, module manifest at module root
+    # exactly as `ignite/exposure.csv` sits today.
+    (tmp / ".rbtv" / "config").mkdir(parents=True)
+    (tmp / ".rbtv" / "config" / "install.json").write_text(
+        json.dumps({"schema": 1, "installer": "install2.py",
+                    "target": str(tmp), "components": {}}) + "\n",
+        encoding="utf-8")
+    (tmp / "rbtv.json").write_text(
+        json.dumps({"rbtv_version": "0.0.0-fixture", "rbtv_path": "repo"})
+        + "\n", encoding="utf-8")
+    repo_mod = tmp / "repo" / "ignite"
+    (repo_mod / "team-kit").mkdir(parents=True)
+    repo_mod.joinpath("exposure.csv").write_text(
+        "# a prose header line — `#`-led lines are dropped before the header\n"
+        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+        "coordfix,tool,path,,team-kit/coordfix.py,\n"
+        "skillish,capability,skill,,team-kit/skillish.md,a skill row\n",
+        encoding="utf-8")
+    repo_mod.joinpath("team-kit", "coordfix.py").write_text(
+        "#!/usr/bin/env python3\nprint('coordfix')\n", encoding="utf-8")
+    repo_mod.joinpath("team-kit", "skillish.md").write_text(
+        "# skillish\n", encoding="utf-8")
     for rel, body in (
             ("skills/brws.md", "# brws\n\nBrowse skill content.\n"),
             ("commands/cmd1.md", "# cmd1\n\nCommand content.\n"),
@@ -3150,6 +3409,7 @@ def build_fixture(tmp: Path) -> dict:
              "  rule: [rul1]\n"
              "  hook: [hk1]\n"
              "  sub-agent: [res1]\n"
+             "  path: [rbtv:ignite/coordfix]\n"
              "---\n\nWhole-file prompt card — read for `exposes:`; assembly "
              "still resolves the catalog prompt row.\n")):
         p = expc / rel
@@ -3264,6 +3524,7 @@ def build_fixture(tmp: Path) -> dict:
         "b_mcp": str(bdir / "mcp-seat.json"),
         "b_exp": str(bdir / "exp-seat.json"),
         "exp_prompt": str(expc / "prompts" / "alpha-prompt.md"),
+        "repo_mod": str(repo_mod),
         "mcp_decl": str(mcpc / "mcp.json"),
         "src_conduct": str(seeds / "conduct.md"),
         "src_claude": str(seeds / "CLAUDE.md"),
@@ -4846,6 +5107,8 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "EXP-1": (("EXP-1 green",), ("EXP-1 red",)),
     # The --refresh update mode (derived surfaces only; standing-seat home).
     "RF-1": (("RF-1 green",), ("RF-1 red",)),
+    # The seat-cage declaration (owner-ruled 2026-08-10).
+    "CG-1": (("CG-1 green",), ("CG-1 red",)),
     # The pass-folder substitution rows (B4, B5, G-planner-0804-1502).
     "PF-1": (("PF-1 green",), ("PF-1 red",)),
     "PF-2": (("PF-2 green",), ("PF-2 red",)),
@@ -5300,6 +5563,25 @@ def run_selftest() -> int:
         check("EXP-1 green: seat.md frontmatter carries the validated "
               "`exposes:` mapping",
               "exposes:" in (sd / "seat.md").read_text(encoding="utf-8"))
+        # ── `path` — the SANDBOX-realized method (d-path-exposes-authorable) ──
+        sfm = yaml.safe_load(
+            _FM_RE.match((sd / "seat.md").read_text(encoding="utf-8")).group(1))
+        coordfix = str(Path(fxe["repo_mod"]) / "team-kit" / "coordfix.py")
+        check("EXP-1 green: a `rbtv:`-prefixed `path` ref resolves through "
+              "install.json/rbtv.json and lands in seat.md as `exposed-clis:` "
+              "— `<part-id> <absolute entry point>`, the cage's grant surface",
+              sfm.get("exposed-clis") == [f"coordfix {coordfix}"],
+              repr(sfm.get("exposed-clis")))
+        check("EXP-1 green: the declaration is readable by the cage's LIST "
+              "reader shape (a block list of scalars under the key)",
+              "\nexposed-clis:\n- coordfix "
+              in (sd / "seat.md").read_text(encoding="utf-8"),
+              (sd / "seat.md").read_text(encoding="utf-8")[:600])
+        check("EXP-1 green: `path` mints NO harness loader — CMP-12 keeps no "
+              "cell for it, so nothing is written beside seat.md for coordfix",
+              not any(p.name.startswith("coordfix")
+                      for p in sd.rglob("*") if p.is_file()),
+              str([str(p) for p in sd.rglob("coordfix*")]))
         res_e = json.loads(pe.stdout) if pe.stdout.strip() else {}
         declared = {w["path"] for w in res_e.get("writes", [])
                     if w.get("kind") == "seat-exposure"}
@@ -5339,6 +5621,40 @@ def run_selftest() -> int:
               pr2.returncode == 1 and "exposes-ref-dangling" in pr2.stderr
               and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
               pr2.stderr.strip()[:200])
+        # …and the SAME two refusals across the second root: a `rbtv:` ref is
+        # not a bypass of the gates the own-tree grammar fires.
+        prompt_path.write_text(
+            orig.replace("path: [rbtv:ignite/coordfix]",
+                         "path: [rbtv:ignite/ghostcli]"), encoding="utf-8")
+        pr3 = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
+                       "--bindings", fxe["b_exp"]] + common_e, clean_env)
+        check("EXP-1 red: a dangling `rbtv:` reference refuses "
+              "exposes-ref-dangling and writes NOTHING",
+              pr3.returncode == 1 and "exposes-ref-dangling" in pr3.stderr
+              and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
+              pr3.stderr.strip()[:200])
+        prompt_path.write_text(
+            orig.replace("path: [rbtv:ignite/coordfix]",
+                         "path: [rbtv:ignite/skillish]"), encoding="utf-8")
+        pr4 = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
+                       "--bindings", fxe["b_exp"]] + common_e, clean_env)
+        check("EXP-1 red: a `rbtv:` ref whose row declares method 'skill' "
+              "refuses exposes-method-mismatch under `path:` and writes "
+              "NOTHING",
+              pr4.returncode == 1 and "exposes-method-mismatch" in pr4.stderr
+              and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
+              pr4.stderr.strip()[:200])
+        prompt_path.write_text(
+            orig.replace("path: [rbtv:ignite/coordfix]",
+                         "path: [rbtv:coordfix]"), encoding="utf-8")
+        pr5 = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
+                       "--bindings", fxe["b_exp"]] + common_e, clean_env)
+        check("EXP-1 red: a `rbtv:` ref with no directory segment refuses "
+              "exposes-invalid and writes NOTHING",
+              pr5.returncode == 1 and "exposes-invalid" in pr5.stderr
+              and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
+              pr5.stderr.strip()[:200])
+        prompt_path.write_text(orig, encoding="utf-8")
 
     print("RF-1 --refresh: derived surfaces only, standing-seat home included")
     with tempfile.TemporaryDirectory() as rf_td:
@@ -5405,6 +5721,68 @@ def run_selftest() -> int:
               and not (ghost / "seats").exists()
               and not (ghost / ".claude").exists(),
               pr_red.stderr.strip()[:200])
+        pr_mint = _invoke(["--package", str(home), "--catalog-root",
+                           fxr["catalog"], "--seat", "exp-seat", "--root",
+                           "--bindings", fxr["b_exp"], "--json"], clean_env)
+        check("RF-1 red: a PLAIN materialize into a standing-seat home is "
+              "refused — it would append a taskforce.csv row to a package "
+              "that has no registry, and the authored seat.md is untouched",
+              pr_mint.returncode == 1
+              and "standing-seat-plain-materialize" in pr_mint.stderr
+              and (home / "seat.md").read_text(encoding="utf-8") == authored,
+              pr_mint.stderr.strip()[:200])
+
+    print("CG-1 seat cage: the sandbox declaration emitted from the catalog row")
+    with tempfile.TemporaryDirectory() as cg_td:
+        tmp_cg = Path(cg_td)
+        fxc = build_fixture(tmp_cg)
+        common_c = ["--catalog-root", fxc["catalog"], "--seat", "exp-seat",
+                    "--root", "--json"]
+        seats_csv = Path(fxc["catalog"]) / "exp-comp" / "seats.csv"
+        base = seats_csv.read_text(encoding="utf-8")
+        pc = _invoke(["--package", fxc["pkg"], "--bindings", fxc["b_exp"]]
+                     + common_c, clean_env)
+        md = (Path(fxc["pkg"]) / "seats" / "exp-seat" / "seat.md")
+        head = md.read_text(encoding="utf-8").split("\n---", 1)[0] \
+            if md.is_file() else ""
+        # The emitted file IS the spawner's input: spawn.js reads these keys
+        # back out of it with `^<key>:\s*true$` and a `^\s*-\s*(.*)$` block
+        # list. Declared grants present, undeclared ones ABSENT — absence is
+        # the mechanism, so a stray `true` is a mount nobody asked for.
+        want = ["read-root: true", "bus-write: true", "local-bin: true",
+                "rw-paths:", "- 1-projects"]
+        unwanted = ["goals-write:", "tmux-socket:", "gateway-env:",
+                    "keep-instruction-files:"]
+        check("CG-1 green: the cage the seat's catalog row declares is emitted "
+              "into seat.md in the shape spawn.js parses, and the grants it "
+              "does NOT declare are ABSENT rather than false",
+              pc.returncode == 0
+              and all(w in head for w in want)
+              and not any(u in head for u in unwanted),
+              (pc.stderr.strip()[:200]
+               or str([w for w in want if w not in head])
+               + str([u for u in unwanted if u in head]))) 
+        check("CG-1 green: a standing-seat descriptor's cwd is the PACKAGE "
+              "itself, not <package>/seats/<seat>/",
+              str(seat_home(Path(tmp_cg) / "goals" / "_exp-seat", "exp-seat"))
+              == str(Path(tmp_cg) / "goals" / "_exp-seat"),
+              str(seat_home(Path(tmp_cg) / "goals" / "_exp-seat", "exp-seat")))
+        for bad, code in (
+                ("read-root ghost-grant,1-projects", "cage-grant-unknown"),
+                ("read-root,/abs/path", "cage-rw-path-absolute"),
+                ("read-root,.rbtv/goals/x", "cage-rw-path-ground-truth")):
+            seats_csv.write_text(
+                base.replace("read-root bus-write local-bin,1-projects", bad),
+                encoding="utf-8")
+            pr = _invoke(["--package", fxc["pkg9"], "--bindings", fxc["b_exp"]]
+                         + common_c, clean_env)
+            check(f"CG-1 red: a bad cage declaration refuses {code} and "
+                  "writes NOTHING — spawn.js only warns-and-drops, which is "
+                  "right at spawn time and blind at authoring time",
+                  pr.returncode == 1 and code in pr.stderr
+                  and not (Path(fxc["pkg9"]) / "seats" / "exp-seat").exists(),
+                  pr.stderr.strip()[:200])
+        seats_csv.write_text(base, encoding="utf-8")
 
     print("dag-04 acceptance pass (SC rows, each with its failing control)")
     run_dag04_acceptance(check, clean_env)
