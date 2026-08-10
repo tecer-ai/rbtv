@@ -205,6 +205,76 @@ armed and inert, and every conversation takes exactly the cold path it takes now
 | Ferried bus row → Slack | 0–15s poll | **~0.3s** (watch debounce + pass) |
 | Async job outcome → owner | never (manual ask) | ~0.5s after settle |
 
+## Per-harness eligibility verdicts — measured 2026-08-10
+
+Task 7.641 answered "why is warm claude-only?" (owner asked 2026-08-10) for the two other installed
+harnesses plus opencode. Live spikes ran on this box (Windows 11, codex-cli 0.130.0/npm →
+0.137.0-shaped CLI confirmed at dispatch time, kimi 1.41.0; opencode NOT installed). Evidence files:
+`1-projects/rbtv-sb-merge-refactor-core-build/build/warm-session-batch-0810/evidence/7641-*`
+(prefix `7641-`, one file per harness per capability).
+
+The three capabilities, restated from § *The spike that unblocked it* above: (1) `--input-format
+stream-json` multi-turn stdin feeding with in-order mid-turn queueing, (2) exactly one `result`
+event per fed turn, (3) `--session-id`/`--resume` continuity for the cold fallback.
+
+### codex (codex-cli, this box)
+
+| Capability | Verdict | Evidence |
+|---|---|---|
+| (1) stream-json stdin, mid-turn queueing | **FAIL — no mechanism** | `codex exec --help` (`7641-codex-exec-help.txt`) has NO `--input-format` flag at all; the only prompt paths are the positional `PROMPT` arg or an opaque stdin block appended verbatim to it — not a structured per-turn feed. `codex exec-server` (`codex exec-server --help`, `7641-codex-exec-server-help.txt`) is marked **[EXPERIMENTAL]**, a ws/stdio transport with no documented per-turn JSON schema — using it would be brute-forcing an undocumented wire protocol, which the spike's own instruction rules out. No live turn-feed test was run because there is nothing to feed. |
+| (2) one `result` event per fed turn | **NOT-APPLICABLE** | Depends on capability (1)'s prerequisite — a persistent multi-turn process — which does not exist for codex; each `codex exec` invocation is a fresh one-shot process by construction, so "events per fed turn" has no substrate to measure against this harness. |
+| (3) session-id / resume continuity | **Mechanism exists, NOT LIVE-VERIFIED (auth-blocked)** | `codex exec resume <SESSION_ID>` is documented (`codex --help` → `7641-codex-toplevel-help.txt`; `codex exec resume --help` → `7641-codex-exec-resume-help.txt`). A live two-turn resume probe (`codex exec --json … "Reply with exactly: OK"`) could not run: `codex login status` reports "Logged in using ChatGPT," yet every live call 401s with `Your access token could not be refreshed because your refresh token was already used` (`7641-codex-turn1-stdout.jsonl`, `7641-codex-turn1-stderr.txt`, exit 1, reproduced twice). Re-login is interactive/owner-only (manual: "USER-EXECUTED-ONLY; never automate the browser sign-in") — outside this dispatch's authority. |
+
+**codex conclusion: stays cold-path.** Capability (1) is a measured FAIL by absence — sufficient on
+its own per the eligibility gate — independent of the auth blocker on (3).
+
+### kimi (kimi-code-cli, this box)
+
+| Capability | Verdict | Evidence |
+|---|---|---|
+| (1) stream-json stdin, mid-turn queueing | **Mechanism exists, NOT LIVE-VERIFIED (auth-blocked)** | `kimi --help` (`7641-kimi-help.txt`) carries `--input-format [text\|stream-json]` and `--output-format [text\|stream-json]` — flag names matching claude's mechanism exactly, the closest match of the three harnesses. A live probe (`spike-kimi-cap1-2.js`, node `child_process`, piping a claude-shaped `{"type":"user","message":{...}}` JSONL line, then a second line 2.5s into the first turn) produced **zero stdout and a clean exit 0** (`7641-kimi-cap1-2-stdout.jsonl` — empty; timeline in `7641-kimi-cap1-2-meta.txt`). A baseline sanity call outside stream-json (`kimi --quiet --prompt "Reply with exactly: OK"`) also failed, with an explicit cause: `Error code: 401 - The API Key appears to be invalid or may have expired` (`7641-kimi-baseline-stdout.txt`, `7641-kimi-baseline-stderr.txt`). The empty stream-json result is attributed to the SAME auth failure, not a message-shape rejection — but this is inferred, not proven, since a 401 under `--print`/stream-json produced no error text on stdout (unlike the plain baseline call). |
+| (2) one `result` event per fed turn | **NOT-EXERCISED** | Blocked by the same auth failure — no turn could be fed to observe event cardinality. |
+| (3) session-id / resume continuity | **Mechanism exists, NOT LIVE-VERIFIED (auth-blocked)** | `--session`/`--resume`/`-S`/`-r` and `--continue`/`-C` are documented (`7641-kimi-help.txt`; confirmed further via the CLI's own docs, `moonshotai.github.io/kimi-cli`). No live resume round-trip was possible under the current 401. |
+
+**kimi conclusion: INCONCLUSIVE, not a measured FAIL.** Every flag kimi needs for all three
+capabilities is present and, for capability (1), is the only harness whose flag names mirror
+claude's mechanism. Nothing could be exercised live because the CLI's API key is currently invalid
+or expired on this box (`kimi login` is interactive/owner-only, same authority boundary as codex).
+**Re-spike kimi once credentials are fixed — do not treat this INCONCLUSIVE as a FAIL verdict**, and
+do not promote it to PASS/adapter-warranted without a live re-run. Until re-measured, kimi stays
+cold-path by the same "unmeasured is not eligible" default the design already applies.
+
+### opencode
+
+| Capability | Verdict | Evidence |
+|---|---|---|
+| (1) stream-json stdin, mid-turn queueing | **FAIL — no mechanism** | `where opencode` finds no binary on this box (`7641-opencode-absence.txt`) — no `--help` to check directly. Falling back to the opencode model package's own manual (`orchestration/models/opencode/manual.md`, `7641-opencode-manual-excerpt.txt`): "`opencode run` executes one headless turn (or resumes a session)... There is no separate print/quiet flag — `run` IS the headless mode" (line 153). The only structured-JSON option documented is `--format json` for OUTPUT events (line 179) — no `--input-format`/stream-json INPUT mechanism appears anywhere in the 44 KB manual. |
+| (2) one `result` event per fed turn | **NOT-APPLICABLE** | Same reasoning as codex — no persistent multi-turn process in the documented invocation shape. |
+| (3) session-id / resume continuity | **Mechanism documented, NOT-MEASURABLE-ON-THIS-BOX** | `opencode run -s <SESSION_ID>` (resume by id) and `opencode run -c` (resume cwd's last session, "POC-proven two-turn memory, 2026-07-06") are both documented (manual lines 205–213) — but cannot be live-exercised: the CLI is not installed here. |
+
+Per the run's scope ruling, the `i-opencode-profile-broken` issue named in the dispatch was checked
+at `.rbtv/goals/_channel-master/issues.md`: it is **absent** from that ledger as of this read — only
+`i-cold-contact-latency` remains open there. Cross-referencing `decisions.md#d-async-jobs-self-report-and-reply-contract`
+and `build/chat-bridge-feedback-and-reply-contract.md` (both in the core-build project root) shows
+the row was **resolved and deleted the same day** (2026-08-10, WP-A/B/C): it was a reply-contract /
+fence-conformance defect ("opencode: first bare turn ignores the fence... rides the revive path"),
+unrelated to stdin/stream-json/session mechanics — it does not change either verdict above. Full
+citation trail: `7641-opencode-issue-resolved.txt`.
+
+**opencode conclusion: stays cold-path, ineligible** — documented rather than guessed, per the run's
+scope ruling. Capability (1) fails by absence in its own model-package docs regardless of
+installation state; installing opencode on this box would not change that verdict without a
+harness-level stdin-feeding mechanism appearing in a future opencode release.
+
+### Net effect on eligibility (§ *On this deployment, nothing is eligible yet*, above)
+
+No new adapter work is warranted by this measurement: codex and opencode both fail capability (1) by
+documented absence; kimi is unmeasured (blocked by an auth failure outside this dispatch's
+authority, not a capability gap) and must be re-spiked before any adapter decision. The `master
+profile is not claude` blocker in the table above is therefore not resolved by switching to kimi or
+codex today — a claude profile (or a fixed-and-re-measured kimi) remains the only path to an
+eligible master.
+
 ## Deploy policy (owner-ruled 2026-08-10)
 
 Implementation agents restart the ignite daemon and verify end-to-end (real Slack round-trip)
