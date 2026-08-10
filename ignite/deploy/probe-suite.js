@@ -166,6 +166,35 @@ function tmuxIsolatedEnv(opts) {
   return cachedIsolatedEnv;
 }
 
+// ⚠ `python3` IS NOT AN INTERPRETER ON WINDOWS — IT IS USUALLY A LIE (task 7.700). Windows ships a
+// Microsoft-Store app-execution alias at `%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe` that is
+// ON PATH, IS EXECUTABLE, AND RUNS NO PYTHON: it prints "Python was not found; run without
+// arguments to install from the Microsoft Store" and exits non-zero (9009 from cmd, 49 from a
+// POSIX shell). So every `.py` probe read RED-by-environment through this runner on the Windows
+// desktop while the real interpreter sat on the same PATH as `python`.
+// THE DETECTION MUST THEREFORE BE AN EXECUTION, NOT A LOOKUP. `where python3` finds the alias;
+// `spawnSync` succeeds in spawning the alias; only its EXIT CODE plus its OUTPUT distinguish it
+// from a real interpreter. Probed ONCE per process, in PATH order, first candidate that actually
+// reports `Python <n>` on exit 0 wins.
+// POSIX IS BYTE-UNCHANGED: `python3 --version` exits 0 saying `Python 3.x` there, so `python3` is
+// still what every probe is spawned with. The `python` fallback is reachable only where `python3`
+// does not exist or is the alias, and when NEITHER candidate runs we hand back `python3` so the
+// failure a box without Python produces is the same one it produced before.
+let cachedPython;
+function pythonCmd() {
+  if (cachedPython !== undefined) return cachedPython;
+  cachedPython = null;
+  for (const cmd of ['python3', 'python']) {
+    const r = spawnSync(cmd, ['--version'], { encoding: 'utf8', timeout: 15000 });
+    if (r.error || r.status !== 0) continue;
+    if ([r.stdout, r.stderr].some((s) => /^Python \d/.test(String(s || '').trim()))) {
+      cachedPython = cmd;
+      break;
+    }
+  }
+  return cachedPython;
+}
+
 function executeProbe(probe, opts) {
   const timeoutMs = opts.timeoutMs;
   const outBefore = statMtimeMs(probe.outPath);
@@ -179,7 +208,7 @@ function executeProbe(probe, opts) {
   // a run now simply refreshes the file beside its probe, with a real mtime.
   const startedAt = Date.now();
 
-  const cmd = probe.lang === 'py' ? 'python3' : process.execPath;
+  const cmd = probe.lang === 'py' ? (pythonCmd() || 'python3') : process.execPath;
   const res = spawnSync(cmd, [probe.abs], {
     cwd: path.dirname(probe.abs),
     timeout: timeoutMs,
@@ -712,6 +741,18 @@ function selftest() {
       if (!/the real failure/.test(d)) throw new Error('the genuine FAIL line is missing');
       if (/a bad status is REFUSED/.test(d)) {
         throw new Error('a PASS line containing a failure word was selected as a failure');
+      }
+    });
+
+  t('S16 ⚠ the resolved python interpreter EXECUTES python — the Windows MS-Store alias for '
+    + '`python3` is on PATH and spawns fine while running nothing, so a lookup-based check passes '
+    + 'on the exact box where every .py probe reds by environment (7.700)', () => {
+      const cmd = pythonCmd();
+      if (cmd === null) return;   // no python on this box at all — nothing to resolve, nothing to assert
+      const r = spawnSync(cmd, ['-c', 'print("live")'], { encoding: 'utf8', timeout: 15000 });
+      if (r.error || r.status !== 0 || !/live/.test(String(r.stdout || ''))) {
+        throw new Error(`resolved '${cmd}' does not run python: status=${r.status} `
+          + `stdout=${JSON.stringify(tail(r.stdout, 120))} stderr=${JSON.stringify(tail(r.stderr, 120))}`);
       }
     });
 

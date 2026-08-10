@@ -30,6 +30,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
+const { awaitExit } = require('../../engine/probes/await-exit');
 
 const start = Date.now();
 const outPath = path.join(__dirname, 'probe-gateway-live.out');
@@ -139,7 +140,10 @@ function bootDaemon(env, { expectExit = false } = {}) {
       if (!expectExit && /"message":"gateway listening"/.test(state.stdout)) done({ listening: true });
     });
     proc.stderr.on('data', (d) => { state.stderr += d.toString(); });
-    proc.on('exit', (code) => done({ exitCode: code, listening: false }));
+    // awaitExit, not a bare exit listener: a daemon that fails to SPAWN emits no `exit`
+    // at all, so a bare listener leaves this promise to the 20s timeout and reports a
+    // spawn failure as a plain no-listening boot (task 7.686, 7.621's class).
+    awaitExit(proc).then(({ code }) => done({ exitCode: code, listening: false }));
     setTimeout(() => done({ listening: false, timedOut: true }), 20000);
   });
 }
@@ -223,7 +227,9 @@ async function main() {
       `code=${r.body && r.body.error && r.body.error.code}`);
   } finally {
     // Stop ONLY the child this probe spawned, through the real shutdown path.
-    const exited = new Promise((resolve) => b.proc.once('exit', resolve));
+    // awaitExit, not a bare exit listener: if the daemon already died earlier in this
+    // probe, the event fired before this line and a late listener never would (7.686).
+    const exited = awaitExit(b.proc);
     b.proc.kill('SIGTERM');
     await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
     try { b.proc.kill('SIGKILL'); } catch {}

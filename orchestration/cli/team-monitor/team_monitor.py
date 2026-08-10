@@ -1318,6 +1318,38 @@ RELAUNCH_EXHAUSTED_LINE = ("team-monitor: RELAUNCH EXHAUSTED — the room did no
                            f"{len(RELAUNCH_BACKOFF_S)} bounded attempts and NO finish event exists")
 
 
+def escalate_relaunch_exhausted(package, room, seats):
+    """The LOUD BUS half of the exhaustion escalation — `#d-extinguishment-design-lock` item 3.
+
+    ⚠ RESTORED, NOT INVENTED (task 7.35 Phase A). `watch.py` carried this escalation
+    (`_escalate_relaunch_exhausted`, `2d903ec^:ignite/team-kit/watch.py:7276`) and task 7.664
+    removed watch.py's ladder WITHOUT bringing it across, so the SURVIVING ladder's exhaustion
+    reached only stderr. That is not an escalation: this sensor runs detached and nobody tails
+    its log at 03:00 — the bus is the one surface a human is addressed on, and it is what
+    `probe-hollow-room-relaunch` H3 pins. The stderr line stays; this is added beside it.
+
+    ⚠ `coord()` IS THE LAZY BY-PATH IMPORT ALREADY IN THIS FILE, never a new import-level
+    reach-out into `ignite/` (`ignite/CLAUDE.md` rule 4) — same custody as every other borrowed
+    symbol here.
+
+    A delivery failure is REPORTED and never swallowed, and it can never stop the loop: a sensor
+    that died because it could not complain is worse than the condition it complains about.
+    """
+    try:
+        coord().append_message(
+            Path(package) / "coordination", "team-monitor", "leader", "ask",
+            f"{RELAUNCH_EXHAUSTED_LINE}\n\nroom: {room or 'UNKNOWN'}\nlease: {seats} verified "
+            f"seat(s)\n\nThe goal has NO finish event, so it is unfinished, and no verified "
+            f"seat is executing it — the room is either absent or an EMPTY shell a relaunch "
+            f"restored without occupants. This sensor is still running and will keep reporting, "
+            f"but NOTHING IS EXECUTING THIS GOAL. Either re-seat the room by hand, or fire the "
+            f"finish edge (`coordinate finish-goal`) if the goal is genuinely over.")
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"team-monitor: the relaunch escalation could NOT be delivered to the bus "
+              f"({exc!r}) — the condition stands and is unreported to the leader",
+              file=sys.stderr, flush=True)
+
+
 def run_exit_never_alive(session, how):
     """The (message, exit-code) pair of a sensor aimed at a session that was NEVER alive.
 
@@ -1425,6 +1457,7 @@ def cmd_run(args):
                           f"Re-seat the room, or fire the finish edge (`coordinate finish-goal`) "
                           f"if the goal is genuinely over.",
                           file=sys.stderr, flush=True)
+                    escalate_relaunch_exhausted(args.package, session, seats)
             try:
                 write_snapshot(capture(args.package, session, args.sensor, args.heart_db), args.package)
             except Exception as e:  # noqa: BLE001 — a bad pass must never kill the sensor

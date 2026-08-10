@@ -236,12 +236,19 @@ try {
   check('the split migration IS registered — the owner ratified it 2026-07-28, and un-registering it would silently un-arm a migration the owner directed and verified',
     MIGRATIONS.some((m) => m.version === MIGRATION_SESSION_SPLIT.version),
     `MIGRATIONS holds versions [${MIGRATIONS.map((m) => m.version).join(',')}]`);
-  // The hazard migrations.js names in its own comment, and which nothing asserted: LATEST is
-  // derived FROM the array, so registering the migration BELOW that derivation leaves LATEST at 1
-  // while MIGRATIONS holds 2 — every store then stamps short of the migrations it has run.
-  check('and it is registered BEFORE LATEST is derived — else LATEST lags the list and stores stamp short of what ran',
-    LATEST === MIGRATION_SESSION_SPLIT.version,
+  // The hazard migrations.js names in its own comment: LATEST is derived FROM the array, so a
+  // registration the derivation does not see leaves LATEST lagging the list and every store stamps
+  // short of the migrations it has run. The invariant is COVERAGE, not equality — this row asserted
+  // `LATEST === split.version` and went red the moment a LATER migration (job-seat-home, v3) was
+  // registered, which is the derivation working rather than failing (task 7.683).
+  check('and LATEST COVERS it — else LATEST lags the list and stores stamp short of what ran',
+    LATEST >= MIGRATION_SESSION_SPLIT.version,
     `LATEST=${LATEST} split.version=${MIGRATION_SESSION_SPLIT.version}`);
+  // The general form of the same invariant, which nothing asserted: registration ORDER must not be
+  // able to strand any migration outside LATEST's reach.
+  check('LATEST covers EVERY registered migration, whatever order they registered in',
+    MIGRATIONS.every((m) => LATEST >= m.version),
+    `LATEST=${LATEST} versions=[${MIGRATIONS.map((m) => m.version).join(',')}]`);
 
   // …and it must nonetheless WORK, or the registration is arming a broken migration. Proven by
   // injection on a store built in the PRE-SPLIT shape, so the migration has real work to do.
