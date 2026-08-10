@@ -134,9 +134,10 @@ const MIGRATION_SESSION_SPLIT = {
   },
 };
 
-// Registered 2026-07-28, owner-directed and owner-verified. MUST sit here: MIGRATION_SESSION_SPLIT
-// is defined AFTER the array literal (so it cannot be written inside it) and LATEST derives FROM
-// the array on the next line — registering later would leave LATEST at 1 while MIGRATIONS held 2.
+// Registered 2026-07-28, owner-directed and owner-verified. It sits here because
+// MIGRATION_SESSION_SPLIT is defined AFTER the array literal and so cannot be written inside it.
+// (This block also said the line MUST sit above the LATEST derivation — true until task 7.683 moved
+// that derivation to the foot of the file, where no registration line can outrun it.)
 // Proven against a COPY of the live store before registering: 0 -> 2, session_pk created, and the
 // query that crash-looped the daemon (no such column: j.session_pk) then ran clean.
 MIGRATIONS.push(MIGRATION_SESSION_SPLIT);
@@ -152,7 +153,7 @@ MIGRATIONS.push(MIGRATION_SESSION_SPLIT);
 //
 // Proven by INJECTION (`migrate(db, { migrations: [...] })` — the parameter this module exposes for
 // exactly this). RATIFICATION IS THEN ONE REVIEWABLE LINE, placed immediately below, exactly where
-// 7.46's went and for the reason stated above it — above the `LATEST` derivation:
+// 7.46's went and for the reason stated above it — below the const definition:
 //
 //     MIGRATIONS.push(MIGRATION_JOB_SEAT_HOME);   ← SUPERSEDED DRAFT — never place the line HERE:
 //     this spot precedes the const definition and throws a module-load ReferenceError (measured,
@@ -189,7 +190,7 @@ const MIGRATION_JOB_SEAT_HOME = {
 
 // ARMED per `r-migration-job-seat-home-ratified` (owner ratification, 2026-08-03) +
 // `p-migration-arming-granted`; executed at the master console under the owner's GO (#3144).
-// Placed HERE — after the const definition, above the LATEST derivation — because the comment
+// Placed HERE — after the const definition — because the comment
 // block's draft spot precedes the definition and throws at module load (record §R.10c).
 MIGRATIONS.push(MIGRATION_JOB_SEAT_HOME);
 
@@ -229,7 +230,7 @@ const MIGRATION_ENQUEUING_SEAT = {
 // restart — a deploy nobody decided to make. The migration above is DEFINED and proven by INJECTION
 // (`migrate(db, { migrations: [...] })`, the parameter this module exposes for exactly this;
 // `probe-migration-enqueuing-seat` drives it). Ratification is then ONE reviewable line, placed
-// HERE — below the const, above the LATEST derivation, the spot both siblings use (the comment-block
+// HERE — below the const, the spot both siblings use (the comment-block
 // spot precedes the definition and throws a module-load ReferenceError, measured at §R.10c):
 //
 //     MIGRATIONS.push(MIGRATION_ENQUEUING_SEAT);
@@ -240,8 +241,6 @@ const MIGRATION_ENQUEUING_SEAT = {
 // change. That degrade is the fail-closed direction — the grant is purely ADDITIVE (authz.js).
 // (It is exported BY NAME in the block at the foot of this file — never with a `module.exports.x =`
 // line here, which the terminal `module.exports = { … }` assignment would silently clobber.)
-
-const LATEST = MIGRATIONS.length ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
 
 function userVersion(db) {
   const row = db.prepare('PRAGMA user_version').get();
@@ -319,6 +318,14 @@ function userVersionSafe(db, fallback) {
   try { return userVersion(db); } catch { return fallback; }
 }
 
+// LATEST derives HERE, at the foot of the file — after every registration line above it — and as
+// the MAX of the registered versions rather than the last element (task 7.683). It used to sit
+// mid-file, which made the POSITION of every `MIGRATIONS.push(...)` load-bearing: a push below it
+// left LATEST lagging the list and stores stamped a version short of the migrations that had
+// actually run. Three comment blocks above had to warn about that ordering; now no push can outrun
+// the derivation and the warning is unnecessary.
+const LATEST = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0);
+
 module.exports = {
   MIGRATIONS,
   LATEST,
@@ -332,12 +339,12 @@ module.exports = {
   MIGRATION_SESSION_SPLIT,
   // Task 7.12. Exported and NOT in MIGRATIONS — the probes inject it to prove it works, which is a
   // separate claim from it being armed. Per the note above its definition, the day this is
-  // ratified the push goes above `LATEST` and THIS COMMENT BECOMES FALSE: correct it in the same
+  // ratified the push goes below the const and THIS COMMENT BECOMES FALSE: correct it in the same
   // change, as the line above had to be.
   MIGRATION_JOB_SEAT_HOME,
   // Task 7.389. Exported and NOT in MIGRATIONS — `probe-migration-enqueuing-seat` injects it to
   // prove it works, which is a separate claim from it being armed. Per the note above its
-  // definition, the day the owner ratifies it the push goes above `LATEST` and THIS COMMENT
+  // definition, the day the owner ratifies it the push goes below the const and THIS COMMENT
   // BECOMES FALSE: correct it in the same change, as MIGRATION_SESSION_SPLIT's had to be.
   MIGRATION_ENQUEUING_SEAT,
 };
