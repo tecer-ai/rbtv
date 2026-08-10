@@ -988,10 +988,13 @@ def worktree_leftovers(room_goal):
     """CMP-21 invariant 8 — the goal's leftover worktrees under `{workspace}/.rbtv/worktrees/`.
 
     A DIRECTORY READ filtered by `worktree-flow.py`'s own `{repo}--{goal}--{seat}` naming, run
-    when the goal has NO live run: that is the only moment "the run closed" is observable from
-    where this job stands. REMOVAL IS NOT PERFORMED and is not this file's: `worktree-flow.py`
-    owns it and REFUSES on a dirty tree, and a backstop that force-removed a dirty worktree
-    would destroy unmerged work — the opposite of a backstop."""
+    both when the goal has NO live run (the refusal branch, where "the run closed" is otherwise
+    unobservable from where this job stands) and, since task 7.557, once at the start of a
+    healthy watch (`report_worktree_leftovers`'s two call sites in `main`) — closing the blind
+    spot where leftovers from a run that never hits refusal went unreported. REMOVAL IS NOT
+    PERFORMED and is not this file's: `worktree-flow.py` owns it and REFUSES on a dirty tree, and
+    a backstop that force-removed a dirty worktree would destroy unmerged work — the opposite of
+    a backstop."""
     goal = Path(room_goal).resolve()
     root = goal.parent.parent.parent / ".rbtv" / "worktrees"     # {ws}/.rbtv/goals/<goal>
     try:
@@ -999,6 +1002,24 @@ def worktree_leftovers(room_goal):
                       if p.is_dir() and f"--{goal.name}--" in p.name)
     except OSError:
         return []
+
+
+def report_worktree_leftovers(args):
+    """Task 7.557 — the un-cleaned-worktree report BODY, shared by the two call sites so neither
+    duplicates it: the refusal branch (below, in `main` — fires every refusal pass, its own
+    event) and the healthy-watch-start call site (also in `main`, gated there on a once-per-watch
+    state key so this body runs exactly once per watch instead of every cycle). A no-op when
+    `--room-goal` was never given — the refusal branch's prior guard, preserved unchanged."""
+    if not args.room_goal:
+        return
+    goal_name = Path(args.room_goal).name
+    left = worktree_leftovers(args.room_goal)
+    flow = Path(args.coord).resolve().parent / "worktree-flow.py"
+    print(f"goal-watcher-job [WORKTREE-SWEEP] {goal_name} — "
+          f"{len(left)} leftover worktree(s): {', '.join(left) or '(none)'}")
+    if left:
+        print(f"  remedy: {worktree_flow_text(flow, goal_name)}   (then merge-seat / "
+              f"close-goal — removal REFUSES on a dirty tree and is never forced here)")
 
 
 # ---------------------------------------------------------------- decisions
@@ -2115,15 +2136,7 @@ def main():
         # from: the job thresholds a LIVE run, so "the run closed" reaches it as the register no
         # longer resolving one. The sweep is REPORTED here rather than performed — see
         # `worktree_leftovers` for why removal stays with the tool that owns it.
-        if args.room_goal:
-            goal_name = Path(args.room_goal).name
-            left = worktree_leftovers(args.room_goal)
-            flow = Path(args.coord).resolve().parent / "worktree-flow.py"
-            print(f"goal-watcher-job [WORKTREE-SWEEP] {goal_name} — "
-                  f"{len(left)} leftover worktree(s): {', '.join(left) or '(none)'}")
-            if left:
-                print(f"  remedy: {worktree_flow_text(flow, goal_name)}   (then merge-seat / "
-                      f"close-goal — removal REFUSES on a dirty tree and is never forced here)")
+        report_worktree_leftovers(args)
         print("goal-watcher-job: REFUSING TO START — %s\n"
               "  The room flags are DELIVERED into must be the LIVE run, and this job will not "
               "guess which one that is: a flag delivered into the wrong room reads as having "
@@ -2183,6 +2196,23 @@ def main():
     # snapshot to read it from. `remember_session` runs on every pass — including the healthy
     # ones, which are the only passes that HAVE a session to bank.
     state = load_state(state_path)
+    # ---- Task 7.557: the un-cleaned-worktree report ALSO runs ONCE when a healthy watch starts —
+    # `room` has already resolved above (a refusal returned at line ~2113 before reaching here), so
+    # every pass that gets this far IS a healthy watch. Without this call site the report only ever
+    # fires from the refusal branch, so leftovers from a run that never hits refusal are never
+    # surfaced until something else checks later — the coverage gap the owner ruled on 2026-08-08.
+    # Gated on a `_`-prefixed state key: non-underscore keys are wiped every pass (below, for the
+    # per-episode dedup), but underscore keys persist across passes in the SAME watch's state file
+    # — and a NEW watch starts with a state file that does not have this key yet (a fresh run gets
+    # a fresh `coordination/` folder), which is exactly what makes "once per watch" fall out of
+    # "once per state file" with no extra bookkeeping.
+    # ponytail: the ceiling of that equivalence is a watch loop RESTARTED against the same package
+    # — it inherits the key and stays quiet. Deliberate: re-reporting on every unit restart is the
+    # per-cycle cost the ruling excluded. Upgrade path if a restart must re-report: key the gate on
+    # the watch unit's boot id rather than on the key's mere presence.
+    if not state.get("_worktree_swept_reported"):
+        report_worktree_leftovers(args)
+        state["_worktree_swept_reported"] = True
     remember_session(state, snap)
     if snap is None:
         # An unreadable snapshot IS the stale-sensor incident: the job cannot see the room,
