@@ -129,6 +129,34 @@ function main() {
     r.relaunchWithout.alpha === 'live' && r.relaunchWith.alpha !== 'live',
     `without=${r.relaunchWithout.alpha} · with=${r.relaunchWith.alpha}`);
 
+  // ── R · THE REVIEW'S THREE FINDINGS, each an arm ────────────────────────────────────────────
+  say('');
+  say('R — review 51cd2eb: the second hold and its escape (F1), the unreported last word (F2), a');
+  say('    genuinely blocked turn that is not a spent hold (F3)');
+  check('R-F1 a seat held on its SECOND ask carries a `done` row AND is still held',
+    r.secondHoldRecord.join() === 'alpha=blocked,alpha=done,alpha=blocked'
+      && r.secondHoldEnqueued.length === 0 && r.secondHoldStates.bravo === 'waiting',
+    `${JSON.stringify(r.secondHoldRecord)} · enqueued ${JSON.stringify(r.secondHoldEnqueued)} · bravo=${r.secondHoldStates.bravo}`);
+  check('R-F1 …and it is REPORTED as blocked-on-the-owner, never as finished',
+    r.secondHoldBlockedOnOwner.join() === 'alpha' && !r.secondHoldSkippedAsFinished.includes('alpha'),
+    `blockedOnOwner ${JSON.stringify(r.secondHoldBlockedOnOwner)} · skippedAsFinished ${JSON.stringify(r.secondHoldSkippedAsFinished)}`);
+  check('R-F1 …and `--relaunch` RELEASES it — the documented escape, which was a NO-OP for this shape',
+    r.secondHoldRelaunch.alpha !== 'live',
+    `after the grant alpha=${r.secondHoldRelaunch.alpha}`);
+  check('R-F2 a seat whose LAST row is another lane\'s OPEN one is not finished, and IS reported',
+    r.foreignOpenRecord.join() === 'alpha=done,alpha=open'
+      && r.foreignOpenStates.alpha === 'live'
+      && !r.foreignOpenSkippedAsFinished.includes('alpha')
+      && r.foreignOpenHeldByOtherLane.join() === 'alpha'
+      && r.foreignOpenEnqueued.length === 0,
+    `${JSON.stringify(r.foreignOpenRecord)} · alpha=${r.foreignOpenStates.alpha} · heldByOtherLane ${JSON.stringify(r.foreignOpenHeldByOtherLane)} · skippedAsFinished ${JSON.stringify(r.foreignOpenSkippedAsFinished)}`);
+  check('R-F3 a turn that genuinely ended `blocked` writes a `blocked` row — the control for the pairing',
+    r.turnBlockedFirstRow.join() === 'alpha=blocked', JSON.stringify(r.turnBlockedFirstRow));
+  check('R-F3 …and it is NOT a spent hold: the NEXT turn\'s real ask is still held',
+    r.turnBlockedRecord.join() === 'alpha=blocked,alpha=blocked'
+      && r.turnBlockedEnqueued.length === 0 && r.turnBlockedStates.bravo === 'waiting',
+    `${JSON.stringify(r.turnBlockedRecord)} · enqueued ${JSON.stringify(r.turnBlockedEnqueued)} · bravo=${r.turnBlockedStates.bravo}`);
+
   // ── C · WHAT MUST NOT CHANGE ────────────────────────────────────────────────────────────────
   say('');
   say('C — the neighbouring cases, each of which must behave exactly as it did before');
@@ -151,23 +179,53 @@ function main() {
   // ── M · THE MUTATIONS ───────────────────────────────────────────────────────────────────────
   say('');
   say('M — the same scenario against a defanged guard: each mutant must let the dependent START');
+  //
+  // ⚠ EACH MUTANT REVERTS EXACTLY ONE GUARD TO WHAT STOOD BEFORE IT, so these four ARE the
+  // red-first proofs for the four fixes — the arm below each is the one the review measured red.
   const mutants = [
     ['outcome', 'the close publishes `done` instead of `blocked`',
       'return held ? { outcome: BLOCKED, held } : { outcome: status, held: null };',
-      'return { outcome: status, held: null };'],
+      'return { outcome: status, held: null };',
+      (o) => o.enqueuedWhileHeld.join() === 'bravo',
+      (o) => `enqueued ${JSON.stringify(o.enqueuedWhileHeld)} · record ${JSON.stringify(o.recordAfterAsk)}`],
     ['predicate', 'seatState stops honouring the record\'s last word',
       'const isDone = (seat) => !(notFinished && notFinished.has(seat))\n    && ((done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat, goal))));',
-      'const isDone = (seat) => ((done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat, goal))));'],
+      'const isDone = (seat) => ((done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat, goal))));',
+      (o) => o.enqueuedWhileHeld.join() === 'bravo',
+      (o) => `enqueued ${JSON.stringify(o.enqueuedWhileHeld)} · record ${JSON.stringify(o.recordAfterAsk)}`],
+    // review F1 — the grant bailing on "has a done row" instead of "finished by the last word"
+    ['grant', 'the relaunch grant bails on ANY `done` row (review F1)',
+      '      if (finished.has(seat)) continue;',
+      '      if (done.has(seat)) continue;',
+      (o) => o.secondHoldRelaunch.alpha === 'live',
+      (o) => `after the grant alpha=${o.secondHoldRelaunch.alpha} (the escape is a NO-OP)`],
+    // review F2 — the foreign deletion doing the same, hiding a crashed foreign revival
+    ['foreign', 'the foreign deletion outranks a LATER open row (review F2)',
+      '  for (const seat of finished) foreign.delete(seat);',
+      '  for (const seat of done) foreign.delete(seat);',
+      (o) => o.foreignOpenHeldByOtherLane.length === 0,
+      (o) => `heldByOtherLane ${JSON.stringify(o.foreignOpenHeldByOtherLane)} · skippedAsFinished ${JSON.stringify(o.foreignOpenSkippedAsFinished)}`],
+    // review F2's other half — the report itself claiming the seat is finished
+    ['skipped', 'skippedAsFinished reads ANY `done` row (review F2)',
+      'seats.filter((s) => view.finished.has(s))',
+      'seats.filter((s) => view.done.has(s))',
+      (o) => o.foreignOpenSkippedAsFinished.includes('alpha'),
+      (o) => `skippedAsFinished ${JSON.stringify(o.foreignOpenSkippedAsFinished)} while states says alpha=${o.foreignOpenStates.alpha}`],
+    // review F3 — counting a genuinely blocked turn as a spent hold
+    ['spent', 'every `blocked` row counts as a spent hold (review F3)',
+      " && doneTurns.has(r['session-id'])",
+      '',
+      (o) => o.turnBlockedEnqueued.join() === 'bravo',
+      (o) => `enqueued ${JSON.stringify(o.turnBlockedEnqueued)} · record ${JSON.stringify(o.turnBlockedRecord)}`],
   ];
-  for (const [tag, what, from, to] of mutants) {
+  for (const [tag, what, from, to, isRed, detail] of mutants) {
     const m = mutantRoot(tag, from, to);
     if (!check(`M-${tag} the mutation APPLIED (a mutation that did not land proves nothing)`, m.applied, m.where)) continue;
     let out = null;
     let err = null;
     try { out = runScenario(m.root, `run-${tag}`); } catch (e) { err = e.message; }
-    check(`M-${tag} RED under the mutant — ${what} ⇒ the dependent starts with the question unanswered`,
-      Boolean(out) && out.enqueuedWhileHeld.join() === 'bravo',
-      err || `enqueued ${JSON.stringify(out && out.enqueuedWhileHeld)} · record ${JSON.stringify(out && out.recordAfterAsk)}`);
+    check(`M-${tag} RED under the mutant — ${what}`,
+      Boolean(out) && isRed(out), err || (out ? detail(out) : 'scenario threw'));
   }
 
   // ── A · BOTH LANES: the attached lane's own seams ───────────────────────────────────────────

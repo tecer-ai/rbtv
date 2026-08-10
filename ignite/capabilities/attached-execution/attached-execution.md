@@ -207,6 +207,15 @@ nothing in the store is rewritten (the failed attempt stays on record); a seat t
 never re-opened by a grant; and the grant is **spent at the launch**, so one invocation gives one
 attempt. There is no grant file and no new state — PRIN-11: the act is the typed flag.
 
+⚠ **"FINISHED" HERE MEANS THE RECORD'S LAST WORD, NOT "HAS A `done` ROW ANYWHERE"** — and the
+difference is not academic, it was review finding **F1** on this build. A seat can carry a `done`
+row *and* be held right now: answer a `block-and-queue` seat, let it work, let it ask again, and its
+record reads `blocked, done, blocked`. While the bound was spelled "has a done row", the grant
+**bailed before it did anything** for exactly that seat — the escape this document and three others
+point at was a **no-op**, and the only way out of a permanently held wave was hand-editing
+`executions.csv`. The bound now reads the last row, so a grant releases any seat that is not
+finished *now*, and still cannot re-open one that is.
+
 ⚠ Killing the runner's **pid alone** (rather than signalling the process group, which is what Ctrl-C
 and a closed terminal do) leaves the foreground child running with no parent. The reconciliation
 still ends the row; the orphaned process is not reaped, because this carriage has no cage to reap it
@@ -487,9 +496,25 @@ whose remaining seats are all held returns `outcome: 'blocked'` naming them, rat
 ferry is outbound-only — so the owner's reply mints a session at the asking seat's home, which opens
 a **second** record row; the seat's **last** row is what readers key on (open → `live`, then `done`).
 The bus is read once, at the close, only to see whether the ask was already answered there before the
-seat exited. ⚠ **The standing hazard:** in a goal that is not `interactive` the ferry PARKS the ask,
-so nobody is told and nobody replies — the hold then stands until `--relaunch <seat>`. It is loud
-(a `warn` at the publish, `blockedOnOwner` on `seedGoal()`'s report and on the lane-watch line, a
+seat exited.
+
+⚠ **ONLY AN `answer` RELEASES, AND ONLY BEFORE THE SEAT EXITS.** The bus read pairs the seat's
+`to: owner` asks against `type: answer` rows addressed back to it — a `note` in the same direction
+does **not** count. That is deliberate (the closed CMP-8 vocabulary has a word for answering and a
+different word for remarking, and a peer's aside must not release a wave), and it is narrow: after
+the seat has exited, a later bus `answer` releases nothing either — the record's last word is the
+hold, and the revival or `--relaunch` is what clears it.
+
+⚠ **ON THIS LANE THE REVIVAL DOES NOT ARRIVE BY ITSELF.** The owner's reply enqueues a
+session-create for the **next tick** — and an attached run that returned `blocked` has already
+exited, so nothing is ticking. After answering, somebody must **re-run `rbtv run`** on that goal
+(or the daemon must be up and the goal assigned to it) for the revived session to fire. The hold
+itself survives the exit correctly — it is on disk, not in the process — so a later run picks the
+seat up exactly where it was.
+
+⚠ **The standing hazard:** in a goal that is not `interactive` the ferry PARKS the ask, so nobody is
+told and nobody replies — the hold then stands until `--relaunch <seat>`. It is loud (a `warn` at
+the publish, `blockedOnOwner` on `seedGoal()`'s report and on the lane-watch line, a
 `blockedOnOwner` list on `--status`), and holding is the safe direction.
 
 (3) ✅ **THE REVIVAL NO LONGER RACES THE DEPENDENTS.** It still mints a second `executions.csv` row

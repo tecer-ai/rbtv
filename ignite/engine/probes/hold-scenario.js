@@ -160,15 +160,100 @@ function scenario() {
   withEngine((e) => e.publishRecord());
   //    Measured as a PAIR against the same goal: without the grant it is held, with it it is not.
   out.relaunchWithout = withEngine((e) => e.seedGoal({ goalFolder: d2, goal: g2, profile: 'probe-hold' })).states;
-  out.relaunchWith = withEngine((e) => {
-    const { seedGoal } = require(path.join(IGNITE, 'engine', 'seeding.js'));
-    return seedGoal({
-      heartStore: e.heartStore, goalFolder: d2, goal: g2, profile: 'probe-hold',
-      relaunch: new Set(['alpha']),
+  out.relaunchWith = grantOn(d2, g2).states;
+
+  // 7. THE SECOND HOLD (review F1). The seat is answered, works, and asks AGAIN — so the record
+  //    reads `blocked, done, blocked` and the seat carries a `done` row while being held. That is
+  //    the shape whose `--relaunch` was a NO-OP: the grant bailed on "has a done row" before it
+  //    reached the deletes, and the wave was stuck with no escape but hand-editing the record.
+  const g3 = 'hold-goal-second-ask';
+  const d3 = makeGoal(g3, { arm: 'block-and-queue' });
+  withEngine((e) => e.seedGoal({ goalFolder: d3, goal: g3, profile: 'probe-hold' }));
+  const ask = (dir) => () => bus(dir, { from: 'alpha', to: 'owner', type: 'ask', body: 'which way?' });
+  withEngine((e) => runSession(e, g3, d3, 'alpha', { during: ask(d3) }));   // asks → held
+  withEngine((e) => e.publishRecord());
+  withEngine((e) => runSession(e, g3, d3, 'alpha'));                        // the revival → done
+  withEngine((e) => e.publishRecord());
+  withEngine((e) => runSession(e, g3, d3, 'alpha', { during: ask(d3) }));   // asks AGAIN → held
+  withEngine((e) => e.publishRecord());
+  out.secondHoldRecord = rowsOf(d3);
+  const pass5 = withEngine((e) => e.seedGoal({ goalFolder: d3, goal: g3, profile: 'probe-hold' }));
+  out.secondHoldStates = pass5.states;
+  out.secondHoldEnqueued = pass5.enqueued;
+  out.secondHoldBlockedOnOwner = Object.keys(pass5.blockedOnOwner || {});
+  out.secondHoldSkippedAsFinished = pass5.skippedAsFinished;
+  out.secondHoldRelaunch = grantOn(d3, g3).states;
+
+  // 8. A GENUINELY BLOCKED TURN IS NOT A SPENT HOLD (review F3). A turn can END `blocked` for its
+  //    own reasons — the store validates the status and the ticker redispatches — and that writes a
+  //    `blocked` record row too. Counting it as a hold already paid made the NEXT turn's real ask
+  //    read as already-held, publishing `done` and releasing the dependent unanswered.
+  const g4 = 'hold-goal-turn-blocked';
+  const d4 = makeGoal(g4, { arm: 'block-and-queue' });
+  withEngine((e) => e.seedGoal({ goalFolder: d4, goal: g4, profile: 'probe-hold' }));
+  withEngine((e) => runSession(e, g4, d4, 'alpha', { status: 'blocked' }));  // blocked for its OWN reasons
+  withEngine((e) => e.publishRecord());
+  out.turnBlockedFirstRow = rowsOf(d4);
+  withEngine((e) => runSession(e, g4, d4, 'alpha', { during: ask(d4) }));    // then asks and exits 0
+  withEngine((e) => e.publishRecord());
+  out.turnBlockedRecord = rowsOf(d4);
+  const pass6 = withEngine((e) => e.seedGoal({ goalFolder: d4, goal: g4, profile: 'probe-hold' }));
+  out.turnBlockedEnqueued = pass6.enqueued;
+  out.turnBlockedStates = pass6.states;
+
+  // 9. A SEAT WHOSE LAST ROW IS SOMEBODY ELSE'S OPEN ONE (review F2) — `done, open`, the shape a
+  //    crashed foreign revival leaves. It must not read FINISHED, and it must be REPORTED: the
+  //    reason recordView computes for it was read by nothing.
+  const g5 = 'hold-goal-foreign-open';
+  const d5 = makeGoal(g5, { arm: null });
+  withEngine((e) => e.seedGoal({ goalFolder: d5, goal: g5, profile: 'probe-hold' }));
+  withEngine((e) => runSession(e, g5, d5, 'alpha'));                         // done, in the DAEMON store
+  withEngine((e) => e.publishRecord());
+  // …and the OTHER lane opens a row for the same seat and never closes it. Written through the real
+  // writer, from a real second store placed in the goal folder (which is what makes it `attached`).
+  const attachedEngine = createEngine({
+    dbPath: path.join(d5, 'heart.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+  });
+  try {
+    attachedEngine.heartStore.registerJob({
+      jobId: 'seat-alpha',
+      actionType: 'launch-agent',
+      function: 'the other lane',
+      argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string' } }),
+      description: 'the other lane', createdAt: isoNow(), updatedAt: isoNow(),
     });
-  }).states;
+    attachedEngine.heartStore.recordExecutionStart({
+      jobId: 'seat-alpha',
+      actionType: 'launch-agent',
+      args: JSON.stringify({ profile: 'probe-hold' }),
+      enqueuedBy: 'attached-execution',
+      sessionMode: 'headless',
+      firedTick: 1,
+      firedAt: new Date(),
+      sessionId: `${g5}-revival`,
+      workdir: path.join(d5, 'seats', 'alpha'),
+    });
+    attachedEngine.publishRecord();
+  } finally { attachedEngine.close(); }
+  out.foreignOpenRecord = rowsOf(d5);
+  const pass7 = withEngine((e) => e.seedGoal({ goalFolder: d5, goal: g5, profile: 'probe-hold' }));
+  out.foreignOpenStates = pass7.states;
+  out.foreignOpenSkippedAsFinished = pass7.skippedAsFinished;
+  out.foreignOpenHeldByOtherLane = Object.keys(pass7.heldByOtherLane || {});
+  out.foreignOpenEnqueued = pass7.enqueued;
 
   return out;
+}
+
+// A `--relaunch alpha` seeding pass, through the real seedGoal with the grant set.
+function grantOn(dir, goal) {
+  return withEngine((e) => {
+    const { seedGoal } = require(path.join(IGNITE, 'engine', 'seeding.js'));
+    return seedGoal({
+      heartStore: e.heartStore, goalFolder: dir, goal, profile: 'probe-hold',
+      relaunch: new Set(['alpha']),
+    });
+  });
 }
 
 // ── THE CONTROLS: every neighbouring case must be UNTOUCHED ───────────────────────────────────

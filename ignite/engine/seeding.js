@@ -133,7 +133,7 @@ function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
   const foreign = new Map();
   const notFinished = new Map();
   const blocked = new Map();
-  if (!rows.length) return { done, foreign, notFinished, blocked };
+  if (!rows.length) return { done, finished: done, foreign, notFinished, blocked };
 
   // The seat's LAST row, in file order — the record is append-only, so the last row for a seat is
   // its most recent execution. `failed`/`killed` are terminal words that were never `done`; they
@@ -169,25 +169,41 @@ function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
       ? `ended '${outcome}' in the ${r.lane || 'other'} lane (session ${r['session-id']})`
       : `still OPEN in the ${r.lane || 'other'} lane (session ${r['session-id']})`);
   }
-  // A later `done` outranks an earlier non-done row for the same seat: the seat IS finished.
-  // ⚠ `notFinished` IS NOT SUBJECT TO THIS, and must not be: it is BUILT from the last row, so it
-  // already carries the ordering this line applies to `foreign` by hand. Deleting its members here
-  // would restore F6 exactly — a `done` row from a finished turn outranking the OPEN row of the
-  // session running right now.
-  for (const seat of done) foreign.delete(seat);
+  // ── `finished` — "IS THIS SEAT DONE **NOW**", AND THE ONE ANSWER EVERY OUTRANKING TEST TAKES ──
+  //
+  // ⚠ THIS SET EXISTS BECAUSE `done` AND `notFinished` ARE INDEPENDENT, AND EVERY TEST THAT USED TO
+  // WRITE `done.has(seat)` MEANT THIS. `done` is "ANY row says done" — the cross-lane no-double-run
+  // guarantee, which must stay any-row. `notFinished` is the LAST row. Between them sits the seat
+  // this build created: rows `done, blocked` or `done, open`, which `done` calls finished and the
+  // last word calls not. Review findings F1 and F2 were both that gap, at the two call sites below
+  // — the review's own words, a signature change that did not sweep its callers.
+  //
+  //   F1 (HIGH): the relaunch grant bailed on `done.has(seat)`, so `--relaunch` was a NO-OP for a
+  //   seat held on its SECOND ask (`blocked, done, blocked`) — the documented escape did nothing
+  //   and hand-editing `executions.csv` was the only way out of a permanently stuck wave.
+  //   F2: the `foreign` deletion did the same, so a crashed foreign revival (`done, open`) was
+  //   reported by NOTHING while `skippedAsFinished` called it finished and `states` called it live.
+  //
+  // Computed BEFORE the grant's deletes, so a grant can never make a seat read finished.
+  const finished = new Set([...done].filter((seat) => !notFinished.has(seat)));
+
+  // A later `done` outranks an earlier non-done row for the same seat: the seat IS finished — but
+  // only when `done` IS the last word (see above). An OPEN or `blocked` row after it is the seat's
+  // current state and outranks the older `done`.
+  for (const seat of finished) foreign.delete(seat);
   // The one-shot relaunch grant releases a foreign hold exactly as it releases a local failure —
   // and, exactly as there, it can never release a FINISHED seat. It releases the record's last-word
   // hold too: an operator saying "run this seat again" is the same explicit act, and the answer
   // that would otherwise release it is the one thing he is saying will not come.
   if (relaunch) {
     for (const seat of relaunch) {
-      if (done.has(seat)) continue;
+      if (finished.has(seat)) continue;
       foreign.delete(seat);
       notFinished.delete(seat);
       blocked.delete(seat);
     }
   }
-  return { done, foreign, notFinished, blocked };
+  return { done, finished, foreign, notFinished, blocked };
 }
 
 function jobIdFor(seat, goal = null) {
@@ -380,9 +396,14 @@ function seedGoal({ heartStore, goalFolder, profile, goal, logger = null, isHeld
     goalFolder,
     goal,
     seats,
-    skippedAsFinished: seats.filter((s) => view.done.has(s)),
+    // ⚠ `finished`, NOT `done` (review F2): a seat with a `done` row and a LATER open or `blocked`
+    // one was reported here as FINISHED while `states` said `live` — one report contradicting the
+    // other, about the seat this build exists to hold.
+    skippedAsFinished: seats.filter((s) => view.finished.has(s)),
     // Named separately from `skippedAsFinished` because the two are different facts and an operator
     // must be able to tell them apart: one seat is DONE, the other is somebody else's right now.
+    // Since F2 this also carries the seat whose LAST row is somebody else's OPEN one — a crashed
+    // foreign revival used to be deleted from this map by an older `done` row and reported nowhere.
     heldByOtherLane: Object.fromEntries(seats.filter((s) => view.foreign.has(s)).map((s) => [s, view.foreign.get(s)])),
     // The THIRD held-for-a-reason set, named separately for the same reason the second is: an
     // operator must be able to tell "somebody else is running it" from "it is waiting on YOU".

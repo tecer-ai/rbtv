@@ -509,7 +509,7 @@ function runForegroundSeat({
   // fact about a process, which is all an exit code can attest); the RECORD says what became of the
   // WORK, in the store's own turn vocabulary. That is the `done`-vs-`exited` divergence dissolving:
   // two surfaces, two questions, one answer each (#d-s23-single-execution-record-now).
-  const carriedOutcome = outcomeForSeat(goalFolder, seat, ok ? 'done' : 'failed');
+  const carriedOutcome = outcomeForSeat(heartStore, goalFolder, seat, ok ? 'done' : 'failed');
   closeExecution({ goalFolder, sessionId, outcome: carriedOutcome.outcome, endedAt: isoNow() });
   if (carriedOutcome.held && logger) {
     logger({
@@ -746,6 +746,11 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
     // already understands), and WHY it is not moving is a fact beside the state, never a sixth
     // state word. This is the mechanical hold (#d-block-and-queue-mechanical-hold) made visible.
     const blockedOnOwner = view.blocked.has(row.seat);
+    // The OTHER reason a seat's state is `live` with nothing of ours running: the record's last row
+    // for it is somebody else's OPEN one (a lane still working, or one that crashed mid-seat).
+    // Reported for review F2's reason — `recordView` computed that sentence and no surface read it,
+    // so the operator saw `live` and could not tell which kind of live it was.
+    const heldByOtherLane = view.foreign.has(row.seat) ? view.foreign.get(row.seat) : null;
     // INTERRUPTED, and it is not a sixth seat state. A foreground row still `launching` belongs to
     // a runner that is gone (a foreground child cannot outlive its terminal), so `live` — true by
     // the shared predicate — reads to an operator as "something is working on it" when nothing is.
@@ -760,6 +765,7 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
       state,
       interrupted,
       blockedOnOwner,
+      heldByOtherLane,
       humanInteractive,
       // Ruling 5's TWO gates, both of them, evaluated here so no caller re-derives one of them.
       heldForUser: state === 'ready' && humanInteractive && executionMode === INTERACTIVE_MODE,
@@ -779,6 +785,7 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
     heldForUser: seats.filter((s) => s.heldForUser).map((s) => s.seat),
     interrupted: seats.filter((s) => s.interrupted).map((s) => s.seat),
     blockedOnOwner: seats.filter((s) => s.blockedOnOwner).map((s) => s.seat),
+    heldByOtherLane: seats.filter((s) => s.heldByOtherLane).map((s) => s.seat),
     // NEXT is what the engine would advance on now — the ready set. Named separately because
     // "what do I do next" is the question the verb exists to answer.
     next: seats.filter((s) => s.state === 'ready').map((s) => s.seat),

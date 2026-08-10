@@ -256,11 +256,27 @@ function closeExecutionLocked({ goalFolder, sessionId, outcome, endedAt }) {
 //
 // ⚠ THE ASKS ARE PAIRED AGAINST THE HOLDS ALREADY PUBLISHED, which is what makes the release above
 // work and is not a second correlation: an unanswered ask that a PREVIOUS turn was already held on
-// is spent. Count the seat's still-open owner-asks on the bus and the `blocked` rows the record
-// already carries for it; hold only while the first exceeds the second. So the asking turn is held
-// (1 > 0), the revived turn is not (1 > 1 is false), and a revived turn that asks AGAIN is held
+// is spent. Count the seat's still-open owner-asks on the bus and the HOLD-MINTED `blocked` rows the
+// record already carries for it; hold only while the first exceeds the second. So the asking turn is
+// held (1 > 0), the revived turn is not (1 > 1 is false), and a revived turn that asks AGAIN is held
 // again (2 > 1). Greedy, in id order, exactly like `attached-execution.js#unansweredAsks` — which
 // pairs the STORE's typed ask/answer messages and cannot see a bus row at all.
+//
+// ⚠⚠ "HOLD-MINTED" IS THE WHOLE OF REVIEW FINDING F3, AND COUNTING EVERY `blocked` ROW WAS WRONG.
+// `blocked` is a real turn status a seat can END on for its own reasons, and such a turn publishes
+// a `blocked` row here too. Counting it as a spent hold made the NEXT turn's genuine ask read as
+// already-held: measured — an unrelated blocked turn, then a turn that asks and exits, published
+// `done` and released the dependent with the question unanswered. Precisely the failure the ruling
+// exists to prevent, reached through the guard meant to enforce it.
+//   THE DISCRIMINATOR IS THE STORE, and it needs no new column, no new word and nothing stored
+// (PRIN-11): a hold-minted row is one whose TURN was `done` — that is the only case this function
+// ever rewrites — while a genuinely blocked turn is `blocked` on both surfaces. So the count joins
+// the record's `blocked` rows to the store's `done` turns on `session-id`, which is the join the
+// record was built around.
+//   BOUND, disclosed: a hold minted by the OTHER lane's store is invisible to this one, so a seat
+// held on the daemon lane and then closed by an attached turn can hold a second time on the same
+// ask. Holding twice is the safe direction (the unsafe one is advancing past the question), and the
+// operator escape is the same `--relaunch`.
 //
 // ⚠ THE BUS IS READ EXACTLY ONCE PER ASK — HERE, at the close, and never at read time. It answers
 // the one question the record cannot: was the seat's ask ALREADY ANSWERED before it exited (a peer
@@ -288,7 +304,7 @@ function addressesSeat(to, seat) {
 // The bus readers are the ferry's OWN (`parseMessages` / `addressesOwner` / `seatFallback`) — a
 // second parser of that file is a lane that disagrees with the ferry about what a seat declared and
 // what it asked, which is the defect `seatIsHumanInteractive`'s F3 note describes in full.
-function blockAndQueueHold(goalFolder, seat) {
+function blockAndQueueHold(heartStore, goalFolder, seat) {
   const { seatFallback, parseMessages, addressesOwner } = require('../bridges/chat/bus-ferry');
   if (seatFallback(goalFolder, seat) !== FALLBACK_BLOCK_AND_QUEUE) return null;
   let text;
@@ -299,9 +315,16 @@ function blockAndQueueHold(goalFolder, seat) {
     else if (row.type === 'answer' && addressesSeat(row.to, seat) && open.length) open.shift();
   }
   if (!open.length) return null;              // never asked, or every ask was answered on the bus
-  // …minus the asks a previous turn of this seat was ALREADY held on (see the pairing note above).
+  // …minus the asks a previous turn of this seat was ALREADY HELD on (see the pairing note above).
+  // A `blocked` row whose TURN was also `blocked` is a genuinely blocked turn, not a spent hold —
+  // only a `done` turn is ever rewritten here, so that join is what tells the two apart (F3).
+  const doneTurns = new Set();
+  for (const row of heartStore.listExecutionsByStatus(DONE)) {
+    if (row.session_id) doneTurns.add(row.session_id);
+  }
   const spent = readExecutionRecord(goalFolder).rows
-    .filter((r) => r.seat === seat && (r.outcome || '').trim() === BLOCKED).length;
+    .filter((r) => r.seat === seat && (r.outcome || '').trim() === BLOCKED && doneTurns.has(r['session-id']))
+    .length;
   if (open.length <= spent) return null;
   return `asked the owner on the bus (row #${open[spent]}) and exited with no answer — \`fallback: block-and-queue\``;
 }
@@ -311,9 +334,9 @@ function blockAndQueueHold(goalFolder, seat) {
 // to add to it. ONE function, because both close sites (the per-tick publish below and the attached
 // lane's foreground carriage) must reach the same verdict — the ruling is the seat's declaration,
 // not a property of the lane that ran it.
-function outcomeForSeat(goalFolder, seat, status) {
+function outcomeForSeat(heartStore, goalFolder, seat, status) {
   if (status !== DONE) return { outcome: status, held: null };
-  const held = blockAndQueueHold(goalFolder, seat);
+  const held = blockAndQueueHold(heartStore, goalFolder, seat);
   return held ? { outcome: BLOCKED, held } : { outcome: status, held: null };
 }
 
@@ -366,7 +389,7 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
       if (alreadyClosed(home.goalFolder, row.session_id)) continue;
       // THE HOLD IS DECIDED HERE, in the act that publishes the outcome (§ THE BLOCK-AND-QUEUE
       // HOLD): a `done` turn whose seat asked the owner and got no answer publishes `blocked`.
-      const verdict = outcomeForSeat(home.goalFolder, home.seat, row.status);
+      const verdict = outcomeForSeat(heartStore, home.goalFolder, home.seat, row.status);
       const c = closeExecution({
         goalFolder: home.goalFolder,
         sessionId: row.session_id,

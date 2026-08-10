@@ -265,12 +265,25 @@ wait through the revival too, and start when the seat is genuinely finished. The
 at the close, to answer the one question the record cannot — *was the ask already answered before
 the seat exited* (a peer answered on the bus), in which case nothing is held.
 
+⚠ **ONLY A `type: answer` ROW COUNTS, and only before the seat exits.** A `note` addressed to the
+seat does not release it: the closed CMP-8 vocabulary has a word for answering and a different word
+for remarking, and a peer's aside must not release a wave. After the seat has exited, a later bus
+`answer` releases nothing either — by then the hold is the record's last word, and only the revival
+(or `--relaunch`) clears it.
+
+⚠ **THE REVIVAL FIRES ON THE NEXT TICK**, so something must be ticking. The daemon is; an attached
+run that returned `blocked` has already exited, and the operator must re-run `rbtv run` after
+answering. The hold is on disk, not in the process, so nothing is lost by the gap.
+
 ⚠ **THE ONE STANDING HAZARD: a parked ask cannot be answered.** If the goal is not in `interactive`
 execution mode, gate 2 parks the row — nobody is told, so nobody replies, and the hold stands. That
 is the safe direction (the alternative is advancing a wave past an unanswered question), and it is
 **loud**: the publish logs a `warn` naming the seat, `seedGoal()` returns it under `blockedOnOwner`,
 the lane watch puts it on its per-goal line and `rbtv run --status` flags it. The operator escape is
-the one every other stuck seat already has — `--relaunch <seat>`.
+the one every other stuck seat already has — `--relaunch <seat>`, which releases a held seat
+**whatever its earlier rows say**: a seat held on its second ask carries a `done` row from the
+answered first one, and while the grant's bound was spelled "has a done row" this escape was a
+**no-op** for exactly that seat (review F1 on this build).
 
 ✅ **THE REVIVAL NO LONGER RACES THE DEPENDENTS (7.626 review F6, CLOSED by the same ruling).** The
 revival still mints a second `executions.csv` row for the seat, and that row is now what the record
