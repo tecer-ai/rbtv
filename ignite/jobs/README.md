@@ -18,6 +18,14 @@ recovery agent every period regardless of health — an unbounded paid path.
 in the table above — noticed while adding the `edge-runner` row, left alone rather than back-filled
 from guesswork.)
 
+`agent-tmp-clean.py` (task 7.404) is also in this folder and is **not** a `fire-tool` job — it has
+no catalogue entry and nothing fires it. It ages out `~/.cache/agent-tmp`, the disk-backed location
+`coord.py` hands kit-launched seats as their `TMPDIR` (its `AGENT_TMPDIR`, task 7.400), which had
+nothing aging it out. It is a DRY RUN unless `--go`, refuses an age floor below 7 days, and refuses
+a root that is `/tmp` or on tmpfs — the two locations the owner ruled off-limits. It is deliberately
+UNSCHEDULED: no owner/leader ruling on its home (ignite job vs systemd-user tmpfiles) or its period
+has landed, so it runs by hand until one does.
+
 ## `goal-watcher-job.py` is the one that ACTS on a threshold, not only reports it (CMP-21)
 
 Owner ruling `decisions.md#d-watcher-deterministic-chain` (2026-08-08) settles CMP-21 and RETIRES
