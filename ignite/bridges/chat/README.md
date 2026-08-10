@@ -275,15 +275,46 @@ for remarking, and a peer's aside must not release a wave. After the seat has ex
 run that returned `blocked` has already exited, and the operator must re-run `rbtv run` after
 answering. The hold is on disk, not in the process, so nothing is lost by the gap.
 
-⚠ **THE ONE STANDING HAZARD: a parked ask cannot be answered.** If the goal is not in `interactive`
-execution mode, gate 2 parks the row — nobody is told, so nobody replies, and the hold stands. That
-is the safe direction (the alternative is advancing a wave past an unanswered question), and it is
-**loud**: the publish logs a `warn` naming the seat, `seedGoal()` returns it under `blockedOnOwner`,
-the lane watch puts it on its per-goal line and `rbtv run --status` flags it. The operator escape is
-the one every other stuck seat already has — `--relaunch <seat>`, which releases a held seat
-**whatever its earlier rows say**: a seat held on its second ask carries a `done` row from the
-answered first one, and while the grant's bound was spelled "has a done row" this escape was a
-**no-op** for exactly that seat (review F1 on this build).
+### The hold keys on a DELIVERED ask — and autonomous goals run to completion
+
+Owner ruling **`d-parked-ask-autonomous-workaround`** (2026-08-10), correcting the framing this
+section carried as its "one standing hazard": *"the autonomous mechanism does not exist to prevent
+me from getting messages; it exists to make agents complete workflows fully autonomously."*
+
+**AUTONOMOUS MEANS THE WORKFLOW COMPLETES.** So the mechanical hold keys on a **delivered** ask, not
+on the arm alone — `block-and-queue` holds the wave only when the gates above were **open** and the
+question actually reached the owner, i.e. only when an answer *can* come.
+
+| the seat's `to: owner` ask | the wave |
+|---|---|
+| **delivered** (both gates open) | **HELD** — the record publishes `blocked`, dependents wait for the answer, `--relaunch <seat>` is the escape |
+| **parked** (gate 1 or gate 2 shut) | **NOT held** — the record publishes the seat's real outcome, and the wave runs on to completion |
+
+In the parked case the seat executes its **authored autonomous workaround** (`d-s14-autonomous-dod`
++ planning-v4 D16): derive the answer, record it with provenance in the goal's own ledgers
+(`decisions.md` / `doubts.md`), proceed. The parked ask stays on the bus and the derivation is in
+the ledgers, so both are there for the owner on return. Holding instead would stall a goal on an
+answer that cannot exist — which is what a previous version of this build filed as a dead end and
+the owner ruled is simply the autonomous path.
+
+⚠ **THE OBLIGATION IS THE SEAT'S, AND ITS ENFORCEMENT IS THIN.** Nothing in the engine derives an
+answer or writes a ledger. `component-lint`'s `interactive-fallback` check (M9) enforces only that a
+flagged prompt **names** an arm from the vocabulary — it does not check that the prompt's procedure
+carries a workaround at all. Two authoring prompts do state the duty (`planner.md` and
+`task-definer.md`: *"an INTERACTIVE task is never load-bearing for correctness… its done contract
+MUST carry the autonomous fallback arm"*), so the gap is enforcement, not doctrine.
+
+⚠ **HOW DELIVERY IS DERIVED, with no new state.** The ferry's park decision writes nothing — no
+state file, no bus row, no marker — it is a pure function of three files, evaluated per row in the
+`gate` ladder above. The engine re-derives it at close time **through this module's own readers**
+(`goalExecutionMode`, `seatIsHumanInteractive`), never a second parse, and a structural probe arm
+pins the ladder's rung set so a fourth gate turns red instead of silently making asks unholdable.
+The skew is one tick: an owner who flips `execution-mode` between the ask and the seat's exit gets
+the mode in force at the close, and both directions are safe.
+
+⚠ **`--relaunch <seat>` releases a held seat whatever its earlier rows say**: a seat held on its
+second ask carries a `done` row from the answered first one, and while the grant's bound was spelled
+"has a done row" this escape was a **no-op** for exactly that seat (review F1 on this build).
 
 ✅ **THE REVIVAL NO LONGER RACES THE DEPENDENTS (7.626 review F6, CLOSED by the same ruling).** The
 revival still mints a second `executions.csv` row for the seat, and that row is now what the record

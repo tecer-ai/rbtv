@@ -289,8 +289,62 @@ function closeExecutionLocked({ goalFolder, sessionId, outcome, endedAt }) {
 // runs `--relaunch`. Holding is still the safe direction (the alternative is advancing a wave past
 // an unanswered question), and the stamp below is logged at `warn` naming the seat so the condition
 // is visible rather than silent.
+// ── AND THE HOLD KEYS ON A **DELIVERED** ASK, NOT ON THE ARM (owner ruling
+// decisions.md#d-parked-ask-autonomous-workaround) ────────────────────────────────────────────
+//
+// THE OWNER'S CORRECTION, which is the whole of this section: "the autonomous mechanism does not
+// exist to prevent me from getting messages; it exists to make agents complete workflows fully
+// autonomously." AUTONOMOUS MEANS THE WORKFLOW COMPLETES. So a `block-and-queue` seat holds the
+// wave only when its question ACTUALLY REACHED THE OWNER — when an answer can come. In an
+// autonomous goal the ferry PARKS the ask (§ THE TWO GATES): nobody is told, so nobody can reply,
+// and holding there would stall a goal on an answer that cannot exist. That was filed as this
+// build's one dead end and the owner ruled it isn't one — it is the AUTONOMOUS PATH:
+//
+//   · the seat executes its AUTHORED AUTONOMOUS WORKAROUND (`d-s14-autonomous-dod` + planning-v4
+//     D16): derive the answer, record it with provenance in the goal's own ledgers
+//     (`decisions.md` / `doubts.md`), proceed. The parked ask and the derived answer both land
+//     durably for the owner to review on return.
+//   · the wave CONTINUES. The record publishes the seat's real outcome (`done`), because the seat
+//     really did finish its turn.
+//
+// ⚠ THE OBLIGATION TO CARRY A WORKAROUND IS THE SEAT'S, NOT THIS ENGINE'S. Nothing here derives an
+// answer or writes a ledger; the engine's whole job is (1) not to hold a seat whose question was
+// parked and (2) to report which of the two happened. What enforces the seat side today, and where
+// it is thin, is stated in the contract (`bridges/chat/README.md` § The seat's fallback arm).
+//
+// ⚠ HOW "WAS IT DELIVERED?" IS DERIVED — the same storage-free way as everything else (PRIN-11).
+// The ferry's park decision writes NOTHING: no state file, no bus row, no marker. It is a pure
+// function of three files on disk, evaluated per row inside the pass (`bus-ferry.js`, the `gate`
+// ladder). So the answer is re-derived here from THE FERRY'S OWN READERS — never a second parse of
+// those files — and the one thing that could drift, the ladder's rung SET, is pinned by a
+// structural arm in `probes/probe-block-and-queue-hold.js` that goes red if the ferry grows a
+// fourth gate.
+//
+// ⚠ THE SKEW, disclosed: the gates are read HERE at close time and THERE at ferry time, so an owner
+// who flips `<goal>/execution-mode` between the ask and the seat's exit gets the mode in force at
+// the close. The window is one tick, both directions are safe (hold with an answer possible, or
+// proceed on the authored workaround), and the alternative — recording the delivery verdict at ferry
+// time — is the state file this ruling's design deliberately does not have.
 const FALLBACK_BLOCK_AND_QUEUE = 'block-and-queue';
 const BUS_RELPATH = ['coordination', 'messages.md'];
+
+// Did an agent-initiated `to: owner` row from this seat REACH the owner? The ferry's gate ladder,
+// in the ferry's own order, through the ferry's own readers.
+//
+// The ladder's THIRD rung — `fallback: park` — is deliberately absent: every caller here has
+// already established the arm is `block-and-queue`, so that rung cannot fire. The structural arm
+// named above is what keeps that assumption honest.
+//
+// Returns the ferry's own gate NAME when the row parks (so the report can say WHY), else null.
+function askParkedAtGate(goalFolder, seat) {
+  const { goalExecutionMode, seatIsHumanInteractive, INTERACTIVE_MODE } = require('../bridges/chat/bus-ferry');
+  // `<workspace>/.rbtv/goals/<goal>` — the same derivation `statusAttached` makes to reach the
+  // reader, which takes the workspace root and the goal NAME.
+  const workspaceRoot = path.resolve(goalFolder, '..', '..', '..');
+  if (goalExecutionMode(workspaceRoot, path.basename(goalFolder)) !== INTERACTIVE_MODE) return 'execution-mode';
+  if (!seatIsHumanInteractive(goalFolder, seat)) return 'human-interactive';
+  return null;
+}
 
 // Does `to:` address this seat? The ferry's own tolerance (`addressesOwner`), for a seat name: a
 // token that merely CONTAINS the name is a different seat.
@@ -304,7 +358,7 @@ function addressesSeat(to, seat) {
 // The bus readers are the ferry's OWN (`parseMessages` / `addressesOwner` / `seatFallback`) — a
 // second parser of that file is a lane that disagrees with the ferry about what a seat declared and
 // what it asked, which is the defect `seatIsHumanInteractive`'s F3 note describes in full.
-function blockAndQueueHold(heartStore, goalFolder, seat) {
+function blockAndQueueVerdict(heartStore, goalFolder, seat) {
   const { seatFallback, parseMessages, addressesOwner } = require('../bridges/chat/bus-ferry');
   if (seatFallback(goalFolder, seat) !== FALLBACK_BLOCK_AND_QUEUE) return null;
   let text;
@@ -326,7 +380,24 @@ function blockAndQueueHold(heartStore, goalFolder, seat) {
     .filter((r) => r.seat === seat && (r.outcome || '').trim() === BLOCKED && doneTurns.has(r['session-id']))
     .length;
   if (open.length <= spent) return null;
-  return `asked the owner on the bus (row #${open[spent]}) and exited with no answer — \`fallback: block-and-queue\``;
+  const ask = open[spent];
+  // THE RULING'S FORK. An ask the ferry PARKED can never be answered, so it does not hold: the seat
+  // took its authored autonomous workaround and the wave continues (d-parked-ask-autonomous-workaround).
+  const gate = askParkedAtGate(goalFolder, seat);
+  if (gate) {
+    return {
+      parked: `asked the owner on the bus (row #${ask}) but the ferry PARKED it (gate: ${gate}) — nobody was told, `
+        + `so nobody can answer. NOT held: the seat proceeds on its authored autonomous workaround and its `
+        + `derivation belongs in this goal's decisions.md / doubts.md for review on return (d-s14-autonomous-dod).`,
+      gate,
+      ask,
+    };
+  }
+  return {
+    held: `asked the owner on the bus (row #${ask}), DELIVERED to his thread, and exited with no answer `
+      + '— `fallback: block-and-queue`',
+    ask,
+  };
 }
 
 // THE OUTCOME A LANE PUBLISHES FOR A TERMINAL TURN. Identity for every status but `done`: a seat
@@ -335,9 +406,12 @@ function blockAndQueueHold(heartStore, goalFolder, seat) {
 // lane's foreground carriage) must reach the same verdict — the ruling is the seat's declaration,
 // not a property of the lane that ran it.
 function outcomeForSeat(heartStore, goalFolder, seat, status) {
-  if (status !== DONE) return { outcome: status, held: null };
-  const held = blockAndQueueHold(heartStore, goalFolder, seat);
-  return held ? { outcome: BLOCKED, held } : { outcome: status, held: null };
+  if (status !== DONE) return { outcome: status, held: null, parked: null };
+  const verdict = blockAndQueueVerdict(heartStore, goalFolder, seat);
+  if (verdict && verdict.held) return { outcome: BLOCKED, held: verdict.held, parked: null };
+  // The PARKED branch publishes the seat's REAL outcome — it finished its turn — and carries the
+  // evidence so the report can say the seat proceeded on its workaround rather than saying nothing.
+  return { outcome: status, held: null, parked: (verdict && verdict.parked) || null };
 }
 
 // ── THE PUBLISH PASS — how each lane's witness reaches the shared record ───────────────────────
@@ -360,6 +434,7 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
   const opened = [];
   const closed = [];
   const held = [];
+  const proceeded = [];
   // WHICH ROWS ARE ALREADY PUBLISHED, read ONCE per goal per pass. `closeExecution` refuses a
   // second stamp on its own, so this is not correctness — it is what keeps the hold's bus read
   // (below) to ONE per ask instead of one per terminal row per tick, forever, for the whole life
@@ -399,6 +474,7 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
       if (c.closed) {
         closed.push(`${home.seat}=${verdict.outcome}`);
         if (verdict.held) held.push({ seat: home.seat, goalFolder: home.goalFolder, evidence: verdict.held });
+        if (verdict.parked) proceeded.push({ seat: home.seat, goalFolder: home.goalFolder, evidence: verdict.parked });
       }
     }
   }
@@ -419,7 +495,23 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
       });
     }
   }
-  return { opened, closed, held };
+  // The AUTONOMOUS branch, reported as loudly as the held one and deliberately NOT as a warning:
+  // this is the ruled normal path (`d-parked-ask-autonomous-workaround`), not a fault. What an
+  // operator needs from it is the POINTER — this seat asked something nobody could answer and
+  // proceeded on its own derivation, so the goal's ledgers are where that derivation is.
+  for (const p of proceeded) {
+    if (logger) {
+      logger({
+        level: 'info',
+        message: 'seat PROCEEDED on its autonomous workaround — its ask was parked (autonomous goal), so the wave '
+          + 'was NOT held. Its derivation belongs in this goal\'s decisions.md / doubts.md; review it on return.',
+        seat: p.seat,
+        goalFolder: p.goalFolder,
+        evidence: p.evidence,
+      });
+    }
+  }
+  return { opened, closed, held, proceeded };
 }
 
 module.exports = {
@@ -428,7 +520,8 @@ module.exports = {
   DONE,
   BLOCKED,
   FALLBACK_BLOCK_AND_QUEUE,
-  blockAndQueueHold,
+  blockAndQueueVerdict,
+  askParkedAtGate,
   outcomeForSeat,
   LANE_ATTACHED,
   LANE_DAEMON,

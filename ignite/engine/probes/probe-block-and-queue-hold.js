@@ -157,6 +157,37 @@ function main() {
       && r.turnBlockedEnqueued.length === 0 && r.turnBlockedStates.bravo === 'waiting',
     `${JSON.stringify(r.turnBlockedRecord)} · enqueued ${JSON.stringify(r.turnBlockedEnqueued)} · bravo=${r.turnBlockedStates.bravo}`);
 
+  // ── D · THE MODE SPLIT: the hold keys on a DELIVERED ask ────────────────────────────────────
+  say('');
+  say('D — owner ruling d-parked-ask-autonomous-workaround: autonomous means the workflow COMPLETES,');
+  say('    so a PARKED ask does not hold — the seat takes its authored workaround and the wave runs on');
+  check('D1 in an AUTONOMOUS goal the seat is NOT held — its record row is its real outcome, `done`',
+    r.autonomousRecord.join() === 'alpha=done', JSON.stringify(r.autonomousRecord));
+  check('D2 …so the wave CONTINUES: the dependent starts, and nothing is reported as blocked-on-the-owner',
+    r.autonomousEnqueued.join() === 'bravo' && r.autonomousStates.alpha === 'done'
+      && r.autonomousBlockedOnOwner.length === 0,
+    `enqueued ${JSON.stringify(r.autonomousEnqueued)} · alpha=${r.autonomousStates.alpha} · blockedOnOwner ${JSON.stringify(r.autonomousBlockedOnOwner)}`);
+  check('D3 …and it is REPORTED as proceeded-on-its-workaround, naming the gate that parked the ask',
+    r.autonomousProceeded.join() === 'alpha:true', JSON.stringify(r.autonomousProceeded));
+  check('D4 …with the ask still ON THE BUS — the durable record the owner reviews on return',
+    r.autonomousBusHasAsk === true, `ask row present: ${r.autonomousBusHasAsk}`);
+  check('D5 the OTHER gate reaches the same verdict — an unflagged seat\'s ask parks at `human-interactive`',
+    r.unflaggedRecord.join() === 'alpha=done' && r.unflaggedGate.join() === 'human-interactive'
+      && r.unflaggedEnqueued.join() === 'bravo',
+    `${JSON.stringify(r.unflaggedRecord)} · gate ${JSON.stringify(r.unflaggedGate)} · enqueued ${JSON.stringify(r.unflaggedEnqueued)}`);
+
+  // THE STRUCTURAL PIN. The engine re-derives the ferry's park decision from the ferry's own
+  // readers, so the one thing that can drift is the ferry's RUNG SET. This arm reads the ladder out
+  // of `bus-ferry.js` and fails if it is not exactly the three rungs the engine knows about — a
+  // fourth gate would mean asks park for a reason the hold cannot see, and the seat would be held
+  // on a question nobody received.
+  const ferrySrc = fs.readFileSync(path.join(IGNITE_SRC, 'bridges', 'chat', 'bus-ferry.js'), 'utf8');
+  const ladder = (ferrySrc.match(/const gate = [\s\S]*?: null;/) || [''])[0];
+  const rungs = (ladder.match(/'[a-z-]+'/g) || []).map((x) => x.replace(/'/g, ''));
+  check('D6 the ferry\'s gate ladder is still exactly the three rungs the engine re-derives',
+    rungs.join() === 'execution-mode,human-interactive,fallback-park',
+    `rungs: ${JSON.stringify(rungs)}${rungs.length ? '' : ' — the ladder was not found at all'}`);
+
   // ── C · WHAT MUST NOT CHANGE ────────────────────────────────────────────────────────────────
   say('');
   say('C — the neighbouring cases, each of which must behave exactly as it did before');
@@ -184,8 +215,8 @@ function main() {
   // red-first proofs for the four fixes — the arm below each is the one the review measured red.
   const mutants = [
     ['outcome', 'the close publishes `done` instead of `blocked`',
-      'return held ? { outcome: BLOCKED, held } : { outcome: status, held: null };',
-      'return { outcome: status, held: null };',
+      'if (verdict && verdict.held) return { outcome: BLOCKED, held: verdict.held, parked: null };',
+      'if (verdict && verdict.held) return { outcome: status, held: verdict.held, parked: null };',
       (o) => o.enqueuedWhileHeld.join() === 'bravo',
       (o) => `enqueued ${JSON.stringify(o.enqueuedWhileHeld)} · record ${JSON.stringify(o.recordAfterAsk)}`],
     ['predicate', 'seatState stops honouring the record\'s last word',
@@ -211,6 +242,12 @@ function main() {
       'seats.filter((s) => view.done.has(s))',
       (o) => o.foreignOpenSkippedAsFinished.includes('alpha'),
       (o) => `skippedAsFinished ${JSON.stringify(o.foreignOpenSkippedAsFinished)} while states says alpha=${o.foreignOpenStates.alpha}`],
+    // the DELIVERY check — remove it and an autonomous goal is wrongly held on an ask nobody got
+    ['delivery', 'the hold stops keying on a DELIVERED ask (d-parked-ask-autonomous-workaround)',
+      '  const gate = askParkedAtGate(goalFolder, seat);',
+      '  const gate = null;',
+      (o) => o.autonomousRecord.join() === 'alpha=blocked' && o.autonomousEnqueued.length === 0,
+      (o) => `autonomous goal: record ${JSON.stringify(o.autonomousRecord)} · enqueued ${JSON.stringify(o.autonomousEnqueued)} — the wave is held on a question nobody received`],
     // review F3 — counting a genuinely blocked turn as a spent hold
     ['spent', 'every `blocked` row counts as a spent hold (review F3)',
       " && doneTurns.has(r['session-id'])",

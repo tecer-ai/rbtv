@@ -48,15 +48,19 @@ fs.writeFileSync(configPath, yaml.dump(cfg));
 const workspace = path.join(TMP, 'workspace');
 
 // A goal folder: alpha (the asking seat) then bravo, which follows it.
-function makeGoal(goal, { arm }) {
+// `mode` is the goal's execution mode, and it is what decides whether an ask is DELIVERED or
+// PARKED — i.e. whether the hold can fire at all (owner ruling d-parked-ask-autonomous-workaround).
+// `interactive` is the default here because every arm written before that ruling assumes a
+// deliverable ask.
+function makeGoal(goal, { arm, mode = 'interactive', flagged = true }) {
   const dir = path.join(workspace, '.rbtv', 'goals', goal);
   for (const s of ['alpha', 'bravo']) fs.mkdirSync(path.join(dir, 'seats', s), { recursive: true });
   fs.mkdirSync(path.join(dir, 'coordination'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'taskforce.csv'), 'taskforce-id,seat,after\ntf-hold,alpha,\ntf-hold,bravo,alpha\n');
   fs.writeFileSync(path.join(dir, 'seats', 'alpha', 'seat.md'),
-    `---\nseat: alpha\nhuman-interactive: yes\n${arm ? `fallback: ${arm}\n` : ''}---\n\nalpha\n`);
+    `---\nseat: alpha\n${flagged ? 'human-interactive: yes\n' : ''}${arm ? `fallback: ${arm}\n` : ''}---\n\nalpha\n`);
   fs.writeFileSync(path.join(dir, 'seats', 'bravo', 'seat.md'), '---\nseat: bravo\n---\n\nbravo\n');
-  fs.writeFileSync(path.join(dir, 'execution-mode'), 'interactive\n');
+  fs.writeFileSync(path.join(dir, 'execution-mode'), `${mode}\n`);
   return dir;
 }
 
@@ -241,6 +245,37 @@ function scenario() {
   out.foreignOpenSkippedAsFinished = pass7.skippedAsFinished;
   out.foreignOpenHeldByOtherLane = Object.keys(pass7.heldByOtherLane || {});
   out.foreignOpenEnqueued = pass7.enqueued;
+
+  // 10. THE MODE SPLIT (owner ruling d-parked-ask-autonomous-workaround). The SAME seat, the SAME
+  //     arm, the SAME ask — in an AUTONOMOUS goal. The ferry parks the ask (nobody is told, so
+  //     nobody can answer), so the seat is NOT held: it took its authored autonomous workaround,
+  //     its turn's real outcome is published, and the wave COMPLETES. Autonomous means the workflow
+  //     finishes.
+  const g6 = 'hold-goal-autonomous';
+  const d6 = makeGoal(g6, { arm: 'block-and-queue', mode: 'autonomous' });
+  withEngine((e) => e.seedGoal({ goalFolder: d6, goal: g6, profile: 'probe-hold' }));
+  withEngine((e) => runSession(e, g6, d6, 'alpha', { during: ask(d6) }));
+  const publish = withEngine((e) => e.publishRecord());
+  out.autonomousRecord = rowsOf(d6);
+  out.autonomousProceeded = (publish.proceeded || []).map((p) => `${p.seat}:${p.evidence.includes('gate: execution-mode')}`);
+  const pass8 = withEngine((e) => e.seedGoal({ goalFolder: d6, goal: g6, profile: 'probe-hold' }));
+  out.autonomousEnqueued = pass8.enqueued;
+  out.autonomousStates = pass8.states;
+  out.autonomousBlockedOnOwner = Object.keys(pass8.blockedOnOwner || {});
+  // …and the ask itself is still ON THE BUS, which is what makes it reviewable on return.
+  out.autonomousBusHasAsk = fs.readFileSync(path.join(d6, 'coordination', 'messages.md'), 'utf8')
+    .includes('from: alpha | to: owner');
+
+  // 11. THE OTHER GATE, same fork: an UNFLAGGED seat's row parks at gate 1 (`human-interactive`)
+  //     even in an interactive goal. Same verdict — not held — through the other rung.
+  const g7 = 'hold-goal-unflagged';
+  const d7 = makeGoal(g7, { arm: 'block-and-queue', flagged: false });
+  withEngine((e) => e.seedGoal({ goalFolder: d7, goal: g7, profile: 'probe-hold' }));
+  withEngine((e) => runSession(e, g7, d7, 'alpha', { during: ask(d7) }));
+  const publish7 = withEngine((e) => e.publishRecord());
+  out.unflaggedRecord = rowsOf(d7);
+  out.unflaggedGate = (publish7.proceeded || []).map((p) => (p.evidence.match(/gate: ([a-z-]+)/) || [])[1]);
+  out.unflaggedEnqueued = withEngine((e) => e.seedGoal({ goalFolder: d7, goal: g7, profile: 'probe-hold' })).enqueued;
 
   return out;
 }

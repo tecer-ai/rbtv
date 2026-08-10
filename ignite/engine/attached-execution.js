@@ -520,6 +520,15 @@ function runForegroundSeat({
       evidence: carriedOutcome.held,
     });
   }
+  if (carriedOutcome.parked && logger) {
+    logger({
+      level: 'info',
+      message: 'foreground seat PROCEEDED on its autonomous workaround — its ask was parked, so the wave was NOT '
+        + 'held; its derivation belongs in this goal\'s decisions.md / doubts.md',
+      seat,
+      evidence: carriedOutcome.parked,
+    });
+  }
 
   // ⚠ SOMEONE ELSE MAY HAVE ENDED OUR ROW WHILE THE HUMAN WORKED (review finding 1, second half).
   // The run lock makes that unreachable now; this stays because the alternative to noticing is

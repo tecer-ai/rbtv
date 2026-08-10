@@ -512,10 +512,19 @@ exited, so nothing is ticking. After answering, somebody must **re-run `rbtv run
 itself survives the exit correctly — it is on disk, not in the process — so a later run picks the
 seat up exactly where it was.
 
-⚠ **The standing hazard:** in a goal that is not `interactive` the ferry PARKS the ask, so nobody is
-told and nobody replies — the hold then stands until `--relaunch <seat>`. It is loud (a `warn` at
-the publish, `blockedOnOwner` on `seedGoal()`'s report and on the lane-watch line, a
-`blockedOnOwner` list on `--status`), and holding is the safe direction.
+⚠ **AND IT KEYS ON A *DELIVERED* ASK** (owner ruling `#d-parked-ask-autonomous-workaround`, which
+replaced what this bound used to call a standing hazard). **Autonomous means the workflow
+completes**, so `block-and-queue` holds only when the ferry's gates were OPEN and the question
+actually reached the owner. When the ask **parks** — an autonomous goal, or an unflagged seat — the
+seat is NOT held: it executes its authored autonomous workaround (`d-s14-autonomous-dod` — derive,
+record with provenance in the goal's `decisions.md` / `doubts.md`, proceed), the record publishes
+its real outcome, and the wave runs to completion. The parked ask stays on the bus; both it and the
+derivation are there for the owner on return.
+
+Delivery is re-derived at the close from the ferry's own two gate readers — no state file, because
+the ferry's park writes nothing (a structural probe arm pins its rung set). The report distinguishes
+the two: a held seat is a `warn` plus `blockedOnOwner`; a seat that proceeded on its workaround is an
+`info` naming the gate that parked its ask, so the operator knows to look in the ledgers.
 
 (3) ✅ **THE REVIVAL NO LONGER RACES THE DEPENDENTS.** It still mints a second `executions.csv` row
 for the same seat (open, `lane: daemon`) beside the earlier one — but the record now answers with a
