@@ -1458,6 +1458,7 @@ def print_result(data: dict) -> None:
             print(f"  - {rel}")
         for rel in data.get("shared_removed") or []:
             print(f"  ~- {rel}")
+        _print_report_rows(data.get("report") or {}, planned=True)
         _print_guidance(data.get("report") or {}, planned=True)
         return
     for rel in data.get("written") or []:
@@ -1471,15 +1472,27 @@ def print_result(data: dict) -> None:
     for rel in data.get("shared_removed") or []:
         print(f"  ~- {rel}")
     report = data.get("report") or {}
+    _print_report_rows(report, planned=False)
+    _print_guidance(report, planned=False)
+
+
+def _print_report_rows(report: dict, planned: bool) -> None:
+    """Why a manifest row minted nothing. Printed on DRY RUNS TOO, marked as
+    planned (task 7.622): `install --component X --dry-run` is the command the
+    acceptance sketches name, and suppressing these rows there left the human
+    ~11 lines with no per-row detail while the data sat in `--json` all along.
+    The two lists are the SAME data a real run prints; only the tense moves."""
+    verb = "would skip" if planned else "skipped"
+    tail = "would mint nothing" if planned else "nothing minted"
     for row in report.get("skipped_inventory_rows") or []:
-        print(f"  · skipped `{row['method']}` row {row['component']}/"
+        print(f"  · {verb} `{row['method']}` row {row['component']}/"
               f"{row['part']} ({row['entry_point']}) — inventory only, "
               "mints nothing")
     for row in report.get("no_realization") or []:
         print(f"  · {row['harness']} has no realization for method "
-              f"{row['method']} ({row['component']}/{row['part']}) — nothing "
-              "minted")
-    _print_guidance(report, planned=False)
+              f"{row['method']} ({row['component']}/{row['part']}) — {tail}")
+
+
 def _print_guidance(report: dict, planned: bool) -> None:
     """The guidance-mirror summary and the blocks the human must place. Printed
     on DRY RUNS TOO: the basis is never written, so this is the only channel
@@ -2397,6 +2410,53 @@ def selftest() -> int:
               do_install(fb, catalog, ["fixmod/goodcomp"], ["claude"],
                          dry_run=False)["report"]["guidance_debannered"] == []
               and (fb / "CLAUDE.md").read_text() == cleaned)
+
+        print("\n7.622 — a DRY RUN prints the report rows a real run prints")
+        rr = tmp / "ws-report-rows"
+        rr.mkdir()
+        rr_dry = do_install(rr, catalog, ["fixmod/goodcomp"], list(HARNESSES),
+                            dry_run=True)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            print_result(rr_dry)
+        dry_out = buf.getvalue()
+        rr_real = do_install(rr, catalog, ["fixmod/goodcomp"], list(HARNESSES),
+                             dry_run=False)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            print_result(rr_real)
+        real_out = buf.getvalue()
+        check("7.622 — setup: the fixture HAS rows of both kinds to print",
+              bool(rr_dry["report"]["skipped_inventory_rows"])
+              and bool(rr_dry["report"]["no_realization"]),
+              str(rr_dry["report"]))
+        check("7.622 — every skipped-inventory row is named in the dry run",
+              all(f"`{row['method']}` row {row['component']}/{row['part']}"
+                  in dry_out
+                  for row in rr_dry["report"]["skipped_inventory_rows"]),
+              dry_out)
+        check("7.622 — every no-realization row is named in the dry run",
+              all(f"{row['harness']} has no realization for method "
+                  f"{row['method']} ({row['component']}/{row['part']})"
+                  in dry_out
+                  for row in rr_dry["report"]["no_realization"]),
+              dry_out)
+        check("7.622 — the dry run carries the SAME row count as the real run",
+              sum(1 for ln in dry_out.splitlines() if ln.startswith("  · "))
+              == sum(1 for ln in real_out.splitlines()
+                     if ln.startswith("  · ")),
+              f"dry={dry_out}\nreal={real_out}")
+        check("7.622 — planned rows read as planned, real rows as done",
+              "would skip `pool` row" in dry_out
+              and "would mint nothing" in dry_out
+              and "skipped `pool` row" in real_out
+              and "nothing minted" in real_out,
+              dry_out + "\n=====\n" + real_out)
+        check("7.622 — the JSON shape is untouched by the printing change",
+              set(rr_dry["report"]) == set(rr_real["report"])
+              and rr_dry["report"]["skipped_inventory_rows"]
+              == rr_real["report"]["skipped_inventory_rows"],
+              str(sorted(set(rr_dry["report"]) ^ set(rr_real["report"]))))
 
         print("\nuninstall")
         res = do_uninstall(target, catalog, ["fixmod/goodcomp"], dry_run=False)
