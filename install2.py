@@ -1285,6 +1285,11 @@ def print_result(data: dict) -> None:
             print(f"{key}: {', '.join(data[key])}")
     if data.get("harnesses"):
         print(f"harnesses: {', '.join(data['harnesses'])}")
+    # Printed BEFORE the dry-run branch: a planned takeover of another tool's
+    # file is exactly what a human needs to see while deciding to proceed.
+    for rel in data.get("adopted") or []:
+        print(f"  ^ {rel} (adopted — it carries a GENERATED banner, so it is "
+              "another tool's mirror, not authored guidance; now ours)")
     if data.get("dry_run"):
         print(f"DRY RUN — would write {len(data.get('skipped') or [])} file(s) "
               f"and hold {len(data.get('shared') or [])} shared-file claim(s):")
@@ -1307,9 +1312,6 @@ def print_result(data: dict) -> None:
         print(f"  - {rel}")
     for rel in data.get("shared_removed") or []:
         print(f"  ~- {rel}")
-    for rel in data.get("adopted") or []:
-        print(f"  ^ {rel} (adopted — it carries a GENERATED banner, so it is "
-              "another tool's mirror, not authored guidance; now ours)")
     report = data.get("report") or {}
     for row in report.get("skipped_inventory_rows") or []:
         print(f"  · skipped `{row['method']}` row {row['component']}/"
