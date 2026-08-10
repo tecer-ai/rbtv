@@ -220,12 +220,28 @@ TASKFORCE_HEADER = ("taskforce-id", "seat", "after", "harness", "model",
 # ---- dag-06 create-package constants ----
 
 # The state-cursor header a CREATED package's state.csv carries — byte-exact,
-# the ruled run-3 authoring input (`r-stage0-state-cursor-interim-convention`
-# (a), goal decisions.md — the ONE ledger this line is consumed from). HEADER
-# ONLY: the first real row is the leader's at bootstrap, never this command's
-# (clause (b)); run-2's off-schema cursor is frozen history, never repaired.
+# the KG `state-cursor` record's column list (`sd-graph show state-cursor`;
+# file-schema block). HEADER ONLY: the first real row is the leader's at
+# bootstrap, never this command's; run-2's off-schema cursor is frozen
+# history, never repaired.
+#
+# ⚠ THE ACCEPTANCE, RECORDED WHERE THE NEXT BUILDER LOOKS. This line and the
+# KG record are the SAME contract in two repos and nothing joins them: the KG
+# lives in the vault (`1-projects/rbtv-sb-merge-refactor/system-definition/
+# concepts/state-cursor.md`), outside this repo, and a path to it here would
+# break the no-hardcoded-workspace-paths rule (root CLAUDE.md). They diverged
+# once already — the 5-column `stamped-at,run-state,seat,session-id,note`
+# form survived here after owner ruling `d-runs-extinguished-transcription`
+# (2026-08-09) ADDED `execution-stamp` and RENAMED `run-state` -> `goal-state`.
+# CHANGING THIS LINE MEANS THE KG RECORD CHANGED: re-read it first, and update
+# the literal in the selftest arm that pins this constant (search
+# STATE_CSV_HEADER) in the same change — that arm is the tripwire that stops a
+# silent edit. `coord.py#append_state_advance` is header-agnostic (it builds
+# rows BY NAME off the on-disk header), so nothing else catches drift.
+# ponytail: a prose acceptance, not a machine check — a real cross-repo
+# comparison becomes possible only if the KG record ships into this repo.
 STATE_CSV_NAME = "state.csv"
-STATE_CSV_HEADER = "stamped-at,run-state,seat,session-id,note"
+STATE_CSV_HEADER = "stamped-at,execution-stamp,goal-state,seat,session-id,note"
 
 # The caller-supplied content surfaces of a created package
 # (`d-run3-seeds-from-run2-amended`): surface name -> the argv option whose
@@ -5257,9 +5273,21 @@ def run_dag06_acceptance(check, env: dict) -> None:
               "argv without it completed the package",
               (pkg / TASKFORCE_NAME).is_file())
         check("state.csv: the created cursor carries EXACTLY the ruled "
-              "header, header only (r-stage0-state-cursor-interim-convention)",
+              "header, header only (KG `state-cursor` file-schema)",
               (pkg / STATE_CSV_NAME).read_text(encoding="utf-8")
               == STATE_CSV_HEADER + "\n")
+        # The DIVERGENCE TRIPWIRE. Every other arm compares against the
+        # constant, so all of them stay green while the constant drifts away
+        # from the KG record — which is exactly how the 5-column form survived
+        # `d-runs-extinguished-transcription`. This one pins the literal, so
+        # editing the constant reddens the suite and sends the editor to the
+        # acceptance note above it (which says: re-read the KG record first).
+        check("state.csv: STATE_CSV_HEADER still equals the KG `state-cursor` "
+              "column list — edit both or neither (see the acceptance note at "
+              "the constant)",
+              STATE_CSV_HEADER
+              == "stamped-at,execution-stamp,goal-state,seat,session-id,note",
+              STATE_CSV_HEADER)
 
         rows = list(csv.DictReader(
             (pkg / TASKFORCE_NAME).read_text(encoding="utf-8").splitlines()))
