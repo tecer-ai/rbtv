@@ -317,13 +317,29 @@ async function main() {
     check('a second registerGoal (cached) invites nobody again', inviteCalls(slack).length === 1, { invites: inviteCalls(slack).length });
   }
 
-  // 9c — NEGATIVE, ADOPT: a channel that already existed is not a creation. No invite,
-  //      and no backfill of channels the bridge did not just make.
+  // 9c — ADOPT REPAIRS MEMBERSHIP (task 7.680, 2026-08-10 — supersedes the former
+  //      creation-only arm of C-3): a REAL channel that already existed gets the owner
+  //      invited on adopt, because every channel created before the invite shipped was
+  //      permanently ownerless and re-running `ensure` was a silent no-op while a live
+  //      goal sat blocked in one. Idempotent at the Slack edge (`already_in_channel`).
   {
     const { bridge, slack } = makeBridge({ prefix: REAL_PREFIX, existing: [{ id: 'C_PRE2', name: 'goal-goal-nine', is_archived: false }] });
     const res = await bridge.registerGoal('goal-nine');
-    check('the ADOPT path invites nobody (new channels only — no backfill)',
-      res.ok && res.created === false && res.reason === 'adopted' && inviteCalls(slack).length === 0,
+    const invites = inviteCalls(slack);
+    check('the ADOPT path invites the OWNER into a real channel (repair path, 7.680)',
+      res.ok && res.created === false && res.reason === 'adopted' && res.ownerInvited === true
+        && invites.length === 1 && invites[0].channel === 'C_PRE2'
+        && invites[0].users.length === 1 && invites[0].users[0] === USER,
+      { res, invites });
+  }
+
+  // 9c' — the TEST namespace stays invite-free on the adopt arm too: the widening
+  //       repairs real channels only, `r-slack-etiquette`'s surface is untouched.
+  {
+    const { bridge, slack } = makeBridge({ prefix: PREFIX, existing: [{ id: 'C_PRE3', name: 'test-goal-thirteen', is_archived: false }] });
+    const res = await bridge.registerGoal('goal-thirteen');
+    check('a TEST-prefixed ADOPT still invites nobody (r-slack-etiquette)',
+      res.ok && res.reason === 'adopted' && inviteCalls(slack).length === 0,
       { res, invites: inviteCalls(slack).length });
   }
 

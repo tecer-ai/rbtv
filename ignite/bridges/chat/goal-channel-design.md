@@ -81,9 +81,16 @@ moment it CREATES it. Four conjunctive conditions, all probe-asserted:**
    (`test-` / `test_`). The prefix bounds every name this map can create, so guarding on it
    guards the whole test surface — which is exactly and only what `r-slack-etiquette`
    protects.
-3. **Creation only.** The `created: true` arm of `ensureChannel`. Never the ADOPT path, never
-   `recover()`, and **no backfill sweep of channels that already exist** — the owner ruled
-   new channels only.
+3. **Resolution, not just creation** *(AMENDED by task 7.680, 2026-08-10 — was "creation
+   only", the `created: true` arm alone)*. Both resolving arms of `ensureChannel` — created
+   AND adopted — ensure the owner is in the channel; the call is idempotent at the Slack edge
+   (`already_in_channel` is benign success). The creation-only rule left every channel created
+   before the invite shipped (pre-2026-08-10 11:55) **permanently ownerless**: re-running
+   `ensure` adopted the channel and invited nobody, and the `meeting-transcript-digest` goal
+   sat blocked ~14 h on interview questions the owner could not see. Re-running `ensure` is
+   now the repair path, and the daemon re-ensures at every workflow run start, so orphaned
+   channels self-heal. `recover()` still never invites — it is a bulk map rebuild at boot,
+   not the resolution of a channel about to carry goal traffic.
 4. **Graceful degradation.** An invite refusal (missing scope, restricted workspace) is logged
    loudly and then discarded. Channel creation, the binding, and the goal's message flow never
    depend on it: the channel is the goal's surface whether or not the owner is in it yet.

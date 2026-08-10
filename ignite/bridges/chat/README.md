@@ -111,13 +111,17 @@ registry-transcription flags are in `goal-channel-design.md`:
   refused archive **keeps** the binding: the channel is still live, and dropping it
   would leave goal traffic pointed at a channel nobody believes is in use.
 
-**The OWNER — and nobody else — is invited when a REAL goal channel is CREATED** (owner
-ruling 2026-08-10, issue C-3; supersedes the former never-invite-by-construction bound).
-Four conjunctive conditions, all asserted by `probe-chat-goal-channel`: the one configured
-`owner_user` (default: the first allowlist entry) · never under a `test-`/`test_` prefix ·
-the `created: true` arm only, never adopt, never a backfill · and an invite refusal is
-logged loudly and discarded, so creation and message flow never depend on it. Rationale and
-the superseded text: `goal-channel-design.md` § Membership.
+**The OWNER — and nobody else — is invited when a REAL goal channel is RESOLVED** (owner
+ruling 2026-08-10, issue C-3; supersedes the former never-invite-by-construction bound;
+widened from creation-only to created+adopted arms by task 7.680 the same day, because
+channels created before the invite shipped were permanently ownerless and re-running
+`ensure` was a silent no-op while a live goal sat blocked). Four conjunctive conditions,
+all asserted by `probe-chat-goal-channel`: the one configured `owner_user` (default: the
+first allowlist entry) · never under a `test-`/`test_` prefix · the created AND adopted
+arms of `ensureChannel` (idempotent — `already_in_channel` is benign; `recover()` still
+never invites) · and an invite refusal is logged loudly, carried in the result
+(`ownerInvited` / `invite`), and never gates creation or message flow. Rationale and the
+superseded text: `goal-channel-design.md` § Membership.
 
 **Reaching the current phase-owner voice** (CMP-8 § Thread-model routing) is the
 SERVER's derivation, not the bridge's: a sender types its message and never addresses a

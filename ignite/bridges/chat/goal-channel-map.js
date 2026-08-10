@@ -37,8 +37,14 @@
 //      member. Nothing else can ever be an invite target.
 //   2. REAL GOALS ONLY — refused whenever the channel PREFIX is a test namespace
 //      (`test-`/`test_`), which is exactly the surface `r-slack-etiquette` protects.
-//   3. CREATION ONLY — the `created: true` arm. Never the adopt path, never `recover()`,
-//      never a backfill sweep of channels that already exist.
+//   3. RESOLUTION, NOT JUST CREATION — the `created: true` arm AND the adopt arm: every
+//      `ensureChannel` that resolves a real goal channel ensures the owner is in it
+//      (idempotent at the Slack edge — `already_in_channel`). Widened from creation-only
+//      by task 7.680 (2026-08-10): every channel created before the invite shipped was
+//      permanently ownerless, re-running `ensure` was a silent no-op, and a live goal sat
+//      blocked on questions the owner could not see. `recover()` still never invites —
+//      it is a bulk map rebuild at boot, not the resolution of a channel about to carry
+//      goal traffic.
 //   4. GRACEFUL — an invite refusal (missing scope, restricted workspace) is logged
 //      loudly and DISCARDED. Channel creation and the goal's message flow never depend
 //      on it: the channel is the goal's surface whether or not the owner is in it yet.
@@ -138,9 +144,10 @@ function createGoalChannelMap({ slack, prefix, ownerUser = null, logger = null }
     return { ok: true, channel: null };
   }
 
-  // THE OWNER INVITE — see the header's four conditions. Called on ONE arm of
-  // `ensureChannel` (the freshly-created one) and awaited only so its outcome can be
-  // logged; the result is never returned to the caller and never gates anything.
+  // THE OWNER INVITE — see the header's four conditions. Called on BOTH resolving arms
+  // of `ensureChannel` (created AND adopted — task 7.680); awaited so its outcome can be
+  // logged and CARRIED in the result (`ownerInvited` / `invite`), but it never gates
+  // anything: the channel is the goal's surface whether or not the invite succeeded.
   async function inviteOwner(goalId, channelId, name) {
     if (!ownerUser) return { ok: false, skipped: 'no-owner-configured' };
     if (TEST_PREFIX_RE.test(pfx)) return { ok: false, skipped: 'test-channel' };
@@ -179,7 +186,7 @@ function createGoalChannelMap({ slack, prefix, ownerUser = null, logger = null }
       bind(gid, res.channel.id);
       log('info', 'goal channel created and bound', { goalId: gid, channelId: res.channel.id, name });
       const invited = await inviteOwner(gid, res.channel.id, name);
-      return { ok: true, goalId: gid, channelId: res.channel.id, created: true, reason: 'created', name, ownerInvited: Boolean(invited && invited.ok) };
+      return { ok: true, goalId: gid, channelId: res.channel.id, created: true, reason: 'created', name, ownerInvited: Boolean(invited && invited.ok), invite: invited };
     }
     if (res && res.error === 'name_taken') {
       const found = await findByName(name);
@@ -192,7 +199,12 @@ function createGoalChannelMap({ slack, prefix, ownerUser = null, logger = null }
       }
       bind(gid, found.channel.id);
       log('info', 'goal channel adopted (name already taken) and bound', { goalId: gid, channelId: found.channel.id, name });
-      return { ok: true, goalId: gid, channelId: found.channel.id, created: false, reason: 'adopted', name };
+      // The adopt arm invites too (task 7.680): an adopted channel may predate the
+      // invite feature entirely, and this call is the ONE repair path that puts the
+      // owner in it. Idempotent — Slack answers `already_in_channel` when nothing is
+      // wrong, and `inviteOwner` skips test namespaces by construction.
+      const invited = await inviteOwner(gid, found.channel.id, name);
+      return { ok: true, goalId: gid, channelId: found.channel.id, created: false, reason: 'adopted', name, ownerInvited: Boolean(invited && invited.ok), invite: invited };
     }
     log('warn', 'goal channel creation refused by Slack', { goalId: gid, name, error: res && res.error });
     return { ok: false, goalId: gid, error: (res && res.error) || 'create-failed', reason: 'create-failed', name };
