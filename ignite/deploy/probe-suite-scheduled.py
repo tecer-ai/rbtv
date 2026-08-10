@@ -49,6 +49,7 @@ or the run is reported as a COVERAGE MISMATCH rather than as a verdict.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -93,6 +94,24 @@ WORKSPACE_ROOT = find_workspace_root(DEPLOY_DIR)
 RUNTIME_DIR = os.path.join(WORKSPACE_ROOT, '.rbtv', 'runtime', 'probe-suite')
 LATEST = os.path.join(RUNTIME_DIR, 'latest.json')
 
+# ⚠ THE BINARIES A RUN ACTUALLY SPAWNS — `node` (this file spawns the suite with it), `python3`
+# (probe-suite.js spawns every `.py` probe with it, :182) and `claude` (probes that shell out to
+# the CLI). Measured 2026-08-10 (task 7.685): over a plain SSH shell PATH lacks `~/.local/bin`,
+# `claude` is ENOENT, and FOUR probes report `spawnSync claude ENOENT` REDS with nothing naming the
+# cause — a 6-minute run that reads as four defects. The systemd unit sets its own PATH (it carries
+# `%h/.local/bin`) and passes this check unchanged.
+# ⚠ REFUSING IS NOT NOTIFYING (this file's standing bar, header): nothing is sent to anyone — the
+# run simply does not start, and the refusal rides the SAME liveness artifact every other outcome
+# does, so a timer whose environment broke reports itself instead of emitting four false reds.
+REQUIRED_BINARIES = ('node', 'python3', 'claude')
+
+# How many past runs stay on disk. Each fire leaves `<stamp>.txt` + `<stamp>-captures/` and nothing
+# ever removed them: measured 2026-08-10 on the VPS, 1015 stamps / 981 capture trees / 231 MB
+# (task 7.698). 48 = two days of hourly fires — enough to walk back over a night's reds, bounded.
+# The daemon's own retention (task 7.13, server/retention.js) does NOT cover this: it enumerates
+# the PER-MACHINE state root's classes, and this pile is per-WORKSPACE (.rbtv/runtime/).
+RETAINED_RUNS = int(os.environ.get('PROBE_SUITE_RETAINED_RUNS', 48))
+
 # ⚠ EXCLUDED BY CONSTRUCTION, WITH ITS REASON IN THE SAME PLACE AS THE EXCLUSION (leader ratified).
 # ⚠ THE SHAPE IS A DICT, `{dir: why}` — the `why` is read below into `latest.json`'s `excluded`
 # block, so an exclusion carries its reason to the artifact's reader and not only to this file.
@@ -118,6 +137,59 @@ DEFAULT_INTERVAL_SECONDS = 3600
 # slow or skipped fire is not read as death, and deliberately WRITTEN INTO THE ARTIFACT so the
 # reader needs no out-of-band knowledge of the cadence.
 STALE_MULTIPLIER = 2.5
+
+
+def preflight():
+    """Refuse at the start, naming the binary and the PATH searched. NEVER notifies anyone."""
+    searched = os.environ.get('PATH', '')
+    missing = [b for b in REQUIRED_BINARIES if shutil.which(b) is None]
+    if missing:
+        msg = (
+            'PREFLIGHT REFUSED: required binaries not on PATH: ' + ', '.join(missing)
+            + f' — searched PATH={searched!r}. No probe was run: a binary missing from the '
+            'environment surfaces as a spawn failure INSIDE whichever probes touch it, which is '
+            'indistinguishable from those probes being broken.'
+        )
+        print(msg, file=sys.stderr)
+        raise EnvironmentError(msg)
+
+
+def prune_runs(runtime_dir=None, keep=None):
+    """Keep the newest `keep` runs; delete the older ones, stamp AND captures tree together.
+
+    Age comes off mtime, NOT off the name: the dir holds at least two stamp shapes plus hand-named
+    runs (`w7552r-runA.txt`), and a name parser silently retains forever every shape it fails to
+    parse. `latest.json` and the `.latest-*.json` temps match neither suffix, so they are never
+    candidates — the liveness artifact cannot be pruned by construction.
+    """
+    runtime_dir = RUNTIME_DIR if runtime_dir is None else runtime_dir
+    keep = RETAINED_RUNS if keep is None else keep
+    runs = {}
+    for name in os.listdir(runtime_dir) if os.path.isdir(runtime_dir) else []:
+        if name.endswith('.txt'):
+            key = name[:-len('.txt')]
+        elif name.endswith('-captures'):
+            key = name[:-len('-captures')]
+        else:
+            continue
+        path = os.path.join(runtime_dir, name)
+        try:
+            runs.setdefault(key, []).append((os.path.getmtime(path), path))
+        except OSError:
+            pass
+    newest_first = sorted(runs, key=lambda k: max(m for m, _ in runs[k]), reverse=True)
+    pruned = []
+    for key in newest_first[keep:]:
+        for _, path in runs[key]:
+            if os.path.isdir(path):
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+        pruned.append(key)
+    return pruned
 
 
 def now_iso():
@@ -176,6 +248,15 @@ def main():
     }
 
     try:
+        preflight()
+
+        pruned = prune_runs()
+        # Recorded BEFORE the suite runs, so a run that later dies still reports what it pruned.
+        payload['retained_runs'] = RETAINED_RUNS
+        payload['pruned_runs'] = len(pruned)
+        payload['pruned_oldest'] = pruned[-1] if pruned else None
+        payload['pruned_newest'] = pruned[0] if pruned else None
+
         probes, discovered = discover()
 
         all_dirs = sorted({os.path.dirname(p) for p in probes})
@@ -293,5 +374,25 @@ def main():
     return 0 if payload['verdict'] == 'GREEN' else 1
 
 
+def selftest():
+    """The one runnable check: prune_runs keeps the newest N runs and takes captures with them."""
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as d:
+        for i in range(10):
+            open(os.path.join(d, f'run-{i:02d}.txt'), 'w').close()
+            os.makedirs(os.path.join(d, f'run-{i:02d}-captures'))
+            open(os.path.join(d, f'run-{i:02d}-captures', 'x.out'), 'w').close()
+            for n in (f'run-{i:02d}.txt', f'run-{i:02d}-captures'):
+                os.utime(os.path.join(d, n), (1000 + i, 1000 + i))
+        open(os.path.join(d, 'latest.json'), 'w').close()
+        pruned = prune_runs(d, keep=3)
+        left = sorted(os.listdir(d))
+        assert pruned == ['run-06', 'run-05', 'run-04', 'run-03', 'run-02', 'run-01', 'run-00'], pruned
+        assert left == ['latest.json', 'run-07-captures', 'run-07.txt', 'run-08-captures',
+                        'run-08.txt', 'run-09-captures', 'run-09.txt'], left
+    print('selftest OK')
+    return 0
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(selftest() if '--selftest' in sys.argv else main())
