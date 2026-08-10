@@ -34,10 +34,15 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // The outbound reply leg (Behavior #3, D110): drives worker answer → Slack thread.
   // It reaches the daemon ONLY via the injected forwarder's inspect surface, and
   // delivers via this bridge's own deliverToOwner — no new capability.
+  // `redispatch` is the reply contract's revive turn (owner ruling 2026-08-10): the SAME
+  // follow-up leg an owner reply takes — a send-message job on the conversation's chain — flagged
+  // corrective so it consumes no pending ask and posts no decline notice into the owner's thread.
+  // No parallel enqueue path exists for it, by construction.
   const replyLeg = createReplyLeg({
     threadMap,
     forwarder,
     deliver: (args) => deliverToOwner(args),
+    redispatch: (args) => forwardPath.forwardFollowUp({ ...args, corrective: true }),
     logger,
     ...replyLegOptions,
   });

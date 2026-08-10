@@ -272,7 +272,18 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
 
   // A follow-up in an already-mapped conversation → a send-message action-type
   // job on the chain's thread. NEVER send-to-session.
-  async function forwardFollowUp({ chatThreadId, text, route }) {
+  //
+  // ⚑ `corrective` — THE REPLY LEG'S REVIVE TURN (owner ruling 2026-08-10, reply-contract design
+  // decision 7) rides this exact leg rather than a second enqueue path, because it IS the same
+  // act: a message onto an existing chain, consumed at the next turn boundary. Two things must
+  // differ, and only two:
+  //   1. it is never an `answer`. A corrective turn responds to no `ask`, so consuming a pending
+  //      one would mark the owner's real question answered by a schema complaint.
+  //   2. it posts NO decline notice. The notices exist to tell the OWNER his message did not
+  //      land; on a corrective turn the owner sent nothing, and "couldn't route your reply" in
+  //      his thread would be a lie about an act he never performed. A refused corrective is
+  //      returned to the reply leg instead, which delivers best-effort.
+  async function forwardFollowUp({ chatThreadId, text, route, corrective = false }) {
     const entry = threadMap.get(chatThreadId);
     // Resolve the chain thread via inspect (D69) — the address for the message row.
     const resolved = await threadMap.resolveChainThread(chatThreadId, forwarder);
@@ -281,13 +292,14 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       // is not yet known. Do NOT forward with a guessed thread (fail loud). The
       // reply stays with the owner's conversation state; a later turn consumes it
       // once the chain thread is resolvable.
-      log('warn', 'follow-up not forwarded: chain thread unresolved', { chatThreadId, reason: resolved.reason });
-      await postDeclineNotice(chatThreadId); // D111: honest notice, never silence, on a mapped conversation
-      return { forwarded: false, leg: 'follow-up', reason: `chain-unresolved:${resolved.reason}` };
+      log('warn', 'follow-up not forwarded: chain thread unresolved', { chatThreadId, corrective, reason: resolved.reason });
+      if (!corrective) await postDeclineNotice(chatThreadId); // D111: honest notice, never silence, on a mapped conversation
+      return { forwarded: false, leg: 'follow-up', corrective, reason: `chain-unresolved:${resolved.reason}` };
     }
 
-    // D105 reply type: `answer` on a pending ask, else `note`.
-    const replyType = entry && entry.pendingAsk ? 'answer' : 'note';
+    // D105 reply type: `answer` on a pending ask, else `note` — and a corrective turn is always a
+    // `note` (it answers nothing; see the header).
+    const replyType = !corrective && entry && entry.pendingAsk ? 'answer' : 'note';
     if (!CMP8_TYPES.has(replyType)) {
       // Defensive: the closed vocabulary can never be violated from here.
       return { forwarded: false, leg: 'follow-up', reason: `bad-reply-type:${replyType}` };
@@ -301,13 +313,13 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     };
     const res = await forwarder.forward('enqueue-job', payload);
     if (!res.ok) {
-      log('warn', 'follow-up send-message enqueue refused by gateway', { chatThreadId, error: res.error });
-      await postDeclineNotice(chatThreadId); // D111: honest notice on a mapped conversation whose enqueue was refused
-      return { forwarded: false, leg: 'follow-up', intent: 'enqueue-job', replyType, thread: resolved.chainThread, error: res.error };
+      log('warn', 'follow-up send-message enqueue refused by gateway', { chatThreadId, corrective, error: res.error });
+      if (!corrective) await postDeclineNotice(chatThreadId); // D111: honest notice on a mapped conversation whose enqueue was refused
+      return { forwarded: false, leg: 'follow-up', corrective, intent: 'enqueue-job', replyType, thread: resolved.chainThread, error: res.error };
     }
     if (replyType === 'answer') threadMap.setPendingAsk(chatThreadId, false); // the ask has now been answered
-    log('info', 'follow-up send-message enqueued', { chatThreadId, replyType, thread: resolved.chainThread, route: route && route.kind, goalId: route && route.goalId, queueId: res.result && res.result.jobId });
-    return { forwarded: true, leg: 'follow-up', intent: 'enqueue-job', replyType, thread: resolved.chainThread, queueId: res.result && res.result.jobId, route: route && route.kind, goalId: (route && route.goalId) || null };
+    log('info', 'follow-up send-message enqueued', { chatThreadId, corrective, replyType, thread: resolved.chainThread, route: route && route.kind, goalId: route && route.goalId, queueId: res.result && res.result.jobId });
+    return { forwarded: true, leg: 'follow-up', corrective, intent: 'enqueue-job', replyType, thread: resolved.chainThread, queueId: res.result && res.result.jobId, route: route && route.kind, goalId: (route && route.goalId) || null };
   }
 
   // The single entry: an inbound chat message. Admission FIRST (chat-bridge-spec.md

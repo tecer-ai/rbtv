@@ -360,10 +360,9 @@ bridge arms a per-conversation PENDING-REPLY state; a single driver loop (defaul
    — NEVER on `status === 'done'` (the daemon's crash sweep mislabels clean detached
    successes `failed`, so the live flag is the only trustworthy signal);
 3. **extracts** the reply from `inspect logs {execId}`, paging the bounded surface
-   to the log's END (`nextOffset`/`eof`) — the LAST stream-json
-   `{ type:'result', result }` line; a log read to eof with no parseable result
-   line → a fixed fallback (`⚠ agent run ended without a parseable reply`), the
-   raw log is NEVER posted;
+   to the log's END (`nextOffset`/`eof`), then applies the reply contract below; a
+   log read to eof with NO text at all → a fixed fallback (`⚠ agent run ended
+   without a parseable reply`), the raw log is NEVER posted;
 4. **delivers** via `deliverToOwner` (markAsk false — plain agent output, D105 note;
    ask-detection is out of scope for v1), marking the exec delivered ONLY on a
    confirmed delivery, so it is never posted twice — and so a TRANSIENT logs/
@@ -371,6 +370,38 @@ bridge arms a per-conversation PENDING-REPLY state; a single driver loop (defaul
    bounded per exec; at the attempt cap it is retired undelivered with a warn AND a
    fixed give-up notice to the owner (D111 part 2 — honest non-delivery, never a
    silent success or a fallback posted over a blip).
+
+### The reply contract — bridge-owned, one shape for every harness
+
+Owner ruling 2026-08-10 (`chat-bridge-feedback-and-reply-contract.md`, decisions 5–7).
+Extraction used to know exactly ONE log shape, claude's `--output-format stream-json`,
+so every non-claude master profile — opencode `run`, kimi `--quiet`, codex `--json` —
+produced a log with no `result` line and every reply reached Slack as the bare
+fallback (observed live 2026-08-10 on `opencode-glm-5-2`). Adapting the bridge to each
+harness's output is the losing end of that: the set grows, each addition guesses where
+a harness hides its answer, and none of it makes the reply better formed.
+
+**The contract inverts it.** The agent states where its reply is, and what lies between
+the two sentinel lines is Slack mrkdwn delivered VERBATIM:
+
+```
+<<<SLACK-REPLY>>>
+*the reply, in Slack mrkdwn*
+<<<END-SLACK-REPLY>>>
+```
+
+LAST complete pair wins, so an echoed prompt or a corrected first attempt is harmless.
+The instruction side reaches every master sitting through its seat descriptor — the
+`slack-message-format` reference in the `master-agent` mirror component — never through
+prompt injection (`r-bare-prompt-admits-one-correlation-id`: the bridge may prefix the
+owner's words with the chat-thread line and nothing else).
+
+| Step | What happens |
+|---|---|
+| **normalize** | log → the text the agent wrote, the ONE per-harness step the contract cannot remove. claude → the last `{type:'result', result}` line; codex `--json` → the last `{type:'item.completed', item:{type:'agent_message', text}}` event (measured on codex-cli 0.144.5); everything else → the raw log text with ANSI escapes stripped (opencode colours its output even into a file). The harness comes from `inspect status`.profile — a field on the response the driver **already** fetches, so no inspect surface is widened. The two structured arms never fall through to the text arm: a claude/codex log with no message event holds JSON, and posting JSON is what D110 step 4 forbids. |
+| **check** | fence present, and its content free of the markdown-isms `mrkdwn.js` exists to catch — pipe tables, `**bold**`, `#` headings, `[text](url)` — linted by `lintMrkdwn`, which lives in that module so the converter and the check can never drift, and which honours the same carve-outs (a `**` inside a code fence or an inline code span is data). A lint hit IS non-conformance. |
+| **revive** | non-conformance → ONE corrective turn on the SAME chain, carrying feedback that names each failure and quotes its offending line, plus the correct shape. It rides the forward path's own follow-up leg flagged `corrective: true` — a `send-message` note on the chain, never a second enqueue path — which never consumes a pending `ask` and never posts a decline notice (the owner sent nothing to decline). Bounded at **2 per owner turn**, and the budget sits on the CONVERSATION, not the exec: a revive turn's own bad output spends the same allowance, so the loop terminates whatever the agent does. |
+| **deliver** | conformant → the fenced content, byte-identical, with **no** `toMrkdwn` pass (running one would reintroduce the parsing the contract removes). Past the bound, or when the chain cannot be re-dispatched → best-effort: the extracted text through `toMrkdwn`, clamped, behind `⚠ unformatted reply — `. The bare fallback is reached ONLY by a log holding no text at all. |
 
 The reply leg's `pending` watch state is **deliberately not persisted**, even when
 `state_file` is set: every field in it is time-bound (a 10-minute spawn window, execs
@@ -520,7 +551,8 @@ Bodies over ~3000 chars are cut at a **line boundary** and end
 | `index.js` | process entry + `buildBridge()` composition |
 | `chat-bridge.js` | wires transport + allowlist + thread-map + forward-path + reply-leg; inbound + outbound; owns the reply addresses and the `(goal, agent)` → thread map |
 | `forward-path.js` | the D104/D105 forward contract (session-create / follow-up / reply type) |
-| `reply-leg.js` | the D110 outbound driver: worker turn finishes → fetch its answer via `inspect` → `deliverToOwner` into the Slack thread |
+| `reply-leg.js` | the D110 outbound driver: worker turn finishes → fetch its answer via `inspect` → apply the bridge-owned reply contract (per-harness normalize · fence · lint · bounded corrective revive) → `deliverToOwner` into the Slack thread |
+| `mrkdwn.js` | markdown→mrkdwn normalization (the best-effort safety net) AND `lintMrkdwn`, the reply contract's conformance check — one module, because both need the same answer to "what is a markdown-ism, and where is it data" |
 | `bus-ferry.js` | the bus ferry: coordination-bus rows addressed `to: owner` → through the two gates on agent-initiated contact → the sending agent's own thread in the goal channel, else the channel master (post + mint a sitting); everything else, `to: master` included, is not its business. One way; cursor-at-tail, persisted |
 | `slack-socket-mode.js` | Slack Socket Mode transport (outbound WS + chat.postMessage) |
 | `allowlist.js` | chat-user allowlist + DM pairing (admission control) |
@@ -602,7 +634,7 @@ graded for staleness (`ignite/CLAUDE.md` § probes). Evidence → `probe-chat-<n
 | `probe-chat-allowlist` | #2 | non-allowlisted user refused, nothing enqueued; admitted user does enqueue |
 | `probe-chat-outbound` | #3 | starting the bridge adds NO new inbound listener (`ss -tlnp` delta) |
 | `probe-chat-outbound-msg` | #4 | owner output delivered outbound via `chat.postMessage` |
-| `probe-chat-reply-leg` | #4 | the D110 driver, armed through the REAL inbound wiring (Slack event → forward path → arm): spawn captured from `recent_ticks` → `live:false` → LAST stream-json result line extracted (multi-page logs paged to the end) → posted to the conversation's channel+thread, text-EQUAL to the result string; no-result log delivers the fixed fallback (never the raw log); no exec delivered twice; a follow-up turn (new exec, same queue) delivers a second reply; a transient logs failure or refused post is retried (nothing burned), persistent failure retires the exec undelivered at a bounded attempt cap AND posts the honest give-up notice (D111 part 2) |
+| `probe-chat-reply-leg` | #4 | the D110 driver, armed through the REAL inbound wiring (Slack event → forward path → arm): spawn captured from `recent_ticks` → `live:false` → the reply extracted (multi-page logs paged to the end) → posted to the conversation's channel+thread, text-EQUAL to the fenced content; no exec delivered twice; a follow-up turn (new exec, same queue) delivers a second reply; a transient logs failure or refused post is retried (nothing burned), persistent failure retires the exec undelivered at a bounded attempt cap AND posts the honest give-up notice (D111 part 2). **Reply contract**: the same fenced reply arrives from all three log shapes (claude stream-json, codex `--json` events, plain text with opencode's ANSI escapes) via `inspect status`.profile; a conformant reply is delivered BYTE-IDENTICAL with a body `toMrkdwn` would demonstrably have altered; a lint hit posts nothing and enqueues a corrective `note` on the same chain naming each ism and quoting its line; a missing fence spends the second revive and the third non-conformant turn is delivered best-effort behind the warning marker (never the bare fallback), while a genuinely textless log still delivers the bare fallback and is never revived |
 | `probe-chat-mention-route` | — | the 2026-08-06 rulings: a mention in an unmapped channel routes as master with a thread-scoped conversation and an in-thread reply address; an unmentioned (or someone-else-mentioning) message there stays refused with nothing enqueued; `mpim` stays refused even when mentioned; a failed `auth.test` DISABLES the mention route while the DM path keeps working; a goal session-create is homed at the open run's `goal-master` seat; each of the four unresolvable-seat states (no open run · run open but unseated · goal absent · `workspace_root` unset) enqueues nothing and posts the fixed no-seat notice; every session-create prompt equals the user text verbatim; the runtime source carries no instance path and no `MASTER_CHARTER`; and the **mint-vs-continue** rule — a mention mints, an un-mentioned reply in a KNOWN thread continues as a follow-up `send-message`, while an unknown thread, a top-level message, and the same `thread_ts` in another channel each stay refused with nothing enqueued |
 | `probe-chat-state-persistence` | — | the 2026-08-06 `state_file` ruling, modelled as a real restart (a SECOND `buildBridge` on the same file, fresh maps, the same still-running daemon): a mutation writes the file (0600, directory created) carrying BOTH tables; the restarted bridge starts empty, restores at `start()`, and an **un-mentioned reply in the restored thread CONTINUES** — the owner's amnesia repro, now green — with the restored reply address still addressing the original channel+thread; the CONTROL run with no `state_file` refuses that same reply; with no `state_file` **nothing is written anywhere** (asserted against an empty cwd); a corrupt file is renamed aside `.corrupt-<ts>`, logged at `error`, starts EMPTY without crashing, and still mints and re-persists afterwards; `closeGoal`'s reply-address DELETE is persisted; a relative `state_file` is refused at config resolution while unset stays `null` |
 | `probe-chat-bus-ferry` | — | the bus ferry: a 50-row `to: owner` backlog is NOT ferried at first sight and the cursor lands at the tail; a row appended after IS ferried once with the exact header; the token grammar — `to: leader` ignored, `to: owner, leader` ferried, `goal-owner` NOT; **the ruling's red/green pair** — a `to: master` row is NEVER ferried while a `to: owner` row from the SAME seat on the SAME pass is; an over-long body truncates at a line boundary naming the workspace-relative source; a torn trailing row is left unposted until it completes; malformed headers warn once then drop to debug without stopping the rows around them; a failed post is retried without advancing the cursor and without letting the next row jump it, then is skipped loudly at the attempt cap leaving the ferry UNWEDGED; the cursor survives a real restart (second `buildBridge`, same `state_file` → no double-post, no re-flood) with the state file EXTENDED not restructured; a `state=closed` run is never enumerated; the fail-closed set — off by default, on-without-`workspace_root`, and a failed `conversations.open` — each disables the ferry loudly while the bridge starts fine; **the DM half of the owner leg** — a goal with no channel still posts to the DM, MINTS a sitting whose session-create prompt equals the posted row byte-for-byte behind the one correlation line, keys the conversation on the post's own `ts`, and an un-mentioned reply there CONTINUES it as a `send-message` on the row's own chain instead of minting a second session; **the 7.546 birth route** — a run enumerated open with NO `messages.md` yet takes no cursor on that pass and its FIRST row is then ferried on the very pass that reads it, while a run first seen WITH a 40-row backlog — same workspace, same passes — keeps the tail rule and ferries none of it. ⚠ **Two arms were DELETED with the machinery they tested** (`d-agents-address-owner-not-master`): the roster stand-down / holder-by-name legs, and the live-descriptor arm that required a standing correspondent to declare `relays: master` — the ferry now reads neither a roster nor `relays:`. The live tree is still MEASURED in their place and filed as a SKIP (goals declaring `execution-mode: interactive`), for the reviewer to turn into an assertion once the F-115 mints land — asserting it today would red the suite for work deliberately not done |

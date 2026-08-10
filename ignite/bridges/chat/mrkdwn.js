@@ -84,4 +84,45 @@ function toMrkdwn(text) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n');
 }
 
-module.exports = { toMrkdwn };
+// THE LINT — the same knowledge read the other way (reply contract, 2026-08-10). Under the
+// bridge-owned reply contract a CONFORMANT reply is delivered VERBATIM, so a markdown-ism inside
+// the fence is no longer something to silently convert: it is non-conformance, and the agent is
+// told which line broke it. The check lives HERE, not in the reply leg, because it needs exactly
+// what this file already knows — what counts as a markdown-ism, and the two places it does NOT
+// count (inside a fenced block or an inline code span, where `**` is data). A second copy in the
+// caller would drift from the converter the moment either changed.
+//
+// Pipe tables are included even though `toMrkdwn` refuses to rewrite them: the refusal is why they
+// have to be caught here. The converter's honest failure mode is raw pipes in the owner's thread;
+// the lint's is a corrective turn, which is better.
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+
+// Returns [{ issue, line, text }] — one entry per (line, issue), in reading order. Empty = clean.
+function lintMrkdwn(text) {
+  const hits = [];
+  if (typeof text !== 'string' || text === '') return hits;
+  let inFence = false;
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s{0,3}```/.test(line)) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const add = (issue) => hits.push({ issue, line: i + 1, text: line });
+    if (TABLE_ROW.test(line)) add('pipe-table');
+    if (HEADING.test(line)) add('markdown-heading');
+    // Emphasis and links count only OUTSIDE inline code — the same carve the converter applies.
+    // `String.prototype.match` on a /g regex resets lastIndex itself, so these stay stateless.
+    let bold = false;
+    let link = false;
+    mapOutsideInlineCode(line, (part) => {
+      if (part.match(BOLD)) bold = true;
+      if (part.match(LINK)) link = true;
+      return part;
+    });
+    if (bold) add('markdown-bold');
+    if (link) add('markdown-link');
+  }
+  return hits;
+}
+
+module.exports = { toMrkdwn, lintMrkdwn };

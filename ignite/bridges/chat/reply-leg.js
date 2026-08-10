@@ -30,7 +30,65 @@
 // "turn finished" on `status === 'done'` would miss every real reply. We key on
 // the `live` flag transitioning to false (dispatch.js inspect status → `live`).
 
-const { toMrkdwn } = require('./mrkdwn');
+const { toMrkdwn, lintMrkdwn } = require('./mrkdwn');
+
+// ⚑ THE BRIDGE OWNS ONE REPLY CONTRACT, NOT ONE PARSER PER HARNESS (owner ruling 2026-08-10,
+// chat-bridge-feedback-and-reply-contract.md decisions 5–7). Before it, extraction knew exactly
+// one log shape — claude's `--output-format stream-json` — so every non-claude master profile
+// (opencode `run`, kimi `--quiet`, codex `--json`) produced a log with no `result` line and every
+// reply reached Slack as the bare fallback (observed live 2026-08-10 on opencode-glm-5-2).
+//
+// Adapting the bridge to each harness's output format is the losing end of that: the set grows,
+// each addition is a new guess at where a harness hides its answer, and none of it makes the
+// REPLY any better formed. The contract inverts it — the AGENT states where its reply is, with
+// two fixed sentinel lines, and what lies between them is Slack mrkdwn delivered VERBATIM. No
+// parsing stands between the agent and Slack on a conformant reply. What remains per-harness is
+// the unavoidable mechanical step BELOW the contract: turning a log file into the text the agent
+// wrote (`normalizeLog`). The contract and its enforcement are harness-agnostic.
+//
+// Non-conformance is not absorbed — it is FED BACK. The agent gets one corrective turn on its own
+// chain naming what failed and quoting the offending line, bounded at MAX_REVIVES; past the bound
+// the owner still gets the text, through the mrkdwn safety net, behind a marker that says it was
+// not formatted. The bare fallback below is reached only by a log with NO text in it at all.
+const FENCE_OPEN = '<<<SLACK-REPLY>>>';
+const FENCE_CLOSE = '<<<END-SLACK-REPLY>>>';
+
+// The template quoted back to a non-conformant agent. It contains a COMPLETE fence pair, which is
+// safe by the same rule that makes the contract work at all: LAST complete pair wins, and a prompt
+// echoed into a log is always echoed BEFORE the reply it provokes.
+const CONTRACT_TEMPLATE = [
+  FENCE_OPEN,
+  '*The answer in one bold lead line*',
+  '',
+  'Detail below it, plain mrkdwn: *bold*, _italic_, `code`, <https://url|link text>, - bullets.',
+  FENCE_CLOSE,
+].join('\n');
+
+// One human sentence per lint issue — the specific thing that failed, and the mrkdwn that
+// replaces it. Keyed by `lintMrkdwn`'s issue vocabulary.
+const ISSUE_TEXT = {
+  'pipe-table': 'a pipe table — Slack renders the pipes literally; use short aligned lines or bullets',
+  'markdown-bold': 'markdown bold (`**text**`) — Slack bold is single asterisks, `*text*`',
+  'markdown-heading': 'a markdown heading (`#`) — Slack has no headings; use `*a short bold line*`',
+  'markdown-link': 'a markdown link (`[text](url)`) — Slack links are `<url|text>`',
+};
+
+// Quote at most this many offending lines back: the feedback has to be specific, not a
+// transcript, and a 200-row table would otherwise become the whole corrective prompt.
+const MAX_QUOTED_ISSUES = 5;
+
+// Corrective turns per OWNER turn (owner ruling, decision 7). Bounded on the CONVERSATION, not on
+// the exec — see the revive block in _runOnce for why that is what makes the loop terminate.
+const DEFAULT_MAX_REVIVES = 2;
+
+// The best-effort marker (decision 7): past the revive bound the owner reads the reply anyway,
+// prefixed so the shape it arrives in is attributed to the agent rather than to the bridge.
+const UNFORMATTED_PREFIX = '⚠ unformatted reply — ';
+
+// A best-effort body is whatever text the log held, which on a plain-text harness is the WHOLE
+// log. Slack rejects an oversized post, and a rejected post is a retry loop ending in the give-up
+// notice — i.e. the owner would lose the message entirely to a length nobody chose. Clamped.
+const BEST_EFFORT_MAX_CHARS = 3500;
 
 // Fixed fallback delivered when a run ends with no parseable reply line — the raw
 // log is NEVER dumped into Slack (D110 step 4).
@@ -67,6 +125,108 @@ function extractReplyText(lines) {
   return text;
 }
 
+// codex `--json` extraction. The event shape is MEASURED, not assumed — `codex exec --json` on
+// codex-cli 0.144.5 (2026-08-10, this box) emits one JSON event per line and puts the agent's turn
+// text in `{ type:'item.completed', item:{ type:'agent_message', text } }`. Non-JSON lines are
+// real ("Reading prompt from stdin...") and are skipped. LAST agent_message wins, matching the
+// claude arm: a turn may emit several and the final one is the answer.
+function extractCodexText(lines) {
+  let text = null;
+  for (const line of lines) {
+    if (!line) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch { continue; }
+    const item = obj && obj.type === 'item.completed' ? obj.item : null;
+    if (item && item.type === 'agent_message' && typeof item.text === 'string') text = item.text;
+  }
+  return text;
+}
+
+// CSI escape sequences. opencode writes its banner and status lines with colour even when its
+// stdout is a file (measured on a live log, 2026-08-10) — an escape sitting on a sentinel line is
+// enough to make an exactly-conformant reply read as non-conformant.
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+
+// LOG → THE TEXT THE AGENT WROTE, per harness. The harness is the profile name's leading token:
+// profiles are one-per-harness+model and named for it (`claude-opus`, `codex-gpt-5-5`,
+// `opencode-glm-5-2`, bare `kimi` — config/spawn-profiles.yaml § profiles).
+//
+// `jobs_log.profile` is nullable, but never null on an exec THIS leg watches: the leg watches
+// ticker SPAWN actions only, and a launch-agent job cannot be enqueued without naming a profile
+// (DEC-1 R3, enforced in forward-path.js#forwardSessionCreate). So the arm is selected, never
+// guessed at.
+//
+// ⚑ THE DEFAULT ARM IS PLAIN TEXT, AND THAT IS THE HONEST DEFAULT, not a guess: a harness that
+// emits no structured events writes its answer as text, so an unrecognized profile degrades to
+// reading the log as what it is. The two structured arms deliberately do NOT fall through to it —
+// a claude or codex log with no message event holds JSON, and dumping JSON into the owner's thread
+// is the thing D110 step 4 forbids. For those two, no message event means no text.
+function normalizeLog(lines, profile) {
+  const harness = String(profile || '').split('-')[0];
+  if (harness === 'claude') return extractReplyText(lines);
+  if (harness === 'codex') return extractCodexText(lines);
+  const text = lines.join('\n').replace(ANSI, '');
+  return text.trim() ? text : null;
+}
+
+// The contract's own extraction: the content of the LAST COMPLETE sentinel pair. Last-wins is what
+// makes an echoed prompt, a quoted template, or a first attempt the agent then corrected harmless
+// — the reply the agent ended on is the one that travels. Sentinels are matched as WHOLE trimmed
+// lines, so the two markers can never be confused with each other or with prose mentioning them.
+function extractFenced(text) {
+  if (typeof text !== 'string' || text === '') return null;
+  const lines = text.split('\n');
+  let open = -1;
+  let body = null;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (t === FENCE_OPEN) { open = i; continue; }
+    if (t === FENCE_CLOSE && open >= 0) {
+      body = lines.slice(open + 1, i).join('\n');
+      open = -1;
+    }
+  }
+  if (body === null) return null;
+  // Outer blank lines are the fence's own whitespace, not the message; the CONTENT is untouched.
+  body = body.replace(/^\n+|\n+$/g, '');
+  return body === '' ? null : body;
+}
+
+// THE CONFORMANCE VERDICT. `body` is always the best text available for delivery — the fenced
+// content when there is one, the whole normalized text when there is not, `null` only when the log
+// held no text at all. That single field is what lets the caller deliver verbatim, deliver
+// best-effort, and fall back, without re-deriving anything.
+function checkReplyContract(normalized) {
+  if (normalized == null) return { ok: false, body: null, problems: [{ issue: 'no-text' }] };
+  const fenced = extractFenced(normalized);
+  if (fenced === null) return { ok: false, body: normalized, problems: [{ issue: 'no-fence' }] };
+  const hits = lintMrkdwn(fenced);
+  return { ok: hits.length === 0, body: fenced, problems: hits };
+}
+
+// The corrective prompt. Specific first (what failed, with the offending line quoted), the shape
+// second — a feedback that only says "wrong" produces another wrong turn.
+function buildFeedback(problems) {
+  const head = problems.some((p) => p.issue === 'no-fence')
+    ? `Your reply did not reach the owner: your turn ended with no ${FENCE_OPEN} … ${FENCE_CLOSE} pair, so the bridge could not tell which part of your output was the message.`
+    : 'Your reply did not reach the owner: the text inside your reply fence is markdown, and Slack renders mrkdwn. What broke:';
+  const quoted = problems
+    .filter((p) => ISSUE_TEXT[p.issue])
+    .slice(0, MAX_QUOTED_ISSUES)
+    .map((p) => `- line ${p.line}: ${ISSUE_TEXT[p.issue]}\n    ${p.text}`);
+  const more = problems.length > MAX_QUOTED_ISSUES ? [`- …and ${problems.length - MAX_QUOTED_ISSUES} more of the same kind.`] : [];
+  return [
+    head,
+    ...(quoted.length ? ['', ...quoted, ...more] : []),
+    '',
+    'Send the answer again now. End your turn with it between these two lines exactly, and write NOTHING after the closing line:',
+    '',
+    CONTRACT_TEMPLATE,
+    '',
+    'The text between the lines is delivered to Slack verbatim — it must be Slack mrkdwn (your slack-message-format reference has the full mapping).',
+  ].join('\n');
+}
+
 // The driver. `deliver({ chatThreadId, text, markAsk })` is the bridge's own
 // outbound delivery (chat-bridge.js deliverToOwner) — injected so the leg holds
 // no transport of its own. `forwarder.inspect(target, extra)` is the gateway read
@@ -75,6 +235,13 @@ function createReplyLeg({
   threadMap,
   forwarder,
   deliver,
+  // The corrective re-dispatch the revive loop rides: `async ({ chatThreadId, text }) =>
+  // { forwarded, … }`. It is the bridge's OWN follow-up leg (forward-path.js forwardFollowUp,
+  // flagged corrective) — a send-message job on the conversation's existing chain, which is the
+  // same machinery an owner follow-up takes. Injected rather than built here for the reason every
+  // other edge of this leg is injected: the driver holds no transport and mints no path of its
+  // own. Absent (an embedder that wires none) → non-conformance goes straight to best-effort.
+  redispatch = null,
   logger = null,
   pollMs = DEFAULT_POLL_MS,
   windowMs = DEFAULT_WINDOW_MS,
@@ -82,6 +249,7 @@ function createReplyLeg({
   maxLogPages = DEFAULT_MAX_LOG_PAGES,
   maxStatusErrors = DEFAULT_MAX_STATUS_ERRORS,
   maxDeliverAttempts = DEFAULT_MAX_DELIVER_ATTEMPTS,
+  maxRevives = DEFAULT_MAX_REVIVES,
 } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -95,8 +263,12 @@ function createReplyLeg({
   //   armedAt,           // ms — refreshed each turn (arm) and on delivery; bounds
   //                      //   the wait for a spawn to appear (step 6 window).
   //   watching,          // Map execId -> { capturedAt } — spawns seen, awaiting turn-end.
-  //   delivered,         // Set<execId> — execs already delivered; NEVER delivered twice.
+  //   delivered,         // Set<execId> — execs already HANDLED (delivered, revived, or retired);
+  //                      //   never processed twice.
   //   statusErrors,      // consecutive status-poll errors (bound, step 6).
+  //   revives,           // corrective turns spent on the CURRENT owner turn (bound, decision 7).
+  //                      //   Reset by arm() — a new owner turn gets a fresh budget — and by any
+  //                      //   delivery, which is what ends a turn.
   // }
   const pending = new Map();
   let timer = null;
@@ -112,10 +284,11 @@ function createReplyLeg({
     const queueId = entry ? entry.queueId : null;
     let p = pending.get(id);
     if (!p) {
-      p = { queueId, armedAt: Date.now(), watching: new Map(), delivered: new Set(), statusErrors: 0 };
+      p = { queueId, armedAt: Date.now(), watching: new Map(), delivered: new Set(), statusErrors: 0, revives: 0 };
       pending.set(id, p);
     } else {
       p.armedAt = Date.now();
+      p.revives = 0; // a NEW owner turn — never charged for the previous turn's corrections
       if (p.queueId == null) p.queueId = queueId;
     }
     log('info', 'reply leg armed for conversation', { chatThreadId: id, queueId: p.queueId });
@@ -132,7 +305,12 @@ function createReplyLeg({
   // and genuinely holds no parseable result line (the fallback case, D110 step 4).
   // Conflating the two would post the fallback — and burn the exec as delivered —
   // on a mere transport blip, silently losing the worker's real answer.
-  async function fetchReplyText(execId, chatThreadId) {
+  //
+  // `profile` selects the harness normalization (normalizeLog). It comes from the SAME
+  // `inspect status` response that told us the turn ended — `jobs_log.profile`, already on the
+  // status snapshot (server/spawn/spawn.js#status → dispatch.js). No inspect surface is widened
+  // and no second lookup is made: the caller has the value in hand at exactly this point.
+  async function fetchReplyText(execId, chatThreadId, profile) {
     const lines = [];
     let offset = 0;
     for (let page = 0; page < maxLogPages; page++) {
@@ -145,7 +323,7 @@ function createReplyLeg({
       for (const l of pageLines) lines.push(l);
       const next = res.result.nextOffset;
       offset = Number.isInteger(next) ? next : (offset + pageLines.length);
-      if (res.result.eof || pageLines.length === 0) return { fetched: true, text: extractReplyText(lines) };
+      if (res.result.eof || pageLines.length === 0) return { fetched: true, text: normalizeLog(lines, profile) };
     }
     // Page cap hit without eof: an absurdly long log (> maxLogPages × server page).
     // The result line is the LAST line, so it was NOT reached — treat as no
@@ -236,17 +414,60 @@ function createReplyLeg({
           const watch = p.watching.get(execId);
           let failure = null;
           try {
-            const read = await fetchReplyText(execId, id);
+            const read = await fetchReplyText(execId, id, statusRes.result.profile);
             if (!read.fetched) {
               failure = 'logs-fetch-failed';
             } else {
-              // Markdown → mrkdwn on the AGENT'S text only (the fixed notices are already mrkdwn
-              // and must never be rewritten). The seat is told the rules; twice measured it sent
-              // markdown anyway, so the conversion happens at the one place every reply passes.
-              // No-op on a reply that already followed the rules. See mrkdwn.js's header for why
-              // this is output normalization, not the behavioural text the bridge may not carry.
-              const text = read.text != null ? toMrkdwn(read.text) : FALLBACK_TEXT;
-              if (read.text == null) log('warn', 'reply leg found no parseable result line — delivering fallback', { chatThreadId: id, execId });
+              const verdict = checkReplyContract(read.text);
+
+              // NON-CONFORMANCE → ONE corrective turn on the SAME chain, then this exec is DONE
+              // here. It is retired watching→delivered exactly as the give-up path retires one:
+              // it has been handled, and a lingering recent_ticks spawn row must never re-capture
+              // it. The corrective turn's own exec arrives as an ordinary turn on this
+              // conversation and is checked identically — which is precisely why the budget lives
+              // on the CONVERSATION and not on the exec. A per-exec counter would hand every
+              // revive a fresh allowance of two and the loop would never terminate; this one is
+              // spent by the revive's own bad output, so the bound holds whatever the agent does.
+              if (!verdict.ok && verdict.body !== null && p.revives < maxRevives) {
+                const back = typeof redispatch === 'function'
+                  ? await redispatch({ chatThreadId: id, text: buildFeedback(verdict.problems) })
+                  : { forwarded: false, reason: 'no-redispatch-wired' };
+                if (back && back.forwarded) {
+                  p.revives += 1;
+                  p.watching.delete(execId);
+                  p.delivered.add(execId);
+                  p.armedAt = Date.now(); // the corrective turn's spawn is what we now wait for
+                  log('warn', 'reply leg revived the agent for a non-conformant reply', {
+                    chatThreadId: id, execId, revives: p.revives, maxRevives,
+                    problems: verdict.problems.map((x) => x.issue),
+                  });
+                  continue;
+                }
+                // The chain could not be re-dispatched (unresolved, refused, unwired). Correcting
+                // is impossible, so the owner gets the text now rather than after two more passes
+                // that would fail the same way.
+                log('warn', 'reply leg corrective re-dispatch refused — delivering best-effort instead', {
+                  chatThreadId: id, execId, reason: (back && (back.reason || back.error)) || 'unknown',
+                });
+              }
+
+              // DELIVERY. A CONFORMANT reply travels VERBATIM — that is the contract's whole
+              // point, and running it through the converter would reintroduce the parsing step
+              // the contract exists to remove. Everything else is best-effort (decision 7): the
+              // text we do have, through the mrkdwn safety net, behind a marker attributing the
+              // shape to the agent. The bare FALLBACK is reached only by a log with no text at
+              // all — never while any text exists.
+              const text = verdict.ok
+                ? verdict.body
+                : (verdict.body !== null
+                  ? `${UNFORMATTED_PREFIX}${toMrkdwn(clampBestEffort(verdict.body))}`
+                  : FALLBACK_TEXT);
+              if (!verdict.ok) {
+                log('warn', 'reply leg delivering a NON-CONFORMANT reply', {
+                  chatThreadId: id, execId, revives: p.revives,
+                  problems: verdict.problems.map((x) => x.issue), hasText: verdict.body !== null,
+                });
+              }
               const d = await deliver({ chatThreadId: id, text, markAsk: false }); // plain agent output (D105 note; ask-detection out of scope v1)
               if (d && d.delivered === false) {
                 failure = `deliver-refused:${d.reason || d.error || 'unknown'}`;
@@ -254,7 +475,8 @@ function createReplyLeg({
                 p.watching.delete(execId);
                 p.delivered.add(execId);
                 p.armedAt = Date.now(); // healthy activity — reset the spawn-wait window
-                log('info', 'reply leg delivered worker reply to owner', { chatThreadId: id, execId, chars: text.length });
+                p.revives = 0;          // the turn ended in a delivery; the next one starts fresh
+                log('info', 'reply leg delivered worker reply to owner', { chatThreadId: id, execId, chars: text.length, conformant: verdict.ok });
               }
             }
           } catch (err) {
@@ -325,4 +547,12 @@ function createReplyLeg({
   return { arm, start, stop, tick: _runOnce, _pending: pending };
 }
 
-module.exports = { createReplyLeg, extractReplyText, FALLBACK_TEXT, GIVE_UP_NOTICE };
+function clampBestEffort(s) {
+  return s.length <= BEST_EFFORT_MAX_CHARS ? s : `${s.slice(0, BEST_EFFORT_MAX_CHARS)}\n… (truncated)`;
+}
+
+module.exports = {
+  createReplyLeg, extractReplyText, extractCodexText, normalizeLog, extractFenced,
+  checkReplyContract, buildFeedback,
+  FALLBACK_TEXT, GIVE_UP_NOTICE, FENCE_OPEN, FENCE_CLOSE, CONTRACT_TEMPLATE, UNFORMATTED_PREFIX,
+};

@@ -37,7 +37,22 @@
 //   (m) the ⏳ PENDING MARKER (owner-directed 2026-08-07 — the dead-air fix): the
 //       owner's own message wears ⏳ from accept until its answer lands, in THAT
 //       ORDER (the calls are recorded by the mock in arrival order), each forwarded
-//       turn marks its OWN message, and no marker is ever left behind.
+//       turn marks its OWN message, and no marker is ever left behind;
+//   (n) THE REPLY CONTRACT'S three harness normalizations (owner ruling 2026-08-10):
+//       the SAME fenced reply arrives from a claude stream-json log, a codex `--json`
+//       event log, and a plain-text log carrying opencode's ANSI escapes — the
+//       harness resolved from `inspect status`.profile, a field the driver already
+//       fetches (no inspect surface widened);
+//   (o) a CONFORMANT reply is delivered BYTE-IDENTICAL, with a body the mrkdwn
+//       converter would demonstrably have altered — the "no parsing between the
+//       agent and Slack" claim, made falsifiable;
+//   (p) a LINT hit is non-conformance: nothing is posted, and a corrective `note`
+//       lands on the SAME chain naming each ism and quoting its offending line;
+//   (q) the REVIVE BOUND: a missing fence spends the second revive, the third
+//       non-conformant turn is delivered best-effort (extracted text through
+//       toMrkdwn behind the warning marker, never the bare fallback) and the budget
+//       resets — while a genuinely TEXTLESS log still delivers the bare fallback and
+//       is never revived.
 //
 // MUTATION EVIDENCE (validation #2): each guard is provable by this probe —
 //   • comment the `deliver(...)` call in reply-leg.js _runOnce → b/c/e/g fail;
@@ -53,7 +68,13 @@
 //     fails (the ⏳ never comes off);
 //   • replace `queueReaction(...)` with a bare fire-and-forget call in
 //     chat-bridge.js markPending/clearPending → the add/remove order is no longer
-//     guaranteed and (m1) fails whenever the remove wins the race.
+//     guaranteed and (m1) fails whenever the remove wins the race;
+//   • drop the `profile` argument from the fetchReplyText call → n1/n2/n3 fail (every
+//     harness reads as claude and only the stream-json arm extracts);
+//   • run the conformant path through toMrkdwn → (o) fails (the `---` line vanishes);
+//   • make `p.revives` per-exec instead of per-conversation → (q2) fails (a third
+//     revive is spent and nothing is delivered);
+//   • deliver FALLBACK_TEXT instead of the best-effort text at the bound → (q2) fails.
 // Run each mutation → probe FAILS → restore byte-exact → passes.
 //
 // ⚑ Timing uses Node `Date.now()` — `date +%s%3N` is broken on this box (D64).
@@ -63,7 +84,8 @@ const { startMockSlack, makeCapture, nowMs, sleep } = require('./lib');
 const { resolveConfig } = require('../config');
 const { createSlackSocketMode } = require('../slack-socket-mode');
 const { buildBridge } = require('../index');
-const { FALLBACK_TEXT, GIVE_UP_NOTICE } = require('../reply-leg');
+const { FALLBACK_TEXT, GIVE_UP_NOTICE, FENCE_OPEN, FENCE_CLOSE, UNFORMATTED_PREFIX } = require('../reply-leg');
+const { toMrkdwn } = require('../mrkdwn');
 
 const OUT = path.join(__dirname, 'probe-chat-reply-leg.out');
 
@@ -71,15 +93,20 @@ const OUT = path.join(__dirname, 'probe-chat-reply-leg.out');
 // between driver passes to script each leg deterministically.
 //   recentTicks:  [{ tick, actions: [{ action:'spawn', execId, queueId }, …] }]
 //   liveSessions: [{ exec_id, thread }]                (chain-thread resolution, leg e)
-//   status:       Map<execId, { live, status }>
-//   logs:         Map<execId, string[]>                (stream-json lines)
+//   status:       Map<execId, { live, status, profile }>
+//   logs:         Map<execId, string[]>                (the harness's own log lines)
 //   logPageMax:   server-side page clamp stand-in (dispatch.js MAX_PAGE shape)
 //   failLogs:     fail the next N `inspect logs` calls (transient transport error)
+//   forwarded:    every enqueue-job payload, in order — the corrective revive turns are
+//                 OBSERVED here (legs p/q), never inferred from what did not reach Slack
 function scriptedForwarder(state) {
   return {
     // The forward path's enqueue-job — returns the queue-row id (jobId) exactly
     // like the gateway result shape, so threadMap records the REAL enqueue result.
-    forward: async (intent) => ({ ok: true, result: { jobId: state.nextJobId } }),
+    forward: async (intent, payload) => {
+      state.forwarded.push({ intent, payload });
+      return { ok: true, result: { jobId: state.nextJobId } };
+    },
     inspect: async (target, extra = {}) => {
       if (target === 'ticker') {
         return { ok: true, result: { target: 'ticker', recent_ticks: state.recentTicks, live_sessions: state.liveSessions } };
@@ -87,7 +114,11 @@ function scriptedForwarder(state) {
       if (target === 'status') {
         const s = state.status.get(Number(extra.id));
         if (!s) return { ok: false, error: { code: 'NOT_FOUND', message: `no status for ${extra.id}` } };
-        return { ok: true, result: { target: 'status', id: Number(extra.id), live: s.live, status: s.status } };
+        // `profile` is on the REAL status snapshot (jobs_log.profile → spawn.js#status →
+        // dispatch.js) and is what selects the harness normalization — the reply leg reads it
+        // from the response it already makes, so no inspect surface is widened. Defaulted here
+        // to the claude profile because every pre-contract leg below scripts a stream-json log.
+        return { ok: true, result: { target: 'status', id: Number(extra.id), live: s.live, status: s.status, profile: s.profile || 'claude-opus' } };
       }
       if (target === 'logs') {
         if (state.failLogs > 0) {
@@ -108,8 +139,40 @@ function scriptedForwarder(state) {
   };
 }
 
+// A CONFORMANT turn: the reply between the two sentinel lines (the bridge-owned reply contract,
+// owner ruling 2026-08-10). Every pre-existing leg below wraps its answer in it, and each still
+// asserts the delivered text equals the INNER string — which is the contract's own claim: the
+// fence is the envelope, the content travels verbatim.
+function fenced(text) {
+  return `${FENCE_OPEN}\n${text}\n${FENCE_CLOSE}`;
+}
+
 function resultLine(text) {
+  return JSON.stringify({ type: 'result', subtype: 'success', result: fenced(text), is_error: false });
+}
+
+// The same answer with NO fence — a turn that ignored the contract.
+function bareResultLine(text) {
   return JSON.stringify({ type: 'result', subtype: 'success', result: text, is_error: false });
+}
+
+// codex `--json`: one event per line, the answer in `item.completed`/`agent_message`
+// (measured on codex-cli 0.144.5, 2026-08-10).
+function codexLog(text) {
+  return [
+    'Reading prompt from stdin...',                                    // real non-JSON noise
+    JSON.stringify({ type: 'thread.started', thread_id: 'th-1' }),
+    JSON.stringify({ type: 'turn.started' }),
+    JSON.stringify({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: fenced(text) } }),
+    JSON.stringify({ type: 'turn.completed', usage: { output_tokens: 7 } }),
+  ];
+}
+
+// opencode/kimi: plain text, and opencode colours its banner even into a file (measured on a live
+// log, 2026-08-10) — the escape sits on the same line as the opening sentinel here deliberately.
+const ESC = String.fromCharCode(27);
+function plainLog(text) {
+  return [`${ESC}[0m`, '> build · glm-5.2', `${ESC}[0m${FENCE_OPEN}`, text, FENCE_CLOSE];
 }
 
 // Wait (bounded) for an async condition the WS push settles into — the transport
@@ -132,7 +195,7 @@ async function main() {
   try {
     mock = await startMockSlack();
 
-    const state = { recentTicks: [], liveSessions: [], status: new Map(), logs: new Map(), logPageMax: 500, failLogs: 0, nextJobId: 100 };
+    const state = { recentTicks: [], liveSessions: [], status: new Map(), logs: new Map(), logPageMax: 500, failLogs: 0, nextJobId: 100, forwarded: [] };
     const config = resolveConfig({
       gatewayAddr: '127.0.0.1:1', bridgeToken: 'unused-here', sessionProfile: 'worker', allowlist: ['U-owner'],
       slackApiBase: mock.apiBase, slackAppToken: 'xapp-fake', slackBotToken: 'xoxb-fake',
@@ -355,6 +418,118 @@ async function main() {
       && adds.length === removes.length
       && adds.every((c) => c.name === 'hourglass_flowing_sand') && removes.every((c) => c.name === 'hourglass_flowing_sand'),
       { calls: rx.slice(), adds: adds.length, removes: removes.length });
+
+    // ══ THE BRIDGE-OWNED REPLY CONTRACT (owner ruling 2026-08-10) ═══════════════════════════
+    // Everything above already rides it — every `resultLine` is fenced and every assertion is
+    // against the INNER text, which is the contract's claim. What follows tests the parts the
+    // pre-contract legs cannot reach: the OTHER two harness log shapes, verbatim delivery, and
+    // the feedback/revive loop.
+
+    // ── (n) PER-HARNESS NORMALIZATION → the SAME fence, from three different log shapes ──────
+    // The harness is resolved from `inspect status`.profile — the response the driver already
+    // makes. Each arm scripts a REAL log shape: claude stream-json (every leg above), codex
+    // `--json` events, and plain text with the ANSI escapes opencode writes into a file.
+    state.status.set(40, { live: false, status: 'done', profile: 'codex-gpt-5-5' });
+    state.logs.set(40, codexLog('codex answered *here*'));
+    state.recentTicks.push({ tick: 10, actions: [{ action: 'spawn', execId: 40, queueId: QUEUE }] });
+    await leg().tick();
+    record('n1:codex --json log normalized (item.completed/agent_message) and the fenced reply delivered',
+      sent.length === 9 && lastText() === 'codex answered *here*',
+      { sentCount: sent.length, text: lastText() });
+
+    state.status.set(41, { live: false, status: 'done', profile: 'opencode-glm-5-2' });
+    state.logs.set(41, plainLog('opencode answered *here*'));
+    state.recentTicks.push({ tick: 11, actions: [{ action: 'spawn', execId: 41, queueId: QUEUE }] });
+    await leg().tick();
+    record('n2:plain-text opencode log (ANSI escapes on the sentinel line) normalized and the fenced reply delivered',
+      sent.length === 10 && lastText() === 'opencode answered *here*',
+      { sentCount: sent.length, text: lastText() });
+
+    state.status.set(42, { live: false, status: 'done', profile: 'kimi' });
+    state.logs.set(42, [FENCE_OPEN, 'kimi answered *here*', FENCE_CLOSE]);
+    state.recentTicks.push({ tick: 12, actions: [{ action: 'spawn', execId: 42, queueId: QUEUE }] });
+    await leg().tick();
+    record('n3:a BARE profile name (kimi — no harness-model suffix) resolves the plain-text arm',
+      sent.length === 11 && lastText() === 'kimi answered *here*',
+      { sentCount: sent.length, text: lastText() });
+
+    // ── (o) A CONFORMANT REPLY IS DELIVERED VERBATIM — no mrkdwn pass ────────────────────────
+    // The body is chosen so the converter WOULD change it and neither change is a lint hit: a
+    // `---` rule (toMrkdwn drops the line) and a 3-blank-line run (toMrkdwn collapses it). If any
+    // conversion pass survived on the conformant path, the delivered text could not be byte-equal.
+    const VERBATIM = '*lead line*\n\n---\n\n\n_tail line_';
+    state.status.set(43, { live: false, status: 'done', profile: 'claude-opus' });
+    state.logs.set(43, [resultLine(VERBATIM)]);
+    state.recentTicks.push({ tick: 13, actions: [{ action: 'spawn', execId: 43, queueId: QUEUE }] });
+    await leg().tick();
+    record('o:conformant reply delivered BYTE-IDENTICAL — and provably not through toMrkdwn (which would have altered it)',
+      sent.length === 12 && lastText() === VERBATIM && toMrkdwn(VERBATIM) !== VERBATIM,
+      { sentCount: sent.length, equal: lastText() === VERBATIM, converterWouldDiffer: toMrkdwn(VERBATIM) !== VERBATIM, converted: toMrkdwn(VERBATIM) });
+
+    // ── (p) A LINT HIT IS NON-CONFORMANCE → a corrective turn on the SAME chain ──────────────
+    // Nothing reaches Slack; a send-message job carrying SPECIFIC feedback reaches the chain
+    // instead — the offending line quoted, the ism named, the correct shape shown. The corrective
+    // rides the forward path's own follow-up leg (`corrective: true`), so it is a `note` on the
+    // conversation's chain thread and never an `answer`.
+    const fwdBeforeP = state.forwarded.length;
+    state.status.set(44, { live: false, status: 'done', profile: 'claude-opus' });
+    state.logs.set(44, [resultLine('# Heading\n**bold**')]);
+    state.recentTicks.push({ tick: 14, actions: [{ action: 'spawn', execId: 44, queueId: QUEUE }] });
+    await leg().tick();
+    const corrective1 = state.forwarded.slice(fwdBeforeP);
+    const corpus1 = corrective1.length ? String(corrective1[0].payload.args.corpus) : '';
+    record('p:lint hit posts NOTHING to Slack and enqueues a corrective note naming BOTH isms with the offending lines quoted, plus the template',
+      sent.length === 12
+      && corrective1.length === 1 && corrective1[0].intent === 'enqueue-job'
+      && corrective1[0].payload.args.type === 'note' && corrective1[0].payload.args.thread === 'exec-26'
+      && corpus1.includes('a markdown heading (`#`) — Slack has no headings; use `*a short bold line*`')
+      && corpus1.includes('markdown bold (`**text**`) — Slack bold is single asterisks, `*text*`')
+      && corpus1.includes('    # Heading') && corpus1.includes('    **bold**')
+      && corpus1.includes(FENCE_OPEN) && corpus1.includes(FENCE_CLOSE)
+      && pend().revives === 1 && pend().delivered.has(44) && !pend().watching.has(44),
+      { sentCount: sent.length, correctives: corrective1.length, revives: pend().revives, corpus: corpus1 });
+
+    // ── (q) THE REVIVE BOUND (2) AND THE BEST-EFFORT FLOOR ───────────────────────────────────
+    // The budget is spent on the CONVERSATION, not on the exec — so the revive turn's OWN bad
+    // output spends the same allowance and the loop terminates. One revive is already spent (p);
+    // this leg spends the second, and the THIRD non-conformant turn is delivered best-effort
+    // rather than revived a third time.
+    const fwdBeforeQ = state.forwarded.length;
+    state.status.set(45, { live: false, status: 'done', profile: 'claude-opus' });
+    state.logs.set(45, [bareResultLine('no fence at all here')]);
+    state.recentTicks.push({ tick: 15, actions: [{ action: 'spawn', execId: 45, queueId: QUEUE }] });
+    await leg().tick();
+    const corpus2 = state.forwarded.length > fwdBeforeQ ? String(state.forwarded[fwdBeforeQ].payload.args.corpus) : '';
+    record('q1:a MISSING fence is non-conformance too — second revive spent, still nothing posted, feedback names the missing pair',
+      sent.length === 12 && state.forwarded.length === fwdBeforeQ + 1 && pend().revives === 2
+      && corpus2.includes(`no ${FENCE_OPEN} … ${FENCE_CLOSE} pair`),
+      { sentCount: sent.length, revives: pend().revives, corpus: corpus2 });
+
+    const fwdBeforeQ3 = state.forwarded.length;
+    const BEST = 'still no fence, and **markdown** to boot';
+    state.status.set(46, { live: false, status: 'done', profile: 'claude-opus' });
+    state.logs.set(46, [bareResultLine(BEST)]);
+    state.recentTicks.push({ tick: 16, actions: [{ action: 'spawn', execId: 46, queueId: QUEUE }] });
+    await leg().tick();
+    record('q2:at the bound the reply is DELIVERED best-effort — the extracted text through toMrkdwn behind the warning marker, never the bare fallback; NO third revive; the budget resets',
+      sent.length === 13
+      && lastText() === `${UNFORMATTED_PREFIX}${toMrkdwn(BEST)}`
+      && lastText() !== FALLBACK_TEXT && lastText().includes('*markdown*')
+      && state.forwarded.length === fwdBeforeQ3
+      && pend().revives === 0 && pend().delivered.has(46),
+      { sentCount: sent.length, text: lastText(), extraForwards: state.forwarded.length - fwdBeforeQ3, revives: pend().revives });
+
+    // ── (q3) THE BARE FALLBACK SURVIVES, for a log with NO text at all ───────────────────────
+    // Best-effort never swallows the honest empty case: a textless log still delivers the fixed
+    // fallback, and is never revived (there is nothing to correct).
+    const fwdBeforeQ4 = state.forwarded.length;
+    state.status.set(47, { live: false, status: 'done', profile: 'claude-opus' });
+    state.logs.set(47, [JSON.stringify({ type: 'system', subtype: 'init' })]);
+    state.recentTicks.push({ tick: 17, actions: [{ action: 'spawn', execId: 47, queueId: QUEUE }] });
+    await leg().tick();
+    record('q3:a textless log still delivers the BARE fallback and is never revived',
+      sent.length === 14 && lastText() === FALLBACK_TEXT && state.forwarded.length === fwdBeforeQ4,
+      { sentCount: sent.length, text: lastText(), extraForwards: state.forwarded.length - fwdBeforeQ4 });
   } catch (err) {
     cap.log({ error: err.message, stack: err.stack });
     checks.push({ name: 'no-exception', ok: false, error: err.message });
