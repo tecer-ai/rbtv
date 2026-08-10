@@ -2912,6 +2912,12 @@ EMITTER_OWNED_KEYS = frozenset((
     "ctx-refresh", "window", "senders", "close",
     "auto-wake", "ephemeral", "broadcast", "component", "relays",
     "addressable", "context", "exposes", "exposed-clis",
+    # `human-interactive` (+ its required `fallback`) arrive via the
+    # assembler's frontmatter pass-through (goal_cli.py#assemble_seat reads
+    # them off the prompt card, canon-checks the value, and carries them into
+    # the descriptor) — never via a binding — so a deliberate un-declaration
+    # in the catalog must APPLY on --refresh, not refuse as hand-authored.
+    "human-interactive", "fallback",
     *CAGE_GRANTS, CAGE_RW_COLUMN,
     # The per-unit reference keys. The emitter still writes these for an
     # OLD-LAYOUT catalog (it carries the assembler's frontmatter through), and
@@ -5923,6 +5929,81 @@ def run_selftest() -> int:
               (pr_rm.stderr.strip()[:200] or after_rm.split("\n---", 1)[0][:300]))
         cat_seats.write_text(seats_before, encoding="utf-8")
         _invoke(["--package", str(home)] + common_r, clean_env)
+        # SC-EMIT-HI (task 7.640): `human-interactive`/`fallback` arrive via
+        # the assembler's frontmatter pass-through (goal_cli.py#assemble_seat
+        # reads them off a `d-prompt-task-files` whole-file prompt card, never
+        # via a binding) — the same shape as the cage-grant case above, so a
+        # DELIBERATE un-declaration in the catalog's own prompt card must
+        # APPLY on --refresh, never refuse as if a human had hand-typed the
+        # line. Own dedicated pool component: the whole-file `exposes:` CARD
+        # `exp-comp/prompts/alpha-prompt.md` uses above is NOT a definition
+        # (no kind-named section — `_pool_file_row` returns it as a card, and
+        # assembly still resolves the CSV-driven `alpha-prompt` row for exp-
+        # seat's actual content) — human-interactive is only ever read off a
+        # d-prompt-task-files DEFINITION file, so this arm needs its own.
+        hi_comp = Path(fxr["catalog"]) / "hi-comp"
+        (hi_comp / "prompts").mkdir(parents=True)
+        (hi_comp / "tasks").mkdir(parents=True)
+        (hi_comp / "seats.csv").write_text(
+            "seat-id,prompt-id,task-id,staffing-hints,description\n"
+            "hi-seat,hi-prompt,hi-task,,the hi seat\n",
+            encoding="utf-8")
+        hi_prompt = hi_comp / "prompts" / "hi-prompt.md"
+        hi_declared = (
+            "---\nid: hi-prompt\ndescription: hi fixture prompt\n"
+            "human-interactive: yes\nfallback: block-and-queue\n---\n\n"
+            "<role>\nYou are the hi seat.\n</role>\n\n"
+            "<permissions>\nRead the fixture tree.\n</permissions>\n")
+        hi_prompt.write_text(hi_declared, encoding="utf-8")
+        (hi_comp / "tasks" / "hi-task.md").write_text(
+            "---\nid: hi-task\ndescription: hi fixture task\n---\n\n"
+            "<task-goal>\nProve the human-interactive pass-through.\n"
+            "</task-goal>\n", encoding="utf-8")
+        hi_home = tmp_rf / "goals" / "_hi-seat"
+        hi_home.mkdir(parents=True)
+        (hi_home / "seat.md").write_text(
+            "---\nseat: hi-seat\ndescription: the hi seat\n"
+            f"cwd: {hi_home}/\nagent_type: worker\nmode: one-shot\n"
+            "---\n\n<role>\nstale body\n</role>\n", encoding="utf-8")
+        common_hi = ["--catalog-root", fxr["catalog"], "--seat", "hi-seat",
+                     "--refresh", "--json"]
+        pr_hi0 = _invoke(["--package", str(hi_home)] + common_hi, clean_env)
+        with_hi = (hi_home / "seat.md").read_text(encoding="utf-8")
+        check("RF-1 green: a seat whose catalog prompt declares "
+              "human-interactive carries it (+ fallback) into the emitted "
+              "descriptor — the pass-through EMITTER_OWNED_KEYS now covers",
+              pr_hi0.returncode == 0
+              and "human-interactive: true" in with_hi.split("\n---", 1)[0]
+              and "fallback: block-and-queue" in with_hi.split("\n---", 1)[0],
+              (pr_hi0.stderr.strip()[:200]
+               or with_hi.split("\n---", 1)[0][:300]))
+        emitted_hi = set(yaml.safe_load(with_hi.split("\n---", 1)[0]
+                                        .lstrip("-\n")) or {})
+        check("SC-EMIT-HI: EMITTER_OWNED_KEYS covers this render too — "
+              "extends SC-EMIT's coverage to the human-interactive/fallback "
+              "pair now that a fixture actually declares them (task 7.640)",
+              emitted_hi <= EMITTER_OWNED_KEYS,
+              str(sorted(emitted_hi - EMITTER_OWNED_KEYS)))
+        # Now the deliberate un-declaration: drop it from the CATALOG's
+        # prompt card and refresh — this MUST apply, not refuse.
+        hi_prompt.write_text(
+            "---\nid: hi-prompt\ndescription: hi fixture prompt\n---\n\n"
+            "<role>\nYou are the hi seat.\n</role>\n\n"
+            "<permissions>\nRead the fixture tree.\n</permissions>\n",
+            encoding="utf-8")
+        pr_hi = _invoke(["--package", str(hi_home)] + common_hi, clean_env)
+        after_hi = (hi_home / "seat.md").read_text(encoding="utf-8")
+        check("RF-1 green: un-declaring human-interactive in the catalog's "
+              "prompt card APPLIES on --refresh (exit 0, key + fallback "
+              "gone) instead of refusing refresh-would-drop-keys — the "
+              "misclassification the guard was corrected for with the cage "
+              "grants, now proven for this pair too (task 7.640)",
+              pr_hi.returncode == 0
+              and "human-interactive:" not in after_hi.split("\n---", 1)[0]
+              and "fallback:" not in after_hi.split("\n---", 1)[0],
+              (pr_hi.stderr.strip()[:200]
+               or after_hi.split("\n---", 1)[0][:300]))
+        hi_prompt.write_text(hi_declared, encoding="utf-8")
         # The manifest-comment control: browse/exposure.csv leads with a prose
         # header block, and a plain DictReader takes that line for the header —
         # every part-id then reads absent and the ref refuses as dangling.
