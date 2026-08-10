@@ -16781,6 +16781,41 @@ def _selftest_checks(args, failures, names):
         # protocol.md is loader step 4 for every seat, so a refused shape here mis-teaches the
         # room at BOOT. The skip count is asserted too: a guard that silently exempts lines is a
         # check that stops catching things while still reading green.
+        # ---- 7.570 COVERAGE: the detector's own blindness is asserted, not enumerated once ----
+        # ONE fixture carrying BOTH properties: a coached send that is in a SUBDIRECTORY *and*
+        # backtick-inline in prose. That is deliberate — it is the shape of the real pre-fix
+        # `conduct.md` clause (rbtv f420519) whose invisibility blocked 7.546's certification,
+        # and it is the only shape that reds on the removal of EITHER half of the fix. A
+        # recursion-only detector reaches this file and reads nothing in it; a line-start-only
+        # detector never opens it. The second file is the control: a compliant top-level site
+        # must still be SEEN and must NOT be reported as an offender, so the row cannot be
+        # satisfied by a detector that simply flags everything it finds.
+        _cov = Path(td) / "advcov"
+        (_cov / "starter-set").mkdir(parents=True)
+        (_cov / "starter-set" / "conduct.md").write_text(
+            "prose above\n"
+            "  `coordinate send master \"<the escalation>\" --type note` — the ROLE ADDRESS\n",
+            encoding="utf-8")
+        (_cov / "closer-prompt.md").write_text(
+            '8. **Depart.** Send leader one line — `{COORD} send leader "done" '
+            '--type completion --inline` — then depart.\n', encoding="utf-8")
+        _cov_sites, _ = advice_doc_sends(_cov)
+        _cov_bad = [s for s in _cov_sites if not s[3]]
+        check("7.570 COVERAGE: the doc detector reads a coached send that is BOTH in a "
+              "SUBDIRECTORY and BACKTICK-INLINE in prose, and reports it by its RELATIVE path. "
+              "⚠ THIS ROW REDS IF EITHER BLINDNESS RETURNS, which is why one fixture carries "
+              "both: recursion alone would newly REACH `starter-set/conduct.md` and still match "
+              "nothing in it, reporting CLEAN over a document it cannot read — worse than never "
+              "reaching it. The compliant top-level site is the control: it is SEEN and is NOT "
+              "an offender, so a detector that flags everything fails here too. It is ALSO "
+              "written with the `{COORD}` TEMPLATE TOKEN, the third form whose absence left "
+              "`closer-prompt.md` opened-but-unread; dropping that arm reds this row as well",
+              len(_cov_sites) == 2
+              and [s[0] for s in _cov_bad] == ["starter-set/conduct.md"]
+              and _cov_bad[0][1] == 2
+              and sorted(s[0] for s in _cov_sites)
+                  == ["closer-prompt.md", "starter-set/conduct.md"])
+
         g181_docs, g181_skipped = advice_doc_sends()
         g181_doc_bad = [d for d in g181_docs if not d[3]]
         check("G-181: no kit .md teaches a `send` shape the tool refuses — a doc synopsis is a "
@@ -27623,7 +27658,20 @@ def advice_coached_sends(path=None):
 # The invocation is DERIVED, never a literal: the docs write `$COORD`, and a scan keyed on
 # `coordinate` returned ZERO and nearly certified them clean — verify-absence violated by the
 # wrong pattern, which is the same class this whole check exists for.
-ADVICE_INVOCATION = re.compile(r'^\s*(?:\$?COORD|coordinate|python3?\s+coord\.py)\s+', re.I)
+# 7.570: NO `^\s*` ANCHOR, and its absence is the point. The anchor made this a LINE-START test,
+# so every invocation written backtick-inline in prose — which is how `conduct.md` and
+# `closer-prompt.md` teach their commands — was unreadable to the detector. Used with `.search`
+# (never `.match`) at the one call site below.
+#
+# `\{COORD\}` IS IN THE ALTERNATION BECAUSE THE FIX WAS MEASURED, NOT ASSUMED. With recursion and
+# inline matching alone, `closer-prompt.md` became REACHED AND READ and still matched NOTHING:
+# it is a {TOKEN}-substituted template, so its invocations read `{COORD} send ...` and the bare
+# `COORD\s+` arm dies on the closing brace. That is the SAME vacuous-guard trap this row exists
+# to stop — a detector reporting clean over a document it opened and could not read — one level
+# down, and it was found only by enumerating the widened detector's real hits. The two offenders
+# it exposed (`closer-prompt.md` steps 5 and 8) are fixed in the same change.
+ADVICE_INVOCATION = re.compile(
+    r'(?:\$?COORD|\{COORD\}|coordinate|python3?\s+coord\.py)\s+', re.I)
 # A doc may QUOTE a refused form in order to FORBID it, and flagging that would delete the warning
 # that prevents the defect — G-176's trap one layer out. The first design keyed on negation words
 # near the line. The leader found the residual and it points the DANGEROUS way — a FALSE GREEN:
@@ -27643,30 +27691,63 @@ ADVICE_DOC_OPTOUT = re.compile(r'<!--\s*advice-check:\s*refused-example\s*-->', 
 
 
 def advice_doc_sends(root=None):
-    """-> (sites, skipped_as_warnings). Coached sends in the kit's own .md files.
+    """-> (sites, skipped_as_warnings). Coached sends in the kit's own .md files, at ANY depth
+    and ANYWHERE ON THE LINE.
 
-    TAUGHT vs QUOTED-AS-WRONG: a candidate must be a COMMAND LINE — the invocation at line start,
-    which is how a synopsis presents something to run. A prose mention mid-sentence is not a
-    command being taught. A doc that deliberately shows a refused form marks it with the explicit
-    opt-out comment; every skipped line is RETURNED IN FULL, never counted, because a count in
-    permanent output has no maintainer and only grows, while three lines of real text are
-    auditable at a glance.
+    TAUGHT vs QUOTED-AS-WRONG: a candidate is an invocation carrying a QUOTED BODY. A doc that
+    deliberately shows a refused form marks it with the explicit opt-out comment; every skipped
+    line is RETURNED IN FULL, never counted, because a count in permanent output has no
+    maintainer and only grows, while three lines of real text are auditable at a glance.
+
+    ---- 7.570: THIS FUNCTION WAS BLIND TO `starter-set/conduct.md` TWICE OVER ----------------
+
+    It is the root cause of the finding that blocked 7.546's certification: a rulebook clause
+    coached an escalation to the `master` role address with a POSITIONAL BODY AND NO `--inline`,
+    which the real send path refuses unconditionally, and THIS detector — built for exactly that
+    class — reported clean.
+
+    ⚠ THE OFFENDING FORM IS DESCRIBED ABOVE AND DELIBERATELY NOT REPRODUCED. The sibling CODE
+    scanner `advice_refused_sends` EXECUTES every coached send it finds in this file's own
+    string literals, so pasting the refused command here would make this docstring itself an
+    offender and red G-181 — which is exactly what happened while this change was being written.
+    Recover the verbatim clause from `git show f420519` if you need it.
+
+    (1) It globbed `*.md` NON-RECURSIVELY, so nothing in a subdirectory was ever opened, and
+        `starter-set/` is a subdirectory. Now `rglob`.
+    (2) It matched only an invocation at LINE START, while both `conduct.md` and
+        `closer-prompt.md` write their commands backtick-inline in prose. Now `.search` against
+        an unanchored ADVICE_INVOCATION.
+
+    ⚠⚠ WHY A GLOB-ONLY FIX WAS REJECTED, AND THIS IS THE WHOLE POINT OF THE ROW. Recursion alone
+    would newly REACH `conduct.md` and still match NOTHING in it, because every command in that
+    file is backtick-inline. The detector would then report CLEAN over a document it cannot
+    read — strictly worse than never reaching it, since the clean report is now evidence the
+    file was checked. That is the vacuous-guard class, and a glob-only fix would have
+    INTRODUCED it here. This is not a judgement call: MEASURED at this HEAD, recursion alone
+    buys ZERO new sites, and the inline half is what finds all three of the previously unread
+    files. The two fixes ship together or neither ships; `selftest`'s 7.570 COVERAGE row pins
+    that with one fixture carrying BOTH properties, so removing either half reds it.
+
+    Sites are reported by their path RELATIVE TO `root`, not by bare filename: with recursion on,
+    two different `CLAUDE.md` files exist under the kit and a bare name cannot say which one an
+    offender is in.
     """
     root = Path(root or Path(__file__).resolve().parent)
     sites, skipped = [], []
-    for md in sorted(root.glob("*.md")):
+    for md in sorted(root.rglob("*.md")):
+        rel = md.relative_to(root).as_posix()
         lines = md.read_text(encoding="utf-8").splitlines()
         for i, line in enumerate(lines):
-            if not ADVICE_INVOCATION.match(line) or " send " not in f" {line} ":
+            if not ADVICE_INVOCATION.search(line) or " send " not in f" {line} ":
                 continue
             m = ADVICE_SEND.search(line)
             if not m:
                 continue
             prev = next((x for x in reversed(lines[:i]) if x.strip()), "")
             if ADVICE_DOC_OPTOUT.search(line) or ADVICE_DOC_OPTOUT.search(prev):
-                skipped.append((md.name, i + 1, line.strip()[:90]))
+                skipped.append((rel, i + 1, line.strip()[:90]))
                 continue
-            sites.append((md.name, i + 1, line.strip()[:110],
+            sites.append((rel, i + 1, line.strip()[:110],
                           bool(re.search(r"--inline|--file", line))))
     return sites, skipped
 
