@@ -30,10 +30,25 @@ ARMS
       Kills a fix that RE-DERIVES a PATH inside `jobcontain.py` — that would pass R1 and fail here.
   R3  with `systemd-run` reported ABSENT, the returned argv is the caller's argv UNCHANGED and
       carries no `--setenv` (the shell fallback stays a bare exec). Kills an unconditional append.
-  R4  in the returned argv `--setenv=PATH=` appears EXACTLY ONCE and BEFORE `--unit=` and before the
-      caller's own argv[0]. `detach_argv` emits no `--` separator, so ordering is positional: a flag
-      after the command is passed TO THE CHILD as an argument instead of setting the environment,
-      which a substring check alone would not catch.
+  R4  in the returned argv `--setenv=PATH=` appears EXACTLY ONCE and BEFORE THE CALLER'S OWN
+      argv[0] — and the arm MEASURES why that is the property that matters: the same flag placed
+      AFTER the command is shown not reaching the child at all. `detach_argv` emits no `--`
+      separator, so a flag after the command is passed TO THE CHILD as an argument instead of
+      setting the environment, which a substring check alone would not catch.
+      ⚠ CORRECTED (task 7.564): R4 used to pin a TOTAL order, `setenv < unit < argv0`, and so it
+      RED on a BENIGN reorder — a `--setenv` after `--unit=` but still before the command DELIVERS
+      the environment (R1 and R2 both pass on that argv; measured). Only "before the command" is
+      load-bearing. An over-strict arm trains the next worker to weaken assertions, which is how
+      a real guard gets lost. The relaxation does NOT cost a single certified kill: M1
+      (no-thread) still reds on the exactly-once clause, M3 (flag moved AFTER the command) still
+      reds on the ordering clause AND on R1/R2, M4 (emitted twice) still reds on exactly-once.
+  P1  RED ARM (task 7.564) — with PATH UNSET, `detach_argv` REFUSES with the typed
+      `CarrierEnvMissing` instead of launching with no `--setenv`. Pre-fix it proceeded and the
+      child silently received the systemd MANAGER's PATH — the 7.551 defect, quietly restored.
+      Delete the refusal and this arm reds.
+  P2  with PATH set to the EMPTY STRING the refusal is UNREACHABLE and must stay so: `shutil.which`
+      treats "" as a real (empty) search path, returns None, and the bare-argv fallback returns
+      before the guard. Pins the short-circuit that makes the old guard's `else []` half dead.
   B1  RED ARM (task 7.527) — the OLD shape, `subprocess.run(launch, timeout=T)`, on the bare
       fallback whose child never exits: it blocks for the whole timeout and then KILLS the child.
       This is the defect, pinned so the fix cannot be mistaken for a no-op.
@@ -211,12 +226,49 @@ def main():
 
         # ---- R4: positional ordering ------------------------------------------------------------
         setenvs = [i for i, a in enumerate(launch) if str(a).startswith("--setenv=PATH=")]
-        unit_ix = [i for i, a in enumerate(launch) if str(a).startswith("--unit=")]
         argv0_ix = launch.index("/bin/sh")
-        ok4 = len(setenvs) == 1 and len(unit_ix) == 1 and setenvs[0] < unit_ix[0] < argv0_ix
+        # The property, MEASURED rather than assumed: move the same flag AFTER the command and
+        # the child does not receive it. That is what makes "before the command" load-bearing —
+        # and it is why R4 reds for a reason it can demonstrate, not for an index it prefers.
+        cap4 = tmp / "r4.txt"
+        after_cmd = ["systemd-run", "--user", "--collect", "--quiet",
+                     f"--unit=probe-detach-env-r4-{os.getpid()}", *child(cap4),
+                     f"--setenv=PATH={caller_path}"]
+        got4, why4 = run_and_capture(after_cmd, cap4)
+        if got4 is None:
+            stop("R4", f"could not measure the after-the-command placement: {why4}")
+            return
+        delivered_after = got4.get("PATH") == caller_path
+        ok4 = len(setenvs) == 1 and setenvs[0] < argv0_ix and not delivered_after
         check("R4", ok4,
-              f"--setenv=PATH= at {setenvs}, --unit= at {unit_ix}, caller argv[0] at {argv0_ix} "
-              "(must be exactly one --setenv, before --unit and before the command)")
+              f"--setenv=PATH= at {setenvs}, caller argv[0] at {argv0_ix} (exactly one, before "
+              f"the command); the same flag placed AFTER the command delivered={delivered_after} "
+              f"(child saw PATH={got4.get('PATH')!r})")
+
+        # ---- P1 / P2: an UNSET PATH refuses loudly; an EMPTY PATH cannot reach the refusal ------
+        saved_p = os.environ.pop("PATH")
+        try:
+            raised = None
+            got = None
+            try:
+                got = jc.detach_argv(["/bin/true"], "probe-detach-env-p1-never-created")
+            except Exception as exc:  # noqa: BLE001 — WHICH error it is, is the assertion below
+                raised = exc
+            check("P1",
+                  isinstance(raised, getattr(jc, "CarrierEnvMissing", ()))
+                  and "PATH is unset" in str(raised),
+                  f"PATH unset -> {type(raised).__name__}: {str(raised)[:80]!r}" if raised
+                  else f"PATH unset -> NO refusal, returned {got!r} (the pre-fix silent degrade: "
+                       "no --setenv, so the child gets the systemd MANAGER's PATH)")
+
+            os.environ["PATH"] = ""
+            ep_which = shutil.which("systemd-run")
+            ep_argv, ep_unit = jc.detach_argv(["/bin/true", "y"], "probe-detach-env-p2")
+            check("P2", ep_which is None and ep_unit is None and ep_argv == ["/bin/true", "y"],
+                  f"PATH='' -> which(systemd-run)={ep_which!r}, bare fallback {ep_argv!r} "
+                  f"unit={ep_unit!r} (the refusal is unreachable here, by short-circuit)")
+        finally:
+            os.environ["PATH"] = saved_p
 
         # ---- B1 / B2: the loop-forever fallback is DETACHED, never waited on (task 7.527) --------
         # `systemd-run` is PATH-SHADOWED BY A STUB that is present but NOT EXECUTABLE, so

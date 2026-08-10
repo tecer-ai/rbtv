@@ -38,6 +38,28 @@ class _Timeout(Exception):
     pass
 
 
+class CarrierEnvMissing(RuntimeError):
+    """`detach_argv` was asked to detach a process when there is NO PATH to forward.
+
+    REFUSES LOUDLY BY DESIGN (task 7.564). The alternative — forward some explicit safe default —
+    was considered and REJECTED for two reasons. (1) PRIN-11: there is exactly ONE composer of this
+    value (`server/spawn/carrier.js` `toolExecEnv()`, ruling `d-owner-f1-carrier-env-0808`); a
+    default invented here would make `jobcontain` a SECOND composer, which is the precise failure
+    probe arm R2 exists to catch, and it would produce a PATH that LOOKS right while omitting
+    whatever the carrier actually composed. (2) An unset PATH is not a normal state on any live
+    path — under the daemon `os.environ["PATH"]` IS `toolExecEnv()`'s output, and from a shell it
+    is that shell's own PATH — so it means the carrier environment was already lost UPSTREAM. A
+    default would convert that loud upstream bug into a quiet wrong-PATH failure much later, in
+    the detached process, which is the hardest place to trace it back from.
+
+    What is ruled OUT either way is the pre-fix behaviour this replaces: proceeding with no
+    `--setenv` at all. `shutil.which` still finds `systemd-run` with PATH unset (the C library's
+    `CS_PATH` fallback), so the launch went ahead and the child silently received the systemd
+    MANAGER's PATH — measured, and exactly the defect task 7.551 exists to fix, reappearing
+    quietly instead of failing loud.
+    """
+
+
 def _on_alarm(signum, frame):
     sys.stderr.write("jobcontain: WALL-CLOCK BUDGET EXHAUSTED — exiting non-zero so the "
                      "next period retries rather than this run lingering.\n")
@@ -106,8 +128,29 @@ def detach_argv(argv, unit, daemonizes=False):
     # output byte-for-byte (measured), and from a human shell it is that shell's own PATH — both
     # correct, neither a second composer. Positional, not separated by `--`: the flag must precede
     # the argv tail or systemd-run hands it to the child as an argument (probes/probe-detach-env.py).
+    # REFUSE rather than degrade (task 7.564 — see CarrierEnvMissing for the decision and the
+    # rejected alternative). The old spelling was `[...] if path else []`, which looked like a
+    # guard and protected nothing: with PATH unset it emitted no --setenv and let the launch
+    # proceed, handing the child the manager's PATH — the very defect this fix exists to prevent.
+    #
+    # THE EMPTY-STRING HALF OF THAT OLD GUARD WAS UNREACHABLE, and still is: `shutil.which`
+    # treats PATH="" as a real (empty) search path rather than falling back to CS_PATH, so it
+    # returns None and the bare-argv fallback above has ALREADY returned before this line. Only
+    # PATH being genuinely UNSET reaches here, because that is the one case where which() still
+    # resolves systemd-run. Probe arm P2 pins that short-circuit so this reasoning cannot rot.
     path = os.environ.get("PATH")
-    setenv = [f"--setenv=PATH={path}"] if path else []
+    if path is None:
+        raise CarrierEnvMissing(
+            "detach_argv: PATH is unset, so there is nothing to forward across the systemd-run "
+            "hop. REFUSING to detach rather than launching without --setenv: the inner hop goes "
+            "back through the systemd USER MANAGER, whose environment is not this process's, so "
+            "the child would silently receive the MANAGER's PATH. ~/.local/bin and "
+            "~/.opencode/bin are not on it, so claude / codex / opencode / coordinate would not "
+            "resolve BY NAME in the detached process (task 7.551). Fix the CALLER's environment "
+            "— under the daemon PATH is carrier.js toolExecEnv()'s output, from a shell it is "
+            "the shell's own PATH. This module never composes one: there is exactly one "
+            "composer (PRIN-11).")
+    setenv = [f"--setenv=PATH={path}"]
     return ["systemd-run", "--user", "--collect", "--quiet", *setenv, *props,
             f"--unit={unit}", *argv], unit
 
