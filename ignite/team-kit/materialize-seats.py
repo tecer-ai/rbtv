@@ -334,8 +334,13 @@ PASS_FOLDER_NONE = "none"
 # kind-tag blocks. The block pattern deliberately starts `<(` so SK-7's
 # local-emitter detector cannot match it.
 _FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+# A kind-named section. TWO forms, both live: the assembler's id+version form
+# (unit-file layout) and the BARE `<kind>` / attributed `<kind source="…">` form
+# d-prompt-task-files made the section markup. Groups stay (1) kind (2) id or
+# None (3) version or None (4) body — the selftest reads 4.
 _BLOCK_RE = re.compile(
-    r'<([a-z0-9-]+) id="([^"]+)" version="([^"]+)">\n(.*?)\n</\1>', re.DOTALL)
+    r'<([a-z0-9-]+)(?: id="([^"]+)")?(?: version="([^"]+)")?[^>\n]*>\n'
+    r'(.*?)\n</\1>', re.DOTALL)
 
 # d-run3-assembled-shape (i) — a `Reference: <id>@latest` line INSIDE a unit
 # body (the io-spec mandate references; written with or without backticks,

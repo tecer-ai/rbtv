@@ -1615,6 +1615,11 @@ def index_units(catalog_root: Path) -> dict[str, dict]:
         # DISCRIMINATING rather than merely loud, and it is measured, not assumed:
         # all 1314 indexed units live under such a directory and no non-unit file does.
         is_unit = "cognitive-units" in path.parts
+        if not is_unit and path.parent.name in ("prompts", "tasks"):
+            # d-prompt-task-files: a FLAT pool file is a whole prompt/task, not
+            # a cognitive unit. It carries frontmatter and kind-named sections
+            # and would otherwise index as a unit named after the prompt.
+            continue
         text = path.read_text(encoding="utf-8")
         m = FRONTMATTER_RE.match(text)
         if not m:
@@ -1688,7 +1693,68 @@ def load_catalogs(catalog_root: Path) -> tuple[dict, dict, dict]:
                     raise Refusal(f"duplicate {key} '{ident}' in {path}")
                 row["__source__"] = path
                 bucket[ident] = row
+
+    # d-prompt-task-files (2026-08-08): prompts.csv/tasks.csv are DROPPED — a
+    # whole prompt lives at `<component>/prompts/<prompt-id>.md` and a whole
+    # task at `<component>/tasks/<task-id>.md`, frontmatter carrying the card
+    # data over kind-named XML sections. Both layouts load here so a catalog
+    # root may hold either (the migration of the old components is task 7.565).
+    for pool, bucket, key in (("prompts", prompts, "prompt-id"),
+                              ("tasks", tasks, "task-id")):
+        for path in sorted(catalog_root.rglob(f"{pool}/*.md")):
+            if "cognitive-units" in path.parts:
+                continue
+            row = _pool_file_row(path, key)
+            if row is None:
+                continue
+            ident = row[key]
+            if ident in bucket:
+                raise Refusal(f"duplicate {key} '{ident}' in {path}")
+            bucket[ident] = row
     return seats, prompts, tasks
+
+
+def _pool_file_row(path: Path, key: str) -> dict | None:
+    """One prompt/task-file read as a catalog row (d-prompt-task-files), or
+    None when the file is not a DEFINITION.
+
+    `__body__` carries the file's kind-named sections verbatim — they ARE the
+    assembled units, so nothing is resolved through a unit index.
+
+    A flat `prompts/*.md` is not automatically a definition: the transitional
+    whole-file prompt CARD (frontmatter `exposes:` over prose, read by
+    materialize-seats' `_prompt_exposes`) lives at the same path and its
+    definition is still a `prompts.csv` row elsewhere in the catalog root.
+    The discriminator is the kind-named section — the one thing a definition
+    has and a card does not. A card returns None; a definition that is
+    MALFORMED still refuses, because a definition read as a card would go
+    missing in silence.
+    """
+    text = path.read_text(encoding="utf-8")
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return None
+    body = text[m.end():]
+    if not re.search(r"<([a-z0-9-]+)(?:\s[^>\n]*)?>.*?</\1>", body, re.DOTALL):
+        return None                      # a card, not a definition
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError as exc:
+        raise Refusal(
+            f"{path}: prompt/task frontmatter is not valid YAML — "
+            f"{str(exc).strip()}"
+        ) from exc
+    if not isinstance(fm, dict) or not str(fm.get("id", "")).strip():
+        raise Refusal(
+            f"{path}: prompt/task file carries kind-named sections but no "
+            f"`id:` in frontmatter — it is a definition nothing can name"
+        )
+    row = dict(fm)
+    row[key] = str(fm["id"]).strip()
+    row["description"] = str(fm.get("description", "")).strip()
+    row["__source__"] = path
+    row["__body__"] = body
+    return row
 
 
 _UNIT_REF_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(@[a-z0-9][a-z0-9-]*)?$")
@@ -1794,6 +1860,36 @@ def assemble_seat(seat_id: str, binding: dict, seats: dict, prompts: dict,
 
     blocks: list[str] = []
     for label, row in parts:
+        if "__body__" in row:
+            # d-prompt-task-files — the file's sections ARE the assembled
+            # units: copied verbatim, no ids, no versions, no lockfile
+            # (versioning is the file's git history).
+            blocks.append(row["__body__"].strip("\n"))
+            # PASS-THROUGH frontmatter keys. `human-interactive:` (+ its
+            # required `fallback:`) is the D14 two-gate flag the engine reads
+            # to decide a seat needs the owner live — it must reach seat.md or
+            # the gate is unreadable at dispatch (d-goal-channels-v1-
+            # transcription). Emitted only when the definition declares it.
+            hi = row.get("human-interactive")
+            if hi not in (None, ""):
+                fb = str(row.get("fallback", "") or "").strip()
+                if fb not in ("park", "default-and-disclose", "block-and-queue"):
+                    raise Refusal(
+                        f"{row['__source__']}: `human-interactive: {hi}` "
+                        f"declares fallback '{fb or '(absent)'}' — required, "
+                        f"one of park | default-and-disclose | block-and-queue"
+                    )
+                fm["human-interactive"] = hi
+                fm["fallback"] = fb
+            # `capabilities:`/`context:` are carried VERBATIM, never dropped:
+            # a declared capability or forced read that vanished at assembly is
+            # a seat promised a means it never receives. Rendering them as
+            # resolved blocks is a separate, unbuilt design step.
+            for col in ("capabilities", "context"):
+                val = row.get(col)
+                if val:
+                    fm[col] = val
+            continue
         for kind_col, refs in _refs_of(row, NON_REF_COLUMNS):
             resolved: list[str] = []
             for ref in refs:
@@ -2700,6 +2796,55 @@ def cmd_selftest(args) -> int:
             "---\nid: demo\n---\n\nno kind tag here, and none is owed\n", encoding="utf-8")
         check("red control: a NON-unit file with no tag is still skipped SILENTLY",
               len(index_units(tmp / "cat")) == 1)
+
+        print("d-prompt-task-files pools (flat prompt/task files, no csv catalogs)")
+        pc = tmp / "poolcat" / "pcomp"
+        (pc / "prompts").mkdir(parents=True)
+        (pc / "tasks").mkdir(parents=True)
+        (pc / "seats.csv").write_text(
+            "seat-id,prompt-id,task-id,staffing-hints,description\n"
+            "ps,pp,pt,,a pool seat\n", encoding="utf-8")
+        (pc / "prompts" / "pp.md").write_text(
+            "---\nid: pp\ndescription: pool prompt\n"
+            "human-interactive: yes\nfallback: block-and-queue\n---\n\n"
+            "<role>\nrole body\n</role>\n\n"
+            "<permissions>\nRead: everything\n</permissions>\n", encoding="utf-8")
+        (pc / "tasks" / "pt.md").write_text(
+            "---\nid: pt\ndescription: pool task\ncapabilities: [cc]\n---\n\n"
+            "<task-goal>\ngoal body\n</task-goal>\n", encoding="utf-8")
+        # The transitional whole-file CARD: same folder, no kind-named section.
+        (pc / "prompts" / "card.md").write_text(
+            "---\nid: card\nexposes:\n  skill: [x]\n---\n\nprose only\n",
+            encoding="utf-8")
+        s_c, p_c, t_c = load_catalogs(tmp / "poolcat")
+        check("a flat prompt/task file loads as a catalog row",
+              sorted(p_c) == ["pp"] and sorted(t_c) == ["pt"],
+              f"{sorted(p_c)} {sorted(t_c)}")
+        check("a whole-file CARD (no kind-named section) is NOT a definition",
+              "card" not in p_c)
+        check("flat pool files do NOT index as cognitive units",
+              index_units(tmp / "poolcat") == {})
+        asm = assemble_seat("ps", {}, s_c, p_c, t_c, {})
+        afm = yaml.safe_load(FRONTMATTER_RE.match(asm).group(1))
+        check("human-interactive + fallback reach the assembled frontmatter",
+              afm.get("human-interactive") is True
+              and afm.get("fallback") == "block-and-queue", str(afm))
+        check("a declared capability is carried, never dropped",
+              afm.get("capabilities") == ["cc"], str(afm))
+        check("the file's kind-named sections ARE the body, verbatim",
+              "<role>\nrole body\n</role>" in asm
+              and "<task-goal>\ngoal body\n</task-goal>" in asm, asm)
+        (pc / "prompts" / "pp.md").write_text(
+            "---\nid: pp\ndescription: pool prompt\nhuman-interactive: yes\n---\n\n"
+            "<role>\nrole body\n</role>\n", encoding="utf-8")
+        try:
+            s2, p2, t2 = load_catalogs(tmp / "poolcat")
+            assemble_seat("ps", {}, s2, p2, t2, {})
+            check("human-interactive without a fallback REFUSES", False,
+                  "no Refusal raised")
+        except Refusal as exc:
+            check("human-interactive without a fallback REFUSES",
+                  "fallback" in str(exc), str(exc))
 
         print("reindex")
         rc = cmd_reindex(argparse.Namespace(root=str(root), json=False))
