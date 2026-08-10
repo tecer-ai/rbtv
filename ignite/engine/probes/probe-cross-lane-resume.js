@@ -474,10 +474,40 @@ async function main() {
   check('D3 the seat IS held in the attached lane — so anything below is about the LANE, not the seat',
     attached.heldSeatPredicate(freshGoal)('alpha') === true);
 
+  // ⚑ THE STRUCTURAL CLAIM WAS RE-SCOPED (owner ruling `#d-d3-dedupe-rescope`, 2026-08-10). It read
+  // "NOTHING under server/ asks whether a seat is human-interactive" — and that stopped being the
+  // thing worth protecting the moment the warm path landed a LEGITIMATE reader there
+  // (`live-sessions.js` gate 1, live-session-design §1). Worse, the claim was satisfiable by the
+  // exact defect it should have caught: the warm path first satisfied it by carrying its OWN copy
+  // of the predicate, the pre-a6bb05d regex, blind to `"yes"` and to a trailing comment — a second
+  // parser of one file, which is the drift PRIN-11 exists to prevent. So the arm now measures the
+  // two things that actually protect the architecture, each with the mutation that turns it red.
+  //
+  // Half 1 — ONE IMPLEMENTATION. A parser of this flag is a regex literal over it, and `/^human-`
+  // is that signature: it excludes prose quoting the field name (`goal_cli.py`'s writer comment
+  // does exactly that) and catches any re-introduced copy. MUTATION: put the old regex back in
+  // `live-sessions.js` → this check goes red on a second entry.
+  const flagParsers = filesMatching(/\/\^human-interactive:/);
+  check('D3 exactly ONE implementation of the human-interactive predicate, and it is the ferry\'s '
+    + '(PRIN-11 — two parsers of one file is a system whose halves disagree about the same seat)',
+    flagParsers.length === 1 && flagParsers[0] === 'bridges/chat/bus-ferry.js',
+    `parsers: ${flagParsers.join(', ') || 'none'}`);
+
+  // Half 2 — NO DISPATCH-PATH READER. The one server/ file that names the flag decides WARMTH, not
+  // dispatch: an ineligible seat takes the cold path unchanged, so nothing about WHERE or WHETHER a
+  // seat runs turns on it. The dispatch door itself does not know the word, and the warm gate reads
+  // THROUGH the ferry — a lazy require, so the daemon still holds no load-time dependency on the
+  // relocatable bridge subtree.
   const serverReaders = filesMatching(/human-interactive/).filter((f) => f.startsWith('server/'));
   const anyReaders = filesMatching(/human-interactive/);
-  check('D3 NOTHING under server/ — the dispatch and spawn path — asks whether a seat is human-interactive',
-    serverReaders.length === 0 && anyReaders.includes('bridges/chat/bus-ferry.js')
+  const liveSrc = fs.readFileSync(path.join(IGNITE_SRC, 'server', 'spawn', 'live-sessions.js'), 'utf8');
+  const doorSrc = fs.readFileSync(path.join(IGNITE_SRC, 'server', 'spawn', 'spawn.js'), 'utf8');
+  check('D3 the DISPATCH DOOR never asks — the only server/ reader is the warm-path eligibility '
+    + 'gate, and it reads THROUGH the ferry instead of parsing the seat itself',
+    serverReaders.length === 1 && serverReaders[0] === 'server/spawn/live-sessions.js'
+      && !/human-interactive/.test(doorSrc)
+      && /require\('\.\.\/\.\.\/bridges\/chat\/bus-ferry'\)/.test(liveSrc)
+      && anyReaders.includes('bridges/chat/bus-ferry.js')
       && anyReaders.includes('engine/attached-execution.js'),
     `server/: ${serverReaders.join(', ') || 'none'} · elsewhere: ${anyReaders.join(', ')}`);
 
@@ -499,8 +529,8 @@ async function main() {
     /require\('\.\.\/bridges\/chat\/bus-ferry'\)/.test(watch) && /seatFallback\(goalFolder, seat\)/.test(watch),
     'lane-watch.js imports seatFallback from bus-ferry.js');
   finding('D3 RESOLVED (7.626, ruling #d-s19-fallback-rides-goal-channels). The daemon lane still '
-    + 'dispatches a human-interactive seat as an ordinary detached child — nothing under server/ '
-    + 'reads the flag, and it does not need to: the ruled owner surface is the goal\'s Slack channel '
+    + 'dispatches a human-interactive seat as an ordinary detached child — no server/ reader decides '
+    + 'DISPATCH on the flag, and none needs to: the ruled owner surface is the goal\'s Slack channel '
     + 'with a thread per agent, so the arm executes AT THE FERRY. `park` parks the ask on the ferry\'s '
     + 'own gate ladder (`gate: fallback-park`); `default-and-disclose` and `block-and-queue` are '
     + 'delivered into the seat\'s thread and MARKED, so the owner can tell an FYI from a question; a '

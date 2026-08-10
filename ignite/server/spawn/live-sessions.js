@@ -65,23 +65,25 @@ function isoNow() {
 
 // ── Gate 1 of eligibility: the seat DECLARES it talks to a human ────────────────────────────────
 //
-// `human-interactive: yes|true` in the seat's OWN `seat.md` frontmatter — the first `---`-fenced
-// block ONLY, so a briefing line in the BODY that quotes the flag cannot open the gate. This is
-// deliberately the SAME predicate `bus-ferry.js#seatIsHumanInteractive` reads for the outbound
-// half, spelled here rather than imported: the ferry lives in the bridge subtree, which this
-// module may not require (ignite/CLAUDE.md rule 4 runs in BOTH directions — the bridge is a
-// relocatable subtree, so the daemon must not depend on it either). Two readers of one rule is a
-// drift risk and it is DISCLOSED as such; the shared home for it, when a third reader appears, is
-// `server/seat-identity/`.
+// `human-interactive: yes|true` in the seat's OWN `seat.md` frontmatter — and the READER is the
+// ferry's, IMPORTED, not a second copy (owner ruling `#d-d3-dedupe-rescope`). The copy that stood
+// here was the PRE-a6bb05d regex: it had already resurrected the blind spot F3 closed in the ferry
+// — `human-interactive: "yes"` and `human-interactive: yes # ratified …` are both TRUE to the
+// `yaml.safe_load` that `component-lint` validates the seat with, and were FALSE to the copy. Two
+// readers of one file free to disagree is a defect with no reporting surface, which is why there is
+// now one implementation of the predicate and this is not it.
+//
+// ⚑ THE REQUIRE IS LAZY, AT THE CALL, and that is the same shape `engine/attached-execution.js`
+// uses for the same two gates: the bridge is a relocatable subtree, so the daemon holds no LOAD-time
+// dependency on it (ignite/CLAUDE.md's relocatable-subtree convention runs in both directions).
+//
+// The seat-dir → `(goalDir, seat)` split is the exact inverse of the join the ferry does, so any
+// canonical `<…>/seats/<seat>` folder — goal seat or service seat — resolves; the ferry's own
+// `isSafeName` guard still refuses a traversal.
 function seatIsHumanInteractive(seatDir) {
-  try {
-    const md = fs.readFileSync(path.join(seatDir, 'seat.md'), 'utf8');
-    const fm = /^---\n([\s\S]*?)\n---/.exec(md);
-    if (!fm) return false;
-    return /^human-interactive:\s*(yes|true)\s*$/im.test(fm[1]);
-  } catch {
-    return false;
-  }
+  const abs = path.resolve(seatDir);
+  const { seatIsHumanInteractive: ferryReads } = require('../../bridges/chat/bus-ferry');
+  return ferryReads(path.dirname(path.dirname(abs)), path.basename(abs));
 }
 
 function createLiveSessions({
