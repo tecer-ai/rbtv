@@ -10,8 +10,10 @@
 //
 // The guard is the one `server/spawn/carrier.js:307` already uses: read `exitCode` BEFORE awaiting.
 // `error` is covered too — a child that fails to SPAWN emits no `exit` at all, which hangs the same
-// way. It lives in this folder (not duplicated per probe) because three probes need one body, and
-// the suite enumerates `probe-*.js` only, so a helper here is never mistaken for a probe.
+// way. It lives in this folder (not duplicated per probe) because it landed here
+// first and probes already reach across folders by relative require; `gateway/probes/probe-gateway-live.js`
+// is a consumer too (task 7.686). One body, wherever it sits. The suite enumerates
+// `probe-*.js` only, so a helper here is never mistaken for a probe.
 
 /**
  * @param {import('node:child_process').ChildProcess} child
