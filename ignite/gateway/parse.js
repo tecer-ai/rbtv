@@ -42,9 +42,24 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // verb whose whole value is NOT going through the queue. §4 rejected the queue path by ruling
 // (the 0.3–1.9s nudge+tick cost would put the warm total over the 3s target), and an intent that
 // enqueues nothing cannot honestly be an enqueue. It reaches ONLY the live-session manager.
+// ⚑ `send-message` ADDED by task 7.93 (owner ruling `r-793-unbarred-slot-address-door`,
+// 2026-07-30): the addressed-message door the coordination client had nothing to route to. It is
+// a new intent rather than an `enqueue-job` variant for the same reason `live-feed` is: its whole
+// value is NOT going through the queue — a coordination message between seats is delivered, not
+// scheduled, and an intent that enqueues nothing cannot honestly be an enqueue.
+// ⚑ THE NAME COINS NOTHING. `send-message` is already this system's ratified word for this act:
+// it is a member of the closed `action_type` enum (ACTION_TYPES below) whose required argument set
+// is already `(type, thread, corpus)`. One act with both a QUEUED carrier and a DIRECT gateway
+// carrier is the shape `launch-agent` (action) / `spawn-via-named-profile` (intent) already has.
+// ⚑ IT MINTS NO RECIPIENT AND NO COLUMN. The ADDRESS travels in `thread` — the owner's frozen
+// D39/D42 semantics ("the thread CARRIES the address"; "addressing is ONE recipient field — a slot
+// address OR a groupchat address — v1 collapses it into the thread column"). `d-team-kit-
+// realization`'s divergences (1) explicit recipient addressing and (4) a stored `to:` column STAND
+// as substrate facts; the client is adapted to the gateway's shape, the gateway is never taught a
+// recipient. The write lands through the already-shipped heartStore.recordMessage — NO store change.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
-  'kill-session', 'register-job', 'deregister-job', 'live-feed',
+  'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
 ]);
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
@@ -55,6 +70,11 @@ const SESSION_MODES = new Set(['headless', 'headed']);
 // closed enum is SHAPE, so an unknown value is refused here — the same reasoning that
 // puts session_mode's enum at the door.
 const ACTION_TYPES = new Set(['launch-agent', 'fire-tool', 'start-workflow', 'send-message']);
+// A deliberate SECOND copy of the store's closed message-type enum (heart-store.js MESSAGE_TYPES),
+// for exactly the reason every sibling copy above exists: the gateway holds no store import by
+// design (DEC-4), and a closed enum is SHAPE, so an unknown type is refused at the door. The core
+// re-validates it independently (recordMessage's own E_BAD_MESSAGE), which is the point of DEC-3.
+const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note']);
 // ⚑ `messages` ADDED by the cli-expansion run (ruling D3, ce-5): a new TARGET of the
 // existing `inspect` intent, never a sixth intent — read-only store queries are what
 // `inspect` is for. Execution-scoped like `status`/`logs`: the id is a jobs_log exec_id,
@@ -213,11 +233,37 @@ function parseRemoveJob(payload) {
 
 function parseInspect(payload) {
   requireObject(payload);
-  rejectUnknownKeys(payload, new Set(['target', 'id', 'offset', 'limit', 'status']), 'inspect');
+  rejectUnknownKeys(payload, new Set(['target', 'id', 'offset', 'limit', 'status', 'thread']), 'inspect');
   if (!INSPECT_TARGETS.has(payload.target)) {
     bad(`inspect target must be ${[...INSPECT_TARGETS].join('|')} (got "${payload.target}")`, 'target');
   }
   const out = { target: payload.target };
+
+  // ⚑ `thread` ADDED by task 7.93 as an ALTERNATIVE addressing key for `messages` — NOT a new
+  // intent, per the ce-5/D75 rule this file already states twice: read-only store queries are what
+  // `inspect` is for. It is the read half of the addressed-message door: a tmux seat holds a SLOT
+  // ADDRESS and no execution id, so an execution-scoped read is one it can never call
+  // (the exact finding task 7.57 fork 1 ruled NOT MET). Exactly one of `id`/`thread` — both, or
+  // neither, is refused here rather than one silently winning.
+  if (payload.thread !== undefined) {
+    if (payload.target !== 'messages') {
+      bad(`inspect ${payload.target} takes no thread`, 'thread');
+    }
+    if (typeof payload.thread !== 'string' || payload.thread.length === 0) {
+      bad('inspect messages requires a non-empty thread', 'thread');
+    }
+    if (payload.id !== undefined) {
+      bad('inspect messages takes an id OR a thread, never both', 'thread');
+    }
+    out.thread = payload.thread;
+    if (payload.offset !== undefined) {
+      if (!Number.isInteger(payload.offset) || payload.offset < 0) bad('offset must be a non-negative integer', 'offset');
+      out.offset = payload.offset;
+    }
+    if (payload.limit !== undefined) out.limit = optionalPositiveInt(payload.limit, 'limit');
+    if (payload.status !== undefined) bad('inspect messages takes no status', 'status');
+    return out;
+  }
 
   if (payload.target === 'status' || payload.target === 'logs' || payload.target === 'messages') {
     const raw = payload.id;
@@ -478,6 +524,31 @@ function parseLiveFeed(payload) {
   };
 }
 
+// `send-message` (task 7.93) — SHAPE ONLY, like every parse here. Three fields, closed set.
+//
+// ⚑ `sender` is deliberately NOT accepted from a sender, for the SAME reason `enqueued_by` is
+// refused on enqueue-job (see ENQUEUE_KEYS above): the daemon STAMPS it from the authenticated
+// identity, and a sender that could set it could forge the audit trail. That refusal is what makes
+// this door safe to open to an ordinary agent token.
+// ⚑ `thread` IS THE ADDRESS (D39/D42) and is a free-form non-empty string here BY DESIGN: whether
+// a slot of that name exists, and who may address it, are not shape — the gateway holds no store
+// and no roster handle and must not grow one (DEC-3/DEC-4).
+function parseSendMessage(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['type', 'thread', 'corpus']), 'send-message');
+  if (!MESSAGE_TYPES.has(payload.type)) {
+    bad(`send-message type must be ${[...MESSAGE_TYPES].join('|')} (got "${payload.type}")`, 'type');
+  }
+  if (typeof payload.thread !== 'string' || payload.thread.length === 0) {
+    bad('send-message requires a non-empty thread (the address — D39/D42)', 'thread');
+  }
+  // An empty corpus is legal; a non-string is not. Same bound the store's recordMessage enforces.
+  if (typeof payload.corpus !== 'string') {
+    bad('send-message requires a string corpus', 'corpus');
+  }
+  return { type: payload.type, thread: payload.thread, corpus: payload.corpus };
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -494,6 +565,7 @@ function parseRequest({ intent, payload }) {
     case 'register-job': return parseRegisterJob(payload);
     case 'deregister-job': return parseDeregisterJob(payload);
     case 'live-feed': return parseLiveFeed(payload);
+    case 'send-message': return parseSendMessage(payload);
   }
 }
 

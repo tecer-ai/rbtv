@@ -11,13 +11,19 @@ Stdlib only (coord.py's own module-level-import bar: a third-party import there 
 new hard dependency for every seat on every `coordinate` invocation — the exact outage
 shape `save-coord.py` exists to prevent). Wire uses `http.client`, never `requests`.
 
-SCOPE, deliberately narrow — task 7.57 fork 1, RULED (a): this module proves the CLIENT
-half only (detection, auth, the wire). It carries NO coordination send/read logic,
-because the gateway has no door for one today: `enqueue-job` with `action_type:
-send-message` takes exactly `(type, thread, corpus)` — no recipient field — and
-`inspect messages` requires an integer execution id a tmux seat does not have. Building
-that door touches the owner-ruled CMP-8 message model and is a successor row, not this
-file (see `d-team-kit-realization`, divergences 1 and 4).
+SCOPE — task 7.57 fork 1 built the CLIENT half only (detection, auth, the wire), because
+the gateway had no coordination door to route to. Task 7.93 BUILT that door (owner ruling
+`r-793-unbarred-slot-address-door`, 2026-07-30) and this module gained its two calls:
+`send_message` (gateway intent `send-message`) and `read_thread` (`inspect messages` by
+`thread`). Both are addressed by SLOT/THREAD per the owner's frozen D39/D42 — the thread
+CARRIES the address — and mint NO recipient: `d-team-kit-realization`'s divergences (1)
+explicit recipient addressing and (4) a stored `to:` column STAND as substrate facts, so
+the CLIENT is adapted to the gateway's shape and the gateway is never taught a recipient.
+
+⚠ NOTHING HERE IS EVER REACHED UNLESS THE TRANSPORT IS EXPLICITLY ARMED. coord.py gates
+both calls behind `COORD_GATEWAY_TRANSPORT=1`; absent it, no function below is called and
+the room's transport is byte-identically what it was (the leader's 7.57 fork-2 ruling: a
+naive detect-then-route flips the transport for every seat mid-run).
 
 Credential discipline (inherited from gateway-cli-spec.md, unconditional): the sender
 token is read from the environment ONLY, at call time — never cached, never placed in
@@ -178,6 +184,72 @@ def resolve_token(env=None):
     env = os.environ if env is None else env
     t = env.get("IGNITE_SENDER_TOKEN")
     return t if isinstance(t, str) and len(t) > 0 else None
+
+
+# ── task 7.93 · the addressed-message door, client side ────────────────────────────────────────
+#
+# THE ADDRESS IS THE THREAD (D39/D42: "the thread CARRIES the address"; "addressing is ONE
+# recipient field — a slot address OR a groupchat address — v1 collapses it into the thread
+# column"). `thread_address` is the ONE place that arithmetic lives, so the send leg and the read
+# leg can never disagree about where a message went (PRIN-11).
+#
+# ⚠ THE ADDRESS IS PACKAGE-SCOPED, and that is correctness rather than decoration: one daemon
+# serves a workspace, and two goals both holding a seat named `leader` would otherwise write into
+# ONE thread and read each other's mail. The `coord/` prefix additionally guarantees the space can
+# never collide with the daemon's own threads (`exec-<n>`, `owner-feed`).
+def thread_address(package_name, to, is_group=False):
+    """The slot/groupchat address for `to` within `package_name`. Never a recipient column."""
+    kind = "groupchat" if (is_group or to == "all") else "slot"
+    return f"coord/{package_name}/{kind}/{to}"
+
+
+def _envelope_error(envelope):
+    """The gateway's typed refusal as a string, or None when the envelope reports ok. The HTTP
+    status is a courtesy and is never the contract — the envelope is (gateway-cli-spec.md)."""
+    if not isinstance(envelope, dict):
+        return f"gateway returned a non-object envelope: {envelope!r}"
+    if envelope.get("ok") is True:
+        return None
+    err = envelope.get("error") or {}
+    if isinstance(err, dict):
+        return f"{err.get('code', 'UNKNOWN')}: {err.get('message', '(no message)')}"
+    return f"gateway refused: {err!r}"
+
+
+def send_message(host, port, thread, mtype, corpus, token=None, timeout=10.0):
+    """POST intent `send-message` {type, thread, corpus}. Returns the result dict on success.
+
+    ⚠ RAISES on ANY non-ok outcome — transport error OR a typed refusal. It NEVER returns a value
+    that a caller could mistake for a delivery (task 7.94's finding, in this module's own terms: a
+    failed call must never read as a successful one). `sender` is deliberately not a parameter:
+    the daemon stamps it from the authenticated identity and refuses it from the wire."""
+    status, envelope = call_gateway(host, port, "send-message",
+                                    {"type": mtype, "thread": thread, "corpus": corpus},
+                                    token=token, timeout=timeout)
+    err = _envelope_error(envelope)
+    if err is not None:
+        raise GatewayTransportError(f"send-message refused (HTTP {status}) — {err}")
+    return envelope.get("result") or {}
+
+
+def read_thread(host, port, thread, token=None, timeout=10.0, offset=None, limit=None):
+    """`inspect messages` addressed BY THREAD — the read path a tmux seat can actually call.
+
+    The execution-scoped form (`{target:'messages', id:<int>}`) requires a jobs_log exec id, which
+    a tmux seat does not have and cannot obtain; that is precisely what 7.57 fork 1 measured and
+    ruled NOT MET. Returns the result dict (`rows`, `nextOffset`, `eof`). Raises on any non-ok
+    outcome, same discipline as send_message above. An unknown thread is an EMPTY page, not an
+    error — a slot legitimately has no messages before its first one."""
+    payload = {"target": "messages", "thread": thread}
+    if offset is not None:
+        payload["offset"] = offset
+    if limit is not None:
+        payload["limit"] = limit
+    status, envelope = call_gateway(host, port, "inspect", payload, token=token, timeout=timeout)
+    err = _envelope_error(envelope)
+    if err is not None:
+        raise GatewayTransportError(f"inspect messages refused (HTTP {status}) — {err}")
+    return envelope.get("result") or {}
 
 
 def call_gateway(host, port, intent, payload, token=None, timeout=10.0):

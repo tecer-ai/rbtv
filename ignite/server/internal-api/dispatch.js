@@ -68,9 +68,17 @@ const ENVELOPE_VERSION = 1;
 // ENVELOPE VERSION IS UNCHANGED and no existing intent's payload semantics move. Before
 // it, a registered definition could never be stopped: `remove-job` takes a QUEUE id and
 // never touches the catalogue, and `--disabled` existed only at registration time.
+// `send-message` is the ELEVENTH intent, added ADDITIVELY by task 7.93 under the SAME §1
+// extension rule as register-job/deregister-job: the addressed-message door the coordination
+// client had nothing to route to (owner ruling `r-793-unbarred-slot-address-door`). The ENVELOPE
+// VERSION IS UNCHANGED and no existing intent's payload semantics move. It is addressed by
+// SLOT/THREAD (D39/D42 — "the thread CARRIES the address") and mints NO recipient column: the
+// write lands through the already-shipped heartStore.recordMessage, whose `messages` row has
+// carried (type, sender, thread, corpus) since before this task. `d-team-kit-realization`'s
+// divergences 1 and 4 STAND — the client is adapted to the gateway's shape, never the reverse.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
-  'kill-session', 'register-job', 'deregister-job', 'live-feed',
+  'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
 ]);
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
@@ -109,6 +117,12 @@ const EXEC_STATUSES = new Set(['launching', 'running', 'done', 'blocked', 'faile
 // Server-enforced max page (contract § 1, `inspect`: "offset/limit bounded").
 const MAX_PAGE = 500;
 const DEFAULT_PAGE = 200;
+
+// The closed message-type enum (heart-store.js MESSAGE_TYPES), re-validated at the core
+// independently of gateway origin — the same defense-in-depth copy EXEC_STATUSES above is.
+// Verified 2026-08-10 identical to the coordination client's own type vocabulary
+// (`d-team-kit-realization` protocol rule P2), which is what lets one message cross both substrates.
+const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note']);
 
 const SENDER_KINDS = new Set(['owner', 'agent', 'bridge']);
 
@@ -733,7 +747,9 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
 
   async function handleInspect(payload) {
     for (const key of Object.keys(payload)) {
-      if (!['target', 'id', 'offset', 'limit', 'status'].includes(key)) {
+      // `thread` (task 7.93) — the messages target's ALTERNATIVE addressing key, re-validated here
+      // independently of gateway origin exactly like every other field (DEC-3 defense in depth).
+      if (!['target', 'id', 'offset', 'limit', 'status', 'thread'].includes(key)) {
         throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
       }
     }
@@ -780,6 +796,31 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       const rows = all.slice(offset, offset + limit);
       const nextOffset = offset + rows.length;
       return { target, status, rows, nextOffset, eof: nextOffset >= all.length };
+    }
+
+    // ── task 7.93 · the THREAD-ADDRESSED messages read ──────────────────────────────────────
+    // The read half of the addressed-message door. A tmux seat holds a SLOT ADDRESS and no
+    // execution id, so the execution-scoped read below is one it can never call — which is
+    // exactly what 7.57 fork 1 ruled NOT MET. Addressing by thread makes it callable.
+    //
+    // ⚑ NO STORE CHANGE, and the fetch-all-then-filter is inherited deliberately from the
+    // id-addressed branch below for the SAME stated reason (getMessages orders msg_id ASC and
+    // exposes no thread filter, so its HEAD-bound `limit` would page over the WRONG set).
+    // ⚑ An unknown thread is an EMPTY page, never NOT_FOUND: a thread is an address, not a row,
+    // and a slot legitimately has no messages before its first one. Answering 404 would make
+    // "nobody has written to me yet" indistinguishable from "you addressed nothing".
+    if (target === 'messages' && payload.thread !== undefined) {
+      if (typeof payload.thread !== 'string' || payload.thread.length === 0) {
+        throw new InternalApiError(VALIDATION_FAILED, 'inspect messages requires a non-empty thread', { check: 'thread-shape', field: 'thread' });
+      }
+      if (payload.id !== undefined) {
+        throw new InternalApiError(VALIDATION_FAILED, 'inspect messages takes an id OR a thread, never both', { check: 'thread-xor-id', field: 'thread' });
+      }
+      const { offset, limit } = pageBounds(payload);
+      const all = heartStore.getMessages().filter((m) => m.thread === payload.thread);
+      const rows = all.slice(offset, offset + limit);
+      const nextOffset = offset + rows.length;
+      return { target, thread: payload.thread, rows, nextOffset, eof: nextOffset >= all.length };
     }
 
     // status/logs/messages are execution-scoped: `id` is required and must exist
@@ -1136,6 +1177,50 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     return { fed: true, reply: out.reply, is_error: out.isError === true, session_id: out.sessionId, session_ref: out.sessionRef, ms: out.ms, warm: liveSessions.size() };
   }
 
+  // ── task 7.93 · the addressed-message door, WRITE half ────────────────────────────────────
+  //
+  // Its own COMPLETE re-validation clause (DEC-3: gateway origin is not trust), in the same order
+  // every sibling handler uses: strict schema, then shape, then the write.
+  //
+  // ⚑ `sender` is STAMPED from the attested identity and is REFUSED from the wire (the strict
+  // schema below rejects it as an unknown field). Same rule and same reason as `enqueued_by`: a
+  // sender that could set it could forge the audit trail. This is what makes the door safe to
+  // open to an ordinary agent token, and it is why no new authz predicate is minted here — the
+  // act is exactly as consequential as `enqueue-job`, which is open to any authenticated sender,
+  // and strictly less so than register-job/snooze/kill-session, which carry their own decisions.
+  // ⚑ NO STORE CHANGE AND NO RECIPIENT COLUMN. `thread` carries the address (D39/D42) and the row
+  // is written by the already-shipped recordMessage. A `completion` is deliberately NOT special-
+  // cased here: the store's own completion path (its jobs_log stamp) is reached by passing the
+  // type through untouched, exactly as the ticker's own callers do.
+  function handleSendMessage(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (!['type', 'thread', 'corpus'].includes(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    if (!MESSAGE_TYPES.has(payload.type)) {
+      throw new InternalApiError(VALIDATION_FAILED, `send-message type must be ${[...MESSAGE_TYPES].join('|')} (got "${payload.type}")`, { check: 'type-enum', field: 'type' });
+    }
+    if (typeof payload.thread !== 'string' || payload.thread.length === 0) {
+      throw new InternalApiError(VALIDATION_FAILED, 'send-message requires a non-empty thread', { check: 'thread-shape', field: 'thread' });
+    }
+    if (typeof payload.corpus !== 'string') {
+      throw new InternalApiError(VALIDATION_FAILED, 'send-message requires a string corpus', { check: 'corpus-shape', field: 'corpus' });
+    }
+    // A `completion` requires a status the door has no field for, and inventing one would be a
+    // fourth payload field this task does not need. Refused explicitly rather than handed to the
+    // store to fail with a message about a field the caller was never offered.
+    if (payload.type === 'completion') {
+      throw new InternalApiError(VALIDATION_FAILED, 'send-message does not carry completions — a completion needs a status (done|blocked|failed) and a turn to stamp, which this door has no field for', { check: 'completion-not-carried', field: 'type' });
+    }
+    const senderId = (sender && sender.id) || 'unknown';
+    const row = heartStore.recordMessage({
+      type: payload.type, sender: senderId, thread: payload.thread, corpus: payload.corpus,
+    });
+    log('info', 'send-message accepted', { thread: payload.thread, type: payload.type, senderId, msgId: row && row.msg_id });
+    return { sent: true, msg_id: row && row.msg_id, thread: payload.thread, type: payload.type, sender: senderId };
+  }
+
   // Kill a session — expose the spawn module's EXISTING kill surface (TERM → grace →
   // KILL of the whole process tree, status → `killed`) on the wire (cli-expansion ruling
   // D2, ce-4). Kill is NOT headed-only — a session is "killable at any time" regardless
@@ -1288,6 +1373,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'register-job': result = handleRegisterJob(env.payload, env.sender); break;
         case 'deregister-job': result = handleDeregisterJob(env.payload, env.sender); break;
         case 'live-feed': result = await handleLiveFeed(env.payload, env.sender); break;
+        case 'send-message': result = handleSendMessage(env.payload, env.sender); break;
       }
 
       // Outbound round-trip: the snapshot the gateway receives is DETACHED, so
