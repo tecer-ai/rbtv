@@ -444,7 +444,9 @@ def validate_package(raw: str) -> Path:
             "--package must be an ABSOLUTE goal-folder path — never inferred",
             raw,
         )
-    if not (package.parent.name == GOALS_DIR_NAME and ID_RE.match(package.name)):
+    if not (package.parent.name == GOALS_DIR_NAME
+            and ID_RE.match(package.name.lstrip("_"))
+            and not package.name.startswith("__")):
         raise Refuse(
             "package-not-a-goal",
             "--package must resolve to a GOAL FOLDER — "
@@ -460,6 +462,29 @@ def validate_package(raw: str) -> Path:
     # (create_run_package in run()'s write phase) — the bar above still
     # refuses BEFORE any creation, so nothing is ever created off-compartment.
     return package
+
+
+def standing_seat(package: Path) -> str | None:
+    """The seat id a STANDING-SEAT package is the home of, or None.
+
+    A standing seat is one seat with many sessions and no goal apparatus
+    around it — `.rbtv/goals/_channel-master/` (r-master-seat-homes). The
+    leading underscore IS the marker, and the rest of the folder name IS the
+    seat id, so the shape is decidable from the path alone with nothing to
+    configure and nothing to keep in sync.
+
+    Consequences everywhere below, all of them following from "the package IS
+    the seat folder": the descriptor and its harness surfaces sit at the
+    package root rather than under `seats/<id>/`, and the goal-package
+    surfaces (`conduct.md`, run `CLAUDE.md`, `budget.json`, `taskforce.csv`)
+    are neither expected nor created — there is no goal here to run."""
+    return package.name[1:] if package.name.startswith("_") else None
+
+
+def seat_home(package: Path, seat: str) -> Path:
+    """Where seat `seat`'s folder is inside `package` — the package itself
+    for that seat's own standing-seat home, else `seats/<seat>/`."""
+    return package if standing_seat(package) == seat else package / "seats" / seat
 
 
 def load_bindings(path: Path) -> dict:
@@ -829,7 +854,7 @@ def check_repass(package: Path, added: list[str]) -> None:
     rows = {(r.get("seat") or "").strip()
             for r in _csv_rows(package / TASKFORCE_NAME)}
     for seat in added:
-        target = package / "seats" / seat / "seat.md"
+        target = seat_home(package, seat) / "seat.md"
         if not target.is_file():
             raise Refuse(
                 "repass-no-descriptor",
@@ -855,7 +880,7 @@ def repass_descriptors(plan: dict) -> list[str]:
     registry row, no run register, no package surface."""
     written: list[str] = []
     for seat in plan["added_seats"]:
-        target = Path(plan["package"]) / "seats" / seat / "seat.md"
+        target = seat_home(Path(plan["package"]), seat) / "seat.md"
         _atomic_replace(target, plan["descriptors"][seat])
         written.append(str(target))
     return written
@@ -869,7 +894,7 @@ def check_collisions(package: Path, added: list[str], force_partial: bool) -> No
         return
     rows = {(r.get("seat") or "").strip() for r in _csv_rows(package / TASKFORCE_NAME)}
     for seat in added:
-        folder = package / "seats" / seat
+        folder = seat_home(package, seat)
         if folder.exists():
             raise Refuse(
                 "seat-exists",
@@ -1368,9 +1393,9 @@ def build_plan(package: Path, added: list[str], internal_after: dict,
     # failure in miniature.
     for seat in added:
         writes.append({"kind": "seat-descriptor", "seat": seat,
-                       "path": str(package / "seats" / seat / "seat.md")})
+                       "path": str(seat_home(package, seat) / "seat.md")})
         writes.append({"kind": "seat-agents-pointer", "seat": seat,
-                       "path": str(package / "seats" / seat / "AGENTS.md")})
+                       "path": str(seat_home(package, seat) / "AGENTS.md")})
     writes.append({
         "kind": "taskforce-append",
         "path": str(package / TASKFORCE_NAME),
@@ -1847,7 +1872,7 @@ def render_harness_configs(plan: dict, seats_cat: dict) -> None:
         for rel in files:
             plan["writes"].append({
                 "kind": "seat-harness-config", "seat": seat,
-                "path": str(Path(plan["package"]) / "seats" / seat / rel)})
+                "path": str(seat_home(Path(plan["package"]), seat) / rel)})
     plan["harness_configs"] = configs
 
 
@@ -1856,7 +1881,7 @@ def emit_harness_configs(plan: dict) -> list[str]:
     deterministic, regenerated freely; byte-identical → skipped)."""
     written: list[str] = []
     for seat, files in (plan.get("harness_configs") or {}).items():
-        folder = Path(plan["package"]) / "seats" / seat
+        folder = seat_home(Path(plan["package"]), seat)
         for rel, text in files.items():
             target = folder / rel
             if target.exists() and target.read_text(encoding="utf-8") == text:
@@ -2003,16 +2028,24 @@ def _prompt_exposes(comp_dir: Path, executor: str, seat: str) -> dict:
 
 
 def _exposure_rows(comp_dir: Path) -> dict[str, dict]:
-    """part-id -> exposure.csv row of ONE component ({} when no manifest)."""
+    """part-id -> exposure.csv row of ONE component ({} when no manifest).
+
+    `#`-led lines are DROPPED before the header is read. Exposure manifests
+    carry a prose header block by convention (the `orchestration/exposure.csv`
+    and `web/browse/exposure.csv` headers are the live shape), and a plain
+    DictReader takes that first comment line for the header — every part-id
+    then reads as absent, which surfaces as `exposes-ref-dangling` against a
+    manifest that plainly contains the row."""
     path = comp_dir / EXPOSURE_NAME
     if not path.is_file():
         return {}
+    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines()
+             if not ln.lstrip().startswith("#")]
     rows: dict[str, dict] = {}
-    with path.open(encoding="utf-8", newline="") as fh:
-        for row in csv.DictReader(fh):
-            pid = (row.get("part-id") or "").strip()
-            if pid:
-                rows[pid] = row
+    for row in csv.DictReader(lines):
+        pid = (row.get("part-id") or "").strip()
+        if pid:
+            rows[pid] = row
     return rows
 
 
@@ -2183,7 +2216,7 @@ def render_seat_exposures(plan: dict) -> None:
             for rel in sorted(files):
                 plan["writes"].append({
                     "kind": "seat-exposure", "seat": seat,
-                    "path": str(Path(plan["package"]) / "seats" / seat
+                    "path": str(seat_home(Path(plan["package"]), seat)
                                 / rel)})
 
 
@@ -2192,7 +2225,7 @@ def emit_seat_exposures(plan: dict) -> list[str]:
     deterministic, regenerated freely; byte-identical → skipped)."""
     written: list[str] = []
     for seat, files in (plan.get("seat_exposures") or {}).items():
-        folder = Path(plan["package"]) / "seats" / seat
+        folder = seat_home(Path(plan["package"]), seat)
         for rel, text in files.items():
             target = folder / rel
             if target.exists() and target.read_text(encoding="utf-8") == text:
@@ -2215,7 +2248,7 @@ def emit_seat_descriptors(plan: dict) -> list[str]:
     written: list[str] = []
     for seat in plan["added_seats"]:
         text = plan["descriptors"][seat]
-        folder = Path(plan["package"]) / "seats" / seat
+        folder = seat_home(Path(plan["package"]), seat)
         target = folder / "seat.md"
         if target.exists():
             if not plan["force_partial"]:
@@ -2577,7 +2610,65 @@ def append_taskforce_rows(plan: dict) -> int:
 # ---------------------------------------------------------------- run
 
 
+def run_refresh(args) -> dict:
+    """--refresh — bring an ALREADY SET-UP seat folder up to the definition's
+    current shape, writing ONLY the DERIVED surfaces: the `AGENTS.md` pointer
+    and the `exposes:` loaders. It creates no seat, appends no registry row,
+    and touches no package surface.
+
+    ⚠ IT DOES NOT RE-RENDER `seat.md`, deliberately. A descriptor is the one
+    file here that can carry authored content the catalog does not hold — the
+    live standing-seat descriptors carry cage keys (`rw-paths`, `read-root`,
+    `bus-write`, `local-bin`, …) that `_descriptor_frontmatter` does not emit,
+    so a re-render would silently DELETE them. Re-rendering a descriptor is
+    `--repass`, which is the caller stating that loss is intended. The split
+    is what makes this mode safe to run on anything: every file it writes is
+    declared derived and content-free, so a byte-identical result is a skip
+    and a changed result is a fix.
+
+    The seat folder is `seats/<seat>/` in a goal package and the package
+    ITSELF in a standing-seat home (`standing_seat`)."""
+    catalog_root = Path(args.catalog_root)
+    if not catalog_root.is_dir():
+        raise Refuse(
+            "catalog-root-missing",
+            "--catalog-root is not a directory — no catalog to refresh from",
+            str(catalog_root),
+        )
+    package = validate_package(args.package)
+    catalogs = load_catalogs(catalog_root)
+    normalize_seat_rows(catalogs[0])
+    added, _, _ = resolve_added(args, catalog_root, catalogs[0])
+    for seat in added:
+        folder = seat_home(package, seat)
+        if not folder.is_dir():
+            raise Refuse(
+                "refresh-no-seat-folder",
+                f"--refresh updates an EXISTING seat folder and {folder.name}"
+                " does not exist — materializing a new seat is the plain run",
+                str(folder),
+            )
+    plan = {"package": str(package), "added_seats": added, "writes": [],
+            "warnings": [], "rows_appended": 0}
+    resolve_seat_exposes(plan, catalogs[0])
+    render_seat_exposures(plan)
+    for seat in added:
+        plan["writes"].append({"kind": "seat-agents-pointer", "seat": seat,
+                               "path": str(seat_home(package, seat)
+                                           / "AGENTS.md")})
+    if args.dry_run:
+        plan["descriptors"] = {}
+        return result_of(plan, dry_run=True)
+    emit_seat_exposures(plan)
+    for seat in added:
+        _write_seat_agents_md(seat_home(package, seat), seat,
+                              (plan.get("seat_rules") or {}).get(seat, ()))
+    return result_of(plan, dry_run=False)
+
+
 def run(args) -> dict:
+    if getattr(args, "refresh", False):
+        return run_refresh(args)
     package = validate_package(args.package)
     repass = bool(getattr(args, "repass", False))
     if repass:
@@ -2638,7 +2729,7 @@ def run(args) -> dict:
         # previous materialize's and stay byte-untouched.
         plan["writes"] = [
             {"kind": "seat-descriptor-repass", "seat": seat,
-             "path": str(package / "seats" / seat / "seat.md")}
+             "path": str(seat_home(package, seat) / "seat.md")}
             for seat in added
         ]
         plan["rows_appended"] = 0
@@ -2691,14 +2782,14 @@ def build_parser() -> argparse.ArgumentParser:
                            "(<component>/workflows/<W>/<W>.csv manifest)")
     p.add_argument("--catalog-root", required=True, dest="catalog_root",
                    help="component catalog root the definitions are read from")
-    where = p.add_mutually_exclusive_group(required=True)
+    where = p.add_mutually_exclusive_group()
     where.add_argument("--after",
                        help="comma-separated predecessors the materialized "
                             "root row(s) attach after")
     where.add_argument("--root", action="store_true",
                        help="the materialized row(s) are DAG roots (an "
                             "omitted insertion point never defaults to root)")
-    p.add_argument("--bindings", required=True,
+    p.add_argument("--bindings",
                    help="JSON file: per-seat executor binding + descriptor "
                         "surface to materialize with")
     p.add_argument("--milestone-id", dest="milestone_id",
@@ -2734,6 +2825,16 @@ def build_parser() -> argparse.ArgumentParser:
                         "needs (G-planner-0804-1502). Replaces seat.md and "
                         "NOTHING else: no registry row, no run register, no "
                         "package surface. Requires --root.")
+    p.add_argument("--refresh", action="store_true", dest="refresh",
+                   help="UPDATE an already-set-up seat folder to the "
+                        "definition's current shape: rewrites only the "
+                        "DERIVED surfaces (AGENTS.md pointer + the "
+                        "prompt-card `exposes:` loaders), never seat.md — "
+                        "a descriptor can carry authored keys the catalog "
+                        "does not hold, and re-rendering one is the "
+                        "deliberate --repass. Needs no --bindings and no "
+                        "insertion point; works on a goal package and on a "
+                        "standing-seat home (.rbtv/goals/_<seat>/) alike.")
     return p
 
 
@@ -2751,7 +2852,18 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--selftest" in argv:
         return run_selftest()
-    args = build_parser().parse_args(argv)  # exits 2 on usage violations
+    parser = build_parser()
+    args = parser.parse_args(argv)  # exits 2 on usage violations
+    # Conditionally-required flags, enforced HERE so a usage violation keeps
+    # exiting 2 (argparse cannot express "required unless --refresh").
+    if not args.refresh:
+        if not args.bindings:
+            parser.error("--bindings is required (optional only with "
+                         "--refresh, which writes no bindings-derived file)")
+        if not (args.after or args.root):
+            parser.error("one of --after/--root is required (an omitted "
+                         "insertion point never defaults to root); "
+                         "--refresh needs neither")
     try:
         result = run(args)
     except Refuse as r:
@@ -4732,6 +4844,8 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # The plugin/MCP registration row (d-mcp-registration-is-config).
     "MCP-1": (("MCP-1 green",), ("MCP-1 red",)),
     "EXP-1": (("EXP-1 green",), ("EXP-1 red",)),
+    # The --refresh update mode (derived surfaces only; standing-seat home).
+    "RF-1": (("RF-1 green",), ("RF-1 red",)),
     # The pass-folder substitution rows (B4, B5, G-planner-0804-1502).
     "PF-1": (("PF-1 green",), ("PF-1 red",)),
     "PF-2": (("PF-2 green",), ("PF-2 red",)),
@@ -5225,6 +5339,72 @@ def run_selftest() -> int:
               pr2.returncode == 1 and "exposes-ref-dangling" in pr2.stderr
               and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
               pr2.stderr.strip()[:200])
+
+    print("RF-1 --refresh: derived surfaces only, standing-seat home included")
+    with tempfile.TemporaryDirectory() as rf_td:
+        tmp_rf = Path(rf_td)
+        fxr = build_fixture(tmp_rf)
+        common_r = ["--catalog-root", fxr["catalog"], "--seat", "exp-seat",
+                    "--refresh", "--json"]
+        # A STANDING-SEAT home: the package IS the seat folder, named `_<seat>`
+        # (.rbtv/goals/_channel-master/ is the live one). It carries an
+        # AUTHORED seat.md the catalog does not hold, which --refresh must
+        # leave byte-untouched — that is the whole point of the mode.
+        home = tmp_rf / "goals" / "_exp-seat"
+        home.mkdir(parents=True)
+        authored = "---\nseat: exp-seat\nrw-paths:\n  - hand/authored\n---\n"
+        (home / "seat.md").write_text(authored, encoding="utf-8")
+        pr = _invoke(["--package", str(home)] + common_r, clean_env)
+        loaders = [".claude/skills/brws/SKILL.md",
+                   ".agents/skills/brws/SKILL.md", "AGENTS.md"]
+        check("RF-1 green: --refresh writes the derived surfaces at the "
+              "STANDING-SEAT package root (the package IS the seat folder), "
+              "with no --bindings and no insertion point",
+              pr.returncode == 0
+              and all((home / rel).is_file() for rel in loaders),
+              (pr.stderr.strip()[:300]
+               or str([r for r in loaders if not (home / r).is_file()])))
+        check("RF-1 green: the AUTHORED seat.md is byte-untouched — a "
+              "descriptor can carry keys the catalog does not hold, so "
+              "re-rendering one is the deliberate --repass, never this mode",
+              (home / "seat.md").read_text(encoding="utf-8") == authored,
+              (home / "seat.md").read_text(encoding="utf-8")[:200])
+        # `if is_file()` so a MUTANT reports red here instead of
+        # crashing the harness before the row is scored.
+        stamps = {rel: (home / rel).read_bytes() for rel in loaders
+                  if (home / rel).is_file()}
+        pr_again = _invoke(["--package", str(home)] + common_r, clean_env)
+        check("RF-1 green: a second --refresh is byte-identical (every file "
+              "it writes is DERIVED — idempotent, never a collision refusal)",
+              pr_again.returncode == 0
+              and all((home / rel).read_bytes() == b
+                      for rel, b in stamps.items()),
+              pr_again.stderr.strip()[:200])
+        # The manifest-comment control: browse/exposure.csv leads with a prose
+        # header block, and a plain DictReader takes that line for the header —
+        # every part-id then reads absent and the ref refuses as dangling.
+        comp = tmp_rf / "commented-comp"
+        comp.mkdir()
+        (comp / EXPOSURE_NAME).write_text(
+            "# a prose header block, the live exposure-manifest shape\n"
+            "# second comment line\n"
+            "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+            "brws,capability,skill,,skills/brws.md,browse\n", encoding="utf-8")
+        check("RF-1 green: an exposure manifest led by `#` comment lines "
+              "still resolves its part-ids (a DictReader that reads the "
+              "comment as the header reports every row absent)",
+              list(_exposure_rows(comp)) == ["brws"],
+              str(list(_exposure_rows(comp))))
+        ghost = tmp_rf / "goals" / "demo-goal-77"
+        ghost.mkdir(parents=True)
+        pr_red = _invoke(["--package", str(ghost)] + common_r, clean_env)
+        check("RF-1 red: --refresh updates an EXISTING seat folder — an "
+              "absent one refuses refresh-no-seat-folder and writes NOTHING",
+              pr_red.returncode == 1
+              and "refresh-no-seat-folder" in pr_red.stderr
+              and not (ghost / "seats").exists()
+              and not (ghost / ".claude").exists(),
+              pr_red.stderr.strip()[:200])
 
     print("dag-04 acceptance pass (SC rows, each with its failing control)")
     run_dag04_acceptance(check, clean_env)
