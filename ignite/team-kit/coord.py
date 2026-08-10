@@ -3571,11 +3571,24 @@ def ensure_team_monitor(args, session=""):
     (7.406) admits the FIRST launch of a fresh package and, before this, nothing admitted the
     second. `launch` already knows the room, because it just launched into it, so it says so.
 
-    ASKED OF THE ROOM, NEVER DERIVED FROM A PATH — the caller reads it with `tmux_session_name` off
-    the pane this launch actually used, which is the same discipline `resolve_session` states for
-    itself (`G-296`: a derived session name can only be right by coincidence). An EMPTY `session`
-    means "I could not ask", and the sensor then falls back to its own roster resolution exactly as
-    before — this widens what can start the sensor, it never narrows it.
+    ASKED OF THE ROOM FIRST — the caller reads it with `tmux_session_name` off the pane this launch
+    actually used, which is the same discipline `resolve_session` states for itself (`G-296`: a
+    derived session name can only be right by coincidence).
+
+    ⚠⚠ TASK 7.607 E4b — THE COLD-BOOT FALLBACK, AND WHY IT IS NOT `G-296`'s BANNED DERIVATION.
+    An EMPTY `session` means "I could not ask". It USED to fall through to the sensor's own roster
+    resolution — and on a COLD or STALE roster that resolution REFUSES (`SessionUnresolved`,
+    exit 4) or aims at a name that was never alive (exit 5). The sensor then dies instantly, no
+    `state.json` is ever written, the census stays stale, and every counted candidate DEFERS on
+    `CAP UNENFORCEABLE` — the first seat gated on a census that cannot exist before a seat lives.
+    Measured in the E4 live acceptance: three consecutive deferred fires.
+    `G-296` outlawed GUESSING a room's name off a package path at a time when NOTHING defined a
+    session's name, so any derivation could only be right by coincidence. `decisions.md`
+    `#d-extinguishment-design-lock` item 2 (owner, 2026-08-09) DEFINES it — room name = goal name,
+    ONE room per goal — and item 8 makes the goal folder BE the package. So `package_dir(args).name`
+    is the room's name BY CONSTRUCTION, not by coincidence. It is supplied HERE, by the caller that
+    knows the goal, so `resolve_session`'s own no-derivation ban stays intact: the sensor is never
+    left to derive, it is TOLD. The measured room still WINS whenever tmux could be asked.
 
     Never blocks or fails a launch: an unstarted monitor is a run with a weaker sensor; a launch
     that died starting one is a run with fewer seats.
@@ -3600,10 +3613,12 @@ def ensure_team_monitor(args, session=""):
     # overwriting `state.json`, and with it the dead process's last heartbeat. Read it after the
     # start and the bound is gone — this ordering IS the measurement.
     last_seen = team_monitor_last_seen(base) if before is None else None
+    pkg = package_dir(args)
+    # 7.607 E4b — the cold-boot fallback; the docstring carries the whole reason.
+    session = session or pkg.name
     try:
         subprocess.run([sys.executable, str(script), "ensure",
-                        "--package", str(package_dir(args))]
-                       + (["--session", session] if session else []),
+                        "--package", str(pkg), "--session", session],
                        capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError) as exc:
         return "fail", {"why": str(exc)}
@@ -26818,6 +26833,46 @@ def _selftest_checks(args, failures, names):
               # `detail` became a dict. Updated in the SAME change rather than left to break later.
               mstatus in ("already", "started", "absent", "fail")
               and (mstatus != "absent" or "does not exist" in mdetail["why"]))
+
+        # ---- 7.607 E4b: the SENSOR COLD-BOOT SEAM — a sessionless `ensure` is never emitted ----
+        # ⚠ ASSERTED ON THE ARGV, WHICH IS THE ONLY STABLE SURFACE THAT CARRIES THE DEFECT. The
+        # status this function returns is NOT a reliable witness: the child dies on its own
+        # resolution refusal (exit 4/5) moments AFTER `ensure` returns, so the sessionless call
+        # reads `fail` or `started` depending on a race with that death — `fail` when the lock
+        # slot is already empty at the read (measured, E4b review, probe arm S3 at 02ad3d3).
+        # A check on the verdict would pass or fail with the timing; the command line cannot.
+        # Vacuity guard: the FIRST arm proves the caller's MEASURED room still wins — a fallback
+        # that overrode it would pass a bare "--session present" test for the wrong reason.
+        _argvs = []
+
+        def _cap_run(argv, *a, **kw):
+            _argvs.append(list(argv))
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        _real_run, _real_script = subprocess.run, team_monitor_script
+        try:
+            subprocess.run = _cap_run
+            globals()["team_monitor_script"] = lambda: Path(__file__).resolve()  # any real file
+            ensure_team_monitor(a4, session="measured-room")
+            ensure_team_monitor(a4)
+        finally:
+            subprocess.run = _real_run
+            globals()["team_monitor_script"] = _real_script
+        _measured = _argvs[0] if _argvs else []
+        _cold = _argvs[1] if len(_argvs) > 1 else []
+        check("7.607 E4b: the room MEASURED off the launch pane still wins — the cold-boot "
+              "fallback may never override an answer the caller actually asked tmux for "
+              "(vacuity guard for the arm below)",
+              "--session" in _measured
+              and _measured[_measured.index("--session") + 1] == "measured-room")
+        check("7.607 E4b: a sessionless `ensure` is NEVER emitted — with no room to measure, the "
+              "goal name is passed explicitly (`#d-extinguishment-design-lock` item 2: room name "
+              "= goal name; item 8: the goal folder IS the package). Before this, the child fell "
+              "through to team-monitor's roster resolution, which REFUSES on a cold or stale "
+              "roster (exit 4/5) — the sensor died instantly, state.json was never written, and "
+              "every counted first-seat launch DEFERRED on CAP UNENFORCEABLE (E4: 3 fires)",
+              "--session" in _cold
+              and _cold[_cold.index("--session") + 1] == pkg4.name == "goal")
 
         # ---- 7.88 (G-259 reporting half): a silent repair is indistinguishable from no fault ----
         # ⚠ THE DECISION IS A PURE FUNCTION OF (before, after, last_seen), so all four outcomes are
