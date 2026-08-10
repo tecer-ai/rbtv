@@ -3321,6 +3321,29 @@ def _sep(text: str) -> str:
     return text.replace("\\", "/")
 
 
+def _check_emission_bits(check, label: str, file_path: Path) -> None:
+    """dag-04's mode-bit arm, once, for both of its call sites.
+
+    POSIX mode bits do not exist on Windows: the filesystem carries a
+    read-only flag and nothing else, so `chmod(0o644)` lands as 0o666 and a
+    directory as 0o777 whatever was asked. Asserting 0644/0755 there measures
+    the OS, not this emitter. On Windows the arm REDUCES — loudly, in its own
+    printed label — to the one bit Windows does carry: the emitted file is
+    user-readable and user-writable, i.e. the emitter did not leave it
+    read-only. The full 0644/0755 assertion still runs everywhere else."""
+    import stat as _stat
+    mode = _stat.S_IMODE(file_path.stat().st_mode)
+    dmode = _stat.S_IMODE(file_path.parent.stat().st_mode)
+    detail = f"file={oct(mode)} folder={oct(dmode)}"
+    if os.name == "nt":
+        check(f"{label}  [REDUCED-ON-WINDOWS: this filesystem carries no "
+              f"POSIX mode bits — asserting user-rw instead of 0644/0755]",
+              bool(mode & _stat.S_IRUSR) and bool(mode & _stat.S_IWUSR)
+              and bool(dmode & _stat.S_IWUSR), detail)
+        return
+    check(label, mode == 0o644 and dmode == 0o755, detail)
+
+
 def _invoke(argv: list[str], env: dict) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(Path(__file__).resolve()), *argv],
@@ -3907,11 +3930,10 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
                   f"new: {sorted(set(post) - set(pre))[:6]} "
                   f"modified: {sorted(modified)[:6]}")
             # dag-04 emission bits: file 0644, folder 0755.
-            import stat as _stat
             alpha_md = Path(fx["pkg"]) / "seats" / "alpha" / "seat.md"
-            check("dag-04: emitted seat.md is 0644 and its folder 0755",
-                  _stat.S_IMODE(alpha_md.stat().st_mode) == 0o644
-                  and _stat.S_IMODE(alpha_md.parent.stat().st_mode) == 0o755)
+            _check_emission_bits(
+                check, "dag-04: emitted seat.md is 0644 and its folder 0755",
+                alpha_md)
             # The tooling-gap filing block (owner ruling 2026-08-10). Both halves: the rule,
             # and the CONCRETE fallback path — a block naming no path routes nobody.
             alpha_agents = (alpha_md.parent / "AGENTS.md").read_text(encoding="utf-8")
@@ -3936,7 +3958,6 @@ def run_dag04_acceptance(check, env: dict) -> None:
     """dag-04's SC rows, each with the control that must be able to FAIL.
     Fixture-only (tempfile.TemporaryDirectory) — never a real run. The
     in-process red arms use render_descriptors' selftest-only knobs."""
-    import stat as _stat
 
     def _refusal(cp):
         try:
@@ -4060,9 +4081,9 @@ def run_dag04_acceptance(check, env: dict) -> None:
                                        "done-contract")))
         check("F10 control: an interactive seat carries no one-shot boot "
               "text", "checkin" not in atext and "checkout" not in atext)
-        check("dag-04: emission bits are 0644 file / 0755 folder",
-              _stat.S_IMODE(alpha_md.stat().st_mode) == 0o644
-              and _stat.S_IMODE(alpha_md.parent.stat().st_mode) == 0o755)
+        _check_emission_bits(
+            check, "dag-04: emission bits are 0644 file / 0755 folder",
+            alpha_md)
 
     # ---- group 2: SC-4 (permissions hard gate) + SC-3 (empty assembly) --
     with tempfile.TemporaryDirectory() as td:
