@@ -22,7 +22,7 @@
   "ruling": "r-watch-loop-30s — owner, 2026-07-30.",
   "_scope": "A CEILING — the maximum interval of the watch layer's pass cadence, in seconds. Deliberately its OWN section: not a cap (a count of panes), not a floor (an MB threshold an act is refused or flagged at). A third kind of number never borrows another kind's slot.",
   "_read_never_copied": "Same doctrine as floors: a consumer READS this field, never carries the value in argv, env, or prose.",
-  "_interim_overshoot": "⚠ DISCLOSED, NEVER NORMALIZED: watch.py's --loop is integer MINUTES, so no invocation satisfies 30s today and the interim loop runs at --loop 1 = 60s — 2x this ceiling, breach-by-necessity. Ends when the seconds-granular change lands; from that moment the running tool binds at 30. A run inheriting this file inherits the disclosure, not a licence."
+  "_interim_overshoot": "Corrected 2026-08-10 (task 7.661): the old text described the retired --loop flag (integer MINUTES). The live mechanism is the valueless --loop-forever flag, with the loop bound read from cadence.watch_loop_max_seconds in this file (ruling r-watch-loop-30s, task 7.112) — so the run binds at the declared 30s and the old 60s interim breach no longer applies."
  },
  "job_fire": {
   "interval_seconds": 30,
