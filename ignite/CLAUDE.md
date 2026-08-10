@@ -24,7 +24,9 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   `unit`/`restart`/`stop`/`kill` back to `daemon-operator`. ⚠ `heartbeat-set` is the WATCH loop's
   cadence, NEVER the ticker's `set-interval`. Contract:
   `capabilities/watch-operator/watch-operator.md`.
-- **`goals-tree/`** — the goals-tree machinery (`scaffold` / `reindex` / `lint` / `materialize`).
+- **`goals-tree/`** — the goals-tree machinery (`scaffold` / `reindex` / `lint` / `materialize` /
+  `lane` — the last being the DAEMON'S PICKUP BUTTON: one word in `<goal>/execution-lane` that the
+  daemon's watch pass reads before every tick, `d-daemon-lane-button`).
   Contract: `capabilities/goals-tree/tool/README.md`.
 - **`daemon-watchdog/`** — the ignite LIVENESS surface (`CMP-28`): a systemd user timer firing one
   deterministic probe/restart/report pass over the whole deployment. **The one capability here the

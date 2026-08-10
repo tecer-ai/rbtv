@@ -59,6 +59,28 @@ GOAL_STATUSES = ("briefed", "active", "standing", "completed", "abandoned")
 GOAL_KINDS = ("interactive", "non-interactive")
 GOAL_KIND_DEFAULT = "interactive"
 
+# ── The goal's LANE ASSIGNMENT (owner ruling d-daemon-lane-button, 2026-08-10) ────────────────
+#
+# One word in a small file at the goal root — the `execution-mode` file's precedent exactly —
+# saying which lane currently runs this goal. It is THE DAEMON'S PICKUP TRIGGER: the daemon's
+# watch pass (`ignite/engine/lane-watch.js`) reads it once a cadence and seeds the goals assigned
+# to it, so flipping this file is how a goal starts in one lane and finishes in the other.
+#
+# ⚠ The filename is DESCRIPTIVE, and the term it names is being minted registry-side. Do not coin
+# a noun for it here.
+#
+# ⚠ ABSENT MEANS `console`. The daemon adopts ONLY goals explicitly assigned to it — the reader's
+# whole argument is in lane-watch.js's header, and this writer must not disagree with it.
+#
+# ⚠ A `daemon` assignment CARRIES ITS LAUNCH PROFILE as a second token, and `--set daemon` refuses
+# without one. Seeding needs a NAMED profile from the one shared config (DEC-1 § Shared profile
+# source — this lane never derives one, exactly as `rbtv run --profile` never does), and there is
+# nowhere else honest to read it from. Handing a goal to the daemon without saying what its seats
+# run on is not a thing that can work, so it is refused at the door rather than warned about at
+# 03:00 in a journal.
+LANE_FILE = "execution-lane"
+LANES = ("daemon", "console")
+
 # goals-index schema (concept goals-index § file schema)
 #
 # ⚠ DIVERGENCE TO TRANSCRIBE, NOT A DRIFT: the registry's `concepts/goals-index.md` file-schema
@@ -511,6 +533,81 @@ def cmd_scaffold(args) -> int:
     else:
         print(f"scaffolded {goal_dir} — {', '.join(created_names)}")
         print(f"reindexed {root / 'goals.csv'}")
+    return 0
+
+
+# ---------------------------------------------------------------- lane
+
+
+def read_lane(goal_dir: Path) -> tuple[str, str | None]:
+    """(lane, profile) — the SAME grammar `engine/lane-watch.js#readLane` reads with.
+
+    Trimmed, case-insensitive, and everything that is not `daemon` is `console`:
+    a missing file, an unreadable one and a junk word are ONE answer. Two
+    languages read this file (this CLI writes and shows it; the daemon's watch
+    pass acts on it) and the grammar is four lines, so it is stated twice and
+    cross-checked by probe-daemon-lane-watch.js rather than bridged.
+    """
+    try:
+        raw = (goal_dir / LANE_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return "console", None
+    parts = raw.strip().split()
+    if not parts or parts[0].lower() != "daemon":
+        return "console", None
+    return "daemon", (parts[1] if len(parts) > 1 else None)
+
+
+def cmd_lane(args) -> int:
+    root = resolve_goals_root(args.root)
+    name = args.goal_name
+    # The same name gate every other verb applies — it is also what keeps a `../..` from
+    # resolving this write outside the goals root.
+    if not GOAL_NAME_RE.match(name):
+        raise Refusal(
+            f"goal name '{name}' violates the naming rule — lowercase kebab-case "
+            "([a-z0-9] words joined by single hyphens)"
+        )
+    goal_dir = root / name
+    if not goal_dir.is_dir():
+        raise Refusal(f"{goal_dir}: no such goal — `lane` assigns an EXISTING goal, never creates one")
+
+    target = getattr(args, "set", None)
+    if target:
+        if target not in LANES:
+            raise Refusal(f"--set {target}: must be one of {', '.join(LANES)}")
+        profile = getattr(args, "profile", None)
+        if target == "daemon" and not profile:
+            raise Refusal(
+                "--set daemon requires --profile <name>: the daemon seeds this goal's seats with a "
+                "NAMED launch profile from the one shared config (the same argument `rbtv run "
+                "--profile` requires), and it never derives one. Names come from `profiles:` in "
+                "ignite/config/spawn-profiles.yaml."
+            )
+        if target == "console" and profile:
+            raise Refusal(
+                "--profile is meaningless with --set console: the console lane takes its profile "
+                "from the `rbtv run --profile` you type, not from this file."
+            )
+        text = f"daemon {profile}\n" if target == "daemon" else "console\n"
+        (goal_dir / LANE_FILE).write_text(text, encoding="utf-8", newline="\n")
+
+    lane, profile = read_lane(goal_dir)
+    present = (goal_dir / LANE_FILE).exists()
+    if args.json:
+        print(json.dumps({
+            "ok": True, "goal": name, "file": str(goal_dir / LANE_FILE),
+            "assigned": present, "lane": lane, "profile": profile,
+        }, indent=2))
+    else:
+        where = f"{goal_dir / LANE_FILE}"
+        if lane == "daemon":
+            print(f"{name}: DAEMON lane, profile {profile} — the daemon's watch pass picks it up ({where})")
+        elif present:
+            print(f"{name}: CONSOLE lane — run it with `rbtv run {goal_dir} --profile <name>` ({where})")
+        else:
+            print(f"{name}: CONSOLE lane (no assignment file — absent means console, and the "
+                  f"daemon adopts only goals explicitly assigned to it)")
     return 0
 
 
@@ -3066,6 +3163,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = add_common(sub.add_parser("reindex", help="rebuild goals.csv from every goal.md frontmatter"))
     p.set_defaults(func=cmd_reindex)
+
+    # THE DAEMON'S PICKUP BUTTON (owner ruling d-daemon-lane-button). Read-only with no --set,
+    # so `lane <goal>` is also the orientation verb: "which lane is running this right now".
+    # Works DAEMON-DOWN by construction — it is a file read and a file write, and that is the
+    # whole reason the trigger is a file rather than a gateway intent.
+    p = add_common(sub.add_parser(
+        "lane",
+        help="show or set which lane runs a goal — daemon (the daemon picks it up) or console"))
+    p.add_argument("goal_name")
+    p.add_argument("--set", default=None, choices=list(LANES),
+                   help="assign the goal to a lane. Flipping it MID-GOAL is supported and is the "
+                        "point: the execution record makes the other lane skip what this one finished")
+    p.add_argument("--profile", default=None,
+                   help="REQUIRED with --set daemon: the launch profile, BY NAME, the daemon seeds "
+                        "this goal's seats with (from `profiles:` in the one shared config)")
+    p.set_defaults(func=cmd_lane)
 
     p = add_common(sub.add_parser("lint", help="read-only validate + dry-run emulate (exit 0/1)"))
     p.add_argument("goal_name")

@@ -16,6 +16,7 @@ const { WARNING_KINDS } = require('./heart/warnings');
 // tailnet bind). Its headed fork rides the decorate hook, which routes headed spawns to the
 // tmux seat path (task 7.29 retired the server-owned pty the hook used to fork to).
 const { createEngine } = require('../engine');
+const { runLaneWatch } = require('../engine/lane-watch');
 const { selectCarrier } = require('./spawn/carrier');
 const { SpawnError, E_HEADED_NOT_CAPABLE } = require('./spawn/errors');
 const { createInternalApi } = require('./internal-api/dispatch');
@@ -899,11 +900,31 @@ async function main() {
   // daemon-run seat was invisible to it and the attached lane re-ran it, which is the exact
   // double-run the record ends and the v1 guard used to refuse. Caught in review of `142737a28`.
   // If a future change reaches for `ticker.tick()` again, it silently un-publishes this lane.
+  //
+  // ⚠ AND THE LANE WATCH RUNS IMMEDIATELY BEFORE EACH TICK — THIS IS THE DAEMON'S GOAL PICKUP
+  // (owner ruling decisions.md#d-daemon-lane-button). It reads each goal's `execution-lane` marker
+  // and calls `engine.seedGoal` for the ones assigned `daemon`; without this call the daemon still
+  // writes the execution record every tick but never adopts a goal folder by itself, which is
+  // exactly the state the ruling closed. BEFORE the tick, not after: a seat seeded by the pass is
+  // then dispatched by the tick that follows it rather than a cadence later.
+  const goalsRoot = path.join(workspaceRoot, '.rbtv', 'goals');
+  const laneWatchPass = () => {
+    // Never fatal: one bad goal folder must not take the loop down. `runLaneWatch` already guards
+    // per goal; this is the outer belt for anything it did not anticipate.
+    try {
+      runLaneWatch({ goalsRoot, engine, logger: (m) => log(m.level || 'info', m.message, m) });
+    } catch (err) {
+      log('error', 'lane watch pass failed', { error: err.message });
+    }
+  };
+
+  laneWatchPass();
   const tickResult = await engine.tick();
   log('info', 'initial tick complete', { tick: tickResult.tick, actionCount: tickResult.actions.length });
 
   const intervalMs = Number(tickerConfig.tick_interval_ms) || 10000; // ticker.js DEFAULT_CONFIG default
   const timer = setInterval(() => {
+    laneWatchPass();
     engine.tick().catch((err) => log('error', 'tick failed', { error: err.message }));
   }, intervalMs);
 

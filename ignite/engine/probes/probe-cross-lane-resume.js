@@ -26,7 +26,9 @@
 //     boots (`createEngine` — the same call `server/index.js` makes) against a store placed at a
 //     DAEMON data root, which is exactly what makes a lane the daemon's (`execution-record.laneOf`).
 //     What a live daemon adds on top is its unit, its gateway and its arming; none of the three
-//     touches the seeding or record decisions measured here. The TRIGGER bound is reported at D1.
+//     touches the seeding or record decisions measured here. The TRIGGER that fires the pickup on a
+//     live daemon is a separate build (#d-daemon-lane-button) with its own probe beside this one —
+//     what remains substituted here is the daemon PROCESS, reported at D1.
 //   · Direction 2's daemon-side history is SYNTHESIZED into the daemon store and then published
 //     through the REAL writer (`publishToRecord`), never hand-written into the record file: the arm
 //     is only worth something if the daemon's own path is what wrote it.
@@ -202,11 +204,12 @@ async function main() {
   check('D1 …and it SKIPS the seat the attached lane finished — read from the RECORD, not from a store',
     pickup.skippedAsFinished.includes('alpha') && !pickup.enqueued.includes('alpha'),
     `skipped ${JSON.stringify(pickup.skippedAsFinished)} · enqueued ${JSON.stringify(pickup.enqueued)}`);
-  say('MEASURED BOUND — what a live daemon adds that this fixture does not: THE TRIGGER. `seedGoal`');
-  say('  is a function, and nothing under server/ calls it yet — which goals the daemon picks up by');
-  say('  itself is an owner-facing arming question (per-package today, edge-fastpath), deliberately');
-  say('  not invented by this build. The pickup PATH is measured here; the thing that fires it is a');
-  say('  named follow-on (capabilities/attached-execution/attached-execution.md § the follow-on).');
+  say('MEASURED BOUND — what a live daemon adds that this fixture does not: its LOOP. The TRIGGER is');
+  say('  no longer part of that bound: `engine.seedGoal` HAS a caller under server/ since');
+  say('  #d-daemon-lane-button — `engine/lane-watch.js#runLaneWatch`, fired by the daemon loop before');
+  say('  every tick, seeding the goals whose `execution-lane` marker reads `daemon`. That pass, its');
+  say('  call site and the owner\'s mid-goal flip are measured next door in probe-daemon-lane-watch.js;');
+  say('  what this fixture still substitutes is only the daemon PROCESS (unit, gateway, cadence).');
 
   // ── D2 · DAEMON first, then the attached lane ───────────────────────────────────────────────
   say('');
@@ -589,11 +592,14 @@ async function main() {
     + 'record row — a hand-run tmux sitting — is invisible and will be re-run. Closing such a seat '
     + 'is one outcome row in <goal>/executions.csv, which is the same act every lane performs.');
 
-  finding('D4 THE MEASURED BOUND ON THE DAEMON HALF: `engine.seedGoal` is built and proven (D1), but '
-    + 'nothing under server/ CALLS it yet — the daemon picks a goal up when something tells it to, '
-    + 'and what tells it is an arming decision this build did not invent. Until that lands, the '
-    + 'daemon lane WRITES the record on every tick (D2, publishToRecord) and can seed on demand, but '
-    + 'does not adopt goal folders by itself.');
+  finding('D4 THE DAEMON HALF IS NOW WHOLE: `engine.seedGoal` is built and proven here (D1), and since '
+    + 'owner ruling #d-daemon-lane-button it HAS a caller under server/ — the daemon loop runs '
+    + '`engine/lane-watch.js#runLaneWatch` before every tick, which seeds each goal whose '
+    + '`execution-lane` marker reads `daemon` (absent means console; the daemon adopts only what it '
+    + 'was explicitly given, and stays off a goal a console runner is attached to). This finding used '
+    + 'to read "nothing under server/ CALLS it yet"; that is retired, and the trigger\'s own arms — '
+    + 'including the owner\'s start-in-daemon-finish-in-console flip and three red mutations — live in '
+    + 'probe-daemon-lane-watch.js beside this file.');
 
   fs.rmSync(tmp, { recursive: true, force: true });
 }
@@ -606,8 +612,9 @@ main().then(() => {
     : `RESULT: PASS — every arm measured what it claims. Since #d-s23-single-execution-record-now `
       + `the headline is POSITIVE: cross-lane resume HOLDS in both directions, off `
       + `<goal>/executions.csv, and the v1 refusal it replaces is retired. The FINDINGS below carry `
-      + `what is still open — the daemon's pickup TRIGGER, the fallback gap (D3), and the one case `
-      + `the retired guard covered that the record does not.`);
+      + `what is still open — the fallback gap (D3) and the one case the retired guard covered that `
+      + `the record does not. The daemon's pickup TRIGGER is no longer among them: it landed with `
+      + `#d-daemon-lane-button and is measured in probe-daemon-lane-watch.js.`);
   say(`FINDINGS: ${findings.length} (a PASS means "measured" — read the findings for the open bounds)`);
   say(`WALL_MS ${Date.now() - start}`);
   say(`EXIT ${exitCode}`);

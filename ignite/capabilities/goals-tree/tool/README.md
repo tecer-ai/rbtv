@@ -1,6 +1,6 @@
 # rbtv-goal — the goals-tree machinery
 
-The four deterministic surfaces over the CMP-4 goals tree. Built for task 7.63; the command
+The deterministic surfaces over the CMP-4 goals tree. Built for task 7.63; the command
 grammar is owner-ruled (`r-763-grammar-ruled` — all four decision items at their recommended
 defaults) and is **implemented here, not re-derived**.
 
@@ -9,6 +9,7 @@ rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--kind K] [--due D
 rbtv-goal reindex
 rbtv-goal lint <goal-name>
 rbtv-goal materialize <goal-name> --catalog-root DIR [--force] [--dry-run]
+rbtv-goal lane <goal-name> [--set daemon --profile NAME | --set console]
 rbtv-goal selftest
 ```
 
@@ -38,7 +39,7 @@ which defeats the only sandbox this tool has (`--root` is how a write verb is ai
 instead of a live package). Guarded by `../probes/probe-goal-root-escape.py`, whose red control
 runs the pre-fix expression and requires it to escape.
 
-All four verbs are LOCAL file operations — they work with the daemon down, which is why they live
+Every verb is a LOCAL file operation — they work with the daemon down, which is why they live
 on the `rbtv` side and never on `ignite` (the detached gateway client). v1 ships standalone and
 folds into `rbtv goal <verb>` verbatim when the `rbtv` CLI lands (task 7.65) — the operator-surface
 stand-in pattern, no contract change at fold-in.
@@ -51,6 +52,34 @@ stand-in pattern, no contract change at fold-in.
 | `reindex` | Rebuilds `goals.csv` whole from every `goal.md` frontmatter. Always the full projection; a partial one would leave silent staleness. Fails loud on an unparseable descriptor, naming the file, and leaves `goals.csv` **untouched** — a projection that silently drops a goal is corruption. | Touches any goal folder |
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
 | `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
+| `lane` | Shows or sets WHICH LANE runs the goal — the daemon's pickup button (§ below). With no `--set` it is read-only orientation. Works **daemon-down**: it is a file read and a file write, which is most of why the trigger is a file. | Runs anything, or creates a goal — it assigns an EXISTING one |
+
+### `lane` — the daemon's pickup button (owner ruling `d-daemon-lane-button`, 2026-08-10)
+
+```
+rbtv-goal lane <goal>                                   # which lane runs this right now?
+rbtv-goal lane <goal> --set daemon --profile claude-sonnet
+rbtv-goal lane <goal> --set console
+```
+
+One word in `<goal>/execution-lane`, on the `execution-mode` file's precedent. The ignite daemon's
+watch pass (`ignite/engine/lane-watch.js`, fired by the daemon loop before every tick) reads it and
+seeds the goals assigned to it through `engine.seedGoal`; the console lane is `rbtv run`.
+
+- **ABSENT MEANS `console`.** An unreadable file, a junk word and a missing file are ONE answer —
+  the daemon adopts ONLY goals explicitly assigned to it. Fail-closed on purpose: the opposite
+  default would have adopted every goal folder already on disk the first time the daemon ticked.
+- **`--set daemon` REQUIRES `--profile`,** and the name is carried as a second token in the file
+  (`daemon claude-sonnet`). Seeding takes a launch profile BY NAME from the one shared config and
+  never derives one (`DEC-1` § Shared profile source, the same rule `rbtv run --profile` obeys), and
+  there is no other honest place to read it from.
+- **FLIPPING IT MID-GOAL IS THE POINT.** The daemon lets go on its very next pass and the other lane
+  resumes from the goal's execution record with nothing re-run — start in the daemon, finish in the
+  console, or the reverse. A goal a console runner is attached to right now is never seeded against
+  (the run lock is READ, never taken). Measured end to end:
+  `ignite/engine/probes/probe-daemon-lane-watch.js`.
+- The marker's TERM is being minted registry-side; the filename is descriptive and this build coined
+  no noun for it.
 
 ### What `lint` checks
 

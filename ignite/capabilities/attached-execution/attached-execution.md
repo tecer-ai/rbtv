@@ -341,7 +341,7 @@ self-clearing, stale-stolen after 5s) around every write, and an **atomic replac
 for the rewrite, so a reader — which takes no lock, and must not have to — never sees a partial or
 empty file.
 
-## The daemon lane's goal pickup — built, with its trigger named as the follow-on
+## The daemon lane's goal pickup — BUILT, trigger and all
 
 Until this build **the daemon lane had no path that seeds a goal's taskforce at all** (measured: one
 seeding function, one non-probe caller — the attached lane's own boot). Seeding has been moved out of
@@ -363,12 +363,65 @@ attached lane passes no namespace and its ids are byte-identical to what it has 
 every goal already on disk resumes exactly as before. **Cross-lane identity never rides on the job id**
 — it rides on the seat name in the record.
 
-⚠ **THE FOLLOW-ON, stated as the measured bound rather than implied to be done: nothing under
-`server/` CALLS `seedGoal` yet.** The daemon picks a goal up when something tells it to, and *what
-tells it* is an owner-facing arming question (arming is per-package today — `edge-fastpath.json` — and
-deliberately unreachable from a flag), not a decision this build was asked to invent. Until it lands:
-the daemon lane **writes** the record on every tick and **can seed on demand**, but does not adopt goal
-folders by itself. The seam is this one call.
+### The trigger — a per-goal lane assignment the daemon watches
+
+The follow-on this section used to name is **discharged** (owner ruling
+`decisions.md#d-daemon-lane-button`, 2026-08-10). *What tells the daemon to pick a goal up* was an
+owner-facing arming question, and the owner answered it: **a marker file in the goal folder, written
+by a CLI, read by the daemon once a cadence.**
+
+| Piece | Where |
+|---|---|
+| the marker | `<goal>/execution-lane` — one word, the `execution-mode` file's precedent exactly. A `daemon` assignment carries its launch profile as a second token: `daemon claude-sonnet` |
+| the writer | `rbtv goal lane <goal> [--set daemon --profile <name> \| --set console]` (`capabilities/goals-tree/`). Read-only with no `--set`. **Works daemon-down** — which is most of why the trigger is a file and not a gateway intent |
+| the watch | `engine/lane-watch.js#runLaneWatch`, called by `server/index.js` immediately **before** every tick (boot tick included), so a seat the pass enqueues is dispatched by that same tick |
+| the seeding | `engine.seedGoal` and nothing else — the pass decides WHICH goals, never HOW to seed (`PRIN-11`) |
+
+⚠ **ABSENT MEANS `console`, and the daemon adopts only goals EXPLICITLY assigned to it.** An
+unreadable file, a junk word and a missing file are ONE answer, exactly as everything that is not
+`interactive` is `autonomous`. The choice is fail-closed on purpose: every goal folder already on
+disk predates this build and carries no assignment, so the opposite default would have adopted the
+whole tree on the first tick after deploy. "Assigned to the console" and "assigned to nobody" are
+deliberately not distinguished — neither is the daemon's business, and a third state would be a
+state nothing reads.
+
+⚠ **A `daemon` assignment MUST name a launch profile, and the CLI refuses `--set daemon` without
+one.** Seeding takes a profile BY NAME from the one shared config and never derives one (`DEC-1`
+§ Shared profile source — the same argument `rbtv run --profile` makes); `taskforce.csv`'s
+harness/model columns are task **7.54**'s catalog, not a profile name. There is no third place to
+read it from, so the marker carries it.
+
+**What the pass skips, and why:**
+
+- a goal whose marker is not `daemon` — the assignment is the whole trigger;
+- a goal with no `taskforce.csv` yet — scaffolded but not materialized is a normal state, not a fault;
+- a goal a **console runner is attached to right now** — `.attached-run.lock` is READ (with its own
+  `runnerAlive` liveness test, so a crashed runner's leftover lock cannot park a goal forever), never
+  taken and never cleared: it is the attached lane's interlock and a stale one is the next `rbtv run`'s
+  to clear. The record's open-row holds already stop a per-SEAT collision one cadence later; the lock
+  answers "somebody is attached to this goal RIGHT NOW" with no lag at all, and both are kept.
+
+Nothing in the pass is fatal: a goal that fails to seed is logged and skipped, and the tick that
+serves every other goal continues. `heldByOtherLane` rides the log line an operator reads, beside
+`enqueued` and `skippedAsFinished` — an operator has to be able to tell "somebody else is running
+this seat" from "this seat is done".
+
+**THE SWITCH is the supported act.** Flipping the marker mid-goal is what the ruling calls the
+button: the daemon lets go on its very next pass, and the other lane resumes from the execution
+record with nothing re-run. Measured end to end, in the owner's own direction — the daemon enqueues
+and dispatches `alpha`, its own tick publishes `alpha=done`, the marker flips to `console`, and
+`rbtv run` runs `bravo` and never touches `alpha` (`engine/probes/probe-daemon-lane-watch.js` L6,
+with three mutations red at L8).
+
+⚠ **The human-interactive fallback gap is NOT solved here and the existing behaviour stands.** The
+pass passes no `isHeld` predicate, so the daemon dispatches a human-interactive seat exactly as it
+does today; what *should* happen to a seat with no terminal to reach is migrate task **7.626**.
+Passing a predicate here would have parked such seats forever — a new behaviour wearing a bug fix's
+clothes.
+
+⚠ **The marker's TERM is being minted registry-side; the filename is descriptive and this build
+coined no noun for it** (the same discipline `executions.csv` followed before
+`d-execution-record-name`).
 
 ## The cross-lane refusal — RETIRED (it was v1, and this is its retirement)
 
@@ -473,8 +526,25 @@ direction); its arms now measure the resume, behaviourally, in both:
 - **D3 is unchanged** and still negative: nothing under `server/` asks whether a seat is
   `human-interactive`, so a held seat dispatched by the daemon lane is spawned as an ordinary detached
   child and its `fallback:` can fire nowhere (that gap is task 7.626, ruled by `#d-s19`).
-- The remaining **measured bound** is reported as a finding rather than dressed up: `seedGoal` exists
-  and is proven, and nothing under `server/` calls it yet.
+- D1's former **measured bound** — "`seedGoal` exists and nothing under `server/` calls it" — is
+  RETIRED with the trigger it named: the pass and its call site are measured next door.
+
+`ignite/engine/probes/probe-daemon-lane-watch.js` — **the trigger** (`#d-daemon-lane-button`). The
+marker's grammar (absent, empty, junk and `console` are ONE answer; only `daemon` opens it, trimmed
+and case-insensitive) · the CLI as the writer, cross-checked against the engine's reader so the two
+languages cannot drift, with `--set daemon` REFUSED without a profile · one watch pass over a real
+goals tree: the assigned goal adopted, the **console-assigned control** untouched with nothing of it
+reaching the daemon's store, a goal under a genuinely LIVE run lock skipped and then adopted on the
+pass after the lock is gone (the pair, so "not seeded" can never pass for an inert watch), and a seat
+the other lane has not finished HELD **and reported on the log line** · the SWITCH end to end — the
+daemon enqueues and dispatches `alpha`, its own tick publishes `alpha=done/daemon`, the owner flips
+the marker, the daemon lets go on the next pass, and `rbtv run` runs `bravo` having never fired
+`alpha` · the call site asserted in `server/index.js` with comments stripped, and asserted to run
+BEFORE the tick. Three mutations, each an asserted single-string change compiled in memory and
+required to go red: **the assignment ignored** (the daemon seeds a console goal) · **the run lock
+ignored** (it seeds a goal a live console runner is attached to) · **the watch call removed** from the
+loop (the state this build closed). Substitutions disclosed in its header: no daemon PROCESS, one
+synthesized completion (the dispatch itself is real), and `sleep` for a harness.
 
 `ignite/engine/probes/probe-attached-status.js` — the `--status` verb (A3).
 

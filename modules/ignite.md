@@ -26,7 +26,14 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   local systemd USER unit ops that work precisely when the daemon is DOWN. Contract in
   `daemon-operator.md`.
 - **`goals-tree`** (`ignite/capabilities/goals-tree/`) — the goals-tree machinery
-  (`scaffold`/`reindex`/`lint`/`materialize`). Contract in `tool/README.md`.
+  (`scaffold`/`reindex`/`lint`/`materialize`/`lane`). `lane` is the DAEMON'S PICKUP BUTTON (owner
+  ruling `d-daemon-lane-button`, 2026-08-10): it writes one word into `<goal>/execution-lane` saying
+  which lane currently runs the goal, and the daemon's watch pass (`ignite/engine/lane-watch.js`,
+  fired by the daemon loop before every tick) seeds the goals assigned `daemon` through
+  `engine.seedGoal`. Absent means `console` — the daemon adopts only what it was explicitly given;
+  `--set daemon` requires `--profile`; flipping it mid-goal is the supported act. Contract in
+  `tool/README.md`; the lane half also in `capabilities/attached-execution/attached-execution.md`
+  § The daemon lane's goal pickup.
 - **`goal-creation-request`** (`ignite/capabilities/goal-creation-request/`) — the entry a
   goal-creation request arrives at: `validate`, `handle` (create → arm → launch), and
   `scaffold-and-queue`, the DAEMON-EXECUTED verb (task C2) that drains a staged request inbox,
