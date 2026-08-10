@@ -202,7 +202,15 @@ function seatIsHumanInteractive(goalDir, seat) {
   let fm;
   try { fm = fs.readFileSync(path.join(goalDir, 'seats', seat, 'seat.md'), 'utf8'); } catch { return false; }
   const m = frontmatterOf(fm).match(/^human-interactive:[ \t]*(.+?)[ \t]*$/m);
-  const v = m ? m[1].toLowerCase() : '';
+  // ⚑ THE STRIP IS `goalKindMode`'s, AND ITS ABSENCE HERE WAS A DEFECT (found by the 7.626 review,
+  // F3). `human-interactive: "yes"` and `human-interactive: yes # ratified 2026-08-09` are both
+  // TRUE to the `yaml.safe_load` that `component-lint` validates the seat with — so without this
+  // the seat passed lint, this predicate read FALSE, and the failure was invisible in both
+  // directions at once: the row parked looking correctly gated, the lane watch's undeclared-arm
+  // warn never fired, and the declared arm never executed. Two readers of one file free to
+  // disagree is a defect with no reporting surface — stated at `goalKindMode`, true of every
+  // reader in this module.
+  const v = m ? m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '').toLowerCase() : '';
   return v === 'yes' || v === 'true';
 }
 
@@ -218,11 +226,19 @@ function seatIsHumanInteractive(goalDir, seat) {
 // THE ARMS DIFFER HERE, at the one surface the ruling names — the goal's channel, thread per agent:
 //
 //   park                  NOTHING is posted. The row takes the same park the gates take, with the
-//                         arm as the reason; the question waits durably on the bus, which is what
-//                         `park` means. The seat proceeds.
+//                         arm as the reason. ⚠ "PARKS ON THE BUS" IS NOT A QUEUE: the cursor
+//                         advances, nothing ever re-delivers the row, and `owner` is a reserved
+//                         address with no seat so `coord.py`'s pending view cannot surface it
+//                         either. The durable record is the goal's `doubts.md` escalation park —
+//                         tier 1 of the ladder, kept for exactly this. The seat proceeds.
 //   default-and-disclose  posted into the agent's thread, MARKED as a disclosure — the agent has
 //                         proceeded on its stated default and is not waiting on a reply.
 //   block-and-queue       posted into the agent's thread, MARKED as blocking — the agent is waiting.
+//                         ⚠ PROCEDURALLY, and that DIVERGES from the arm's one-home definition
+//                         (`meta/planning/references/file-prompt.md` § fallback: "hold the seat,
+//                         queue the question"). Nothing here holds the DAG: a session that exits 0
+//                         after asking has its turn recorded `done` and its dependents start. Which
+//                         side gives is an open owner decision, filed as a #decision row.
 //
 // ⚑ `block-and-queue`'s ANSWER LEG IS NOT BUILT HERE — IT ALREADY EXISTS, and that is the whole
 // reason this row is a marker and a gate rung rather than machinery. The owner's reply in the
@@ -345,7 +361,11 @@ const FALLBACK_MARK = {
 };
 
 function formatMessage(row, { goalId, stamp, relPath, maxBodyChars = DEFAULT_MAX_BODY_CHARS, agentLead = false, arm = null }) {
-  const mark = FALLBACK_MARK[arm] || '';
+  // `Object.hasOwn`, never a truthiness test on the lookup: `arm` reaches an EXPORTED function's
+  // parameter, and `constructor` is a legal kebab-case word that walks the prototype chain — a bare
+  // `FALLBACK_MARK[arm]` renders `function Object() { [native code] }` into the owner's Slack header.
+  // The store's own `Object.hasOwn` reason, at a surface that leaves the process (review F5).
+  const mark = Object.hasOwn(FALLBACK_MARK, arm) ? FALLBACK_MARK[arm] : '';
   const header = (agentLead
     ? `*🧵 ${row.from}* — ${goalId} · ${row.type} · #${row.id}`
     : `*bus → you* — ${goalId}/${stamp} · from ${row.from} · ${row.type} · #${row.id}`) + mark;

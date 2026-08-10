@@ -51,6 +51,9 @@ function check(name, ok, detail = '') {
 }
 
 const attached = require('../attached-execution');
+// The chat bridge's own gate readers — held BESIDE `heldSeatPredicate` so B1b can measure that the
+// two answer alike rather than asserting it (7.626 review F3).
+const ferry = require('../../bridges/chat/bus-ferry');
 const { openHeartStore } = require('../../server/heart/heart-store');
 const { loadConfig } = require('../../server/spawn/config');
 
@@ -243,14 +246,33 @@ async function main() {
   check('B1b GATE A closed alone (goal still interactive): the carrier never fires, the seat detaches',
     flagOffCalls.length === 0 && noFlagAlpha.length === 1 && noFlagAlpha[0].enqueued_by === 'attached-execution',
     `carrier calls=${flagOffCalls.length}, enqueued_by=${noFlagAlpha[0] && noFlagAlpha[0].enqueued_by}`);
-  check('B1b the predicate is the CHAT BRIDGE\'s reader, not a second one — a QUOTED value reads false',
+  // ⚑ THIS ARM USED TO PIN A DEFECT AS CANON, and the 7.626 review (F3) took it out. It asserted
+  // that a QUOTED `human-interactive: "yes"` read FALSE, on the argument that the materializer emits
+  // the bare boolean so the spelling cannot occur. It can: `component-lint` validates a descriptor
+  // with `yaml.safe_load`, for which `"yes"` and `yes # comment` are TRUE, and STANDING seats are
+  // hand-authored (`.rbtv/goals/_channel-master/seat.md`). The result was a lint-green seat this
+  // predicate read false — silently detached instead of carried, with nothing reporting the
+  // disagreement. `seatIsHumanInteractive` now strips quotes and trailing comments like its two
+  // siblings, and the sameness claim is measured the honest way: the two readers AGREE, on the
+  // spelling that used to split them.
+  check('B1b the predicate is the CHAT BRIDGE\'s reader, not a second one — the two agree on a QUOTED value, and on a trailing-comment one, exactly as the linter reads them',
     (() => {
       const quoted = makeGoal('fg-goal-quoted', { humanInteractive: [] });
       fs.writeFileSync(path.join(quoted, 'seats', 'alpha', 'seat.md'),
         '---\nseat: alpha\nhuman-interactive: "yes"\n---\n\nbody\n');
-      return attached.heldSeatPredicate(quoted)('alpha') === false;
+      fs.mkdirSync(path.join(quoted, 'seats', 'bravo'), { recursive: true });
+      fs.writeFileSync(path.join(quoted, 'seats', 'bravo', 'seat.md'),
+        '---\nseat: bravo\nhuman-interactive: yes # ratified 2026-08-09\n---\n\nbody\n');
+      const held = attached.heldSeatPredicate(quoted);
+      return held('alpha') === true && held('bravo') === true
+        && ferry.seatIsHumanInteractive(quoted, 'alpha') === true
+        && ferry.seatIsHumanInteractive(quoted, 'bravo') === true
+        // …and the reader is still STRICT where strictness is the point: a seat declaring `no`, and
+        // one declaring nothing, stay false. Without this the arm would pass against a reader that
+        // returned true for everything.
+        && ferry.seatIsHumanInteractive(quoted, 'charlie') === false;
     })(),
-    'bus-ferry regex-matches the RAW frontmatter line; wave A canon-checks emission to the bare boolean');
+    'both spellings are TRUE to yaml.safe_load, so both must be true here — the divergence was the defect (7.626 review F3)');
 
   // ── B1c · the command comes from `headed.tui`, and the descriptor rides it ──────────────────
   say('');

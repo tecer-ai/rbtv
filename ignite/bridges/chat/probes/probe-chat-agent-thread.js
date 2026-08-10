@@ -23,7 +23,7 @@ const { execFileSync } = require('node:child_process');
 const { makeCapture, nowMs } = require('./lib');
 const { buildBridge } = require('../index');
 const { NO_AGENT_SEAT_NOTICE, resolveGoalSeat } = require('../forward-path');
-const { goalExecutionMode, seatIsHumanInteractive, isSafeName, addressesOwner } = require('../bus-ferry');
+const { goalExecutionMode, seatIsHumanInteractive, isSafeName, addressesOwner, seatFallback, formatMessage } = require('../bus-ferry');
 
 const OUT = path.join(__dirname, 'probe-chat-agent-thread.out');
 
@@ -224,8 +224,18 @@ const MUTATIONS = [
     from: 'frontmatterOf(fm).match(/^fallback:', to: 'String(fm).match(/^fallback:',
     expect: ['FRONTMATTER BLOCK ONLY'] },
   { name: 'arm-marker-dropped', file: 'bus-ferry.js',
-    from: "const mark = FALLBACK_MARK[arm] || '';", to: "const mark = '';",
+    from: "const mark = Object.hasOwn(FALLBACK_MARK, arm) ? FALLBACK_MARK[arm] : '';", to: "const mark = '';",
     expect: ['ARM `default-and-disclose`', 'ARM `block-and-queue`', 'MUTATION (the arm)'] },
+  // Review F3/F5. The strip anchor carries its RETURN line: the identical strip now runs in
+  // `seatFallback` too, so the expression alone is ambiguous and would not be applied at all.
+  { name: 'flag-strip-removed', file: 'bus-ferry.js',
+    from: "  const v = m ? m[1].replace(/\\s+#.*$/, '').trim().replace(/^[\"']|[\"']$/g, '').toLowerCase() : '';\n  return v === 'yes'",
+    to: "  const v = m ? m[1].toLowerCase() : '';\n  return v === 'yes'",
+    expect: ['gate 1 agrees with the LINTER'] },
+  { name: 'marker-lookup-unguarded', file: 'bus-ferry.js',
+    from: "const mark = Object.hasOwn(FALLBACK_MARK, arm) ? FALLBACK_MARK[arm] : '';",
+    to: "const mark = FALLBACK_MARK[arm] || '';",
+    expect: ['a bogus arm renders NO marker'] },
   { name: 'undeclared-arm-invents-one', file: 'bus-ferry.js',
     from: '  return FALLBACK_ARMS.includes(v) ? v : null;', to: "  return FALLBACK_ARMS.includes(v) ? v : 'block-and-queue';",
     expect: ['NOT A FOURTH ARM'] },
@@ -349,7 +359,16 @@ async function main() {
   //     answer, and only the exact word `interactive` is the other.
   {
     const root = mkroot();
-    const { goalDir } = seedGoal(root, 'goal-modes', { executionMode: null, seats: { 'seat-yes': 'yes', 'seat-true': 'TRUE', 'seat-no': 'no', 'seat-blank': null, owner: 'yes' } });
+    const { goalDir } = seedGoal(root, 'goal-modes', {
+      executionMode: null,
+      // `seat-quoted` and `seat-commented` are the review's F3 fixture: two spellings a human
+      // writes and `yaml.safe_load` (therefore `component-lint`) reads as TRUE.
+      seats: {
+        'seat-yes': 'yes', 'seat-true': 'TRUE', 'seat-no': 'no', 'seat-blank': null, owner: 'yes',
+        'seat-quoted': '"yes"', 'seat-commented': 'yes # ratified 2026-08-09',
+      },
+      fallbacks: { 'seat-quoted': 'block-and-queue', 'seat-commented': 'park' },
+    });
     const absent = goalExecutionMode(root, 'goal-modes');
     fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goal-modes', 'execution-mode'), '  Interactive \n');
     const interactive = goalExecutionMode(root, 'goal-modes');
@@ -393,6 +412,20 @@ async function main() {
       && seatIsHumanInteractive(goalDir, 'seat-blank') === false
       && seatIsHumanInteractive(goalDir, 'seat-absent') === false,
       {});
+
+    // ⚑ THE TWO READERS OF ONE FILE MUST NOT DISAGREE (review F3). `component-lint` validates a seat
+    // descriptor with `yaml.safe_load`, for which `"yes"` and `yes # comment` are both TRUE. Before
+    // this arm gate 1 read BOTH as false, and the failure hid itself twice over: the seat was
+    // lint-green, its rows PARKED looking correctly gated, and the lane watch's undeclared-arm warn
+    // could not fire either — so the declared arm never executed and nothing said so. The
+    // `fallback:` reader beside it already stripped both, which is what made the divergence a bug
+    // rather than a convention.
+    check('gate 1 agrees with the LINTER on the two spellings a human writes: `human-interactive: "yes"` and `yes # trailing comment` both declare the seat — quotes and comments stripped, exactly as the arm reader and `goal-kind` already strip them',
+      seatIsHumanInteractive(goalDir, 'seat-quoted') === true
+      && seatIsHumanInteractive(goalDir, 'seat-commented') === true
+      && seatFallback(goalDir, 'seat-quoted') === 'block-and-queue'
+      && seatFallback(goalDir, 'seat-commented') === 'park',
+      { quoted: seatIsHumanInteractive(goalDir, 'seat-quoted'), commented: seatIsHumanInteractive(goalDir, 'seat-commented') });
 
     check('gate 1 reads a seat NAME, never a path — a traversing `from:` token resolves nothing',
       seatIsHumanInteractive(goalDir, '../../seat-yes') === false && seatIsHumanInteractive(goalDir, 'seats/seat-yes') === false, {});
@@ -588,6 +621,17 @@ async function main() {
       { header: headerOf('undeclared') });
     check('none of the four minted anything — the arms change WHERE a row goes, never whether a session is born',
       a.forwarder.enqueued.length === 0, { enqueued: a.forwarder.enqueued.length });
+
+    // ⚑ THE MARKER TABLE IS AN OWN-PROPERTY LOOKUP (review F5). `arm` reaches an EXPORTED function's
+    // parameter, and `constructor` / `toString` are legal kebab-case words that walk the prototype
+    // chain — a bare `TABLE[arm]` renders JS function source into the owner's Slack header. Read
+    // directly rather than through a fixture: the reader is the surface that leaves the process.
+    const spoofed = ['constructor', 'toString', '__proto__', 'valueOf', 'hasOwnProperty'].map((w) =>
+      formatMessage({ from: 'x', type: 'ask', id: 9, body: 'b' },
+        { goalId: 'g', stamp: 's', relPath: 'p', agentLead: true, arm: w }));
+    check('a bogus arm renders NO marker and no prototype text — `constructor`, `toString`, `__proto__` and friends all produce the plain unmarked header',
+      spoofed.every((t) => t.split('\n')[0] === '*🧵 x* — g · ask · #9'),
+      { headers: spoofed.map((t) => t.split('\n')[0]) });
 
     // FRONTMATTER ONLY, `seatIsHumanInteractive`'s rule for the same reason: a briefing line that
     // QUOTES the arm must not be able to silence a seat nobody declared silent.

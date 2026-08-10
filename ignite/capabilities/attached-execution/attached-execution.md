@@ -441,9 +441,9 @@ executes at the ferry.
 
 | `fallback:` | what happens to the seat's `to: owner` bus row | the seat |
 |---|---|---|
-| `park` | **parked** — nothing posted anywhere, on the ferry's own gate ladder with the arm as the reason (`gate: fallback-park`); the question waits durably on the bus | proceeds |
+| `park` | **parked** — nothing posted anywhere, on the ferry's own gate ladder with the arm as the reason (`gate: fallback-park`). The cursor advances and **nothing re-delivers it**; the durable record is the goal's `doubts.md` escalation park | proceeds |
 | `default-and-disclose` | delivered into the seat's thread, **marked** `ℹ proceeding on its default` | proceeds |
-| `block-and-queue` | delivered into the seat's thread, **marked** `⏸ WAITING ON YOU`; the owner's reply in that thread mints a session **at that seat's own home** — the existing leg, and what "the seat proceeds" is made of | waits |
+| `block-and-queue` | delivered into the seat's thread, **marked** `⏸ WAITING ON YOU`; the owner's reply in that thread mints a session **at that seat's own home** — the existing leg, and what "the seat proceeds" is made of | **waits procedurally** — see the bound |
 | absent | delivered **unmarked**, byte-identical to the pre-7.626 header | proceeds |
 
 The reader is `bridges/chat/bus-ferry.js#seatFallback`, beside the two gate readers and scoped to the
@@ -463,10 +463,24 @@ row. It is dispatched as an ordinary detached child and any `to: owner` row it w
 
 ⚠ **DISCLOSED BOUNDS.** (1) The arm is the SEAT's declaration and the ferry has no lane, so `park`
 applies on the attached lane too: a `park` seat carried in a terminal has its terminal, and the bus
-rows it also writes `to: owner` park — which is what it declared its bus questions do. (2)
-`block-and-queue` does **not** hold the DAG: if the seat's headless session exits 0 after asking, the
-ticker records the turn `done` and the wave advances. The wait is the seat's own procedure plus the
-revival leg above; no daemon-side hold was ruled and none was invented.
+rows it also writes `to: owner` park — which is what it declared its bus questions do.
+
+(2) **`block-and-queue` does not hold the DAG, and that DIVERGES from its one-home definition.**
+`meta/planning/references/file-prompt.md` § `fallback` defines the arm as *"hold the seat, queue the
+question for review"*; what ships holds nothing. If the seat's headless session exits 0 after asking,
+the ticker records the turn `done`, `seeding.js#seatState` reads it `done`, and its dependents start
+with the answer unwritten — the wait is the seat's own procedure plus the revival leg above. No
+daemon-side hold was ruled and none was invented, so **which side gives (the reference or the build)
+is an open owner decision**, filed as a `#decision` row on the core-build task file — not a settled
+bound.
+
+(3) **The revival mints a SECOND `executions.csv` row for the same seat** (open, `lane: daemon`)
+beside its earlier `done` one. Measured safe and previously undisclosed: a `done` row outranks a
+non-done one for the same seat, so `recordView` still answers `done`, `--status` reports `done` while
+a live session runs in that seat's home, and the dependents that `done` released run **concurrently**
+with the revived session. Nothing double-dispatches — the revival is minted by the chat leg, never by
+seeding, and seeding never re-fires a `done` seat — but the concurrency is real, and it is case
+material for the decision in (2).
 
 ⚠ **The marker's TERM is `lane assignment`, values `daemon | console` — MINTED registry-side
 2026-08-10** (`system-definition/decisions.md#d-lane-assignment`, `concepts/lane-assignment.md`), per

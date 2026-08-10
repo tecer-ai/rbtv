@@ -210,10 +210,19 @@ at run time by nothing, so all three arms behaved identically. They now differ *
 
 | `fallback:` | the row | the seat |
 |---|---|---|
-| `park` | **nothing is posted.** It takes the same park the gates take, with the arm as the reason (`gate: fallback-park`) — the question waits durably on the bus, which is what `park` means | proceeds |
+| `park` | **nothing is posted.** It takes the same park the gates take, with the arm as the reason (`gate: fallback-park`) — the question stays on the bus, which is what `park` means | proceeds |
 | `default-and-disclose` | delivered into the seat's thread, header marked `· ℹ proceeding on its default` | proceeds |
-| `block-and-queue` | delivered into the seat's thread, header marked `· ⏸ WAITING ON YOU` | waits |
+| `block-and-queue` | delivered into the seat's thread, header marked `· ⏸ WAITING ON YOU` | **waits procedurally** — see the bound below |
 | **absent** | delivered **unmarked** — the header is byte-identical to the pre-7.626 one | proceeds |
+
+⚠ **WHAT "PARKS ON THE BUS" DOES AND DOES NOT MEAN, for this arm exactly as for the gates.** The
+cursor **advances** and nothing ever re-delivers the row: there is no retry, no replay when the mode
+or the arm changes, and no queue that surfaces it — `owner` is a reserved address with no seat, so
+`coord.py`'s pending-message view can never show it either. A parked row is discoverable from the
+`messages.md` log and from the asking seat's own live session, and nowhere else. **The durable record
+is the goal's own escalation ladder** — tier 1 parks the question in `doubts.md`, which is where an
+unanswered escalation belongs and the reason the ladder exists (starter-set `conduct.md`). A seat
+declaring `park` is declaring that its question lives there, not that something will carry it later.
 
 **`block-and-queue`'s answer leg is not new — it is § *The loop, end to end* above.** The owner
 replies in that thread → `kind: 'agent'` → a `session-create` at the asking seat's own home with his
@@ -228,10 +237,24 @@ about exactly that case on the daemon lane and names the check.
 same first `---`-fenced block — a line in a seat's PROSE cannot arm anything. The daemon lane imports
 it rather than parsing the descriptor a second time. ⚠ **The arm is the SEAT's declaration and this
 module has no lane**, so `park` applies on the attached lane too: such a seat has its terminal, and
-the bus rows it *also* addresses `to: owner` park. ⚠ **`block-and-queue` does not hold the DAG** — if
-the seat's session exits 0 after asking, the ticker records the turn `done` and the wave advances;
-the wait is the seat's own procedure plus the revival leg. Both bounds are disclosed, neither is
-built around.
+the bus rows it *also* addresses `to: owner` park.
+
+⚠ **`block-and-queue` DOES NOT HOLD THE DAG, and that DIVERGES FROM ITS ONE-HOME DEFINITION.**
+`meta/planning/references/file-prompt.md` § `fallback` defines the arm as *"hold the seat, queue the
+question for review"*. What ships holds nothing: if the seat's session exits 0 after asking, the
+ticker records the turn `done`, `seeding.js#seatState` reads it `done`, and its dependents start —
+with the answer unwritten. The wait is the seat's own procedure (*"You block on answers; you never
+invent them"*) plus the revival leg. Which side gives — the reference or the build — is an open
+owner decision, not a settled bound; it is filed as a `#decision` row on the core-build task file.
+
+⚠ **THE REVIVAL MINTS A SECOND EXECUTION ROW FOR THE SAME SEAT.** When the owner's reply revives the
+asking seat, that session is dispatched like any other and writes its own `executions.csv` row (open,
+`lane: daemon`) beside the seat's earlier `done` one. Consequences, measured and **safe but
+previously undisclosed**: the execution record still answers `done` for the seat (a `done` outrules an
+earlier or later non-done row), so `--status` reports `done` while a live session runs in that seat's
+home, and the dependents the `done` released run **concurrently** with the revived session. Nothing
+double-dispatches — the revival is minted by the chat leg, not by seeding, and seeding never re-fires
+a `done` seat — but the concurrency is real and is case material for the decision above.
 
 ### The return leg into a goal channel
 
