@@ -130,6 +130,31 @@ function discoverProbes(root, only, probeOnly) {
 // A result is evidence of execution ONLY if it carries a numeric exit or an explicit spawn error.
 // `attempted` is counted from the RESULT, never from the fact that execute() was called — an
 // executor that silently runs nothing must not be able to report a full attempt count.
+// ⚠⚠ EVERY probe child runs TMUX-ISOLATED, unconditionally. The suite is routinely invoked from
+// INSIDE a tmux pane (an agent session IS one), and a probe's throwaway-server teardown — a bare
+// `tmux kill-server` in a finally block — binds through the inherited $TMUX to the DEFAULT server
+// and kills every live session on the box, including the operator's own. That is not hypothetical:
+// it crashed the driving session repeatedly on 2026-08-10, and d481e65 had already patched five
+// probes ONE AT A TIME for the same class. Per-probe hygiene cannot hold a floor a NEW probe can
+// break by default, so the runner holds it here instead: $TMUX/$TMUX_PANE are stripped and
+// TMUX_TMPDIR is pointed at a per-run scratch dir, so any tmux command a probe runs — create,
+// send-keys, kill-server — resolves to an isolated socket directory that no real session uses.
+// Probes that manage their own isolation (a -L socket, their own TMUX_TMPDIR) still win: their
+// child env overrides this one. A probe that GENUINELY needs the operator's real server does not
+// exist today and must not be created — that need is a design smell, not a missing escape hatch.
+let cachedIsolatedEnv = null;
+function tmuxIsolatedEnv(opts) {
+  if (!cachedIsolatedEnv) {
+    const scratch = path.join(opts.captureDir || os.tmpdir(), 'tmux-isolated');
+    fs.mkdirSync(scratch, { recursive: true });
+    const env = { ...process.env, TMUX_TMPDIR: scratch };
+    delete env.TMUX;
+    delete env.TMUX_PANE;
+    cachedIsolatedEnv = env;
+  }
+  return cachedIsolatedEnv;
+}
+
 function executeProbe(probe, opts) {
   const timeoutMs = opts.timeoutMs;
   const outBefore = statMtimeMs(probe.outPath);
@@ -149,7 +174,7 @@ function executeProbe(probe, opts) {
     timeout: timeoutMs,
     encoding: 'utf8',
     maxBuffer: 8 * 1024 * 1024,
-    env: process.env,
+    env: tmuxIsolatedEnv(opts),
   });
 
   const endedAt = Date.now();
