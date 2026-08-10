@@ -9,10 +9,11 @@
 // — two disjoint stores over one goal folder, so each lane could run the same seat once (measured:
 // probes/probe-cross-lane-resume.js, direction 2).
 //
-// ⚠ NAMING. The record's TERM is minted registry-side (PRIN-10) and is deliberately NOT coined
-// here: this file, the column names and the contract use the FILENAME and the words already in the
-// ignite vocabulary (`seat`, `session`, `execution`, and the store's own turn statuses). No new noun
-// is introduced by this build.
+// ⚠ NAMING. The record's TERM is **execution record** — MINTED registry-side 2026-08-10
+// (system-definition/decisions.md#d-execution-record, concepts/execution-record.md), per PRIN-10;
+// this build deliberately coined nothing and the mint is now the definition's one home. This file,
+// the column names and the contract use the FILENAME and the words already in the ignite
+// vocabulary (`seat`, `session`, `execution`, and the store's own turn statuses).
 //
 // ── WHAT IT IS, AND WHY IT IS NOT A MIRROR OF TWO STORES (PRIN-11) ────────────────────────────
 //
