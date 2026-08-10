@@ -212,8 +212,16 @@ def cmd_probe(args):
                                   "the copied store offers nothing") else 0
 
         # The subject: a REAL row of the real store, tagged through the sanctioned CLI on the COPY.
-        subject = ready_before[0]["number"]
-        control = ready_before[1]["number"] if len(ready_before) > 1 else None
+        # A store row may legitimately carry NO number (unnumbered `DECIDE:` rows are a real shape
+        # and 12 of them sit in the default store today), and `sb-task edit` addresses a row by its
+        # number — so the fixture picks from the NUMBERED ready rows, never from row 0 blindly.
+        numbered = [r["number"] for r in ready_before if r.get("number")]
+        if not numbered:
+            check("fixture has a NUMBERED ready row to tag", False,
+                  "%d ready row(s), none numbered" % len(ready_before))
+            return 1
+        subject = numbered[0]
+        control = numbered[1] if len(numbered) > 1 else None
         token = "row-outcome/held-by-ruling"
         tag = subprocess.run(sb_task_cmd(root) + ["edit", str(copy), subject, "--add-tag", token],
                              capture_output=True, text=True, env=env, cwd=str(root))
