@@ -591,6 +591,47 @@ function resolveTmuxSocketGrant(seatPath) {
   return fs.existsSync(dir) ? [{ tmuxSocketDir: dir }] : [];
 }
 
+// `exposed-clis:` — the SANDBOX realization of a prompt card's `exposes: path:` declaration
+// (registry `decisions.md#d-path-exposes-authorable`, owner 2026-08-10). `path` keeps no CMP-12
+// harness cell: nothing is materialized beside seat.md, so the cage IS the realization.
+//
+// The materializer resolves each declared part against its component's exposure.csv and writes
+// `<part-id> <absolute entry point>` into the descriptor's `exposed-clis:` block list — read here
+// by the SAME one declaration reader every other grant class uses. The seat never names a path:
+// resolving a part-id to a manifest row is materialize's job and is not written twice (PRIN-11).
+//
+// BOTH ENDS, because one without the other is not a grant (7.607 E4/E4b measured a seat instructed
+// to check in whose `coordinate` was on no PATH and whose team-kit target was unbound):
+//   1. the CODE TREE at its real path, READ-ONLY — the entry point's own directory. A CLI reads its
+//      siblings through `Path(__file__).resolve().parent`, so the script must live where it really
+//      lives; a bwrap `--ro-bind` of the host's `~/.local/bin/<name>` symlink DEREFERENCES it
+//      (measured on this box), landing a lone script whose siblings are gone.
+//   2. the installed NAME, as a sandbox `--symlink` into a dedicated `~/.rbtv-bin` on PATH. A
+//      mount the occupant cannot NAME is not a grant (the `local-bin` precedent). Its OWN dir
+//      rather than `~/.local/bin` for one mechanical reason: under `local-bin: true` that
+//      directory is a read-only mount, and a symlink cannot be created inside one.
+// FAIL-CLOSED PER ENTRY, like `rw-paths`: a bad entry is skipped and logged, never guessed at and
+// never fatal to the spawn.
+const RBTV_BIN_DIRNAME = '.rbtv-bin';
+
+function resolveExposedCliGrants(seatPath, log) {
+  const grants = [];
+  for (const entry of seatDeclaresList(seatPath.seatDir, 'exposed-clis')) {
+    const refuse = (reason) => log('warn', `exposed-clis entry REFUSED: ${reason}`, { seat: seatPath.seat, seatDir: seatPath.seatDir, entry });
+    const cut = entry.indexOf(' ');
+    if (cut <= 0) { refuse('entry is `<part-id> <absolute entry point>` — no name/path separator'); continue; }
+    const name = entry.slice(0, cut);
+    const target = entry.slice(cut + 1).trim();
+    // The name becomes a filename on PATH inside the cage: keep it to the part-id grammar so no
+    // entry can escape the bin dir or shadow a shell construct.
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) { refuse(`invalid part-id '${name}'`); continue; }
+    if (!path.isAbsolute(target)) { refuse('entry point is not absolute — the materializer resolves it'); continue; }
+    if (!fs.existsSync(target)) { refuse(`entry point does not exist: ${target}`); continue; }
+    grants.push({ exposedCliName: name, exposedCliEntry: target, exposedCliCode: path.dirname(target) });
+  }
+  return grants;
+}
+
 function resolveSeatGrants(seatPath) {
   const worktreesDir = path.join(seatPath.workspaceRoot, '.rbtv', 'worktrees');
   let entries;
@@ -724,6 +765,22 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   // Resolved ONCE: the same grant decides the mount below and the PATH entry after it. Two
   // resolutions would be two answers the first time either gained a case.
   const localBin = resolveLocalBinGrant(seatPath);
+  // Same rule, same reason: the ONE resolution decides the mount, the symlink AND the PATH entry.
+  const exposedClis = resolveExposedCliGrants(seatPath, log);
+  if (exposedClis.length > 0) {
+    // Appended in code rather than added to `config/spawn-profiles.yaml`'s SeatBinds, exactly as
+    // the service seat's `ro-bind:{seatDir}/sessions.csv` line above is: the line has no meaning
+    // for a seat with no grant, and cage.js skips a `{grant:…}` line whose grant list is empty.
+    // LAST, and that ORDER IS THE SAFE ONE — but not for the reason a first reading suggests:
+    // in bwrap the LATER argument WINS (measured: `--bind sub` then `--ro-bind tree` leaves
+    // `tree/sub` read-only; the reverse order leaves it writable). So appending last means this
+    // read-only code tree SHADOWS any writable opening the stack made above it under the same
+    // path — which is the posture we want for a code tree, and is why it is not moved earlier.
+    // ⚠ The consequence, stated so it is not discovered by surprise: a future `rw-paths` grant
+    // pointing INSIDE a granted CLI's directory would be silently downgraded to read-only. No
+    // seat configures one today (writables are the seat dir, goals and worktrees).
+    template = [...template, 'ro-bind:{grant:exposedCliCode}'];
+  }
   const spec = composeSeatCage({
     seatBinds: template,
     values: {
@@ -738,6 +795,7 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       ...resolveBusWriteGrants(seatPath),
       ...resolveGoalsWriteGrants(seatPath),
       ...localBin,
+      ...exposedClis,
       ...resolveTmuxSocketGrant(seatPath),
       ...resolveRwPathGrants(seatPath, log),
     ],
@@ -767,12 +825,30 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   // `ignite`, `scaffold-seats` by name, and every one of them resolved to "command not found" —
   // measured in a live channel-master sitting, 2026-08-06. A mount the occupant cannot NAME is
   // not a grant. Emitted only WITH the grant, so a seat without it sees no PATH change at all.
-  if (localBin.length > 0) {
+  //
+  // The `exposed-clis:` grants take the same shape and the same reason — a declared CLI is
+  // PROMISED BY NAME, so the sandbox symlink carrying that name goes on PATH FIRST (ahead of
+  // ~/.local/bin, whose same-named symlink dereferences to a code tree an ordinary seat has no
+  // grant for). The symlinks are raw flags rather than spec entries because cage.js's verb set is
+  // bind/ro-bind/tmpfs and a symlink is not a mount — the same reason the ancestor mask above
+  // pushes `--ro-bind /dev/null <file>` directly. They land AFTER bwrap.js's `--tmpfs <home>`
+  // (which is emitted before this whole stack), so bwrap creates the bin dir on that tmpfs.
+  const pathDirs = [];
+  if (exposedClis.length > 0) {
+    const rbtvBin = path.join(require('node:os').homedir(), RBTV_BIN_DIRNAME);
+    for (const g of exposedClis) {
+      flags.push('--symlink', g.exposedCliEntry, path.join(rbtvBin, g.exposedCliName));
+    }
+    pathDirs.push(rbtvBin);
+    log('info', 'exposed CLIs enabled in the seat sandbox', { seat: seatPath.seat, clis: exposedClis.map((g) => g.exposedCliName) });
+  }
+  if (localBin.length > 0) pathDirs.push(localBin[0].localBin);
+  if (pathDirs.length > 0) {
     const base = process.env.PATH || '/usr/local/bin:/usr/bin:/bin';
     // Prepend, then DEDUPE preserving first-seen order: the daemon's own PATH may already carry
     // ~/.local/bin (or repeat entries from a shell that sourced a profile twice), and a caged
     // session should not inherit that noise in a variable this module is now the author of.
-    const dirs = [...new Set([localBin[0].localBin, ...base.split(':').filter(Boolean)])];
+    const dirs = [...new Set([...pathDirs, ...base.split(':').filter(Boolean)])];
     flags.push('--setenv', 'PATH', dirs.join(':'));
   }
   return flags;

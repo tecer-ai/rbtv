@@ -1,4 +1,6 @@
-# ⚠ INTERIM — ONE ROW, ONE TARGET. Authored by task 7.43's seat, 2026-07-28, under an explicit
+# ⚠ INTERIM placement (module root, see below). ORIGINALLY ONE ROW, ONE TARGET — that bound was
+# discharged 2026-08-10 when the mandatory first-party tool inventory landed (second header block
+# at the foot of this comment). Authored by task 7.43's seat, 2026-07-28, under an explicit
 # leader ruling (fork 3, option (d)) and four binding bounds: one row only; this file states on its
 # own face that it is interim; the seat records WHICH COLUMNS IT CHOSE AND WHY; and task 7.48 is
 # FREE TO RE-SHAPE IT without treating it as precedent.
@@ -25,5 +27,65 @@
 # while a dedicated marker column would be a second way to say what the vocabulary already says
 # (PRIN-11). The full rationale, including what the other two options would have cost, is in
 # ignite/capabilities/sub-agent-dispatch/sub-agent-dispatch.md § The interim exposure manifest.
+#
+# ─── 2026-08-10 EXTENSION: harness row for team-kit + the mandatory first-party tool inventory ───
+#
+# WHY MORE ROWS NOW: `decisions.md#d-tool-inventory-exposure-rows` (owner, 2026-08-09) made it
+# MANDATORY that every module inventory its CLI tools here — `part-kind=tool`, `method=path`,
+# `description` EMPTY (tools self-document via `-h`; the router points, the tool speaks).
+# `rbtv-cli` was ALSO empty under that entry's mechanic 1; the owner AMENDED it 2026-08-10
+# (`#d-tool-inventory-rbtv-cli-column`) — a tool the `rbtv` CLI routes to carries its invocation
+# prefix there, and only an unrouted tool leaves it empty. Six of the twenty below are routed
+# (source of truth: `core/capabilities/rbtv-cli/tool/lib/verbs.js` `ROUTES`); the parent-CLI fact
+# is NOT expressible in `method`, whose vocabulary is closed and keyed by CMP-12's map.
+# `path` mints nothing: it has no CMP-12 realization and is `exposes:`-authorable since d-path-exposes-authorable (2026-08-10) —
+# a `path` row is inventory plus the declaration that the shell reaches the part by script path.
+# The owner's SCOPE CORRECTION the same day binds it to FIRST-PARTY tools only — tools this module
+# authors and ships. Third-party CLIs get no rows; package.json (the dependency manifest) declares
+# those, and `js-yaml`, ignite's only npm element, is a library with no CLI at all.
+#
+# THE `team-kit` ROW is not new exposure — it declares what the OLD installer already realizes
+# (admin/install/module-manifest.json → ignite.skills → .claude/skills/rbtv-team-kit/SKILL.md).
+# It is ignite's ONLY harness-method part besides the sub-agent row above; `module.md` gets NO row
+# by design — the module entry point is the module's own front door, installed directly, and the
+# manifest binds a component's PARTS (`sd-graph show module-entry-point` § differentiation).
+#
+# WHICH INVOCABLES COUNT AS TOOLS — the boundary is mechanical, so a later sweep can reproduce it:
+# a first-party invocable with its own agent-facing command surface. That admits the seven
+# capability `tool/` wrappers, the module CLI, the seat-identity CLI and the team-kit scripts.
+# It EXCLUDES, each for a stated reason and none by oversight:
+#   · implementation modules a wrapper imports (goal_cli.py, goal_creation_request.py,
+#     workflow_launcher.py) — one tool, one row, at the wrapper;
+#   · daemon job payloads (jobs/*.py, deploy/probe-suite-scheduled.py) — the queue invokes them,
+#     no agent does;
+#   · long-running services (bridges/chat/index.js, server/**) and probe/test runners
+#     (deploy/probe-suite.js, */probes/*) — not command surfaces;
+#   · gateway_client.py — a library, no `__main__`.
+#
+# ENTRY POINTS ARE MODULE-RELATIVE, matching the pre-existing row, because this file sits at the
+# module root. The schema says component-relative; when the component tree materializes and these
+# rows split into `<component>/exposure.csv`, the prefixes drop with the move and nothing else
+# changes (same reasoning as the placement note above).
 part-id,part-kind,method,rbtv-cli,entry-point,description
 ticker-settings,capability,sub-agent,,capabilities/ticker-settings/ticker-settings.md,
+team-kit,capability,skill,exhibit,skills/team-kit/SKILL.md,"Set up, run, or join a coordinated parallel multi-agent team in tmux: one pane per seat, typed append-only message log, roster with verified identities, staged launches, watcher/closer seats"
+rbtv-execution,tool,path,rbtv run,capabilities/attached-execution/tool/rbtv-execution,
+rbtv-ignite-daemon,tool,path,rbtv ignite daemon,capabilities/daemon-operator/tool/rbtv-ignite-daemon,
+rbtv-ignite-watchdog,tool,path,,capabilities/daemon-watchdog/tool/rbtv-ignite-watchdog,
+rbtv-goal-request,tool,path,,capabilities/goal-creation-request/tool/rbtv-goal-request,
+rbtv-goal,tool,path,rbtv goal,capabilities/goals-tree/tool/rbtv-goal,
+rbtv-ignite-ticker,tool,path,rbtv ignite ticker,capabilities/ticker-settings/tool/rbtv-ignite-ticker,
+rbtv-ignite-watch,tool,path,rbtv ignite watch,capabilities/watch-operator/tool/rbtv-ignite-watch,
+rbtv-seat-identity,tool,path,,server/seat-identity/rbtv-seat-identity,
+ignite-cli,tool,path,rbtv ignite,cli/ignite.js,
+coordinate,tool,path,,team-kit/coord.py,
+team-kit-watch,tool,path,,team-kit/watch.py,
+floor-lint,tool,path,,team-kit/floor-lint.py,
+materialize-seats,tool,path,,team-kit/materialize-seats.py,
+worktree-flow,tool,path,,team-kit/worktree-flow.py,
+save-coord,tool,path,,team-kit/save-coord.py,
+budget,tool,path,,team-kit/budget.py,
+tmux-overview,tool,path,,team-kit/tmux-overview,
+overview-compact,tool,path,,team-kit/overview-compact.py,
+provider-usage,tool,path,,team-kit/provider-usage.py,
+statusline-usage,tool,path,,team-kit/statusline-usage.py,
