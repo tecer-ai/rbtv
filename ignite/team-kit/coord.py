@@ -13333,9 +13333,14 @@ CAPACITY_NOTE_CROSS_GOAL = ("  capacity: {k} cross_goal pane(s) resolve OUTSIDE 
 CAPACITY_NOTE_IN_RUN = ("  capacity: {k} cross_goal pane(s) resolve INSIDE this run's own seats/ — "
                         "this run's OWN seat(s), harness live, not yet checked in. `census()` files "
                         "them cross_goal and leaves them OUT of in_use, so they are COUNTED here "
-                        "and headroom is reduced by {k}. Before 7.555 this DEGRADED the act to CAP "
-                        "NOT CONSULTED instead, and that degrade never cleared while the harness "
-                        "stayed live and silent.")
+                        "and headroom is reduced by {k}. Before 7.555 this DEGRADED the act and "
+                        "left the cap unconsulted instead, and that degrade never cleared while "
+                        "the harness stayed live and silent.")
+# ⚠ THE LINE ABOVE DELIBERATELY DOES NOT CONTAIN THE DEGRADE MARKER `CAP NOT CONSULTED`, and this
+# is not style. That string is a WIRE MARKER several rows assert the ABSENCE of to prove the act
+# took the full-capacity branch; a note that merely NARRATES the old behaviour using the marker
+# makes every such row read its own commentary and go red on correct code. Measured here: the first
+# draft of this note carried the phrase and reddened 7.555's own D5 row.
 CAPACITY_NOTE_BREACH = ("  capacity: census verdict BREACH — the room is already over "
                         "cap.agent_panes. Every counted candidate is DEFERRED.")
 # 7.278's own addition, ruled `p-7278-wire-form-confirmed`: C1 §2.1 defines COUNTED by membership
@@ -24597,6 +24602,13 @@ def _selftest_checks(args, failures, names):
               and "CAP NOT CONSULTED" not in _c3_d5
               and "cross_goal row(s) resolve inside this run's own seats/" not in _c3_d5
               and "cross_goal pane(s) resolve INSIDE this run's own seats/" in _c3_d5
+              # ⚠ N2 IS ASSERTED ABSENT HERE, and it is the only thing pinning N2's COUNT SOURCE.
+              # Before 7.555 N2 read `len(_cap_cross)` — EVERY cross_goal row — and was suppressed
+              # whenever an in-run row existed; it now reads `_cap_cross_out` alone. The N2 row
+              # below cannot detect a revert to the old source, because its fixture has no in-run
+              # row and the two lists are IDENTICAL there. This fixture is the other half: it has
+              # ONLY an in-run row, so the old source would print N2 with k=1 and this goes RED.
+              and "cross_goal pane(s) resolve OUTSIDE this run" not in _c3_d5
               and "headroom is reduced by 1" in _c3_d5
               and len(_c3_defer_lines(_c3_d5)) == 2)
         # ---- 7.555's DISCRIMINATING TWIN: the TRANSIENT regime is PRESERVED, not fixed away -----
@@ -24628,7 +24640,12 @@ def _selftest_checks(args, failures, names):
               and "[dry-run] cap3" not in _c3_ci
               and "CAP NOT CONSULTED" not in _c3_ci
               and "resolve INSIDE this run's own seats/" not in _c3_ci
-              and len(_c3_defer_lines(_c3_ci)) == 1)
+              # TWO deferrals, not one: the checked-in pane is INSIDE `in_use`, so headroom is 1
+              # and `cap2` waits beside `cap3`. That is the cap binding on a seat that really is
+              # occupying the room — the correct reading, and the arithmetic differs from the row
+              # above (which reduces the SAME cap by an uncounted row) precisely because the two
+              # arrive at it through different terms.
+              and len(_c3_defer_lines(_c3_ci)) == 2)
         _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
                           "harness": "claude", "liveness": "dead",
                           "cwd": str(_c3l / "seats" / "cap1")}])
