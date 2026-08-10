@@ -28,6 +28,7 @@ import os
 import resource
 import shutil
 import signal
+import subprocess
 import sys
 
 _ORIGINAL_LIMITS = {}
@@ -109,6 +110,36 @@ def detach_argv(argv, unit, daemonizes=False):
     setenv = [f"--setenv=PATH={path}"] if path else []
     return ["systemd-run", "--user", "--collect", "--quiet", *setenv, *props,
             f"--unit={unit}", *argv], unit
+
+
+def launch_detached(launch, unit, preexec_fn=None, timeout=60):
+    """Fire a `detach_argv` launch and return (launcher_output, exit_code) — never waiting on a
+    process that is not a launcher.
+
+    THE LATENT HANG THIS EXISTS TO REMOVE (task 7.527). `detach_argv` returns two SHAPES and only
+    one of them is a launcher, which is exactly what `unit` already tells us. With `systemd-run`
+    present the argv IS a launcher: it exits the moment the unit is up, so waiting on it under a
+    timeout is right and its output and exit code are worth having. With `systemd-run` ABSENT the
+    fallback argv is the BARE COMMAND — not a launcher, but the long-lived process itself — and
+    both callers pass `watch.py --loop-forever`, which is designed never to exit. Waiting on THAT
+    with `timeout=60` blocked the caller for a full minute and then KILLED a loop that was working.
+
+    So the shape decides: the launcher is waited on, the bare fallback is started in its own
+    session and never waited on. `start_new_session=True` is what the fallback has instead of a
+    cgroup — the child must not die with the caller's terminal or job.
+
+    `preexec_fn` is the two callers' one real difference and is passed through, never assumed:
+    `selfheal-watch.py` calls `contain()` first and MUST restore the pre-contain limits in the
+    child (`child_preexec`) or the relaunched sensor inherits the detector's 256 MB cap;
+    `rbtv-ignite-watch` never contains itself and correctly passes nothing.
+    """
+    if unit is None:
+        subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, start_new_session=True, preexec_fn=preexec_fn)
+        return "", 0
+    res = subprocess.run(launch, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, timeout=timeout, preexec_fn=preexec_fn)
+    return (res.stdout or b"").decode("utf-8", "replace").strip(), res.returncode
 
 
 def unit_name(prefix, key):

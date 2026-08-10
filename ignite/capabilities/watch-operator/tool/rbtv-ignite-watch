@@ -195,9 +195,10 @@ def cmd_start(package, unit, sw, args):
 
     # No preexec_fn: unlike the self-heal job this process never called jobcontain.contain(), so
     # there are no lowered limits for a child to inherit and nothing to restore.
-    res = subprocess.run(launch, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         stdin=subprocess.DEVNULL, timeout=60)
-    out = (res.stdout or b"").decode("utf-8", "replace").strip()
+    # WAITED ON ONLY WHEN IT IS A LAUNCHER (task 7.527): with no systemd-run the argv is the bare
+    # `watch.py --loop-forever`, which never exits — the old `timeout=60` here blocked for a minute
+    # and then killed a working loop. jobcontain owns that distinction for both callers.
+    out, launch_rc = sw.jobcontain.launch_detached(launch, launched_unit)
     if out:
         print(f"  launcher| {out}")
     # The launcher's exit code is not the verdict — a LIVE watch.py is.
@@ -209,7 +210,7 @@ def cmd_start(package, unit, sw, args):
             return 0
         time.sleep(0.5)
     die(f"LAUNCH DID NOT TAKE — no live watch.py for this package after 10s "
-        f"(launcher exit {res.returncode}). Fall back by hand: "
+        f"(launcher exit {launch_rc}). Fall back by hand: "
         f"nohup {' '.join(cmd)} >/dev/null 2>&1 &")
 
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""probe-detach-env.py — `jobcontain.detach_argv` carries the caller's PATH across its inner hop.
+"""probe-detach-env.py — `jobcontain`'s detached-launch contract: the PATH crosses the inner hop,
+and the fallback that is NOT a launcher is never waited on.
 
 WHAT IT SCORES (task 7.551). `detach_argv` wraps a command in its OWN `systemd-run --user`
 transient unit so it outlives the job that started it. That inner hop goes back through the systemd
@@ -33,6 +34,11 @@ ARMS
       caller's own argv[0]. `detach_argv` emits no `--` separator, so ordering is positional: a flag
       after the command is passed TO THE CHILD as an argument instead of setting the environment,
       which a substring check alone would not catch.
+  B1  RED ARM (task 7.527) — the OLD shape, `subprocess.run(launch, timeout=T)`, on the bare
+      fallback whose child never exits: it blocks for the whole timeout and then KILLS the child.
+      This is the defect, pinned so the fix cannot be mistaken for a no-op.
+  B2  the NEW shape, `jobcontain.launch_detached`, returns AT ONCE on that same argv and the
+      loop-forever child is still alive afterwards.
 
 TWO EXECUTION TRAPS, both hit while designing this (dossier §5) — every arm reads the CAPTURE FILE
 the child wrote, never the launcher's exit code: `systemd-run --collect --quiet` returns 0 as soon
@@ -47,6 +53,7 @@ control proved an arm could not have failed).
 import importlib.util
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -79,6 +86,26 @@ def check(arm, ok, detail):
 def stop(arm, why):
     say(f"INOPERATIVE  {arm}  {why}")
     inoperative.append(arm)
+
+
+def alive(token):
+    """pids of live processes carrying `token` in their argv — this probe's stand-in children.
+
+    Read straight from /proc rather than through `pgrep`: arms B1/B2 deliberately strip PATH down
+    to a stub directory, where no external binary resolves at all. A reaped child leaves an empty
+    cmdline, so a zombie never counts as alive.
+    """
+    out = []
+    for d in os.listdir("/proc"):
+        if not d.isdigit():
+            continue
+        try:
+            with open(f"/proc/{d}/cmdline", "rb") as fh:
+                if token.encode() in fh.read():
+                    out.append(int(d))
+        except OSError:
+            continue
+    return out
 
 
 def load_jobcontain():
@@ -190,6 +217,61 @@ def main():
         check("R4", ok4,
               f"--setenv=PATH= at {setenvs}, --unit= at {unit_ix}, caller argv[0] at {argv0_ix} "
               "(must be exactly one --setenv, before --unit and before the command)")
+
+        # ---- B1 / B2: the loop-forever fallback is DETACHED, never waited on (task 7.527) --------
+        # `systemd-run` is PATH-SHADOWED BY A STUB that is present but NOT EXECUTABLE, so
+        # `shutil.which` genuinely returns None — no monkeypatch — and `detach_argv` takes its bare
+        # fallback, the shape whose child is the long-lived process itself rather than a launcher.
+        # The stand-in child is a plain sleep, never `watch.py`: nothing real is launched, no unit
+        # is created, and both arms reap their own children.
+        stub = bindir / "systemd-run"
+        stub.write_text("#!/bin/sh\nexit 1\n")
+        stub.chmod(0o644)
+        token = f"probe-detach-blocking-{os.getpid()}"
+        forever = [sys.executable, "-c", f"import time  # {token}\ntime.sleep(600)"]
+        saved_path = os.environ["PATH"]
+        os.environ["PATH"] = str(bindir)
+        try:
+            if shutil.which("systemd-run"):
+                stop("B1/B2", "systemd-run still resolves under the stubbed PATH — the bare "
+                              "fallback is unreachable and neither arm could fail")
+                return
+            blaunch, bunit = jc.detach_argv(forever, "probe-detach-blocking-never-created")
+            if bunit is not None or blaunch != forever:
+                stop("B1/B2", f"expected the bare fallback, got unit={bunit!r} argv={blaunch!r}")
+                return
+
+            # B1 — THE OLD SHAPE, reproduced verbatim except for the timeout NUMBER: 3s instead of
+            # the shipped 60 purely so the probe is quick. The SHAPE is what the fix removes.
+            t0 = time.time()
+            timed_out = False
+            try:
+                subprocess.run(blaunch, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               stdin=subprocess.DEVNULL, timeout=3)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            b1_wall = time.time() - t0
+            b1_survivors = alive(token)
+            check("B1", timed_out and b1_wall >= 3 and not b1_survivors,
+                  f"OLD shape blocked {b1_wall:.1f}s on a loop-forever child and then KILLED it "
+                  f"(timed_out={timed_out}, survivors={b1_survivors})")
+
+            # B2 — THE NEW SHAPE on the SAME argv and the same absent systemd-run.
+            t0 = time.time()
+            out, rc = jc.launch_detached(blaunch, bunit)
+            b2_wall = time.time() - t0
+            time.sleep(1.0)
+            b2_survivors = alive(token)
+            check("B2", b2_wall < 2 and bool(b2_survivors) and rc == 0,
+                  f"NEW shape returned in {b2_wall:.1f}s (rc={rc}, out={out!r}) and the "
+                  f"loop-forever child is STILL ALIVE: pid(s) {b2_survivors}")
+        finally:
+            os.environ["PATH"] = saved_path
+            for pid in alive(token):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 try:
