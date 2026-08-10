@@ -1,0 +1,10 @@
+# ZERO-ROW INVENTORY — COMPLETE, not unstarted. Authored by task 7.647, 2026-08-10, under the
+# mandatory first-party tool inventory
+# (`1-projects/rbtv-sb-merge-refactor-core-build/decisions.md#d-tool-inventory-exposure-rows`
+# + FIRST-PARTY scope correction + `#d-tool-inventory-rbtv-cli-column`).
+#
+# JUDGMENT, stated per the ruling: writing ships NO first-party CLI tools. Measured 2026-08-10
+# two ways (rbtv-reasoning § Verify absence): (1) a find for *.py/*.js/*.sh/extension-less files
+# returned nothing; (2) a shebang sweep over every git-tracked file in the module returned
+# nothing. The module is harness-exposed markdown only, which this inventory does not cover.
+part-id,part-kind,method,rbtv-cli,entry-point,description
