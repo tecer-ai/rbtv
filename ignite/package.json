@@ -1,8 +1,18 @@
 {
-  "name": "rbtv-ignite",
+  "name": "@rbtv/ignite",
   "private": true,
-  "description": "ignite module — npm machine manifest. The complete human-readable dependency inventory (npm AND system tools) is dependencies.txt beside this file; both are updated in the SAME change as any dependency change (owner ruling D28).",
+  "description": "Dependency manifest for the ignite module — what the environment must provide. Declaration only; never published. Schema: concepts/dependency-manifest.md (sd-graph show dependency-manifest). NPM ELEMENTS ONLY: ignite also needs system tools npm cannot express (systemd, tmux, bubblewrap, tailscaled, python3) — those stay in dependencies.txt beside this file, the human-readable inventory owner ruling D28 requires; both are updated in the SAME change as any dependency change. TWO DECLARED DIVERGENCES from the record, stated rather than hidden: (1) js-yaml is a REQUIRED LIBRARY the daemon require()s, not a binary — it resolves into this folder's node_modules, NOT the workspace shared bin root, which serves binaries on PATH; (2) package-lock.json beside this file is therefore KEPT and committed (`npm ci`, exact versions + integrity hashes, D28 / task 7.51 pinning) where the record says no lockfile is authored. rbtv.install commands run with cwd = this folder.",
+  "engines": {
+    "node": ">=24"
+  },
   "dependencies": {
     "js-yaml": "5.2.2"
+  },
+  "rbtv": {
+    "manager": "npm",
+    "install": {
+      "node": "curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt-get install -y nodejs",
+      "js-yaml": "npm ci --omit=dev"
+    }
   }
 }

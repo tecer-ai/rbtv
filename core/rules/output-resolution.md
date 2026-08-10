@@ -11,12 +11,9 @@ When an RBTV component (skill, command, workflow) produces an output file, resol
 
 1. Use conversation context to determine the destination. The user's current topic, project, and area usually make the path obvious.
 2. Read the relevant CLAUDE.md files (workspace root, project-specific) to understand folder structure and placement rules.
-3. Propose the full resolved path to the user with reasoning. Example: "I'll write this pitch to `tecer-biz/prospects/spsp/presentations/pitch-2026-04.md` because you mentioned SPSP and their presentations go in the prospect folder."
+3. Propose the full resolved path to the user with reasoning. Example: "I'll write this pitch to `my-company/prospects/client-x/presentations/pitch-2026-08.md` because you mentioned Client X and their presentations go in the prospect folder."
 4. Wait for confirmation or redirect. The user may approve, edit the path, or redirect entirely. Do not write until confirmed.
-
-## When the path is ambiguous
-
-Ask a SPECIFIC question based on what you know. Example: "Is this for a current client or a prospect?" Never fall back to a generic "where should this go?" prompt.
+5. If the user is not available, place the output in your worflow/taskforce folder in .rbtv/.
 
 ## Scope
 

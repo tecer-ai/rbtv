@@ -20,8 +20,6 @@ You MUST NOT dispatch until the prompt satisfies all four steps. If you catch yo
 | "The worker will auto-discover the skill" | STOP. Claude sub-agents see skill descriptions but unreliably invoke them; CLI and API workers see nothing. Name each skill, with its path. |
 | "This dispatch is too small to need the gate" | STOP. Size does not waive the gate. |
 | "I already named the skill last dispatch" | STOP. Each dispatch is independent. Name it again. |
-| "No skill matches this task" | STOP. Re-scan the skill descriptions for partial matches before declaring none. |
-| "The worker shares my working directory — a bare relative write path is fine" | STOP. Workspace-root-absolute write paths; verify each file landed on return. |
 | "This task has nothing to do with the terminal — the environment bar is overkill here" | STOP. The worker holds your pane whether or not the task mentions one, and routine commands act on the CALLING pane. Bind it hermetic. |
 | "I'll tell the worker to be careful with the live environment" | STOP. Care is not a bound. Unset the variables in the prompt as a precondition, before its first command. |
 

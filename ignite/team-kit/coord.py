@@ -931,20 +931,44 @@ def set_pane_title(pane, title):
 RENAME_ACTION = "rename-scheduled"
 
 
-def rename_injection_note(agent, delay):
+def rename_injection_note(agent, delay, expected_title=None):
     """The write-log payload for a SCHEDULED rename (G-53). Pure, so it is testable without the
     detached subshell — and the reason it exists is that the shell is exactly what makes the
     delivery unobservable."""
-    return (f"/rename {agent} (scheduled: detached, fires in ~{delay}s via raw tmux; "
+    return (f"/rename {agent} (scheduled: detached, fires in ~{delay}s via raw tmux ONLY IF the "
+            f"pane title still reads '{expected_title or agent}'; "
             f"delivery is NOT observed by this log)")
 
 
-def schedule_session_rename(pane, agent, delay=25):
+def rename_injection_script(pane, agent, delay, expected_title):
+    """The detached subshell's bash, pure so the selftest can prove the guard both ways.
+
+    FIRE-TIME GUARD (owner-session rename incident, 2026-08-10): the /rename keystrokes go out
+    ONLY if, at fire time, the pane still exists AND its pane title still reads the title set at
+    boot (`set_pane_title` precedes every scheduling call site). A dead pane, a reused pane id
+    (`%N` is per-server and restarts with the server, so after a tmux server restart — or against
+    a different socket — the same id names a stranger's pane), or any foreign pane fails the
+    title read and the script exits 0 without typing. Measured before the guard: three of the
+    owner's own interactive sessions renamed to `elicitator` by this script firing at pane ids
+    the seat no longer owned."""
+    return (f"sleep {delay}; "
+            f"t=$(tmux display-message -p -t {shlex.quote(pane)} '#{{pane_title}}' 2>/dev/null)"
+            f" || exit 0; "
+            f"[ \"$t\" = {shlex.quote(expected_title)} ] || exit 0; "
+            f"tmux send-keys -t {shlex.quote(pane)} -l {shlex.quote('/rename ' + agent)}; "
+            f"sleep 1; tmux send-keys -t {shlex.quote(pane)} Enter")
+
+
+def schedule_session_rename(pane, agent, delay=25, expected_title=None):
     """Inject `/rename <agent>` into the pane's Claude session once it has had time to boot.
 
     Detached (coord.py returns immediately); failures are silent — the rename is cosmetic and a
     lost keystroke must never block a launch. claude harness only: codex/opencode have no
-    /rename — their seats are identified by pane/window title alone."""
+    /rename — their seats are identified by pane/window title alone.
+
+    `expected_title` is the pane title the fire-time guard demands (see
+    `rename_injection_script`); it defaults to the agent name, which is what every launch-path
+    caller sets — the closer path sets `closer-<target>` and passes it explicitly."""
     # G-53: this logs INTENT, not injection. The keystrokes are sent by the DETACHED subshell
     # below, ~25s later, with raw `tmux send-keys` that never touches the instrumented primitives
     # — so nothing here can know whether they landed, and the line would read identically if the
@@ -952,10 +976,8 @@ def schedule_session_rename(pane, agent, delay=25):
     # pane in the window where the real keystrokes went out. The action name now says what the
     # line actually attests, so the write-log stops asserting what it cannot know.
     set_injection_context(action=RENAME_ACTION)  # our own action: never inherit a caller's
-    log_injection(pane, RENAME_ACTION, rename_injection_note(agent, delay))
-    script = (f"sleep {delay}; "
-              f"tmux send-keys -t {shlex.quote(pane)} -l {shlex.quote('/rename ' + agent)}; "
-              f"sleep 1; tmux send-keys -t {shlex.quote(pane)} Enter")
+    log_injection(pane, RENAME_ACTION, rename_injection_note(agent, delay, expected_title))
+    script = rename_injection_script(pane, agent, delay, expected_title or agent)
     subprocess.Popen(["bash", "-c", script], stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, start_new_session=True)
 
@@ -13815,7 +13837,7 @@ def cmd_close(args):
               f"ran. Kill the dead pane BY ID (tmux kill-pane -t {pane}) and retry.",
               file=sys.stderr)
         sys.exit(1)
-    schedule_session_rename(pane, closer["agent"])
+    schedule_session_rename(pane, closer["agent"], expected_title=title)
     # G-21: the state opens only once the closer is VERIFIED up. Setting it earlier would narrow a
     # live seat's inbox on the strength of a closer that might never have started — which is
     # exactly how G-11 burned seven minutes of this run on a closer that was only ever a shell.
@@ -15060,7 +15082,7 @@ def _selftest_checks(args, failures, names):
     tmux_kill_pane = lambda pane: (killed.append(pane) or (True, ""))
     tmux_capture = lambda pane: (f"captured scrollback of {pane}", "")
     tmux_raise_history_limit = lambda: None
-    schedule_session_rename = lambda pane, agent, delay=25: renames.append(agent)
+    schedule_session_rename = lambda pane, agent, delay=25, expected_title=None: renames.append(agent)
     panel_panes = []
     tmux_window_panes = lambda target: list(panel_panes)
     tmux_session_name = lambda target: "testsess"
@@ -15479,6 +15501,39 @@ def _selftest_checks(args, failures, names):
               and "NOT observed" in rename_injection_note("zeta-seat", 25)
               and "zeta-seat" in rename_injection_note("zeta-seat", 25)
               and "~25s" in rename_injection_note("zeta-seat", 25))
+        # Owner-session rename incident (2026-08-10): the detached rename fired at pane ids the
+        # seat no longer owned and renamed the OWNER'S OWN sessions to 'elicitator'. The fix is a
+        # FIRE-TIME guard inside the detached script: read the pane title, type only on an exact
+        # match with the title set at boot, exit 0 on anything else. Proven here structurally AND
+        # functionally (fake tmux on PATH, both verdicts) — a guard that cannot be shown to
+        # refuse is not a guard.
+        scr = rename_injection_script("%13", "zeta-seat", 25, "zeta-seat")
+        check("rename guard: title read precedes send-keys and every mismatch bails with exit 0",
+              "pane_title" in scr and "|| exit 0" in scr and "send-keys" in scr
+              and scr.index("pane_title") < scr.index("send-keys"))
+        scr2 = rename_injection_script("%13", "closer-alpha", 25, "closer-alpha-pane-title")
+        check("rename guard: the comparison uses the EXPECTED TITLE, not the agent name "
+              "(the closer path titles its pane `closer-<target>`)",
+              "closer-alpha-pane-title" in scr2.split("send-keys")[0])
+        with tempfile.TemporaryDirectory() as _fk:
+            _fkd = Path(_fk)
+            _calls = _fkd / "calls.log"
+            _tm = _fkd / "tmux"
+            _tm.write_text("#!/bin/bash\necho \"$@\" >> \"$CALLS\"\n"
+                           "[ \"$1\" = display-message ] && echo \"$FAKE_TITLE\"\nexit 0\n")
+            _tm.chmod(0o755)
+            _env = dict(os.environ, PATH=f"{_fkd}:{os.environ.get('PATH', '')}",
+                        CALLS=str(_calls), FAKE_TITLE="not-the-seat")
+            subprocess.run(["bash", "-c", rename_injection_script("%13", "zeta", 0, "zeta")],
+                           env=_env, capture_output=True)
+            _wrong = _calls.read_text() if _calls.exists() else ""
+            _env["FAKE_TITLE"] = "zeta"
+            subprocess.run(["bash", "-c", rename_injection_script("%13", "zeta", 0, "zeta")],
+                           env=_env, capture_output=True)
+            _both = _calls.read_text() if _calls.exists() else ""
+        check("rename guard FIRES: against a fake tmux a wrong title types NOTHING, and the "
+              "matching title types the /rename (red and green measured in one fixture)",
+              "send-keys" not in _wrong and "/rename zeta" in _both)
 
         # ---- wave windows: `window: NAME` seats share one window, one pane each ----
         check("wave: placement plan — own / shared / pane",
@@ -26449,9 +26504,19 @@ def _selftest_checks(args, failures, names):
               "\n" not in cmd and f'"$(cat {pf})"' in cmd
               and pf.read_text(encoding="utf-8") == "multi\nline\nprompt\n")
         cmd2, _ = harness_command(_pf_seat, prompt_path=pf)
-        ok2, _ = wake("%1", cmd2)  # real wake: refuses on newline, otherwise reaches tmux
+        # Owner-session injection incident (2026-08-10): this arm used to fire a REAL
+        # `wake("%1", cmd2)` — on any box with a live default tmux server, EVERY selftest run
+        # typed the full zeta launch command into whoever owned pane %1 (measured twice, two
+        # nights apart: it landed in the owner's own interactive session; a shell pane would
+        # LAUNCH the claude for real). The negative arm below still exercises the REAL wake's
+        # newline guard, but against a pane id no server ever mints, so even a guard-passing
+        # text could never be delivered — the selftest must be runnable on a box with live
+        # human panes.
+        _nl_ok, _nl_err = wake("%2147483647", "two\nlines")
         check("G-11: launch and close now share ONE spawn shape, so the wake guard cannot fire on "
-              "either", "\n" not in cmd2)
+              "either — and the real wake still REFUSES a newline before reaching tmux "
+              "(proven against an unmintable pane id: no live pane can receive selftest text)",
+              "\n" not in cmd2 and _nl_ok is False and "newline" in (_nl_err or ""))
 
     snap = [(100, 1, "bash"), (200, 100, "claude --model opus --effort medium PROMPT"),
             (300, 200, "bash -c coordinate read"), (400, 1, "claude --model fable OTHER SEAT"),
