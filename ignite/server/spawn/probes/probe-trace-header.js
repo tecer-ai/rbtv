@@ -29,7 +29,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
-const { capture } = require('./lib');
+const { capture, reapWorkerUnit } = require('./lib');
+const { listSystemdUnits } = require('../carrier');
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../spawn');
 
@@ -137,6 +138,23 @@ capture('probe-trace-header', async (lines) => {
   delete process.env.TMUX;
   delete process.env.TMUX_PANE;
 
+  // ── 7.544 — THIS PROBE'S OWN UNIT TEARDOWN, AND THE COUNT THAT PROVES IT ────────────────────
+  //
+  // Its legs fire the at-dispatch door on a `sleep 3600` profile, and `--collect` reaps a
+  // transient unit only when it EXITS — so before this, each full run of the suite left THREE
+  // live `rbtv-worker-*` units behind for an hour (T1/T2/T3; T4's spawn is refused by systemd-run
+  // and creates none, and T5/T6 go through the SEAT door, whose scope is `rbtv-seat-*`).
+  //
+  // This fixture is hand-built rather than lib's `setup()`, so lib's `teardown()` — which reaps —
+  // never ran for it. The ids are collected as they are minted and reaped in the outer `finally`,
+  // which covers the normal, assertion-failure and crash paths alike. The before/after census is
+  // the p3-6 instrument (`deploy/p3-6-bwrap-write.js`), scoped to the units THIS run created so a
+  // concurrent probe's units can never make it read clean.
+  const spawnedIds = [];
+  const unitCensus = () => listSystemdUnits('rbtv-worker-').map((u) => u.unitName.replace(/\.service$/, ''));
+  const unitsBefore = unitCensus();
+  lines.push(`rbtv-worker-* units before: ${unitsBefore.length} (systemctl --user list-units --type=service 'rbtv-worker-*')`);
+
   const fixtures = [];
   // The heart store is a per-process singleton (`E_SECOND_WRITER`), so each leg's fixture closes
   // the previous one's store rather than the legs sharing a package — a shared package could not
@@ -156,6 +174,12 @@ capture('probe-trace-header', async (lines) => {
       return { threw: false, execId: row.exec_id };
     } catch (err) {
       return { threw: true, execId: row.exec_id, code: err.code, message: err.message };
+    } finally {
+      // 7.544 — record the session id whether the spawn returned or THREW: the throwing path is
+      // the one that can still have left a unit behind (systemd-run may accept the unit and fail
+      // afterwards), so reading the id from the store rather than from spawn's return value is
+      // what makes the abnormal path reapable too.
+      try { spawnedIds.push(f.store.getExecution(row.exec_id).session_id); } catch { /* no row */ }
     }
   };
   // Every leg asserts the SAME three properties of the landed row, so a leg cannot pass by a
@@ -296,6 +320,7 @@ capture('probe-trace-header', async (lines) => {
         `threw=${threw} sessions.csv exists=${fs.existsSync(f.sessionsCsv)} rows=${t ? t.data.length : 'n/a'}`);
     }
   } finally {
+    for (const sid of spawnedIds) reapWorkerUnit(sid);
     try { tmuxFixture(['kill-server']); } catch { /* already gone */ }
     if (savedTmpdir === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = savedTmpdir;
     if (savedTmux === undefined) delete process.env.TMUX; else process.env.TMUX = savedTmux;
@@ -304,6 +329,15 @@ capture('probe-trace-header', async (lines) => {
     try { closeHeartStore(); } catch { /* teardown */ }
     for (const f of fixtures) { try { fs.rmSync(f.root, { recursive: true, force: true }); } catch { /* teardown */ } }
   }
+
+  // ── T7 (7.544) — NO LEAKED UNIT. Measured against the units this run itself created, not the
+  // raw total, so a unit spawned by a concurrent probe neither fails this leg nor hides a leak.
+  // Read IMMEDIATELY after teardown: waiting out the `sleep 3600` would make the check vacuous.
+  const unitsAfter = unitCensus();
+  const leaked = unitsAfter.filter((u) => !unitsBefore.includes(u));
+  leg('T7', 'TEARDOWN — every rbtv-worker-* unit this run created is gone the moment the run ends (no unit outlives its fixture)',
+    leaked.length === 0,
+    `before=${unitsBefore.length} after=${unitsAfter.length} spawned=${spawnedIds.length} leaked=${JSON.stringify(leaked)}`);
 
   if (fails.length) throw new Error(`legs failed: ${fails.join(', ')}`);
   lines.push('legs: ALL PASS');

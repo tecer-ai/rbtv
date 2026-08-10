@@ -3,11 +3,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../../spawn/spawn');
 const { createTicker } = require('../ticker');
+// 7.544 — ONE reaper implementation, owned by the spawn probe fixture (PRIN-11). Both fixtures
+// spawn through the same carrier and leak the same `rbtv-worker-*` units; a second copy here is
+// the same drift as a second rule.
+const { reapWorkerUnit } = require('../../spawn/probes/lib');
 
 function setup(configOverrides = {}, extraProfiles = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p3-1-probe-'));
@@ -72,19 +75,6 @@ function setup(configOverrides = {}, extraProfiles = {}) {
   });
 
   return { tmp, dataRoot, workRoot, defaultWorkdir, seatDir, runDir, cfgPath, store, mgr, ticker, dbPath, feedPath, logPath };
-}
-
-// Forcibly reap a transient user unit spawned by this probe, clearing any
-// failed state (a SIGKILLed unit lingers as `failed` until reset-failed).
-// Best-effort and idempotent: safe on an already-dead or never-created unit.
-function reapWorkerUnit(sessionId) {
-  if (!sessionId) return;
-  const unit = `rbtv-worker-${sessionId}.service`;
-  for (const sig of ['SIGTERM', 'SIGKILL']) {
-    try { execFileSync('systemctl', ['--user', 'kill', `--signal=${sig}`, unit], { stdio: 'ignore', timeout: 10000 }); } catch {}
-  }
-  try { execFileSync('systemctl', ['--user', 'stop', unit], { stdio: 'ignore', timeout: 10000 }); } catch {}
-  try { execFileSync('systemctl', ['--user', 'reset-failed', unit], { stdio: 'ignore', timeout: 10000 }); } catch {}
 }
 
 // Guaranteed cleanup: kill every worker unit this probe spawned, on PASS or
