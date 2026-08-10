@@ -105,7 +105,8 @@ are now **measured**, and the manager-side FIFO fallback is **not needed**:
 | Construction + shutdown | `server/index.js` (`createLiveSessions`, `liveSessions.stop()` in `shutdown`) |
 | The bridge's caller | `bridges/chat/live-sessions.js` (new), hooked in `chat-bridge.js#onChatMessage` before the forward path |
 | Config | `bridges/chat/config.js` — `live_sessions` (default **true**) |
-| Proof | `bridges/chat/probes/probe-chat-live-session.js` — 29 checks, 7 arms, 1 mutation arm |
+| Proof — the harness half | `bridges/chat/probes/probe-chat-live-session.js` — 29 checks, 7 arms, 1 mutation arm |
+| Proof — the POSTING half | `bridges/chat/probes/probe-chat-warm-post.js` — the fence extraction, the ⏳ receipt, and the posted-once claim (§ the two defects below) |
 
 ### The four deltas from the sketch — each forced, each measured
 
@@ -142,6 +143,43 @@ caller falls back rather than posting a blank fast reply (the `No conversation f
 **the master-profile reap needs no hook into the python** — the caller resolves the profile from
 its own freshly-read config on every message, so a warm session whose conversation now names a
 different profile is reaped at the next message, which is exactly the guarantee §1 asked for.
+
+### The two defects the posting path shipped with (owner-reported 2026-08-10, fixed the same hour)
+
+Both were in ONE block — `chat-bridge.js#onChatMessage`'s `warm.answered` arm — and both are the
+same mistake: **the warm arm posts, and posting was already a solved problem it did not reuse.**
+The cold path had been correct on both counts since 30fba1e.
+
+1. **THE ANSWER ARRIVED TWICE.** A live session's `result` event carries the WHOLE final turn text,
+   and the reply contract asks the agent to end its turn with the message between
+   `<<<SLACK-REPLY>>>` and `<<<END-SLACK-REPLY>>>`. So a *conformant* warm reply is the prose, the
+   sentinels, and the message again — and the arm posted it raw. The owner read his answer twice
+   with the markers between the halves, minutes after df65147 went live. Fixed by extracting
+   through `reply-leg.js#extractFenced` — the COLD PATH'S OWN extractor, imported, never a second
+   regex: last complete pair wins, sentinels matched as whole trimmed lines. An unfenced reply is
+   posted unchanged, so the fix can only ever remove a duplication that is there.
+   ⚑ The bridge is the right layer and the daemon is not: `extractFenced` lives in the bridge
+   subtree, the manager is daemon-side, and `ignite/CLAUDE.md`'s relocatable-subtree rule runs in
+   both directions. A conformance verdict is the reply contract's business — which is a CHAT
+   contract — so it belongs where the contract lives.
+2. **NO READ RECEIPT ON A FOLLOW-UP.** The ⏳ marker was stamped only on the cold-forward branch,
+   which a warm turn returns before reaching. Message #1 of a thread was marked and every message
+   after it — precisely the warm ones — showed nothing, which the owner read as the bridge ignoring
+   him. The original reasoning ("a marker added and removed inside two seconds is noise") rested on
+   the §1 budget below; the journal for this box on 2026-08-10 measured the warm turns that
+   provoked the report at **13.4s, 18.5s and 25.8s**, so the premise was simply false in practice.
+   The mark now happens BEFORE the feed, where the gap actually is; `deliverToOwner` already takes
+   it off on both legs. `markPending` became idempotent on the same message so the warm→cold
+   fall-through cannot flicker it, and a message the forward path then REFUSES has its marker
+   cleared — a ⏳ with nothing behind it is dead air wearing the costume of work in progress.
+
+**No double-post race exists, and the reason is structural** (checked before looking for one): a
+warm turn writes no queue row and no `jobs_log` row (delta 2 above), so `recent_ticks` carries no
+`spawn` action for the reply leg to capture, and the warm arm returns before `replyLeg.arm`. The
+live journal for the first warm conversation (`D0BJ…053339`) shows it directly — one
+`reply leg delivered worker reply to owner` for the cold turn at 14:47:53Z, then three
+`chat message handled on the warm path` with no further capture or delivery. The property is now
+asserted rather than argued: the probe requires exactly one post and zero enqueues per warm turn.
 
 ### ⚠ ON THIS DEPLOYMENT, NOTHING IS ELIGIBLE YET — two owner decisions
 

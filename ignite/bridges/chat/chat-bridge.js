@@ -17,7 +17,7 @@ const path = require('node:path');
 
 const { createForwardPath } = require('./forward-path');
 const { createLiveLeg } = require('./live-sessions');
-const { createReplyLeg } = require('./reply-leg');
+const { createReplyLeg, extractFenced } = require('./reply-leg');
 const { createBusFerry } = require('./bus-ferry');
 
 const STATE_VERSION = 1;
@@ -477,6 +477,13 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // BEFORE any warm work: a revoked principal holding an old mapped thread is refused here
     // exactly as it is refused there.
     if (route && chatMsg.chatThreadId && allowlist.isAdmitted(chatMsg.chatUserId)) {
+      // ⏳ STAMPED HERE, BEFORE THE ATTEMPT — the warm path is not the instant path the design
+      // assumed. Measured on this box 2026-08-10: three warm turns at 13.4s, 18.5s and 25.8s
+      // (`warm turn answered`, ms), not the 1.5-4s that made a marker "noise". An accepted
+      // message showing nothing for 26 seconds is the exact dead air the marker exists for, and
+      // the owner read its absence as the bridge ignoring every follow-up. `deliverToOwner`
+      // takes it off when the answer lands, on the warm path and the cold one alike.
+      markPending(chatMsg.chatThreadId, chatMsg._channel, chatMsg._msgTs);
       const home = forwardPath.workdirFor(route);
       const warm = await liveLeg.attempt({
         chatThreadId: chatMsg.chatThreadId,
@@ -486,10 +493,22 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         workdir: home && home.ok ? home.workdir : null,
       });
       if (warm.answered) {
-        // Posted straight into the thread — no reply-leg arming, no ⏳ marker. Both exist to
-        // cover the GAP between an owner's message and an answer minutes later; on this path
-        // there is no gap to cover, and a marker added and removed inside two seconds is noise.
-        const delivered = await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text: warm.text, markAsk: false });
+        // Posted straight into the thread — no reply-leg arming. The leg exists to find an
+        // exec and wait for it; a warm turn writes no queue row and no `jobs_log` row
+        // (server/spawn/live-sessions.js § what it does not do), so there is no spawn action
+        // for the leg to capture and nothing to arm it for.
+        //
+        // ⚑ THE FENCE IS EXTRACTED HERE, through the COLD PATH'S OWN extractor. A live
+        // session's `result` event carries the WHOLE final turn text, and the reply contract
+        // asks the agent to end that turn with its message between two sentinel lines — so a
+        // conformant warm reply arrives as the prose AND the fenced copy AND the markers, and
+        // posting it raw delivered the owner the same answer twice with `<<<SLACK-REPLY>>>`
+        // between the halves (owner-observed 2026-08-10, minutes after df65147). One extractor
+        // for both legs, never a second regex: last complete pair wins, sentinels matched as
+        // whole lines. An UNFENCED reply is posted byte-for-byte as before — this can only
+        // ever remove the duplication, never change a reply that never had it.
+        const text = extractFenced(warm.text) || warm.text;
+        const delivered = await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text, markAsk: false });
         if (delivered && delivered.delivered !== false) {
           const out = { forwarded: true, leg: 'live-session', warm: true, ms: warm.ms };
           log('info', 'chat message handled on the warm path', { chatThreadId: chatMsg.chatThreadId, ...out });
@@ -514,6 +533,11 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       // REPLACES the fire-and-forget 🤖 of 2026-08-06 — see that section for why two
       // independent indicators could not be ordered against each other.
       markPending(chatMsg.chatThreadId, chatMsg._channel, chatMsg._msgTs);
+    } else if (chatMsg && chatMsg.chatThreadId) {
+      // REFUSED after the warm attempt marked it. Nothing is coming for this message, so the
+      // ⏳ must not outlive it — a marker with no answer behind it is dead air wearing the
+      // costume of work in progress. A no-op when nothing was marked.
+      clearPending(chatMsg.chatThreadId);
     }
     log('info', 'chat message handled', { chatThreadId: chatMsg && chatMsg.chatThreadId, ...outcome });
     return outcome;
@@ -570,6 +594,12 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
 
   function markPending(chatThreadId, channel, ts) {
     if (!chatThreadId || !channel || !ts || typeof transport.react !== 'function') return;
+    // IDEMPOTENT ON THE SAME MESSAGE. One owner turn now passes here twice — once before the
+    // warm attempt, once again if that attempt refuses and the cold path forwards it — and
+    // without this the second call would remove the ⏳ it just added and re-add it, a visible
+    // flicker plus two useless Slack calls on every cold message.
+    const already = hourglassAt.get(chatThreadId);
+    if (already && already.channel === channel && already.ts === ts) return;
     clearPending(chatThreadId); // the previous turn's ⏳ never outlives its successor
     hourglassAt.set(chatThreadId, { channel, ts });
     queueReaction(() => transport.react({ channel, ts, name: HOURGLASS }));
