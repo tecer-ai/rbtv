@@ -55,6 +55,11 @@ engine breadcrumb, no session-maintained doc. Sources: the goal's `taskforce.csv
   marks the ask row itself, so answered ones are paired off greedily in `msg_id` order — two asks
   and one answer on a thread leaves the second still listed, because hiding an open question is
   the one direction this surface must never err in.
+- **An INTERRUPTED seat is named as one.** A foreground row still `launching` belongs to a runner
+  that is gone, and the shared predicate correctly calls it `live` — which reads to an operator as
+  *"something is working on it"* when nothing is. The verb reports `interrupted` alongside the state
+  rather than instead of it: `seatState` stays the engine's one copy of the wave math, and the next
+  run's reconciliation is what actually resolves the row.
 - Refusals are distinct: a path that is not a goal folder names the goal-folder shape; a goal with
   no `taskforce.csv` names the missing file.
 
