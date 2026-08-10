@@ -4849,7 +4849,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         check("SC-1 control: a divergent registry row REFUSES the dry-run "
               "through check_bindings",
               cpl.returncode != 0
-              and "disagree with the run's registry" in cpl.stderr,
+              and "fail the run's registry check" in cpl.stderr,
               (cpl.stdout + cpl.stderr).strip()[:200])
         # SC-1 control (no-registry-row half): DELETE the beta row.
         deleted = "\n".join(l for l in text.splitlines()
