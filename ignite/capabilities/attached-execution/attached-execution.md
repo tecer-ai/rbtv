@@ -43,6 +43,10 @@ engine breadcrumb, no session-maintained doc. Sources: the goal's `taskforce.csv
   `interactive` (absent = `autonomous`, the ratified default). Both readers are the chat bridge's
   own (`bridges/chat/bus-ferry.js`), so this surface and the gate that actually parks an
   owner-addressed message cannot drift apart.
+- **Only UNANSWERED questions are listed.** Asks and answers correlate by `thread` and nothing
+  marks the ask row itself, so answered ones are paired off greedily in `msg_id` order — two asks
+  and one answer on a thread leaves the second still listed, because hiding an open question is
+  the one direction this surface must never err in.
 - Refusals are distinct: a path that is not a goal folder names the goal-folder shape; a goal with
   no `taskforce.csv` names the missing file.
 
