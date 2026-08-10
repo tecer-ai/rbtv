@@ -25,8 +25,8 @@ is ~1300 lines whose comments are its documentation, and a dump-and-rewrite woul
 | Verb | What it does | Who runs it |
 |---|---|---|
 | `show [--json]` | the delay in force, whether it is explicit or the tool default, the exact `file:line` it comes from, and the reminder that it is boot-read | anyone, including a caged seat — the cage's bind is read-only, not unreadable |
-| `request <seconds> --inbox D` | validate → stage `{"delay-seconds": N}` into the seat's own folder → `ignite add-job` the daemon-side job | **the seat** |
-| `apply --inbox D --config F [--no-restart]` | drain the inbox, edit the YAML, record the outcome, restart `rbtv-ignite` LAST | **the daemon**, via `tools: goal-launch-delay` |
+| `request <seconds> --inbox D [--chat-thread C:TS]` | validate → stage `{"delay-seconds": N}` (plus the thread id when given) into the seat's own folder → `ignite add-job` the daemon-side job | **the seat** |
+| `apply --inbox D --config F [--no-restart]` | drain the inbox, edit the YAML, record the outcome, **report into the requester's chat thread**, restart `rbtv-ignite` LAST | **the daemon**, via `tools: goal-launch-delay` |
 
 Exit 0 when everything drained was accepted (or the inbox was empty), 1 otherwise — the same
 per-fire exit convention as `goal-creation-request`, with the same consequence: **one junk file
@@ -85,6 +85,35 @@ Every outcome — accepted or refused — is written as `<name>.outcome.json` be
 in `done/` or `refused/`, **inside the folder the requester staged into**. An outcome a caged
 requester cannot read is a silent drop.
 
+## ⚠ `--chat-thread` — the outcome reports itself back into the owner's thread
+
+Issue `i-profile-switch-no-feedback` (owner-ruled 2026-08-10); the twin `master-profile` gets the
+identical change, so the two knobs behave the same way. The outcome record in `done/` is durable but
+**silent**: the sitting that asked has ended its turn, and the owner watches a thread where nothing
+ever answers. So `request` takes `--chat-thread <channel>:<ts>` — the sitting's own thread, which it
+already knows from the plain `chat-thread:` line at the top of every prompt — the staged payload
+carries it as `"chat-thread"`, and `apply` reports the outcome there.
+
+**This tool posts nothing.** It appends ONE row to the requesting goal's coordination bus
+(`<goal>/coordination/messages.md`, derived from the inbox — never a named goal), addressed
+`to: owner`, whose body carries the **bracketed** `[chat-thread: <id>]` token;
+`bridges/chat/bus-ferry.js`'s return leg is what carries it into the thread. Bracketed is the
+routing form — the plain form a prompt carries is deliberately inert — and the return leg is read
+**before** the two contact gates, so the report travels on a goal that may not *initiate* contact.
+The append goes through `coord.py#append_message`, the one allocator of bus ids (and the owner of
+the header grammar, the package lock, and the trailing newline the ferry's torn-write rule needs).
+
+| Property | Why |
+|---|---|
+| ACCEPTED **and** refused both report | "your change did not happen, and here is why" is the answer the owner is owed most |
+| the report precedes the restart | restart-last is the ruled invariant above, so the row **cannot** state the restart's exit code — it states what is *about to* happen. The rc stays in the outcome record |
+| a failed append never aborts the apply | the retiming is the job, the report is the courtesy — it is recorded as `chat-report.error` in the outcome record and the fire continues |
+| no token → nothing is appended | pre-existing callers keep the behaviour they had |
+| a token the ferry could not route is **refused**, at both halves | the shape mirrors `bus-ferry.js`'s `CHAT_THREAD_RE` anchored; an accepted-but-unroutable token is a report nobody receives |
+
+The bracketed token is visible to the owner in the delivered message — unavoidable, since the token
+must ride in the row's body for the ferry to route on it. It sits on the last line, as a footer.
+
 ## How the seat drives it
 
 ```bash
@@ -92,7 +121,9 @@ requester cannot read is a silent drop.
 .../capabilities/goal-launch-delay/tool/rbtv-goal-launch-delay show
 
 # change it (validates, stages, enqueues — one command)
+# `--chat-thread` is YOUR thread: the plain `chat-thread:` line at the top of your prompt.
 .../capabilities/goal-launch-delay/tool/rbtv-goal-launch-delay request 900 \
+  --chat-thread C0ABCDEFG:1754812345.123456 \
   --inbox /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/settings-requests/goal-launch-delay
 
 # what happened to the request the last sitting made?
@@ -125,4 +156,11 @@ already carried the new value (the check that discriminates edit-then-restart fr
 restart-then-edit); five refusal shapes each leave the config's sha256 unchanged with no restart
 fired; an accepted edit moves **exactly one line** of 1316; the absent-flag insert arm works; and a
 **mutant** that widens the ceiling goes green, so the over-ceiling refusal is proven to come from
-the ceiling check rather than from something refusing everything.
+the ceiling check rather than from something refusing everything. Check 8 covers the self-report:
+`--chat-thread` stages the id and an unroutable one refuses at request time; a threaded apply
+appends **exactly one** row, parsed back the way the ferry parses it (fields by key) with the
+bracketed token and the old→new line, ending in a newline; the restart stub's **snapshot of the
+bus** already holds that row (report precedes restart); an untokened request appends nothing; a
+refused one reports its refusal. The fixture's inbox has the real
+`<goal>/settings-requests/<capability>` shape, because that is what the bus path is derived from —
+and it keeps the probe off the live bus.

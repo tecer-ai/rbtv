@@ -33,12 +33,21 @@ pointed at (`mod.DAEMON_OPERATOR`), so no unit is ever driven. That substitution
      still died on `error: unrecognized arguments: --config` (a root-level option the entry spells
      after the verb): every other check calls `apply()` as a function, which is the one surface the
      daemon never touches.
+  8. THE SELF-REPORT REACHES THE OWNER'S THREAD, AND IT PRECEDES THE RESTART — `request
+     --chat-thread` stages the id and a token the ferry could not route refuses at request time;
+     `apply` on a threaded request appends EXACTLY ONE `to: owner` row, parsed back the way
+     `bus-ferry.js` parses it (fields BY KEY) and carrying the BRACKETED token; the restart stub's
+     snapshot of the bus already holds that row, which is what discriminates report-then-restart
+     from restart-then-report; a request with NO token appends nothing at all; and a REFUSED
+     request with a token reports its refusal, because "your change did not happen, and here is
+     why" is the answer the owner is owed most.
 """
 
 import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import shutil
 import sys
@@ -89,16 +98,53 @@ def sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
-def stub_operator(tmp, target):
+def stub_operator(tmp, target, bus=None):
     """A stand-in for `rbtv-ignite-daemon` that records that it ran, and WHAT THE CONFIG LOOKED
-    LIKE when it ran. The snapshot is what proves the ordering; the argv alone would not."""
+    LIKE when it ran. The snapshot is what proves the ordering; the argv alone would not.
+
+    `bus` adds a second snapshot — the coordination log — which is how check 8 discriminates
+    report-then-restart from restart-then-report. Guarded, because on every other check the bus
+    file legitimately does not exist and a missing file is not a failure."""
     rec, snap = tmp / "restart.argv", tmp / "restart.snapshot"
+    bus_snap = tmp / "restart.bus-snapshot"
     s = tmp / "stub-daemon-operator"
     s.write_text("#!/usr/bin/env bash\n"
                  f'printf "%s\\n" "$*" >> {rec}\n'
-                 f'cp {target} {snap}\n', encoding="utf-8")
+                 f'cp {target} {snap}\n'
+                 + (f'cp {bus} {bus_snap} 2>/dev/null || true\n' if bus else ""),
+                 encoding="utf-8")
     s.chmod(0o755)
     return s, rec, snap
+
+
+# `## 4774 | from: goal-launch-delay | to: owner | type: note | exec: 2026-08-10a | 2026-08-10 14:23`
+#
+# READ THE FIELDS BY KEY, NEVER BY POSITION — `bus-ferry.js#parseHeader`'s own discipline, and the
+# reason it has it: the bus header grammar is ADDITIVE, `from-pkg:` and `exec:` already sit between
+# the fixed fields, and a positional regex reads such a row as malformed and drops it silently.
+BUS_HEADER_RE = re.compile(r"^## (\d+) \| (.+)$")
+
+
+def bus_rows(bus):
+    """Every row of a coordination log, keyed exactly as the ferry keys them."""
+    if not Path(bus).is_file():
+        return []
+    rows, cur = [], None
+    for line in Path(bus).read_text(encoding="utf-8").split("\n"):
+        m = BUS_HEADER_RE.match(line)
+        if m:
+            fields = {}
+            for part in m.group(2).split(" | "):
+                i = part.find(": ")
+                if i > 0:
+                    fields[part[:i]] = part[i + 2:].strip()
+            cur = {"id": int(m.group(1)), "fields": fields, "body": []}
+            rows.append(cur)
+        elif cur is not None:
+            cur["body"].append(line)
+    for r in rows:
+        r["body"] = "\n".join(r["body"]).strip()
+    return rows
 
 
 def stage(inbox, payload, name):
@@ -285,6 +331,91 @@ def main():
             check(mod.read_value(cfg)["seconds"] == 777,
                   "and the edit it was fired to make landed in the copy")
 
+    # ── 8 THE SELF-REPORT INTO THE OWNER'S OWN CHAT THREAD ────────────────────────────────
+    #
+    # ⚠ THE INBOX SHAPE IS PART OF THE FIXTURE. The tool DERIVES the bus from the inbox
+    # (`<goal>/settings-requests/<capability>` → `<goal>/coordination`) rather than naming a goal,
+    # so a flat temp inbox would prove a path the daemon never takes — and a probe that named the
+    # live goal would append to the owner's real bus, which a read-only check may not do.
+    print("check 8 — the outcome reports itself into the owner's thread, BEFORE the restart")
+    THREAD = "C0PROBEGLD:1754812345.123456"
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        inbox = tmp / "goal" / "settings-requests" / "goal-launch-delay"
+        bus = tmp / "goal" / "coordination" / "messages.md"
+        cfg = tmp / "spawn-profiles.yaml"
+        shutil.copy2(LIVE_CONFIG, cfg)
+        stub, rec, snap = stub_operator(tmp, cfg, bus=bus)
+        mod.DAEMON_OPERATOR = stub
+
+        # `/bin/true` stands in for the `ignite` client: `request` stages BEFORE it enqueues, and
+        # what is under test here is the payload, not the queue.
+        out = mod.request(inbox, 1234, "/bin/true", chat_thread=THREAD)
+        staged = json.loads(Path(out["staged"]).read_text())
+        check(staged.get("chat-thread") == THREAD,
+              f"request --chat-thread stages the id in the payload (got {staged.get('chat-thread')!r})")
+        bad_refused = False
+        try:
+            mod.request(inbox, 1234, "/bin/true", chat_thread="C0PROBEGLD-1754812345")
+        except mod.Refusal:
+            bad_refused = True
+        check(bad_refused, "a token bus-ferry.js could not route refuses in the sitting that typed it")
+
+        prev = mod.read_value(cfg)["seconds"]
+        mod.apply(inbox, cfg)
+        rows = bus_rows(bus)
+        check(len(rows) == 1, f"exactly ONE bus row was appended (got {len(rows)})")
+        if rows:
+            f, body = rows[0]["fields"], rows[0]["body"]
+            check(f.get("from") == "goal-launch-delay" and f.get("to") == "owner"
+                  and f.get("type") == "note",
+                  f"and its header carries from/to/type the ferry requires ({f})")
+            check(f"[chat-thread: {THREAD}]" in body,
+                  "the BRACKETED token is in the body — the plain form does not route")
+            check(f"`{prev}s` → `1234s`" in body,
+                  f"the body states the change as old → new (`{prev}s` → `1234s`)")
+            check("restart:" in body, "and names what happens to the unit")
+            check(not any(l.startswith("|") or l.startswith("#") for l in body.split("\n")),
+                  "the body is mrkdwn — no pipe tables, no markdown headings")
+        check(bus.read_text(encoding="utf-8").endswith("\n"),
+              "the log ends with a newline — the ferry's torn-write rule only counts a row that does")
+        check((tmp / "restart.bus-snapshot").is_file()
+              and THREAD in (tmp / "restart.bus-snapshot").read_text(),
+              "the bus AS THE RESTART SAW IT already carried the report — report precedes restart")
+
+    print("check 8b — a request with NO chat thread reports nothing at all")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        inbox = tmp / "goal" / "settings-requests" / "goal-launch-delay"
+        bus = tmp / "goal" / "coordination" / "messages.md"
+        cfg = tmp / "spawn-profiles.yaml"
+        shutil.copy2(LIVE_CONFIG, cfg)
+        stub, rec, snap = stub_operator(tmp, cfg, bus=bus)
+        mod.DAEMON_OPERATOR = stub
+        stage(inbox, {"delay-seconds": 1234}, "a.json")
+        out = mod.apply(inbox, cfg)
+        check(out["ok"] and not bus.exists(),
+              "the retiming landed and no bus row exists — an untokened request is silent, as before")
+
+    print("check 8c — a REFUSED outcome carrying a thread reports its refusal too")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        inbox = tmp / "goal" / "settings-requests" / "goal-launch-delay"
+        bus = tmp / "goal" / "coordination" / "messages.md"
+        cfg = tmp / "spawn-profiles.yaml"
+        shutil.copy2(LIVE_CONFIG, cfg)
+        digest = sha(cfg)
+        stub, rec, snap = stub_operator(tmp, cfg, bus=bus)
+        mod.DAEMON_OPERATOR = stub
+        stage(inbox, {"delay-seconds": 86401, "chat-thread": THREAD}, "a.json")
+        out = mod.apply(inbox, cfg)
+        rows = bus_rows(bus)
+        check(out["ok"] is False and sha(cfg) == digest and not rec.exists(),
+              "the refusal still refuses — config untouched, no restart")
+        check(len(rows) == 1 and "REFUSED" in rows[0]["body"]
+              and f"[chat-thread: {THREAD}]" in rows[0]["body"],
+              f"and exactly one row reports the refusal into the thread (got {len(rows)} row(s))")
+
     if inoperative:
         print(f"probe-goal-launch-delay: INOPERATIVE — {inoperative}")
         return 2
@@ -293,8 +424,10 @@ def main():
         return 1
     print("probe-goal-launch-delay: PASS — the edit lands, the restart is the last act, every "
           "refusal shape leaves the config byte-identical, the absent-flag insert works, and the "
-          "ceiling check is proven discriminating by mutation — and the argv the daemon "
-          "actually fires runs clean as a subprocess")
+          "ceiling check is proven discriminating by mutation — the argv the daemon "
+          "actually fires runs clean as a subprocess, and a request naming its chat thread reports "
+          "its outcome (accepted OR refused) as exactly one ferry-parseable bus row written BEFORE "
+          "the restart")
     return 0
 
 

@@ -47,6 +47,31 @@ SURVIVES the restart (verified live, this build: the tool's own outcome record w
 restart it performed). We do not lean on that anyway: the YAML is written with tmp+`os.replace`
 (atomic) and every outcome record is on disk BEFORE the restart is invoked, so even a kill mid-restart
 loses nothing but the `restart` field's final value, which then honestly reads `pending`.
+
+THE SELF-REPORT — WHY THE OUTCOME TRAVELS BACK ON THE COORDINATION BUS
+----------------------------------------------------------------------
+An outcome record in `done/` is durable but SILENT: the sitting that asked for the change has ended
+its turn, and the owner is left watching a Slack thread where nothing ever answers (issue
+`i-profile-switch-no-feedback`, owner-ruled 2026-08-10; this twin gets the identical change so the
+two knobs behave the same way). So `request` now takes the sitting's own
+`--chat-thread <channel>:<ts>` — every sitting is told its thread in the plain form on the first
+line of its prompt — and `apply` writes the outcome back into that thread.
+
+⚠ IT POSTS NOTHING ITSELF, AND THAT IS THE WHOLE DESIGN. This tool holds no Slack token and opens
+no socket. It appends ONE row to the requesting goal's coordination bus, addressed `to: owner`, with
+the BRACKETED `[chat-thread: <id>]` token in the body — and `bridges/chat/bus-ferry.js`'s return leg
+carries it into that thread. The bracketed form is the ferry's routing token (the plain form a
+prompt carries is deliberately inert), and the return leg is read BEFORE the two contact gates, so
+the report travels even on a goal that may not INITIATE contact with the owner. Nothing new was
+built for this: the row is appended through `coord.py#append_message`, the one allocator of bus ids.
+
+⚠ THE REPORT PRECEDES THE RESTART, so it cannot state the restart's exit code — it states what is
+ABOUT to happen. Restart-last is the ruled invariant above; reporting after it would mean reporting
+from a process that may have been killed. The rc stays where it always was: the record on disk.
+
+⚠ A FAILED APPEND NEVER ABORTS THE APPLY. The retiming is the job; the report is the courtesy. A
+report that cannot be written is recorded IN the outcome record (`chat-report.error`) and the fire
+continues — losing the change to save the message would be exactly backwards.
 """
 
 import argparse
@@ -62,6 +87,7 @@ from pathlib import Path
 _IGNITE = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG = _IGNITE / "config" / "spawn-profiles.yaml"
 DAEMON_OPERATOR = _IGNITE / "capabilities" / "daemon-operator" / "tool" / "rbtv-ignite-daemon"
+TEAM_KIT = _IGNITE / "team-kit"      # `coord.py` — the ONE allocator of bus message ids
 
 # The `tools:` entry whose argv carries the knob. A constant, not a flag: there is exactly one
 # entry that queues a master-created goal's first job, and making it selectable would invite a
@@ -241,22 +267,106 @@ def validate(seconds):
     return seconds
 
 
+# ────────────────────────────────────── the self-report back into the owner's own chat thread
+#
+# ⚠ THIS REGEX MIRRORS `bus-ferry.js`'s CHAT_THREAD_RE, ANCHORED. The ferry routes on
+# `[A-Z][A-Z0-9_]{2,}:\d+\.\d+` and NOTHING ELSE — a bare channel id (a GOAL conversation's shape)
+# is deliberately outside it, because routing into a goal channel is a different leg. A token this
+# tool accepted but the ferry would not route is a report staged into silence, so the shape is
+# checked HERE, in the sitting that typed it, and again at the fire.
+CHAT_THREAD_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}:\d+\.\d+$")
+
+# The `from:` this tool signs its bus rows with. The capability's own key, not a seat name: no seat
+# wrote this row, the daemon-side half of this tool did, and the owner reads it as `from <this>`.
+REPORT_SENDER = ENTRY_TOOL_KEY
+
+RESTART_UNIT = "rbtv-ignite"
+
+
+def validate_chat_thread(thread):
+    """The ONE thread-id validator, called by both halves — same reason `validate` is."""
+    if not isinstance(thread, str) or not CHAT_THREAD_RE.match(thread):
+        raise Refusal(f"--chat-thread must be `<channel>:<ts>` — a Slack channel id then a colon "
+                      f"then the thread timestamp (e.g. C0ABCDEFG:1754812345.123456); got "
+                      f"{thread!r}. Refused HERE because bus-ferry.js routes on exactly this shape "
+                      f"and silently ignores anything else — an accepted-but-unroutable token is a "
+                      f"report nobody ever receives.")
+    return thread
+
+
+def _bus_dir(inbox):
+    """The coordination bus of the goal the request was STAGED IN — `<goal>/coordination`.
+
+    DERIVED, never named: the inbox is `<goal>/settings-requests/<capability>`, so its grandparent
+    IS the requesting goal's folder, and that goal's bus is the one the ferry enumerates for it.
+    Naming `_channel-master` here would hard-code one workspace's goal into a repo whose components
+    must be general — and would send a probe's report onto the live bus.
+    """
+    return Path(inbox).resolve().parents[1] / "coordination"
+
+
+def report_to_thread(inbox, thread, body):
+    """Append ONE `to: owner` row carrying the bracketed token. NEVER raises — see the module
+    docstring: the change must not be lost to save the message.
+
+    The append goes through `coord.py#append_message`, which owns the header grammar, the id
+    allocation and the package lock (two concurrent senders once claimed one id). Imported in
+    process rather than shelled out: a body carrying backticks — and this one does — is a quoting
+    hazard on a command line and none at all through a function call.
+    """
+    try:
+        if str(TEAM_KIT) not in sys.path:
+            sys.path.insert(0, str(TEAM_KIT))
+        from coord import append_message
+        base = _bus_dir(inbox)
+        base.mkdir(parents=True, exist_ok=True)
+        n = append_message(base, REPORT_SENDER, "owner", "note",
+                           f"{body}\n\n[chat-thread: {thread}]")
+        return {"appended": n, "bus": str(base / "messages.md"), "chat-thread": thread}
+    except Exception as exc:
+        return {"appended": None, "chat-thread": thread,
+                "error": f"{type(exc).__name__}: {exc}",
+                "note": "the change itself was applied — only the owner-facing report failed"}
+
+
+def _report_body(record, restart):
+    """Slack mrkdwn, and only mrkdwn: no pipe tables, no `#` headings, no `[](…)` links — the ferry
+    delivers a conformant body VERBATIM, and a markdown-ism arrives as literal punctuation."""
+    if record["outcome"] == "ACCEPTED":
+        # NOT an rc — the report precedes the restart by ruling, so it says what is about to happen.
+        line = (f"restarting `{RESTART_UNIT}` now — the last act of this job"
+                if restart else
+                f"SKIPPED (--no-restart) — the change stays inert until `{RESTART_UNIT}` restarts")
+        return (f"*goal launch delay changed* — `{record['before']['seconds']}s` → "
+                f"`{record['requested']}s`\n"
+                f"restart: {line}\n"
+                f"scope: applies to goals created from now on")
+    return (f"*goal launch delay change REFUSED* — still `{record['before']['seconds']}s`\n"
+            f"why: {str(record.get('stated-refusal'))[:600]}\n"
+            f"restart: none — nothing changed")
+
+
 # ─────────────────────────────────────────────────────────────────────────── the client half
 
-def request(inbox, seconds, ignite_bin, job_id=JOB_ID, dry_run=False):
+def request(inbox, seconds, ignite_bin, job_id=JOB_ID, dry_run=False, chat_thread=None):
     validate(seconds)
+    if chat_thread is not None:
+        validate_chat_thread(chat_thread)
     inbox = Path(inbox)
     if inbox.is_symlink():
         raise Refusal(f"{inbox} is a symlink — refusing to stage through one")
     inbox.mkdir(parents=True, exist_ok=True)
     name = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.json"
     staged = inbox / name
-    out = {"ok": True, "staged": str(staged), "delay-seconds": seconds}
+    payload = {"delay-seconds": seconds}
+    if chat_thread:
+        payload["chat-thread"] = chat_thread
+    out = {"ok": True, "staged": str(staged), **payload}
     if dry_run:
         out["staged"] = None
         out["dry-run"] = True
         return out
-    staged.write_text(json.dumps({"delay-seconds": seconds}, indent=2) + "\n", encoding="utf-8")
+    staged.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     # The TRIGGER. `enqueue-job` carries no authz gate, so this leg works whichever sender kind the
     # channel master presents. `--at` now: the row fires on the next tick.
@@ -306,9 +416,15 @@ def apply(inbox, config, restart=True, dry_run=False):
         record = {"request-file": str(src), "before": before}
         try:
             payload = json.loads(src.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict) or set(payload) != {"delay-seconds"}:
-                raise Refusal(f"the payload must be exactly {{\"delay-seconds\": <int>}}; "
+            if (not isinstance(payload, dict) or "delay-seconds" not in payload
+                    or not set(payload) <= {"delay-seconds", "chat-thread"}):
+                raise Refusal(f"the payload must be {{\"delay-seconds\": <int>}} with an optional "
+                              f"\"chat-thread\": \"<channel>:<ts>\"; "
                               f"got keys {sorted(payload) if isinstance(payload, dict) else type(payload).__name__}")
+            # READ BEFORE THE VALUE IS VALIDATED, so a REFUSED request still knows where to report
+            # itself. A malformed token refuses the request instead of being reported into nowhere.
+            if payload.get("chat-thread") is not None:
+                record["chat-thread"] = validate_chat_thread(payload["chat-thread"])
             seconds = validate(payload["delay-seconds"])
             record["requested"] = seconds
             if not dry_run:
@@ -328,6 +444,19 @@ def apply(inbox, config, restart=True, dry_run=False):
 
     out = {"ok": all(r["outcome"] == "ACCEPTED" for r in results),
            "drained": len(results), "before": before, "results": results}
+
+    # ── THE SELF-REPORT, AND IT RUNS BEFORE THE RESTART BELOW ────────────────────────────────
+    # ACCEPTED and REFUSED alike: "your change did not happen, and here is why" is the answer the
+    # owner is owed most. Only a request that NAMED a thread reports; the rest are silent exactly
+    # as before, so nothing a previous caller staged acquires a new behaviour.
+    if not dry_run:
+        for r in results:
+            if not r.get("chat-thread"):
+                continue
+            r["chat-report"] = report_to_thread(inbox, r["chat-thread"],
+                                                _report_body(r, restart))
+            if r.get("moved-to"):
+                _outcome(Path(r["moved-to"]), r)
 
     if accepted and not dry_run:
         out["after"] = read_value(config)
@@ -400,6 +529,10 @@ def main(argv=None):
     q.add_argument("seconds", type=int)
     q.add_argument("--inbox", required=True)
     q.add_argument("--ignite-bin", default="ignite")
+    q.add_argument("--chat-thread", default=None,
+                   help="`<channel>:<ts>` — YOUR OWN chat thread, the plain `chat-thread:` line at "
+                        "the top of your prompt. Given it, the daemon reports the outcome back "
+                        "into that thread; omitted, the outcome is only the file in done/refused/")
     q.add_argument("--dry-run", action="store_true")
 
     a = sub.add_parser("apply", parents=[common],
@@ -421,7 +554,8 @@ def main(argv=None):
                 print("boot-read: a change needs an `rbtv-ignite` restart to take effect")
             return 0
         if args.verb == "request":
-            out = request(args.inbox, args.seconds, args.ignite_bin, dry_run=args.dry_run)
+            out = request(args.inbox, args.seconds, args.ignite_bin, dry_run=args.dry_run,
+                          chat_thread=args.chat_thread)
             print(json.dumps(out, indent=2))
             return 0 if out["ok"] else 1
         out = apply(args.inbox, args.config, restart=not args.no_restart, dry_run=args.dry_run)

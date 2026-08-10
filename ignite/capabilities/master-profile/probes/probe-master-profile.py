@@ -32,12 +32,21 @@ live conversation — a probe may not cost that.
      live-state operands substituted. Added after the twin capability's first live fire died on
      `error: unrecognized arguments: --config` with every function-level check green: the daemon
      execs a command line, and a check that only calls the function never sees it.
+  9. THE SELF-REPORT REACHES THE OWNER'S THREAD, AND IT PRECEDES THE RESTART — `request
+     --chat-thread` stages the id and a token the ferry could not route refuses at request time;
+     `apply` on a threaded request appends EXACTLY ONE `to: owner` row, parsed back the way
+     `bus-ferry.js` parses it (fields BY KEY) and carrying the BRACKETED token; the restart stub's
+     snapshot of the bus already holds that row, which is what discriminates report-then-restart
+     from restart-then-report; a request with NO token appends nothing at all; and a REFUSED
+     request with a token reports its refusal, because "your switch did not happen, and here is
+     why" is the answer the owner is owed most.
 """
 
 import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import shutil
 import sys
@@ -91,14 +100,51 @@ def sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
-def stub_operator(tmp, target):
+def stub_operator(tmp, target, bus=None):
+    """A stand-in for `rbtv-ignite-daemon` that records its argv and snapshots what the state
+    looked like WHEN IT RAN. `bus` adds a second snapshot — the coordination log — which is how
+    check 9 discriminates report-then-restart from restart-then-report. Guarded, because on every
+    other check the bus file legitimately does not exist and a missing file is not a failure."""
     rec, snap = tmp / "restart.argv", tmp / "restart.snapshot"
+    bus_snap = tmp / "restart.bus-snapshot"
     s = tmp / "stub-daemon-operator"
     s.write_text("#!/usr/bin/env bash\n"
                  f'printf "%s\\n" "$*" >> {rec}\n'
-                 f'cp {target} {snap}\n', encoding="utf-8")
+                 f'cp {target} {snap}\n'
+                 + (f'cp {bus} {bus_snap} 2>/dev/null || true\n' if bus else ""),
+                 encoding="utf-8")
     s.chmod(0o755)
     return s, rec, snap
+
+
+# `## 4774 | from: master-profile | to: owner | type: note | exec: 2026-08-10a | 2026-08-10 14:23`
+#
+# READ THE FIELDS BY KEY, NEVER BY POSITION — `bus-ferry.js#parseHeader`'s own discipline, and the
+# reason it has it: the bus header grammar is ADDITIVE, `from-pkg:` and `exec:` already sit between
+# the fixed fields, and a positional regex reads such a row as malformed and drops it silently.
+BUS_HEADER_RE = re.compile(r"^## (\d+) \| (.+)$")
+
+
+def bus_rows(bus):
+    """Every row of a coordination log, keyed exactly as the ferry keys them."""
+    if not Path(bus).is_file():
+        return []
+    rows, cur = [], None
+    for line in Path(bus).read_text(encoding="utf-8").split("\n"):
+        m = BUS_HEADER_RE.match(line)
+        if m:
+            fields = {}
+            for part in m.group(2).split(" | "):
+                i = part.find(": ")
+                if i > 0:
+                    fields[part[:i]] = part[i + 2:].strip()
+            cur = {"id": int(m.group(1)), "fields": fields, "body": []}
+            rows.append(cur)
+        elif cur is not None:
+            cur["body"].append(line)
+    for r in rows:
+        r["body"] = "\n".join(r["body"]).strip()
+    return rows
 
 
 def stage(inbox, payload, name="a.json"):
@@ -317,6 +363,93 @@ def main():
             check(mod.read_value(cfg)["profile"] == "claude-haiku",
                   "and the edit it was fired to make landed in the copy")
 
+    # ── 9 THE SELF-REPORT INTO THE OWNER'S OWN CHAT THREAD ────────────────────────────────
+    #
+    # ⚠ THE INBOX SHAPE IS PART OF THE FIXTURE. The tool DERIVES the bus from the inbox
+    # (`<goal>/settings-requests/<capability>` → `<goal>/coordination`) rather than naming a goal,
+    # so a flat temp inbox would prove a path the daemon never takes — and a probe that named the
+    # live goal would append to the owner's real bus, which a read-only check may not do.
+    print("check 9 — the outcome reports itself into the owner's thread, BEFORE the restart")
+    THREAD = "C0PROBEMP:1754812345.123456"
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        inbox = tmp / "goal" / "settings-requests" / "master-profile"
+        bus = tmp / "goal" / "coordination" / "messages.md"
+        cfg = tmp / "chat-bridge-config.json"
+        shutil.copy2(LIVE_CONFIG, cfg)
+        stub, rec, snap = stub_operator(tmp, cfg, bus=bus)
+        mod.DAEMON_OPERATOR = stub
+
+        # `/bin/true` stands in for the `ignite` client: `request` stages BEFORE it enqueues, and
+        # what is under test here is the payload, not the queue.
+        out = mod.request(inbox, "claude-opus", "/bin/true", profiles_path=LIVE_PROFILES,
+                          chat_thread=THREAD)
+        staged = json.loads(Path(out["staged"]).read_text())
+        check(staged.get("chat-thread") == THREAD,
+              f"request --chat-thread stages the id in the payload (got {staged.get('chat-thread')!r})")
+        bad_refused = False
+        try:
+            mod.request(inbox, "claude-opus", "/bin/true", profiles_path=LIVE_PROFILES,
+                        chat_thread="C0PROBEMP-1754812345")
+        except mod.Refusal:
+            bad_refused = True
+        check(bad_refused, "a token bus-ferry.js could not route refuses in the sitting that typed it")
+
+        prev = mod.read_value(cfg)["profile"]
+        mod.apply(inbox, cfg, profiles_path=LIVE_PROFILES)
+        rows = bus_rows(bus)
+        check(len(rows) == 1, f"exactly ONE bus row was appended (got {len(rows)})")
+        if rows:
+            f, body = rows[0]["fields"], rows[0]["body"]
+            check(f.get("from") == "master-profile" and f.get("to") == "owner"
+                  and f.get("type") == "note",
+                  f"and its header carries from/to/type the ferry requires ({f})")
+            check(f"[chat-thread: {THREAD}]" in body,
+                  "the BRACKETED token is in the body — the plain form does not route")
+            check(f"`{prev}` → `claude-opus`" in body,
+                  f"the body states the change as old → new (`{prev}` → `claude-opus`)")
+            check("NEW threads only" in body, "and carries the thread-scope line the owner needs")
+            check(not any(l.startswith("|") or l.startswith("#") for l in body.split("\n")),
+                  "the body is mrkdwn — no pipe tables, no markdown headings")
+        check(bus.read_text(encoding="utf-8").endswith("\n"),
+              "the log ends with a newline — the ferry's torn-write rule only counts a row that does")
+        check((tmp / "restart.bus-snapshot").is_file()
+              and THREAD in (tmp / "restart.bus-snapshot").read_text(),
+              "the bus AS THE RESTART SAW IT already carried the report — report precedes restart")
+
+    print("check 9b — a request with NO chat thread reports nothing at all")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        inbox = tmp / "goal" / "settings-requests" / "master-profile"
+        bus = tmp / "goal" / "coordination" / "messages.md"
+        cfg = tmp / "chat-bridge-config.json"
+        shutil.copy2(LIVE_CONFIG, cfg)
+        stub, rec, snap = stub_operator(tmp, cfg, bus=bus)
+        mod.DAEMON_OPERATOR = stub
+        stage(inbox, {"master-profile": "claude-opus"})
+        out = mod.apply(inbox, cfg, profiles_path=LIVE_PROFILES)
+        check(out["ok"] and not bus.exists(),
+              "the switch landed and no bus row exists — an untokened request is silent, as before")
+
+    print("check 9c — a REFUSED outcome carrying a thread reports its refusal too")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        inbox = tmp / "goal" / "settings-requests" / "master-profile"
+        bus = tmp / "goal" / "coordination" / "messages.md"
+        cfg = tmp / "chat-bridge-config.json"
+        shutil.copy2(LIVE_CONFIG, cfg)
+        digest = sha(cfg)
+        stub, rec, snap = stub_operator(tmp, cfg, bus=bus)
+        mod.DAEMON_OPERATOR = stub
+        stage(inbox, {"master-profile": "gpt-9-ultra", "chat-thread": THREAD})
+        out = mod.apply(inbox, cfg, profiles_path=LIVE_PROFILES)
+        rows = bus_rows(bus)
+        check(out["ok"] is False and sha(cfg) == digest and not rec.exists(),
+              "the refusal still refuses — config untouched, no restart")
+        check(len(rows) == 1 and "REFUSED" in rows[0]["body"]
+              and f"[chat-thread: {THREAD}]" in rows[0]["body"],
+              f"and exactly one row reports the refusal into the thread (got {len(rows)} row(s))")
+
     if inoperative:
         print(f"probe-master-profile: INOPERATIVE — {inoperative}")
         return 2
@@ -326,7 +459,9 @@ def main():
     print("probe-master-profile: PASS — the edit lands, the BRIDGE restart is the last act, "
           "unknown names refuse against the LIVE roster leaving the file byte-identical, an absent "
           "key refuses rather than being created, and the membership check is proven discriminating "
-          "by mutation — and the argv the daemon actually fires runs clean as a subprocess")
+          "by mutation — the argv the daemon actually fires runs clean as a subprocess, and a "
+          "request naming its chat thread reports its outcome (accepted OR refused) as exactly one "
+          "ferry-parseable bus row written BEFORE the restart")
     return 0
 
 

@@ -50,6 +50,30 @@ the one gateway verb open to every sender kind including a `bridge` token, so it
 edit is inert until that unit restarts — and the restart kills the very conversation the requesting
 sitting is having. Edit first, outcome record on disk second, restart last: a sitting that vanishes
 mid-restart still finds its answer written when the next one reads the inbox.
+
+THE SELF-REPORT — WHY THE OUTCOME TRAVELS BACK ON THE COORDINATION BUS
+----------------------------------------------------------------------
+An outcome record in `done/` is durable but SILENT: the sitting that asked for the change is killed
+by the restart, and the owner is left watching a Slack thread where nothing ever answers (issue
+`i-profile-switch-no-feedback`, owner-ruled 2026-08-10). So `request` now takes the sitting's own
+`--chat-thread <channel>:<ts>` — every sitting is told its thread in the plain form on the first
+line of its prompt — and `apply` writes the outcome back into that thread.
+
+⚠ IT POSTS NOTHING ITSELF, AND THAT IS THE WHOLE DESIGN. This tool holds no Slack token and opens
+no socket. It appends ONE row to the requesting goal's coordination bus, addressed `to: owner`, with
+the BRACKETED `[chat-thread: <id>]` token in the body — and `bridges/chat/bus-ferry.js`'s return leg
+carries it into that thread. The bracketed form is the ferry's routing token (the plain form a
+prompt carries is deliberately inert), and the return leg is read BEFORE the two contact gates, so
+the report travels even on a goal that may not INITIATE contact with the owner. Nothing new was
+built for this: the row is appended through `coord.py#append_message`, the one allocator of bus ids.
+
+⚠ THE REPORT PRECEDES THE RESTART, so it cannot state the restart's exit code — it states what is
+ABOUT to happen. Restart-last is a ruled invariant (above); reporting after it would mean reporting
+from inside a killed process. The rc stays where it always was: the outcome record on disk.
+
+⚠ A FAILED APPEND NEVER ABORTS THE APPLY. The switch is the job; the report is the courtesy. A
+report that cannot be written is recorded IN the outcome record (`chat-report.error`) and the fire
+continues — losing the change to save the message would be exactly backwards.
 """
 
 import argparse
@@ -64,6 +88,7 @@ from pathlib import Path
 _IGNITE = Path(__file__).resolve().parents[3]
 DEFAULT_PROFILES = _IGNITE / "config" / "spawn-profiles.yaml"
 DAEMON_OPERATOR = _IGNITE / "capabilities" / "daemon-operator" / "tool" / "rbtv-ignite-daemon"
+TEAM_KIT = _IGNITE / "team-kit"      # `coord.py` — the ONE allocator of bus message ids
 # The workspace root is the folder that roots `.rbtv/` — <workspace>/3-resources/tools/rbtv/ignite
 DEFAULT_CONFIG = _IGNITE.parents[3] / ".rbtv" / "config" / "chat-bridge-config.json"
 
@@ -180,21 +205,106 @@ def write_value(config, name):
                   f"`\"{KEY}\": \"<profile>\"` to that file by hand first; this tool then owns it.")
 
 
+# ────────────────────────────────────── the self-report back into the owner's own chat thread
+#
+# ⚠ THIS REGEX MIRRORS `bus-ferry.js`'s CHAT_THREAD_RE, ANCHORED. The ferry routes on
+# `[A-Z][A-Z0-9_]{2,}:\d+\.\d+` and NOTHING ELSE — a bare channel id (a GOAL conversation's shape)
+# is deliberately outside it, because routing into a goal channel is a different leg. A token this
+# tool accepted but the ferry would not route is a report staged into silence, so the shape is
+# checked HERE, in the sitting that typed it, and again at the fire.
+CHAT_THREAD_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}:\d+\.\d+$")
+
+# The `from:` this tool signs its bus rows with. The capability's own key, not a seat name: no seat
+# wrote this row, the daemon-side half of this tool did, and the owner reads it as `from <this>`.
+REPORT_SENDER = ENTRY_TOOL_KEY
+
+RESTART_UNIT = "rbtv-chat-bridge"
+
+
+def validate_chat_thread(thread):
+    """The ONE thread-id validator, called by both halves — same reason `validate` is."""
+    if not isinstance(thread, str) or not CHAT_THREAD_RE.match(thread):
+        raise Refusal(f"--chat-thread must be `<channel>:<ts>` — a Slack channel id then a colon "
+                      f"then the thread timestamp (e.g. C0ABCDEFG:1754812345.123456); got "
+                      f"{thread!r}. Refused HERE because bus-ferry.js routes on exactly this shape "
+                      f"and silently ignores anything else — an accepted-but-unroutable token is a "
+                      f"report nobody ever receives.")
+    return thread
+
+
+def _bus_dir(inbox):
+    """The coordination bus of the goal the request was STAGED IN — `<goal>/coordination`.
+
+    DERIVED, never named: the inbox is `<goal>/settings-requests/<capability>`, so its grandparent
+    IS the requesting goal's folder, and that goal's bus is the one the ferry enumerates for it.
+    Naming `_channel-master` here would hard-code one workspace's goal into a repo whose components
+    must be general — and would send a probe's report onto the live bus.
+    """
+    return Path(inbox).resolve().parents[1] / "coordination"
+
+
+def report_to_thread(inbox, thread, body):
+    """Append ONE `to: owner` row carrying the bracketed token. NEVER raises — see the module
+    docstring: the switch must not be lost to save the message.
+
+    The append goes through `coord.py#append_message`, which owns the header grammar, the id
+    allocation and the package lock (two concurrent senders once claimed one id). Imported in
+    process rather than shelled out: a body carrying backticks — and this one does — is a quoting
+    hazard on a command line and none at all through a function call.
+    """
+    try:
+        if str(TEAM_KIT) not in sys.path:
+            sys.path.insert(0, str(TEAM_KIT))
+        from coord import append_message
+        base = _bus_dir(inbox)
+        base.mkdir(parents=True, exist_ok=True)
+        n = append_message(base, REPORT_SENDER, "owner", "note",
+                           f"{body}\n\n[chat-thread: {thread}]")
+        return {"appended": n, "bus": str(base / "messages.md"), "chat-thread": thread}
+    except Exception as exc:
+        return {"appended": None, "chat-thread": thread,
+                "error": f"{type(exc).__name__}: {exc}",
+                "note": "the change itself was applied — only the owner-facing report failed"}
+
+
+def _report_body(record, restart):
+    """Slack mrkdwn, and only mrkdwn: no pipe tables, no `#` headings, no `[](…)` links — the ferry
+    delivers a conformant body VERBATIM, and a markdown-ism arrives as literal punctuation."""
+    if record["outcome"] == "ACCEPTED":
+        change = record.get("change") or {}
+        # NOT an rc — the report precedes the restart by ruling, so it says what is about to happen.
+        line = (f"restarting `{RESTART_UNIT}` now — the last act of this job, and it ends this sitting"
+                if restart else
+                f"SKIPPED (--no-restart) — the change stays inert until `{RESTART_UNIT}` restarts")
+        return (f"*master profile changed* — `{change.get('previous')}` → `{record['requested']}`\n"
+                f"restart: {line}\n"
+                f"scope: applies to NEW threads only — this thread stays on its current profile")
+    return (f"*master profile change REFUSED* — still `{record['before']['profile']}`\n"
+            f"why: {str(record.get('stated-refusal'))[:600]}\n"
+            f"restart: none — nothing changed")
+
+
 # ─────────────────────────────────────────────────────────────────────────── the client half
 
-def request(inbox, name, ignite_bin, profiles_path=DEFAULT_PROFILES, job_id=JOB_ID, dry_run=False):
+def request(inbox, name, ignite_bin, profiles_path=DEFAULT_PROFILES, job_id=JOB_ID, dry_run=False,
+            chat_thread=None):
     validate(name, profiles_path)
+    if chat_thread is not None:
+        validate_chat_thread(chat_thread)
     inbox = Path(inbox)
     if inbox.is_symlink():
         raise Refusal(f"{inbox} is a symlink — refusing to stage through one")
     inbox.mkdir(parents=True, exist_ok=True)
     staged = inbox / f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.json"
-    out = {"ok": True, "staged": str(staged), "master-profile": name}
+    payload = {"master-profile": name}
+    if chat_thread:
+        payload["chat-thread"] = chat_thread
+    out = {"ok": True, "staged": str(staged), **payload}
     if dry_run:
         out["staged"] = None
         out["dry-run"] = True
         return out
-    staged.write_text(json.dumps({"master-profile": name}, indent=2) + "\n", encoding="utf-8")
+    staged.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     r = subprocess.run([ignite_bin, "add-job", "--fn", job_id,
@@ -262,9 +372,15 @@ def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=F
         record = {"request-file": str(src), "before": before}
         try:
             payload = json.loads(src.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict) or set(payload) != {"master-profile"}:
-                raise Refusal(f"the payload must be exactly {{\"master-profile\": \"<name>\"}}; "
+            if (not isinstance(payload, dict) or "master-profile" not in payload
+                    or not set(payload) <= {"master-profile", "chat-thread"}):
+                raise Refusal(f"the payload must be {{\"master-profile\": \"<name>\"}} with an "
+                              f"optional \"chat-thread\": \"<channel>:<ts>\"; "
                               f"got keys {sorted(payload) if isinstance(payload, dict) else type(payload).__name__}")
+            # READ BEFORE THE VALUE IS VALIDATED, so a REFUSED request still knows where to report
+            # itself. A malformed token refuses the request instead of being reported into nowhere.
+            if payload.get("chat-thread") is not None:
+                record["chat-thread"] = validate_chat_thread(payload["chat-thread"])
             name = validate(payload["master-profile"], profiles_path)
             record["requested"] = name
             if not dry_run:
@@ -281,6 +397,20 @@ def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=F
 
     out = {"ok": all(r["outcome"] == "ACCEPTED" for r in results),
            "drained": len(results), "before": before, "results": results}
+
+    # ── THE SELF-REPORT, AND IT RUNS BEFORE THE RESTART BELOW ────────────────────────────────
+    # ACCEPTED and REFUSED alike: "your switch did not happen, and here is why" is the answer the
+    # owner is owed most. Only a request that NAMED a thread reports; the rest are silent exactly
+    # as before, so nothing a previous caller staged acquires a new behaviour.
+    if not dry_run:
+        for r in results:
+            if not r.get("chat-thread"):
+                continue
+            r["chat-report"] = report_to_thread(inbox, r["chat-thread"],
+                                                _report_body(r, restart))
+            if r.get("moved-to"):
+                _outcome(Path(r["moved-to"]), r)
+
     if accepted and not dry_run:
         out["after"] = read_value(config)
         out["restart"] = _restart() if restart else {"skipped": "--no-restart"}
@@ -322,6 +452,10 @@ def main(argv=None):
     q.add_argument("profile")
     q.add_argument("--inbox", required=True)
     q.add_argument("--ignite-bin", default="ignite")
+    q.add_argument("--chat-thread", default=None,
+                   help="`<channel>:<ts>` — YOUR OWN chat thread, the plain `chat-thread:` line at "
+                        "the top of your prompt. Given it, the daemon reports the outcome back "
+                        "into that thread; omitted, the outcome is only the file in done/refused/")
     q.add_argument("--dry-run", action="store_true")
 
     a = sub.add_parser("apply", parents=[cfg_opt, prof_opt],
@@ -347,7 +481,7 @@ def main(argv=None):
             return 0
         if args.verb == "request":
             out = request(args.inbox, args.profile, args.ignite_bin, profiles_path=args.profiles,
-                          dry_run=args.dry_run)
+                          dry_run=args.dry_run, chat_thread=args.chat_thread)
             print(json.dumps(out, indent=2))
             return 0 if out["ok"] else 1
         out = apply(args.inbox, args.config, profiles_path=args.profiles,

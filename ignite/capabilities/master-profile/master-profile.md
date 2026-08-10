@@ -44,8 +44,8 @@ What the master CAN change today is the profile, and a profile pins its model (`
 | Verb | What it does | Who runs it |
 |---|---|---|
 | `show [--json]` | the profile in force, whether it is explicit or the `session_profile` fallback, the exact `file:line`, and the **names that may be requested** | anyone, including a caged seat |
-| `request <profile> --inbox D` | validate against the live roster → stage `{"master-profile": "<name>"}` → `ignite add-job` | **the seat** |
-| `apply --inbox D --config F --profiles P [--no-restart]` | drain, edit the JSON, record the outcome, restart `rbtv-chat-bridge` LAST | **the daemon**, via `tools: master-profile` |
+| `request <profile> --inbox D [--chat-thread C:TS]` | validate against the live roster → stage `{"master-profile": "<name>"}` (plus the thread id when given) → `ignite add-job` | **the seat** |
+| `apply --inbox D --config F --profiles P [--no-restart]` | drain, edit the JSON, record the outcome, **report into the requester's chat thread**, restart `rbtv-chat-bridge` LAST | **the daemon**, via `tools: master-profile` |
 
 Exit 0 when everything drained was accepted (or the inbox was empty), 1 otherwise.
 
@@ -89,6 +89,34 @@ The restart is delegated to `daemon-operator` (`restart --service chat-bridge`),
 re-implemented (`PRIN-11`) — which is also what lets `RBTV_IGNITE_UNIT` steer the probe at a
 throwaway unit.
 
+## ⚠ `--chat-thread` — the outcome reports itself back into the owner's thread
+
+Issue `i-profile-switch-no-feedback` (owner-ruled 2026-08-10). The outcome record in `done/` is
+durable but **silent**: the sitting that asked is killed by the restart, and the owner watches a
+thread where nothing ever answers. So `request` takes `--chat-thread <channel>:<ts>` — the sitting's
+own thread, which it already knows from the plain `chat-thread:` line at the top of every prompt —
+the staged payload carries it as `"chat-thread"`, and `apply` reports the outcome there.
+
+**This tool posts nothing.** It appends ONE row to the requesting goal's coordination bus
+(`<goal>/coordination/messages.md`, derived from the inbox — never a named goal), addressed
+`to: owner`, whose body carries the **bracketed** `[chat-thread: <id>]` token;
+`bridges/chat/bus-ferry.js`'s return leg is what carries it into the thread. Bracketed is the
+routing form — the plain form a prompt carries is deliberately inert — and the return leg is read
+**before** the two contact gates, so the report travels on a goal that may not *initiate* contact.
+The append goes through `coord.py#append_message`, the one allocator of bus ids (and the owner of
+the header grammar, the package lock, and the trailing newline the ferry's torn-write rule needs).
+
+| Property | Why |
+|---|---|
+| ACCEPTED **and** refused both report | "your switch did not happen, and here is why" is the answer the owner is owed most |
+| the report precedes the restart | restart-last is the ruled invariant above, so the row **cannot** state the restart's exit code — it states what is *about to* happen. The rc stays in the outcome record |
+| a failed append never aborts the apply | the switch is the job, the report is the courtesy — it is recorded as `chat-report.error` in the outcome record and the fire continues |
+| no token → nothing is appended | pre-existing callers keep the behaviour they had |
+| a token the ferry could not route is **refused**, at both halves | the shape mirrors `bus-ferry.js`'s `CHAT_THREAD_RE` anchored; an accepted-but-unroutable token is a report nobody receives |
+
+The bracketed token is visible to the owner in the delivered message — unavoidable, since the token
+must ride in the row's body for the ferry to route on it. It sits on the last line, as a footer.
+
 ## How the seat drives it
 
 ```bash
@@ -96,7 +124,9 @@ throwaway unit.
 .../capabilities/master-profile/tool/rbtv-master-profile show
 
 # change it (validates against the live roster, stages, enqueues — one command)
+# `--chat-thread` is YOUR thread: the plain `chat-thread:` line at the top of your prompt.
 .../capabilities/master-profile/tool/rbtv-master-profile request claude-opus \
+  --chat-thread C0ABCDEFG:1754812345.123456 \
   --inbox /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/settings-requests/master-profile
 
 # what happened to the request the last sitting made?
@@ -125,4 +155,10 @@ the roster **live** (a profile present only in a copy is accepted against that c
 from a copy is refused against it — a hard-coded roster fails this and only this); an absent key
 refuses instead of being created; exactly one line moves and the document's own indentation survives;
 and a **mutant** with the membership check neutered goes green, so the refusal is proven to come
-from that check.
+from that check. Check 9 covers the self-report: `--chat-thread` stages the id and an unroutable one
+refuses at request time; a threaded apply appends **exactly one** row, parsed back the way the ferry
+parses it (fields by key) with the bracketed token, the old→new line and the scope line, ending in a
+newline; the restart stub's **snapshot of the bus** already holds that row (report precedes restart);
+an untokened request appends nothing; a refused one reports its refusal. The fixture's inbox has the
+real `<goal>/settings-requests/<capability>` shape, because that is what the bus path is derived
+from — and it keeps the probe off the live bus.
