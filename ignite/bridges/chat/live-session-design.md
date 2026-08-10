@@ -232,17 +232,17 @@ its own per the eligibility gate — independent of the auth blocker on (3).
 
 | Capability | Verdict | Evidence |
 |---|---|---|
-| (1) stream-json stdin, mid-turn queueing | **Mechanism exists, NOT LIVE-VERIFIED (auth-blocked)** | `kimi --help` (`7641-kimi-help.txt`) carries `--input-format [text\|stream-json]` and `--output-format [text\|stream-json]` — flag names matching claude's mechanism exactly, the closest match of the three harnesses. A live probe (`spike-kimi-cap1-2.js`, node `child_process`, piping a claude-shaped `{"type":"user","message":{...}}` JSONL line, then a second line 2.5s into the first turn) produced **zero stdout and a clean exit 0** (`7641-kimi-cap1-2-stdout.jsonl` — empty; timeline in `7641-kimi-cap1-2-meta.txt`). A baseline sanity call outside stream-json (`kimi --quiet --prompt "Reply with exactly: OK"`) also failed, with an explicit cause: `Error code: 401 - The API Key appears to be invalid or may have expired` (`7641-kimi-baseline-stdout.txt`, `7641-kimi-baseline-stderr.txt`). The empty stream-json result is attributed to the SAME auth failure, not a message-shape rejection — but this is inferred, not proven, since a 401 under `--print`/stream-json produced no error text on stdout (unlike the plain baseline call). |
-| (2) one `result` event per fed turn | **NOT-EXERCISED** | Blocked by the same auth failure — no turn could be fed to observe event cardinality. |
-| (3) session-id / resume continuity | **Mechanism exists, NOT LIVE-VERIFIED (auth-blocked)** | `--session`/`--resume`/`-S`/`-r` and `--continue`/`-C` are documented (`7641-kimi-help.txt`; confirmed further via the CLI's own docs, `moonshotai.github.io/kimi-cli`). No live resume round-trip was possible under the current 401. |
+| (1) stream-json stdin, mid-turn queueing | **FAIL — live-verified 2026-08-10 on the ignite VPS (authenticated): mechanism-NAME match, wire-shape mismatch** | The Windows spike below stalled on a 401; the re-spike ran on the VPS where kimi IS authenticated (baseline `kimi --quiet --prompt` replies correctly). A claude-shaped `{"type":"user","message":{"role":"user","content":[...]}}` JSONL line over `--input-format stream-json` is **silently rejected by kimi's parser** — `kimi.log`: `WARNING _read_next_command:474 - Ignoring invalid user message`. Zero stdout, exit 0: the flag names mirror claude's byte-for-byte, but the wire envelope is incompatible, and the rejection is invisible from the outside. Evidence: `7641-vps-kimi-single-turn-stdout.jsonl` (empty), `7641-vps-kimi-log-rejection-evidence.txt`, synthesis `7641-vps-kimi-respike-summary.md`. (Earlier Windows measurement, kept for the record: the same probe shape produced zero stdout/exit 0 under a 401 — `7641-kimi-cap1-2-stdout.jsonl`, `7641-kimi-cap1-2-meta.txt` — an ambiguity the authenticated re-run has now settled as a genuine shape rejection.) |
+| (2) one `result` event per fed turn | **MOOT** | No turn was ever accepted by kimi's stream-json parser (capability (1) FAIL), so there is no event cardinality to count. |
+| (3) session-id / resume continuity | **PASS — live-verified 2026-08-10 on the ignite VPS** | `kimi --quiet --prompt` prints a resumable session id; `kimi --resume <id> --prompt` correctly recalls prior-turn content (start → store a secret → resume by printed id → recall). Evidence: `7641-vps-kimi-resume-continuity.txt`. |
 
-**kimi conclusion: INCONCLUSIVE, not a measured FAIL.** Every flag kimi needs for all three
-capabilities is present and, for capability (1), is the only harness whose flag names mirror
-claude's mechanism. Nothing could be exercised live because the CLI's API key is currently invalid
-or expired on this box (`kimi login` is interactive/owner-only, same authority boundary as codex).
-**Re-spike kimi once credentials are fixed — do not treat this INCONCLUSIVE as a FAIL verdict**, and
-do not promote it to PASS/adapter-warranted without a live re-run. Until re-measured, kimi stays
-cold-path by the same "unmeasured is not eligible" default the design already applies.
+**kimi conclusion: does NOT qualify — measured, not inferred.** The eligibility gate needs all
+three capabilities; capability (1) is a live-verified FAIL on an authenticated box, and it fails in
+the worst possible shape — a silent parse rejection (zero stdout, exit 0) behind flag names
+identical to claude's, so nothing distinguishes "fed and thinking" from "fed and discarded" at the
+transport level. No adapter is warranted on kimi's current wire protocol; a future kimi release
+accepting a documented stream-json input envelope would reopen the question (re-measure — never
+assume from flag names, which is exactly the trap this measurement closed).
 
 ### opencode
 
@@ -268,12 +268,13 @@ harness-level stdin-feeding mechanism appearing in a future opencode release.
 
 ### Net effect on eligibility (§ *On this deployment, nothing is eligible yet*, above)
 
-No new adapter work is warranted by this measurement: codex and opencode both fail capability (1) by
-documented absence; kimi is unmeasured (blocked by an auth failure outside this dispatch's
-authority, not a capability gap) and must be re-spiked before any adapter decision. The `master
-profile is not claude` blocker in the table above is therefore not resolved by switching to kimi or
-codex today — a claude profile (or a fixed-and-re-measured kimi) remains the only path to an
-eligible master.
+No new adapter work is warranted by this measurement: codex and opencode both fail capability (1)
+by documented absence, and kimi fails it by a live-verified wire-shape rejection (re-spiked
+authenticated on the VPS, 2026-08-10 — see the settled table above). All three non-claude
+harnesses are now MEASURED ineligible, not merely unmeasured. The `master profile is not claude`
+blocker in the table above is therefore not resolvable by switching harness today — a claude
+profile remains the only path to an eligible master until a harness ships a compatible (or
+adaptable) stream-json input mechanism.
 
 ## Deploy policy (owner-ruled 2026-08-10)
 
