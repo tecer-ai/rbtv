@@ -954,10 +954,7 @@ def lint_goal(root: Path, name: str) -> Findings:
         # body is the evidence: each frontmatter ref must have its block present.
         refs = []
         for key, val in sfm.items():
-            if key in ("id", "seat", "description", "cwd", "agent_type",
-                       "mode", "window", "senders", "close", "auto-wake",
-                       "ephemeral", "broadcast", "component",
-                       *BINDING_COLUMNS):
+            if key in LINT_NON_REF_KEYS or key in BINDING_COLUMNS:
                 continue
             # Widened with _refs_of (d-spec-open-points-ruled Q10): bare ids
             # qualify, not just cu-prefixed ones. Assembled refs carry a FROZEN
@@ -984,11 +981,24 @@ def lint_goal(root: Path, name: str) -> Findings:
                 f.add("cognitive-unit reference resolves", str(seat_md),
                       f"frontmatter ref '{ref}' has no assembled block in the body")
 
-        # permissions well-formed: the seat declares a permissions unit, and it
-        # was assembled rather than left dangling.
-        if not any(k == "permissions" for k, _ in refs):
+        # permissions well-formed: the seat declares permissions, and they were
+        # assembled rather than left dangling.
+        #
+        # TWO layouts, ONE question. A csv-catalog seat carries a `permissions:` REF in
+        # frontmatter; a d-prompt-task-files seat carries no refs at all — its permissions
+        # live only as a `<permissions>` SECTION in the body, because the pool file's sections
+        # ARE the assembled units. Asking only the frontmatter marked every pool-assembled seat
+        # as permission-less (measured: 16 of 16 on a planning goal) while the body said
+        # otherwise. The body scan is the same predicate materialize-seats.py's HARD GATE uses
+        # to refuse such a seat, imported from here rather than restated.
+        has_permissions = (
+            any(k == "permissions" for k, _ in refs)
+            or any(m.group(1) == "permissions" for m in SECTION_RE.finditer(sbody))
+        )
+        if not has_permissions:
             f.add("permissions well-formed", str(seat_md),
-                  "seat declares no permissions unit")
+                  "seat declares no permissions — neither a frontmatter ref nor a "
+                  "<permissions> section in the assembled body")
 
     return f
 
@@ -1757,6 +1767,37 @@ def _pool_file_row(path: Path, key: str) -> dict | None:
     return row
 
 
+# A kind-named section in an assembled body. TWO forms, both live: the assembler's
+# `<kind id="…" version="…">` form (unit-file layout) and the bare/attributed `<kind>` /
+# `<kind source="…">` form d-prompt-task-files made the section markup. Groups: (1) kind
+# (2) id or None (3) version or None (4) body.
+#
+# ONE definition, two consumers: this file's `permissions well-formed` lint and
+# materialize-seats.py's hard permissions gate, which imports it. They must agree by
+# construction — a lint that answers "does this seat declare permissions?" differently from the
+# gate that refused to materialize it without them is a lint nobody can act on.
+SECTION_RE = re.compile(
+    r'<([a-z0-9-]+)(?: id="([^"]+)")?(?: version="([^"]+)")?[^>\n]*>\n'
+    r'(.*?)\n</\1>', re.DOTALL)
+
+# Emitted seat.md frontmatter keys that are NEVER cognitive-unit references — the lint's
+# exclusion list, NAMED so the selftest can assert membership instead of trusting a comment.
+#
+# ⚠ ANY NEW NON-REF SCALAR KEY THE EMITTED SCHEMA GAINS MUST BE ADDED HERE, in the same change
+# that adds it. Discrimination rests entirely on this list: the ref grammar is `[a-z0-9-]+` and
+# CANNOT tell a short value from a short unit id, so a token-shaped value that is not listed
+# false-positives as an unresolved reference. Measured, both times:
+#   dag-04 (2026-07-29) — the descriptor scalars (seat/cwd/agent_type/mode/window/senders/
+#     close/auto-wake/ephemeral/broadcast/component).
+#   d-prompt-task-files (2026-08-10) — the pool pass-throughs below: 'block-and-queue' from
+#     `fallback` and 4x 'capability-cards' from `capabilities` on a 16-seat planning goal.
+# The dangling-ref control stays red-able (materialize-seats.py selftest).
+LINT_NON_REF_KEYS = (
+    "id", "seat", "description", "cwd", "agent_type", "mode", "window", "senders",
+    "close", "auto-wake", "ephemeral", "broadcast", "component",
+    "human-interactive", "fallback", "capabilities", "context",
+)
+
 _UNIT_REF_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(@[a-z0-9][a-z0-9-]*)?$")
 # Id-only grammar for ASSEMBLED frontmatter refs, whose version segment is the
 # frozen `latest+standin-sha256:<digest>` form _UNIT_REF_RE cannot carry.
@@ -1872,15 +1913,41 @@ def assemble_seat(seat_id: str, binding: dict, seats: dict, prompts: dict,
             # transcription). Emitted only when the definition declares it.
             hi = row.get("human-interactive")
             if hi not in (None, ""):
-                fb = str(row.get("fallback", "") or "").strip()
-                if fb not in ("park", "default-and-disclose", "block-and-queue"):
+                # THE VALUE IS CANON-CHECKED, and this is the only place it can be.
+                # The consumer (bridges/chat/bus-ferry.js seatIsHumanInteractive) matches
+                # `^human-interactive:[ \t]*(.+?)[ \t]*$` ON THE RAW FRONTMATTER TEXT — a
+                # REGEX, not a YAML parse — lowercases the capture and compares it to
+                # `yes`/`true`. Anything else answers FALSE, with no refusal anywhere: no
+                # held-for-user line, the chat-bridge owner-contact gate silently shut, and
+                # nothing said so. `maybe`, `1`, `on` and every typo land there. Refuse them
+                # here instead, at materialize time.
+                hi_norm = str(hi).strip().lower()
+                if hi_norm not in ("yes", "true", "no", "false"):
                     raise Refusal(
-                        f"{row['__source__']}: `human-interactive: {hi}` "
-                        f"declares fallback '{fb or '(absent)'}' — required, "
-                        f"one of park | default-and-disclose | block-and-queue"
+                        f"{row['__source__']}: `human-interactive: {hi}` is not a "
+                        f"canonical value — one of yes | true | no | false. The reader "
+                        f"answers FALSE for anything else WITHOUT refusing, so an "
+                        f"uncanonical value would silently close the owner-contact gate."
                     )
-                fm["human-interactive"] = hi
-                fm["fallback"] = fb
+                if hi_norm in ("yes", "true"):
+                    fb = str(row.get("fallback", "") or "").strip()
+                    if fb not in ("park", "default-and-disclose", "block-and-queue"):
+                        raise Refusal(
+                            f"{row['__source__']}: `human-interactive: {hi}` "
+                            f"declares fallback '{fb or '(absent)'}' — required, "
+                            f"one of park | default-and-disclose | block-and-queue"
+                        )
+                    # EMITTED AS THE BOOLEAN, never the source spelling, and that choice
+                    # is load-bearing: `yaml.safe_dump` renders the STRING "yes" as
+                    # `'yes'` — QUOTED, so it cannot re-parse as a boolean — and the
+                    # consumer's regex captures the quotes, lowercases `'yes'`, and
+                    # answers FALSE. Measured end to end through
+                    # bus-ferry.seatIsHumanInteractive: quoted -> false, bare -> true.
+                    # `True` dumps as the bare token `true`, which is what the regex
+                    # needs. A "normalize it to a string" instinct here reintroduces the
+                    # exact silent-false this canon check exists to kill.
+                    fm["human-interactive"] = True
+                    fm["fallback"] = fb
             # `capabilities:`/`context:` are carried VERBATIM, never dropped:
             # a declared capability or forced read that vanished at assembly is
             # a seat promised a means it never receives. Rendering them as
@@ -2834,6 +2901,62 @@ def cmd_selftest(args) -> int:
         check("the file's kind-named sections ARE the body, verbatim",
               "<role>\nrole body\n</role>" in asm
               and "<task-goal>\ngoal body\n</task-goal>" in asm, asm)
+        # THE EMITTED SPELLING IS PART OF THE CONTRACT, not cosmetics. The consumer
+        # (bus-ferry.js seatIsHumanInteractive) regex-matches the RAW frontmatter line and
+        # lowercase-compares the capture to yes/true. `yaml.safe_dump` renders the STRING
+        # "yes" as `'yes'` — quotes included — which that regex captures and rejects, so a
+        # seat that IS human-interactive reads as false with no refusal anywhere. The literal
+        # is spelled out here rather than derived, so this row cannot move with the code.
+        check("the emitted line is the BARE token the consumer's regex needs",
+              "\nhuman-interactive: true\n" in asm,
+              repr([l for l in asm.split("\n") if "human-interactive" in l]))
+        # `permissions` reaches the lint through the BODY here — a pool seat has no
+        # frontmatter refs at all, and asking only the frontmatter marked 16 of 16 planning
+        # seats permission-less while their bodies said otherwise.
+        check("SECTION_RE finds the <permissions> section the lint falls back to",
+              any(m.group(1) == "permissions"
+                  for m in SECTION_RE.finditer(asm)), asm[:200])
+        # …AND THE LINT ITSELF MUST ACCEPT IT. Asserting SECTION_RE alone is vacuous: it
+        # passes whether or not `permissions well-formed` consults the body. This arm drives
+        # lint_goal over a real pool-assembled seat.md, which is where 16 of 16 planning
+        # seats were failing. Only the ONE check is asserted — other findings (milestones,
+        # bindings) belong to the fixture, not to this question.
+        cmd_scaffold(argparse.Namespace(
+            root=str(root), json=False, goal_name="pool-goal", type="one-shot",
+            due=None, kind=None, contract=str(contract), dry_run=False))
+        pg = root / "pool-goal"
+        (pg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-1,ps,,claude,claude-opus-5,medium,50,m1\n", encoding="utf-8")
+        (pg / "seats" / "ps").mkdir(parents=True, exist_ok=True)
+        (pg / "seats" / "ps" / "seat.md").write_text(
+            "---\nseat: ps\nharness: claude\nmodel: claude-opus-5\n---\n" + asm.split("---\n", 2)[2],
+            encoding="utf-8")
+        pool_lint = lint_goal(root, "pool-goal").items
+        check("a POOL-assembled seat passes `permissions well-formed` (body fallback)",
+              not any(i["check"] == "permissions well-formed" for i in pool_lint),
+              json.dumps([i for i in pool_lint if i["check"] == "permissions well-formed"]))
+        check("…and its pass-through keys raise NO dangling-ref finding",
+              not any(i["check"] == "cognitive-unit reference resolves" for i in pool_lint),
+              json.dumps([i for i in pool_lint
+                          if i["check"] == "cognitive-unit reference resolves"]))
+        # RED CONTROL, same lint, same call: a seat with NEITHER a permissions ref NOR a
+        # <permissions> section must STILL be caught. Without this the arm above would pass
+        # if the check were simply deleted.
+        (pg / "seats" / "ps" / "seat.md").write_text(
+            "---\nseat: ps\nharness: claude\nmodel: claude-opus-5\n---\n\n"
+            "<role>\nno permissions anywhere\n</role>\n", encoding="utf-8")
+        check("red control: a seat with no permissions ANYWHERE is still caught",
+              any(i["check"] == "permissions well-formed"
+                  for i in lint_goal(root, "pool-goal").items))
+
+        # Every pass-through must be OUT of the ref grammar's reach: `fallback`,
+        # `capabilities` and `context` values are token-shaped, so each one false-positived
+        # as a dangling cognitive-unit ref before it was excluded.
+        for key in ("human-interactive", "fallback", "capabilities", "context"):
+            check(f"`{key}` is excluded from the unit-ref grammar",
+                  key in LINT_NON_REF_KEYS)
+
         (pc / "prompts" / "pp.md").write_text(
             "---\nid: pp\ndescription: pool prompt\nhuman-interactive: yes\n---\n\n"
             "<role>\nrole body\n</role>\n", encoding="utf-8")
@@ -2845,15 +2968,40 @@ def cmd_selftest(args) -> int:
         except Refusal as exc:
             check("human-interactive without a fallback REFUSES",
                   "fallback" in str(exc), str(exc))
+        # RED ARM for the canon check: an uncanonical value reads FALSE at the consumer
+        # with no refusal on any path, so the refusal has to happen here or nowhere.
+        (pc / "prompts" / "pp.md").write_text(
+            "---\nid: pp\ndescription: pool prompt\nhuman-interactive: maybe\n"
+            "fallback: block-and-queue\n---\n\n"
+            "<role>\nrole body\n</role>\n", encoding="utf-8")
+        try:
+            s3, p3, t3 = load_catalogs(tmp / "poolcat")
+            assemble_seat("ps", {}, s3, p3, t3, {})
+            check("an UNCANONICAL human-interactive value REFUSES", False,
+                  "no Refusal raised — 'maybe' would read FALSE in silence")
+        except Refusal as exc:
+            check("an UNCANONICAL human-interactive value REFUSES",
+                  "canonical" in str(exc), str(exc))
+        # GREEN CONTROL for the same check: an explicit `no` is canonical, needs no
+        # fallback, and emits nothing — without this the arm above would also pass if the
+        # check simply refused everything.
+        (pc / "prompts" / "pp.md").write_text(
+            "---\nid: pp\ndescription: pool prompt\nhuman-interactive: no\n---\n\n"
+            "<role>\nrole body\n</role>\n", encoding="utf-8")
+        s4, p4, t4 = load_catalogs(tmp / "poolcat")
+        asm4 = assemble_seat("ps", {}, s4, p4, t4, {})
+        check("an explicit `no` is canonical, needs no fallback, and emits nothing",
+              "human-interactive" not in FRONTMATTER_RE.match(asm4).group(1))
 
         print("reindex")
         rc = cmd_reindex(argparse.Namespace(root=str(root), json=False))
         check("reindex exits 0", rc == 0)
         idx2 = list(csv.DictReader((root / "goals.csv").open(encoding="utf-8")))
-        # 5 = demo-goal + kinded-goal + legacy-goal + badkind-goal + mismatch-goal. The count is
-        # spelled out rather than derived from the tree, because deriving it from the same
-        # directory listing the projection walks would pass whatever the projection did.
-        check("reindex projects every goal", len(idx2) == 5, str(len(idx2)))
+        # 6 = demo-goal + kinded-goal + legacy-goal + badkind-goal + mismatch-goal + pool-goal
+        # (the d-prompt-task-files lint fixture). The count is spelled out rather than derived
+        # from the tree, because deriving it from the same directory listing the projection
+        # walks would pass whatever the projection did.
+        check("reindex projects every goal", len(idx2) == 6, str(len(idx2)))
         check("reindex columns are the goals-index schema",
               list(idx2[0].keys()) == GOALS_INDEX_COLUMNS, str(list(idx2[0].keys())))
 
