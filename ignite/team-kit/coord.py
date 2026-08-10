@@ -252,6 +252,13 @@ FM_KEY = {
     # arrives. Absent means UNDECLARED, which is NOT `one-shot`: the arm refuses rather than
     # assuming, so no existing seat becomes attestable by having said nothing.
     "mode": re.compile(r"^mode:\s*(\S+)\s*$", re.MULTILINE),
+    # 7.676: THE SEAT'S DECLARED OUTPUTS — a comma-separated list of paths this seat must have
+    # PRODUCED before its check-out may assert `done`. ⚠ NOT `.+?` by accident: unlike every key
+    # above it captures a list with spaces in it, so `(\S+)` would take the first path and drop
+    # the rest SILENTLY — the exact half-read that would make a two-output seat verifiable on one.
+    # ABSENT MEANS UNDECLARED, never "nothing to produce" — `declared_outputs` carries that
+    # distinction all the way onto the durable record rather than collapsing it to a bool.
+    "outputs": re.compile(r"^outputs:\s*(.+?)\s*$", re.MULTILINE),
     "observer": re.compile(r"^observer:\s*(\S+)\s*$", re.MULTILINE),
     "auto-wake": re.compile(r"^auto-wake:\s*(\S+)\s*$", re.MULTILINE),
     # r-cos-bounded-inbox / r-engineer-contact — the SENDER BOUND: a comma-separated allow-list of
@@ -325,6 +332,18 @@ def _fm_window(fm):
     if v.lower() in ("no", "false"):
         return ""
     return v
+
+
+def _fm_outputs(fm):
+    """`outputs: a.md, b/c.json` -> ["a.md", "b/c.json"]. `[]` when the key is ABSENT.
+
+    ⚠ AN EMPTY LIST FROM AN ABSENT KEY AND AN EMPTY LIST FROM `outputs:` WITH NOTHING AFTER IT ARE
+    THE SAME VALUE HERE, DELIBERATELY: both mean the descriptor declared no checkable output, and
+    the check-out records `none-declared` for both. Distinguishing them would put the kit in the
+    business of grading how a briefing was WRITTEN, which is the author's business, not the
+    check-out's."""
+    m = FM_KEY["outputs"].search(fm)
+    return [s.strip() for s in m.group(1).split(",") if s.strip()] if m else []
 
 
 def briefing_files(wdir):
@@ -2236,6 +2255,24 @@ NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close
 #           VALUE SPACE, not one file's column, and both writers validate against it.
 #   exited  the KIT's attest-exit arm (`dag-11`) ONLY, NEVER a seat — and it means, in full:
 #           THE HARNESS TERMINATED; WHETHER THE WORK IS DONE IS NOT ESTABLISHED HERE.
+#   incomplete  the SEAT, at a check-out it is declaring UNFINISHED (7.676) — its done-contract is
+#           UNMET and it is saying so. No advancement (only `done` advances an edge) and no
+#           successor (only `renew`/`revive` bring one back): the seat ENDS, and the row it leaves
+#           routes to the leader carrying the seat's own reason.
+#
+# ⚠⚠ WHY A FIFTH VALUE EXISTS AT ALL, MEASURED: until 7.676 THIS ENUM HAD NO HONEST ENDING. A seat
+# whose work was unfinished had exactly two words available — `done` (a lie that ADVANCES THE DAG)
+# and `renew` (a lie that promises a successor nobody will boot) — so the tool's own vocabulary
+# forced a false statement at the one moment the truth was known. Measured 2026-08-09: an
+# `elicitator` session flipped to `done` having written no planning folder, no brief and no
+# handoff, and NO SURFACE IN THIS SYSTEM COULD TELL IT FROM A SEAT THAT PRODUCED EVERYTHING. The
+# fix is a WORD, not a flag: an ending nobody can express is an ending nobody records.
+#
+# ⚠ IT IS THE SEAT'S ALONE, AND NOT THE LEADER'S. `incomplete` is a seat reporting its OWN work
+# unfinished — a fact only the occupant holds. A leader who believes a seat is unfinished has
+# `exited`'s investigation path (`d-exited-row-closure`), not a word to put in the seat's mouth;
+# admitting the leader here would be the R-6 misgrading the writer bound exists to bar, aimed at
+# the one value whose whole purpose is that it was self-declared.
 #
 # ⚠⚠ WHY THE LEADER MAY WRITE `done`, AND WHAT AUTHORIZES IT: `d-exited-row-closure` (owner,
 # ruling A-10, 2026-07-28) — "the leader's act on an `exited` row routed to it by the
@@ -2271,7 +2308,8 @@ RECORD_DISPOSITION_WRITER = {
     "done": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_LEADER}),
     "renew": frozenset({DISPOSITION_WRITER_SEAT}),
     "revive": frozenset({DISPOSITION_WRITER_KIT}),
-    "exited": frozenset({DISPOSITION_WRITER_KIT})}
+    "exited": frozenset({DISPOSITION_WRITER_KIT}),
+    "incomplete": frozenset({DISPOSITION_WRITER_SEAT})}
 
 
 def validate_disposition(disposition, writer):
@@ -5442,7 +5480,7 @@ def seat_disposition_path(base, seat):
 
 
 def write_seat_disposition(base, seat, session_id, disposition, ended,
-                           writer=DISPOSITION_WRITER_SEAT):
+                           writer=DISPOSITION_WRITER_SEAT, outputs="", reason=""):
     """Write the seat's OWN durable disposition record. Returns True when it landed.
 
     Best-effort in the same sense `set_awaiting` is — bookkeeping ABOUT a checkout must never become
@@ -5471,6 +5509,12 @@ def write_seat_disposition(base, seat, session_id, disposition, ended,
         atomic_write(seat_disposition_path(base, seat), json.dumps(
             {"seat": seat, "session-id": str(session_id or ""), "ended": ended,
              "disposition": disposition, "disposition-writer": writer,
+             # 7.676: both keys are ALWAYS PRESENT, `""` when they say nothing. A key that appears
+             # only on the interesting path makes its ABSENCE ambiguous — a reader cannot tell a
+             # record written before this field existed from one whose check found nothing to say,
+             # which is the exact ambiguity `outputs-verified` was added to remove.
+             "outputs-verified": str(outputs or ""),
+             "incomplete-reason": str(reason or ""),
              "surface": SEAT_DISPOSITION_SURFACE_NOTE}, indent=2, sort_keys=True) + "\n")
         return True
     except (OSError, ValueError):
@@ -5953,8 +5997,18 @@ LIFECYCLE_RELAUNCHING = ("renew", "revive")
 # names, so the step that needs a checkout to have happened and the guard that forbids its record
 # can never hold two opinions about which dispositions had one.
 # The in-suite row "THE ENUM AND THE MAPPING CANNOT DRIFT" fails if only one of the two is widened.
+# ⚠ EACH NON-ABSENT VALUE IS A TUPLE OF ADMITTED INTENTS, NOT ONE STRING (7.676). It was one
+# string until `incomplete` landed, and the shape changed for a reason a reader must not have to
+# reconstruct: ONE ARGV ACTION NOW CORRESPONDS TO TWO LEGAL CHECKOUT INTENTS. `close` is the
+# executor's teardown sequence, and BOTH a finished seat (`done`) and a seat that declared itself
+# unfinished (`incomplete`) are torn down by it — they differ in what the DAG may conclude, which
+# is the RECORD's business, and not at all in what the executor must DO, which is this table's.
+# Left as a string, guard 4 would have refused every close of an honestly-incomplete seat as
+# DISPOSITION SKEW — making the honest ending unclosable and teaching every seat to lie again.
+# A tuple of one is still a bound of one: `renew` admits exactly what it admitted before.
 LIFECYCLE_INTENT_ABSENT = None
-LIFECYCLE_INTENT_OF = {"close": "done", "renew": "renew", "revive": LIFECYCLE_INTENT_ABSENT}
+LIFECYCLE_INTENT_OF = {"close": ("done", "incomplete"), "renew": ("renew",),
+                       "revive": LIFECYCLE_INTENT_ABSENT}
 
 
 # ---- STAGE 3 (s3-08): THE BUS ALARM — the one surface an executor failure reaches a human on --
@@ -7260,11 +7314,15 @@ def cmd_lifecycle_exec(args):
         # `.get("disposition", "done")`, NEVER `record["disposition"]` — run packages written
         # before s12-07 hold records with no such key, and `done` is what those records meant.
         declared = str(record.get("disposition", "done"))
-        if declared != expected:
+        # 7.676: MEMBERSHIP, not equality — `expected` is the TUPLE of intents this argv action
+        # legitimately tears down (see LIFECYCLE_INTENT_OF). The guard is unweakened: it still
+        # refuses every value the action does not admit, and `renew`'s tuple admits exactly one.
+        if declared not in expected:
             lifecycle_alarm(
                 "state",
                 f"DISPOSITION SKEW on seat {args.seat!r} — argv says --disposition "
-                f"{args.disposition!r}, which maps to the checkout intent {expected!r}, but "
+                f"{args.disposition!r}, which maps to the checkout intent(s) "
+                f"{', '.join(repr(e) for e in expected)}, but "
                 f"awaiting-close.json records disposition={declared!r}. The record is the "
                 f"assertion made at the one moment the intent was known; argv is a copy that "
                 f"travelled. Acting on nothing rather than picking a side.", 2, base, args=args)
@@ -8120,6 +8178,62 @@ def edge_fastpath_on_checkout(base, me, disposition):
         return None
 
 
+# ---- 7.676: THE DONE-CONTRACT CHECK — what the seat DECLARED it would produce ------------------
+#
+# THE SECOND HALF OF THE 2026-08-09 INCIDENT. The first half was that no honest ending EXISTED
+# (`incomplete`, on the record enum above). This half is that NOTHING WAS EVER VERIFIED: check-out
+# wrote `done` — the one value that advances a DAG edge — without opening a single thing the seat
+# was supposed to have produced. The two halves are one defect: a tool that cannot express failure
+# and does not look is a tool whose `done` carries no information at all.
+#
+# THE DECLARATION IS `outputs:` ON THE SEAT'S OWN DESCRIPTOR FRONTMATTER, and it is the first
+# machine-checkable half of a done gate this kit has had. G-57's standing note (on
+# `descriptor_findings`) records why: the descriptor's owned-surfaces claim and its done gate are
+# PROSE, "and that stays open until a `surfaces:` frontmatter key makes the claim a field". This is
+# that field for the OUTPUT half. ⚠ It is deliberately NOT named `surfaces:` and does not settle
+# G-57: `surfaces:` would be what a seat may WRITE (a permission, single-writer arbitration);
+# `outputs:` is what a seat must have PRODUCED (a debt, checked at the ending). Same paths, often;
+# never the same question. The day `surfaces:` lands it lands beside this one, not over it.
+#
+# ⚠⚠ UNDECLARED IS NOT VERIFIED, AND IS NOT REFUSED EITHER. No descriptor in this workspace carries
+# the key yet, so refusing an undeclared seat would refuse the ENTIRE POPULATION at its check-out —
+# the one act R-8 says must always be available to a finishing seat. It is admitted, and the
+# durable record says `none-declared` IN THOSE WORDS. That is the honest reading the task asked
+# for: where the briefing declared no contract, the kit records that it had nothing to check
+# rather than inventing a contract nobody wrote, and a reader can tell a CHECKED `done` from an
+# asserted one BY READING THE RECORD instead of by trusting it.
+def declared_outputs(args, seat):
+    """(declared, missing) — the seat's OWN `outputs:`, and which of them are not on disk.
+
+    `declared` is the raw list as the descriptor wrote it; `missing` holds RESOLVED paths, because
+    a seat told `plan.md is missing` when it is looking straight at a `plan.md` has been told
+    nothing — the value it needs is which directory the check looked in.
+
+    PRESENT means: a directory that exists, or a file that exists AND IS NON-EMPTY. The zero-byte
+    arm is not fussiness — an empty file is what a crashed or never-run writer leaves behind, and
+    "the path exists" would grade that as produced, which is the exact grading this check exists to
+    stop. Relative paths resolve against the seat's `cwd`, already absolutized by `discover_workers`
+    at the ONE parse point (a relative `cwd:` otherwise resolves against nothing).
+
+    A seat with no descriptor at all returns `([], [])` — undeclared, like a descriptor with no
+    key. It is the same answer for the same reason: nothing was declared, so nothing is checkable,
+    and this function does not get to invent the difference."""
+    for w in discover_workers(workers_dir(args)):
+        if w["agent"] != seat:
+            continue
+        missing = []
+        for d in w["outputs"]:
+            p = Path(d) if os.path.isabs(d) else Path(w["cwd"]) / d
+            try:
+                present = p.is_dir() or (p.is_file() and p.stat().st_size > 0)
+            except OSError:
+                present = False      # unreadable is NOT produced — the seat is told the path
+            if not present:
+                missing.append(str(p))
+        return w["outputs"], missing
+    return [], []
+
+
 def cmd_checkout(args):
     # s12-05 / D2: `--handoff` is the note the seat's SUCCESSOR reads, so it belongs only to a
     # checkout that OPENS a next session. A done-checkout writes no handoff. Refused FIRST — before
@@ -8128,6 +8242,10 @@ def cmd_checkout(args):
     renew = getattr(args, "renew", False)
     handoff = getattr(args, "handoff", None)
     handoff_file = getattr(args, "handoff_file", None)
+    # 7.676: the seat's own declaration that its done-contract is UNMET. Refused HERE, beside the
+    # other argument errors and before identity resolution, for the reason stated above: at this
+    # point nothing has been read, written, captured or muted, so a bad invocation costs a re-run.
+    incomplete = (getattr(args, "incomplete", None) or "").strip()
     # s12-07: set by CALL 2 only, and read at the single `set_awaiting` both paths fall through to.
     # The done path records "" because it wrote no block — an empty stamp is the honest value,
     # never a placeholder time.
@@ -8155,6 +8273,38 @@ def cmd_checkout(args):
             f"nobody is ever booted to read.\n"
             f"Renewing this seat: {coord_invocation(args)} checkout --renew\n"
             f"Done for good:      {coord_invocation(args)} checkout",
+            2)
+    # 7.676: `--incomplete` and `--renew` are OPPOSITE STATEMENTS about the same session and the
+    # refusal says which, rather than letting argparse print a usage line. `--renew` says THIS SEAT
+    # CONTINUES — a successor boots and inherits the handoff; `--incomplete` says THIS SEAT ENDS
+    # UNFINISHED — no successor, and the leader picks the work up. A seat holding both has not
+    # decided which, and guessing for it is how the DAG ends up advancing on a seat that meant to
+    # stop. ⚠ Renewal is ALREADY the honest ending for "unfinished but continuing" — that is why
+    # this is a refusal and not a merge of the two.
+    if incomplete and renew:
+        refuse(
+            "input",
+            f"--incomplete and --renew say opposite things about this session, so passing both "
+            f"leaves it undecided whether a successor boots. Nothing was written and nothing was "
+            f"closed.\n"
+            f"Unfinished, and the seat CONTINUES (a successor picks it up):  "
+            f"{coord_invocation(args)} checkout --renew\n"
+            f"Unfinished, and the seat ENDS (leader picks it up):            "
+            f"{coord_invocation(args)} checkout --incomplete \"<what is unmet>\"",
+            2)
+    # ⚠ AN EMPTY REASON IS REFUSED, and this is the one place in this command where an empty string
+    # is not just an absent value. `--incomplete ""` records an ending nobody can act on — the
+    # leader inherits "this seat stopped" with no statement of WHAT is unmet, which is the same
+    # dead end as the `done` this flag exists to replace, reached one step later.
+    if getattr(args, "incomplete", None) is not None and not incomplete:
+        refuse(
+            "input",
+            f"--incomplete needs a REASON, and it was passed empty. The reason IS the value of "
+            f"this ending: it is what the leader reads to decide who picks the work up and from "
+            f"where, and an ending with no reason is the uninformative `done` this flag exists to "
+            f"replace. Nothing was written and nothing was closed.\n"
+            f"Say what is unmet: {coord_invocation(args)} checkout --incomplete \"<what your "
+            f"briefing asked for that does not exist>\"",
             2)
     # ⚠ THE FILE IS READ HERE — BEFORE identity resolution, before the roster read, before the
     # export, and therefore before any state change at all. An unreadable path is an argument
@@ -8193,6 +8343,51 @@ def cmd_checkout(args):
             f"never checked in, or you already checked out.\n"
             f"See the roster: {coord_invocation(args)} workers",
             1)
+    # ---- 7.676: VERIFY BEFORE ASSERTING `done` --------------------------------------------------
+    #
+    # ⚠ IT GATES THE `done` PATH ALONE. `--renew` asserts nothing finished (a successor is being
+    # booted precisely because the work continues), and `--incomplete` is the seat ALREADY saying
+    # the contract is unmet — checking a claim nobody made would refuse the honest ending, which
+    # is the one arm that must never be harder to reach than the dishonest one.
+    #
+    # ⚠ IT REFUSES; IT DOES NOT DOWNGRADE. Silently rewriting the seat's `done` into `incomplete`
+    # would have the KIT declare a fact about work only the SEAT can witness — the same misgrading
+    # the writer bound bars, and it would land the seat's ending with no reason attached, since the
+    # kit has none to give. The seat is told exactly which declared paths are absent and handed the
+    # two honest endings; which one is true is its call, not this function's.
+    #
+    # ⚠ AND IT RUNS BEFORE THE EXPORT AND BEFORE THE ROSTER FLIP. A refusal here costs the seat
+    # nothing but the re-run — its session is untouched, its transcript uncaptured, its row still
+    # ACTIVE — which is what makes refusing safe at all on the one act a finishing seat must always
+    # be able to complete.
+    # WHAT THE CHECK ACTUALLY DID, IN WORDS, ONTO THE DURABLE RECORD. R-7: a fact recorded only in
+    # a perishable surface is not recorded — printing "nothing to check" at a check-out nobody is
+    # watching leaves the same unreadable `done` behind. These are the four honest answers, and
+    # `none-declared` is the one that carries 7.676's admission: THIS `done` WAS NOT CHECKED,
+    # because the briefing declared nothing to check. A reader can now tell the two apart.
+    _outputs_note = ("not-checked (renew — no completion asserted)" if renew
+                     else "not-checked (seat declared incomplete)")
+    if not renew and not incomplete:
+        _declared, _missing = declared_outputs(args, me)
+        _outputs_note = (f"{len(_declared)} declared output(s) verified present" if _declared
+                         else "none-declared — this `done` asserts completion NOTHING VERIFIED "
+                              "(the descriptor carries no `outputs:` key)")
+        if _missing:
+            refuse(
+                "state",
+                f"'{me}' declared {len(_declared)} output(s) in its descriptor and "
+                f"{len(_missing)} of them {'is' if len(_missing) == 1 else 'are'} NOT on disk, so "
+                f"this check-out will not record `done`. `done` is the ONE disposition that "
+                f"ADVANCES the run's DAG — successors are launched on it — and advancing it on "
+                f"work that does not exist is how a run continues past a seat that produced "
+                f"nothing (measured 2026-08-09). Nothing was written, nothing was exported and "
+                f"your roster row is still ACTIVE.\n"
+                + "".join(f"  MISSING (or empty): {p}\n" for p in _missing) +
+                f"Produce them, then re-run: {coord_invocation(args)} checkout\n"
+                f"Or END HONESTLY, if they are not coming — the run records that you said so, and "
+                f"leader picks the work up:\n"
+                f"  {coord_invocation(args)} checkout --incomplete \"<why they are unmet>\"",
+                1)
     if renew:
         if handoff is None:
             checkout_renew_arm(args, base, me)
@@ -8328,7 +8523,12 @@ def cmd_checkout(args):
     # erase — and the ready arithmetic cross-verifies the two and reports a disagreement as SKEW.
     # Computing the value independently at the two write sites is what would MANUFACTURE that
     # skew, from one branch discriminant, in one function, twelve lines apart.
-    checkout_disposition = "renew" if renew else "done"
+    # 7.676: THREE ARMS NOW, AND STILL ONE VARIABLE. The dag-09 argument above is unchanged and is
+    # what made this widening a one-line edit: every surface below reads THIS name, so the third
+    # ending reached all four of them without a fourth place to compute it. `done` is no longer the
+    # default-by-elimination it was — it is the arm the check above VERIFIED, and `incomplete` is
+    # the arm the seat asked for by name.
+    checkout_disposition = "renew" if renew else ("incomplete" if incomplete else "done")
     if set_awaiting(base, me, (row or {}).get("pane", ""), out, not err,
                     disposition=checkout_disposition, handoff_stamp=handoff_stamp,
                     writer=DISPOSITION_WRITER_SEAT):
@@ -8361,7 +8561,8 @@ def cmd_checkout(args):
     # sessions. `''` when neither can answer: an empty id is honest and a reader can see it, where a
     # fabricated one binds this record to the wrong session.
     if not write_seat_disposition(base, me, sid or session_id_open(args, me),
-                                  checkout_disposition, now()):
+                                  checkout_disposition, now(),
+                                  outputs=_outputs_note, reason=incomplete):
         print(c(f"WARNING seat disposition record NOT written — "
                 f"{seat_disposition_path(base, me)}. The close itself stands, but if the "
                 f"sessions.csv line above also warned, this seat's ending is now recorded on NO "
@@ -8424,9 +8625,19 @@ def cmd_checkout(args):
                 print("ephemeral seat, session DONE — no pane to kill (not inside tmux); any "
                       "remnant is leader's close-seat")
             return
-        print(c(f"next: nothing on your side — this session is DONE and leader frees the pane "
-                f"(`{coord_invocation(args)} close-seat {me}`). Renewing a seat is the SEAT's own "
-                f"act now — `checkout --renew`, before you check out for good.", C_HINT))
+        # 7.676: the closing line names the ENDING THAT WAS ACTUALLY RECORDED. Telling a seat that
+        # declared itself unfinished "this session is DONE" would hand it, at the last line it ever
+        # reads, the very word its check-out just refused to write.
+        if incomplete:
+            print(c(f"next: nothing on your side — this session ended INCOMPLETE and the run "
+                    f"records that you said so. Leader frees the pane "
+                    f"(`{coord_invocation(args)} close-seat {me}`) and picks the work up; no "
+                    f"successor of this seat is booted and NO DAG EDGE ADVANCED on this ending.",
+                    C_HINT))
+        else:
+            print(c(f"next: nothing on your side — this session is DONE and leader frees the pane "
+                    f"(`{coord_invocation(args)} close-seat {me}`). Renewing a seat is the SEAT's "
+                    f"own act now — `checkout --renew`, before you check out for good.", C_HINT))
 
 
 def checkout_renew_arm(args, base, me):
@@ -10708,6 +10919,11 @@ def discover_workers(wdir):
                      if FM_KEY["mode"].search(fm) else ""),
             "folder": folder,
             "mechanical_close": _fm_mechanical_close(fm),
+            # 7.676: additive, like 7.278's `agent_type` — no existing key changes, and it is read
+            # HERE rather than by a second frontmatter pass in `declared_outputs`, because `cwd`
+            # is absolutized at THIS parse point and a declared output is resolved against it.
+            # Parsing the descriptor twice would be two readers of one file (PRIN-11).
+            "outputs": _fm_outputs(fm),
         })
     return found
 
@@ -11752,13 +11968,25 @@ def ready_seat_rows(args):
 # self-test asserts the two key sets are equal, so a disposition value added without a class here
 # goes RED instead of silently classing as `terminal-unenumerated`.
 _DEFERRAL_BY_DISPOSITION = {"done": "finished", "renew": "renewing",
-                            "revive": "revived", "exited": "exit-unruled"}
+                            "revive": "revived", "exited": "exit-unruled",
+                            # 7.676: its OWN class, never folded into `exit-unruled`. Both route
+                            # to the leader, so folding them would look free — and it would erase
+                            # the one distinction the value was minted to carry: `exit-unruled` is
+                            # the KIT saying a harness died with the work UNKNOWN; `incomplete` is
+                            # the SEAT saying the work is UNFINISHED. Same destination, opposite
+                            # evidentiary weight, and only one of them has a reason attached.
+                            "incomplete": "declared-incomplete"}
 
 # The class → verdict mirror. It is a HAND-COPY of `ready_seat_rows`' own precedence, and it is
 # made SELF-DETECTING by the self-test's row-P fixture rather than trusted: the fixture covers every
 # REACHABLE pair of defer limbs, so transposing any two of them reds arm 1.
 CLASS_TO_VERDICT = {"records-disagree": "SKEW", "finished": "DONE", "renewing": "DONE",
                     "revived": "DONE", "exit-unruled": "DONE", "terminal-unenumerated": "DONE",
+                    # 7.676: `DONE` here is the ADMISSION verdict — "this row's session ENDED, so
+                    # it is not a launch candidate" — and never a statement that the WORK is done;
+                    # `exit-unruled` has read `DONE` on the same grounds since dag-11. The work's
+                    # state is the CLASS, which is why the class is the thing that routes.
+                    "declared-incomplete": "DONE",
                     "occupied": "RUNNING", "unbuilt": "UNBUILT", "undeclared-ending": "UNDECLARED",
                     "row-stopped": "STOPPED", "unmet-predecessor": "BLOCKED"}
 
@@ -13098,6 +13326,16 @@ CAPACITY_NOTE_UNACCOUNTED = ("  capacity: {k} unaccounted pane(s) are INSIDE in_
 CAPACITY_NOTE_CROSS_GOAL = ("  capacity: {k} cross_goal pane(s) resolve OUTSIDE this run — ruled "
                             "not to count against this run's cap. They still spend RAM, which "
                             "budget.json floors.launch_refuse_mb protects, not the cap.")
+# 7.555 — the D5 CORRECTION's own disclosure. It prints on the full-capacity branch beside N1/N2
+# because that is where the correction is USED; before 7.555 this reading printed on the DEGRADE
+# branch instead, as a reason the cap went unconsulted. Same fact, opposite consequence, so it says
+# which. ⚠ NO POLICY NUMBER: `{k}` is the census's own row count and the cap is named by FIELD.
+CAPACITY_NOTE_IN_RUN = ("  capacity: {k} cross_goal pane(s) resolve INSIDE this run's own seats/ — "
+                        "this run's OWN seat(s), harness live, not yet checked in. `census()` files "
+                        "them cross_goal and leaves them OUT of in_use, so they are COUNTED here "
+                        "and headroom is reduced by {k}. Before 7.555 this DEGRADED the act to CAP "
+                        "NOT CONSULTED instead, and that degrade never cleared while the harness "
+                        "stayed live and silent.")
 CAPACITY_NOTE_BREACH = ("  capacity: census verdict BREACH — the room is already over "
                         "cap.agent_panes. Every counted candidate is DEFERRED.")
 # 7.278's own addition, ruled `p-7278-wire-form-confirmed`: C1 §2.1 defines COUNTED by membership
@@ -13911,6 +14149,7 @@ def cmd_launch(args):
     _cap_err = ""
     _cap_why = []          # the degrade reasons that fired, in the §3.1 read order
     _cap_virgin = False    # 7.406: set True ONLY inside the D1 (census-absent) branch below
+    _cap_in_run_n = 0      # 7.555: the in-run `cross_goal` correction, set in the census branch
     # The module's own loader, exactly as `watch.py` already uses it. RECORDED, NOT HIDDEN: `_load`
     # carries a leading underscore, so this is a private-name coupling. It is nonetheless the ONE
     # loader in the repo; the alternative — a public loader in `budget.py` — would need C2, whose
@@ -13960,8 +14199,12 @@ def cmd_launch(args):
         # does. `census()` cannot compute this at its own home — it receives two mappings and
         # never the run root — and giving it one would move a consumer's question into a reporter.
         _cap_seats_root = os.path.join(os.path.abspath(str(_cap_pkg)), "seats") + os.sep
-        _cap_in_run = [_m for _m in _cap_cross
-                       if os.path.abspath(_m.get("descriptor") or "").startswith(_cap_seats_root)]
+        _cap_in_run, _cap_cross_out = [], []
+        for _m in _cap_cross:
+            (_cap_in_run
+             if os.path.abspath(_m.get("descriptor") or "").startswith(_cap_seats_root)
+             else _cap_cross_out).append(_m)
+        _cap_in_run_n = len(_cap_in_run)
         # ⚠ IF SEVERAL FIRE, THE REASON NAMES ALL OF THEM. A line that named only the first would
         # be a filter that removed a reason without saying so.
         if _cap_verdict == "UNKNOWN":                                              # D2
@@ -13975,9 +14218,31 @@ def cmd_launch(args):
         if _cap_complete is False or _cap_unclassified:                            # D4
             _cap_why.append(f"census reports complete=false "
                             f"({len(_cap_unclassified)} unclassified row(s))")
-        if _cap_in_run:                                                            # D5
-            _cap_why.append(f"{len(_cap_in_run)} cross_goal row(s) resolve inside this run's own "
-                            f"seats/ — in_use under-counts and headroom over-admits")
+        # 7.555: D5 IS NOW A CORRECTION, NOT A DEGRADE — and the reason it degraded is the reason
+        # it must not. `census()` files a live agent pane with `agent_type_source: no-seat` under
+        # `budget.py`'s rule 3, and rule 3 asks only whether SOME goal declares it; when the answer
+        # comes back as a descriptor inside THIS run's own `seats/`, the row is not another goal's
+        # seat "accounted elsewhere" (`budget.py`'s cross_goal ruling) — it is OUR OWN seat whose
+        # harness is live and which HAS NOT CHECKED IN YET. That state is entered by every launch
+        # and left ONLY at the seat's own `cmd_checkin`, which is what writes the roster pane the
+        # sensor resolves a seat name from. So the degrade NEVER CLEARED for a harness that is live
+        # and never checks in — an agent parked on a permission prompt, or one ignoring the
+        # protocol — while a DEAD one cleared at once through `census()`'s own `if not live`. One
+        # such pane pinned the whole room in CAP NOT CONSULTED indefinitely, with only the memory
+        # floor bounding it (the residual F2 of task 7.552's certified review).
+        #
+        # ⚠ THE READING WAS NEVER AMBIGUOUS, WHICH IS WHY THIS CORRECTS RATHER THAN DISTRUSTS. D5's
+        # own degrade reason already said precisely what was wrong and by how much — "`in_use`
+        # under-counts and headroom over-admits" — and a term that can NAME its error exactly can
+        # SUBTRACT it. Degrading on a knowable miscount discards a sound number to avoid a
+        # correctable one, and here it discarded the cap for the whole room rather than for the
+        # act. The rows are counted below, at the ONE place `headroom` is used.
+        #
+        # ⚠ AND IT STAYS THE TERM ON THE **ROW**, NEVER ON THE CLASS. `_cap_cross_out` — a
+        # `cross_goal` pane resolving OUTSIDE this run — is untouched and still spends no slot
+        # (N2); only the in-run rows are counted. `census()` cannot make this split at its own home
+        # (it receives two mappings and never the run root), which is why the correction lives with
+        # the consumer that owns that root, exactly where the predicate already did.
         _cap_age = _cap_c["snapshot_age_s"]
         _cap_stamp = (f"snapshot age {_cap_age}s (stale after {_cap_c['stale_after_s']}s)"
                       if _cap_age is not None
@@ -14069,13 +14334,22 @@ def cmd_launch(args):
         # never the degrade one — and defers every counted candidate. `max(0, …)` normalizes the
         # allowance to a count; it is NOT what produces that deferral, and is not claimed to be:
         # the loop's own `_cap_taken < _cap_allow` already defers everything on a negative value.
-        _cap_allow = max(0, _cap_c["headroom"])
+        # 7.555: the EMITTED `headroom`, less the in-run `cross_goal` rows `census()` left out of
+        # `in_use` (D5, above). This is NOT the recombination `cap` + `in_use` that 7.278 bars and
+        # a selftest row asserts the absence of — neither field is read here; it is the consumer
+        # applying a correction only the consumer can compute, to the one number it is allowed to
+        # read. `_cap_in_run_n` is 0 on every ordinary room, so this is a no-op the instant every
+        # seat has checked in — which is exactly the transient regime 7.552's review measured and
+        # this row must not over-correct into a permanent refusal.
+        _cap_allow = max(0, _cap_c["headroom"] - _cap_in_run_n)
         if _cap_verdict == "BREACH":
             print(c(CAPACITY_NOTE_BREACH, C_HINT))                                 # N3
         if _cap_c["unaccounted"]:                                                  # N1
             print(c(CAPACITY_NOTE_UNACCOUNTED.format(k=len(_cap_c["unaccounted"])), C_HINT))
-        if _cap_cross and not _cap_in_run:                                         # N2
-            print(c(CAPACITY_NOTE_CROSS_GOAL.format(k=len(_cap_cross)), C_HINT))
+        if _cap_in_run:                                                            # D5 (7.555)
+            print(c(CAPACITY_NOTE_IN_RUN.format(k=_cap_in_run_n), C_HINT))
+        if _cap_cross_out:                                                         # N2
+            print(c(CAPACITY_NOTE_CROSS_GOAL.format(k=len(_cap_cross_out)), C_HINT))
         # COUNTED — the subsequence of ADMITTED, IN ADMITTED'S OWN ORDER, whose DECLARED
         # `agent_type` is a member of `counting.counts_toward_cap` (`_cap_counts`, read once above
         # the branch since 7.363 — both branches decide on it).
@@ -21973,15 +22247,20 @@ def _selftest_checks(args, failures, names):
         _d8_each = {(_d, _w): _d8_val(_d, _w)
                     for _d, _ws in RECORD_DISPOSITION_WRITER.items() for _w in _ws}
         _d8_fifth = _d8_val("harvest", DISPOSITION_WRITER_SEAT) or ""
-        _d8_bridge = [v for v in LIFECYCLE_INTENT_OF.values() if v is not LIFECYCLE_INTENT_ABSENT]
-        check("dag-08 EX-1: THE RECORD ENUM IS EXACTLY `done|renew|revive|exited`, EACH ACCEPTED "
+        # 7.676: FLATTENED, because `LIFECYCLE_INTENT_OF`'s non-ABSENT values became TUPLES of
+        # intents when `close` grew a second one. Iterating the values directly would hand a TUPLE
+        # to the `in RECORD_DISPOSITION_WRITER` test below — which would answer False and red this
+        # row for a shape change rather than for the drift it exists to catch.
+        _d8_bridge = [v for vs in LIFECYCLE_INTENT_OF.values() if vs is not LIFECYCLE_INTENT_ABSENT
+                      for v in vs]
+        check("dag-08 EX-1: THE RECORD ENUM IS EXACTLY `done|renew|revive|exited|incomplete`, EACH ACCEPTED "
               "FROM ITS OWN WRITER, AND A FIFTH VALUE IS REFUSED BY NAME WITH THE LEGAL SET SPELLED "
               "OUT — so a caller reading a detached log learns what it may pass instead of that "
               "something was wrong. The row also pins the BRIDGE to the OTHER enum: every "
               "non-ABSENT value of `LIFECYCLE_INTENT_OF` (whose keys are argv ACTIONS, a disjoint "
               "vocabulary) is a member of this one, so widening the executor's enum without "
               "widening this one cannot pass silently",
-              _d8_names == ["done", "exited", "renew", "revive"]
+              _d8_names == ["done", "exited", "incomplete", "renew", "revive"]
               and all(v is None for v in _d8_each.values())
               and "harvest" in _d8_fifth
               and all(n in _d8_fifth for n in _d8_names)
@@ -23516,6 +23795,11 @@ def _selftest_checks(args, failures, names):
             ("s01", ("skew",), ""), ("s02", ("disposition",), "done"),
             ("s03", ("disposition",), "renew"), ("s04", ("disposition",), "revive"),
             ("s05", ("disposition",), "exited"), ("s06", ("disposition",), "unenumerated-value"),
+            # 7.676: the fifth disposition sub-class. Row S below asserts every value the WRITE
+            # boundary admits has a class here, and arm 1C asserts every class is EXERCISED by a
+            # row — so a disposition minted without this fixture row reds 1C rather than shipping
+            # a class nothing ever produced.
+            ("s12", ("disposition",), "incomplete"),
             ("s07", ("active",), ""), ("s08", ("built",), ""), ("s09", ("undeclared",), ""),
             ("s10", ("stop",), ""), ("s11", ("unmet",), ""),
             # the CLEAN row — READY, class None, admitted by the conjunction
@@ -23562,12 +23846,13 @@ def _selftest_checks(args, failures, names):
                       (cls is not None and CLASS_TO_VERDICT[cls] == v)
                       for _s, cls, v in _a3_arm1))
         # ---- arm 1C: C-3's SUPERSET — every class the map defines is EXERCISED ----
-        check("7.274 row P arm 1C: every one of the ELEVEN classes is exercised by some fixture "
-              "row — set equality, not a count. Seven limbs produce eleven classes (the "
-              "`disposition` limb alone produces five), so a fixture carrying one row per LIMB "
-              "would leave four classes unexercised while reading as complete",
+        check("7.274 row P arm 1C: every one of the TWELVE classes is exercised by some fixture "
+              "row — set equality, not a count. Seven limbs produce twelve classes (the "
+              "`disposition` limb alone produces six since 7.676's `declared-incomplete`), so a "
+              "fixture carrying one row per LIMB would leave five classes unexercised while "
+              "reading as complete",
               {deferral_class(r) for r in _a3_rows} - {None} == set(CLASS_TO_VERDICT)
-              and len(CLASS_TO_VERDICT) == 11)
+              and len(CLASS_TO_VERDICT) == 12)
         # ---- arm 1M: THE META-CHECK, over TWO DIFFERENT SETS ----
         _a3_cov = covered_limb_pairs(_a3_rows)
         check("7.274 row P arm 1M (coverage): the fixture covers EVERY REACHABLE limb pair — "
@@ -24295,13 +24580,71 @@ def _selftest_checks(args, failures, names):
                           "harness": "claude", "liveness": "live",
                           "cwd": str(_c3l / "seats" / "cap1")}])
         _c3_d5, _c3_d5_code = _c3_run(only="cap1,cap2,cap3")
-        check("7.278 D5 — THE TERM ON THE **ROW**, NEVER ON THE CLASS: a `cross_goal` pane whose "
-              "own `descriptor` field resolves INSIDE this run's `seats/` degrades the act, "
-              "because `in_use` under-counts it and `headroom` therefore over-admits. A "
-              "legitimate other-goal pane and a same-run leak carry the IDENTICAL class value, so "
-              "no enumeration over the class separates them; the already-emitted path field does",
-              _c3_d5_code == 0 and "[dry-run] cap3" in _c3_d5
-              and "cross_goal row(s) resolve inside this run's own seats/" in _c3_d5)
+        check("7.555 D5 IS A CORRECTION, NOT A DEGRADE — THE TERM STILL ON THE **ROW**, NEVER ON "
+              "THE CLASS: a `cross_goal` pane whose own `descriptor` resolves INSIDE this run's "
+              "`seats/` is one of OUR seats, harness live and not yet checked in, so it is COUNTED "
+              "and `headroom` is reduced by it — the cap BINDS on the full-capacity branch instead "
+              "of the whole room dropping to CAP NOT CONSULTED. ⚠ THE PRE-7.555 BEHAVIOUR IS THE "
+              "RED ARM AND IT IS ASSERTED AS ABSENT: this same fixture DEGRADED, and `cap3` — "
+              "which the healthy control defers — was ADMITTED, so reverting the subtraction at "
+              "the `headroom` site makes this row RED on `cap3` alone. `census()` cannot make this "
+              "split at its own home (two mappings, never the run root); the already-emitted path "
+              "field is what separates a legitimate other-goal pane from a same-run one, and N2 "
+              "below is the other edge proving the term did not widen to the CLASS",
+              _c3_d5_code == 0
+              and "[dry-run] cap1" in _c3_d5
+              and "[dry-run] cap2" not in _c3_d5 and "[dry-run] cap3" not in _c3_d5
+              and "CAP NOT CONSULTED" not in _c3_d5
+              and "cross_goal row(s) resolve inside this run's own seats/" not in _c3_d5
+              and "cross_goal pane(s) resolve INSIDE this run's own seats/" in _c3_d5
+              and "headroom is reduced by 1" in _c3_d5
+              and len(_c3_defer_lines(_c3_d5)) == 2)
+        # ---- 7.555's DISCRIMINATING TWIN: the TRANSIENT regime is PRESERVED, not fixed away -----
+        #
+        # The SAME pane in the SAME seat folder, differing in ONE thing: it has CHECKED IN, so the
+        # sensor resolved a seat name and `agent_type_source` reads `descriptor` rather than
+        # `no-seat`. That pane never enters `budget.py`'s rule 3 at all — it is `counted`, inside
+        # `in_use`, and the correction above is a NO-OP on it (`_cap_in_run_n` is 0). This row is
+        # here because the failure mode of 7.555 is OVER-correcting: a term that turned a transient
+        # unchecked-in state into a permanent refusal would still pass the row above and would
+        # break every ordinary launch. Task 7.552's certified review MEASURED this transient
+        # (D5 clears at check-in plus one sensor cadence, and the act reaches the full-capacity
+        # branch); this row is that measurement, pinned in the suite instead of in an evidence file.
+        _c3_state(seats=[{"seat": "cap1", "agent_type": "worker",
+                          "agent_type_source": "descriptor", "harness": "claude",
+                          "liveness": "live", "cwd": str(_c3l / "seats" / "cap1")}])
+        _c3_ci, _c3_ci_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.555 THE TRANSIENT REGIME IS PRESERVED: a seat that HAS checked in classifies "
+              "`counted` off its own descriptor, sits INSIDE `in_use`, and the act reaches the "
+              "FULL-CAPACITY branch on the census's own headroom — the correction above never "
+              "fires for it and NO in-run note is printed. Same seat folder and same live harness "
+              "as the row above; the only difference is `agent_type_source`, which is exactly what "
+              "a check-in changes. ⚠ WITHOUT THIS ROW 7.555 WOULD BE SATISFIED BY A TERM THAT "
+              "COUNTED EVERY PANE RESOLVING INSIDE `seats/` TWICE — once as a census row and again "
+              "as a launch candidate — which reads as a working cap on the fixture above and "
+              "halves the room's real capacity on every ordinary launch",
+              _c3_ci_code == 0
+              and "[dry-run] cap1" in _c3_ci
+              and "[dry-run] cap3" not in _c3_ci
+              and "CAP NOT CONSULTED" not in _c3_ci
+              and "resolve INSIDE this run's own seats/" not in _c3_ci
+              and len(_c3_defer_lines(_c3_ci)) == 1)
+        _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
+                          "harness": "claude", "liveness": "dead",
+                          "cwd": str(_c3l / "seats" / "cap1")}])
+        _c3_dead, _c3_dead_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.555 THE OTHER HALF OF THE GAP, KEPT: a DEAD harness in the same seat folder "
+              "spends NOTHING. `census()` files it `free` at its own `if not live` before rule 3 "
+              "is ever reached, so it is not an in-run row, the correction does not fire, and the "
+              "cap binds on the unreduced headroom (`cap1`/`cap2` proceed, `cap3` waits). This is "
+              "the asymmetry that made the gap invisible for so long — a dead pane always cleared "
+              "itself and only a LIVE, SILENT one pinned the room — and a correction keyed on the "
+              "seat folder rather than on liveness would charge the room for a corpse",
+              _c3_dead_code == 0
+              and "[dry-run] cap1" in _c3_dead and "[dry-run] cap2" in _c3_dead
+              and "[dry-run] cap3" not in _c3_dead
+              and "resolve INSIDE this run's own seats/" not in _c3_dead
+              and len(_c3_defer_lines(_c3_dead)) == 1)
         _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
                           "harness": "claude", "liveness": "live", "cwd": str(_c3_out)}])
         _c3_n2, _c3_n2_code = _c3_run(only="cap1,cap2,cap3")
@@ -29173,10 +29516,16 @@ def build_parser():
         "--renew does the OPPOSITE of ending the seat: it opens the seat's NEXT session, and it is\n"
         "YOUR call, not leader's. It runs in two steps — the first arms the renewal, mutes your\n"
         "wakes and prints the second; the second carries your successor's handoff. Nothing is\n"
-        "closed until that second call.",
+        "closed until that second call.\n"
+        "\n"
+        "--incomplete is the THIRD ending, and the honest one: your briefing asked for something\n"
+        "that does not exist and is not coming. It ends the seat WITHOUT advancing anything and\n"
+        "routes your reason to leader. A plain checkout with declared outputs missing is REFUSED\n"
+        "and points you here — `done` advances the run, so it is not a word you may guess with.",
         "example:\n"
         "  coordinate checkout\n"
         "  coordinate checkout --renew\n"
+        "  coordinate checkout --incomplete \"the spec I was to review was never written\"\n"
         "next: ending for good — nothing on your side, leader runs `close <you>` if the seat must\n"
         "      go; renewing — run the second call the first one printed for you")
     s.add_argument("--no-export", action="store_true", help="skip the automatic transcript export (e.g. the pane is already dead)")
@@ -29186,6 +29535,8 @@ def build_parser():
                    help="what the next session of this seat must do, quoted — requires --renew; it REPLACES your seat memory (memory.md IS the handoff, owner ruling 2026-08-03: no body, no history) and is printed to your successor at its check-in. Target ~%d lines; longer warns, never refuses" % HANDOFF_MAX_LINES)
     s.add_argument("--handoff-file", dest="handoff_file", metavar="PATH", default=None,
                    help="the same note, read from a UTF-8 file instead of the command line — requires --renew, and never together with --handoff. Use it whenever the note has backticks, quotes or many lines, which a shell mangles before coord.py sees them")
+    s.add_argument("--incomplete", metavar="REASON", default=None,
+                   help="end this session UNFINISHED and say so, quoted — your done-contract is unmet and no successor is booted. It records disposition `incomplete` instead of `done`, so NO DAG EDGE ADVANCES and leader is routed the row carrying your reason. Use it instead of a plain checkout whenever your briefing asked for something that does not exist; never together with --renew, which says the opposite (the seat CONTINUES)")
     add_identity_flags(s)
     s.set_defaults(func=cmd_checkout)
 
