@@ -142,11 +142,22 @@ function discoverProbes(root, only, probeOnly) {
 // Probes that manage their own isolation (a -L socket, their own TMUX_TMPDIR) still win: their
 // child env overrides this one. A probe that GENUINELY needs the operator's real server does not
 // exist today and must not be created — that need is a design smell, not a missing escape hatch.
+// ⚠ THE SCRATCH IS ROOTED AT `os.tmpdir()`, NEVER AT `captureDir` — a UNIX socket path is capped
+// at ~108 bytes (`sun_path`), and tmux appends `/tmux-<uid>/<socket-name>` to `$TMUX_TMPDIR`.
+// Under the scheduled runner the capture dir is
+// `<workspace>/.rbtv/runtime/probe-suite/<stamp>-captures/` — 89 bytes on the ignite VPS before
+// tmux adds its own 37 for `/tmux-1000/probe-launcher-attribution`, i.e. 140 > 108. tmux answered
+// "File name too long", and probe-planning-entry / probe-sensor-start / probe-launcher-attribution
+// FAILED in SUITE context for a reason unrelated to what they measure — vacuous hourly coverage,
+// while the same probes ran green by hand from the repo root (task 7.652). `/tmp/rbtv-tmux-XXXXXX`
+// is 21 bytes, so the same worst case lands at 58 with ~50 to spare. Captures are NOT affected —
+// they stay in `captureDir`; only the socket-bearing scratch moves.
 let cachedIsolatedEnv = null;
 function tmuxIsolatedEnv(opts) {
   if (!cachedIsolatedEnv) {
-    const scratch = path.join(opts.captureDir || os.tmpdir(), 'tmux-isolated');
-    fs.mkdirSync(scratch, { recursive: true });
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'rbtv-tmux-'));
+    // Nothing used to reap this dir (it rode inside captureDir); rooted in /tmp it must reap itself.
+    process.on('exit', () => { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch {} });
     const env = { ...process.env, TMUX_TMPDIR: scratch };
     delete env.TMUX;
     delete env.TMUX_PANE;
