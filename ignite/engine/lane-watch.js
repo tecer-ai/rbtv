@@ -34,7 +34,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { RUN_LOCK, runnerAlive } = require('./attached-execution');
+const { RUN_LOCK, runnerAlive, heldSeatPredicate } = require('./attached-execution');
 
 const LANE_FILE = 'execution-lane';
 const DAEMON = 'daemon';
@@ -48,13 +48,35 @@ function readLane(goalFolder) {
   try {
     raw = fs.readFileSync(path.join(goalFolder, LANE_FILE), 'utf8');
   } catch {
-    return { lane: CONSOLE, profile: null, present: false };
+    return { lane: CONSOLE, profile: null, present: false, raw: '' };
   }
-  const [word, profile] = raw.trim().split(/\s+/);
+  const text = raw.trim();
+  const [word, profile] = text.split(/\s+/);
   if (String(word || '').toLowerCase() !== DAEMON) {
-    return { lane: CONSOLE, profile: null, present: true };
+    return { lane: CONSOLE, profile: null, present: true, raw: text };
   }
-  return { lane: DAEMON, profile: profile || null, present: true };
+  return { lane: DAEMON, profile: profile || null, present: true, raw: text };
+}
+
+// ── THE REPEATED-FAILURE MEMO ─────────────────────────────────────────────────────────────────
+//
+// A goal that cannot be seeded — a profile the shared config does not carry, a broken taskforce —
+// is re-read every cadence, and the first version of this pass logged it every cadence too: at a
+// 10 s tick that is ~8,600 lines a day, per goal, for a condition that will not change until a
+// human edits the marker. So the loud line fires ONCE PER (goal, marker content): the memo is
+// keyed on the marker's exact text, so the moment somebody FIXES the marker the goal is loud
+// again — which is the property that matters, because "quiet" must never mean "forgotten".
+// Repeats drop to `debug`, and a goal that seeds successfully forgets its failure.
+//
+// ponytail: an in-memory Map that grows by one small entry per failing goal and clears on success
+// or on a daemon restart. If the goals tree ever reaches a size where that is not free, key it on
+// a bounded LRU — but the entries are two short strings and the tree is tens of goals.
+const failedOn = new Map();
+
+function shouldShout(goalFolder, marker) {
+  if (failedOn.get(goalFolder) === marker) return false;
+  failedOn.set(goalFolder, marker);
+  return true;
 }
 
 // A LIVE console run owns this goal — do not even seed against it.
@@ -113,9 +135,13 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
     if (!entry.isDirectory()) continue;
     const goal = entry.name;
     const goalFolder = path.join(goalsRoot, goal);
-    const { lane, profile } = readLane(goalFolder);
+    const { lane, profile, raw } = readLane(goalFolder);
 
-    if (lane !== DAEMON) { skipped.push({ goal, reason: 'not-assigned-to-the-daemon' }); continue; }
+    if (lane !== DAEMON) {
+      skipped.push({ goal, reason: 'not-assigned-to-the-daemon' });
+      failedOn.delete(goalFolder);      // a goal handed back to the console starts clean if it returns
+      continue;
+    }
 
     if (!fs.existsSync(path.join(goalFolder, 'taskforce.csv'))) {
       // Assigned but not yet materialized — a normal state between `rbtv-goal scaffold` and
@@ -126,10 +152,31 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
 
     if (!profile) {
       skipped.push({ goal, reason: 'no-profile-in-the-assignment' });
-      say('warn', 'lane watch: goal is assigned to the daemon but names NO launch profile — not seeded', {
-        goal,
-        fix: `rbtv-goal lane ${goal} --set daemon --profile <name>`,
-      });
+      say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
+        'lane watch: goal is assigned to the daemon but names NO launch profile — not seeded', {
+          goal,
+          fix: `rbtv goal lane ${goal} --set daemon --profile <name>`,
+        });
+      continue;
+    }
+
+    // ⚠ THE PROFILE IS CHECKED BEFORE ANYTHING IS WRITTEN, and that ordering is the fix rather
+    // than the check. `enqueue` refuses an unknown profile (`E_UNKNOWN_PROFILE`) — but only AFTER
+    // `seedTaskforce` has already registered a job row per seat, and `registerJob` is create-only,
+    // so a marker carrying a typo left permanent orphan rows in the daemon's store on its very
+    // first pass and then threw every cadence forever. Refusing here writes nothing at all.
+    // `Object.hasOwn`, not a truthiness test, for the store's own reason: `constructor` is a legal
+    // kebab-case name that walks the prototype chain and reads present.
+    const known = (engine.heartStore && engine.heartStore.config && engine.heartStore.config.profiles) || {};
+    if (!Object.hasOwn(known, profile)) {
+      skipped.push({ goal, reason: 'unknown-profile', profile });
+      say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
+        'lane watch: the assignment names a launch profile the shared config does not carry — not seeded, and NOTHING was registered', {
+          goal,
+          profile,
+          known: Object.keys(known),
+          fix: `rbtv goal lane ${goal} --set daemon --profile <a name from profiles: in the shared config>`,
+        });
       continue;
     }
 
@@ -144,12 +191,42 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
       pickup = engine.seedGoal({ goalFolder, goal, profile });
     } catch (err) {
       skipped.push({ goal, reason: 'seed-failed', error: err.message });
-      say('error', 'lane watch: seeding a daemon-assigned goal FAILED — the tick continues', { goal, error: err.message });
+      say(shouldShout(goalFolder, raw) ? 'error' : 'debug',
+        'lane watch: seeding a daemon-assigned goal FAILED — the tick continues', { goal, error: err.message });
       continue;
     }
 
+    failedOn.delete(goalFolder);
     adopted.push(pickup);
     const held = Object.keys(pickup.heldByOtherLane || {});
+
+    // ── F1 · THE DIVERGENCE THIS PASS KNOWINGLY STEPS OVER (task 7.626) ───────────────────────
+    //
+    // A seat that declares `human-interactive:` in an `interactive` goal is carried in the
+    // TERMINAL by the attached lane, and refused rather than dispatched when no terminal exists.
+    // Over here there is no terminal at all, and the daemon dispatches it as an ordinary detached
+    // child — its `fallback:` firing nowhere. That is the EXISTING behaviour and the owner's ruled
+    // default (7.626 owns the fix; d-daemon-lane-button deliberately did not solve it here).
+    //
+    // What was NOT acceptable is doing it SILENTLY, which is what shipped: a channel-master goal
+    // defaults to the daemon lane, so this is the AFK default path, and the lane that refuses the
+    // same seat loudly made the quiet one look equivalent. So the condition is REPORTED — on the
+    // log line and on the pass's own return — and named to the task that owns it. Nothing here
+    // changes what is dispatched.
+    //
+    // Wrapped: the predicate reads the goal's `execution-mode` and each seat's descriptor off
+    // disk, and a malformed one must not be able to stop a pass that has already seeded.
+    let humanInteractive = [];
+    try {
+      const isHeld = heldSeatPredicate(goalFolder);
+      humanInteractive = pickup.enqueued.filter((seat) => isHeld(seat));
+    } catch { /* unreadable descriptor: the report loses a line, the goal keeps running */ }
+    if (humanInteractive.length) {
+      pickup.humanInteractiveDispatched = humanInteractive;
+      say('warn', 'lane watch: dispatching HUMAN-INTERACTIVE seat(s) headless — there is no terminal in this lane, '
+        + 'so their `fallback:` fires nowhere. This is the existing ruled behaviour, NOT a decision taken here; '
+        + 'the fix is migrate task 7.626.', { goal, seats: humanInteractive });
+    }
     // Loud when something moved, quiet otherwise: an adopted goal is re-read every cadence and an
     // info line per goal per 10 s is a journal nobody can read. `heldByOtherLane` is carried on the
     // line whenever it is non-empty — an operator has to be able to tell "somebody else is running
@@ -160,10 +237,11 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
       enqueued: pickup.enqueued,
       skippedAsFinished: pickup.skippedAsFinished,
       heldByOtherLane: pickup.heldByOtherLane,
+      humanInteractiveDispatched: humanInteractive,
     });
   }
 
   return { adopted, skipped };
 }
 
-module.exports = { LANE_FILE, DAEMON, CONSOLE, readLane, consoleRunIsLive, runLaneWatch };
+module.exports = { LANE_FILE, DAEMON, CONSOLE, readLane, consoleRunIsLive, runLaneWatch, failedOn };

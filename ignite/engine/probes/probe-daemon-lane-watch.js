@@ -26,11 +26,14 @@
 //   · The seats' harness is `sleep 1` under the setsid carrier (no systemd user manager in a
 //     probe), the same substitution `probe-cross-lane-resume.js` makes.
 //
-// THREE MUTATION ARMS (L8) run the real pass against a single-string mutation of `lane-watch.js`,
+// SIX MUTATION ARMS (L8) run the real pass against a single-string mutation of `lane-watch.js`,
 // compiled in memory (no file is written into the source tree), and REQUIRE it to go red:
-//   · the assignment is ignored  -> the daemon seeds a CONSOLE goal
-//   · the run lock is ignored    -> the daemon seeds a goal a console runner is attached to
-//   · the watch call is removed  -> the call-site arm reds (the "nothing picks a goal up" state)
+//   · the assignment is ignored     -> the daemon seeds a CONSOLE goal
+//   · the run lock is ignored       -> the daemon seeds a goal a console runner is attached to
+//   · the watch call is removed     -> the call-site arm reds (the "nothing picks a goal up" state)
+//   · the unknown-profile guard off -> an unrunnable goal leaves ORPHAN job rows in the store
+//   · the no-profile branch silent  -> the only line saying why a goal never starts disappears
+//   · the human-interactive report off -> the seat is dispatched headless with nothing said
 // Each anchor is asserted present before it is replaced, so a mutation that silently matched
 // nothing can never pass for a mutation that was survived.
 
@@ -126,14 +129,25 @@ const switchGoal = makeGoal('switch-goal');     // the end-to-end: daemon first,
 const consoleGoal = makeGoal('console-goal');   // THE CONTROL: assigned to the console lane
 const lockedGoal = makeGoal('locked-goal');     // assigned daemon, but a console runner is attached
 const heldGoal = makeGoal('held-goal');         // assigned daemon, one seat OPEN in the other lane
+const badGoal = makeGoal('bad-profile-goal');   // assigned daemon with a profile the config lacks
+const noProfGoal = makeGoal('no-profile-goal'); // assigned daemon by hand, naming no profile at all
+const hiGoal = makeGoal('human-interactive-goal');
+// The F1 fixture: an INTERACTIVE goal whose first seat declares `human-interactive:`. In the
+// attached lane that seat is carried in the terminal; in this one there is no terminal at all.
+fs.writeFileSync(path.join(hiGoal, 'execution-mode'), 'interactive\n');
+fs.writeFileSync(path.join(hiGoal, 'seats', 'alpha', 'seat.md'),
+  '---\nseat: alpha\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n');
 
 const GOAL_CLI = path.join(IGNITE_SRC, 'capabilities', 'goals-tree', 'tool', 'goal_cli.py');
 // The CLI is the WRITER of the marker file, and it must work with no daemon anywhere — which is
 // the whole reason the trigger is a file. Run it as the operator does: a subprocess, no engine.
 function laneCli(args, { expectRefusal = false } = {}) {
   try {
+    // RBTV_IGNITE_CONFIG_PATH points the CLI's profile-name check at THIS fixture's config — the
+    // same override the daemon honours. Without it the door would validate `probe-lane` against
+    // the shipped config, where it does not exist, and every write here would refuse.
     const out = execFileSync('python3', [GOAL_CLI, '--root', goalsRoot, 'lane', ...args],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, RBTV_IGNITE_CONFIG_PATH: configPath } });
     return { ok: true, out };
   } catch (err) {
     if (!expectRefusal) throw new Error(`rbtv-goal lane ${args.join(' ')} failed: ${err.stderr || err.message}`);
@@ -181,10 +195,27 @@ async function main() {
     + 'launch profile cannot run, and the refusal is at the door rather than a journal warning at 03:00',
     refused.ok === false && /--profile/.test(refused.out) && !fs.existsSync(lanePath(switchGoal)),
     refused.out.trim().split('\n').pop());
+  // ⚑ THE DOOR CHECK (review F2). A `--profile` typo used to be accepted here: the marker was
+  // written, the daemon adopted the goal, `seedTaskforce` registered a job row per seat, and only
+  // then did `enqueue` refuse `E_UNKNOWN_PROFILE` — leaving orphan rows and a goal that threw
+  // every cadence forever. The name is now checked against the SHARED CONFIG at the door.
+  const badName = laneCli(['switch-goal', '--set', 'daemon', '--profile', 'probe-laneX'], { expectRefusal: true });
+  check('L2 `--profile <not-in-the-shared-config>` is REFUSED at the door, naming the valid set — a '
+    + 'typo cannot reach the daemon at all, and nothing is written',
+    badName.ok === false && /probe-lane/.test(badName.out) && !fs.existsSync(lanePath(switchGoal)),
+    badName.out.trim().split('\n').pop());
+
   laneCli(['switch-goal', '--set', 'daemon', '--profile', 'probe-lane']);
   laneCli(['locked-goal', '--set', 'daemon', '--profile', 'probe-lane']);
   laneCli(['held-goal', '--set', 'daemon', '--profile', 'probe-lane']);
+  laneCli(['human-interactive-goal', '--set', 'daemon', '--profile', 'probe-lane']);
   laneCli(['console-goal', '--set', 'console']);
+  // The two BROKEN markers only reachable by hand, since the door refuses both spellings.
+  fs.writeFileSync(lanePath(badGoal), 'daemon probe-laneX\n');
+  fs.writeFileSync(lanePath(noProfGoal), 'daemon\n');
+  check('L2 the write is ATOMIC — a temp file is renamed into place and nothing is left beside it',
+    !fs.existsSync(path.join(switchGoal, `${laneWatch.LANE_FILE}.tmp`))
+      && fs.readFileSync(lanePath(switchGoal), 'utf8') === 'daemon probe-lane\n');
   check('L2 the CLI\'s writes are what the DAEMON\'s reader sees — two languages, one grammar, cross-checked',
     laneWatch.readLane(switchGoal).lane === 'daemon'
       && laneWatch.readLane(switchGoal).profile === 'probe-lane'
@@ -282,6 +313,79 @@ async function main() {
     log1.some((m) => /lane watch: daemon-assigned goal seeded/.test(m.message || '')
       && m.goal === 'held-goal' && m.heldByOtherLane && m.heldByOtherLane.alpha),
     JSON.stringify(log1.filter((m) => m.goal === 'held-goal').map((m) => m.message)));
+
+  // ── L5b · THE TWO BROKEN MARKERS, and what they cost (review F2/F3) ─────────────────────────
+  const badSkip = pass1.skipped.find((s) => s.goal === 'bad-profile-goal');
+  check('L5b a marker naming a profile the shared config does not carry is SKIPPED, typed, and '
+    + 'NOTHING is registered — the guard runs BEFORE seedTaskforce, so no orphan job rows survive '
+    + 'a marker that can never run',
+    Boolean(badSkip) && badSkip.reason === 'unknown-profile'
+      && (() => {
+        const s = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+        const d = s.dump(); s.close();
+        return !JSON.stringify([d.jobs, d.queue, d.jobs_log]).includes('bad-profile-goal');
+      })(),
+    JSON.stringify(badSkip || 'not skipped at all'));
+  check('L5b …and it says so ONCE, with the fix and the known set on the line an operator reads',
+    log1.some((m) => m.goal === 'bad-profile-goal' && m.level === 'warn'
+      && /shared config does not carry/.test(m.message || '')
+      && Array.isArray(m.known) && m.known.includes('probe-lane') && /rbtv goal lane/.test(m.fix || '')),
+    JSON.stringify(log1.filter((m) => m.goal === 'bad-profile-goal').map((m) => m.level)));
+  const noProfSkip = pass1.skipped.find((s) => s.goal === 'no-profile-goal');
+  check('L5b a `daemon` marker naming NO profile is SKIPPED with its own reason and its own fix hint '
+    + '(the branch a mutation used to survive because nothing measured it)',
+    Boolean(noProfSkip) && noProfSkip.reason === 'no-profile-in-the-assignment'
+      && log1.some((m) => m.goal === 'no-profile-goal' && m.level === 'warn'
+        && /NO launch profile/.test(m.message || '')
+        && /--set daemon --profile/.test(m.fix || '')),
+    JSON.stringify(noProfSkip || 'not skipped at all'));
+
+  // ── L5c · THE FAILURE IS BOUNDED, and un-bounds itself when the marker changes ───────────────
+  {
+    const log2 = [];
+    const engine = createEngine({
+      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    try { laneWatch.runLaneWatch({ goalsRoot, engine, logger: collectingLogger(log2) }); } finally { engine.close(); }
+    const lvls = log2.filter((m) => m.goal === 'bad-profile-goal').map((m) => m.level);
+    check('L5c the SECOND pass over the same broken marker drops to debug — at a 10 s cadence the '
+      + 'loud version is ~8,600 identical lines a day for a condition only a human can change',
+      lvls.length > 0 && !lvls.includes('warn'), JSON.stringify(lvls));
+
+    const log3 = [];
+    fs.writeFileSync(lanePath(badGoal), 'daemon probe-laneY\n');    // somebody EDITED it, still wrong
+    const engine3 = createEngine({
+      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    try { laneWatch.runLaneWatch({ goalsRoot, engine: engine3, logger: collectingLogger(log3) }); } finally { engine3.close(); }
+    check('L5c …and it is LOUD again the moment the marker text changes — quiet must never mean '
+      + 'forgotten, so the memo is keyed on the marker, not on the goal',
+      log3.some((m) => m.goal === 'bad-profile-goal' && m.level === 'warn'),
+      JSON.stringify(log3.filter((m) => m.goal === 'bad-profile-goal').map((m) => m.level)));
+    fs.writeFileSync(lanePath(badGoal), 'daemon probe-laneX\n');
+  }
+
+  // ── L5d · THE DIVERGENCE THE PASS STEPS OVER IS REPORTED (review F1) ────────────────────────
+  //
+  // The BEHAVIOUR is the owner's ruled default and is deliberately unchanged: the daemon dispatches
+  // a human-interactive seat headless, where the attached lane would carry it in a terminal. What
+  // this arm requires is that it stops being SILENT — this is the AFK default path, because a
+  // channel-master goal is assigned `daemon` at birth.
+  const hiPickup = pass1.adopted.find((a) => a.goal === 'human-interactive-goal');
+  check('L5d the daemon DOES dispatch the human-interactive seat — the existing behaviour, unchanged '
+    + '(7.626 owns the fix, and this build did not take it)',
+    Boolean(hiPickup) && hiPickup.enqueued.includes('alpha'),
+    hiPickup ? JSON.stringify(hiPickup.enqueued) : 'goal not adopted');
+  check('L5d …and it is REPORTED — on the pass\'s own return AND on a warn line naming 7.626, so the '
+    + 'lane that dispatches silently no longer looks equivalent to the lane that refuses loudly',
+    Boolean(hiPickup) && Array.isArray(hiPickup.humanInteractiveDispatched)
+      && hiPickup.humanInteractiveDispatched.includes('alpha')
+      && log1.some((m) => m.goal === 'human-interactive-goal' && m.level === 'warn'
+        && /HUMAN-INTERACTIVE/.test(m.message || '') && /7\.626/.test(m.message || '')),
+    JSON.stringify(log1.filter((m) => m.goal === 'human-interactive-goal').map((m) => m.level)));
+  check('L5d CONTROL: an AUTONOMOUS goal\'s seats are never reported as human-interactive — the '
+    + 'report tracks the two gates, not the mere presence of the pass',
+    !Object.hasOwn(pass1.adopted.find((a) => a.goal === 'switch-goal') || {}, 'humanInteractiveDispatched'));
 
   // The PAIR for the lock arm: the same goal, the same pass, the lock gone. Without this, "not
   // seeded" could just as well mean "this watch seeds nothing".
@@ -391,8 +495,8 @@ async function main() {
   // seed the CONSOLE-assigned goal — the exact harm the fail-closed default exists to prevent.
   {
     const mutant = mutantWatch(
-      "    return { lane: CONSOLE, profile: null, present: true };",
-      "    return { lane: DAEMON, profile: 'probe-lane', present: true };");
+      "    return { lane: CONSOLE, profile: null, present: true, raw: text };",
+      "    return { lane: DAEMON, profile: 'probe-lane', present: true, raw: text };");
     const mutRoot = path.join(tmp, 'm1');
     fs.cpSync(goalsRoot, mutRoot, { recursive: true });
     const engine = createEngine({
@@ -425,6 +529,71 @@ async function main() {
       `mutant adopted: ${pass.adopted.map((a) => a.goal).join(', ') || 'none'}`);
   }
 
+  // M4 · THE UNKNOWN-PROFILE GUARD REMOVED — the state review F2 measured: `seedTaskforce` registers
+  // a job row per seat, `enqueue` then refuses, and the store keeps orphan rows for a goal that can
+  // never run. The arm reads the STORE, not the skip list, because the harm is what was written.
+  {
+    const mutant = mutantWatch(
+      '    if (!Object.hasOwn(known, profile)) {',
+      '    if (false) {');
+    const mutRoot = path.join(tmp, 'm4');
+    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    const dbPath = path.join(tmp, 'm4.db');
+    const engine = createEngine({
+      dbPath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    try { mutant({ goalsRoot: mutRoot, engine }); } finally { engine.close(); }
+    const s = openHeartStore({ dbPath, profiles: cfg.profiles });
+    const d = s.dump(); s.close();
+    check('L8 M4 unknown-profile guard REMOVED -> the unrunnable goal leaves orphan job rows in the '
+      + 'daemon store (L5b RED), which is exactly the harm the ordering fixes',
+      JSON.stringify(d.jobs).includes('bad-profile-goal'),
+      `job ids: ${(d.jobs || []).map((j) => j.job_id).filter((i) => /bad-profile/.test(i)).join(', ') || 'none'}`);
+  }
+
+  // M5 · THE NO-PROFILE BRANCH REMOVED — review F3: this branch shipped unmeasured, and a mutation
+  // of it left the probe green.
+  {
+    const mutant = mutantWatch(
+      "      skipped.push({ goal, reason: 'no-profile-in-the-assignment' });",
+      "      skipped.push({ goal, reason: 'no-profile-in-the-assignment' }); continue;");
+    const mutRoot = path.join(tmp, 'm5');
+    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    const log = [];
+    const engine = createEngine({
+      dbPath: path.join(tmp, 'm5.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    try { mutant({ goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
+    check('L8 M5 the no-profile branch skips SILENTLY -> the operator loses the only line that says '
+      + 'why the goal never starts (L5b RED)',
+      !log.some((m) => m.goal === 'no-profile-goal' && /NO launch profile/.test(m.message || '')),
+      `lines for that goal: ${log.filter((m) => m.goal === 'no-profile-goal').length}`);
+  }
+
+  // M6 · THE HUMAN-INTERACTIVE REPORT REMOVED — the silence review F1 named.
+  {
+    const mutant = mutantWatch(
+      '      humanInteractive = pickup.enqueued.filter((seat) => isHeld(seat));',
+      '      humanInteractive = [];');
+    const mutRoot = path.join(tmp, 'm6');
+    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    // heldSeatPredicate resolves the workspace root from the goal folder's own depth, so the copy
+    // is placed at the SAME depth the real tree has — otherwise the mutant would look green for
+    // the wrong reason (an unresolvable descriptor rather than a removed report).
+    const log = [];
+    const engine = createEngine({
+      dbPath: path.join(tmp, 'm6.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    let pass;
+    try { pass = mutant({ goalsRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
+    const hi = pass.adopted.find((a) => a.goal === 'human-interactive-goal');
+    check('L8 M6 the human-interactive report REMOVED -> the daemon dispatches the seat with nothing '
+      + 'said (L5d RED) — the silence, reproduced',
+      Boolean(hi) && !hi.humanInteractiveDispatched
+        && !log.some((m) => m.goal === 'human-interactive-goal' && /HUMAN-INTERACTIVE/.test(m.message || '')),
+      hi ? JSON.stringify(hi.humanInteractiveDispatched || null) : 'goal not adopted');
+  }
+
   // M3 · THE WATCH IS NEVER CALLED — the state this whole build ends, mutated back into place. The
   // arm under test is L7's, so the mutation is applied to the daemon's SOURCE TEXT and L7's own
   // predicate is re-run against it.
@@ -448,7 +617,10 @@ main().then(() => {
       + 'watched once a cadence, seeding through `engine.seedGoal` and nothing else. It adopts only '
       + 'goals explicitly assigned to it, stays off a goal a console runner is attached to, holds a '
       + 'seat the other lane has open, and the owner\'s start-in-daemon-finish-in-console flip works '
-      + 'end to end with nothing re-run. Three mutations red.');
+      + 'end to end with nothing re-run. It refuses an unknown profile at BOTH doors and registers '
+      + 'nothing for one; its failure lines are bounded per marker and go loud again the moment the '
+      + 'marker changes; and it REPORTS the human-interactive seat it knowingly dispatches headless '
+      + '(behaviour unchanged, 7.626 owns the fix). Six mutations red.');
   say(`FINDINGS: ${findings.length} (a PASS means "measured" — read the findings for the open bounds)`);
   say(`WALL_MS ${Date.now() - start}`);
   say(`EXIT ${exitCode}`);

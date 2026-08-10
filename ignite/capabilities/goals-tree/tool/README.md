@@ -91,10 +91,15 @@ seeds the goals assigned to it through `engine.seedGoal`; the console lane is `r
 - **ABSENT MEANS `console`.** An unreadable file, a junk word and a missing file are ONE answer —
   the daemon adopts ONLY goals explicitly assigned to it. Fail-closed on purpose: the opposite
   default would have adopted every goal folder already on disk the first time the daemon ticked.
-- **`--set daemon` REQUIRES `--profile`,** and the name is carried as a second token in the file
-  (`daemon claude-sonnet`). Seeding takes a launch profile BY NAME from the one shared config and
-  never derives one (`DEC-1` § Shared profile source, the same rule `rbtv run --profile` obeys), and
-  there is no other honest place to read it from.
+- **`--set daemon` REQUIRES `--profile`, and the NAME IS VALIDATED** against `profiles:` in the one
+  shared launch-profile config (`config/spawn-profiles.yaml`, or `RBTV_IGNITE_CONFIG_PATH`); the
+  refusal prints the valid set. Only the KEYS are read here — the profile schema stays
+  `launch-profiles/profiles.js`'s, never re-interpreted. The name is carried as a second token in
+  the file (`daemon claude-sonnet`). Presence alone was not enough: `enqueue` only asks that
+  `profile` be a STRING, so a typo used to pass every gate and surface as a spawn failure per seat,
+  long after whoever typed it stopped watching.
+- **The marker is written temp + rename**, like the execution record beside it: a truncate-then-write
+  leaves a window where the file reads EMPTY, which the daemon's reader resolves as `console`.
 - **FLIPPING IT MID-GOAL IS THE POINT.** The daemon lets go on its very next pass and the other lane
   resumes from the goal's execution record with nothing re-run — start in the daemon, finish in the
   console, or the reverse. A goal a console runner is attached to right now is never seeded against
