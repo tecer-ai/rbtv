@@ -27,6 +27,12 @@ The five properties scored:
      BYTE-IDENTICAL routers (a deterministic template, not a generated one);
   5. re-writing the standard set over a goal whose files HAVE CONTENT clobbers nothing.
 
+7.675 adds arm 2c, over the OTHER birth path: `goal_cli.py` writes the files above, but
+`scaffold-seats --claude-md/--conduct` byte-copies `team-kit/starter-set/{CLAUDE,conduct}.md` into
+the created package. Those two templates still computed `../../` paths and spoke of a "run folder"
+long after the run layer was extinguished, and no arm here could see it. Arm 2c asserts their
+content directly, the way arm 2b asserts the `decisions.md` template's.
+
 ⚠ THE GREEN ARMS ALONE PROVE NOTHING, WHICH IS WHY THE MUTANTS EXIST. "Every file is present" is
 also what a probe reading its own fixture would report. So:
 
@@ -59,6 +65,17 @@ for _v in ("TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET", "COORD_PAC
 HERE = Path(__file__).resolve().parent
 TOOL = HERE.parent / "tool" / "goal_cli.py"
 OUT = HERE / "probe-goal-scaffold-standard-files.out"
+
+# 7.675 — the OTHER two templates a created goal is born from. `goal_cli.py` writes the routers and
+# the write-if-something set; `scaffold-seats --claude-md/--conduct` byte-copies THESE, so a
+# run-layer regression here is invisible to every arm above. Guarded the way arm 2b guards the
+# decisions.md template: content literals, asserted on the shipped file.
+STARTER_SET = HERE.parents[2] / "team-kit" / "starter-set"
+STARTER_TEMPLATES = ("CLAUDE.md", "conduct.md")
+# The run layer is EXTINGUISHED (`decisions.md#d-runs-extinguished`, 7.607 E2b): a goal's package IS
+# the goal folder, so a walk-up path or run-folder wording in a starter template sends every seat of
+# every new goal outside its own package.
+RUN_LAYER_MARKERS = ("../..", "runs/run-", "run folder")
 
 # The ruled set, spelled as LITERALS. Importing ROUTER_FILENAMES / WRITE_IF_SOMETHING would make
 # this probe's expectation move with the code under test — deleting a name from the tuple would
@@ -216,6 +233,19 @@ def main() -> int:
               "authoring/decisions-discipline.md" in dec, dec[:200])
         check("2b. decisions.md no longer carries the pre-Q19 'NOT a log' body",
               bool(dec) and "NOT a log" not in dec, dec[:200])
+
+        # ── 2c. THE STARTER-SET TEMPLATES CARRY NO RUN LAYER (7.675) ─────────────────────────
+        # `bool(text)` is part of every assertion for arm 3's reason: an ABSENT template reads as
+        # `""`, which contains no marker either, so without the presence conjunct a deleted
+        # starter set would score GREEN on the very property this arm exists to hold.
+        for tmpl in STARTER_TEMPLATES:
+            text = read(STARTER_SET / tmpl)
+            hits = [m for m in RUN_LAYER_MARKERS if m in text]
+            check(f"2c. starter-set/{tmpl} exists and is non-empty",
+                  bool(text), f"{STARTER_SET / tmpl}")
+            check(f"2c. starter-set/{tmpl} computes no run-layer path and speaks no run-folder "
+                  "language",
+                  bool(text) and not hits, f"markers present: {hits}")
 
         # ── 3. THE MIRROR DECLARES ITSELF ONE, AND CARRIES THE SAME BODY ─────────────────────
         claude = read(gd / "CLAUDE.md")

@@ -1,9 +1,9 @@
-# conduct.md — run conduct manual
+# conduct.md — goal conduct manual
 
-The run's rulebook. Every seat's executor READS this at boot and FOLLOWS it. Shipped as the
-goal-generic STARTER SET and byte-copied into this run package at scaffold time
-(`scaffold-seats --conduct`); from that copy onward it is THIS run's own manual. FROZEN once the run
-opens — an amendment is a ruling by the seat holding run authority, recorded as an entry in this run
+The goal's rulebook. Every seat's executor READS this at boot and FOLLOWS it. Shipped as the
+goal-generic STARTER SET and byte-copied into this goal package at scaffold time
+(`scaffold-seats --conduct`); from that copy onward it is THIS goal's own manual. FROZEN once the
+goal opens — an amendment is a ruling by the seat holding run authority, recorded as an entry in this
 folder's own `decisions.md`.
 
 Your briefing (`seat.md`) never overrides this manual silently — surface any conflict before acting.
@@ -11,23 +11,23 @@ Two kit files bind in full and this manual restates neither: the coordination pr
 `3-resources/tools/rbtv/ignite/team-kit/protocol.md` (messaging, identity, lifecycle mechanics) and
 `3-resources/tools/rbtv/ignite/team-kit/communication.md` (message form, caps, the volunteer floor).
 
-Paths are workspace-root-relative — the directory that roots `.rbtv/`. ⚠ 7.607: THIS FOLDER IS THE
-GOAL FOLDER (`#d-runs-extinguished`; `#d-extinguishment-design-lock` item 8) — there is no
-`runs/run-N/` layer and no run register. Its contract is `./goal.md` and its ledger `./decisions.md`;
+Paths are workspace-root-relative — the directory that roots `.rbtv/` — except paths written `./`,
+which are relative to THIS FOLDER, the goal folder (`#d-runs-extinguished`;
+`#d-extinguishment-design-lock` item 8). Its contract is `./goal.md` and its ledger `./decisions.md`;
 EVERY anchor — `r-*`, `d-*` and the DURABLE, hand-pruned `p-*` (item 6) — resolves there. **No seat reads either ledger
 end to end** — every ruling that binds you is compiled into your `seat.md` or cited to you as an
 anchor you resolve.
 
-## 1 · What this run is
+## 1 · What this goal is
 
-- **The goal's contract is `../../goal.md`.** Read it. This manual never restates it, and a done
+- **The goal's contract is `./goal.md`.** Read it. This manual never restates it, and a done
   radius remembered from anywhere else is not the contract.
-- This is the goal's first run, created with the goal itself. Its first workflow is **planning**: a
-  9-seat DAG whose entry seat is `elicitator`. **The plan is this run's first deliverable** — nothing
-  downstream is built, staffed, or committed before the plan exists.
+- This package was created with the goal itself. Its first workflow is **planning**: a
+  9-seat DAG whose entry seat is `elicitator`. **The plan is this goal's first deliverable** —
+  nothing downstream is built, staffed, or committed before the plan exists.
 - Work from YOUR seat folder. Execute ONLY your briefing. Never read another seat's folder or
   briefing, and never resume from another seat's state.
-- No fixed deliverable floor is declared here. The floor is whatever `../../goal.md` states; a run
+- No fixed deliverable floor is declared here. The floor is whatever `./goal.md` states; a goal
   whose contract states none produces the plan and stops.
 
 ## 2 · Terminology is king (PRIN-10)
@@ -67,7 +67,7 @@ anchor you resolve.
 ## 4 · Coordination and surfaces
 
 - The protocol governs checkin, messages, cursor, retraction, closes — follow it exactly.
-- **Single writer:** this run's `CLAUDE.md` § Surface ownership is the map. Write ONLY inside your
+- **Single writer:** this folder's `CLAUDE.md` § Surface ownership is the map. Write ONLY inside your
   row; for anything else, claim by message and wait (R-single-writer). A surface with no named writer
   is a collision waiting to be discovered — name one before you write, do not just write.
 - **`coord.py` custody is never seat-bound:** claim it BY MESSAGE on the bus before you change it,
@@ -94,7 +94,7 @@ anchor you resolve.
   holding run authority is resolved from `taskforce.csv` / `coordinate workers` at the instant of use.
   **A freshly scaffolded run carries the planning DAG's seats and NO authority seat** — when no such
   row exists, the call is neither yours to make nor to improvise, and you do all THREE of these, in
-  order: **(1) file it in the goal's owner-decision queue `../../doubts.md`** — the durable record,
+  order: **(1) file it in the goal's owner-decision queue `./doubts.md`** — the durable record,
   which survives a bridge outage, a restart and a phone that is off; **(2) send it to `master`** —
   `coordinate send master "<the escalation>" --type note --inline` — the ROLE ADDRESS of the standing
   owner door, which resolves through this run's `addressable.csv` and is carried to the owner from
@@ -133,22 +133,22 @@ anchor you resolve.
 - Reversible run-scoped decisions above your scope → the run authority, which may rule PROVISIONAL
   (`p-*`) in THIS folder's `decisions.md` with rationale; owner ratification follows. With no
   authority seat rostered, § 4's escalation rule governs.
-- Irreversible, destructive, or security-posture questions → PARK in `../../doubts.md`. Never
+- Irreversible, destructive, or security-posture questions → PARK in `./doubts.md`. Never
   self-authorize.
 - While the owner is present, front-load EVERY anticipated owner decision — a doubt resolvable in the
   window must not survive it.
-- **Ledger filing.** File issues and ideas as APPENDS to `../../issues.md` / `../../ideas.md` (each is
+- **Ledger filing.** File issues and ideas as APPENDS to `./issues.md` / `./ideas.md` (each is
   created by its first append) — never directly to a campaign or registry ledger. **`issues.md` is
   PURE APPEND-ONLY at write time:** append your row and stop — no dedup scan, no max-id derivation, no
   renumbering, no rating. Id = `G-<seat>-<MMDD>-<HHMM>`; duplicates are tolerated until a grooming
   pass, which owns dedup and the impact/effort rating. A question BLOCKING current work bypasses the
-  ledgers → `../../doubts.md` now.
-- **Entry shape** for both `decisions.md` files: decision + rationale + scope only, per
+  ledgers → `./doubts.md` now.
+- **Entry shape** for `./decisions.md`: decision + rationale + scope only, per
   `3-resources/tools/rbtv/orchestration/workflows/_shared/authoring/decisions-discipline.md`. Supersede
   by appending; never rewrite an entry.
 - **The remember set is MECE:** `ideas.md` holds what was framed but never ruled · `issues.md` holds
-  the open questions that must be ruled · the two `decisions.md` ledgers hold every ruling · the run's
-  settled content holds what a ruling made TRUE. Nothing falls outside the four; nothing sits in two.
+  the open questions that must be ruled · `decisions.md` holds every ruling · the goal's settled
+  content holds what a ruling made TRUE. Nothing falls outside the four; nothing sits in two.
 - The run compounds only through what lands durably (PRIN-12): a learning that dies with your session
   has changed nothing. **No loose end vanishes** — deferred work, partial completions, discovered
   out-of-scope work, unaddressed blockers and reusable findings are FILED (ledger entry or task)
@@ -177,8 +177,8 @@ anchor you resolve.
   ORDERING, NOT ISOLATION.** Sequence the landings: the seat whose change is DEPENDED ON commits
   first, the dependent commits on top and RE-RUNS ITS PROOF afterwards. A green taken against a tree
   carrying someone else's uncommitted change is a claim about a tree nobody has committed.
-- **Push policy: this run does not push.** Commits are local and scoped; the owner pushes. A run whose
-  `../../goal.md` puts a push in scope states the branch, the hand and the triggering event as a
+- **Push policy: this goal does not push.** Commits are local and scoped; the owner pushes. A goal
+  whose `./goal.md` puts a push in scope states the branch, the hand and the triggering event as a
   ruling in this folder's `decisions.md` before the first push — a push policy nobody wrote down is
   re-derived wrongly.
 - Until a per-seat worktree flow is adopted, the surface-ownership partition is the isolation
@@ -186,10 +186,10 @@ anchor you resolve.
 
 ## 7 · Host rights
 
-- A run does NOT deploy, restart, or stop a host service unless its own `../../goal.md` puts that in
+- A goal does NOT deploy, restart, or stop a host service unless its own `./goal.md` puts that in
   scope. When it does, the act is CLAIMED on the bus before it is performed, so two seats never
   restart into each other.
-- A newly built feature is adopted by the run's own control loop only after it ran in SHADOW beside
+- A newly built feature is adopted by the goal's own control loop only after it ran in SHADOW beside
   the existing mechanism, AGREED with it, and passed its probes; the existing path stays one command
   away. No control-loop cutover without a probe trail.
 - The team kit is a benchmark, not a relic: adapt the implementation, never regress the function

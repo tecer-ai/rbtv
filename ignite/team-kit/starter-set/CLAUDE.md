@@ -1,11 +1,11 @@
-# run folder — this run's router
+# goal folder — this goal's router
 
-Run folder (KG `run folder`): this run's mortal working state. Shipped as the goal-generic STARTER
-SET and byte-copied here at scaffold time (`scaffold-seats --claude-md`); from that copy onward it is
-THIS run's own router.
+The goal folder: this goal's working state, and the goal's package. Shipped as the goal-generic
+STARTER SET and byte-copied here at scaffold time (`scaffold-seats --claude-md`); from that copy
+onward it is THIS goal's own router.
 
-**This file is a ROUTER (PRIN-3) — auto-loaded by folder, just-in-time.** It carries the run's
-surfaces, ownership map, roster and navigation, and **never the run's conduct, state, or log.**
+**This file is a ROUTER (PRIN-3) — auto-loaded by folder, just-in-time.** It carries the goal's
+surfaces, ownership map, roster and navigation, and **never the goal's conduct, state, or log.**
 What binds every seat's behavior lives in `conduct.md`; what only some seats need lives behind a
 reference. A router that inlines what a folder artifact should carry taxes every seat for content
 only some need — the predecessor router that did reached 338,676 characters, 3.8% of it rules, before
@@ -16,7 +16,10 @@ system term.
 
 ## Where things are
 
-Paths are relative to this run folder. The goal root is `../../`.
+Paths written `./` are relative to THIS folder, which IS the goal root — a goal's working content
+sits directly under it (`decisions.md#d-runs-extinguished`,
+`#d-extinguishment-design-lock` item 8), so this file is the goal folder's CLAUDE.md and its ledgers
+are its siblings.
 
 | Path | What it is |
 |------|-----------|
@@ -29,22 +32,19 @@ Paths are relative to this run folder. The goal root is `../../`.
 **Resolve a cited anchor; never scan a ledger.** Every anchor — `r-*`, `d-*`, `p-*` — resolves in
 this folder's `decisions.md`. No seat has a whole-file read duty on it.
 
-⚠ 7.607: THE PATHS ABOVE ARE `./`, NOT `../../`, AND THE RUN REGISTER IS GONE. A goal's working
-content sits DIRECTLY under the goal folder — there is no `runs/run-N/` layer (`decisions.md#
-d-runs-extinguished`, `#d-extinguishment-design-lock` item 8), so this file IS the goal folder's
-CLAUDE.md and its ledgers are its siblings. "Is this goal executing?" has no stored answer at all:
-it is DERIVED at ask time from the goal's tmux room and its live seat processes (item 1).
+**"Is this goal executing?" has no stored answer at all** — it is DERIVED at ask time from the goal's
+tmux room and its live seat processes (`#d-extinguishment-design-lock` item 1).
 
 ## Coordination
 
 A seat's cwd is its own seat folder, so a bare `coordinate <cmd>` resolves this package by walk-up.
-Give `--package <absolute path to this run folder>` only when invoking from outside it. **Never write
+Give `--package <absolute path to this goal folder>` only when invoking from outside it. **Never write
 an absolute package path into a standing file** — resolve it at the instant of use.
 
 ## What exists in this folder, and who writes it
 
 Created by the scaffold act. Everything else is minted by its own writer when first needed — an
-absent file below is NORMAL at run birth, not a defect.
+absent file below is NORMAL at goal birth, not a defect.
 
 | Surface | Present at creation | Writer — write ONLY inside your row |
 |---------|--------------------|--------------------------------------|
@@ -55,7 +55,7 @@ absent file below is NORMAL at run birth, not a defect.
 | `state.csv` | yes, HEADER-ONLY — `stamped-at,run-state,seat,session-id,note` | the run authority — the run cursor: **APPEND-ONLY, one row per run-state ADVANCE**, never per turn or per commit. Position only; narrative goes elsewhere |
 | `seats/<seat>/` | yes, empty | the materialize command only |
 | `coordination/` | yes, empty | scripts only — `coord.py` state lands here on demand |
-| `addressable.csv` | yes — the register that makes the standing owner door a legal address before any authority seat is rostered, so `conduct.md`'s tier-2 escalation resolves. Carries a PATH ONLY, relative to this folder; the name and the role word come from the descriptor the correspondent itself owns, which must declare `addressable: non-member` AND `relays:`. ⚠ **The ONE OPTIONAL creation surface** (7.569): `scaffold-seats --addressable <file>` byte-copies a supplied register, and a bootstrap creation WITHOUT the flag DERIVES the rows from the standing-seat homes that declare the opt-in themselves — so a goal born under a goals root that offers no door simply has no register, exactly as before. Optional and not a fourth REQUIRED input deliberately: a required one would make every caller that does not pass the flag — the armed goal-creation loop included — start refusing `create-inputs-missing`. ⚠ This starter copy's own path is written for the extinct `runs/run-N/` compartment (`../../../`); the DERIVED register computes the depth instead | the run authority; a row added here is a ruling |
+| `addressable.csv` | yes — the register that makes the standing owner door a legal address before any authority seat is rostered, so `conduct.md`'s tier-2 escalation resolves. Carries a PATH ONLY, relative to this folder; the name and the role word come from the descriptor the correspondent itself owns, which must declare `addressable: non-member` AND `relays:`. ⚠ **The ONE OPTIONAL creation surface** (7.569): `scaffold-seats --addressable <file>` byte-copies a supplied register, and a bootstrap creation WITHOUT the flag DERIVES the rows from the standing-seat homes that declare the opt-in themselves — so a goal born under a goals root that offers no door simply has no register, exactly as before. Optional and not a fourth REQUIRED input deliberately: a required one would make every caller that does not pass the flag — the armed goal-creation loop included — start refusing `create-inputs-missing`. ⚠ This starter copy's own row still spells a THREE-LEVEL walk-up, written for the extinct run-layer compartment; the DERIVED register computes the depth instead | the run authority; a row added here is a ruling |
 | `sessions.csv` · `state.json` | no | script-managed — `coord.py`'s launch/close hooks and the `team-monitor` sensor. **Never hand-edited** |
 | `./decisions.md` | no | the run authority (PROVISIONAL `p-*` rulings) |
 | `milestones.csv` · `planning/` | no | the planning DAG's seats — see the roster below |
@@ -68,7 +68,7 @@ writer yet — name one before you write to it.
 
 ## Roster — the planning DAG
 
-This run opens with the **planning workflow: 9 seats**, materialized whole at scaffold. The entry
+This goal opens with the **planning workflow: 9 seats**, materialized whole at scaffold. The entry
 seat is **`elicitator`**; downstream seats exist so readiness can advance over their rows. A live
 census is RESOLVED at the instant of use from `coordinate workers` / `taskforce.csv` — **never
 written into this file and never into any other.**
@@ -83,13 +83,13 @@ written into this file and never into any other.**
 | `workflow-designer` | `execution-tactical` | the milestone's execution workflow as a DAG of seat references |
 | `seat-designer` | `execution-tactical` | the seat definitions that workflow orders — one roster row per seat plus its prompt and task cognitive units |
 | `staffer` | `workflow-designer`, `seat-designer` | the executor binding per seat (harness, model, effort, ctx-refresh). **Writes no seat folder and no taskforce row** — the materialize command does |
-| `ledger-groomer` | — (root, parallel) | `../../issues.md` deduped and rated, with a computed proof that every cited id still resolves |
+| `ledger-groomer` | — (root, parallel) | `./issues.md` deduped and rated, with a computed proof that every cited id still resolves |
 
 `workflow-designer` and `seat-designer` are a PARALLEL PAIR and **neither names the other** — they
 interact by message; an edge would serialize them. `ledger-groomer` neither blocks nor is blocked by
 the planning of the next milestone.
 
-**A scaffolded planning run rosters no meta seat** — no authority seat, and **no `chief-of-staff` or
+**A scaffolded planning workflow rosters no meta seat** — no authority seat, and **no `chief-of-staff` or
 `closer`, which are RETIRED roles**. If a meta seat is added later, its definition is materialized
 from its own component folder under `.rbtv/mirror/meta/`, never hand-written here. `conduct.md` § 4
 governs what happens to an escalation while no authority seat is rostered.
@@ -116,9 +116,9 @@ The normative home of the `memory.md` / `handoff-log.md` write contract is the t
 
 ## Finishing this goal
 
-⚠ 7.607: THERE IS NO RUN TO CLOSE, AND NO REGISTER TO STAMP. A goal is finished by ONE act — the
-deterministic FINISH EDGE (`#d-extinguishment-design-lock` item 3), fired as `coordinate
-finish-goal`. Firing it is what shuts the watchers off, and nothing else does: an absent room is a
+**A goal is finished by ONE act** — the deterministic FINISH EDGE (`#d-extinguishment-design-lock`
+item 3), fired as `coordinate finish-goal`. There is nothing else to close and no register to stamp.
+Firing it is what shuts the watchers off, and nothing else does: an absent room is a
 CRASH the watcher RECOVERS by relaunching, never a finished goal. Do not write a status anywhere to
 mean "over" — a stored status that outlives what it describes is the exact defect the register was
 extinguished for (it deadlocked every fresh goal, 7.608).
