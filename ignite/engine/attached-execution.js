@@ -530,10 +530,19 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
   const seats = rows.map((row) => {
     const state = seatState(row, byJob, queued);
     const humanInteractive = seatIsHumanInteractive(goalFolder, row.seat);
+    // INTERRUPTED, and it is not a sixth seat state. A foreground row still `launching` belongs to
+    // a runner that is gone (a foreground child cannot outlive its terminal), so `live` — true by
+    // the shared predicate — reads to an operator as "something is working on it" when nothing is.
+    // Reported ALONGSIDE the state rather than instead of it: the predicate stays the engine's one
+    // copy, and the next run's reconciliation is what actually resolves the row.
+    const interrupted = (byJob.get(jobIdFor(row.seat)) || []).some(
+      (r) => r.enqueued_by === FOREGROUND_ENQUEUER && LIVE_TURN_STATUSES.includes(r.status)
+    );
     return {
       seat: row.seat,
       after: (row.after || '').trim() || null,
       state,
+      interrupted,
       humanInteractive,
       // Ruling 5's TWO gates, both of them, evaluated here so no caller re-derives one of them.
       heldForUser: state === 'ready' && humanInteractive && executionMode === INTERACTIVE_MODE,
@@ -551,6 +560,7 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
     live: seats.filter((s) => s.state === 'live' || s.state === 'queued').map((s) => s.seat),
     waiting: seats.filter((s) => s.state === 'waiting').map((s) => s.seat),
     heldForUser: seats.filter((s) => s.heldForUser).map((s) => s.seat),
+    interrupted: seats.filter((s) => s.interrupted).map((s) => s.seat),
     // NEXT is what the engine would advance on now — the ready set. Named separately because
     // "what do I do next" is the question the verb exists to answer.
     next: seats.filter((s) => s.state === 'ready').map((s) => s.seat),

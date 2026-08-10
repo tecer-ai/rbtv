@@ -130,6 +130,12 @@ async function main(argv) {
     process.stdout.write(`  in flight       ${list(st.live)}\n`);
     process.stdout.write(`  ready (next)    ${list(st.next)}\n`);
     process.stdout.write(`  waiting         ${list(st.waiting)}\n`);
+    if (st.interrupted.length) {
+      process.stdout.write(`\nINTERRUPTED — ${list(st.interrupted)}\n`);
+      process.stdout.write('  Carried in a terminal that is gone. They read as in-flight above because\n');
+      process.stdout.write('  nothing has closed the row yet; the next run closes it and then stops, and\n');
+      process.stdout.write('  `--relaunch <seat>` is what gives one another attempt.\n');
+    }
     if (st.heldForUser.length) {
       process.stdout.write(`\nHELD FOR YOU — ${list(st.heldForUser)}\n`);
       process.stdout.write('  These seats declare `human-interactive:` and this goal runs in interactive\n');

@@ -366,6 +366,12 @@ async function main() {
   // reaped here so the probe leaves nothing behind.
   spawnSync('pkill', ['-f', 'sleep 20.7']);
 
+  // The status verb must not tell an operator that a dead seat is being worked on.
+  const stKilled = attached.statusAttached({ goalFolder: killGoal });
+  check('B1e --status names the interrupted seat instead of leaving it reading as in-flight',
+    stKilled.interrupted.join() === 'alpha' && stKilled.live.includes('alpha'),
+    `interrupted=${JSON.stringify(stKilled.interrupted)} live=${JSON.stringify(stKilled.live)}`);
+
   const runCli = (args) => {
     const res = spawnSync(RBTV_BIN, args, { encoding: 'utf8', timeout: 120000 });
     let json = null;
@@ -398,6 +404,9 @@ async function main() {
     grantedRows.length === 2 && grantedRows.filter((r) => r.status === 'done').length === 1
       && grantedRows.filter((r) => r.status === 'failed').length === 1,
     grantedRows.map((r) => r.status).join());
+
+  check('B1e …and once the grant has run it, nothing is interrupted any more',
+    attached.statusAttached({ goalFolder: killGoal }).interrupted.length === 0);
 
   // ── B1f · the grant's own bounds, measured at the view it changes ───────────────────────────
   say('');
