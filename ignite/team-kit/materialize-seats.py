@@ -5015,25 +5015,44 @@ def run_dag06_acceptance(check, env: dict) -> None:
         # gate PASSES reading the created file (provenance names 64) and the
         # launch fails only on the absent tmux pane — proving the FLOOR read
         # hits the created surface on the real path the control below flips.
-        cpl = coord(["--package", str(pkg), "--as", "chief-of-staff",
-                     "launch", "--only", "alpha"])
+        #
+        # ⚠ ARGV CORRECTED (task 7.634). This pair used to pass
+        # `--as chief-of-staff`, and was UNSATISFIABLE ON EVERY PLATFORM once
+        # coord.py's F17 entry bound landed: `cmd_launch`'s FIRST statement
+        # refuses an uncorroborated `--as` on any non-dry run, before it reads
+        # the package at all — and corroboration needs a registered roster row
+        # for a real tmux pane, which this hermetic suite can never have
+        # (SCRUBBED_ENV_VARS strips TMUX/TMUX_PANE from every child). So the
+        # arm was refused at the identity gate and never reached the floor
+        # read it exists to prove. The identity claim was never load-bearing
+        # for CP-6 — dropping it resolves 'no identity', and `--force` carries
+        # the ROLE gate and, by its own refusal text, nothing else: the memory
+        # gate still reads the created budget.json for real, and the launch
+        # still dies at the absent-tmux-pane gate, which is exactly what this
+        # row asserts. Gate verdicts print on stdout and the refusal on
+        # stderr, so both arms read the COMBINED output.
+        cpl = coord(["--package", str(pkg),
+                     "launch", "--only", "alpha", "--force"])
         check("CP-6: a REAL launch reads the created budget.json (floor "
               "provenance = 64) and refuses only for the absent tmux pane",
               cpl.returncode != 0
-              and "floors.launch_refuse_mb = 64" in cpl.stderr
-              and "not inside tmux" in cpl.stderr,
+              and "floors.launch_refuse_mb = 64" in (cpl.stdout + cpl.stderr)
+              and "not inside tmux" in (cpl.stdout + cpl.stderr),
               (cpl.stdout + cpl.stderr).strip()[:300])
         # CP-6 control: remove budget.json — the SAME real launch now
         # refuses for the undeclared floor. The surface list is load-bearing.
         (pkg / "budget.json").unlink()
-        cpl = coord(["--package", str(pkg), "--as", "chief-of-staff",
-                     "launch", "--only", "alpha"])
+        cpl = coord(["--package", str(pkg),
+                     "launch", "--only", "alpha", "--force"])
         check("CP-6 control: without budget.json the launch gate REFUSES "
               "for the undeclared floor (FloorUndeclared, "
               "r-floor-single-source)",
               cpl.returncode != 0
-              and "no budget.json" in cpl.stderr
-              and "r-floor-single-source" in cpl.stderr,
+              and "no budget.json" in (cpl.stdout + cpl.stderr)
+              and "r-floor-single-source" in (cpl.stdout + cpl.stderr)
+              # the discriminator: the floor is NOT read, so the green arm's
+              # provenance line is absent and the pane gate is never reached.
+              and "floors.launch_refuse_mb = 64" not in (cpl.stdout + cpl.stderr),
               (cpl.stdout + cpl.stderr).strip()[:300])
 
     # ---- group 2: CP-3 completion, CP-4 bar, tf-id red arms, gated
