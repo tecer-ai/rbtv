@@ -10,7 +10,8 @@ entries below cite.
 
 ## Roles
 
-- **leader** — support/arbiter, launched by the owner by hand; launches everyone else; sole reader
+- **leader** — support/arbiter, launched by the owner by hand; launches the roster at bootstrap
+  (launch authority is shared — see the lifecycle note closing this entry); sole reader
   of worker briefings (lazily); reads the full log; the ONLY door to the owner (R-owner-channel).
   Drain rule (measured, adopted): per batch, ESCALATE-FIRST — relay owner-gated items before
   ruling own items, triaging with `read --type ask` (peek-only: it never consumes the rest of the
@@ -19,15 +20,23 @@ entries below cite.
   `R-cheap-ask`: owner-gated items go up as ONE batched ask with a recommended default per item and
   any-subset/silence-is-held semantics — measured to compound with the ordering, where ordering
   alone did not clear the queue. Leader never writes to the run's target surfaces.
-  Leader also carries the run's ONLY seat-lifecycle authority (launch/close/renew/approve), which
-  makes it a single point of failure — see **deputy**.
+  Seat-lifecycle authority is DISTRIBUTED, not leader-only: `launch` accepts the leader AND the
+  chief-of-staff (`coord.py` `is_authorized_launcher` — `r-cos-is-an-authorized-launcher`, the
+  G-257 repair; every TERMINATING verb — close, renew-of-another, reap, kill, revive — stays off
+  the chief-of-staff per `d-cos-may-launch`), and a healthy seat's renewal is its OWN
+  deterministic act — `checkout --renew --handoff "<note>"`, no approval, no closer
+  (`r-self-renewal-is-the-seats-own-act`, `r-cos-self-renew-carveout-generalized`; the one
+  exception is a `close: mechanical` seat, whose renewal stays the leader-side
+  close-and-relaunch, `d-mechanical-no-self-renew`). What stays the leader's — every `approve`
+  and the failure-path close of ANOTHER seat — still bottlenecks on one seat: see **deputy**.
+  Anchors resolve in the owning goal's `decisions.md` ledger (2026-07-29/30 rulings).
 - **deputy** (optional, rosters past ~8 seats or any AFK run) — a second seat briefed to take over
   SEAT LIFECYCLE only: launch, `approve`, watcher restarts, and the failure-path close (`close`,
   `close --renew`) for a seat that cannot check itself out — a healthy seat renews itself. It does
   NOT rule, does not talk to the owner (R-owner-channel is unchanged — leader remains the sole
   door), and does not write target surfaces. It exists because leader is renewable like any other
-  seat: while leader is being closed and relaunched, nothing else in the run can start, close or
-  unblock a seat, and an approval gate or a context-exhausted worker just waits.
+  seat: while leader is being closed and relaunched, approvals and failure-path closes just wait
+  (launches and healthy self-renewals no longer do — see the leader entry's lifecycle note).
 - **scientist** — optional observer: reads the full log (auto-woken on every send), reads no
   briefings, writes field notes + improvement proposals incrementally, touches nothing else.
 - **judge seats** — checkers per the registry's checker record: judge against PRE-DECLARED done
