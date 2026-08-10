@@ -2864,67 +2864,122 @@ def append_taskforce_rows(plan: dict) -> int:
 # ---------------------------------------------------------------- run
 
 
-def run_refresh(args) -> dict:
-    """--refresh — bring an ALREADY SET-UP seat folder up to the definition's
-    current shape, writing ONLY the DERIVED surfaces: the `AGENTS.md` pointer
-    and the `exposes:` loaders. It creates no seat, appends no registry row,
-    and touches no package surface.
+# ---- --refresh: bindings recovered from the descriptor, and the drop guard ----
+#
+# A descriptor holds every binding-carried value it was rendered from, so the
+# file --refresh is about to replace IS the record of its own bindings. That is
+# what lets the mode run with no `--bindings` argument and still be honest:
+# nothing is invented, the seat's current binding is carried forward, and what
+# moves is the CATALOG. (`--repass` is the other act — the caller DECLARING new
+# bindings for a new pass.)
+#
+# `cwd-mode` is reconstructed rather than read: `seat-folder` is the only ruled
+# mode, and the descriptor stores the resolved `cwd`, not the mode that chose it.
+_REFRESH_BINDING_KEYS = (
+    "description", "agent_type", "harness", "model", "effort", "mode",
+    "ctx-refresh", "window", "senders", "close", "auto-wake", "ephemeral",
+    "broadcast", "component", "relays", "addressable",
+)
 
-    ⚠ IT DOES NOT RE-RENDER `seat.md`, deliberately. A descriptor is the one
-    file here that can carry authored content the catalog does not hold — the
-    live standing-seat descriptors carry cage keys (`rw-paths`, `read-root`,
-    `bus-write`, `local-bin`, …) that `_descriptor_frontmatter` does not emit,
-    so a re-render would silently DELETE them. Re-rendering a descriptor is
-    `--repass`, which is the caller stating that loss is intended. The split
-    is what makes this mode safe to run on anything: every file it writes is
-    declared derived and content-free, so a byte-identical result is a skip
-    and a changed result is a fix.
+# Keys a faithful re-render is EXPECTED to drop. Everything else disappearing is
+# a refusal: `launch-home`/`artifact-home` have no code reader anywhere and were
+# dropped by owner ruling, and the per-unit reference keys are what the
+# whole-file prompt/task layout retired (`d-prompt-task-files`) — their targets
+# no longer exist as files, so carrying them forward would preserve a dangling
+# pointer.
+RETIRED_DESCRIPTOR_KEYS = frozenset((
+    "launch-home", "artifact-home",
+    "role", "procedure", "resources", "i/o spec", "permissions",
+    "restrictions", "constraints", "task goal", "scope", "done-contract",
+    "outcome",
+))
 
-    The seat folder is `seats/<seat>/` in a goal package and the package
-    ITSELF in a standing-seat home (`standing_seat`)."""
-    catalog_root = Path(args.catalog_root)
-    if not catalog_root.is_dir():
+
+def _descriptor_fm(path: Path) -> dict:
+    """An existing descriptor's frontmatter as a dict ({} when absent)."""
+    if not path.is_file():
+        return {}
+    m = _FM_RE.match(path.read_text(encoding="utf-8"))
+    if not m:
+        return {}
+    try:
+        return yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError as exc:
         raise Refuse(
-            "catalog-root-missing",
-            "--catalog-root is not a directory — no catalog to refresh from",
-            str(catalog_root),
-        )
-    package = validate_package(args.package)
-    catalogs = load_catalogs(catalog_root)
-    normalize_seat_rows(catalogs[0])
-    added, _, _ = resolve_added(args, catalog_root, catalogs[0])
+            "refresh-descriptor-unparseable",
+            f"the descriptor at {path} carries frontmatter that is not YAML "
+            f"— {exc}; a refresh recovers this seat's bindings FROM it and "
+            "cannot proceed on a file it cannot read",
+            str(path)) from exc
+
+
+def bindings_from_descriptors(package: Path, added: list[str]) -> dict:
+    """The `--bindings` a refresh runs with, recovered from each seat's own
+    existing descriptor. Refuses a seat with no descriptor: a refresh updates
+    what is there, and inventing a binding is the one thing this must not do."""
+    seats: dict[str, dict] = {}
     for seat in added:
-        folder = seat_home(package, seat)
-        if not folder.is_dir():
+        path = seat_home(package, seat) / "seat.md"
+        fm = _descriptor_fm(path)
+        if not fm:
             raise Refuse(
-                "refresh-no-seat-folder",
-                f"--refresh updates an EXISTING seat folder and {folder.name}"
-                " does not exist — materializing a new seat is the plain run",
-                str(folder),
-            )
-    plan = {"package": str(package), "added_seats": added, "writes": [],
-            "warnings": [], "rows_appended": 0}
-    resolve_seat_exposes(plan, catalogs[0])
-    render_seat_exposures(plan)
-    for seat in added:
-        plan["writes"].append({"kind": "seat-agents-pointer", "seat": seat,
-                               "path": str(seat_home(package, seat)
-                                           / "AGENTS.md")})
-    if args.dry_run:
-        plan["descriptors"] = {}
-        return result_of(plan, dry_run=True)
-    emit_seat_exposures(plan)
-    for seat in added:
-        _write_seat_agents_md(seat_home(package, seat), seat,
-                              (plan.get("seat_rules") or {}).get(seat, ()))
-    return result_of(plan, dry_run=False)
+                "refresh-no-descriptor",
+                f"--refresh recovers seat '{seat}'s bindings from its EXISTING "
+                "seat.md and there is none to read — materializing a new seat "
+                "is the plain run, never a refresh",
+                str(path))
+        entry = {"cwd-mode": "seat-folder"}
+        for key in _REFRESH_BINDING_KEYS:
+            val = fm.get(key)
+            if val not in (None, ""):
+                entry[key] = val
+        if fm.get("pass"):
+            entry["pass-folder"] = fm["pass"]
+        seats[seat] = entry
+    return {"defaults": {}, "seats": seats, "path": "<recovered from seat.md>"}
+
+
+def check_refresh_drops(package: Path, plan: dict) -> None:
+    """REFUSE a refresh that would remove a frontmatter key the existing
+    descriptor carries, unless that key is a named retired one.
+
+    This is what makes overwriting a descriptor safe BY CONSTRUCTION rather
+    than by policy. The hazard is specific and was real here: a descriptor can
+    carry an authored key the catalog has no way to express — the seat cage
+    was exactly that until it was given a home — and a re-render drops such a
+    key SILENTLY, with the loss surfacing much later as a seat that
+    mysteriously cannot do something. A named refusal costs one run; a silent
+    drop cost this system a Slack route that read as working (`daf2f140b`)."""
+    for seat, text in plan["descriptors"].items():
+        old = _descriptor_fm(seat_home(package, seat) / "seat.md")
+        m = _FM_RE.match(text)
+        new = yaml.safe_load(m.group(1)) if m else {}
+        lost = [k for k in old
+                if k not in (new or {}) and k not in RETIRED_DESCRIPTOR_KEYS]
+        if lost:
+            raise Refuse(
+                "refresh-would-drop-keys",
+                f"refreshing seat '{seat}' would REMOVE frontmatter key(s) "
+                + ", ".join(f"'{k}'" for k in lost)
+                + " that its current descriptor carries and the catalog does "
+                "not produce — refused rather than dropped silently. Give the "
+                "key a home in the catalog (the seat cage's own fix), or "
+                "re-render deliberately with --repass",
+                str(seat_home(package, seat) / "seat.md"))
 
 
 def run(args) -> dict:
-    if getattr(args, "refresh", False):
-        return run_refresh(args)
     package = validate_package(args.package)
-    repass = bool(getattr(args, "repass", False))
+    # --refresh IS a repass — one code path renders the descriptor, so a mode
+    # cannot quietly update most of a seat and leave the descriptor behind
+    # (owner-corrected 2026-08-10). What separates them is WHERE the bindings
+    # come from and what the act is allowed to lose: refresh RECOVERS the
+    # seat's current bindings from the file it replaces and refuses to drop a
+    # key; repass is the caller DECLARING new bindings for a new pass.
+    refresh = bool(getattr(args, "refresh", False))
+    repass = bool(getattr(args, "repass", False)) or refresh
+    if refresh:
+        args.root = True          # inert on this path: it appends no rows
     if repass:
         if args.after:
             raise Refuse(
@@ -2975,11 +3030,14 @@ def run(args) -> dict:
             "--catalog-root is not a directory — no catalog to materialize from",
             str(catalog_root),
         )
-    bindings = load_bindings(Path(args.bindings))
     catalogs = load_catalogs(catalog_root)
     normalize_seat_rows(catalogs[0])
     added, internal_after, internal_after_raw = resolve_added(
         args, catalog_root, catalogs[0])
+    # The seat set is resolved FIRST because a refresh reads its bindings out
+    # of those seats' own existing descriptors.
+    bindings = (load_bindings(Path(args.bindings)) if args.bindings
+                else bindings_from_descriptors(package, added))
     check_bindings_cover(bindings, added)
     attach_after = validate_after(args, package, added)
     validate_milestone(args, package)
@@ -3007,9 +3065,24 @@ def run(args) -> dict:
         ]
         plan["rows_appended"] = 0
         render_descriptors(plan, catalogs[0], units)
+        if refresh:
+            # Every gate before any write: nothing is lost, THEN the
+            # seat-folder surfaces are planned beside the descriptor.
+            check_refresh_drops(package, plan)
+            render_seat_exposures(plan)
+            for seat in added:
+                plan["writes"].append(
+                    {"kind": "seat-agents-pointer", "seat": seat,
+                     "path": str(seat_home(package, seat) / "AGENTS.md")})
         if args.dry_run:
             return result_of(plan, dry_run=True)
         repass_descriptors(plan)
+        if refresh:
+            emit_seat_exposures(plan)
+            for seat in added:
+                _write_seat_agents_md(
+                    seat_home(package, seat), seat,
+                    (plan.get("seat_rules") or {}).get(seat, ()))
         return result_of(plan, dry_run=False)
     # dag-04 + dag-05: EVERY gate fires HERE — the emission gates, then the
     # three registry validations — before the dry-run return and before any
@@ -3100,14 +3173,16 @@ def build_parser() -> argparse.ArgumentParser:
                         "package surface. Requires --root.")
     p.add_argument("--refresh", action="store_true", dest="refresh",
                    help="UPDATE an already-set-up seat folder to the "
-                        "definition's current shape: rewrites only the "
-                        "DERIVED surfaces (AGENTS.md pointer + the "
-                        "prompt-card `exposes:` loaders), never seat.md — "
-                        "a descriptor can carry authored keys the catalog "
-                        "does not hold, and re-rendering one is the "
-                        "deliberate --repass. Needs no --bindings and no "
-                        "insertion point; works on a goal package and on a "
-                        "standing-seat home (.rbtv/goals/_<seat>/) alike.")
+                        "definition's current shape: seat.md, the AGENTS.md "
+                        "pointer, and the prompt-card `exposes:` loaders. "
+                        "Bindings are RECOVERED from each seat's existing "
+                        "seat.md, so no --bindings and no insertion point are "
+                        "needed and nothing is invented; a refresh that would "
+                        "REMOVE any frontmatter key the current descriptor "
+                        "carries REFUSES instead (refresh-would-drop-keys) — "
+                        "declaring new bindings for a new pass is --repass. "
+                        "Works on a goal package and on a standing-seat home "
+                        "(.rbtv/goals/_<seat>/) alike.")
     return p
 
 
@@ -5698,46 +5773,72 @@ def run_selftest() -> int:
               pr5.stderr.strip()[:200])
         prompt_path.write_text(orig, encoding="utf-8")
 
-    print("RF-1 --refresh: derived surfaces only, standing-seat home included")
+    print("RF-1 --refresh: bring an existing seat folder to the catalog's shape")
     with tempfile.TemporaryDirectory() as rf_td:
         tmp_rf = Path(rf_td)
         fxr = build_fixture(tmp_rf)
         common_r = ["--catalog-root", fxr["catalog"], "--seat", "exp-seat",
                     "--refresh", "--json"]
         # A STANDING-SEAT home: the package IS the seat folder, named `_<seat>`
-        # (.rbtv/goals/_channel-master/ is the live one). It carries an
-        # AUTHORED seat.md the catalog does not hold, which --refresh must
-        # leave byte-untouched — that is the whole point of the mode.
+        # (.rbtv/goals/_channel-master/ is the live one). Its descriptor carries
+        # the bindings the refresh RECOVERS — no --bindings argument is passed
+        # anywhere in this row, deliberately.
         home = tmp_rf / "goals" / "_exp-seat"
         home.mkdir(parents=True)
-        authored = "---\nseat: exp-seat\nrw-paths:\n  - hand/authored\n---\n"
+        authored = (
+            "---\n"
+            "seat: exp-seat\n"
+            "description: the exposure seat\n"
+            f"cwd: {home}/\n"
+            "agent_type: worker\n"
+            "mode: one-shot\n"
+            "relays: alpha\n"
+            "---\n\n<role>\nstale body\n</role>\n")
         (home / "seat.md").write_text(authored, encoding="utf-8")
         pr = _invoke(["--package", str(home)] + common_r, clean_env)
         loaders = [".claude/skills/brws/SKILL.md",
-                   ".agents/skills/brws/SKILL.md", "AGENTS.md"]
-        check("RF-1 green: --refresh writes the derived surfaces at the "
-              "STANDING-SEAT package root (the package IS the seat folder), "
-              "with no --bindings and no insertion point",
+                   ".agents/skills/brws/SKILL.md", "AGENTS.md", "seat.md"]
+        fresh = (home / "seat.md").read_text(encoding="utf-8")
+        check("RF-1 green: --refresh rewrites seat.md AND the seat-folder "
+              "surfaces at the STANDING-SEAT package root, with no --bindings "
+              "and no insertion point",
               pr.returncode == 0
-              and all((home / rel).is_file() for rel in loaders),
+              and all((home / rel).is_file() for rel in loaders)
+              and fresh != authored and "stale body" not in fresh,
               (pr.stderr.strip()[:300]
                or str([r for r in loaders if not (home / r).is_file()])))
-        check("RF-1 green: the AUTHORED seat.md is byte-untouched — a "
-              "descriptor can carry keys the catalog does not hold, so "
-              "re-rendering one is the deliberate --repass, never this mode",
-              (home / "seat.md").read_text(encoding="utf-8") == authored,
-              (home / "seat.md").read_text(encoding="utf-8")[:200])
-        # `if is_file()` so a MUTANT reports red here instead of
-        # crashing the harness before the row is scored.
+        check("RF-1 green: the bindings were RECOVERED from the descriptor it "
+              "replaced — nothing invented, and a value only the old file "
+              "held survives the render",
+              "relays: alpha" in fresh and "agent_type: worker" in fresh
+              and "mode: one-shot" in fresh,
+              fresh.split("\n---", 1)[0][:300])
         stamps = {rel: (home / rel).read_bytes() for rel in loaders
                   if (home / rel).is_file()}
         pr_again = _invoke(["--package", str(home)] + common_r, clean_env)
-        check("RF-1 green: a second --refresh is byte-identical (every file "
-              "it writes is DERIVED — idempotent, never a collision refusal)",
+        check("RF-1 green: a second --refresh is byte-identical — the act is "
+              "idempotent, never a collision refusal",
               pr_again.returncode == 0
               and all((home / rel).read_bytes() == b
                       for rel, b in stamps.items()),
               pr_again.stderr.strip()[:200])
+        # THE GUARD. A descriptor may carry an authored key the catalog cannot
+        # produce — the seat cage was exactly that until it was given a home —
+        # and a silent drop is how a Slack route came to read as working while
+        # being inert (daf2f140b). Refuse, naming the key.
+        held = fresh.replace("relays: alpha\n",
+                             "relays: alpha\nhand-authored-knob: keep-me\n")
+        (home / "seat.md").write_text(held, encoding="utf-8")
+        pr_drop = _invoke(["--package", str(home)] + common_r, clean_env)
+        check("RF-1 red: a refresh that would REMOVE a key the descriptor "
+              "carries refuses refresh-would-drop-keys, NAMES it, and leaves "
+              "the file byte-untouched",
+              pr_drop.returncode == 1
+              and "refresh-would-drop-keys" in pr_drop.stderr
+              and "hand-authored-knob" in pr_drop.stderr
+              and (home / "seat.md").read_text(encoding="utf-8") == held,
+              pr_drop.stderr.strip()[:250])
+        (home / "seat.md").write_text(fresh, encoding="utf-8")
         # The manifest-comment control: browse/exposure.csv leads with a prose
         # header block, and a plain DictReader takes that line for the header —
         # every part-id then reads absent and the ref refuses as dangling.
@@ -5753,14 +5854,17 @@ def run_selftest() -> int:
               "comment as the header reports every row absent)",
               list(_exposure_rows(comp)) == ["brws"],
               str(list(_exposure_rows(comp))))
-        ghost = tmp_rf / "goals" / "demo-goal-77"
+        ghost = tmp_rf / "goals" / "_ghost-seat"
         ghost.mkdir(parents=True)
-        pr_red = _invoke(["--package", str(ghost)] + common_r, clean_env)
-        check("RF-1 red: --refresh updates an EXISTING seat folder — an "
-              "absent one refuses refresh-no-seat-folder and writes NOTHING",
+        pr_red = _invoke(["--package", str(ghost), "--catalog-root",
+                          fxr["catalog"], "--seat", "exp-seat", "--refresh",
+                          "--json"], clean_env)
+        check("RF-1 red: --refresh RECOVERS bindings from an existing "
+              "descriptor — with none to read it refuses refresh-no-descriptor "
+              "and writes NOTHING, rather than inventing a binding",
               pr_red.returncode == 1
-              and "refresh-no-seat-folder" in pr_red.stderr
-              and not (ghost / "seats").exists()
+              and "refresh-no-descriptor" in pr_red.stderr
+              and not (ghost / "seat.md").exists()
               and not (ghost / ".claude").exists(),
               pr_red.stderr.strip()[:200])
         pr_mint = _invoke(["--package", str(home), "--catalog-root",
@@ -5768,52 +5872,42 @@ def run_selftest() -> int:
                            "--bindings", fxr["b_exp"], "--json"], clean_env)
         check("RF-1 red: a PLAIN materialize into a standing-seat home is "
               "refused — it would append a taskforce.csv row to a package "
-              "that has no registry, and the authored seat.md is untouched",
+              "that has no registry",
               pr_mint.returncode == 1
-              and "standing-seat-plain-materialize" in pr_mint.stderr
-              and (home / "seat.md").read_text(encoding="utf-8") == authored,
+              and "standing-seat-plain-materialize" in pr_mint.stderr,
               pr_mint.stderr.strip()[:200])
-        # ── the OPEN BINDING (owner-ruled 2026-08-10): a standing seat may
-        # omit harness·model·effort entirely, because it has no taskforce.csv
-        # row for the triple to agree with and its harness is named by the
-        # spawner's profile, not by this file.
-        raw = json.loads(Path(fxr["b_exp"]).read_text(encoding="utf-8"))
-        for entry in raw["seats"].values():
-            for k in ("harness", "model", "effort"):
-                entry.pop(k, None)
-        raw.get("defaults", {}).pop("harness", None)
-        entry = raw["seats"]["exp-seat"]
-        entry["mode"] = "one-shot"
-        entry.pop("ctx-refresh", None)   # dead control on a one-shot (F4)
-        b_open = tmp_rf / "b-open.json"
-        b_open.write_text(json.dumps(raw), encoding="utf-8")
-        pr_open = _invoke(["--package", str(home), "--catalog-root",
-                           fxr["catalog"], "--seat", "exp-seat", "--root",
-                           "--bindings", str(b_open), "--repass", "--json"],
-                          clean_env)
-        rendered = (home / "seat.md").read_text(encoding="utf-8")
-        rfm = rendered.split("\n---", 1)[0]
+        # ── the OPEN BINDING: a standing seat may omit harness·model·effort.
+        # The recovered binding above already omits all three (the authored
+        # descriptor never carried them), so the rendered file must too.
+        rfm = (home / "seat.md").read_text(encoding="utf-8").split("\n---", 1)[0]
         check("RF-1 green: a standing seat's OPEN binding omits harness, "
               "model and effort from the descriptor ENTIRELY — absent, never "
               "empty, because an empty value reads as a binding that failed",
-              pr_open.returncode == 0
-              and not any(re.search(rf"^{k}:", rfm, re.M)
-                          for k in ("harness", "model", "effort"))
+              not any(re.search(rf"^{k}:", rfm, re.M)
+                      for k in ("harness", "model", "effort"))
               and re.search(r"^mode:", rfm, re.M) is not None,
-              (pr_open.stderr.strip()[:200] or rfm[:300]))
-        entry["harness"] = "claude"
-        b_open.write_text(json.dumps(raw), encoding="utf-8")
+              rfm[:300])
+        raw = json.loads(Path(fxr["b_exp"]).read_text(encoding="utf-8"))
+        entry = raw["seats"]["exp-seat"]
+        for k in ("model", "effort", "ctx-refresh"):
+            entry.pop(k, None)
+        raw.get("defaults", {}).pop("harness", None)
+        entry["harness"], entry["mode"] = "claude", "one-shot"
+        b_half = tmp_rf / "b-half.json"
+        b_half.write_text(json.dumps(raw), encoding="utf-8")
+        before_half = (home / "seat.md").read_text(encoding="utf-8")
         pr_half = _invoke(["--package", str(home), "--catalog-root",
                            fxr["catalog"], "--seat", "exp-seat", "--root",
-                           "--bindings", str(b_open), "--repass", "--json"],
+                           "--bindings", str(b_half), "--repass", "--json"],
                           clean_env)
         check("RF-1 red: HALF a triple is refused open-binding-partial — a "
               "descriptor carrying a harness but no model reads as a binding "
               "that was made, and sends a reader hunting the missing half",
               pr_half.returncode == 1
               and "open-binding-partial" in pr_half.stderr
-              and (home / "seat.md").read_text(encoding="utf-8") == rendered,
+              and (home / "seat.md").read_text(encoding="utf-8") == before_half,
               pr_half.stderr.strip()[:200])
+
 
     print("CG-1 seat cage: the sandbox declaration emitted from the catalog row")
     with tempfile.TemporaryDirectory() as cg_td:
