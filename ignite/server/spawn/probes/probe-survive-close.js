@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { capture } = require('./lib');
+const { capture, reapWorkerUnit } = require('./lib');
 
 function isActive(unit) {
   try {
@@ -48,20 +48,23 @@ capture('probe-survive-close', async (lines) => {
   const info = JSON.parse(out);
   lines.push(`launcher(child node) pid=${info.launcherPid} spawned unit=${info.unit} worker-pid=${info.pid}`);
 
-  // execFileSync has returned => the launcher process has exited.
-  const launcherGone = !pidAlive(info.launcherPid);
-  const active = isActive(info.unit);
-  const ppid = workerPPid(info.pid);
-  lines.push(`after launcher exit: launcher-pid-alive=${!launcherGone} worker is-active=${active} worker-ppid=${ppid} (launcher-pid=${info.launcherPid})`);
-  lines.push('result: launcher process is gone yet the worker is still active; worker PPID is the user manager, never the (dead) launcher (CON-1)');
-
+  // 7.544 — the child DELIBERATELY leaves the worker running (that is the property under test), so
+  // this parent is the only teardown the unit will ever get, and its `sleep 3600` would otherwise
+  // survive an hour. The cleanup is in a `finally` because an assertion or a crash between the
+  // spawn and the stop is precisely the path that leaked.
   try {
-    // Cleanup: stop the unit and remove the launcher's temp dir.
-    execFileSync('systemctl', ['--user', 'stop', info.unit], { stdio: 'ignore' });
-  } catch {}
-  try { fs.rmSync(info.tmp, { recursive: true, force: true }); } catch {}
+    // execFileSync has returned => the launcher process has exited.
+    const launcherGone = !pidAlive(info.launcherPid);
+    const active = isActive(info.unit);
+    const ppid = workerPPid(info.pid);
+    lines.push(`after launcher exit: launcher-pid-alive=${!launcherGone} worker is-active=${active} worker-ppid=${ppid} (launcher-pid=${info.launcherPid})`);
+    lines.push('result: launcher process is gone yet the worker is still active; worker PPID is the user manager, never the (dead) launcher (CON-1)');
 
-  if (!launcherGone || active !== 'active' || ppid === info.launcherPid) {
-    throw new Error(`survive-close not proven: launcherGone=${launcherGone} active=${active} ppid=${ppid}`);
+    if (!launcherGone || active !== 'active' || ppid === info.launcherPid) {
+      throw new Error(`survive-close not proven: launcherGone=${launcherGone} active=${active} ppid=${ppid}`);
+    }
+  } finally {
+    reapWorkerUnit(String(info.unit).replace(/^rbtv-worker-/, '').replace(/\.service$/, ''));
+    try { fs.rmSync(info.tmp, { recursive: true, force: true }); } catch {}
   }
 });
