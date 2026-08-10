@@ -34,6 +34,7 @@ const { capture } = require('./lib');
 const IGNITE = path.resolve(__dirname, '../../..');
 const REAL_PROFILES = path.join(IGNITE, 'config', 'spawn-profiles.yaml');
 const LIVE_MODULE = path.join(IGNITE, 'server', 'spawn', 'live-sessions.js');
+const FERRY_MODULE = path.join(IGNITE, 'bridges', 'chat', 'bus-ferry.js');
 
 const SEAT_YES = '---\nseat: s\nhuman-interactive: yes\nfallback: park\n---\n\nbody\n';
 const SEAT_NONE = '---\nseat: s\nfallback: park\n---\n\nbody\n';
@@ -106,6 +107,28 @@ capture('probe-live-eligibility', async (lines) => {
     const refused = mgr.eligible({ profileName: 'claude-haiku', workdir: goalNo });
     must(lines, 'arm5: the SAME profile at an undeclared seat is refused ON GATE 1',
       refused.ok === false && refused.reason === 'seat-not-human-interactive', { got: refused });
+
+    // ── ARM 6 — the SIBLING field, read from the SAME frontmatter block ───────────────────────
+    // `fallback:` and `human-interactive:` are declared together (`_channel-master` sets both in
+    // one act, vault commit `1c82a61f1`), so a reader of one that cannot see a STANDING-SEAT HOME
+    // while its sibling can is the 7.642 blind spot rebuilt beside the fix. `seatDirFallback` is
+    // that reader's core (task 7.656); the arm lives HERE rather than beside the goal-seat
+    // `seatFallback` arms in `probe-chat-agent-thread.js` for the reason stated at the top of this
+    // file — a `seats/<seat>/` fixture cannot discriminate the bug, and those arms never saw it.
+    // ⚠ RED BY MUTATION: give the core back the `seats/` join it had before the split
+    // (`path.join(seatDir, 'seats', path.basename(seatDir), 'seat.md')`) and arm 6's STANDING check
+    // is the first thing to fail — `{"got":null}`, exactly the arm the ferry would have read for
+    // `_channel-master` — while arms 1–5 stay green under that same mutation (measured 2026-08-10,
+    // suite RED, exit 1; GREEN, exit 0 on revert). That asymmetry is the whole point of the arm.
+    const { seatDirFallback, seatFallback } = require(FERRY_MODULE);
+    must(lines, 'arm6: the SIBLING `fallback:` reader answers at a STANDING-seat home',
+      seatDirFallback(standing) === 'park', { got: seatDirFallback(standing) });
+    must(lines, 'arm6: it answers at a GOAL seat through the same core', seatDirFallback(goalYes) === 'park');
+    must(lines, 'arm6: the `(goalDir, seat)` wrapper still joins `seats/<seat>/` and still guards the name',
+      seatFallback(path.join(root, '.rbtv', 'goals', 'g1'), 'seat-yes') === 'park'
+      && seatFallback(path.join(root, '.rbtv', 'goals', 'g1'), '../..') === null);
+    must(lines, 'arm6: no `fallback:` line is null — absent is not a fourth arm',
+      seatDirFallback(writeSeat(path.join(root, '.rbtv', 'goals', '_no-arm'), SEAT_QUOTED)) === null);
 
     lines.push('result: gate 1 answers for BOTH seat layouts; the standing-seat home is admitted end-to-end');
   } finally {

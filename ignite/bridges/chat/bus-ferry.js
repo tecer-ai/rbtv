@@ -278,16 +278,30 @@ function seatIsHumanInteractive(goalDir, seat) {
 const FALLBACK_PARK = 'park';
 const FALLBACK_ARMS = ['park', 'default-and-disclose', 'block-and-queue'];
 
+// ⚑ THE CORE TAKES A SEAT DIR, `seatDirIsHumanInteractive`'s reason verbatim (task 7.656): the two
+// fields are declared in ONE frontmatter block, so a reader of one that cannot see a STANDING-SEAT
+// HOME while its sibling can is the 7.642 blind spot rebuilt beside the fix. `_channel-master` sets
+// BOTH `human-interactive:` and `fallback:` in the same act (vault commit `1c82a61f1`) — the flag
+// now resolves there and the arm did not, so the arm read `null` (absent, delivered unmarked) for
+// the one seat the ruling was written for. LATENT when split: no caller holds a standing-seat home
+// yet. Split anyway, because the caller that does arrives silently — an unread arm reports nothing.
+//
 // The declared arm, or null (absent, unreadable, or a word outside the vocabulary). FRONTMATTER
 // ONLY, `seatIsHumanInteractive`'s reason verbatim: a briefing line in the descriptor BODY that
 // quotes `fallback: park` must not be able to silence a seat nobody declared silent.
-function seatFallback(goalDir, seat) {
-  if (!isSafeName(seat)) return null;
+function seatDirFallback(seatDir) {
   let fm;
-  try { fm = fs.readFileSync(path.join(goalDir, 'seats', seat, 'seat.md'), 'utf8'); } catch { return null; }
+  try { fm = fs.readFileSync(path.join(seatDir, 'seat.md'), 'utf8'); } catch { return null; }
   const m = frontmatterOf(fm).match(/^fallback:[ \t]*(.+?)[ \t]*$/m);
   const v = m ? m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '').toLowerCase() : '';
   return FALLBACK_ARMS.includes(v) ? v : null;
+}
+
+// The GOAL-SEAT wrapper, `seatIsHumanInteractive`'s exactly: the `isSafeName` guard is the traversal
+// refusal for the NAME, and the core above has no name to guard.
+function seatFallback(goalDir, seat) {
+  if (!isSafeName(seat)) return null;
+  return seatDirFallback(path.join(goalDir, 'seats', seat));
 }
 
 // Parse a messages.md body into rows. DEFENSIVE by construction: the file is appended
@@ -883,5 +897,5 @@ module.exports = {
   chatThreadToken, deliverToken,
   OWNER_TOKEN, DEFAULT_MAX_BODY_CHARS, DEFAULT_WATCH_DEBOUNCE_MS,
   goalExecutionMode, seatIsHumanInteractive, seatDirIsHumanInteractive, isSafeName, INTERACTIVE_MODE, AUTONOMOUS_MODE,
-  seatFallback, FALLBACK_ARMS, FALLBACK_PARK, FALLBACK_MARK,
+  seatFallback, seatDirFallback, FALLBACK_ARMS, FALLBACK_PARK, FALLBACK_MARK,
 };
