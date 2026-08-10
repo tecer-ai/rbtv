@@ -57,7 +57,16 @@ folder `rbtv-goal scaffold` minted.) The three CONTENT surfaces
 `d-run3-seeds-from-run2-amended`: run-2's versions as amended by the authored
 designs, CARRIED BY THE CALLER (dag-16's bootstrap job). This command never
 invents run conventions, never defaults a floor — a missing input REFUSES
-loudly (`create-inputs-missing`) naming the input and the remedy. Creation is
+loudly (`create-inputs-missing`) naming the input and the remedy. A FOURTH,
+OPTIONAL surface joins them (7.569): `addressable.csv`, the register that makes
+the standing owner door a legal address so conduct.md's tier-2 escalation
+resolves in a goal nobody has staffed yet. `--addressable` byte-copies a
+caller's register; without it a bootstrap creation DERIVES the rows from the
+standing-seat homes whose OWN descriptor declares `addressable: non-member`,
+and creates nothing when none does. Optional, not required, deliberately: a
+fourth REQUIRED entry would make every caller that does not pass the new flag
+— including the ARMED goal-creation loop — start refusing, which is an outage
+rather than a build. Creation is
 announced in `writes[]` (kind `package-surface`), planned-not-written under
 --dry-run, idempotent against an existing package, and COMPLETES a partial
 one. A freshly created registry has no taskforce-id to read, so the first
@@ -227,6 +236,30 @@ CREATION_INPUTS = (
     ("CLAUDE.md", "--claude-md", "claude_md"),
     ("budget.json", "--budget-json", "budget_json"),
 )
+
+# ---- the ONE OPTIONAL creation surface: the addressable register (7.569) ----
+#
+# WHY IT IS NOT A FOURTH `CREATION_INPUTS` ENTRY. That tuple is the REQUIRED
+# set: a member absent and unsupplied refuses `create-inputs-missing` in the
+# full/bootstrap mode. Adding this file there would make every caller that does
+# not pass a new option start refusing — including the ARMED goal-creation loop
+# (`config/spawn-profiles.yaml`'s fire-tool argv, which fires on a cadence). A
+# change that turns the live creation path into a refusal is an outage, not a
+# build, so the register lands as an OPTIONAL input instead: supplied by the
+# caller when it wants a specific register, DERIVED FROM DISK when it does not,
+# and simply absent when the goals root offers nobody to admit.
+#
+# WHY DERIVING IS NOT "INVENTING A RUN CONVENTION" (the refusal above exists to
+# stop exactly that). The register carries NO content of its own — it is a
+# PATH, and the name and role word are read from the descriptor the
+# correspondent itself owns (coord.py `load_addressable`, constraint 1). The
+# grant is TWO-SIDED and the other side is the one that decides: this step
+# points only at a standing-seat home whose OWN descriptor already declares
+# `addressable: non-member`. So nothing here grants an address that the
+# addressee has not already offered, and a goals root with no such door yields
+# NO FILE — the mechanism ships inert exactly as it does today.
+ADDRESSABLE_NAME = "addressable.csv"
+ADDRESSABLE_HEADER = "descriptor,admitted-by,admitted"
 
 # ---- the run register is EXTINGUISHED (7.607 E2b, design-lock item 8) -------
 #
@@ -613,6 +646,174 @@ def seat_home(package: Path, seat: str) -> Path:
     """Where seat `seat`'s folder is inside `package` — the package itself
     for that seat's own standing-seat home, else `seats/<seat>/`."""
     return package if standing_seat(package) == seat else package / "seats" / seat
+
+
+# ------------------------------------- the INSTANCE-ORDINAL seat name (7.545)
+#
+# ONE function composes a nested-instance seat name and ONE function reads one
+# back. Anything that ever needs either goes through these — a second spelling
+# of the shape is two definitions of what a seat is called, and the failure
+# that produces is a folder one half of the system can name and the other
+# cannot find.
+#
+# THE SHAPE — owner ruling `d-owner-7545-7551-design-rulings-0808` criterion 1,
+# AMENDING the registry's `r-branch-seat-name-carries-the-instance-ordinal`:
+#
+#     first instance    ->  <four-letters>-<seat>       e.g. rsch-researcher
+#     second onward     ->  <four-letters>-<n>-<seat>   e.g. rsch-2-researcher
+#
+# The ordinal appears FROM THE SECOND INSTANCE ONWARD, never on the first. The
+# superseded reading — ordinal ALWAYS present, `rsch-1-researcher` — is the one
+# that ruling explicitly invited a correction to in one word, and this IS that
+# correction. Two consequences the owner accepted, neither of which a later
+# reader may "tidy away":
+#   - TWO name shapes exist, so anything PARSING a seat name handles both;
+#     `parse_instance_seat_name` below is this file's only reader of one.
+#   - NO RENAME EVER OCCURS when a second instance appears. The first instance
+#     keeps its bare-ordinal name for the life of the goal, so the composition
+#     is stable and a name already written to disk is never rewritten.
+#
+# TOP-LEVEL SEATS KEEP BARE NAMES — no prefix, no ordinal (dossier §7 Q2 (a),
+# ruled KEPT). The asymmetry is deliberate rather than an oversight: a
+# top-level seat has no enclosing workflow instance to be the Nth of.
+#
+# ⚠ A COMPOSED NAME IS A DISK NAME, NEVER A CATALOG KEY (criterion 7, the real
+# build cost and invisible in the rulings). A seat id is TODAY also the key
+# into `seats.csv` and into the bindings file, and `check_bindings_cover`
+# demands the bindings keys EQUAL the resolved set. A composed name reaching
+# either lookup fails every live bindings file with `bindings-missing-seat`.
+# The two names are therefore kept apart BY CONSTRUCTION: the CATALOG ID
+# resolves a catalog row and a binding; the COMPOSED NAME names a folder, a
+# `taskforce.csv` seat cell, an `after` member and a descriptor's `seat:` key.
+# Nothing below ever feeds a composed name back into a catalog lookup.
+#
+# ⚠ SCOPE, MEASURED AT THIS HEAD AND DISCLOSED RATHER THAN PAPERED OVER: this
+# file has NO nested-workflow materialization path to call these from. 7.607
+# E2b deleted `materialize_branch` and `--branch-of`/`--branch` with the branch
+# FOLDER, and states on its own face that re-founding the nested-workflow
+# LAUNCH on the ordinary-seat shape is a DESIGN act not performed there; the
+# launch half is still a typed refusal (`jobs/edge-runner-job.py`, the
+# `kind=nested_workflow` arm). So the naming is landed here, complete and
+# self-checked, as the surface that re-founding will consume — and it composes
+# nothing today. That is the honest state, not a half-build: the alternative
+# was to invent the nested expansion inside a naming task, which is the design
+# act the extinguishment lock reserves.
+
+WORKFLOW_DESCRIPTOR_NAME = "workflow.md"
+# The key a workflow folder DECLARES its four letters under (dossier §2 option
+# B). DECLARED, never derived and never defaulted: derivation was measured to
+# COLLIDE on 2 of 40 real workflow ids, so a derived prefix silently merges two
+# workflows' instances into one ordinal series. Required only where a nested
+# instance is composed, which is why the existing manifests need no edit.
+WORKFLOW_PREFIX_KEY = "four-letters"
+FOUR_LETTERS_RE = re.compile(r"^[a-z]{4}$")
+# Reads BOTH ruled shapes. The ordinal alternative starts at 2 deliberately —
+# `<prefix>-1-<seat>` is the SUPERSEDED shape and is never composed here, so
+# admitting it as instance 1 would quietly re-legalize the reading the owner
+# reversed.
+INSTANCE_SEAT_RE = re.compile(r"^([a-z]{4})-(?:([2-9][0-9]*)-)?([a-z0-9][a-z0-9-]*)$")
+
+
+def read_workflow_prefix(workflow_dir: Path) -> str:
+    """The FOUR LETTERS a workflow declares for its nested instances.
+
+    Read from `<workflow folder>/workflow.md`'s YAML frontmatter. TYPED
+    REFUSAL on absence — never derived from the workflow id, never defaulted.
+    A regex read of one frontmatter key, matching the idiom the daemon-side
+    readers use: a full parse to answer a one-word question buys a dependency
+    for nothing, and this must answer for a descriptor authored by hand."""
+    desc = workflow_dir / WORKFLOW_DESCRIPTOR_NAME
+    try:
+        text = desc.read_text(encoding="utf-8")
+    except OSError:
+        raise Refuse(
+            "workflow-prefix-undeclared",
+            f"the workflow folder carries no readable {WORKFLOW_DESCRIPTOR_NAME}, "
+            f"so its `{WORKFLOW_PREFIX_KEY}:` cannot be read — a nested instance "
+            "is named from a DECLARED prefix, never one derived from the "
+            "workflow id (derivation collides)",
+            str(desc),
+        ) from None
+    fm = re.match(r"^---\r?\n(.*?)\r?\n---", text, re.S)
+    declared = (re.search(rf"^{WORKFLOW_PREFIX_KEY}:[ \t]*(\S+)[ \t]*$",
+                          fm.group(1), re.M) if fm else None)
+    if not declared:
+        raise Refuse(
+            "workflow-prefix-undeclared",
+            f"{WORKFLOW_DESCRIPTOR_NAME} declares no `{WORKFLOW_PREFIX_KEY}:` key "
+            "— a workflow that can be nested declares its own four letters, and "
+            "an absent declaration is a refusal rather than a derived default",
+            str(desc),
+        )
+    value = declared.group(1).strip().strip("'\"")
+    if not FOUR_LETTERS_RE.match(value):
+        raise Refuse(
+            "workflow-prefix-invalid",
+            f"`{WORKFLOW_PREFIX_KEY}: {value}` is not FOUR lowercase letters — the "
+            "prefix is a fixed-width segment of every composed seat name and a "
+            "variable-width one makes the name unparseable",
+            str(desc),
+        )
+    return value
+
+
+def parse_instance_seat_name(name: str) -> tuple[str, int, str] | None:
+    """`(prefix, ordinal, seat-id)` of a composed name, or None.
+
+    A SHAPE reader, and only meaningful where a composed name is expected: a
+    bare top-level seat literally named `rsch-researcher` reads as instance 1
+    of `rsch`, because the amended shape makes the two indistinguishable. That
+    ambiguity is the accepted cost of dropping the first ordinal, and the
+    caller supplies the context this cannot — never the other way round."""
+    m = INSTANCE_SEAT_RE.match(name or "")
+    if not m:
+        return None
+    return m.group(1), int(m.group(2) or 1), m.group(3)
+
+
+def next_instance_ordinal(package: Path, prefix: str) -> int:
+    """Which instance of `prefix`'s workflow a materialization into `package`
+    would be — 1 for the first, 2 for the second, and so on.
+
+    WITHIN THE GOAL, and that is now the only radius there is: the run
+    compartment the ordinal was once scoped to is extinguished (7.607 E2b),
+    so the goal's own `taskforce.csv` is the roster of every seat it has ever
+    materialized and the one honest source for the count.
+
+    MAX + 1, never COUNT + 1. A goal whose second instance was materialized
+    and whose first was later removed must not hand the next instance an
+    ordinal already spent — the composition is stable precisely because a name
+    once written is never reused and never rewritten."""
+    top = 0
+    for row in _csv_rows(package / TASKFORCE_NAME):
+        parsed = parse_instance_seat_name((row.get("seat") or "").strip())
+        if parsed and parsed[0] == prefix:
+            top = max(top, parsed[1])
+    return top + 1
+
+
+def compose_seat_name(prefix: str, ordinal: int, seat: str) -> str:
+    """THE seat-name composer — the single function every nested-instance name
+    goes through (criterion 8's "the SAME single naming function")."""
+    if not FOUR_LETTERS_RE.match(prefix or ""):
+        raise Refuse(
+            "workflow-prefix-invalid",
+            f"cannot compose a seat name from prefix {prefix!r} — the declared "
+            "prefix is FOUR lowercase letters",
+        )
+    if not ID_RE.match(seat or ""):
+        raise Refuse(
+            "seat-invalid",
+            f"cannot compose a seat name for {seat!r} — the seat id must be a "
+            "legal id (lowercase kebab-case)",
+        )
+    if not isinstance(ordinal, int) or ordinal < 1:
+        raise Refuse(
+            "instance-ordinal-invalid",
+            f"instance ordinal {ordinal!r} is not a positive integer — the first "
+            "instance is 1 and carries NO ordinal in its name",
+        )
+    return f"{prefix}-{seat}" if ordinal == 1 else f"{prefix}-{ordinal}-{seat}"
 
 
 def load_bindings(path: Path) -> dict:
@@ -1652,6 +1853,52 @@ def _read_creation_source(surface: str, opt: str, raw: str) -> bytes:
     return data
 
 
+def derive_addressable_register(package: Path) -> bytes | None:
+    """The addressable register this goal is born with, or None (7.569).
+
+    A goal folder's siblings under the goals root include the STANDING-SEAT
+    homes (`_<seat>/`, `standing_seat` above — `.rbtv/goals/_channel-master/`
+    is the live one). Each such home's `seat.md` states for itself whether it
+    accepts mail from outside its own package. Every home that declares
+    `addressable: non-member` becomes ONE ROW, in sorted order, as a path
+    RELATIVE to the created package — which is what coord.py resolves the row
+    against (`load_addressable`).
+
+    A path, never a name: the name and the role word are read from the
+    descriptor at use time, so this file cannot claim an address on anybody's
+    behalf. No door, or a door that never opted in -> None, and no register is
+    created: the run then behaves exactly as every run behaves today.
+
+    ⚠ THE RELATIVE PATH IS COMPUTED, NEVER CARRIED. Since 7.607 E2b the
+    package IS the goal folder, so the door is ONE level up; a register text
+    written for the extinct `runs/run-N/` compartment points three levels up
+    and resolves to nothing. Deriving it here is what keeps the two halves in
+    step with the layout instead of with a frozen string."""
+    rows = []
+    try:
+        siblings = sorted(package.parent.iterdir())
+    except OSError:
+        return None
+    for home in siblings:
+        if not home.name.startswith("_") or not home.is_dir():
+            continue
+        try:
+            text = (home / "seat.md").read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if not text.startswith("---"):
+            continue
+        end = text.find("\n---", 3)
+        fm = text[:end] if end != -1 else text
+        if not re.search(r"^addressable:\s*non-member\s*$", fm, re.M):
+            continue
+        rel = PurePosixPath(os.path.relpath(home / "seat.md", package).replace(os.sep, "/"))
+        rows.append(f"{rel},scaffold,at-run-creation")
+    if not rows:
+        return None
+    return (ADDRESSABLE_HEADER + "\n" + "\n".join(rows) + "\n").encode()
+
+
 def plan_package_creation(package: Path, args) -> list[dict]:
     """dag-06 — plan the package creation/completion WITHOUT writing
     (d-bootstrap-mechanics-ruled (b)): at the opening of a brand-new goal the
@@ -1669,6 +1916,11 @@ def plan_package_creation(package: Path, args) -> list[dict]:
       conduct.md      CALLER-SUPPLIED (--conduct)      \\  d-run3-seeds-
       CLAUDE.md       CALLER-SUPPLIED (--claude-md)     } from-run2-amended:
       budget.json     CALLER-SUPPLIED (--budget-json)  /  never invented here
+      addressable.csv OPTIONAL (7.569): --addressable byte-copies a supplied
+                      register; a bootstrap creation without one DERIVES the
+                      rows from the standing-seat doors that declare
+                      `addressable: non-member` themselves, and creates
+                      nothing when none does
 
     Ask-(f) RULING ENCODED (`d-run3-seeds-from-run2-amended`, 2026-07-29):
     all three content surfaces arrive as caller-supplied input FILES — run-2's
@@ -1740,6 +1992,26 @@ def plan_package_creation(package: Path, args) -> list[dict]:
             "defaults a floor. Nothing was created",
             str(package),
         )
+
+    # The OPTIONAL creation surface (7.569) — see ADDRESSABLE_NAME's block.
+    # `--addressable` byte-copies a caller's register when one is supplied (in
+    # any mode, like every other input option); otherwise a BOOTSTRAP creation
+    # derives it from the standing-seat doors that opted in. Never for a goal
+    # that already carries one, and never retro-fitted onto a legacy package.
+    if not (package / ADDRESSABLE_NAME).is_file():
+        supplied = getattr(args, "addressable", None)
+        if supplied is not None:
+            plan.append({"surface": ADDRESSABLE_NAME,
+                         "path": str(package / ADDRESSABLE_NAME),
+                         "data": _read_creation_source(
+                             ADDRESSABLE_NAME, "--addressable", supplied),
+                         "source": supplied})
+        elif full:
+            derived = derive_addressable_register(package)
+            if derived:
+                plan.append({"surface": ADDRESSABLE_NAME,
+                             "path": str(package / ADDRESSABLE_NAME),
+                             "data": derived, "source": "derived"})
 
     if full:
         # By construction only the full modes reach here with these missing:
@@ -2593,8 +2865,11 @@ def render_taskforce_rows(plan: dict) -> None:
                 for the resulting graph),
       Rule 9  — validation 1 (acyclicity of the RESULTING graph, via
                 goal_cli.check_acyclic — never a hand-rolled walk),
-      Rule 13 — the frozen-copy `after` cells below (manifest cells verbatim;
-                the --after/--root insertion point only on the added roots),
+      Rule 13 — the frozen-copy `after` cells below (manifest cells VERBATIM
+                APART FROM THE INSTANCE RENAMING — the amended wording, owner
+                ruling `d-owner-7545-7551-design-rulings-0808` criterion 8 /
+                dossier §7 Q3 (a); the --after/--root insertion point only on
+                the added roots),
       Rule 14 — validation 3 (no status column; TASKFORCE_HEADER check),
       and Rule 7 (root declared, never defaulted — the --after/--root
       mutually-exclusive required group) plus Rule 11's registry half (a
@@ -2714,8 +2989,24 @@ def render_taskforce_rows(plan: dict) -> None:
 
     # The `after` cells — the FROZEN DAG copy (Rule 13, KG
     # taskforce-descriptor): an internal row copies the workflow manifest's
-    # own cell VERBATIM; the added subgraph's roots take the --after set (or
-    # empty with --root). Nothing else ever computes an edge.
+    # own cell VERBATIM APART FROM THE INSTANCE RENAMING; the added subgraph's
+    # roots take the --after set (or empty with --root). Nothing else ever
+    # computes an edge.
+    #
+    # ⚠ THE AMENDMENT, and the divergence it records (owner ruling
+    # `d-owner-7545-7551-design-rulings-0808` criterion 8, overriding this
+    # copy's former "verbatim, nothing else ever computes an edge"). On the
+    # NESTED path a cell's members are seat ids of the instance being
+    # materialized, so a byte-verbatim copy would point every internal edge at
+    # the BARE ids — which name the sibling instance's rows, or nothing. The
+    # members are therefore mapped through `compose_seat_name` — the SAME
+    # single naming function every other name goes through — and that is a
+    # MECHANICAL RENAME, not an authored edge: the membership, the ordering,
+    # the guards and the alternates are untouched. It affects the nested path
+    # ONLY; ordinary goal materialization still copies the cell byte-for-byte,
+    # which is what the loop below does and all it does. No nested caller
+    # exists at this HEAD (see the naming block beside `seat_home`), so the
+    # amendment lands as the wording it will be built against.
     attach_cell = ",".join(plan["attach_after"])
     after_cells = {
         seat: (plan["internal_after_raw"][seat]
@@ -3208,6 +3499,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "a CREATED goal package. A PATH, never a value: the "
                         "floor lives in the file (R-10, r-floor-single-"
                         "source). Required when creating/completing")
+    p.add_argument("--addressable",
+                   help="OPTIONAL (7.569): caller-supplied addressable.csv "
+                        "register, byte-copied into a CREATED goal package. "
+                        "Omitted, a BOOTSTRAP creation DERIVES it from the "
+                        "standing-seat homes whose own seat.md declares "
+                        "`addressable: non-member`, and creates nothing when "
+                        "none does — so the armed creation loop never starts "
+                        "refusing for want of a flag")
     p.add_argument("--dry-run", action="store_true", dest="dry_run",
                    help="print the full materialize write plan as JSON; "
                         "touch nothing")
@@ -3287,6 +3586,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 # ---------------------------------------------------------------- selftest
+
+
+def _refusal_code(fn) -> str | None:
+    """The `Refuse.code` an in-process call raises, or None when it returns.
+
+    In-process, deliberately: the arms that use it exercise a GATE rather than
+    the CLI, and a subprocess would report exit 1 for every refusal alike."""
+    try:
+        fn()
+    except Refuse as exc:
+        return exc.code
+    return None
 
 
 def _hash_tree(root: Path) -> dict[str, str]:
@@ -4709,11 +5020,16 @@ def run_dag05_acceptance(check, env: dict) -> None:
         f = lint_goal(groot, "demo-goal")
         lint_named = [i for i in f.items
                       if "alpha" in i["reason"] or "beta" in i["reason"]]
-        # MEASURED GAP, recorded not asserted: goal-lint iterates ROWS, so an
-        # orphan FOLDER with no row is invisible to it — the surface that DOES
-        # name the half-state is coord.py's `descriptors` audit
-        # (no-registry-row), asserted below. goal_cli is read-only for dag-05;
-        # the lint gap is surfaced in the task return.
+        # MEASURED GAP AS OF dag-05 (2026-07-29) AND SINCE CLOSED — scoped
+        # historically rather than deleted, because the print below still
+        # reports the count and a reader needs to know what it once meant.
+        # It was measured BEFORE the 7.98 lint sweep landed: goal-lint then
+        # iterated ROWS only, so an orphan FOLDER with no row was invisible to
+        # it. 7.98 added the orphan-seat-folder walk (`goal_cli.py`, the
+        # `orphan seat folder '<name>' — no taskforce.csv row names it`
+        # finding, with its own red arm), so the gap no longer stands. The
+        # surface asserted below is still coord.py's `descriptors` audit
+        # (no-registry-row) — this arm's subject, deliberately unchanged.
         print(f"  info SC-8 measured: goal-lint findings naming the orphan "
               f"folders: {len(lint_named)} (rows-only walk — the naming "
               f"surface is coord.py `descriptors`)")
@@ -5166,6 +5482,81 @@ def run_dag06_acceptance(check, env: dict) -> None:
               cp.returncode == 0
               and [r["taskforce-id"] for r in rows7] == ["tf-1", "tf-1"],
               str(rows7))
+
+        # ---- 7.569 the OPTIONAL addressable register ----------------------
+        # RED FIRST, and it is free: every goal born above (pkg9, pkg6) was
+        # born under a goals root with NO addressable door, and none of them
+        # carries a register. That is the inert ship, not an omission.
+        check("7.569 red: a goals root offering NO addressable door births a "
+              "goal with NO register — the mechanism ships inert",
+              not (pkg9 / ADDRESSABLE_NAME).exists()
+              and not (pkg6 / ADDRESSABLE_NAME).exists())
+        door = groot / "_channel-master"
+        door.mkdir()
+        (door / "seat.md").write_text(
+            "---\nseat: channel-master\naddressable: non-member\n"
+            "relays: master\n---\n\nthe standing owner door\n",
+            encoding="utf-8")
+        shut = groot / "_shut-door"
+        shut.mkdir()
+        (shut / "seat.md").write_text(
+            "---\nseat: shut-door\n---\n\ndeclares nothing\n",
+            encoding="utf-8")
+        pkga = mkgoal("g6-goal-addr")
+        cp = _invoke(argv_for(pkga, "alpha", fx["b_alpha"]), env)
+        reg = (pkga / ADDRESSABLE_NAME)
+        text = reg.read_text(encoding="utf-8") if reg.is_file() else ""
+        check("7.569 green: with a door present the SAME call births the "
+              "register, one row, a RELATIVE path resolving to the door's "
+              "own seat.md (coord.load_addressable resolves it against the "
+              "package)",
+              cp.returncode == 0
+              and text.splitlines() == [
+                  ADDRESSABLE_HEADER,
+                  "../_channel-master/seat.md,scaffold,at-run-creation"]
+              and (pkga / "../_channel-master/seat.md").resolve()
+              == (door / "seat.md").resolve(),
+              text)
+        check("7.569 two-sided: a standing-seat home that does NOT declare "
+              "`addressable: non-member` in its own descriptor is NOT "
+              "admitted — the scaffold grants nothing on its behalf",
+              "_shut-door" not in text)
+        check("7.569: the created register is announced in writes[] like "
+              "every other created surface",
+              ADDRESSABLE_NAME in [
+                  w.get("surface") for w in
+                  (json.loads(cp.stdout) if cp.returncode == 0 else {}
+                   ).get("writes", []) if w["kind"] == "package-surface"],
+              (cp.stdout + cp.stderr).strip()[:200])
+        # Supplied wins over derived — and it is a byte-copy, like the trio.
+        src_reg = tmp / "supplied-addressable.csv"
+        src_reg.write_text(ADDRESSABLE_HEADER + "\n../elsewhere/seat.md,"
+                           "owner,by-hand\n", encoding="utf-8")
+        pkgs = mkgoal("g6-goal-addr-supplied")
+        cp = _invoke(argv_for(pkgs, "alpha", fx["b_alpha"],
+                              ("--addressable", str(src_reg))), env)
+        check("7.569: --addressable BYTE-COPIES the caller's register and "
+              "the derivation stands down",
+              cp.returncode == 0
+              and (pkgs / ADDRESSABLE_NAME).read_bytes()
+              == src_reg.read_bytes())
+        # Red arm on the optional input itself: supplied-but-unreadable is a
+        # refusal, never a silent fall-back to the derivation.
+        pkgu = mkgoal("g6-goal-addr-unreadable")
+        cp = _invoke(argv_for(pkgu, "alpha", fx["b_alpha"],
+                              ("--addressable", str(tmp / "nope.csv"))), env)
+        check("7.569 red: --addressable naming an unreadable file REFUSES "
+              "(create-input-unreadable) — never a silent fall-back to the "
+              "derived register, and nothing is created",
+              cp.returncode == 1
+              and _refusal(cp).get("code") == "create-input-unreadable"
+              and list(pkgu.iterdir()) == [])
+        # A goal that already carries one is never touched.
+        before = (pkga / ADDRESSABLE_NAME).read_bytes()
+        cp = _invoke(argv_for(pkga, "beta", fx["b_beta"]), env)
+        check("7.569: an existing register is never re-derived or "
+              "overwritten on a later run",
+              (pkga / ADDRESSABLE_NAME).read_bytes() == before)
 
 
 # dag-07 — the per-ROW rollup table. Every acceptance row of the command
@@ -5621,6 +6012,136 @@ def run_selftest() -> int:
         check("SK-9: an id in BOTH namespaces is REFUSED as reference-ambiguous "
               "(F-9a's real radius — one colliding id, not the manifest form)",
               got == "reference-ambiguous", f"got {got}")
+
+    print("IO-1 instance-ordinal seat naming pass (7.545)")
+    with tempfile.TemporaryDirectory() as io_td:
+        io_tmp = Path(io_td)
+        # ---- criterion 1: the AMENDED shape, both arms -------------------
+        check("IO-1: the FIRST instance carries NO ordinal (rsch-researcher) "
+              "— the owner's amendment to r-branch-seat-name-carries-the-"
+              "instance-ordinal",
+              compose_seat_name("rsch", 1, "researcher") == "rsch-researcher",
+              compose_seat_name("rsch", 1, "researcher"))
+        check("IO-1: the SECOND instance onward carries it "
+              "(rsch-2-researcher, rsch-10-researcher)",
+              compose_seat_name("rsch", 2, "researcher") == "rsch-2-researcher"
+              and compose_seat_name("rsch", 10, "researcher")
+              == "rsch-10-researcher")
+        check("IO-1 red: the SUPERSEDED always-present shape is never "
+              "composed — nothing this function returns spells `-1-`",
+              "-1-" not in compose_seat_name("rsch", 1, "researcher"))
+        check("IO-1: NO RENAME — composing the second instance leaves the "
+              "first instance's name unchanged (the composition is a pure "
+              "function of its own ordinal)",
+              compose_seat_name("rsch", 1, "researcher")
+              == "rsch-researcher"
+              and compose_seat_name("rsch", 1, "researcher")
+              != compose_seat_name("rsch", 2, "researcher"))
+        for prefix, ordinal, seat, code in (
+                ("rs", 1, "researcher", "workflow-prefix-invalid"),
+                ("rsch5", 1, "researcher", "workflow-prefix-invalid"),
+                ("rsch", 1, "Researcher", "seat-invalid"),
+                ("rsch", 0, "researcher", "instance-ordinal-invalid")):
+            try:
+                got = compose_seat_name(prefix, ordinal, seat)
+            except Refuse as exc:
+                got = exc.code
+            check(f"IO-1 red: compose({prefix!r}, {ordinal}, {seat!r}) is "
+                  f"REFUSED as {code}, never patched into a name",
+                  got == code, f"got {got}")
+        # ---- the reader handles BOTH shapes (the accepted consequence) ----
+        check("IO-1: the parser reads both ruled shapes back",
+              parse_instance_seat_name("rsch-researcher")
+              == ("rsch", 1, "researcher")
+              and parse_instance_seat_name("rsch-2-researcher")
+              == ("rsch", 2, "researcher"))
+        check("IO-1 red: `rsch-1-researcher` (the SUPERSEDED shape) does NOT "
+              "read as instance 1 — admitting it would re-legalize the "
+              "reading the owner reversed",
+              parse_instance_seat_name("rsch-1-researcher")
+              != ("rsch", 1, "researcher"))
+        # ---- criterion 2: the prefix is DECLARED, never derived ----------
+        wf = io_tmp / "workflows" / "research"
+        wf.mkdir(parents=True)
+        for label, body, want in (
+                ("undeclared", "---\nname: research\n---\n\nx\n",
+                 "workflow-prefix-undeclared"),
+                ("not four letters",
+                 "---\nname: research\nfour-letters: rs\n---\n\nx\n",
+                 "workflow-prefix-invalid"),
+                ("declared", "---\nname: research\nfour-letters: rsch\n---\n\nx\n",
+                 "rsch")):
+            (wf / WORKFLOW_DESCRIPTOR_NAME).write_text(body, encoding="utf-8")
+            try:
+                got = read_workflow_prefix(wf)
+            except Refuse as exc:
+                got = exc.code
+            check(f"IO-1: a workflow.md that is {label} yields {want}",
+                  got == want, f"got {got}")
+        (wf / WORKFLOW_DESCRIPTOR_NAME).unlink()
+        try:
+            got = read_workflow_prefix(wf)
+        except Refuse as exc:
+            got = exc.code
+        check("IO-1 red: NO workflow.md at all REFUSES "
+              "(workflow-prefix-undeclared) rather than deriving the prefix "
+              "from the workflow id — derivation was measured to COLLIDE on "
+              "2 of 40 real ids",
+              got == "workflow-prefix-undeclared", f"got {got}")
+        # ---- the ordinal is derived WITHIN THE GOAL, from its roster -----
+        pkg = io_tmp / "goals" / "io-goal"
+        pkg.mkdir(parents=True)
+        tf = pkg / TASKFORCE_NAME
+        check("IO-1: a goal that has never hosted the workflow gives the "
+              "FIRST instance (no taskforce.csv at all)",
+              next_instance_ordinal(pkg, "rsch") == 1)
+        tf.write_text(",".join(TASKFORCE_HEADER) + "\n", encoding="utf-8")
+        row = "tf-1,{seat},,claude,opus,high,,\n"
+        tf.write_text(tf.read_text(encoding="utf-8")
+                      + row.format(seat="rsch-researcher")
+                      + row.format(seat="planner"), encoding="utf-8")
+        check("IO-1: with the FIRST instance on the roster the next is 2 — "
+              "and a bare top-level seat contributes nothing",
+              next_instance_ordinal(pkg, "rsch") == 2)
+        tf.write_text(tf.read_text(encoding="utf-8")
+                      + row.format(seat="rsch-2-researcher"), encoding="utf-8")
+        check("IO-1: MAX+1, not COUNT+1 — the second instance on the roster "
+              "gives 3, and an ordinal once spent is never reused",
+              next_instance_ordinal(pkg, "rsch") == 3)
+        check("IO-1: the series is PER PREFIX — another workflow's seats "
+              "never advance this one's ordinal",
+              next_instance_ordinal(pkg, "plan") == 1)
+        # ---- criterion 3: two instances, two DISTINCT seat folders -------
+        names = [compose_seat_name("rsch", n, "researcher") for n in (1, 2)]
+        homes = [seat_home(pkg, n) for n in names]
+        check("IO-1: two instances of ONE workflow in ONE goal resolve to "
+              "DISTINCT seat folders — the one-folder collision is closed",
+              homes[0] != homes[1]
+              and [h.name for h in homes]
+              == ["rsch-researcher", "rsch-2-researcher"],
+              str(homes))
+        for home in homes:
+            home.mkdir(parents=True)
+        check("IO-1 red (cut-guard): the SAME arm on the BARE name collides — "
+              "check_collisions refuses `seat-exists` for a name already on "
+              "disk, which is exactly what one folder for two instances is",
+              _refusal_code(lambda: check_collisions(pkg, [names[0]], False))
+              == "seat-exists")
+        check("IO-1 control: an unmaterialized composed name passes the same "
+              "gate — the red arm above measures the collision, not the gate",
+              _refusal_code(lambda: check_collisions(
+                  pkg, [compose_seat_name("rsch", 3, "researcher")], False))
+              is None)
+        # ---- criterion 7: a composed name is a DISK name, never a key ----
+        naming_src = "\n".join(
+            _mc9_inspect.getsource(f) for f in
+            (compose_seat_name, next_instance_ordinal,
+             parse_instance_seat_name, read_workflow_prefix))
+        check("IO-1 (criterion 7): no composed name is ever fed back into a "
+              "catalog or bindings lookup — the naming surface names no "
+              "catalog and no bindings at all",
+              not any(tok in naming_src for tok in
+                      ("seats_cat", "bindings", "assemble_seat")))
 
     print("MCP-1 plugin/MCP registration pass (d-mcp-registration-is-config)")
     with tempfile.TemporaryDirectory() as mcp_td:

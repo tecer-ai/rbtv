@@ -87,6 +87,43 @@ module never emits a literal `{slot}` onto a command line. The daemon's own path
 (`server/spawn/spawn.js` `composeArgv`) supplies it: the predecessor's ref on a resume, this
 session's id on a fresh launch.
 
+## The declared slot vocabulary — `{extra_dir}` (task 7.87)
+
+`CLOSED_SLOTS` is `{workdir} {prompt_file} {session_ref} {extra_dir}`, enforced at config **LOAD**
+with `E_UNKNOWN_SLOT`. A profile may write only these; a caller may fill only the ones the profile
+it names actually wrote (`E_RAW_FLAG` otherwise).
+
+`{extra_dir}` was added because the **G1 confinement split** needs TWO path values and the
+vocabulary expressed ONE. G1 (orchestration `cards/dispatch-wrapper.md` row G1): launch a CLI worker
+with its guidance-root = the orchestrator root, and pass the actual **work target** separately via
+the harness's add-dir flag. `{workdir}` is the guidance root; `{extra_dir}` is the work target — so
+a profile can now write `--add-dir {extra_dir}` itself instead of a conductor hand-composing that
+flag. The rule was earned by the `a3e217d` incident: a bare kimi self-commit swept 5 foreign files
+because its guidance-root was the unmirrored nested repo.
+
+| Slot | Is | Guarded by |
+|------|----|------------|
+| `{workdir}` | the launch / guidance root | `resolveWorkdir` — must sit inside the profile's `workdir_root` (`E_WORKDIR_ESCAPE`) |
+| `{extra_dir}` | the work target, deliberately OUTSIDE that root | **nothing in this module** — see below |
+
+⚠ **`{extra_dir}` is NOT workdir-guarded, by definition.** A path whose whole purpose is to name a
+target outside the guidance root cannot be contained by that root. The structural bound still holds
+— the value fills a position the PROFILE wrote and can never become its own argv element (the arity
+assertion in `resolveProfile`) — but **which** directory is handed in is the caller's decision and
+the caller's confinement to make.
+
+**Additive, and the daemon is byte-unchanged.** No shipped profile declares `{extra_dir}`, so every
+profile in `config/spawn-profiles.yaml` resolves the identical argv before and after the widening
+(measured over all 14, task 7.42's criterion re-asserted). Probe legs 16 / 17 / 17b cover it, and
+17 is the discriminating one: it **plants an unknown slot** and asserts the `E_UNKNOWN_SLOT` refusal
+still fires — proving the new slot being accepted means *the vocabulary grew by one*, not *the
+vocabulary stopped being closed*.
+
+🔧 **Not yet consumed.** `orchestration/capabilities/dispatch-resolve/` still hand-composes the
+add-dir flag (its `assertWorkTarget` makes an absent work-target loud but does not resolve it
+through a slot), and no shipped profile declares `{extra_dir}` yet. Making the split resolve
+end-to-end is the consumer's edit plus a profile edit, both outside this module.
+
 ## Pinned-flag pre-flight
 
 `preflightPinnedFlags()` verifies every flag a profile pins against the installed CLI's **live
@@ -155,7 +192,7 @@ reverted.
 node launch-profiles/probes/probe-launch-profiles.js
 ```
 
-20 checks. Self-contained — requires only this module and node builtins. Its bars were
+23 checks. Self-contained — requires only this module and node builtins. Its bars were
 **mutation-tested**: breaking half selection, the raw-flag bound, the effort translation, and the
 fail-closed branch each turns the intended leg red.
 

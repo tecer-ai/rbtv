@@ -27,6 +27,9 @@ module.exports = {
   // the individual bounds, exported so a probe can exercise each one on its own terms
   assertNoSeatBinds: resolve.assertNoSeatBinds,
   assertWorkTarget: resolve.assertWorkTarget,
+  // task 7.87 criterion 4: does THIS profile write its own add-dir flag through `{extra_dir}`,
+  // or does the caller still owe a hand-composed one?
+  declaresExtraDir: resolve.declaresExtraDir,
   ...errors,
   // re-exported so a consumer of this lane never reaches into another module's error file: a
   // caller catches refusals from BOTH surfaces and must be able to name them without importing two

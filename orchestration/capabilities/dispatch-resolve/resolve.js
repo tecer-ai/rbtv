@@ -75,13 +75,11 @@ function assertNoSeatBinds(config, profileName) {
 // ── The confinement split (row G1), enforced ──────────────────────────────────────────────────
 //
 // `dispatch-wrapper.md:36` requires the guidance-root and the work-target to be TWO SEPARATE path
-// values; a profile expresses ONE. `{extra_dir}` is UNAUTHORABLE — `CLOSED_SLOTS` is
-// `{workdir} {prompt_file} {session_ref}`, enforced at config LOAD with `E_UNKNOWN_SLOT`
-// (`profiles.js:92`/`:135`), and widening that vocabulary is task 7.87's.
+// values. `{extra_dir}` is now a DECLARED slot (task 7.87 widened `CLOSED_SLOTS`), so a profile
+// can express both — see `resolveExtraDirSlot` below for what that changes and what it does not.
 //
-// ⚠ SO THIS DOES NOT MAKE THE DISPATCH FULLY PROFILE-RESOLVED, AND MUST NOT CLAIM TO. The add-dir
-// flag stays hand-composed by the conductor. What this does is make its ABSENCE LOUD instead of
-// silent: a dispatch that forgot the work-target is REFUSED here rather than launching a worker
+// This bound is unchanged by the widening and is the reason the split fails LOUD rather than
+// silently: a dispatch that forgot the work-target is REFUSED here rather than launching a worker
 // rooted at its guidance root. That rule was earned by the `a3e217d` incident, where a bare kimi
 // self-commit swept 5 foreign files because its guidance-root was the unmirrored nested repo.
 function assertWorkTarget(addDir) {
@@ -106,6 +104,39 @@ function assertWorkTarget(addDir) {
   }
 }
 
+// ── The work-target, RESOLVED THROUGH THE PROFILE (task 7.87 criterion 4) ─────────────────────
+//
+// A profile that writes its own add-dir flag (`argv: [..., "--add-dir", "{extra_dir}"]`) gets the
+// work-target substituted into the position THE PROFILE WROTE, by the shared resolver, exactly
+// like `{workdir}`. The conductor stops hand-composing that flag, and the flag itself becomes
+// subject to the pinned-flag pre-flight (`preflight.js#pinnedFlagsOf` scans profile-written argv
+// elements) — a hand-composed flag was never checked against the live `--help` at all.
+//
+// ⚠ STRICTLY OPT-IN. A profile declaring no `{extra_dir}` is UNCHANGED: the slot is not injected
+// (`resolveProfile` would refuse an undeclared slot key with `E_RAW_FLAG`), the resolved argv is
+// byte-identical to before this change, and the add-dir remains the caller's to compose — the
+// refusals above still make its absence loud. `addDirResolved` on the result says which of the two
+// happened, so a caller never has to guess whether it still owes a flag.
+//
+// ⚠ EVERY declared half must carry the slot, not merely one. The half is chosen by HOST DETECTION
+// inside `resolveProfile`, so a caged-only declaration would resolve the slot on a caged box and
+// raise `E_RAW_FLAG` on a portable one — a resolution that depends on which machine ran it. An
+// asymmetric profile therefore falls back to the hand-composed path on every host rather than
+// behaving differently per host.
+function declaresExtraDir(profile) {
+  if (!profile) return false;
+  const blocks = profile.exec ? [profile.exec] : Object.values(profile.command || {});
+  if (blocks.length === 0) return false;
+  return blocks.every((b) => Array.isArray(b.argv) && b.argv.some((el) => el.includes('{extra_dir}')));
+}
+
+// `addDir` is the ONE door for the work-target: a caller-supplied `slots.extra_dir` is overwritten
+// by the value `assertWorkTarget` just validated, so the absent/relative bounds cannot be routed
+// around by filling the slot directly.
+function resolveExtraDirSlot(profile, slots, addDir) {
+  return declaresExtraDir(profile) ? { ...slots, extra_dir: addDir } : slots;
+}
+
 // ── The one entry point ───────────────────────────────────────────────────────────────────────
 //
 // Resolves a NAMED profile and runs the dispatch pre-flight in ONE call, so a caller cannot get a
@@ -126,16 +157,22 @@ function preflightDispatch(config, profileName, opts = {}) {
   assertNoSeatBinds(config, profileName);
   assertWorkTarget(addDir);
 
-  const resolved = profiles.resolveProfile(config, profileName, { slots, effort });
+  const profile = config.profiles && config.profiles[profileName];
+  const addDirResolved = declaresExtraDir(profile);
+  const resolvedSlots = resolveExtraDirSlot(profile, slots, addDir);
+
+  const resolved = profiles.resolveProfile(config, profileName, { slots: resolvedSlots, effort });
   const preflight = profiles.preflightPinnedFlags(resolved, preflightOpts);
 
-  return { argv: resolved.argv, binary: resolved.binary, addDir, preflight };
+  return { argv: resolved.argv, binary: resolved.binary, addDir, addDirResolved, preflight };
 }
 
 module.exports = {
   loadProfiles,
   assertNoSeatBinds,
   assertWorkTarget,
+  declaresExtraDir,
+  resolveExtraDirSlot,
   preflightDispatch,
   nonInterpretingSeatBindValidator,
 };

@@ -119,8 +119,25 @@ const KNOWN_SANDBOX_KEYS = new Set([
   'ProtectSystem', 'ReadWritePaths', 'PrivateTmp', 'NoNewPrivileges', 'SeatBinds',
 ]);
 const KNOWN_ENV_KEYS = new Set(['file']);
-const CLOSED_SLOTS = new Set(['{workdir}', '{prompt_file}', '{session_ref}']);
-const SLOT_RE = /\{(workdir|prompt_file|session_ref)\}/g;
+// `{extra_dir}` — task 7.87. The G1 CONFINEMENT SPLIT needs TWO path values, and the vocabulary
+// could express only one. G1 (orchestration `cards/dispatch-wrapper.md`) says: launch a CLI worker
+// with its guidance-root = the orchestrator root, and pass the actual WORK TARGET separately via
+// the harness's add-dir flag. `{workdir}` is the launch/guidance root; `{extra_dir}` is that second
+// path, so a profile can now WRITE the add-dir flag itself (`--add-dir {extra_dir}`) instead of a
+// conductor hand-composing it. The rule was earned by the `a3e217d` incident — a bare kimi
+// self-commit swept 5 foreign files because its guidance-root was the unmirrored nested repo.
+//
+// ⚠ NOT WORKDIR-GUARDED, deliberately and by definition. `resolveWorkdir`'s containment check
+// (E_WORKDIR_ESCAPE) applies to the workdir alone; an add-dir whose whole purpose is to name a
+// target OUTSIDE the guidance root cannot be contained by that same root. The structural bound
+// still holds — a value fills a position the PROFILE wrote and can never become its own argv
+// element (the arity assertion in resolveProfile) — but WHICH directory is handed in is the
+// caller's decision and the caller's confinement to make.
+//
+// Additive and optional: every profile shipped today declares no `{extra_dir}`, so the daemon's
+// resolved argv is byte-unchanged by this widening (task 7.42's criterion, re-asserted at 7.87).
+const CLOSED_SLOTS = new Set(['{workdir}', '{prompt_file}', '{session_ref}', '{extra_dir}']);
+const SLOT_RE = /\{(workdir|prompt_file|session_ref|extra_dir)\}/g;
 const UNKNOWN_SLOT_RE = /\{[^}]+\}/g;
 
 // The ABSTRACT effort vocabulary (#d-profile-source-unification (3)). Closed, harness-agnostic.

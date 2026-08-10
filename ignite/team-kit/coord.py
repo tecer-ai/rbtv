@@ -2176,9 +2176,21 @@ def arm_pid_reaper(idents, delay=4):
 # carries (`widen_header` appends the column to a live file without touching a byte of its data).
 # It is NEVER read as "the current execution": inheriting the current stamp onto a historical row
 # is exactly the cross-execution confusion the stamp exists to end.
+# `checkin` (task 7.96) is APPENDED LAST, after `execution`, and it completes the row's TIME
+# TRUTH TABLE: `started` is the LAUNCH instant (written by `session_open`, before the seat has
+# processed a single token), `checkin` is the seat's LATEST check-in, `ended` is the close. Until
+# it existed the middle moment lived ONLY in `workers.md`, which is a PER-SESSION roster row that
+# is OVERWRITTEN on every re-check-in — so a seat that checked in four times left one stamp, and
+# `sessions.csv`, the durable trace, could not say when any session actually came alive.
+# ⚠ IT IS THE LATEST CHECK-IN, NOT THE FIRST, and that is deliberate: a re-check-in (P1
+# supersession) is the SAME session waking again, not a new one, so the cell moves rather than the
+# row multiplying. The FIRST-boot instant is recoverable as `started`; nothing else is lost.
+# ⚠ AN EMPTY CELL MEANS `this session never checked in, or the row predates the column`. It is
+# NEVER read as `started` — a launch that opened a row for a seat whose harness then died before
+# check-in is exactly the G-11 shape, and inheriting `started` here would erase it.
 SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir",
                  "recorded", "started", "ended", "pid", "pid-starttime", "tty", "disposition",
-                 "disposition-writer", "execution"]
+                 "disposition-writer", "execution", "checkin"]
 NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close re-resolves
 
 
@@ -2324,6 +2336,40 @@ def goal_dir(pkg):
 
 def sessions_csv(pkg):
     return pkg / "sessions.csv"
+
+
+# ---- 7.96: THE PER-SESSION SCRATCHPAD — one folder name, two consumers ----------------------
+#
+# The KG rules a seat's per-session working files to `{seat folder}/sessions/{session-id}/`
+# (`concepts/session-folder.md` + `seat-folder.md`, R31). Task 7.11 built it in the DAEMON's spawn
+# path only; the kit's own launch path never created one and no seat-facing surface named it, so
+# the convention existed on paper and nowhere on disk.
+#
+# ⚠ THE NAME IS A CONSTANT BECAUSE IT HAS A SECOND, NON-OBVIOUS CONSUMER: `boot_stale_findings`
+# walks the WHOLE seat folder by mtime, so a scratchpad under it floods the G-61 staleness detector
+# with the seat's own working files — every write the seat makes reads as "your instructions
+# changed since you booted". The creator and the excluder MUST agree on the folder name or the
+# detector goes to noise the day the scratchpad lands; two string literals is how they would come
+# to disagree.
+SEAT_SCRATCHPAD_DIR = "sessions"
+# `transcripts/` is an EXPORT target written by the close ceremony and never read at boot; the
+# scratchpad is the seat's own working output. Neither is a boot-read surface, and the walk that
+# reports one as stale instructions is reporting a fact about nothing.
+# ⚠ TRANSCRIPTS ARE NOT MOVED HERE (7.96 criterion 5). `transcripts/` stays exactly where the kit
+# writes it — task 7.31 owns the KG's `sessions/{session-id}/` transcript home, and this line is
+# the whole of 7.96's contact with that question.
+BOOT_STALE_SKIP_DIRS = ("transcripts", SEAT_SCRATCHPAD_DIR)
+
+
+def seat_scratchpad(folder, session_id):
+    """`{seat folder}/sessions/{session-id}`, or None when either half is unknown.
+
+    None rather than a partial path: a scratchpad under a blank session-id would be a shared
+    folder every session of the seat writes into, which is the one property the convention exists
+    to prevent."""
+    if not folder or not session_id:
+        return None
+    return Path(folder) / SEAT_SCRATCHPAD_DIR / session_id
 
 
 def widen_header(header, cols):
@@ -2782,9 +2828,47 @@ def session_open(args, w, since=None, wait=None, pane=None):
         rec["session-id"] = sid
         rows.append([rec.get(c, "") for c in header])
         write_csv_table(path, header, rows)
+    # 7.96: the per-session scratchpad, created HERE — the one place a session-id is minted, so
+    # every door that opens a session row (launch, `close-seat --renew`, `cmd_session_open`) gets
+    # it with no second call site to forget. Parity with the daemon's spawn path, which already
+    # does this (`server/spawn/spawn.js`). `exist_ok`: a re-run against an existing id is not an
+    # error, and this is created BEFORE the seat is told the id at its check-in, so the folder the
+    # instruction names always exists by the time the seat reads it.
+    scratch = seat_scratchpad(w.get("folder"), sid)
+    if scratch:
+        scratch.mkdir(parents=True, exist_ok=True)
     note = ("" if native or w.get("harness") != "claude"
             else "native-session-id UNRESOLVED at launch — retried at close")
     return sid, note
+
+
+def session_open_ids(pkg, seat):
+    """EVERY open session row of `seat` (`ended` empty), in file order, as session-ids. [] for none.
+
+    7.97 needed the COUNT and not the last one: the state-cursor convention resolves the cursor's
+    `session-id` from the writing seat's open row and rules that TWO open rows is "a defect to
+    report, not a coin flip" (`r-stage0-state-cursor-interim-convention` (b)) — a question
+    `session_open_id` cannot answer, because answering with the LAST open row is its design (a
+    renew opens a new session of the same seat). One walk of the file with two readings of it,
+    rather than a second walk one function over (PRIN-11).
+
+    The blank-`session-id` sentinel is produced HERE, so both callers see an open row as an open
+    row: "" is `session_open_id`'s "no open row" answer, and a row that IS open must never borrow
+    it (see that function's own note).
+    """
+    path = sessions_csv(pkg)
+    if not path.exists():
+        return []
+    header, rows = read_csv_table(path, SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if not {"seat", "ended", "session-id"} <= set(idx):
+        return []
+    found = []
+    for r in rows:
+        pad_row(r, header)
+        if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
+            found.append(r[idx["session-id"]].strip() or "(open row, blank session-id)")
+    return found
 
 
 def session_open_id(pkg, seat):
@@ -2804,19 +2888,136 @@ def session_open_id(pkg, seat):
     is this function's "no open row" answer, and giving it to a row that IS open would reopen the
     duplicate one field over.
     """
-    path = sessions_csv(pkg)
+    ids = session_open_ids(pkg, seat)
+    return ids[-1] if ids else ""
+
+
+# ---------- 7.97: THE STATE CURSOR's advance-writer — the goal's position, APPENDED ----------
+#
+# `r-stage0-state-cursor-interim-convention` (goal `decisions.md`, recorded by s0-04) ruled this
+# file, its header and its discipline — and ruled its Automation row **NONE in Stage 0**: the
+# leader stamped every row BY HAND, and wiring a writer was filed as the follow-up this block
+# discharges. `materialize-seats.py` creates the file HEADER-ONLY at package creation (its
+# `STATE_CSV_HEADER`); until now nothing in the kit appended to it.
+#
+# ⚠ PACKAGE-GENERIC, NOT RUN-3. The task was authored against `runs/run-3/state.csv`. The run
+# layer is EXTINGUISHED (`d-runs-extinguished`) and run-3 closed 2026-08-08, so this resolves its
+# package through `package_dir(args)` exactly like every other command in this file and works on
+# whatever goal package the caller stands in. Nothing here names a run.
+#
+# ⚠⚠ THE HEADER ON DISK IS THE SCHEMA. There is no `STATE_CSV_COLS` constant here ON PURPOSE, and
+# the omission is the load-bearing part: the ruled header is 5 columns
+# (`stamped-at,run-state,seat,session-id,note`) and the KG `state-cursor` record has since
+# re-authored it to 6 — `execution-stamp` added, `run-state` renamed `goal-state`
+# (`d-runs-extinguished-transcription`) — while `materialize-seats.py` still creates the 5-column
+# form. A writer carrying its own column list would have to pick ONE of those and would write a
+# malformed row into every package carrying the other. So the row is built BY NAME against the
+# header the file already carries: a column this writer knows is filled, a column it does not know
+# is left blank, and a column the file does not have is simply not written. BOTH spellings of the
+# state column are filled for that same reason — whichever one the file carries is the one that
+# lands, and the other is not there to receive it.
+#
+# The header is consequently NEVER rewritten and never widened. Widening it is
+# `materialize-seats.py`'s decision (it owns the created form) — not this writer's, which is a
+# strictly weaker act than `sessions.csv`'s writers take deliberately through `widen_header`.
+STATE_CSV = "state.csv"
+STATE_COL_STATE = ("run-state", "goal-state")   # the ruled spelling, and the KG's successor
+
+# The goal WORKING-lifecycle vocabulary, read from the KG at build time rather than recalled:
+# `sd-graph show "goal state"` — "The WORKING lifecycle advances planning -> staged -> executing
+# -> verifying -> blocked (non-terminal) -> completed | failed and is monotone." The `run` record
+# the task cites is RETIRED with the run layer; the vocabulary moved onto `goal state` UNCHANGED,
+# value for value, which is why the task's set and this one are the same seven.
+#
+# ⚠ MONOTONICITY IS NOT ENFORCED HERE, deliberately. `blocked` is explicitly non-terminal, and the
+# convention's Discipline row corrects a wrong row with a NEW row whose `note` names the one it
+# supersedes. A writer that refused a "backward" advance would refuse both of those legal acts,
+# and the second one is the ONLY correction mechanism an append-only file has.
+GOAL_WORKING_STATES = ("planning", "staged", "executing", "verifying", "blocked",
+                       "completed", "failed")
+
+
+def state_csv(pkg):
+    return pkg / STATE_CSV
+
+
+def append_state_advance(pkg, header, state, seat, session_id, note):
+    """Append EXACTLY ONE advance row to the goal's state cursor. Returns the row written.
+
+    APPEND-ONLY BY CONSTRUCTION rather than by discipline: the file is opened in APPEND mode and
+    one `csv.writer` row goes out. No existing row is read into memory on this path, so there is
+    no read-modify-write for a future bug to turn into an edit — the whole class the convention's
+    "a row is never edited or deleted" rule stands against is unreachable through this door.
+    ⚠ `write_csv_table`, this file's other csv writer, rewrites the WHOLE table; using it here
+    would have made every append a full rewrite of the history it is meant to preserve.
+
+    `csv.writer` is also what pins the row's FIELD COUNT to the header's whatever the note holds:
+    a note carrying commas, quotes or newlines is QUOTED, never split into an extra field. That
+    is the mechanism behind this task's 6th-field red arm — the arm proves the property, it does
+    not install it.
+    """
+    values = {"stamped-at": now(), "seat": seat, "session-id": session_id, "note": note,
+              "execution-stamp": current_execution(pkg / "coordination")}
+    for col in STATE_COL_STATE:
+        values[col] = state
+    row = [values.get(col, "") for col in header]
+    with state_csv(pkg).open("a", newline="", encoding="utf-8") as fh:
+        csv.writer(fh).writerow(row)
+    return row
+
+
+def cmd_advance_state(args):
+    """`advance-state <state>` — stamp ONE row on the goal's state cursor."""
+    seat = gate(args, "advance-state", lambda a: a == "leader",
+                "leader's alone — it holds the goal's judgment (the convention's Writer row); a "
+                "seat that must stamp outside its own row claims by message first")
+    if not seat:
+        refuse("identity",
+               "`advance-state` — the gate was carried but WHO is advancing could not be "
+               "resolved, and the `seat` column is that answer. The cursor names the locus of "
+               "every advance; a blank one records that the goal moved and nobody moved it.", 2)
+    state = (getattr(args, "state", "") or "").strip()
+    if state not in GOAL_WORKING_STATES:
+        refuse("input",
+               f"`advance-state` — {state!r} is not a goal working-lifecycle state. The "
+               f"vocabulary is exactly {', '.join(GOAL_WORKING_STATES)} (KG `goal state`; the "
+               f"retired `run` record's set, unchanged).\n"
+               f"REFUSED rather than normalized to a neighbour: this file IS the goal's position, "
+               f"and a normalized guess moves the position to somewhere nobody established.", 2)
+    pkg = package_dir(args)
+    path = state_csv(pkg)
     if not path.exists():
-        return ""
-    header, rows = read_csv_table(path, SESSIONS_COLS)
-    idx = {c: i for i, c in enumerate(header)}
-    if not {"seat", "ended", "session-id"} <= set(idx):
-        return ""
-    found = ""
-    for r in rows:
-        pad_row(r, header)
-        if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
-            found = r[idx["session-id"]].strip() or "(open row, blank session-id)"
-    return found
+        refuse("state",
+               f"no state cursor at {path} — this package carries none.\n"
+               f"The cursor is created HEADER-ONLY at package creation (`materialize-seats.py`, "
+               f"`r-stage0-state-cursor-interim-convention` (a)) and this writer only APPENDS to "
+               f"the header the package already has. It never invents one: a header minted here "
+               f"would fork the schema away from its single owner, and the two would drift with "
+               f"nothing comparing them.", 1)
+    header, _ = read_csv_table(path, [])
+    if not [col for col in STATE_COL_STATE if col in header]:
+        refuse("state",
+               f"the cursor at {path} carries NO state column — its header is "
+               f"`{','.join(header)}`, and neither `run-state` (the ruled spelling) nor "
+               f"`goal-state` (the KG's successor) appears in it. The row would land with the "
+               f"state nowhere, which is a cursor that does not say where the goal stands.", 1)
+    open_ids = session_open_ids(pkg, seat)
+    if len(open_ids) != 1:
+        refuse("state",
+               f"`advance-state` — {seat} has {len(open_ids)} OPEN session row(s) in "
+               f"{sessions_csv(pkg)} ({'; '.join(open_ids) or 'none'}), and `session-id` is "
+               f"resolved from EXACTLY ONE.\n"
+               f"It is resolved at write time and is never an argument: an id off the command "
+               f"line records which session the caller SAID it was, which is the one thing this "
+               f"column is not for. Two open rows is a defect to REPORT, never a coin flip "
+               f"(`r-stage0-state-cursor-interim-convention` (b)) — check in, or close the stale "
+               f"row, then re-run.", 1)
+    with coord_lock(base_dir(args)):
+        row = append_state_advance(pkg, header, state, seat,
+                                   open_ids[0], (getattr(args, "note", "") or "").strip())
+    print(f"{state}: one row appended to {path}")
+    print(c("  " + " · ".join(f"{col}={val}" for col, val in zip(header, row) if val), C_HINT))
+    return 0
 
 
 def session_backfill_native(args, seat):
@@ -2864,6 +3065,70 @@ def session_backfill_native(args, seat):
         target[idx["native-session-id"]] = native
         write_csv_table(path, header, rows)
         return native
+
+
+def session_checkin(args, seat):
+    """Stamp `checkin` on `seat`'s LAST OPEN session row. Returns (session-id, native, stamp).
+
+    `("", "", "")` when there is no open row to stamp — no `sessions.csv` (a package that never
+    launched through the kit), a header this widen cannot reach, or a seat with every row closed.
+    The caller reports that as UNRESOLVED rather than as silence: an identity line that prints only
+    when it can is indistinguishable from one that is never reached.
+
+    ⚠ IT WRITES AND IT READS, and the pair is deliberate — the two acts 7.96 asks for are the SAME
+    ROW, and resolving it twice is how "the id I was told" and "the row that was stamped" come to
+    name different sessions. `session_backfill_native` runs FIRST at the call site, so the `native`
+    returned here is that backfill's own result read back off disk rather than a second resolution
+    of it.
+
+    LAST OPEN ROW WINS — the same selection `session_close` and `sessions_open_ids` apply, stated
+    once more here because this writer must stamp the row the check-out will later close.
+
+    The header is WIDENED (G-152), which is what puts the column on the live traces rather than
+    only on files born after it existed; historical rows are padded blank and no existing column
+    moves."""
+    pkg = package_dir(args)
+    with coord_lock(base_dir(args)):
+        path = sessions_csv(pkg)
+        if not path.exists():
+            return "", "", ""
+        header, rows = read_csv_table(path, SESSIONS_COLS)
+        header, widened = widen_header(header, SESSIONS_COLS)
+        if widened:
+            rows = [pad_row(r, header) for r in rows]
+        idx = {c: i for i, c in enumerate(header)}
+        if not {"seat", "ended", "session-id", "checkin"} <= set(idx):
+            return "", "", ""
+        target = None
+        for r in rows:
+            pad_row(r, header)
+            if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
+                target = r
+        if target is None:
+            return "", "", ""
+        stamp = now()
+        target[idx["checkin"]] = stamp
+        write_csv_table(path, header, rows)
+        return (target[idx["session-id"]].strip(),
+                target[idx["native-session-id"]].strip() if "native-session-id" in idx else "",
+                stamp)
+
+
+# The identity line's UNRESOLVED marker — ONE literal, so the two ids that can go missing say the
+# same word and a reader never has to tell two spellings of "we do not know" apart.
+SESSION_UNRESOLVED = "UNRESOLVED"
+
+
+def session_identity_line(seat, session_id, native, scratch):
+    """The check-in's identity report, PURE so the selftest asserts the line and not a screen.
+
+    Every field prints on EVERY check-in, resolved or not: the whole defect 7.96 closes is that the
+    seat WAS told its ids — but only on the failure branch, which measured 0 hits in 104 sessions.
+    A line that appears only when there is something to say teaches a seat that silence means
+    nothing is wrong."""
+    return (f"session: {session_id or SESSION_UNRESOLVED} · "
+            f"native: {native or SESSION_UNRESOLVED} · "
+            f"scratchpad: {scratch or SESSION_UNRESOLVED}")
 
 
 def session_close(args, seat, disposition="", writer=DISPOSITION_WRITER_SEAT):
@@ -7371,6 +7636,23 @@ def cmd_checkin(args):
                 f"cannot use this row.", C_DEAD), file=sys.stderr)
     elif nat:
         print(f"sessions.csv: native session id recorded ({nat})")
+    # 7.96: the seat is TOLD WHO IT IS, on EVERY successful check-in. Until now the ids reached the
+    # seat only down `session_backfill_native`'s failure branch — measured 0 of 104 run-2 sessions
+    # — so in practice a seat never learned its own session-id and could not name the scratchpad
+    # the convention gives it. Same stamp, same read, one line: the write records WHEN the session
+    # came alive (`checkin`) and the read reports WHICH session it is.
+    # ⚠ `session_trace_safe`, like every bookkeeping call around this check-in: a trace that cannot
+    # be written must never become a gate on the act it records. The line prints EITHER WAY, with
+    # UNRESOLVED where an id could not be reached — a failure that printed nothing would be read as
+    # a check-in that had nothing to report.
+    _ci, _cierr = session_trace_safe(session_checkin, args, args.agent)
+    _sid, _snat, _ = _ci if (_ci and not _cierr) else ("", "", "")
+    if _cierr:
+        print(c(f"WARNING sessions.csv checkin stamp NOT written — {_cierr}. Your checkin STANDS; "
+                f"the trace cannot say when this session came alive.", C_DEAD), file=sys.stderr)
+    _sfolder = next((w["folder"] for w in discover_workers(workers_dir(args))
+                     if w["agent"] == args.agent), None)
+    print(session_identity_line(args.agent, _sid, _snat, seat_scratchpad(_sfolder, _sid)))
     # T1: from here the seat never types its own name again — every other command resolves it.
     waiting = unread_for(args, base, args.agent, inherited)
     if waiting:
@@ -10420,8 +10702,14 @@ def boot_stale_findings(args):
     the seat-scoped boot-read surface, so `memory.md`, handoff docs and successors are covered by
     construction, with no declared list to maintain and no layout decision to settle first.
 
-    `transcripts/` is excluded: it is an export target, written by the close ceremony, never read
-    at boot.
+    `BOOT_STALE_SKIP_DIRS` is excluded: `transcripts/` is an export target written by the close
+    ceremony, and `sessions/` is the seat's own per-session scratchpad (7.96). NEITHER is read at
+    boot, so a change in either says nothing about whether the seat's instructions have moved.
+    ⚠ THE SCRATCHPAD EXCLUSION IS A SAFETY-DETECTOR CHANGE, NOT TIDYING. Without it this detector
+    fires on every file a working seat writes — it would report ITSELF as evidence its own
+    instructions went stale, at a volume that retires the alarm within a day. The genuine signal
+    (`seat.md`, the briefing, a boot-read document at the seat-folder ROOT) is untouched, which is
+    what the red arm in `_selftest_checks` proves in both directions.
 
     DELIBERATELY OVER-REPORTS, and the trade is the point: mtime moves when content does not, and
     a seat writing its OWN memory.md trips it. A false positive costs a glance; the false negative
@@ -10443,7 +10731,8 @@ def boot_stale_findings(args):
         if not folder.is_dir():
             continue
         for path in sorted(folder.rglob("*")):
-            if not path.is_file() or "transcripts" in path.relative_to(folder).parts:
+            parts = path.relative_to(folder).parts
+            if not path.is_file() or any(d in parts for d in BOOT_STALE_SKIP_DIRS):
                 continue
             try:
                 mtime = datetime.fromtimestamp(path.stat().st_mtime)
@@ -10496,7 +10785,8 @@ def cmd_descriptors(args):
     high = sum(1 for _, rel, _ in stale if rel.name in BOOT_READ_NAMES)
     print(f"boot-stale findings: {len(stale)} "
           f"({high} BOOT-READ by name, {len(stale) - high} other)")
-    print("bound: MTIME, not content, over the seat's folder minus transcripts/ — it over-reports "
+    print(f"bound: MTIME, not content, over the seat's folder minus "
+          f"{'/, '.join(BOOT_STALE_SKIP_DIRS)}/ — it over-reports "
           "(a seat writing its own memory.md trips it) and it CANNOT see a ruling that invalidates "
           "a seat's instructions without anyone editing its files. Zero here is not proof a seat "
           "is current.")
@@ -10552,24 +10842,39 @@ def binding_divergence(w, row):
 
 
 def check_bindings(args, workers, command):
-    """REFUSE when a seat's descriptor disagrees with its taskforce.csv row (G-51). `--force`
-    overrides, as on every other refusal here."""
+    """REFUSE when a seat's descriptor disagrees with its taskforce.csv row — or has NO row at all
+    while the registry HAS rows (G-51; the missing-row half is 7.99). `--force` overrides, as on
+    every other refusal here.
+
+    7.99, measured by dag-05: this loop used to compare only the rows that EXIST, so a seat whose
+    registry row was lost — a crash between materialize's two steps, a hand-deletion — passed the
+    binding check by having nothing to check. `coordinate descriptors` names that half-state
+    (`no-registry-row`) and gates NOTHING, so the launch went through unbound. A MISSING row is not
+    a weaker divergence, it is the absence of the record the check exists to compare against; the
+    registry being non-empty is what makes the absence a defect rather than a legacy package.
+    """
     registry = taskforce_bindings(args)
     if not registry:
         return
     problems = []
+    missing = []
     for w in workers:
         row = registry.get(w["agent"])
-        if row:
-            diff = binding_divergence(w, row)
-            if diff:
-                problems.append((w, diff))
-    if not problems or getattr(args, "force", False):
-        if problems:
-            for w, diff in problems:
-                fields = ", ".join(f"{f}: descriptor {d} vs registry {r}" for f, d, r in diff)
-                print(c(f"WARNING --force: {w['agent']} binds from its DESCRIPTOR ({fields})",
-                        C_DEAD), file=sys.stderr)
+        if row is None:
+            missing.append(w)
+            continue
+        diff = binding_divergence(w, row)
+        if diff:
+            problems.append((w, diff))
+    if not (problems or missing) or getattr(args, "force", False):
+        for w, diff in problems:
+            fields = ", ".join(f"{f}: descriptor {d} vs registry {r}" for f, d, r in diff)
+            print(c(f"WARNING --force: {w['agent']} binds from its DESCRIPTOR ({fields})",
+                    C_DEAD), file=sys.stderr)
+        for w in missing:
+            print(c(f"WARNING --force: {w['agent']} has NO taskforce.csv row (no-registry-row) — "
+                    f"it binds from its DESCRIPTOR and the registry records nothing", C_DEAD),
+                  file=sys.stderr)
         return
     lines = []
     for w, diff in problems:
@@ -10578,17 +10883,24 @@ def check_bindings(args, workers, command):
             lines.append(f"    {field}: descriptor says {descriptor} | taskforce.csv says "
                          f"{registry_value}")
         lines.append(f"    descriptor: {w['briefing']}")
+    for w in missing:
+        lines.append(f"{w['agent']}: NO taskforce.csv ROW (no-registry-row)")
+        lines.append(f"    the registry carries {len(registry)} row(s) and none of them is this "
+                     f"seat's — nothing records what it should bind, so there is nothing to check "
+                     f"the descriptor against")
+        lines.append(f"    descriptor: {w['briefing']}")
     detail = "\n  ".join(lines)
     refuse(
         "state",
-        f"`{command}` — {len(problems)} seat(s) disagree with the run's registry:\n  "
+        f"`{command}` — {len(problems) + len(missing)} seat(s) fail the run's registry check:\n  "
         f"{detail}\n"
         f"  registry: {package_dir(args) / 'taskforce.csv'}\n"
         f"THE DESCRIPTOR IS AUTHORITATIVE — it is what the harness command is built from, so "
         f"launching now would bind the DESCRIPTOR's value and the taskforce.csv row would stay "
         f"a wrong record.\n"
         f"Fix whichever is wrong: edit the DESCRIPTOR to change what actually binds, or the CSV "
-        f"row to correct the record. Then re-run.\n"
+        f"row to correct the record. A seat with NO row needs one added (or the whole registry "
+        f"removed, which is the legacy `workers/` package this check skips). Then re-run.\n"
         f"--force launches on the descriptor's value anyway and says so.",
         2)
 
@@ -12360,9 +12672,39 @@ def boot_prompt(w, args):
         f"Then read {pkg}/CLAUDE.md and follow its coordination protocol exactly: "
         f"check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}), "
         f"then execute ONLY your briefing. "
+        f"{scratchpad_instruction(w)}"
         f"Never read any other agent's briefing or folder in {wdir}/. "
         f"Message 'leader' on any conflict, inconsistency, or decision you cannot settle alone."
     )
+
+
+def scratchpad_instruction(w):
+    """The seat-facing per-session scratchpad instruction (7.96 criterion 3), or `''`.
+
+    ⚠ THE BOOT PROMPT IS THE ONE HOME, and the criterion says one home and not both. The
+    alternative was the run package's `CLAUDE.md` — which `materialize-seats.py` authors per
+    package, so the instruction would reach only packages created after the change and would be
+    absent from every existing one. This surface is composed by the kit on EVERY boot, so a seat
+    launched into a package written last month is instructed exactly like one launched into a
+    package written today. The check-in's identity line REPORTS the resolved path; it does not
+    repeat the instruction.
+
+    ⚠ IT NAMES WHAT STAYS AT THE ROOT, and that half is not decoration: KG `seat-folder` box 1
+    homes the descriptor, the memory and the conventions at the seat-folder ROOT, so an instruction
+    that said only "working files go in the scratchpad" would leave a seat to guess about the three
+    files it actually opens — and a guess either way mints a SECOND home for one file class, which
+    is the failure this sentence exists to prevent.
+
+    Empty for a seat whose folder could not be resolved: naming a path under a folder that does not
+    exist is worse than saying nothing, because the seat would create it somewhere of its own
+    choosing."""
+    if not w.get("folder"):
+        return ""
+    return (f"EVERY working file you produce this session goes in your per-session scratchpad "
+            f"{Path(w['folder']) / SEAT_SCRATCHPAD_DIR}/<session-id>/ — <session-id> is printed to "
+            f"you by your own check-in, on its `session:` line, and the folder already exists. "
+            f"Your seat.md/agent.md descriptor, your memory.md and any conventions.md STAY at "
+            f"{w['folder']}/ — nothing already at that root moves into the scratchpad. ")
 
 
 # ---------- worker-mirror refresh (pre-launch) ----------
@@ -15645,10 +15987,20 @@ def _selftest_checks(args, failures, names):
               "unknown harness" in validate_seat(dict(by["alpha"], harness="gemini")))
 
         # ---- v2: boot prompt mentions memory only for persistent folder seats ----
+        # ⚠ KEYED ON THE INSTRUCTION, NOT ON THE BARE FILENAME (retightened by 7.96). Both rows
+        # read `"memory.md" in/not in p` until the scratchpad instruction landed — which names
+        # `memory.md` as a file that STAYS AT THE SEAT ROOT, a placement rule and not a read
+        # instruction. The bare name was always a proxy: the subject of these two rows is whether
+        # the seat is told to READ its predecessor's handoff, and that instruction is what they
+        # now assert. The negative row would have gone red on a correct change; the POSITIVE row
+        # is retightened in the same act, because a filename check the new sentence satisfies on
+        # its own would have stayed green with the memory instruction deleted.
         p = boot_prompt(by["gamma"], ns())
-        check("v2: persistent folder seat boot prompt names memory.md", "memory.md" in p)
+        check("v2: persistent folder seat boot prompt names memory.md AND instructs reading it",
+              "memory.md" in p and "PREDECESSOR'S HANDOFF" in p)
         p = boot_prompt(by["delta"], ns())
-        check("v2: ephemeral seat boot prompt omits memory", "memory.md" not in p)
+        check("v2: ephemeral seat boot prompt omits the memory-read instruction",
+              "PREDECESSOR'S HANDOFF" not in p)
         p = boot_prompt(by["leader"], ns())
         check("leader renew: no memory.md yet -> generic fresh boot prompt", "RESUMING" not in p)
         (mdir / "memory.md").write_text("# memory\n## Resume here\nstate\n")
@@ -19480,13 +19832,17 @@ def _selftest_checks(args, failures, names):
               theta["mechanical_close"] is True
               and not theta["ephemeral"])          # long-lived, and still memoryless
         (mdir2 / "memory.md").write_text("# stale copy of machine-owned state\n", encoding="utf-8")
-        check("G-23: its boot prompt does NOT point at memory.md even though the file EXISTS and "
-              "the seat is persistent — it boots fresh every session by design",
-              "memory.md" not in boot_prompt(theta, ns()))
+        # Keyed on the memory-READ instruction rather than the bare filename — same retightening
+        # as the v2 pair above, and for the same reason: 7.96's scratchpad sentence names
+        # `memory.md` as a file that stays at the seat root, which is a placement rule and says
+        # nothing about whether this seat is told to read one.
+        check("G-23: its boot prompt does NOT instruct reading memory.md even though the file "
+              "EXISTS and the seat is persistent — it boots fresh every session by design",
+              "PREDECESSOR'S HANDOFF" not in boot_prompt(theta, ns()))
         ordinary = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "gamma"]
         check("G-23: the DEFAULT is untouched — a persistent seat with no `close:` key still "
               "reads its memory (the careful path stays the default)",
-              bool(ordinary) and "memory.md" in boot_prompt(ordinary[0], ns()))
+              bool(ordinary) and "PREDECESSOR'S HANDOFF" in boot_prompt(ordinary[0], ns()))
         run(cmd_checkin, agent="theta", summary="mechanical-close sensor", pane="%24")
         opened.clear()
         out = run(cmd_close, agent="leader", target="theta", renew=False, dry_run=False,
@@ -19592,6 +19948,437 @@ def _selftest_checks(args, failures, names):
         check("G-51: --force launches on the DESCRIPTOR's value anyway and says so",
               code == 0 and "WARNING --force" in out and "binds from its DESCRIPTOR" in out)
         (pkg / "taskforce.csv").unlink()
+
+        # ---- 7.99: the seat with NO registry row — the half the loop used to SKIP --------------
+        # Measured by dag-05's SC-1 control (coord.py md5 74f8f622): DELETE a seat's
+        # `taskforce.csv` row and `launch --dry-run --only <seat>` exited 0, because the
+        # comparison ran only over the rows that EXIST. The surface that DOES name the half-state
+        # — `coordinate descriptors`, finding `no-registry-row` — gates nothing, so a seat whose
+        # row was lost (a crash between materialize's two steps, a hand-deletion) launched with no
+        # binding check at all. A missing row is not a weaker divergence: it is the ABSENCE of the
+        # record the check exists to compare against.
+        #
+        # SUBJECT `hk-1`, and not gamma: gamma is mid-fixture between two repairs above (7.241
+        # declares its ending, 7.274 then defers it), so a launch of gamma here would resolve on a
+        # gate this row does not name. `hk-1` is the seat the 7.274 precondition two rows up
+        # ASSERTS is admitted, and the `--force` launch above proves it reaches exit 0.
+        #
+        # THE PAIR IS THE POINT: the refusal arm alone is satisfied by a check that refuses every
+        # seat, the control arm alone by one that refuses none. Only together do they say the
+        # check reads THIS SEAT'S PRESENCE IN THE REGISTRY and nothing else — the seat, the flags
+        # and the package are identical across them and only hk-1's row moves.
+        #
+        # THE THREE ISOLATING MUTATIONS, one per row (`--expect-fail` takes exactly one red):
+        #   refusal row → `if not (problems or missing)` back to `if not problems`
+        #   --force row → delete the `for w in missing:` WARNING loop
+        #   control row → `if row is None:` to `if row is None or w["agent"] == "hk-1"`
+        # Each was run and reds ITS row alone — measured OFF-SUITE, by driving `check_bindings`
+        # directly, because this suite shells to real tmux and aborts early on a box without it.
+        (pkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-1,epsilon-x,,claude,sonnet,high,,m0\n", encoding="utf-8")  # a row — but not hk-1's
+        _u99_o, _u99_c = refuse(cmd_launch, agent="leader", only="hk-1", dry_run=True)
+        check("7.99: `launch` REFUSES a seat with NO taskforce.csv row while the registry HAS "
+              "rows — LAYER-NAMED with the same `no-registry-row` words `coordinate descriptors` "
+              "already uses (the audit that names this half-state and gates nothing), naming the "
+              "registry's own path so the reader is handed the answer and not the confusion",
+              _u99_c == 2 and "hk-1: NO taskforce.csv ROW (no-registry-row)" in _u99_o
+              and str(pkg) in _u99_o)
+        _u99_fo, _u99_fc = refuse(cmd_launch, agent="leader", only="hk-1", dry_run=True,
+                                  force=True)
+        check("7.99: `--force` launches it anyway and SAYS SO — the escape every other refusal in "
+              "this file offers, reused rather than a second one invented for this leg",
+              _u99_fc == 0 and "WARNING --force" in _u99_fo and "no-registry-row" in _u99_fo)
+        _u99_seat = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "hk-1"][0]
+        (pkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-1,epsilon-x,,claude,sonnet,high,,m0\n"
+            f"tf-1,hk-1,,{_u99_seat['harness']},{_u99_seat['model']},{_u99_seat['effort']},,m0\n",
+            encoding="utf-8")   # hk-1's row, generated FROM its descriptor so it cannot diverge
+        _u99_po, _u99_pc = refuse(cmd_launch, agent="leader", only="hk-1", dry_run=True)
+        check("7.99 (THE CONTROL): restore hk-1's row — same seat, same package, same flags, and "
+              "the row generated from the descriptor so the divergence half cannot fire either — "
+              "and the launch goes through. Without this arm the refusal above is equally "
+              "satisfied by a check that refuses everything",
+              _u99_pc == 0 and "no-registry-row" not in _u99_po)
+        (pkg / "taskforce.csv").unlink()
+        _u99_lo, _u99_lc = refuse(cmd_launch, agent="leader", only="hk-1", dry_run=True)
+        check("7.99: with NO registry at all the missing-row half stays a NO-OP — a legacy "
+              "`workers/` package has no rows for a seat to be missing from, and refusing it "
+              "would ground every such package on a record it was never meant to carry",
+              _u99_lc == 0 and "no-registry-row" not in _u99_lo)
+        import ast as _u99_ast, inspect as _u99_inspect, textwrap as _u99_tw
+        _u99_fn = [_n for _n in _u99_ast.walk(
+                       _u99_ast.parse(_u99_tw.dedent(_u99_inspect.getsource(cmd_launch))))
+                   if isinstance(_n, _u99_ast.FunctionDef) and _n.name == "cmd_launch"][0]
+        _u99_all = [_n for _n in _u99_ast.walk(_u99_fn) if isinstance(_n, _u99_ast.Call)
+                    and getattr(_n.func, "id", "") == "check_bindings"]
+        _u99_top = [_s for _s in _u99_fn.body if isinstance(_s, _u99_ast.Expr)
+                    and isinstance(_s.value, _u99_ast.Call)
+                    and getattr(_s.value.func, "id", "") == "check_bindings"]
+        check("7.99 (THE PLACEMENT CHECK — the DRY-RUN and the REAL branch agree by construction): "
+              "`cmd_launch` calls `check_bindings` EXACTLY ONCE and as a DIRECT CHILD of its body, "
+              "never inside either arm of `if args.dry_run:`. A per-branch call is how the two "
+              "paths drift, and that drift is invisible to every row that only drives the dry-run",
+              len(_u99_all) == 1 and len(_u99_top) == 1 and _u99_top[0].col_offset == 4)
+
+        # ---- 7.97: the STATE-CURSOR advance-writer — the file nothing used to write ------------
+        # `r-stage0-state-cursor-interim-convention` ruled `state.csv`'s header and its discipline
+        # and ruled its Automation row NONE IN STAGE 0: the leader stamped every row BY HAND, and
+        # wiring a writer was filed as the follow-up these rows discharge (`cmd_advance_state`).
+        #
+        # ⚠ ON THEIR OWN PACKAGES, not the shared `pkg` fixture, for one reason: the subject is a
+        # seat having EXACTLY ONE open session row, and `pkg` is thousands of rows into a suite
+        # that has opened, closed, renewed and revived sessions across a dozen seats. Asserting a
+        # session count over there would be asserting the whole suite's history.
+        #
+        # THE THREE ISOLATING MUTATIONS, one per red arm — each RUN, and each reds ITS row alone.
+        # Measured OFF-SUITE, by driving `cmd_advance_state` directly, because this suite shells
+        # to real tmux and aborts early on a box without it (the harness and the captures are in
+        # this task's evidence dir):
+        #   vocabulary arm  → drop the `state not in GOAL_WORKING_STATES` refusal
+        #   6th-field arm   → build the row with `",".join(...)` instead of `csv.writer`
+        #   two-open arm    → `session_open_ids(...)[-1:]` in place of the length check
+        _u97_pkg = Path(td) / "u97-pkg"
+        (_u97_pkg / "coordination").mkdir(parents=True)
+        _u97_header = "stamped-at,run-state,seat,session-id,note"   # the RULED 5-column form
+
+        def _u97_ns(pkg_=None, **kw):
+            d = {"package": str(pkg_ or _u97_pkg), "base": None, "workers_dir": None,
+                 "as_agent": "leader", "force": False, "state": "executing", "note": ""}
+            d.update(kw)
+            return argparse.Namespace(**d)
+
+        def _u97_go(pkg_=None, **kw):
+            """(combined output, exit code) — 0 when the command returned normally."""
+            _o, _e, _c = harness_outcome(cmd_advance_state, _u97_ns(pkg_, **kw))
+            return _o + _e, (0 if _c is None else _c)
+
+        def _u97_seed_session(pkg_, seat, ended=""):
+            """One session row, written through the file's OWN header — the shape `session_open`
+            leaves, so the resolution under test reads a real trace and not a hand-made one."""
+            _p = sessions_csv(pkg_)
+            _h, _r = read_csv_table(_p, SESSIONS_COLS)
+            _h, _w = widen_header(_h, SESSIONS_COLS)
+            if _w:
+                _r = [pad_row(_x, _h) for _x in _r]
+            _i = {c: n for n, c in enumerate(_h)}
+            _new = ["" for _ in _h]
+            _new[_i["session-id"]] = f"{seat}-{len(_r) + 1}"
+            _new[_i["seat"]] = seat
+            _new[_i["started"]] = now()
+            _new[_i["ended"]] = ended
+            _r.append(_new)
+            write_csv_table(_p, _h, _r)
+            return _new[_i["session-id"]]
+
+        def _u97_rows(pkg_):
+            """The cursor re-PARSED as csv — never split on commas, because the field-count arm
+            below is precisely about a note that CONTAINS one."""
+            with state_csv(pkg_).open(newline="", encoding="utf-8") as _fh:
+                return list(csv.reader(_fh))
+
+        # ARM 0 — no cursor at all: the writer APPENDS, it does not mint the schema.
+        _u97_o, _u97_c = _u97_go()
+        check("7.97: with NO state.csv the writer REFUSES instead of minting one — the header is "
+              "`materialize-seats.py`'s to create (r-stage0-state-cursor-interim-convention (a)), "
+              "and a second minter is how two spellings of one schema come to exist with nothing "
+              "comparing them",
+              _u97_c == 1 and "no state cursor at" in _u97_o and "materialize-seats" in _u97_o)
+        state_csv(_u97_pkg).write_text(_u97_header + "\n", encoding="utf-8")
+
+        # ARM 1 — no open session row: `session-id` is RESOLVED, so it cannot be defaulted.
+        _u97_o, _u97_c = _u97_go()
+        check("7.97: with NO open session row the advance REFUSES — `session-id` is resolved at "
+              "write time from the writer's own open row and is never an argument, so 'nothing to "
+              "resolve' has to be a refusal; a blank cell would record an advance no session made",
+              _u97_c == 1 and "0 OPEN session row(s)" in _u97_o and "never an argument" in _u97_o)
+
+        # ARM 2 — the happy path, and the file-shape assertions that ride on it.
+        _u97_sid = _u97_seed_session(_u97_pkg, "leader")
+        _u97_before = state_csv(_u97_pkg).read_bytes()
+        _u97_o, _u97_c = _u97_go(state="executing", note="m4 spine dispatched")
+        _u97_t = _u97_rows(_u97_pkg)
+        check("7.97: ONE well-formed row lands, and every cell is RESOLVED rather than supplied — "
+              "the state from argv, the seat from the resolved identity, the session-id from that "
+              "seat's own open row in sessions.csv",
+              _u97_c == 0 and len(_u97_t) == 2 and _u97_t[0] == _u97_header.split(",")
+              and _u97_t[1][1] == "executing" and _u97_t[1][2] == "leader"
+              and _u97_t[1][3] == _u97_sid and _u97_t[1][4] == "m4 spine dispatched"
+              and _u97_t[1][0])
+        check("7.97: THE HEADER IS NEVER REWRITTEN — the file's bytes before the append are a "
+              "PREFIX of its bytes after, so the write is a pure suffix. Asserted on BYTES and "
+              "not on the parsed header: a rewrite that happened to re-emit the same columns "
+              "would pass a parsed comparison and would still have rewritten history",
+              state_csv(_u97_pkg).read_bytes().startswith(_u97_before))
+
+        # ARM 3 — THE 6TH-FIELD RED ARM. The note is the only free-text input, so it is the only
+        # thing that could widen the row. A `",".join(...)` writer greens every arm above and reds
+        # exactly this one.
+        _u97_go(state="blocked", note='a, b "c"\nd')
+        _u97_t = _u97_rows(_u97_pkg)
+        check("7.97 (THE 6TH-FIELD ARM): a note carrying a comma, a quote and a newline still "
+              "produces a row of EXACTLY the header's width — csv.writer QUOTES it rather than "
+              "letting it split into a sixth field. The note also survives verbatim, so the width "
+              "is not bought by mangling the value",
+              len(_u97_t) == 3 and all(len(_r) == len(_u97_t[0]) for _r in _u97_t)
+              and _u97_t[2][4] == 'a, b "c"\nd')
+        check("7.97: APPEND-ONLY holds ACROSS advances — the earlier row stands untouched under "
+              "the later one, which is what makes this file a trace and not a status field",
+              _u97_t[1][1] == "executing" and _u97_t[2][1] == "blocked")
+
+        # ARM 4 — THE OFF-VOCABULARY RED ARM, driven through the FUNCTION and not argparse: the
+        # parser's `choices=` refuses at the CLI, but watch.py and every internal caller build a
+        # Namespace directly, so the guard that matters is the one inside the command.
+        _u97_before = state_csv(_u97_pkg).read_bytes()
+        _u97_o, _u97_c = _u97_go(state="in-progress")
+        check("7.97 (THE VOCABULARY ARM): an off-vocabulary state is REFUSED LOUDLY and by name, "
+              "naming the whole admitted set — never normalized to the neighbour it resembles "
+              "('in-progress' is one act of judgment away from `executing`, and guessing would "
+              "move the goal's position to somewhere nobody established)",
+              _u97_c == 2 and "is not a goal working-lifecycle state" in _u97_o
+              and all(_s in _u97_o for _s in GOAL_WORKING_STATES))
+        check("7.97: and the REFUSAL WROTE NOTHING — the file is byte-identical across it. A "
+              "refusal that still appended would leave the cursor holding the value it rejected",
+              state_csv(_u97_pkg).read_bytes() == _u97_before)
+
+        # ARM 5 — the defect the convention names in its own words.
+        _u97_seed_session(_u97_pkg, "leader")
+        _u97_o, _u97_c = _u97_go()
+        check("7.97: TWO open session rows for the writer REFUSES and REPORTS BOTH ids — the "
+              "convention's own words, 'a defect to report, not a coin flip'. `session_open_id` "
+              "would have answered with the last one and stamped a plausible id over a broken "
+              "trace, which is why the COUNT and not the last row is what this reads",
+              _u97_c == 1 and "2 OPEN session row(s)" in _u97_o
+              and _u97_sid in _u97_o and "coin flip" in _u97_o)
+
+        # ARM 6 — the KG's re-authored 6-column header, on its own package. The writer holds NO
+        # column list of its own, so the SAME code fills `goal-state` + `execution-stamp` here and
+        # filled `run-state` four arms up. Without this row the header-driven design is untested:
+        # every arm above passes equally for a writer hardcoded to the ruled 5-column form.
+        _u97_kg = Path(td) / "u97-kg-pkg"
+        (_u97_kg / "coordination").mkdir(parents=True)
+        state_csv(_u97_kg).write_text(
+            "stamped-at,execution-stamp,goal-state,seat,session-id,note\n", encoding="utf-8")
+        _u97_kgsid = _u97_seed_session(_u97_kg, "leader")
+        _u97_o, _u97_c = _u97_go(pkg_=_u97_kg, state="completed")
+        _u97_kt = _u97_rows(_u97_kg)
+        check("7.97 (THE HEADER-DRIVEN ARM): the KG's 6-column cursor "
+              "(d-runs-extinguished-transcription — `execution-stamp` added, `run-state` renamed "
+              "`goal-state`) is filled by the SAME writer, the state landing in `goal-state` and "
+              "the stamp in its own column. A writer carrying its own column list would write a "
+              "malformed row into whichever of the two live forms it did not choose",
+              _u97_c == 0 and len(_u97_kt) == 2 and len(_u97_kt[1]) == 6
+              and _u97_kt[1][2] == "completed" and _u97_kt[1][3] == "leader"
+              and _u97_kt[1][4] == _u97_kgsid
+              and EXECUTION_RE.match(_u97_kt[1][1]) is not None)
+
+        # ---- 7.96: PER-SESSION IDENTITY + SCRATCHPAD, wired into the seat-facing surfaces -----
+        # Owner ask 2026-07-28, three halves that are one mechanism: at check-in a seat is TOLD
+        # its session ids · `sessions.csv` records the check-in MOMENT · every seat is INSTRUCTED
+        # to use `seats/{seat}/sessions/{session-id}/`. The measured starting state: the ids
+        # reached the seat only on `session_backfill_native`'s FAILURE branch (0 of 104 run-2
+        # sessions), `sessions.csv` had `started` and `ended` and nothing between them, and ZERO
+        # `sessions/` dirs existed under any goal because the kit's launch path never made one.
+        #
+        # ⚠ ON ITS OWN PACKAGE, and `cmd_checkin` is driven with `--pane ""` — which is not a
+        # convenience: with no pane the command takes NO tmux path at all (no title set, no
+        # liveness read, no harness-pid probe, no placement-drift read), so every row below runs
+        # unchanged on a box with no tmux. That is what makes this block provable off-suite, where
+        # the mutation arms were taken (harness + captures in the task's evidence dir).
+        #
+        # THE ISOLATING MUTATIONS — each RUN, and each redding EXACTLY the rows named beside it and
+        # no others. ⚠ ISOLATING MEANS THE RED SET EQUALS THE NAMED SET, not that the set has ONE
+        # member: dropping the stamp reds every row that reads the cell, and a mutation graded on
+        # "exactly one row went red" would have been reported as non-isolating for being CORRECT.
+        #   identity arm    → print the line only when `_sid` is truthy
+        #                     reds: the UNRESOLVED row — which IS the "on EVERY check-in" property
+        #   stamp arm       → drop `target[idx["checkin"]] = stamp`
+        #                     reds: the truth table, the re-check-in row, the widen's stamped row
+        #   widen arm       → `read_csv_table` in place of the `widen_header` call
+        #                     reds: both widen rows
+        #   scratchpad arm  → drop the `scratch.mkdir` in `session_open`  → reds: the create row
+        #   exclusion arm   → `BOOT_STALE_SKIP_DIRS = ("transcripts",)`   → reds: the exclusion row
+        _u96_pkg = Path(td) / "u96-pkg"
+        (_u96_pkg / "coordination").mkdir(parents=True)
+        _u96_seat = _u96_pkg / "seats" / "zeta"
+        _u96_seat.mkdir(parents=True)
+        (_u96_seat / "seat.md").write_text("---\nseat: zeta\nharness: claude\n---\nbrief\n",
+                                           encoding="utf-8")
+
+        def _u96_ns(**kw):
+            d = {"package": str(_u96_pkg), "base": None, "workers_dir": None, "as_agent": None,
+                 "force": False, "agent": "zeta", "summary": "wiring 7.96", "pane": ""}
+            d.update(kw)
+            return argparse.Namespace(**d)
+
+        def _u96_checkin(**kw):
+            _o, _e, _c = harness_outcome(cmd_checkin, _u96_ns(**kw))
+            return _o + _e, (0 if _c is None else _c)
+
+        def _u96_row(seat="zeta", n=-1):
+            """(header, the seat's nth row as a {col: value} dict) — read BY NAME, never by index:
+            the whole point of the widen is that the column's POSITION is not a contract."""
+            _h, _r = read_csv_table(sessions_csv(_u96_pkg), SESSIONS_COLS)
+            _hits = [dict(zip(_h, pad_row(_x, _h))) for _x in _r
+                     if len(_x) > _h.index("seat") and _x[_h.index("seat")].strip() == seat]
+            return _h, (_hits[n] if _hits else {})
+
+        check("7.96: `checkin` is in SESSIONS_COLS EXACTLY ONCE and LAST — appended, never "
+              "inserted. Position is what `widen_header`'s append-only guarantee protects: run-1 "
+              "and run-2 already disagree on column ORDER, so a column placed 'logically' beside "
+              "`started` would put a fresh file and a widened one on two different layouts",
+              SESSIONS_COLS.count("checkin") == 1 and SESSIONS_COLS[-1] == "checkin")
+
+        _u96_w = [w for w in discover_workers(workers_dir(_u96_ns())) if w["agent"] == "zeta"][0]
+        _u96_sid, _ = session_open(_u96_ns(), _u96_w, since=time.time(), wait=0.0)
+        _u96_scratch = _u96_seat / "sessions" / _u96_sid
+        check("7.96: the LAUNCH path CREATES `seats/{seat}/sessions/{session-id}/` — parity with "
+              "the daemon's spawn path, which has made this folder since 7.11 while the kit made "
+              "none anywhere. Created at the ONE place a session-id is minted, so `launch`, "
+              "`close-seat --renew` and `session-open` all get it with no second call site",
+              _u96_scratch.is_dir())
+        _u96_h, _u96_r = _u96_row()
+        check("7.96: the row opens with `started` FILLED and `checkin` BLANK — the two are "
+              "different moments and the launch instant must never stand in for the check-in one. "
+              "A row that never fills `checkin` is a seat whose harness came up and then died "
+              "before it ever registered, which is exactly the G-11 shape this keeps visible",
+              bool(_u96_r.get("started")) and _u96_r.get("checkin") == ""
+              and _u96_r.get("ended") == "")
+
+        _u96_o, _u96_c = _u96_checkin()
+        _u96_h, _u96_r = _u96_row()
+        check("7.96 (THE IDENTITY LINE): a SUCCESSFUL check-in TELLS THE SEAT WHO IT IS — the "
+              "roster session-id, the native id, and the scratchpad it owns, on one line, every "
+              "time. Until now this reached a seat only down the native-backfill FAILURE branch, "
+              "measured 0 times in 104 sessions: in practice no seat was ever told",
+              _u96_c == 0 and f"session: {_u96_sid}" in _u96_o
+              and str(_u96_scratch) in _u96_o)
+        check("7.96 (THE UNRESOLVED MARKER): the native id could NOT be resolved here (no claude "
+              "transcript exists for this fixture) and the line SAYS SO by name rather than "
+              "printing an empty field. A blank where an id belongs reads as 'nothing to report'; "
+              "the marker reads as 'we do not know', which is the honest one",
+              f"native: {SESSION_UNRESOLVED}" in _u96_o)
+        check("7.96 (THE TRUTH TABLE): started=launch · checkin=check-in · ended=(still open). "
+              "`sessions.csv` could not say when a session came ALIVE before this: the moment "
+              "lived only in `workers.md`, a per-session roster row overwritten on every "
+              "re-check-in, so the durable trace held the two ends and nothing in between",
+              bool(_u96_r.get("started")) and bool(_u96_r.get("checkin"))
+              and _u96_r.get("ended") == "" and _u96_r.get("session-id") == _u96_sid)
+
+        # THE LATEST CHECK-IN, NOT THE FIRST — asserted by planting a stale value rather than by
+        # comparing two stamps: `now()` is minute-resolution, so two check-ins inside one test
+        # produce identical strings and a comparison between them cannot fail.
+        _u96_hh, _u96_rr = read_csv_table(sessions_csv(_u96_pkg), SESSIONS_COLS)
+        _u96_rr[-1][_u96_hh.index("checkin")] = "1999-01-01 00:00"
+        write_csv_table(sessions_csv(_u96_pkg), _u96_hh, _u96_rr)
+        _u96_o, _u96_c = _u96_checkin()
+        _u96_h, _u96_r = _u96_row()
+        check("7.96: a RE-check-in MOVES the cell and does NOT add a row — a re-check-in is the "
+              "same session waking again (P1 supersession), not a new one, so the trace must not "
+              "grow a second row for it. The planted stale stamp is GONE, which is what says the "
+              "writer overwrites rather than filling only a blank",
+              _u96_c == 0 and _u96_r.get("checkin") not in ("", "1999-01-01 00:00")
+              and len(read_csv_table(sessions_csv(_u96_pkg), SESSIONS_COLS)[1]) == 1)
+
+        session_close(_u96_ns(), "zeta")
+        _u96_h, _u96_r = _u96_row()
+        check("7.96: the CLOSE completes the table — `ended` fills and NEITHER `started` NOR "
+              "`checkin` moves. The three stamps are three different events and the close writes "
+              "exactly one of them",
+              bool(_u96_r.get("ended")) and bool(_u96_r.get("started"))
+              and bool(_u96_r.get("checkin")))
+
+        # THE WIDEN ARM — the property G-152 exists for, and the one every fixture-only suite
+        # misses: a NEW column reaches only files that do not yet exist. This one is born on the
+        # PRE-7.96 header with a historical row already in it, which is what every live package is.
+        _u96_old = Path(td) / "u96-old-pkg"
+        (_u96_old / "coordination").mkdir(parents=True)
+        _u96_legacy = [c for c in SESSIONS_COLS if c != "checkin"]
+        write_csv_table(sessions_csv(_u96_old), _u96_legacy,
+                        [[("hist-1" if c == "session-id" else "zeta" if c == "seat"
+                           else "2026-01-01 00:00" if c in ("started", "ended") else "")
+                          for c in _u96_legacy],
+                         [("live-1" if c == "session-id" else "zeta" if c == "seat"
+                           else "2026-01-02 00:00" if c == "started" else "")
+                          for c in _u96_legacy]])
+        _u96_wsid, _u96_wnat, _u96_wstamp = session_checkin(
+            argparse.Namespace(package=str(_u96_old), base=None, workers_dir=None), "zeta")
+        _u96_wh, _u96_wr = read_csv_table(sessions_csv(_u96_old), SESSIONS_COLS)
+        check("7.96 (THE WIDEN ARM): a LIVE pre-7.96 trace GAINS the column instead of the change "
+              "being a silent no-op everywhere it matters (G-152). The header grows by exactly "
+              "one, at the END, and every column that was there keeps its index — a positional "
+              "reader of run-1 or run-2 cannot break on this",
+              _u96_wh == _u96_legacy + ["checkin"])
+        check("7.96: the OPEN row is stamped and the HISTORICAL row's cell stays BLANK — a "
+              "check-in stamp inherited onto a row written before the column existed would assert "
+              "a moment nobody recorded, one field over from the disposition guessing this file "
+              "already refuses",
+              _u96_wsid == "live-1" and _u96_wstamp
+              and dict(zip(_u96_wh, pad_row(_u96_wr[1], _u96_wh)))["checkin"] == _u96_wstamp
+              and dict(zip(_u96_wh, pad_row(_u96_wr[0], _u96_wh)))["checkin"] == "")
+
+        # THE UNRESOLVED ARM — every row of this seat is now CLOSED, so there is nothing to stamp.
+        _u96_o, _u96_c = _u96_checkin()
+        check("7.96: with NO open session row the check-in STILL SUCCEEDS and the identity line "
+              "STILL PRINTS, marked UNRESOLVED on both ids. Bookkeeping about a check-in is never "
+              "a gate on it (`session_trace_safe`'s whole rule) — and a line that appears only "
+              "when it has something to say teaches a seat that silence means nothing is wrong",
+              _u96_c == 0 and f"session: {SESSION_UNRESOLVED}" in _u96_o
+              and f"native: {SESSION_UNRESOLVED}" in _u96_o)
+
+        # THE SEAT-FACING INSTRUCTION — one home (the boot prompt), and it must say BOTH halves.
+        _u96_bp = boot_prompt(_u96_w, _u96_ns())
+        check("7.96 (THE INSTRUCTION): the boot prompt — the ONE home, composed by the kit on "
+              "every boot so it reaches packages written before this change too — tells the seat "
+              "its working files go to the per-session scratchpad, and points at the check-in as "
+              "where the session-id comes from. Nothing named this folder to a seat before",
+              str(_u96_seat / "sessions") in _u96_bp and "<session-id>" in _u96_bp
+              and "check-in" in _u96_bp)
+        check("7.96: and it names WHAT STAYS AT THE SEAT ROOT — descriptor, memory and "
+              "conventions (KG `seat-folder` box 1). Without this half a seat guesses, and either "
+              "guess mints a SECOND home for one file class, which is the defect the instruction "
+              "exists to prevent rather than to cause",
+              all(_t in _u96_bp for _t in ("seat.md", "memory.md", "conventions.md"))
+              and "STAY at" in _u96_bp)
+        check("7.96: a seat whose FOLDER cannot be resolved gets NO scratchpad sentence — naming "
+              "a path under a folder that does not exist is worse than silence, because the seat "
+              "would then create one somewhere of its own choosing",
+              scratchpad_instruction({"agent": "nofolder", "folder": None}) == "")
+
+        # THE STALENESS DETECTOR — criterion 4, and it is a SAFETY-detector change, so it is
+        # proven in BOTH directions on the SAME seat, in the SAME state, with the file's LOCATION
+        # as the only thing that moves. The exclusion row alone is satisfied by a detector that
+        # reports nothing; the control row alone by one that reports everything.
+        _u96_checkin()
+        _u96_live = _u96_seat / "sessions" / (session_open_id(_u96_pkg, "zeta") or _u96_sid)
+        _u96_live.mkdir(parents=True, exist_ok=True)
+        (_u96_live / "notes.md").write_text("the seat's own working output\n", encoding="utf-8")
+        (_u96_seat / "transcripts").mkdir(exist_ok=True)
+        (_u96_seat / "transcripts" / "t.txt").write_text("export\n", encoding="utf-8")
+        _u96_future = time.time() + 600
+        for _p in (_u96_live / "notes.md", _u96_seat / "transcripts" / "t.txt"):
+            os.utime(_p, (_u96_future, _u96_future))
+        _u96_f = [str(rel) for _n, rel, _m in boot_stale_findings(_u96_ns())]
+        check("7.96 (THE EXCLUSION): a file the LIVE seat wrote into its own scratchpad does NOT "
+              "read as its instructions going stale. Without this the G-61 detector fires on "
+              "every write a working seat makes — it would report the seat to itself, at a volume "
+              "that retires the alarm inside a day",
+              not any("notes.md" in _x for _x in _u96_f))
+        check("7.96 (criterion 5): `transcripts/` is STILL excluded and STILL WHERE THE KIT "
+              "WRITES IT — nothing about the transcript home moved here. The KG's "
+              "`sessions/{session-id}/` transcript home is task 7.31's, and this row is the guard "
+              "that 7.96 did not quietly take it",
+              not any("t.txt" in _x for _x in _u96_f))
+        (_u96_seat / "seat.md").write_text(
+            "---\nseat: zeta\nharness: claude\n---\nREVISED brief\n", encoding="utf-8")
+        os.utime(_u96_seat / "seat.md", (_u96_future, _u96_future))
+        _u96_f2 = [str(rel) for _n, rel, _m in boot_stale_findings(_u96_ns())]
+        check("7.96 (THE RED CONTROL): a GENUINE change to the running seat's own `seat.md` "
+              "STILL FIRES, at the same instant, on the same seat. Only the file's LOCATION "
+              "differs between this row and the two above — which is what says the detector was "
+              "narrowed to the scratchpad and not switched off",
+              any("seat.md" in _x for _x in _u96_f2))
 
         # ---- 7.241 (U4.6): the UNDECLARED-ending REFUSAL, ON THE LAUNCH PATH -----------------
         # 7.237 put this class into the READY arithmetic, which governs what the offer lane is
@@ -27770,7 +28557,7 @@ HELP_EPILOG = """everyday
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / execution / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -28582,6 +29369,26 @@ def build_parser():
     s.add_argument("--note", default="", help="free text appended to the finish event's body")
     add_identity_flags(s)
     s.set_defaults(func=cmd_finish_goal)
+
+    s = command(
+        "advance-state",
+        "Stamp ONE row on the goal's state cursor (state.csv) — the append-only record of WHERE\n"
+        "the goal stands. One row per ADVANCE, never per turn, per message or per commit; the\n"
+        "latest row is the position. `session-id` is RESOLVED from your own open session row, so\n"
+        "the stamp records the session that made it and not one you typed. Rows are never edited\n"
+        "or deleted: a wrong row is corrected by a NEW row whose --note names the one it\n"
+        "supersedes. Position only — narrative belongs in a message, rulings in decisions.md.",
+        "example:\n"
+        "  coordinate advance-state verifying --note 'm4 spine complete; handed to the verifier'\n"
+        "next: coordinate send — the cursor says WHERE the goal is; it never says why")
+    s.add_argument("state", choices=GOAL_WORKING_STATES,
+                   help="the goal's working-lifecycle state at this advance — the KG `goal state` "
+                        "vocabulary, and nothing else is accepted")
+    s.add_argument("--note", default="",
+                   help="one line of position context, quoted — e.g. which row this one "
+                        "supersedes. NOT a log entry: narrative goes to a message")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_advance_state)
 
     s = command(
         "reap",

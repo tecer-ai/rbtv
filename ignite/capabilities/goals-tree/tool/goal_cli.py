@@ -1191,6 +1191,21 @@ def lint_goal(root: Path, name: str) -> Findings:
                   "seat declares no permissions — neither a frontmatter ref nor a "
                   "<permissions> section in the assembled body")
 
+    # --- 5. the MIRROR of the row-without-folder finding above: a seat FOLDER with no
+    # taskforce.csv row. That is exactly the half-state a crash between materialize-seats'
+    # step 1 (seat descriptors) and step 2 (registry rows) leaves behind — and the loop
+    # above, which walks ROWS and never folders, cannot see it by construction (measured:
+    # 0 findings on a fixture carrying two orphan folders, dag-05 2026-07-29). Nothing
+    # launches such a folder, so it is inert rather than dangerous; it is named because an
+    # invisible half-state is otherwise indistinguishable from a finished materialize.
+    named = {(row.get("seat") or "").strip() for row in rows}
+    if seats_dir.is_dir():
+        for seat_dir in sorted(p for p in seats_dir.iterdir() if p.is_dir()):
+            if seat_dir.name not in named:
+                f.add("seat folder resolves to a taskforce row", str(seat_dir),
+                      f"orphan seat folder '{seat_dir.name}' — no taskforce.csv row names "
+                      "it (a half-finished materialize: nothing will ever launch it)")
+
     return f
 
 
@@ -2598,6 +2613,24 @@ def cmd_selftest(args) -> int:
         f4 = lint_goal(root, "demo-goal")
         check("a materialized goal lints CLEAN (gate open)", not bool(f4),
               json.dumps(f4.items, indent=2))
+
+        # ---- the orphan-seat-folder control (7.98). RED ARM: the check above is the
+        # negative half (a fully materialized goal names NO orphan), this is the positive
+        # half — delete the folder sweep in `lint_goal` and this arm reds, because the
+        # row loop walks rows and can never reach a folder no row names.
+        print("lint names an orphan seat folder")
+        orphan = gd / "seats" / "ghost-seat"
+        orphan.mkdir(parents=True)
+        (orphan / "seat.md").write_text("---\nseat: ghost-seat\n---\n\nx\n", encoding="utf-8")
+        f4b = lint_goal(root, "demo-goal")
+        check("lint names a seat folder with no taskforce row",
+              any(i["check"] == "seat folder resolves to a taskforce row"
+                  and "ghost-seat" in i["reason"] for i in f4b.items),
+              json.dumps(f4b.items, indent=2))
+        (orphan / "seat.md").unlink()
+        orphan.rmdir()
+        check("removing the orphan folder restores a clean lint",
+              not bool(lint_goal(root, "demo-goal")))
 
         print("lint catches a cycle")
         (gd / "taskforce.csv").write_text(

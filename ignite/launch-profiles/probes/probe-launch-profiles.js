@@ -258,6 +258,56 @@ check('(14c) an EMPTY help is "could not look", never "the flag is gone"', () =>
   return 'E_PREFLIGHT_UNAVAILABLE(empty-help) — NOT E_PINNED_FLAG_ABSENT';
 });
 
+// ── 16/17/17b · task 7.87 — the widened slot vocabulary, and the control that it is still CLOSED ─
+//
+// Leg 17 is the one the widening's ruling demands: proving the new slot is ACCEPTED cannot
+// distinguish "the vocabulary grew by one" from "the vocabulary stopped being closed", and the
+// second silently retires the guard. So an unknown slot is PLANTED and the refusal is the assertion.
+function writeSplitFixture(slotName) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lp-g1-'));
+  const file = path.join(dir, 'split.yaml');
+  fs.writeFileSync(file, yaml.dump({
+    default_workdir_root: dir,
+    profiles: {
+      'g1-split': {
+        // The G1 confinement split, written by the PROFILE: guidance-root = {workdir},
+        // work-target = the add-dir operand. TWO path values in one command template.
+        exec: { argv: ['claude', '-p', '--cd', '{workdir}', '--add-dir', `{${slotName}}`], prompt: 'stdin' },
+        session_ref: { source: 'cwd-implicit' },
+        workdir_root: dir,
+        caps: { memory_max: '64M' },
+      },
+    },
+  }));
+  return file;
+}
+check('(16) a profile can express the G1 split as TWO values — {workdir} AND {extra_dir}', () => {
+  const c = lp.loadConfig(writeSplitFixture('extra_dir'));
+  const r = lp.resolveProfile(c, 'g1-split', {
+    slots: { workdir: '/srv/orchestrator-root', extra_dir: '/srv/repos/target' },
+  });
+  const tmpl = c.profiles['g1-split'].exec.argv.length;
+  if (r.argv.length !== tmpl) throw new Error(`arity ${r.argv.length} != template ${tmpl}`);
+  if (r.argv[3] !== '/srv/orchestrator-root') throw new Error(`workdir slot: ${r.argv[3]}`);
+  if (r.argv[5] !== '/srv/repos/target') throw new Error(`extra_dir slot: ${r.argv[5]}`);
+  return `${r.argv.join(' ')} — the add-dir flag is written by the PROFILE, not hand-composed`;
+});
+check('(17) PLANTED UNKNOWN SLOT — the vocabulary is still CLOSED after the widening', () => {
+  // Same fixture shape, one slot name changed to something nobody declared. If the widening had
+  // opened the set instead of extending it, this would load clean and the leg would go red.
+  const err = expectCode('E_UNKNOWN_SLOT', () => lp.loadConfig(writeSplitFixture('not_a_real_slot')));
+  if (err.details.slot !== '{not_a_real_slot}') throw new Error(`slot=${err.details.slot}`);
+  return `${err.code} at config LOAD, slot=${err.details.slot}`;
+});
+check('(17b) …and a caller still cannot SUPPLY {extra_dir} to a profile that declares none', () => {
+  // The second half of "closed": the load gate bounds what a PROFILE may write, this bounds what a
+  // CALLER may fill. Widening the first must not widen the second.
+  const err = expectCode('E_RAW_FLAG', () => lp.resolveProfile(shipped, 'test-sleep', {
+    slots: { extra_dir: '/srv/repos/target' },
+  }));
+  return `${err.code} — declared-slots-only, unchanged`;
+});
+
 // ── 15 · criterion 6 — no second profile file in the repo ───────────────────────────────────
 check('(15) exactly ONE file in the repo defines profiles', () => {
   const out = execFileSync('git', ['grep', '-l', '^profiles:', '--', '*.yaml', '*.yml'], {

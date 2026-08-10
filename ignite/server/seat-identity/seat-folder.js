@@ -24,8 +24,18 @@
 // `parsed.runsCsv`, `checkRunLive`, `openRunsOfGoal`, and the WHOLE branch-compartment walk
 // (`BRANCHES_DIR`/`BRANCH_NAME_RE`, `parsed.branch`, `parsed.branchDir`). The branch machinery is
 // abolished by registry ruling `r-branch-folder-deleted-nested-seats-are-ordinary-run-seats` — a
-// branch is a ROLE with NO file home, and a branch seat is an ordinary seat of the goal named
-// `<four-letters>-<n>-<seat>`. Deleted, never migrated.
+// branch is a ROLE with NO file home, and a branch seat is an ordinary seat of the goal.
+//
+// ⚠ ITS NAME CARRIES THE INSTANCE ORDINAL FROM THE SECOND INSTANCE ONWARD, NOT ALWAYS. The line
+// above once read `<four-letters>-<n>-<seat>` flat, which is the SUPERSEDED shape: owner ruling
+// `d-owner-7545-7551-design-rulings-0808` criterion 1 amended
+// `r-branch-seat-name-carries-the-instance-ordinal` — the first instance is `<four-letters>-<seat>`
+// (`rsch-researcher`) and the second is `<four-letters>-<n>-<seat>` (`rsch-2-researcher`). So TWO
+// name shapes exist and anything PARSING a seat name handles both; no rename ever occurs when a
+// second instance appears. This parser is unaffected either way — a seat name is one path segment
+// to it and it reads no structure inside one — which is exactly why the wrong shape could sit in
+// this comment unnoticed. Composed by `team-kit/materialize-seats.py#compose_seat_name`, the one
+// place the shape is spelled.
 //
 // SEAT LIVENESS IS NOT ANSWERED HERE ANY MORE. "Is this goal executing" is `server/lease/lease.js`
 // (E1, design-lock item 1): live evidence, no stored status. `checkGoalExecuting` below is the
