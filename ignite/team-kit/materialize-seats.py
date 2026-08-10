@@ -3311,6 +3311,16 @@ def _norm(text: str, tmp: Path) -> str:
                 .replace(str(tmp), "<TMP>"))
 
 
+def _sep(text: str) -> str:
+    """A path rendered separator-blind, for arms only.
+
+    Every expectation in this suite is written POSIX-style because the kit's
+    home is a POSIX box, but the tool emits NATIVE paths (correctly — a
+    descriptor's `cwd:` is consumed by spawn.js on the box that runs it). An
+    arm that hardcodes `/` is asserting the platform, not the behaviour."""
+    return text.replace("\\", "/")
+
+
 def _invoke(argv: list[str], env: dict) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(Path(__file__).resolve()), *argv],
@@ -3834,7 +3844,10 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
             check("plan: workflow resolves to [alpha, beta] in manifest order",
                   green_json.get("added_seats") == ["alpha", "beta"],
                   str(green_json.get("added_seats")))
-            paths = [w["path"] for w in green_json.get("writes", [])]
+            # `_sep`: writes[] carries NATIVE paths — the suffixes below are
+            # POSIX-spelled, so the comparison is made separator-blind rather
+            # than the emitter made POSIX-only.
+            paths = [_sep(w["path"]) for w in green_json.get("writes", [])]
             kinds = [w["kind"] for w in green_json.get("writes", [])]
             # Per seat: descriptor THEN its AGENTS.md pointer, in emit order; then
             # the one registry append. Kinds are asserted too — a path pair alone
@@ -4033,8 +4046,9 @@ def run_dag04_acceptance(check, env: dict) -> None:
               str(list(afm)[:9]))
         check("B4 closed: cwd is the seat folder; ctx-refresh emitted in "
               "interactive mode",
-              afm.get("cwd") == f"{fx['pkg']}/seats/alpha/"
-              and afm.get("ctx-refresh") == 50)
+              _sep(afm.get("cwd") or "") == _sep(f"{fx['pkg']}/seats/alpha/")
+              and afm.get("ctx-refresh") == 50,
+              f"cwd={afm.get('cwd')!r} ctx-refresh={afm.get('ctx-refresh')!r}")
         check("SC-14 (first arm): mode: emitted on every descriptor",
               afm.get("mode") == "interactive"
               and bfm.get("mode") == "interactive")
@@ -4533,7 +4547,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
               "the existing path; registry byte-identical",
               cp2.returncode == 1
               and _refusal(cp2).get("code") == "seat-exists"
-              and "seats/alpha" in (_refusal(cp2).get("path") or "")
+              and "seats/alpha" in _sep(_refusal(cp2).get("path") or "")
               and tf.read_bytes() == bytes_after_first,
               cp2.stdout.strip()[:200])
         # Topological order: scramble-flow's manifest lists b2 BEFORE its
