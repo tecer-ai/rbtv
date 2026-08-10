@@ -17,7 +17,7 @@ const { runWarningCheck } = require('./warnings-check');
 const { TERMINAL_TURN_STATUSES, sessionStatusForEndedTurn } = require('../heart/heart-store');
 // Task C5 — the ONE definition of what a row may template into an exec'd argv, shared with the
 // store's enqueue gate so the two ends can never disagree about what a legal value is.
-const { expandArgv } = require('../heart/argv-template');
+const { expandArgv, checkFireToolWorkdir } = require('../heart/argv-template');
 // Task 7.12 — the job->seat pointer (`r-job-seat-home`). The RESOLVER is imported, never
 // re-implemented: `seat-folder.js` is the one definition of what a seat folder is, and a second
 // spelling here would be a second definition that drifts (that module's own opening argument).
@@ -910,6 +910,28 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
 
     const cc = carrierConfig();
     const workdir = args.workdir || cc.defaultWorkdir;
+
+    // ── Task 7.562 · GOVERN THE CALLER-SUPPLIED WORKDIR. This is the BOUNDARY half (the enqueue
+    // door in `heart-store.js` validateArgs is the UX half; the store on disk outlives this code
+    // and rows predating that door are still fireable). The rule and the whole measurement live in
+    // `heart/argv-template.js` above `checkFireToolWorkdir` — not restated here.
+    //
+    // ⚠ IT NARROWS, IT DOES NOT CLOSE. cwd is not a security boundary: this exec still runs with
+    // the daemon user's full ambient authority. What it stops is a scheduled job being POINTED AT
+    // A FOLDER THAT REDIRECTS ITS CREDENTIALS — `cli/lib/config.js` resolveToken walks UP from cwd
+    // and the first `.rbtv/config/.env` wins, so a chosen cwd substitutes the gateway address and
+    // sender token of a job whose whole purpose is to call back through the door. It is not a
+    // sandbox and must never be described as one.
+    //
+    // RECORDED, NOT THROWN — the shape every other refusal on this path uses: `tick()` has a
+    // `finally` and no `catch`, so a throw abandons the rest of the tick.
+    const workdirRefusal = checkFireToolWorkdir(args, cc.defaultWorkdir);
+    if (workdirRefusal) {
+      endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: new Date(), reason: `workdir refused (fire-tool): ${workdirRefusal}` });
+      actions.push({ phase: 'dispatch', action: 'fire-tool-failed', execId: exec.exec_id, error: `workdir: ${workdirRefusal}` });
+      return;
+    }
+
     const argv = Array.isArray(tool.argv) ? tool.argv : (tool.command ? [tool.command] : []);
     if (argv.length === 0) {
       endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: new Date(), reason: 'empty argv (fire-tool)' });
