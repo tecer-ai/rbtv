@@ -166,6 +166,22 @@ async function main() {
       out('SKIP  agent-sender authz — the fixture workspace defines no agent token');
     }
 
+    // 7.605: the UNHOMED warning is SCOPED BY ACTION TYPE. Home gating is launch-agent only
+    // (resolveJobHome has one call site, inside launchAgent), so a fire-tool row FIRES unhomed in
+    // the default workdir and the launch wording is measured FALSE for it (w7603 evidence c05).
+    // ⚠ issues.md S-11 (does a fire-tool row's goal/seat HOME its execution?) is OPEN; a ruling
+    // toward homing changes the truthful wording these two arms pin.
+    r = await runCli(['register-job', 'unhomed-launch-7605', '--action-type', 'launch-agent', '--args-schema', SCHEMA], ownerEnv);
+    check('7.605 an unhomed LAUNCH row still warns that firing is a refusal',
+      r.code === 0 && /UNHOMED — firing it is a refusal until homed/.test(r.stdout),
+      `exit=${r.code} stdout=${r.stdout.trim()}`);
+
+    r = await runCli(['register-job', 'unhomed-firetool-7605', '--action-type', 'fire-tool', '--args-schema', TOOL_SCHEMA], ownerEnv);
+    check('7.605 an unhomed FIRE-TOOL row is told the truth (default workdir), not the launch refusal',
+      r.code === 0 && /UNHOMED — runs in the default workdir/.test(r.stdout)
+        && !/refusal until homed/.test(r.stdout),
+      `exit=${r.code} stdout=${r.stdout.trim()}`);
+
     // 8. The payoff: register -> enqueue, both through the shipped CLI.
     r = await runCli([
       'add-job', '--fn', 'cli-registered', '--profile', 'test-sleep',

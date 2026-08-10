@@ -32,7 +32,8 @@ const HELP = `ignite register-job <job-id> --action-type <${ACTION_TYPES.join('|
   the goal forward instead of pinning to a run that later closes. Omit both and the
   job is UNHOMED: registration is accepted, but FIRING an unhomed launch is a
   refusal — every daemon spawn homes as a seat; the flat .rbtv/sessions/ path is
-  retired (r-seats-only-architecture).`;
+  retired (r-seats-only-architecture). Home gating is LAUNCH-AGENT ONLY: an
+  unhomed row of any other action type fires, in the default workdir.`;
 
 function build(argv) {
   const jobId = argv.shift();
@@ -110,9 +111,17 @@ async function run(argv, ctx) {
       else {
         // The home is stated on EVERY success, including when there is none. "unhomed" printed
         // out loud is what stops a forgotten --goal/--seat from looking identical to a decision.
+        // The UNHOMED wording is SCOPED BY ACTION TYPE (7.605). Home gating is LAUNCH-AGENT ONLY:
+        // resolveJobHome has a single call site, inside launchAgent, while launchFireTool resolves
+        // args.workdir || defaultWorkdir and spawns — so a fire-tool row FIRES unhomed (measured,
+        // task 7.603 evidence w7603/c05). Telling every unhomed row it can never fire is the exact
+        // misreading that produced 7.587/7.603. ⚠ issues.md S-11 (does a fire-tool row's goal/seat
+        // HOME its execution?) is OPEN — a ruling toward homing changes the second wording.
         const home = result.homed
           ? `homed at ${result.homed.goal}/${result.homed.seat}`
-          : 'UNHOMED — firing it is a refusal until homed (r-seats-only-architecture: every daemon spawn is a seat)';
+          : result.action_type === 'launch-agent'
+            ? 'UNHOMED — firing it is a refusal until homed (r-seats-only-architecture: every daemon spawn is a seat)'
+            : 'UNHOMED — runs in the default workdir (home gating is launch-agent only)';
         console.log(`registered: job "${result.job_id}" (${result.action_type}, ${result.enabled ? 'enabled' : 'disabled'}) — ${home}`);
       }
     },
