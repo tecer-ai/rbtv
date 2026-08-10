@@ -327,6 +327,40 @@ CAGE_RW_COLUMN = "rw-paths"
 CAGE_GRANTS_COLUMN = "cage-grants"
 
 
+def open_binding(seat: str, b: dict, package: Path) -> bool:
+    """True when this seat's harness·model·effort triple is deliberately
+    UNBOUND, so the descriptor omits all three (owner-ruled 2026-08-10).
+
+    Only a STANDING-SEAT home can do this, and only by declaring none of the
+    three. Two things make it sound exactly there and nowhere else: the triple
+    normally exists to agree with the seat's `taskforce.csv` row, and a
+    standing-seat home HAS no registry for it to agree with; and the seat that
+    needs it says so in its own definition — the channel master's harness and
+    model are named by the chat bridge at spawn time
+    (`harnessOf(profile)` — the spawner never reads them from `seat.md`), so a
+    concrete value here is inert AND states the opposite of
+    `d-master-harness-agnostic` to the occupant reading the file.
+
+    ALL THREE OR NONE. A partial declaration is refused rather than half-honoured:
+    a descriptor carrying a harness but no model reads as a binding that was
+    made, and would send a reader looking for the missing half."""
+    if not standing_seat(package):
+        return False
+    declared = [k for k in ("harness", "model", "effort")
+                if str(b.get(k, "") or "").strip()]
+    if not declared:
+        return True
+    if len(declared) < 3:
+        raise Refuse(
+            "open-binding-partial",
+            f"standing seat '{seat}' declares " + ", ".join(declared)
+            + " but not the whole harness·model·effort triple — a standing "
+            "seat's binding is open (all three omitted) or bound (all three "
+            "present), never half of one",
+        )
+    return False
+
+
 def _cage_frontmatter(seat: str, seats_cat: dict) -> dict:
     """The seat's cage declaration, read off its catalog row, ready to emit
     into the descriptor frontmatter. `{}` when the row declares none — a seat
@@ -1190,7 +1224,8 @@ def _descriptor_frontmatter(seat: str, b: dict, package: str,
     harness = str(b.get("harness", "") or "").strip()
     model = str(b.get("model", "") or "").strip()
     effort = str(b.get("effort", "") or "").strip()
-    if not effort:
+    unbound = open_binding(seat, b, Path(package))
+    if not effort and not unbound:
         raise Refuse(
             "effort-missing",
             f"bindings for seat '{seat}' carry no 'effort' — the "
@@ -1316,12 +1351,17 @@ def _descriptor_frontmatter(seat: str, b: dict, package: str,
     pass_folder, _ = _pass_values(seat, b, package)
     if pass_folder:
         fm["pass"] = pass_folder
-    fm |= {
-        "harness": harness,
-        "model": model,
-        "effort": effort,
-        "mode": mode,
-    }
+    if unbound:
+        # The three are ABSENT, never empty: an empty value reads as a binding
+        # that failed, and `mode` stays because the seat's rhythm is its own.
+        fm["mode"] = mode
+    else:
+        fm |= {
+            "harness": harness,
+            "model": model,
+            "effort": effort,
+            "mode": mode,
+        }
     if ctx is not None:
         fm["ctx-refresh"] = ctx
     if window:
@@ -1361,6 +1401,8 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
     bad: list[str] = []
     for seat in plan["added_seats"]:
         b = plan["bindings"][seat]
+        if open_binding(seat, b, Path(package)):
+            continue  # nothing to validate: the triple is deliberately absent
         reason = validate_fn({
             "agent": seat,
             "harness": str(b.get("harness", "") or "").strip(),
@@ -5731,6 +5773,47 @@ def run_selftest() -> int:
               and "standing-seat-plain-materialize" in pr_mint.stderr
               and (home / "seat.md").read_text(encoding="utf-8") == authored,
               pr_mint.stderr.strip()[:200])
+        # ── the OPEN BINDING (owner-ruled 2026-08-10): a standing seat may
+        # omit harness·model·effort entirely, because it has no taskforce.csv
+        # row for the triple to agree with and its harness is named by the
+        # spawner's profile, not by this file.
+        raw = json.loads(Path(fxr["b_exp"]).read_text(encoding="utf-8"))
+        for entry in raw["seats"].values():
+            for k in ("harness", "model", "effort"):
+                entry.pop(k, None)
+        raw.get("defaults", {}).pop("harness", None)
+        entry = raw["seats"]["exp-seat"]
+        entry["mode"] = "one-shot"
+        entry.pop("ctx-refresh", None)   # dead control on a one-shot (F4)
+        b_open = tmp_rf / "b-open.json"
+        b_open.write_text(json.dumps(raw), encoding="utf-8")
+        pr_open = _invoke(["--package", str(home), "--catalog-root",
+                           fxr["catalog"], "--seat", "exp-seat", "--root",
+                           "--bindings", str(b_open), "--repass", "--json"],
+                          clean_env)
+        rendered = (home / "seat.md").read_text(encoding="utf-8")
+        rfm = rendered.split("\n---", 1)[0]
+        check("RF-1 green: a standing seat's OPEN binding omits harness, "
+              "model and effort from the descriptor ENTIRELY — absent, never "
+              "empty, because an empty value reads as a binding that failed",
+              pr_open.returncode == 0
+              and not any(re.search(rf"^{k}:", rfm, re.M)
+                          for k in ("harness", "model", "effort"))
+              and re.search(r"^mode:", rfm, re.M) is not None,
+              (pr_open.stderr.strip()[:200] or rfm[:300]))
+        entry["harness"] = "claude"
+        b_open.write_text(json.dumps(raw), encoding="utf-8")
+        pr_half = _invoke(["--package", str(home), "--catalog-root",
+                           fxr["catalog"], "--seat", "exp-seat", "--root",
+                           "--bindings", str(b_open), "--repass", "--json"],
+                          clean_env)
+        check("RF-1 red: HALF a triple is refused open-binding-partial — a "
+              "descriptor carrying a harness but no model reads as a binding "
+              "that was made, and sends a reader hunting the missing half",
+              pr_half.returncode == 1
+              and "open-binding-partial" in pr_half.stderr
+              and (home / "seat.md").read_text(encoding="utf-8") == rendered,
+              pr_half.stderr.strip()[:200])
 
     print("CG-1 seat cage: the sandbox declaration emitted from the catalog row")
     with tempfile.TemporaryDirectory() as cg_td:
