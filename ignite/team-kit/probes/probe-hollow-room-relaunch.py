@@ -146,6 +146,10 @@ def main():
         sock = td / "sock"
         sock.mkdir()
         os.environ["TMUX_TMPDIR"] = str(sock)
+        # $TMUX overrides TMUX_TMPDIR: run from inside a pane, every tmux call here — including
+        # the teardown's kill-server — would hit the DEFAULT server. Cleared so the redirect binds.
+        os.environ.pop("TMUX", None)
+        os.environ.pop("TMUX_PANE", None)
         try:
             goal = f"zzhollow{os.getpid()}"
             gdir = td / "ws" / ".rbtv" / "goals" / goal

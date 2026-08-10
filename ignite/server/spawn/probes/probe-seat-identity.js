@@ -39,7 +39,10 @@ const CLI = path.join(__dirname, '..', '..', 'seat-identity', 'rbtv-seat-identit
 const ROOM_TMPDIR = path.join(os.tmpdir(), `e2a-id-${process.pid}`);
 function tmuxFixture(args) {
   return execFileSync('tmux', args, {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMUX_TMPDIR: ROOM_TMPDIR },
+    // TMUX/TMUX_PANE unset (undefined keys are dropped from a child env): $TMUX overrides
+    // TMUX_TMPDIR, so run from inside a pane the fixture — and its kill-server — would hit
+    // the DEFAULT server instead of this scratch socket.
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMUX_TMPDIR: ROOM_TMPDIR, TMUX: undefined, TMUX_PANE: undefined },
   });
 }
 // The lease as the daemon computes it, off a fixture tmux — real predicate, fake binary.

@@ -121,13 +121,21 @@ capture('probe-peer-identity', async (lines) => {
   // session and may neither be read as evidence nor extended). Reaped in the `finally` below.
   const ROOM_TMPDIR = path.join(os.tmpdir(), `e2a-peer-${process.pid}`);
   const savedTmpdir = process.env.TMUX_TMPDIR;
+  const savedTmux = process.env.TMUX;
+  const savedTmuxPane = process.env.TMUX_PANE;
   fs.mkdirSync(ROOM_TMPDIR, { recursive: true, mode: 0o700 });
   process.env.TMUX_TMPDIR = ROOM_TMPDIR;
+  // $TMUX overrides TMUX_TMPDIR: run from inside a pane, every tmux call here — including the
+  // reap's kill-server — would hit the DEFAULT server. Cleared so the redirect actually binds.
+  delete process.env.TMUX;
+  delete process.env.TMUX_PANE;
   const tmuxFixture = (args) => execFileSync('tmux', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   tmuxFixture(['new-session', '-d', '-s', 'peer-goal', 'sleep', '600']);
   const reapRoom = () => {
     try { tmuxFixture(['kill-server']); } catch { /* already gone */ }
     if (savedTmpdir === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = savedTmpdir;
+    if (savedTmux === undefined) delete process.env.TMUX; else process.env.TMUX = savedTmux;
+    if (savedTmuxPane === undefined) delete process.env.TMUX_PANE; else process.env.TMUX_PANE = savedTmuxPane;
     try { fs.rmSync(ROOM_TMPDIR, { recursive: true, force: true }); } catch {}
   };
   const PORT = (p) => ({ ...process.env, PORT: String(p) });

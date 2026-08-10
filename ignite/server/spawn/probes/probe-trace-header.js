@@ -128,8 +128,14 @@ capture('probe-trace-header', async (lines) => {
   // The isolated fixture server, up for the whole probe: T5 launches INTO it and T6 needs the
   // goal's lease live so its refusal comes from the missing WINDOW rather than from L2.
   const savedTmpdir = process.env.TMUX_TMPDIR;
+  const savedTmux = process.env.TMUX;
+  const savedTmuxPane = process.env.TMUX_PANE;
   fs.mkdirSync(ROOM_TMPDIR, { recursive: true, mode: 0o700 });
   process.env.TMUX_TMPDIR = ROOM_TMPDIR;
+  // $TMUX overrides TMUX_TMPDIR: run from inside a pane, every tmux call here — including the
+  // finally's kill-server — would hit the DEFAULT server. Cleared so the redirect actually binds.
+  delete process.env.TMUX;
+  delete process.env.TMUX_PANE;
 
   const fixtures = [];
   // The heart store is a per-process singleton (`E_SECOND_WRITER`), so each leg's fixture closes
@@ -292,6 +298,8 @@ capture('probe-trace-header', async (lines) => {
   } finally {
     try { tmuxFixture(['kill-server']); } catch { /* already gone */ }
     if (savedTmpdir === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = savedTmpdir;
+    if (savedTmux === undefined) delete process.env.TMUX; else process.env.TMUX = savedTmux;
+    if (savedTmuxPane === undefined) delete process.env.TMUX_PANE; else process.env.TMUX_PANE = savedTmuxPane;
     try { fs.rmSync(ROOM_TMPDIR, { recursive: true, force: true }); } catch { /* teardown */ }
     try { closeHeartStore(); } catch { /* teardown */ }
     for (const f of fixtures) { try { fs.rmSync(f.root, { recursive: true, force: true }); } catch { /* teardown */ } }

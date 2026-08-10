@@ -171,6 +171,10 @@ def main():
         sock = td / "sock"
         sock.mkdir()                       # BEFORE the first tmux call — the fallback footgun
         os.environ["TMUX_TMPDIR"] = str(sock)
+        # $TMUX overrides TMUX_TMPDIR: run from inside a pane, every tmux call here — including
+        # the teardown's kill-server — would hit the DEFAULT server. Cleared so the redirect binds.
+        os.environ.pop("TMUX", None)
+        os.environ.pop("TMUX_PANE", None)
         goal = f"zzcold{os.getpid()}"
         pkg = td / "ws" / ".rbtv" / "goals" / goal
         (pkg / "coordination").mkdir(parents=True)
