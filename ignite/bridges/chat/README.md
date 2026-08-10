@@ -212,7 +212,7 @@ at run time by nothing, so all three arms behaved identically. They now differ *
 |---|---|---|
 | `park` | **nothing is posted.** It takes the same park the gates take, with the arm as the reason (`gate: fallback-park`) — the question stays on the bus, which is what `park` means | proceeds |
 | `default-and-disclose` | delivered into the seat's thread, header marked `· ℹ proceeding on its default` | proceeds |
-| `block-and-queue` | delivered into the seat's thread, header marked `· ⏸ WAITING ON YOU` | **waits procedurally** — see the bound below |
+| `block-and-queue` | delivered into the seat's thread, header marked `· ⏸ WAITING ON YOU` | **is HELD — mechanically.** Its dependents do not start until it is answered; see below |
 | **absent** | delivered **unmarked** — the header is byte-identical to the pre-7.626 one | proceeds |
 
 ⚠ **WHAT "PARKS ON THE BUS" DOES AND DOES NOT MEAN, for this arm exactly as for the gates.** The
@@ -239,22 +239,45 @@ it rather than parsing the descriptor a second time. ⚠ **The arm is the SEAT's
 module has no lane**, so `park` applies on the attached lane too: such a seat has its terminal, and
 the bus rows it *also* addresses `to: owner` park.
 
-⚠ **`block-and-queue` DOES NOT HOLD THE DAG, and that DIVERGES FROM ITS ONE-HOME DEFINITION.**
-`meta/planning/references/file-prompt.md` § `fallback` defines the arm as *"hold the seat, queue the
-question for review"*. What ships holds nothing: if the seat's session exits 0 after asking, the
-ticker records the turn `done`, `seeding.js#seatState` reads it `done`, and its dependents start —
-with the answer unwritten. The wait is the seat's own procedure (*"You block on answers; you never
-invent them"*) plus the revival leg. Which side gives — the reference or the build — is an open
-owner decision, not a settled bound; it is filed as a `#decision` row on the core-build task file.
+⚠ **`block-and-queue` HOLDS THE DAG. MECHANICALLY** — owner ruling
+`d-block-and-queue-mechanical-hold` (2026-08-10), settling the `#decision` row this section used to
+carry as an open divergence. The arm's one-home definition
+(`meta/planning/references/file-prompt.md` § `fallback`: *"hold the seat, queue the question for
+review"*) **stands, and the build changed to match it.** A `block-and-queue` seat that asks the
+owner and exits 0 is **not `done` to the DAG**: its dependents do not start until it is answered.
 
-⚠ **THE REVIVAL MINTS A SECOND EXECUTION ROW FOR THE SAME SEAT.** When the owner's reply revives the
-asking seat, that session is dispatched like any other and writes its own `executions.csv` row (open,
-`lane: daemon`) beside the seat's earlier `done` one. Consequences, measured and **safe but
-previously undisclosed**: the execution record still answers `done` for the seat (a `done` outrules an
-earlier or later non-done row), so `--status` reports `done` while a live session runs in that seat's
-home, and the dependents the `done` released run **concurrently** with the revived session. Nothing
-double-dispatches — the revival is minted by the chat leg, not by seeding, and seeding never re-fires
-a `done` seat — but the concurrency is real and is case material for the decision above.
+**Where the hold lives — one word in the execution record, and nothing else** (no state file, no
+poll loop, `PRIN-11`). The asking session really did exit 0, so the store's turn is `done`, which is
+a true fact about a **process**. The goal's execution record says what became of the **work**, so it
+publishes **`blocked`** — the store's own vocabulary for blocked-on-something, minted nowhere. Every
+reader that already asks the record "is this seat finished" (`engine/seeding.js#recordView` →
+`seatState`, `attached-execution.js#evaluateExit`) therefore answers **no**, and the wave stops with
+no second scheduler. Decided in `engine/execution-record.js#outcomeForSeat`, which **both** close
+sites go through — the per-tick publish and the attached lane's foreground carriage — because the
+arm is the *seat's* declaration and binds every lane.
+
+**What releases it: the answer — through the revival, not through a bus row.** Nothing writes an
+answer row onto the bus (this module is outbound-only; Slack → bus is the sittings' job), so the
+owner's reply in the seat's thread mints a `session-create` at that seat's own home — § *The loop,
+end to end* above — which opens a **second** record row. The seat's **last** row is what every
+reader keys on: open while the revived session works, `done` when it finishes. So the dependents
+wait through the revival too, and start when the seat is genuinely finished. The bus IS read once,
+at the close, to answer the one question the record cannot — *was the ask already answered before
+the seat exited* (a peer answered on the bus), in which case nothing is held.
+
+⚠ **THE ONE STANDING HAZARD: a parked ask cannot be answered.** If the goal is not in `interactive`
+execution mode, gate 2 parks the row — nobody is told, so nobody replies, and the hold stands. That
+is the safe direction (the alternative is advancing a wave past an unanswered question), and it is
+**loud**: the publish logs a `warn` naming the seat, `seedGoal()` returns it under `blockedOnOwner`,
+the lane watch puts it on its per-goal line and `rbtv run --status` flags it. The operator escape is
+the one every other stuck seat already has — `--relaunch <seat>`.
+
+✅ **THE REVIVAL NO LONGER RACES THE DEPENDENTS (7.626 review F6, CLOSED by the same ruling).** The
+revival still mints a second `executions.csv` row for the seat, and that row is now what the record
+answers with: a `done` row no longer outranks a **later** open one, so `--status` reports the seat
+`live` while a live session runs in its home instead of `done`, and the dependents stay held. The
+concurrency this section previously disclosed as *"safe but real"* is gone rather than accepted.
+Measured by `engine/probes/probe-block-and-queue-hold.js` (arms H\*/P\*, both mutants red).
 
 ### The return leg into a goal channel
 

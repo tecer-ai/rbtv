@@ -246,12 +246,17 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
     // info line per goal per 10 s is a journal nobody can read. `heldByOtherLane` is carried on the
     // line whenever it is non-empty — an operator has to be able to tell "somebody else is running
     // this seat right now" from "this seat is done" (the migrate trigger task's own requirement).
-    say(pickup.enqueued.length || held.length ? 'info' : 'debug', 'lane watch: daemon-assigned goal seeded', {
+    // `blockedOnOwner` rides the same line for the same reason `heldByOtherLane` does — and it is
+    // the one an operator most needs, because a goal whose wave is held on a HUMAN looks exactly
+    // like a goal that has quietly stopped (ruling #d-block-and-queue-mechanical-hold).
+    const waiting = Object.keys(pickup.blockedOnOwner || {});
+    say(pickup.enqueued.length || held.length || waiting.length ? 'info' : 'debug', 'lane watch: daemon-assigned goal seeded', {
       goal,
       profile,
       enqueued: pickup.enqueued,
       skippedAsFinished: pickup.skippedAsFinished,
       heldByOtherLane: pickup.heldByOtherLane,
+      blockedOnOwner: pickup.blockedOnOwner,
       humanInteractiveDispatched: humanInteractive,
     });
   }

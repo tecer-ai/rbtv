@@ -318,9 +318,10 @@ at-dispatch row is written at all:
 
 | the record's row for this seat | what happens here |
 |---|---|
-| `outcome = done` | the seat is `done`. Nothing re-runs it, and no grant can re-open it. |
+| `outcome = done` | the seat is `done`. Nothing re-runs it, and no grant can re-open it. ⚠ **Unless a LATER row exists for the same seat** — see the fourth case. |
 | **still OPEN**, and no execution in THIS store owns its session id | the seat is **`live`** — somebody else is running it *right now*. Dispatching would be a concurrent double-run of one seat. |
 | ended **non-`done`** (failed / blocked / killed), same test | the seat is **`live`** — held until an explicit `--relaunch <seat>` grant, which is exactly what a LOCAL failure already requires. Without this the two lanes were asymmetric: a local failure needed the grant, the same failure elsewhere re-ran silently. |
+| the seat's **LAST** row is open or `blocked`, whoever owns it | the seat is **`live`**, and — the part that needed the `#d-block-and-queue-mechanical-hold` ruling — **an earlier `done` row does not override it, nor does this store's own `done` turn**. That is both the mechanical hold and the F6 fix: a `done` outranking a *later* open row is what reported a seat finished while its revived session was running. `done` still means "never re-run" for the cross-lane guarantee; "is it finished **now**" is the last word. |
 
 ⚠ **The membership test is the `session-id` join, not the `lane` column.** `lane` says which KIND of
 store wrote the row; two attached runs on two machines share that value, so a lane comparison would
@@ -443,7 +444,7 @@ executes at the ferry.
 |---|---|---|
 | `park` | **parked** — nothing posted anywhere, on the ferry's own gate ladder with the arm as the reason (`gate: fallback-park`). The cursor advances and **nothing re-delivers it**; the durable record is the goal's `doubts.md` escalation park | proceeds |
 | `default-and-disclose` | delivered into the seat's thread, **marked** `ℹ proceeding on its default` | proceeds |
-| `block-and-queue` | delivered into the seat's thread, **marked** `⏸ WAITING ON YOU`; the owner's reply in that thread mints a session **at that seat's own home** — the existing leg, and what "the seat proceeds" is made of | **waits procedurally** — see the bound |
+| `block-and-queue` | delivered into the seat's thread, **marked** `⏸ WAITING ON YOU`; the owner's reply in that thread mints a session **at that seat's own home** — the existing leg, and what "the seat proceeds" is made of | **HELD, mechanically** — its record row says `blocked`, so its dependents do not start until it is answered. See (2) |
 | absent | delivered **unmarked**, byte-identical to the pre-7.626 header | proceeds |
 
 The reader is `bridges/chat/bus-ferry.js#seatFallback`, beside the two gate readers and scoped to the
@@ -465,22 +466,38 @@ row. It is dispatched as an ordinary detached child and any `to: owner` row it w
 applies on the attached lane too: a `park` seat carried in a terminal has its terminal, and the bus
 rows it also writes `to: owner` park — which is what it declared its bus questions do.
 
-(2) **`block-and-queue` does not hold the DAG, and that DIVERGES from its one-home definition.**
-`meta/planning/references/file-prompt.md` § `fallback` defines the arm as *"hold the seat, queue the
-question for review"*; what ships holds nothing. If the seat's headless session exits 0 after asking,
-the ticker records the turn `done`, `seeding.js#seatState` reads it `done`, and its dependents start
-with the answer unwritten — the wait is the seat's own procedure plus the revival leg above. No
-daemon-side hold was ruled and none was invented, so **which side gives (the reference or the build)
-is an open owner decision**, filed as a `#decision` row on the core-build task file — not a settled
-bound.
+(2) **`block-and-queue` HOLDS THE DAG — mechanically** (owner ruling
+`#d-block-and-queue-mechanical-hold`, 2026-08-10, settling the `#decision` row this bound used to
+be). The arm's one-home definition — `meta/planning/references/file-prompt.md` § `fallback`, *"hold
+the seat, queue the question for review"* — **stands; the build changed to match it.** A seat that
+asks the owner and exits 0 is **not `done` to the DAG**.
 
-(3) **The revival mints a SECOND `executions.csv` row for the same seat** (open, `lane: daemon`)
-beside its earlier `done` one. Measured safe and previously undisclosed: a `done` row outranks a
-non-done one for the same seat, so `recordView` still answers `done`, `--status` reports `done` while
-a live session runs in that seat's home, and the dependents that `done` released run **concurrently**
-with the revived session. Nothing double-dispatches — the revival is minted by the chat leg, never by
-seeding, and seeding never re-fires a `done` seat — but the concurrency is real, and it is case
-material for the decision in (2).
+**The mechanism is one word in the record, and nothing else** — no state file, no poll loop
+(`PRIN-11`). The store's turn is truly `done` (the process exited); the record publishes **`blocked`**
+(the store's own word for blocked-on-something, minted nowhere), decided in
+`execution-record.js#outcomeForSeat`, which **both** close sites go through — the per-tick publish and
+this lane's foreground carriage, because the arm is the *seat's* declaration and binds every lane. So
+`recordView` collects the seat under `notFinished`/`blocked`, and the ONE eligibility predicate
+(`seatState`) plus `evaluateExit` both answer "not finished" — the enqueue pass, the carrier,
+`--status` and the exit condition inherit it with no second rule to keep in step. An attached run
+whose remaining seats are all held returns `outcome: 'blocked'` naming them, rather than
+`seat-failed` (it did not fail) or `complete`.
+
+**The release is the answer, through the revival.** Nothing writes an answer row onto the bus — the
+ferry is outbound-only — so the owner's reply mints a session at the asking seat's home, which opens
+a **second** record row; the seat's **last** row is what readers key on (open → `live`, then `done`).
+The bus is read once, at the close, only to see whether the ask was already answered there before the
+seat exited. ⚠ **The standing hazard:** in a goal that is not `interactive` the ferry PARKS the ask,
+so nobody is told and nobody replies — the hold then stands until `--relaunch <seat>`. It is loud
+(a `warn` at the publish, `blockedOnOwner` on `seedGoal()`'s report and on the lane-watch line, a
+`blockedOnOwner` list on `--status`), and holding is the safe direction.
+
+(3) ✅ **THE REVIVAL NO LONGER RACES THE DEPENDENTS.** It still mints a second `executions.csv` row
+for the same seat (open, `lane: daemon`) beside the earlier one — but the record now answers with a
+seat's **LAST** row rather than with any `done` row, so `--status` reports `live` while that session
+runs and its dependents stay held. The measured-safe-but-real concurrency this bound used to disclose
+(review F6) is **closed**, not accepted. Both halves are probed in
+`engine/probes/probe-block-and-queue-hold.js`, with two source mutants proven red.
 
 ⚠ **The marker's TERM is `lane assignment`, values `daemon | console` — MINTED registry-side
 2026-08-10** (`system-definition/decisions.md#d-lane-assignment`, `concepts/lane-assignment.md`), per

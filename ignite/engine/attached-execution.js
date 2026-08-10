@@ -48,7 +48,12 @@ const {
 } = require('./seeding');
 // THE GOAL'S EXECUTION RECORD — the one place any lane's reader asks "did this seat finish"
 // (owner ruling decisions.md#d-s23-single-execution-record-now).
-const { openExecution, closeExecution, laneOf } = require('./execution-record');
+// `outcomeForSeat` is the BLOCK-AND-QUEUE HOLD's one decision point, shared with the per-tick
+// publish so both close sites reach the same verdict (owner ruling
+// decisions.md#d-block-and-queue-mechanical-hold). The arm is the SEAT's declaration, so it binds
+// this lane exactly as it binds the daemon's — a terminal-carried seat that asked the owner on the
+// bus and exited with no answer is held here too.
+const { openExecution, closeExecution, laneOf, outcomeForSeat } = require('./execution-record');
 
 // The goal folder's shape is the goals tree's (CMP-4), not ours to redefine. GOAL-DIRECT since
 // 7.607 (design-lock items 7-8 — the `runs/run-{n}` segment is extinguished, not optional):
@@ -432,7 +437,10 @@ function closeForegroundSessionRow({ goalFolder, sessionId, logger = null }) {
 function nextHeldReadySeat(heartStore, rows, isHeld, relaunch, view = null) {
   const byJob = executionsByJob(heartStore, relaunch);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
-  const opts = { done: view && view.done, foreign: view && view.foreign };
+  // `notFinished` rides along, or the carrier would pick up a seat the record holds (`blocked` on
+  // the owner, or open in another lane) — the ONE predicate must answer the same way at every one
+  // of its call sites, which is why it is one predicate.
+  const opts = { done: view && view.done, foreign: view && view.foreign, notFinished: view && view.notFinished };
   return rows.find((row) => isHeld(row.seat) && seatState(row, byJob, queued, opts) === 'ready') || null;
 }
 
@@ -501,7 +509,17 @@ function runForegroundSeat({
   // fact about a process, which is all an exit code can attest); the RECORD says what became of the
   // WORK, in the store's own turn vocabulary. That is the `done`-vs-`exited` divergence dissolving:
   // two surfaces, two questions, one answer each (#d-s23-single-execution-record-now).
-  closeExecution({ goalFolder, sessionId, outcome: ok ? 'done' : 'failed', endedAt: isoNow() });
+  const carriedOutcome = outcomeForSeat(goalFolder, seat, ok ? 'done' : 'failed');
+  closeExecution({ goalFolder, sessionId, outcome: carriedOutcome.outcome, endedAt: isoNow() });
+  if (carriedOutcome.held && logger) {
+    logger({
+      level: 'warn',
+      message: 'foreground seat HELD — it asked the owner and its turn ended; its record row says `blocked`, '
+        + 'not `done`, so its dependents do NOT start until it is answered (`--relaunch` is the escape)',
+      seat,
+      evidence: carriedOutcome.held,
+    });
+  }
 
   // ⚠ SOMEONE ELSE MAY HAVE ENDED OUR ROW WHILE THE HUMAN WORKED (review finding 1, second half).
   // The run lock makes that unreachable now; this stays because the alternative to noticing is
@@ -587,7 +605,14 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null) {
   // were finished in the OTHER lane is complete, and says so instead of reporting them unfinished).
   const done = view && view.done;
   const foreign = view && view.foreign;
-  const isFinished = (seat) => (done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat)));
+  // THE RECORD'S LAST WORD, honoured by the SAME union `seatState` takes (ruling
+  // #d-block-and-queue-mechanical-hold): a seat whose last row is `blocked` or still open is not
+  // finished here either, whatever this store's own turn says. Both lanes, one rule — an exit
+  // condition that disagreed with the eligibility predicate would call a run complete while the
+  // wave is held.
+  const notFinished = view && view.notFinished;
+  const isFinished = (seat) => !(notFinished && notFinished.has(seat))
+    && ((done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat))));
   const unfinished = rows.filter((r) => !isFinished(r.seat));
   if (unfinished.length === 0) return { done: true, reason: 'complete' };
 
@@ -600,6 +625,10 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null) {
   // spin this loop every 10s forever waiting on a lane whose progress does not arrive through us.
   const stuck = unfinished.filter((r) => {
     if (foreign && foreign.has(r.seat)) return true;
+    // A seat BLOCKED ON THE OWNER cannot advance from here either, and it must be counted with the
+    // stuck ones rather than falling through to the `seat-failed` arm below — it did not fail, it
+    // is waiting, and `blocked` is the reason word this function already has for exactly that.
+    if (view && view.blocked && view.blocked.has(r.seat)) return true;
     const after = (r.after || '').trim();
     return after && !isFinished(after);
   });
@@ -710,8 +739,13 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
   const executionMode = goalExecutionMode(workspaceRoot, path.basename(goalFolder));
 
   const seats = rows.map((row) => {
-    const state = seatState(row, byJob, queued, { done: view.done, foreign: view.foreign });
+    const state = seatState(row, byJob, queued, { done: view.done, foreign: view.foreign, notFinished: view.notFinished });
     const humanInteractive = seatIsHumanInteractive(goalFolder, row.seat);
+    // BLOCKED ON THE OWNER, reported the way `interrupted` is and for the same reason: the seat's
+    // STATE is `live` (not dispatchable, not finished — the pair every reader of SEAT_STATES
+    // already understands), and WHY it is not moving is a fact beside the state, never a sixth
+    // state word. This is the mechanical hold (#d-block-and-queue-mechanical-hold) made visible.
+    const blockedOnOwner = view.blocked.has(row.seat);
     // INTERRUPTED, and it is not a sixth seat state. A foreground row still `launching` belongs to
     // a runner that is gone (a foreground child cannot outlive its terminal), so `live` — true by
     // the shared predicate — reads to an operator as "something is working on it" when nothing is.
@@ -725,6 +759,7 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
       after: (row.after || '').trim() || null,
       state,
       interrupted,
+      blockedOnOwner,
       humanInteractive,
       // Ruling 5's TWO gates, both of them, evaluated here so no caller re-derives one of them.
       heldForUser: state === 'ready' && humanInteractive && executionMode === INTERACTIVE_MODE,
@@ -743,6 +778,7 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
     waiting: seats.filter((s) => s.state === 'waiting').map((s) => s.seat),
     heldForUser: seats.filter((s) => s.heldForUser).map((s) => s.seat),
     interrupted: seats.filter((s) => s.interrupted).map((s) => s.seat),
+    blockedOnOwner: seats.filter((s) => s.blockedOnOwner).map((s) => s.seat),
     // NEXT is what the engine would advance on now — the ready set. Named separately because
     // "what do I do next" is the question the verb exists to answer.
     next: seats.filter((s) => s.state === 'ready').map((s) => s.seat),
@@ -845,7 +881,7 @@ async function executeAttached({
       // One per pass — the terminal is serial, and the next pass picks up the next held seat.
       // Re-read each pass: our own tick publishes to it, and the other lane may be writing to it
       // while we run. One small file read per pass, against a decision that must not be stale.
-      const view = recordView(engine.heartStore, goalFolder, { relaunch: grants });
+      let view = recordView(engine.heartStore, goalFolder, { relaunch: grants });
       const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants, view);
       if (held) {
         grants.delete(held.seat);            // the grant is SPENT at the launch, never re-read
@@ -860,17 +896,29 @@ async function executeAttached({
           spawnForeground,
           logger,
         }));
+        // ⚠ RE-READ, because the carriage above BLOCKED for the whole of that seat's session and
+        // then wrote its outcome to the record. The view built before it is stale by construction,
+        // and the enqueue pass below would decide this seat's dependents against a picture from
+        // before it ran — measured: a carried `block-and-queue` seat published `blocked`, the stale
+        // view still had no row for it, and the store's own `done` turn let its dependent start
+        // anyway. One extra small read, on carriage passes only.
+        view = recordView(engine.heartStore, goalFolder, { relaunch: grants });
       }
 
       enqueueEligible(engine.heartStore, rows, { profile, goalFolder, logger, isHeld, relaunch: grants, view });
       await engine.tick(now());
       ticks += 1;
 
-      // The SAME view this pass already built — one read of the record and one scan of the store
-      // per pass, not three. Rebuilding it here also made the exit decision disagree with the
-      // dispatch decision it is supposed to follow, on any pass where the other lane wrote between
-      // the two reads.
-      const verdict = evaluateExit(engine.heartStore, rows, grants, view);
+      // ⚠ RE-READ AFTER THE TICK, and this replaces the "same view, one read per pass" economy that
+      // stood here. The tick PUBLISHES to the record, so the pass's own view is stale by exactly the
+      // thing that just happened — and since the record's last word can now REMOVE done-ness
+      // (#d-block-and-queue-mechanical-hold), a stale view no longer merely lags: it says a seat is
+      // unfinished that this store finished a moment ago, and the exit condition ENDS THE RUN on
+      // that. Measured: probe-foreground-carrier B1a/B1e/B1g returned `seat-failed` on a run that had
+      // completed. The dispatch decision keeps the pre-tick view (its own read, its own moment); the
+      // exit decision must see what the tick published.
+      const verdict = evaluateExit(engine.heartStore, rows, grants,
+        recordView(engine.heartStore, goalFolder, { relaunch: grants }));
       if (verdict.done) {
         return {
           host,

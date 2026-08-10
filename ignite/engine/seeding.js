@@ -28,7 +28,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { readExecutionRecord, finishedSeats, DONE } = require('./execution-record');
+const { readExecutionRecord, finishedSeats, DONE, BLOCKED } = require('./execution-record');
 
 const TASKFORCE = 'taskforce.csv';
 
@@ -101,11 +101,55 @@ function readTaskforce(goalFolder) {
 // path when that lane will never run again: `--relaunch <seat>`, which is the same explicit act a
 // local failure already requires. Holding is the safe direction — the unsafe one is running a seat
 // somebody else may still be running.
+//
+// ── AND A THIRD: `notFinished` — THE RECORD'S LAST WORD (owner ruling
+// decisions.md#d-block-and-queue-mechanical-hold, which also closes the 7.626 review's F6) ─────
+//
+//   notFinished   the seat's LAST row in the record is not a finish — it is either still OPEN (a
+//                 session is running for this seat RIGHT NOW) or it ended `blocked`. Either way the
+//                 seat is NOT done, and — this is the part that needed code — an EARLIER `done`
+//                 row, or the store's own `done` turn, does not make it done either.
+//
+// TWO FACTS RIDE ONE SET, because they are the same fact: `done` has always been "any row says
+// done", which is right for the cross-lane no-double-run guarantee and WRONG as an answer to "is
+// this seat finished now". F6 measured the difference: the chat revival opens a SECOND row for a
+// seat whose first row is `done`, and the `done` row outranked it — so `--status` reported the seat
+// done while a live session ran in its home, and the dependents that `done` released ran CONCURRENT
+// with it. The last word settles both that and the hold, with one rule instead of two.
+//
+// And the HOLD is the `blocked` half of it: a `block-and-queue` seat that asked the owner and
+// exited 0 has a store turn of `done` (the process really did exit) and a record row of `blocked`
+// (`execution-record.js` § THE BLOCK-AND-QUEUE HOLD, where the word is decided). The record is THE
+// completion authority, so its word wins over the store's — the sentence this file already opens
+// with, now true in the direction that REMOVES done-ness as well.
+//
+// Derived, not stored: the last row per seat, out of the same file `done` and `foreign` come from.
+// A LATER row clears it — which is exactly what the owner's answer mints (a revival session at the
+// seat's home), so the hold releases through machinery that already existed. A `--relaunch` grant
+// clears it for the same reason it clears `foreign`: an explicit human act.
 function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
   const rows = readExecutionRecord(goalFolder).rows;
   const done = new Set();
   const foreign = new Map();
-  if (!rows.length) return { done, foreign };
+  const notFinished = new Map();
+  const blocked = new Map();
+  if (!rows.length) return { done, foreign, notFinished, blocked };
+
+  // The seat's LAST row, in file order — the record is append-only, so the last row for a seat is
+  // its most recent execution. `failed`/`killed` are terminal words that were never `done`; they
+  // keep the behaviour they had (the seat is not done and an explicit grant re-runs it), so only
+  // the two non-finishes below are collected here.
+  const last = new Map();
+  for (const r of rows) last.set(r.seat, r);
+  for (const [seat, r] of last) {
+    const outcome = (r.outcome || '').trim();
+    if (outcome === BLOCKED) {
+      blocked.set(seat, `its last execution ended '${BLOCKED}' — the seat is waiting on an answer, so its dependents wait with it`);
+      notFinished.set(seat, blocked.get(seat));
+    } else if (!outcome) {
+      notFinished.set(seat, `its last execution is still OPEN in the ${r.lane || 'other'} lane (session ${r['session-id']})`);
+    }
+  }
 
   // A NULL store is the `--status` case on a goal this lane has never run: nothing is ours, so
   // every non-done row is somebody else's — which is exactly what is true there.
@@ -126,11 +170,24 @@ function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
       : `still OPEN in the ${r.lane || 'other'} lane (session ${r['session-id']})`);
   }
   // A later `done` outranks an earlier non-done row for the same seat: the seat IS finished.
+  // ⚠ `notFinished` IS NOT SUBJECT TO THIS, and must not be: it is BUILT from the last row, so it
+  // already carries the ordering this line applies to `foreign` by hand. Deleting its members here
+  // would restore F6 exactly — a `done` row from a finished turn outranking the OPEN row of the
+  // session running right now.
   for (const seat of done) foreign.delete(seat);
   // The one-shot relaunch grant releases a foreign hold exactly as it releases a local failure —
-  // and, exactly as there, it can never release a FINISHED seat.
-  if (relaunch) for (const seat of relaunch) if (!done.has(seat)) foreign.delete(seat);
-  return { done, foreign };
+  // and, exactly as there, it can never release a FINISHED seat. It releases the record's last-word
+  // hold too: an operator saying "run this seat again" is the same explicit act, and the answer
+  // that would otherwise release it is the one thing he is saying will not come.
+  if (relaunch) {
+    for (const seat of relaunch) {
+      if (done.has(seat)) continue;
+      foreign.delete(seat);
+      notFinished.delete(seat);
+      blocked.delete(seat);
+    }
+  }
+  return { done, foreign, notFinished, blocked };
 }
 
 function jobIdFor(seat, goal = null) {
@@ -227,9 +284,18 @@ function seatHasRun(rows) {
 // hand-built map) still gets the store-only answer it always got.
 const SEAT_STATES = ['done', 'live', 'queued', 'ready', 'waiting'];
 
-function seatState(row, byJob, queued, { done = null, goal = null, foreign = null } = {}) {
-  const isDone = (seat) => (done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat, goal)));
+// `notFinished` is the MECHANICAL HOLD (and the F6 fix), applied INSIDE `isDone` rather than as a
+// state of its own — deliberately, and it is the whole ruling in one line. A held seat is not done,
+// and neither is it done FOR ITS DEPENDENTS: `isDone(after)` is the same call, so the wave stops
+// with no second rule to keep in step. No sixth seat state is minted: such a seat reads `live` for
+// the same reason a foreign one does — it is neither dispatchable nor finished, and every reader of
+// SEAT_STATES already understands that pair. WHY it is not moving is reported alongside the state
+// (`seedGoal().blockedOnOwner`, `statusAttached()`'s `blockedOnOwner` flag), never as a state word.
+function seatState(row, byJob, queued, { done = null, goal = null, foreign = null, notFinished = null } = {}) {
+  const isDone = (seat) => !(notFinished && notFinished.has(seat))
+    && ((done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat, goal))));
   if (isDone(row.seat)) return 'done';
+  if (notFinished && notFinished.has(row.seat)) return 'live';
   const jobId = jobIdFor(row.seat, goal);
   // A seat the record shows running-or-ended-badly ELSEWHERE is `live` here — the same word the
   // local answer uses for exactly the same situation, so no reader learns a sixth state and no
@@ -254,7 +320,7 @@ function enqueueEligible(heartStore, rows, {
 }) {
   const byJob = executionsByJob(heartStore, relaunch, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
-  const { done: finished, foreign } = view || recordView(heartStore, goalFolder, { relaunch });
+  const { done: finished, foreign, notFinished, blocked } = view || recordView(heartStore, goalFolder, { relaunch });
   const enqueued = [];
 
   for (const row of rows) {
@@ -262,7 +328,10 @@ function enqueueEligible(heartStore, rows, {
     if (foreign && foreign.has(row.seat) && logger) {
       logger({ level: 'info', message: 'seat held — the execution record shows it elsewhere', seat: row.seat, evidence: foreign.get(row.seat) });
     }
-    if (seatState(row, byJob, queued, { done: finished, goal, foreign }) !== 'ready') continue;
+    if (blocked && blocked.has(row.seat) && logger) {
+      logger({ level: 'info', message: 'seat held — it is BLOCKED on the owner and its dependents wait with it', seat: row.seat, evidence: blocked.get(row.seat) });
+    }
+    if (seatState(row, byJob, queued, { done: finished, goal, foreign, notFinished }) !== 'ready') continue;
     if (isHeld && isHeld(row.seat)) continue;
     if (relaunch) relaunch.delete(row.seat);
 
@@ -315,8 +384,11 @@ function seedGoal({ heartStore, goalFolder, profile, goal, logger = null, isHeld
     // Named separately from `skippedAsFinished` because the two are different facts and an operator
     // must be able to tell them apart: one seat is DONE, the other is somebody else's right now.
     heldByOtherLane: Object.fromEntries(seats.filter((s) => view.foreign.has(s)).map((s) => [s, view.foreign.get(s)])),
+    // The THIRD held-for-a-reason set, named separately for the same reason the second is: an
+    // operator must be able to tell "somebody else is running it" from "it is waiting on YOU".
+    blockedOnOwner: Object.fromEntries(seats.filter((s) => view.blocked.has(s)).map((s) => [s, view.blocked.get(s)])),
     enqueued,
-    states: Object.fromEntries(rows.map((r) => [r.seat, seatState(r, byJob, queued, { done: view.done, goal, foreign: view.foreign })])),
+    states: Object.fromEntries(rows.map((r) => [r.seat, seatState(r, byJob, queued, { done: view.done, goal, foreign: view.foreign, notFinished: view.notFinished })])),
   };
 }
 
