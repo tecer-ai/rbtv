@@ -28,6 +28,33 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   `lane` — the last being the DAEMON'S PICKUP BUTTON: one word in `<goal>/execution-lane` that the
   daemon's watch pass reads before every tick, `d-daemon-lane-button`).
   Contract: `capabilities/goals-tree/tool/README.md`.
+- **`goal-launch-delay/`** and **`master-profile/`** — the channel master's two self-service knobs
+  (issue C-1, owner-ruled 2026-08-10): how long a master-created goal waits before its first
+  workflow job fires, and which harness+model the master's next sitting runs on. Each is a **two-part
+  capability** and that shape is measured, not chosen: the master's cage binds this repo and
+  `.rbtv/config` READ-ONLY, `fire-tool` argv is static so a request BODY can only travel as a file
+  staged in the seat's own folder, and `enqueue-job` is the one gateway verb open to a `bridge`
+  token — so the seat's `request` verb stages + triggers, and the daemon's `apply` verb edits the
+  native file and restarts the affected unit LAST. ⚠ **Neither knob introduces a settings file** —
+  each edits the value in its native place (`tools: goal-creation-request:`'s `--delay-seconds`
+  operand in `config/spawn-profiles.yaml`; `master_profile` in `.rbtv/config/chat-bridge-config.json`)
+  with a line-precise edit, because both documents are hand-authored and a parser round trip would
+  destroy them. Contracts: `capabilities/goal-launch-delay/goal-launch-delay.md`,
+  `capabilities/master-profile/master-profile.md`.
+- **`bindings/`** — the CASTING SHEET surface (owner-ruled 2026-08-10): which harness, model and
+  effort each seat of a workflow runs on. A workflow is the program, a taskforce is its running
+  instance, and the bindings file is what casts one into the other —
+  `team-kit/materialize-seats.py --bindings` is its ONE consumer. Four verbs: `catalog` (every
+  spawnable harness+model with each effort dial NUMBERED), `inspect`, `scaffold` (create-only) and
+  `set`. ⚠ **NOT a two-part capability, and that is measured**: the bindings tree is in the channel
+  master's `rw-paths` and NOTHING boot-reads it, so every write is a plain direct file write — no
+  staged inbox, no daemon fire, no restart. Its two siblings above are split for the opposite
+  reason, not by house style. ⚠ **`catalog` is the validator, not a display**: derived from
+  `profiles:` in `config/spawn-profiles.yaml` (the workspace's spawnable set) and gated by
+  `coord.py#validate_seat` (the predicate materialize's F6 gate imports), so what an agent reads and
+  what refuses it are ONE object. One file per WORKFLOW at
+  `.rbtv/config/bindings/{module}/{component}/{code}.json` — deployment config, never the mirror,
+  which carries component definitions only. Contract: `capabilities/bindings/bindings.md`.
 - **`daemon-watchdog/`** — the ignite LIVENESS surface (`CMP-28`): a systemd user timer firing one
   deterministic probe/restart/report pass over the whole deployment. **The one capability here the
   `rbtv` CLI does NOT delegate to** — a watchdog is a scheduled act, not a verb a human types, so

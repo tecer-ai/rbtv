@@ -4,7 +4,7 @@
 WHAT THIS GUARDS THAT NOTHING ELSE DOES. `probe-argv-template.js` certifies the templating
 MECHANISM (a row's args expand into a registered argv) and `probe-goal-creation-request.py`
 certifies the create act's SHAPE. Neither reads `config/spawn-profiles.yaml`. So the composition —
-the SHIPPED `workflows: planning-deprecated:` argv, expanded against the args the SHIPPED
+the SHIPPED `workflows: planning:` argv, expanded against the args the SHIPPED
 `goal-creation-request` entry actually produces, handed to the program that argv names — was
 guarded by nothing, and it is the whole surface between a certified mechanism and a goal that
 plans itself.
@@ -43,6 +43,7 @@ takes this for a live fire.
 Exit 0 GREEN · 1 RED · 2 INOPERATIVE (a red arm that failed to go red has scored nothing).
 """
 
+import csv
 import json
 import os
 import re
@@ -276,8 +277,18 @@ def main():
                f"{'' if out.get('outcome') == 'ACCEPTED' else refusal_detail(out)}")
         report("P1 goal-direct package created", "green", pkg.is_dir(), True, str(pkg))
         seats = sorted(p.name for p in (pkg / "seats").iterdir()) if (pkg / "seats").is_dir() else []
-        report("P1 whole planning DAG materialized", "green", len(seats) == 9, True,
-               f"{len(seats)} seats: {seats}")
+        # ⚠ THE EXPECTED COUNT IS READ OFF THE SHIPPED MANIFEST, NEVER TYPED. It was the literal
+        # `9` until issue C-2 (2026-08-10): the config was repointed from the deleted
+        # `planning-deprecated` component to the 16-seat `planning` rewrite, every other arm went
+        # green, and this one stayed RED against a number nothing on disk still said. A hand-typed
+        # count checks the probe's own transcription — the same defect the file's header banner
+        # forbids for the flag values.
+        manifest = next(Path(flags["--catalog-root"]).glob(
+            f"*/workflows/{flags['--workflow']}/{flags['--workflow']}.csv"), None)
+        expected = (len(list(csv.DictReader(manifest.open(encoding="utf-8"))))
+                    if manifest else -1)
+        report("P1 whole planning DAG materialized", "green", len(seats) == expected, True,
+               f"{len(seats)} seats (manifest says {expected}): {seats}")
         # ⚠ 7.607 E2b — THE REGISTER IS EXTINGUISHED, so this arm is INVERTED rather than
         # deleted: it used to assert `runs.csv` carries a `state=open` row, and it now asserts the
         # file is NEVER MINTED. A shorter arm list would stop CHECKING for the register; it would

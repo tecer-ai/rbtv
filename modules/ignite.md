@@ -42,9 +42,12 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   folder, so the payload is file-staged and only the trigger crosses the gateway. Registered in
   `config/spawn-profiles.yaml` under `tools: goal-creation-request` and landed **dark** — arming is
   three gated acts in a fixed order. The workflow every master-created goal starts in is RULED
-  (task C5, `d-owner-q10-launcher-0808`): `planning-deprecated` / entry seat `elicitator`, the existing meta
-  component `.rbtv/mirror/meta/planning-deprecated/` (named `planning`/`planner-workflow` when ruled;
-  renamed by R11, vault `01f60de16`, task 7.598). The launcher argv for it is now RULED AND
+  (task C5, `d-owner-q10-launcher-0808`): `planning` / entry seat `plan-interviewer`, the meta
+  component `.rbtv/mirror/meta/planning/`. *(Issue C-2, 2026-08-10: the ruling originally landed
+  against `planning-deprecated` / `elicitator` — named `planning`/`planner-workflow` when ruled,
+  renamed by R11, vault `01f60de16`, task 7.598. That component was deleted and every fired
+  creation refused `workflow-unknown`; the values were repointed at the 16-seat planning
+  rewrite.)* The launcher argv for it is now RULED AND
   LANDED too (task C5E, `d-owner-planning-entry-0808` + `-2-0808`): `spawn-profiles.yaml` carries a
   `workflows:` section, the goal is born WITH its package materialized through the ruled name
   `scaffold-seats` — GOAL-DIRECT since 7.607, the package IS the goal folder and there is no
@@ -83,6 +86,51 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   `coord.py`, which boots the harness by the bare name `claude`) were back on the manager PATH. It
   now FORWARDS `os.environ["PATH"]` — forwarded, never re-derived, so the composer stays singular
   (PRIN-11); guarded by `jobs/probes/probe-detach-env.py`.
+- **`goal-launch-delay`** (`ignite/capabilities/goal-launch-delay/`) — the channel master retiming
+  its OWN queue delay (issue C-1, owner-ruled 2026-08-10). The knob has no settings file: it IS the
+  `--delay-seconds` operand of the `tools: goal-creation-request:` argv above, so the tool performs
+  a LINE-PRECISE edit of that document and never round-trips it through a YAML dumper. Three verbs:
+  `show` (the value, whether it is explicit or the tool's own 600 default, and the `file:line` it
+  comes from), `request` (the SEAT's verb — validate, stage the payload in the seat's own folder,
+  `add-job` the trigger), `apply` (the DAEMON's verb — drain, edit, record the outcome, restart
+  `rbtv-ignite` LAST). Same two-part transport as `goal-creation-request` and for the same measured
+  reasons (read-only cage · static `fire-tool` argv · `enqueue-job` the one verb open to a `bridge`
+  token). Registered under `tools: goal-launch-delay`; arming is the same three gated acts. Contract
+  in `goal-launch-delay.md`.
+- **`master-profile`** (`ignite/capabilities/master-profile/`) — the channel master choosing its OWN
+  harness and model (issue C-1, same ruling). The knob is `master_profile` in
+  `.rbtv/config/chat-bridge-config.json`, read at boot by the bridge and selected for master (DM)
+  traffic by `forward-path.js#profileFor` (`masterProfile || sessionProfile`). The requested name is
+  validated against the LIVE `profiles:` set of `spawn-profiles.yaml` at BOTH halves — an unknown
+  name does not fail at the bridge, it fails at the spawn one owner message later — and an ABSENT
+  `master_profile` key is refused rather than created (creating it would split master and session
+  traffic apart without anyone deciding to). Restarts `rbtv-chat-bridge`, which ends the requesting
+  sitting, so the outcome record lands before the restart. ⚠ **No `--effort` flag, by measurement:**
+  effort is not on the master spawn wire at all — `forward-path.js` enqueues `{profile, prompt}`,
+  the `chat-agent` job's schema admits no effort key, `ticker.js#launchAgent` calls a
+  `spawnManager.spawn` signature with no effort parameter, and the per-profile `effort:` translation
+  table has NO daemon caller (`dispatch.js` says so verbatim). Contract in `master-profile.md`.
+- **`bindings`** (`ignite/capabilities/bindings/`) — the CASTING SHEET a workflow is run through
+  (owner-ruled 2026-08-10): which harness, model and effort each seat gets. A workflow is the
+  program, a **taskforce** is its running instance, and the bindings file is what casts one into the
+  other; `team-kit/materialize-seats.py --bindings` is its ONE consumer. Four verbs — `catalog`
+  (every harness+model this workspace can spawn, each effort dial NUMBERED), `inspect` (every
+  manifest seat with its definition file, staffing hints and casting state), `scaffold`
+  (create-only), `set`. ⚠ **NOT the two-part shape of the two capabilities above, and that is
+  measured, not style**: the bindings tree sits in the channel master's `rw-paths` and NOTHING
+  boot-reads it, so every verb is a plain direct file write — no staged inbox, no `enqueue-job`
+  trigger, no restart. ⚠ **`catalog` IS the validator** `set` enforces: one derivation, two
+  consumers, so the surface an agent reads and the surface that refuses it cannot disagree. It is
+  composed from `profiles:` in `config/spawn-profiles.yaml` (which `r-seats-only-architecture` makes
+  the workspace's spawnable set) plus each profile's own `effort:` block for whether a dial exists,
+  and gated by `coord.py#validate_seat` — the predicate `materialize-seats.py`'s F6 gate imports, so
+  a pair this tool offers can never be one materialize then refuses. The effort NUMBER indexes the
+  HARNESS's native ladder (claude: 1=low … 5=max) and the file stores the harness's own string; the
+  per-profile `effort.values` table is a different object (the daemon lane's four abstract levels)
+  and using it would make `xhigh` unspellable. One file per WORKFLOW at
+  `.rbtv/config/bindings/{module}/{component}/{code}.json` — `{code}` is the workflow's code, the
+  seat-id prefix its manifest rows carry, derived and never typed. Deployment config, never the
+  mirror. Contract in `bindings.md`.
 - **Per-run arguments on a fired tool — an IDENTITY allowlist, refusing by default** (task 7.559,
   owner ruling `d-owner-7559-design-rulings-0808`; `server/heart/argv-template.js` +
   `server/ticker/ticker.js` `launchFireTool`). A `tools:` entry in `config/spawn-profiles.yaml` may

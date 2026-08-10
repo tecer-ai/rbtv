@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""probe-execution-mode-birth.py — a created goal is BORN with its execution mode (owner ruling 2026-08-10).
+
+WHAT THIS EXISTS TO CATCH.
+
+`.rbtv/goals/<goal>/execution-mode` is gate 2 of all agent-INITIATED owner contact — the per-goal
+owner-contact policy, registry concept `execution mode`, values `interactive | autonomous`, ABSENT
+reading `autonomous`. Until 2026-08-10 NO creation path wrote it. Every daemon-created goal was
+therefore born mode-less, and because absent reads `autonomous` the failure was SILENT and looked
+exactly like a deliberate choice: a goal whose interviewer seat was built to ask the owner
+questions could not reach them, and nothing anywhere recorded that nobody had decided.
+
+The owner ruled the lifecycle: a workflow declares a default in its own scaffolding, goal creation
+RESOLVES and WRITES it, and a requester may override it per goal. This probe drives the creation
+half.
+
+  1. THE RESOLVED DEFAULT LANDS — a request that names NO mode, created against the real `planning`
+     workflow, produces a goal whose own `execution-mode` file reads `interactive`, because that
+     workflow DECLARES `default-execution-mode: interactive`. Read from the created goal's file on
+     disk, never from the request: a check that asserted the request said `interactive` would pass
+     against a carrier that dropped the value entirely.
+  2. AN EXPLICIT PAYLOAD VALUE WINS — the same workflow, the same declared `interactive` default,
+     a request carrying `execution-mode: autonomous`: the goal is born `autonomous`. Without this,
+     check 1 also passes for a carrier hard-wired to `interactive`.
+  3. AN INVALID VALUE REFUSES, AND CREATES NOTHING — `execution-mode: "sometimes"` raises a typed
+     `Refusal` naming the enum, BEFORE any act, leaving no goal directory. This is the arm that
+     matters most at the argv surface: the value becomes an argv element, and a bad one that fell
+     through to a default would produce a goal silently gagged.
+  4. DERIVATION, BOTH WAYS — a synthetic catalog root whose workflow declares NOTHING: a manifest
+     with an `interactive`-Modality row derives `interactive`; one with none derives `autonomous`.
+     Two arms, not one: a deriver hard-wired to either answer passes the other arm's opposite.
+  5. THE CONTROL — the creation verb invoked with NO `--execution-mode` at all still writes the
+     file, reading `autonomous`. This is what makes check 1 discriminating: had the verb's own
+     default been flipped to `interactive`, check 1 would pass while meaning nothing.
+  6. THE MUTANT (widen-don't-delete: the forwarding is REMOVED from a copy of the module source,
+     the module is otherwise untouched) — check 1 is re-run and MUST go red. A green mutant means
+     checks 1 and 4 are scoring nothing, because the creation verb's own `autonomous` default
+     would be producing whatever they read; the probe then exits 2 INOPERATIVE rather than
+     reporting a pass it did not earn.
+
+Nothing here touches a live goals package: every act runs under `tempfile`, and the path driven is
+`scaffold_goal`, which invokes `rbtv-goal scaffold` ONLY. It never reaches `scaffold-seats`, so no
+seat is materialized, no pane is opened, and no agent is ever launched by this probe. The one live
+path it READS is the workspace's own `.rbtv/mirror/meta` catalog root — read-only, and the point:
+checks 1 and 2 must resolve the default from the workflow's REAL scaffolding, not from a fixture
+this probe wrote to agree with itself.
+"""
+
+import importlib.util
+import subprocess
+import sys
+import tempfile
+import types
+from pathlib import Path
+
+TOOL = Path(__file__).resolve().parents[1] / "tool" / "goal_creation_request.py"
+GOAL_CLI = Path(__file__).resolve().parents[2] / "goals-tree" / "tool" / "goal_cli.py"
+
+REAL_WORKFLOW = "planning"
+
+
+def catalog_root() -> Path | None:
+    """The workspace's component catalog root, found by WALKING UP for `rbtv.json`.
+
+    Never a path relative to this repo's own depth: the repo is installed at a workspace-chosen
+    location (this module's General rule), so counting parents would encode one instance's layout
+    and read the wrong folder — or nothing — on the next. Returns None when no workspace roots
+    this checkout, which the caller reports INOPERATIVE rather than passing over.
+    """
+    for parent in [Path(__file__).resolve()] + list(Path(__file__).resolve().parents):
+        if (parent / "rbtv.json").is_file():
+            return parent / ".rbtv" / "mirror" / "meta"
+    return None
+
+
+CATALOG_ROOT = catalog_root()
+
+FORWARDING = '"--execution-mode", mode,'
+
+failures: list[str] = []
+inoperative: list[str] = []
+
+
+def check(label: str, cond: bool, detail: str = "") -> bool:
+    print(f"  {'ok  ' if cond else 'FAIL'} {label}{'' if cond else ': ' + detail}")
+    if not cond:
+        failures.append(label)
+    return cond
+
+
+def load(src: str | None = None):
+    """The module, real or mutated, always under its REAL __file__.
+
+    `scaffold_goal` resolves `goal_cli.py` through `Path(__file__).parents[2]`, so a mutant exec'd
+    under any other name would look for the creation verb in the wrong tree and fail for a reason
+    that has nothing to do with the mutation.
+    """
+    if src is None:
+        spec = importlib.util.spec_from_file_location("gcr_real", TOOL)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    mod = types.ModuleType("gcr_mutant")
+    mod.__file__ = str(TOOL)
+    exec(compile(src, str(TOOL), "exec"), mod.__dict__)
+    return mod
+
+
+def request(name: str, mode: str | None = None) -> dict:
+    req = {"goal-name": name, "goal-type": "one-shot",
+           "goal-contract": "Ship the thing, verified at the edge.",
+           "goal-kind": "interactive"}
+    if mode is not None:
+        req["execution-mode"] = mode
+    return req
+
+
+def born_mode(goal_dir: Path) -> str | None:
+    """The mode the CREATED goal declares about itself. None when it declares none.
+
+    Read with the SAME grammar the ferry reads it with — the whole file, trimmed — so a file this
+    probe calls `interactive` is a file the control plane calls `interactive` too. A read that
+    matched a substring would pass on a file whose second line negated its first.
+    """
+    path = goal_dir / "execution-mode"
+    if not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8").strip()
+
+
+def synthetic_catalog(base: Path, modality: str) -> Path:
+    """A catalog root whose workflow DECLARES NOTHING — so only derivation can answer.
+
+    `workflow.md` is written WITHOUT a `default-execution-mode:` key on purpose: with one, rung 1
+    would answer and the derivation under test would never run.
+    """
+    root = base / f"cat-{modality or 'none'}"
+    wf = root / "synth-comp" / "workflows" / "synth-flow"
+    wf.mkdir(parents=True)
+    (wf / "workflow.md").write_text(
+        "---\nname: synth-flow\n---\n\n# synth-flow\n\nNo declared default, on purpose.\n",
+        encoding="utf-8")
+    (wf / "synth-flow.csv").write_text(
+        "Seat/workflow,after,i/o,Modality\n"
+        f"synth-first,,\"in: seed; out: draft\",{modality}\n"
+        "synth-second,synth-first,\"in: draft; out: result\",agentic\n",
+        encoding="utf-8")
+    return root
+
+
+def main() -> int:
+    mod = load()
+
+    if CATALOG_ROOT is None or not (CATALOG_ROOT / REAL_WORKFLOW / "workflows" / REAL_WORKFLOW /
+                                    f"{REAL_WORKFLOW}.csv").is_file():
+        inoperative.append(
+            f"the real catalog root {CATALOG_ROOT} carries no {REAL_WORKFLOW} manifest — checks 1 "
+            "and 2 would resolve against nothing and fall back to the model default, which is a "
+            "pass for the wrong reason")
+        print(f"INOPERATIVE: {inoperative[-1]}")
+        return 2
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        root = tmp / ".rbtv" / "goals"
+        root.mkdir(parents=True)
+
+        print("1. a request naming NO mode is born with the WORKFLOW's declared default")
+        declared, source = mod.workflow_default_execution_mode(str(CATALOG_ROOT), REAL_WORKFLOW)
+        print(f"     resolved {declared!r} — {source}")
+        check(f"the real {REAL_WORKFLOW} workflow declares/derives 'interactive'",
+              declared == "interactive", f"resolved {declared!r} from {source}")
+        step = mod.scaffold_goal(request("mode-default-goal"), str(root),
+                                 catalog_root=str(CATALOG_ROOT), workflow=REAL_WORKFLOW)
+        got = born_mode(root / "mode-default-goal")
+        default_landed = check(
+            "the CREATED goal's own execution-mode file reads 'interactive'",
+            step.get("rc") == 0 and got == "interactive",
+            f"rc={step.get('rc')} file reads {got!r}")
+        check("the step names the mode AND where it came from",
+              step.get("execution-mode") == "interactive"
+              and "declared" in (step.get("execution-mode-source") or ""),
+              str(step.get("execution-mode-source")))
+
+        print("2. an explicit payload value WINS over the workflow default")
+        step = mod.scaffold_goal(request("mode-explicit-goal", "autonomous"), str(root),
+                                 catalog_root=str(CATALOG_ROOT), workflow=REAL_WORKFLOW)
+        got = born_mode(root / "mode-explicit-goal")
+        check("an explicit 'autonomous' beats the declared 'interactive'",
+              step.get("rc") == 0 and got == "autonomous",
+              f"rc={step.get('rc')} file reads {got!r}")
+        check("the step attributes it to the request payload",
+              step.get("execution-mode-source") == "the request payload",
+              str(step.get("execution-mode-source")))
+
+        print("3. an invalid value REFUSES, names the enum, and creates nothing")
+        # Argv-shaped and case-variant inputs. This value BECOMES an argv element, so a value
+        # opening with `-` is the one that would be read as a FLAG had it ever reached argv, and a
+        # case variant is the one a lenient comparison waves through.
+        for hostile in ("sometimes", "INTERACTIVE", "interactive ", "--json", "-i", "",
+                        "autonomous; rm -rf /"):
+            name = "mode-hostile-goal"
+            try:
+                mod.scaffold_goal(request(name, hostile), str(root),
+                                  catalog_root=str(CATALOG_ROOT), workflow=REAL_WORKFLOW)
+                check(f"{hostile!r} refuses", False, "did not refuse")
+            except mod.Refusal as exc:
+                check(f"{hostile!r} refuses, naming the enum",
+                      "is not one of" in str(exc) and "interactive" in str(exc), str(exc)[:120])
+            check(f"{hostile!r} left NO goal folder behind", not (root / name).exists())
+
+        print("4. with NO declaration, the default is DERIVED from the manifest — both ways")
+        for modality, expect in (("interactive", "interactive"), ("agentic", "autonomous")):
+            cat = synthetic_catalog(tmp, modality)
+            derived, source = mod.workflow_default_execution_mode(str(cat), "synth-flow")
+            check(f"a manifest whose seat is {modality!r} derives {expect!r}",
+                  derived == expect, f"derived {derived!r} from {source}")
+            check("the source names DERIVATION, not a declaration",
+                  derived == expect and source.startswith("derived from"), source)
+            step = mod.scaffold_goal(request(f"derive-{modality}-goal"), str(root),
+                                     catalog_root=str(cat), workflow="synth-flow")
+            got = born_mode(root / f"derive-{modality}-goal")
+            check(f"a goal created against it is born {expect!r}",
+                  step.get("rc") == 0 and got == expect,
+                  f"rc={step.get('rc')} file reads {got!r}")
+
+        print("5. the control — the creation verb with NO --execution-mode still writes the file")
+        # The pre-existing caller shape, invoked exactly as it was before this ruling. If the
+        # verb's own default had been flipped to `interactive`, check 1 would still pass and only
+        # this arm would catch it.
+        contract = tmp / "c.md"
+        contract.write_text("Ship it.\n", encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(GOAL_CLI), "--root", str(root), "scaffold", "control-goal",
+             "--contract", str(contract)],
+            capture_output=True, text=True)
+        got_control = born_mode(root / "control-goal")
+        check("a caller passing no --execution-mode gets the file, reading 'autonomous'",
+              proc.returncode == 0 and got_control == "autonomous",
+              f"rc={proc.returncode} file reads {got_control!r}")
+
+        print("6. the mutant — the --execution-mode forwarding removed; check 1 MUST go red")
+        src = TOOL.read_text(encoding="utf-8")
+        if src.count(FORWARDING) != 1:
+            inoperative.append(
+                f"the forwarding anchor {FORWARDING!r} appears {src.count(FORWARDING)} times in "
+                "the module source — the mutation would be a silent no-op or ambiguous, and "
+                "checks 1 and 4 would score nothing")
+        else:
+            mutant = load(src.replace(FORWARDING, "", 1))
+            mroot = tmp / "mutant" / ".rbtv" / "goals"
+            mroot.mkdir(parents=True)
+            mstep = mutant.scaffold_goal(request("mode-default-goal"), str(mroot),
+                                         catalog_root=str(CATALOG_ROOT), workflow=REAL_WORKFLOW)
+            mgot = born_mode(mroot / "mode-default-goal")
+            print(f"     mutant goal is born {mgot!r} (rc={mstep.get('rc')})")
+            if mgot == "interactive":
+                inoperative.append(
+                    "the mutant STILL produced an 'interactive' goal — checks 1 and 4 cannot "
+                    "distinguish a working carrier from a dropped one")
+            else:
+                print("  ok   the mutant drops the mode and falls to 'autonomous' — check 1 "
+                      "discriminates")
+            # The mutant must fail for the RIGHT reason: the goal is still created, it just
+            # carries the wrong mode. A mutant that crashed would also be "not interactive".
+            if mstep.get("rc") != 0:
+                inoperative.append(f"the mutant did not scaffold at all (rc={mstep.get('rc')}) — "
+                                   "its red is a crash, not a dropped mode")
+            if not default_landed:
+                inoperative.append("check 1 was already red, so the mutant proves nothing")
+
+    print()
+    if inoperative:
+        for item in inoperative:
+            print(f"INOPERATIVE: {item}")
+        print("probe-execution-mode-birth: INOPERATIVE — not a pass")
+        return 2
+    if failures:
+        print(f"probe-execution-mode-birth: FAIL — {len(failures)} failure(s): {failures}")
+        return 1
+    print("probe-execution-mode-birth: PASS — a created goal is born with its execution mode: the "
+          "workflow's declared default lands, an explicit request value wins, an invalid one "
+          "refuses creating nothing, derivation answers both ways, and the verb's own default is "
+          "intact")
+    return 0
+
+
+class _Tee:
+    def __init__(self, real):
+        self.real, self.buf = real, []
+
+    def write(self, s):
+        self.real.write(s)
+        self.buf.append(s)
+        return len(s)
+
+    def flush(self):
+        self.real.flush()
+
+
+if __name__ == "__main__":
+    tee = _Tee(sys.stdout)
+    sys.stdout = tee
+    try:
+        rc = main()
+    finally:
+        sys.stdout = tee.real
+        (Path(__file__).with_suffix(".out")).write_text("".join(tee.buf), encoding="utf-8")
+    sys.exit(rc)

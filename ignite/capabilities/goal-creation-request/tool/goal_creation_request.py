@@ -63,6 +63,7 @@ incoming requests, and would silently drop a field the requester is answerable f
 """
 
 import argparse
+import csv
 import importlib.util
 import json
 import re
@@ -79,7 +80,11 @@ from pathlib import Path
 # four required plus one optional. The set is CLOSED: a name outside it is a refusal, never a
 # passthrough, because §1's table IS the whole field set.
 REQUIRED_FIELDS = ("goal-name", "goal-type", "goal-contract", "goal-kind")
-OPTIONAL_FIELDS = ("due-date",)
+# `execution-mode` joined `due-date` here on 2026-08-10 (owner ruling, § the execution-mode
+# lifecycle below). OPTIONAL is the whole point: a requester who says nothing gets the WORKFLOW's
+# default, resolved from the workflow's own scaffolding — which is a better answer than any
+# default this layer could invent, and is why the field was not made required.
+OPTIONAL_FIELDS = ("due-date", "execution-mode")
 ALL_FIELDS = REQUIRED_FIELDS + OPTIONAL_FIELDS
 
 # §1.1 — the same expression the creation verb enforces (`goal_cli.py#GOAL_NAME_RE`), not a second
@@ -98,6 +103,31 @@ GOAL_TYPES = ("one-shot", "recurring")
 # drift — so the request layer's schema does not become importable from a tool's internals.
 GOAL_KINDS = ("interactive", "non-interactive")
 
+# ── `execution-mode`: the OPTIONAL sixth field (owner ruling 2026-08-10) ───────────────────────
+#
+# The per-goal OWNER-CONTACT policy — registry concept `execution mode`, whose values are
+# `interactive | autonomous` with ABSENT reading `autonomous`. Until today no creation path wrote
+# `.rbtv/goals/<goal>/execution-mode` at all, so every daemon-created goal was born mode-less and
+# the ferry could only read the model's default back. The owner ruled the lifecycle: a workflow
+# declares a default, creation WRITES it, and a requester may override per goal.
+#
+# ⚠ THE VOCABULARY CLASH IS REAL AND IS NOT A TYPO. `goal-kind`'s `interactive` and this axis's
+# `interactive` are DIFFERENT AXES that share a word (`concepts/execution-mode.md` § v1 mechanism,
+# vocabulary guard; open issue F-96). `goal-kind` is `interactive | non-interactive`; this is
+# `interactive | autonomous`. Neither enum may be written in terms of the other.
+#
+# ⚠ THIS ADDS NO FOURTEENTH REJECT-SET MEMBER, deliberately. The closed set is the request
+# schema's (§6.1) and growing it needs a schema clause FIRST — see the REJECT_SET header. So the
+# field is admitted by S2 as an optional NAME, gets no value member, and a value outside the enum
+# is refused as a typed `Refusal` raised by `resolve_execution_mode` BEFORE the scaffold act — the
+# same shape `--kind` already has at `goal_cli.py#cmd_scaffold`, and, like it, it leaves no goal
+# directory behind. What a reader must NOT conclude from the absent member is that any value is
+# accepted: it is refused one layer down, and the probe drives that arm.
+EXECUTION_MODES = ("interactive", "autonomous")
+EXECUTION_MODE_DEFAULT = "autonomous"
+DECLARED_MODE_RE = re.compile(r"^default-execution-mode:\s*(\S+)\s*$", re.M)
+INTERACTIVE_MODALITY = "interactive"
+
 RULED_LAUNCH_NAME = "scaffold-seats"
 
 # ------------------------------------------- the CLOSED reject set (E3's §6.1)
@@ -112,6 +142,10 @@ REJECT_SET_SOURCE = (".rbtv/goals/build-core-daemon-mvp/runs/run-3/planning/"
                      "briefing-master-request-launch-entry/request-schema-goal-creation.md §6.1")
 REJECT_SET = {
     "S1": ("payload-not-a-field-mapping", "shape: the payload as a whole"),
+    # ⚠ The member NAME still says "the five" and is left BYTE-VERBATIM from the schema: a member
+    # id-to-name mapping two implementers must report identically is not this file's to reword.
+    # The set it checks is `ALL_FIELDS`, which is SIX since `execution-mode` landed — the check
+    # message prints the live set, so a reader is never told the wrong one.
     "S2": ("field-name-not-in-the-five", "shape: the payload's set of field names"),
     "S3": ("field-value-not-a-single-value", "shape: the value of one named field"),
     "P1": ("goal-name-absent", "field goal-name"),
@@ -307,12 +341,98 @@ def validate(payload, goals_root=None):
     checked.append({"field": "due-date",
                     "check": "optional; type UNRESOLVED in the schema — no member rejects any value"})
 
+    # `execution-mode` is optional and carries NO value member either, for a different reason:
+    # the closed set is the schema's and this axis post-dates it (owner ruling 2026-08-10). Its
+    # enum IS enforced — by `resolve_execution_mode`, before any act — so naming it as checked
+    # here without a member is what stops a reader concluding the value is unchecked.
+    checked.append({"field": "execution-mode",
+                    "check": f"optional; enum {list(EXECUTION_MODES)} enforced at "
+                             "resolve_execution_mode (a typed Refusal), no reject-set member"})
+
     return _verdict(checked, refusals, "S,P,V")
+
+
+# ------------------------------------------------- 1b · THE EXECUTION MODE (owner ruling 2026-08-10)
+
+def workflow_default_execution_mode(catalog_root, workflow):
+    """The workflow's DEFAULT execution mode: declared, else derived. Returns (mode, source).
+
+    Two rungs, in this order and no other:
+
+      1. DECLARED — `default-execution-mode:` in the workflow definition's frontmatter
+         (`<catalog-root>/<component>/workflows/<W>/workflow.md`). The declaration exists for the
+         case derivation CANNOT express: a workflow that HAS interactive seats but that the owner
+         wants defaulting autonomous. Derivation would say `interactive` there and be wrong, and
+         there is no way to say "no, autonomous" in a Modality column.
+      2. DERIVED from the manifest — any row whose Modality reads `interactive` -> `interactive`;
+         none -> `autonomous`. This is a floor, not a guess: a workflow with an interactive seat
+         has a seat whose whole job is talking to the owner, and an autonomous default would gag
+         it silently.
+
+    The manifest is resolved by the SAME glob `materialize-seats.py#resolve_added` uses —
+    `<catalog-root>/*/workflows/<W>/<W>.csv` — so a workflow this function cannot find is a
+    workflow materialization cannot find either. An unresolvable or ambiguous workflow returns the
+    model's own default with the reason NAMED, never a silent `autonomous`: the caller writes the
+    mode either way (a goal is never born without the file), and the source string is what tells a
+    reader afterwards whether the value was resolved or fallen back to.
+    """
+    if not catalog_root or not workflow:
+        return EXECUTION_MODE_DEFAULT, "no workflow named at creation — the model's own default"
+    manifests = sorted(Path(catalog_root).glob(f"*/workflows/{workflow}/{workflow}.csv"))
+    if len(manifests) != 1:
+        return EXECUTION_MODE_DEFAULT, (
+            f"{workflow!r} resolves to {len(manifests)} manifests under {catalog_root} — "
+            "the model's own default")
+    manifest = manifests[0]
+
+    definition = manifest.parent / "workflow.md"
+    if definition.is_file():
+        head = definition.read_text(encoding="utf-8", errors="replace")
+        m = DECLARED_MODE_RE.search(head)
+        if m:
+            declared = m.group(1)
+            if declared not in EXECUTION_MODES:
+                raise Refusal(
+                    f"{definition}: declares default-execution-mode: {declared!r}, which is not "
+                    f"one of {list(EXECUTION_MODES)}. A malformed declaration is refused rather "
+                    "than fallen back over — falling back would create goals on a default the "
+                    "workflow's own scaffolding says is not its default.")
+            return declared, f"declared at {definition}"
+
+    # DERIVED. The Modality column is the manifest's 4th (`Seat/workflow,after,i/o,Modality`);
+    # read by NAME through csv.DictReader so a column added left of it never shifts the read.
+    with manifest.open(encoding="utf-8", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    interactive = [r.get("Seat/workflow") for r in rows
+                   if (r.get("Modality") or "").strip().lower() == INTERACTIVE_MODALITY]
+    if interactive:
+        return "interactive", (f"derived from {manifest}: interactive seat(s) "
+                               f"{sorted(s for s in interactive if s)}")
+    return "autonomous", f"derived from {manifest}: no interactive seat"
+
+
+def resolve_execution_mode(request, catalog_root=None, workflow=None):
+    """The mode a goal is BORN with: the request's own value, else the workflow's default.
+
+    Returns (mode, source). Raises `Refusal` on a payload value outside the enum — see the
+    EXECUTION_MODES header for why this is a refusal HERE rather than a reject-set member.
+    """
+    if "execution-mode" in request and request["execution-mode"] is not None:
+        asked = request["execution-mode"]
+        if asked not in EXECUTION_MODES:
+            raise Refusal(
+                f"execution-mode {asked!r} is not one of {list(EXECUTION_MODES)}. REFUSED before "
+                "any act: nothing was created. This field carries the per-goal owner-contact "
+                "policy, and a value the control plane cannot read would silently make the goal "
+                "autonomous — which is why it refuses instead of falling back to a default.")
+        return asked, "the request payload"
+    mode, source = workflow_default_execution_mode(catalog_root, workflow)
+    return mode, f"the workflow default — {source}"
 
 
 # --------------------------------------------------------------- 2 · CREATE
 
-def scaffold_goal(request, goals_root, dry_run=False):
+def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflow=None):
     """SCAFFOLD — the goal folder and its contract, and NOTHING else.
 
     The first half of `create()` below, extracted (task C2) because the daemon-executed path needs
@@ -325,6 +445,11 @@ def scaffold_goal(request, goals_root, dry_run=False):
     """
     goal_cli = (Path(__file__).resolve().parents[2] / "goals-tree" / "tool" / "goal_cli.py")
     goal_dir = Path(goals_root) / request["goal-name"]
+
+    # RESOLVED FIRST, BEFORE THE EXISTS CHECK AND BEFORE ANY WRITE (owner ruling 2026-08-10). A
+    # request naming an unreadable mode is refused whatever else is true of the goals root — an
+    # act performed on a refused request is the one thing the entry's ordering exists to prevent.
+    mode, mode_source = resolve_execution_mode(request, catalog_root, workflow)
 
     if goal_dir.exists():
         return {"step": "create-goal", "skipped": f"{goal_dir} already resolves"}
@@ -347,10 +472,23 @@ def scaffold_goal(request, goals_root, dry_run=False):
         cmd = [sys.executable, str(goal_cli), "scaffold", request["goal-name"],
                "--root", str(goals_root), "--type", request["goal-type"],
                "--kind", request["goal-kind"],
+               # `--execution-mode` is passed UNCONDITIONALLY for the same reason `--kind` is,
+               # arrived at from the other side: the field is OPTIONAL in the request, but the
+               # RESOLVED value never is — an omitted field resolves to the workflow's default,
+               # so there is always a word to forward. Omitting the flag here would let the
+               # creation verb's own `autonomous` default silently overwrite an `interactive`
+               # workflow default, which is exactly the drop this ruling closed.
+               "--execution-mode", mode,
                "--contract", str(contract_file), "--json"]
         if request.get("due-date"):
             cmd += ["--due", request["due-date"]]
-        return _run(cmd, "create-goal", dry_run)
+        step = _run(cmd, "create-goal", dry_run)
+        # NAMED IN THE STEP so the requester's surface reports WHICH mode the goal was born with
+        # and WHERE that value came from. A created goal whose mode nobody can attribute is the
+        # state this whole lifecycle replaced.
+        step["execution-mode"] = mode
+        step["execution-mode-source"] = mode_source
+        return step
     finally:
         contract_file.unlink(missing_ok=True)
 
@@ -368,7 +506,11 @@ def create(request, goals_root, package, catalog_root, bindings, conduct, claude
     7.607 E2a: `package` IS THE GOAL DIRECTORY. The run package it used to name is extinguished
     (`decisions.md#d-runs-extinguished`); the goal folder is the package (design-lock item 8).
     """
-    steps = [scaffold_goal(request, goals_root, dry_run)]
+    # `catalog_root` and `workflow` cross into the scaffold act SOLELY to resolve the execution
+    # mode's workflow-level default (owner ruling 2026-08-10). A `--seat` creation names no
+    # workflow, so `workflow` is None there and the resolution falls back with its reason named.
+    steps = [scaffold_goal(request, goals_root, dry_run,
+                           catalog_root=catalog_root, workflow=workflow)]
 
 
     # THE RULED NAME. Resolved on PATH as the name — never the script path behind it.

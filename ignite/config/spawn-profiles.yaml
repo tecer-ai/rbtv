@@ -312,11 +312,12 @@ profiles:
     workdir_root: .rbtv/goals
 
   claude-opus:
-    # The alias is pinned explicitly (`claude --help` documents `--model` accepting a
-    # latest-model alias): a profile that pins no model records a mapping true on one machine
-    # at one moment.
+    # The FULL model id is pinned, never the `opus` alias (owner ruling 2026-08-10, "full model
+    # ids everywhere"): `claude --help` accepts either, but an alias records a mapping true on one
+    # machine at one moment, and a config where one profile spells a full id and its sibling an
+    # alias hands the bindings catalog two vocabularies for one fact.
     exec:
-      argv: ["claude", "-p", "--model", "opus",
+      argv: ["claude", "-p", "--model", "claude-opus-5",
              "--session-id", "{session_ref}",
              "--output-format", "stream-json", "--verbose",
              "--permission-mode", "bypassPermissions",
@@ -324,13 +325,13 @@ profiles:
       prompt: stdin
     resume:
       argv: ["claude", "-p", "--resume", "{session_ref}",
-             "--model", "opus",
+             "--model", "claude-opus-5",
              "--output-format", "stream-json", "--verbose",
              "--permission-mode", "bypassPermissions",
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
       prompt: stdin
     headed:
-      tui: { argv: ["claude", "--model", "opus"] }
+      tui: { argv: ["claude", "--model", "claude-opus-5"] }
     effort:
       dialect: effort
       values: { low: low, medium: medium, high: high, max: max }
@@ -341,7 +342,7 @@ profiles:
 
   claude-sonnet:
     exec:
-      argv: ["claude", "-p", "--model", "sonnet",
+      argv: ["claude", "-p", "--model", "claude-sonnet-5",
              "--session-id", "{session_ref}",
              "--output-format", "stream-json", "--verbose",
              "--permission-mode", "bypassPermissions",
@@ -349,13 +350,13 @@ profiles:
       prompt: stdin
     resume:
       argv: ["claude", "-p", "--resume", "{session_ref}",
-             "--model", "sonnet",
+             "--model", "claude-sonnet-5",
              "--output-format", "stream-json", "--verbose",
              "--permission-mode", "bypassPermissions",
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
       prompt: stdin
     headed:
-      tui: { argv: ["claude", "--model", "sonnet"] }
+      tui: { argv: ["claude", "--model", "claude-sonnet-5"] }
     effort:
       dialect: effort
       values: { low: low, medium: medium, high: high, max: max }
@@ -370,7 +371,7 @@ profiles:
     # has no effort dial. An inert table makes the resolver ACCEPT a caller's level and report
     # it back as `effortInert: true`; omitting the block would refuse the pair (G-270).
     exec:
-      argv: ["claude", "-p", "--model", "haiku",
+      argv: ["claude", "-p", "--model", "claude-haiku-4-5",
              "--session-id", "{session_ref}",
              "--output-format", "stream-json", "--verbose",
              "--permission-mode", "bypassPermissions",
@@ -378,13 +379,13 @@ profiles:
       prompt: stdin
     resume:
       argv: ["claude", "-p", "--resume", "{session_ref}",
-             "--model", "haiku",
+             "--model", "claude-haiku-4-5",
              "--output-format", "stream-json", "--verbose",
              "--permission-mode", "bypassPermissions",
              "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
       prompt: stdin
     headed:
-      tui: { argv: ["claude", "--model", "haiku"] }
+      tui: { argv: ["claude", "--model", "claude-haiku-4-5"] }
     effort: { inert: true }
     session_ref: { source: assigned }
     toolset_ceiling: full
@@ -1144,10 +1145,16 @@ tools:
   #
   # ⚠ `--workflow`/`--entry-seat` NAME WHAT EVERY MASTER-CREATED GOAL STARTS WITH — RULED, task C5.
   # Owner ruling `d-owner-q10-launcher-0808` (1), 2026-08-08: a master-created goal that does not
-  # route to a pre-existing workflow starts in the PLANNING workflow — the existing meta component
-  # `.rbtv/mirror/meta/planning-deprecated/` (RENAMED from `planner-workflow/` by the planning-v4
-  # stage-B rename, vault commit `01f60de16`; task 7.598), entry seat `elicitator` (the chain's
-  # root, verified on disk against that component's `seats.csv` before this edit).
+  # route to a pre-existing workflow starts in the PLANNING workflow.
+  # ⚠ REPOINTED 2026-08-10 (issue C-2). The component this ruling was landed against —
+  # `.rbtv/mirror/meta/planning-deprecated/` (itself RENAMED from `planner-workflow/` by the
+  # planning-v4 stage-B rename, vault commit `01f60de16`; task 7.598), entry seat `elicitator` —
+  # was DELETED, and every daemon-fired creation refused `workflow-unknown` at `create-package`
+  # until this edit. The live component is `.rbtv/mirror/meta/planning/`, the planning REWRITE:
+  # 16 manifest seats in `workflows/planning/planning.csv`, entry seat `plan-interviewer` (the
+  # chain's root, verified on disk against that component's `seats.csv` before this edit). The
+  # ruling is unchanged — a master-created goal still starts in planning; only the component it
+  # names moved.
   #
   # ⚠ THE PAIR THAT WAS HERE BEFORE WOULD HAVE RE-RUN THE BUILD WAVE ON EVERY FRESH GOAL.
   # `master-request-launch-entry` / `request-schema-absence-remeasurer` name the run-3 wave that
@@ -1166,14 +1173,14 @@ tools:
   # DISCLOSED in the request's refusal record (`goal-dir`, `goal-exists`, `scaffolded`) instead of
   # deleted. Expect orphan goal directories after a failed fire; that is the ruled behaviour.
   #
-  # ⚠ NO LONGER DARK — the `workflows: planning-deprecated:` entry at the foot of this file is the
+  # ⚠ NO LONGER DARK — the `workflows: planning:` entry at the foot of this file is the
   # counterpart this comment used to name as missing (task C5E, owner rulings
   # `d-owner-planning-entry-0808` and `d-owner-planning-entry-2-0808`). `enqueue-job` refuses a
   # `start-workflow` row whose workflow is absent from `config.workflows`; that refusal is now
-  # satisfied for `planning-deprecated`, and the three
+  # satisfied for `planning`, and the three
   # values named here as unresolved are RULED and landed: the call shape is the WHOLE planning DAG
-  # (`--workflow planning-deprecated --root`, 9 manifest seats, entry seat `elicitator`), the bindings file is
-  # the goal-generic `.rbtv/mirror/meta/planning-deprecated/bindings-fresh-goal-planning.json`, and the
+  # (`--workflow planning --root`, 16 manifest seats, entry seat `plan-interviewer`), the bindings file is
+  # the workflow's ONE casting sheet at `.rbtv/config/bindings/meta/planning/plan.json`, and the
   # fresh goal's package IS ITS GOAL FOLDER (7.607 E2b, design-lock item 8 — `runs/run-1` is
   # extinguished), created by this same act and riding the queued row's args as a whole token.
   #
@@ -1200,18 +1207,19 @@ tools:
       - --goals-root
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals
       - --workflow
-      - planning-deprecated
+      - planning
       - --entry-seat
-      - elicitator
-      # ⚠ THE CATALOG ROOT IS THE SHARED PARENT, NOT THE planning-deprecated COMPONENT FOLDER, and
-      # this is measured rather than stylistic (`evidence/c5e/c5e-01-premise-probes.txt` P1).
-      # `ledger-groomer` IS a row of the planning manifest but is cataloged in its OWN sibling
-      # component; catalog resolution is catalog-root-wide, so rooting this at the component folder
-      # resolves 8 of the 9 manifest seats and refuses.
+      - plan-interviewer
+      # ⚠ THE CATALOG ROOT IS THE SHARED PARENT, NOT THE planning COMPONENT FOLDER. The workflow is
+      # resolved as `<catalog-root>/<component>/workflows/planning/planning.csv`, so the root must
+      # be the MODULE folder that CONTAINS the component. (Under the retired planning-deprecated
+      # component this was additionally load-bearing because `ledger-groomer` was cataloged in a
+      # sibling component — measured in `evidence/c5e/c5e-01-premise-probes.txt` P1. All 16 seats
+      # of the rewrite catalog inside `planning/` itself, but the resolution shape is unchanged.)
       - --catalog-root
       - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta/
       - --bindings
-      - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta/planning-deprecated/bindings-fresh-goal-planning.json
+      - /home/henri/ht-wkdir/second-brain/.rbtv/config/bindings/meta/planning/plan.json
       # The OWNER-APPROVED starter set, shipped with the team-kit beside `conduct-template.md`.
       # ⚠ NOT `conduct-template.md` ITSELF — that file is an UNFILLED FORM whose own first lines say
       # a run's conduct-author instantiates it "filling every {{slot}}", and `--conduct` BYTE-COPIES.
@@ -1227,6 +1235,69 @@ tools:
       - "600"
       - --ignite-bin
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/cli/ignite.js
+
+  # ── goal-launch-delay (issue C-1) — the channel master retiming ITS OWN queue delay ──────────
+  #
+  # THE KNOB IS THE `--delay-seconds` OPERAND OF THE ENTRY DIRECTLY ABOVE. There is no separate
+  # "delay setting" anywhere in this system, which is the whole reason this entry exists: the owner
+  # ruled (2026-08-10) that the master gets a TOOL TO INTERACT WITH THE SETTING IN ITS NATIVE PLACE,
+  # not a new settings surface to keep in sync with this one. So the fired tool performs a
+  # LINE-PRECISE edit of the two lines above and restarts the daemon — it never round-trips this
+  # document through a YAML dumper, which would delete every comment in it.
+  #
+  # ⚠ SAME TWO-PART TRANSPORT AS `goal-creation-request`, FOR THE SAME MEASURED REASONS, and none
+  # of them is a preference: the master's cage binds this repo READ-ONLY (`touch` → `Read-only file
+  # system`), so the seat cannot make this edit; `fire-tool` argv is STATIC (only `workdir` crosses
+  # from a queue row), so the requested VALUE must travel as a file staged in the seat's own folder;
+  # and `enqueue-job` carries no authz gate, so it is the one trigger a `bridge` token can pull.
+  #
+  # ⚠ THIS ENTRY LETS A FIRED TOOL RESTART THE DAEMON THAT FIRED IT — OWNER-APPROVED
+  # (`d-master-zero-restrictions-accepted`), and safe by ordering rather than by luck: the YAML is
+  # written with `os.replace` and every outcome record is on disk BEFORE the restart is invoked.
+  # A `systemd-run --user` transient unit is its own unit under the user manager, not a child of
+  # `rbtv-ignite.service`'s cgroup, so it survives that restart — measured live at build time.
+  #
+  # ⚠ THE INBOX IS THIS CAPABILITY'S OWN, NOT `goal-creation-request`'s. One drained directory per
+  # tool: a shared one would hand each drain the other's payloads, and both would refuse them.
+  goal-launch-delay:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/capabilities/goal-launch-delay/tool/goal_launch_delay.py
+      - apply
+      - --inbox
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/settings-requests/goal-launch-delay
+      # The document this tool edits — named explicitly rather than left to the tool's own default,
+      # so a reader of this entry can see WHICH file a fire rewrites without opening the script.
+      - --config
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml
+
+  # ── master-profile (issue C-1) — the channel master choosing ITS OWN harness and model ────────
+  #
+  # THE KNOB IS `master_profile` IN `.rbtv/config/chat-bridge-config.json`, read at boot by
+  # `bridges/chat/config.js` and selected for master (DM) traffic by `forward-path.js#profileFor`
+  # (`config.masterProfile || config.sessionProfile`). Same ruling, same shape, same transport as
+  # the entry above; the differences are the file, the validator, and the unit restarted.
+  #
+  # ⚠ THE REQUESTED NAME IS VALIDATED AGAINST THE LIVE `profiles:` SET OF THIS FILE, at both halves.
+  # An unknown profile name does NOT fail at the bridge — it fails at the SPAWN, one owner message
+  # later, with the sitting already accounted for. The tool reads the roster rather than carrying a
+  # copy of it, so adding a profile above needs no edit here.
+  #
+  # ⚠ THE RESTART ENDS THE OWNER'S LIVE CHAT SESSION. `rbtv-chat-bridge.service` is boot-read, so
+  # there is no cheaper way to apply this, and the requesting sitting is the one that dies. That is
+  # why the outcome record lands in the requester's own folder BEFORE the restart: the next sitting
+  # reads what happened to the request the previous one made.
+  master-profile:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/capabilities/master-profile/tool/master_profile.py
+      - apply
+      - --inbox
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/settings-requests/master-profile
+      - --config
+      - /home/henri/ht-wkdir/second-brain/.rbtv/config/chat-bridge-config.json
+      - --profiles
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml
 
 # ═════════════════════════════════════════════════════════════════════════════
 # workflows: — the launcher a `start-workflow` queue row fires (task C5E)
@@ -1290,7 +1361,12 @@ workflows:
   # `failed`). 0 means A SEAT OPENED and nothing else; 3 means the launch ran and admitted nobody —
   # loud, typed, recorded `failed` rather than a false `done`. The row is ONE-SHOT (deleted at fire),
   # so that failure has no cadence to recur on.
-  planning-deprecated:
+  # ⚠ THE KEY IS THE WORKFLOW NAME THE QUEUED ROW CARRIES. `scaffold-and-queue` puts
+  # `{"workflow": <--workflow>}` in the row's `--args-json`, and `enqueue-job` looks the row up
+  # here by that exact string — so this key MUST track the `--workflow` value in the
+  # `goal-creation-request` entry above. Renamed `planning-deprecated:` -> `planning:` with it
+  # (issue C-2, 2026-08-10).
+  planning:
     argv:
       - /usr/bin/python3
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/capabilities/goal-creation-request/tool/workflow_launcher.py

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# rbtv-bindings — thin wrapper so the capability's verbs run from anywhere on PATH.
+# Same shape as its siblings' entry points (rbtv-master-profile, rbtv-goal-launch-delay).
+exec python3 "$(dirname "$(readlink -f "$0")")/bindings.py" "$@"

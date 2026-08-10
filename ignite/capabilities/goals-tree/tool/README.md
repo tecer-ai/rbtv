@@ -5,7 +5,8 @@ grammar is owner-ruled (`r-763-grammar-ruled` — all four decision items at the
 defaults) and is **implemented here, not re-derived**.
 
 ```
-rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--kind K] [--due DATE] [--dry-run]
+rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--kind K] [--due DATE]
+                                                  [--execution-mode interactive|autonomous] [--dry-run]
 rbtv-goal reindex
 rbtv-goal lint <goal-name>
 rbtv-goal materialize <goal-name> --catalog-root DIR [--force] [--dry-run]
@@ -20,7 +21,28 @@ rbtv-goal selftest
 frontmatter. Owner ruling `d-owner-batch1` (2), 2026-08-08: the frontmatter IS the carrier — a
 consumer looks the kind up on the descriptor and it is never carried on a queue row.
 
-The field is **OPTIONAL on the descriptor**, and that has one consequence worth stating outright:
+**`--execution-mode interactive|autonomous`** (default `autonomous`) writes the goal's
+`execution-mode` file — the per-goal OWNER-CONTACT policy (registry concept `execution mode`),
+gate 2 of all agent-initiated owner contact. Owner ruling 2026-08-10: **no creation path wrote
+this file until then**, so every created goal was born mode-less and the question "was this goal
+meant to be autonomous?" had no answer on disk. `scaffold` now always writes it, one word plus a
+newline — a comment or header line in that file would read as "not interactive" and silently make
+the goal autonomous.
+
+The default is `autonomous` because that is exactly what an ABSENT file already reads as: writing
+it changes no behaviour, it makes the value ATTRIBUTABLE. **This verb derives nothing** — the
+workflow-level default (a workflow's declared `default-execution-mode:`, else derived from its
+manifest's Modality column) is resolved by the request layer, which is the layer that knows which
+workflow a goal is being created for (`goal_creation_request.py#resolve_execution_mode`), and the
+resolved word arrives here on the flag. A hand-scaffolded goal names no workflow, so there is
+nothing here to derive from; the console entry writes the file explicitly in its own step.
+
+⚠ **`--kind interactive` and `--execution-mode interactive` are DIFFERENT AXES sharing a word**
+(open issue `F-96`). `--kind` is the goal-kind stamped in frontmatter (`interactive |
+non-interactive`); `--execution-mode` is the owner-contact policy in its own file (`interactive |
+autonomous`). Neither is derived from the other.
+
+The `--kind` field is **OPTIONAL on the descriptor**, and that has one consequence worth stating outright:
 a goal scaffolded before the field existed carries no `goal-kind` key, **lints clean**, and reads
 as `interactive`. So `goal-kind` is deliberately NOT in lint's identity-fields check (the same
 treatment `due-date` gets); only its ENUM is checked, and only when a value is present. `reindex`
@@ -48,7 +70,7 @@ stand-in pattern, no contract change at fold-in.
 
 | Verb | Does | Never |
 |---|---|---|
-| `scaffold` | Creates the goal root — `goal.md` (identity frontmatter + the contract body), `threads.sql` (empty schema), plus the standard goal-folder artifacts of § below — then reindexes. **No `runs.csv`:** the run register was extinguished in 7.607 (design-lock item 1) and liveness is DERIVED from the goal's tmux room, never stored. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes seat folders — seat birth is `materialize`'s step |
+| `scaffold` | Creates the goal root — `goal.md` (identity frontmatter + the contract body), `threads.sql` (empty schema), `execution-mode` (one word — the owner-contact policy, `--execution-mode`), plus the standard goal-folder artifacts of § below — then reindexes. **No `runs.csv`:** the run register was extinguished in 7.607 (design-lock item 1) and liveness is DERIVED from the goal's tmux room, never stored. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes seat folders — seat birth is `materialize`'s step |
 | `reindex` | Rebuilds `goals.csv` whole from every `goal.md` frontmatter. Always the full projection; a partial one would leave silent staleness. Fails loud on an unparseable descriptor, naming the file, and leaves `goals.csv` **untouched** — a projection that silently drops a goal is corruption. | Touches any goal folder |
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
 | `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |

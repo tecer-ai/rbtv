@@ -178,11 +178,18 @@ Landing it does not arm it:
 Out of order, step 2 logs one `catalogue-paths` error per boot for an `--inbox` that does not exist
 yet (that check logs; it never refuses the boot).
 
-⚠ **`--workflow` / `--entry-seat` are RULED — `planning-deprecated` / `elicitator`** (owner ruling
+⚠ **`--workflow` / `--entry-seat` are RULED — `planning` / `plan-interviewer`** (owner ruling
 `d-owner-q10-launcher-0808` (1), 2026-08-08; task C5). They name what EVERY master-created goal that
-does not route to a pre-existing workflow starts with: the existing meta component
-`.rbtv/mirror/meta/planning-deprecated/` (RENAMED from `planner-workflow/` by the planning-v4
-stage-B rename, vault commit `01f60de16`; task 7.598), whose chain root is `elicitator`. The pair shipped here
+does not route to a pre-existing workflow starts with: the meta component
+`.rbtv/mirror/meta/planning/`, whose chain root is `plan-interviewer`.
+
+⚠ **REPOINTED 2026-08-10 (issue C-2) — the ruling held, the component moved.** The pair originally
+landed against `.rbtv/mirror/meta/planning-deprecated/` (itself RENAMED from `planner-workflow/` by
+the planning-v4 stage-B rename, vault commit `01f60de16`; task 7.598), entry seat `elicitator`. That
+component was DELETED and the pair went stale: every daemon-fired creation refused
+`workflow-unknown` at `create-package` — `probe-planning-entry.py` recorded it RED, 14 checks. The
+live component is the planning REWRITE, a different shape (16 manifest seats, not 9; entry seat
+`plan-interviewer`, not `elicitator`), and the shipped values below were repointed at it. The pair shipped here
 before was `master-request-launch-entry` / `request-schema-absence-remeasurer` — the run-3 wave that
 BUILT this machinery, whose root seat is a build-time measurement seat — so a fresh goal would have
 re-run the build wave. Confirming that pair is no longer an owner precondition; it is settled.
@@ -190,12 +197,12 @@ re-run the build wave. Confirming that pair is no longer an owner precondition; 
 ✅ **THAT PRECONDITION IS DISCHARGED** (task C5E, owner rulings `d-owner-planning-entry-0808` and
 `d-owner-planning-entry-2-0808`). `enqueue-job` refuses a `start-workflow` row whose workflow is
 absent from `config.workflows`; `spawn-profiles.yaml` now carries a `workflows:` section whose
-`planning-deprecated` entry is that launcher. The three values named here as unresolved were ruled and landed:
+`planning` entry is that launcher. The three values named here as unresolved were ruled and landed:
 
 | Was unresolved | Ruled and built |
 |---|---|
-| which `scaffold-seats` call shape | The WHOLE planning DAG — `--workflow planning-deprecated --root`, **9** manifest seats (`workflows/planning-deprecated/planning-deprecated.csv`; `seats.csv`'s 10 is a different set), `--catalog-root` the SHARED PARENT `.rbtv/mirror/meta/` because `ledger-groomer` resolves from a sibling component |
-| which bindings file | A goal-generic one authored for this path: `.rbtv/mirror/meta/planning-deprecated/bindings-fresh-goal-planning.json`. It is STATIC, not a filled template — probing found no per-goal value to fill; `pass-folder` is the documented greenfield CONSTANT `planning/m0-bootstrapping/`, which is why the per-PASS hold that blocked run-3's file does not apply to a fresh goal |
+| which `scaffold-seats` call shape | The WHOLE planning DAG — `--workflow planning --root`, **16** manifest seats (`workflows/planning/planning.csv`; `seats.csv`'s 20 is a different set — the four pool seats are not DAG rows), `--catalog-root` the SHARED PARENT `.rbtv/mirror/meta/` because the workflow resolves as `<catalog-root>/<component>/workflows/planning/planning.csv`. *(C-2, 2026-08-10: was `planning-deprecated`, 9 manifest seats, where the shared parent was additionally required because `ledger-groomer` resolved from a sibling component.)* |
+| which bindings file | The `planning` workflow's ONE casting sheet: `.rbtv/config/bindings/meta/planning/plan.json`. It is STATIC, not a filled template — probing found no per-goal value to fill — and it is reused by every master-created goal. *(2026-08-10, bindings redesign: bindings moved OUT of the mirror, which carries component definitions only, to the ruled deployment-config path `.rbtv/config/bindings/{module}/{component}/{code}.json`, where `{code}` is the workflow's code — the `plan-` prefix its manifest rows carry. The hand-authored `.rbtv/mirror/meta/planning/bindings-fresh-goal-planning.json` it replaces was deleted in the same change, and nobody hand-authors one any more: the `bindings` capability owns the file end to end. Its two measured deviations survive the move — no `pass-folder` (this component's units render no pass placeholder) and no `window` (a shared window disables in-place renew, G-154).)* |
 | how the PACKAGE is resolved | ⚠ 7.607 E2b: IT IS THE GOAL FOLDER (design-lock item 8). `scaffold-and-queue` calls `create()` — the ruled name `scaffold-seats` — which completes the goal folder's WORKING SURFACES. It appends NO register row: `runs.csv` is extinguished, liveness is the derived lease (item 1), and the deadlock that register caused (7.608) dies with it |
 
 **The goal is therefore born WITH a run**, and the full package path rides the queued row's args as
@@ -222,7 +229,7 @@ and value rules: `server/heart/argv-template.js`. Suite: `server/ticker/probes/p
 DEFAULT workdir when a row carries none, so an absent value does not fail — it composes a command
 line pointed somewhere else. `required` turns that into a refusal at the enqueue door.
 
-### The launcher the `workflows: planning-deprecated:` entry fires
+### The launcher the `workflows: planning:` entry fires
 
 `tool/workflow_launcher.py`. It exists because **`coordinate launch` cannot open a room and a
 daemon-fired exec has none**: `launch` contains zero `new-session` calls (it opens a WINDOW in an
@@ -304,6 +311,7 @@ refusal, never a passthrough.
 | `goal-contract` | yes | non-empty after whitespace strip |
 | `goal-kind` | yes | `interactive` \| `non-interactive` |
 | `due-date` | no | type UNRESOLVED in the schema — **no value of it is rejected** |
+| `execution-mode` | no | `interactive` \| `autonomous` — enforced by `resolve_execution_mode`, **not** by a reject-set member (see below) |
 
 ## The refusal arm — what a refused request is told (task `7.206`, design id `E11`, arm **a**)
 
@@ -357,6 +365,38 @@ type" member the schema does not carry.
    stays valid and reads as `interactive`); it did **not** relax this REQUEST schema, where
    `goal-kind` is still one of the four required fields and `P4` still refuses an absent one.
    A requester must say which kind it wants; only stored descriptors may be silent.
+4. **A created goal is never born without an `execution-mode` file** (owner ruling 2026-08-10).
+   The per-goal owner-contact policy — registry concept `execution mode`, values
+   `interactive | autonomous`, absent reading `autonomous` — used to be written by NO creation
+   path at all, so every daemon-created goal was born mode-less and the ferry could only read the
+   model's default back. The create act now always forwards a resolved word to
+   `rbtv-goal scaffold --execution-mode`, and the `create-goal` step reports both
+   `execution-mode` and `execution-mode-source`.
+
+   **The resolution ladder, in this order:** the request payload's own `execution-mode` → the
+   target workflow's DECLARED `default-execution-mode:` (frontmatter of
+   `<catalog-root>/<component>/workflows/<W>/workflow.md`) → DERIVED from that workflow's
+   manifest (any row whose Modality reads `interactive` → `interactive`, none → `autonomous`) →
+   the model's own `autonomous` where no workflow is named (a `--seat` creation) or the workflow
+   resolves to no single manifest. Every rung names its source in the step record, so a fallback
+   is never mistaken for a resolution.
+
+   ⚠ **The declaration outranks the derivation on purpose.** Derivation cannot express the one
+   case the owner named: a workflow WITH interactive seats that should still default autonomous.
+   A malformed declared value is a **refusal**, never a fallback — falling back would create
+   goals on a default the workflow's own scaffolding says is not its default.
+
+   ⚠ **`goal-kind`'s `interactive` and this axis's `interactive` are DIFFERENT AXES sharing a
+   word** (`concepts/execution-mode.md` § v1 mechanism, vocabulary guard; open issue `F-96`).
+   `goal-kind` is `interactive | non-interactive`; execution mode is `interactive | autonomous`.
+   Neither enum is ever written in terms of the other.
+
+   ⚠ **This added NO fourteenth reject-set member.** The closed set is the request schema's
+   (§6.1) and growing it needs a schema clause first, so the field is admitted by `S2` as an
+   optional NAME and carries no value member. Its enum is enforced one layer down, as a typed
+   `Refusal` raised **before** the scaffold act — the same shape `--kind` already has at
+   `goal_cli.py#cmd_scaffold`, and, like it, it leaves no goal directory behind. A reader must
+   not conclude from the absent member that any value is accepted; the probe drives that arm.
 
 ## ⚠ Arming does not generalise from this capability
 
@@ -377,7 +417,7 @@ end-to-end witness, standing guard over the fact that a request carrying `--type
 produces a recurring goal, checked against the created goal's own descriptor on disk rather than
 against the request that asked for it. `probes/probe-planning-entry.py` (task C5E) is the
 **composition** probe: it drains a real request through a fixture goals root with a STUB
-`--ignite-bin`, then takes the SHIPPED `workflows: planning-deprecated:` argv out of `spawn-profiles.yaml`,
+`--ignite-bin`, then takes the SHIPPED `workflows: planning:` argv out of `spawn-profiles.yaml`,
 expands it with the REAL `argv-template.js` against the args that drain actually produced, and
 EXECUTES the composed command line against the real launcher (with `--dry-run` appended and a
 private tmux socket). 26 checks, 8 of them red arms.

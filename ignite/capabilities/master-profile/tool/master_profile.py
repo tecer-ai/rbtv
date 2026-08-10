@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""master_profile — the channel master's own control over WHICH HARNESS AND MODEL its next sitting
+runs on (issue C-1, owner-ruled 2026-08-10).
+
+WHAT THE KNOB ACTUALLY IS, AND WHERE IT LIVES
+---------------------------------------------
+`master_profile` in `.rbtv/config/chat-bridge-config.json`. The chat bridge reads it at boot
+(`bridges/chat/config.js`) and `forward-path.js#profileFor` selects it for MASTER (DM) traffic:
+
+    return config.masterProfile || config.sessionProfile;
+
+so an absent or empty `master_profile` silently falls back to `session_profile` — which is why this
+tool refuses to CREATE the key rather than inventing one (see `write_value`). The value is a
+spawn-profile NAME from `profiles:` in `ignite/config/spawn-profiles.yaml`, and it is validated
+against that live list at BOTH halves: a name absent from it does not fail at the bridge, it fails
+at the SPAWN, one owner message later, with the sitting already accounted for.
+
+The owner's ruling was explicit: **do not change the system, give the agent a tool to interact with
+it in its native place.** So this file edits one line of that JSON and nothing else.
+
+⚠ EFFORT IS NOT ON THIS WIRE, AND THE `--effort` FLAG IS THEREFORE ABSENT BY MEASUREMENT, NOT BY
+OVERSIGHT. Traced end to end for this build (2026-08-10):
+
+  · `forward-path.js` composes the session-create enqueue as `args: { profile, prompt }` — no
+    effort key, and the `chat-agent` job's registered `args_schema` is
+    `{required:{profile}, optional:{prompt, workdir}}`, so a row carrying one would be REFUSED at
+    the enqueue door (`register-job` is create-only — the schema cannot be widened in place);
+  · `ticker.js#launchAgent` reads exactly `args.profile` / `args.prompt` / `args.workdir` and calls
+    `spawnManager.spawn(execId, profileName, sessionMode, prompt, workdir, enqueuedBy, resumeRef)`
+    — a seven-parameter signature with no effort parameter at all;
+  · the effort TRANSLATION table each profile declares (`effort: {dialect, values, argv}`) is
+    consumed only by `launch-profiles/resolveProfile`, and `internal-api/dispatch.js` states its
+    own status verbatim: `E_UNKNOWN_EFFORT` is *"raised only inside resolveProfile (the effort
+    translation table), which has NO daemon caller today"*. `spawn.js` resolves `exec.argv`
+    directly and never appends the effort argv.
+
+So the dial exists in the config vocabulary and is not connected to the master's spawn path. Adding
+`--effort` here would have written a value nothing reads — a knob that turns and does nothing, which
+is worse than no knob. Wiring it is a daemon change (7.43/7.54), not a tool change.
+
+WHY THIS IS TWO HALVES AND NOT ONE COMMAND
+-------------------------------------------
+Identical to its sibling `goal-launch-delay`, and to `goal-creation-request` before it: the channel
+master's cage binds `.rbtv/config` READ-ONLY (`touch` answers `Read-only file system`), so the seat
+cannot write this file; `fire-tool` argv is STATIC, so no gateway verb can carry a request body to a
+fired tool, and the payload must travel as a FILE staged in the seat's own folder; `enqueue-job` is
+the one gateway verb open to every sender kind including a `bridge` token, so it is the trigger.
+
+⚠ THE RESTART IS THE LAST ACT. The bridge config is boot-read by `rbtv-chat-bridge.service`, so the
+edit is inert until that unit restarts — and the restart kills the very conversation the requesting
+sitting is having. Edit first, outcome record on disk second, restart last: a sitting that vanishes
+mid-restart still finds its answer written when the next one reads the inbox.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+_IGNITE = Path(__file__).resolve().parents[3]
+DEFAULT_PROFILES = _IGNITE / "config" / "spawn-profiles.yaml"
+DAEMON_OPERATOR = _IGNITE / "capabilities" / "daemon-operator" / "tool" / "rbtv-ignite-daemon"
+# The workspace root is the folder that roots `.rbtv/` — <workspace>/3-resources/tools/rbtv/ignite
+DEFAULT_CONFIG = _IGNITE.parents[3] / ".rbtv" / "config" / "chat-bridge-config.json"
+
+KEY = "master_profile"
+ENTRY_TOOL_KEY = "master-profile"   # this capability's own `tools:` key
+JOB_ID = "master-profile"           # the registered fire-tool job id the client half enqueues
+
+DONE_DIR = "done"
+REFUSED_DIR = "refused"
+
+
+class Refusal(Exception):
+    """A refusal names what was rejected and what held instead — never a bare status."""
+
+
+def known_profiles(profiles_path=DEFAULT_PROFILES):
+    """The live `profiles:` key set, read from the config the daemon boots on.
+
+    ⚠ NOT A HARD-CODED ROSTER. The owner-ruled roster changes (four claude models, codex, kimi, the
+    opencode set), and a list frozen in this file would refuse a profile that exists or admit one
+    that was removed — the second being the failure that reaches the spawn.
+
+    ponytail: a line scan, not a YAML parse. It reads the two-space keys directly under the
+    `profiles:` root key and stops at the next root key. Ceiling: it would miss a profile declared
+    with a non-standard indent or a quoted key. Upgrade path if that ever happens: PyYAML is
+    already a daemon dependency — but a parse here would be the ONLY reader of this document that
+    needs one, for a question a scan answers exactly.
+    """
+    lines = Path(profiles_path).read_text(encoding="utf-8").splitlines()
+    at = next((i for i, ln in enumerate(lines) if ln.rstrip() == "profiles:"), None)
+    if at is None:
+        raise Refusal(f"{profiles_path} declares no root key `profiles:` — refusing to validate a "
+                      f"profile name against a list this file does not carry")
+    names = []
+    for ln in lines[at + 1:]:
+        if ln.strip() and not ln.startswith(" ") and not ln.lstrip().startswith("#"):
+            break                       # the next root key ends the section
+        m = re.match(r"^  ([A-Za-z0-9][A-Za-z0-9._-]*):\s*$", ln)
+        if m:
+            names.append(m.group(1))
+    if not names:
+        raise Refusal(f"the `profiles:` section of {profiles_path} declares no profiles — refusing "
+                      f"to validate against an empty list, which would refuse EVERY name")
+    return names
+
+
+def validate(name, profiles_path=DEFAULT_PROFILES):
+    """The ONE validator, called by both halves. The client so a typo refuses in the sitting that
+    made it; the daemon because a client-side check is not a check (the staged payload is written
+    by the requester and can be edited between staging and the fire)."""
+    if not isinstance(name, str) or not name.strip():
+        raise Refusal(f"{KEY} must be a non-empty string, got {name!r}")
+    known = known_profiles(profiles_path)
+    if name not in known:
+        raise Refusal(f"`{name}` is not a declared spawn profile. The live `profiles:` set is: "
+                      f"{', '.join(sorted(known))}. Refused HERE because an unknown name does not "
+                      f"fail at the bridge — it fails at the spawn, one owner message later.")
+    return name
+
+
+# ───────────────────────────────────────────────────────────────── the targeted JSON edit
+#
+# ⚠ A LINE EDIT, NOT A json.load/json.dump ROUND TRIP. The live file is hand-authored with
+# one-space indentation; re-dumping it would rewrite every line of a config an operator reads and
+# diffs, turning a one-value change into a whole-file diff. The line edit changes exactly the bytes
+# that are the value.
+
+_LINE = re.compile(r'^(\s*"%s"\s*:\s*)"([^"]*)"(\s*,?\s*)$' % KEY)
+
+
+def read_value(config=DEFAULT_CONFIG):
+    """The value in force and where it comes from. Pure read — safe from inside the cage."""
+    config = Path(config)
+    lines = config.read_text(encoding="utf-8").splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        m = _LINE.match(ln.rstrip("\n"))
+        if m:
+            return {"profile": m.group(2), "source": "explicit", "config": str(config),
+                    "line": i + 1,
+                    "where": f"{config}:{i + 1} — the `{KEY}` field, read at boot by "
+                             f"bridges/chat/config.js and selected for master (DM) traffic by "
+                             f"forward-path.js#profileFor"}
+    # No key: `profileFor` falls through to `session_profile`. Say so with the value, because
+    # "absent" alone leaves the reader to guess what the master is actually running on.
+    doc = json.loads(config.read_text(encoding="utf-8"))
+    return {"profile": doc.get("session_profile"), "source": "session_profile-fallback",
+            "config": str(config), "line": None,
+            "where": f"`{KEY}` is ABSENT from {config}, so forward-path.js#profileFor "
+                     f"(`config.masterProfile || config.sessionProfile`) falls back to "
+                     f"`session_profile`"}
+
+
+def write_value(config, name):
+    config = Path(config)
+    lines = config.read_text(encoding="utf-8").splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        m = _LINE.match(ln.rstrip("\n"))
+        if m:
+            previous = m.group(2)
+            lines[i] = f'{m.group(1)}"{name}"{m.group(3)}\n'
+            # tmp + os.replace: atomically on disk before anything restarts anything.
+            tmp = config.with_name(config.name + f".master-profile.{os.getpid()}.tmp")
+            tmp.write_text("".join(lines), encoding="utf-8")
+            os.replace(tmp, config)
+            return {"action": "updated", "line": i + 1, "previous": previous,
+                    "profile": name, "config": str(config)}
+    # ⚠ REFUSE RATHER THAN CREATE THE KEY. An absent `master_profile` is a live configuration
+    # choice — master traffic riding `session_profile` deliberately — and minting the key would
+    # SPLIT the two surfaces without anyone deciding to. That is an operator's edit, not a
+    # requester's, and it is one line of JSON for whoever wants it.
+    raise Refusal(f"{config} carries no `{KEY}` field. Master traffic is currently riding "
+                  f"`session_profile` by fallback, and creating the key would split the two "
+                  f"surfaces apart — a configuration decision, not a value change. Add "
+                  f"`\"{KEY}\": \"<profile>\"` to that file by hand first; this tool then owns it.")
+
+
+# ─────────────────────────────────────────────────────────────────────────── the client half
+
+def request(inbox, name, ignite_bin, profiles_path=DEFAULT_PROFILES, job_id=JOB_ID, dry_run=False):
+    validate(name, profiles_path)
+    inbox = Path(inbox)
+    if inbox.is_symlink():
+        raise Refusal(f"{inbox} is a symlink — refusing to stage through one")
+    inbox.mkdir(parents=True, exist_ok=True)
+    staged = inbox / f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.json"
+    out = {"ok": True, "staged": str(staged), "master-profile": name}
+    if dry_run:
+        out["staged"] = None
+        out["dry-run"] = True
+        return out
+    staged.write_text(json.dumps({"master-profile": name}, indent=2) + "\n", encoding="utf-8")
+
+    at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    r = subprocess.run([ignite_bin, "add-job", "--fn", job_id,
+                        "--args-json", json.dumps({"tool": ENTRY_TOOL_KEY}),
+                        "--trigger", "scheduled", "--at", at],
+                       capture_output=True, text=True)
+    out["enqueue"] = {"rc": r.returncode, "at": at,
+                      "stdout": r.stdout.strip(), "stderr": r.stderr.strip()}
+    if r.returncode != 0:
+        out["ok"] = False
+        out["note"] = (f"the request is STAGED at {staged} but the enqueue failed — it will be "
+                       f"applied by the next fire of this tool, or re-run the enqueue by hand")
+    out["warning"] = ("applying this restarts rbtv-chat-bridge, which ENDS the live chat session "
+                      "this request was made from. The next owner message opens a new one, on the "
+                      "new profile.")
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────── the daemon half
+
+def _outcome(dest, record):
+    dest.with_suffix(".outcome.json").write_text(json.dumps(record, indent=2) + "\n",
+                                                 encoding="utf-8")
+
+
+def _settle(inbox, src, verdict, record, dry_run):
+    if dry_run:
+        record["moved-to"] = None
+        return record
+    dest_dir = inbox / (DONE_DIR if verdict == "ACCEPTED" else REFUSED_DIR)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / src.name
+    if dest.exists():
+        dest = dest_dir / f"{src.name}.{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
+    src.replace(dest)
+    record["moved-to"] = str(dest)
+    record.setdefault("restart", "pending")
+    _outcome(dest, record)
+    return record
+
+
+def _restart():
+    """Delegated to `daemon-operator` (PRIN-11) — `RBTV_IGNITE_UNIT` steers it at a throwaway unit
+    for the probe, exactly as it does for `rbtv-ignite-ticker`."""
+    r = subprocess.run([str(DAEMON_OPERATOR), "restart", "--service", "chat-bridge"],
+                       capture_output=True, text=True)
+    return {"rc": r.returncode, "cmd": f"{DAEMON_OPERATOR} restart --service chat-bridge",
+            "unit": os.environ.get("RBTV_IGNITE_UNIT", "rbtv-chat-bridge.service"),
+            "stdout": r.stdout.strip()[-800:], "stderr": r.stderr.strip()[-800:]}
+
+
+def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=False):
+    """Drain, apply, then restart the bridge — in that order, once per fire."""
+    inbox = Path(inbox)
+    if not inbox.is_dir():
+        raise Refusal(f"the staged inbox {inbox} does not resolve to a directory — nothing to drain")
+    for candidate in (inbox, inbox / DONE_DIR, inbox / REFUSED_DIR):
+        if candidate.is_symlink():
+            raise Refusal(f"{candidate} is a symlink, and this verb refuses to drain through one. "
+                          f"NOTHING was drained; replace it with a real directory.")
+
+    before = read_value(config)
+    results, accepted = [], []
+    for src in sorted(p for p in inbox.iterdir() if p.name.endswith(".json")):
+        record = {"request-file": str(src), "before": before}
+        try:
+            payload = json.loads(src.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or set(payload) != {"master-profile"}:
+                raise Refusal(f"the payload must be exactly {{\"master-profile\": \"<name>\"}}; "
+                              f"got keys {sorted(payload) if isinstance(payload, dict) else type(payload).__name__}")
+            name = validate(payload["master-profile"], profiles_path)
+            record["requested"] = name
+            if not dry_run:
+                record["change"] = write_value(config, name)
+            verdict = "ACCEPTED"
+            accepted.append(name)
+        except Refusal as exc:
+            verdict, record["stated-refusal"] = "REFUSED", str(exc)
+        except Exception as exc:
+            verdict = "REFUSED"
+            record["stated-refusal"] = f"{type(exc).__name__}: {exc}"
+        record["outcome"] = verdict
+        results.append(_settle(inbox, src, verdict, record, dry_run))
+
+    out = {"ok": all(r["outcome"] == "ACCEPTED" for r in results),
+           "drained": len(results), "before": before, "results": results}
+    if accepted and not dry_run:
+        out["after"] = read_value(config)
+        out["restart"] = _restart() if restart else {"skipped": "--no-restart"}
+        for r in results:
+            if r["outcome"] == "ACCEPTED" and r.get("moved-to"):
+                r["restart"] = out["restart"]
+                r["after"] = out["after"]
+                _outcome(Path(r["moved-to"]), r)
+    return out
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="rbtv-master-profile",
+        description="read and change which harness+model the channel master's next sitting runs "
+                    "on — the `master_profile` field of .rbtv/config/chat-bridge-config.json")
+    # ⚠ THE OPTIONS HANG OFF THE VERBS, NOT OFF THE ROOT PARSER — a FIX, not a style call. As root
+    # options argparse accepts them only BEFORE the verb, while the `tools:` entry and every
+    # documented example spell them after (`apply --inbox … --config X --profiles Y`). The twin
+    # capability's first live fire died on exactly that (`error: unrecognized arguments: --config`),
+    # leaving the request un-drained and the execution recorded `failed`. Shared parent parsers keep
+    # ONE definition of each option and admit it where callers actually put it.
+    cfg_opt = argparse.ArgumentParser(add_help=False)
+    cfg_opt.add_argument("--config", default=str(DEFAULT_CONFIG),
+                         help="the chat-bridge config that carries the knob (default: the live one)")
+    prof_opt = argparse.ArgumentParser(add_help=False)
+    prof_opt.add_argument("--profiles", default=str(DEFAULT_PROFILES),
+                          help="the spawn-profiles document a requested name is validated against")
+    sub = p.add_subparsers(dest="verb", required=True)
+
+    s = sub.add_parser("show", parents=[cfg_opt, prof_opt],
+                       help="print the profile in force, where it comes from, and the "
+                            "names that may be requested")
+    s.add_argument("--json", action="store_true")
+
+    q = sub.add_parser("request", parents=[prof_opt],
+                       help="[the seat's verb] stage a change and enqueue the daemon "
+                            "job that applies it")
+    q.add_argument("profile")
+    q.add_argument("--inbox", required=True)
+    q.add_argument("--ignite-bin", default="ignite")
+    q.add_argument("--dry-run", action="store_true")
+
+    a = sub.add_parser("apply", parents=[cfg_opt, prof_opt],
+                       help="[the daemon's verb] drain the inbox, edit the config, "
+                            "restart the bridge")
+    a.add_argument("--inbox", required=True)
+    a.add_argument("--no-restart", action="store_true")
+    a.add_argument("--dry-run", action="store_true")
+
+    args = p.parse_args(argv)
+    try:
+        if args.verb == "show":
+            v = read_value(args.config)
+            v["available"] = sorted(known_profiles(args.profiles))
+            if args.json:
+                print(json.dumps(v, indent=2))
+            else:
+                print(f"master_profile: {v['profile']}  ({v['source']})")
+                print(f"from: {v['where']}")
+                print(f"available: {', '.join(v['available'])}")
+                print("boot-read: a change needs an `rbtv-chat-bridge` restart to take effect, "
+                      "and that restart ends the live chat session")
+            return 0
+        if args.verb == "request":
+            out = request(args.inbox, args.profile, args.ignite_bin, profiles_path=args.profiles,
+                          dry_run=args.dry_run)
+            print(json.dumps(out, indent=2))
+            return 0 if out["ok"] else 1
+        out = apply(args.inbox, args.config, profiles_path=args.profiles,
+                    restart=not args.no_restart, dry_run=args.dry_run)
+        print(json.dumps(out, indent=2))
+        return 0 if out["ok"] else 1
+    except Refusal as exc:
+        print(json.dumps({"ok": False, "refusal": str(exc)}, indent=2), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
