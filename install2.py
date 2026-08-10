@@ -91,7 +91,11 @@ D8  `agents.md` AND THE GUIDANCE SURFACE (rewritten 2026-08-10 to conform to
     THE FORCED READ (CMP-12 § Fallback mechanics) is for the harnesses that
     auto-inject no rule folder — Codex, Qwen and Kimi ONLY. It is emitted into a
     guidance file only when an installed harness of that set reads that file's
-    name. NEVER for claude (`.claude/rules/` auto-injects), and never for
+    name, and it enumerates the paths those harnesses' rule copies were ACTUALLY
+    written to — a rule whose component was installed claude-only exists at
+    `.claude/rules/` and is never named to codex, whose MANDATORY Step 0 would
+    otherwise point at a file that was never created.
+    NEVER for claude (`.claude/rules/` auto-injects), and never for
     opencode, which CMP-12 gives no separate rule type because it reads
     `.claude/` natively — so opencode's `rule` realization in MATRIX is claude's
     own `.claude/rules/` file, deduped by path exactly as its `skill` row
@@ -119,6 +123,14 @@ D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10; harness-keyed per CMP-12
     normal installer-owned file — booked, collision-gated (a mirror file that
     exists and is not in our book, e.g. one the old installer's `model_mirror`
     renders, refuses the run pre-write) and removed on full uninstall.
+
+    WHEN THE TARGET SET GOES EMPTY (a basis flip that leaves every installed
+    harness reading the basis), yesterday's generated file is today's authored
+    one: it is kept, never booked, and its stale `GENERATED — DO NOT EDIT`
+    banner and fenced block are cleaned off IN PLACE — the one write this
+    installer makes to a basis name, guarded by the machine-readable banner, so
+    a hand-authored file is never touched. Leaving the banner would tell the
+    human their own file must not be edited.
 
     SCOPE — RECURSIVE (owner ruling d-s17-agents-md-handover-to-install2,
     2026-08-10; amends A6's root-only scope). A mirror is rendered beside EVERY
@@ -186,7 +198,9 @@ D12 THE `rbtv2-` PREFIX (owner amendment, 2026-08-09) — every NAMED artifact
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
+import io
 import datetime as _dt
 import hashlib
 import json
@@ -473,17 +487,23 @@ def _exposure_block(name: str, harnesses: list[str],
     """The rbtv exposure preamble ONE guidance file carries (D8), fenced.
 
     `name` is the guidance FILENAME this block is for. The Step-0 forced read is
-    emitted only when an installed harness that auto-injects no rule folder
-    (`FORCED_READ_HARNESSES` — CMP-12 § Fallback mechanics) reads that name;
-    claude and opencode never get it. The `agents.md` rows are named in every
+    emitted only for the harnesses that auto-inject no rule folder
+    (`FORCED_READ_HARNESSES` — CMP-12 § Fallback mechanics) AND read that name;
+    claude and opencode never get it. It enumerates the paths those harnesses'
+    rule files were ACTUALLY written to — a rule realized only under
+    `.claude/rules/` (its component installed claude-only) is never named to
+    codex, whose copy does not exist. The `agents.md` rows are named in every
     guidance file, because that method's realization IS the guidance file.
 
     Empty string when there is nothing to say — no block, no fence, no file
     churn.
     """
-    forced = bool(rule_parts) and any(
-        h in FORCED_READ_HARNESSES and GUIDANCE_FILE.get(h) == name
-        for h in harnesses)
+    readers = [h for h in harnesses
+               if h in FORCED_READ_HARNESSES and GUIDANCE_FILE.get(h) == name]
+    forced: list[tuple[str, str]] = []
+    for _pid, desc, by_harness in rule_parts:
+        for rel in sorted({by_harness[h] for h in readers if h in by_harness}):
+            forced.append((rel, desc))
     if not agents_parts and not forced:
         return ""
     out = ["# rbtv exposure — installed components", ""]
@@ -497,9 +517,9 @@ def _exposure_block(name: str, harnesses: list[str],
             "a bulk read truncates the last entries.",
             "",
         ]
-        for i, (pid, desc) in enumerate(rule_parts, 1):
+        for i, (rel, desc) in enumerate(forced, 1):
             suffix = f" — {desc}" if desc else ""
-            out.append(f"{i}. `.agents/behavior-rules/{pid}.md`{suffix}")
+            out.append(f"{i}. `{rel}`{suffix}")
         out.append("")
     if agents_parts:
         out += ["## Guidance parts", ""]
@@ -619,21 +639,23 @@ def _is_generated_file(path: Path) -> bool:
 def plan_mirror(target: Path, basis: str | None, harnesses,
                 excludes: list[str] | tuple[str, ...] = (),
                 blocks: dict[str, str] | None = None
-                ) -> tuple[dict[str, str], frozenset[str], list[str], list[str]]:
+                ) -> tuple[dict[str, str], frozenset[str], list[str],
+                           list[str], dict[str, str]]:
     """The mirror files the basis implies: one per TARGET NAME (D13, harness-
     keyed) beside EVERY basis file in the tree (recursive).
 
-    Returns `(files, bases, stripped, targets)` — `bases` is the set of basis
-    paths that must never be written or deleted (computed even when there is no
-    target, because a basis flip can put a booked name on a hand-authored file);
-    `stripped` names the bases whose own generated banner was removed before
-    mirroring; `targets` is the resolved filename set.
+    Returns `(files, bases, stripped, targets, debanner)` — `bases` is the set
+    of basis paths that must never be written or deleted (computed even when
+    there is no target, because a basis flip can put a booked name on a
+    hand-authored file); `stripped` names the bases whose own generated banner
+    was removed before mirroring; `targets` is the resolved filename set;
+    `debanner` maps a basis path to its cleaned body (see below).
 
     `blocks` maps a target filename to its exposure block (D8), placed at the
     ROOT only — nested mirrors are pure per-folder guidance.
     """
     if basis is None:
-        return {}, frozenset(), [], []
+        return {}, frozenset(), [], [], {}
     blocks = blocks or {}
     targets = mirror_targets(harnesses, basis)
     root_source = target / basis
@@ -641,7 +663,7 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
         if not targets:
             # Nothing would be rendered anyway — a missing basis is not this
             # run's problem, and there is no basis on disk to protect.
-            return {}, frozenset(), [], []
+            return {}, frozenset(), [], [], {}
         other = " or ".join(n for n in GUIDANCE_NAMES if n != basis)
         raise Refuse(
             "guidance-basis-missing",
@@ -654,10 +676,27 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
     files: dict[str, str] = {}
     bases: set[str] = set()
     stripped: list[str] = []
+    debanner: dict[str, str] = {}
     for source in walk_bases(target, basis, excludes):
         rel = source.relative_to(target).as_posix()
         bases.add(rel)
         if not targets:
+            # No mirror can be rendered under this name any more (every
+            # installed harness reads the basis). A file that USED to be our
+            # generated mirror is now the file the human authors, so our
+            # DO-NOT-EDIT banner and fenced block are stale instructions on
+            # their file — clean them off, in place, booking nothing. Guarded
+            # by the machine-readable banner: a hand-authored basis has none
+            # and is never touched.
+            try:
+                body = source.read_text(encoding="utf-8").lstrip("\n")
+            except (OSError, UnicodeDecodeError):
+                continue          # unreadable proves nothing — leave it alone
+            cleaned, had_banner = strip_generated_banner(body)
+            if had_banner:
+                cleaned = _block_del(cleaned, "<!--").lstrip("\n")
+                debanner[rel] = (cleaned if cleaned.endswith("\n")
+                                 else cleaned + "\n")
             continue
         try:
             body = source.read_text(encoding="utf-8").lstrip("\n")
@@ -686,7 +725,7 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
                     "file. -->\n\n") + (block + "\n" if block else "") + body
             mrel = (source.parent / mirror).relative_to(target).as_posix()
             files[mrel] = text if text.endswith("\n") else text + "\n"
-    return files, frozenset(bases), sorted(stripped), targets
+    return files, frozenset(bases), sorted(stripped), targets, debanner
 
 
 # ── shared-file claims (D7 + D12) ───────────────────────────────────────────
@@ -888,7 +927,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict]
                 hook_harnesses |= set(harnesses)
                 continue
 
-            realized = 0
+            realized: dict[str, str] = {}
             for harness in harnesses:
                 template = MATRIX[method].get(harness)
                 if template is None:
@@ -901,9 +940,13 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict]
                     rel, method, named,
                     desc or f"{pid} — exposed via {cid}/{EXPOSURE_NAME}",
                     entry_abs, comp_dir, entry_file), cid)
-                realized += 1
+                realized[harness] = rel
             if method == "rule" and realized:
-                rule_parts.append((named, desc))
+                # The REALIZED path per harness, not the part id: a component
+                # installed for claude only put no file under
+                # `.agents/behavior-rules/`, so codex's forced read must not
+                # enumerate one (a MANDATORY Step 0 pointing at a missing file).
+                rule_parts.append((named, desc, realized))
 
     # ── D7/D12: shared-file claims, recomputed from the whole set ──
     claims: list[dict] = []
@@ -1160,6 +1203,17 @@ def _apply_shared(target: Path, claims: list[dict],
         path.write_text(text, encoding="utf-8", newline="\n")
 
 
+def _clean_bases(target: Path, report: dict, dry_run: bool) -> None:
+    """Write back the bases whose stale GENERATED banner we removed (D13, the
+    empty-target flip). Never booked — a basis on the book is a basis on some
+    later uninstall's delete set."""
+    debanner = report.pop("_debanner", None) or {}
+    if not dry_run:
+        for rel, text in debanner.items():
+            (target / rel).write_text(text, encoding="utf-8", newline="\n")
+    report["guidance_debannered"] = sorted(debanner)
+
+
 def _prune(target: Path, directory: Path) -> None:
     """Remove directories our deletion emptied — never above the target."""
     target = target.resolve()
@@ -1249,8 +1303,11 @@ def _add_mirror(target: Path, state: dict, files: dict, owners: dict,
                                     report.get("agents_parts") or [],
                                     report.get("rule_parts") or [])
               for name in GUIDANCE_NAMES}
-    mirrors, bases, stripped, targets = plan_mirror(
+    mirrors, bases, stripped, targets, debanner = plan_mirror(
         target, basis, harnesses, excludes, blocks)
+    # Carried privately: these are writes OUTSIDE the booked-file machinery
+    # (booking a basis would put it on a later uninstall's delete set).
+    report["_debanner"] = debanner
     for rel, content in mirrors.items():
         files[rel] = content
         owners[rel] = ["<aggregate>"]
@@ -1292,6 +1349,7 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
     protect = _add_mirror(target, state, files, owners, report, guidance_basis,
                           installed_harnesses(records), guidance_excludes)
     result = apply(target, files, claims, state, dry_run, protect)
+    _clean_bases(target, report, dry_run)
     if not dry_run:
         _rebook(state, records, files, owners, claims, report)
         if guidance_basis is not None:
@@ -1333,6 +1391,7 @@ def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
             report["guidance_mirror"] = {"basis": None, "targets": [],
                                          "skipped": exc.code}
     result = apply(target, files, claims, state, dry_run, protect)
+    _clean_bases(target, report, dry_run)
     if not dry_run:
         if records:
             _rebook(state, records, files, owners, claims, report)
@@ -1399,6 +1458,7 @@ def print_result(data: dict) -> None:
             print(f"  - {rel}")
         for rel in data.get("shared_removed") or []:
             print(f"  ~- {rel}")
+        _print_guidance(data.get("report") or {}, planned=True)
         return
     for rel in data.get("written") or []:
         print(f"  + {rel}")
@@ -1419,6 +1479,12 @@ def print_result(data: dict) -> None:
         print(f"  · {row['harness']} has no realization for method "
               f"{row['method']} ({row['component']}/{row['part']}) — nothing "
               "minted")
+    _print_guidance(report, planned=False)
+def _print_guidance(report: dict, planned: bool) -> None:
+    """The guidance-mirror summary and the blocks the human must place. Printed
+    on DRY RUNS TOO: the basis is never written, so this is the only channel
+    that ever names what the human still has to do (7.622's bug class)."""
+    verb = "would generate" if planned else "generated"
     mirror = report.get("guidance_mirror")
     if mirror and mirror.get("skipped"):
         print(f"  · guidance mirror: SKIPPED ({mirror['skipped']}) — not "
@@ -1430,7 +1496,7 @@ def print_result(data: dict) -> None:
               "never written (D13).")
     elif mirror and mirror.get("basis"):
         print(f"  · guidance mirror: {mirror['count']} file(s) — "
-              f"{', '.join(mirror['targets'])} generated from "
+              f"{', '.join(mirror['targets'])} {verb} from "
               f"{mirror['basis']} (one set beside every {mirror['basis']} in "
               "the tree; no basis file is ever written)"
               + (f"; excluding {', '.join(mirror['excludes'])}"
@@ -1442,10 +1508,18 @@ def print_result(data: dict) -> None:
     elif mirror:
         print("  · guidance mirror: OFF — no basis recorded. Set one with "
               "`--guidance-basis CLAUDE.md|AGENTS.md` (D13).")
+    if report.get("guidance_debannered"):
+        print(f"  · {'would clean' if planned else 'cleaned'} a stale GENERATED "
+              "banner off the file(s) you now author: "
+              + ", ".join(report["guidance_debannered"]))
     for name, block in (report.get("guidance_manual") or {}).items():
         print(f"\nAdd this block to {name} — an installed harness reads it and "
-              "this installer never writes it (D8):\n")
-        print("    " + block.replace("\n", "\n    ").rstrip())
+              "this installer never writes it (D8). Copy from the next line to "
+              "the closing fence:\n")
+        # Flush, never indented: four leading spaces make markdown swallow the
+        # whole block as a code span when it is pasted into the guidance file.
+        print(block.rstrip())
+
 
 
 # ── interactive ─────────────────────────────────────────────────────────────
@@ -1556,6 +1630,16 @@ def _fixture(root: Path) -> None:
         "fixpool,prompt,pool,,guide.md,a pool member — shopped, never minted\n",
         encoding="utf-8")
 
+    codexc = root / "fixmod" / "codexcomp"
+    codexc.mkdir(parents=True)
+    (codexc / COMPONENT_NAME).write_text("# codexcomp\n", encoding="utf-8")
+    (codexc / "rule-entry.md").write_text("# CODEX RULE\n", encoding="utf-8")
+    (codexc / "guide.md").write_text("# codex guidance part\n", encoding="utf-8")
+    (codexc / EXPOSURE_NAME).write_text(
+        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+        "codexrule,reference,rule,,rule-entry.md,the codex-side rule\n"
+        "codexguide,prompt,agents.md,,guide.md,\n", encoding="utf-8")
+
     bare = root / "fixmod" / "barecomp"
     bare.mkdir(parents=True)
     (bare / COMPONENT_NAME).write_text("# barecomp — no manifest\n",
@@ -1590,9 +1674,10 @@ def selftest() -> int:
 
         print("scan")
         data = do_scan(catalog, shadowed)
-        check("discovers all three components",
+        check("discovers every component on the tree",
               sorted(catalog) == ["badmod/badcomp", "fixmod/barecomp",
-                                  "fixmod/goodcomp"], str(sorted(catalog)))
+                                  "fixmod/codexcomp", "fixmod/goodcomp"],
+              str(sorted(catalog)))
         check("reports the manifest-less component",
               data["no_manifest"] == ["fixmod/barecomp"],
               str(data["no_manifest"]))
@@ -2245,6 +2330,73 @@ def selftest() -> int:
         check("H7 — and the flipped run is idempotent",
               do_install(h7, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
                          dry_run=False)["written"] == [])
+
+        print("\nRF1 — Step-0 names ONLY the rule files that harness reads")
+        rf = tmp / "ws-mixed-harness"
+        rf.mkdir()
+        (rf / "CLAUDE.md").write_text(basis_body, encoding="utf-8")
+        # goodcomp's rule lands under `.claude/rules/` ONLY (claude-only);
+        # codexcomp then arrives for codex, whose forced read must enumerate
+        # its OWN `.agents/behavior-rules/` file and nothing else.
+        do_install(rf, catalog, ["fixmod/goodcomp"], ["claude"],
+                   dry_run=False, guidance_basis="CLAUDE.md")
+        rrf = do_install(rf, catalog, ["fixmod/codexcomp"], ["codex"],
+                         dry_run=False)
+        agents_md = (rf / "AGENTS.md").read_text()
+        check("RF1 — the claude-only rule is NOT enumerated to codex",
+              f"{PREFIX}fixrule" not in agents_md
+              and ".claude/rules" not in agents_md,
+              agents_md[:600])
+        check("RF1 — codex's own rule IS enumerated, at the path written",
+              "Step 0" in agents_md
+              and f"`.agents/behavior-rules/{PREFIX}codexrule.md`" in agents_md
+              and (rf / f".agents/behavior-rules/{PREFIX}codexrule.md").is_file(),
+              agents_md[:600])
+        check("RF1 — every path the Step-0 names EXISTS on disk",
+              all((rf / line.split("`")[1]).is_file()
+                  for line in agents_md.splitlines()
+                  if line[:2] in ("1.", "2.", "3.") and "`" in line),
+              agents_md[:600])
+        check("RF1 — and the unrealized path was never created",
+              not (rf / f".agents/behavior-rules/{PREFIX}fixrule.md").exists()
+              and (rf / f".claude/rules/{PREFIX}fixrule.md").is_file())
+
+        print("\nRF2 — a DRY RUN still reports the block the human must place")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            print_result(do_install(rf, catalog, ["fixmod/codexcomp"],
+                                    ["codex"], dry_run=True))
+        out = buf.getvalue()
+        check("RF2 — the dry run prints the guidance-mirror summary",
+              "guidance mirror:" in out and "would generate" in out, out[-600:])
+        check("RF2 — and the manual block, flush (never a 4-space code block)",
+              "Add this block to CLAUDE.md" in out
+              and "\n# rbtv exposure" in out
+              and "\n    # rbtv exposure" not in out, out[-600:])
+
+        print("\nRF3 — a flip into an empty-target config de-banners the basis")
+        fb = tmp / "ws-flip-empty"
+        fb.mkdir()
+        (fb / "AGENTS.md").write_text(basis_body, encoding="utf-8")
+        do_install(fb, catalog, ["fixmod/goodcomp"], ["claude"],
+                   dry_run=False, guidance_basis="AGENTS.md")
+        check("RF3 — setup: claude's CLAUDE.md was generated from AGENTS.md",
+              "GENERATED by install2.py" in (fb / "CLAUDE.md").read_text())
+        rfb = do_install(fb, catalog, ["fixmod/goodcomp"], ["claude"],
+                         dry_run=False, guidance_basis="CLAUDE.md")
+        cleaned = (fb / "CLAUDE.md").read_text()
+        check("RF3 — the file the human now authors carries NO stale banner",
+              "GENERATED by install2.py" not in cleaned
+              and "DO NOT EDIT" not in cleaned
+              and f"{FENCE_ID}:start" not in cleaned
+              and rfb["report"]["guidance_debannered"] == ["CLAUDE.md"],
+              cleaned[:400])
+        check("RF3 — the guidance BODY survives the cleaning",
+              cleaned.rstrip() == basis_body.rstrip(), repr(cleaned[:200]))
+        check("RF3 — a hand-authored basis is never rewritten by the cleaner",
+              do_install(fb, catalog, ["fixmod/goodcomp"], ["claude"],
+                         dry_run=False)["report"]["guidance_debannered"] == []
+              and (fb / "CLAUDE.md").read_text() == cleaned)
 
         print("\nuninstall")
         res = do_uninstall(target, catalog, ["fixmod/goodcomp"], dry_run=False)
