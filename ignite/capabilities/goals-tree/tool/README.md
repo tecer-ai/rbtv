@@ -132,7 +132,7 @@ goal name produce byte-identical files.
 
 | Written | What it is |
 |---|---|
-| `CLAUDE.md`, `AGENTS.md` | the ROUTER, one per supported harness. It names the sibling artifacts and carries no content of its own. `AGENTS.md` is `CLAUDE.md`'s body behind a header saying so |
+| `CLAUDE.md`, `AGENTS.md` | the ROUTER, one per supported harness. It names the sibling artifacts and where to write, and carries no content of its own. `AGENTS.md` is `CLAUDE.md`'s body behind a header saying so |
 | `issues.md`, `decisions.md`, `doubts.md`, `gotchas.md`, `ideas.md` | the five **write-if-something** files. Nothing obliges an entry; an agent with nothing to note writes nothing |
 
 `decisions.md` is the one write-if-something file with its OWN template body (`DECISIONS_TEMPLATE`),
@@ -150,6 +150,15 @@ values across every model package manifest (`orchestration/models/*/manifest.yam
 claude-code-native omit `guidance_file` deliberately: those workers load no workspace guidance file,
 so no router of any name reaches them. A package adopting a third convention adds its filename to
 that tuple and nothing else changes.
+
+The router also carries the **tooling-gap filing rule** (owner ruling 2026-08-10, issue
+`i-wrote-outside-own-seat-first`): a defect found in a TOOL goes to the `issues.md` of the goal that
+OWNS that tooling, with this goal's own `issues.md` as the fallback when that ledger is unreachable.
+It is materialized rather than remembered, and it reaches every seat under the goal because
+`server/spawn/cage.js` masks path-up instruction files EXCEPT inside `.rbtv/goals`. The same text —
+from the ONE `TOOLING_FINDING_BLOCK` constant here — is rendered into each seat's own `AGENTS.md` by
+`team-kit/materialize-seats.py`, which imports it rather than restating it (the carriage a
+hand-authored goal `CLAUDE.md`, e.g. a standing seat's, does not get from this template).
 
 `write_standard_artifacts` is **skip-if-exists per file**. `scaffold` refuses an existing goal
 outright so it never meets one — the guard lives in the writer because these are the files agents

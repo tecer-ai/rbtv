@@ -171,6 +171,23 @@ WRITE_IF_SOMETHING = {
     "ideas.md": "an improvement worth framing that nobody has ruled on",
 }
 
+# Where a TOOLING-GAP finding goes — owner ruling 2026-08-10 (issue `i-wrote-outside-own-seat-first`,
+# `_channel-master/issues.md`): the goal OWNING the tooling first, this goal's own `issues.md` as
+# the fallback when that one is unreachable — the observed failure was a read-only mount plus a dead
+# coordination log. The ruling's second half is that the destination is MATERIALIZED into the docs a
+# seat reads, never left to memory, so it lands in both carriages: the router below (inherited by
+# every seat under this goal — `cage.js` masks path-up instruction files EXCEPT inside `.rbtv/goals`)
+# and the per-seat `AGENTS.md`, which `team-kit/materialize-seats.py` renders from THIS constant
+# rather than restating it. `{issues}` is the caller's concrete fallback path.
+TOOLING_FINDING_BLOCK = """\
+## A tooling gap goes in an issues ledger, never in chat
+
+Hit a defect, gap, or trap in a TOOL while working? File it in the `issues.md` of the goal that
+OWNS that tooling — that is where whoever fixes it looks. Unreachable, or it refuses your write?
+Fall back to {issues}, name the destination it was meant for, and route it on as a follow-up.
+A finding left in chat dies with the sitting.
+"""
+
 # The write-if-something sentence EXEMPTS `decisions.md`: owner ruling Q22 (2026-08-09,
 # `build/subagent-closeout/decisions.md#d-owner-batch4-partial-0809`) — Q19 gave that file an
 # append-only body (DECISIONS_TEMPLATE below), so a blanket "these are NOT logs" contradicted it.
@@ -199,6 +216,7 @@ to note writes nothing.
 
 {table}
 
+{finding}
 Scaffolded at goal creation from a deterministic template (owner ruling R21) — no agent was in
 the path that produced this file.
 """
@@ -282,7 +300,9 @@ def standard_artifacts(name: str) -> dict:
     routers are the same body (mirrors carry a header saying so), and the write-if-something
     files come off the same dict the router's table is rendered from.
     """
-    body = GOAL_ROUTER_TEMPLATE.format(name=name, table=_write_if_something_table())
+    body = GOAL_ROUTER_TEMPLATE.format(
+        name=name, table=_write_if_something_table(),
+        finding=TOOLING_FINDING_BLOCK.format(issues="`issues.md` in this folder"))
     files = {fn: (body if fn == "CLAUDE.md"
                   else ROUTER_MIRROR_HEADER.format(filename=fn) + body)
              for fn in ROUTER_FILENAMES}

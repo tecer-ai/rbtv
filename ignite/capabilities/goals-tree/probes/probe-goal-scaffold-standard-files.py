@@ -186,6 +186,14 @@ def main() -> int:
             # Owner ruling Q22: the NOT-logs claim EXEMPTS `decisions.md`, which Q19 made an
             # append-only record. BOTH halves are asserted — the blanket claim alone passed the
             # pre-Q22 body, and the exemption alone would pass a router that dropped the claim.
+            # The tooling-gap filing rule (owner ruling 2026-08-10, issue
+            # `i-wrote-outside-own-seat-first`). BOTH halves are asserted: the owning-goal half
+            # alone passes a router that lost its fallback, and the fallback half alone passes one
+            # that lost the routing rule — the same conjunct reasoning as the Q22 arm below.
+            check(f"2. {router} routes a tooling-gap finding (owning goal first, this folder's "
+                  "issues.md as fallback)",
+                  "OWNS that tooling" in text and "`issues.md` in this folder" in text,
+                  text[-600:])
             check(f"2. {router} exempts decisions.md from the NOT-logs claim (Q22)",
                   "NOT logs" in text and "except `decisions.md`" in text
                   and "append-only record" in text,

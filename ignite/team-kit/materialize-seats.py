@@ -177,6 +177,7 @@ from goal_cli import (  # noqa: E402 — path bound just above
     index_units,
     load_catalogs,
     SECTION_RE,
+    TOOLING_FINDING_BLOCK,
 )
 
 # ---------------------------------------------------------------- constants
@@ -1842,20 +1843,28 @@ them, read EVERY file below NOW — before seat.md's task work — and follow ea
 """
 
 
-def _write_seat_agents_md(folder: Path, seat: str,
+def _write_seat_agents_md(folder: Path, seat: str, package: Path,
                           rules: list[tuple[str, str]] = ()) -> str | None:
     """Write (or refresh) the seat's AGENTS.md pointer. Returns the path if written.
 
     Regenerated freely — unlike `seat.md` this is fixed boilerplate with no per-run
     content (plus, when the seat exposes rules, the forced-read preamble naming each
     materialized copy), so there is no drift to preserve and no reason to refuse an
-    overwrite."""
+    overwrite.
+
+    It also carries the tooling-gap filing block (owner ruling 2026-08-10), rendered
+    from goal_cli's ONE constant — the goal router carries the same text, and a second
+    copy of it here would be a second thing to drift. The fallback path is the PACKAGE's
+    `issues.md`, not the seat folder's: for a standing seat the two are the same folder,
+    and for every other seat the goal's ledger is the one that exists."""
     target = folder / "AGENTS.md"
     text = _SEAT_AGENTS_MD.format(seat=seat)
     if rules:
         text += _SEAT_RULES_BLOCK.format(rows="\n".join(
             f"- `.agents/behavior-rules/{pid}.md` — {desc}"
             for pid, desc in rules))
+    text += "\n" + TOOLING_FINDING_BLOCK.format(
+        issues=f"`{package / 'issues.md'}` (this seat's own goal ledger)")
     if target.exists() and target.read_text(encoding="utf-8") == text:
         return None
     target.write_text(text, encoding="utf-8", newline="\n")
@@ -2523,7 +2532,8 @@ def emit_seat_descriptors(plan: dict) -> list[str]:
             # The descriptor is already correct; the POINTER may still be missing —
             # completing a partial failure has to complete both halves.
             also = _write_seat_agents_md(
-                folder, seat, (plan.get("seat_rules") or {}).get(seat, ()))
+                folder, seat, Path(plan["package"]),
+                (plan.get("seat_rules") or {}).get(seat, ()))
             if also:
                 written.append(also)
             continue
@@ -2533,7 +2543,8 @@ def emit_seat_descriptors(plan: dict) -> list[str]:
         folder.chmod(0o755)
         written.append(str(target))
         also = _write_seat_agents_md(
-            folder, seat, (plan.get("seat_rules") or {}).get(seat, ()))
+            folder, seat, Path(plan["package"]),
+            (plan.get("seat_rules") or {}).get(seat, ()))
         if also:
             written.append(also)
     return written
@@ -3117,7 +3128,7 @@ def run(args) -> dict:
             emit_seat_exposures(plan)
             for seat in added:
                 _write_seat_agents_md(
-                    seat_home(package, seat), seat,
+                    seat_home(package, seat), seat, package,
                     (plan.get("seat_rules") or {}).get(seat, ()))
         return result_of(plan, dry_run=False)
     # dag-04 + dag-05: EVERY gate fires HERE — the emission gates, then the
@@ -3871,6 +3882,14 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
             check("dag-04: emitted seat.md is 0644 and its folder 0755",
                   _stat.S_IMODE(alpha_md.stat().st_mode) == 0o644
                   and _stat.S_IMODE(alpha_md.parent.stat().st_mode) == 0o755)
+            # The tooling-gap filing block (owner ruling 2026-08-10). Both halves: the rule,
+            # and the CONCRETE fallback path — a block naming no path routes nobody.
+            alpha_agents = (alpha_md.parent / "AGENTS.md").read_text(encoding="utf-8")
+            check("dag-04: the seat AGENTS.md carries the tooling-gap filing block, with "
+                  "the package's own issues.md as the named fallback",
+                  "OWNS that tooling" in alpha_agents
+                  and str(Path(fx["pkg"]) / "issues.md") in alpha_agents,
+                  alpha_agents[-500:])
             pre = post  # canary control baselines on the post-suite tree
             # SK-5 control arm: the hash comparison CAN go red.
             canary = tmp / "canary.txt"
