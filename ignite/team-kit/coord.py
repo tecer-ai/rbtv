@@ -9544,7 +9544,18 @@ def cmd_send(args):
                 f"no pane in this run and is NEVER woken. The message is in the log addressed to "
                 f"it, and it must read the log itself. Silence from it means NOT YET READ, never "
                 f"'considering'. If it is time-critical, confirm out of band.", C_HINT))
+    # task 7.93 — the gateway send leg. INERT unless COORD_GATEWAY_TRANSPORT=1 (criterion 4); the
+    # local append above and the wakes below are byte-identically what they were. Placed AFTER the
+    # append deliberately: the local log is the room's substrate and must never be blocked on a
+    # daemon being reachable.
+    _g793_fail = gateway_send_leg(args, base, args.to, args.type, body)
     deliver_wakes(args, base, sender, args.to, n, args.type, origin)
+    if _g793_fail:
+        # Loud, and non-zero. The message IS locally logged, so this is not a `refuse` — but a
+        # contracted leg failed, and 7.94's whole finding is that a failed call must never read
+        # as a successful one.
+        print(c(f"  {_g793_fail}", C_DEAD))
+        sys.exit(1)
     if args.type == "ask":
         print(c(f"next: {coord_invocation(args)} pending — your ask stays OPEN until an answer "
                 f"or verdict --re's #{n}", C_HINT))
@@ -9777,6 +9788,11 @@ def cmd_read(args):
     forever; and an unbounded read dumped a 300-message log into the reader's context."""
     base = base_dir(args)
     me = resolve_agent(args)
+    # task 7.93 — the gateway read leg. INERT unless COORD_GATEWAY_TRANSPORT=1 (criterion 4).
+    # Placed HERE, before the local render's several exit paths, so it is reached on every one of
+    # them — including the `no messages yet` return, which is exactly the case where a message
+    # sitting on the daemon plane and nowhere else would otherwise be invisible.
+    gateway_read_leg(args, base, me)
     _, blocks = load_messages(base)
     if not blocks:
         print("no messages yet")
@@ -10023,6 +10039,130 @@ def cmd_pending(args):
     section("open asks to everyone", broadcast, "answer only what is yours to answer")
     section("your asks nobody has answered", from_me,
             "chase the recipient, or retract with --supersedes <#>")
+
+
+# ── task 7.93 · the gateway transport legs (owner ruling `r-793-unbarred-slot-address-door`) ────
+#
+# The daemon gained an addressed-message door: intent `send-message` {type, thread, corpus}, and
+# `inspect messages` addressable BY THREAD. The ADDRESS is the thread (D39/D42) and NO recipient
+# column is minted anywhere — `d-team-kit-realization`'s divergences 1 and 4 STAND, so the CLIENT
+# is adapted to the gateway's shape rather than the gateway being taught a recipient.
+#
+# ⚠⚠ OPT-IN, AND INERT BY DEFAULT — the leader's 7.57 fork-2 ruling, and criterion 4 of this row.
+# `armed()` is FALSE unless COORD_GATEWAY_TRANSPORT is exactly "1", and every leg below returns
+# immediately when it is false, BEFORE resolving a workspace, reading a file, or opening a socket.
+# Detection alone NEVER arms it: a naive detect-then-route would flip the transport for every seat
+# mid-run, on the file whose half-save downs the room. It is deliberately an ENV switch rather than
+# a CLI flag because criterion 3 requires the agent-facing surface (checkin/send/read/pending) to
+# stay UNCHANGED — no new flag appears on any of them.
+#
+# ⚠ THE LOCAL APPEND-ONLY LOG REMAINS THE ROOM'S SUBSTRATE and is untouched by these legs. The
+# daemon row carries (type, sender, thread, corpus) and nothing else, while the room's header
+# additionally carries `to`, `supersedes`, `re`, `why`, `origin` and an exec stamp — the fields
+# every refusal, cursor, wake and ask-closure in this file is computed from. A cutover would
+# DELETE them, which is exactly the substrate fact `d-team-kit-realization` rules permanent. So
+# the gateway is an ADDITIONAL carrier of the message plane, and what it buys is the thing that is
+# impossible today in both directions: a sender with no access to this room's filesystem can write
+# to a seat's address, and a seat's message becomes visible on the daemon plane.
+GATEWAY_TRANSPORT_ENV = "COORD_GATEWAY_TRANSPORT"
+
+
+def gateway_transport_armed(env=None):
+    """True ONLY when the transport is explicitly armed. Any other value — unset, "0", "true",
+    "yes" — is OFF: an opt-in that a typo can arm is not opt-in."""
+    env = os.environ if env is None else env
+    return env.get(GATEWAY_TRANSPORT_ENV) == "1"
+
+
+def gateway_transport_target(args):
+    """(host, port, token) for the armed transport, or None when no daemon serves this workspace.
+    Never raises for an ordinary absence — an unarmed or unserved workspace is not an error."""
+    root = gateway_client.resolve_workspace_root(VAULT_ROOT)
+    # `resolve_gateway_addr`, NOT `detect_daemon`: it honours an explicit IGNITE_GATEWAY_ADDR and
+    # falls back to the machine-keyed server.json record, which is the same resolution order the
+    # reference JS client uses. `detect_daemon` answers only the second question, and a transport
+    # that ignored the explicit address would be unable to reach a gateway an operator named.
+    try:
+        host, port = gateway_client.resolve_gateway_addr(root)
+    except gateway_client.GatewayUsageError:
+        return None
+    return host, port, gateway_client.resolve_token()
+
+
+def gateway_thread_for(args, base, to):
+    """The slot/groupchat address this room's `to` maps to. One home for the arithmetic, so the
+    send leg and the read leg can never disagree about where a message went (PRIN-11)."""
+    return gateway_client.thread_address(
+        package_dir(args).name, to, is_group=(to in group_map(base)))
+
+
+def gateway_send_leg(args, base, to, mtype, body):
+    """Carry a just-appended message through the door. Returns None on success or when the
+    transport is not armed; returns a FAILURE STRING otherwise — never silence.
+
+    ⚠ A FAILED LEG NEVER READS AS A SENT ONE (task 7.94's discipline, applied to this leg): the
+    caller prints the returned string loudly and exits non-zero, so a seat can never believe the
+    daemon plane carried a message it refused."""
+    if not gateway_transport_armed():
+        return None
+    try:
+        target = gateway_transport_target(args)
+    except gateway_client.GatewayUsageError as exc:
+        return f"gateway transport is ARMED but its configuration is unusable: {exc}"
+    if target is None:
+        return (f"gateway transport is ARMED but no daemon serves this workspace — the message is "
+                f"in the local log ONLY. Unset {GATEWAY_TRANSPORT_ENV} or install ignite here.")
+    host, port, token = target
+    # `completion` is not carried by this door: it needs a status the door has no field for, and
+    # the daemon refuses it explicitly. Skipped rather than sent-and-refused, so an ordinary
+    # completion never produces a false failure line.
+    if mtype == "completion":
+        return None
+    thread = gateway_thread_for(args, base, to)
+    try:
+        gateway_client.send_message(host, port, thread, mtype, body, token=token)
+    except (gateway_client.GatewayTransportError, gateway_client.GatewayUsageError) as exc:
+        return (f"gateway leg FAILED — the message IS in the local log and was NOT carried to the "
+                f"daemon plane (thread {thread}): {exc}")
+    print(c(f"  gateway: carried to {thread}", C_HINT))
+    return None
+
+
+def gateway_read_leg(args, base, me):
+    """Show what the DAEMON plane holds for this seat's address. No-op unless armed.
+
+    This is the read half of the door: the execution-scoped form of `inspect messages` needs a
+    jobs_log exec id, which a tmux seat does not have and cannot obtain — the exact finding 7.57
+    fork 1 ruled NOT MET. Failures are printed, never raised: a daemon that is down must not stop
+    a seat reading its own local inbox."""
+    if not gateway_transport_armed():
+        return
+    try:
+        target = gateway_transport_target(args)
+    except gateway_client.GatewayUsageError as exc:
+        print(c(f"gateway read leg unavailable: {exc}", C_DEAD))
+        return
+    if target is None:
+        print(c("gateway transport is ARMED but no daemon serves this workspace — local log only.",
+                C_DEAD))
+        return
+    host, port, token = target
+    thread = gateway_thread_for(args, base, me)
+    try:
+        result = gateway_client.read_thread(host, port, thread, token=token)
+    except (gateway_client.GatewayTransportError, gateway_client.GatewayUsageError) as exc:
+        print(c(f"gateway read leg FAILED for {thread}: {exc}", C_DEAD))
+        return
+    rows = result.get("rows") or []
+    if not rows:
+        print(c(f"gateway: no messages on the daemon plane for {thread}", C_HINT))
+        return
+    print(c(f"gateway: {len(rows)} message(s) on the daemon plane for {thread}", C_LABEL))
+    for r in rows:
+        print(f"  [gateway] #{r.get('msg_id')} {r.get('created_at')} "
+              f"{c(str(r.get('type')), TYPE_COLOR.get(r.get('type'), ''))} "
+              f"from {r.get('sender')}: {truncate(str(r.get('corpus') or ''))}")
+    print()
 
 
 def cmd_gateway_status(args):
@@ -27295,6 +27435,53 @@ def _selftest_checks(args, failures, names):
               gateway_client._parse_addr("addr-host") == ("addr-host", 80))
         check("7.57: IGNITE_GATEWAY_ADDR parses a full https URL, defaulting to port 443",
               gateway_client._parse_addr("https://addr-host") == ("addr-host", 443))
+
+        # ---- 7.93: the addressed-message door — the client's transport switch and its address ---
+        #
+        # ZERO NETWORK, deliberately: selftest's own "no network" docstring binds this block as it
+        # binds 7.57's. What is proved here is the half that MUST hold on every seat's every
+        # invocation — that the switch is OFF, and that the address arithmetic is one function.
+        # The live both-modes exercise against a real gateway is a separate, deliberate act.
+        #
+        # ⚠ THE INERTNESS ROWS ARE THE POINT (criterion 4). A transport that is armed by anything
+        # other than an explicit opt-in flips every seat's substrate mid-run, on the file whose
+        # half-save downs the room's messaging — so "unset is OFF" is asserted, and so is "a
+        # plausible truthy value is still OFF", because an opt-in a typo can arm is not opt-in.
+        check("7.93: the gateway transport is OFF when the env var is absent — INERT BY DEFAULT",
+              gateway_transport_armed(env={}) is False)
+        check("7.93: the gateway transport is ON only for exactly \"1\"",
+              gateway_transport_armed(env={GATEWAY_TRANSPORT_ENV: "1"}) is True)
+        for _g793_truthy in ("true", "yes", "on", "0", "", "1 "):
+            check(f"7.93: {GATEWAY_TRANSPORT_ENV}={_g793_truthy!r} does NOT arm the transport — "
+                  f"an opt-in a typo can arm is not an opt-in",
+                  gateway_transport_armed(env={GATEWAY_TRANSPORT_ENV: _g793_truthy}) is False)
+        # The ADDRESS is the thread (D39/D42), it is package-scoped, and it mints no recipient.
+        check("7.93: a direct recipient addresses a SLOT thread, scoped to its package",
+              gateway_client.thread_address("goal-x", "leader") == "coord/goal-x/slot/leader")
+        check("7.93: a group addresses a GROUPCHAT thread",
+              gateway_client.thread_address("goal-x", "reviewers", is_group=True)
+              == "coord/goal-x/groupchat/reviewers")
+        check("7.93: `all` addresses a GROUPCHAT thread without being declared a group",
+              gateway_client.thread_address("goal-x", "all") == "coord/goal-x/groupchat/all")
+        # ⚠ The package scope is CORRECTNESS, not decoration: one daemon serves a workspace, and
+        # two goals both holding a seat named `leader` would otherwise share ONE thread and read
+        # each other's mail. This row fails the moment the scope is dropped.
+        check("7.93: two packages' same-named seats get DIFFERENT addresses — no cross-goal bleed",
+              gateway_client.thread_address("goal-a", "leader")
+              != gateway_client.thread_address("goal-b", "leader"))
+        check("7.93: the address space can never collide with the daemon's own threads "
+              "(`exec-<n>`, `owner-feed`) — every coordination address is `coord/`-prefixed",
+              gateway_client.thread_address("g", "s").startswith("coord/"))
+        # A failed call must never read as a successful one (task 7.94's finding, this leg's twin).
+        check("7.93: an ok envelope reports no error",
+              gateway_client._envelope_error({"ok": True, "result": {}}) is None)
+        check("7.93: a typed refusal is reported as an error, carrying its code",
+              "SHAPE_INVALID" in (gateway_client._envelope_error(
+                  {"ok": False, "error": {"code": "SHAPE_INVALID", "message": "bad"}}) or ""))
+        check("7.93: an envelope with NO ok field is an error, never silently a success",
+              gateway_client._envelope_error({}) is not None)
+        check("7.93: a non-object envelope is an error, never silently a success",
+              gateway_client._envelope_error(None) is not None)
 
     # ---- MC4 / 7.446: `session-open` — session_open as a CALLABLE VERB ------------------------
     #
