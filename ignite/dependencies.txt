@@ -6,10 +6,11 @@
 # versions + integrity hashes, installed with `npm ci`); THIS file stays the complete human-readable
 # inventory on top, covering system tools npm cannot express (D28 / NEED-3 human-verifiability). Both are
 # updated in the same change. `node_modules/` is a build artifact — gitignored, never committed.
+# Machine-readable twin of the system-tool rows below: package.json rbtv.system (schema: concepts/dependency-manifest.md).
 
 Node.js 24 — runtime for the daemon, gateway, and CLI — already provisioned on the box; fresh install: apt (NodeSource) or nvm (`nvm install 24`)
 npm — package manager for all Node dependencies — ships with Node.js (no separate install)
-systemd + systemd-run — daemon unit + transient-unit spawn carrier (per-profile caps, cgroup tree-kill) — OS-provided on Ubuntu (no install)
+systemd + systemd-run — daemon unit + transient-unit spawn carrier (per-profile caps, cgroup tree-kill) — OS-provided on Ubuntu (no install; the rbtv.system machine twin carries the PROBE command `systemctl --version` — an apt install cannot retrofit PID 1, so presence is verified, never installed)
 node:sqlite (built-in) — heart-store database engine (DatabaseSync — synchronous, WAL-capable) — resolved at task 2.1: Node 24 built-in module, ZERO external dependencies, no npm install (NEED-3 small-surface budget)
 js-yaml (PINNED 5.2.2) — YAML parser for server-config and launch-profile files; the module's ONLY npm dependency — `npm ci` in this folder. NEVER `npm install js-yaml` unversioned: that resolves whatever is latest that day, which is exactly what task 7.51 closed. 5.2.2 is also the first release OUTSIDE advisory GHSA-pm4m-ph32-ghv5 (high, CVSS 7.5 — denial of service by exponential parse time in flow collections), which covers 5.0.0–5.2.1.
 tailscaled — zero-ingress network posture: tailnet bind + Tailscale Serve (Batch 5) — `apt install tailscale` (per tailscale.com/install)
@@ -21,5 +22,5 @@ python3 — interpreter for the daemon's python-side tooling: the boot cockpit's
 # inventory of what ignite REQUIRES, and removing a row states that ignite no longer needs the
 # tool, never that an operator should purge it. `python3` stays because it always had consumers
 # beyond the pty bridge; only its justification changed.
-tmux (3.6) — the headed SEAT substrate (task 7.30: one pane per seat in the goal's run-scoped room, settle ledger R15) and the BOOT COCKPIT's session (task 7.36, R6) — `apt install tmux`. COMPOSED since 7.30 (server/spawn/tmux.js is a pure composer that never calls tmux) and EXECUTED by the daemon since 7.36 (server/cockpit.js), which is why the row lands now rather than then. Absence is not fatal: ensureCockpit reports and swallows it, so a tmux-less box runs the control plane with no cockpit rather than refusing to boot.
+tmux (3.6) — the headed SEAT substrate (task 7.30: one pane per seat in the goal's run-scoped room, settle ledger R15) and the BOOT COCKPIT's session (task 7.36, R6) — `apt install tmux` (the 3.6 floor IS satisfied by stock apt on the target OS — measured 2026-08-10 on the ignite VPS: Ubuntu 26.04 LTS ships tmux 3.6a-2ubuntu0.1, `dpkg -S /usr/bin/tmux`). COMPOSED since 7.30 (server/spawn/tmux.js is a pure composer that never calls tmux) and EXECUTED by the daemon since 7.36 (server/cockpit.js), which is why the row lands now rather than then. Absence is not fatal: ensureCockpit reports and swallows it, so a tmux-less box runs the control plane with no cockpit rather than refusing to boot.
 bubblewrap (bwrap) — LOAD-BEARING worker filesystem containment: mount-namespace walls nested inside each systemd-run --user unit (D59; systemd's FS sandbox is a no-op under the user manager) — `sudo apt-get install -y bubblewrap` (one-time root provisioning; Ubuntu pre-loads the bwrap-userns-restrict AppArmor profile that grants bwrap user-namespace access)
