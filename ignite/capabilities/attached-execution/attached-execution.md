@@ -103,6 +103,16 @@ the carrier is a spawn variant.
 - ⚠ **No cage.** A session sharing the owner's terminal has neither bwrap nor a systemd slice —
   the accepted bound of the console-run design (§ Cautions), the same one d1's hand-run elicitator
   had. The detached seats of the same run are caged exactly as before.
+- ⚠ **THE TICKER IS FROZEN while a foreground seat runs.** The loop blocks in the carrier, so no
+  tick happens: the crash sweep, the stall ladder and the exit sweep are all suspended, and the
+  run's DETACHED siblings are unsupervised for the whole time a human sits in the seat. A sibling
+  that dies — including one systemd kills at its profile's `runtime_max` — is not observed until the
+  seat's session ends. Accepted for v1 (the alternative is a second thread of advancement, which is
+  what the one-engine ruling forbids); disclosed because nothing else would tell you.
+- ⚠ **The goal's execution mode is read ONCE, at boot.** Flipping `execution-mode` mid-run does not
+  affect the run in flight. `--status` reads it LIVE, so the two can disagree while a run is up:
+  after an `autonomous` → `interactive` flip, `--status` calls a seat held that the running engine
+  will detach. Stop the run and re-run it to change the answer.
 - **It needs a real tty**, so `rbtv run` on a goal with held seats cannot be a skill session's Bash
   call. The entry skill hands the user the command to type.
 - **No `sessions.csv` row is written for a foreground seat** — that row is the daemon spawn path's,
@@ -119,6 +129,7 @@ would have ended it died with the child. This is what happens, and none of it is
 |---|---|
 | the seat's session exits **0** | turn `done`, session `closed` — the same exit-code rule the ticker's sweep applies to every other seat. The DAG advances on the next pass. |
 | the session exits **non-zero** | turn `failed`, session `crashed`. The run does not advance past the seat: it returns `seat-failed`, exit **1**, naming it. |
+| the seat **asked a question** and its session exited non-zero | both are true and both are reported: the run returns `question` / exit **3** (an unanswered ask is checked first), and the seat's row is already `failed` / `crashed`. Resuming therefore needs `--relaunch <seat>` as well as an answer. |
 | **Ctrl-C / SIGKILL / a closed terminal** mid-seat | the row is left non-terminal. At the **next run's boot**, before the first pass, `reconcileForegroundOrphans` ends every non-terminal `attached-foreground` row as `failed` / `crashed` — a foreground child cannot outlive the terminal it was attached to, so this is an observation, not a guess. The run then behaves as the row above: it refuses, naming the seat. |
 
 **It NEVER blindly re-enqueues.** Seeding is create-only, and re-firing a seat because its row looks
@@ -135,6 +146,30 @@ attempt. There is no grant file and no new state — PRIN-11: the act is the typ
 and a closed terminal do) leaves the foreground child running with no parent. The reconciliation
 still ends the row; the orphaned process is not reaped, because this carriage has no cage to reap it
 with.
+
+### One runner per goal — enforced, not assumed
+
+Everything above rests on one attached run owning a goal at a time. Nothing enforced it: the store's
+`E_SECOND_WRITER` guard is an in-PROCESS singleton, and a second process opens the same sqlite file
+happily. **Measured harm** (wave-B review): runner B read runner A's LIVE foreground row, applied the
+reconciliation's premise — *a non-terminal foreground row means its runner is gone*, true for one
+runner and no more — ended A's row, exited `seat-failed`, and told the operator to
+`--relaunch alpha`, which would start a **second session for a seat a human was working in**. A's own
+turn-end then silently rewrote B's row. Loud in neither direction.
+
+So the premise is now a precondition. `rbtv run` takes `<goal>/.attached-run.lock` — created
+`O_EXCL` (the atomicity is the filesystem's), carrying the runner's pid and its process **start
+time**, released on the normal path and on a signal, and only ever released if it is still ours.
+
+- **A live holder REFUSES the second runner, loudly, naming the pid.** It does not reconcile, does
+  not open the store, and changes nothing.
+- **A stale lock clears itself.** `kill(pid, 0)` plus the start time answers "is that runner still
+  there"; the start time is what stops a RECYCLED pid from bricking a goal forever. A crashed runner
+  never needs manual cleanup — which is what keeps this inside PRIN-11's spirit: the file is a
+  liveness interlock that cannot survive the process it names, not state anything reads to decide.
+- **`--status` never takes it.** Orientation stays read-only and works beside a live run.
+- **Belt and braces:** if a foreign writer ever ends a foreground row anyway, the carrier REFUSES to
+  overwrite the terminal row and says so, rather than replacing another writer's outcome silently.
 
 ## What it runs
 
@@ -183,7 +218,8 @@ held open; the enqueue pass's own bar measured where it stands; the `headed.tui`
 descriptor injection; the no-headed-block refusal with its control; and the crash edge done for real
 — a `rbtv run` subprocess SIGKILLed while a foreground seat holds it, then re-run. Every arm proven
 red by mutation (drop the enqueue bar · force the predicate true · no-op the reconciliation · let a
-grant re-open finished work · drop the `seat-failed` verdict).
+grant re-open finished work · drop the `seat-failed` verdict · remove the run lock · treat a live
+holder as stale · treat a dead holder as live · overwrite a foreign terminal row).
 
 `ignite/engine/probes/probe-cross-lane-resume.js` — **B3, and its verdict is negative.** Cross-lane
 resume does not hold in either direction: the daemon lane has no path that seeds a goal's taskforce

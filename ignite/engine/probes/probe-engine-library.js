@@ -519,9 +519,13 @@ async function main() {
   fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(killDir, 'taskforce.csv'));
 
   const { spawn: spawnProc, spawnSync } = require('node:child_process');
+  // ⚠ `detached: true`, and the signal below goes to the PROCESS GROUP. `rbtv` is a wrapper that
+  // spawns the delegate: a SIGKILL aimed at the wrapper's pid alone leaves the REAL runner alive,
+  // so what this section used to measure as "a resume" was a SECOND RUNNER starting on a goal the
+  // first still held. Found by console-run B1's run lock, which refused it out loud.
   const victim = spawnProc(RBTV_BIN,
     ['run', killDir, '--profile', 'probe-seat', '--config', configPath, '--tick-ms', '500'],
-    { stdio: 'ignore' });
+    { stdio: 'ignore', detached: true });
 
   // Wait until the run has actually STARTED something — killing before the first tick would prove
   // only that an empty store reopens.
@@ -539,8 +543,9 @@ async function main() {
     }
   }
 
-  victim.kill('SIGKILL');
+  try { process.kill(-victim.pid, 'SIGKILL'); } catch { victim.kill('SIGKILL'); }
   const killedCleanly = await new Promise((resolve) => victim.on('exit', (code, sig) => resolve(sig === 'SIGKILL' || code !== 0)));
+  await new Promise((r) => setTimeout(r, 300));
 
   check('C3c the attached run was KILLED mid-run, with work already fired',
     killedCleanly && firedBeforeKill > 0,

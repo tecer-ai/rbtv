@@ -87,6 +87,14 @@ cfg.profiles['probe-fg-slow'] = {
   workdir_root: '.rbtv/goals',
   ...CONTAINMENT,
 };
+// Holds the foreground seat long enough for a SECOND runner to try the same goal.
+cfg.profiles['probe-fg-hold'] = {
+  exec: { argv: ['sleep', '1'], prompt: 'stdin' },
+  headed: { tui: { argv: ['sleep', '6'] } },
+  session_ref: { source: 'cwd-implicit' },
+  workdir_root: '.rbtv/goals',
+  ...CONTAINMENT,
+};
 // A CLAUDE-harness profile, used ONLY through an injected carriage: `harnessOf` reads
 // `exec.argv[0]`, so this is what makes the descriptor injection reachable. Nothing in this probe
 // ever executes it.
@@ -366,6 +374,10 @@ async function main() {
   // reaped here so the probe leaves nothing behind.
   spawnSync('pkill', ['-f', 'sleep 20.7']);
 
+  check('B1e the killed runner left its lock behind — the STALE path is what the re-run must handle',
+    fs.existsSync(path.join(killGoal, attached.RUN_LOCK)),
+    'a runner killed outright cannot clear its own lock; only staleness detection can');
+
   // The status verb must not tell an operator that a dead seat is being worked on.
   const stKilled = attached.statusAttached({ goalFolder: killGoal });
   check('B1e --status names the interrupted seat instead of leaving it reading as in-flight',
@@ -407,6 +419,87 @@ async function main() {
 
   check('B1e …and once the grant has run it, nothing is interrupted any more',
     attached.statusAttached({ goalFolder: killGoal }).interrupted.length === 0);
+  check('B1e the stale lock did NOT brick the goal, and no lock is left behind',
+    !fs.existsSync(path.join(killGoal, attached.RUN_LOCK)),
+    'the crashed runner\'s lock was cleared by liveness, and both re-runs released their own');
+
+  // ── B1g · ONE RUNNER PER GOAL (review finding 1) ────────────────────────────────────────────
+  say('');
+  say('B1g — a SECOND runner on a goal a first one holds must refuse, not reconcile');
+
+  const holdGoal = makeGoal('fg-goal-hold');
+  const holder = spawnProc(RBTV_BIN,
+    ['run', holdGoal, '--profile', 'probe-fg-hold', '--config', configPath, '--tick-ms', '300', '--json'],
+    { stdio: 'ignore', detached: true });
+  const holderExit = new Promise((resolve) => holder.on('exit', (code) => resolve(code)));
+
+  let holderRow = null;
+  for (let i = 0; i < 40 && !holderRow; i += 1) {
+    await sleep(200);
+    if (!fs.existsSync(path.join(holdGoal, 'heart.db'))) continue;
+    const rows = rowsFor(path.join(holdGoal, 'heart.db'), 'alpha');
+    if (rows.length) holderRow = rows[0];
+  }
+  check('B1g runner A is holding a foreground seat (its row is live) and holds the lock',
+    Boolean(holderRow) && !['done', 'failed'].includes(holderRow.status)
+      && fs.existsSync(path.join(holdGoal, attached.RUN_LOCK)),
+    holderRow ? `${holderRow.status}` : 'A never reached the carrier');
+
+  const intruder = spawnSync(RBTV_BIN,
+    ['run', holdGoal, '--profile', 'probe-fg', '--config', configPath, '--max-ticks', '1', '--json'],
+    { encoding: 'utf8', timeout: 60000 });
+  check('B1g runner B REFUSES, loudly, naming the live runner\'s pid — it does not reconcile',
+    intruder.status === 1 && /another attached run is live on this goal \(pid \d+\)/.test(intruder.stderr || ''),
+    `exit ${intruder.status}: ${(intruder.stderr || intruder.stdout || '').split('\n')[0].slice(0, 120)}`);
+  const rowAfterIntruder = rowsFor(path.join(holdGoal, 'heart.db'), 'alpha')[0];
+  check('B1g …and A\'s LIVE row is untouched — B did not end a seat a human is sitting in',
+    rowAfterIntruder && rowAfterIntruder.status === holderRow.status
+      && rowAfterIntruder.exec_id === holderRow.exec_id,
+    `${holderRow.status} -> ${rowAfterIntruder && rowAfterIntruder.status}`);
+
+  const holderCode = await holderExit;
+  const holderRows = rowsFor(path.join(holdGoal, 'heart.db'), 'alpha');
+  check('B1g runner A then completes NORMALLY — the refusal cost it nothing',
+    holderCode === 0 && holderRows.length === 1 && holderRows[0].status === 'done'
+      && !fs.existsSync(path.join(holdGoal, attached.RUN_LOCK)),
+    `A exited ${holderCode}, alpha=${holderRows.map((r) => r.status).join()}, lock cleared=${!fs.existsSync(path.join(holdGoal, attached.RUN_LOCK))}`);
+
+  // A lock naming a pid that no longer exists must never brick a goal — measured at the function,
+  // with a live pid as the control so the arm cannot pass by refusing everything.
+  const staleGoal = makeGoal('fg-goal-stale');
+  fs.writeFileSync(path.join(staleGoal, attached.RUN_LOCK), '2147483646 999999999\n');
+  let staleTaken = null;
+  try { staleTaken = attached.acquireRunLock(staleGoal); } catch (err) { staleTaken = err.message; }
+  check('B1g a lock naming a DEAD pid is cleared and taken — a crash never bricks the goal',
+    staleTaken && staleTaken.release, String(staleTaken).slice(0, 120));
+  if (staleTaken && staleTaken.release) staleTaken.release();
+  check('B1g POSITIVE CONTROL: a lock naming a LIVE pid refuses',
+    (() => {
+      fs.writeFileSync(path.join(staleGoal, attached.RUN_LOCK), `${process.pid} ${''}\n`);
+      try { attached.acquireRunLock(staleGoal); return false; } catch (err) { return /is live on this goal/.test(err.message); }
+    })());
+  fs.unlinkSync(path.join(staleGoal, attached.RUN_LOCK));
+
+  // The silent-overwrite half: a foreign writer ends our row while the human works.
+  const overwriteGoal = makeGoal('fg-goal-overwrite');
+  const owStore = openHeartStore({ dbPath: path.join(overwriteGoal, 'heart.db'), profiles: spawnConfig.profiles });
+  attached.seedTaskforce(owStore, overwriteGoal, { profile: 'probe-fg' });
+  const owResult = attached.runForegroundSeat({
+    heartStore: owStore, seat: 'alpha', goalFolder: overwriteGoal,
+    profileName: 'probe-fg', profile: spawnConfig.profiles['probe-fg'],
+    tick: 1, now: new Date(),
+    // Stands in for the other writer: the row is ended `failed` WHILE the session runs.
+    spawnForeground: () => {
+      const live = owStore.dump().jobs_log.find((r) => r.job_id === attached.jobIdFor('alpha'));
+      owStore.endTurnAndCloseSession(live.exec_id, { turnStatus: 'failed', sessionStatus: 'crashed', endedAt: new Date() });
+      return { status: 0 };
+    },
+  });
+  const owRow = owStore.dump().jobs_log.find((r) => r.job_id === attached.jobIdFor('alpha'));
+  owStore.close();
+  check('B1g a row already ended by another writer is NOT silently overwritten — it is surfaced',
+    owResult.foreignTerminal === 'failed' && owResult.status === 'failed' && owRow.status === 'failed',
+    `carrier reported ${JSON.stringify({ foreignTerminal: owResult.foreignTerminal, status: owResult.status })}, row=${owRow.status}`);
 
   // ── B1f · the grant's own bounds, measured at the view it changes ───────────────────────────
   say('');

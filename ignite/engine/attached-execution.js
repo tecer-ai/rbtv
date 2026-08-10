@@ -49,6 +49,9 @@ const ALL_TURN_STATUSES = ['launching', 'running', 'done', 'blocked', 'failed', 
 // should look", never "the work is over" (the store's own note on TERMINAL_TURN_STATUSES), so a
 // stalled seat must not let the run report itself complete.
 const LIVE_TURN_STATUSES = ['launching', 'running', 'stalled'];
+// The store's own TERMINAL_TURN_STATUSES, spelled here for the same reason the list above is: a
+// carrier that guesses which statuses are final can overwrite a real outcome.
+const TERMINAL_TURN_STATUSES = ['done', 'blocked', 'failed', 'killed'];
 
 function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -249,6 +252,92 @@ function enqueueEligible(heartStore, rows, { profile, goalFolder, logger, isHeld
   return enqueued;
 }
 
+// ── ONE RUNNER PER GOAL, ENFORCED (review finding 1, wave-B review) ───────────────────────────
+//
+// Everything below assumed a premise nobody enforced: that one attached run owns a goal at a time.
+// The store's `E_SECOND_WRITER` guard is an in-PROCESS singleton and a second process opens the
+// same sqlite file happily, so two runners on one goal produced a measured harm — runner B read
+// runner A's LIVE foreground row, applied the reconciliation's premise ("non-terminal ⇒ its runner
+// is gone", true for ONE runner and no more), ended A's row, and told the operator to
+// `--relaunch alpha` — starting a second session for a seat a human was working in. A's own
+// turn-end then silently rewrote the row B had written. Loud in neither direction.
+//
+// So the premise is now a PRECONDITION rather than an assumption, and the cheapest thing that
+// holds it is a pidfile the runner's own death clears:
+//   · CREATED O_EXCL (`flag: 'wx'`) — the atomicity is the filesystem's, not a check-then-write.
+//   · REMOVED on the way out, on the normal path and on a signal; and only if it is still OURS
+//     (the content is compared), so a runner can never delete a successor's lock.
+//   · A STALE LOCK IS DETECTED, NEVER MANUAL. `kill(pid, 0)` plus the pid's START TIME answers
+//     "is that runner still there" — the start time is what keeps a RECYCLED pid from bricking a
+//     goal forever, which is the one failure mode a lock file must not have. Unreadable start
+//     time degrades to the pid alone rather than refusing.
+// PRIN-11 holds: nothing here is state the system reads to decide anything. It is a liveness
+// interlock that cannot survive the process it names.
+const RUN_LOCK = '.attached-run.lock';
+
+// Field 22 of /proc/<pid>/stat, read from AFTER the comm field's closing paren — the comm can
+// contain spaces and parens, so a plain split() on the whole line is the classic wrong answer.
+function processStartTime(pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] || null;
+  } catch { return null; }   // not Linux, or the process is gone — the caller degrades, not fails
+}
+
+function runnerAlive(pid, startTime) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+  } catch (err) {
+    // EPERM means a process with that pid EXISTS and is not ours to signal — alive.
+    if (err.code !== 'EPERM') return false;
+  }
+  const nowStart = processStartTime(pid);
+  // Both known and different ⇒ the pid was recycled and the runner that wrote this lock is gone.
+  if (startTime && nowStart && startTime !== nowStart) return false;
+  return true;
+}
+
+function acquireRunLock(goalFolder, { pid = process.pid } = {}) {
+  const lockPath = path.join(goalFolder, RUN_LOCK);
+  const payload = `${pid} ${processStartTime(pid) || ''}\n`;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      fs.writeFileSync(lockPath, payload, { flag: 'wx' });
+      return {
+        lockPath,
+        release() {
+          // Ours or nobody's: a runner that overran its lock must not remove a successor's.
+          try { if (fs.readFileSync(lockPath, 'utf8') === payload) fs.unlinkSync(lockPath); } catch { /* already gone */ }
+        },
+      };
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      let held = '';
+      try { held = fs.readFileSync(lockPath, 'utf8'); } catch { held = ''; }
+      const [pidRaw, startRaw] = held.trim().split(/\s+/);
+      const holder = Number(pidRaw);
+      if (runnerAlive(holder, startRaw)) {
+        throw new Error(
+          `REFUSING TO RUN: another attached run is live on this goal (pid ${holder}), and two ` +
+          `runners on one goal is a measured harm rather than a race worth risking — the second ` +
+          `one reads the first's LIVE foreground row as an orphan, ends it, and invites you to ` +
+          `relaunch a seat someone is sitting in. Wait for it, or stop it. ` +
+          `Lock: ${lockPath}. (A lock whose runner is GONE is cleared automatically — this one's ` +
+          `is not: it answered kill(0) and its start time still matches.)`
+        );
+      }
+      // Stale — the runner that wrote it is gone. Clear it and take the lock; ONE retry, so a
+      // genuine race with a third process refuses rather than spinning.
+      try { fs.unlinkSync(lockPath); } catch { /* another starter won the clear; the retry decides */ }
+    }
+  }
+  throw new Error(
+    `REFUSING TO RUN: could not take ${lockPath} — it was created again between clearing a stale ` +
+    `lock and taking it, which means another run is starting right now. Try again.`
+  );
+}
+
 // ── The FOREGROUND CARRIER (console-run design ruling 1) ──────────────────────────────────────
 //
 // The engine stays the ONLY DAG-advancer. What changes for a seat matching ruling 5's two gates is
@@ -351,6 +440,21 @@ function runForegroundSeat({
   const res = spawnForeground(argv, seatDir) || {};
   const exitCode = typeof res.status === 'number' ? res.status : null;
   const ok = exitCode === 0;
+
+  // ⚠ SOMEONE ELSE MAY HAVE ENDED OUR ROW WHILE THE HUMAN WORKED (review finding 1, second half).
+  // The run lock makes that unreachable now; this stays because the alternative to noticing is
+  // OVERWRITING — `updateExecutionStatus` is an unconditional UPDATE, so a terminal row written by
+  // another writer would be silently replaced by ours and the disagreement would leave no trace
+  // anywhere. Refuse the write and SAY SO; the row is terminal either way, so the DAG still moves.
+  const current = heartStore.getExecution(exec.exec_id);
+  if (current && TERMINAL_TURN_STATUSES.includes(current.status)) {
+    const message = `foreground seat ${seat}: its execution row was already ended '${current.status}' by `
+      + `another writer while the session ran — REFUSING to overwrite it with '${ok ? 'done' : 'failed'}'. `
+      + `Two writers on one goal's store is what the run lock exists to prevent; if you see this, one got past it.`;
+    if (logger) logger({ level: 'warn', message, seat, execId: exec.exec_id, foreignStatus: current.status });
+    return { seat, execId: exec.exec_id, argv, exitCode, signal: res.signal || null, status: current.status, foreignTerminal: current.status };
+  }
+
   heartStore.endTurnAndCloseSession(exec.exec_id, {
     turnStatus: ok ? 'done' : 'failed',
     sessionStatus: ok ? 'closed' : 'crashed',
@@ -609,6 +713,10 @@ async function executeAttached({
     );
   }
 
+  // THE LOCK, BEFORE THE STORE IS OPENED. Refusing after opening it would already have created and
+  // migrated a store behind a live runner's back.
+  const runLock = acquireRunLock(goalFolder);
+
   const engine = createEngine({
     dbPath: storePath,
     profiles: spawnConfig.profiles || {},
@@ -628,6 +736,7 @@ async function executeAttached({
   const onSignal = () => {
     closedBySignal = true;
     try { engine.close(); } catch { /* the run is ending; a close error must not mask the signal */ }
+    runLock.release();
     process.exit(130);
   };
   process.on('SIGINT', onSignal);
@@ -701,6 +810,7 @@ async function executeAttached({
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
     if (!closedBySignal) engine.close();
+    runLock.release();
   }
 }
 
@@ -723,7 +833,10 @@ module.exports = {
   runForegroundSeat,
   reconcileForegroundOrphans,
   spawnForegroundInTerminal,
+  acquireRunLock,
+  runnerAlive,
   FOREGROUND_ENQUEUER,
+  RUN_LOCK,
   jobIdFor,
   GOAL_FOLDER_RE,
   STORE_FILENAME,
