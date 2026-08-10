@@ -74,25 +74,51 @@ D7  SHARED FILES — `.mcp.json`, `.claude/settings.json`, `.codex/config.toml`,
     install and uninstall; install and uninstall are the same operation on a
     set, followed by one emit.
 
-D8  `agents.md` AND THE ROOT GUIDANCE SURFACE — this installer NEVER writes the
-    target's hand-authored root guidance file. Instead every `agents.md` row and
-    every `rule` copy is named in ONE installer-owned, prefix-named file,
-    `.agents/rbtv2-exposure.md`, carrying CMP-12's forced-read preamble (kimi
-    gets the enumerated Step-0 the matrix requires). The run reports the single
-    line to add to the root guidance file.
+D8  `agents.md` AND THE GUIDANCE SURFACE (rewritten 2026-08-10 to conform to
+    CMP-12, the ONE form authority; the registry is never edited from here) —
+    CMP-12's `agents.md` row IS this method's realization: a per-folder guidance
+    file whose NAME is keyed by harness (claude `CLAUDE.md`, codex `AGENTS.md`,
+    qwen `QWEN.md`, kimi `AGENTS.md`, opencode `AGENTS.md`-or-`CLAUDE.md`).
+    There is no index file: the earlier `.agents/rbtv2-exposure.md` was an
+    invented artifact in no CMP-12 cell, auto-loaded by no harness, and is
+    RETIRED — an existing one is removed by the ordinary booked-file machinery
+    on the next install or uninstall. Every `agents.md` row and every forced
+    rule read is carried by the GENERATED guidance file (D13), inside one fenced
+    `rbtv2:start … rbtv2:end` block at its head. The BASIS is still never
+    written: whatever block the basis itself would need is REPORTED for the
+    human to place, and mirrors from there.
 
-D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10 — amends D8) — one of
-    `CLAUDE.md` / `AGENTS.md` at the install root is the BASIS (hand-authored,
-    NEVER written by this installer); the OTHER is generated FROM it so the
-    harnesses that read the other name see the same guidance. The basis is asked
-    once in `interactive`, settable/overridable by `--guidance-basis`, and
-    persisted as `guidance_basis` in the state file — so later runs never re-ask.
-    UNSET IS THE DEFAULT AND MEANS NO MIRROR: a non-interactive run never
-    prompts, never guesses a basis, and refuses a basis value outside the two
-    names. The generated mirror is a normal installer-owned file — booked,
-    collision-gated (a mirror file that exists and is not in our book, e.g. one
-    the old installer's `model_mirror` renders, refuses the run pre-write) and
-    removed on full uninstall.
+    THE FORCED READ (CMP-12 § Fallback mechanics) is for the harnesses that
+    auto-inject no rule folder — Codex, Qwen and Kimi ONLY. It is emitted into a
+    guidance file only when an installed harness of that set reads that file's
+    name. NEVER for claude (`.claude/rules/` auto-injects), and never for
+    opencode, which CMP-12 gives no separate rule type because it reads
+    `.claude/` natively — so opencode's `rule` realization in MATRIX is claude's
+    own `.claude/rules/` file, deduped by path exactly as its `skill` row
+    already is.
+
+D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10; harness-keyed per CMP-12
+    2026-08-10) — the BASIS is the guidance file the human authors (`CLAUDE.md`
+    or `AGENTS.md`), NEVER written by this installer. The mirror targets are
+    derived, never hardcoded:
+
+        targets = { CMP-12 guidance filename of each INSTALLED harness }
+                  − { the basis }
+
+    so a claude-only install with basis `CLAUDE.md` writes NO mirror at all
+    (empty set → nothing rendered, nothing booked), and several harnesses that
+    share a filename (codex + kimi + opencode all read `AGENTS.md`) get ONE
+    file. "Installed harnesses" is the union of the `harnesses` recorded for
+    every component in our own book — the same set uninstall shrinks.
+
+    The basis is asked once in `interactive`, settable/overridable by
+    `--guidance-basis`, and persisted as `guidance_basis` in the state file — so
+    later runs never re-ask. UNSET IS THE DEFAULT AND MEANS NO MIRROR: a
+    non-interactive run never prompts, never guesses a basis, and refuses a
+    basis value outside the known guidance names. Each generated mirror is a
+    normal installer-owned file — booked, collision-gated (a mirror file that
+    exists and is not in our book, e.g. one the old installer's `model_mirror`
+    renders, refuses the run pre-write) and removed on full uninstall.
 
     SCOPE — RECURSIVE (owner ruling d-s17-agents-md-handover-to-install2,
     2026-08-10; amends A6's root-only scope). A mirror is rendered beside EVERY
@@ -123,12 +149,13 @@ D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10 — amends D8) — one of
     the mirror over from `install.py`'s `model_mirror` on the maintainer's vault
     without a human hand-deleting another tool's artifact.
 
-    NOT PORTED — the old driver's root forced-read PREAMBLE. D8 already puts the
-    forced read in `.agents/rbtv2-exposure.md` and reports the ONE pointer line
-    for the human to place in the basis; the pointer therefore lives IN the
-    basis and mirrors automatically. Recursion does not change that: the old
-    driver prepended its preamble at the root only, which is exactly where the
-    basis-carried pointer already sits.
+    THE EXPOSURE BLOCK is rendered at the ROOT only (the installer exposes
+    components at the install root — see BOUNDARY above), inside the fenced
+    `rbtv2:` block D8 describes. A nested mirror is a pure per-folder guidance
+    mirror: banner + that folder's basis body, nothing else. The fence is what
+    makes the basis FLIP safe: a generated file that later becomes the basis has
+    both its banner and its fenced block stripped before it is re-mirrored, so
+    neither can stack across runs.
 
 D9  `path` ROWS MINT NOTHING — tool inventory only
     (`decisions.md#d-tool-inventory-exposure-rows`). Skipped, and counted in the
@@ -172,12 +199,23 @@ PREFIX = "rbtv2-"                       # D12 — every named artifact carries i
 EXPOSURE_NAME = "exposure.csv"
 COMPONENT_NAME = "component.md"
 STATE_REL = Path(".rbtv") / "config" / "install.json"
-GUIDANCE_REL = f".agents/{PREFIX}exposure.md"
 FENCE_ID = "rbtv2"
 
-# D13 — basis → the mirror rendered FROM it. Keys are the only accepted basis
-# values; `none` (or an absent key) means no mirror at all.
-GUIDANCE_MIRROR = {"CLAUDE.md": "AGENTS.md", "AGENTS.md": "CLAUDE.md"}
+# D8/D13 — CMP-12's `agents.md` row: each harness's per-folder guidance
+# FILENAME. The mirror is keyed by this map and nothing else: targets = the
+# installed harnesses' filenames minus the basis. (CMP-12 also models qwen =
+# QWEN.md; qwen is not one of D4's harnesses, so no run can select it and
+# nothing is minted for it.)
+GUIDANCE_FILE = {"claude": "CLAUDE.md", "codex": "AGENTS.md",
+                 "opencode": "AGENTS.md", "kimi": "AGENTS.md"}
+# The names this installer recognizes as guidance files — the accepted basis
+# values, and the only filenames the mirror collision/adoption gates apply to.
+GUIDANCE_NAMES = tuple(sorted(set(GUIDANCE_FILE.values())))
+# CMP-12 § Fallback mechanics — the harnesses that auto-inject no rule folder,
+# so their guidance file must FORCE the rule read. Not claude (`.claude/rules/`
+# auto-injects) and not opencode (reads `.claude/` natively). Qwen is on this
+# list in CMP-12 and absent from D4's harnesses.
+FORCED_READ_HARNESSES = ("codex", "kimi")
 BASIS_NONE = "none"
 # Directory names the recursive mirror walk never descends into.
 GUIDANCE_SKIP_DIRS = frozenset({".git", "node_modules"})
@@ -248,7 +286,10 @@ MATRIX: dict[str, dict[str, str | None]] = {
     "rule": {
         "claude": ".claude/rules/{name}.md",
         "codex": ".agents/behavior-rules/{name}.md",
-        "opencode": ".agents/behavior-rules/{name}.md",
+        # CMP-12 gives opencode NO separate rule type — it reads `.claude/`
+        # natively, so claude's own file IS its realization (same dedupe by path
+        # as the `skill` row above). It therefore takes no forced read either.
+        "opencode": ".claude/rules/{name}.md",
         "kimi": ".agents/behavior-rules/{name}.md",
     },
     "sub-agent": {
@@ -426,25 +467,32 @@ def _opencode_mcp_entry(spec: dict) -> dict:
     return entry
 
 
-def _guidance_index(agents_parts: list[tuple[str, str, str]],
+def _exposure_block(name: str, harnesses: list[str],
+                    agents_parts: list[tuple[str, str, str]],
                     rule_parts: list[tuple[str, str]]) -> str:
-    """The installer-owned guidance surface (D8), itself prefix-named (D12).
+    """The rbtv exposure preamble ONE guidance file carries (D8), fenced.
 
-    Carries CMP-12's fallback mechanics for the harnesses that auto-inject no
-    rule folder: the read is FORCED by naming each file, and kimi additionally
-    gets the mandatory enumerated Step-0 (bulk reads truncate the
-    alphabetically-last rules).
+    `name` is the guidance FILENAME this block is for. The Step-0 forced read is
+    emitted only when an installed harness that auto-injects no rule folder
+    (`FORCED_READ_HARNESSES` — CMP-12 § Fallback mechanics) reads that name;
+    claude and opencode never get it. The `agents.md` rows are named in every
+    guidance file, because that method's realization IS the guidance file.
+
+    Empty string when there is nothing to say — no block, no fence, no file
+    churn.
     """
-    out = ["<!-- Generated by install2.py — regenerated on every install/",
-           "     uninstall, never hand-edited. Point your workspace guidance",
-           "     file (CLAUDE.md / AGENTS.md) at this file with one line. -->",
-           "", "# rbtv exposure — installed components", ""]
-    if rule_parts:
+    forced = bool(rule_parts) and any(
+        h in FORCED_READ_HARNESSES and GUIDANCE_FILE.get(h) == name
+        for h in harnesses)
+    if not agents_parts and not forced:
+        return ""
+    out = ["# rbtv exposure — installed components", ""]
+    if forced:
         out += [
             "## Step 0 — MANDATORY, before anything else",
             "",
             "Read EACH of these behavior-rule files, one at a time, IN THIS "
-            "ORDER. They are always-on rules; no harness here auto-injects the "
+            "ORDER. They are always-on rules; this harness auto-injects no rule "
             "folder, so this enumeration is the read. Do not bulk-read them — "
             "a bulk read truncates the last entries.",
             "",
@@ -458,8 +506,8 @@ def _guidance_index(agents_parts: list[tuple[str, str, str]],
         for pid, desc, entry in agents_parts:
             suffix = f" — {desc}" if desc else ""
             out.append(f"- **{pid}**: read `{entry}`{suffix}")
-        out.append("")
-    return "\n".join(out)
+    start, end = _fence("<!--")
+    return f"{start}\n" + "\n".join(out).rstrip() + f"\n{end}\n"
 
 
 # ── guidance mirror (D13) ───────────────────────────────────────────────────
@@ -471,13 +519,22 @@ def resolve_basis(stored, override: str | None) -> str | None:
     value = override if override is not None else stored
     if value is None or value == BASIS_NONE or value == "":
         return None
-    if value not in GUIDANCE_MIRROR:
+    if value not in GUIDANCE_NAMES:
         raise Refuse(
             "guidance-basis-invalid",
             f"guidance basis {value!r} is neither {BASIS_NONE!r} nor one of "
-            + " · ".join(GUIDANCE_MIRROR)
+            + " · ".join(GUIDANCE_NAMES)
             + " — refusing before any write (D13)")
     return value
+
+
+def mirror_targets(harnesses, basis: str) -> list[str]:
+    """The guidance filenames this run generates: CMP-12's filename for every
+    INSTALLED harness, minus the basis (never written). Harnesses sharing a
+    filename collapse to one target; a set that reads only the basis yields
+    NOTHING — the claude-only case (D13)."""
+    return sorted({GUIDANCE_FILE[h] for h in harnesses if h in GUIDANCE_FILE}
+                  - {basis})
 
 
 def _norm_prefix(value: str) -> str:
@@ -559,18 +616,33 @@ def _is_generated_file(path: Path) -> bool:
         return False
 
 
-def plan_mirror(target: Path, basis: str | None,
-                excludes: list[str] | tuple[str, ...] = ()
-                ) -> tuple[dict[str, str], frozenset[str], list[str]]:
-    """The mirror files the basis implies, one beside EVERY basis file in the
-    tree (D13, recursive). Returns `(files, bases, stripped)` — `bases` is the
-    set of basis paths that must never be written or deleted; `stripped` names
-    the bases whose own generated banner was removed before mirroring."""
+def plan_mirror(target: Path, basis: str | None, harnesses,
+                excludes: list[str] | tuple[str, ...] = (),
+                blocks: dict[str, str] | None = None
+                ) -> tuple[dict[str, str], frozenset[str], list[str], list[str]]:
+    """The mirror files the basis implies: one per TARGET NAME (D13, harness-
+    keyed) beside EVERY basis file in the tree (recursive).
+
+    Returns `(files, bases, stripped, targets)` — `bases` is the set of basis
+    paths that must never be written or deleted (computed even when there is no
+    target, because a basis flip can put a booked name on a hand-authored file);
+    `stripped` names the bases whose own generated banner was removed before
+    mirroring; `targets` is the resolved filename set.
+
+    `blocks` maps a target filename to its exposure block (D8), placed at the
+    ROOT only — nested mirrors are pure per-folder guidance.
+    """
     if basis is None:
-        return {}, frozenset(), []
+        return {}, frozenset(), [], []
+    blocks = blocks or {}
+    targets = mirror_targets(harnesses, basis)
     root_source = target / basis
     if not root_source.is_file():
-        other = GUIDANCE_MIRROR[basis]
+        if not targets:
+            # Nothing would be rendered anyway — a missing basis is not this
+            # run's problem, and there is no basis on disk to protect.
+            return {}, frozenset(), [], []
+        other = " or ".join(n for n in GUIDANCE_NAMES if n != basis)
         raise Refuse(
             "guidance-basis-missing",
             f"the recorded guidance basis {basis!r} does not exist at the "
@@ -579,12 +651,14 @@ def plan_mirror(target: Path, basis: str | None,
             f"you do have the basis; or `--guidance-basis {BASIS_NONE}` to turn "
             "the mirror off. Nothing was written",
             str(root_source))
-    mirror = GUIDANCE_MIRROR[basis]
     files: dict[str, str] = {}
     bases: set[str] = set()
     stripped: list[str] = []
     for source in walk_bases(target, basis, excludes):
         rel = source.relative_to(target).as_posix()
+        bases.add(rel)
+        if not targets:
+            continue
         try:
             body = source.read_text(encoding="utf-8").lstrip("\n")
         except (OSError, UnicodeDecodeError) as exc:
@@ -599,15 +673,20 @@ def plan_mirror(target: Path, basis: str | None,
         body, stripped_banner = strip_generated_banner(body)
         if stripped_banner:
             stripped.append(rel)
-        text = (f"<!-- GENERATED by install2.py — DO NOT EDIT.\n"
-                f"     {mirror} mirrors {rel}, per the guidance basis recorded "
-                f"in {STATE_REL.as_posix()}.\n"
-                f"     Edit {rel}; re-run the installer to refresh this file. "
-                "-->\n\n") + body
-        mrel = (source.parent / mirror).relative_to(target).as_posix()
-        files[mrel] = text if text.endswith("\n") else text + "\n"
-        bases.add(rel)
-    return files, frozenset(bases), sorted(stripped)
+        # A basis that used to be OUR generated file still carries the fenced
+        # exposure block — drop it, or every flip would stack another copy.
+        body = _block_del(body, "<!--")
+        at_root = source.parent == target
+        for mirror in targets:
+            block = blocks.get(mirror, "") if at_root else ""
+            text = (f"<!-- GENERATED by install2.py — DO NOT EDIT.\n"
+                    f"     {mirror} mirrors {rel}, per the guidance basis "
+                    f"recorded in {STATE_REL.as_posix()}.\n"
+                    f"     Edit {rel}; re-run the installer to refresh this "
+                    "file. -->\n\n") + (block + "\n" if block else "") + body
+            mrel = (source.parent / mirror).relative_to(target).as_posix()
+            files[mrel] = text if text.endswith("\n") else text + "\n"
+    return files, frozenset(bases), sorted(stripped), targets
 
 
 # ── shared-file claims (D7 + D12) ───────────────────────────────────────────
@@ -863,14 +942,12 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict]
         # opencode has no hooks surface; kimi's hooks are user-scope
         # (`~/.kimi/config.toml` `hooks = [...]`) — neither is minted here.
 
-    if agents_parts or rule_parts:
-        files[GUIDANCE_REL] = _guidance_index(agents_parts, rule_parts)
-        owners[GUIDANCE_REL] = ["<aggregate>"]
-
+    # D8 — the exposure surface is the GENERATED GUIDANCE FILE, not a file of
+    # this installer's invention. The parts ride the report to `_add_mirror`,
+    # which knows the harnesses and therefore which guidance file gets what.
+    report["agents_parts"] = agents_parts
+    report["rule_parts"] = rule_parts
     report["shared_files"] = sorted({c["path"] for c in claims})
-    report["guidance_pointer"] = (
-        f"Read `{GUIDANCE_REL}` and follow it." if GUIDANCE_REL in files else ""
-    )
     return files, owners, claims, report
 
 
@@ -943,7 +1020,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     for rel in files:
         if rel in ours_files or not (target / rel).exists():
             continue
-        if (rel.rsplit("/", 1)[-1] in GUIDANCE_MIRROR
+        if (rel.rsplit("/", 1)[-1] in GUIDANCE_NAMES
                 and _is_generated_file(target / rel)):
             adopted.append(rel)
             continue
@@ -981,7 +1058,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
         # generic "move or remove it" advice would tell the user to delete
         # hand-authored guidance. Say what this file actually is instead.
         mirrors = [rel for rel in collisions
-                   if rel.rsplit("/", 1)[-1] in GUIDANCE_MIRROR]
+                   if rel.rsplit("/", 1)[-1] in GUIDANCE_NAMES]
         if mirrors:
             raise Refuse(
                 "guidance-mirror-collision",
@@ -1152,7 +1229,7 @@ def _rebook(state: dict, records: dict, files: dict, owners: dict,
 
 
 def _add_mirror(target: Path, state: dict, files: dict, owners: dict,
-                report: dict, override: str | None,
+                report: dict, override: str | None, harnesses,
                 exclude_override: list[str] | None = None) -> frozenset[str]:
     """Fold the D13 mirror into the planned set — booked as an aggregate file,
     so collision-gating, idempotence and uninstall come from the same machinery
@@ -1168,16 +1245,36 @@ def _add_mirror(target: Path, state: dict, files: dict, owners: dict,
     basis = resolve_basis(state.get("guidance_basis"), override)
     excludes = (list(exclude_override) if exclude_override is not None
                 else list(state.get("guidance_excludes") or []))
-    mirrors, bases, stripped = plan_mirror(target, basis, excludes)
+    blocks = {name: _exposure_block(name, list(harnesses),
+                                    report.get("agents_parts") or [],
+                                    report.get("rule_parts") or [])
+              for name in GUIDANCE_NAMES}
+    mirrors, bases, stripped, targets = plan_mirror(
+        target, basis, harnesses, excludes, blocks)
     for rel, content in mirrors.items():
         files[rel] = content
         owners[rel] = ["<aggregate>"]
     report["guidance_mirror"] = (
-        {"basis": basis, "mirror": GUIDANCE_MIRROR[basis],
+        {"basis": basis, "targets": targets,
          "count": len(mirrors), "excludes": excludes,
          "banner_stripped": stripped} if basis
-        else {"basis": None, "mirror": None})
+        else {"basis": None, "targets": []})
+    # D8 — every guidance file an installed harness reads that this run does NOT
+    # write (the basis, or all of them when the mirror is off) needs its block
+    # placed by hand. Reported, never written.
+    needed = {GUIDANCE_FILE[h] for h in harnesses if h in GUIDANCE_FILE}
+    report["guidance_manual"] = {
+        name: block for name, block in blocks.items()
+        if block and name in needed and name not in targets}
     return bases
+
+
+def installed_harnesses(records: dict[str, dict]) -> list[str]:
+    """The harness set the whole installed set targets — the union across the
+    book's records, in canonical order. This is what keys the guidance mirror
+    (D13): a component installed for codex is what puts AGENTS.md on the tree."""
+    return [h for h in HARNESSES
+            if any(h in (rec.get("harnesses") or []) for rec in records.values())]
 
 
 def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
@@ -1193,7 +1290,7 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                         "harnesses": list(harnesses), "files": []}
     files, owners, claims, report = plan_files(records, catalog)
     protect = _add_mirror(target, state, files, owners, report, guidance_basis,
-                          guidance_excludes)
+                          installed_harnesses(records), guidance_excludes)
     result = apply(target, files, claims, state, dry_run, protect)
     if not dry_run:
         _rebook(state, records, files, owners, claims, report)
@@ -1222,17 +1319,18 @@ def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
         # Components remain → the mirror stays. A full uninstall takes it with
         # everything else (it is installer-owned output, not the basis).
         try:
-            protect = _add_mirror(target, state, files, owners, report, None)
+            protect = _add_mirror(target, state, files, owners, report, None,
+                                  installed_harnesses(records))
         except Refuse as exc:
             # Removing a component must NEVER be blocked by a mirror problem
             # (a deleted basis, a hand-edited book). Skip the replan, and keep
             # EVERY guidance file the book holds, under either name and at any
             # depth, off the delete set — un-managed on disk beats deleted, and
             # the next install re-books whatever is real.
-            protect = frozenset(GUIDANCE_MIRROR) | frozenset(
+            protect = frozenset(GUIDANCE_NAMES) | frozenset(
                 rel for rel in known_files(state)
-                if rel.rsplit("/", 1)[-1] in GUIDANCE_MIRROR)
-            report["guidance_mirror"] = {"basis": None, "mirror": None,
+                if rel.rsplit("/", 1)[-1] in GUIDANCE_NAMES)
+            report["guidance_mirror"] = {"basis": None, "targets": [],
                                          "skipped": exc.code}
     result = apply(target, files, claims, state, dry_run, protect)
     if not dry_run:
@@ -1326,10 +1424,15 @@ def print_result(data: dict) -> None:
         print(f"  · guidance mirror: SKIPPED ({mirror['skipped']}) — not "
               "re-rendered; both root guidance files were left untouched. Fix "
               "the basis on the next install.")
+    elif mirror and mirror.get("basis") and not mirror.get("targets"):
+        print(f"  · guidance mirror: nothing to render — every installed "
+              f"harness reads {mirror['basis']}, which is the basis and is "
+              "never written (D13).")
     elif mirror and mirror.get("basis"):
-        print(f"  · guidance mirror: {mirror['count']} × {mirror['mirror']} "
-              f"generated from {mirror['basis']} (one beside every "
-              f"{mirror['basis']} in the tree; no basis file is ever written)"
+        print(f"  · guidance mirror: {mirror['count']} file(s) — "
+              f"{', '.join(mirror['targets'])} generated from "
+              f"{mirror['basis']} (one set beside every {mirror['basis']} in "
+              "the tree; no basis file is ever written)"
               + (f"; excluding {', '.join(mirror['excludes'])}"
                  if mirror.get("excludes") else ""))
         if mirror.get("banner_stripped"):
@@ -1339,10 +1442,10 @@ def print_result(data: dict) -> None:
     elif mirror:
         print("  · guidance mirror: OFF — no basis recorded. Set one with "
               "`--guidance-basis CLAUDE.md|AGENTS.md` (D13).")
-    if report.get("guidance_pointer"):
-        print("\nAdd this line to the workspace guidance file "
-              "(CLAUDE.md / AGENTS.md) — this installer never writes it:\n"
-              f"    {report['guidance_pointer']}")
+    for name, block in (report.get("guidance_manual") or {}).items():
+        print(f"\nAdd this block to {name} — an installed harness reads it and "
+              "this installer never writes it (D8):\n")
+        print("    " + block.replace("\n", "\n    ").rstrip())
 
 
 # ── interactive ─────────────────────────────────────────────────────────────
@@ -1391,7 +1494,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
         print("\nRoot guidance basis — which root file do you author? The other "
               "one is GENERATED from it on every run; the basis is never "
               "written.")
-        braw = input(f"Basis [{'/'.join(GUIDANCE_MIRROR)}/{BASIS_NONE}] "
+        braw = input(f"Basis [{'/'.join(GUIDANCE_NAMES)}/{BASIS_NONE}] "
                      f"[{BASIS_NONE}]: ").strip()
         basis = resolve_basis(None, braw or BASIS_NONE) or BASIS_NONE
 
@@ -1532,7 +1635,6 @@ def selftest() -> int:
             f".agents/behavior-rules/{PREFIX}fixrule.md",
             f".claude/agents/{PREFIX}fixagent.md",
             f".opencode/agents/{PREFIX}fixagent.md",
-            GUIDANCE_REL,
         }
         shared = {".claude/settings.json", ".codex/hooks.json", ".mcp.json",
                   ".codex/config.toml", "opencode.json"}
@@ -1559,11 +1661,19 @@ def selftest() -> int:
         check("rule copied VERBATIM",
               (target / f".claude/rules/{PREFIX}fixrule.md").read_text()
               == (tree / "fixmod/goodcomp/rule-entry.md").read_text())
-        check("guidance index forces the rule read + names the agents.md part",
-              "Step 0" in (target / GUIDANCE_REL).read_text()
-              and f"`.agents/behavior-rules/{PREFIX}fixrule.md`"
-              in (target / GUIDANCE_REL).read_text()
-              and f"{PREFIX}fixguide" in (target / GUIDANCE_REL).read_text())
+        check("F3 — NO code path mints the retired .agents/rbtv2-exposure.md",
+              not (target / f".agents/{PREFIX}exposure.md").exists()
+              and not any("exposure.md" in rel for rel in expect),
+              str(sorted(expect)))
+        check("with no basis, the exposure block is REPORTED per guidance file "
+              "an installed harness reads",
+              sorted(res["report"]["guidance_manual"]) == ["AGENTS.md",
+                                                           "CLAUDE.md"]
+              and "Step 0" in res["report"]["guidance_manual"]["AGENTS.md"]
+              and "Step 0" not in res["report"]["guidance_manual"]["CLAUDE.md"]
+              and f"{PREFIX}fixguide"
+              in res["report"]["guidance_manual"]["CLAUDE.md"],
+              str(sorted(res["report"]["guidance_manual"])))
         check("root guidance file NEVER written (D8)",
               not (target / "CLAUDE.md").exists()
               and not (target / "AGENTS.md").exists())
@@ -1880,8 +1990,7 @@ def selftest() -> int:
                   for rel, h in base_hashes.items()))
         check("every nested mirror is booked",
               read_state(mtr)["guidance_files"] == sorted(
-                  [GUIDANCE_REL, "AGENTS.md", "sub/AGENTS.md",
-                   "sub/deep/AGENTS.md"]),
+                  ["AGENTS.md", "sub/AGENTS.md", "sub/deep/AGENTS.md"]),
               str(read_state(mtr)["guidance_files"]))
         check("the report counts the mirrors it rendered",
               resr["report"]["guidance_mirror"]["count"] == 3,
@@ -2021,6 +2130,122 @@ def selftest() -> int:
                   (mtb / "deep/AGENTS.md").read_text() == hand
                   and not (mtb / "AGENTS.md").exists())
 
+        print("\nH — the mirror is HARNESS-KEYED (CMP-12 agents.md row)")
+        def _mk(name: str, harnesses: list[str], basis: str,
+                extra: dict | None = None):
+            """A fresh workspace with a root + nested basis, installed for
+            *harnesses* only. Returns (path, result)."""
+            ws = tmp / name
+            (ws / "sub").mkdir(parents=True)
+            (ws / basis).write_text(basis_body, encoding="utf-8")
+            (ws / "sub" / basis).write_text("# sub\n\nSub guidance.\n",
+                                            encoding="utf-8")
+            for rel, body in (extra or {}).items():
+                (ws / rel).parent.mkdir(parents=True, exist_ok=True)
+                (ws / rel).write_text(body, encoding="utf-8")
+            return ws, do_install(ws, catalog, ["fixmod/goodcomp"], harnesses,
+                                  dry_run=False, guidance_basis=basis)
+
+        h1, r1 = _mk("ws-claude-only", ["claude"], "CLAUDE.md")
+        h1_hash = hashlib.sha256((h1 / "CLAUDE.md").read_bytes()).hexdigest()
+        check("H1 — claude-only + basis CLAUDE.md writes NO mirror, anywhere",
+              not list(h1.rglob("AGENTS.md"))
+              and r1["report"]["guidance_mirror"]["targets"] == []
+              and r1["report"]["guidance_mirror"]["count"] == 0
+              and read_state(h1)["guidance_files"] == [],
+              str(r1["report"]["guidance_mirror"]))
+        check("H1 — and the basis is untouched, at every depth",
+              hashlib.sha256((h1 / "CLAUDE.md").read_bytes()).hexdigest()
+              == h1_hash
+              and (h1 / "sub/CLAUDE.md").read_text() == "# sub\n\nSub "
+              "guidance.\n")
+        check("H1 — the block claude needs is REPORTED for the basis, "
+              "never written",
+              sorted(r1["report"]["guidance_manual"]) == ["CLAUDE.md"]
+              and "Step 0" not in r1["report"]["guidance_manual"]["CLAUDE.md"],
+              str(sorted(r1["report"]["guidance_manual"])))
+        check("H1 — a claude-only re-run stays a no-op",
+              do_install(h1, catalog, ["fixmod/goodcomp"], ["claude"],
+                         dry_run=False)["written"] == [])
+
+        h2, r2 = _mk("ws-codex-only", ["codex"], "CLAUDE.md")
+        check("H2 — selecting codex renders AGENTS.md, recursively",
+              sorted(q.relative_to(h2).as_posix()
+                     for q in h2.rglob("AGENTS.md"))
+              == ["AGENTS.md", "sub/AGENTS.md"]
+              and r2["report"]["guidance_mirror"]["targets"] == ["AGENTS.md"],
+              str(r2["report"]["guidance_mirror"]))
+        check("H2 — the forced Step-0 read is IN the generated guidance file, "
+              "at the ROOT only (F4)",
+              "Step 0" in (h2 / "AGENTS.md").read_text()
+              and f"`.agents/behavior-rules/{PREFIX}fixrule.md`"
+              in (h2 / "AGENTS.md").read_text()
+              and f"{PREFIX}fixguide" in (h2 / "AGENTS.md").read_text()
+              and "Step 0" not in (h2 / "sub/AGENTS.md").read_text(),
+              (h2 / "AGENTS.md").read_text()[:400])
+        check("H2 — the generated body still ends with the basis body",
+              (h2 / "AGENTS.md").read_text().endswith(basis_body))
+
+        h3, r3 = _mk("ws-three-share", ["codex", "opencode", "kimi"],
+                     "CLAUDE.md")
+        check("H3 — three harnesses sharing AGENTS.md get ONE file per folder",
+              r3["report"]["guidance_mirror"]["targets"] == ["AGENTS.md"]
+              and r3["report"]["guidance_mirror"]["count"] == 2,
+              str(r3["report"]["guidance_mirror"]))
+
+        h4, r4 = _mk("ws-no-forced", ["claude", "opencode"], "CLAUDE.md")
+        check("H4 — opencode takes NO forced read (CMP-12 gives it no separate "
+              "rule type; it reads .claude/)",
+              (h4 / "AGENTS.md").is_file()
+              and "Step 0" not in (h4 / "AGENTS.md").read_text()
+              and not (h4 / ".agents/behavior-rules").exists()
+              and (h4 / f".claude/rules/{PREFIX}fixrule.md").is_file(),
+              str(sorted(q.relative_to(h4).as_posix()
+                         for q in h4.rglob("*") if q.is_file())))
+
+        h5, r5 = _mk("ws-basis-agents", ["claude", "codex"], "AGENTS.md")
+        check("H5 — basis AGENTS.md + claude installed renders CLAUDE.md",
+              r5["report"]["guidance_mirror"]["targets"] == ["CLAUDE.md"]
+              and (h5 / "CLAUDE.md").is_file()
+              and "Step 0" not in (h5 / "CLAUDE.md").read_text()
+              and "Step 0" in r5["report"]["guidance_manual"]["AGENTS.md"],
+              str(r5["report"]["guidance_mirror"]))
+
+        print("\nH6 — the retired exposure index is cleaned by the machinery")
+        h6, _ = _mk("ws-retire", ["claude", "codex"], "CLAUDE.md")
+        stale_rel = f".agents/{PREFIX}exposure.md"
+        (h6 / stale_rel).parent.mkdir(parents=True, exist_ok=True)
+        (h6 / stale_rel).write_text("# the old invented index\n",
+                                    encoding="utf-8")
+        st = read_state(h6)                    # book it, as the old code did
+        st["guidance_files"] = sorted(st["guidance_files"] + [stale_rel])
+        write_state(h6, st)
+        r6 = do_install(h6, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
+                        dry_run=False)
+        check("H6 — an existing rbtv2-exposure.md is DELETED by the next run",
+              stale_rel in r6["deleted"] and not (h6 / stale_rel).exists()
+              and stale_rel not in read_state(h6)["guidance_files"],
+              str(r6["deleted"]))
+
+        print("\nH7 — the exposure block never stacks across a basis flip")
+        h7, _ = _mk("ws-flip-block", ["claude", "codex"], "CLAUDE.md")
+        (h7 / "CLAUDE.md").unlink()
+        (h7 / "sub/CLAUDE.md").unlink()
+        r7 = do_install(h7, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
+                        dry_run=False, guidance_basis="AGENTS.md")
+        # The flipped-to basis carried OUR AGENTS.md block (codex's, with the
+        # Step-0). Mirroring it back must strip that one and render CLAUDE.md's
+        # own block instead — exactly one fence, and no forced read, because
+        # claude auto-injects `.claude/rules/`.
+        check("H7 — the flipped file's fenced block is stripped, not stacked",
+              (h7 / "CLAUDE.md").read_text().count(f"{FENCE_ID}:start") == 1
+              and (h7 / "CLAUDE.md").read_text().count("Step 0") == 0
+              and "Step 0" in r7["report"]["guidance_manual"]["AGENTS.md"],
+              (h7 / "CLAUDE.md").read_text()[:400])
+        check("H7 — and the flipped run is idempotent",
+              do_install(h7, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
+                         dry_run=False)["written"] == [])
+
         print("\nuninstall")
         res = do_uninstall(target, catalog, ["fixmod/goodcomp"], dry_run=False)
         left = sorted(p.relative_to(target).as_posix()
@@ -2103,7 +2328,7 @@ def build_parser() -> argparse.ArgumentParser:
                            help="comma-separated subset of "
                                 + ",".join(HARNESSES))
             s.add_argument("--guidance-basis", default=None,
-                           choices=(*GUIDANCE_MIRROR, BASIS_NONE),
+                           choices=(*GUIDANCE_NAMES, BASIS_NONE),
                            help="which root guidance file you author; the "
                                 "other is generated from it (D13). Persisted "
                                 "— pass it once. Default: whatever the state "
