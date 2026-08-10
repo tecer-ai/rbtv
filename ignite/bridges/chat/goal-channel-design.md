@@ -92,8 +92,12 @@ moment it CREATES it. Four conjunctive conditions, all probe-asserted:**
    channels self-heal. `recover()` still never invites — it is a bulk map rebuild at boot,
    not the resolution of a channel about to carry goal traffic.
 4. **Graceful degradation.** An invite refusal (missing scope, restricted workspace) is logged
-   loudly and then discarded. Channel creation, the binding, and the goal's message flow never
-   depend on it: the channel is the goal's surface whether or not the owner is in it yet.
+   loudly and carried in the `ensureChannel` result (`ownerInvited` / `invite` — task 7.680;
+   formerly discarded entirely, which made the failure invisible to every caller). It never
+   gates: channel creation, the binding, and the goal's message flow never depend on it — the
+   channel is the goal's surface whether or not the owner is in it yet. Where a failed invite
+   should ACTIVELY alert the owner (master channel, DM under `r-slack-etiquette` timing) is an
+   open owner decision, tracked in the core-build tasks file.
 
 **Why never-invite existed, and why it over-reached.** The construction made a real guarantee
 cheap: an absence in the source cannot be forgotten under pressure at 4 AM, unlike a policy.

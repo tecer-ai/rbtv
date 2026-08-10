@@ -46,8 +46,9 @@
 //      it is a bulk map rebuild at boot, not the resolution of a channel about to carry
 //      goal traffic.
 //   4. GRACEFUL — an invite refusal (missing scope, restricted workspace) is logged
-//      loudly and DISCARDED. Channel creation and the goal's message flow never depend
-//      on it: the channel is the goal's surface whether or not the owner is in it yet.
+//      loudly and CARRIED in the result (`ownerInvited` / `invite`, task 7.680) but never
+//      gates anything: channel creation and the goal's message flow never depend on it —
+//      the channel is the goal's surface whether or not the owner is in it yet.
 
 // Slack channel names: lowercase, ≤ 80 chars, letters/digits/hyphen/underscore only.
 const SLACK_NAME_MAX = 80;
