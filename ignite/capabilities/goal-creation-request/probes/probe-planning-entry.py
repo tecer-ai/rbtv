@@ -25,13 +25,17 @@ called itself hermetic "by PATH only" and every single run booted a REAL `claude
 a full seat prompt into the seat pane, then killed the room out from under it: a PATH shim binds
 only what inherits the launcher's environment, and tmux starts a pane's shell as a LOGIN shell whose
 profile RE-PREPENDS the real `~/.local/bin` (§2 review of `73823ab`, finding F1 — measured three
-times). It survived in three documents for one reason: NOTHING CHECKED IT. Both halves of the fix
-are measurements from task 7.552, not guesses — (i) the seat's pane must be a NON-LOGIN shell, which
-is `default-command` set on THIS probe's own private socket, and (ii) that socket's SERVER must
-itself carry the shimmed PATH, since a non-login pane inherits the server's environment. A `HOME`
-redirect does NOT help (the prepended path is a literal) and is ruled out rather than retried. The
-stub records its argv in a marker file and `P5c` reads it back, so the day the binding breaks this
-probe goes RED instead of going quietly expensive.
+times). It survived in three documents for one reason: NOTHING CHECKED IT. THE MEASURED MECHANISM
+(§2 review of `98c7717`, tmux 3.6, task 7.568): a pane inherits the ISSUING CLIENT's environment —
+not the server's — and `coord.py` is the launcher's own child, so its tmux client already carries
+the shims; the login shell was the ONLY thing overwriting them. So the whole fix is ONE half: the
+seat's pane must be a NON-LOGIN shell, which is `default-command` set on THIS probe's own private
+socket. ⚠ rbtv commit `98c7717`'s message claims instead that "a non-login pane inherits the
+SERVER's environment" and that both halves are required — that claim was measured FALSE twice
+(mutant MC and a direct client/server PATH-mark test); the message cannot be edited, so do not
+trust it over this docstring. A `HOME` redirect does NOT help (the prepended path is a literal)
+and is ruled out rather than retried. The stub records its argv in a marker file and `P5c` reads
+it back, so the day the binding breaks this probe goes RED instead of going quietly expensive.
 
 BOUNDARY, STATED RATHER THAN IMPLIED: this probe does not fire the row through a live ticker. The
 real-fire path is `probe-argv-template.js`'s (scratch store, real `fireQueueRow`, real expansion).
@@ -175,8 +179,16 @@ def make_shims(d, marker):
     sleep`s is POSITIVE ABSENCE ("only its shell is there", G-11): the seat is refused and the
     launch exits 1 (measured on 7.552's fixture). `printf` and `read` are builtins, so the stub
     itself stays the pane's foreground process. PATH ALONE DOES NOT MAKE IT BIND — see the module
-    docstring; the caller must also put the pane on a non-login shell and hand the tmux server this
-    PATH. The `marker` is the other half: the stub records that it ran, and `P5c` reads it back.
+    docstring; the caller must also put the pane on a NON-LOGIN shell (`default-command`). That is
+    sufficient: the pane inherits the ISSUING CLIENT's environment, and coord's tmux client — the
+    launcher's child — already carries this PATH. The `marker` is the other half of the PROOF: the
+    stub records that it ran, and `P5c` reads it back.
+
+    ⚠ STANDING TRIGGER (7.553 §2 review, recorded per task 7.568): this stub shape now exists in
+    THREE places — `team-kit/probes/acceptance-room.py` (`STUB_BODY`, the origin),
+    `probe-sensor-start.py` (certified, 7.552) and here. Unification is deliberately DECLINED:
+    one copy is certified and the two probe copies live in the same directory. Revisit ONLY on a
+    FOURTH site, or on the first DIVERGENCE between the copies.
     """
     d.mkdir(parents=True, exist_ok=True)
     real = shutil.which("tmux")
@@ -502,20 +514,19 @@ def main():
         pkg5 = root5 / "probe-firstfire"
         room = "probe-firstfire"
 
-        # ⚠ THE STUB BINDS ONLY IF BOTH OF THESE HOLD, and neither is optional (task 7.553):
-        #   (1) the seat's pane is a NON-LOGIN shell — `default-command`, which is a SERVER option,
-        #       so it must be set BEFORE that pane opens; and
-        #   (2) the tmux SERVER itself carries the shimmed PATH, because a non-login pane inherits
-        #       the SERVER's environment — and this socket's server was started back at P3/P4,
-        #       before the shims existed. Setting only (1) leaves the pane inheriting a shim-free
-        #       PATH; setting only (2) leaves the login shell re-prepending the real `~/.local/bin`
-        #       over it. Either one alone boots a real paid agent, which is why F1 was invisible.
-        # The room is therefore pre-created HERE rather than by the launcher. `ensure_session` is
-        # idempotent by design and joins it ("existing session"), and session CREATION is P4's
-        # claim above, not this arm's — the same boundary `probe-sensor-start.py` draws.
-        kill_socket()
-        os.environ["PATH"] = fire_env["PATH"]   # so the server started below carries the shims
-        tmux("new-session", "-d", "-s", room, "-c", str(pkg5))
+        # ⚠ THE STUB BINDS BECAUSE OF EXACTLY ONE THING (measured, task 7.568; §2 review of
+        # `98c7717`, mutant MC + a direct tmux 3.6 test): the seat's pane must be a NON-LOGIN
+        # shell — `default-command`, a session option set globally on this private socket BEFORE
+        # the pane opens. That alone suffices, because a pane inherits the ISSUING CLIENT's
+        # environment, and coord's tmux client is the launcher's child fired with `env=fire_env`,
+        # so it already carries the shims; the login shell re-prepending the real `~/.local/bin`
+        # was the only thing overwriting them. Deleting this binding boots a real paid agent and
+        # turns P5c RED. (7.553 shipped three further lines here — a mid-run `kill_socket()`, an
+        # unrestored `os.environ["PATH"]` mutation "so the server carries the shims", and a
+        # pre-created room — justified by a server-inheritance mechanism that was measured FALSE;
+        # all three were inert for the binding and are deleted, task 7.568. Deleting the
+        # pre-created room RESTORES the launcher's own session-creation path to this arm; P4
+        # covers `ensure_session` creation + idempotent join at function level either way.)
         tmux("set-option", "-g", "default-command", "bash --noprofile --norc")
         fire = [sys.executable, str(LAUNCHER), "--package", str(pkg5), "--goal", "probe-firstfire",
                 "--entry-seat", flags["--entry-seat"],
@@ -541,14 +552,15 @@ def main():
 
         # ---- P5c · THE HARNESS IN THAT PANE IS THE STUB, so nothing here booted a paid agent ----
         # The arm that did not exist while the claim was false. It reads a marker the stub itself
-        # appends to on execution: an EMPTY marker beside an open seat pane means the pane is
-        # running the REAL `claude --effort max`, which is exactly the pre-7.553 state. Note what
+        # appends to on execution: an EMPTY marker beside an open seat pane means the stub did NOT
+        # bind — that is the measurement; whether a real agent booted instead is the pane's own
+        # business and this arm does not observe it (task 7.568). Note what
         # this pins and what it does not: a green here says the probe is free, NOT that a real
         # agent would boot — that is the launcher's own boundary (exit 0 = a seat pane opened).
         ran = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
         report("P5c the `claude` stub ACTUALLY EXECUTED (no paid agent booted)", "green",
                bool(ran), True,
-               (ran.splitlines() or [""])[0][:150] or "MARKER EMPTY — a REAL agent booted instead")
+               (ran.splitlines() or [""])[0][:150] or "MARKER EMPTY — the stub did not bind")
 
         # ---- P5b · THE SENSOR IS UP (task 7.552) --------------------------------------------
         # `coordinate launch` now hands `team_monitor.py ensure` the ROOM'S SESSION — the one it
