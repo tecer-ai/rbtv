@@ -21,9 +21,20 @@ READER CAN TELL "DEAD" FROM "QUIET" WITHOUT KNOWING THE SCHEDULE OUT OF BAND. A 
 already know the cadence to interpret the artifact is a consumer that will read a stopped timer as
 a quiet one.
 
-WHO READS IT (half 2 of the ruling): the chief-of-staff, on its per-pass sweep — a PULL mechanism
-that already exists and demonstrably fires. That wiring is a seat-descriptor change and is the
-LEADER'S to arrange. ⚠ This script MUST NOT be extended to notify anyone itself: the obvious route
+WHO ACTUALLY READS IT — corrected 2026-08-10 (task 7.107). The text that stood here claimed the
+chief-of-staff pulls this on its per-pass sweep, "a PULL mechanism that already exists and
+demonstrably fires". ⚠⚠ NO SUCH MECHANISM EXISTS — verified absent across all 50 seat directories
+(2026-07-29). That false sentence is what kept a RED verdict sitting unread for ~22h: a reader
+checking whether RED reaches anyone found a line saying it did. The TRUE delivery state:
+  · WRITTEN — `latest.json` (rewritten on every fire) plus the per-run summary. Both land on disk.
+  · READ — exactly one consumer: the CMP-28 daemon-watchdog
+    (`ignite/capabilities/daemon-watchdog/tool/rbtv-ignite-watchdog`, `probe_probe_suite`), and it
+    reads this artifact for LIVENESS ONLY — `verdict`/`passed`/`failed` are, in its own words,
+    "deliberately never read here" (CMP-28 § Differentiation: the suite grades correctness, the
+    watchdog grades liveness).
+  · THEREFORE — NO component reads the verdict. A RED sits on disk unread until a human looks at it.
+Which consumer closes that gap is an OPEN OWNER DECISION (task 7.107). Do not assume one exists.
+⚠ This script MUST NOT be extended to notify anyone itself: the obvious route
 is `watch.py`, which is `ignite/team-kit/` and barred to this seat (r-engineer-not-team-kit).
 
 COVERAGE — derived, never hand-listed:
