@@ -50,6 +50,7 @@ function check(name, ok, detail = '') {
   return ok;
 }
 
+const { awaitExit } = require('./await-exit');
 const attached = require('../attached-execution');
 // The chat bridge's own gate readers — held BESIDE `heldSeatPredicate` so B1b can measure that the
 // two answer alike rather than asserting it (7.626 review F3).
@@ -408,7 +409,7 @@ async function main() {
       && !['done', 'failed', 'blocked', 'killed'].includes(midRow.status),
     midRow ? `${midRow.enqueued_by}/${midRow.status}` : 'no row appeared — the carrier never fired');
   try { process.kill(-victim.pid, 'SIGKILL'); } catch { victim.kill('SIGKILL'); }
-  await new Promise((resolve) => victim.on('exit', resolve));
+  await awaitExit(victim);
   await sleep(300);
   // The orphaned foreground child outlives a SIGKILL aimed at the runner alone (a real Ctrl-C
   // signals the whole foreground process group and takes it with it). Disclosed in the contract;
@@ -472,7 +473,7 @@ async function main() {
   const holder = spawnProc(RBTV_BIN,
     ['run', holdGoal, '--profile', 'probe-fg-hold', '--config', configPath, '--tick-ms', '300', '--json'],
     { stdio: 'ignore', detached: true });
-  const holderExit = new Promise((resolve) => holder.on('exit', (code) => resolve(code)));
+  const holderExit = awaitExit(holder);
 
   let holderRow = null;
   for (let i = 0; i < 40 && !holderRow; i += 1) {
@@ -498,7 +499,7 @@ async function main() {
       && rowAfterIntruder.exec_id === holderRow.exec_id,
     `${holderRow.status} -> ${rowAfterIntruder && rowAfterIntruder.status}`);
 
-  const holderCode = await holderExit;
+  const { code: holderCode } = await holderExit;
   const holderRows = rowsFor(path.join(holdGoal, 'heart.db'), 'alpha');
   check('B1g runner A then completes NORMALLY — the refusal cost it nothing',
     holderCode === 0 && holderRows.length === 1 && holderRows[0].status === 'done'
