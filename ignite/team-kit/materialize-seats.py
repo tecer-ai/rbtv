@@ -3297,7 +3297,18 @@ def _hash_tree(root: Path) -> dict[str, str]:
 
 
 def _norm(text: str, tmp: Path) -> str:
-    return text.replace(str(tmp), "<TMP>")
+    """Erase the run's tempdir so two runs of the same scenario compare equal
+    (SK-4/SC-11/AS-4 compare whole stdouts across two environments).
+
+    The path appears in `--json` stdout in TWO spellings, and on POSIX they
+    coincide — `/tmp/x` is its own JSON escaping — which is why one
+    replacement sufficed for years. On Windows they diverge: the raw path is
+    `C:\\Users\\...` and its JSON form is `C:\\\\Users\\\\...`, so the single
+    raw replacement left every `writes[].path` un-normalized and SK-4's
+    identical-suite comparison saw two different tempdirs, not an environment
+    effect. Escaped form first: it is the longer of the two."""
+    return (text.replace(json.dumps(str(tmp))[1:-1], "<TMP>")
+                .replace(str(tmp), "<TMP>"))
 
 
 def _invoke(argv: list[str], env: dict) -> subprocess.CompletedProcess:
