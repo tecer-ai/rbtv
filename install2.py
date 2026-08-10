@@ -161,6 +161,16 @@ D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10; harness-keyed per CMP-12
     the mirror over from `install.py`'s `model_mirror` on the maintainer's vault
     without a human hand-deleting another tool's artifact.
 
+    A PARTIAL UNINSTALL CAN UN-MANAGE A MIRROR, briefly (task 7.623(c)).
+    Removing a component must NEVER be blocked by a mirror problem, so when the
+    replan refuses (a deleted basis, a hand-edited book) the mirror is SKIPPED
+    and every guidance file the book holds is held off the delete set: the file
+    STAYS ON DISK BUT LEAVES THE BOOK. In that window it is an unbooked file
+    under a mirror name, so an install carrying a DIFFERENT basis refuses
+    `guidance-mirror-collision` on it unless its own banner lets ADOPTION take
+    it. The next successful install re-books it. Correct — un-managed beats
+    deleted — and surprising enough to say here rather than only at the code.
+
     THE EXPOSURE BLOCK is rendered at the ROOT only (the installer exposes
     components at the install root — see BOUNDARY above), inside the fenced
     `rbtv2:` block D8 describes. A nested mirror is a pure per-folder guidance
@@ -1537,6 +1547,30 @@ def _print_guidance(report: dict, planned: bool) -> None:
 
 # ── interactive ─────────────────────────────────────────────────────────────
 
+def prompt_basis(ask=input, tries: int = 3) -> str:
+    """Ask for the guidance basis, RE-PROMPTING on a typo (task 7.623(b)).
+
+    The basis is the LAST thing `interactive` asks. A mistyped answer used to
+    raise `Refuse` straight past the caller, throwing away the target, the
+    component picks and the harness picks the human had already given. Bounded
+    by `tries`: the FINAL try's refusal propagates unchanged, so a stdin that
+    never answers cannot loop forever and the refusal stays reachable. Every
+    NON-interactive path still calls `resolve_basis` directly and still refuses
+    on the first bad value — no re-prompt exists to reach there.
+    """
+    for attempt in range(1, tries + 1):
+        raw = ask(f"Basis [{'/'.join(GUIDANCE_NAMES)}/{BASIS_NONE}] "
+                  f"[{BASIS_NONE}]: ").strip()
+        try:
+            return resolve_basis(None, raw or BASIS_NONE) or BASIS_NONE
+        except Refuse as exc:
+            if attempt == tries:
+                raise
+            print(f"  {exc.message}")
+            print(f"  {tries - attempt} more attempt(s) — blank answer "
+                  f"means {BASIS_NONE}.")
+
+
 def interactive(target: Path, catalog: dict[str, dict]) -> int:
     print("rbtv installer (install2) — interactive\n")
     answer = input(f"Target workspace [{target}]: ").strip()
@@ -1581,9 +1615,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
         print("\nRoot guidance basis — which root file do you author? The other "
               "one is GENERATED from it on every run; the basis is never "
               "written.")
-        braw = input(f"Basis [{'/'.join(GUIDANCE_NAMES)}/{BASIS_NONE}] "
-                     f"[{BASIS_NONE}]: ").strip()
-        basis = resolve_basis(None, braw or BASIS_NONE) or BASIS_NONE
+        basis = prompt_basis()
 
     print(f"\nInstalling {', '.join(picked)} for {', '.join(harnesses)} "
           f"into {target}")
@@ -2457,6 +2489,44 @@ def selftest() -> int:
               and rr_dry["report"]["skipped_inventory_rows"]
               == rr_real["report"]["skipped_inventory_rows"],
               str(sorted(set(rr_dry["report"]) ^ set(rr_real["report"]))))
+
+        print("\n7.623(b) — an interactive basis typo RE-PROMPTS")
+        answers = ["CLAUDE.MD", "claude.md", "CLAUDE.md"]
+        asked: list[str] = []
+
+        def _ask(prompt: str) -> str:
+            asked.append(prompt)
+            return answers[len(asked) - 1]
+
+        check("7.623b — two typos then a good answer returns the basis",
+              prompt_basis(ask=_ask, tries=3) == "CLAUDE.md"
+              and len(asked) == 3, str(asked))
+        try:
+            prompt_basis(ask=lambda _p: "CLAUDE.MD", tries=1)
+            single = "no refusal"
+        except Refuse as exc:
+            single = exc.code
+        check("7.623b — RED ARM: with no retry (the pre-fix shape) the same "
+              "typo refuses",
+              single == "guidance-basis-invalid", single)
+        tried: list[int] = []
+        try:
+            prompt_basis(ask=lambda _p: tried.append(1) or "nope", tries=3)
+            bounded = "no refusal"
+        except Refuse as exc:
+            bounded = exc.code
+        check("7.623b — the retry is BOUNDED: the last try still refuses",
+              bounded == "guidance-basis-invalid" and len(tried) == 3,
+              f"{bounded} after {len(tried)} prompt(s)")
+        check("7.623b — a blank answer still means `none`, not a retry",
+              prompt_basis(ask=lambda _p: "", tries=3) == BASIS_NONE)
+        try:
+            resolve_basis(None, "CLAUDE.MD")
+            direct = "no refusal"
+        except Refuse as exc:
+            direct = exc.code
+        check("7.623b — NON-interactive resolve_basis is unchanged: no retry "
+              "exists there", direct == "guidance-basis-invalid", direct)
 
         print("\nuninstall")
         res = do_uninstall(target, catalog, ["fixmod/goodcomp"], dry_run=False)
