@@ -131,6 +131,18 @@ the carrier is a spawn variant.
   | `session-id` | the launch's, joining its `jobs_log` row | **the same**: the join (task 7.73) is what marks it foreground — its execution carries `enqueued_by = attached-foreground` |
   | `pid` / `pid-starttime` | the worker process's | **the runner's** — `coord.py pane_identity`'s rule: every process the seat runs is a descendant of `rbtv run`, and the identity gate matches against the caller's ANCESTRY. (`spawnSync` yields the child's pid only once it is dead, so there is no other honest choice.) |
   | `tty` | always empty | the runner's numeric `tty_nr` — non-zero exactly when the run has a real terminal, which is the human-readable mark of a terminal-carried row |
+  | `ended` / `disposition` | `coord.py session_close`, called by the seat | **the carrier**, on the child's exit — see below |
+
+  ⚠ **The identity pair is LANE-identifying, not SEAT-discriminating** (review finding). Every
+  foreground row of a run carries the SAME pid/starttime — the runner's — because that is what is
+  true: each seat genuinely runs as a child of `rbtv run`, one at a time, on one terminal. A process
+  matched against these rows therefore matches EVERY foreground seat of that run, not the one it is
+  sitting in. Nothing is broken by this today, and the reason is not this row: a console-lane seat
+  never reaches the identity gate at all — `checkIdentity` refuses it `E_GOAL_NOT_LIVE`, there being
+  no tmux room on this lane. **So the gate's protection here is the no-room refusal, not the pair.**
+  If a future change gives the console lane a room, the pair must become seat-discriminating FIRST
+  (the child's pid is only knowable after it dies, so that needs a different carriage, not a
+  different column). Flagged for the ledger.
 
   The header is **not spelled in the engine**: `coord.py` owns `SESSIONS_COLS` and is asked for it, at
   run time, only when the append has already refused for want of one — the same contract `spawn.js`
@@ -138,6 +150,33 @@ the carrier is a spawn variant.
   is **loud and never fatal**: the seat is about to own the terminal, and refusing a launch over its
   trace would be the worse outcome. (`appendRowEnsuringHeader` is not exported from `spawn.js`, so
   the ~10 lines of *mechanism* exist twice while the *schema* still has one owner — flagged.)
+
+- **…and the carrier CLOSES that row on the child's exit** (review finding). A row is normally closed
+  by `coord.py session_close`, which a console-lane seat can never reach (`E_GOAL_NOT_LIVE` — no tmux
+  room), so an opened-and-never-closed row made `goal-state-job`'s `open_session_seats` — *rows whose
+  `ended` is empty* — report every **finished** foreground seat as a live-or-crashed sitting for the
+  rest of the goal's life. A new false divergence signal, created by the row itself. The carrier is
+  the one honest witness (it blocks on the child), so on exit it stamps:
+
+  | cell | value | why that one |
+  |---|---|---|
+  | `ended` | the exit timestamp | this is what closes the sitting |
+  | `disposition` | **`exited`** | `coord.py` reserves it for *"the kit attesting that a harness terminated, a fact a seat cannot witness about itself"*. **Never `done`** — `done` is a seat reporting its own work finished, which no exit code asserts. Every reader treats `exited` as NOT-done (edge-runner: `renew`/`revive`/`exited` do not advance the fast path), so nothing advances on an attestation nobody made. |
+  | `disposition-writer` | `kit` | the pair the value is validated against |
+
+  The exit CODE is not invented into a column: it is on the `jobs_log` row this session id joins to.
+  It closes **only its own open row** (matched by session id, skipped if `ended` is already set), so a
+  seat that did reach `coord`'s closer keeps that closer's values. Measured after a clean
+  all-foreground run: `open_session_seats` → empty (was: both seats, forever) and
+  `coord.session_disposition` → `exited` (was: `None`). **Consequence, stated rather than found
+  later:** the check-out fast path can now *answer* for a console-lane seat, and its answer is
+  NOT-done — truthfully, since no seat on this lane can declare its own check-out. The console lane
+  does not need it to: the attached engine advances from its own `heart.db`. The two surfaces
+  therefore disagree by construction on a console-run goal (engine: `done`; trace: `exited`), and
+  that is the honest state of affairs rather than a defect to paper over. Flagged for the ledger.
+  ⚠ The close is a read-modify-write of the whole file with no lock (`coord.py`'s `coord_lock` has no
+  JS binding, and the daemon's own append door takes none either); the window is one read/write pair
+  while the ticker is frozen.
 
 ### Crash semantics — the contract, stated explicitly
 
@@ -205,10 +244,25 @@ spawn path and write exactly those rows. The deciding fact is the **join**: a tr
 this taskforce whose `session-id` no execution in **this goal's own store** owns. That is the cheapest
 honest detector available today, and it needs no new record.
 
-- It **refuses before the goal is touched** — before the run lock and before the store: a refusal that
-  first created and migrated a `heart.db` would have changed the goal it declined to run.
-- It reads the goal's store **only if one already exists** (same bar `--status` holds). No store plus
-  trace rows ⇒ every row is somebody else's by construction.
+- It **refuses before the goal is touched** — before the run lock and before the store.
+- It reads the goal's store **only if one already exists** (same bar `--status` holds), and reads it
+  **READ-ONLY, through a `readOnly` sqlite handle rather than `openHeartStore`**: the store's
+  constructor sets WAL pragmas and runs migrations, so going through it would have migrated an
+  out-of-date store — before the lock, i.e. behind a live runner's back — as the price of declining
+  to run. Probed on a store stamped `user_version = 0`: it stays 0, and the file stays byte-identical.
+  (⚠ The accepted price, measured: a WAL reader must create `heart.db-wal`/`-shm`, and a read-only
+  connection cannot remove them, so a refusal leaves those two sidecars beside the store. They are
+  deliberately NOT deleted — this runs before the lock, and unlinking another live runner's `-wal`
+  loses committed transactions. Litter over data loss.)
+- **The claim is scoped to the CURRENT taskforce's seats.** Trace rows are filtered against
+  `taskforce.csv`, so a row for a seat since renamed or dropped is invisible to the guard: *"evidence
+  its own store cannot account for"* means the seats the goal has now, not the whole file. The
+  direction is safe — it under-refuses rather than blocking a goal over a seat it no longer has.
+- **No store at all + trace rows gets its OWN message and its own remedies** (`rm heart.db` on a goal
+  this very lane ran lands here). Blaming "another lane" there is false and unactionable, so the
+  refusal says what is true — the trace names launched sessions nothing can account for — and offers
+  the three honest options: restore the store, move `sessions.csv` aside consciously and accept the
+  re-run, or start a fresh goal.
 - **`--status` never refuses.** Orientation is read-only, and a goal you cannot run is the goal you
   most need to orient on.
 - It also catches a seat **run by hand** (a team-kit tmux sitting writes its own row through
@@ -275,10 +329,13 @@ grant re-open finished work · drop the `seat-failed` verdict · remove the run 
 holder as stale · treat a dead holder as live · overwrite a foreign terminal row). Sections **B1h**
 (S-20) and **B1i** (S-21) carry the two later rulings: the foreground row joins its own execution by
 session id, is schema-conformant against the file's OWN header, carries the runner's identity pair,
+is CLOSED on the child's exit (`ended` + `exited`/`kit`) — verified through the real python readers,
+`goal-state-job.open_session_seats` and `coord.session_disposition`, not by inspecting a cell —
 and an ALL-FOREGROUND package's trace is born with the schema owner's header; every shipped
 `headed.tui` pins its profile's own model, and the pin survives composition on the real carrier path
 with a shipped profile. Mutations, all red: no-op the trace row · unpin one profile · pin the WRONG
-model on one profile. `tty` is REPORTED, never asserted — a probe cannot own a terminal.
+model on one profile · **no-op the closer** · close with `done` instead of `exited`. `tty` is
+REPORTED, never asserted — a probe cannot own a terminal.
 
 `ignite/engine/probes/probe-cross-lane-resume.js` — **B3's negative verdict, and now the S-18 guard
 that answers it.** Cross-lane resume does not hold in either direction: the daemon lane has no path
@@ -292,8 +349,12 @@ faking it. Section **D4** measures the refusal built on that basis — the messa
 the session id, no store or lock is left behind, `--status` still answers, and the guard is proven
 DISCRIMINATING by a pair: give the goal's own store an execution for that session id and the very same
 goal runs, while a goal the attached lane ran itself (two trace rows, one per carriage) is never
-refused. Mutations, all red: disable the guard · make it ignore the store join · no-op the foreground
-trace row.
+refused. It also measures the store-PRESENT refusal path (an out-of-date store is left out of date)
+and the absent-store message. Mutations, all red: disable the guard · make it ignore the store join ·
+no-op the foreground trace row · read the store through the migrating `openHeartStore` · drop the
+absent-store branch. ⚠ The byte-identity check ALONE was proven **non**-discriminating by that
+fourth mutation — `openHeartStore` leaves an already-current store byte- and mtime-identical — which
+is why the arm asserts an unstamped `user_version` instead.
 
 `ignite/engine/probes/probe-attached-status.js` — the `--status` verb (A3).
 

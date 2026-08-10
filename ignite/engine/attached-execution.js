@@ -283,7 +283,39 @@ function enqueueEligible(heartStore, rows, { profile, goalFolder, logger, isHeld
 // (`rbtv-sb-merge-refactor-migrate`): "Build the lane-independent execution record so a goal can
 // move between the daemon and console lanes" — both lanes read/write ONE goal-folder record, and
 // THIS FUNCTION RETIRES when it lands. Do not grow it into that record.
-function crossLaneEvidence(goalFolder, { openStore = null } = {}) {
+//
+// ⚠ THE SCOPE, NARROWED AND SAID SO (review F6): the trace rows are filtered to the seats of the
+// CURRENT `taskforce.csv`, so a row for a seat that has since been renamed or dropped from the
+// taskforce is INVISIBLE to this guard. That is the safe direction — the guard under-refuses rather
+// than blocking a goal over a seat it no longer has — but it means "evidence its own store cannot
+// account for" is a claim about the CURRENT taskforce's seats, not about the whole file.
+//
+// ⚠ THE STORE IS READ **READ-ONLY**, and not through `openHeartStore` (review F4). The store's
+// constructor sets WAL pragmas and RUNS MIGRATIONS: a refusal that went through it would have
+// migrated an outdated store — behind a live runner's back, since this runs before the lock — as the
+// price of declining to run. So this reads the one column it needs through a `readOnly` sqlite
+// handle, which cannot write, cannot migrate, and leaves the file byte-identical. The cost is one
+// SQL literal outside the store module; the alternative was mutating a store in order to refuse it.
+//
+// ⚠ MEASURED, and disclosed rather than cleaned up: a READ-ONLY connection to a WAL database
+// creates `heart.db-wal` / `heart.db-shm` beside it (a WAL reader must map the shared-memory index)
+// and CANNOT remove them on close, so a refusal leaves those two sidecars behind. They are not
+// deleted here on purpose — the guard runs BEFORE the run lock, so a delete could remove the
+// sidecars of ANOTHER live runner's connection, and unlinking a live `-wal` loses committed
+// transactions. Litter is the cheaper failure than data loss. The store file itself is untouched:
+// byte-identical, mtime unchanged, `user_version` unstamped (probed).
+function ourSessionIds(storePath) {
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(storePath, { readOnly: true });
+  try {
+    return new Set(db.prepare('SELECT DISTINCT session_id FROM jobs_log WHERE session_id IS NOT NULL')
+      .all().map((r) => r.session_id));
+  } finally {
+    db.close();
+  }
+}
+
+function crossLaneEvidence(goalFolder) {
   const tracePath = path.join(goalFolder, SESSIONS_CSV);
   const tfPath = path.join(goalFolder, TASKFORCE);
   if (!fs.existsSync(tracePath) || !fs.existsSync(tfPath)) return [];
@@ -292,41 +324,49 @@ function crossLaneEvidence(goalFolder, { openStore = null } = {}) {
     .filter((r) => r['session-id'] && seats.has(r.seat));
   if (!rows.length) return [];
 
-  // The goal's own store is opened ONLY if it already exists — the same bar `--status` holds: a
+  // The goal's own store is read ONLY if it already exists — the same bar `--status` holds: a
   // refusal must not leave a `heart.db` behind on a goal that never ran, which would make "has this
   // goal ever run?" unanswerable from disk forever after. Absent store + trace rows ⇒ every one of
-  // them is somebody else's by construction.
-  const ours = new Set();
+  // them is unaccounted-for by construction, and the message says THAT rather than blaming a lane.
   const storePath = path.join(goalFolder, STORE_FILENAME);
-  if (fs.existsSync(storePath)) {
-    const open = openStore || ((p) => require('../server/heart/heart-store').openHeartStore({ dbPath: p }));
-    const store = open(storePath);
-    try {
-      for (const status of ALL_TURN_STATUSES) {
-        for (const row of store.listExecutionsByStatus(status)) {
-          if (row.session_id) ours.add(row.session_id);
-        }
-      }
-    } finally {
-      store.close();
-    }
-  }
+  const storeExists = fs.existsSync(storePath);
+  // Fail-CLOSED on an unreadable store: a store we cannot query cannot clear the evidence, and
+  // admitting the run because the check broke is the one direction this guard must never take.
+  const ours = storeExists ? ourSessionIds(storePath) : new Set();
   return rows
     .filter((r) => !ours.has(r['session-id']))
-    .map((r) => ({ seat: r.seat, sessionId: r['session-id'], started: r.started || '', workdir: r.workdir || '' }));
+    .map((r) => ({ seat: r.seat, sessionId: r['session-id'], started: r.started || '', workdir: r.workdir || '', storeExists }));
 }
 
-function assertNoCrossLaneEvidence(goalFolder, opts) {
-  const foreign = crossLaneEvidence(goalFolder, opts);
+function assertNoCrossLaneEvidence(goalFolder) {
+  const foreign = crossLaneEvidence(goalFolder);
   if (!foreign.length) return;
+  const tracePath = path.join(goalFolder, SESSIONS_CSV);
+  const storePath = path.join(goalFolder, STORE_FILENAME);
   const named = foreign.slice(0, 6)
     .map((e) => `  seat ${e.seat}  session ${e.sessionId}${e.started ? `  started ${e.started}` : ''}`)
-    .join('\n');
+    .join('\n') + (foreign.length > 6 ? `\n  … and ${foreign.length - 6} more` : '');
+
+  // TWO CASES, TWO REMEDIES (review F5). Blaming "another lane" when the store is simply GONE is
+  // both false and unactionable — `rm heart.db` on a goal this lane itself ran lands here, and the
+  // operator needs to be told what is actually true and what they can do about it.
+  if (!foreign[0].storeExists) {
+    throw new Error(
+      `REFUSING TO RUN: ${tracePath} records ${foreign.length} launched session(s) for this ` +
+      `taskforce's seats, and this goal has NO heart store at all (${storePath} does not exist) — so ` +
+      `nothing here can say what those sessions did:\n${named}\n` +
+      `Running now would re-fire every seat from scratch, on top of work that already happened. ` +
+      `What is true: the TRACE says these seats were launched; the record of what came of them is ` +
+      `missing. Your options, in order of preference: restore the goal's heart.db (a backup, or the ` +
+      `machine that ran it); or — if you have decided those sessions no longer count — move ` +
+      `${SESSIONS_CSV} aside consciously and re-run, accepting the re-run; or start a fresh goal. ` +
+      `\`rbtv run <goal> --status\` still works here.`
+    );
+  }
   throw new Error(
-    `REFUSING TO RUN: ${path.join(goalFolder, SESSIONS_CSV)} records ${foreign.length} launched ` +
-    `session(s) for this taskforce's seats that this goal's own store (${path.join(goalFolder, STORE_FILENAME)}) ` +
-    `has NO execution for — so they were run by ANOTHER LANE (the daemon), or by hand:\n${named}` +
-    `${foreign.length > 6 ? `\n  … and ${foreign.length - 6} more` : ''}\n` +
+    `REFUSING TO RUN: ${tracePath} records ${foreign.length} launched ` +
+    `session(s) for this taskforce's seats that this goal's own store (${storePath}) ` +
+    `has NO execution for — so they were run by ANOTHER LANE (the daemon), or by hand:\n${named}\n` +
     `Each lane keeps its own heart store and seeding is create-only WITHIN a store, so running this ` +
     `goal here would RE-RUN work that lane already finished (measured: engine/probes/probe-cross-lane-resume.js). ` +
     `v1 refuses the crossover (decisions.md#d-s18-cross-lane-refusal); the lane-independent execution ` +
@@ -564,6 +604,72 @@ function appendForegroundSessionRow({ goalFolder, seat, sessionId, harness, work
   }
 }
 
+// ── THE CLOSE HALF OF THAT ROW (review F2) ────────────────────────────────────────────────────
+//
+// A row is OPENED by the launch and CLOSED by `coord.py session_close` — and a console-lane seat
+// can never reach that closer: `checkIdentity` refuses it `E_GOAL_NOT_LIVE` (there is no tmux room
+// on this lane). So the opened row stayed open forever, and `goal-state-job`'s `open_session_seats`
+// — *"rows whose `ended` cell is EMPTY"* — reported every FINISHED foreground seat as a live-or-
+// crashed sitting for the rest of the goal's life. A new false divergence signal, created by the
+// row we added; the row needs its closer or it should not exist.
+//
+// THE CARRIER IS THE ONE HONEST WITNESS. It blocks on the child, so it OBSERVES the termination —
+// which is exactly the fact `coord.py` reserves the value `exited` for: *"the kit attesting that a
+// harness terminated, a fact a seat cannot witness about itself"* (`RECORD_DISPOSITION_WRITER`:
+// `exited` belongs to the `kit`). So:
+//   `ended`              stamped, which is what closes the sitting
+//   `disposition`        `exited` — NEVER `done`. `done` is the seat reporting its own work
+//                        finished, which no exit code can assert; `exited` marks NOT-done for every
+//                        reader (edge-runner: `renew`/`revive`/`exited` do not advance the fast
+//                        path), so nothing is advanced on an attestation nobody made.
+//   `disposition-writer` `kit`, the pair the value was validated against.
+// The child's exit CODE is not a column of this schema and is not invented into one: it is already
+// on the `jobs_log` row this session id joins to (`done` / `failed`, written a few lines below).
+//
+// IT ONLY EVER CLOSES **OUR OWN OPEN ROW** — matched by session id, and skipped if `ended` is
+// already set. A seat that somehow did reach `coord`'s closer keeps that closer's values (`done`,
+// writer `seat`); this never overwrites another writer's outcome, the same posture the execution-row
+// guard below takes.
+//
+// ponytail: read-modify-write of the whole file, UNLOCKED — `coord.py` guards this file with a
+// python `coord_lock` that has no JS binding, and the daemon's own append door takes no lock either.
+// The window is one `readFileSync`/`writeFileSync` pair while the ticker is frozen (nothing else in
+// this run can append), so a concurrent append would have to come from another lane. Upgrade path:
+// a JS binding for `coord_lock`, or a coord verb this carrier can call.
+const FOREGROUND_DISPOSITION = 'exited';
+const FOREGROUND_DISPOSITION_WRITER = 'kit';
+
+function closeForegroundSessionRow({ goalFolder, sessionId, logger = null }) {
+  const csvPath = path.join(goalFolder, SESSIONS_CSV);
+  try {
+    const { splitRow, quoteField } = require('../server/seat-identity/csv');
+    const raw = fs.readFileSync(csvPath, 'utf8');
+    const lines = raw.split('\n');
+    const header = splitRow(lines[0]).map((h) => h.trim());
+    const at = (name) => header.indexOf(name);
+    if (at('session-id') < 0 || at('ended') < 0) return { closed: false, reason: 'trace has no session-id/ended column' };
+    for (let i = 1; i < lines.length; i += 1) {
+      if (!lines[i].length) continue;
+      const cells = splitRow(lines[i]);
+      while (cells.length < header.length) cells.push('');
+      if ((cells[at('session-id')] || '').trim() !== sessionId) continue;
+      if ((cells[at('ended')] || '').trim()) return { closed: false, reason: 'already closed by another writer' };
+      cells[at('ended')] = isoNow();
+      if (at('disposition') >= 0) cells[at('disposition')] = FOREGROUND_DISPOSITION;
+      if (at('disposition-writer') >= 0) cells[at('disposition-writer')] = FOREGROUND_DISPOSITION_WRITER;
+      lines[i] = header.map((_, c) => quoteField(cells[c])).join(',');
+      fs.writeFileSync(csvPath, lines.join('\n'), 'utf8');
+      return { closed: true, disposition: FOREGROUND_DISPOSITION };
+    }
+    return { closed: false, reason: 'no open row for this session id' };
+  } catch (err) {
+    // Same posture as the open half: loud, never fatal. An unclosed row is a false divergence
+    // signal, not a reason to fail a seat whose work is already done.
+    if (logger) logger({ level: 'warn', message: 'foreground session row NOT closed — goal-state will report this finished seat as an open sitting', sessionsCsv: csvPath, sessionId, error: err.message });
+    return { closed: false, reason: err.message };
+  }
+}
+
 function nextHeldReadySeat(heartStore, rows, isHeld, relaunch) {
   const byJob = executionsByJob(heartStore, relaunch);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
@@ -620,6 +726,10 @@ function runForegroundSeat({
   const res = spawnForeground(argv, seatDir) || {};
   const exitCode = typeof res.status === 'number' ? res.status : null;
   const ok = exitCode === 0;
+
+  // …and its CLOSE half, from the one witness of the termination. Before the execution row is
+  // touched: an unclosed trace row is what makes a finished seat read as an open sitting forever.
+  closeForegroundSessionRow({ goalFolder, sessionId, logger });
 
   // ⚠ SOMEONE ELSE MAY HAVE ENDED OUR ROW WHILE THE HUMAN WORKED (review finding 1, second half).
   // The run lock makes that unreachable now; this stays because the alternative to noticing is
@@ -1023,6 +1133,7 @@ module.exports = {
   crossLaneEvidence,
   assertNoCrossLaneEvidence,
   appendForegroundSessionRow,
+  closeForegroundSessionRow,
   FOREGROUND_ENQUEUER,
   RUN_LOCK,
   SESSIONS_CSV,

@@ -599,6 +599,38 @@ async function main() {
       && allTrace.rows.map((r) => r.seat).sort().join() === 'alpha,bravo',
     `${allTrace.rows.length} row(s): ${allTrace.rows.map((r) => r.seat).join(' ')}`);
 
+  // …AND THE ROW HAS A CLOSER (review F2). A console-lane seat can never reach `coord.py
+  // session_close` (`checkIdentity` refuses it E_GOAL_NOT_LIVE — there is no tmux room on this
+  // lane), so a row nobody closes leaves every FINISHED foreground seat reading as an open sitting
+  // for the rest of the goal's life. Measured THROUGH THE REAL READERS, in python, because the
+  // claim is about what `goal-state-job` and `coord` say — not about a cell this probe can inspect.
+  check('B1h every foreground row is CLOSED — `ended` stamped, disposition `exited` by the `kit`',
+    allTrace.rows.every((r) => r.ended && r.disposition === 'exited' && r['disposition-writer'] === 'kit'),
+    allTrace.rows.map((r) => `${r.seat}:${r.ended || 'OPEN'}/${r.disposition || '-'}`).join(' '));
+
+  const askPython = (src) => spawnSync('python3', ['-c', src], { encoding: 'utf8', cwd: IGNITE_SRC });
+  const readersSay = askPython(`
+import sys, pathlib, importlib.util
+sys.path.insert(0, 'team-kit')
+import coord
+def load(n, p):
+    s = importlib.util.spec_from_file_location(n, p); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+gs = load('gsj', 'jobs/goal-state-job.py')
+pkg = pathlib.Path(${JSON.stringify(allFg)})
+print('OPEN=' + ','.join(sorted(gs.open_session_seats(coord, pkg))))
+print('DISP=' + ','.join('%s:%s' % (s, coord.session_disposition(pkg, s)) for s in ('alpha', 'bravo')))
+`);
+  const readerOut = `${readersSay.stdout || ''}${readersSay.stderr || ''}`.trim();
+  check('B1h goal-state-job\'s `open_session_seats` no longer lists the FINISHED seats (the F2 harm)',
+    /OPEN=\s*$/m.test(readerOut) || /OPEN=$/m.test(readerOut.split('\n')[0]),
+    readerOut.split('\n')[0] || 'python said nothing');
+  // F3, measured rather than assumed: gate 3's PURPOSE is that the trace can ANSWER disposition.
+  // It now does — and the answer is `exited`, which every reader treats as NOT-done. That is the
+  // truth on this lane: no seat declared its own check-out, because it cannot.
+  check('B1h …and `coord.session_disposition` now RESOLVES for a foreground seat (was None)',
+    /DISP=alpha:exited,bravo:exited/.test(readerOut),
+    readerOut.split('\n')[1] || 'python said nothing');
+
   // ── B1i · S-21 — every `headed.tui` pins its profile's model ─────────────────────────────────
   //
   // Owner ruling `decisions.md#d-s21-headed-tui-pins-model`. Measured against the COMMITTED config

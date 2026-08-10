@@ -336,6 +336,50 @@ async function main() {
     (await attempt(foreignGoal)) === null,
     `evidence = a trace row this store cannot account for, and nothing else`);
 
+  // THE STORE-EXISTS REFUSAL PATH, and the F4 property that makes it safe: the guard reads the
+  // store READ-ONLY, so refusing leaves `heart.db` BYTE-IDENTICAL. Going through `openHeartStore`
+  // here would have set WAL pragmas and run migrations — mutating a store as the price of declining
+  // to run it, and doing so before the run lock, i.e. behind a live runner's back.
+  //
+  // ⚠ BYTE-IDENTITY ALONE IS NOT DISCRIMINATING and this arm was rewritten when a mutation proved
+  // it: `openHeartStore` on an ALREADY-CURRENT store also leaves the bytes and the mtime untouched,
+  // so the check passed with the migrating reader in place. The property that actually differs is
+  // WHETHER A MIGRATION CAN RUN, so the fixture is made to LOOK OUTDATED — `user_version = 0`,
+  // which `migrate()` stamps forward to its baseline the moment a read-write store opens it.
+  const { DatabaseSync } = require('node:sqlite');
+  const liveStore = path.join(foreignGoal, 'heart.db');
+  const sha = (p) => require('node:crypto').createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+  const userVersion = () => {
+    const d = new DatabaseSync(liveStore, { readOnly: true });
+    try { return Number(d.prepare('PRAGMA user_version').get().user_version || 0); } finally { d.close(); }
+  };
+  const rw = new DatabaseSync(liveStore);
+  rw.exec('PRAGMA user_version = 0;');
+  rw.close();
+  const before = sha(liveStore);
+  fs.appendFileSync(foreignTrace, `${cell({
+    'session-id': '99999999-8888-7777-6666-555555555555', seat: 'bravo', harness: 'claude',
+    workdir: path.join(foreignGoal, 'seats', 'bravo'), started: isoNow(),
+  })}\n`);
+  const secondRefusal = await attempt(foreignGoal);
+  check('D4 the refusal fires with a store PRESENT too — and the guard\'s read CANNOT MIGRATE it '
+    + '(an out-of-date store is left out of date, and the bytes are identical)',
+    Boolean(secondRefusal) && /REFUSING TO RUN/.test(secondRefusal)
+      && /99999999/.test(secondRefusal) && userVersion() === 0 && sha(liveStore) === before,
+    `user_version 0 -> ${userVersion()} · sha256 ${before.slice(0, 12)} -> ${sha(liveStore).slice(0, 12)}`);
+  // The sidecars a WAL reader must create, REPORTED because they are the accepted price of the
+  // read-only handle and nothing else in the tree would tell you they appear.
+  say(`  (measured: a refusal leaves ${fs.readdirSync(foreignGoal).filter((f) => f.startsWith('heart.db-')).join(' ') || 'no'} sidecar(s) beside the store — see ourSessionIds)`);
+
+  // F5: the store is GONE and the trace is not. Blaming "another lane" there is both false and
+  // unactionable — this is `rm heart.db` on a goal this lane itself ran.
+  fs.rmSync(liveStore, { force: true });
+  const goneRefusal = await attempt(foreignGoal);
+  check('D4 an ABSENT store gets its own message: what is true, and what the operator can do',
+    Boolean(goneRefusal) && /NO heart store at all/.test(goneRefusal)
+      && /restore the goal's heart.db/.test(goneRefusal) && !/ANOTHER LANE/.test(goneRefusal),
+    (goneRefusal || 'NO REFUSAL').split('\n')[0].slice(0, 110));
+
   // THE FALSE-POSITIVE CONTROL, and the one that decides whether this guard is shippable: a goal
   // the attached lane ran itself carries TWO trace rows (D1) — one per carriage — and neither is
   // evidence of another lane. A guard that refused here would brick every resume.
