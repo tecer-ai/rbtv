@@ -2881,18 +2881,46 @@ _REFRESH_BINDING_KEYS = (
     "broadcast", "component", "relays", "addressable",
 )
 
-# Keys a faithful re-render is EXPECTED to drop. Everything else disappearing is
-# a refusal: `launch-home`/`artifact-home` have no code reader anywhere and were
-# dropped by owner ruling, and the per-unit reference keys are what the
-# whole-file prompt/task layout retired (`d-prompt-task-files`) — their targets
-# no longer exist as files, so carrying them forward would preserve a dangling
-# pointer.
-RETIRED_DESCRIPTOR_KEYS = frozenset((
-    "launch-home", "artifact-home",
-    "role", "procedure", "resources", "i/o spec", "permissions",
-    "restrictions", "constraints", "task goal", "scope", "done-contract",
-    "outcome",
+# Every frontmatter key the EMITTER itself knows how to produce. A key in this
+# set may appear and disappear freely: it is written when it applies and left
+# out when it does not, so its absence is the emitter working, never a loss.
+#
+# This is the distinction the drop guard below turns on, and getting it wrong
+# in the safe-looking direction is what the first version of that guard did:
+# comparing key PRESENCE alone treats "the catalog no longer grants this seat
+# tmux access" — a deliberate removal the operator just made — as if it were
+# the accidental loss of a hand-typed line, and refuses to apply it.
+#
+# It is kept as a spelled-out literal rather than derived from the emitter, and
+# `SC-EMIT` below proves it COVERS a real render: a check whose expectation is
+# computed from the code under test moves with that code and passes any change
+# to it. A newly emitted key that nobody adds here turns that row red.
+EMITTER_OWNED_KEYS = frozenset((
+    "seat", "description", "cwd", "agent_type", "pass",
+    "harness", "model", "effort", "mode",
+    "ctx-refresh", "window", "senders", "close",
+    "auto-wake", "ephemeral", "broadcast", "component", "relays",
+    "addressable", "context", "exposes", "exposed-clis",
+    *CAGE_GRANTS, CAGE_RW_COLUMN,
+    # The per-unit reference keys. The emitter still writes these for an
+    # OLD-LAYOUT catalog (it carries the assembler's frontmatter through), and
+    # stops for a whole-file one (`d-prompt-task-files` retired unit
+    # references) — so they are conditional, not retired, and a catalog
+    # migration must not need a --repass to land. Both spellings occur in the
+    # wild: the assembler emits `task goal` / `i/o spec` / `done contract`
+    # spaced, and older descriptors carry `done-contract` hyphenated.
+    "role", "procedure", "resources", "permissions", "restrictions",
+    "constraints", "scope", "outcome",
+    "i/o spec", "task goal", "done contract",
+    "io-spec", "task-goal", "done-contract",
 ))
+
+# Keys the emitter never writes but a re-render is still allowed to drop:
+# `launch-home` and `artifact-home` have NO code reader anywhere in the repo and
+# were dropped by owner ruling 2026-08-10. This set is deliberately tiny — the
+# conditional keys live in EMITTER_OWNED_KEYS above, and anything in NEITHER set
+# can only have been typed by a human, which is exactly what the guard defends.
+RETIRED_DESCRIPTOR_KEYS = frozenset(("launch-home", "artifact-home"))
 
 
 def _descriptor_fm(path: Path) -> dict:
@@ -2940,8 +2968,14 @@ def bindings_from_descriptors(package: Path, added: list[str]) -> dict:
 
 
 def check_refresh_drops(package: Path, plan: dict) -> None:
-    """REFUSE a refresh that would remove a frontmatter key the existing
-    descriptor carries, unless that key is a named retired one.
+    """REFUSE a refresh that would remove a frontmatter key the emitter cannot
+    produce at all — a key that can only have been typed by a human.
+
+    A key the EMITTER owns (`EMITTER_OWNED_KEYS`) may come and go freely: it is
+    written when it applies and omitted when it does not, so removing a cage
+    grant from `seats.csv` APPLIES rather than refusing. A named retired key
+    (`RETIRED_DESCRIPTOR_KEYS`) may go too. Everything else is authored, and
+    authored is the only thing a re-render can genuinely lose.
 
     This is what makes overwriting a descriptor safe BY CONSTRUCTION rather
     than by policy. The hazard is specific and was real here: a descriptor can
@@ -2955,7 +2989,9 @@ def check_refresh_drops(package: Path, plan: dict) -> None:
         m = _FM_RE.match(text)
         new = yaml.safe_load(m.group(1)) if m else {}
         lost = [k for k in old
-                if k not in (new or {}) and k not in RETIRED_DESCRIPTOR_KEYS]
+                if k not in (new or {})
+                and k not in EMITTER_OWNED_KEYS
+                and k not in RETIRED_DESCRIPTOR_KEYS]
         if lost:
             raise Refuse(
                 "refresh-would-drop-keys",
@@ -5839,6 +5875,35 @@ def run_selftest() -> int:
               and (home / "seat.md").read_text(encoding="utf-8") == held,
               pr_drop.stderr.strip()[:250])
         (home / "seat.md").write_text(fresh, encoding="utf-8")
+        # SC-EMIT — the anti-drift arm: EMITTER_OWNED_KEYS is a hand-written
+        # literal, so it is only worth anything if it COVERS what the emitter
+        # actually writes. Measured against a real render, not against the
+        # emitter's own source.
+        emitted = set(yaml.safe_load(fresh.split("\n---", 1)[0]
+                                     .lstrip("-\n")) or {})
+        check("RF-1 green: EMITTER_OWNED_KEYS covers every key a real render "
+              "emits — an emitted key nobody listed turns this red",
+              emitted <= EMITTER_OWNED_KEYS,
+              str(sorted(emitted - EMITTER_OWNED_KEYS)))
+        # The case the first guard got wrong: a DELIBERATE removal in the
+        # catalog must APPLY, not refuse. Drop a cage grant and refresh.
+        cat_seats = Path(fxr["catalog"]) / "exp-comp" / "seats.csv"
+        seats_before = cat_seats.read_text(encoding="utf-8")
+        assert "local-bin" in fresh, fresh[:200]
+        cat_seats.write_text(
+            seats_before.replace("read-root bus-write local-bin",
+                                 "read-root bus-write"), encoding="utf-8")
+        pr_rm = _invoke(["--package", str(home)] + common_r, clean_env)
+        after_rm = (home / "seat.md").read_text(encoding="utf-8")
+        check("RF-1 green: removing a grant from the CATALOG applies — an "
+              "emitter-owned key may come and go, and refusing a deliberate "
+              "removal is what the first version of this guard did",
+              pr_rm.returncode == 0
+              and "local-bin" not in after_rm.split("\n---", 1)[0]
+              and "bus-write: true" in after_rm,
+              (pr_rm.stderr.strip()[:200] or after_rm.split("\n---", 1)[0][:300]))
+        cat_seats.write_text(seats_before, encoding="utf-8")
+        _invoke(["--package", str(home)] + common_r, clean_env)
         # The manifest-comment control: browse/exposure.csv leads with a prose
         # header block, and a plain DictReader takes that line for the header —
         # every part-id then reads absent and the ref refuses as dangling.
