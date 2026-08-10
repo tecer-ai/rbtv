@@ -348,6 +348,7 @@ def main(argv):
         if a == "--dry-run":
             dry = True
         elif a in ("-h", "--help"):
+            print("usage: rbtv-ignite-watchdog [--dry-run]\n")
             print(__doc__)
             return 0
         else:

@@ -174,15 +174,28 @@ v_unit() {
     return 1
   fi
   local health; health="$(health_verdict "$active" "${nrestarts:-0}")"
+  # active_since/active_seconds describe the CURRENT active period. On a unit that is
+  # not active, ActiveEnterTimestamp is the PREVIOUS period, and printing it here reads
+  # as a live uptime on a dead unit (finding 1, CV-1). Null/blank both, conditionally —
+  # an active unit still gets its real values.
+  local since_out secs_out
+  if [ "$active" = active ]; then
+    since_out="$since"; secs_out="$(active_seconds)"
+  else
+    since_out=""; secs_out=""
+  fi
   if [ "$JSON" = 1 ]; then
-    printf '{"unit":"%s","read_ok":true,"error":null,"health":"%s","load_state":"%s","active_state":"%s","sub_state":"%s","main_pid":%s,"active_since":"%s","active_seconds":%s,"result":"%s","exec_main_status":%s,"n_restarts":%s}\n' \
-      "$UNIT" "$health" "$load" "$active" "$sub" "${pid:-0}" "$since" "$(active_seconds)" "$result" "${estatus:-0}" "${nrestarts:-0}"
+    printf '{"unit":"%s","read_ok":true,"error":null,"health":"%s","load_state":"%s","active_state":"%s","sub_state":"%s","main_pid":%s,"active_since":%s,"active_seconds":%s,"result":"%s","exec_main_status":%s,"n_restarts":%s}\n' \
+      "$UNIT" "$health" "$load" "$active" "$sub" "${pid:-0}" \
+      "$([ "$active" = active ] && printf '"%s"' "$since_out" || printf null)" \
+      "$([ "$active" = active ] && printf '%s' "$secs_out" || printf null)" \
+      "$result" "${estatus:-0}" "${nrestarts:-0}"
   else
     printf 'unit          %s\n' "$UNIT"
     printf 'health        %s%s\n' "$health" "$([ "$health" = unstable ] && printf ' — restarted %ss ago after %s restart(s); it is NOT simply up' "$(active_seconds)" "${nrestarts:-0}")"
     printf 'load/active   %s / %s (%s)\n' "${load:-?}" "${active:-?}" "${sub:-?}"
     printf 'main pid      %s\n' "${pid:-0}"
-    printf 'active since  %s (%ss)\n' "${since:-<never>}" "$(active_seconds)"
+    printf 'active since  %s\n' "$([ "$active" = active ] && printf '%s (%ss)' "${since_out:-<never>}" "${secs_out:-0}" || printf 'null (not active — previous period not shown)')"
     printf 'last result   %s (exec status %s, restarts %s)\n' "${result:-?}" "${estatus:-0}" "${nrestarts:-0}"
     printf -- '--- journal (last %s) ---\n' "$JOURNAL_LINES"
     journalctl --user -u "$UNIT" -n "$JOURNAL_LINES" --no-pager 2>&1
