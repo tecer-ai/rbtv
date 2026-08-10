@@ -44,11 +44,11 @@ const { readCsv: readTraceCsv, appendRow: appendTraceRow } = require('../server/
 // none of it was ever a property of the terminal a run is attached to (see seeding.js's header).
 const {
   readCsv, jobIdFor, seedTaskforce, executionsByJob, seatIsFinished, seatHasRun,
-  seatState, SEAT_STATES, enqueueEligible,
+  seatState, SEAT_STATES, enqueueEligible, recordView,
 } = require('./seeding');
 // THE GOAL'S EXECUTION RECORD — the one place any lane's reader asks "did this seat finish"
 // (owner ruling decisions.md#d-s23-single-execution-record-now).
-const { finishedSeats, openExecution, closeExecution, publishToRecord, laneOf } = require('./execution-record');
+const { openExecution, closeExecution, laneOf } = require('./execution-record');
 
 // The goal folder's shape is the goals tree's (CMP-4), not ours to redefine. GOAL-DIRECT since
 // 7.607 (design-lock items 7-8 — the `runs/run-{n}` segment is extinguished, not optional):
@@ -429,10 +429,11 @@ function closeForegroundSessionRow({ goalFolder, sessionId, logger = null }) {
   }
 }
 
-function nextHeldReadySeat(heartStore, rows, isHeld, relaunch, done = null) {
+function nextHeldReadySeat(heartStore, rows, isHeld, relaunch, view = null) {
   const byJob = executionsByJob(heartStore, relaunch);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
-  return rows.find((row) => isHeld(row.seat) && seatState(row, byJob, queued, { done }) === 'ready') || null;
+  const opts = { done: view && view.done, foreign: view && view.foreign };
+  return rows.find((row) => isHeld(row.seat) && seatState(row, byJob, queued, opts) === 'ready') || null;
 }
 
 function runForegroundSeat({
@@ -570,7 +571,7 @@ function reconcileForegroundOrphans(heartStore, { logger = null, endedAt = new D
 // status verb already does (greedy thread pairing in msg_id order), and one correlation shared by
 // the surface that REPORTS a question and the loop that STOPS on it is the only way the two can
 // agree about what is open.
-function evaluateExit(heartStore, rows, relaunch = null, done = null) {
+function evaluateExit(heartStore, rows, relaunch = null, view = null) {
   const asks = unansweredAsks(heartStore.dump().messages);
   if (asks.length) {
     return { done: true, reason: 'question', asks };
@@ -584,6 +585,8 @@ function evaluateExit(heartStore, rows, relaunch = null, done = null) {
   // FINISHED IS THE RECORD'S ANSWER, then this store's own — the same union `seatState` takes, so
   // "is this run complete" cannot disagree with "is this seat done" (a goal whose remaining seats
   // were finished in the OTHER lane is complete, and says so instead of reporting them unfinished).
+  const done = view && view.done;
+  const foreign = view && view.foreign;
   const isFinished = (seat) => (done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat)));
   const unfinished = rows.filter((r) => !isFinished(r.seat));
   if (unfinished.length === 0) return { done: true, reason: 'complete' };
@@ -592,7 +595,11 @@ function evaluateExit(heartStore, rows, relaunch = null, done = null) {
   // BLOCKED (a seat whose `after` failed) or every remaining seat is waiting on one that will
   // never finish. Say so and stop, rather than spin: an attached run that cannot advance must
   // return to its caller, which is a terminal with a person at it.
+  // A seat the RECORD holds for another lane cannot be advanced from here either — and it must be
+  // counted with the stuck ones rather than left to the `{done:false}` fall-through, which would
+  // spin this loop every 10s forever waiting on a lane whose progress does not arrive through us.
   const stuck = unfinished.filter((r) => {
+    if (foreign && foreign.has(r.seat)) return true;
     const after = (r.after || '').trim();
     return after && !isFinished(after);
   });
@@ -672,16 +679,17 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
     );
   }
   const rows = readCsv(tfPath).filter((r) => r.seat);
-  // THE COMPLETION AUTHORITY, read before the store and independently of it: `--status` answers
-  // "what is done" from the goal's execution record, so it reports a seat the DAEMON finished on a
-  // goal this lane has never opened a store for (`everRun` false, seats already done).
-  const done = finishedSeats(goalFolder);
 
   const storePath = path.join(goalFolder, STORE_FILENAME);
   const everRun = fs.existsSync(storePath);
   let byJob = new Map();
   let queued = new Set();
   let asks = [];
+  // THE COMPLETION AUTHORITY, and it is read with or without a store: `--status` answers "what is
+  // done" from the goal's execution record, so it reports a seat the DAEMON finished (or is running
+  // right now) on a goal this lane has never opened a store for — `everRun` false, seats already
+  // `done`/`live`. With no store, nothing in the record is ours, which is exactly what is true.
+  let view = recordView(null, goalFolder);
   if (everRun) {
     const open = openStore || ((p) => require('../server/heart/heart-store').openHeartStore({ dbPath: p }));
     const store = open(storePath);
@@ -689,6 +697,7 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
       byJob = executionsByJob(store);
       queued = new Set(store.listQueue().map((q) => q.job_id));
       asks = unansweredAsks(store.dump().messages);
+      view = recordView(store, goalFolder);
     } finally {
       store.close();
     }
@@ -701,7 +710,7 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
   const executionMode = goalExecutionMode(workspaceRoot, path.basename(goalFolder));
 
   const seats = rows.map((row) => {
-    const state = seatState(row, byJob, queued, { done });
+    const state = seatState(row, byJob, queued, { done: view.done, foreign: view.foreign });
     const humanInteractive = seatIsHumanInteractive(goalFolder, row.seat);
     // INTERRUPTED, and it is not a sixth seat state. A foreground row still `launching` belongs to
     // a runner that is gone (a foreground child cannot outlive its terminal), so `live` — true by
@@ -812,13 +821,14 @@ async function executeAttached({
   process.on('SIGTERM', onSignal);
 
   try {
-    // THE ADOPTION PASS, BEFORE SEEDING (#d-s23-single-execution-record-now). This store's own
-    // history is published into the goal's execution record first, so a goal that ran before this
-    // record existed carries its finished seats into it rather than re-running them; and the read
-    // below sees everything BOTH lanes have published. Fail-CLOSED: if the record cannot be written
-    // we do not silently fall back to the store-only answer, because that answer is exactly the
-    // double-run this build exists to end.
-    publishToRecord(engine.heartStore, { logger });
+    // ⚠ THERE IS NO SEPARATE "ADOPTION" CALL HERE, AND ITS ABSENCE IS DELIBERATE (review F2). One
+    // stood here — a publish before seeding, so a goal that ran before this record existed carried
+    // its finished seats in. It was deleted because it is NOT INDEPENDENTLY OBSERVABLE: every path
+    // through this loop ticks, `engine.tick` publishes, and within THIS lane the store's own rows
+    // already govern seeding. A call whose removal no arm can detect is a claim, not a behaviour.
+    // What the run guarantees instead, and what the probe measures: after any run, the goal's
+    // record carries this store's outcomes — one tick later than a boot publish would have, which
+    // costs nothing because the only reader that could care is the other lane.
     const rows = seedTaskforce(engine.heartStore, goalFolder, { profile, logger });
     const resumedAtTick = engine.getTickNumber();
     const intervalMs = tickIntervalMs || 10000;
@@ -835,8 +845,8 @@ async function executeAttached({
       // One per pass — the terminal is serial, and the next pass picks up the next held seat.
       // Re-read each pass: our own tick publishes to it, and the other lane may be writing to it
       // while we run. One small file read per pass, against a decision that must not be stale.
-      const done = finishedSeats(goalFolder);
-      const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants, done);
+      const view = recordView(engine.heartStore, goalFolder, { relaunch: grants });
+      const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants, view);
       if (held) {
         grants.delete(held.seat);            // the grant is SPENT at the launch, never re-read
         foreground.push(runForegroundSeat({
@@ -852,11 +862,15 @@ async function executeAttached({
         }));
       }
 
-      enqueueEligible(engine.heartStore, rows, { profile, goalFolder, logger, isHeld, relaunch: grants, done });
+      enqueueEligible(engine.heartStore, rows, { profile, goalFolder, logger, isHeld, relaunch: grants, view });
       await engine.tick(now());
       ticks += 1;
 
-      const verdict = evaluateExit(engine.heartStore, rows, grants, finishedSeats(goalFolder));
+      // The SAME view this pass already built — one read of the record and one scan of the store
+      // per pass, not three. Rebuilding it here also made the exit decision disagree with the
+      // dispatch decision it is supposed to follow, on any pass where the other lane wrote between
+      // the two reads.
+      const verdict = evaluateExit(engine.heartStore, rows, grants, view);
       if (verdict.done) {
         return {
           host,

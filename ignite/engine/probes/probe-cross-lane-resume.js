@@ -254,15 +254,40 @@ async function main() {
     check('D2 the daemon store records alpha as DONE (synthesized, and disclosed as such)',
       daemonStore.dump().jobs_log.some((r) => r.job_id === daemonJobId && r.status === 'done'));
 
-    // …and the DAEMON'S OWN WRITER publishes it — not the probe. This is the call `engine.tick()`
-    // makes on every daemon cadence, run here directly because no daemon process is up.
-    const published = record.publishToRecord(daemonStore);
-    check('D2 the DAEMON lane publishes that outcome into the GOAL FOLDER\'s record',
-      published.closed.includes('alpha=done')
-        && record.readExecutionRecord(freshGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon' && r.outcome === 'done'),
-      JSON.stringify(published));
     daemonStore.close();
   }
+
+  // …and now the DAEMON'S OWN CALLER publishes it. ⚠ THIS ARM USED TO CALL `publishToRecord`
+  // DIRECTLY, and that is exactly why review finding F1 shipped: measuring the FUNCTION proves
+  // nothing about whether anything CALLS it, and the daemon's loop was calling the raw
+  // `ticker.tick()`. So the arm now goes through the same two things the daemon does — the engine
+  // façade's `tick()`, and the assertion that `server/index.js` is what calls it.
+  {
+    const daemonEngine = createEngine({
+      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    try {
+      await daemonEngine.tick();
+    } finally {
+      daemonEngine.close();
+    }
+  }
+  check('D2 the DAEMON LANE\'S OWN TICK publishes that outcome into the GOAL FOLDER\'s record',
+    record.readExecutionRecord(freshGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon' && r.outcome === 'done'),
+    record.readExecutionRecord(freshGoal).rows.map((r) => `${r.seat}=${r.outcome || 'open'}/${r.lane}`).join(' ') || 'empty');
+
+  // THE CALLER ARM (review F1). The behavioural arm above drives `engine.tick`; this one asserts
+  // that the DAEMON drives `engine.tick` too. Both are needed: the first cannot see a loop that
+  // reaches past the façade, and this one cannot see a façade that stopped publishing.
+  // ⚠ COMMENT LINES ARE STRIPPED FIRST. The fix's own warning line NAMES `ticker.tick()` — a
+  // pattern that matched prose would fire on the sentence forbidding the thing it looks for, and
+  // this arm went red on exactly that before the strip was added.
+  const daemonCode = fs.readFileSync(path.join(IGNITE_SRC, 'server', 'index.js'), 'utf8')
+    .split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  const bare = (daemonCode.match(/[^.\w]ticker\.tick\(/g) || []).length;
+  check('D2 the DAEMON LOOP calls `engine.tick()` — never the raw ticker, which publishes nothing',
+    /engine\.tick\(\)/.test(daemonCode) && bare === 0,
+    `engine.tick: ${(daemonCode.match(/engine\.tick\(\)/g) || []).length} · bare ticker.tick: ${bare}`);
 
   const reran = [];
   await attached.executeAttached({
@@ -281,33 +306,163 @@ async function main() {
     JSON.stringify(attached.statusAttached({ goalFolder: freshGoal }).seats.map((x) => `${x.seat}=${x.state}`)));
 
   // THE DISCRIMINATING MUTATION: nothing about this goal changes except the ONE fact the decision
-  // rests on — alpha's OUTCOME cell. Blank it, and the very same fixture re-runs the seat. So the
-  // skip above is the record's `done`, not the file's existence, not the seat's name, not the trace.
-  const mutantGoal = path.join(workspace, '.rbtv', 'goals', 'lane-goal-2m');
-  fs.cpSync(freshGoal, mutantGoal, { recursive: true });
-  fs.rmSync(path.join(mutantGoal, 'heart.db'), { force: true });
-  for (const f of fs.readdirSync(mutantGoal)) if (f.startsWith('heart.db-')) fs.rmSync(path.join(mutantGoal, f), { force: true });
-  const rec = fs.readFileSync(record.recordPath(mutantGoal), 'utf8');
-  fs.writeFileSync(record.recordPath(mutantGoal), rec.replace(/,done$/m, ','));
-  const reranMutant = [];
-  await attached.executeAttached({
-    goalFolder: mutantGoal,
-    profile: 'probe-lane',
-    spawnConfigPath: configPath,
-    tickIntervalMs: 200,
-    maxTicks: 1,
-    spawnForeground: (argv, cwd) => { reranMutant.push(cwd); return { status: 0 }; },
+  // rests on — alpha's ROW. Take it out and the very same fixture re-runs the seat, so the skip
+  // above is the record's content, not the file's existence, not the seat's name, not the trace.
+  const mutantOf = (name, edit) => {
+    const dir = path.join(workspace, '.rbtv', 'goals', name);
+    fs.cpSync(freshGoal, dir, { recursive: true });
+    for (const f of fs.readdirSync(dir)) if (f.startsWith('heart.db')) fs.rmSync(path.join(dir, f), { force: true });
+    edit(record.recordPath(dir));
+    return dir;
+  };
+  const runOn = async (dir) => {
+    const fired = [];
+    const out = await attached.executeAttached({
+      goalFolder: dir, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200,
+      maxTicks: 1, spawnForeground: (argv, cwd) => { fired.push(cwd); return { status: 0 }; },
+    });
+    return { fired, out };
+  };
+
+  const gone = mutantOf('lane-goal-2m', (rp) => {
+    const keep = fs.readFileSync(rp, 'utf8').split('\n').filter((l) => !/^alpha,/.test(l));
+    fs.writeFileSync(rp, keep.join('\n'));
   });
-  check('D2 MUTATION: blank alpha\'s OUTCOME in the record and the same goal re-runs it — the '
-    + 'decision is the recorded outcome and nothing else',
-    reranMutant.length === 1 && reranMutant[0] === path.join(mutantGoal, 'seats', 'alpha'),
-    JSON.stringify(reranMutant));
+  const goneRun = await runOn(gone);
+  check('D2 MUTATION: delete alpha\'s ROW from the record and the same goal re-runs the seat — the '
+    + 'decision is the recorded row and nothing else',
+    goneRun.fired.length === 1 && goneRun.fired[0] === path.join(gone, 'seats', 'alpha'),
+    JSON.stringify(goneRun.fired));
+
+  // ── F3 · AN OPEN FOREIGN ROW IS A SEAT SOMEBODY ELSE IS RUNNING RIGHT NOW ───────────────────
+  // Blank the OUTCOME and the row goes back to what it was between dispatch and completion. The
+  // seat must NOT be dispatched here — that was the double-dispatch review finding F3 — and the run
+  // must not spin on it either.
+  const openGoal = mutantOf('lane-goal-2o', (rp) => {
+    fs.writeFileSync(rp, fs.readFileSync(rp, 'utf8').replace(/,done$/m, ','));
+  });
+  const openRun = await runOn(openGoal);
+  check('F3 an OPEN row from another lane HOLDS the seat — it is never dispatched a second time',
+    openRun.fired.length === 0, `foreground launches ${JSON.stringify(openRun.fired)}`);
+  check('F3 …and the run RETURNS rather than spinning on a seat only the other lane can advance',
+    openRun.out.outcome === 'blocked' && openRun.out.unfinished.includes('alpha'),
+    `outcome=${openRun.out.outcome} unfinished=${JSON.stringify(openRun.out.unfinished)}`);
+  check('F3 …and `--status` says so in the shared vocabulary: the seat reads `live`, not `ready`',
+    attached.statusAttached({ goalFolder: openGoal }).live.includes('alpha')
+      && !attached.statusAttached({ goalFolder: openGoal }).ready.includes('alpha'),
+    JSON.stringify(attached.statusAttached({ goalFolder: openGoal }).seats.map((x) => `${x.seat}=${x.state}`)));
+  const openGranted = [];
+  await attached.executeAttached({
+    goalFolder: openGoal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200,
+    maxTicks: 1, relaunch: ['alpha'],
+    spawnForeground: (argv, cwd) => { openGranted.push(cwd); return { status: 0 }; },
+  });
+  check('F3 …and the EXPLICIT one-shot grant releases it — the same act a local failure requires',
+    openGranted.length === 1, JSON.stringify(openGranted));
+
+  // ── F6 · A FOREIGN TERMINAL NON-`done` OUTCOME IS HELD TOO, exactly like a local one ────────
+  const failedGoal = mutantOf('lane-goal-2f', (rp) => {
+    fs.writeFileSync(rp, fs.readFileSync(rp, 'utf8').replace(/,done$/m, ',failed'));
+  });
+  const failedRun = await runOn(failedGoal);
+  check('F6 a seat that FAILED in the other lane is held here, not silently re-run — the local path '
+    + 'needs a `--relaunch` grant and so does this one',
+    failedRun.fired.length === 0, `foreground launches ${JSON.stringify(failedRun.fired)}`);
+  const failedGranted = [];
+  await attached.executeAttached({
+    goalFolder: failedGoal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200,
+    maxTicks: 1, relaunch: ['alpha'],
+    spawnForeground: (argv, cwd) => { failedGranted.push(cwd); return { status: 0 }; },
+  });
+  check('F6 …and the grant releases THAT one too, while never being able to re-open a `done` seat',
+    failedGranted.length === 1 && (await (async () => {
+      const doneGoal = mutantOf('lane-goal-2d', () => {});
+      const g = [];
+      await attached.executeAttached({
+        goalFolder: doneGoal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200,
+        maxTicks: 1, relaunch: ['alpha'],
+        spawnForeground: (argv, cwd) => { g.push(cwd); return { status: 0 }; },
+      });
+      return g.length === 0;
+    })()),
+    `granted-after-failure ${JSON.stringify(failedGranted)}`);
+
+  // ── F2 · ADOPTION: a goal that ran BEFORE this record existed publishes its history ──────────
+  //
+  // The state every goal on disk was in the day this landed: a store full of outcomes, no record.
+  // Delete the record from the goal D1 ran IN PLACE (so its workdirs really are its own), run the
+  // verb again, and the run must publish its own store's history — which is what makes the OTHER
+  // lane able to skip those seats. The daemon assertion is the discriminating half: without the
+  // publish inside `engine.tick`, the record stays empty and the daemon enqueues a finished seat.
+  fs.rmSync(record.recordPath(goalFolder), { force: true });
+  await runOn(goalFolder);
+  check('F2 ADOPTION: a goal whose record was deleted has its store\'s history published by the run',
+    record.finishedSeats(goalFolder).has('alpha'),
+    `record ${record.readExecutionRecord(goalFolder).rows.map((r) => `${r.seat}=${r.outcome || 'open'}`).join(' ') || 'empty'}`);
+  {
+    const daemonEngine = createEngine({
+      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    let pick;
+    try { pick = daemonEngine.seedGoal({ goalFolder, goal: 'lane-goal', profile: 'probe-lane' }); }
+    finally { daemonEngine.close(); }
+    check('F2 …and THAT is what the other lane reads: the daemon skips alpha off the republished record',
+      pick.skippedAsFinished.includes('alpha') && !pick.enqueued.includes('alpha'),
+      `skipped ${JSON.stringify(pick.skippedAsFinished)} · enqueued ${JSON.stringify(pick.enqueued)}`);
+  }
 
   finding('D2 cross-lane resume HOLDS in the daemon->attached direction: the daemon\'s own publish '
     + 'writes the outcome into <goal>/executions.csv, and the attached lane skips the seat without '
     + 'refusing the goal. The former finding — "two lanes over one goal folder can each run the same '
     + 'seat once" — is RETIRED by the mutation pair above, which shows the skip tracking exactly the '
     + 'recorded outcome.');
+
+  // ── D5 · THE RECORD SURVIVES TWO WRITERS (review finding F4) ────────────────────────────────
+  //
+  // The first version of this file did its close as an UNLOCKED read-modify-write. Measured in
+  // review: 300 appends racing 300 closes lost 336 of 601 rows — WHOLE ROWS, nothing malformed for
+  // a reader to notice — and `finishedSeats` transiently read EMPTY mid-rewrite, which is the one
+  // wrong answer that re-runs a finished seat. Two lanes over one goal is what this record is FOR,
+  // so that interleaving is the normal case. This arm is that experiment, kept.
+  //
+  // TWO REAL PROCESSES, not two loops in one: the losing interleaving is between processes, and an
+  // in-process race would prove nothing about a lock whose whole job is to be seen by another pid.
+  say('');
+  say('D5 — 300 appends racing 300 closes, from two separate processes');
+
+  const raceGoal = path.join(workspace, '.rbtv', 'goals', 'lane-goal-race');
+  fs.mkdirSync(raceGoal, { recursive: true });
+  const N = 300;
+  const child = (body) => require('node:child_process').spawn(process.execPath,
+    ['-e', `const record=require(${JSON.stringify(path.join(IGNITE_SRC, 'engine', 'execution-record.js'))});const G=${JSON.stringify(raceGoal)};const N=${N};${body}`],
+    { stdio: 'ignore' });
+
+  // The reader takes NO lock — that is the point of the atomic replace — and it must never see the
+  // row count go backwards, nor a `done` count go backwards.
+  let minRows = 0; let regressed = false; let sawEmptyAfterRows = false;
+  const poll = setInterval(() => {
+    const rows = record.readExecutionRecord(raceGoal).rows.length;
+    if (rows < minRows) regressed = true;
+    if (minRows > 0 && rows === 0) sawEmptyAfterRows = true;
+    minRows = Math.max(minRows, rows);
+  }, 1);
+
+  const appender = child('for(let i=0;i<N;i++)record.openExecution({goalFolder:G,seat:"s"+i,sessionId:"sid-"+i,lane:"attached",startedAt:"t"});');
+  const closer = child('let i=0;const t=Date.now();while(i<N){if(record.closeExecution({goalFolder:G,sessionId:"sid-"+i,outcome:"done",endedAt:"t"}).closed){i++;continue;}if(Date.now()-t>60000)break;}');
+  await Promise.all([appender, closer].map((c) => new Promise((res) => c.on('exit', res))));
+  clearInterval(poll);
+
+  const raceRows = record.readExecutionRecord(raceGoal).rows;
+  const stamped = raceRows.filter((r) => r.outcome === 'done');
+  const malformed = raceRows.filter((r) => !r.seat || !r['session-id']);
+  check(`D5 all ${N} appended rows SURVIVED the race — not one lost`,
+    raceRows.length === N, `${raceRows.length}/${N} rows · ${malformed.length} malformed`);
+  check(`D5 all ${N} outcome stamps landed`, stamped.length === N, `${stamped.length}/${N} stamped`);
+  check('D5 an UNLOCKED reader never saw the file go backwards or empty',
+    !regressed && !sawEmptyAfterRows, `regressed=${regressed} empty-after-rows=${sawEmptyAfterRows}`);
+  check('D5 no lock file survives the writers',
+    !fs.existsSync(record.recordPath(raceGoal) + '.lock'),
+    fs.readdirSync(raceGoal).join(' '));
 
   // ── D3 · the human-interactive seat on the daemon side ──────────────────────────────────────
   say('');

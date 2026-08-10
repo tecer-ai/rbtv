@@ -53,12 +53,20 @@
 // Append-only, plus one in-place stamp of the row's `ended`/`outcome` cells — the same discipline
 // (and the same reader/writer pair, `seat-identity/csv.js`) the launch trace already uses.
 //
-// ponytail: the close is a read-modify-write of the whole file, UNLOCKED — identical to
-// `closeForegroundSessionRow`'s accepted bound and for the same reason (no JS binding for coord's
-// `coord_lock`, and the daemon's own append door takes no lock either). Two lanes writing ONE
-// goal's record in the same millisecond is the only losing interleaving, and the loser is a stamp
-// that the next sync re-applies from the store. Upgrade path: a lock, if a goal ever really runs in
-// both lanes at once.
+// ⚠ EVERY WRITE TAKES A LOCK, AND THAT IS NOT BELT-AND-BRACES. The first version of this file
+// shipped the close as an UNLOCKED read-modify-write with a comment calling the race theoretical.
+// It is not: measured in review, 300 appends racing 300 closes lost **336 of 601 rows** — WHOLE
+// ROWS, silently, with nothing malformed for a reader to detect, and `finishedSeats` transiently
+// reading EMPTY mid-rewrite (which is the one wrong answer that re-runs a finished seat). Two lanes
+// over one goal is exactly what this record exists for, so the losing interleaving is the normal
+// case, not the exotic one.
+//
+// The cure is the cheapest pair that closes it, and both halves are needed:
+//   · a LOCKFILE around every write (`executions.csv.lock`, `O_EXCL` — the same construct
+//     `.attached-run.lock` uses, self-clearing, stale-stealing after a deadline), so an append
+//     cannot land inside another writer's rewrite;
+//   · an ATOMIC REPLACE for the rewrite (temp file in the same directory + `rename`), so a READER
+//     — which takes no lock, and must not have to — never observes a partial or empty file.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -92,6 +100,51 @@ function recordPath(goalFolder) {
   return path.join(goalFolder, RECORD_FILENAME);
 }
 
+// Sleep, synchronously, with no dependency and no busy spin: `Atomics.wait` on a lock word nobody
+// notifies is the stdlib's blocking sleep. The waits here are milliseconds.
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// The write lock. `wx` is the atomicity — the filesystem's, not a check-then-write.
+//
+// A holder that DIED still holds the file, so the lock is stolen after `LOCK_STALE_MS` rather than
+// bricking the record forever: the protected section is a few file operations, so a lock older than
+// that belongs to a process that is gone (the alternative — a pid liveness check — buys precision
+// this section's length does not need, and the cost of a wrong steal here is the unlocked behaviour
+// we already survived, not corruption of a longer transaction).
+const LOCK_SUFFIX = '.lock';
+const LOCK_STALE_MS = 5000;
+
+function withRecordLock(goalFolder, fn) {
+  const lockPath = recordPath(goalFolder) + LOCK_SUFFIX;
+  const start = Date.now();
+  for (;;) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      fs.closeSync(fd);
+      break;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      if (Date.now() - start > LOCK_STALE_MS) { try { fs.unlinkSync(lockPath); } catch { /* someone else cleared it */ } }
+      sleepMs(2);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try { fs.unlinkSync(lockPath); } catch { /* already stolen */ }
+  }
+}
+
+// Replace the file atomically: readers take no lock, so they must never see a half-written file.
+// The temp file is in the SAME directory because `rename` is only atomic within a filesystem.
+function atomicWrite(filePath, text) {
+  const tmp = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+  fs.writeFileSync(tmp, text, 'utf8');
+  fs.renameSync(tmp, filePath);
+}
+
 function readExecutionRecord(goalFolder) {
   const { exists, header, rows } = readCsv(recordPath(goalFolder));
   return { exists, header, rows: rows.filter((r) => r.seat) };
@@ -108,10 +161,10 @@ function finishedSeats(goalFolder) {
 // The header is spelled HERE and nowhere else — this file owns this schema, the way `coord.py`
 // owns `sessions.csv`'s. Created on first write; never rewritten, so a later widening can append a
 // column to a live file without touching a byte of its rows.
-function ensureFile(goalFolder) {
+function ensureFileLocked(goalFolder) {
   const p = recordPath(goalFolder);
   const { exists, header } = readCsv(p);
-  if (!exists || header.length === 0) fs.writeFileSync(p, `${COLUMNS.join(',')}\n`, 'utf8');
+  if (!exists || header.length === 0) atomicWrite(p, `${COLUMNS.join(',')}\n`);
   return p;
 }
 
@@ -119,19 +172,27 @@ function ensureFile(goalFolder) {
 // execution appends nothing, so a sync that runs every tick does not grow the file every tick.
 function openExecution({ goalFolder, seat, sessionId, lane, startedAt }) {
   if (!sessionId) return { appended: false, reason: 'no session id — the launch has not happened yet' };
-  const p = ensureFile(goalFolder);
-  if (readCsv(p).rows.some((r) => r['session-id'] === sessionId)) {
-    return { appended: false, reason: 'already recorded' };
-  }
-  return appendRow(p, {
-    seat, 'session-id': sessionId, lane, started: startedAt || '', ended: '', outcome: '',
+  // The idempotence CHECK and the append are one critical section: outside the lock, two publishes
+  // of the same execution both read "absent" and both append.
+  return withRecordLock(goalFolder, () => {
+    const p = ensureFileLocked(goalFolder);
+    if (readCsv(p).rows.some((r) => r['session-id'] === sessionId)) {
+      return { appended: false, reason: 'already recorded' };
+    }
+    return appendRow(p, {
+      seat, 'session-id': sessionId, lane, started: startedAt || '', ended: '', outcome: '',
+    });
   });
 }
 
 // CLOSE it, when the outcome is known. NEVER overwrites a stamped row: whoever recorded an outcome
 // first witnessed it, and a second writer's guess must not replace a first writer's observation
 // (the same posture the foreground carrier's execution-row guard takes).
-function closeExecution({ goalFolder, sessionId, outcome, endedAt }) {
+function closeExecution(args) {
+  return withRecordLock(args.goalFolder, () => closeExecutionLocked(args));
+}
+
+function closeExecutionLocked({ goalFolder, sessionId, outcome, endedAt }) {
   const p = recordPath(goalFolder);
   const raw = (() => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } })();
   if (raw === null) return { closed: false, reason: 'no record file' };
@@ -148,7 +209,7 @@ function closeExecution({ goalFolder, sessionId, outcome, endedAt }) {
     cells[at('outcome')] = outcome;
     if (at('ended') >= 0) cells[at('ended')] = endedAt || '';
     lines[i] = header.map((_, c) => quoteField(cells[c])).join(',');
-    fs.writeFileSync(p, lines.join('\n'), 'utf8');
+    atomicWrite(p, lines.join('\n'));
     return { closed: true, outcome };
   }
   return { closed: false, reason: 'no open row for this session id' };
@@ -216,4 +277,5 @@ module.exports = {
   publishToRecord,
   seatHomeOf,
   laneOf,
+  withRecordLock,
 };

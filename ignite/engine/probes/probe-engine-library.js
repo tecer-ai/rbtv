@@ -313,9 +313,39 @@ async function main() {
   say('C3 — the exit conditions, and RESUME from run-folder state');
 
   const rows = [{ seat: 'alpha', after: '' }, { seat: 'bravo', after: '' }, { seat: 'charlie', after: 'alpha' }];
+
+  // ⚠ THE LIVE TURN IS PINNED, NOT HOPED FOR (task 7.629, the C3 half). This arm used to evaluate
+  // the exit predicate against whatever the C2 run happened to have left running — and what it left
+  // running is a `sleep 1` child racing every line between the run's return and this call. It went
+  // red whenever the box was busy enough for the sleep to win (measured red 2/8 under load at the
+  // commit before the execution record, and more often after it, because ANY work added to the run
+  // lengthens that gap). The property under test is `evaluateExit`'s, not the sleep's: so a live
+  // turn is CREATED here, on the real fixture store, and removed again immediately — the predicate
+  // still runs against a real store with a real non-terminal row, and the arm can no longer be
+  // decided by a timer. (C3c's own race is the same family and is fixed separately by 7.629.)
+  inspect.registerJob({
+    jobId: 'probe-live-pin', actionType: 'launch-agent',
+    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+    function: 'a turn pinned live for the exit predicate', description: 'C3 pin',
+    createdAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+  });
+  const pinned = inspect.recordExecutionStart({
+    jobId: 'probe-live-pin', actionType: 'launch-agent',
+    args: JSON.stringify({ profile: 'probe-seat' }), enqueuedBy: 'probe',
+    sessionMode: 'headless', firedTick: 1, firedAt: new Date(),
+  });
   const midRun = attached.evaluateExit(inspect, rows);
   check('C3 with turns still live the run does NOT exit', !midRun.done,
     `live=${midRun.live}`);
+  // Unpinned before anything else reads this store, so no later arm inherits a live row.
+  inspect.endTurnAndCloseSession(pinned.exec_id, {
+    turnStatus: 'failed', sessionStatus: 'crashed', endedAt: new Date(), reason: 'C3 pin released',
+  });
+  check('C3 …and the pin is RELEASED — no later arm inherits a live turn from this one',
+    attached.evaluateExit(inspect, rows).done !== false
+      || !inspect.listExecutionsByStatus('launching').some((r) => r.job_id === 'probe-live-pin'),
+    'the pinned row is terminal again');
 
   const stamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
   inspect.recordMessage({

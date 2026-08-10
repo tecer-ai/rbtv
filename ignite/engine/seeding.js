@@ -28,7 +28,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { finishedSeats } = require('./execution-record');
+const { readExecutionRecord, finishedSeats, DONE } = require('./execution-record');
 
 const TASKFORCE = 'taskforce.csv';
 
@@ -67,6 +67,70 @@ function readTaskforce(goalFolder) {
   const rows = readCsv(tfPath).filter((r) => r.seat);
   if (!rows.length) throw new Error(`${tfPath}: no seat rows`);
   return rows;
+}
+
+// ── WHAT THE RECORD SAYS ABOUT EACH SEAT, from the perspective of THIS store ──────────────────
+//
+// Two answers, not one, and the second is the review finding F3/F6 this exists to close.
+//
+//   done      the record carries a `done` outcome for the seat. Nobody re-runs it.
+//   foreign   the record carries a row for the seat that THIS STORE HAS NO EXECUTION FOR, and that
+//             row is not `done` — either still OPEN (a seat live in the other lane RIGHT NOW) or
+//             ended non-`done` (failed / blocked / killed elsewhere).
+//
+// WHY `foreign` HAS TO EXIST AT ALL. Without it the record only ever stopped a re-run when the
+// other lane had already FINISHED — so a seat the other lane was in the middle of running read
+// `ready` here and was dispatched a second time, concurrently. The at-dispatch row was being
+// written and read by nothing; the whole point of writing it at dispatch is that the other lane can
+// see the seat is taken. And on the terminal-non-`done` side the two lanes were ASYMMETRIC: a
+// locally failed seat needs an explicit `--relaunch` grant, while the same failure in the other
+// lane was invisible and re-ran silently — conferring the grant nobody gave. `foreign` makes both
+// cases behave like the local one: the seat is not `ready`, and an explicit grant is what releases
+// it.
+//
+// ⚠ THE MEMBERSHIP TEST IS THE SESSION-ID JOIN, NOT THE `lane` COLUMN. `lane` says which KIND of
+// store wrote the row (CMP-2), and two attached runs on two machines share that value — so a lane
+// comparison would call another machine's live seat "ours" and dispatch it again. What actually
+// answers "is this row mine" is whether an execution in THIS store owns that session id, which is
+// the same join the retired v1 guard used and the one honest thing it had.
+//
+// ⚠ THE DISCLOSED BOUND: a foreign writer that CRASHED leaves its row open, and this holds the seat
+// until that lane republishes. That is not a dead end — the other lane's next boot runs the
+// adoption pass, which stamps the row from its own store (a crashed foreground row reconciles to
+// `failed`, a killed detached one to `failed`/`killed`) and the seat becomes grantable. The operator
+// path when that lane will never run again: `--relaunch <seat>`, which is the same explicit act a
+// local failure already requires. Holding is the safe direction — the unsafe one is running a seat
+// somebody else may still be running.
+function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
+  const rows = readExecutionRecord(goalFolder).rows;
+  const done = new Set();
+  const foreign = new Map();
+  if (!rows.length) return { done, foreign };
+
+  // A NULL store is the `--status` case on a goal this lane has never run: nothing is ours, so
+  // every non-done row is somebody else's — which is exactly what is true there.
+  const ours = new Set();
+  if (heartStore) {
+    for (const status of ALL_TURN_STATUSES) {
+      for (const row of heartStore.listExecutionsByStatus(status)) {
+        if (row.session_id) ours.add(row.session_id);
+      }
+    }
+  }
+  for (const r of rows) {
+    const outcome = (r.outcome || '').trim();
+    if (outcome === DONE) { done.add(r.seat); continue; }
+    if (ours.has(r['session-id'])) continue;            // our own store already governs this one
+    foreign.set(r.seat, outcome
+      ? `ended '${outcome}' in the ${r.lane || 'other'} lane (session ${r['session-id']})`
+      : `still OPEN in the ${r.lane || 'other'} lane (session ${r['session-id']})`);
+  }
+  // A later `done` outranks an earlier non-done row for the same seat: the seat IS finished.
+  for (const seat of done) foreign.delete(seat);
+  // The one-shot relaunch grant releases a foreign hold exactly as it releases a local failure —
+  // and, exactly as there, it can never release a FINISHED seat.
+  if (relaunch) for (const seat of relaunch) if (!done.has(seat)) foreign.delete(seat);
+  return { done, foreign };
 }
 
 function jobIdFor(seat, goal = null) {
@@ -163,10 +227,14 @@ function seatHasRun(rows) {
 // hand-built map) still gets the store-only answer it always got.
 const SEAT_STATES = ['done', 'live', 'queued', 'ready', 'waiting'];
 
-function seatState(row, byJob, queued, { done = null, goal = null } = {}) {
+function seatState(row, byJob, queued, { done = null, goal = null, foreign = null } = {}) {
   const isDone = (seat) => (done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat, goal)));
   if (isDone(row.seat)) return 'done';
   const jobId = jobIdFor(row.seat, goal);
+  // A seat the record shows running-or-ended-badly ELSEWHERE is `live` here — the same word the
+  // local answer uses for exactly the same situation, so no reader learns a sixth state and no
+  // caller can treat "live over there" as dispatchable.
+  if (foreign && foreign.has(row.seat)) return 'live';
   if (seatHasRun(byJob.get(jobId))) return 'live';
   if (queued.has(jobId)) return 'queued';
   const after = (row.after || '').trim();
@@ -182,16 +250,19 @@ function seatState(row, byJob, queued, { done = null, goal = null } = {}) {
 // all). Skipping it here rather than filtering the rows earlier keeps the wave math on the WHOLE
 // taskforce — a held seat still blocks its dependents exactly as it would if it had been queued.
 function enqueueEligible(heartStore, rows, {
-  profile, goalFolder, logger, isHeld = null, relaunch = null, goal = null, done = null,
+  profile, goalFolder, logger, isHeld = null, relaunch = null, goal = null, view = null,
 }) {
   const byJob = executionsByJob(heartStore, relaunch, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
-  const finished = done || finishedSeats(goalFolder);
+  const { done: finished, foreign } = view || recordView(heartStore, goalFolder, { relaunch });
   const enqueued = [];
 
   for (const row of rows) {
     const jobId = jobIdFor(row.seat, goal);
-    if (seatState(row, byJob, queued, { done: finished, goal }) !== 'ready') continue;
+    if (foreign && foreign.has(row.seat) && logger) {
+      logger({ level: 'info', message: 'seat held — the execution record shows it elsewhere', seat: row.seat, evidence: foreign.get(row.seat) });
+    }
+    if (seatState(row, byJob, queued, { done: finished, goal, foreign }) !== 'ready') continue;
     if (isHeld && isHeld(row.seat)) continue;
     if (relaunch) relaunch.delete(row.seat);
 
@@ -223,25 +294,29 @@ function enqueueEligible(heartStore, rows, {
 // unreachable from a flag — and answering it by, say, seeding every goal folder the daemon can see
 // would be a policy this build was not asked to invent. `engine.seedGoal()` is the seam; the caller
 // that fires it is named in the contract as the follow-on.
-function seedGoal({ heartStore, goalFolder, profile, goal, logger = null, isHeld = null }) {
+function seedGoal({ heartStore, goalFolder, profile, goal, logger = null, isHeld = null, relaunch = null }) {
   if (!goal) {
     throw new Error(
       'seedGoal requires the goal NAME: it namespaces the job ids so two goals with a seat of the ' +
       'same name cannot share one job row in a store that holds every goal (the daemon\'s).'
     );
   }
-  const done = finishedSeats(goalFolder);
+  const view = recordView(heartStore, goalFolder, { relaunch });
   const rows = seedTaskforce(heartStore, goalFolder, { profile, logger, goal });
-  const enqueued = enqueueEligible(heartStore, rows, { profile, goalFolder, logger, goal, done, isHeld });
+  const enqueued = enqueueEligible(heartStore, rows, { profile, goalFolder, logger, goal, view, isHeld, relaunch });
   const byJob = executionsByJob(heartStore, null, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
+  const seats = rows.map((r) => r.seat);
   return {
     goalFolder,
     goal,
-    seats: rows.map((r) => r.seat),
-    skippedAsFinished: rows.map((r) => r.seat).filter((s) => done.has(s)),
+    seats,
+    skippedAsFinished: seats.filter((s) => view.done.has(s)),
+    // Named separately from `skippedAsFinished` because the two are different facts and an operator
+    // must be able to tell them apart: one seat is DONE, the other is somebody else's right now.
+    heldByOtherLane: Object.fromEntries(seats.filter((s) => view.foreign.has(s)).map((s) => [s, view.foreign.get(s)])),
     enqueued,
-    states: Object.fromEntries(rows.map((r) => [r.seat, seatState(r, byJob, queued, { done, goal })])),
+    states: Object.fromEntries(rows.map((r) => [r.seat, seatState(r, byJob, queued, { done: view.done, goal, foreign: view.foreign })])),
   };
 }
 
@@ -258,6 +333,7 @@ module.exports = {
   seatIsFinished,
   seatHasRun,
   seatState,
+  recordView,
   enqueueEligible,
   seedGoal,
 };

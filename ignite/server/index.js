@@ -892,12 +892,19 @@ async function main() {
   const retentionTimer = setInterval(runRetentionSweep, 24 * 60 * 60 * 1000);
   if (retentionTimer.unref) retentionTimer.unref();
 
-  const tickResult = await ticker.tick();
+  // ⚠ THE LOOP TICKS THROUGH `engine.tick`, NOT `ticker.tick`, AND THE DIFFERENCE IS LOAD-BEARING.
+  // `engine.tick` is `ticker.tick` PLUS the publish into each goal's execution record
+  // (`engine/execution-record.js`, owner ruling decisions.md#d-s23-single-execution-record-now).
+  // Calling the raw ticker here left the daemon lane writing NOTHING to that record — so a
+  // daemon-run seat was invisible to it and the attached lane re-ran it, which is the exact
+  // double-run the record ends and the v1 guard used to refuse. Caught in review of `142737a28`.
+  // If a future change reaches for `ticker.tick()` again, it silently un-publishes this lane.
+  const tickResult = await engine.tick();
   log('info', 'initial tick complete', { tick: tickResult.tick, actionCount: tickResult.actions.length });
 
   const intervalMs = Number(tickerConfig.tick_interval_ms) || 10000; // ticker.js DEFAULT_CONFIG default
   const timer = setInterval(() => {
-    ticker.tick().catch((err) => log('error', 'tick failed', { error: err.message }));
+    engine.tick().catch((err) => log('error', 'tick failed', { error: err.message }));
   }, intervalMs);
 
   function shutdown(signal) {

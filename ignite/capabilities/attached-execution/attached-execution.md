@@ -251,12 +251,27 @@ by **every lane before it seeds**. A seat finished in one lane is not re-run by 
 | `started` / `ended` | from the execution; an empty `ended` means the row is still open. |
 | `outcome` | the store's OWN turn vocabulary, `done` \| `blocked` \| `failed` \| `killed` — no new words. `done` is the only value that stops another lane re-running the seat. |
 
+**What question it answers, stated narrowly (review F5).** The record answers **completion for
+SCHEDULING**: *may this seat be dispatched again, by any lane?* It is the single authority for THAT
+question and every scheduling reader asks it. It is deliberately **not** the only completion-shaped
+surface in the system, and the coexistence is stated rather than glossed:
+
+| surface | question it answers | owner |
+|---|---|---|
+| `executions.csv` (this file) | may this seat be dispatched again — engine OUTCOME | the engine, both lanes |
+| `sessions.csv` `disposition` | did this session's process end, and how | `coord.py` / the kit |
+| coord's check-out attestation (`goal-state-job`) | did the SEAT attest its work done | `coord.py`, the seat itself |
+
+`goal-state-job` reads the attestation and knows nothing of this file, and that is correct: an engine
+`done` (the process finished cleanly) and a seat's attested `done` (the human-or-agent says the work is
+finished) are different facts, and its own fixture contains cases where they rightly disagree. Nothing
+here maps one onto the other.
+
 **Why this is not a mirror of two stores (`PRIN-11`).** The two `heart.db` files stay each lane's
-operational store — queue, turns, messages, liveness. Exactly one question moves here, completion, and
-it moves whole: every reader that asks "is this seat done" asks this file. A lane's own store is still
-consulted by that lane as its local no-double-fire guard (create-only seeding is unchanged), which can
-only ADD done-ness — so the union can never cause a double run, only decline to re-run something a
-lane already ran.
+operational store — queue, turns, messages, liveness. Exactly one question moves here, and it moves
+whole. A lane's own store is still consulted by that lane as its local no-double-fire guard
+(create-only seeding is unchanged), which can only ADD done-ness — so the union can never cause a
+double run, only decline to re-run something a lane already ran.
 
 **Where `sessions.csv` stands, unchanged.** The trace stays **launch/lifecycle accounting**: one row
 per launched session, closed by whoever witnessed the termination — a fact about a PROCESS, which is
@@ -266,26 +281,58 @@ each, and neither overloaded into the other.
 
 **Who writes it, and when.**
 
-- **At the tick**, for every seat execution in the writing store (`engine/index.js` -> `publishToRecord`).
-  The publish sits at the ONE thing both lanes call, rather than at each place a turn ends — so no hook
-  is needed in the completion path, the crash sweep, the kill path or the spawn door, and a completion
-  written by any of them reaches the record on the next cadence. Accepted bound: **a lag of one tick**
-  between a completion and the shared record. A record write that fails is logged and never fatal.
+- **At the tick**, for every seat execution in the writing store — `engine.tick()` in
+  `engine/index.js` calls `publishToRecord`. The publish sits at the ONE thing both lanes call, so no
+  hook is needed in the completion path, the crash sweep, the kill path or the spawn door: whatever
+  ended a seat's turn, the next tick sees the terminal row and publishes it.
+  ⚠ **`engine.tick()` — not `ticker.tick()`.** The daemon's loop (`server/index.js`) calls the engine
+  façade for exactly this reason. It called the raw ticker in the first version of this build, which
+  meant the daemon lane published NOTHING and a daemon-run seat stayed invisible to the record —
+  caught in review. A probe arm now asserts the daemon loop's call site, alongside the behavioural one.
+  Accepted bound: **a lag of one tick** between a completion and the shared record. A record write that
+  fails is logged and never fatal.
 - **At the dispatching act**, for a foreground seat, because that call BLOCKS for as long as the human
   works and the publish would not come round again until the seat is over.
-- **At boot, before seeding — the ADOPTION pass.** The lane publishes its own store's history first, so
-  a goal that ran before this record existed carries its finished seats into it instead of re-running
-  them.
+- **There is no separate boot "adoption" call, deliberately.** One stood here and was deleted: every
+  path through the run ticks, the tick publishes, and within a lane the store's own rows already govern
+  seeding — so removing that call changed nothing any arm could detect. What the run guarantees is
+  stated instead: after any run, the goal's record carries this store's outcomes. A goal that ran
+  before this record existed is carried in by its next run, one tick in.
 
-**Who reads it.** `seatState` (the ONE eligibility predicate — so the enqueue pass, the foreground
-carrier and `--status` all inherit it), `evaluateExit`, and `engine.seedGoal`. `--status` reads it
-**without opening any store**, so it reports a seat the daemon finished on a goal this lane has never
-run (`everRun: false`, seats already `done`).
+**Who reads it, and what it stops.** `seatState` (the ONE eligibility predicate — so the enqueue pass,
+the foreground carrier and `--status` all inherit it), `evaluateExit`, and `engine.seedGoal`.
+`--status` reads it **without opening any store**, so it reports a seat the daemon finished on a goal
+this lane has never run (`everRun: false`, seats already `done`).
 
-**ponytail:** the close is an unlocked read-modify-write of the whole file — the same accepted bound
-`closeForegroundSessionRow` carries, for the same reason (no JS binding for coord's `coord_lock`). The
-only losing interleaving is two lanes stamping ONE goal's record in the same millisecond, and the loser
-is a stamp the next publish re-applies from the store.
+A row stops a dispatch in **three** cases, not one — the review's F3/F6 findings, and the reason the
+at-dispatch row is written at all:
+
+| the record's row for this seat | what happens here |
+|---|---|
+| `outcome = done` | the seat is `done`. Nothing re-runs it, and no grant can re-open it. |
+| **still OPEN**, and no execution in THIS store owns its session id | the seat is **`live`** — somebody else is running it *right now*. Dispatching would be a concurrent double-run of one seat. |
+| ended **non-`done`** (failed / blocked / killed), same test | the seat is **`live`** — held until an explicit `--relaunch <seat>` grant, which is exactly what a LOCAL failure already requires. Without this the two lanes were asymmetric: a local failure needed the grant, the same failure elsewhere re-ran silently. |
+
+⚠ **The membership test is the `session-id` join, not the `lane` column.** `lane` says which KIND of
+store wrote the row; two attached runs on two machines share that value, so a lane comparison would
+call another machine's live seat "ours" and dispatch it twice.
+
+⚠ **The disclosed bound, with its unstick path.** A foreign writer that CRASHED leaves its row open,
+and the seat stays held. That is not a dead end: that lane's next run publishes from its own store (a
+crashed foreground row reconciles to `failed`, a killed detached one to `failed`/`killed`), and the
+seat becomes grantable. If that lane will never run again, `--relaunch <seat>` is the operator's act —
+the same one a local failure requires. Holding is the safe direction; the unsafe one is running a seat
+somebody else may still be running.
+
+**Every write takes a lock, and that is not belt-and-braces.** The close shipped as an unlocked
+read-modify-write in the first version of this build; measured in review, **300 appends racing 300
+closes lost 336 of 601 rows** — whole rows, nothing malformed for a reader to detect, and
+`finishedSeats` transiently reading EMPTY (the one wrong answer that re-runs a finished seat). Two
+lanes over one goal is what this record is FOR, so that interleaving is the normal case. Both halves
+of the cure are needed and both are probed (`D5`, two real processes): a **lockfile** (`O_EXCL`,
+self-clearing, stale-stolen after 5s) around every write, and an **atomic replace** (temp + `rename`)
+for the rewrite, so a reader — which takes no lock, and must not have to — never sees a partial or
+empty file.
 
 ## The daemon lane's goal pickup — built, with its trigger named as the follow-on
 
@@ -295,8 +342,12 @@ this capability into `engine/seeding.js`, unchanged in behaviour, because none o
 property of the terminal a run is attached to; the engine BOTH lanes boot now exposes it:
 
 ```js
-engine.seedGoal({ goalFolder, goal, profile })   // -> { seats, skippedAsFinished, enqueued, states }
+engine.seedGoal({ goalFolder, goal, profile })
+// -> { seats, skippedAsFinished, heldByOtherLane, enqueued, states }
 ```
+
+`skippedAsFinished` and `heldByOtherLane` are reported separately because they are different facts an
+operator must be able to tell apart: one seat is DONE, the other is somebody else's right now.
 
 It publishes, reads the record, seeds create-only, and enqueues only what is due — skipping every seat
 the record says is finished, whichever lane finished it. Job ids are **namespaced per goal**
@@ -393,11 +444,21 @@ direction); its arms now measure the resume, behaviourally, in both:
 - **D1 attached -> daemon.** The attached lane runs the goal; the record carries `alpha=done/attached`;
   a DAEMON-rooted engine then seeds the same goal folder and **skips alpha, enqueues bravo**. This is
   the half that could only be measured structurally before.
-- **D2 daemon -> attached.** A daemon-side execution is synthesized and published **through the real
-  writer** (`publishToRecord`, the call every daemon tick makes); the attached lane then runs the goal
-  and re-runs nothing. **Discriminating mutation:** blank alpha's `outcome` cell in the record and the
-  very same fixture re-runs the seat — so the skip tracks the recorded outcome and not the file's
-  existence, the seat's name, or the trace.
+- **D2 daemon -> attached.** A daemon-side execution is synthesized and then published by the
+  DAEMON'S OWN CALLER — a daemon-rooted `engine.tick()`, plus a second arm asserting that
+  `server/index.js` is what calls it (the first version of this probe called `publishToRecord`
+  directly, which measured the function and not its caller — and that is precisely how a daemon loop
+  on the raw ticker shipped). The attached lane then runs the goal and re-runs nothing.
+  **Discriminating mutation:** delete alpha's ROW from the record and the same fixture re-runs the
+  seat — so the skip tracks the recorded row, not the file's existence, the seat's name, or the trace.
+- **F3/F6 the holds.** An OPEN foreign row holds the seat (never dispatched twice, `--status` says
+  `live`, the run RETURNS `blocked` instead of spinning, an explicit grant releases it); a foreign
+  `failed` holds it the same way, and no grant can ever re-open a `done` seat.
+- **F2 adoption.** A goal whose record is deleted has its store's history republished by its next run,
+  and the daemon then skips those seats off the republished record.
+- **D5 the two-writer race.** 300 appends racing 300 closes from two REAL processes: every row and
+  every stamp survives, an unlocked reader never sees the file go backwards or empty, and no lock file
+  is left behind.
 - **D4** measures that a goal carrying another lane's evidence RUNS (the v1 refusal is gone), that
   `--status` answers `done` off the record with no store at all, the false-positive **control** (the
   attached lane re-running its own goal re-fires nothing), and the **BOUND** (a trace row with no
