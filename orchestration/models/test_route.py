@@ -344,15 +344,14 @@ class TestStoredCredentialAvailability:
         assert "zai-coding-plan" in reason and "opencode" in reason
 
 
-class TestWindowsStoredCredentialNotice:
-    """Owner ruling 2026-07-15 (second): `_opencode_auth_store_path()` resolves XDG_DATA_HOME,
-    else ~/.local/share — where opencode stores credentials on WINDOWS is unverified. A variant
-    whose credential lives ONLY in that store therefore reads unavailable on Windows even though
-    it may well work, so the reason must SAY the verdict is not authoritative there.
-
-    The verdict itself is unchanged on every platform — the notice is a warning, not a bypass.
-    Platform is pinned via `route.sys.platform` so these assert on any host (this suite runs on
-    Linux); nothing here is skipped by platform.
+class TestStoredCredentialReasonUniform:
+    """Task 7.659 (2026-08-10) settled what the 2026-07-15 ruling left unverified: opencode's
+    store lands at `XDG_DATA_HOME || ~/.local/share` on EVERY platform — `xdg-basedir@5.1.0`
+    has no platform branch, so Windows is `%USERPROFILE%\\.local\\share\\opencode\\auth.json`,
+    byte-for-byte what the resolver already computed. The former win32-only NOT-AUTHORITATIVE
+    notice asserted an uncovered path that does not exist and was removed; the reason string is
+    now identical on every platform. Platform is pinned via `route.sys.platform` so these assert
+    on any host; nothing here is skipped by platform.
     """
 
     Z1_AUTH = TestStoredCredentialAvailability.Z1_AUTH
@@ -363,23 +362,9 @@ class TestWindowsStoredCredentialNotice:
         monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
         return tmp_path
 
-    def test_windows_reason_warns_the_variant_may_be_available(self, isolated, monkeypatch):
-        """On Windows the reason still explains both failed paths AND flags itself unauthoritative."""
-        import route
-        monkeypatch.setattr(route.sys, "platform", "win32")
-        reason = route._unavailable_reason({"auth": self.Z1_AUTH})
-        assert "zai-coding-plan" in reason and "opencode" in reason   # the pre-existing substance survives
-        assert "NOT AUTHORITATIVE ON WINDOWS" in reason
-        assert "MAY in fact be available" in reason
-        assert "does not yet cover the Windows" in reason
-        assert "opencode auth list" in reason                          # the action that closes the gap
-
-    @pytest.mark.parametrize("platform", ["linux", "darwin", "cygwin", "msys"])
-    def test_non_windows_reason_is_unchanged(self, isolated, monkeypatch, platform):
-        """Byte-identical to the pre-change string off native Windows — the notice is win32-only.
-
-        cygwin/msys are POSIX-emulating: the XDG_DATA_HOME / ~/.local/share resolution works
-        there as on Linux, so they are NOT the unverified case and get no notice."""
+    @pytest.mark.parametrize("platform", ["linux", "darwin", "cygwin", "msys", "win32"])
+    def test_reason_is_identical_on_every_platform(self, isolated, monkeypatch, platform):
+        """One universal reason string — win32 included, no notice, no platform qualifier."""
         import route
         monkeypatch.setattr(route.sys, "platform", platform)
         reason = route._unavailable_reason({"auth": self.Z1_AUTH})
@@ -389,23 +374,22 @@ class TestWindowsStoredCredentialNotice:
         )
         assert "WINDOWS" not in reason.upper()
 
-    def test_windows_notice_does_not_flip_the_verdict(self, isolated, monkeypatch):
-        """The notice is a WARNING, not a bypass: z1 stays UNAVAILABLE on Windows with no
-        env var and no resolvable stored credential. Guessing a store path would be worse."""
+    def test_windows_verdict_is_unavailable_without_credentials(self, isolated, monkeypatch):
+        """The verdict logic itself is platform-blind: z1 stays UNAVAILABLE on Windows with no
+        env var and no resolvable stored credential."""
         import route
         monkeypatch.setattr(route.sys, "platform", "win32")
         assert not route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
 
-    def test_windows_notice_absent_for_a_variant_without_a_credential_store(self, isolated, monkeypatch):
-        """Scoped to the store path: a plain api-key variant's reason is untouched on Windows —
-        no stored-credential path decided ITS verdict, so there is nothing to qualify."""
+    def test_plain_api_key_reason_untouched_on_windows(self, isolated, monkeypatch):
+        """A variant with no credential store keeps its plain api-key reason on Windows."""
         import route
         monkeypatch.setattr(route.sys, "platform", "win32")
         reason = route._unavailable_reason({"auth": {"method": "api-key", "env_var": "DEEPSEEK_API_KEY"}})
         assert reason == "api-key absent in both OS env and env_file"
 
-    def test_windows_notice_absent_for_available_false(self, isolated, monkeypatch):
-        """`available: false` is a manifest verdict, not a credential-store miss — no notice."""
+    def test_available_false_reason_untouched_on_windows(self, isolated, monkeypatch):
+        """`available: false` is a manifest verdict, not a credential-store miss."""
         import route
         monkeypatch.setattr(route.sys, "platform", "win32")
         reason = route._unavailable_reason({"auth": self.Z1_AUTH, "available": False})
