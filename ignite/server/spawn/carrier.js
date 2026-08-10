@@ -132,22 +132,46 @@ function toolExecEnv() {
   return { PATH: [...new Set([localBin, ...base.split(':').filter(Boolean)])].join(':') };
 }
 
-function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null, caps, sandbox, envFile, setenv = null, userManager = true }) {
+// `live` (live-session-design.md §1) selects LIVE-PIPE carriage instead of the detached
+// file-redirect carriage every other spawn uses. It changes exactly three lines and nothing else —
+// same unit naming, same caps, same sandbox properties, same bwrap argv — because a live session
+// differs from a one-shot ONLY in how its stdio is connected:
+//
+//   `--pipe`  systemd-run stays in the FOREGROUND and proxies the unit's stdin/stdout/stderr to
+//             its own, so the caller holds a real bidirectional pipe pair. The `StandardInput=
+//             file:` note below states the constraint this lifts: a DETACHED `--collect` unit
+//             cannot get a live pipe. A foreground one can (measured, systemd 259, 2026-08-10).
+//   no `StandardOutput=`/`StandardError=append:` — `--pipe` owns those three fds, and setting
+//             both is a conflict. The transcript is not lost: the live-session manager TEES the
+//             stdout it is already parsing into `logPath`, so `inspect logs` reads the same file
+//             it always did.
+//
+// The exit marker stays: `ExecStopPost` is a unit property, unaffected by stdio carriage.
+function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null, caps, sandbox, envFile, setenv = null, userManager = true, live = false }) {
   const unitName = `rbtv-worker-${sessionId}`;
   const args = [
     userManager ? '--user' : '--system',
     '--unit', unitName,
     '--collect',
     '--property', `WorkingDirectory=${workdir}`,
-    '--property', `StandardOutput=append:${logPath}`,
-    '--property', `StandardError=append:${logPath}`,
   ];
+  if (live) {
+    // `--quiet` with it: systemd-run's own "Running as unit: …" banner rides the SAME stdout the
+    // unit's stream-json now travels on, and the transcript this tees into is a machine-read log.
+    args.push('--pipe', '--quiet');
+  } else {
+    args.push('--property', `StandardOutput=append:${logPath}`);
+    args.push('--property', `StandardError=append:${logPath}`);
+  }
 
   // stdin carriage (`prompt: stdin`): systemd opens the prompt file as the unit's stdin and
   // delivers EOF at end-of-file — the write-prompt-then-close-stdin contract a detached
   // --collect unit cannot get from a live pipe. Without this property the transient unit's
   // stdin defaults to /dev/null (EOF, no prompt). StandardInput=file: requires systemd ≥ 236.
   if (stdinFile) {
+    // A live pipe and a file redirect are two answers to one question. Refuse rather than let
+    // systemd pick: the loser would be silent, and the loser is the prompt.
+    if (live) throw new SpawnError(E_CARRIER_FAILED, 'live carriage and stdinFile are mutually exclusive — a live session is FED over its pipe, never over a prompt file', { carrier: 'systemd', sessionId });
     args.push('--property', `StandardInput=file:${stdinFile}`);
   }
 

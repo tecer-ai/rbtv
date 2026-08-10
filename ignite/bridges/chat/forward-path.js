@@ -356,7 +356,11 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     return forwardSessionCreate({ chatThreadId, text, route });
   }
 
-  return { onChatMessage, forwardSessionCreate, forwardFollowUp, CMP8_TYPES };
+  // `profileFor`/`workdirFor` are exposed so the WARM leg (live-sessions.js) resolves a
+  // conversation's profile and home through THESE functions rather than a second copy of the
+  // surface rules. A warm session must run the same profile at the same seat the cold path would
+  // have used, or the two paths are two different agents wearing one thread.
+  return { onChatMessage, forwardSessionCreate, forwardFollowUp, profileFor, workdirFor, CMP8_TYPES };
 }
 
 module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, resolveGoalSeat };

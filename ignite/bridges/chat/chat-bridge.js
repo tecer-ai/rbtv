@@ -16,6 +16,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { createForwardPath } = require('./forward-path');
+const { createLiveLeg } = require('./live-sessions');
 const { createReplyLeg } = require('./reply-leg');
 const { createBusFerry } = require('./bus-ferry');
 
@@ -30,6 +31,12 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // injected so the forward path can post an honest decline notice (D111 part 2) on
   // a MAPPED conversation whose follow-up cannot reach the running work, never silence.
   const forwardPath = createForwardPath({ forwarder, threadMap, allowlist, config, logger, deliver: (args) => deliverToOwner(args) });
+
+  // The WARM leg (live-session-design.md §1/§4). Tried BEFORE the forward path on every owner
+  // turn; a refusal is the normal case and falls straight through to the cold path below. It
+  // reaches the daemon only through the same injected forwarder, on one new intent — no new
+  // capability, no process of its own (see live-sessions.js for why the manager is daemon-side).
+  const liveLeg = createLiveLeg({ forwarder, threadMap, config, logger });
 
   // The outbound reply leg (Behavior #3, D110): drives worker answer → Slack thread.
   // It reaches the daemon ONLY via the injected forwarder's inspect surface, and
@@ -453,6 +460,49 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       replyAddr.set(chatMsg.chatThreadId, { channel: chatMsg._channel, threadTs });
       saveState();
     }
+    // ── THE WARM PATH, tried first and never trusted ────────────────────────────────────────
+    //
+    // A conversation that already holds a chain AND whose seat is live-capable is answered by a
+    // warm process in ~1.5-4s instead of ~12s. EVERY other outcome — not warm, ineligible seat,
+    // non-claude harness, gateway down, the session died mid-turn — returns `answered: false`
+    // and execution continues into the unchanged forward path below, so this block can only ever
+    // ADD a fast answer, never remove a slow one.
+    //
+    // The profile and the workdir come from the forward path's OWN resolvers, so a warm turn
+    // runs the same profile at the same seat the cold turn would have.
+    // ⚑ `isAdmitted`, NEVER `check` — `check` has a SIDE EFFECT on its refusing branch (it
+    // records a pairing request and increments its count, allowlist.js), and the forward path
+    // below calls it for real. Asking `check` here too would double-count every refused
+    // principal's pairing attempts. The admission question is still asked, and it is still asked
+    // BEFORE any warm work: a revoked principal holding an old mapped thread is refused here
+    // exactly as it is refused there.
+    if (route && chatMsg.chatThreadId && allowlist.isAdmitted(chatMsg.chatUserId)) {
+      const home = forwardPath.workdirFor(route);
+      const warm = await liveLeg.attempt({
+        chatThreadId: chatMsg.chatThreadId,
+        text: chatMsg.text,
+        route,
+        profile: forwardPath.profileFor(route),
+        workdir: home && home.ok ? home.workdir : null,
+      });
+      if (warm.answered) {
+        // Posted straight into the thread — no reply-leg arming, no ⏳ marker. Both exist to
+        // cover the GAP between an owner's message and an answer minutes later; on this path
+        // there is no gap to cover, and a marker added and removed inside two seconds is noise.
+        const delivered = await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text: warm.text, markAsk: false });
+        if (delivered && delivered.delivered !== false) {
+          const out = { forwarded: true, leg: 'live-session', warm: true, ms: warm.ms };
+          log('info', 'chat message handled on the warm path', { chatThreadId: chatMsg.chatThreadId, ...out });
+          return out;
+        }
+        // The turn HAPPENED and its answer could not be posted. Falling through would re-ask the
+        // agent the same question, so this stops here and says so — the same honesty the reply
+        // leg's give-up notice carries.
+        log('error', 'warm turn answered but its reply could not be posted — NOT re-asking the agent', { chatThreadId: chatMsg.chatThreadId, reason: delivered && (delivered.reason || delivered.error) });
+        return { forwarded: true, leg: 'live-session', warm: true, delivered: false };
+      }
+    }
+
     const outcome = await forwardPath.onChatMessage(chatMsg);
     // Arm the reply leg on every FORWARDED turn — a session-create (new conversation)
     // or a follow-up (the chain re-dispatches → a new exec on the same queue). The
@@ -715,7 +765,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // nothing else about the bridge changes.
     let ferry = { enabled: false, reason: 'not-configured' };
     if (config && config.busFerry) ferry = await busFerry.start();
-    log('info', 'chat bridge started', { transport: 'slack-socket-mode', goalChannelsBound: recovered && recovered.bound, stateRestored: restored, busFerry: ferry, ...r });
+    log('info', 'chat bridge started', { transport: 'slack-socket-mode', goalChannelsBound: recovered && recovered.bound, stateRestored: restored, busFerry: ferry, liveSessions: liveLeg.enabled, ...r });
     return r;
   }
 
@@ -730,7 +780,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     onChatMessage, deliverToOwner, start, stop,
     registerGoal, closeGoal, routeOf,
     routeToAgentThread, agentThreadFor, agentForThread, knowsThread,
-    _replyAddr: replyAddr, _agentThreads: agentThreads, forwardPath, replyLeg, busFerry, goalChannels,
+    _replyAddr: replyAddr, _agentThreads: agentThreads, forwardPath, replyLeg, busFerry, goalChannels, liveLeg,
     _saveState: saveState, _loadState: loadState, stateFile,
   };
 }

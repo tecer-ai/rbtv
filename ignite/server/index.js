@@ -18,6 +18,7 @@ const { WARNING_KINDS } = require('./heart/warnings');
 const { createEngine } = require('../engine');
 const { runLaneWatch } = require('../engine/lane-watch');
 const { selectCarrier } = require('./spawn/carrier');
+const { createLiveSessions } = require('./spawn/live-sessions');
 const { SpawnError, E_HEADED_NOT_CAPABLE } = require('./spawn/errors');
 const { createInternalApi } = require('./internal-api/dispatch');
 const { captureLoadedCode, writeCodeMarker } = require('./code-fingerprint');
@@ -678,6 +679,27 @@ async function main() {
   const { heartStore, ticker } = engine;
   const decoratedSpawnManager = engine.spawnManager;
 
+  // ── The live-session manager (live-session-design.md §1/§4, owner ruling 2026-08-10) ─────────
+  //
+  // Constructed HERE for the same reason `onEnqueue` is wired here: the composition root is the
+  // only place holding both the daemon's config and the internal API. It is FAIL-SOFT at boot —
+  // a manager that cannot be built leaves `liveSessions` null, `live-feed` answers
+  // `live-sessions-not-armed`, and every conversation keeps the cold path it has today. A latency
+  // optimization must never be able to stop the daemon from starting.
+  let liveSessions = null;
+  try {
+    liveSessions = createLiveSessions({
+      configPath: effectiveConfigPath,
+      workspaceRoot,
+      logger: (m) => log(m.level || 'info', m.message, m),
+      idleMs: Number(process.env.RBTV_IGNITE_LIVE_IDLE_MS) || undefined,
+      maxSessions: Number(process.env.RBTV_IGNITE_LIVE_MAX) || undefined,
+    });
+    log('info', 'live sessions armed', { idleMs: liveSessions.config.idleMs, maxSessions: liveSessions.config.maxSessions, turnTimeoutMs: liveSessions.config.turnTimeoutMs });
+  } catch (err) {
+    log('warn', 'live sessions NOT armed — every conversation keeps the cold path', { error: err.message });
+  }
+
   // Captured once at boot for `inspect daemon` uptime reporting.
   const daemonStartTime = Date.now();
 
@@ -728,6 +750,9 @@ async function main() {
     // an additional tick, never a rescheduled one. Wired HERE because the composition root is the
     // only place holding both the ticker and the internal API.
     onEnqueue: () => ticker.nudge('enqueue'),
+    // live-session-design.md §1: the ONE handle the `live-feed` intent reaches. Null when the
+    // manager failed to build, which the handler reports rather than faulting on.
+    liveSessions,
   });
 
   const gateway = createGateway({
@@ -939,6 +964,17 @@ async function main() {
         await gateway.close();
       } catch (err) {
         log('error', 'error closing gateway', { error: err.message });
+      }
+      // No orphans: every warm child gets EOF and is awaited out before the daemon goes. A live
+      // session outliving its manager would hold a seat, a unit and 240-600MB with nothing left
+      // that knows how to reach it.
+      try {
+        if (liveSessions) {
+          const n = liveSessions.stop();
+          if (n) log('info', 'live sessions closed at shutdown', { count: n });
+        }
+      } catch (err) {
+        log('error', 'error closing live sessions', { error: err.message });
       }
       cleanupTempConfig(tempConfigDir);
       try {

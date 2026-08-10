@@ -36,9 +36,15 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // the TENTH intent — the catalogue's first RETIREMENT surface. Before it, `register-job`
 // permanently burnt every id it wrote and a HOMED job outlived the goal tree it names, with
 // no CLI path to stop it. Added ADDITIVELY; the envelope version is UNCHANGED.
+// ⚑ `live-feed` ADDED by live-session-design.md §1/§4 (owner ruling 2026-08-10): the ELEVENTH
+// intent — the direct feed of an owner turn into an already-warm session. It is a new intent
+// rather than a new `inspect` target or an `enqueue-job` variant for one reason: it is the one
+// verb whose whole value is NOT going through the queue. §4 rejected the queue path by ruling
+// (the 0.3–1.9s nudge+tick cost would put the warm total over the 3s target), and an intent that
+// enqueues nothing cannot honestly be an enqueue. It reaches ONLY the live-session manager.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
-  'kill-session', 'register-job', 'deregister-job',
+  'kill-session', 'register-job', 'deregister-job', 'live-feed',
 ]);
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
@@ -436,6 +442,42 @@ function parseDeregisterJob(payload) {
   return { job_id: payload.job_id };
 }
 
+// live-session-design.md §1 — feed one owner turn to a warm session.
+//
+// SHAPE ONLY, like every sibling: whether the profile exists, whether the workdir is a seat, and
+// whether that seat may run warm are the CORE's questions (DEC-3 complete re-validation) and are
+// answered by `liveSessions.eligible`. `exec_id` is the chain's FIRST execution — the core reads
+// its `session_ref` and resumes THAT session, which is what makes a warm turn a continuation of
+// the same conversation rather than a new one. `start` is the caller saying it is willing to pay
+// a cold launch to become warm; without it a cold conversation is answered `no-warm-session` and
+// the caller keeps its own path.
+function parseLiveFeed(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['conversation', 'prompt', 'workdir', 'profile', 'exec_id', 'start']), 'live-feed');
+  for (const key of ['conversation', 'prompt', 'profile']) {
+    if (typeof payload[key] !== 'string' || payload[key].length === 0) {
+      bad(`live-feed requires a non-empty ${key}`, key);
+    }
+  }
+  if (payload.workdir !== undefined && payload.workdir !== null && typeof payload.workdir !== 'string') {
+    bad('live-feed workdir must be a string when present', 'workdir');
+  }
+  if (payload.exec_id !== undefined && payload.exec_id !== null && !Number.isInteger(payload.exec_id)) {
+    bad('live-feed exec_id must be an integer when present', 'exec_id');
+  }
+  if (payload.start !== undefined && typeof payload.start !== 'boolean') {
+    bad('live-feed start must be a boolean when present', 'start');
+  }
+  return {
+    conversation: payload.conversation,
+    prompt: payload.prompt,
+    workdir: payload.workdir ?? null,
+    profile: payload.profile,
+    exec_id: payload.exec_id ?? null,
+    start: payload.start === true,
+  };
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -451,6 +493,7 @@ function parseRequest({ intent, payload }) {
     case 'kill-session': return parseKillSession(payload);
     case 'register-job': return parseRegisterJob(payload);
     case 'deregister-job': return parseDeregisterJob(payload);
+    case 'live-feed': return parseLiveFeed(payload);
   }
 }
 

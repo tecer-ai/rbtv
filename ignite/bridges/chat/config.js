@@ -48,6 +48,7 @@ const DEFAULT_SLACK_API_BASE = 'https://slack.com/api';
 //     "master_profile": "master",          // profile for DM (master) traffic; defaults to session_profile
 //     "goal_profile": "worker",            // profile for goal-channel traffic; defaults to session_profile
 //     "state_file": "/abs/path/chat-state.json", // conversation state across restarts (opt-in; see below)
+//     "live_sessions": true,               // try the warm (live-session) leg before the cold path
 //     "bus_ferry": false,                  // push coordination-bus rows addressed to `master` to the owner DM
 //     "bus_ferry_dm_user": "U0123ABC",     // whose DM (default: the FIRST allowlist entry)
 //     "owner_user": "U0123ABC",            // the ONE user auto-invited to a new REAL goal channel
@@ -126,6 +127,18 @@ function resolveConfig(overrides = {}) {
     throw new Error(`chat-bridge state_file must be an absolute path, got: ${stateFile}`);
   }
 
+  // ── The warm leg (live-session-design.md §1/§4) ────────────────────────────────────────────
+  // DEFAULT ON. The flag is the bridge's own decision — whether to TRY the warm path before the
+  // cold one — and it is the only one of the design's three knobs that belongs here. The other
+  // two (`live_session_idle_ms`, `live_session_max`) govern processes the DAEMON holds and the
+  // memory they occupy, so they are the daemon's knobs and are read there from
+  // RBTV_IGNITE_LIVE_IDLE_MS / RBTV_IGNITE_LIVE_MAX on its unit; a bridge that could set them
+  // would be dictating another process's resource policy over the wire. Turning this flag off
+  // restores the pre-live behaviour exactly: every message takes the cold path.
+  const liveSessions = overrides.liveSessions != null
+    ? Boolean(overrides.liveSessions)
+    : (file.live_sessions != null ? Boolean(file.live_sessions) : true);
+
   const allowlist = Array.isArray(overrides.allowlist)
     ? overrides.allowlist
     : (Array.isArray(file.allowlist) ? file.allowlist : []);
@@ -165,6 +178,7 @@ function resolveConfig(overrides = {}) {
     stateFile,
     busFerry,
     busFerryDmUser,
+    liveSessions,
     ownerUser,
     allowlist,
     slack: {

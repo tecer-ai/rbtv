@@ -42,7 +42,13 @@ function createGatewayForwarder({ gatewayAddr, token, timeoutMs = DEFAULT_TIMEOU
   // A transport failure resolves { ok:false, error:{ code:'TRANSPORT', … } } — the
   // bridge decides what to do; it never throws a hang (gateway-cli-spec.md: fail loud,
   // never a silent hang).
-  function call(intent, payload) {
+  // `opts.timeoutMs` overrides the client default for ONE call. It exists for `live-feed`
+  // (live-session-design.md §1), the one intent that holds its request open for the length of an
+  // agent turn instead of a store write: 10s is right for every other intent and would abandon a
+  // warm turn mid-thought. A per-call override rather than a raised default, so nothing else
+  // silently gains a longer patience.
+  function call(intent, payload, opts = {}) {
+    const callTimeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : timeoutMs;
     return new Promise((resolve) => {
       const body = Buffer.from(JSON.stringify({ intent, payload: payload ?? {} }), 'utf8');
       const headers = { 'content-type': 'application/json', 'content-length': body.length };
@@ -54,7 +60,7 @@ function createGatewayForwarder({ gatewayAddr, token, timeoutMs = DEFAULT_TIMEOU
       const done = (v) => { if (!settled) { settled = true; resolve(v); } };
 
       const req = httpImpl.request(
-        { host: addr.host, port: addr.port, method: 'POST', path: '/', headers, timeout: timeoutMs },
+        { host: addr.host, port: addr.port, method: 'POST', path: '/', headers, timeout: callTimeoutMs },
         (res) => {
           const chunks = [];
           res.on('data', (c) => chunks.push(c));
@@ -78,7 +84,7 @@ function createGatewayForwarder({ gatewayAddr, token, timeoutMs = DEFAULT_TIMEOU
 
       req.once('timeout', () => {
         req.destroy();
-        done({ ok: false, error: { code: 'TRANSPORT', message: `gateway at ${addr.host}:${addr.port} did not respond within ${timeoutMs}ms` } });
+        done({ ok: false, error: { code: 'TRANSPORT', message: `gateway at ${addr.host}:${addr.port} did not respond within ${callTimeoutMs}ms` } });
       });
       req.once('error', (err) => {
         done({ ok: false, error: { code: 'TRANSPORT', message: `could not reach gateway at ${addr.host}:${addr.port}: ${err.message}` } });

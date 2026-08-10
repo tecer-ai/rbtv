@@ -64,7 +64,7 @@ async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 // launch-agent catalogue job ('chat-launch') and a send-message catalogue job
 // ('send-message'), plus a 'worker' launch profile so launch-agent enqueues
 // re-validate. Writes a temp senders.yaml (mode 0600) with a fake kind:bridge row.
-async function startThrowawayDaemon({ bridgeSenderId = 'bridge-probe' } = {}) {
+async function startThrowawayDaemon({ bridgeSenderId = 'bridge-probe', liveSessions = null } = {}) {
   const dir = tmpDir('daemon');
   const workspaceRoot = path.join(dir, 'workspace'); // store lives at <root>/.rbtv/heart/heart.db
   fs.mkdirSync(workspaceRoot, { recursive: true });
@@ -115,7 +115,7 @@ async function startThrowawayDaemon({ bridgeSenderId = 'bridge-probe' } = {}) {
   };
 
   const secret = crypto.randomBytes(32).toString('hex');
-  const internalApi = createInternalApi({ heartStore: store, spawnManager: spawnStub, secret, daemonStartTime: Date.now(), daemonConfig: {} });
+  const internalApi = createInternalApi({ heartStore: store, spawnManager: spawnStub, secret, daemonStartTime: Date.now(), daemonConfig: {}, liveSessions });
 
   const gateway = createGateway({ dispatch: internalApi.dispatch, internalSecret: secret, sendersFilePath: sendersPath });
   const [addr] = await gateway.listen({ hosts: ['127.0.0.1'], port: 0 });

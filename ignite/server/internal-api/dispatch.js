@@ -70,7 +70,7 @@ const ENVELOPE_VERSION = 1;
 // never touches the catalogue, and `--disabled` existed only at registration time.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
-  'kill-session', 'register-job', 'deregister-job',
+  'kill-session', 'register-job', 'deregister-job', 'live-feed',
 ]);
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
@@ -138,6 +138,13 @@ const REGISTER_ALLOWED_KEYS = new Set([
   // task 7.12 · the job->seat pointer (owner ruling `r-job-seat-home`, 2026-07-27).
   'goal_name', 'seat_name',
 ]);
+
+// The live-feed payload's field set (live-session-design.md §1). A DELIBERATE second copy of the
+// gateway parser's set, exactly like ENQUEUE_ALLOWED_KEYS above and for the same DEC-3 reason: the
+// core re-validates raw shape without importing the gateway. `session_ref` is deliberately ABSENT
+// — a sender naming the session to resume could resume someone else's conversation, so the core
+// derives it from `exec_id` through the store instead.
+const LIVE_FEED_KEYS = new Set(['conversation', 'prompt', 'workdir', 'profile', 'exec_id', 'start']);
 
 // The deregister-job payload's field set (task 7.364) — exactly one key. No `dry_run`:
 // the act is a single idempotent flag flip whose only refusal (unknown id) is decidable
@@ -414,7 +421,7 @@ function toWireError(err) {
 // It is called ONLY after a real queue row is minted — never on a dry run, never on a validation
 // failure — and it is the one external-work signal the ticker is allowed to react to. Absent →
 // the enqueue behaves exactly as before and the row waits out the cadence.
-function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonLoadedCode = null, daemonConfig = null, readConfiguredTickIntervalMs = null, onEnqueue = null }) {
+function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonLoadedCode = null, daemonConfig = null, readConfiguredTickIntervalMs = null, onEnqueue = null, liveSessions = null }) {
   if (typeof secret !== 'string' || secret.length === 0) {
     throw new Error('createInternalApi requires a non-empty per-boot client secret');
   }
@@ -1071,6 +1078,64 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     };
   }
 
+  // ── live-feed (live-session-design.md §1/§4) ────────────────────────────────────────────────
+  //
+  // Feed one owner turn to the conversation's WARM session and answer with the reply. This is the
+  // daemon's only synchronous, reply-carrying intent, and that is the ruling, not an accident:
+  // §4 chose the direct feed precisely so the answer does not have to travel back through the
+  // queue, a spawn and a 3s reply poll. The caller holds the request open for the length of one
+  // turn (its own timeout bounds it; the manager's `turnTimeoutMs` bounds this side).
+  //
+  // ⚑ NO AUTHZ CALL, and that matches `enqueue-job` DELIBERATELY. A live feed can do strictly
+  // LESS than an enqueue: it reaches only conversations that are already warm — sessions this
+  // daemon itself launched, at seats it already admitted — and it can create nothing that an
+  // `enqueue-job` from the same token could not create by the cold path. Gating it harder than
+  // the verb it is an optimization OF would refuse the bridge the fast path to work it is already
+  // authorized to do slowly.
+  //
+  // ⚑ IT FAILS SOFT, ALWAYS. Every refusal is `{ fed: false, reason }` with HTTP ok — never a
+  // typed error — because the caller's correct response to every one of them is the same: take
+  // the cold path. Rendering "this conversation is not warm" as an error would make the bridge's
+  // normal, expected, majority case look like a fault in its logs.
+  async function handleLiveFeed(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (!LIVE_FEED_KEYS.has(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    if (typeof payload.conversation !== 'string' || !payload.conversation) {
+      throw new InternalApiError(VALIDATION_FAILED, 'conversation must be a non-empty string', { check: 'conversation-shape', field: 'conversation' });
+    }
+    if (typeof payload.prompt !== 'string' || !payload.prompt) {
+      throw new InternalApiError(VALIDATION_FAILED, 'prompt must be a non-empty string', { check: 'prompt-shape', field: 'prompt' });
+    }
+    if (!liveSessions) return { fed: false, reason: 'live-sessions-not-armed' };
+
+    // The chain's `session_ref` is read from the STORE, never taken from the caller. That is what
+    // stops a bridge from resuming a session it was never told about: it names an execution id it
+    // already holds for its own conversation, and the daemon looks up what that execution is.
+    let sessionRef = null;
+    if (payload.exec_id != null) {
+      const row = heartStore.getExecution(payload.exec_id);
+      sessionRef = (row && row.session_ref) || null;
+    }
+
+    const out = await liveSessions.feed({
+      conversationId: payload.conversation,
+      profileName: payload.profile,
+      workdir: payload.workdir || null,
+      prompt: payload.prompt,
+      sessionRef,
+      start: payload.start === true,
+    });
+
+    if (!out.ok) {
+      return { fed: false, reason: out.reason, unanswered: out.unanswered === true, warm: liveSessions.size() };
+    }
+    log('info', 'live-feed answered a warm turn', { conversation: payload.conversation, senderId: sender && sender.id, ms: out.ms, sessionId: out.sessionId });
+    return { fed: true, reply: out.reply, is_error: out.isError === true, session_id: out.sessionId, session_ref: out.sessionRef, ms: out.ms, warm: liveSessions.size() };
+  }
+
   // Kill a session — expose the spawn module's EXISTING kill surface (TERM → grace →
   // KILL of the whole process tree, status → `killed`) on the wire (cli-expansion ruling
   // D2, ce-4). Kill is NOT headed-only — a session is "killable at any time" regardless
@@ -1222,6 +1287,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'kill-session': result = await handleKillSession(env.payload, env.sender); break;
         case 'register-job': result = handleRegisterJob(env.payload, env.sender); break;
         case 'deregister-job': result = handleDeregisterJob(env.payload, env.sender); break;
+        case 'live-feed': result = await handleLiveFeed(env.payload, env.sender); break;
       }
 
       // Outbound round-trip: the snapshot the gateway receives is DETACHED, so

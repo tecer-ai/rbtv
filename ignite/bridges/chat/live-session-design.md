@@ -35,7 +35,7 @@ continuity as a feature, covering (1) owner↔channel-master, (2) ferry to/from 
 
 ## Components
 
-### 1. Live session manager (`ignite/server/spawn/live-sessions.js`, new)
+### 1. Live session manager — **BUILT 2026-08-10** (`ignite/server/spawn/live-sessions.js`)
 
 Registry: chatThreadId → { pid/unit, sessionId, seat, profile, lastOwnerMsgAt, state: idle|in-turn }.
 
@@ -72,13 +72,91 @@ At enqueue, jobs already correlate to the originating chat thread. On settle the
 (b) when the job carries `wake: true` (or an action follow-up), also feeds/spawns the seat's
 session with the outcome as prompt so the agent can act on it.
 
-### 4. Dispatch hook for warm feeds — RULED (owner, 2026-08-10)
+### 4. Dispatch hook for warm feeds — RULED (owner, 2026-08-10) · **BUILT 2026-08-10**
 
 **Direct feed + fire-and-forget accounting event.** The bridge hands a warm-session message
 straight to the live process (~0.1s); the manager reports each fed turn to the gateway so
 acct/session records stay whole. Admission checks (allowlist, caps) run bridge-side as today.
 Cold spawns keep the queue path unchanged. (Queue-path alternative rejected for its 0.3–1.9s
 nudge+tick cost — warm total would sometimes exceed the 3s target.)
+
+## §1/§4 as built (2026-08-10) — the spike, the code, and the four deltas
+
+### The spike that unblocked it (claude 2.1.226, this box, 2026-08-10)
+
+The design's first risk was "stream-json stdin mid-turn semantics unverified". All four questions
+are now **measured**, and the manager-side FIFO fallback is **not needed**:
+
+| Question | Measured answer |
+|---|---|
+| The user-turn shape on stdin | `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"…"}]}}` + `\n`, one JSON object per line |
+| A second message written MID-TURN | **The CLI QUEUES it.** Written 3.0s into a 15.8s turn: no error, no interleave; answered 3.3s after turn 1 ended, strictly in order. **So: write immediately.** The manager keeps a RESPONDER queue only (match `result` events to waiters in arrival order), never a send queue |
+| Closing stdin | Clean exit, code 0, ~300ms |
+| `--session-id` + a later `--resume` | Context preserved, in-process AND across a fresh process. ⚠ `--resume` of an id that does NOT exist ends the turn `is_error` with `No conversation found with session ID: …` — which is why an errored turn is reported as NOT answered (below) |
+| Per-turn events | A fresh `system/init` is re-emitted before EVERY turn; exactly one `result` per fed turn |
+
+### Where the code is
+
+| Piece | File |
+|---|---|
+| The manager — registry, eligibility, launch, feed, reaper, LRU, shutdown | `server/spawn/live-sessions.js` (new) |
+| Live-pipe carriage (`--pipe --quiet`, no `StandardOutput/Input` properties) | `server/spawn/carrier.js` — `buildSystemdRunArgs({ …, live: true })` |
+| The wire: `live-feed` intent | `gateway/parse.js` (`INTENTS`, `parseLiveFeed`), `server/internal-api/dispatch.js` (`INTENTS`, `LIVE_FEED_KEYS`, `handleLiveFeed`) |
+| Construction + shutdown | `server/index.js` (`createLiveSessions`, `liveSessions.stop()` in `shutdown`) |
+| The bridge's caller | `bridges/chat/live-sessions.js` (new), hooked in `chat-bridge.js#onChatMessage` before the forward path |
+| Config | `bridges/chat/config.js` — `live_sessions` (default **true**) |
+| Proof | `bridges/chat/probes/probe-chat-live-session.js` — 29 checks, 7 arms, 1 mutation arm |
+
+### The four deltas from the sketch — each forced, each measured
+
+1. **The manager is DAEMON-SIDE, not bridge-side.** `probe-chat-boundary` scans every runtime `.js`
+   under `bridges/chat/` for `child_process|\bspawn\s*\(` and fails the suite on a hit —
+   chat-bridge-spec.md Behavior #5's "no spawn path" is a STRUCTURAL invariant of that subtree. A
+   bridge-side manager would also have had to re-implement the seat cage, the carrier, profile
+   resolution and the at-dispatch record. §4's ruling is intact: the feed is DIRECT (one loopback
+   call, no queue row, no tick), which is the thing the ruling chose. Only the process's holder moved.
+   This is also what §1's own path (`ignite/server/spawn/live-sessions.js`) said all along.
+2. **§4's fire-and-forget accounting event collapsed to ZERO code.** It existed because a
+   bridge-held process would have to TELL the daemon what it did. Daemon-side, the manager writes
+   the `sessions.csv` sitting row itself (same writer as the dispatch door) and tees the
+   stream-json transcript to the same `logs/<session-id>.log`. No `jobs_log` execution row is
+   minted: a live session bypasses the queue BY RULING, so an execution row would be inventing a
+   queue row that never existed — a false record, not a whole one.
+3. **Every live session is a `--resume`, never a fresh `exec`.** The FIRST message of a
+   conversation takes today's cold path unchanged; the SECOND launches the warm process by
+   resuming that chain's `session_ref` (read from the store via the `exec_id` the bridge already
+   holds — never taken from the wire). Because `session_ref: {source: assigned}` and a resumed
+   claude session keeps its id, the chain's ref is ONE value for its whole life, so the reaper's
+   fallback is correct BY CONSTRUCTION: the cold `--resume` spawn that replaces a reaped live
+   session is the same conversation. Cost, stated: message #1 cold, #2 pays the live launch,
+   #3 onward warm.
+4. **`live_session_idle_ms` / `live_session_max` are DAEMON knobs, not bridge config**
+   (`RBTV_IGNITE_LIVE_IDLE_MS` / `RBTV_IGNITE_LIVE_MAX` on the daemon unit; defaults 600000 / 4).
+   They govern processes the daemon holds and the memory they occupy; a bridge that could set them
+   over the wire would be dictating another process's resource policy. Only the enable flag
+   (`live_sessions`, default true) is the bridge's, because "try the warm path first" is genuinely
+   the bridge's decision.
+
+Two smaller ones, both measured: **an errored or empty turn is reported as NOT answered** so the
+caller falls back rather than posting a blank fast reply (the `No conversation found` case); and
+**the master-profile reap needs no hook into the python** — the caller resolves the profile from
+its own freshly-read config on every message, so a warm session whose conversation now names a
+different profile is reaped at the next message, which is exactly the guarantee §1 asked for.
+
+### ⚠ ON THIS DEPLOYMENT, NOTHING IS ELIGIBLE YET — two owner decisions
+
+The gates are implemented as ruled (`human-interactive: yes` seat + a claude profile). Measured
+against the live config on 2026-08-10, **zero conversations pass them**:
+
+| Blocker | Fact | The decision |
+|---|---|---|
+| The master profile is not claude | `.rbtv/config/chat-bridge-config.json` has `master_profile: "kimi"`, and `--input-format stream-json` is claude's flag — no other harness's equivalent has been MEASURED, so a non-claude profile is ineligible rather than guessed at | Switch the master profile to a claude one (`master-profile` capability), or commission the measurement for kimi |
+| The channel-master seat does not declare the gate | `.rbtv/goals/_channel-master/seat.md` frontmatter carries `mode: one-shot` and **no `human-interactive:` key** | Declare `human-interactive: yes` (+ the required `fallback:` arm) on that seat, or rule that the master path is exempt from gate 1 |
+
+The only `human-interactive:` seats on the box today are the four planning seats of
+`meeting-transcript-digest` — goal/agent traffic, not the owner's DM path, which is the surface
+`i-cold-contact-latency` is about. **Until one of the two rows above is decided, the warm path is
+armed and inert, and every conversation takes exactly the cold path it takes now.**
 
 ## Expected budgets after
 
@@ -98,8 +176,9 @@ Defaults confirmed: doc home `ignite/bridges/chat/live-session-design.md`, idle 
 
 ## Risks & mitigations
 
-- **Stream-json stdin mid-turn semantics unverified** → first implementation task is a 10-minute
-  spike against claude v2.1.226; manager-side queue is the fallback design.
+- ~~**Stream-json stdin mid-turn semantics unverified**~~ → **RESOLVED by measurement 2026-08-10**
+  (§ *The spike that unblocked it*): the CLI queues a mid-turn message. The manager-side send
+  queue was not built; only a responder queue exists.
 - **Stale in-session state** (files/rulings changed under a warm session) → reaper on profile
   apply; seats' own read-before-write discipline unchanged; 10-min ceiling bounds staleness.
 - **Memory** (240–600MB per warm process, 8GB box) → `live_session_max` LRU cap + reaper.
@@ -110,5 +189,8 @@ Defaults confirmed: doc home `ignite/bridges/chat/live-session-design.md`, idle 
 
 1. Ferry file-watch (bus-ferry.js — small, independent, ships alone).
 2. Async outcome post + wake flag (dispatch/settle path).
-3. Live session manager + bridge/ticker hook + streamed replies (the core).
-4. Config surface, probes/self-checks, docs (README + this design doc finalized in-repo).
+3. ~~Live session manager + bridge/ticker hook + streamed replies (the core).~~ **DONE 2026-08-10.**
+4. ~~Config surface, probes/self-checks, docs.~~ **DONE 2026-08-10** — with the two open owner
+   decisions in § *On this deployment, nothing is eligible yet*, and the warm-latency figure still
+   awaiting a real owner round-trip (probe-measured warm turn on `claude-haiku`: **3.8s**, against
+   4.6s for the same turn including the live launch).
