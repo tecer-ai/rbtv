@@ -1,3 +1,6 @@
+# ⚠ RETIRED (owner ruling d-hard-guard-retire-model-mirror, 2026-08-10): mirror.py refuses
+# every guidance verb. This config is inert. Render guidance with:
+#   python install2.py install --target <workspace> --guidance-basis CLAUDE.md
 # Kimi mirror-config — the per-model config mirror.py reads to generate kimi's
 # per-workspace guidance file. Kimi natively loads AGENTS.md at the workspace
 # root; this mirrors the workspace's CLAUDE.md body into it so the kimi worker

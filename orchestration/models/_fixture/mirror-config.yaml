@@ -1,3 +1,6 @@
+# ⚠ RETIRED (owner ruling d-hard-guard-retire-model-mirror, 2026-08-10): mirror.py refuses
+# every guidance verb. This config is inert. Render guidance with:
+#   python install2.py install --target <workspace> --guidance-basis CLAUDE.md
 # TEST FIXTURE — NOT A REAL MODEL PACKAGE.
 # Exercises mirror.py (the guidance-file mirror engine) until the first real
 # mirror-config (kimi) lands at p3-4. Kept (not deleted) so the done-gate cold

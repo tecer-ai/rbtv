@@ -1,6 +1,12 @@
 # Mirror-config convention
 
-The per-model config the mirror engine (`mirror.py`) reads to generate a model's
+> ⚠ **RETIRED — owner ruling `d-hard-guard-retire-model-mirror` (2026-08-10).** `mirror.py` no longer
+> renders anything: every guidance verb REFUSES (it would overwrite the guidance files the modern
+> installer owns). These configs and the manifests' `mirror_entry` are INERT. Guidance is rendered by
+> `python install2.py install --target <workspace> --guidance-basis CLAUDE.md`. The schema below is kept
+> as the record of the convention the manifests still reference.
+
+The per-model config the mirror engine (`mirror.py`) read to generate a model's
 per-workspace guidance file. Each model package that needs a guidance file ships
 one at `orchestration/models/<model>/mirror-config.yaml`; the kimi, codex,
 claude-code-cli, and opencode packages fill this in at their package-build tasks

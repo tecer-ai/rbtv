@@ -91,7 +91,7 @@ variants:
     # --- guidance file (routing §4 pre-dispatch check) ---
     guidance_file:
       convention: AGENTS.md         # Kimi natively loads the workspace AGENTS.md guidance file (the mirror machinery target)
-      mirror_entry: kimi-mirror      # resolves to: python orchestration/models/mirror/mirror.py --config orchestration/models/kimi-code-cli/mirror-config.yaml --target <workspace>
+      mirror_entry: kimi-mirror   # ⚠ RETIRED (d-hard-guard-retire-model-mirror, 2026-08-10): the mirror.py entry point REFUSES. Guidance is rendered by install2.py install --target <ws> --guidance-basis CLAUDE.md.
 
     # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     swarm_support:

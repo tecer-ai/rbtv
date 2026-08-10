@@ -1,3 +1,6 @@
+# ⚠ RETIRED (owner ruling d-hard-guard-retire-model-mirror, 2026-08-10): mirror.py refuses
+# every guidance verb. This config is inert. Render guidance with:
+#   python install2.py install --target <workspace> --guidance-basis CLAUDE.md
 # OpenCode mirror-config — the per-model config mirror.py reads to generate opencode's
 # per-workspace guidance file. opencode natively loads AGENTS.md at its working root
 # (shared mirror target with codex/kimi — ref-counted by the mirror driver); this mirrors
