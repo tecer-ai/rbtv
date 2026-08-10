@@ -67,6 +67,14 @@ prompt carries is deliberately inert), and the return leg is read BEFORE the two
 the report travels even on a goal that may not INITIATE contact with the owner. Nothing new was
 built for this: the row is appended through `coord.py#append_message`, the one allocator of bus ids.
 
+⚠ THE ROW ALSO CARRIES `[deliver: post]`, AND WITHOUT IT THE REPORT IS NOT A REPORT. A bare
+`[chat-thread:]` token means "hand this row to an AGENT on that thread" — the bridge mints a
+channel-master sitting from it and posts NOTHING (ruled 2026-08-07, for a SEAT answering the
+owner). Measured on this exact path 2026-08-10 12:46:46Z: the switch report minted queue row 361
+and the owner was shown nothing. A settled switch is a FACT, already composed here, so it asks to
+be POSTED verbatim instead — no agent, no inference, no ~12s spawn pipeline
+(`bridges/chat/bus-ferry.js` § `deliverToken`; `live-session-design.md` §3a).
+
 ⚠ THE REPORT PRECEDES THE RESTART, so it cannot state the restart's exit code — it states what is
 ABOUT to happen. Restart-last is a ruled invariant (above); reporting after it would mean reporting
 from inside a killed process. The rc stays where it always was: the outcome record on disk.
@@ -259,7 +267,7 @@ def report_to_thread(inbox, thread, body):
         base = _bus_dir(inbox)
         base.mkdir(parents=True, exist_ok=True)
         n = append_message(base, REPORT_SENDER, "owner", "note",
-                           f"{body}\n\n[chat-thread: {thread}]")
+                           f"{body}\n\n[chat-thread: {thread}] [deliver: post]")
         return {"appended": n, "bus": str(base / "messages.md"), "chat-thread": thread}
     except Exception as exc:
         return {"appended": None, "chat-thread": thread,

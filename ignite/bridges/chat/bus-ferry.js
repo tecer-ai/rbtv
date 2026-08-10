@@ -43,11 +43,17 @@
 // `d-s19-fallback-rides-goal-channels`): `park` parks it on the same path the gates use, and the two
 // delivered arms are MARKED so the owner can tell "I am waiting on you" from "I have already
 // proceeded". See § THE SEAT'S FALLBACK ARM.
+//
+// ⚑ THE PASS IS TRIGGERED BY inotify AND ALSO BY THE POLL — both, never one (live-session-design.md
+// §2). The 15s `setInterval` was the ONLY trigger, so a row waited 0–15s (7.5s on average) before
+// anything looked at it, for work that takes milliseconds. `fs.watch` on each goal's
+// `coordination/` dir now fires the SAME `_runOnce`, ~200ms after the append. See § THE WATCH.
 
 const fs = require('node:fs');
 const path = require('node:path');
 
 const DEFAULT_POLL_MS = 15000;
+const DEFAULT_WATCH_DEBOUNCE_MS = 200;
 const DEFAULT_MAX_ATTEMPTS = 20;      // per-row post retries before skipping it (never unbounded)
 const DEFAULT_MAX_BODY_CHARS = 3000;  // phone-first: a bus row can be an essay
 
@@ -340,6 +346,38 @@ function chatThreadToken(body) {
   return m ? m[1] : null;
 }
 
+// ── WHAT THE THREAD SHOULD DO WITH THE ROW: `[deliver: post|wake]` (live-session-design.md §3) ──
+//
+// The return leg above answers WHERE a row goes. This answers WHAT HAPPENS THERE, and it exists
+// because an ASYNC JOB's settled outcome and a SEAT'S ANSWER want opposite things from the same
+// thread:
+//
+//   · a seat answering the owner wants an AGENT to handle its row — that is the 2026-08-07 ruling
+//     the return leg was built for, verbatim: "the owner asked that the answer reach the
+//     CHANNEL-MASTER, not that a raw bus row be pushed at him". So the bridge mints a sitting on
+//     the named thread and posts NOTHING.
+//   · a settled job's outcome ("the switch applied, restarting now") is a FACT, complete as
+//     written. Routing it through an LLM turn costs a whole sitting (~12s) to re-say a line the
+//     tool already composed, and issue `i-no-completion-nudge` is that the owner is not told —
+//     not that nobody paraphrased it for him.
+//
+//   absent   the mint, exactly as ruled 2026-08-07. EVERY producer that predates this token keeps
+//            its behaviour with no edit — the default is the old path, deliberately.
+//   post     the row is POSTED into the thread verbatim and NO sitting is minted. No agent, no
+//            inference, ~0.3s. This is design §3(a).
+//   wake     posted verbatim AND a sitting is minted with the row as its prompt — for a settled
+//            job that carries a follow-up somebody must ACT on. This is design §3(b).
+//
+// ⚑ IT IS READ ONLY BESIDE A `[chat-thread:]` TOKEN. On its own it names no destination, so it is
+// not a second routing surface — the ferry hands it to the bridge with the thread or not at all.
+// An unrecognised word reads as absent, the same way every other cannot-tell in this module does.
+const DELIVER_RE = /\[deliver:\s*(post|wake)\s*\]/;
+
+function deliverToken(body) {
+  const m = String(body || '').match(DELIVER_RE);
+  return m ? m[1] : null;
+}
+
 // The Slack message: one mrkdwn header line, then the body. Truncation cuts at a LINE
 // boundary so a wrapped table or list never ends mid-token, and names where the full
 // text lives.
@@ -427,6 +465,7 @@ function createBusFerry({
   dmUserId = null,
   logger = null,
   pollMs = DEFAULT_POLL_MS,
+  watchDebounceMs = DEFAULT_WATCH_DEBOUNCE_MS,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   maxBodyChars = DEFAULT_MAX_BODY_CHARS,
   onMutate = null,
@@ -473,14 +512,94 @@ function createBusFerry({
   let enabled = false;
   let timer = null;
   let ticking = false;
+  const watchers = new Map(); // watched dir -> FSWatcher
+  let watchTimer = null;
+  let watchWarned = false;    // the watch's failures are logged ONCE, not once per goal per pass
 
   function persist() { if (onMutate) onMutate(); }
+
+  // ── THE WATCH (live-session-design.md §2) ─────────────────────────────────────────────
+  //
+  // ⚑ IT ONLY TRIGGERS THE PASS. Nothing here reads an event's filename, its type, or its
+  // contents — the event says "something changed under this dir" and `_runOnce` then does exactly
+  // what it always did: stat, size-check, whole-file read, and the newline-terminated torn-write
+  // rule in `parseMessages`. That split is the whole safety argument: `coord.py` appends a row in
+  // more than one write, so an event can arrive mid-row, and a pass that read from the EVENT would
+  // post half a message. A pass that reads AT REST cannot.
+  //
+  // ⚑ THE 15s POLL STAYS, and is not a belt-and-braces flourish: inotify queues overflow, a watch
+  // on a dir that did not exist at arm time is never armed, `fs.watch` is not guaranteed across
+  // filesystems (a network mount degrades silently), and every watcher dies with its directory.
+  // Every one of those degrades to the behaviour this module had before this block — late, never
+  // lost.
+  //
+  // ⚑ EVERY FAILURE DEGRADES TO THE POLL, silently after the first. `fs.watch` throws
+  // synchronously on ENOSPC (the per-user inotify watch limit) and on ENOENT (a goal torn down
+  // between the enumeration and the arm), and emits `error` later for the same reasons. Both arms
+  // land in the same place: no watcher for that dir, and the poll still visits it.
+  function armWatch(dir) {
+    if (watchers.has(dir)) return;
+    let w;
+    try {
+      w = fs.watch(dir, () => scheduleWatchPass());
+    } catch (err) {
+      if (!watchWarned) {
+        watchWarned = true;
+        log('warn', 'bus ferry could not watch a coordination dir — that dir falls back to the 15s poll (logged once)', { dir, error: err.message });
+      }
+      return;
+    }
+    w.on('error', (err) => {
+      // The dir went away (goal teardown) or the kernel dropped the watch. Close and forget it:
+      // the next pass re-arms if it is still there, and the poll covers it meanwhile.
+      try { w.close(); } catch { /* already closed */ }
+      watchers.delete(dir);
+      if (!watchWarned) {
+        watchWarned = true;
+        log('warn', 'bus ferry watch errored — that dir falls back to the 15s poll (logged once)', { dir, error: err.message });
+      }
+    });
+    if (w.unref) w.unref();
+    watchers.set(dir, w);
+  }
+
+  // The goals ROOT is watched too, so a goal created between passes is picked up by the next
+  // triggered pass rather than waiting out the poll. Its own `coordination/` dir is a GRANDCHILD
+  // and so fires no event on this watch — the poll arms that one, which is exactly what the poll
+  // is for.
+  function watchDirs(buses) {
+    armWatch(path.join(workspaceRoot, '.rbtv', 'goals'));
+    for (const { goalId } of buses) armWatch(path.join(workspaceRoot, '.rbtv', 'goals', goalId, 'coordination'));
+  }
+
+  // Debounced trigger. A single `append_message` produces several events (the lock file, the
+  // write, the mtime), and a burst of rows produces a burst of them — one pass covers the lot.
+  //
+  // ⚑ A PASS ALREADY RUNNING RE-ARMS RATHER THAN DROPS. `_runOnce` returns immediately while
+  // `ticking`, so firing into a live pass would silently lose the trigger and leave the row to the
+  // poll — the exact latency this block exists to remove. Re-arming cannot spin: it is the same
+  // debounce delay, and the pass it is waiting on ends.
+  function scheduleWatchPass() {
+    if (!enabled) return;
+    if (watchTimer) clearTimeout(watchTimer);
+    watchTimer = setTimeout(() => {
+      watchTimer = null;
+      if (ticking) { scheduleWatchPass(); return; }
+      _runOnce().catch((err) => log('warn', 'bus ferry watch-triggered pass error', { error: err.message }));
+    }, watchDebounceMs);
+    if (watchTimer.unref) watchTimer.unref();
+  }
 
   async function _runOnce() {
     if (!enabled || ticking) return;
     ticking = true;
     try {
-      for (const { goalId, stamp } of goalBuses(workspaceRoot)) {
+      const buses = goalBuses(workspaceRoot);
+      // Re-armed every pass, from the enumeration the pass already made: a new goal acquires a
+      // watcher, and one lost to teardown or an inotify limit gets another try. Idempotent —
+      // `armWatch` returns on a dir already held.
+      watchDirs(buses);
+      for (const { goalId, stamp } of buses) {
         const key = `${goalId}/${stamp}`;
         const relPath = path.join('.rbtv', 'goals', goalId, 'coordination', 'messages.md');
         const file = path.join(workspaceRoot, relPath);
@@ -645,7 +764,9 @@ function createBusFerry({
             }
             if (!res) {
               const send = routeToMaster || ((a) => transport.sendToOwner(a));
-              res = await send({ channel: dmChannel, threadTs: null, text, chatThread });
+              // `deliver` rides ONLY with `chatThread` — it says what to do at a named thread and
+              // means nothing without one (see `deliverToken`'s header).
+              res = await send({ channel: dmChannel, threadTs: null, text, chatThread, deliver: chatThread ? deliverToken(row.body) : null });
               postedText = text;
             }
             delivered = Boolean(res && res.delivered);
@@ -714,12 +835,18 @@ function createBusFerry({
       _runOnce().catch((err) => log('warn', 'bus ferry tick error', { error: err.message }));
     }, pollMs);
     if (timer.unref) timer.unref();
-    log('info', 'bus ferry started', { workspaceRoot, dmUserId, dmChannel, pollMs, knownRuns: cursors.size });
+    // Armed HERE and not left to the first pass: the first pass is `pollMs` away, and a row
+    // appended in that window is the one this whole block exists to deliver promptly.
+    watchDirs(goalBuses(workspaceRoot));
+    log('info', 'bus ferry started', { workspaceRoot, dmUserId, dmChannel, pollMs, watchDebounceMs, watching: watchers.size, knownRuns: cursors.size });
     return { enabled: true, dmChannel };
   }
 
   function stop() {
     if (timer) { clearInterval(timer); timer = null; }
+    if (watchTimer) { clearTimeout(watchTimer); watchTimer = null; }
+    for (const w of watchers.values()) { try { w.close(); } catch { /* already closed */ } }
+    watchers.clear();
     enabled = false;
     log('info', 'bus ferry stopped');
   }
@@ -734,12 +861,13 @@ function createBusFerry({
     return cursors.size;
   }
 
-  return { start, stop, tick: _runOnce, toJSON, load, _cursors: cursors, get enabled() { return enabled; }, get dmChannel() { return dmChannel; } };
+  return { start, stop, tick: _runOnce, toJSON, load, _cursors: cursors, get enabled() { return enabled; }, get dmChannel() { return dmChannel; }, get watching() { return watchers.size; } };
 }
 
 module.exports = {
   createBusFerry, parseMessages, formatMessage, addressesOwner, goalBuses, executionStamp,
-  OWNER_TOKEN, DEFAULT_MAX_BODY_CHARS,
+  chatThreadToken, deliverToken,
+  OWNER_TOKEN, DEFAULT_MAX_BODY_CHARS, DEFAULT_WATCH_DEBOUNCE_MS,
   goalExecutionMode, seatIsHumanInteractive, isSafeName, INTERACTIVE_MODE, AUTONOMOUS_MODE,
   seatFallback, FALLBACK_ARMS, FALLBACK_PARK, FALLBACK_MARK,
 };

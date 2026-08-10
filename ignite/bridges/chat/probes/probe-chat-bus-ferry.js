@@ -591,6 +591,97 @@ async function main() {
     a.bridge.stop();
   }
 
+  // 12 — THE WATCH, AND THE `[deliver:]` DISPOSITION AT A NAMED THREAD (live-session-design.md
+  //      §2 and §3).
+  //
+  //      ⚑ THE POLL IS AN HOUR AWAY IN THIS FIXTURE, SO EVERY DELIVERY BELOW IS WATCH-DRIVEN.
+  //      That is the whole red/green: remove the `fs.watch` block from bus-ferry.js and nothing
+  //      here is ever triggered — the waits time out and all four checks red. No arm above can
+  //      say that, because every one of them drives `tick()` by hand.
+  //
+  //      ⚑ AND THE CONTROL AT THE END IS THE ONE THAT PROTECTS A RULING. A row with NO
+  //      `[deliver:]` token must still MINT and post nothing (2026-08-07, a seat answering the
+  //      owner). If the disposition were made the default instead of an opt-in, that check reds.
+  {
+    const root = mkroot();
+    const { file } = seedGoal(root, 'goal-w', '2026-08-03a', { backlogRows: 1 });
+    const forwards = [];
+    const spy = {
+      async forward(intent, payload) { forwards.push({ intent, payload }); return { ok: true, result: { jobId: 9 } }; },
+      async inspect() { return { ok: true, result: { live_sessions: [], recent_ticks: [] } }; },
+    };
+    const creates = () => forwards.filter((f) => f.payload && f.payload.job_id === 'chat-launch').length;
+    const waitFor = async (fn, ms = 5000) => {
+      const until = nowMs() + ms;
+      while (nowMs() < until) { if (fn()) return true; await new Promise((r) => setTimeout(r, 10)); }
+      return fn();
+    };
+    const slack = makeFakeSlack();
+    const b = buildBridge({
+      gatewayAddr: '127.0.0.1:0', bridgeToken: 'stub', sessionJobId: 'chat-launch',
+      sessionProfile: 'p', sendMessageJobId: 'send-message', workdir: null,
+      workspaceRoot: root, channelPrefix: 'test-', stateFile: null, busFerry: true,
+      busFerryDmUser: USER, allowlist: [USER],
+      slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
+    }, {
+      logger: () => {}, makeTransport: () => slack, forwarderImpl: spy,
+      replyLegOptions: { pollMs: 3600000 },
+      busFerryOptions: { pollMs: 3600000, watchDebounceMs: 50 },
+    });
+    await b.bridge.start();
+    check('start() arms a watcher on the goals root AND on the goal\'s coordination dir',
+      b.bridge.busFerry.watching >= 2, { watching: b.bridge.busFerry.watching });
+
+    // First sight by hand — its rule (cursor at tail, ferry nothing) is arm 1's subject, not this
+    // arm's, and driving it explicitly keeps the measurement below about the TRIGGER alone.
+    await b.bridge.busFerry.tick();
+
+    const t = nowMs();
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'watch-triggered, no poll in sight'));
+    const delivered = await waitFor(() => slack.posted.length === 1);
+    const watchMs = nowMs() - t;
+    check('THE WATCH ALONE TRIGGERS THE PASS — a row appended with the poll an hour away is ferried in well under a second',
+      delivered && watchMs < 1000, { watchMs, posted: slack.posted.length, pollMs: 3600000 });
+
+    // That DM post minted the conversation `<DM>:1.0`, so the bridge KNOWS the thread and the
+    // three rows below are routed rather than ignored (`knowsThread`, S-13).
+    const known = `${DM}:1.0`;
+    const before = creates();
+
+    append(file, msgRow(3, 'master-profile', 'owner', 'note',
+      `*master profile changed* - kimi -> claude-haiku\n\n[chat-thread: ${known}] [deliver: post]`));
+    const postedOutcome = await waitFor(() => slack.posted.length === 2);
+    const p2 = slack.posted[1];
+    check('`deliver: post` — the settled outcome is POSTED into its own thread and NO sitting is minted',
+      postedOutcome && p2.channel === DM && p2.threadTs === '1.0' && creates() === before
+      && /master profile changed/.test(p2.text),
+      { channel: p2 && p2.channel, threadTs: p2 && p2.threadTs, creates: creates(), before });
+
+    append(file, msgRow(4, 'some-job', 'owner', 'note',
+      `the reindex finished with 3 repairs\n\n[chat-thread: ${known}] [deliver: wake]`));
+    const wokeUp = await waitFor(() => slack.posted.length === 3 && creates() === before + 1);
+    const p3 = slack.posted[2];
+    // Defensively read, because this line runs on the FAILING path too: with the watch mutated
+    // away nothing is minted, and a probe that THROWS instead of failing its check reports the
+    // mutation as a crash rather than as the red it is.
+    const lastCreate = forwards.filter((f) => f.payload && f.payload.job_id === 'chat-launch').pop();
+    const wakePrompt = String((lastCreate && lastCreate.payload.args.prompt) || '');
+    check('`deliver: wake` — POSTED into the thread AND a sitting minted with that same row as its prompt',
+      wokeUp && p3.threadTs === '1.0' && /reindex finished/.test(p3.text) && /reindex finished/.test(wakePrompt),
+      { threadTs: p3 && p3.threadTs, creates: creates(), prompt: wakePrompt.slice(0, 120) });
+
+    append(file, msgRow(5, 'a-seat', 'owner', 'note',
+      `here is the answer you asked for\n\n[chat-thread: ${known}]`));
+    const minted = await waitFor(() => creates() === before + 2);
+    check('CONTROL — no `[deliver:]` token keeps the 2026-08-07 ruling: the sitting is minted and NOTHING is posted',
+      minted && slack.posted.length === 3,
+      { creates: creates(), expected: before + 2, posted: slack.posted.length });
+
+    b.bridge.stop();
+    check('stop() closes every watcher it armed', b.bridge.busFerry.watching === 0,
+      { watching: b.bridge.busFerry.watching });
+  }
+
   // 10 — THE LIVE ROUTE'S READINESS, REPORTED AND NOT ASSERTED (was: 7.546 LIVE DESCRIPTOR).
   //
   //     ⚠ THE ARM THAT STOOD HERE ASSERTED A PROPERTY OF DELETED CODE. It required this

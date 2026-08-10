@@ -106,6 +106,14 @@ routing form — the plain form a prompt carries is deliberately inert — and t
 The append goes through `coord.py#append_message`, the one allocator of bus ids (and the owner of
 the header grammar, the package lock, and the trailing newline the ferry's torn-write rule needs).
 
+**The row also carries `[deliver: post]`, and without it the report is not a report.** A bare
+`[chat-thread:]` token means *hand this row to an AGENT on that thread*: the bridge mints a
+channel-master sitting from it and posts **nothing** (ruled 2026-08-07, for a seat *answering* the
+owner). Measured on this exact path at `2026-08-10T12:46:46Z` — the switch report minted queue row
+361 and the owner was shown nothing. A settled switch is a fact this tool already composed, so it
+asks to be POSTED verbatim: no agent, no inference, no ~12 s spawn pipeline. Vocabulary and the
+`wake` sibling: `bridges/chat/bus-ferry.js` § `deliverToken`; design `live-session-design.md` §3a.
+
 | Property | Why |
 |---|---|
 | ACCEPTED **and** refused both report | "your switch did not happen, and here is why" is the answer the owner is owed most |

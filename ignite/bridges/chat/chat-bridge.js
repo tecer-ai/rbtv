@@ -78,7 +78,14 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // ⚑ IT FALLS THROUGH, NEVER DROPS. If the mint fails for any reason the row continues to
   // the posting path below and the owner gets it raw — degraded, but never lost. That is the
   // same "the row IS delivered either way" discipline the post-first path already keeps.
-  async function routeBusRowToMaster({ channel, text, chatThread = null }) {
+  // ⚑ `deliver` — WHAT THE NAMED THREAD SHOULD DO WITH THE ROW (live-session-design.md §3;
+  // vocabulary and the why in `bus-ferry.js` § `deliverToken`). `null` is the ruled default and
+  // takes the mint path below unchanged; `post` posts the row into the thread and mints nothing;
+  // `wake` does both. It is honoured ONLY on the DM/master branch — the goal-channel branch above
+  // already posts verbatim and already refuses to mint (a `kind: 'master'` sitting on a goal's
+  // surface is the widening `CHAT_THREAD_RE` warns against), so `wake` degrades to `post` there
+  // and says so rather than acquiring a mint the ratified branch does not have.
+  async function routeBusRowToMaster({ channel, text, chatThread = null, deliver = null }) {
     if (chatThread) {
       const cut = chatThread.lastIndexOf(':');
       const tokenChannel = cut > 0 ? chatThread.slice(0, cut) : null;
@@ -99,11 +106,48 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       if (tokenGoalId) {
         const intoThread = await transport.sendToOwner({ channel: tokenChannel, threadTs: tokenThreadTs, text });
         if (intoThread && intoThread.delivered) {
-          log('info', 'bus row posted verbatim into its goal-channel thread — no sitting minted', { chatThreadId: chatThread, goalId: tokenGoalId });
+          log('info', 'bus row posted verbatim into its goal-channel thread — no sitting minted', { chatThreadId: chatThread, goalId: tokenGoalId, deliver });
+          if (deliver === 'wake') log('warn', 'the row asked to WAKE a sitting on a goal channel — posted only; a master sitting is never minted on a goal surface', { chatThreadId: chatThread, goalId: tokenGoalId });
           return intoThread;
         }
         log('warn', 'bus row could NOT be posted into its goal-channel thread — the ferry retries it (no master sitting minted on a goal channel)', { chatThreadId: chatThread, goalId: tokenGoalId, error: intoThread && intoThread.error });
         return intoThread || { delivered: false, reason: 'post-failed' };
+      }
+      // ── `post` / `wake`: THE ROW IS DELIVERED AS WRITTEN, NO AGENT IN THE MIDDLE (design §3) ──
+      //
+      // The settled outcome of an async job is a fact the tool already composed. Posting it is the
+      // whole nudge (`i-no-completion-nudge`); minting a sitting to paraphrase it costs the full
+      // spawn pipeline for no added information. `wake` adds the sitting ON TOP, for a row that
+      // carries something to act on — never instead of the post, so the owner is told either way.
+      //
+      // ⚑ THE POST COMES FIRST AND ITS FAILURE IS THE FERRY'S. A failed post returns the failure
+      // and nothing is minted: the ferry retries the row next pass, bounded, exactly as it does
+      // for the goal-channel branch above. Minting on a failed post would run the follow-up work
+      // for a message the owner never saw.
+      if (deliver === 'post' || deliver === 'wake') {
+        const intoThread = await transport.sendToOwner({ channel: tokenChannel, threadTs: tokenThreadTs, text });
+        if (!intoThread || !intoThread.delivered) {
+          log('warn', 'bus row could NOT be posted into its named thread — the ferry retries it (nothing minted)', { chatThreadId: chatThread, deliver, error: intoThread && intoThread.error });
+          return intoThread || { delivered: false, reason: 'post-failed' };
+        }
+        if (deliver === 'wake') {
+          const woke = await forwardPath.forwardSessionCreate({
+            chatThreadId: chatThread, text, route: { kind: 'master', goalId: null },
+          });
+          if (woke && woke.forwarded) {
+            replyLeg.arm(chatThread);
+            log('info', 'bus row posted into its named thread AND woke a sitting on it', { chatThreadId: chatThread, queueId: woke.queueId });
+          } else {
+            // The owner HAS the row — that is why the post came first. The wake failing is a
+            // degraded outcome, not a lost one, and it is said out loud rather than retried: the
+            // ferry's retry would re-post the row.
+            log('warn', 'bus row posted into its named thread but no sitting was woken', { chatThreadId: chatThread, reason: (woke && (woke.reason || woke.error)) || 'unknown' });
+          }
+        } else {
+          log('info', 'bus row posted verbatim into its named thread — no sitting minted (deliver: post)', { chatThreadId: chatThread });
+        }
+        saveState();
+        return intoThread;
       }
       // ⚑ THE REPLY ADDRESS IS NO LONGER DERIVED FROM THE TOKEN'S TEXT (S-13 ruling
       // `d-s13-chat-thread-token-verified`). A `derive it from `<channel>:<ts>`' branch used to
