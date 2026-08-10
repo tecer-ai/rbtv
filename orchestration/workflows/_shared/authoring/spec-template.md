@@ -1,6 +1,6 @@
 # Spec Template
 
-Template for a behavior spec with an embedded test plan. Authored before any executor builds a code feature. Both consumers fill it: `rbtv-planning` (code-work plans) and orchestration intake writer agents (plan-less code goals).
+Template for a behavior spec with an embedded test plan. Authored before any executor builds a code feature. Both consumers fill it: `rbtv-plan-doc` (code-work plans) and orchestration intake writer agents (plan-less code goals).
 
 Validated pattern: in the hypresent pilots, Opus spec-writer agents authored detailed behavior specs and the matching verification plan from the architecture; executors (Kimi) then built strictly to the spec, and a separate pass exercised the test plan. Decoupled spec files — not conversation history — carried the contract between agents.
 

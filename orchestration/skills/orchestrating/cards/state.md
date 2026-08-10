@@ -125,7 +125,7 @@ A single source event MAY qualify for BOTH an audit/state file AND a compoundabl
 | **Orchestrated** | A finding that changes FUTURE work → `decisions.md` (worker-facing, append-only). A finding that changes only the IN-FLIGHT resume state (an active doubt, a new red set, a changed resume point) → the matching `state-capsule.md` Active section (atomic overwrite). A finding that is BOTH goes to both; one that is neither is logged in `run-log.md` only. (No "residual" catch-all — each finding routes by what it changes.) | The compoundable FINDING → its `decisions.md` entry carries the `compoundable` marker (a forward-affecting finding that is ALSO harvest-worthy is ONE marked entry, not a second file) |
 | **Interactive halt** | Findings surface to the user live | A compoundable finding is still appended to `decisions.md` with the `compoundable` marker so the harvest source is durable; correction-driven capture is `rbtv-compounding`'s job in the moment |
 
-`deliverables.md` is the PLAN's file (owned by `rbtv-planning`), unchanged by this spine. The compound source is no longer a separate file: harvest-worthy findings are `decisions.md` entries carrying the `compoundable` marker, and `rbtv-compounding` covers correction-driven capture in the moment. A plan-less run's compoundable findings surface to the user at run end per the run mode.
+`deliverables.md` is the PLAN's file (owned by `rbtv-plan-doc`), unchanged by this spine. The compound source is no longer a separate file: harvest-worthy findings are `decisions.md` entries carrying the `compoundable` marker, and `rbtv-compounding` covers correction-driven capture in the moment. A plan-less run's compoundable findings surface to the user at run end per the run mode.
 
 ---
 

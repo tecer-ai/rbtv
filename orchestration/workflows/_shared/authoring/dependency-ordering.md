@@ -1,6 +1,6 @@
 # Dependency Ordering
 
-How to order a task set so every dependency lands before its dependents. Consumed by `rbtv-planning` and orchestration intake — both order the tasks they author by these rules before finalizing.
+How to order a task set so every dependency lands before its dependents. Consumed by `rbtv-plan-doc` and orchestration intake — both order the tasks they author by these rules before finalizing.
 
 ---
 

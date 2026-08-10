@@ -224,9 +224,9 @@
       },
       {
         "source_template": "orchestration/skills/planning/SKILL.md",
-        "target": ".claude/skills/rbtv-planning/SKILL.md",
+        "target": ".claude/skills/rbtv-plan-doc/SKILL.md",
         "bake": ["rbtv_path"],
-        "description": "Structured planning workflow with iterative clarification"
+        "description": "Plan-DOCUMENT authoring workflow with iterative clarification — produces a plan document + task files (distinct from rbtv2-planning, which scaffolds and runs a seat DAG)"
       }
     ],
     "commands": [

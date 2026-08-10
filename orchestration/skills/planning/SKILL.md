@@ -1,6 +1,6 @@
 ---
-name: rbtv-planning
-description: "Structured plan creation with quality gates. Use when a plan document needs to be produced for a multi-step task."
+name: rbtv-plan-doc
+description: "Author a plan DOCUMENT for multi-step work — plan + shape/decisions + dependency-ordered task files, with quality gates. Use when a plan document must be produced. NOT a run launcher: to scaffold and run a seat DAG, use rbtv2-planning."
 ---
 
 # Planning

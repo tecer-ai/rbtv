@@ -4,7 +4,7 @@ Single source of artifact-authoring knowledge for the orchestration module. Two 
 
 | Consumer | Reads this core to |
 |----------|--------------------|
-| Interactive `rbtv-planning` | Author task files, spec files, and dependency-ordered plans WITH the user |
+| Interactive `rbtv-plan-doc` | Author task files, spec files, and dependency-ordered plans WITH the user |
 | Orchestration intake writer agents | Author the same artifacts from a goal prompt when no plan exists |
 
 Both doors produce identical contracts because both read these files — no authoring knowledge is duplicated in either workflow.
@@ -23,10 +23,10 @@ Both doors produce identical contracts because both read these files — no auth
 ## How a consumer uses the core
 
 1. Score the work with `complexity-rubric.md` → band selects the entry door (planning vs intake; full vs light prep).
-2. Author each task file to `task-file-contract.md`. Code tasks additionally get a spec authored from `spec-template.md`. (BOTH consumers run this step: the orchestration intake writer and the interactive `rbtv-planning` workflow, whose conditional spec-authoring step authors one spec per code feature at plan creation.)
+2. Author each task file to `task-file-contract.md`. Code tasks additionally get a spec authored from `spec-template.md`. (BOTH consumers run this step: the orchestration intake writer and the interactive `rbtv-plan-doc` workflow, whose conditional spec-authoring step authors one spec per code feature at plan creation.)
 3. Order the task set with `dependency-ordering.md`; run the validity checks before finalizing.
 4. Carry `decisions-discipline.md` into the run's `decisions.md` surfaces so worker-facing entries stay disciplined.
 
 ## Boundary
 
-This core owns AUTHORING KNOWLEDGE only — what an artifact must contain and how to size, order, and discipline it. It does NOT own workflow MECHANICS: step sequencing, when to emit a micro-step file, plan-document structure, checkpoint placement, and plan-linking remain inside the consuming workflow (`rbtv-planning`). A consumer reads this core for the contract, then applies its own mechanics around it.
+This core owns AUTHORING KNOWLEDGE only — what an artifact must contain and how to size, order, and discipline it. It does NOT own workflow MECHANICS: step sequencing, when to emit a micro-step file, plan-document structure, checkpoint placement, and plan-linking remain inside the consuming workflow (`rbtv-plan-doc`). A consumer reads this core for the contract, then applies its own mechanics around it.

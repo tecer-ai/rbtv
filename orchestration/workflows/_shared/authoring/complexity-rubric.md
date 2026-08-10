@@ -1,6 +1,6 @@
 # Complexity Rubric
 
-Scores a body of work to pick its entry door and task sizing. Consumed by `rbtv-planning` (door + granularity) and by orchestration intake (which door: conductor-led prep / ask / interactive planning — D2a).
+Scores a body of work to pick its entry door and task sizing. Consumed by `rbtv-plan-doc` (door + granularity) and by orchestration intake (which door: conductor-led prep / ask / interactive planning — D2a).
 
 Score each axis, sum, read the band. Bands map to doors; doors are ALWAYS user-overrideable.
 
@@ -26,7 +26,7 @@ Score range: min 5, max 18.
 |-------|------|------------|-------------|
 | 5–8 | Simple | Conductor-led prep (standard) | Single-step tasks OK; fewer micro-step files |
 | 9–13 | Moderate | ASK the user which door | Standard task granularity; full micro-step files |
-| 14–18 | Complex | Interactive `rbtv-planning` with the user (standard) | Fine-grained tasks; research-first pattern |
+| 14–18 | Complex | Interactive `rbtv-plan-doc` with the user (standard) | Fine-grained tasks; research-first pattern |
 
 Band-to-door semantics are preserved from the original three-door model: simple = least ceremony, complex/decision-dense = most. The widened axes shift a body of work UP into the door its true coordination/decision load warrants, instead of saturating at the old ceiling.
 

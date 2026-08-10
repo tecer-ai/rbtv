@@ -61,12 +61,12 @@ There is NO code-vs-non-code hard redirect at intake. Code work is routed, not r
 
 Two ORTHOGONAL decisions, taken in this order — do not conflate them:
 
-1. **Artifact presence decides the DOOR first.** A `rbtv-planning` plan already on disk → **Plan ingest**, full stop (the rubric below does NOT override an existing plan — a plan that scores "Complex" is still ingested, not re-planned). No plan → **Goal-prompt intake**, and only THEN does the prep-level selector apply.
+1. **Artifact presence decides the DOOR first.** A `rbtv-plan-doc` plan already on disk → **Plan ingest**, full stop (the rubric below does NOT override an existing plan — a plan that scores "Complex" is still ingested, not re-planned). No plan → **Goal-prompt intake**, and only THEN does the prep-level selector apply.
 2. **The prep-level selector applies ONLY to the goal-prompt branch** — it sets how much ceremony the authoring takes, not which door.
 
 | Door | When | What happens |
 |------|------|--------------|
-| **Plan ingest** | `rbtv-planning` artifacts already exist (plan + `shape.md`/`decisions.md` + task files) | Ingest them directly: read the full plan and its companion, map phases to tasks. The artifacts ARE the work surface — no authoring needed; the selector is skipped. |
+| **Plan ingest** | `rbtv-plan-doc` artifacts already exist (plan + `shape.md`/`decisions.md` + task files) | Ingest them directly: read the full plan and its companion, map phases to tasks. The artifacts ARE the work surface — no authoring needed; the selector is skipped. |
 | **Goal-prompt intake** | No plan exists — only a goal prompt | Score the prep level (below), then author the spec + task files from the goal following the shared authoring core. The authored artifacts become the work surface. |
 
 **Prep-level selector (D2a) — goal-prompt branch only.** Score the body of work with the shared complexity rubric at `{rbtv_path}/orchestration/workflows/_shared/authoring/complexity-rubric.md`. Read the rubric; do not reproduce its axes or bands here. The band it returns sets the prep level:
@@ -75,7 +75,7 @@ Two ORTHOGONAL decisions, taken in this order — do not conflate them:
 |------|------------|----------|
 | Simple | Conductor-led prep, IN-SESSION | The conductor authors the task/spec artifacts itself, in-session (no writer-agent dispatch) — lightest prep — then proceeds. Authoring the dispatchable ARTIFACT is intake scaffolding, NOT the deliverable: core Invariant 1 bars writing the user's output, not preparing the dispatchable surface. |
 | Moderate | ASK the user which prep | Surface the score and ask whether to do conductor-led prep (in-session) or escalate to interactive planning. |
-| Complex / decision-dense | Interactive `rbtv-planning` with the user | Hand off to `rbtv-planning` to resolve the plan WITH the user before any execution. |
+| Complex / decision-dense | Interactive `rbtv-plan-doc` with the user | Hand off to `rbtv-plan-doc` to resolve the plan WITH the user before any execution. |
 
 All bands are user-overrideable: state the score and the prep level it selected, and accept an explicit override without re-scoring.
 

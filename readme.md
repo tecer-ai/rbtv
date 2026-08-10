@@ -4,7 +4,7 @@ Short for Robotville, RBTV is a standalone Claude Code toolkit for business inno
 
 ## What is RBTV?
 
-RBTV is a self-contained set of agents, workflows, skills, and rules designed to be bootstrapped into any Claude Code workspace. After install, RBTV appears as `/rbtv-<command>` slash commands (e.g., `/rbtv-strategist`, `/rbtv-doc-export`, `/rbtv-planning`) and auto-triggered skills in your workspace.
+RBTV is a self-contained set of agents, workflows, skills, and rules designed to be bootstrapped into any Claude Code workspace. After install, RBTV appears as `/rbtv-<command>` slash commands (e.g., `/rbtv-strategist`, `/rbtv-doc-export`, `/rbtv-plan-doc`) and auto-triggered skills in your workspace.
 
 ## Modules
 
