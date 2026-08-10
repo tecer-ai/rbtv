@@ -57,10 +57,10 @@ OPENCODE_BIN = os.environ.get("COORD_OPENCODE_BIN", "opencode")
 # (`harness_command` AND `resume_command` both build from it) — never `TMUX_TMPDIR`, which binds
 # a process to one tmux SERVER and is untouched by this (coord.py:5502).
 AGENT_TMPDIR = "/home/henri/.cache/agent-tmp"
-DEFAULT_MODEL = "opus"
+DEFAULT_MODEL = "claude-opus-5"
 DEFAULT_EFFORT = "high"
 HARNESSES = ("claude", "codex", "opencode")
-CLOSER_MODEL = "sonnet"
+CLOSER_MODEL = "claude-sonnet-5"
 CLOSERS_WINDOW = "closers"  # every closer pane lands here, never in the control-panel window
 # tmux default history (2000 lines) truncates transcript exports; raise it before creating seats.
 HISTORY_LIMIT = "100000"
@@ -15403,7 +15403,7 @@ def _selftest_checks(args, failures, names):
         by = {w["agent"]: w for w in ws}
         check("launch: per-seat model/effort from frontmatter (flat form)",
               by["alpha"]["model"] == "fable" and by["alpha"]["effort"] == "xhigh"
-              and by["beta"]["model"] == DEFAULT_MODEL and by["beta"]["effort"] == DEFAULT_EFFORT)
+              and by["beta"]["model"] == "claude-opus-5" and by["beta"]["effort"] == DEFAULT_EFFORT)
         check("v2: folder-form seat discovered with harness/model/window/cwd",
               by["gamma"]["harness"] == "opencode" and by["gamma"]["model"] == "zai-coding-plan/glm-5.2"
               and by["gamma"]["window"] and by["gamma"]["cwd"] == str(gdir)
@@ -15644,8 +15644,8 @@ def _selftest_checks(args, failures, names):
               and "send closer-gamma" not in text and "read closer-gamma" not in text
               and "depart closer-gamma" not in text)
         out = run(cmd_close, agent="leader", target="gamma", renew=False, dry_run=True)
-        check("v2: close --dry-run shows sonnet closer + prompt + shared 'closers' window",
-              CLOSER_MODEL in out and "closer-gamma" in out and CLOSERS_WINDOW in out)
+        check("v2: close --dry-run shows the claude-sonnet-5 closer + prompt + shared 'closers' window",
+              "claude-sonnet-5" in out and "closer-gamma" in out and CLOSERS_WINDOW in out)
 
         # ---- closer placement: pure decision function (headless, no tmux) ----
         check("closer_placement: no existing pane -> create the shared window",
