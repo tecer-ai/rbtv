@@ -26,6 +26,7 @@ mutant with the full write authority of the real program).
 Run: python3 probe-defect-fix.py    ->  exit 0 all green, exit 1 on any failure.
 """
 
+import ast
 import json
 import os
 import shutil
@@ -41,6 +42,38 @@ RECOVER = KIT.parent / "jobs" / "recover-room.py"
 
 RESULTS = []
 SKIPPED = []
+
+
+# ⚠ A MUTANT COPY OF coord.py IS ONLY RUNNABLE WITH ITS SIBLINGS BESIDE IT, and the sibling set
+# GROWS: budget.py arrived with task 7.82, gateway_client.py with task 7.57, and the probe was
+# hardcoded to the first — so the mutant died at import (ModuleNotFoundError / ImportError),
+# `gates --json` exited non-zero, and the arm read a crash as the guarded defect regressing. A
+# second hardcoded name would rot exactly the same way on the next sibling, so the set is DERIVED
+# from the source under test: every top-level import naming a `.py` file in the same directory,
+# followed transitively, is copied. Nothing to update the day a third sibling lands.
+def copy_local_siblings(src, dest_dir):
+    copied, seen, todo = [], set(), [src]
+    while todo:
+        cur = todo.pop()
+        try:
+            tree = ast.parse(cur.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+                names.add(node.module.split(".")[0])
+        for n in sorted(names):
+            sib = src.parent / (n + ".py")
+            if n in seen or not sib.exists():
+                continue
+            seen.add(n)
+            shutil.copy2(sib, dest_dir / sib.name)
+            copied.append(sib.name)
+            todo.append(sib)
+    return copied
 
 
 def check(label, cond, detail=""):
@@ -236,13 +269,12 @@ def main():
         check("S-6(a) mutation is constructible — GATE_FLAGS is where the probe thinks it is",
               src.count(old) == 1)
         mutant.write_text(src.replace(old, '    "--force": ("role", "memory"),', 1), encoding="utf-8")
-        # ⚠ coord.py HAS A SIBLING DEPENDENCY SINCE TASK 7.82: it imports budget.py at module level
-        # (the one reader of the run's declared floor) from its OWN directory. A mutant written to a
-        # temp dir therefore dies at import with ModuleNotFoundError, `gates --json` exits non-zero,
-        # and this check fails for a reason that has nothing to do with GATE_FLAGS. Copying the
-        # sibling is the honest fix: the probe builds a RUNNABLE copy of coord.py, and running it
-        # now requires budget.py beside it.
-        shutil.copy2(KIT / "budget.py", td / "budget.py")
+        # The mutant is a RUNNABLE copy of coord.py, so every sibling module it imports travels
+        # with it — derived, never listed (see `copy_local_siblings`).
+        siblings = copy_local_siblings(COORD, td)
+        check("S-6(a): the mutant carries coord.py's OWN sibling modules — derived from its "
+              "imports, so a new sibling never silently breaks this arm again",
+              bool(siblings), f"copied={siblings}")
         r = subprocess.run([sys.executable, str(mutant), "gates", "--json"],
                            capture_output=True, text=True, timeout=60, env=env_for(home))
         mgates = json.loads(r.stdout) if r.returncode == 0 else {}
