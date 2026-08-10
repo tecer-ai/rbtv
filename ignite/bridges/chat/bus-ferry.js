@@ -203,10 +203,16 @@ function goalKindMode(goalDir) {
   return kind === INTERACTIVE_MODE ? INTERACTIVE_MODE : AUTONOMOUS_MODE;
 }
 
-function seatIsHumanInteractive(goalDir, seat) {
-  if (!isSafeName(seat)) return false;
+// ⚑ THE CORE TAKES A SEAT DIR, and that is the ONLY shape that answers for every seat there is.
+// The `(goalDir, seat)` wrapper below joins `seats/<seat>/`, which is the GOAL-SEAT layout and not
+// the only one: a STANDING-SEAT HOME (`materialize-seats.py#standing_seat`, `r-master-seat-homes`)
+// IS the seat folder — `seat.md` sits at its root with no `seats/` layer — so `_channel-master`
+// only resolves through this entry point. A caller that already holds the seat's own directory
+// calls THIS, never the wrapper via a `dirname`² split: that split answered FALSE for the channel
+// master, and every ineligibility falls through to the cold path silently (task 7.642).
+function seatDirIsHumanInteractive(seatDir) {
   let fm;
-  try { fm = fs.readFileSync(path.join(goalDir, 'seats', seat, 'seat.md'), 'utf8'); } catch { return false; }
+  try { fm = fs.readFileSync(path.join(seatDir, 'seat.md'), 'utf8'); } catch { return false; }
   const m = frontmatterOf(fm).match(/^human-interactive:[ \t]*(.+?)[ \t]*$/m);
   // ⚑ THE STRIP IS `goalKindMode`'s, AND ITS ABSENCE HERE WAS A DEFECT (found by the 7.626 review,
   // F3). `human-interactive: "yes"` and `human-interactive: yes # ratified 2026-08-09` are both
@@ -218,6 +224,14 @@ function seatIsHumanInteractive(goalDir, seat) {
   // reader in this module.
   const v = m ? m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '').toLowerCase() : '';
   return v === 'yes' || v === 'true';
+}
+
+// The GOAL-SEAT wrapper: a seat NAME under a goal dir. The `isSafeName` guard is the traversal
+// refusal for that name (a `../..` seat would read a `seat.md` outside `.rbtv/goals/` entirely);
+// the core above takes an already-resolved directory and has no name to guard.
+function seatIsHumanInteractive(goalDir, seat) {
+  if (!isSafeName(seat)) return false;
+  return seatDirIsHumanInteractive(path.join(goalDir, 'seats', seat));
 }
 
 // ── THE SEAT'S FALLBACK ARM (owner ruling `d-s19-fallback-rides-goal-channels`, task 7.626) ──
@@ -868,6 +882,6 @@ module.exports = {
   createBusFerry, parseMessages, formatMessage, addressesOwner, goalBuses, executionStamp,
   chatThreadToken, deliverToken,
   OWNER_TOKEN, DEFAULT_MAX_BODY_CHARS, DEFAULT_WATCH_DEBOUNCE_MS,
-  goalExecutionMode, seatIsHumanInteractive, isSafeName, INTERACTIVE_MODE, AUTONOMOUS_MODE,
+  goalExecutionMode, seatIsHumanInteractive, seatDirIsHumanInteractive, isSafeName, INTERACTIVE_MODE, AUTONOMOUS_MODE,
   seatFallback, FALLBACK_ARMS, FALLBACK_PARK, FALLBACK_MARK,
 };
