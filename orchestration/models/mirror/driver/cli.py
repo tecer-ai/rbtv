@@ -1,7 +1,11 @@
 """cli.py — command-line entry for the rbtv mirror driver.
 
-Renders / checks / uninstalls a workspace's worker-mirror artifacts for an
-elected set of CLI worker packages (codex-cli / kimi-code-cli / opencode).  Flag conventions match
+Renders / checks / uninstalls a workspace's worker-mirror artifacts (the shared
+``.agents/`` library + per-model config dirs) for an elected set of CLI worker
+packages (codex-cli / kimi-code-cli / opencode).  Guidance files (AGENTS.md /
+QWEN.md) are NOT rendered — that leg is retired
+(``d-hard-guard-retire-model-mirror``, 2026-08-10); a render prints a one-line
+skip.  Flag conventions match
 the sibling ``mirror.py`` engine: ``--target`` is the workspace root, ``--check``
 is read-only and exits 1 on drift, ``--uninstall`` removes artifacts, and
 ``--check`` + ``--uninstall`` together are mutually exclusive (exit 2).
@@ -63,8 +67,9 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="driver",
         description=(
             "Render/check/uninstall a workspace's CLI-worker mirror artifacts "
-            "(guidance files, the shared .agents/ library, per-model config dirs) "
-            "for an elected set of worker packages. Source-agnostic; idempotent."
+            "(the shared .agents/ library, per-model config dirs) for an elected "
+            "set of worker packages. Guidance-file rendering is retired. "
+            "Source-agnostic; idempotent."
         ),
     )
     parser.add_argument(
@@ -93,8 +98,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--exclude", nargs="*", metavar="PATH", default=None,
-        help="Workspace-relative path prefixes to skip when walking for CLAUDE.md "
-             "(render mode). When omitted, exclusions recorded in rbtv.json are reused.",
+        help="Workspace-relative path prefixes recorded in rbtv.json. INERT since "
+             "the guidance retirement; kept for state compatibility. When omitted, "
+             "the recorded value is reused.",
     )
     return parser
 
@@ -171,7 +177,7 @@ def _run_uninstall(target_root: Path, deselected: list[str],
     else:
         print("  deleted 0 file(s)")
     if result.spared:
-        print(f"  spared {len(result.spared)} hand-authored guidance file(s) (no banner):")
+        print(f"  spared {len(result.spared)} banner-less guidance file(s) (legacy records):")
         for p in result.spared:
             print(f"    ~ {p}")
     if result.protected:

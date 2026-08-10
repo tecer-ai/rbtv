@@ -9,9 +9,11 @@ never re-composes expected content — so the single most common staleness case
 
 Each render module now appends its drifted paths to a ``stale_sink`` that
 ``render`` OR-s into ``stale`` and exposes as ``stale_paths``. These tests cover
-every module that owns managed files — a rule, a skill, and a guidance file —
-because the original bug was worst in ``library.py``, which discarded the write
-status outright and so never even printed.
+every module that owns managed files — a rule and a skill — because the original
+bug was worst in ``library.py``, which discarded the write status outright and so
+never even printed. (The guidance leg is retired —
+``d-hard-guard-retire-model-mirror``, 2026-08-10 — so its drift case is replaced
+by the retirement lock below.)
 
 Exercises the real ``driver.render`` against scratch workspaces (pytest
 ``tmp_path``) — no mocks. Run from the rbtv repo root:
@@ -95,16 +97,38 @@ def test_edited_skill_source_makes_check_stale(tmp_path):
     assert ".agents/skills/s1/SKILL.md" in result.stale_paths
 
 
-def test_edited_claude_md_makes_guidance_check_stale(tmp_path):
-    """A CLAUDE.md edit must re-stale its sibling AGENTS.md."""
+def test_render_writes_no_guidance_file_and_leaves_a_foreign_one_alone(tmp_path):
+    """RETIREMENT LOCK (d-hard-guard-retire-model-mirror, 2026-08-10).
+
+    Electing every mirrorable package must write NO guidance file anywhere, and an
+    AGENTS.md owned by the modern installer must survive a render byte-identical.
+    Goes RED the moment anyone reinstates a guidance render path.
+    """
+    _seed_workspace(tmp_path)
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "CLAUDE.md").write_text("# sub\n", encoding="utf-8")
+    foreign = tmp_path / "AGENTS.md"
+    foreign.write_text("<!-- written by the modern installer -->\n# root\n", encoding="utf-8")
+    before = foreign.read_bytes()
+
+    result = render(tmp_path, _PACKAGES)
+
+    assert foreign.read_bytes() == before, "a foreign guidance file must never be rewritten"
+    assert not (tmp_path / "sub" / "AGENTS.md").exists(), "no guidance file may be rendered"
+    assert not [r for r in result.managed_files if r["kind"] == "guidance"], \
+        "no guidance record may be claimed"
+
+
+def test_edited_claude_md_no_longer_stales_the_check(tmp_path):
+    """The retired leg's drift case: a CLAUDE.md edit is nothing to this mirror."""
     _seed_workspace(tmp_path)
     render(tmp_path, _PACKAGES)
 
     (tmp_path / "CLAUDE.md").write_text("# root guidance\nEDITED\n", encoding="utf-8")
     result = render(tmp_path, _PACKAGES, check=True)
 
-    assert result.stale is True, "an edited CLAUDE.md must make --check stale"
-    assert "AGENTS.md" in result.stale_paths
+    assert result.stale is False
+    assert not (tmp_path / "AGENTS.md").exists()
 
 
 def test_check_never_writes(tmp_path):

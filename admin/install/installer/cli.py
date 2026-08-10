@@ -697,15 +697,16 @@ def _split_mirrorable(rbtv_root: Path, elected: list[str]) -> list[str]:
 
     ``claude-code-cli`` loads its guidance natively and is mirror-less — it is dropped
     silently (never a missing-assets warning). A package the driver knows as
-    CONFIG-LESS (``PackageFacts.config_dir is None``, e.g. opencode — guidance-only,
-    no ``mirror-assets/`` seed by design) is mirrorable WITHOUT an assets tree. Any
+    CONFIG-LESS (``PackageFacts.config_dir is None``, e.g. opencode — no
+    ``mirror-assets/`` seed by design) is mirrorable WITHOUT an assets tree (it
+    renders only the shared ``.agents/`` library). Any
     OTHER elected package whose ``orchestration/models/<pkg>/mirror-assets/`` tree is
     absent is skipped with a NAMED warning (matches the spec's "ships no mirror-assets"
     edge case — a skip, never a crash), because the driver's config renderer raises on
     a missing assets tree. The driver itself further drops ids it does not know.
     """
     models_dir = rbtv_root / "orchestration" / "models"
-    # Config-less driver-known packages (guidance-only): mirrorable with no assets.
+    # Config-less driver-known packages: mirrorable with no assets.
     # Lazy import with the same reachability shim as _import_mirror_driver; on any
     # import failure fall back to the assets-dir-only rule (never crash the install).
     try:
@@ -721,7 +722,7 @@ def _split_mirrorable(rbtv_root: Path, elected: list[str]) -> list[str]:
         if pkg == "claude-code-cli":
             continue  # native, mirror-less — silently skipped
         if pkg in configless:
-            mirrorable.append(pkg)  # guidance-only package — no assets tree needed
+            mirrorable.append(pkg)  # config-less package — no assets tree needed
         elif (models_dir / pkg / "mirror-assets").is_dir():
             mirrorable.append(pkg)
         else:
@@ -885,10 +886,12 @@ def main(argv: list[str] | None = None) -> int:
         "--mirror",
         action="store_true",
         help=(
-            "Mirror-only mode: refresh the mirror artifacts for the packages "
-            "already recorded in rbtv.json without running target/module/component "
-            "prompts or reinstalling components. Resolves the target via --target "
-            "or the nearest rbtv.json."
+            "Mirror-only mode: refresh the mirror artifacts (the shared .agents/ "
+            "library and per-model config dirs) for the packages already recorded "
+            "in rbtv.json, without running target/module/component prompts or "
+            "reinstalling components. Guidance files (AGENTS.md/QWEN.md) are NOT "
+            "rendered — that leg is retired. Resolves the target via --target or "
+            "the nearest rbtv.json."
         ),
     )
     parser.add_argument(
@@ -897,12 +900,12 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         default=None,
         help=(
-            "Workspace-root-relative posix path(s) the mirror skips — no guidance "
-            "file is rendered beside any CLAUDE.md inside an excluded path. The list "
-            "is recorded in rbtv.json (model_mirror.excluded_paths) as the per-user "
-            "default. Passing --exclude REPLACES the recorded list; omitting it "
-            "PRESERVES the recorded list. Applies on both a full install and "
-            "--mirror."
+            "Workspace-root-relative posix path(s) recorded in rbtv.json "
+            "(model_mirror.excluded_paths). INERT since the guidance retirement "
+            "(d-hard-guard-retire-model-mirror, 2026-08-10) — they only ever "
+            "constrained the CLAUDE.md walk; the library and config artifacts "
+            "render to fixed paths. Passing --exclude REPLACES the recorded list; "
+            "omitting it PRESERVES it."
         ),
     )
     parser.add_argument(
@@ -921,8 +924,9 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "With --mirror: remove ALL generated mirror artifacts for the target "
-            "(guidance files, the shared .agents/ library, and per-model config "
-            "dirs) and clear the model_mirror block from rbtv.json. A full mirror "
+            "(the shared .agents/ library, per-model config dirs, and any guidance "
+            "file still recorded from a pre-retirement install) and clear the "
+            "model_mirror block from rbtv.json. A full mirror "
             "teardown for every currently-elected package. A worker dir emptied of "
             "rbtv's files is removed; one still holding files rbtv did not create "
             "is named (not deleted) so you can remove it by hand."
@@ -1371,8 +1375,9 @@ def main(argv: list[str] | None = None) -> int:
         # Runs ONLY inside the orchestration block, AFTER components are written.
         # The elected worker set is mp_installed (elected AND present). The driver
         # renders each elected worker's artifacts and ref-counted-deletes those a
-        # worker DESELECTED since the prior rbtv.json no longer needs (shared
-        # AGENTS.md / .agents/ survive while another worker needs them).
+        # worker DESELECTED since the prior rbtv.json no longer needs (the shared
+        # .agents/ library survives while another worker needs it). No guidance
+        # file is ever rendered — retired by d-hard-guard-retire-model-mirror.
         elected_workers = list(mp_installed)
         mirrorable = _split_mirrorable(rbtv_root, elected_workers)
 

@@ -123,7 +123,11 @@ def test_check_repairs_nothing(workspace):
 
 def test_refresh_clears_the_drift(workspace):
     """The signal has to be actionable — the command the failure message names must work."""
-    (workspace / "CLAUDE.md").write_text("# root guidance\nEDITED\n", encoding="utf-8")
+    # A .claude/ source edit — a CLAUDE.md edit stales nothing since the guidance
+    # leg was retired (d-hard-guard-retire-model-mirror, 2026-08-10).
+    (workspace / ".claude" / "rules" / "r1.md").write_text(
+        "# rule one\nEDITED\n", encoding="utf-8"
+    )
     assert _run(["--mirror", "--check", "--target", str(workspace)])[0] == 1
 
     assert _run(["--mirror", "--non-interactive", "--target", str(workspace)])[0] == 0

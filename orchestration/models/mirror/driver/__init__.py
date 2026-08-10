@@ -1,18 +1,22 @@
 """driver — the rbtv mirror driver's public render/uninstall orchestrator.
 
-The driver renders, into a target workspace, exactly the artifacts an elected set
-of CLI worker packages (codex / kimi / opencode) consumes — guidance files beside
-every ``CLAUDE.md``, the shared ``.agents/`` skill+rule library, and per-model
-config dirs — all from ``.claude/`` + the workspace's ``CLAUDE.md`` files alone,
-with no manifest reads.  Re-running changes nothing; uninstalling a worker removes
-only what no remaining worker needs.
+The driver renders, into a target workspace, the artifacts an elected set of CLI
+worker packages (codex / kimi / opencode) consumes — the shared ``.agents/``
+skill+rule library and per-model config dirs — from ``.claude/`` alone, with no
+manifest reads.  Re-running changes nothing; uninstalling a worker removes only
+what no remaining worker needs.
 
-This package composes the three render legs (already built + committed):
-  - ``guidance.py``      → guidance files (``AGENTS.md``)
+GUIDANCE FILES ARE RETIRED (owner ruling ``d-hard-guard-retire-model-mirror``,
+2026-08-10): this driver renders NO ``AGENTS.md``/``QWEN.md`` — see step 2 of
+``render`` and the note at the head of ``guidance.py``.  Only the teardown side
+still knows the word (legacy records from a pre-retirement render).
+
+This package composes the render legs:
   - ``library.py``       → ``.agents/behavior-rules/`` + ``.agents/skills/``
   - ``config_assets.py`` → ``.codex/`` / ``.kimi/`` config dirs (a package with
     no ``mirror-assets`` seed, e.g. opencode, has ``config_dir=None`` and renders
     no config dir)
+  - ``guidance.py``      → retired; exports only ``ALWAYS_EXCLUDED_PREFIXES``
 and ``state.py`` (the ``model_mirror`` block of ``rbtv.json`` + ref-counted
 deletion).
 
@@ -22,10 +26,8 @@ Public API
     uninstall(target_root, deselected, remaining_elected) -> UninstallResult
 
 Source-agnostic by design: NO module-manifest.json / sb-os.json read anywhere.
-The per-package facts below (guidance filename, config dir, banner label,
-guidance-group owner) are the driver's OWN constants — they mirror the spec's
-"Per-model facts" table and each package's ``mirror-config.yaml`` banner label,
-not a manifest.
+The per-package facts below (config dir, guidance-group owner) are the driver's
+OWN constants — they mirror the spec's "Per-model facts" table, not a manifest.
 """
 from __future__ import annotations
 
@@ -43,33 +45,24 @@ from . import config_assets, guidance, library, state
 class PackageFacts:
     """Static, source-agnostic facts about one CLI worker package."""
 
-    guidance_filename: str  # sibling file rendered beside each CLAUDE.md
-    config_dir: str | None  # config tree rendered into the target root; None = the package ships no mirror-assets config (guidance only)
-    banner_label: str       # interpolated into the DO-NOT-EDIT banner
-    guidance_owner: str     # owner tag for the guidance-filename group
+    config_dir: str | None  # config tree rendered into the target root; None = the package ships no mirror-assets config
+    guidance_owner: str     # owner tag of the guidance-filename group this package USED to render — kept for ref-counted teardown of legacy records only (rendering is retired)
 
 
 #: Packages the driver knows how to mirror.  ``claude-code-cli`` is intentionally
 #: absent — it loads ``CLAUDE.md`` natively and is mirror-less (it is skipped,
-#: never an error).  Banner labels are byte-identical to each package's
-#: ``mirror-config.yaml`` so a single-package guidance file matches ``mirror.py``.
+#: never an error).
 PACKAGE_FACTS: dict[str, PackageFacts] = {
     "codex-cli": PackageFacts(
-        guidance_filename="AGENTS.md",
         config_dir=".codex",
-        banner_label="the Codex CLI worker",
         guidance_owner="agents-md",
     ),
     "kimi-code-cli": PackageFacts(
-        guidance_filename="AGENTS.md",
         config_dir=".kimi",
-        banner_label="the Kimi CLI worker",
         guidance_owner="agents-md",
     ),
     "opencode": PackageFacts(
-        guidance_filename="AGENTS.md",
-        config_dir=None,        # opencode ships no mirror-assets — providers live in the machine-global opencode config; guidance only
-        banner_label="the OpenCode CLI worker",
+        config_dir=None,        # opencode ships no mirror-assets — providers live in the machine-global opencode config
         guidance_owner="agents-md",
     ),
 }
@@ -98,45 +91,6 @@ def owner_to_guidance_group() -> dict[str, str]:
     whether any remaining package still needs a guidance-filename group.
     """
     return {pkg: facts.guidance_owner for pkg, facts in PACKAGE_FACTS.items()}
-
-
-# ---------------------------------------------------------------------------
-# Guidance-filename grouping
-# ---------------------------------------------------------------------------
-
-
-def _group_banner_label(filename: str, packages: list[str]) -> str:
-    """Compose the banner label for a guidance-filename group.
-
-    When exactly one elected package maps to ``filename`` the label is that
-    package's exact ``banner_label`` (guaranteeing byte-identity with
-    ``mirror.py`` for the single-package case the byte-identical test exercises).
-
-    When 2+ packages share the filename (e.g. codex + kimi both elect
-    ``AGENTS.md``) the group is rendered ONCE, so the label honestly names every
-    consuming worker, joined deterministically.
-    """
-    members = [p for p in packages if PACKAGE_FACTS[p].guidance_filename == filename]
-    members.sort()
-    labels = [PACKAGE_FACTS[p].banner_label for p in members]
-    if len(labels) == 1:
-        return labels[0]
-    # "the Codex CLI worker and the Kimi CLI worker"
-    if len(labels) == 2:
-        return f"{labels[0]} and {labels[1]}"
-    return ", ".join(labels[:-1]) + f", and {labels[-1]}"
-
-
-def _elected_guidance_groups(packages: list[str]) -> dict[str, str]:
-    """Return ``{guidance_filename: group_banner_label}`` for the elected set.
-
-    Deduplicates by filename so a shared filename (``AGENTS.md`` for codex∪kimi)
-    is rendered exactly once.
-    """
-    groups: dict[str, str] = {}
-    for filename in sorted({PACKAGE_FACTS[p].guidance_filename for p in packages}):
-        groups[filename] = _group_banner_label(filename, packages)
-    return groups
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +151,10 @@ def _mtime(path: Path) -> "float | None":
 def _path_under_any_exclusion(rel_path: str, excluded_prefixes: list[str]) -> bool:
     """True if *rel_path* equals or lies under any normalized excluded prefix.
 
-    Mirrors the prefix semantics ``guidance.py._is_excluded`` uses (``rel ==
-    prefix`` OR ``rel.startswith(prefix + "/")``), applied to a guidance FILE's
-    workspace-relative path (e.g. ``sub/x/AGENTS.md`` under prefix ``sub/x``).
+    Prefix semantics: ``rel == prefix`` OR ``rel.startswith(prefix + "/")``,
+    applied to a recorded file's workspace-relative path (e.g.
+    ``.rbtv/goals/g/AGENTS.md`` under prefix ``.rbtv/goals``).  Used by
+    ``uninstall`` to protect legacy guidance records it must never delete.
     """
     rel_norm = state._normalize_rel_path(rel_path)
     for prefix in excluded_prefixes:
@@ -209,44 +164,6 @@ def _path_under_any_exclusion(rel_path: str, excluded_prefixes: list[str]) -> bo
         if rel_norm == prefix or rel_norm.startswith(prefix + "/"):
             return True
     return False
-
-
-def _prune_newly_excluded_guidance(
-    target_root: Path,
-    prior_block: dict | None,
-    new_records: list[dict],
-    excluded_paths: list[str],
-) -> list[str]:
-    """Delete guidance files orphaned by a NEWLY-excluded path.
-
-    A guidance file that was previously managed (recorded in ``prior_block``'s
-    ``managed_files``) but now falls under an excluded prefix — and is therefore
-    NOT in the freshly-rendered ``new_records`` set — is a stale orphan: the walk
-    skipped it, so ``render`` never refreshes or removes it. Delete it through the
-    driver's EXISTING banner-guarded ``state.apply_deletions`` (a hand-authored,
-    banner-less file is spared, never destroyed).
-
-    Returns the workspace-relative paths actually deleted. NEVER called in check
-    mode (callers gate on ``check``).
-    """
-    if not prior_block:
-        return []
-
-    prior_records = prior_block.get("managed_files", []) or []
-    new_paths = {r["path"] for r in new_records}
-
-    orphans = [
-        rec
-        for rec in prior_records
-        if rec.get("kind") == "guidance"
-        and rec["path"] not in new_paths
-        and _path_under_any_exclusion(rec["path"], excluded_paths)
-    ]
-    if not orphans:
-        return []
-
-    deleted, _spared = state.apply_deletions(target_root, orphans)
-    return deleted
 
 
 # ---------------------------------------------------------------------------
@@ -264,10 +181,12 @@ def render(
     """Render every artifact the ``elected`` worker set consumes into ``target_root``.
 
     For each elected (mirrorable) package:
-      - its guidance files render beside every non-excluded ``CLAUDE.md``
-        (deduped by guidance filename — ``AGENTS.md`` once for codex∪kimi);
       - the shared ``.agents/`` library renders once (when any worker is elected);
       - the package's config dir renders.
+
+    NO guidance file (``AGENTS.md``/``QWEN.md``) is ever written: that leg is
+    retired (``d-hard-guard-retire-model-mirror``, 2026-08-10) — the run prints a
+    one-line skip instead.
 
     The merged managed-file set (deduped by ``path``) is written to
     ``rbtv.json``'s ``model_mirror`` block — and ONLY that block; every other key
@@ -286,9 +205,10 @@ def render(
         any managed file (or the state block) is missing/stale.  ``RenderResult.stale``
         is True on any drift.
     excluded_paths:
-        Workspace-relative path prefixes to skip when walking for ``CLAUDE.md``.
-        When None, the value recorded in ``rbtv.json``'s ``model_mirror`` block is
-        reused (so ``--check`` and ``--mirror`` honor the install-time exclusions).
+        Workspace-relative path prefixes, preserved in the ``model_mirror`` state
+        block for compatibility.  INERT for rendering since the guidance retirement
+        (they only ever constrained the ``CLAUDE.md`` walk); the library and config
+        legs render fixed paths.  When None, the recorded value is reused.
 
     Returns
     -------
@@ -344,17 +264,19 @@ def render(
     all_records.extend(skill_records)
     result.skipped_commands = skipped
 
-    # --- 2. Guidance files (deduped by filename across the elected set) ---
-    for filename, banner_label in _elected_guidance_groups(packages).items():
-        guidance_records = guidance.render_guidance(
-            target_root,
-            filename,
-            check=check,
-            excluded_paths=excluded_paths,
-            banner_label=banner_label,
-            stale_sink=content_stale,
-        )
-        all_records.extend(guidance_records)
+    # --- 2. Guidance files — RETIRED, renders nothing ---
+    # Owner ruling `d-hard-guard-retire-model-mirror` (2026-08-10,
+    # 1-projects/rbtv-sb-merge-refactor-core-build/decisions.md): installer-1 no
+    # longer renders ANY guidance file (AGENTS.md / QWEN.md). install2 owns them
+    # (d-s17 / d-s17bis) and an election here used to overwrite its output
+    # workspace-wide. The render leg was DELETED from guidance.py, not gated —
+    # no election, flag or state can bring it back. The skip is announced (once
+    # per render) rather than raising, so --mirror stays usable for the live
+    # artifacts below.
+    print(
+        "  guidance files: skipped — installer-1's guidance mirror is retired "
+        "(ruling d-hard-guard-retire-model-mirror); the modern installer owns them."
+    )
 
     # --- 3. Per-model config dirs (skipped for a config-less package, e.g. opencode) ---
     for pkg in packages:
@@ -365,16 +287,14 @@ def render(
         )
         all_records.extend(config_records)
 
-    # --- 3b. Prune-on-exclude: delete guidance orphaned by a NEWLY-excluded path ---
-    # A path that became excluded since the prior render leaves its previously
-    # rendered guidance file (AGENTS.md / QWEN.md) on disk — the walk skips it, so
-    # neither render nor uninstall reaches it. Delete such orphans through the
-    # existing banner-guarded deletion (hand-authored files are spared). NEVER in
-    # check mode — a --check run reports drift, it never mutates disk.
-    if not check:
-        _prune_newly_excluded_guidance(
-            target_root, prior_block, all_records, excluded_paths
-        )
+    # --- 3b. Prune-on-exclude: REMOVED with the guidance retirement ---
+    # It existed only to delete guidance files orphaned by a newly-excluded path.
+    # With rendering retired (see step 2) a render never produces or reaches a
+    # guidance file, and DELETING one would be installer-1 claiming ownership it
+    # no longer has. Legacy `kind: "guidance"` records simply drop out of
+    # managed_files on the next render (they are not in all_records); the files
+    # stay on disk for install2 to own. Teardown of installer-1's OWN past output
+    # remains available through `uninstall` (banner-guarded).
 
     # --- 4. Drift detection (check mode) ---
     # Two independent signals, OR-ed: CONTENT drift (a managed file exists but

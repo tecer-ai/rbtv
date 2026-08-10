@@ -13,6 +13,7 @@ workspaces (pytest ``tmp_path``) — no mocks. Run from the rbtv repo root:
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -50,28 +51,24 @@ def test_full_teardown_removes_managed_dirs_and_reports_no_leftovers(tmp_path):
     render(tmp_path, ["codex-cli", "kimi-code-cli", "opencode"])
     for d in (".codex", ".kimi", ".agents"):
         assert (tmp_path / d).is_dir(), f"{d} should exist after render"
-    assert (tmp_path / "AGENTS.md").is_file()
 
     result = uninstall(tmp_path, ["codex-cli", "kimi-code-cli", "opencode"], [])
 
     for d in (".codex", ".kimi", ".agents"):
         assert not (tmp_path / d).exists(), f"{d} should be pruned (managed-only, now empty)"
-    assert not (tmp_path / "AGENTS.md").exists()
     assert result.leftover_dirs == [], "no foreign files → no leftovers reported"
 
 
-def test_configless_package_renders_guidance_only_and_refcounts(tmp_path):
-    """opencode has config_dir=None — it renders guidance + the shared library but NO
-    config dir, and its deselection keeps AGENTS.md alive while codex still needs it."""
+def test_configless_package_renders_library_only(tmp_path):
+    """opencode has config_dir=None — it renders the shared library but NO config dir
+    (and, since the guidance retirement, nothing else)."""
     _seed_workspace(tmp_path)
     render(tmp_path, ["codex-cli", "opencode"])
-    assert (tmp_path / "AGENTS.md").is_file()
     assert (tmp_path / ".agents").is_dir()
     assert not (tmp_path / ".opencode").exists(), "config-less package must render no config dir"
 
     result = uninstall(tmp_path, ["opencode"], ["codex-cli"])
 
-    assert (tmp_path / "AGENTS.md").is_file(), "AGENTS.md kept (codex still maps to it)"
     assert (tmp_path / ".codex").is_dir(), "remaining codex dir kept"
     assert (tmp_path / ".agents").is_dir(), "shared library kept while a worker remains"
     assert result.leftover_dirs == []
@@ -86,7 +83,6 @@ def test_per_model_deselect_keeps_remaining_and_shared(tmp_path):
     assert not (tmp_path / ".kimi").exists(), "deselected kimi dir pruned"
     assert (tmp_path / ".codex").is_dir(), "remaining codex dir kept"
     assert (tmp_path / ".agents").is_dir(), "shared library kept while a worker remains"
-    assert (tmp_path / "AGENTS.md").is_file(), "AGENTS.md kept (codex still needs it)"
     assert result.leftover_dirs == []
 
 
@@ -144,11 +140,21 @@ def test_agents_orphan_survives_and_is_reported(tmp_path):
     assert ".agents" in dirs
 
 
-def test_handauthored_guidance_is_spared(tmp_path):
+def test_banner_less_legacy_guidance_record_is_spared(tmp_path):
+    """The banner-guard on the teardown arm survives the guidance RETIREMENT
+    (d-hard-guard-retire-model-mirror): a render can no longer create a guidance
+    record, but a workspace installed BEFORE the retirement still carries them, and
+    a file without installer-1's banner must never be deleted."""
     _seed_workspace(tmp_path)
     render(tmp_path, ["codex-cli"])
-    # Owner replaces the generated AGENTS.md with a hand-authored one (no banner).
+    # Legacy record from a pre-retirement render + a file installer-1 did not write.
     (tmp_path / "AGENTS.md").write_text("# my own agents file\n", encoding="utf-8")
+    state_path = tmp_path / "rbtv.json"
+    doc = json.loads(state_path.read_text(encoding="utf-8"))
+    doc["model_mirror"]["managed_files"].append(
+        {"path": "AGENTS.md", "kind": "guidance", "owner": "agents-md"}
+    )
+    state_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
 
     result = uninstall(tmp_path, ["codex-cli"], [])
 
