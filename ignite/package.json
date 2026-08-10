@@ -15,7 +15,7 @@
       "js-yaml": "npm ci --omit=dev"
     },
     "system": {
-      "systemd": "sudo apt-get install -y systemd",
+      "systemd": "systemctl --version",
       "tmux": "sudo apt-get install -y tmux",
       "bubblewrap": "sudo apt-get install -y bubblewrap",
       "tailscaled": "curl -fsSL https://tailscale.com/install.sh | sh",
