@@ -3040,7 +3040,11 @@ def resume_command(w, ref, prompt_path):
     if ref["harness"] == "claude":
         return f"{env}{CLAUDE_BIN} --resume {sid} {arg}", ""
     if ref["harness"] == "codex":
-        return f"{env}{CODEX_BIN} resume {sid} {arg}", ""
+        # 7.612 / `d-codex-hook-trust-bypass`. POSITION IS LOAD-BEARING: codex's grammar is
+        # `codex [OPTIONS] <COMMAND>`, so the flag must precede the `resume` SUBCOMMAND —
+        # placed after it, codex parses it as one of resume's own options and the hook trust
+        # gate stays armed. Same G-13 class as opencode's `--auto`.
+        return f"{env}{CODEX_BIN} --dangerously-bypass-hook-trust resume {sid} {arg}", ""
     if ref["harness"] == "opencode":
         # `--continue` continues the last session IN THIS CWD, which is exactly what
         # `session_ref: {source: cwd-implicit}` declares the ref to be. `--auto` after `run` —
@@ -12136,7 +12140,16 @@ def harness_command(w, prompt=None, prompt_path=None):
         return f"{env}{CLAUDE_BIN} --model {w['model']} --effort {w['effort']} {arg}", ""
     if w["harness"] == "codex":
         model = f" -m {shlex.quote(w['model'])}" if w["model"] else ""
-        return f"{env}{CODEX_BIN}{model} {arg}", ""
+        # 7.612 / `d-codex-hook-trust-bypass` (2026-08-09): codex trust-gates hooks BY HASH,
+        # and a seat folder's hooks.json is DERIVED — regenerated on every re-materialize —
+        # so persisted trust re-breaks and the seat boots with its hooks SKIPPED, pending an
+        # interactive `/hooks` review no agent performs. The daemon half of the ruling already
+        # carries it (config/spawn-profiles.yaml, `codex-gpt-5-5`); this is the kit half.
+        # ⚠ SCOPE GUARD, CHECKED NOT ASSUMED: `harness_command` and `resume_command` are the
+        # only two codex compositions in this file, and BOTH build agent-seat commands. The
+        # flag rides agent seats ONLY — if a human-interactive codex composition is ever added
+        # here, it stays clean.
+        return f"{env}{CODEX_BIN} --dangerously-bypass-hook-trust{model} {arg}", ""
     if w["harness"] == "opencode":
         if not w["model"]:
             return None, "opencode seats require an explicit model: (provider/model slug)"
@@ -15449,6 +15462,14 @@ def _selftest_checks(args, failures, names):
         check("7.400: the codex command carries TMPDIR ahead of the binary",
               f"TMPDIR={AGENT_TMPDIR} " in cmd
               and cmd.index(f"TMPDIR={AGENT_TMPDIR} ") < cmd.index(CODEX_BIN))
+        check("7.612 (`d-codex-hook-trust-bypass`): the codex LAUNCH carries --dangerously-bypass-hook-trust "
+              "so a seat folder's freshly re-materialized hooks are not SKIPPED pending an "
+              "interactive review no agent performs. THE SCOPE GUARD IS THE OTHER HALF OF THIS "
+              "ROW and is asserted, not assumed: the claude and opencode compositions do NOT "
+              "carry it, so the flag rides the codex agent-seat command alone",
+              "--dangerously-bypass-hook-trust" in cmd
+              and "--dangerously-bypass-hook-trust" not in harness_command(by["alpha"], "P")[0]
+              and "--dangerously-bypass-hook-trust" not in harness_command(by["gamma"], "P")[0])
         bad = dict(by["gamma"], model="")
         cmd, err = harness_command(bad, "P")
         check("v2: opencode without model refused", cmd is None and "require" in err)
@@ -26026,6 +26047,17 @@ def _selftest_checks(args, failures, names):
               and resume_command({"agent": "x"}, {"harness": "zsh", "native-session-id": "",
                                                   "workdir": "/w", "session-id": "s"},
                                  Path("/tmp/p.txt"))[0] is None)
+        check("7.612 (`d-codex-hook-trust-bypass`): the codex RESUME carries the flag too, and "
+              "BEFORE the `resume` subcommand. POSITION IS THE POINT: codex's grammar is "
+              "`codex [OPTIONS] <COMMAND>`, so a flag placed after the subcommand is parsed as "
+              "resume's own and the hook trust gate stays armed — a check that only asserted "
+              "the flag was PRESENT would pass on exactly that broken form (the G-13 class). "
+              "Claude and opencode resumes stay clean: the scope guard holds on this path too",
+              "--dangerously-bypass-hook-trust" in _s732_forms["codex"]
+              and _s732_forms["codex"].index("--dangerously-bypass-hook-trust")
+                  < _s732_forms["codex"].index(" resume ")
+              and all("--dangerously-bypass-hook-trust" not in _s732_forms[h]
+                      for h in ("claude", "opencode")))
         check("7.400: a RENEW (resume_command) carries TMPDIR too — identity_prefix is the one "
               "door both `harness_command` and `resume_command` build from, so a resumed seat's "
               "tmp writes redirect exactly like a freshly launched one's",
