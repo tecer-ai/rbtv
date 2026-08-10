@@ -20,6 +20,33 @@ The runtime layer of RBTV. Two parts share the module because they are two faces
 
 See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-job` / `inspect`).
 
+### `ignite/jobs/` — job scripts the daemon fires as `fire-tool` jobs
+
+Deterministic scripts the daemon's ticker execs from a catalogue entry's `argv` verbatim
+(`server/ticker/ticker.js` `runToolLikeExec`, caps `{}` / sandbox `{}` — a fired tool is
+unsandboxed and uncapped, so containment lives INSIDE each script via `jobcontain.py`). Daemon
+service code: **deployed, never installed** — no install-manifest entry. Directory front door:
+`ignite/jobs/README.md`.
+
+Inventory enumerated 2026-08-10 from `ls ignite/jobs/` at the repo root
+(cwd `C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv`, branch `ignite/core-daemon`,
+HEAD `65a9970f`). Each purpose line below is the file's own module docstring, first sentence,
+QUOTED verbatim:
+
+| File | Docstring (quoted) |
+|------|--------------------|
+| `edge-runner-job.py` | "edge-runner-job — CMP-25's pass: verify a finished seat's done contract and mark it `done` or `failed` (task 7.123 / M4-08), evaluate readiness of every row whose `after` names it (task 7.124 / M4-09), enqueue each LAUNCH CANDIDATE as a daemon job seeded with its predecessors' declared outputs (task 7.125 / M4-10), and exit (task C1 — see below: the exit is step 5 and it is the DAEMON that reads it)." |
+| `goal-state-job.py` | "goal-state-job — recompute every seat's GOAL STATE from disk, on demand, per seat (task 7.127 / M4-12, from 7.56 item (b))." |
+| `goal-watcher-job.py` | "goal-watcher-job — the ENFORCEMENT half of R24's observation architecture (task 7.32)." Per `ignite/jobs/README.md`: DARK today, no live catalogue entry. |
+| `jobcontain.py` | "Self-containment for `fire-tool` job scripts (issues.md G-30)." Library, not a job — self-cap, wall clock, single-instance lock. |
+| `recover-room.py` | "Re-create a dead team-kit room and boot a recovery seat into it (task 7.71)." The recovery argv `selfheal-room.py` runs. |
+| `restart-daemon.py` | "Restart a systemd --user unit as a `fire-tool` job (ruling `r-restart-daemon-job`)." |
+| `selfheal-room.py` | "Dead-room detector + recovery relaunch (task 7.71, owner ruling `r-selfheal-job`)." |
+| `selfheal-watch.py` | "Watch-heartbeat freshness detector + relaunch (task 7.72, run issue G-2)." ⚠ **RETIRED ROLE — not live guidance.** It watches `watch.py`'s heartbeat, a layer whose retirement is in progress (task 7.35), and its relaunch fallback argv names the retired `chief-of-staff` role (dead spec per the core-build run ruling `d-run-context`, subagent-closeout `decisions.md`: run-3 closed 2026-08-08; `chief-of-staff`/`closer` retired by registry ruling `d-watcher-deterministic-chain`). Its failing live queue row was DISARMED 2026-08-08 via `ignite remove-job` (ruling `d-queue-verbs`); catalogue retirement and the `spawn-profiles.yaml` retired-role argv removal are owned by that run's work-list item B4. Read the script as history pending retirement, never as a pattern to extend. |
+| `README.md` | The directory's own front door — the fire-tool job model plus a judge/act table for the self-heal detectors. |
+| `probes/` | 3 probe scripts guarding this directory's jobs: `probe-dead-room-sensor-session.py` ("the automatic sensor restart works on a DEAD room (7.561)."), `probe-detach-env.py` ("`jobcontain.detach_argv` carries the caller's PATH across its inner hop."), `probe-goal-watcher-selftest.py` ("`goal-watcher-job.py --selftest` is GREEN, and still has teeth."). |
+| `audit/` | 2 audit notes: `probe-record-edge-runner-enqueue-builder.md`, `trace-field-audit.md`. |
+
 ### Capabilities
 
 - **`daemon-operator`** (`ignite/capabilities/daemon-operator/`) — the ignite OPERATOR surface:
