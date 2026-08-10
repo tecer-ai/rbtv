@@ -3608,7 +3608,51 @@ def _hash_tree(root: Path) -> dict[str, str]:
 
 
 def _norm(text: str, tmp: Path) -> str:
-    return text.replace(str(tmp), "<TMP>")
+    """Erase the run's tempdir so two runs of the same scenario compare equal
+    (SK-4/SC-11/AS-4 compare whole stdouts across two environments).
+
+    The path appears in `--json` stdout in TWO spellings, and on POSIX they
+    coincide — `/tmp/x` is its own JSON escaping — which is why one
+    replacement sufficed for years. On Windows they diverge: the raw path is
+    `C:\\Users\\...` and its JSON form is `C:\\\\Users\\\\...`, so the single
+    raw replacement left every `writes[].path` un-normalized and SK-4's
+    identical-suite comparison saw two different tempdirs, not an environment
+    effect. Escaped form first: it is the longer of the two."""
+    return (text.replace(json.dumps(str(tmp))[1:-1], "<TMP>")
+                .replace(str(tmp), "<TMP>"))
+
+
+def _sep(text: str) -> str:
+    """A path rendered separator-blind, for arms only.
+
+    Every expectation in this suite is written POSIX-style because the kit's
+    home is a POSIX box, but the tool emits NATIVE paths (correctly — a
+    descriptor's `cwd:` is consumed by spawn.js on the box that runs it). An
+    arm that hardcodes `/` is asserting the platform, not the behaviour."""
+    return text.replace("\\", "/")
+
+
+def _check_emission_bits(check, label: str, file_path: Path) -> None:
+    """dag-04's mode-bit arm, once, for both of its call sites.
+
+    POSIX mode bits do not exist on Windows: the filesystem carries a
+    read-only flag and nothing else, so `chmod(0o644)` lands as 0o666 and a
+    directory as 0o777 whatever was asked. Asserting 0644/0755 there measures
+    the OS, not this emitter. On Windows the arm REDUCES — loudly, in its own
+    printed label — to the one bit Windows does carry: the emitted file is
+    user-readable and user-writable, i.e. the emitter did not leave it
+    read-only. The full 0644/0755 assertion still runs everywhere else."""
+    import stat as _stat
+    mode = _stat.S_IMODE(file_path.stat().st_mode)
+    dmode = _stat.S_IMODE(file_path.parent.stat().st_mode)
+    detail = f"file={oct(mode)} folder={oct(dmode)}"
+    if os.name == "nt":
+        check(f"{label}  [REDUCED-ON-WINDOWS: this filesystem carries no "
+              f"POSIX mode bits — asserting user-rw instead of 0644/0755]",
+              bool(mode & _stat.S_IRUSR) and bool(mode & _stat.S_IWUSR)
+              and bool(dmode & _stat.S_IWUSR), detail)
+        return
+    check(label, mode == 0o644 and dmode == 0o755, detail)
 
 
 def _invoke(argv: list[str], env: dict) -> subprocess.CompletedProcess:
@@ -4134,7 +4178,10 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
             check("plan: workflow resolves to [alpha, beta] in manifest order",
                   green_json.get("added_seats") == ["alpha", "beta"],
                   str(green_json.get("added_seats")))
-            paths = [w["path"] for w in green_json.get("writes", [])]
+            # `_sep`: writes[] carries NATIVE paths — the suffixes below are
+            # POSIX-spelled, so the comparison is made separator-blind rather
+            # than the emitter made POSIX-only.
+            paths = [_sep(w["path"]) for w in green_json.get("writes", [])]
             kinds = [w["kind"] for w in green_json.get("writes", [])]
             # Per seat: descriptor THEN its AGENTS.md pointer, in emit order; then
             # the one registry append. Kinds are asserted too — a path pair alone
@@ -4194,11 +4241,10 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
                   f"new: {sorted(set(post) - set(pre))[:6]} "
                   f"modified: {sorted(modified)[:6]}")
             # dag-04 emission bits: file 0644, folder 0755.
-            import stat as _stat
             alpha_md = Path(fx["pkg"]) / "seats" / "alpha" / "seat.md"
-            check("dag-04: emitted seat.md is 0644 and its folder 0755",
-                  _stat.S_IMODE(alpha_md.stat().st_mode) == 0o644
-                  and _stat.S_IMODE(alpha_md.parent.stat().st_mode) == 0o755)
+            _check_emission_bits(
+                check, "dag-04: emitted seat.md is 0644 and its folder 0755",
+                alpha_md)
             # The tooling-gap filing block (owner ruling 2026-08-10). Both halves: the rule,
             # and the CONCRETE fallback path — a block naming no path routes nobody.
             alpha_agents = (alpha_md.parent / "AGENTS.md").read_text(encoding="utf-8")
@@ -4223,7 +4269,6 @@ def run_dag04_acceptance(check, env: dict) -> None:
     """dag-04's SC rows, each with the control that must be able to FAIL.
     Fixture-only (tempfile.TemporaryDirectory) — never a real run. The
     in-process red arms use render_descriptors' selftest-only knobs."""
-    import stat as _stat
 
     def _refusal(cp):
         try:
@@ -4333,8 +4378,9 @@ def run_dag04_acceptance(check, env: dict) -> None:
               str(list(afm)[:9]))
         check("B4 closed: cwd is the seat folder; ctx-refresh emitted in "
               "interactive mode",
-              afm.get("cwd") == f"{fx['pkg']}/seats/alpha/"
-              and afm.get("ctx-refresh") == 50)
+              _sep(afm.get("cwd") or "") == _sep(f"{fx['pkg']}/seats/alpha/")
+              and afm.get("ctx-refresh") == 50,
+              f"cwd={afm.get('cwd')!r} ctx-refresh={afm.get('ctx-refresh')!r}")
         check("SC-14 (first arm): mode: emitted on every descriptor",
               afm.get("mode") == "interactive"
               and bfm.get("mode") == "interactive")
@@ -4346,9 +4392,9 @@ def run_dag04_acceptance(check, env: dict) -> None:
                                        "done-contract")))
         check("F10 control: an interactive seat carries no one-shot boot "
               "text", "checkin" not in atext and "checkout" not in atext)
-        check("dag-04: emission bits are 0644 file / 0755 folder",
-              _stat.S_IMODE(alpha_md.stat().st_mode) == 0o644
-              and _stat.S_IMODE(alpha_md.parent.stat().st_mode) == 0o755)
+        _check_emission_bits(
+            check, "dag-04: emission bits are 0644 file / 0755 folder",
+            alpha_md)
 
     # ---- group 2: SC-4 (permissions hard gate) + SC-3 (empty assembly) --
     with tempfile.TemporaryDirectory() as td:
@@ -4833,7 +4879,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
               "the existing path; registry byte-identical",
               cp2.returncode == 1
               and _refusal(cp2).get("code") == "seat-exists"
-              and "seats/alpha" in (_refusal(cp2).get("path") or "")
+              and "seats/alpha" in _sep(_refusal(cp2).get("path") or "")
               and tf.read_bytes() == bytes_after_first,
               cp2.stdout.strip()[:200])
         # Topological order: scramble-flow's manifest lists b2 BEFORE its
@@ -5285,25 +5331,44 @@ def run_dag06_acceptance(check, env: dict) -> None:
         # gate PASSES reading the created file (provenance names 64) and the
         # launch fails only on the absent tmux pane — proving the FLOOR read
         # hits the created surface on the real path the control below flips.
-        cpl = coord(["--package", str(pkg), "--as", "chief-of-staff",
-                     "launch", "--only", "alpha"])
+        #
+        # ⚠ ARGV CORRECTED (task 7.634). This pair used to pass
+        # `--as chief-of-staff`, and was UNSATISFIABLE ON EVERY PLATFORM once
+        # coord.py's F17 entry bound landed: `cmd_launch`'s FIRST statement
+        # refuses an uncorroborated `--as` on any non-dry run, before it reads
+        # the package at all — and corroboration needs a registered roster row
+        # for a real tmux pane, which this hermetic suite can never have
+        # (SCRUBBED_ENV_VARS strips TMUX/TMUX_PANE from every child). So the
+        # arm was refused at the identity gate and never reached the floor
+        # read it exists to prove. The identity claim was never load-bearing
+        # for CP-6 — dropping it resolves 'no identity', and `--force` carries
+        # the ROLE gate and, by its own refusal text, nothing else: the memory
+        # gate still reads the created budget.json for real, and the launch
+        # still dies at the absent-tmux-pane gate, which is exactly what this
+        # row asserts. Gate verdicts print on stdout and the refusal on
+        # stderr, so both arms read the COMBINED output.
+        cpl = coord(["--package", str(pkg),
+                     "launch", "--only", "alpha", "--force"])
         check("CP-6: a REAL launch reads the created budget.json (floor "
               "provenance = 64) and refuses only for the absent tmux pane",
               cpl.returncode != 0
-              and "floors.launch_refuse_mb = 64" in cpl.stderr
-              and "not inside tmux" in cpl.stderr,
+              and "floors.launch_refuse_mb = 64" in (cpl.stdout + cpl.stderr)
+              and "not inside tmux" in (cpl.stdout + cpl.stderr),
               (cpl.stdout + cpl.stderr).strip()[:300])
         # CP-6 control: remove budget.json — the SAME real launch now
         # refuses for the undeclared floor. The surface list is load-bearing.
         (pkg / "budget.json").unlink()
-        cpl = coord(["--package", str(pkg), "--as", "chief-of-staff",
-                     "launch", "--only", "alpha"])
+        cpl = coord(["--package", str(pkg),
+                     "launch", "--only", "alpha", "--force"])
         check("CP-6 control: without budget.json the launch gate REFUSES "
               "for the undeclared floor (FloorUndeclared, "
               "r-floor-single-source)",
               cpl.returncode != 0
-              and "no budget.json" in cpl.stderr
-              and "r-floor-single-source" in cpl.stderr,
+              and "no budget.json" in (cpl.stdout + cpl.stderr)
+              and "r-floor-single-source" in (cpl.stdout + cpl.stderr)
+              # the discriminator: the floor is NOT read, so the green arm's
+              # provenance line is absent and the pane gate is never reached.
+              and "floors.launch_refuse_mb = 64" not in (cpl.stdout + cpl.stderr),
               (cpl.stdout + cpl.stderr).strip()[:300])
 
     # ---- group 2: CP-3 completion, CP-4 bar, tf-id red arms, gated
