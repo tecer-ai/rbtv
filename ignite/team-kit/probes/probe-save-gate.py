@@ -42,7 +42,34 @@ def check(label, cond):
 
 def run(argv, home):
     env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(Path(home) / ".config"))
-    return subprocess.run(argv, capture_output=True, text=True, timeout=180, env=env)
+    # encoding is PINNED: the gate's own output carries ⚠, and on Windows the default capture
+    # codec (cp1252) raises UnicodeDecodeError, leaving stderr None and every check below a
+    # TypeError instead of a verdict.
+    return subprocess.run(argv, capture_output=True, text=True, timeout=180, env=env,
+                          encoding="utf-8", errors="replace")
+
+
+def kit_siblings():
+    """Every kit module coord.py imports at MODULE level — derived, never listed by hand.
+
+    Listing them by hand is what broke this fixture twice: task 7.82 added `budget`, task 7.57
+    added `gateway_client`, and each time the copy site was swept a release late (the second one
+    reported as "the LIVE coord.py fails the gate" — production blamed for the probe's own kit).
+    Reading coord.py's own imports means the next sibling arrives for free.
+    """
+    kit = HERE.parent
+    names = set()
+    for node in ast.parse(LIVE_COORD.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.Import):
+            names.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return sorted(p for p in (kit / f"{n}.py" for n in names) if p.is_file())
+
+
+def stock_kit(dest, siblings):
+    for p in siblings:
+        shutil.copy2(p, dest / p.name)
 
 
 def sha(p):
@@ -63,14 +90,16 @@ def main():
         work = td / "kit"
         work.mkdir()
 
-        # ⚠ THE STAND-IN KIT MUST CARRY coord.py'S SIBLINGS, NOT ONLY coord.py. Since task 7.82
-        # coord.py imports budget.py at module level (the one reader of the run's declared floor),
-        # so a lone copy in an empty directory dies at import with ModuleNotFoundError — and this
-        # probe would then report "the LIVE coord.py fails the gate", blaming production for the
-        # probe's own incomplete fixture. Measured: that is exactly the 10-failure red of 17:00.
-        # The live file gates clean where it actually lives (`save-coord.py --check coord.py`
-        # exits 0); what changed is that a CANDIDATE now needs its siblings beside it.
-        shutil.copy2(HERE.parent / "budget.py", work / "budget.py")
+        # ⚠ THE STAND-IN KIT MUST CARRY coord.py'S SIBLINGS, NOT ONLY coord.py. coord.py imports
+        # kit modules at module level (budget since 7.82, gateway_client since 7.57), so a lone
+        # copy in an empty directory dies at import with ModuleNotFoundError — and this probe
+        # would then report "the LIVE coord.py fails the gate", blaming production for the probe's
+        # own incomplete fixture. Measured: exactly the 10-failure red of 17:00, and again on
+        # 2026-08-10 (task 7.669). The list is DERIVED from coord.py — see kit_siblings().
+        siblings = kit_siblings()
+        check("the stand-in kit carries every kit module coord.py imports at module level "
+              f"(found: {[p.name for p in siblings]})", len(siblings) >= 2)
+        stock_kit(work, siblings)
 
         # A stand-in target: a COPY of the live coord.py, so nothing here can touch the real one.
         target = work / "coord.py"
@@ -105,11 +134,15 @@ def main():
         # ---- 3 · imports fine, parser build dies ---------------------------
         # Appending to the module body would run at import; this instead breaks parser
         # CONSTRUCTION, which happens later — the half a bare import check would miss.
+        # ⚠ ANCHOR ON THE argparse API, NOT ON THE PARSER CLASS. The original anchor was
+        # `p = argparse.ArgumentParser(`; coord.py's build_parser() now constructs a local
+        # `_RefusingParser`, so the anchor matched nothing, the mutant was a byte-identical copy
+        # of a healthy file, and the arm went red for rot rather than for a regression (7.633).
         pmut = work / "mutant-parser.py"
         pmut.write_text(
-            live_src.replace('p = argparse.ArgumentParser(', 'p = argparse.NoSuchParser(', 1),
+            live_src.replace('p.add_subparsers(', 'p.add_subparsers_NO_SUCH_METHOD(', 1),
             encoding="utf-8")
-        broke_parser = 'argparse.NoSuchParser(' in pmut.read_text(encoding="utf-8")
+        broke_parser = 'p.add_subparsers_NO_SUCH_METHOD(' in pmut.read_text(encoding="utf-8")
         check("the parser mutant was actually constructed (the string it targets exists)",
               broke_parser)
         r = run([sys.executable, str(SAVE_COORD), "--check", str(pmut)], home)
@@ -186,7 +219,7 @@ def main():
         # protects. So: a second kit-shaped directory, importable, and DIFFERENT from the target's.
         far_dir = td / "elsewhere-kit"
         far_dir.mkdir()
-        shutil.copy2(HERE.parent / "budget.py", far_dir / "budget.py")
+        stock_kit(far_dir, siblings)
         far = far_dir / "elsewhere.py"
         far.write_text(live_src, encoding="utf-8")
         r = run([sys.executable, str(SAVE_COORD), "--candidate", str(far),
