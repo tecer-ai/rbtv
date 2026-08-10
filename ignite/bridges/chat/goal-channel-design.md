@@ -45,22 +45,22 @@ Three parts, each load-bearing:
    new capability. `conversations.create` returning `name_taken` is therefore not an error but
    the ADOPT path: resolve the existing channel by name and bind it.
 
-**v1 caller, disclosed:** the goal-registration hook does not exist tonight — task 7.63's
-`rbtv goal scaffold` is the natural caller and lands at m3. Under the pre-ruled degrade
-(`milestone-dag.md` §1 / this seat's briefing, Branch B3), the settled answer ships as the
-CALLABLE surface (`ensureGoalChannel`) with the hook as its named build follow-up; tonight's
-channel is created by an explicit call, not by a registration event. The answer is not
-degraded — only its caller is.
+**The caller (settled 2026-08-08, task C3): the daemon's ticker, at a goal's *run start*** —
+`server/ticker/goal-channel-start.js`, gated on `one-live-run.js#isRunStart` and on the goal
+resolving `interactive` through `seat-folder.js#goalKind` (owner ruling `d-owner-batch1` (2)).
+It launches the CLI's own `ensure` verb as a child process, so the boundary in (1) holds
+unchanged: the daemon composes an argv and never touches a token. Requires the systemd
+carrier — the credential reaches the child only as `EnvironmentFile=`, which the setsid
+carrier cannot set.
 
-> **SUPERSEDED 2026-08-08 (task C3).** The hook exists. It is NOT `rbtv goal scaffold`:
-> the caller is the daemon's ticker at a goal's *run start* — `server/ticker/
-> goal-channel-start.js`, gated on `one-live-run.js#isRunStart` and on the goal resolving
-> `interactive` through `seat-folder.js#goalKind` (owner ruling `d-owner-batch1` (2)). It
-> launches this file's own `ensure` verb as a child process, so the bound below holds
-> unchanged: the daemon composes an argv and never touches a token. Scaffold-time creation
-> was rejected because a goal may be scaffolded long before it ever runs, and an unrun
-> goal's channel is an empty room. Requires the systemd carrier — the credential reaches
-> the child only as `EnvironmentFile=`, which the setsid carrier cannot set.
+> **History (the pre-C3 degrade, superseded).** When this file was authored the
+> goal-registration hook did not exist: under the pre-ruled degrade (`milestone-dag.md` §1 /
+> this seat's briefing, Branch B3) the settled answer shipped as the CALLABLE surface
+> (`ensureGoalChannel`) with the hook as its named build follow-up, and the channel was
+> created by an explicit hand call. Task 7.63's `rbtv goal scaffold` was then named as the
+> natural caller; C3 rejected scaffold-time creation because a goal may be scaffolded long
+> before it ever runs, and an unrun goal's channel is an empty room. The answer was never
+> degraded — only its caller was, and C3 closed that.
 
 ### Membership — the owner is INVITED at real-goal-channel creation
 
@@ -123,8 +123,15 @@ drop the in-memory binding. Idempotent; `already_archived` is success.**
 - **Name reuse is NOT blocked by an archived channel** — Slack frees an archived channel's
   name, so a re-created goal of the same id re-derives the same name and gets a fresh channel.
   Stated because the name-derivation in (a) depends on it.
-- **Who calls it:** goal close, by the same machinery that registers the goal — symmetric with
-  (a), same caller, same missing-hook disclosure.
+- **Who calls it: NOBODY, YET — a NAMED, DATED GAP (recorded 2026-08-10, task 7.531).** The
+  retire half is implemented (`goal-channel-map.js#retire`, hand-callable via the CLI's
+  `retire` verb) but has NO machine caller: `ensureGoalChannel` got its hook at C3 (run start,
+  (a) above); the close half is still in the pre-C3 state — invoked by hand, not by an event.
+  **The trigger that closes this gap is goal/run CLOSE**: when the goal-close machinery
+  materializes, it calls the retire half symmetrically with (a)'s run-start hook — same
+  process boundary (the daemon composes `retire <goal-id>` argv, never touches a token).
+  Ruled DOCUMENTED-GAP rather than built on 2026-08-10 because a caller is a behavior change
+  needing design this task did not carry (conductor decision, task-batch-0810).
 
 **FLAG → registry transcription:** `concepts/channel.md` § v1 realization (close-time
 lifecycle) and `DEC-6`. Filed, not applied.

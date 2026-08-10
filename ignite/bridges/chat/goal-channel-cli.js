@@ -4,18 +4,18 @@
 // daemon itself invokes.
 //
 // `goal-channel-design.md` settles WHO creates a goal's channel (the bridge, at goal
-// registration) and WHAT happens at close (archive, never delete). This CLI was
-// authored as the stand-in caller under the pre-ruled degrade (milestone-dag §1 branch
-// B3) because no hook existed: same functions, same idempotence, invoked by hand
-// instead of by an event.
-//
-// ⚑ THAT IS NO LONGER THE ONLY WAY IN (task C3, 2026-08-08). `server/ticker/
-// goal-channel-start.js` composes `<node> <this file> ensure <goal>` and the daemon
-// launches it at an INTERACTIVE goal's run start — so `ensure` now has a machine caller
-// as well as a human one, and its argv is asserted BYTE-EXACT by
-// `server/ticker/probes/probe-goal-channel-start.js`. Renaming this file, moving it, or
-// changing the `ensure` verb's argument shape breaks that caller; the probe is what
-// catches it. The hand-invoked path is unchanged and still supported.
+// registration) and WHAT happens at close (archive, never delete). `ensure` has TWO
+// callers: the daemon's ticker at an INTERACTIVE goal's run start (`server/ticker/
+// goal-channel-start.js` composes `<node> <this file> ensure <goal>` — task C3,
+// 2026-08-08; the argv is asserted BYTE-EXACT by
+// `server/ticker/probes/probe-goal-channel-start.js`, so renaming this file, moving it,
+// or changing the `ensure` verb's argument shape breaks that caller and the probe is
+// what catches it) — and the hand-invoked path, unchanged and still supported.
+// History: this CLI was authored as the SOLE, stand-in caller under the pre-ruled
+// degrade (milestone-dag §1 branch B3) because no hook existed then: same functions,
+// same idempotence, invoked by hand instead of by an event. `retire` is still in that
+// pre-C3 state — hand-invoked only, no machine caller at goal close; the gap is named
+// and dated in `goal-channel-design.md` § (b).
 //
 // ⚑ SECRETS: `SLACK_BOT_TOKEN` comes from the environment and is NEVER printed,
 // logged, or echoed — not even truncated. The only identity this prints is the one
