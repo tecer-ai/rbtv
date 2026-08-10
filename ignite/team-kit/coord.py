@@ -5011,16 +5011,23 @@ def confirm_reap(base, seat, blocked):
 
 
 def set_closing(base, seat, closer):
-    """Mark `seat` as closing. Best-effort like every other coordination side-effect: a failure to
-    write must never abort a close that has already spawned its closer."""
+    """Mark `seat` as closing -> `(ok, detail)`. Best-effort like every other coordination
+    side-effect: a failure to write must never abort a close that has already spawned its closer.
+
+    7.102 (s12-09): THE BOUNDARY'S OWN REASON TRAVELS WITH THE VERDICT. This returned a bare
+    False, so the reason died here and `checkout_renew_arm`'s WARNING could only say the mute
+    could not be written — leaving a seat unable to tell a harness-classifier DENIAL from a FULL
+    DISK, two failures needing opposite responses. `detail` is "" on success and carries the
+    exception's own text on failure; the caller prints it verbatim rather than re-deriving it.
+    """
     try:
         with coord_lock(base):
             data = load_closing(base)
             data[seat] = {"since": now(), "closer": closer}
             atomic_write(closing_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
-        return True
-    except (OSError, ValueError):
-        return False
+        return True, ""
+    except (OSError, ValueError) as e:
+        return False, f"{type(e).__name__}: {e}"
 
 
 def clear_closing(base, seat):
@@ -8100,10 +8107,13 @@ def checkout_renew_arm(args, base, me):
             f"End this session with `{coord_invocation(args)} checkout` instead; leader relaunches "
             f"the seat if it must come back.",
             2)
-    if not set_closing(base, me, me):
-        print(c(f"WARNING the wake mute could NOT be written — your inbox is NOT narrowed and "
-                f"wakes keep arriving. The renewal below is still yours to finish; expect "
-                f"interruptions, and tell leader.", C_DEAD), file=sys.stderr)
+    # 7.102: the reason is printed VERBATIM from the boundary, never re-derived here — a second
+    # derivation is the skew this row exists to close.
+    _mute_ok, _mute_why = set_closing(base, me, me)
+    if not _mute_ok:
+        print(c(f"WARNING the wake mute could NOT be written ({_mute_why}) — your inbox is NOT "
+                f"narrowed and wakes keep arriving. The renewal below is still yours to finish; "
+                f"expect interruptions, and tell leader.", C_DEAD), file=sys.stderr)
     # ⚠ VERBATIM (stage-1-2-gate-checkout-spec.md §2.2), WITH ONE AMENDED PARAGRAPH. This text IS
     # the mechanism — it is the CLI teaching the seat the second step, and its wording, its order
     # and its line breaks are the spec's, not this function's. The minute figure is DERIVED from
@@ -24454,14 +24464,27 @@ def _selftest_checks(args, failures, names):
         check("s12-09 S9-a2: the arm's failure line is DISTINGUISHABLE from a coord.py refusal — "
               "it names the act that failed (the wake mute could not be written) and carries no "
               "`refused [coord` prefix, so a reader can tell 'the boundary write failed' from "
-              "'coord.py refused me'. ⚠ Known residue, surfaced to s12-05 and deliberately NOT "
-              "asserted either way: `set_closing` returns a bare False, so the boundary's OWN "
-              "reason string is dropped before this surface — the seat cannot tell a classifier "
-              "denial from a full disk. IMPLICATION FORM for red-arm isolation: the presence of "
-              "the failure line is S9-a1's subject, its grammar is this row's",
+              "'coord.py refused me'. ⚠ THE RESIDUE THIS ROW ONCE CARRIED IS CLOSED BY 7.102: "
+              "`set_closing` returned a bare False, so the boundary's OWN reason string died "
+              "before this surface and the seat could not tell a classifier denial from a full "
+              "disk. It now returns `(ok, detail)` and the WARNING carries that reason — which "
+              "S9-a4 below asserts, because that is where the claim is falsifiable. THIS row "
+              "stays deliberately silent about the reason: its subject is the failure line's "
+              "GRAMMAR (S9-a1 owns its presence), and folding the reason in here would fuse "
+              "three independent claims into one check that no single regression can red",
               "WARNING" not in _s9a_e
               or ("wake mute could NOT be written" in _s9a_e
                   and "refused [coord" not in _s9a_e))
+        check("s12-09 S9-a4 (7.102): THE BOUNDARY'S OWN REASON REACHES THE SEAT VERBATIM — the "
+              "arm's WARNING carries the classifier's exact refusal text, not merely the fact "
+              "that some write failed. THIS IS THE ROW THAT REDS IF THE REASON IS EVER DROPPED "
+              "AGAIN: the fixture raises its denial with a DISTINCTIVE string, and this asserts "
+              "that exact string surfaced, so losing `detail` anywhere between `set_closing` and "
+              "the print fails HERE and nowhere else — S9-a1 and S9-a2 both stay green on a bare "
+              "verdict, which is precisely why neither could carry this claim. What it buys the "
+              "seat: a harness denial and a full disk stop reading identically, and they need "
+              "opposite responses",
+              _s9_reason in _s9a_e)
         check("s12-09 S9-a3: NO HALF-WRITE — after the denied arm the roster row is still "
               "`active == yes` with no checkout stamp (the arm never flips it; the roster clause "
               "is also pinned by s12-05 S2-a, whose coverage it shares) and the seat's memory.md "
