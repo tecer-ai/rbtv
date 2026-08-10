@@ -67,7 +67,7 @@ anchor you resolve.
 ## 4 · Coordination and surfaces
 
 - The protocol governs checkin, messages, cursor, retraction, closes — follow it exactly.
-- **Single writer:** this folder's `CLAUDE.md` § Surface ownership is the map. Write ONLY inside your
+- **Single writer:** this folder's `CLAUDE.md` § "What exists in this folder, and who writes it" is the map. Write ONLY inside your
   row; for anything else, claim by message and wait (R-single-writer). A surface with no named writer
   is a collision waiting to be discovered — name one before you write, do not just write.
 - **`coord.py` custody is never seat-bound:** claim it BY MESSAGE on the bus before you change it,
