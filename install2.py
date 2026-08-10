@@ -113,6 +113,16 @@ D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10 — amends D8) — one of
     Strip rather than refuse, because the ruled recovery from a deleted basis is
     to repoint at the surviving GENERATED file: a refusal would break it.
 
+    ADOPTION (owner ruling, 2026-08-10, unblocking the same handover). A planned
+    MIRROR path that exists outside our book is ADOPTED — overwritten and booked
+    — when the file itself PROVES it is generated, by carrying a machine-
+    readable DO-NOT-EDIT banner (ours or `mirror.py`'s). Without that proof it
+    still refuses with `guidance-mirror-collision`. That boundary is the whole
+    point: the refusal protects HAND-AUTHORED guidance, and a file whose own
+    header says a tool wrote it is not that. Adoption is what let install2 take
+    the mirror over from `install.py`'s `model_mirror` on the maintainer's vault
+    without a human hand-deleting another tool's artifact.
+
     NOT PORTED — the old driver's root forced-read PREAMBLE. D8 already puts the
     forced read in `.agents/rbtv2-exposure.md` and reports the ONE pointer line
     for the human to place in the basis; the pointer therefore lives IN the
@@ -538,6 +548,17 @@ def strip_generated_banner(body: str) -> tuple[str, bool]:
     return "\n".join(lines), True
 
 
+def _is_generated_file(path: Path) -> bool:
+    """True when the file on disk PROVES it is a generated mirror — its own
+    machine-readable DO-NOT-EDIT banner says so (ours or mirror.py's). An
+    unreadable file proves nothing and is never adopted."""
+    try:
+        return strip_generated_banner(
+            path.read_text(encoding="utf-8").lstrip("\n"))[1]
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def plan_mirror(target: Path, basis: str | None,
                 excludes: list[str] | tuple[str, ...] = ()
                 ) -> tuple[dict[str, str], frozenset[str], list[str]]:
@@ -912,8 +933,23 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     ours_files = known_files(state)
     ours_claims = known_claims(state)
 
-    collisions = sorted(rel for rel in files
-                        if rel not in ours_files and (target / rel).exists())
+    # D13 ADOPTION — a planned MIRROR path that exists, is not in our book, but
+    # carries a machine-readable GENERATED banner is provably some tool's
+    # output, not authored guidance. The collision refusal exists to protect
+    # hand-authored files; adopting a provably-generated one is what lets the
+    # old installer's mirror hand over without a human deleting anything. A
+    # mirror-named file WITHOUT a provable banner still refuses.
+    collisions, adopted = [], []
+    for rel in files:
+        if rel in ours_files or not (target / rel).exists():
+            continue
+        if (rel.rsplit("/", 1)[-1] in GUIDANCE_MIRROR
+                and _is_generated_file(target / rel)):
+            adopted.append(rel)
+            continue
+        collisions.append(rel)
+    collisions.sort()
+    adopted.sort()
     # Key-level collisions inside shared files (D12).
     for claim in claims:
         cid = _claim_id(claim["path"], claim["key"])
@@ -973,7 +1009,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
 
     if dry_run:
         return {"written": [], "skipped": sorted(files), "deleted": stale_files,
-                "shared": sorted(planned_claims),
+                "shared": sorted(planned_claims), "adopted": adopted,
                 "shared_removed": stale_claims, "dry_run": True}
 
     written, skipped = [], []
@@ -997,7 +1033,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     _apply_shared(target, claims, stale_claims)
     return {"written": written, "skipped": skipped, "deleted": deleted,
             "shared": sorted(planned_claims), "shared_removed": stale_claims,
-            "dry_run": False}
+            "adopted": adopted, "dry_run": False}
 
 
 def _apply_shared(target: Path, claims: list[dict],
@@ -1271,6 +1307,9 @@ def print_result(data: dict) -> None:
         print(f"  - {rel}")
     for rel in data.get("shared_removed") or []:
         print(f"  ~- {rel}")
+    for rel in data.get("adopted") or []:
+        print(f"  ^ {rel} (adopted — it carries a GENERATED banner, so it is "
+              "another tool's mirror, not authored guidance; now ours)")
     report = data.get("report") or {}
     for row in report.get("skipped_inventory_rows") or []:
         print(f"  · skipped `{row['method']}` row {row['component']}/"
@@ -1916,6 +1955,69 @@ def selftest() -> int:
                   and (mtd / "a/b/AGENTS.md").read_text()
                   == "rendered by the OLD installer\n"
                   and not (mtd / ".claude").exists())
+
+        print("\nR4 — ADOPTION: a PROVABLY-generated foreign mirror is taken "
+              "over; an unproven one is still refused")
+        mta = tmp / "workspace13"
+        (mta / "deep").mkdir(parents=True)
+        (mta / "CLAUDE.md").write_text(basis_body, encoding="utf-8")
+        (mta / "deep/CLAUDE.md").write_text("# deep\n\nDeep guidance.\n",
+                                            encoding="utf-8")
+        # Byte-for-byte the shape install.py's model_mirror renders.
+        old_mirror = (
+            "<!-- AUTO-GENERATED MIRROR — DO NOT EDIT. Generated by rbtv "
+            "mirror.py from CLAUDE.md. -->\n\n"
+            "> [!danger] GENERATED FILE — DO NOT EDIT\n"
+            "> This `AGENTS.md` is an auto-generated mirror of `CLAUDE.md`.\n"
+            "\n---\n\n# Stale body from a month ago\n")
+        (mta / "AGENTS.md").write_text(old_mirror, encoding="utf-8")
+        (mta / "deep/AGENTS.md").write_text(
+            old_mirror.replace("CLAUDE.md", "deep/CLAUDE.md"), encoding="utf-8")
+        basis_hashes = {rel: hashlib.sha256((mta / rel).read_bytes()).hexdigest()
+                        for rel in ("CLAUDE.md", "deep/CLAUDE.md")}
+        resa = do_install(mta, catalog, ["fixmod/goodcomp"], list(HARNESSES),
+                          dry_run=False, guidance_basis="CLAUDE.md")
+        check("the old installer's mirror is ADOPTED, not refused, at any depth",
+              resa["adopted"] == ["AGENTS.md", "deep/AGENTS.md"],
+              str(resa.get("adopted")))
+        check("an adopted mirror is regenerated fresh from its own basis",
+              {"AGENTS.md", "deep/AGENTS.md"} <= set(resa["written"])
+              and (mta / "AGENTS.md").read_text().endswith(basis_body)
+              and "Stale body from a month ago"
+              not in (mta / "AGENTS.md").read_text(),
+              str(resa["written"]))
+        check("the adopted file carries exactly ONE banner — ours",
+              (mta / "AGENTS.md").read_text().count("DO NOT EDIT") == 1
+              and "AUTO-GENERATED MIRROR" not in (mta / "AGENTS.md").read_text())
+        check("adopted mirrors are booked, so uninstall can take them back",
+              {"AGENTS.md", "deep/AGENTS.md"}
+              <= set(read_state(mta)["guidance_files"]),
+              str(read_state(mta)["guidance_files"]))
+        check("adoption never touches a basis, at any depth",
+              all(hashlib.sha256((mta / rel).read_bytes()).hexdigest() == h
+                  for rel, h in basis_hashes.items()))
+        check("the run AFTER an adoption is idempotent",
+              do_install(mta, catalog, ["fixmod/goodcomp"], list(HARNESSES),
+                         dry_run=False)["written"] == [])
+        # The other side of the boundary: no banner → no proof → still refused.
+        mtb = tmp / "workspace14"
+        (mtb / "deep").mkdir(parents=True)
+        (mtb / "CLAUDE.md").write_text(basis_body, encoding="utf-8")
+        (mtb / "deep/CLAUDE.md").write_text("# deep\n", encoding="utf-8")
+        hand = "# AGENTS.md I wrote by hand\n\nDo not clobber this.\n"
+        (mtb / "deep/AGENTS.md").write_text(hand, encoding="utf-8")
+        try:
+            do_install(mtb, catalog, ["fixmod/goodcomp"], list(HARNESSES),
+                       dry_run=False, guidance_basis="CLAUDE.md")
+            check("a HAND-AUTHORED mirror-named file is never adopted", False,
+                  "no refusal raised — it was adopted")
+        except Refuse as exc:
+            check("a HAND-AUTHORED mirror-named file is never adopted",
+                  exc.code == "guidance-mirror-collision"
+                  and "deep/AGENTS.md" in exc.message, f"{exc.code}")
+            check("the hand-authored file is byte-identical after the refusal",
+                  (mtb / "deep/AGENTS.md").read_text() == hand
+                  and not (mtb / "AGENTS.md").exists())
 
         print("\nuninstall")
         res = do_uninstall(target, catalog, ["fixmod/goodcomp"], dry_run=False)
