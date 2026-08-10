@@ -28,6 +28,19 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   `lane` — the last being the DAEMON'S PICKUP BUTTON: one word in `<goal>/execution-lane` that the
   daemon's watch pass reads before every tick, `d-daemon-lane-button`).
   Contract: `capabilities/goals-tree/tool/README.md`.
+- **`attached-execution/`** — the ATTACHED lane, the **`rbtv run`** verb (`rbtv run <goal-folder>
+  --profile <name>`; entry point `capabilities/attached-execution/tool/rbtv-execution`, reached by
+  delegation from the TOP-LEVEL `rbtv` CLI — never `rbtv ignite`). Owner ruling
+  `d-attached-run-embedded-engine`: ONE implementation of workflow advancement, TWO attachments —
+  the SAME engine (`ignite/engine/`) the daemon runs, attached to the calling terminal instead of a
+  systemd unit; store at `<goal-folder>/heart.db`, dies with the terminal, recovery is the owner
+  re-running the verb (ruled — no watcher). Carries `--status` (console-run A3: the read-only
+  orientation surface — everything it prints is derived, it never creates the store, and it works
+  before the goal has ever run) and the foreground carrier (console-run B1: a held
+  human-interactive seat runs as a foreground child of the runner in YOUR terminal; the tick loop
+  blocks while it runs). Exit codes: `0` complete or tick bound reached · `1` refused or cannot
+  advance (`seat-failed`) · `3` a worker asked a question and the run handed it back. Contract:
+  `capabilities/attached-execution/attached-execution.md`.
 - **`goal-launch-delay/`** and **`master-profile/`** — the channel master's two self-service knobs
   (issue C-1, owner-ruled 2026-08-10): how long a master-created goal waits before its first
   workflow job fires, and which harness+model the master's next sitting runs on. Each is a **two-part

@@ -34,6 +34,18 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
   `--set daemon` requires `--profile`; flipping it mid-goal is the supported act. Contract in
   `tool/README.md`; the lane half also in `capabilities/attached-execution/attached-execution.md`
   § The daemon lane's goal pickup.
+- **`attached-execution`** (`ignite/capabilities/attached-execution/`) — the ATTACHED lane: the
+  **`rbtv run`** verb (`rbtv run <goal-folder> --profile <name>`; entry point
+  `tool/rbtv-execution`, delegated from the TOP-LEVEL `rbtv` CLI — never `rbtv ignite`). Owner
+  ruling `d-attached-run-embedded-engine`: ONE implementation of workflow advancement, TWO
+  attachments — the same engine (`ignite/engine/`) the daemon runs, attached to the calling
+  terminal instead of a systemd unit; store at `<goal-folder>/heart.db`, dies with the terminal,
+  recovery is the owner re-running the verb. Carries `--status` (the read-only orientation
+  surface — derived-only, never creates the store, works before a first run) and the foreground
+  carrier (a held human-interactive seat runs as a foreground child of the runner; the tick loop
+  blocks while it runs). Exit codes `0` complete or tick-bound · `1` refused or cannot advance
+  (`seat-failed`) · `3` a worker asked a question and the run handed it back. Contract in
+  `attached-execution.md`.
 - **`goal-creation-request`** (`ignite/capabilities/goal-creation-request/`) — the entry a
   goal-creation request arrives at: `validate`, `handle` (create → arm → launch), and
   `scaffold-and-queue`, the DAEMON-EXECUTED verb (task C2) that drains a staged request inbox,
@@ -192,6 +204,7 @@ delegated call's stdout, stderr and exit code are the delegate's, unchanged.
 rbtv ignite                      the module's components, its rules, and its action verbs
 rbtv ignite <component>          that component's entry point body + its invocable entry points
 
+rbtv run <goal-folder> (--profile NAME | --status)  -> capabilities/attached-execution
 rbtv ignite daemon start|restart|stop|kill|unit [--service ignite|chat-bridge|probe-suite]
                                                     -> capabilities/daemon-operator
 rbtv ignite watch  unit|start|restart|stop|kill|heartbeat-show|heartbeat-set
