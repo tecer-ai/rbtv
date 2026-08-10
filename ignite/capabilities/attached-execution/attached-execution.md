@@ -33,9 +33,14 @@ forever. It now returns `seat-failed` and names the seat.
 `done` / in-flight / `ready (next)` / waiting for the goal's seats, plus any seat **held for you**,
 and exits `0`. Read-only, no `--profile`, **no daemon**, and it works before the goal has ever run.
 
-Everything it prints is DERIVED — console-run design ruling 2: there is no new state file, no
-engine breadcrumb, no session-maintained doc. Sources: the goal's `taskforce.csv`, its own
-`heart.db` *if one exists*, the seat descriptors, and the `execution-mode` file.
+Everything it prints is DERIVED — console-run design ruling 2: no engine breadcrumb, no
+session-maintained doc, nothing written in order to be read back later. Sources: the goal's
+`taskforce.csv`, the goal's **execution record** (`executions.csv` — the completion authority both
+lanes write, § below), its own `heart.db` *if one exists*, the seat descriptors, and the
+`execution-mode` file. ⚠ The record is not an exception to ruling 2 and it is worth saying why: it is
+not orientation state maintained for a reader's benefit, it is the OUTCOME of each execution written
+by the lane that witnessed it — the same class of artifact as `sessions.csv`. Ruling 2 bars a second
+copy of what the run can compute; the record carries what a single lane's store cannot know.
 
 - **It never creates the store.** Opening a heart store creates and migrates it, so a status call
   before the first run would leave a `heart.db` behind and make *"has this goal ever run?"*
@@ -229,54 +234,96 @@ time**, released on the normal path and on a signal, and only ever released if i
 - **Belt and braces:** if a foreign writer ever ends a foreground row anyway, the carrier REFUSES to
   overwrite the terminal row and says so, rather than replacing another writer's outcome silently.
 
-## The cross-lane refusal — v1, and it has a retirement date
+## The goal's execution record — ONE place answers "did this seat finish"
 
-**Owner ruling `decisions.md#d-s18-cross-lane-refusal`, closing S-18.** Each lane keeps its own heart
-store, and seeding is create-only **within a store** — so a goal half-run in one lane and picked up by
-the other RE-RUNS finished seats. Measured, not feared (`probe-cross-lane-resume.js` D2: the attached
-lane re-ran a seat the daemon store recorded as done, under the most generous key-matching assumption
-available). v1 answer: **a lane refuses a goal carrying execution evidence its own store cannot
-account for, naming what it found.**
+**Owner ruling `decisions.md#d-s23-single-execution-record-now`** (pulling forward the Phase-6 task
+filed by `#d-s18-cross-lane-refusal`, and closing the `done`-vs-`exited` question S-23).
 
-**What counts as evidence, and why it is not the obvious thing.** "The goal folder has a
-`sessions.csv`" is NOT lane-discriminating: an attached run's own detached seats go through the daemon
-spawn path and write exactly those rows. The deciding fact is the **join**: a trace row for a seat of
-this taskforce whose `session-id` no execution in **this goal's own store** owns. That is the cheapest
-honest detector available today, and it needs no new record.
+`<goal-folder>/executions.csv` is the goal's **execution record**: one row per seat execution, opened
+at dispatch and closed with its outcome, written by **every lane that runs the goal's seats** and read
+by **every lane before it seeds**. A seat finished in one lane is not re-run by the other.
 
-- It **refuses before the goal is touched** — before the run lock and before the store.
-- It reads the goal's store **only if one already exists** (same bar `--status` holds), and reads it
-  **READ-ONLY, through a `readOnly` sqlite handle rather than `openHeartStore`**: the store's
-  constructor sets WAL pragmas and runs migrations, so going through it would have migrated an
-  out-of-date store — before the lock, i.e. behind a live runner's back — as the price of declining
-  to run. Probed on a store stamped `user_version = 0`: it stays 0, and the file stays byte-identical.
-  (⚠ The accepted price, measured: a WAL reader must create `heart.db-wal`/`-shm`, and a read-only
-  connection cannot remove them, so a refusal leaves those two sidecars beside the store. They are
-  deliberately NOT deleted — this runs before the lock, and unlinking another live runner's `-wal`
-  loses committed transactions. Litter over data loss.)
-- **The claim is scoped to the CURRENT taskforce's seats.** Trace rows are filtered against
-  `taskforce.csv`, so a row for a seat since renamed or dropped is invisible to the guard: *"evidence
-  its own store cannot account for"* means the seats the goal has now, not the whole file. The
-  direction is safe — it under-refuses rather than blocking a goal over a seat it no longer has.
-- **No store at all + trace rows gets its OWN message and its own remedies** (`rm heart.db` on a goal
-  this very lane ran lands here). Blaming "another lane" there is false and unactionable, so the
-  refusal says what is true — the trace names launched sessions nothing can account for — and offers
-  the three honest options: restore the store, move `sessions.csv` aside consciously and accept the
-  re-run, or start a fresh goal.
-- **`--status` never refuses.** Orientation is read-only, and a goal you cannot run is the goal you
-  most need to orient on.
-- It also catches a seat **run by hand** (a team-kit tmux sitting writes its own row through
-  `coord.py`). That is the same hazard in another coat — work this store has no record of — so the
-  message says what was measured rather than asserting which lane wrote it.
-- **The daemon direction is VACUOUSLY HELD, and that was measured rather than assumed.** One function
-  seeds a goal's taskforce (`seedTaskforce`) and its only non-probe caller is the attached lane's own
-  boot, so there is no daemon-side path that could pick up a goal and re-run its seats. A symmetric
-  refusal on that side would be dead code today; it becomes live the moment anything under `server/`
-  seeds a taskforce.
-- ⚠ **v1, with its successor already filed.** The full fix is Phase-6 work in
-  `rbtv-sb-merge-refactor-migrate` — *"Build the lane-independent execution record so a goal can move
-  between the daemon and console lanes"*: both lanes read/write ONE goal-folder record, and **this
-  guard retires when it lands**. Do not grow it into that record.
+| column | what it carries |
+|---|---|
+| `seat` | the taskforce seat — the CROSS-LANE identity. Never a job id: `seat-<name>` is unique in a per-goal store and is not unique in the daemon's, which holds every goal at once. |
+| `session-id` | the join key back to both operational surfaces (`jobs_log.session_id`, `sessions.csv`). It makes the record a POINTER to the evidence, and makes an append idempotent. |
+| `lane` | `attached` \| `daemon` — **derived** from where the writing store sits (CMP-2 § Two store kinds), never declared by a caller. |
+| `started` / `ended` | from the execution; an empty `ended` means the row is still open. |
+| `outcome` | the store's OWN turn vocabulary, `done` \| `blocked` \| `failed` \| `killed` — no new words. `done` is the only value that stops another lane re-running the seat. |
+
+**Why this is not a mirror of two stores (`PRIN-11`).** The two `heart.db` files stay each lane's
+operational store — queue, turns, messages, liveness. Exactly one question moves here, completion, and
+it moves whole: every reader that asks "is this seat done" asks this file. A lane's own store is still
+consulted by that lane as its local no-double-fire guard (create-only seeding is unchanged), which can
+only ADD done-ness — so the union can never cause a double run, only decline to re-run something a
+lane already ran.
+
+**Where `sessions.csv` stands, unchanged.** The trace stays **launch/lifecycle accounting**: one row
+per launched session, closed by whoever witnessed the termination — a fact about a PROCESS, which is
+why a foreground row closes `exited`/`kit` and never `done`. The record carries the **outcome** — a
+fact about the WORK. That is the S-23 divergence dissolving: two surfaces, two questions, one answer
+each, and neither overloaded into the other.
+
+**Who writes it, and when.**
+
+- **At the tick**, for every seat execution in the writing store (`engine/index.js` -> `publishToRecord`).
+  The publish sits at the ONE thing both lanes call, rather than at each place a turn ends — so no hook
+  is needed in the completion path, the crash sweep, the kill path or the spawn door, and a completion
+  written by any of them reaches the record on the next cadence. Accepted bound: **a lag of one tick**
+  between a completion and the shared record. A record write that fails is logged and never fatal.
+- **At the dispatching act**, for a foreground seat, because that call BLOCKS for as long as the human
+  works and the publish would not come round again until the seat is over.
+- **At boot, before seeding — the ADOPTION pass.** The lane publishes its own store's history first, so
+  a goal that ran before this record existed carries its finished seats into it instead of re-running
+  them.
+
+**Who reads it.** `seatState` (the ONE eligibility predicate — so the enqueue pass, the foreground
+carrier and `--status` all inherit it), `evaluateExit`, and `engine.seedGoal`. `--status` reads it
+**without opening any store**, so it reports a seat the daemon finished on a goal this lane has never
+run (`everRun: false`, seats already `done`).
+
+**ponytail:** the close is an unlocked read-modify-write of the whole file — the same accepted bound
+`closeForegroundSessionRow` carries, for the same reason (no JS binding for coord's `coord_lock`). The
+only losing interleaving is two lanes stamping ONE goal's record in the same millisecond, and the loser
+is a stamp the next publish re-applies from the store.
+
+## The daemon lane's goal pickup — built, with its trigger named as the follow-on
+
+Until this build **the daemon lane had no path that seeds a goal's taskforce at all** (measured: one
+seeding function, one non-probe caller — the attached lane's own boot). Seeding has been moved out of
+this capability into `engine/seeding.js`, unchanged in behaviour, because none of it was ever a
+property of the terminal a run is attached to; the engine BOTH lanes boot now exposes it:
+
+```js
+engine.seedGoal({ goalFolder, goal, profile })   // -> { seats, skippedAsFinished, enqueued, states }
+```
+
+It publishes, reads the record, seeds create-only, and enqueues only what is due — skipping every seat
+the record says is finished, whichever lane finished it. Job ids are **namespaced per goal**
+(`seat-<goal>-<seat>`) for a shared store, because `seat-<name>` collides across goals there; the
+attached lane passes no namespace and its ids are byte-identical to what it has always written, so
+every goal already on disk resumes exactly as before. **Cross-lane identity never rides on the job id**
+— it rides on the seat name in the record.
+
+⚠ **THE FOLLOW-ON, stated as the measured bound rather than implied to be done: nothing under
+`server/` CALLS `seedGoal` yet.** The daemon picks a goal up when something tells it to, and *what
+tells it* is an owner-facing arming question (arming is per-package today — `edge-fastpath.json` — and
+deliberately unreachable from a flag), not a decision this build was asked to invent. Until it lands:
+the daemon lane **writes** the record on every tick and **can seed on demand**, but does not adopt goal
+folders by itself. The seam is this one call.
+
+## The cross-lane refusal — RETIRED (it was v1, and this is its retirement)
+
+`assertNoCrossLaneEvidence` — the S-18 guard that refused a goal carrying execution evidence its own
+store could not account for — is **deleted** with this build, exactly as its own pointer comment said
+it would be. The guard refused because it could not tell WHICH seats the other lane had finished; the
+record tells it, so the crossover is **resumed** instead of refused.
+
+⚠ **The one case the guard covered that the record does not**, stated rather than quietly dropped: a
+seat run **by hand** in a tmux sitting writes a `sessions.csv` row and no record row, so it is
+invisible to the record and the seat WILL be re-run. Closing such a seat is one outcome row in
+`executions.csv` — the same act every lane performs. Measured as an arm, not assumed
+(`probe-cross-lane-resume.js` D4, "BOUND").
 
 ## What it runs
 
@@ -294,9 +341,11 @@ never reaching argv · the pure-mechanism boundary intact.
 
 ## Resume, and the absence of a watcher
 
-State lives in `<goal-folder>/heart.db`. Re-running the verb reopens it and continues: job
-registration is create-only and a seat that already has an execution row is never re-enqueued, so a
-re-run is a **resume, not a replay**. Proven by SIGKILLing a live run and re-running it
+State lives in `<goal-folder>/heart.db`, and completion in `<goal-folder>/executions.csv`.
+Re-running the verb reopens the store and continues: job registration is create-only and a seat that
+already has an execution row is never re-enqueued, so a re-run is a **resume, not a replay** — and
+since `#d-s23-single-execution-record-now` that rule reaches ACROSS LANES, because the record is read
+before seeding (§ The goal's execution record). Proven by SIGKILLing a live run and re-running it
 (`ignite/engine/probes/probe-engine-library.js`, section C3c).
 
 ⚠ **No watcher runs for an attached lane, and that is RULED rather than missing**
@@ -337,24 +386,27 @@ with a shipped profile. Mutations, all red: no-op the trace row · unpin one pro
 model on one profile · **no-op the closer** · close with `done` instead of `exited`. `tty` is
 REPORTED, never asserted — a probe cannot own a terminal.
 
-`ignite/engine/probes/probe-cross-lane-resume.js` — **B3's negative verdict, and now the S-18 guard
-that answers it.** Cross-lane resume does not hold in either direction: the daemon lane has no path
-that seeds a goal's taskforce into its own store (one seeding function, one non-probe caller), and the
-attached lane re-ran a seat the daemon store recorded as done, under the most generous key-matching
-assumption available. Nothing under `server/` asks whether a seat is `human-interactive`, so a held
-seat dispatched by the daemon lane is spawned as an ordinary detached child and the `fallback:` it is
-required to declare can fire nowhere. The daemon-side behavioural half is a **measured refusal**: it
-needs a live daemon, a gateway and an armed `edge-fastpath.json`, and the probe says so instead of
-faking it. Section **D4** measures the refusal built on that basis — the message names the seat and
-the session id, no store or lock is left behind, `--status` still answers, and the guard is proven
-DISCRIMINATING by a pair: give the goal's own store an execution for that session id and the very same
-goal runs, while a goal the attached lane ran itself (two trace rows, one per carriage) is never
-refused. It also measures the store-PRESENT refusal path (an out-of-date store is left out of date)
-and the absent-store message. Mutations, all red: disable the guard · make it ignore the store join ·
-no-op the foreground trace row · read the store through the migrating `openHeartStore` · drop the
-absent-store branch. ⚠ The byte-identity check ALONE was proven **non**-discriminating by that
-fourth mutation — `openHeartStore` leaves an already-current store byte- and mtime-identical — which
-is why the arm asserts an unstamped `user_version` instead.
+`ignite/engine/probes/probe-cross-lane-resume.js` — **B3's verdict, REPURPOSED onto the record that
+answers it.** It measured a negative until 2026-08-10 (cross-lane resume did not hold in either
+direction); its arms now measure the resume, behaviourally, in both:
+
+- **D1 attached -> daemon.** The attached lane runs the goal; the record carries `alpha=done/attached`;
+  a DAEMON-rooted engine then seeds the same goal folder and **skips alpha, enqueues bravo**. This is
+  the half that could only be measured structurally before.
+- **D2 daemon -> attached.** A daemon-side execution is synthesized and published **through the real
+  writer** (`publishToRecord`, the call every daemon tick makes); the attached lane then runs the goal
+  and re-runs nothing. **Discriminating mutation:** blank alpha's `outcome` cell in the record and the
+  very same fixture re-runs the seat — so the skip tracks the recorded outcome and not the file's
+  existence, the seat's name, or the trace.
+- **D4** measures that a goal carrying another lane's evidence RUNS (the v1 refusal is gone), that
+  `--status` answers `done` off the record with no store at all, the false-positive **control** (the
+  attached lane re-running its own goal re-fires nothing), and the **BOUND** (a trace row with no
+  record row neither refuses nor stops a re-run).
+- **D3 is unchanged** and still negative: nothing under `server/` asks whether a seat is
+  `human-interactive`, so a held seat dispatched by the daemon lane is spawned as an ordinary detached
+  child and its `fallback:` can fire nowhere (that gap is task 7.626, ruled by `#d-s19`).
+- The remaining **measured bound** is reported as a finding rather than dressed up: `seedGoal` exists
+  and is proven, and nothing under `server/` calls it yet.
 
 `ignite/engine/probes/probe-attached-status.js` — the `--status` verb (A3).
 

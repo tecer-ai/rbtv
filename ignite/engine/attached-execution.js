@@ -21,6 +21,10 @@
 //     until ANY worker asks a question, then RETURNS — the registry's own sentence.
 //  3. RESUME. Re-running the verb reopens the same store and continues. Nothing is replayed:
 //     seeding is create-only and a seat that already has an execution row is never re-enqueued.
+//     Since #d-s23-single-execution-record-now that create-only rule reaches ACROSS LANES: the
+//     goal's own `executions.csv` (engine/execution-record.js) is the completion authority both
+//     lanes publish to and read before seeding, so a seat finished by the daemon is not re-run
+//     here — and the v1 refusal that used to stand in for that record is retired with this build.
 //     There is NO WATCHER for this lane and that is RULED, not missing
 //     (decisions.md#d-attached-lane-no-watcher): recovery IS the owner re-running this command.
 //  4. THE SUBSTRATE SEAM. Asserted FIRST, before any POSIX construct is reachable — see
@@ -36,6 +40,15 @@ const { loadConfig } = require('../server/spawn/config');
 // same pair the daemon's at-dispatch row goes through. Not the minimal `readCsv` below: a
 // `sessions.csv` carries quoted fields, and a positional parse of it is wrong today.
 const { readCsv: readTraceCsv, appendRow: appendTraceRow } = require('../server/seat-identity/csv');
+// The lane-independent SEEDING machinery — moved out of this file, unchanged in behaviour, because
+// none of it was ever a property of the terminal a run is attached to (see seeding.js's header).
+const {
+  readCsv, jobIdFor, seedTaskforce, executionsByJob, seatIsFinished, seatHasRun,
+  seatState, SEAT_STATES, enqueueEligible,
+} = require('./seeding');
+// THE GOAL'S EXECUTION RECORD — the one place any lane's reader asks "did this seat finish"
+// (owner ruling decisions.md#d-s23-single-execution-record-now).
+const { finishedSeats, openExecution, closeExecution, publishToRecord, laneOf } = require('./execution-record');
 
 // The goal folder's shape is the goals tree's (CMP-4), not ours to redefine. GOAL-DIRECT since
 // 7.607 (design-lock items 7-8 — the `runs/run-{n}` segment is extinguished, not optional):
@@ -45,13 +58,11 @@ const GOAL_FOLDER_RE = /[/\\]\.rbtv[/\\]goals[/\\][^/\\]+[/\\]?$/;
 const STORE_FILENAME = 'heart.db';
 const TASKFORCE = 'taskforce.csv';
 // The goal's LAUNCH TRACE — one row per launched session, schema owned by `coord.py SESSIONS_COLS`
-// (task 7.37). Read here by the cross-lane guard, written here by the foreground carrier.
+// (task 7.37). Written AND closed here by the foreground carrier (S-20); the cross-lane guard that
+// used to read it is retired (see below). It is lifecycle accounting — the OUTCOME lives in the
+// goal's execution record, `executions.csv`.
 const SESSIONS_CSV = 'sessions.csv';
 
-// Every turn status the store knows (heart-store TURN_STATUSES). Enumerated so "is this seat
-// finished" is answered from the store's OWN partition of jobs_log rather than from a guess about
-// which statuses exist — a list that drifts from the store's is a silent mis-answer.
-const ALL_TURN_STATUSES = ['launching', 'running', 'done', 'blocked', 'failed', 'stalled', 'killed'];
 // A turn that is still the engine's business. `stalled` is LIVE on purpose: it means "the owner
 // should look", never "the work is over" (the store's own note on TERMINAL_TURN_STATUSES), so a
 // stalled seat must not let the run report itself complete.
@@ -62,22 +73,6 @@ const TERMINAL_TURN_STATUSES = ['done', 'blocked', 'failed', 'killed'];
 
 function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-}
-
-// Minimal CSV read — the taskforce file is written by `rbtv goal` with plain comma-joined fields
-// and no embedded commas or quotes. Reading it with a general CSV parser would be a dependency
-// bought for a shape this repo already writes by hand (goal_cli.py write_csv).
-function readCsv(file) {
-  const text = fs.readFileSync(file, 'utf8');
-  const lines = text.split('\n').filter((l) => l.trim().length);
-  if (!lines.length) return [];
-  const cols = lines[0].split(',').map((c) => c.trim());
-  return lines.slice(1).map((line) => {
-    const cells = line.split(',');
-    const row = {};
-    cols.forEach((c, i) => { row[c] = (cells[i] === undefined ? '' : cells[i]).trim(); });
-    return row;
-  });
 }
 
 function resolveGoalFolder(input) {
@@ -118,263 +113,27 @@ function assertNotTheDaemonStore(storePath, spawnConfig) {
   }
 }
 
-// ── Seeding: the taskforce IS the workflow ────────────────────────────────────────────────────
+// ── S-18 · THE CROSS-LANE REFUSAL, v1 — RETIRED (owner ruling #d-s23-single-execution-record-now)
 //
-// `taskforce.csv` already carries one row per seat with an `after` column naming the seat it
-// follows. That column IS the wave structure — nothing new is invented here, and no second
-// scheduler is written: seeding only decides WHICH seats are eligible now, and the ticker decides
-// what actually launches and how many run at once (`max_live_agent_sessions` — the parallel wave).
+// This is where `crossLaneEvidence` / `assertNoCrossLaneEvidence` stood: a refusal that read the
+// launch trace, joined its `session-id`s against this goal's own store, and DECLINED to run a goal
+// carrying execution evidence its store could not account for. Its own pointer comment said it
+// retires when the lane-independent record lands, and the record has landed — so it is DELETED
+// rather than left as a second, weaker answer to the question `executions.csv` now answers.
 //
-// The PROFILE is not derived from the row's `harness`/`model`. Mapping an elected (model, variant)
-// onto exactly one profile NAME is task 7.54's catalog, and inventing a second mapping here is the
-// drift that DEC-1's shared-profile-source ruling exists to prevent. So the profile is passed by
-// NAME by the caller, resolved from the ONE shared config — which keeps all four properties the
-// widened sole-spawn gate kept: a pinned NAMED profile from the one shared config, picked by name,
-// caller free text never reaching argv, and the pure-mechanism boundary intact.
-function jobIdFor(seat) {
-  return `seat-${seat}`;
-}
-
-function seedTaskforce(heartStore, goalFolder, { profile, logger }) {
-  const tfPath = path.join(goalFolder, TASKFORCE);
-  if (!fs.existsSync(tfPath)) {
-    throw new Error(
-      `${tfPath}: no taskforce — an attached run executes the run's seats, and the taskforce is ` +
-      `where they are declared (CMP-4 goals tree). Nothing to run.`
-    );
-  }
-  const rows = readCsv(tfPath).filter((r) => r.seat);
-  if (!rows.length) throw new Error(`${tfPath}: no seat rows`);
-
-  // CREATE-ONLY, and that is what makes a re-run a RESUME rather than a replay. registerJob is
-  // create-only in the store (it throws E_JOB_EXISTS); a second boot finds every job already
-  // registered and registers nothing.
-  for (const row of rows) {
-    const jobId = jobIdFor(row.seat);
-    if (heartStore.getJob(jobId)) continue;
-    heartStore.registerJob({
-      jobId,
-      actionType: 'launch-agent',
-      function: `attached-execution seat ${row.seat}`,
-      // `required`/`optional` are OBJECTS of name -> type, not arrays — the store parses them
-      // that way (parseArgsSchema) and REFUSES an array. Registration is strict on purpose: a
-      // schema a future enqueue could never satisfy is what campaign issue S-2(a) was.
-      argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string', prompt: 'string' } }),
-      description: `seat ${row.seat} of ${row.taskforce_id || row['taskforce-id'] || 'this run'}`,
-      createdAt: isoNow(),
-      updatedAt: isoNow(),
-    });
-    if (logger) logger({ level: 'info', message: 'registered seat job', jobId, seat: row.seat });
-  }
-  return rows;
-}
-
-// The execution picture, read ONCE per pass from the store's own partition of jobs_log.
+// WHAT REPLACES IT, and why the replacement is not a refusal at all: the guard refused a goal
+// BECAUSE it could not tell which seats the other lane had finished. The record tells it — by seat,
+// with the outcome, in the goal folder both lanes already write to — so the crossover is RESUMED
+// instead of refused: the finished seats are skipped, the rest run here. The probe arms that
+// measured the refusal now measure the resume, in both directions
+// (probes/probe-cross-lane-resume.js § D4).
 //
-// `relaunch` is the ONE-SHOT RELAUNCH GRANT (console-run B1): a seat named in it is presented to
-// the predicate WITHOUT its execution history, so a seat whose last attempt died reads `ready`
-// again. The grant hides the rows from THIS VIEW only — nothing in the store is rewritten, so the
-// failed attempt stays on the record it was written to. A FINISHED seat is never hidden: a grant
-// must not be able to re-run completed work, and that is enforced here rather than trusted to the
-// caller who typed the seat name.
-function executionsByJob(heartStore, relaunch = null) {
-  const byJob = new Map();
-  for (const status of ALL_TURN_STATUSES) {
-    for (const row of heartStore.listExecutionsByStatus(status)) {
-      const list = byJob.get(row.job_id) || [];
-      list.push(row);
-      byJob.set(row.job_id, list);
-    }
-  }
-  if (relaunch) {
-    for (const seat of relaunch) {
-      const jobId = jobIdFor(seat);
-      if (!seatIsFinished(byJob.get(jobId))) byJob.delete(jobId);
-    }
-  }
-  return byJob;
-}
-
-function seatIsFinished(rows) {
-  return Boolean(rows) && rows.some((r) => r.status === 'done');
-}
-
-function seatHasRun(rows) {
-  return Boolean(rows) && rows.length > 0;
-}
-
-// THE ELIGIBILITY PREDICATE, in ONE place. Both the enqueue pass and the read-only status verb
-// answer "what is this seat's state right now" from here — a second copy of the wave math is a
-// status surface that can disagree with the engine it reports on, which is worse than no surface.
-//
-//   done     a finished execution exists
-//   live     an execution exists that has not finished (running / stalled / failed / …)
-//   queued   a pending queue row exists
-//   ready    never fired, and its `after` is done — the next thing the engine enqueues
-//   waiting  never fired, and its `after` is not done
-const SEAT_STATES = ['done', 'live', 'queued', 'ready', 'waiting'];
-
-function seatState(row, byJob, queued) {
-  const jobId = jobIdFor(row.seat);
-  const mine = byJob.get(jobId);
-  if (seatIsFinished(mine)) return 'done';
-  if (seatHasRun(mine)) return 'live';
-  if (queued.has(jobId)) return 'queued';
-  const after = (row.after || '').trim();
-  if (after && !seatIsFinished(byJob.get(jobIdFor(after)))) return 'waiting';
-  return 'ready';
-}
-
-// Enqueue every seat whose `after` dependency has finished and which has never been fired. Returns
-// the seats enqueued this pass.
-//
-// `isHeld` is the ONE place the engine can DETACH a human-interactive seat, and it is where it is
-// stopped (console-run ruling 1: such a seat is dispatched through the foreground carrier or not at
-// all). Skipping it here rather than filtering the rows earlier keeps the wave math on the WHOLE
-// taskforce — a held seat still blocks its dependents exactly as it would if it had been queued.
-function enqueueEligible(heartStore, rows, { profile, goalFolder, logger, isHeld = null, relaunch = null }) {
-  const byJob = executionsByJob(heartStore, relaunch);
-  const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
-  const enqueued = [];
-
-  for (const row of rows) {
-    const jobId = jobIdFor(row.seat);
-    if (seatState(row, byJob, queued) !== 'ready') continue;
-    if (isHeld && isHeld(row.seat)) continue;
-    if (relaunch) relaunch.delete(row.seat);
-
-    const after = (row.after || '').trim();
-    const seatDir = path.join(goalFolder, 'seats', row.seat);
-    heartStore.enqueue({
-      jobId,
-      args: JSON.stringify({ profile, workdir: seatDir }),
-      sessionMode: 'headless',
-      triggerKind: 'scheduled',
-      runAt: isoNow(),
-      enqueuedBy: 'attached-execution',
-    });
-    enqueued.push(row.seat);
-    if (logger) logger({ level: 'info', message: 'enqueued seat', seat: row.seat, after: after || null });
-  }
-  return enqueued;
-}
-
-// ── S-18 · THE CROSS-LANE REFUSAL, v1 (owner ruling decisions.md#d-s18-cross-lane-refusal) ────
-//
-// MEASURED BASIS (probe-cross-lane-resume.js): create-only seeding is create-only WITHIN A STORE,
-// and the two lanes keep two disjoint stores — the attached lane's `<goal>/heart.db` and the
-// daemon's `{state_root}/heart.db`. So a goal half-run in one lane and picked up by the other
-// RE-RUNS finished seats. Owner ruled v1 = REFUSE the crossover, naming the evidence found.
-//
-// THE DETECTOR, and why this one rather than something cheaper-looking. The obvious candidate —
-// "does the goal folder carry `sessions.csv` rows?" — is NOT lane-discriminating: an attached run's
-// own DETACHED seats go through the daemon spawn path and write exactly the same rows. What IS
-// discriminating is WHICH STORE the launch was recorded in, and the trace carries the join key for
-// that question: `session-id`. So the evidence of another lane is a launch trace row for a seat of
-// THIS taskforce whose session-id no execution in THIS goal's own store owns.
-//
-// It follows that the guard also catches a seat run BY HAND (a team-kit tmux sitting writes its own
-// `sessions.csv` row through coord.py). That is not a miss — it is the same hazard wearing another
-// coat: work was executed against this goal that this lane's store has no record of, and re-running
-// the seat would re-do it. The message therefore says what was MEASURED ("not recorded in this
-// goal's own store") rather than asserting which lane wrote it.
-//
-// ⚠ v1, WITH A SUCCESSOR ALREADY FILED. The full fix is Phase-6 work in the migrate member
-// (`rbtv-sb-merge-refactor-migrate`): "Build the lane-independent execution record so a goal can
-// move between the daemon and console lanes" — both lanes read/write ONE goal-folder record, and
-// THIS FUNCTION RETIRES when it lands. Do not grow it into that record.
-//
-// ⚠ THE SCOPE, NARROWED AND SAID SO (review F6): the trace rows are filtered to the seats of the
-// CURRENT `taskforce.csv`, so a row for a seat that has since been renamed or dropped from the
-// taskforce is INVISIBLE to this guard. That is the safe direction — the guard under-refuses rather
-// than blocking a goal over a seat it no longer has — but it means "evidence its own store cannot
-// account for" is a claim about the CURRENT taskforce's seats, not about the whole file.
-//
-// ⚠ THE STORE IS READ **READ-ONLY**, and not through `openHeartStore` (review F4). The store's
-// constructor sets WAL pragmas and RUNS MIGRATIONS: a refusal that went through it would have
-// migrated an outdated store — behind a live runner's back, since this runs before the lock — as the
-// price of declining to run. So this reads the one column it needs through a `readOnly` sqlite
-// handle, which cannot write, cannot migrate, and leaves the file byte-identical. The cost is one
-// SQL literal outside the store module; the alternative was mutating a store in order to refuse it.
-//
-// ⚠ MEASURED, and disclosed rather than cleaned up: a READ-ONLY connection to a WAL database
-// creates `heart.db-wal` / `heart.db-shm` beside it (a WAL reader must map the shared-memory index)
-// and CANNOT remove them on close, so a refusal leaves those two sidecars behind. They are not
-// deleted here on purpose — the guard runs BEFORE the run lock, so a delete could remove the
-// sidecars of ANOTHER live runner's connection, and unlinking a live `-wal` loses committed
-// transactions. Litter is the cheaper failure than data loss. The store file itself is untouched:
-// byte-identical, mtime unchanged, `user_version` unstamped (probed).
-function ourSessionIds(storePath) {
-  const { DatabaseSync } = require('node:sqlite');
-  const db = new DatabaseSync(storePath, { readOnly: true });
-  try {
-    return new Set(db.prepare('SELECT DISTINCT session_id FROM jobs_log WHERE session_id IS NOT NULL')
-      .all().map((r) => r.session_id));
-  } finally {
-    db.close();
-  }
-}
-
-function crossLaneEvidence(goalFolder) {
-  const tracePath = path.join(goalFolder, SESSIONS_CSV);
-  const tfPath = path.join(goalFolder, TASKFORCE);
-  if (!fs.existsSync(tracePath) || !fs.existsSync(tfPath)) return [];
-  const seats = new Set(readCsv(tfPath).map((r) => r.seat).filter(Boolean));
-  const rows = readTraceCsv(tracePath).rows
-    .filter((r) => r['session-id'] && seats.has(r.seat));
-  if (!rows.length) return [];
-
-  // The goal's own store is read ONLY if it already exists — the same bar `--status` holds: a
-  // refusal must not leave a `heart.db` behind on a goal that never ran, which would make "has this
-  // goal ever run?" unanswerable from disk forever after. Absent store + trace rows ⇒ every one of
-  // them is unaccounted-for by construction, and the message says THAT rather than blaming a lane.
-  const storePath = path.join(goalFolder, STORE_FILENAME);
-  const storeExists = fs.existsSync(storePath);
-  // Fail-CLOSED on an unreadable store: a store we cannot query cannot clear the evidence, and
-  // admitting the run because the check broke is the one direction this guard must never take.
-  const ours = storeExists ? ourSessionIds(storePath) : new Set();
-  return rows
-    .filter((r) => !ours.has(r['session-id']))
-    .map((r) => ({ seat: r.seat, sessionId: r['session-id'], started: r.started || '', workdir: r.workdir || '', storeExists }));
-}
-
-function assertNoCrossLaneEvidence(goalFolder) {
-  const foreign = crossLaneEvidence(goalFolder);
-  if (!foreign.length) return;
-  const tracePath = path.join(goalFolder, SESSIONS_CSV);
-  const storePath = path.join(goalFolder, STORE_FILENAME);
-  const named = foreign.slice(0, 6)
-    .map((e) => `  seat ${e.seat}  session ${e.sessionId}${e.started ? `  started ${e.started}` : ''}`)
-    .join('\n') + (foreign.length > 6 ? `\n  … and ${foreign.length - 6} more` : '');
-
-  // TWO CASES, TWO REMEDIES (review F5). Blaming "another lane" when the store is simply GONE is
-  // both false and unactionable — `rm heart.db` on a goal this lane itself ran lands here, and the
-  // operator needs to be told what is actually true and what they can do about it.
-  if (!foreign[0].storeExists) {
-    throw new Error(
-      `REFUSING TO RUN: ${tracePath} records ${foreign.length} launched session(s) for this ` +
-      `taskforce's seats, and this goal has NO heart store at all (${storePath} does not exist) — so ` +
-      `nothing here can say what those sessions did:\n${named}\n` +
-      `Running now would re-fire every seat from scratch, on top of work that already happened. ` +
-      `What is true: the TRACE says these seats were launched; the record of what came of them is ` +
-      `missing. Your options, in order of preference: restore the goal's heart.db (a backup, or the ` +
-      `machine that ran it); or — if you have decided those sessions no longer count — move ` +
-      `${SESSIONS_CSV} aside consciously and re-run, accepting the re-run; or start a fresh goal. ` +
-      `\`rbtv run <goal> --status\` still works here.`
-    );
-  }
-  throw new Error(
-    `REFUSING TO RUN: ${tracePath} records ${foreign.length} launched ` +
-    `session(s) for this taskforce's seats that this goal's own store (${storePath}) ` +
-    `has NO execution for — so they were run by ANOTHER LANE (the daemon), or by hand:\n${named}\n` +
-    `Each lane keeps its own heart store and seeding is create-only WITHIN a store, so running this ` +
-    `goal here would RE-RUN work that lane already finished (measured: engine/probes/probe-cross-lane-resume.js). ` +
-    `v1 refuses the crossover (decisions.md#d-s18-cross-lane-refusal); the lane-independent execution ` +
-    `record that makes a goal portable between lanes is Phase-6 work. Finish the goal in the lane that ` +
-    `started it, or start a fresh goal. \`rbtv run <goal> --status\` still works here — orientation is ` +
-    `read-only and never refuses.`
-  );
-}
+// ⚠ THE ONE CASE THE GUARD COVERED THAT THE RECORD DOES NOT, stated rather than quietly dropped: a
+// seat run BY HAND in a tmux sitting writes a `sessions.csv` row and NO execution record row, so it
+// is invisible to the record and the seat will be re-run. That is the same bound every "the work
+// happened somewhere nothing recorded it" case has, and it is now the ONLY one — the guard's other
+// case (a real lane) is answered rather than refused. A hand-run seat that must not be re-run is
+// closed the way any lane closes one: by an outcome row in the record.
 
 // ── ONE RUNNER PER GOAL, ENFORCED (review finding 1, wave-B review) ───────────────────────────
 //
@@ -670,10 +429,10 @@ function closeForegroundSessionRow({ goalFolder, sessionId, logger = null }) {
   }
 }
 
-function nextHeldReadySeat(heartStore, rows, isHeld, relaunch) {
+function nextHeldReadySeat(heartStore, rows, isHeld, relaunch, done = null) {
   const byJob = executionsByJob(heartStore, relaunch);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
-  return rows.find((row) => isHeld(row.seat) && seatState(row, byJob, queued) === 'ready') || null;
+  return rows.find((row) => isHeld(row.seat) && seatState(row, byJob, queued, { done }) === 'ready') || null;
 }
 
 function runForegroundSeat({
@@ -722,6 +481,13 @@ function runForegroundSeat({
   appendForegroundSessionRow({
     goalFolder, seat, sessionId, harness: harnessOf(profile), workdir: seatDir, logger,
   });
+  // S-23: and the goal's EXECUTION RECORD, in the same act. Written here rather than left to the
+  // per-tick publish for one reason that is specific to this carriage: this call BLOCKS for as long
+  // as the human works, so the publish pass does not come round again until the seat is over. The
+  // other lane must be able to see, while that is happening, that this seat is taken.
+  openExecution({
+    goalFolder, seat, sessionId, lane: laneOf(heartStore.dbPath, goalFolder), startedAt: isoNow(),
+  });
 
   const res = spawnForeground(argv, seatDir) || {};
   const exitCode = typeof res.status === 'number' ? res.status : null;
@@ -730,6 +496,11 @@ function runForegroundSeat({
   // …and its CLOSE half, from the one witness of the termination. Before the execution row is
   // touched: an unclosed trace row is what makes a finished seat read as an open sitting forever.
   closeForegroundSessionRow({ goalFolder, sessionId, logger });
+  // The record's outcome, from the same witness. The TRACE says the process ended (`exited` — a
+  // fact about a process, which is all an exit code can attest); the RECORD says what became of the
+  // WORK, in the store's own turn vocabulary. That is the `done`-vs-`exited` divergence dissolving:
+  // two surfaces, two questions, one answer each (#d-s23-single-execution-record-now).
+  closeExecution({ goalFolder, sessionId, outcome: ok ? 'done' : 'failed', endedAt: isoNow() });
 
   // ⚠ SOMEONE ELSE MAY HAVE ENDED OUR ROW WHILE THE HUMAN WORKED (review finding 1, second half).
   // The run lock makes that unreachable now; this stays because the alternative to noticing is
@@ -799,7 +570,7 @@ function reconcileForegroundOrphans(heartStore, { logger = null, endedAt = new D
 // status verb already does (greedy thread pairing in msg_id order), and one correlation shared by
 // the surface that REPORTS a question and the loop that STOPS on it is the only way the two can
 // agree about what is open.
-function evaluateExit(heartStore, rows, relaunch = null) {
+function evaluateExit(heartStore, rows, relaunch = null, done = null) {
   const asks = unansweredAsks(heartStore.dump().messages);
   if (asks.length) {
     return { done: true, reason: 'question', asks };
@@ -810,7 +581,11 @@ function evaluateExit(heartStore, rows, relaunch = null) {
   if (heartStore.listQueue().length) return { done: false, live: 0 };
 
   const byJob = executionsByJob(heartStore, relaunch);
-  const unfinished = rows.filter((r) => !seatIsFinished(byJob.get(jobIdFor(r.seat))));
+  // FINISHED IS THE RECORD'S ANSWER, then this store's own — the same union `seatState` takes, so
+  // "is this run complete" cannot disagree with "is this seat done" (a goal whose remaining seats
+  // were finished in the OTHER lane is complete, and says so instead of reporting them unfinished).
+  const isFinished = (seat) => (done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat)));
+  const unfinished = rows.filter((r) => !isFinished(r.seat));
   if (unfinished.length === 0) return { done: true, reason: 'complete' };
 
   // Nothing live, nothing queued, and seats still unfinished. Either a dependency chain is
@@ -819,7 +594,7 @@ function evaluateExit(heartStore, rows, relaunch = null) {
   // return to its caller, which is a terminal with a person at it.
   const stuck = unfinished.filter((r) => {
     const after = (r.after || '').trim();
-    return after && !seatIsFinished(byJob.get(jobIdFor(after)));
+    return after && !isFinished(after);
   });
   if (stuck.length === unfinished.length) {
     return { done: true, reason: 'blocked', unfinished: unfinished.map((r) => r.seat) };
@@ -897,6 +672,10 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
     );
   }
   const rows = readCsv(tfPath).filter((r) => r.seat);
+  // THE COMPLETION AUTHORITY, read before the store and independently of it: `--status` answers
+  // "what is done" from the goal's execution record, so it reports a seat the DAEMON finished on a
+  // goal this lane has never opened a store for (`everRun` false, seats already done).
+  const done = finishedSeats(goalFolder);
 
   const storePath = path.join(goalFolder, STORE_FILENAME);
   const everRun = fs.existsSync(storePath);
@@ -922,7 +701,7 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
   const executionMode = goalExecutionMode(workspaceRoot, path.basename(goalFolder));
 
   const seats = rows.map((row) => {
-    const state = seatState(row, byJob, queued);
+    const state = seatState(row, byJob, queued, { done });
     const humanInteractive = seatIsHumanInteractive(goalFolder, row.seat);
     // INTERRUPTED, and it is not a sixth seat state. A foreground row still `launching` belongs to
     // a runner that is gone (a foreground child cannot outlive its terminal), so `live` — true by
@@ -1003,11 +782,6 @@ async function executeAttached({
     );
   }
 
-  // S-18, BEFORE THE LOCK AND BEFORE THE STORE. Before the lock because this refusal is read-only
-  // and must not leave a lock file behind on its way out; before the store for the reason the lock
-  // is: a refusal that first creates and migrates a heart store has already changed the goal.
-  assertNoCrossLaneEvidence(goalFolder);
-
   // THE LOCK, BEFORE THE STORE IS OPENED. Refusing after opening it would already have created and
   // migrated a store behind a live runner's back.
   const runLock = acquireRunLock(goalFolder);
@@ -1038,6 +812,13 @@ async function executeAttached({
   process.on('SIGTERM', onSignal);
 
   try {
+    // THE ADOPTION PASS, BEFORE SEEDING (#d-s23-single-execution-record-now). This store's own
+    // history is published into the goal's execution record first, so a goal that ran before this
+    // record existed carries its finished seats into it rather than re-running them; and the read
+    // below sees everything BOTH lanes have published. Fail-CLOSED: if the record cannot be written
+    // we do not silently fall back to the store-only answer, because that answer is exactly the
+    // double-run this build exists to end.
+    publishToRecord(engine.heartStore, { logger });
     const rows = seedTaskforce(engine.heartStore, goalFolder, { profile, logger });
     const resumedAtTick = engine.getTickNumber();
     const intervalMs = tickIntervalMs || 10000;
@@ -1052,7 +833,10 @@ async function executeAttached({
       // THE FOREGROUND CARRIER, ahead of the enqueue pass and BLOCKING: while this seat's session
       // owns the terminal nothing else in this run advances, which is the design's own sentence.
       // One per pass — the terminal is serial, and the next pass picks up the next held seat.
-      const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants);
+      // Re-read each pass: our own tick publishes to it, and the other lane may be writing to it
+      // while we run. One small file read per pass, against a decision that must not be stale.
+      const done = finishedSeats(goalFolder);
+      const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants, done);
       if (held) {
         grants.delete(held.seat);            // the grant is SPENT at the launch, never re-read
         foreground.push(runForegroundSeat({
@@ -1068,11 +852,11 @@ async function executeAttached({
         }));
       }
 
-      enqueueEligible(engine.heartStore, rows, { profile, goalFolder, logger, isHeld, relaunch: grants });
+      enqueueEligible(engine.heartStore, rows, { profile, goalFolder, logger, isHeld, relaunch: grants, done });
       await engine.tick(now());
       ticks += 1;
 
-      const verdict = evaluateExit(engine.heartStore, rows, grants);
+      const verdict = evaluateExit(engine.heartStore, rows, grants, finishedSeats(goalFolder));
       if (verdict.done) {
         return {
           host,
@@ -1130,8 +914,6 @@ module.exports = {
   spawnForegroundInTerminal,
   acquireRunLock,
   runnerAlive,
-  crossLaneEvidence,
-  assertNoCrossLaneEvidence,
   appendForegroundSessionRow,
   closeForegroundSessionRow,
   FOREGROUND_ENQUEUER,

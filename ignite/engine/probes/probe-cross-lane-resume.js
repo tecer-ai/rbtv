@@ -8,21 +8,28 @@
 // `heart.db` stores? And what becomes of a human-interactive seat on the daemon side, where there
 // is no terminal for it to reach?
 //
-// ⚠⚠ THE ANSWER THIS PROBE MEASURES IS A NEGATIVE ONE, and it is filed rather than dressed up:
-// **cross-lane resume does not hold today.** Create-only seeding is create-only WITHIN A STORE, and
-// the two lanes keep two disjoint stores (CMP-2 § Two store kinds) with no lane-independent
-// execution record in the goal folder between them. Each direction below is measured, and the one
-// that cannot be run in a daemon-less fixture says exactly where it stops rather than being faked.
+// ⚠⚠ WHAT THIS PROBE MEASURED UNTIL 2026-08-10 WAS A NEGATIVE: cross-lane resume did not hold, in
+// either direction, because create-only seeding is create-only WITHIN A STORE and the two lanes
+// keep two disjoint stores (CMP-2 § Two store kinds). The owner then ruled the fix BUILT
+// (`decisions.md#d-s23-single-execution-record-now`): ONE goal-folder-resident execution record —
+// `<goal>/executions.csv` — that both lanes publish to and read before seeding. So the arms below
+// are REPURPOSED, and the flip is the acceptance:
+//
+//   · D1/D2 flip from measuring the DOUBLE RUN to measuring correct CROSS-LANE RESUME, both
+//     directions, behaviourally.
+//   · D4 flips from measuring the v1 REFUSAL (`assertNoCrossLaneEvidence`, which declined the
+//     crossover) to measuring that the crossover is RESUMED. The function it measured is DELETED
+//     with this build, so those arms could not have survived unchanged.
 //
 // WHAT IS SUBSTITUTED, disclosed up front (`bars.md` 10):
-//   · No daemon runs here. Direction 1's daemon-side pickup is measured STRUCTURALLY — at the one
-//     function that seeds a taskforce, and at its call sites — because the behavioural half needs a
-//     live daemon, a gateway and an ARMED `coordination/edge-fastpath.json`, none of which a probe
-//     may stand up. That boundary is REPORTED, not papered over.
-//   · Direction 2's daemon-side history is SYNTHESIZED into the daemon store under the ATTACHED
-//     lane's own job-id spelling (`seat-<name>`) — the most generous assumption available, since
-//     the daemon's seat sessions are not keyed by seat name at all. The finding survives the
-//     generosity, which is the point of granting it.
+//   · No daemon PROCESS runs here. Both daemon-side halves are exercised at the ENGINE the daemon
+//     boots (`createEngine` — the same call `server/index.js` makes) against a store placed at a
+//     DAEMON data root, which is exactly what makes a lane the daemon's (`execution-record.laneOf`).
+//     What a live daemon adds on top is its unit, its gateway and its arming; none of the three
+//     touches the seeding or record decisions measured here. The TRIGGER bound is reported at D1.
+//   · Direction 2's daemon-side history is SYNTHESIZED into the daemon store and then published
+//     through the REAL writer (`publishToRecord`), never hand-written into the record file: the arm
+//     is only worth something if the daemon's own path is what wrote it.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -45,6 +52,8 @@ const findings = [];
 function finding(s) { findings.push(s); lines.push(`FINDING  ${s}`); }
 
 const attached = require('../attached-execution');
+const record = require('../execution-record');
+const { createEngine } = require('../index');
 const { openHeartStore } = require('../../server/heart/heart-store');
 
 // Every .js/.py under the module, minus vendored code — the enumerator a structural claim must go
@@ -143,7 +152,7 @@ async function main() {
   // that merely NAME the trace. The control proves the pattern finds a real reader where one exists.
   const TRACE_READ = /['"]sessions\.csv['"]/;      // quotes only — a backticked mention is prose
   const traceReadersAnywhere = filesMatching(TRACE_READ);
-  check('D1 …and since S-18 the ENGINE reads it too — the refusal below is that read',
+  check('D1 …and the ENGINE both writes and reads it — the foreground carrier opens and closes a row',
     traceReadersAnywhere.includes('engine/attached-execution.js')
       && traceReadersAnywhere.includes('server/spawn/spawn.js'),
     `readers: ${traceReadersAnywhere.join(', ')}`);
@@ -156,68 +165,104 @@ async function main() {
     /alpha/.test(tracedSeats) && /bravo/.test(tracedSeats),
     traceRows.slice(1).map((r) => r.split(',').slice(0, 3).join(',')).join(' | ') || 'empty');
 
-  const daemonStore = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
-  const daemonKnows = daemonStore.dump().jobs_log.filter((r) => /^seat-/.test(r.job_id));
-  check('D1 the DAEMON lane\'s store knows NOTHING of what the attached lane did',
-    daemonKnows.length === 0,
-    `${daemonKnows.length} seat row(s) in ${daemonStorePath}`);
+  {
+    const daemonStore = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+    const daemonKnows = daemonStore.dump().jobs_log.filter((r) => /^seat-/.test(r.job_id));
+    check('D1 the DAEMON lane\'s store knows NOTHING of what the attached lane did — two stores, still',
+      daemonKnows.length === 0,
+      `${daemonKnows.length} seat row(s) in ${daemonStorePath}`);
+    daemonStore.close();   // the in-process E_SECOND_WRITER guard: one handle on this file at a time
+  }
 
-  // The structural half, through the enumerator rather than a guess: what could seed a daemon
-  // store from this goal's taskforce? Exactly one function does that seeding, and its only
-  // non-probe call site is the attached lane's own boot.
-  const seeders = filesMatching(/seedTaskforce\s*\(/);
-  check('D1 ONE function seeds a taskforce, and ONLY the attached lane calls it',
-    seeders.join() === 'engine/attached-execution.js', seeders.join(', ') || 'none');
-  finding('D1 the daemon lane has NO path that seeds a goal\'s taskforce into its own store, so a '
-    + 'goal half-run attached cannot be "picked up" by the daemon at all — the pickup is not '
-    + 'degraded, it is absent. What the daemon lane advances is a QUEUE (armed edge-fastpath rows, '
-    + 'the goal-watcher), never a taskforce.');
-  say('MEASURED REFUSAL — D1\'s behavioural half stops HERE, and this is exactly where: exercising a');
-  say('  daemon-side pickup needs a live daemon unit, its gateway, and an ARMED');
-  say('  <goal>/coordination/edge-fastpath.json. A probe may stand up none of the three (arming is');
-  say('  per-package and deliberately unreachable from an env var or a flag — edge-runner-job.py).');
-  say('  So the claim above is made at the seeding function, which is where the pickup would have to');
-  say('  happen, and no behavioural claim about the daemon lane is made from this fixture.');
+  // THE RECORD ITSELF — the file this build is. Written by the attached lane's own run above; the
+  // probe hand-writes nothing into it.
+  const recordRows = record.readExecutionRecord(goalFolder).rows;
+  check('D1 the goal folder carries the EXECUTION RECORD, written by the lane that ran the seats',
+    recordRows.length > 0 && recordRows.every((r) => r.lane === 'attached'),
+    recordRows.map((r) => `${r.seat}=${r.outcome || 'open'}/${r.lane}`).join(' ') || 'empty');
+  check('D1 alpha is DONE in the record — the answer that used to live only in this lane\'s heart.db',
+    record.finishedSeats(goalFolder).has('alpha'),
+    `finished: ${[...record.finishedSeats(goalFolder)].join(', ') || 'none'}`);
+
+  // THE PICKUP, BEHAVIOURALLY — the half that could only be measured structurally before, and the
+  // reason it can be measured now: seeding stopped being attached-lane machinery (engine/seeding.js)
+  // and the engine BOTH lanes boot exposes it. The store below sits at the DAEMON data root, which
+  // is what makes this the daemon's lane rather than a second attached run.
+  const daemonEngine = createEngine({
+    dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+  });
+  let pickup;
+  try {
+    pickup = daemonEngine.seedGoal({ goalFolder, goal: 'lane-goal', profile: 'probe-lane' });
+  } finally {
+    daemonEngine.close();
+  }
+  check('D1 the DAEMON lane can SEED A GOAL FOLDER — the path that did not exist at all before',
+    pickup.seats.join() === 'alpha,bravo', JSON.stringify(pickup.seats));
+  check('D1 …and it SKIPS the seat the attached lane finished — read from the RECORD, not from a store',
+    pickup.skippedAsFinished.includes('alpha') && !pickup.enqueued.includes('alpha'),
+    `skipped ${JSON.stringify(pickup.skippedAsFinished)} · enqueued ${JSON.stringify(pickup.enqueued)}`);
+  say('MEASURED BOUND — what a live daemon adds that this fixture does not: THE TRIGGER. `seedGoal`');
+  say('  is a function, and nothing under server/ calls it yet — which goals the daemon picks up by');
+  say('  itself is an owner-facing arming question (per-package today, edge-fastpath), deliberately');
+  say('  not invented by this build. The pickup PATH is measured here; the thing that fires it is a');
+  say('  named follow-on (capabilities/attached-execution/attached-execution.md § the follow-on).');
 
   // ── D2 · DAEMON first, then the attached lane ───────────────────────────────────────────────
   say('');
   say('D2 — a seat already finished on the DAEMON side, then the goal is run ATTACHED');
 
-  // Synthesized under the ATTACHED lane's OWN job-id spelling — the most generous assumption
-  // available. If create-only seeding were going to carry across lanes anywhere, it would be here.
-  daemonStore.registerJob({
-    jobId: attached.jobIdFor('alpha'),
-    actionType: 'launch-agent',
-    function: 'daemon-side seat alpha',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string' } }),
-    description: 'a seat the DAEMON lane finished',
-    createdAt: isoNow(),
-    updatedAt: isoNow(),
-  });
-  const daemonExec = daemonStore.recordExecutionStart({
-    jobId: attached.jobIdFor('alpha'),
-    actionType: 'launch-agent',
-    args: JSON.stringify({ profile: 'probe-lane' }),
-    enqueuedBy: 'daemon',
-    sessionMode: 'headless',
-    firedTick: 1,
-    firedAt: new Date(),
-  });
-  daemonStore.endTurnAndCloseSession(daemonExec.exec_id, { turnStatus: 'done', sessionStatus: 'closed', endedAt: new Date() });
-  check('D2 the daemon store now records alpha as DONE (synthesized, and disclosed as such)',
-    daemonStore.dump().jobs_log.some((r) => r.job_id === attached.jobIdFor('alpha') && r.status === 'done'));
-  daemonStore.close();
-
   // A SECOND goal folder, never run attached, so the attached lane meets a seat the daemon
   // "already finished" and nothing else.
   const freshGoal = path.join(workspace, '.rbtv', 'goals', 'lane-goal-2');
-  for (const s of ['alpha', 'bravo']) fs.mkdirSync(path.join(freshGoal, 'seats', s), { recursive: true });
+  for (const s2 of ['alpha', 'bravo']) fs.mkdirSync(path.join(freshGoal, 'seats', s2), { recursive: true });
   fs.mkdirSync(path.join(freshGoal, 'coordination'), { recursive: true });
   fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(freshGoal, 'taskforce.csv'));
-  for (const s of ['alpha', 'bravo']) {
-    fs.copyFileSync(path.join(goalFolder, 'seats', s, 'seat.md'), path.join(freshGoal, 'seats', s, 'seat.md'));
+  for (const s2 of ['alpha', 'bravo']) {
+    fs.copyFileSync(path.join(goalFolder, 'seats', s2, 'seat.md'), path.join(freshGoal, 'seats', s2, 'seat.md'));
   }
   fs.writeFileSync(path.join(freshGoal, 'execution-mode'), 'interactive\n');
+
+  // The daemon's own history for that goal, SYNTHESIZED — job id in the daemon's namespaced
+  // spelling (`seat-<goal>-<seat>`, which is what a store holding every goal must use), workdir at
+  // the seat's real home, which is the column the record derives goal+seat from in both lanes.
+  const DAEMON_SESSION = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  {
+    const daemonStore = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+    const daemonJobId = `seat-lane-goal-2-alpha`;
+    daemonStore.registerJob({
+      jobId: daemonJobId,
+      actionType: 'launch-agent',
+      function: 'daemon-side seat alpha',
+      argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string' } }),
+      description: 'a seat the DAEMON lane finished',
+      createdAt: isoNow(),
+      updatedAt: isoNow(),
+    });
+    const daemonExec = daemonStore.recordExecutionStart({
+      jobId: daemonJobId,
+      actionType: 'launch-agent',
+      args: JSON.stringify({ profile: 'probe-lane' }),
+      enqueuedBy: 'daemon',
+      sessionMode: 'headless',
+      firedTick: 1,
+      firedAt: new Date(),
+      sessionId: DAEMON_SESSION,
+      workdir: path.join(freshGoal, 'seats', 'alpha'),
+    });
+    daemonStore.endTurnAndCloseSession(daemonExec.exec_id, { turnStatus: 'done', sessionStatus: 'closed', endedAt: new Date() });
+    check('D2 the daemon store records alpha as DONE (synthesized, and disclosed as such)',
+      daemonStore.dump().jobs_log.some((r) => r.job_id === daemonJobId && r.status === 'done'));
+
+    // …and the DAEMON'S OWN WRITER publishes it — not the probe. This is the call `engine.tick()`
+    // makes on every daemon cadence, run here directly because no daemon process is up.
+    const published = record.publishToRecord(daemonStore);
+    check('D2 the DAEMON lane publishes that outcome into the GOAL FOLDER\'s record',
+      published.closed.includes('alpha=done')
+        && record.readExecutionRecord(freshGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon' && r.outcome === 'done'),
+      JSON.stringify(published));
+    daemonStore.close();
+  }
 
   const reran = [];
   await attached.executeAttached({
@@ -228,16 +273,41 @@ async function main() {
     maxTicks: 1,
     spawnForeground: (argv, cwd) => { reran.push(cwd); return { status: 0 }; },
   });
-  check('D2 the attached lane RE-RUNS a seat the daemon lane already finished',
-    reran.length === 1 && reran[0] === path.join(freshGoal, 'seats', 'alpha'),
-    JSON.stringify(reran));
-  finding('D2 create-only seeding protects against a REPLAY WITHIN ONE STORE and gives no '
-    + 'cross-lane protection whatever: the attached lane re-seeded and re-ran a seat the daemon '
-    + 'store recorded as done, under the most generous key-matching assumption available. Two lanes '
-    + 'over one goal folder can each run the same seat once. NOT a defect in either lane — neither '
-    + 'was ever given a shared record to read — and the fix is a ruling, not a patch: either a '
-    + 'lane-independent execution record in the goal folder, or an explicit refusal when a goal '
-    + 'carries evidence of the other lane.');
+  // THE FLIP. This arm asserted the double run until the record landed; it now asserts the resume.
+  check('D2 the attached lane does NOT re-run a seat the DAEMON lane finished — it reads the record',
+    reran.length === 0, `foreground launches: ${JSON.stringify(reran)}`);
+  check('D2 …and it is a RESUME, not a refusal: the goal advanced, bravo was enqueued here',
+    attached.statusAttached({ goalFolder: freshGoal }).done.includes('alpha'),
+    JSON.stringify(attached.statusAttached({ goalFolder: freshGoal }).seats.map((x) => `${x.seat}=${x.state}`)));
+
+  // THE DISCRIMINATING MUTATION: nothing about this goal changes except the ONE fact the decision
+  // rests on — alpha's OUTCOME cell. Blank it, and the very same fixture re-runs the seat. So the
+  // skip above is the record's `done`, not the file's existence, not the seat's name, not the trace.
+  const mutantGoal = path.join(workspace, '.rbtv', 'goals', 'lane-goal-2m');
+  fs.cpSync(freshGoal, mutantGoal, { recursive: true });
+  fs.rmSync(path.join(mutantGoal, 'heart.db'), { force: true });
+  for (const f of fs.readdirSync(mutantGoal)) if (f.startsWith('heart.db-')) fs.rmSync(path.join(mutantGoal, f), { force: true });
+  const rec = fs.readFileSync(record.recordPath(mutantGoal), 'utf8');
+  fs.writeFileSync(record.recordPath(mutantGoal), rec.replace(/,done$/m, ','));
+  const reranMutant = [];
+  await attached.executeAttached({
+    goalFolder: mutantGoal,
+    profile: 'probe-lane',
+    spawnConfigPath: configPath,
+    tickIntervalMs: 200,
+    maxTicks: 1,
+    spawnForeground: (argv, cwd) => { reranMutant.push(cwd); return { status: 0 }; },
+  });
+  check('D2 MUTATION: blank alpha\'s OUTCOME in the record and the same goal re-runs it — the '
+    + 'decision is the recorded outcome and nothing else',
+    reranMutant.length === 1 && reranMutant[0] === path.join(mutantGoal, 'seats', 'alpha'),
+    JSON.stringify(reranMutant));
+
+  finding('D2 cross-lane resume HOLDS in the daemon->attached direction: the daemon\'s own publish '
+    + 'writes the outcome into <goal>/executions.csv, and the attached lane skips the seat without '
+    + 'refusing the goal. The former finding — "two lanes over one goal folder can each run the same '
+    + 'seat once" — is RETIRED by the mutation pair above, which shows the skip tracking exactly the '
+    + 'recorded outcome.');
 
   // ── D3 · the human-interactive seat on the daemon side ──────────────────────────────────────
   say('');
@@ -265,27 +335,26 @@ async function main() {
     + 'them. Filed for a ruling: either the daemon lane REFUSES to dispatch a held seat of an '
     + 'interactive goal, or something must execute the fallback it already requires them to declare.');
 
-  // ── D4 · THE S-18 REFUSAL (owner ruling decisions.md#d-s18-cross-lane-refusal) ───────────────
+  // ── D4 · THE CROSSOVER, RESUMED (owner ruling decisions.md#d-s23-single-execution-record-now)
   //
-  // D2 measured the harm; this measures the v1 answer to it. The whole difficulty is that the
-  // evidence is NOT "the goal has a launch trace" — an attached run's own detached seats write the
-  // same rows (D1). The deciding fact is the JOIN: a trace row for a seat of this taskforce whose
-  // `session-id` no execution in THIS goal's store owns. So the arms below are a discriminating
-  // pair over exactly that fact, plus the false-positive control that matters most in practice.
+  // This section measured the v1 REFUSAL: a lane declining a goal that carried execution evidence
+  // its own store could not account for. That guard is DELETED with this build — the record answers
+  // the question the guard could only decline — so the arms are repurposed onto the answer:
+  // a goal carrying another lane's evidence RUNS, and re-runs nothing that lane finished.
   say('');
-  say('D4 — a lane REFUSES a goal carrying execution evidence its own store has no record of');
+  say('D4 — a goal carrying ANOTHER LANE\'s evidence is RESUMED, not refused');
 
   const foreignGoal = path.join(workspace, '.rbtv', 'goals', 'lane-goal-3');
-  for (const s of ['alpha', 'bravo']) fs.mkdirSync(path.join(foreignGoal, 'seats', s), { recursive: true });
+  for (const s2 of ['alpha', 'bravo']) fs.mkdirSync(path.join(foreignGoal, 'seats', s2), { recursive: true });
   fs.mkdirSync(path.join(foreignGoal, 'coordination'), { recursive: true });
   fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(foreignGoal, 'taskforce.csv'));
-  for (const s of ['alpha', 'bravo']) {
-    fs.copyFileSync(path.join(goalFolder, 'seats', s, 'seat.md'), path.join(foreignGoal, 'seats', s, 'seat.md'));
+  for (const s2 of ['alpha', 'bravo']) {
+    fs.copyFileSync(path.join(goalFolder, 'seats', s2, 'seat.md'), path.join(foreignGoal, 'seats', s2, 'seat.md'));
   }
   fs.writeFileSync(path.join(foreignGoal, 'execution-mode'), 'interactive\n');
-  // The header comes from the SCHEMA OWNER (coord.py SESSIONS_COLS), never spelled here — the same
-  // contract the two writers follow. A fixture that invents the header would prove nothing about a
-  // real trace.
+  // The launch TRACE the old guard refused on — header from the SCHEMA OWNER (coord.py
+  // SESSIONS_COLS), never spelled here. It is written for two reasons: the trace is still the
+  // lifecycle accounting both lanes keep, and the LAST arm below measures what it now does NOT do.
   const HEADER = require('node:child_process').execFileSync('python3',
     ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
       path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim();
@@ -297,103 +366,79 @@ async function main() {
     'session-id': FOREIGN_SESSION, seat: 'alpha', harness: 'claude',
     workdir: path.join(foreignGoal, 'seats', 'alpha'), started: isoNow(),
   })}\n`);
+  // …and the other lane's OUTCOME, in the shared record, keyed by that same session id.
+  record.openExecution({ goalFolder: foreignGoal, seat: 'alpha', sessionId: FOREIGN_SESSION, lane: 'daemon', startedAt: isoNow() });
+  record.closeExecution({ goalFolder: foreignGoal, sessionId: FOREIGN_SESSION, outcome: 'done', endedAt: isoNow() });
 
-  const attempt = async (goal) => {
-    try { await attached.executeAttached({ goalFolder: goal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200, maxTicks: 1, spawnForeground: () => ({ status: 0 }) }); return null; }
-    catch (err) { return err.message; }
+  const foreignRuns = [];
+  const attempt = async (goal, sink = null) => {
+    try {
+      await attached.executeAttached({
+        goalFolder: goal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200,
+        maxTicks: 1, spawnForeground: (argv, cwd) => { if (sink) sink.push(cwd); return { status: 0 }; },
+      });
+      return null;
+    } catch (err) { return err.message; }
   };
 
-  const refusal = await attempt(foreignGoal);
-  check('D4 `rbtv run` REFUSES a goal carrying a launched session its own store never recorded',
-    Boolean(refusal) && /REFUSING TO RUN/.test(refusal) && refusal.includes(FOREIGN_SESSION) && /seat alpha/.test(refusal),
-    (refusal || 'NO REFUSAL').split('\n').slice(0, 2).join(' / '));
-  check('D4 …and it refuses BEFORE touching the goal: no heart store created, no run lock left behind',
-    !fs.existsSync(path.join(foreignGoal, 'heart.db')) && !fs.existsSync(path.join(foreignGoal, attached.RUN_LOCK)),
-    fs.readdirSync(foreignGoal).join(' '));
-  check('D4 orientation is READ-ONLY and never refuses — `--status` still answers on that same goal',
+  const refusal = await attempt(foreignGoal, foreignRuns);
+  check('D4 `rbtv run` RUNS a goal carrying another lane\'s launched session — the v1 refusal is gone',
+    refusal === null, refusal ? refusal.split('\n')[0].slice(0, 120) : 'ran');
+  check('D4 …and it re-ran NOTHING that lane finished: alpha is done, and this lane never launched it',
+    foreignRuns.length === 0 && attached.statusAttached({ goalFolder: foreignGoal }).done.includes('alpha'),
+    `foreground launches ${JSON.stringify(foreignRuns)}`);
+  check('D4 orientation is READ-ONLY and still never refuses — and it now answers `done` for a seat '
+    + 'THIS lane never ran, off the record alone',
     (() => {
-      const st = attached.statusAttached({ goalFolder: foreignGoal });
-      return st.everRun === false && st.seats.length === 2 && !fs.existsSync(path.join(foreignGoal, 'heart.db'));
-    })(), 'a goal you cannot run is exactly the goal you most need to orient on');
+      const fresh = path.join(workspace, '.rbtv', 'goals', 'lane-goal-4');
+      fs.mkdirSync(path.join(fresh, 'seats', 'alpha'), { recursive: true });
+      fs.mkdirSync(path.join(fresh, 'seats', 'bravo'), { recursive: true });
+      fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(fresh, 'taskforce.csv'));
+      for (const s2 of ['alpha', 'bravo']) fs.copyFileSync(path.join(goalFolder, 'seats', s2, 'seat.md'), path.join(fresh, 'seats', s2, 'seat.md'));
+      record.openExecution({ goalFolder: fresh, seat: 'alpha', sessionId: 'ffffffff-0000-0000-0000-000000000001', lane: 'daemon', startedAt: isoNow() });
+      record.closeExecution({ goalFolder: fresh, sessionId: 'ffffffff-0000-0000-0000-000000000001', outcome: 'done', endedAt: isoNow() });
+      const st = attached.statusAttached({ goalFolder: fresh });
+      return st.everRun === false && st.done.join() === 'alpha' && st.ready.join() === 'bravo'
+        && !fs.existsSync(path.join(fresh, 'heart.db'));
+    })(), 'a goal this lane has no store for still reports what the other lane finished');
 
-  // THE DISCRIMINATING HALF. Nothing about the goal changes except the ONE fact the guard decides
-  // on: the goal's own store gains an execution carrying that session id. If the refusal were
-  // firing on "there is a trace" (or on the seat, or on the file), this would still refuse.
-  const ownStore = openHeartStore({ dbPath: path.join(foreignGoal, 'heart.db'), profiles: cfg.profiles });
-  ownStore.registerJob({
-    jobId: attached.jobIdFor('alpha'), actionType: 'launch-agent',
-    args: undefined, argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string' } }),
-    function: 'seat alpha', description: 'seat alpha', createdAt: isoNow(), updatedAt: isoNow(),
-  });
-  ownStore.recordExecutionStart({
-    jobId: attached.jobIdFor('alpha'), actionType: 'launch-agent',
-    args: JSON.stringify({ profile: 'probe-lane' }), enqueuedBy: attached.FOREGROUND_ENQUEUER,
-    sessionMode: 'headed', firedTick: 1, firedAt: new Date(), sessionId: FOREIGN_SESSION,
-  });
-  ownStore.close();
-  check('D4 MUTATION OF THE DECIDING FACT: give THIS store an execution for that session id and the '
-    + 'very same goal runs — the guard reads the JOIN, not the file',
-    (await attempt(foreignGoal)) === null,
-    `evidence = a trace row this store cannot account for, and nothing else`);
+  // THE FALSE-POSITIVE CONTROL, unchanged in intent and still the one that decides shippability: a
+  // goal the attached lane ran ITSELF must resume without re-running its own finished seats.
+  const ownRerun = [];
+  check('D4 CONTROL: the attached lane re-runs its own goal and re-fires nothing',
+    (await attempt(goalFolder, ownRerun)) === null && ownRerun.length === 0,
+    `foreground launches ${JSON.stringify(ownRerun)}`);
 
-  // THE STORE-EXISTS REFUSAL PATH, and the F4 property that makes it safe: the guard reads the
-  // store READ-ONLY, so refusing leaves `heart.db` BYTE-IDENTICAL. Going through `openHeartStore`
-  // here would have set WAL pragmas and run migrations — mutating a store as the price of declining
-  // to run it, and doing so before the run lock, i.e. behind a live runner's back.
-  //
-  // ⚠ BYTE-IDENTITY ALONE IS NOT DISCRIMINATING and this arm was rewritten when a mutation proved
-  // it: `openHeartStore` on an ALREADY-CURRENT store also leaves the bytes and the mtime untouched,
-  // so the check passed with the migrating reader in place. The property that actually differs is
-  // WHETHER A MIGRATION CAN RUN, so the fixture is made to LOOK OUTDATED — `user_version = 0`,
-  // which `migrate()` stamps forward to its baseline the moment a read-write store opens it.
-  const { DatabaseSync } = require('node:sqlite');
-  const liveStore = path.join(foreignGoal, 'heart.db');
-  const sha = (p) => require('node:crypto').createHash('sha256').update(fs.readFileSync(p)).digest('hex');
-  const userVersion = () => {
-    const d = new DatabaseSync(liveStore, { readOnly: true });
-    try { return Number(d.prepare('PRAGMA user_version').get().user_version || 0); } finally { d.close(); }
-  };
-  const rw = new DatabaseSync(liveStore);
-  rw.exec('PRAGMA user_version = 0;');
-  rw.close();
-  const before = sha(liveStore);
-  fs.appendFileSync(foreignTrace, `${cell({
-    'session-id': '99999999-8888-7777-6666-555555555555', seat: 'bravo', harness: 'claude',
-    workdir: path.join(foreignGoal, 'seats', 'bravo'), started: isoNow(),
+  // THE BOUND THE RETIRED GUARD USED TO COVER, measured rather than asserted: a seat run BY HAND
+  // writes a `sessions.csv` row and NO record row. The guard refused the whole goal over it; the
+  // record does not see it at all, so the seat IS re-run.
+  const handGoal = path.join(workspace, '.rbtv', 'goals', 'lane-goal-5');
+  for (const s2 of ['alpha', 'bravo']) fs.mkdirSync(path.join(handGoal, 'seats', s2), { recursive: true });
+  fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(handGoal, 'taskforce.csv'));
+  for (const s2 of ['alpha', 'bravo']) fs.copyFileSync(path.join(goalFolder, 'seats', s2, 'seat.md'), path.join(handGoal, 'seats', s2, 'seat.md'));
+  fs.writeFileSync(path.join(handGoal, 'execution-mode'), 'interactive\n');
+  fs.writeFileSync(path.join(handGoal, 'sessions.csv'), `${HEADER}\n${cell({
+    'session-id': '22222222-3333-4444-5555-666666666666', seat: 'alpha', harness: 'claude',
+    workdir: path.join(handGoal, 'seats', 'alpha'), started: isoNow(),
   })}\n`);
-  const secondRefusal = await attempt(foreignGoal);
-  check('D4 the refusal fires with a store PRESENT too — and the guard\'s read CANNOT MIGRATE it '
-    + '(an out-of-date store is left out of date, and the bytes are identical)',
-    Boolean(secondRefusal) && /REFUSING TO RUN/.test(secondRefusal)
-      && /99999999/.test(secondRefusal) && userVersion() === 0 && sha(liveStore) === before,
-    `user_version 0 -> ${userVersion()} · sha256 ${before.slice(0, 12)} -> ${sha(liveStore).slice(0, 12)}`);
-  // The sidecars a WAL reader must create, REPORTED because they are the accepted price of the
-  // read-only handle and nothing else in the tree would tell you they appear.
-  say(`  (measured: a refusal leaves ${fs.readdirSync(foreignGoal).filter((f) => f.startsWith('heart.db-')).join(' ') || 'no'} sidecar(s) beside the store — see ourSessionIds)`);
+  const handRuns = [];
+  const handRefusal = await attempt(handGoal, handRuns);
+  check('D4 BOUND: a trace row with NO record row does not stop a re-run (and does not refuse either)',
+    handRefusal === null && handRuns.length === 1,
+    `refusal ${handRefusal ? 'yes' : 'no'} · launches ${JSON.stringify(handRuns)}`);
 
-  // F5: the store is GONE and the trace is not. Blaming "another lane" there is both false and
-  // unactionable — this is `rm heart.db` on a goal this lane itself ran.
-  fs.rmSync(liveStore, { force: true });
-  const goneRefusal = await attempt(foreignGoal);
-  check('D4 an ABSENT store gets its own message: what is true, and what the operator can do',
-    Boolean(goneRefusal) && /NO heart store at all/.test(goneRefusal)
-      && /restore the goal's heart.db/.test(goneRefusal) && !/ANOTHER LANE/.test(goneRefusal),
-    (goneRefusal || 'NO REFUSAL').split('\n')[0].slice(0, 110));
+  finding('D4 the crossover is now RESUMED in both directions rather than refused, and the record is '
+    + 'the deciding fact in each (D1 attached->daemon: the daemon\'s seeding skips the finished seat; '
+    + 'D2 daemon->attached: the attached lane skips it, and blanking the outcome cell re-runs it). '
+    + 'The one case the retired v1 guard covered and the record does not: work executed with NO '
+    + 'record row — a hand-run tmux sitting — is invisible and will be re-run. Closing such a seat '
+    + 'is one outcome row in <goal>/executions.csv, which is the same act every lane performs.');
 
-  // THE FALSE-POSITIVE CONTROL, and the one that decides whether this guard is shippable: a goal
-  // the attached lane ran itself carries TWO trace rows (D1) — one per carriage — and neither is
-  // evidence of another lane. A guard that refused here would brick every resume.
-  check('D4 CONTROL: the attached lane RE-RUNS its own goal — its own two rows are not evidence',
-    (await attempt(goalFolder)) === null,
-    'both carriages\' rows join to executions in this goal\'s own store');
-
-  finding('D4 the refusal\'s DAEMON half is VACUOUSLY HELD, not built, and that is measured rather '
-    + 'than assumed: D1 shows ONE function seeds a goal\'s taskforce (`seedTaskforce`) and its only '
-    + 'non-probe caller is the attached lane\'s own boot, so there is no daemon-side path that could '
-    + 'pick up a goal and re-run its seats — the direction the guard would protect does not exist to '
-    + 'be guarded. Building a symmetric refusal on the daemon side today would be dead code. It '
-    + 'becomes live the moment anything under `server/` seeds a taskforce; the Phase-6 '
-    + 'lane-independent execution record retires the question for both lanes at once.');
+  finding('D4 THE MEASURED BOUND ON THE DAEMON HALF: `engine.seedGoal` is built and proven (D1), but '
+    + 'nothing under server/ CALLS it yet — the daemon picks a goal up when something tells it to, '
+    + 'and what tells it is an arming decision this build did not invent. Until that lands, the '
+    + 'daemon lane WRITES the record on every tick (D2, publishToRecord) and can seed on demand, but '
+    + 'does not adopt goal folders by itself.');
 
   fs.rmSync(tmp, { recursive: true, force: true });
 }
@@ -403,9 +448,12 @@ main().then(() => {
   say('');
   say(exitCode
     ? `RESULT: FAIL — ${failures.length} failing check(s): ${failures.join(' · ')}`
-    : `RESULT: PASS — every arm measured what it claims; the three FINDINGS above are the probe's `
-      + `deliverable, and they are negative: cross-lane resume does not hold, in either direction.`);
-  say(`FINDINGS: ${findings.length} (a PASS here means "measured", never "cross-lane resume works")`);
+    : `RESULT: PASS — every arm measured what it claims. Since #d-s23-single-execution-record-now `
+      + `the headline is POSITIVE: cross-lane resume HOLDS in both directions, off `
+      + `<goal>/executions.csv, and the v1 refusal it replaces is retired. The FINDINGS below carry `
+      + `what is still open — the daemon's pickup TRIGGER, the fallback gap (D3), and the one case `
+      + `the retired guard covered that the record does not.`);
+  say(`FINDINGS: ${findings.length} (a PASS means "measured" — read the findings for the open bounds)`);
   say(`WALL_MS ${Date.now() - start}`);
   say(`EXIT ${exitCode}`);
   fs.writeFileSync(OUT_PATH, lines.join('\n') + '\n');

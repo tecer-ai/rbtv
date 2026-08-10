@@ -32,6 +32,8 @@ const { openHeartStore } = require('../server/heart/heart-store');
 const { createSpawnManager } = require('../server/spawn/spawn');
 const { createTicker } = require('../server/ticker/ticker');
 const substrate = require('./substrate');
+const { publishToRecord } = require('./execution-record');
+const { seedGoal } = require('./seeding');
 
 // Compose the engine. Every dependency is INJECTED — this function opens exactly one thing (the
 // store) and constructs the other two around it.
@@ -103,8 +105,45 @@ function createEngine({
     dbPath: path.resolve(dbPath),
 
     // The shared algorithm. Both lanes call THIS; neither reimplements it.
-    tick: (now) => ticker.tick(now),
+    //
+    // ⚠ AND THEY BOTH PUBLISH TO THE GOAL'S EXECUTION RECORD FROM HERE (owner ruling
+    // decisions.md#d-s23-single-execution-record-now). The publish sits at the tick — the one thing
+    // BOTH lanes call — rather than at each place a turn ends, and that placement is the reason
+    // this build needs no hook in the completion path, the crash sweep, the kill path or the spawn
+    // door: whatever ended a seat's turn, the next tick sees the terminal row and publishes it.
+    // The cost is a bounded lag of one cadence between a completion and the shared record; the
+    // alternative was four hooks in the daemon's hottest paths, each able to leave the record
+    // behind on a path nobody remembered to touch.
+    //
+    // NEVER FATAL, and loud. A record write that fails must not take a tick down (the daemon serves
+    // every goal from this loop), and the run that could not publish still resumes correctly from
+    // its own store — it is the OTHER lane that would be misinformed, and the log line is what says
+    // so. The next tick retries; the next boot's adoption pass retries again.
+    tick: async (now) => {
+      const result = await ticker.tick(now);
+      try {
+        publishToRecord(heartStore, { logger });
+      } catch (err) {
+        if (logger) logger({ level: 'warn', message: 'execution record NOT published this tick — the other lane cannot see what finished here', error: err.message });
+      }
+      return result;
+    },
     getTickNumber: () => ticker.getTickNumber(),
+
+    // Publish this store's seat outcomes into every goal folder it has touched. Called at boot by
+    // the attached lane (the ADOPTION pass) and available to any caller that wants the record
+    // current without waiting a cadence.
+    publishRecord: () => publishToRecord(heartStore, { logger }),
+
+    // ── THE DAEMON LANE'S GOAL PICKUP (criterion 2 of the same ruling) ──────────────────────────
+    // Seed a goal folder's taskforce into THIS store and enqueue what is due, skipping every seat
+    // the goal's execution record says is finished — whichever lane finished it. The attached lane
+    // does its own seeding inline (it also carries held seats in the terminal, which this does not);
+    // this is the entry a SHARED store uses, and it is what the daemon lane never had.
+    seedGoal: ({ goalFolder, goal, profile, isHeld = null }) => {
+      publishToRecord(heartStore, { logger });
+      return seedGoal({ heartStore, goalFolder, goal, profile, isHeld, logger });
+    },
 
     // Idempotent: an attached run closes on its own exit path AND on a signal, and the second
     // call must not throw over the first.
