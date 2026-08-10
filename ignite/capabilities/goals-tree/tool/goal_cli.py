@@ -81,6 +81,28 @@ GOAL_KIND_DEFAULT = "interactive"
 LANE_FILE = "execution-lane"
 LANES = ("daemon", "console")
 
+# ── The goal's EXECUTION MODE (owner ruling 2026-08-10) ───────────────────────────────────────
+#
+# The per-goal OWNER-CONTACT policy — registry concept `execution mode`, `sd-graph show "execution
+# mode"`. One word in a file at the goal root, read at delivery time by the chat ferry: gate 2 of
+# all agent-INITIATED owner contact (the sending seat's `human-interactive` flag being gate 1).
+#
+# ⚠ ABSENT READS `autonomous`, AND THAT IS THE MODEL'S DEFAULT RATHER THAN A STAND-IN FOR ONE —
+# so the default below is not a guess about what the caller meant, it is the same value the
+# reader would have reached had this verb written nothing. What changed on 2026-08-10 is that
+# NO creation path wrote the file at all, so every created goal was born mode-less and the
+# question "was this goal meant to be autonomous?" had no answer on disk. This verb now always
+# writes it, and a caller who knows better passes `--execution-mode`.
+#
+# ⚠ THIS VERB DERIVES NOTHING. The workflow-level default (a workflow's declared
+# `default-execution-mode:`, else derived from its manifest's Modality column) is resolved by the
+# REQUEST LAYER, which is the layer that knows which workflow a goal is being created for
+# (`goal_creation_request.py#resolve_execution_mode`) and passes the resolved word here. A goal
+# scaffolded by hand names no workflow, so there is nothing here to derive from.
+EXECUTION_MODE_FILE = "execution-mode"
+EXECUTION_MODES = ("interactive", "autonomous")
+EXECUTION_MODE_DEFAULT = "autonomous"
+
 # goals-index schema (concept goals-index § file schema)
 #
 # ⚠ DIVERGENCE TO TRANSCRIBE, NOT A DRIFT: the registry's `concepts/goals-index.md` file-schema
@@ -462,6 +484,12 @@ def cmd_scaffold(args) -> int:
     if kind not in GOAL_KINDS:
         raise Refusal(f"--kind {kind}: must be one of {', '.join(GOAL_KINDS)}")
 
+    # Same `getattr` reason as `kind` above: hand-built Namespaces reach this function from the
+    # selftest and from the request handler, and argparse's `choices` does not run on those.
+    mode = getattr(args, "execution_mode", None) or EXECUTION_MODE_DEFAULT
+    if mode not in EXECUTION_MODES:
+        raise Refusal(f"--execution-mode {mode}: must be one of {', '.join(EXECUTION_MODES)}")
+
     goal_dir = root / name
     if goal_dir.exists():
         raise Refusal(
@@ -505,7 +533,8 @@ def cmd_scaffold(args) -> int:
     # longer written here: it is one of the five write-if-something files and comes off
     # `standard_artifacts` with the other four (its old body called itself a "decision log",
     # which is the exact word §9 rules these files are NOT).
-    created_names = ["goal.md", "threads.sql", *standard_artifacts(name)]
+    created_names = ["goal.md", "threads.sql", EXECUTION_MODE_FILE,
+                     *standard_artifacts(name)]
     plan = {
         "goal": name,
         "root": str(root),
@@ -522,6 +551,10 @@ def cmd_scaffold(args) -> int:
     goal_dir.mkdir(parents=True)
     (goal_dir / "goal.md").write_text(goal_md, encoding="utf-8", newline="\n")
     (goal_dir / "threads.sql").write_text(THREADS_SCHEMA, encoding="utf-8", newline="\n")
+    # ONE WORD PLUS A NEWLINE, and no more: the ferry's reader trims and compares the whole
+    # file, so a comment or a header line here would read as "not interactive" and silently
+    # make every goal autonomous.
+    (goal_dir / EXECUTION_MODE_FILE).write_text(mode + "\n", encoding="utf-8", newline="\n")
     # R21 (+ Q16): the per-harness routers + the five write-if-something files, from deterministic
     # templates. Written LAST so the routers describe a folder that already holds what they name.
     write_standard_artifacts(goal_dir, name)
@@ -3155,6 +3188,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kind", default=GOAL_KIND_DEFAULT, choices=list(GOAL_KINDS),
                    help="the goal-kind stamped into goal.md frontmatter "
                         f"(default: {GOAL_KIND_DEFAULT}, owner ruling d-owner-batch1)")
+    p.add_argument("--execution-mode", default=EXECUTION_MODE_DEFAULT,
+                   choices=list(EXECUTION_MODES),
+                   help="the per-goal owner-contact policy written to the goal's "
+                        f"{EXECUTION_MODE_FILE} file (default: {EXECUTION_MODE_DEFAULT}, which "
+                        "is what an absent file already reads as). The workflow-level default is "
+                        "resolved by the request layer and passed here — this verb derives none")
     p.add_argument("--due", default=None)
     p.add_argument("--contract", required=True,
                    help="FILE, or - for stdin: the goal-radius contract prose")
