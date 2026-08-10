@@ -1,0 +1,32 @@
+# ⚠ INTERIM — module-root placement, not the ruled `<module>/<component>/exposure.csv`, matching
+# `ignite/exposure.csv` and `orchestration/exposure.csv` (no component.md exists anywhere in this
+# repo; entry points are MODULE-RELATIVE and the prefixes drop when the CMP-5 component tree
+# materializes). Authored by task 7.647, 2026-08-10, under the mandatory first-party tool
+# inventory: `1-projects/rbtv-sb-merge-refactor-core-build/decisions.md#d-tool-inventory-exposure-rows`
+# (owner, 2026-08-09) + its same-day FIRST-PARTY scope correction + the
+# `#d-tool-inventory-rbtv-cli-column` amendment (2026-08-10). Rows: `part-kind=tool`,
+# `method=path`, `description` EMPTY (tools self-document via `-h`), `rbtv-cli` carrying the
+# invocation prefix IFF `core/capabilities/rbtv-cli/tool/lib/verbs.js` ROUTES routes to the tool.
+#
+# ROUTES check (2026-08-10): exactly ONE core tool is routed — `teambuild` → TEAMBUILD →
+# `core/capabilities/teambuild/tool/rbtv-teambuild`, so that row carries `rbtv teambuild`.
+# The `rbtv` CLI itself IS the router — nothing routes TO it, so its own `rbtv-cli` is empty.
+# `rbtv-install` appears nowhere in ROUTES — empty.
+#
+# BOUNDARY — the ignite worked example's mechanical rule: a first-party invocable with its own
+# agent-facing command surface. That admits the three capability `tool/` entry points, the
+# safe-move CLI (pyproject console script `safe-move = safe_move.cli:main`; the row sits at
+# cli.py, the script that main lives in), and the rbtv-commit workflow's commit.py.
+# It EXCLUDES, each for a stated reason and none by oversight:
+#   · capabilities/*/tool/lib/*.{js,py} — implementation modules the tool entry points load
+#     (one tool, one row, at the wrapper);
+#   · tools/safe-move/safe_move/*.py other than cli.py (incl. __main__.py, a thin alias of the
+#     same main) and tools/safe-move/tests/ — package internals and test runners;
+#   · skills/, rules/, commands/, personas/ — harness-exposed markdown, not CLI tools (their
+#     harness exposure is the OLD installer's manifest surface, out of this inventory's scope).
+part-id,part-kind,method,rbtv-cli,entry-point,description
+rbtv,tool,path,,capabilities/rbtv-cli/tool/rbtv,
+rbtv-install,tool,path,,capabilities/installer/tool/rbtv-install,
+rbtv-teambuild,tool,path,rbtv teambuild,capabilities/teambuild/tool/rbtv-teambuild,
+safe-move,tool,path,,tools/safe-move/safe_move/cli.py,
+commit,tool,path,,workflows/commit/commit.py,
