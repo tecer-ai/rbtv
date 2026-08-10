@@ -28,6 +28,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { createEngine } = require('./index');
 const substrate = require('./substrate');
 const { loadConfig } = require('../server/spawn/config');
@@ -159,13 +160,26 @@ function seedTaskforce(heartStore, goalFolder, { profile, logger }) {
 }
 
 // The execution picture, read ONCE per pass from the store's own partition of jobs_log.
-function executionsByJob(heartStore) {
+//
+// `relaunch` is the ONE-SHOT RELAUNCH GRANT (console-run B1): a seat named in it is presented to
+// the predicate WITHOUT its execution history, so a seat whose last attempt died reads `ready`
+// again. The grant hides the rows from THIS VIEW only — nothing in the store is rewritten, so the
+// failed attempt stays on the record it was written to. A FINISHED seat is never hidden: a grant
+// must not be able to re-run completed work, and that is enforced here rather than trusted to the
+// caller who typed the seat name.
+function executionsByJob(heartStore, relaunch = null) {
   const byJob = new Map();
   for (const status of ALL_TURN_STATUSES) {
     for (const row of heartStore.listExecutionsByStatus(status)) {
       const list = byJob.get(row.job_id) || [];
       list.push(row);
       byJob.set(row.job_id, list);
+    }
+  }
+  if (relaunch) {
+    for (const seat of relaunch) {
+      const jobId = jobIdFor(seat);
+      if (!seatIsFinished(byJob.get(jobId))) byJob.delete(jobId);
     }
   }
   return byJob;
@@ -203,14 +217,21 @@ function seatState(row, byJob, queued) {
 
 // Enqueue every seat whose `after` dependency has finished and which has never been fired. Returns
 // the seats enqueued this pass.
-function enqueueEligible(heartStore, rows, { profile, goalFolder, logger }) {
-  const byJob = executionsByJob(heartStore);
+//
+// `isHeld` is the ONE place the engine can DETACH a human-interactive seat, and it is where it is
+// stopped (console-run ruling 1: such a seat is dispatched through the foreground carrier or not at
+// all). Skipping it here rather than filtering the rows earlier keeps the wave math on the WHOLE
+// taskforce — a held seat still blocks its dependents exactly as it would if it had been queued.
+function enqueueEligible(heartStore, rows, { profile, goalFolder, logger, isHeld = null, relaunch = null }) {
+  const byJob = executionsByJob(heartStore, relaunch);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
   const enqueued = [];
 
   for (const row of rows) {
     const jobId = jobIdFor(row.seat);
     if (seatState(row, byJob, queued) !== 'ready') continue;
+    if (isHeld && isHeld(row.seat)) continue;
+    if (relaunch) relaunch.delete(row.seat);
 
     const after = (row.after || '').trim();
     const seatDir = path.join(goalFolder, 'seats', row.seat);
@@ -228,13 +249,164 @@ function enqueueEligible(heartStore, rows, { profile, goalFolder, logger }) {
   return enqueued;
 }
 
+// ── The FOREGROUND CARRIER (console-run design ruling 1) ──────────────────────────────────────
+//
+// The engine stays the ONLY DAG-advancer. What changes for a seat matching ruling 5's two gates is
+// the CARRIAGE, and nothing else: instead of a detached caged child the engine launches that seat's
+// harness session as a FOREGROUND child of this process, sharing the runner's terminal, and the
+// tick loop BLOCKS until it exits. It is a spawn variant — no hold state, no release, no second
+// advancement path.
+//
+// FOUR things this owns, each with a reason it could not be somewhere else:
+//
+//  1. THE PREDICATE IS THE CHAT BRIDGE'S, both gates. `seatIsHumanInteractive` + `goalExecutionMode`
+//     from `bridges/chat/bus-ferry.js` — the SAME readers the status verb and the message gate use.
+//     A second implementation of "does this seat need the owner" is a system that holds a seat the
+//     status surface says is free.
+//  2. THE COMMAND IS THE PROFILE'S `headed.tui` BLOCK, not a filtered `exec:`. `exec:` is the
+//     HEADLESS template (`-p --output-format stream-json`) and stripping flags off it to make an
+//     interactive one is exactly the second interpreter of the one config that DEC-1 forbids. A
+//     profile that declares no `headed.tui` is REFUSED, naming the seat and the profile: the
+//     headed block IS the declaration that this profile can carry a human (D17).
+//     ⚠ KNOWN BOUND, disclosed rather than papered over: the shipped claude profiles declare
+//     `headed.tui: { argv: ["claude"] }`, which binds the HARNESS but pins no `--model`. So the
+//     foreground seat runs the harness's default model, not the profile's. Fixing it is a one-line
+//     change per profile in `config/spawn-profiles.yaml` with daemon-headed blast radius, and is
+//     filed rather than smuggled in here.
+//  3. NO CAGE. Accepted bound (console-run § Cautions): a session sharing the owner's terminal has
+//     neither bwrap nor a systemd slice — the same bound d1's hand-run elicitator had. The
+//     detached seats of the same run are caged exactly as before.
+//  4. THE TURN IS ENDED FROM THE CHILD'S EXIT CODE, which is this lane's EXISTING rule and not a
+//     new one: `ticker.js`'s exit sweep already records `exitCode === 0 ? 'done' : 'failed'` for
+//     every seat it observes ending. Turn and session are ended in ONE act
+//     (`endTurnAndCloseSession`, G-225) so no crash can leave a terminal turn under a live session.
+const FOREGROUND_ENQUEUER = 'attached-foreground';
+
+// The two gates, read ONCE per run. Returns a `(seat) => boolean`; when the goal is not in
+// `interactive` execution mode NOTHING is held, and the per-seat file is never read at all.
+function heldSeatPredicate(goalFolder) {
+  const { goalExecutionMode, seatIsHumanInteractive, INTERACTIVE_MODE } =
+    require('../bridges/chat/bus-ferry');
+  const workspaceRoot = path.resolve(goalFolder, '..', '..', '..');
+  if (goalExecutionMode(workspaceRoot, path.basename(goalFolder)) !== INTERACTIVE_MODE) {
+    return () => false;
+  }
+  return (seat) => seatIsHumanInteractive(goalFolder, seat);
+}
+
+// The default carriage: a foreground child on THIS terminal. `stdio: 'inherit'` is the whole
+// mechanism — the harness gets the runner's real tty, which is why the entry skill hands the user a
+// command to TYPE rather than calling it from inside a session (console-run § Cautions).
+function spawnForegroundInTerminal(argv, cwd) {
+  return spawnSync(argv[0], argv.slice(1), { cwd, stdio: 'inherit' });
+}
+
+function nextHeldReadySeat(heartStore, rows, isHeld, relaunch) {
+  const byJob = executionsByJob(heartStore, relaunch);
+  const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
+  return rows.find((row) => isHeld(row.seat) && seatState(row, byJob, queued) === 'ready') || null;
+}
+
+function runForegroundSeat({
+  heartStore, seat, goalFolder, profileName, profile, tick, now,
+  spawnForeground = spawnForegroundInTerminal, logger = null,
+}) {
+  if (!profile.headed || !profile.headed.tui) {
+    throw new Error(
+      `seat ${seat} is held for you (it declares human-interactive: and this goal runs in ` +
+      `interactive execution mode), so it must run in YOUR terminal — but profile ` +
+      `'${profileName}' declares no headed.tui block, which is the declaration that a profile can ` +
+      `carry a human (D17). REFUSING rather than composing an interactive command out of the ` +
+      `headless \`exec:\` template: a second interpreter of the one profile config is the drift ` +
+      `DEC-1 § Shared profile source exists to prevent.`
+    );
+  }
+  const { generateSessionId } = require('../server/spawn/carrier');
+  const { composeArgv } = require('../server/spawn/spawn');
+
+  const seatDir = path.join(goalFolder, 'seats', seat);
+  const sessionId = generateSessionId();
+  // mode `headed` selects `profile.headed.tui`; the descriptor injection
+  // (`--append-system-prompt-file <seatDir>/seat.md`, claude-only and file-conditional) rides along
+  // from the ONE composer every launch already uses.
+  const { argv } = composeArgv(profile, 'headed', sessionId, seatDir, null, null);
+
+  const exec = heartStore.recordExecutionStart({
+    jobId: jobIdFor(seat),
+    actionType: 'launch-agent',
+    args: JSON.stringify({ profile: profileName, workdir: seatDir }),
+    // The marker the boot reconciliation below keys on. A row carrying it was a child of A
+    // TERMINAL-BOUND RUNNER, which is what makes "this row is non-terminal at boot ⇒ its process is
+    // gone" an observation rather than a guess.
+    enqueuedBy: FOREGROUND_ENQUEUER,
+    sessionMode: 'headed',
+    firedTick: tick,
+    firedAt: now,
+    sessionId,
+    profile: profileName,
+    workdir: seatDir,
+  });
+  if (logger) logger({ level: 'info', message: 'foreground seat — your terminal is now this seat\'s session', seat, argv: argv.join(' ') });
+
+  const res = spawnForeground(argv, seatDir) || {};
+  const exitCode = typeof res.status === 'number' ? res.status : null;
+  const ok = exitCode === 0;
+  heartStore.endTurnAndCloseSession(exec.exec_id, {
+    turnStatus: ok ? 'done' : 'failed',
+    sessionStatus: ok ? 'closed' : 'crashed',
+    endedAt: new Date(),
+    exitCode,
+    reason: ok ? null : `foreground seat ${seat} ended ${res.signal ? `on ${res.signal}` : `with exit ${exitCode}`}`,
+  });
+  return { seat, execId: exec.exec_id, argv, exitCode, signal: res.signal || null, status: ok ? 'done' : 'failed' };
+}
+
+// ── The crash edge, resolved at BOOT (console-run § Cautions: "B1's hardest edge") ────────────
+//
+// A foreground seat killed mid-work — Ctrl-C, a SIGKILL on the runner, a closed terminal — leaves
+// an execution row that nobody ended, because the process that would have ended it died with the
+// child. THIS is the disposition, and it is deliberately NOT a re-enqueue: seeding is create-only,
+// and re-firing a seat because its row looks unfinished is the false-relaunch the create-only rule
+// exists to prevent.
+//
+// The row is ended `failed` / session `crashed` — the same pair the ticker writes for any process
+// it observed ending badly — and the run then treats that seat as it treats any failed seat: it
+// REFUSES to advance past it and names it. Running it again takes an explicit human act, the
+// one-shot relaunch grant (`--relaunch <seat>`).
+function reconcileForegroundOrphans(heartStore, { logger = null, endedAt = new Date() } = {}) {
+  const ended = [];
+  for (const status of LIVE_TURN_STATUSES) {
+    for (const row of heartStore.listExecutionsByStatus(status)) {
+      if (row.enqueued_by !== FOREGROUND_ENQUEUER) continue;
+      heartStore.endTurnAndCloseSession(row.exec_id, {
+        turnStatus: 'failed',
+        sessionStatus: 'crashed',
+        endedAt,
+        reason: `foreground seat left ${status} by a runner that is gone — a foreground child cannot ` +
+                `outlive the terminal it was attached to, so this row is dead by construction`,
+      });
+      ended.push(row.job_id);
+      if (logger) logger({ level: 'warn', message: 'reconciled an interrupted foreground seat', jobId: row.job_id, was: status });
+    }
+  }
+  return ended;
+}
+
 // ── The exit condition — the registry's own sentence, made checkable ──────────────────────────
 //
 // "returns on completion or on ANY worker question". Both halves are read from the store:
 //   COMPLETE — every seat has a finished execution, the queue is empty, and no turn is live.
-//   QUESTION — a message of type `ask` exists that this loop has not already reported.
-function evaluateExit(heartStore, rows, seenAskIds) {
-  const asks = heartStore.dump().messages.filter((m) => m.type === 'ask' && !seenAskIds.has(m.msg_id));
+//   QUESTION — an UNANSWERED `ask` exists.
+//
+// ⚠ THE QUESTION HALF USED TO BE `!seenAskIds.has(...)` OVER A PER-LOOP SET THAT NOTHING EVER
+// ADDED TO, so an ask correlated with nothing: the first ask a run ever recorded ended EVERY later
+// run at its first tick, forever, including one whose answer had already been written while the run
+// was down. The set is deleted rather than populated — `unansweredAsks()` is the correlation the
+// status verb already does (greedy thread pairing in msg_id order), and one correlation shared by
+// the surface that REPORTS a question and the loop that STOPS on it is the only way the two can
+// agree about what is open.
+function evaluateExit(heartStore, rows, relaunch = null) {
+  const asks = unansweredAsks(heartStore.dump().messages);
   if (asks.length) {
     return { done: true, reason: 'question', asks };
   }
@@ -243,7 +415,7 @@ function evaluateExit(heartStore, rows, seenAskIds) {
   if (live.length) return { done: false, live: live.length };
   if (heartStore.listQueue().length) return { done: false, live: 0 };
 
-  const byJob = executionsByJob(heartStore);
+  const byJob = executionsByJob(heartStore, relaunch);
   const unfinished = rows.filter((r) => !seatIsFinished(byJob.get(jobIdFor(r.seat))));
   if (unfinished.length === 0) return { done: true, reason: 'complete' };
 
@@ -257,6 +429,16 @@ function evaluateExit(heartStore, rows, seenAskIds) {
   });
   if (stuck.length === unfinished.length) {
     return { done: true, reason: 'blocked', unfinished: unfinished.map((r) => r.seat) };
+  }
+
+  // A seat that HAS RUN and did not finish — a failed detached child, or a foreground seat the
+  // reconciliation above ended. Nothing is live, nothing is queued and its dependency is satisfied,
+  // so no future tick can change its state: the loop would otherwise spin here every 10s forever,
+  // which is what it did. Returning is not a retry decision — the seat runs again only on an
+  // explicit `--relaunch`, never because the loop came back around.
+  const failed = unfinished.filter((r) => seatHasRun(byJob.get(jobIdFor(r.seat))));
+  if (failed.length) {
+    return { done: true, reason: 'seat-failed', unfinished: failed.map((r) => r.seat) };
   }
   return { done: false, live: 0 };
 }
@@ -386,6 +568,11 @@ async function executeAttached({
   logger = null,
   now = () => new Date(),
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  // The one-shot relaunch grants this invocation carries (`--relaunch <seat>`), and the carriage
+  // for a held seat. `spawnForeground` is injectable because a probe cannot own a real tty — the
+  // REAL path stays the default, and a probe substitutes a scripted child.
+  relaunch = [],
+  spawnForeground = spawnForegroundInTerminal,
 }) {
   // THE SEAM, FIRST — before any POSIX construct is reachable. A non-POSIX host is refused with a
   // typed error naming all four degraded sites and the row that owns their bodies (task 7.84),
@@ -439,16 +626,39 @@ async function executeAttached({
   try {
     const rows = seedTaskforce(engine.heartStore, goalFolder, { profile, logger });
     const resumedAtTick = engine.getTickNumber();
-    const seenAskIds = new Set();
     const intervalMs = tickIntervalMs || 10000;
+    const isHeld = heldSeatPredicate(goalFolder);
+    const grants = new Set(relaunch);
+    // BEFORE the first pass: a foreground row left non-terminal belongs to a runner that is gone.
+    const reconciled = reconcileForegroundOrphans(engine.heartStore, { logger });
+    const foreground = [];
 
     let ticks = 0;
     for (;;) {
-      enqueueEligible(engine.heartStore, rows, { profile, goalFolder, logger });
+      // THE FOREGROUND CARRIER, ahead of the enqueue pass and BLOCKING: while this seat's session
+      // owns the terminal nothing else in this run advances, which is the design's own sentence.
+      // One per pass — the terminal is serial, and the next pass picks up the next held seat.
+      const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants);
+      if (held) {
+        grants.delete(held.seat);            // the grant is SPENT at the launch, never re-read
+        foreground.push(runForegroundSeat({
+          heartStore: engine.heartStore,
+          seat: held.seat,
+          goalFolder,
+          profileName: profile,
+          profile: spawnConfig.profiles[profile],
+          tick: engine.getTickNumber(),
+          now: now(),
+          spawnForeground,
+          logger,
+        }));
+      }
+
+      enqueueEligible(engine.heartStore, rows, { profile, goalFolder, logger, isHeld, relaunch: grants });
       await engine.tick(now());
       ticks += 1;
 
-      const verdict = evaluateExit(engine.heartStore, rows, seenAskIds);
+      const verdict = evaluateExit(engine.heartStore, rows, grants);
       if (verdict.done) {
         return {
           host,
@@ -459,8 +669,10 @@ async function executeAttached({
           tick: engine.getTickNumber(),
           ticks,
           seats: rows.map((r) => r.seat),
-          asks: (verdict.asks || []).map((a) => ({ msgId: a.msg_id, sender: a.sender, thread: a.thread, corpus: a.corpus })),
+          asks: verdict.asks || [],
           unfinished: verdict.unfinished || [],
+          foreground,
+          reconciled,
         };
       }
 
@@ -470,6 +682,7 @@ async function executeAttached({
         return {
           host, outcome: 'max-ticks', goalFolder, storePath, resumedAtTick,
           tick: engine.getTickNumber(), ticks, seats: rows.map((r) => r.seat), asks: [], unfinished: [],
+          foreground, reconciled,
         };
       }
       await sleep(intervalMs);
@@ -494,6 +707,13 @@ module.exports = {
   seedTaskforce,
   enqueueEligible,
   evaluateExit,
+  executionsByJob,
+  heldSeatPredicate,
+  nextHeldReadySeat,
+  runForegroundSeat,
+  reconcileForegroundOrphans,
+  spawnForegroundInTerminal,
+  FOREGROUND_ENQUEUER,
   jobIdFor,
   GOAL_FOLDER_RE,
   STORE_FILENAME,

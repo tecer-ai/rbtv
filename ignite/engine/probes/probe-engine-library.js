@@ -313,23 +313,44 @@ async function main() {
   say('C3 — the exit conditions, and RESUME from run-folder state');
 
   const rows = [{ seat: 'alpha', after: '' }, { seat: 'bravo', after: '' }, { seat: 'charlie', after: 'alpha' }];
-  const midRun = attached.evaluateExit(inspect, rows, new Set());
+  const midRun = attached.evaluateExit(inspect, rows);
   check('C3 with turns still live the run does NOT exit', !midRun.done,
     `live=${midRun.live}`);
 
+  const stamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
   inspect.recordMessage({
-    type: 'ask', sender: 'alpha', thread: 'probe', corpus: 'a worker question', createdAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    type: 'ask', sender: 'alpha', thread: 'probe', corpus: 'a worker question', createdAt: stamp(),
   });
-  const onAsk = attached.evaluateExit(inspect, rows, new Set());
+  const onAsk = attached.evaluateExit(inspect, rows);
   check('C3 ANY worker question ends the attached execution and returns it to the caller',
     onAsk.done && onAsk.reason === 'question' && onAsk.asks.length === 1,
     onAsk.done ? `reason=${onAsk.reason}, ${onAsk.asks.length} ask(s)` : 'the run did not return on a question');
 
-  const askIds = new Set(onAsk.asks.map((a) => a.msg_id));
-  const afterAck = attached.evaluateExit(inspect, rows, askIds);
-  check('C3 POSITIVE CONTROL: an ALREADY-REPORTED question does not end the run again',
-    !(afterAck.done && afterAck.reason === 'question'),
-    'else a resumed run would exit immediately, forever, on the same message');
+  // ⚠ REWRITTEN, console-run B1. The old control passed the ask's own id back in a `seenAskIds`
+  // set — and NOTHING in the run loop ever put an id in that set, so the control proved a property
+  // the product did not have: a run resumed after ANY ask ever recorded handed back exit 3 at its
+  // first tick, on a question that may have been answered while it was down. The correlation is now
+  // the ANSWER, which is what actually closes a question, and it is the status verb's own pairing.
+  inspect.recordMessage({
+    type: 'answer', sender: 'owner', thread: 'probe', corpus: 'here is your answer', createdAt: stamp(),
+  });
+  const afterAnswer = attached.evaluateExit(inspect, rows);
+  check('C3 an ANSWERED question does not end the run again',
+    !(afterAnswer.done && afterAnswer.reason === 'question'),
+    'else a resumed run would exit immediately, forever, on a question already answered');
+  // …and a SECOND, still-open question on the same thread does stop it — so the arm above is
+  // measuring the pairing and not "any answer anywhere silences everything".
+  inspect.recordMessage({
+    type: 'ask', sender: 'alpha', thread: 'probe', corpus: 'a second, unanswered question', createdAt: stamp(),
+  });
+  const secondAsk = attached.evaluateExit(inspect, rows);
+  check('C3 a SECOND unanswered ask on the same thread still ends the run',
+    secondAsk.done && secondAsk.reason === 'question'
+      && secondAsk.asks.length === 1 && /second/.test(secondAsk.asks[0].corpus),
+    JSON.stringify(secondAsk.asks || []));
+  inspect.recordMessage({
+    type: 'answer', sender: 'owner', thread: 'probe', corpus: 'answered too', createdAt: stamp(),
+  });
   inspect.close();
 
   // ⚠⚠ THE TWO CHECKS ABOVE WERE THE ONLY EVIDENCE FOR WAVES AND THEY WERE BLIND. A mutation run
@@ -466,7 +487,12 @@ async function main() {
     `exit ${noProfile.status}`);
 
   const cliDir = path.join(workspace, '.rbtv', 'goals', 'cli-goal');
-  fs.mkdirSync(path.join(cliDir, 'seats'), { recursive: true });
+  // ⚠ THE SEAT FOLDERS, and they are not decoration. A seat's workdir is its own folder; without
+  // one every fire of this fixture REFUSED at the workdir guard and the rows landed `failed`. That
+  // was invisible while `--max-ticks 1` returned first and reported `max-ticks` over the wreckage
+  // — the outcome word said "the bound was reached", never "every seat failed". Console-run B1's
+  // `seat-failed` verdict returns before the bound and made it visible.
+  for (const s of SEATS) fs.mkdirSync(path.join(cliDir, 'seats', s), { recursive: true });
   fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(cliDir, 'taskforce.csv'));
   const cliRes = runCli(['run', cliDir, '--profile', 'probe-seat', '--config', configPath, '--max-ticks', '1', '--json']);
   let cliJson = null;
@@ -489,7 +515,7 @@ async function main() {
   say('C3c — SIGKILLed mid-run, then re-run (criterion 3, done rather than approximated)');
 
   const killDir = path.join(workspace, '.rbtv', 'goals', 'kill-goal');
-  fs.mkdirSync(path.join(killDir, 'seats'), { recursive: true });
+  for (const s of SEATS) fs.mkdirSync(path.join(killDir, 'seats', s), { recursive: true });
   fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(killDir, 'taskforce.csv'));
 
   const { spawn: spawnProc, spawnSync } = require('node:child_process');
