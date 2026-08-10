@@ -27,6 +27,17 @@ SLOTS** — never argv, never flags. Effort reaches the harness in that harness'
 profile's translation table (`high` → `--effort high` for claude, `-c model_reasoning_effort=high`
 for codex), never as a hand-written flag.
 
+## Who consumes it — MANUAL INVOCATION IS THE CONTRACT
+
+Owner ruling `d-r2-preflight-manual-plus-skill` (2026-08-10). There is **no automated wiring, by
+design**: no code path composes a CLI-worker command line (`route.py` emits an
+`invocation_pointer`, `scaffold.py` only checks manual drift, the AGENT types the command), so
+nothing reads `preflightDispatch` or `addDirResolved` but the conductor's own eyes. The supported
+consumption path is the conductor invoking this capability BEFORE packaging a dispatch, and the
+front door is the **`rbtv-dispatch-resolve` skill** (`orchestration/skills/dispatch-resolve/`) —
+which exists so the conductor reaches for this call instead of hand-composing the add-dir flag.
+A future automated consumer is not owed; a zero-consumer grep is the expected reading.
+
 ## The three refusals this module adds
 
 The shared resolver raises its own (`E_UNKNOWN_PROFILE`, `E_RAW_FLAG`, `E_UNKNOWN_EFFORT`,
@@ -108,15 +119,24 @@ node orchestration/capabilities/dispatch-resolve/probes/probe-extra-dir-slot.js
 Both are run DIRECTLY: `ignite/deploy/probe-suite.js` enumerates `ignite/` only, so an
 orchestration-module probe is outside the runner's reach.
 
-`probe-dispatch-resolve` — 19 checks, exit 0/1. Output committed beside it as
-`probe-dispatch-resolve.out`.
+`probe-dispatch-resolve` — 22 checks, exit 0/1, GREEN 2026-08-10 (Windows box). The committed
+`probe-dispatch-resolve.out` beside it is the pre-repoint VPS capture and is **stale**.
 
-⚠ **`probe-dispatch-resolve` is RED against the current config and the cause is DRIFT, not this
-lane** (measured 2026-08-10, Windows box: 8 pass / 11 fail). It pins profile names the shipped
-config no longer carries — `claude-seat`, `claude-sonnet-tools`, `codex-git-write`,
-`opencode-sakana` are gone, `r-seats-only-architecture` renamed the roster to 14 profiles — so its
-own preconditions (`P4` "all 6 profiles", the `claude-seat` deny-list control) fail before any bound
-is exercised. Repointing it is its own row; treat its verdict as stale until then.
+⚠ **REPOINTED 2026-08-10, and the shape changed with it.** It used to pin four profile names the
+shipped config no longer carries (`claude-seat`, `claude-sonnet-tools`, `codex-git-write`,
+`opencode-sakana` — `r-seats-only-architecture` retired all four and re-rostered the file to 14),
+so 11 of 19 checks failed at their PRECONDITIONS before any bound was exercised and the verdict
+carried no information. The lane's own bounds now run against a **fixture this probe writes**, the
+sibling `probe-extra-dir-slot` pattern, so a roster change cannot strand them again; four `LIVE-*`
+checks carry what is genuinely a statement about the shipped tree, asserted as relationships rather
+than counts. Two of those are tripwires over live defects this lane does not own:
+
+- `LIVE-2` — **every** shipped profile now inherits the shared `cage:` block's `SeatBinds`, so the
+  deny-list refuses all 14: this lane can resolve **zero** live profiles. The deny-list is not
+  wrong; its premise (seat profiles are the exception) is. Fixing it is an architecture call.
+- `LIVE-3` — all **11** recorded `launch_profile` values name `cli-*` twins task 7.86 was to author
+  and `r-seats-only-architecture` retired, so the manifest→profile mapping is **100% dangling**.
+  `probe-extra-dir-slot` check `4-GAP` measures the same absence from the config side.
 
 `probe-extra-dir-slot` — task **7.87 criterion 4**: 10 checks, exit 0/1, GREEN 2026-08-10. It runs
 against a **fixture** config (the live daemon's armed config must not gain an argv-changing row on
@@ -127,9 +147,12 @@ smuggled relative value reaching argv). Source restored and re-verified green in
 
 **Every refusal is exercised in BOTH directions**, because *"it passed everywhere"* and *"it cannot
 fail anywhere"* print the same thing (`bars.md` 11). The probe also asserts its own preconditions
-(the bare load really refuses; `claude-seat` really declares `SeatBinds`) — a deny-list tested
-against a profile that declares nothing proves nothing.
+(the bare load really refuses; `fx-seat` really declares `SeatBinds`) — a deny-list tested against a
+profile that declares nothing proves nothing. `1-GREEN` additionally asserts its subject EXISTS:
+`assertNoSeatBinds` returns silently for an unknown name, so the retired `claude-sonnet-tools` kept
+"passing" that check for days after it stopped existing.
 
-**Mutation-verified 2026-07-28**, because a green probe is not evidence that it discriminates:
-neutering the deny-list turned checks `1-RED` and `1-RED-via-entry` FAIL; neutering the add-dir
-guard turned `2a-RED` and `2b-RED` FAIL. Source restored and re-verified green in the same sitting.
+**Mutation-verified 2026-07-28, re-verified 2026-08-10 after the repoint**, because a green probe is
+not evidence that it discriminates: neutering the deny-list turned `1-RED`, `1-RED-via-entry` **and
+`LIVE-2`** FAIL (19/3); neutering the add-dir guard turned `2a-RED` and `2b-RED` FAIL (20/2). Source
+restored byte-identical and re-verified green (22/0) in the same sitting.

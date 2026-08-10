@@ -227,6 +227,12 @@
         "target": ".claude/skills/rbtv-plan-doc/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Plan-DOCUMENT authoring workflow with iterative clarification — produces a plan document + task files (distinct from rbtv2-planning, which scaffolds and runs a seat DAG)"
+      },
+      {
+        "source_template": "orchestration/skills/dispatch-resolve/SKILL.md",
+        "target": ".claude/skills/rbtv-dispatch-resolve/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Front door for the dispatch-resolve capability — resolve a CLI worker's exact argv/binary/add-dir flag from a NAMED launch profile with the pinned-flag pre-flight in the same call (dispatch-wrapper §5a gate 5). Thin loader → the capability doc + a one-line node invocation; manual invocation is the contract (owner ruling d-r2-preflight-manual-plus-skill)"
       }
     ],
     "commands": [
