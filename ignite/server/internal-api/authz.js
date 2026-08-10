@@ -47,8 +47,20 @@
 //     and (b) a column recording the enqueuing SEAT, which no table has. Issue
 //     G-137 carries both. Until then this file's model is UNCHANGED for every
 //     decision that rests on the approximation.
-// So the honest reading of "what v1 can prove" is now: owner (kind), master and
-// leader (seat), creator (still an approximation, still coarser than the ruling).
+//
+// ⚑ UPDATED BY TASK 7.389 — G-137's precondition (b) IS NOW MET; (a) IS NOT, so the retirement is
+// STILL BLOCKED and the approximation STILL STANDS. `queue.enqueued_seat` / `jobs_log.enqueued_seat`
+// are the column (b) said no table had, and `seatPrincipalResolver` now grants `creator-seat` off
+// them as a genuine seat-to-seat check. What did NOT change, deliberately: the approximation in
+// `tokenKindResolver` is untouched and armed. Dropping it while (a) stands would remove the only
+// principal a live agent can hold — `p-g137-retirement-falsified-approximations-stay-armed` ruled
+// precisely that, and it is why this task landed the column WITHOUT the retirement. The new grant
+// is purely ADDITIVE (the chain unions), so it can only widen who holds `creator-seat`, never
+// narrow it, and every pre-existing refusal path behaves exactly as it did.
+// So the honest reading of "what v1 can prove" is now: owner (kind), master and leader (seat), and
+// creator — a real SEAT check wherever a seat was proven at BOTH enqueue and call, and the
+// unretired, shared-token-coarse approximation everywhere else. Assume the approximation unless
+// you know both ends proved a seat.
 //
 // EXPLICITLY DECLINED (D65(B) — do not "improve" these):
 //   • extending the sender `kind` enum with master/leader — it would bake two
@@ -70,9 +82,16 @@ const PRINCIPALS = Object.freeze({
   'creator-seat': Object.freeze({
     id: 'creator-seat',
     describes: 'the seat that queued the job (seat = executor + task)',
-    // Enforced only as the sender-id APPROXIMATION below — never as a seat check.
+    // TWO grants now reach this principal, and they are NOT the same claim — task 7.389 added the
+    // second WITHOUT retiring the first (G-137's other half; see seatPrincipalResolver):
+    //   1. the sender-id APPROXIMATION (`tokenKindResolver`) — a DEVICE identity compared to an
+    //      audit column, exact only at 1:1 sender:seat and coarser under a shared token;
+    //   2. the SEAT check (`seatPrincipalResolver`) — `enqueued_seat === the proven seat`, which is
+    //      what the ruling actually says and carries none of (1)'s coarseness.
+    // While (1) stands, the WEAKER of the two is what a reader must assume held for any given
+    // grant, so do not describe this principal as seat-based on the strength of (2) alone.
     enforcedInV1: true,
-    provenBy: 'APPROXIMATION: enqueued_by === authenticated sender-id (exact only at 1:1 sender:seat; coarser under a shared token)',
+    provenBy: 'EITHER the seat check (enqueued_seat === the CMP-13-proven seat, task 7.389) OR the older APPROXIMATION (enqueued_by === authenticated sender-id; exact only at 1:1 sender:seat, coarser under a shared token) — the approximation is NOT retired, so assume the weaker one',
   }),
   // The master APPROXIMATION (owner ruling 2026-07-25, task 7.12, build (ii)) —
   // recorded here so the honest name of what is enforced appears beside the honest
@@ -193,14 +212,47 @@ const SEAT_NAME_PRINCIPALS = Object.freeze({
 // retirement is a one-line change (drop `master-approximation` from canRegisterJob and the
 // creator branch from tokenKindResolver) and belongs to whoever lands 7.37's columns. Issue G-137.
 //
-// `creator-seat` is NOT returned here either, and that is a SCHEMA fact rather than a choice:
-// `queue.enqueued_by` and `jobs_log.enqueued_by` are sender-ids (schema.sql:25,61) and no column
-// records the enqueuing SEAT. Proving creator-seat needs that column — the same absent migration
-// path that deferred this task's sender-kind half.
-function seatPrincipalResolver(sender, _subject) {
+// ⚑ `creator-seat` IS NOW RETURNED HERE — TASK 7.389 LANDED THE COLUMN THE PARAGRAPH BELOW SAID
+// WAS MISSING, and the paragraph is kept because it is the reason the grant looks the way it does:
+//
+//   "`creator-seat` is NOT returned here either, and that is a SCHEMA fact rather than a choice:
+//   `queue.enqueued_by` and `jobs_log.enqueued_by` are sender-ids and no column records the
+//   enqueuing SEAT. Proving creator-seat needs that column."
+//
+// `queue.enqueued_seat` / `jobs_log.enqueued_seat` are that column (G-137 precondition (b)). This
+// grant is a SEAT-TO-SEAT comparison — the proven seat behind the connection against the seat
+// recorded at enqueue — so it is NOT the sender-id approximation `tokenKindResolver` still makes.
+//
+// ⚠ BUT IT DOES NOT REMOVE THAT APPROXIMATION'S SHARED-TOKEN COARSENESS, AND SAYING OTHERWISE IS
+// THE EASY MISREADING. Two seats behind ONE token prove DIFFERENT seats here and this resolver
+// refuses the second — and the request still succeeds, because `principalsOf` UNIONS the chain and
+// `tokenKindResolver` granted `creator-seat` on `enqueued_by === sender.id` regardless. THE WEAKER
+// GRANT IS DECISIVE while both are armed. So this resolver TIGHTENS nothing on its own; it adds a
+// path that is exact where the approximation had none (a seat whose sender-id differs from the
+// row's). The coarseness closes only at the RETIREMENT, which is G-137's other half and is blocked
+// on task 7.37. `probe-remove-job` arm (f) pins this as a live assertion rather than a comment.
+//
+// ⚑ IT IS STILL PURELY ADDITIVE, which is what keeps it safe to ship beside the approximation. The
+// resolver chain UNIONS what its members return (`principalsOf`), so this can only ever GRANT
+// `creator-seat` to a caller the approximation would have refused — never REMOVE it from one the
+// approximation grants. Retiring the approximation remains G-137's separate half and is NOT done
+// here: doing both at once is what `p-g137-retirement-falsified-approximations-stay-armed` refused.
+//
+// ⚑ BOTH SIDES MUST BE NON-EMPTY STRINGS, and that is the load-bearing line rather than defensive
+// noise. A row with no recorded seat holds NULL, an unproven caller holds no `seat`, and if either
+// absence were allowed to compare equal to the other then EVERY unproven caller would hold
+// `creator-seat` over EVERY pre-7.389 row — the exact inversion of what this column is for. The
+// store normalizes `''` to NULL at both write sites for the same reason; this is the read-side half
+// of that pair, so neither half is the only thing standing between absence and a grant.
+function seatPrincipalResolver(sender, subject) {
   const held = [];
   if (!sender || typeof sender.seat !== 'string' || sender.seat.length === 0) return held;
   for (const p of SEAT_NAME_PRINCIPALS[sender.seat] || []) held.push(p);
+
+  if (subject && typeof subject.enqueued_seat === 'string' && subject.enqueued_seat.length > 0
+      && subject.enqueued_seat === sender.seat) {
+    held.push('creator-seat');
+  }
   return held;
 }
 

@@ -193,6 +193,54 @@ const MIGRATION_JOB_SEAT_HOME = {
 // block's draft spot precedes the definition and throws at module load (record §R.10c).
 MIGRATIONS.push(MIGRATION_JOB_SEAT_HOME);
 
+// ── Task 7.389 · the ENQUEUING-SEAT column (G-leader-0805-0625, G-137 precondition (b)) ──────────
+//
+// `queue.enqueued_by` / `jobs_log.enqueued_by` are SENDER-IDs — devices and bridges. G-137 measured
+// that no column anywhere records the enqueuing SEAT, which is why `seatPrincipalResolver` could
+// never grant `creator-seat` and a sender could not remove its OWN row as a seat. This is that
+// column, on both tables, so the grant reads the same fact on a queue row and on the jobs_log row
+// `canKillSession` is handed.
+//
+// NULLABLE, and no backfill — the same posture MIGRATION_JOB_SEAT_HOME took, for a stronger reason:
+// the enqueuing seat of an already-written row is NOT RECOVERABLE. `enqueued_by` is a sender-id and
+// the mapping sender→seat is many-to-one under a shared token (this file's own header), so any
+// backfill would be a GUESS written as a fact, and the guess would then hand `creator-seat` to
+// whoever the guess named. An unknown seat stays NULL and grants nothing.
+//
+// `up()` is idempotent via the column-exists guard SQLite's `ALTER TABLE` forces (it has no
+// `IF NOT EXISTS`), so this is a NO-OP on a store built from `schema.sql` — which already carries
+// both columns — and a real migration on a store that predates them.
+const MIGRATION_ENQUEUING_SEAT = {
+  version: 4,
+  name: 'enqueuing-seat-7.389',
+  up(db) {
+    for (const table of ['queue', 'jobs_log']) {
+      const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((r) => r.name);
+      if (!cols.includes('enqueued_seat')) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN enqueued_seat TEXT;`);
+      }
+    }
+  },
+};
+
+// ⚠ ARMING IS THE OWNER'S LINE, NOT THE BUILDER'S — the standing posture of this file
+// (`r-746-schema-pregrant`, and both migrations above): LANDING A MIGRATION ARMS IT, because
+// `migrate()` runs at DAEMON START, so appending it migrates the LIVE catalogue on the owner's next
+// restart — a deploy nobody decided to make. The migration above is DEFINED and proven by INJECTION
+// (`migrate(db, { migrations: [...] })`, the parameter this module exposes for exactly this;
+// `probe-migration-enqueuing-seat` drives it). Ratification is then ONE reviewable line, placed
+// HERE — below the const, above the LATEST derivation, the spot both siblings use (the comment-block
+// spot precedes the definition and throws a module-load ReferenceError, measured at §R.10c):
+//
+//     MIGRATIONS.push(MIGRATION_ENQUEUING_SEAT);
+//
+// UNTIL THAT LINE LANDS: a FRESH store carries both columns (schema.sql) and the whole 7.389 path
+// works on it; the LIVE store does not, and there `sender.seat` is recorded nowhere, so the
+// `creator-seat` grant simply never fires and authorization behaves exactly as it did before this
+// change. That degrade is the fail-closed direction — the grant is purely ADDITIVE (authz.js).
+// (It is exported BY NAME in the block at the foot of this file — never with a `module.exports.x =`
+// line here, which the terminal `module.exports = { … }` assignment would silently clobber.)
+
 const LATEST = MIGRATIONS.length ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
 
 function userVersion(db) {
@@ -287,4 +335,9 @@ module.exports = {
   // ratified the push goes above `LATEST` and THIS COMMENT BECOMES FALSE: correct it in the same
   // change, as the line above had to be.
   MIGRATION_JOB_SEAT_HOME,
+  // Task 7.389. Exported and NOT in MIGRATIONS — `probe-migration-enqueuing-seat` injects it to
+  // prove it works, which is a separate claim from it being armed. Per the note above its
+  // definition, the day the owner ratifies it the push goes above `LATEST` and THIS COMMENT
+  // BECOMES FALSE: correct it in the same change, as MIGRATION_SESSION_SPLIT's had to be.
+  MIGRATION_ENQUEUING_SEAT,
 };

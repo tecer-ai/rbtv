@@ -963,8 +963,8 @@ class HeartStore {
 
     const enqueuedAt = req.enqueuedAt || isoNow();
     const stmt = this._prepare(`
-      INSERT INTO queue (job_id, args, session_mode, trigger_kind, run_at, repeat_rule, interval_seconds, max_fires, enqueued_by, enqueued_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO queue (job_id, args, session_mode, trigger_kind, run_at, repeat_rule, interval_seconds, max_fires, enqueued_by, enqueued_seat, enqueued_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       req.jobId,
@@ -976,6 +976,12 @@ class HeartStore {
       req.intervalSeconds === undefined ? null : req.intervalSeconds,
       req.maxFires === undefined ? null : req.maxFires,
       req.enqueuedBy,
+      // Task 7.389 — the PROVEN enqueuing seat, or NULL. Normalized to NULL rather than passed
+      // through: `undefined` (every caller that predates this column) and `''` must both land as
+      // SQL NULL, because the `creator-seat` grant compares this against `sender.seat` and an
+      // empty string that compared equal to an unproven caller's empty seat would grant the
+      // principal to a caller who proved nothing.
+      typeof req.enqueuedSeat === 'string' && req.enqueuedSeat.length > 0 ? req.enqueuedSeat : null,
       enqueuedAt
     );
     return this.getQueueRow(Number(result.lastInsertRowid));
@@ -1069,8 +1075,8 @@ class HeartStore {
 
       const insertLog = this._prepare(`
         INSERT INTO jobs_log
-          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status, session_pk)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?)
+          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, enqueued_seat, session_mode, fired_tick, fired_at, status, session_pk)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?)
       `);
       const logResult = insertLog.run(
         parentExecId,
@@ -1079,6 +1085,12 @@ class HeartStore {
         queue.action_type || this.getJob(queue.job_id)?.action_type || 'launch-agent',
         queue.args,
         queue.enqueued_by,
+        // Task 7.389 — denormalized at fire exactly as `enqueued_by` is, and for the same reason
+        // this method's own header gives: the queue row is DELETED on a one-shot fire, so a
+        // jobs_log row that pointed at it instead of carrying the value would lose the seat the
+        // moment the turn it authorizes actually exists. `?? null` covers a store migrated before
+        // the column landed, where the SELECT yields `undefined`.
+        queue.enqueued_seat ?? null,
         queue.session_mode,
         tick,
         firedAt,
@@ -1116,7 +1128,9 @@ class HeartStore {
     }
   }
 
-  recordExecutionStart({ queueId = null, jobId, actionType, args, enqueuedBy, sessionMode = 'headless', firedTick, firedAt, parentExecId = null, sessionId = null, pid = null, profile = null, workdir = null }) {
+  // `enqueuedSeat` (task 7.389) defaults to null: this method's callers are the daemon's own
+  // internal starts (the attached-execution carrier, the deploy probes), which hold no proven seat.
+  recordExecutionStart({ queueId = null, jobId, actionType, args, enqueuedBy, enqueuedSeat = null, sessionMode = 'headless', firedTick, firedAt, parentExecId = null, sessionId = null, pid = null, profile = null, workdir = null }) {
     const firedAtIso = toIsoUtc(firedAt);
     this.db.exec('BEGIN EXCLUSIVE;');
     try {
@@ -1133,8 +1147,8 @@ class HeartStore {
 
       const stmt = this._prepare(`
         INSERT INTO jobs_log
-          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status, session_id, pid, profile, workdir, session_pk)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?, ?, ?, ?, ?)
+          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, enqueued_seat, session_mode, fired_tick, fired_at, status, session_id, pid, profile, workdir, session_pk)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?, ?, ?, ?, ?)
       `);
       const result = stmt.run(
         parentExecId,
@@ -1143,6 +1157,9 @@ class HeartStore {
         actionType,
         args,
         enqueuedBy,
+        // Task 7.389 — same normalization the queue insert applies: `''` must never reach the
+        // column, or it would compare equal to an unproven caller's seat at the grant.
+        typeof enqueuedSeat === 'string' && enqueuedSeat.length > 0 ? enqueuedSeat : null,
         sessionMode,
         firedTick,
         firedAtIso,
