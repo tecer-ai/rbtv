@@ -80,13 +80,16 @@ function isoNow() {
 // uses for the same two gates: the bridge is a relocatable subtree, so the daemon holds no LOAD-time
 // dependency on it (ignite/CLAUDE.md's relocatable-subtree convention runs in both directions).
 //
-// The seat-dir → `(goalDir, seat)` split is the exact inverse of the join the ferry does, so any
-// canonical `<…>/seats/<seat>` folder — goal seat or service seat — resolves; the ferry's own
-// `isSafeName` guard still refuses a traversal.
+// ⚑ THE IMPORT IS THE SEAT-DIR CORE, NOT THE `(goalDir, seat)` WRAPPER, and the difference is the
+// whole warm path. A `workdir` here is the seat's OWN folder; splitting it back into a goal dir and
+// a name to feed the wrapper assumes a `seats/<seat>/` layer, which a STANDING-SEAT HOME does not
+// have (`materialize-seats.py#standing_seat`, `r-master-seat-homes`) — `_channel-master` IS the
+// seat folder. That split read `.rbtv/seats/_channel-master/seat.md`, which does not exist, so the
+// one seat the warm path was built for went ineligible SILENTLY (every ineligibility falls through
+// to the cold path by design). Task 7.642.
 function seatIsHumanInteractive(seatDir) {
-  const abs = path.resolve(seatDir);
-  const { seatIsHumanInteractive: ferryReads } = require('../../bridges/chat/bus-ferry');
-  return ferryReads(path.dirname(path.dirname(abs)), path.basename(abs));
+  const { seatDirIsHumanInteractive } = require('../../bridges/chat/bus-ferry');
+  return seatDirIsHumanInteractive(path.resolve(seatDir));
 }
 
 function createLiveSessions({
