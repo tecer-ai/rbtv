@@ -6,6 +6,7 @@
 # versions + integrity hashes, installed with `npm ci`); THIS file stays the complete human-readable
 # inventory on top, covering system tools npm cannot express (D28 / NEED-3 human-verifiability). Both are
 # updated in the same change. `node_modules/` is a build artifact — gitignored, never committed.
+# Machine-readable twin of the system-tool rows below: package.json rbtv.system (schema: concepts/dependency-manifest.md).
 
 Node.js 24 — runtime for the daemon, gateway, and CLI — already provisioned on the box; fresh install: apt (NodeSource) or nvm (`nvm install 24`)
 npm — package manager for all Node dependencies — ships with Node.js (no separate install)

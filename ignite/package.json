@@ -1,7 +1,7 @@
 {
   "name": "@rbtv/ignite",
   "private": true,
-  "description": "Dependency manifest for the ignite module — what the environment must provide. Declaration only; never published. Schema: concepts/dependency-manifest.md (sd-graph show dependency-manifest). NPM ELEMENTS ONLY: ignite also needs system tools npm cannot express (systemd, tmux, bubblewrap, tailscaled, python3) — those stay in dependencies.txt beside this file, the human-readable inventory owner ruling D28 requires; both are updated in the SAME change as any dependency change. TWO DECLARED DIVERGENCES from the record, stated rather than hidden: (1) js-yaml is a REQUIRED LIBRARY the daemon require()s, not a binary — it resolves into this folder's node_modules, NOT the workspace shared bin root, which serves binaries on PATH; (2) package-lock.json beside this file is therefore KEPT and committed (`npm ci`, exact versions + integrity hashes, D28 / task 7.51 pinning) where the record says no lockfile is authored. rbtv.install commands run with cwd = this folder.",
+  "description": "Dependency manifest for the ignite module -- what the environment must provide. Declaration only; never published. Schema: concepts/dependency-manifest.md (sd-graph show dependency-manifest). js-yaml is a REQUIRED LIBRARY the daemon require()s, not a binary -- it resolves into this folder's node_modules (not the workspace shared bin root, which serves binaries on PATH) and package-lock.json beside this file is KEPT and committed (`npm ci`, exact versions + integrity hashes, D28 / task 7.51 pinning) -- both LAWFUL under the record's element-kind split (`decisions.md#d-dependency-manifest-element-classes`). System tools npm cannot express are declared machine-readably in rbtv.system below AND stay in dependencies.txt beside this file, the human-readable inventory owner ruling D28 requires; both are updated in the SAME change as any dependency change. rbtv.install and rbtv.system commands run with cwd = this folder.",
   "engines": {
     "node": ">=24"
   },
@@ -13,6 +13,13 @@
     "install": {
       "node": "curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt-get install -y nodejs",
       "js-yaml": "npm ci --omit=dev"
+    },
+    "system": {
+      "systemd": "sudo apt-get install -y systemd",
+      "tmux": "sudo apt-get install -y tmux",
+      "bubblewrap": "sudo apt-get install -y bubblewrap",
+      "tailscaled": "curl -fsSL https://tailscale.com/install.sh | sh",
+      "python3": "sudo apt-get install -y python3"
     }
   }
 }
