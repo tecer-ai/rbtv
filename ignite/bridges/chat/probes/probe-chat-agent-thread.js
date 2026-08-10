@@ -290,7 +290,11 @@ function buildMutant({ file, from, to } = {}) {
   fs.copyFileSync(__filename, path.join(probesDir, 'mutant-arm.js'));
   if (!file) return { applied: true, cutBytes: 0 };
   const target = path.join(MUTANT_DIR, file);
-  const before = fs.readFileSync(target, 'utf8');
+  // Normalize CRLF->LF before matching: a multi-line anchor carries a bare \n that only
+  // matches LF content, so a CRLF checkout (core.autocrlf=true, e.g. Windows) reads it as
+  // absent even though the anchor is genuinely there. The copy is throwaway (deleted after
+  // the run), so normalizing before writing back changes no tracked file.
+  const before = fs.readFileSync(target, 'utf8').replace(/\r\n/g, '\n');
   if (before.split(from).length - 1 !== 1) return null;   // not present, or ambiguous
   const after = before.replace(from, to);
   if (after === before) return null;
