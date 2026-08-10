@@ -27,7 +27,7 @@ const path = require('node:path');
 // the rbtv root and the engine require fails with a module-not-found that names a path nobody
 // wrote. Verified by running the verb, not by counting the segments.
 const IGNITE_SRC = process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '..', '..', '..');
-const { executeAttached } = require(path.join(IGNITE_SRC, 'engine', 'attached-execution.js'));
+const { executeAttached, statusAttached } = require(path.join(IGNITE_SRC, 'engine', 'attached-execution.js'));
 
 const EXIT_OK = 0;
 const EXIT_REFUSED = 1;
@@ -38,6 +38,7 @@ const EXIT_QUESTION = 3;   // distinct: a run that STOPPED TO ASK is not a run t
 function help() {
   return [
     'rbtv run <goal-folder> --profile <name> [options]',
+    'rbtv run <goal-folder> --status            (orient; read-only, no daemon, no profile)',
     '',
     'Boot the ignite engine IN THIS TERMINAL and advance the goal. The engine is the daemon\'s —',
     'same queue, same tick algorithm, same fire path — attached instead of detached.',
@@ -48,7 +49,10 @@ function help() {
     '                          structure. There is no run folder (7.607: the package IS the goal).',
     '',
     'OPTIONS',
-    '  --profile <name>        REQUIRED. A launch profile, BY NAME, from the one shared config.',
+    '  --status                ORIENT instead of run: print done / ready / next / held-for-user',
+    '                          for this goal and exit. Read-only, needs no daemon, needs no',
+    '                          profile, and works before the goal has ever run.',
+    '  --profile <name>        REQUIRED (unless --status). A launch profile, BY NAME, from the one shared config.',
     '                          The (harness, model) -> profile catalog is core-build task 7.54;',
     '                          this verb never composes a launch command of its own.',
     '  --config <path>         the shared launch-profile config (default: the ignite config).',
@@ -70,12 +74,13 @@ function help() {
 }
 
 function parseArgs(argv) {
-  const opts = { goalFolder: null, profile: null, config: null, tickMs: null, maxTicks: null, json: false };
+  const opts = { goalFolder: null, profile: null, config: null, tickMs: null, maxTicks: null, json: false, status: false };
   const rest = [];
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--help' || a === '-h') return { help: true };
     else if (a === '--json') opts.json = true;
+    else if (a === '--status') opts.status = true;
     else if (a === '--profile') opts.profile = argv[++i];
     else if (a === '--config') opts.config = argv[++i];
     else if (a === '--tick-ms') opts.tickMs = Number(argv[++i]);
@@ -98,6 +103,42 @@ async function main(argv) {
   if (opts.help) { process.stdout.write(help() + '\n'); return EXIT_OK; }
   if (opts.error) { process.stderr.write(`rbtv run: ${opts.error}\n\n${help()}\n`); return EXIT_REFUSED; }
   if (!opts.goalFolder) { process.stderr.write(`${help()}\n`); return EXIT_REFUSED; }
+
+  if (opts.status) {
+    let st;
+    try {
+      st = statusAttached({ goalFolder: opts.goalFolder });
+    } catch (err) {
+      return refuse(err.message);
+    }
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(st, null, 2) + '\n');
+      return EXIT_OK;
+    }
+    const list = (xs) => (xs.length ? xs.join(', ') : '-');
+    process.stdout.write(`\ngoal ${st.goalFolder}\n`);
+    process.stdout.write(`  execution mode  ${st.executionMode}\n`);
+    process.stdout.write(`  store           ${st.storePath || 'none yet — this goal has never run'}\n`);
+    process.stdout.write(`  done            ${list(st.done)}\n`);
+    process.stdout.write(`  in flight       ${list(st.live)}\n`);
+    process.stdout.write(`  ready (next)    ${list(st.next)}\n`);
+    process.stdout.write(`  waiting         ${list(st.waiting)}\n`);
+    if (st.heldForUser.length) {
+      process.stdout.write(`\nHELD FOR YOU — ${list(st.heldForUser)}\n`);
+      process.stdout.write('  These seats declare `human-interactive:` and this goal runs in interactive\n');
+      process.stdout.write('  execution mode, so they need you live rather than a detached child.\n');
+    }
+    if (st.asks.length) {
+      process.stdout.write('\nUNANSWERED QUESTIONS:\n');
+      for (const a of st.asks) process.stdout.write(`  [${a.sender}] ${a.corpus}\n`);
+    }
+    if (!st.next.length && !st.live.length && st.waiting.length) {
+      process.stdout.write('\nNothing is ready and nothing is in flight — every remaining seat waits on one\n');
+      process.stdout.write('that has not finished. Re-run without --status to see the engine\'s own verdict.\n');
+    }
+    return EXIT_OK;
+  }
+
   if (!opts.profile) return refuse('--profile <name> is required. Profiles are pinned and NAMED in the one shared config; this verb never composes one.');
 
   const spawnConfigPath = opts.config || path.join(IGNITE_SRC, 'config', 'spawn-profiles.yaml');

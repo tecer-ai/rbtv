@@ -23,6 +23,33 @@ advance · `3` **a worker asked a question and the run handed it back**. The thi
 purpose: a run that stopped to ask is neither a success nor a failure, and a caller must be able to
 tell without parsing prose.
 
+## Orientation — `rbtv run <goal-folder> --status`
+
+**Console-run wave A, item A3.** The same entry point, asked to REPORT instead of run: it prints
+`done` / in-flight / `ready (next)` / waiting for the goal's seats, plus any seat **held for you**,
+and exits `0`. Read-only, no `--profile`, **no daemon**, and it works before the goal has ever run.
+
+Everything it prints is DERIVED — console-run design ruling 2: there is no new state file, no
+engine breadcrumb, no session-maintained doc. Sources: the goal's `taskforce.csv`, its own
+`heart.db` *if one exists*, the seat descriptors, and the `execution-mode` file.
+
+- **It never creates the store.** Opening a heart store creates and migrates it, so a status call
+  before the first run would leave a `heart.db` behind and make *"has this goal ever run?"*
+  unanswerable from disk. The file is opened only when it is already there.
+- **It shares the engine's ONE eligibility predicate** (`seatState`) with the enqueue pass. A
+  second copy of the wave math is a status surface that can disagree with the engine it reports on.
+- **Held-for-user is TWO gates**, the D14 pair the console-run design's ruling 5 names: the seat
+  declares `human-interactive:` in its descriptor AND the goal's `execution-mode` reads
+  `interactive` (absent = `autonomous`, the ratified default). Both readers are the chat bridge's
+  own (`bridges/chat/bus-ferry.js`), so this surface and the gate that actually parks an
+  owner-addressed message cannot drift apart.
+- Refusals are distinct: a path that is not a goal folder names the goal-folder shape; a goal with
+  no `taskforce.csv` names the missing file.
+
+Guarded by `ignite/engine/probes/probe-attached-status.js` (both gates measured with the other held
+open; the read-only claim measured as a before/after directory listing; both arms proven red by
+mutation).
+
 ## What it runs
 
 The goal folder's `taskforce.csv` is the workflow. Each row is a seat; the row's **`after` column is

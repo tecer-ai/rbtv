@@ -179,6 +179,28 @@ function seatHasRun(rows) {
   return Boolean(rows) && rows.length > 0;
 }
 
+// THE ELIGIBILITY PREDICATE, in ONE place. Both the enqueue pass and the read-only status verb
+// answer "what is this seat's state right now" from here — a second copy of the wave math is a
+// status surface that can disagree with the engine it reports on, which is worse than no surface.
+//
+//   done     a finished execution exists
+//   live     an execution exists that has not finished (running / stalled / failed / …)
+//   queued   a pending queue row exists
+//   ready    never fired, and its `after` is done — the next thing the engine enqueues
+//   waiting  never fired, and its `after` is not done
+const SEAT_STATES = ['done', 'live', 'queued', 'ready', 'waiting'];
+
+function seatState(row, byJob, queued) {
+  const jobId = jobIdFor(row.seat);
+  const mine = byJob.get(jobId);
+  if (seatIsFinished(mine)) return 'done';
+  if (seatHasRun(mine)) return 'live';
+  if (queued.has(jobId)) return 'queued';
+  const after = (row.after || '').trim();
+  if (after && !seatIsFinished(byJob.get(jobIdFor(after)))) return 'waiting';
+  return 'ready';
+}
+
 // Enqueue every seat whose `after` dependency has finished and which has never been fired. Returns
 // the seats enqueued this pass.
 function enqueueEligible(heartStore, rows, { profile, goalFolder, logger }) {
@@ -188,11 +210,9 @@ function enqueueEligible(heartStore, rows, { profile, goalFolder, logger }) {
 
   for (const row of rows) {
     const jobId = jobIdFor(row.seat);
-    if (seatHasRun(byJob.get(jobId)) || queued.has(jobId)) continue;
+    if (seatState(row, byJob, queued) !== 'ready') continue;
 
     const after = (row.after || '').trim();
-    if (after && !seatIsFinished(byJob.get(jobIdFor(after)))) continue;
-
     const seatDir = path.join(goalFolder, 'seats', row.seat);
     heartStore.enqueue({
       jobId,
@@ -239,6 +259,93 @@ function evaluateExit(heartStore, rows, seenAskIds) {
     return { done: true, reason: 'blocked', unfinished: unfinished.map((r) => r.seat) };
   }
   return { done: false, live: 0 };
+}
+
+// ── The status verb — orientation, READ-ONLY, and it works daemon-down ────────────────────────
+//
+// The console-run design's ruling 2: resume orientation is DERIVED, never stored. No new state
+// file, no breadcrumb, no session-maintained doc — everything below is computed from
+// `taskforce.csv`, the goal's own `heart.db` (when one exists), the seat descriptors, and the
+// `execution-mode` file.
+//
+// THREE things it must not do, each a real hazard rather than a style note:
+//   1. It must not CREATE `heart.db`. Opening the store creates and migrates it, so a status call
+//      before the first run would leave a store behind — and "has this goal ever run?" would be
+//      unanswerable from disk forever after. The file is opened only if it already exists.
+//   2. It must not write ANYTHING else. A read-only verb that dirties the goal folder cannot be
+//      run while a review or a run is measuring that folder.
+//   3. It must not enqueue. It shares the predicate with the enqueue pass; it does not share the
+//      pass.
+//
+// HELD-FOR-USER is ruling 5's two-gate predicate, not a third spelling of it: the seat declares
+// `human-interactive:` in its descriptor AND the goal's execution mode is `interactive`. Both
+// readers are the chat bridge's own (`bridges/chat/bus-ferry.js`) so the status surface and the
+// gate that actually parks a message can never drift apart.
+function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
+  const goalFolder = resolveGoalFolder(goalFolderInput);
+  const tfPath = path.join(goalFolder, TASKFORCE);
+  if (!fs.existsSync(tfPath)) {
+    throw new Error(
+      `${tfPath}: no taskforce — this goal folder has no seats yet. Materialize the workflow ` +
+      `into it first; there is nothing to report on.`
+    );
+  }
+  const rows = readCsv(tfPath).filter((r) => r.seat);
+
+  const storePath = path.join(goalFolder, STORE_FILENAME);
+  const everRun = fs.existsSync(storePath);
+  let byJob = new Map();
+  let queued = new Set();
+  let asks = [];
+  if (everRun) {
+    const open = openStore || ((p) => require('../server/heart/heart-store').openHeartStore({ dbPath: p }));
+    const store = open(storePath);
+    try {
+      byJob = executionsByJob(store);
+      queued = new Set(store.listQueue().map((q) => q.job_id));
+      asks = store.dump().messages
+        .filter((m) => m.type === 'ask')
+        .map((a) => ({ msgId: a.msg_id, sender: a.sender, corpus: a.corpus }));
+    } finally {
+      store.close();
+    }
+  }
+
+  const { goalExecutionMode, seatIsHumanInteractive, INTERACTIVE_MODE } =
+    require('../bridges/chat/bus-ferry');
+  // `<workspace>/.rbtv/goals/<goal>` — the reader takes the workspace root and the goal NAME.
+  const workspaceRoot = path.resolve(goalFolder, '..', '..', '..');
+  const executionMode = goalExecutionMode(workspaceRoot, path.basename(goalFolder));
+
+  const seats = rows.map((row) => {
+    const state = seatState(row, byJob, queued);
+    const humanInteractive = seatIsHumanInteractive(goalFolder, row.seat);
+    return {
+      seat: row.seat,
+      after: (row.after || '').trim() || null,
+      state,
+      humanInteractive,
+      // Ruling 5's TWO gates, both of them, evaluated here so no caller re-derives one of them.
+      heldForUser: state === 'ready' && humanInteractive && executionMode === INTERACTIVE_MODE,
+    };
+  });
+
+  return {
+    goalFolder,
+    storePath: everRun ? storePath : null,
+    everRun,
+    executionMode,
+    seats,
+    done: seats.filter((s) => s.state === 'done').map((s) => s.seat),
+    ready: seats.filter((s) => s.state === 'ready').map((s) => s.seat),
+    live: seats.filter((s) => s.state === 'live' || s.state === 'queued').map((s) => s.seat),
+    waiting: seats.filter((s) => s.state === 'waiting').map((s) => s.seat),
+    heldForUser: seats.filter((s) => s.heldForUser).map((s) => s.seat),
+    // NEXT is what the engine would advance on now — the ready set. Named separately because
+    // "what do I do next" is the question the verb exists to answer.
+    next: seats.filter((s) => s.state === 'ready').map((s) => s.seat),
+    asks,
+  };
 }
 
 // ── The attached run ──────────────────────────────────────────────────────────────────────────
@@ -348,6 +455,9 @@ async function executeAttached({
 
 module.exports = {
   executeAttached,
+  statusAttached,
+  seatState,
+  SEAT_STATES,
   // Exported for the probe, which must be able to exercise each decision on its own rather than
   // only through a whole run — and for a caller that wants the refusals without the loop.
   resolveGoalFolder,
