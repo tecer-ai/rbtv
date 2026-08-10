@@ -299,27 +299,100 @@ hands the launch to `coordinate` with an explicit `--tmux-target`. Properties wo
   no cadence for a failure to recur on — one fire, one honest record. Probe **P7** pins that, because
   the day the row becomes periodic this exit code starts writing a `failed` every pass.
 
-## The request schema it validates against
+## The request schema it validates against — THE LIVE CLAUSE
 
-Five fields — four required, one optional — and the set is **closed**: a name outside it is a
+Six fields — four required, two optional — and the set is **closed**: a name outside it is a
 refusal, never a passthrough.
 
-| Field | Required | Constraint |
-|---|---|---|
-| `goal-name` | yes | lowercase kebab-case · free in the resolved goals root · not declared by another goal |
-| `goal-type` | yes | `one-shot` \| `recurring` |
-| `goal-contract` | yes | non-empty after whitespace strip |
-| `goal-kind` | yes | `interactive` \| `non-interactive` |
-| `due-date` | no | type UNRESOLVED in the schema — **no value of it is rejected** |
-| `execution-mode` | no | `interactive` \| `autonomous` — enforced by `resolve_execution_mode`, **not** by a reject-set member (see below) |
+⚠ **This section is the schema's LIVE text and it supersedes the frozen record** (task `7.631`,
+2026-08-10). The artifact the code cites as its origin —
+`.rbtv/goals/build-core-daemon-mvp/runs/run-3/planning/briefing-master-request-launch-entry/request-schema-goal-creation.md`,
+§1 authored by `7.197` (`E2`) and §6 by `7.198` (`E3`) — sits inside a run compartment the owner
+ruled **read-only archaeology, never migrate or edit it** (`.rbtv/goals/CLAUDE.md`). It is not
+edited and it is not migrated: it stays the historical FIVE-field, THIRTEEN-member record, exactly
+as those two rows landed it. The amendment lands HERE instead, in the capability that implements it,
+and this file is what `REJECT_SET_SOURCE` now names. **Where the two differ, this clause is what the
+tool implements and what a second implementer builds against.**
+
+| Field | Required | Constraint | Member that negates it |
+|---|---|---|---|
+| `goal-name` | yes | lowercase kebab-case · free in the resolved goals root · not declared by another goal | `P1` · `V1` `V2` `V3` |
+| `goal-type` | yes | `one-shot` \| `recurring` | `P2` · `V4` |
+| `goal-contract` | yes | non-empty after whitespace strip | `P3` · `V5` |
+| `goal-kind` | yes | `interactive` \| `non-interactive` | `P4` · `V6` |
+| `due-date` | no | type UNRESOLVED in the schema — **no value of it is rejected** | none — §6.3's empty slice |
+| `execution-mode` | no | `interactive` \| `autonomous` | **`V7`** — the fourteenth member, minted by this clause |
+
+### §1.7 · `execution-mode` — optional, enum `interactive | autonomous`
+
+The per-goal OWNER-CONTACT policy (registry concept `execution mode`; ABSENT reads `autonomous`).
+Optional is the point: a requester who says nothing gets the WORKFLOW's default, resolved from the
+workflow's own scaffolding, which is a better answer than any default this layer could invent.
+
+**Resolution ladder, in this order:** (1) the request payload's own `execution-mode` → (2) the
+workflow's DECLARED `default-execution-mode:` → (3) DERIVED from that workflow's manifest Modality
+column → (4) the model's own `autonomous` where no workflow is named or none resolves. Each rung's
+reason, and why the declaration outranks the derivation, is § *Three properties* item 4 below —
+that item is the normative statement of the ladder; this line is only its order.
+
+**Where each half is enforced:**
+
+| Half | Site |
+|---|---|
+| the NAME is in the closed field set | `validate` — `S2` computes its set difference against `ALL_FIELDS`, which is six |
+| the VALUE is in the enum | `validate` — **`V7`**, class `V`, under the `S → P → V` class-stop |
+| the RESOLVED value reaches the created goal | `resolve_execution_mode`, called by `scaffold_goal` BEFORE the exists-check and before any write; a payload value outside the enum raises a typed `Refusal` there too, so the act-performing path refuses even when its caller skipped `validate` |
+
+### The reject-set decision — `V7` is minted, and why
+
+The closed set grew to **fourteen**. That is not an implementer's judgment call; it is what the
+schema's own generation rule produces once this clause exists. §6.0 generates the set from §1 by
+three finite passes — one member per structural precondition (3), one per REQUIRED field for its
+absence (4), **one per constraint CLAUSE for that clause's negation (6)** — and states that *adding
+a member requires adding a clause to §1 first*. §1.7 above IS that clause, and it states a closed
+two-member enum, so its negation is generated exactly the way `V4` and `V6` are. Declining to mint
+it would leave a set no reader can RE-DERIVE from the field table, which is the property §6.0 says
+makes the set closed rather than merely enumerated.
+
+**`due-date` is not the precedent it looks like.** It contributes zero value members because §3.1
+records its TYPE as UNRESOLVED, and §6.3 rules that a reject named against an unresolved type is
+the silent validation §3 exists to prevent. `execution-mode`'s type is resolved — two literals — so
+that exemption does not reach it.
+
+**The measurement that settled it, rather than the argument alone.** Before this clause,
+enforcement lived only at `resolve_execution_mode`, and the two verbs therefore disagreed about the
+same payload:
+
+```
+$ goal_creation_request.py validate <payload with execution-mode: "sometimes">
+exit 0            # ACCEPTED — no member matched
+$ goal_creation_request.py handle  <the same payload>
+exit 1            # REFUSED at resolve_execution_mode
+```
+
+`validate` is the requester's pre-flight and *"performs no act"* — a pre-flight that clears a
+payload the acting verb refuses is worse than no pre-flight, because a caged requester stages on
+its verdict. `V7` closes that divergence at the one site that reports members.
+
+**The `resolve_execution_mode` refusal STAYS.** It is not replaced by `V7`: `scaffold_goal` is
+reachable as a function (the probes call it directly) and `handle`'s callers may skip `validate`
+entirely, so the act-performing path keeps its own typed refusal — the same shape `--kind` has at
+`goal_cli.py#cmd_scaffold`. Two enforcement sites for one enum is deliberate here because they
+answer two different questions (*may I send this?* and *may I act on this?*), and both read the one
+constant `EXECUTION_MODES`.
+
+⚠ **`S2`'s member NAME still reads `field-name-not-in-the-five`** and is left byte-verbatim from the
+frozen record. A member id-to-name mapping that two implementers must report identically is not
+this clause's to reword; the set it checks is `ALL_FIELDS`, and the check message prints the live
+set, so a reader is never told the wrong one.
 
 ## The refusal arm — what a refused request is told (task `7.206`, design id `E11`, arm **a**)
 
 **The refusing site and the site that answers the requester are the same file**, so one observable
 carries the whole criterion and no propagation question arises.
 
-A refusal names the **member of the schema's closed reject set** that matched — one of thirteen,
-`S1`–`S3` (shape), `P1`–`P4` (presence), `V1`–`V6` (value) — its member name, and what held instead.
+A refusal names the **member of the schema's closed reject set** that matched — one of fourteen,
+`S1`–`S3` (shape), `P1`–`P4` (presence), `V1`–`V7` (value) — its member name, and what held instead.
 Never a bare status. The text appears in `stated-refusal`, in `handle`'s requester-facing `outcome`,
 and on **stderr** for a human reading a terminal.
 
@@ -333,7 +406,9 @@ report is **`{S2}` alone** — `P2` and `V5` are real of that request and are de
 until `S2` is fixed.
 
 **The set is CLOSED and this tool mints nothing.** A condition with no member is a condition the
-schema **admits**; growing the set requires adding a clause to the schema's §1 first. Two readings
+schema **admits**; growing the set requires adding a clause to the schema's §1 first — which is
+exactly how the set reached fourteen: §1.7 above landed, and `V7` was generated from it by §6.0's
+own rule, not minted at the code. Two readings
 were needed to make the members decidable over a JSON payload, and both are stated in the source
 rather than buried: `S3` is about **arity** (`null`, or a list/dict — no value, or more than one),
 and a wrongly-**typed** scalar fails that field's own value member rather than minting a "wrong
@@ -391,12 +466,15 @@ type" member the schema does not carry.
    `goal-kind` is `interactive | non-interactive`; execution mode is `interactive | autonomous`.
    Neither enum is ever written in terms of the other.
 
-   ⚠ **This added NO fourteenth reject-set member.** The closed set is the request schema's
-   (§6.1) and growing it needs a schema clause first, so the field is admitted by `S2` as an
-   optional NAME and carries no value member. Its enum is enforced one layer down, as a typed
-   `Refusal` raised **before** the scaffold act — the same shape `--kind` already has at
-   `goal_cli.py#cmd_scaffold`, and, like it, it leaves no goal directory behind. A reader must
-   not conclude from the absent member that any value is accepted; the probe drives that arm.
+   ⚠ **The schema clause landed and the set is now FOURTEEN** (task `7.631`, 2026-08-10 — the
+   live clause is § *The request schema it validates against* above, §1.7 and its reject-set
+   decision). The field shipped on 2026-08-10 with NO member, because growing the closed set
+   needs a schema clause FIRST and none had been written; that gap is closed, and `V7`
+   (`execution-mode-not-in-enum`) is generated from §1.7 by §6.0's own rule. Its enum is now
+   enforced at BOTH sites — `V7` in `validate`, and the typed `Refusal` in
+   `resolve_execution_mode` raised **before** the scaffold act, the same shape `--kind` has at
+   `goal_cli.py#cmd_scaffold` and, like it, leaving no goal directory behind. The probe drives
+   both arms.
 
 ## ⚠ Arming does not generalise from this capability
 

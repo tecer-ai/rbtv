@@ -229,9 +229,11 @@ def check_launch_gates_outcome(src, mod):
 # is what makes check 8 an assertion rather than a restatement of whatever the code happens to do.
 MALFORMED = {"goal-name": "x", "goal-contract": "  ", "goal-kind": "interactive",
              "priority": "high"}
-# The thirteen ids, spelled out HERE rather than read from the handler under test. A check whose
+# The fourteen ids, spelled out HERE rather than read from the handler under test. A check whose
 # expectation reads the value it is checking moves with the code and passes any change to it.
-THIRTEEN = {"S1", "S2", "S3", "P1", "P2", "P3", "P4", "V1", "V2", "V3", "V4", "V5", "V6"}
+# `V7` joined on 2026-08-10 (task 7.631) when the live schema clause amended in the sixth field.
+CLOSED_SET = {"S1", "S2", "S3", "P1", "P2", "P3", "P4",
+              "V1", "V2", "V3", "V4", "V5", "V6", "V7"}
 
 
 def check_refusal_names_a_member(src, mod):
@@ -248,10 +250,10 @@ def check_refusal_names_a_member(src, mod):
     members = [r.get("member") for r in out.get("refusals", [])]
     if not members or any(m is None for m in members):
         return False, f"a refusal named no member: {out.get('refusals')}"
-    outside = [m for m in members if m not in THIRTEEN]
+    outside = [m for m in members if m not in CLOSED_SET]
     if outside:
-        return False, f"member(s) outside the closed thirteen: {outside}"
-    return True, f"named {members}, all members of the closed thirteen"
+        return False, f"member(s) outside the closed set: {outside}"
+    return True, f"named {members}, all members of the closed set"
 
 
 def check_class_stop_order(src, mod):

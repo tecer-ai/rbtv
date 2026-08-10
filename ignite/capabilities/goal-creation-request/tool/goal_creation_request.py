@@ -43,9 +43,11 @@ are the same file, so ONE observable carries the whole criterion and no propagat
 A refusal therefore names three things at the requester's surface, never a bare status: the MEMBER of
 E3's closed reject set that matched, the field or shape it rejects, and what held instead.
 
-The thirteen members and their `S -> P -> V` class-stop report order are the landed schema's
-(§6.1, §6.2) and are CONSUMED here, never forked: this file adds no fourteenth member and re-orders
-nothing. Where §6.2 stops evaluation at the first class in which any member matched, this validator
+The fourteen members and their `S -> P -> V` class-stop report order are the landed schema's
+(§6.1, §6.2) and are CONSUMED here, never forked: this file mints no member and re-orders nothing.
+The fourteenth (`V7`) was AMENDED INTO THE SCHEMA before it was implemented, by the clause the
+capability doc now carries — see the REJECT_SET header for where that clause lives and why it lives
+there. Where §6.2 stops evaluation at the first class in which any member matched, this validator
 RETURNS there — it does not evaluate a later class and then filter, because `V2`/`V3` reach the
 filesystem and "evaluated but suppressed" is not what the schema says.
 
@@ -116,13 +118,19 @@ GOAL_KINDS = ("interactive", "non-interactive")
 # vocabulary guard; open issue F-96). `goal-kind` is `interactive | non-interactive`; this is
 # `interactive | autonomous`. Neither enum may be written in terms of the other.
 #
-# ⚠ THIS ADDS NO FOURTEENTH REJECT-SET MEMBER, deliberately. The closed set is the request
-# schema's (§6.1) and growing it needs a schema clause FIRST — see the REJECT_SET header. So the
-# field is admitted by S2 as an optional NAME, gets no value member, and a value outside the enum
-# is refused as a typed `Refusal` raised by `resolve_execution_mode` BEFORE the scaffold act — the
-# same shape `--kind` already has at `goal_cli.py#cmd_scaffold`, and, like it, it leaves no goal
-# directory behind. What a reader must NOT conclude from the absent member is that any value is
-# accepted: it is refused one layer down, and the probe drives that arm.
+# THE ENUM IS ENFORCED AT TWO SITES, AND THAT IS DELIBERATE (task 7.631, 2026-08-10).
+#
+#   · `V7` in `validate`, class V — the schema's fourteenth member. It exists because `validate`
+#     is the requester's PRE-FLIGHT and performs no act: while the enum was enforced only below,
+#     `validate` exited 0 on a payload `handle` then refused (measured, and recorded in the
+#     capability doc's reject-set decision), and a caged requester stages on that verdict.
+#   · the typed `Refusal` raised by `resolve_execution_mode` BEFORE the scaffold act — the same
+#     shape `--kind` has at `goal_cli.py#cmd_scaffold`, and, like it, it leaves no goal directory
+#     behind. It STAYS after V7 landed: `scaffold_goal` is reachable as a function and `handle`'s
+#     callers may skip `validate`, so the ACTING path keeps its own refusal.
+#
+# The two answer different questions — "may I send this?" and "may I act on this?" — and both read
+# this one constant, so neither can drift to a different enum.
 EXECUTION_MODES = ("interactive", "autonomous")
 EXECUTION_MODE_DEFAULT = "autonomous"
 DECLARED_MODE_RE = re.compile(r"^default-execution-mode:\s*(\S+)\s*$", re.M)
@@ -132,14 +140,23 @@ RULED_LAUNCH_NAME = "scaffold-seats"
 
 # ------------------------------------------- the CLOSED reject set (E3's §6.1)
 #
-# THIRTEEN members, id -> (member name, the field or shape it rejects). The set is CLOSED: these are
+# FOURTEEN members, id -> (member name, the field or shape it rejects). The set is CLOSED: these are
 # the members and no others, and growing it requires adding a CLAUSE to the schema's §1 FIRST. This
 # file therefore mints nothing — a condition with no member here is a condition this schema ADMITS,
-# and inventing a fourteenth member would re-open a closed half nobody reviewed.
-# 7.607 E3: a HISTORICAL citation of where this set was specified. `runs/run-3/` was that goal's
-# then-current compartment; the run layer is extinguished and stage E4 migrates the folder itself.
-REJECT_SET_SOURCE = (".rbtv/goals/build-core-daemon-mvp/runs/run-3/planning/"
-                     "briefing-master-request-launch-entry/request-schema-goal-creation.md §6.1")
+# and inventing a member with no clause behind it would re-open a closed half nobody reviewed.
+#
+# WHERE THE SCHEMA LIVES NOW, AND WHY IT MOVED (task 7.631, 2026-08-10). The set was specified at
+#   .rbtv/goals/build-core-daemon-mvp/runs/run-3/planning/briefing-master-request-launch-entry/
+#   request-schema-goal-creation.md  — §1 FIVE fields, §6.1 THIRTEEN members
+# and that path is inside a run compartment the owner ruled READ-ONLY ARCHAEOLOGY: never migrated,
+# never edited (`.rbtv/goals/CLAUDE.md`). The sixth field's clause therefore could not be written
+# into it. It was written into the capability's own doc instead — which is what `REJECT_SET_SOURCE`
+# names below and what every refusal cites: SIX fields, FOURTEEN members, `V7` generated from §1.7
+# by §6.0's own generation rule (one member per constraint clause). The path above is left unedited
+# and is cited by NO refusal; it is the historical record of §1 as 7.197 landed it and §6.1 as
+# 7.198 landed it, and the live clause names it as superseded from the other side.
+REJECT_SET_SOURCE = ("ignite/capabilities/goal-creation-request/goal-creation-request.md "
+                     "§ The request schema it validates against — THE LIVE CLAUSE")
 REJECT_SET = {
     "S1": ("payload-not-a-field-mapping", "shape: the payload as a whole"),
     # ⚠ The member NAME still says "the five" and is left BYTE-VERBATIM from the schema: a member
@@ -158,6 +175,12 @@ REJECT_SET = {
     "V4": ("goal-type-not-in-enum", "field goal-type"),
     "V5": ("goal-contract-empty-after-strip", "field goal-contract"),
     "V6": ("goal-kind-not-in-enum", "field goal-kind"),
+    # The FOURTEENTH, amended in by the live clause's §1.7 (task 7.631). Optional fields contribute
+    # no PRESENCE member — absence is legal — but a constraint clause contributes its negation
+    # whatever the field's requiredness, exactly as `V4`/`V6` do. `due-date` is not the precedent:
+    # it contributes none because §3.1 records its TYPE as UNRESOLVED (§6.3), and this field's type
+    # is two literals.
+    "V7": ("execution-mode-not-in-enum", "field execution-mode"),
 }
 # §6.2 — the classes are evaluated S -> P -> V and evaluation STOPS at the first class in which any
 # member matched; within that class EVERY matching member is reported. The order is the schema's own
@@ -341,13 +364,19 @@ def validate(payload, goals_root=None):
     checked.append({"field": "due-date",
                     "check": "optional; type UNRESOLVED in the schema — no member rejects any value"})
 
-    # `execution-mode` is optional and carries NO value member either, for a different reason:
-    # the closed set is the schema's and this axis post-dates it (owner ruling 2026-08-10). Its
-    # enum IS enforced — by `resolve_execution_mode`, before any act — so naming it as checked
-    # here without a member is what stops a reader concluding the value is unchecked.
+    # `execution-mode` is OPTIONAL, so it has no presence member — but it does have a constraint
+    # clause (§1.7), so it has that clause's negation: `V7`. Checked only when PRESENT and
+    # non-null: an absent optional field is legal, and `None` is the requester spelling "unset",
+    # which `resolve_execution_mode` reads the same way. Naming the field as checked either way is
+    # what stops a reader concluding the value went unexamined.
     checked.append({"field": "execution-mode",
-                    "check": f"optional; enum {list(EXECUTION_MODES)} enforced at "
-                             "resolve_execution_mode (a typed Refusal), no reject-set member"})
+                    "check": f"optional; V7 · enum {list(EXECUTION_MODES)} when present"})
+    if payload.get("execution-mode") is not None:
+        if payload["execution-mode"] not in EXECUTION_MODES:
+            refuse("V7", f"{payload['execution-mode']!r} is not exactly one of "
+                         f"{list(EXECUTION_MODES)}. This field carries the per-goal owner-contact "
+                         "policy, and a value the control plane cannot read would silently make "
+                         "the goal autonomous")
 
     return _verdict(checked, refusals, "S,P,V")
 

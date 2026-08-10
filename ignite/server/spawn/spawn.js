@@ -776,9 +776,12 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
     // `tree/sub` read-only; the reverse order leaves it writable). So appending last means this
     // read-only code tree SHADOWS any writable opening the stack made above it under the same
     // path — which is the posture we want for a code tree, and is why it is not moved earlier.
-    // ⚠ The consequence, stated so it is not discovered by surprise: a future `rw-paths` grant
-    // pointing INSIDE a granted CLI's directory would be silently downgraded to read-only. No
-    // seat configures one today (writables are the seat dir, goals and worktrees).
+    // ⚠ The consequence, stated so it is not discovered by surprise: an `rw-paths` grant pointing
+    // INSIDE a granted CLI's directory is silently downgraded to read-only — no refusal, no log.
+    // That is ONE CSV CELL away, not hypothetical: `rw-paths` is a live seats.csv column that
+    // materialize emits into this same frontmatter, and a seat already populates it (channel-master).
+    // No seat points one at a granted CLI's directory TODAY (verified 2026-08-10); if one ever
+    // does, it must be REFUSED at compose time here, not silently ignored by mount order.
     template = [...template, 'ro-bind:{grant:exposedCliCode}'];
   }
   const spec = composeSeatCage({

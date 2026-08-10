@@ -22,10 +22,15 @@ half.
   2. AN EXPLICIT PAYLOAD VALUE WINS — the same workflow, the same declared `interactive` default,
      a request carrying `execution-mode: autonomous`: the goal is born `autonomous`. Without this,
      check 1 also passes for a carrier hard-wired to `interactive`.
-  3. AN INVALID VALUE REFUSES, AND CREATES NOTHING — `execution-mode: "sometimes"` raises a typed
-     `Refusal` naming the enum, BEFORE any act, leaving no goal directory. This is the arm that
-     matters most at the argv surface: the value becomes an argv element, and a bad one that fell
-     through to a default would produce a goal silently gagged.
+  3. AN INVALID VALUE REFUSES AT BOTH SITES, AND CREATES NOTHING — `execution-mode: "sometimes"`
+     raises a typed `Refusal` naming the enum, BEFORE any act, leaving no goal directory; and
+     `validate` refuses the same payload naming member `V7`, the schema's fourteenth (task 7.631).
+     This is the arm that matters most at the argv surface: the value becomes an argv element, and
+     a bad one that fell through to a default would produce a goal silently gagged. The `validate`
+     half is here because the two verbs USED TO DISAGREE — `validate` exited 0 on exactly these
+     payloads while `handle` refused them, and a caged requester stages on `validate`'s verdict.
+     Carried with its own positive controls: both legal modes and an ABSENT one must be ACCEPTED,
+     or the arm passes against a validator that refuses every value it sees.
   4. DERIVATION, BOTH WAYS — a synthetic catalog root whose workflow declares NOTHING: a manifest
      with an `interactive`-Modality row derives `interactive`; one with none derives `autonomous`.
      Two arms, not one: a deriver hard-wired to either answer passes the other arm's opposite.
@@ -208,6 +213,28 @@ def main() -> int:
                 check(f"{hostile!r} refuses, naming the enum",
                       "is not one of" in str(exc) and "interactive" in str(exc), str(exc)[:120])
             check(f"{hostile!r} left NO goal folder behind", not (root / name).exists())
+            # The PRE-FLIGHT arm (task 7.631). `validate` performs no act, so before `V7` it
+            # exited 0 on exactly these payloads while `handle` refused them — and a caged
+            # requester stages on `validate`'s verdict. The two verbs must agree.
+            out = mod.validate(request(name, hostile))
+            members = [r.get("member") for r in out.get("refusals", [])]
+            check(f"{hostile!r} is REFUSED by validate too, naming V7",
+                  not out.get("accepted") and members == ["V7"],
+                  f"accepted={out.get('accepted')} members={members}")
+
+        # The positive control for the arm above: a LEGAL mode must still be accepted, or the
+        # check would pass against a validator that refuses every execution-mode it sees.
+        for legal in ("interactive", "autonomous"):
+            out = mod.validate(request("mode-legal-goal", legal))
+            check(f"validate ACCEPTS the legal mode {legal!r}", out.get("accepted"),
+                  str(out.get("refusals")))
+        # …and an ABSENT optional field is legal, which is what makes the field optional at all.
+        out = mod.validate(request("mode-absent-goal"))
+        check("validate ACCEPTS a request naming no mode at all", out.get("accepted"),
+              str(out.get("refusals")))
+        check("validate NAMES execution-mode among the fields it checked",
+              any(c.get("field") == "execution-mode" for c in out.get("checked", [])),
+              str(out.get("checked")))
 
         print("4. with NO declaration, the default is DERIVED from the manifest — both ways")
         for modality, expect in (("interactive", "interactive"), ("agentic", "autonomous")):
