@@ -53,7 +53,7 @@ applies to it in its own pre-reads.
 ## 4 · Coordination and surfaces
 
 - The protocol governs checkin, messages, cursor, retraction, closes — follow it exactly.
-- Single writer: the run `CLAUDE.md` § Surface ownership is the map, and the run `CLAUDE.md` MUST
+- Single writer: the run `CLAUDE.md` § "What exists in this folder, and who writes it" is the map, and the run `CLAUDE.md` MUST
   carry one. Write ONLY inside your row; for anything else, claim by message and wait
   (R-single-writer). A surface with no named writer is a collision waiting to be discovered.
 - **Seat lifecycle is DISTRIBUTED across three hands, and they do not overlap:**
