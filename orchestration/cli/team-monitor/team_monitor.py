@@ -44,6 +44,7 @@ exclusive lock — a second writer refuses to start.
 import argparse
 import errno
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -168,6 +169,75 @@ def ps_table():
     return table
 
 
+# ---------- activity: the transcript mtime, with a CONTENT-HASH fallback ----------
+#
+# ⚠ WHY A FALLBACK EXISTS AT ALL. `last_activity` used to be the ctx-monitor engine's `as_of`
+# and nothing else, and that value is a HARNESS TRANSCRIPT FILE'S MTIME
+# (`ctx_monitor.py`, `f.stat().st_mtime`). A harness that exposes no readable transcript —
+# **codex and opencode**, named as such in `watch.py`'s own docstring — therefore reported
+# `as_of: None`, so `last_activity` AND `last_activity_age_s` were both None and every
+# inactivity threshold downstream produced NOTHING for those seats. That is a SILENT no-signal,
+# which is worse than a wrong one: a codex seat that dies quietly was invisible rather than
+# mis-reported.
+#
+# `watch.py` never had the hole because it hashed the pane's visible tail, which works for any
+# pane regardless of harness. This restores that signal, and it costs no new raw read: the tail
+# is ALREADY captured on every pass for the approval row.
+#
+# ⚠ NOT tmux's own `window_activity`, deliberately: it cannot distinguish panes sharing a
+# window (`watch.py`'s own reason for hashing content instead).
+
+
+def activity_digest(tail):
+    """A short stable digest of a pane's visible tail. Identity only — never compared for
+    ordering, so a truncation to 16 hex chars is a size choice and not a security one."""
+    return hashlib.sha256((tail or "").encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def previous_seat_rows(package):
+    """{pane_id: seat row} from THIS sensor's OWN previous snapshot; {} when there is none.
+
+    ⚠ NOT A SECOND RAW SOURCE and not a second sensor: state.json is this module's own output,
+    and this module is its only writer. The fallback needs ONE fact carried across passes (did
+    this pane's content change since the last reading), and the snapshot is the sensor's only
+    durable surface — a process-local cache would reset on every restart and would be dead
+    weight for `once`/`snapshot`, which are separate processes each time.
+
+    Unreadable or absent reads as `{}`, which restamps every fallback seat as active NOW. That
+    is the conservative direction on purpose: the failure mode of guessing the other way is a
+    fabricated inactivity age, which reads as a measurement."""
+    try:
+        with open(state_path(package), "r", encoding="utf-8") as fh:
+            prev = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(prev, dict):
+        return {}
+    return {r.get("pane"): r for r in (prev.get("seats") or []) if isinstance(r, dict)
+            and r.get("pane")}
+
+
+def seat_activity(rec, tail, prev_row, captured_at):
+    """(last_activity, age_s, digest) for ONE seat row. PURE — reads its arguments only.
+
+    The transcript mtime WINS whenever the harness publishes one: it is a finer signal than a
+    pane's rendered tail (a redraw that changes nothing is not activity, and a working turn that
+    prints nothing still touches the transcript). The hash is what a seat with no transcript
+    gets instead of nothing at all.
+
+    `digest` is None on the transcript path and set on the fallback path, which is what makes
+    "this row's activity is content-derived" readable off the snapshot rather than inferred."""
+    as_of = rec.get("as_of")
+    if as_of:
+        return as_of, round(captured_at - as_of, 1), None
+    digest = activity_digest(tail)
+    prev = prev_row or {}
+    last = prev.get("last_activity")
+    if prev.get("activity_digest") != digest or not isinstance(last, (int, float)):
+        last = captured_at                       # content CHANGED (or is unknown) = activity NOW
+    return round(last, 3), round(captured_at - last, 1), digest
+
+
 def children_index(table):
     idx = {}
     for pid, rec in table.items():
@@ -184,21 +254,31 @@ def tree_pids(root, kids, limit=4000):
     return out
 
 
-# Permission / trust prompts a stuck seat's pane tail shows. Written here rather than
-# reused from teamview: teamview is the renderer and, after the R24 cutover, reads
-# state.json instead of panes — prompt-pending is the sensor's field to produce.
-PROMPT_PATTERNS = tuple(re.compile(p, re.I | re.M) for p in (
-    r"do you want to",
-    r"do you trust",
-    r"esc to cancel",
-    r"action required",
-    r"^\s*[>❯]?\s*1\.\s*yes\b",
-    r"allow this",
-))
+# THE APPROVAL READING COMES FROM THE PANE **TITLE**, NEVER FROM ITS CONTENT (P38).
+#
+# ⚠ THIS PREDICATE REGRESSED ONCE AND THAT IS WHAT THIS COMMENT IS FOR. Until 2026-08-10 it
+# regex-matched the pane's last 8 lines of CONTENT against a local pattern list. The kit had
+# already tried that reading and RULED IT OUT in writing: matching the pane's visible TEXT
+# "would false-fire on any seat whose output merely contains the phrase — a briefing quoting
+# it, a log line, this design file in an editor" (`ignite/team-kit/system-design.md:140`),
+# which adds that a run where the watcher and the sender disagree about which seats are gated
+# is worse than either behaviour alone. Re-implementing the rejected version put exactly that
+# disagreement between this sensor and `coordinate send`'s own gate-skip.
+#
+# ⚠ THE MARKER SET IS NOT RE-DECLARED HERE. It is coord's `APPROVAL_TITLE_MARKERS` — the ONE
+# definition `coord.at_approval_gate` already reads, so the two consumers cannot drift. Same
+# inheritance discipline as `sensor()` and `coord()` above.
+#
+# ⚠ THE TITLE COMES FROM THE RECORD THE ENGINE ALREADY PRODUCED (`rec["title"]`), not from a
+# second `tmux display-message`: coord's `at_approval_gate(pane)` takes that read itself, and a
+# sensor already holding the title has nothing to gain from taking it again.
+#
+# Fail-safe by construction, exactly as coord's: an absent or unreadable title is falsy and
+# therefore False — a seat is never called gated on the strength of a missing signal.
 
 
-def prompt_pending(tail):
-    return any(p.search(tail) for p in PROMPT_PATTERNS)
+def prompt_pending(title):
+    return any(m in (title or "").lower() for m in coord().APPROVAL_TITLE_MARKERS)
 
 
 # ---------- the run roster ----------
@@ -1011,6 +1091,9 @@ def capture(package, session=None, sensor_path=None, heart_db=None):
     rost = roster(package)
     decls = declared_agent_types(package)
     seat_by_pane = {v["pane"]: k for k, v in rost.items() if v.get("pane")}
+    # This sensor's own previous snapshot — the ONE fact the content-hash activity fallback
+    # carries across passes. See `previous_seat_rows`: not a raw source, not a second sensor.
+    prev_seats = previous_seat_rows(package)
 
     seats = []
     for rec in records:
@@ -1027,6 +1110,8 @@ def capture(package, session=None, sensor_path=None, heart_db=None):
         tail = "\n".join(eng.capture_pane(pane_id).splitlines()[-8:])
         seat = seat_by_pane.get(pane_id, "")
         seat_agent_type, agent_type_source = agent_type_of(seat, decls)
+        last_activity, activity_age_s, digest = seat_activity(
+            rec, tail, prev_seats.get(pane_id), captured_at)
         seats.append({
             "seat": seat,
             "agent_type": seat_agent_type,
@@ -1049,10 +1134,12 @@ def capture(package, session=None, sensor_path=None, heart_db=None):
             "ctx_ambiguous": bool(rec.get("ambiguous")),
             "ctx_source": rec.get("source") or "",
             "ctx_refresh": rost.get(seat, {}).get("ctx_refresh"),
-            "last_activity": rec.get("as_of"),
-            "last_activity_age_s": (round(captured_at - rec["as_of"], 1)
-                                    if rec.get("as_of") else None),
-            "prompt_pending": prompt_pending(tail),
+            "last_activity": last_activity,
+            "last_activity_age_s": activity_age_s,
+            # NULL on the transcript path, SET on the content-hash fallback — so "this row's
+            # activity is content-derived" is readable off the snapshot instead of inferred.
+            "activity_digest": digest,
+            "prompt_pending": prompt_pending(rec.get("title")),
             "ram_mb": round(rss_kb / 1024, 1),
             "liveness": ("live" if harness_pid else
                          ("shell" if rec.get("shell") else "no-harness")),
@@ -1633,11 +1720,43 @@ def cmd_selftest(args):
           any(k.startswith("some_") for k in box["pressure_memory"])
           and any(k.startswith("full_") for k in box["pressure_memory"]))
 
-    # prompt detection fires and, more importantly, does NOT fire on ordinary output
-    check("prompt_pending fires on a permission dialog",
-          prompt_pending("Do you want to proceed?\n> 1. Yes\nEsc to cancel"))
-    check("prompt_pending is quiet on ordinary output",
-          not prompt_pending("running tests\n12 passed\n"))
+    # ---- the approval reading comes from the pane TITLE, never its CONTENT (P38).
+    check("APPROVAL TITLE: a gated pane's TITLE fires the predicate",
+          prompt_pending("codex — Action Required"))
+    check("APPROVAL TITLE: an ordinary title is quiet",
+          not prompt_pending("codex — bash") and not prompt_pending("") and
+          not prompt_pending(None))
+    # ⚠ THE CONTROL, and it is what makes the two arms above measurements rather than
+    # restatements: the CONTENT this predicate used to read carries the phrase verbatim while
+    # the pane is not gated at all. Under the pre-2026-08-10 predicate this string fired
+    # (`do you want to`, `1. yes`, `esc to cancel` all match it) — that is the false positive
+    # `system-design.md:140` rejected, and the arm reds if the content reading comes back.
+    check("APPROVAL CONTROL: pane CONTENT quoting the prompt does NOT fire — the reading is the "
+          "title's alone",
+          not prompt_pending("$ cat briefing.md\n  the harness asks 'Do you want to proceed?'\n"
+                             "  > 1. Yes / Esc to cancel — answer it before the wake\n"))
+    # ⚠ The retired symbol is spelled in TWO HALVES on purpose: written whole, this very line
+    # would be the match and the arm would fire on its own statement of the rule.
+    check("APPROVAL MARKERS: the marker set is coord's ONE definition, not a local copy",
+          ("PROMPT_" + "PATTERNS") not in Path(__file__).read_text(encoding="utf-8")
+          and bool(coord().APPROVAL_TITLE_MARKERS))
+
+    # ---- activity: transcript mtime, with the content-hash fallback for a harness that
+    # publishes no transcript (codex / opencode). See `seat_activity`.
+    t_act = 1_000_000.0
+    la, age, dg = seat_activity({"as_of": t_act - 30}, "anything", None, t_act)
+    check("ACTIVITY: a harness WITH a transcript still reports its mtime, and no digest",
+          la == t_act - 30 and age == 30.0 and dg is None)
+    la1, age1, dg1 = seat_activity({"as_of": None}, "line A\n", None, t_act)
+    check("ACTIVITY FALLBACK: a seat with NO transcript is NOT None — first sighting stamps now",
+          la1 == t_act and age1 == 0.0 and dg1)
+    prev = {"last_activity": la1, "activity_digest": dg1}
+    la2, age2, _ = seat_activity({"as_of": None}, "line A\n", prev, t_act + 60)
+    check("ACTIVITY FALLBACK: UNCHANGED content carries the old stamp forward and AGES",
+          la2 == la1 and age2 == 60.0)
+    la3, age3, dg3 = seat_activity({"as_of": None}, "line A\nline B\n", prev, t_act + 60)
+    check("ACTIVITY FALLBACK: CHANGED content re-arms the stamp, and the digest moves with it",
+          la3 == t_act + 60 and age3 == 0.0 and dg3 != dg1)
 
     # roster parsing tolerates the renewed-seat case
     with tempfile.TemporaryDirectory() as td:

@@ -10,7 +10,7 @@ single-sensor invariant is the whole architecture; a second raw reader is exactl
 sensors, one of them fixed" failure the design exists to prevent. The absence of raw sensing
 is grep-provable and a verifier greps it.
 
-The four non-sensing inputs, enumerated so nobody has to grep for them:
+The five non-sensing inputs, enumerated so nobody has to grep for them:
 
   1. `{run}/taskforce.csv` — DECLARED executor bindings (see below).
   2. `{run}/coordination/messages.md` — the room's own message log, read to avoid repeating a
@@ -20,8 +20,12 @@ The four non-sensing inputs, enumerated so nobody has to grep for them:
      for ONE thing: whether a seat that is no longer in the room checked out CLEANLY. It is the
      SHADOW BACKSTOP's only added input (see THE SHADOW BACKSTOP, below). It was THREE inputs
      before that arm landed, and this count is part of the claim rather than decoration.
+  5. the seat DESCRIPTORS under `{run}/seats/`, read through `coord.inbox_decls` for ONE thing:
+     which seats declare `relays:` and are therefore DOORS to a human role. It is the DOOR
+     EXEMPTION's only added input (see THE DOOR EXEMPTION, below), and it took the count from
+     FOUR to FIVE — the count moves with the list or the list is decoration.
 
-None senses anything; all four are files the run wrote about itself. **This wording is
+None senses anything; all five are files the run wrote about itself. **This wording is
 deliberate and replaces an earlier "and NOTHING else", which was true about the sensing and
 false about the file list — one grep falsifies it, and the accurate version cannot be.** Found
 by this job's own mechanical verifier; the same shape as the recipient defect below, where a
@@ -40,10 +44,21 @@ is exactly:
     the seat can act -> nudge the LEADER where judgment is needed -> the leader to the
     `master` or the owner.
 
-No agent is ever spawned to close another agent and nothing mechanical recycles a seat. No
-decision, remedy, flag or help string here names a retired role: that ABSENCE is the
+No agent is ever spawned to close another agent, and NO AGENT IS EVER SPAWNED TO RECYCLE A
+SEAT. No decision, remedy, flag or help string here names a retired role: that ABSENCE is the
 grep-provable property, and it replaces task 7.32's older self-contradicting wording
 (`job -> chief-of-staff -> leader`), which the ruling supersedes.
+
+⚠ THAT CLAUSE READ "nothing mechanical recycles a seat" UNTIL TASK 7.662, AND IT WAS WRONG BY
+ONE WORD. Owner ruling `decisions.md#d-seat-revival-kept-in-watcher-job` NARROWS it to the
+sentence above: what `d-watcher-deterministic-chain` bars is an AGENT in the recycling path, not
+a DETERMINISTIC SCRIPT RESTART with no agent in the loop — which is an INLINE MECHANICAL FIX and
+is permitted, exactly as the sensor restart and the reap confirmation are. Everything else in
+that ruling stands in full, including its retirement of the two roles. `r-leader-revival-is-
+deterministic` (2026-07-30) SURVIVES unchanged and is what the revival row implements. The
+amendment lands in the SAME change as the behaviour: a file whose header denies what it does is
+the defect class this campaign keeps paying for, and it is why the wording is fixed here rather
+than filed as a follow-up.
 
 WHICH ROWS ACT AND WHICH ONLY NUDGE — enumerated, because "deterministic" is not a mood:
 
@@ -59,6 +74,13 @@ WHICH ROWS ACT AND WHICH ONLY NUDGE — enumerated, because "deterministic" is n
                   extended here). So the CONFIRMATION is what is performed (coord's own
                   two-pass rule needs it and its docstring names a watcher as the sweeper),
                   and the confirmed set is what is nudged to the LEADER.
+    REVIVAL       fires the system's ONE deterministic seat-revival ACTUATOR — a DETACHED exec
+                  of coord.py's `lifecycle-exec --disposition revive` — at a debounced GHOSTROW
+                  whose seat is NOT a door and for which the snapshot yields a tmux target. It
+                  moved here from `watch.py`'s `fire_revival` by owner ruling
+                  `decisions.md#d-seat-revival-kept-in-watcher-job` (task 7.662). It is the ONE
+                  row here that is NOT idempotent, so it is the ONE row gated on the flag being
+                  FRESH — see THE REVIVAL ROW below, and `run_revival`.
   NUDGE THE SEAT  QUIET (the seat is the one that can answer) and CONTEXT (invariant 3: the
                   seat renews ITSELF — writes memory, runs `checkout --renew`, relaunches).
                   Unresolved `--escalate-after` consecutive passes later -> nudge the LEADER.
@@ -119,9 +141,82 @@ SCORED AS FAILURE.
   `--one-shot-harness` splits them: COMPLETED (remedy: close) vs GHOSTROW (remedy: inspect,
   then relaunch or close).
 
+THE DOOR EXEMPTION, AND THE GHOSTROW DEBOUNCE (G-176; kit map rows B9 + B13)
+----------------------------------------------------------------------------
+Two defects the kit had already paid for and written down, which this layer re-opened when it
+was built and which are closed here. Both were measured on ONE event: 2026-07-30 03:34, the
+owner's own `master` door.
+
+  THE DEBOUNCE. A roster-ACTIVE row whose pane holds no harness process is, in ONE reading,
+  indistinguishable from a harness mid-restart and from a pane read inside a relaunch's startup
+  window. GHOSTROW therefore requires `GHOSTROW_DEBOUNCE_PASSES` CONSECUTIVE readings; a single
+  reading emits `GHOSTROW-PENDING`, which is REPORTED and never delivered. The counter rides the
+  same `_repeat` map the QUIET/CONTEXT ladders use, so a healthy reading CLEARS it and a stale
+  snapshot FREEZES it (`evaluate` returns before `_repeat` is rewritten) — a reading that could
+  not be taken is evidence in neither direction. ⚠ THE ONCE-PER-EPISODE `armed` DEDUP IS NOT A
+  DEBOUNCE and never was: it suppresses REPEATS, never the FIRST reading, which is precisely the
+  one that fired on the door.
+
+  THE DOOR EXEMPTION, SCOPED TO THE REMEDY. A seat declaring `relays:` has a pane that is a DOOR
+  to a human role, and `r-owner-afk-liaison-parked` has that pane deliberately OUTLIVE its
+  session — so a parked door is byte-identical to a ghost, and to a quiet seat, under the only
+  observations this job has. GHOSTROW's remedy was unconditionally `close-seat <name> --renew`
+  and QUIET-ESCALATED's was `close <name> --renew`: the exact act that ruling forbids, coached at
+  the owner's channel. ⚠ THE FLAG IS NOT SUPPRESSED — a door in trouble and a door waiting look
+  identical from outside, so muting would make this fix its own next failure. What changes is the
+  REMEDY, and only for the door.
+
+  ⚠ DERIVED FROM `relays:`, NEVER FROM A PANE ID OR A SEAT NAME, and read through
+  `coord.inbox_decls` — the ONE home of that derivation, which the kit's reap exemption and
+  revival door gate already read. A second parse here would give one fact a second home to drift
+  in (G-159); a rule naming `%40` or `master` would protect a dead pane and one campaign's
+  vocabulary respectively.
+
 NOTE FOR THE SHADOW WINDOW: `COMPLETED` and `STANDBY` are classes the OLD layer cannot
 emit. That is a declared DIVERGENCE, filed before the window opens — not a disagreement
-discovered inside it, which would invalidate the window.
+discovered inside it, which would invalidate the window. `GHOSTROW-PENDING` is a THIRD such
+class, declared here for the same reason and on the same terms; the door-scoped GHOSTROW and
+QUIET rows are the same class as before with a different ACTION, which the comparison object
+scores as a divergence in the action term and not as a missing row. `REVIVAL` is a FOURTH,
+declared on the same terms — and it is ADDITIVE: the GHOSTROW row it accompanies is still
+emitted, unchanged in class, action and remedy, so the comparison sees one extra row rather
+than a row that moved.
+
+THE REVIVAL ROW — THE ACTUATOR'S NEW HOME (task 7.662)
+-------------------------------------------------------
+`watch.py`'s `fire_revival` was the system's ONLY deterministic seat-recovery actuator, and
+`decisions.md#d-seat-revival-kept-in-watcher-job` moved it HERE rather than letting task 7.35
+delete it with its host. Three things about the move are worth stating because each is a place
+a literal port would have gone wrong:
+
+  THE DETECTOR DID NOT MOVE — IT WAS ALREADY HERE. `check_revival`'s candidate set is
+  `snap["roster_absent"]` and its discriminator is harness-pid liveness and nothing else
+  (`r-leader-revival-is-deterministic`'s BINDING CONDITION: a hard pane/pid death signal, never
+  a silence threshold). That is precisely the GHOSTROW row above. So the revival row hangs off
+  that row rather than re-deriving the condition: one detector, and the debounce and the DOOR
+  EXEMPTION come with it for free. A DOOR IS NEVER REVIVED — its pane deliberately outlives its
+  session, so a revival there would sever the channel its human is reachable through.
+
+  THE TARGET IS DERIVED FROM THE SNAPSHOT AND NOTHING ELSE, which is what keeps the no-raw-
+  sensing invariant true. `revival_fork_target` in `watch.py` called tmux DIRECTLY
+  (`coord.live_panes`, `tmux_pane_window_name`, `tmux_find_window_pane`) — three raw reads that
+  MUST NOT follow the actuator into this file. `revival_target` below replaces them with the
+  snapshot's own `liveness` and pane fields. The one check that is genuinely lost is watch.py's
+  pre-flight window-drift test, and it is lost SAFELY: `--force` is never passed, so
+  `launch_seat`'s OWN window-drift check still runs downstream and a drifted pane produces a
+  LOUD REFUSAL from the executor rather than a misplaced seat.
+
+  THE DETACHMENT IS NOT `Popen(start_new_session=True)` — see the block above `run_revival`.
+
+WHAT DID **NOT** MOVE, AND IS NOT SILENTLY ABSENT. `watch.py`'s revival CLAIM MUTEX
+(`claim_revival`), its attempt LADDER (`revival_ladder`) and its RAM-floor refusal
+(`revival_floors`) stay in `watch.py` and are 7.35's to home or retire. What stands in for them
+here is stated rather than assumed: the once-per-episode `armed` gate below, `jobcontain`'s
+stable transient-unit name (systemd refuses a second unit of that name while the first is
+active), and coord's OWN entry guard 3, which stands down when a live executor already holds
+the seat. The residual ceiling is that a flag whose DELIVERY fails re-arms and may re-fire the
+revival up to `DELIVER_RETRIES` times inside one episode; the two guards above make each of
+those a refusal rather than a second launch, and the ladder is 7.35's decision, not this row's.
 
 ONE INPUT THAT IS NOT THE SNAPSHOT, AND WHY IT IS NOT A SECOND SENSOR
 ---------------------------------------------------------------------
@@ -251,6 +346,26 @@ DELIVER_RETRIES = 3
 DEFAULT_LOAD_PER_CORE = 1.5
 SWAP_RISE_READS = 3
 
+# ---- THE GHOSTROW DEBOUNCE (see THE DOOR EXEMPTION, AND THE GHOSTROW DEBOUNCE above).
+# CONSECUTIVE snapshot readings a ghost row must hold before GHOSTROW is DELIVERED. Two, which
+# is the kit's own `GHOSTROW_DEBOUNCE_TICKS` — the value it landed on after one reading flagged
+# the owner's door off a mid-restart window. Below 2 there is no debounce at all.
+GHOSTROW_DEBOUNCE_PASSES = 2
+
+# The remedy every DOOR-scoped row carries, in place of the close/renew command a worker's seat
+# gets. ⚠ IT IS PROSE AND CARRIES NO COMMAND, deliberately: the remedy is a line a leader — or an
+# agent acting on a leader-addressed flag — PASTES, and the only operands a door row could
+# interpolate are a seat name and a pane id off the snapshot, which nothing validates the
+# characters of (task 7.601). A remedy with nothing to quote cannot be quoted wrong.
+DOOR_REMEDY = (
+    "LOOK at the pane before assuming anything — and do NOT close, reap or renew this row. Its "
+    "pane is a DOOR to a human role and deliberately outlives its session "
+    "(r-owner-afk-liaison-parked), so what this flag reports is NOT by itself evidence of a "
+    "fault — and it is NOT proof the door is fine either. THEY LOOK IDENTICAL FROM OUTSIDE. "
+    "Closing or renewing it severs the channel its human is reachable through; re-opening a door "
+    "is done by relaunching in THAT SPOT and is the leader's judgment, never a mechanical "
+    "response to this flag.")
+
 # ---- the SHADOW BACKSTOP's constants (task 7.430 / W7). See the docstring section.
 SHADOW_TRAIL_FILENAME = "goal-watcher-shadow-trail.jsonl"
 SHADOW_TRAIL_KEEP = 500
@@ -276,6 +391,42 @@ BARRED_ACT = ("enqueue this seat's `workflow-edge` job in FAILURE MODE (CMP-25) 
 INLINE_FIX_SCRIPTS = ("team_monitor.py", "coord.py")
 INLINE_FIX_TIMEOUT_S = 45
 
+# ---- THE SECOND EXEC DOOR, AND IT IS THE SAME DOOR (task 7.662).
+# The revival actuator reaches `coord.py`, which is ALREADY on `INLINE_FIX_SCRIPTS` — a revival
+# IS an exec of `coord.py lifecycle-exec`. So this change needs NO new program, NO new exec path
+# and, above all, NO WIDENING OF THE ALLOWLIST: the allowlist's narrowness is what makes the exec
+# surface auditable and what enforces THE SHADOW BACKSTOP's act-identity claim, and both doors go
+# through the ONE gate `_inline_fix_program` with the ONE refusal (PRIN-11).
+REVIVAL_CLASS = "REVIVAL"
+REVIVAL_UNIT_PREFIX = "rbtv-revival"
+
+
+def _inline_fix_program(script):
+    """(name, refusal) — THE allowlist gate. ONE implementation, BOTH exec doors. `refusal` is
+    "" when the program is allowed.
+
+    ⚠ THE EMPTINESS CHECK RUNS FIRST, and the order is the whole point. `--team-monitor`
+    DEFAULTS TO `""`, so an entry that omits it reaches here with an empty path — and
+    `basename("")` is `""`, which the allowlist branch below rejects with "`` is not an
+    inline-fix program … no queue door is reachable from here". That text lands in the flag the
+    LEADER reads (the caller folds this detail into it), pointing at the act-identity bar when
+    the actual cause is an unset operator flag. Behind the allowlist branch this check was
+    unreachable, which is why it never fired.
+
+    ⚠ SPLIT OUT OF `run_inline` BY TASK 7.662 rather than copied into the revival door. A second
+    copy of the check that makes this file's exec surface auditable is a second copy free to
+    drift, and the whole act-identity claim rests on there being exactly one branch to read."""
+    if not str(script).strip():
+        return "", ("REFUSED: no program path was given for this inline fix — the operator "
+                    "flag naming it (`--team-monitor` for the staleness row, `--coord` for "
+                    "the reap row) is unset or empty, so the row degrades to a nudge. This is "
+                    "a MISSING PATH, not a refused program.")
+    name = os.path.basename(str(script))
+    if name not in INLINE_FIX_SCRIPTS:
+        return name, (f"REFUSED: `{name}` is not an inline-fix program. This job may exec only "
+                      f"{INLINE_FIX_SCRIPTS} — no queue door is reachable from here.")
+    return name, ""
+
 
 def run_inline(script, tail, timeout=INLINE_FIX_TIMEOUT_S):
     """Run ONE inline mechanical fix as a child process. (ok, detail). THE ONLY exec door here.
@@ -286,23 +437,13 @@ def run_inline(script, tail, timeout=INLINE_FIX_TIMEOUT_S):
 
     The child is exempted from this job's own address-space and CPU caps (`child_preexec`): a
     sensor restart killed by the WATCHER's budget would leave the sensor half-started, which is
-    a worse state than the one being repaired."""
-    # ⚠ THE EMPTINESS CHECK RUNS FIRST, and the order is the whole point. `--team-monitor`
-    # DEFAULTS TO `""`, so an entry that omits it reaches here with an empty path — and
-    # `basename("")` is `""`, which the allowlist branch below rejects with "`` is not an
-    # inline-fix program … no queue door is reachable from here". That text lands in the flag the
-    # LEADER reads (the caller folds this detail into it), pointing at the act-identity bar when
-    # the actual cause is an unset operator flag. Behind the allowlist branch this check was
-    # unreachable, which is why it never fired.
-    if not str(script).strip():
-        return False, ("REFUSED: no program path was given for this inline fix — the operator "
-                       "flag naming it (`--team-monitor` for the staleness row, `--coord` for "
-                       "the reap row) is unset or empty, so the row degrades to a nudge. This is "
-                       "a MISSING PATH, not a refused program.")
-    name = os.path.basename(str(script))
-    if name not in INLINE_FIX_SCRIPTS:
-        return False, (f"REFUSED: `{name}` is not an inline-fix program. This job may exec only "
-                       f"{INLINE_FIX_SCRIPTS} — no queue door is reachable from here.")
+    a worse state than the one being repaired.
+
+    ⚠ SYNCHRONOUS AND TIMEOUT-BOUNDED, AND THAT IS WHY THE REVIVAL DOES NOT COME THROUGH HERE:
+    see the block above `run_revival`."""
+    name, refusal = _inline_fix_program(script)
+    if refusal:
+        return False, refusal
     try:
         r = subprocess.run([sys.executable, str(script), *tail], capture_output=True,
                            text=True, timeout=timeout, preexec_fn=jobcontain.child_preexec)
@@ -311,6 +452,179 @@ def run_inline(script, tail, timeout=INLINE_FIX_TIMEOUT_S):
     lines = [ln for ln in (r.stdout or r.stderr or "").splitlines() if ln.strip()]
     return r.returncode == 0, (f"exit {r.returncode}"
                                + (f"; {lines[-1].strip()[:160]}" if lines else ""))
+
+
+# ---- THE SEAT-REVIVAL ACTUATOR (task 7.662). See THE REVIVAL ROW in the module docstring for
+# WHY it lives here; this block is the ONE adaptation the move forced, and it is recorded at the
+# code because a reader of the fire needs it before the fire, not in a run log.
+#
+# ⚠⚠ THE SYNC-VS-DETACHED MISMATCH, AND THE ARM CHOSEN. `run_inline` is `subprocess.run` under
+# `INLINE_FIX_TIMEOUT_S`; `watch.py`'s `fire_revival` was fire-and-forget. They do not compose.
+# THE CHOICE IS ARM (a) — A DETACHED VARIANT OF THE SAME DOOR — and it is forced by measurement,
+# not preference:
+#   · ADAPTING REVIVAL TO THE TIMEOUT BOUND (arm b) IS UNSAFE. `cmd_lifecycle_exec` runs a
+#     bounded SETTLE WAIT, then checks out the predecessor and RELAUNCHES the seat.
+#     `subprocess.run` KILLS its child at the timeout, so a revival one second over the bound
+#     would be killed MID-SEQUENCE, leaving a seat half-renewed — strictly worse than the outage
+#     it repairs. Raising the bound instead would block the whole watcher pass behind one seat.
+#   · WAITING BUYS NOTHING. The exit contract is the EXECUTOR's (2 = a guard refused, 3 = the
+#     guards passed and the sequence broke, 0 = completed) and is read off the seat's lifecycle
+#     marker and the unit's journal by design. The caller exiting is a NORMAL, cheaper outcome
+#     for the child: `lifecycle_settle` records `caller-exited` immediately instead of burning
+#     its full settle budget waiting on a watch loop that never exits (coord.py § s3-07).
+#   · THE ALLOWLIST IS NOT TOUCHED. Both doors call `_inline_fix_program`; `coord.py` was
+#     already on it. Widening `INLINE_FIX_SCRIPTS` to dodge this would have destroyed the exact
+#     property the door exists for.
+#
+# ⚠⚠ AND `Popen(..., start_new_session=True)` — what `watch.py:2320` did — IS NOT DETACHMENT IN A
+# FIRED JOB. THIS IS THE ONE PLACE A VERBATIM PORT WOULD HAVE SHIPPED A SILENT DEFECT: a
+# `fire-tool` exec runs inside its own transient systemd unit, so a plain detached child stays in
+# THIS pass's cgroup and is reaped with it. MEASURED 2026-07-27 05:15 (evidence
+# C2-daemon-staged-failure.txt; `jobcontain.detach_argv`'s own docstring) — a detector that
+# relaunched `watch.py` that way reported a real pid and the process was gone moments later, and
+# it only shows up when the job is run END TO END. So the revival goes out through
+# `jobcontain.detach_argv` + `launch_detached`, which is what every other outliving act in this
+# folder already uses (`selfheal-room.py`, `selfheal-watch.py`, `restart-daemon.py`) — ONE
+# implementation of "outlive this job" (PRIN-11), not a fourth. Two things come free: the child
+# is outside this pass's cgroup by construction, and `--unit=` REFUSES when a unit of that name
+# is already active, which is a systemd-enforced double-fire guard under this file's own.
+
+
+def caller_ident(args):
+    """`(pid, starttime)` for THIS pass, or `None` when it cannot be read. Resolved ONCE in
+    `main` and passed on `args` — the same discipline `door_seats` follows, so `evaluate` stays
+    PURE and a fixture can drive the revival row with no `/proc` and no package on disk.
+
+    `lifecycle-exec` REQUIRES `--caller-pid` and `--caller-starttime`, and the PAIR is the point:
+    it lets the executor tell "my caller exited" from "a recycled pid landed on its number". A
+    pid alone is not an identity, so an unreadable stat REFUSES the revival rather than inventing
+    one — the same refusal `watch.py`'s `fire_revival` made under the name `no-ident`.
+
+    ⚠ THIS IS NOT RAW SENSING, AND THE INVARIANT'S OWN WORDS ARE WHAT DRAW THE LINE. What this
+    job may not do is SENSE THE ROOM — tmux, a seat's `/proc`, a harness session file, a pane
+    capture — because team-monitor is the sole raw sensor of the ROOM and a second reader of it
+    is the failure the design exists to prevent. This reads THIS PROCESS'S OWN identity, about
+    which the room says nothing and with which no sensor can disagree. `coord.proc_stat` is the
+    ONE reader of that file's format (the same single-reader rule `declared_door_seats` states).
+    """
+    try:
+        sys.path.insert(0, str(Path(args.coord).resolve().parent))
+        import coord  # noqa: E402 — the /proc/<pid>/stat format's single reader
+        starttime = coord.proc_stat(os.getpid())[1]
+        return (os.getpid(), starttime) if str(starttime or "").strip() else None
+    except Exception:                                             # noqa: BLE001
+        return None
+
+
+def revival_target(row, snap):
+    """PURE. `(target, why)` — the tmux target for a revival, FROM THE SNAPSHOT ALONE.
+    `("", why)` means REFUSE, NEVER FIRE.
+
+    ⚠⚠ AN EMPTY TARGET IS THE FAILURE MODE THIS FUNCTION EXISTS FOR, quoted from
+    `jobs/recover-room.py:12-19`: *"it would not fail, it would guess"* — `launch` resolves its
+    target as `COORD_LAUNCH_TARGET or TMUX_PANE`, a daemon-fired exec has NEITHER, and tmux
+    resolves an EMPTY target to the MOST RECENT session, measured to be the LIVE room. *"A
+    recovery that opens agents into the live room believing it is repairing a dead one is worse
+    than no recovery at all."* So this returns "" and the caller refuses; it never hands ""
+    downward.
+
+    TWO STEPS, and they are `watch.py`'s four with the three tmux reads REMOVED — which is the
+    whole no-raw-sensing half of the move:
+      1. the row is `no-harness` — team-monitor's own class for a pane that is STILL IN THE ROOM
+         holding no harness process. The pane's presence is the sensor's reading, not a fresh
+         tmux query, so the successor respawns IN PLACE and the window layout survives (G-12).
+      2. the row is `absent` — the pane LEFT the room. RE-PLACE onto an anchor: any pane THIS
+         SAME SNAPSHOT reports live. There is exactly ONE room per snapshot (team-monitor writes
+         one `session`), so a live pane on it is a pane of this room and `launch_seat` derives
+         the session from it. This is `watch.py`'s own last-resort anchor, and it was ALREADY
+         snapshot-derived there.
+      3. nothing resolves -> "" and the caller refuses LOUDLY (R-8).
+
+    ⚠ WHAT IS LOST, AND WHY IT IS LOST SAFELY. `watch.py` step 2 also asked tmux whether the live
+    pane still sits in the window its descriptor declares, and re-placed when it did not. That is
+    `tmux_pane_window_name` — a raw read, and it does not follow the actuator here. The check is
+    NOT gone from the system: `args.force` is never set on this path either, so `launch_seat`'s
+    OWN window-drift check runs downstream and a drifted pane is a LOUD REFUSAL by the executor
+    rather than a seat opened in the wrong place. The cost is one extra round trip on a drifted
+    seat; the invariant is worth more than the round trip."""
+    pane = str((row or {}).get("pane") or "").strip()
+    if pane and (row or {}).get("liveness") == "no-harness":
+        return pane, (f"pane {pane} is STILL IN THE ROOM and it is the HARNESS that is gone — "
+                      f"team-monitor classes the row `no-harness` — so the successor respawns IN "
+                      f"PLACE and the window layout survives (G-12)")
+    for s in ((snap or {}).get("seats") or []):
+        p = str(s.get("pane") or "").strip()
+        if p and s.get("liveness") == "live":
+            return p, (f"pane {pane or '<none recorded>'} is NOT in the room any more, so the "
+                       f"successor is RE-PLACED onto anchor {p} — a pane THIS SAME SNAPSHOT "
+                       f"reports live, and there is exactly one room per snapshot, so it is this "
+                       f"room's. `launch_seat` derives the session from the anchor")
+    return "", (f"pane {pane or '<none recorded>'} is not in the room and this snapshot reports "
+                f"NO live pane to re-place onto. NO ANCHOR RESOLVES — refusing rather than "
+                f"passing an empty target down: with an empty target tmux resolves to the MOST "
+                f"RECENT session, measured to be the LIVE room. If the WHOLE room is gone that "
+                f"is `jobs/recover-room.py`'s (task 7.71), not this row's")
+
+
+def revival_argv(args, seat, pane, target, caller):
+    """PURE. The EXACT argv tail of the detached fire, so the selftest greps it without forking.
+
+    `--handoff-written 0` and it is DELIBERATE, not an omission: a crashed session had no turn
+    boundary at which to write a handoff block, so requiring one would make revival impossible in
+    exactly the case revival exists for. The predecessor's last UNREAD block stays where it is
+    and is delivered at the successor's `checkin`. NOTHING ON THIS PATH READS OR WRITES
+    `memory.md` — R-14.
+
+    NO `--force` AND NO `--force-memory`. `lifecycle-exec` does not accept them, and `--force`
+    carries the ROLE gate ALONE — it would not lift a memory or a window-drift refusal even if it
+    were passed. That is also what leaves `launch_seat`'s window-drift check standing (see
+    `revival_target`).
+
+    ⚠ LIST-ARGV, NEVER A SHELL LINE. The seat name is an operand off the snapshot and reaches the
+    exec as one array element, so task 7.601's quoting hazard — which is about a remedy string a
+    leader PASTES — does not arise on this path and MUST NOT be "fixed" by quoting here, which
+    would hand coord a literal quote character. No revival operand ever reaches a remedy TEXT."""
+    return ["lifecycle-exec",
+            "--package", str(args.package),
+            "--seat", str(seat),
+            "--disposition", "revive",
+            "--pane", str(pane or ""),
+            "--tmux-target", str(target),
+            "--caller-pid", str(caller[0]),
+            "--caller-starttime", str(caller[1]),
+            "--handoff-written", "0"]
+
+
+def run_revival(script, tail, unit):
+    """FIRE one DETACHED seat revival. `(outcome, why)`. NEVER raises. See the block above.
+
+        "FIRED"    the executor is running in its own transient unit; `why` names it
+        "REFUSED"  the allowlist or the detach pre-flight said no — NOTHING was started
+        "BROKE"    the launch itself failed — nothing is running
+
+    ⚠ THE THREE ARE DIFFERENT FACTS and the caller must not collapse them into "not fired" — the
+    same discipline `watch.py`'s `fire_revival` states, carried over with the actuator."""
+    name, refusal = _inline_fix_program(script)
+    if refusal:
+        return "REFUSED", refusal
+    argv = [sys.executable, str(script), *tail]
+    try:
+        launch, launched_unit = jobcontain.detach_argv(argv, unit)
+        out, code = jobcontain.launch_detached(launch, launched_unit,
+                                               preexec_fn=jobcontain.child_preexec)
+    except jobcontain.CarrierEnvMissing as exc:
+        # REFUSED, not BROKE: the pre-flight declined to launch and nothing ran. Degrading to a
+        # launch without the forwarded PATH is the defect `detach_argv` refuses for (task 7.564).
+        return "REFUSED", f"the detach pre-flight refused: {exc}"
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return "BROKE", f"`{name}` did not launch: {type(exc).__name__}: {exc}"
+    if code != 0:
+        return "BROKE", (f"the launcher exited {code}" + (f"; {out.splitlines()[-1][:160]}"
+                                                          if out.strip() else ""))
+    return "FIRED", (f"unit {launched_unit}" if launched_unit else
+                     "no `systemd-run` on this PATH — started as a bare detached child, which "
+                     "does NOT outlive a fired job and is the shell-run fallback only") \
+        + (f"; {out.splitlines()[-1][:160]}" if out.strip() else "")
 
 
 # ---- THE ROOM'S SESSION, for the sensor's own `ensure` (task 7.561).
@@ -510,6 +824,30 @@ def declared_dispositions(args, seats):
         return {s: coord.session_disposition(pkg, s) for s in seats}
     except Exception:                                             # noqa: BLE001
         return {s: None for s in seats}
+
+
+def declared_door_seats(args):
+    """The seats whose pane is a DOOR to a human role — those declaring `relays:` in their OWN
+    seat descriptor. Declaration, not sensing: a descriptor is a file the run wrote about itself.
+
+    ONE READER, and it is `coord.inbox_decls`, imported from the `--coord` path this job already
+    requires — the same single-reader discipline `declared_dispositions` above states, and for a
+    sharper reason: `relays:` already has exactly one derivation, which the kit's reap exemption
+    and its revival door gate both read. A second parse here would be free to disagree with them
+    about which panes are doors, and a disagreement about that is a run severing its own owner
+    channel (G-159, and G-176 for what the disagreement costs).
+
+    An unreadable descriptor set yields an EMPTY door set, which is today's behaviour: every seat
+    is treated as a worker's seat. That is the LOUD direction rather than the safe one, and it is
+    chosen deliberately — the alternative (treat everything as a door on a read failure) would
+    silently mute every GHOSTROW and QUIET remedy in the run off one unreadable file."""
+    try:
+        sys.path.insert(0, str(Path(args.coord).resolve().parent))
+        import coord  # noqa: E402 — the `relays:` derivation's single reader; see this docstring
+        ns = argparse.Namespace(package=str(args.package), base=None, workers_dir=None)
+        return {a for a, d in (coord.inbox_decls(ns) or {}).items() if d.get("relays")}
+    except Exception:                                             # noqa: BLE001
+        return set()
 
 
 def shadow_decide(disposition):
@@ -767,6 +1105,10 @@ def evaluate(snap, args, state, dispositions, now):
     # from a distance: a pane that LEFT the room, and a pane still there holding no harness.
     standby = set(args.standby or [])
     one_shot = set(args.one_shot_harness or [])
+    # Read ONCE in `main` off the seat descriptors and passed in on `args`, exactly as `--standby`
+    # and `--one-shot-harness` are — so `evaluate` stays PURE and a fixture can declare a door
+    # without a package on disk.
+    doors = set(getattr(args, "door_seats", None) or ())
     declared = declared_harnesses(args.package)
     absent = {}
     for r in snap.get("roster_absent") or []:
@@ -815,16 +1157,84 @@ def evaluate(snap, args, state, dispositions, now):
                 coord_seat("close-seat", name),
                 nudge="leader"))
         else:
-            decisions.append(decision(
-                "GHOSTROW", name, "nudge leader: ghost roster row",
+            # ---- THE DEBOUNCE. One reading cannot tell a ghost from a harness mid-restart, and
+            # the once-per-episode `armed` dedup suppresses REPEATS rather than the FIRST reading
+            # — which is the one that fired on the owner's door. See the docstring section.
+            n = repeats.get(f"ghost:{name}", 0) + 1
+            held[f"ghost:{name}"] = n
+            ghost_why = (
                 f"roster row ACTIVE but pane {pane} runs NO harness process"
                 + (f" (declared harness `{harness}`)" if harness else
                    " (no declared harness in taskforce.csv — classed conservatively as a "
-                   "ghost, which asks for inspection rather than a close)")
-                + ". Its work is stopped and every wake sent to it is typed into a bare shell.",
-                "inspect, then relaunch or close: "
-                + coord_seat("close-seat", name, "--renew"),
-                nudge="leader"))
+                   "ghost, which asks for inspection rather than a close)"))
+            if n < GHOSTROW_DEBOUNCE_PASSES:
+                # ⚠ EMITTED EVERY PASS, not swallowed: a condition being debounced must never
+                # look like a condition gone quiet, or the debounce reads as a mute to anyone
+                # watching the decision set. REPORTED, never delivered (`nudge=""`, action
+                # `none`) — the same suppression STANDBY already relies on.
+                decisions.append(decision(
+                    "GHOSTROW-PENDING", name,
+                    f"none — DEBOUNCED: reading {n} of {GHOSTROW_DEBOUNCE_PASSES}",
+                    ghost_why + f". ONE reading is indistinguishable from a harness mid-restart "
+                    f"or a pane read inside a relaunch's startup window, so this is held for "
+                    f"{GHOSTROW_DEBOUNCE_PASSES} consecutive readings before anyone is woken. A "
+                    f"healthy reading clears the count; a STALE snapshot freezes it.",
+                    "", nudge=""))
+            elif name in doors:
+                decisions.append(decision(
+                    "GHOSTROW", name,
+                    "nudge leader: quiet DOOR — LOOK, do not close, reap or renew",
+                    ghost_why + f", held for {n} consecutive readings — AND this seat declares "
+                    f"`relays:`, so its pane is a DOOR to a human role and not a worker's seat. "
+                    f"A PARKED DOOR MATCHES THIS SHAPE BY DESIGN.",
+                    DOOR_REMEDY, nudge="leader"))
+            else:
+                # ---- THE REVIVAL ROW (task 7.662). ADDITIVE: the GHOSTROW flag is emitted
+                # UNCHANGED and the leader still gets it. What the second row adds is the ACT —
+                # the deterministic actuator this job inherited from `watch.py`. It hangs off
+                # this same branch rather than re-deriving the condition, so the debounce and
+                # the DOOR exemption gate it for free (a door never reaches here at all).
+                target, why_t = revival_target(r, snap)
+                caller = getattr(args, "caller_ident", None)
+                # ⚠ A REVIVAL NOT FIRED IS SAID OUT LOUD, on the flag the leader already gets.
+                # A silent non-fire is indistinguishable from a fire that worked, and the whole
+                # reason `fire_revival` had four outcomes rather than a boolean is that the
+                # difference decides whether a human has to do something.
+                no_fire = ("" if (target and caller) else
+                           " NO REVIVAL WAS FIRED: " + (
+                               why_t if not target else
+                               "this pass cannot read its own /proc stat, so it has no "
+                               "(pid, starttime) pair to hand the executor as "
+                               "`--caller-pid`/`--caller-starttime`; a pid alone is not an "
+                               "identity, so the revival refuses rather than inventing one."))
+                decisions.append(decision(
+                    "GHOSTROW", name, "nudge leader: ghost roster row",
+                    ghost_why + f", held for {n} consecutive readings. Its work is stopped and "
+                    f"every wake sent to it is typed into a bare shell." + no_fire,
+                    "inspect, then relaunch or close: "
+                    + coord_seat("close-seat", name, "--renew"),
+                    nudge="leader"))
+                if target and caller:
+                    decisions.append(decision(
+                        REVIVAL_CLASS, name,
+                        "inline mechanical fix: revive the seat (DETACHED lifecycle-exec)",
+                        f"{ghost_why}, held for {n} consecutive readings — and this seat is NOT "
+                        f"a door, so the deterministic revival applies. A DETACHED exec of "
+                        f"coord.py's `lifecycle-exec --disposition revive` is fired from here "
+                        f"and NO AGENT IS IN THE PATH: it never sends a prompt, never asks a "
+                        f"seat to act, and it is an INLINE MECHANICAL FIX in exactly the sense "
+                        f"the sensor restart and the reap confirmation are "
+                        f"(`decisions.md#d-seat-revival-kept-in-watcher-job`, narrowing "
+                        f"`d-watcher-deterministic-chain`; `r-leader-revival-is-deterministic` "
+                        f"survives and is the binding condition this row keys on). TARGET: "
+                        f"{why_t}.",
+                        "WATCH the pane — a successor is being launched into it. Its evidence is "
+                        "the transient unit's journal and the seat's own lifecycle marker, which "
+                        "the executor stamps as its first act. Act by hand only if the fix line "
+                        "below this one reports it did not fire.",
+                        nudge="leader",
+                        fix=(args.coord, revival_argv(
+                            args, name, str(r.get("pane") or "").strip(), target, caller))))
 
     # ---- ROWS 1/2/3 + REAP: per-seat.
     reapable = []
@@ -889,6 +1299,20 @@ def evaluate(snap, args, state, dispositions, now):
                     f"correct state. Reported so it is visible, never flagged — an alarm that "
                     f"fires on correct behaviour trains the reader to wave off the real one.",
                     "", nudge=""))
+            elif name in doors:
+                # THE DOOR EXEMPTION at the inactivity row (kit map B13 — the same gap as B9).
+                # ⚠ NOT SUPPRESSED and NOT LADDERED: the escalation ladder exists to nudge the
+                # SEAT and then escalate when the seat does not act, and a door has no agent
+                # behind it to act — its every rung would end at `close <name> --renew`, which is
+                # the forbidden act. So this row goes straight to the leader, once per episode,
+                # with the door remedy and no command in it.
+                decisions.append(decision(
+                    "QUIET", name, "nudge leader: quiet DOOR — LOOK, do not close",
+                    f"no activity for {mins}min (threshold {args.quiet_min}min), and this seat "
+                    f"declares `relays:` — its pane is a DOOR to a human role. A door between "
+                    f"sessions is byte-identical to a quiet worker under this observation, so "
+                    f"quiet here is NOT evidence of a fault.",
+                    DOOR_REMEDY, nudge="leader"))
             else:
                 # CMP-21 Layout row 3, both halves: the SEAT first (it is the one that can
                 # answer), the LEADER only once the seat has been given N consecutive cadences
@@ -1179,7 +1603,7 @@ def _ns(**kw):
                 tolerance_mult=3.0, team_monitor="/nonexistent/team_monitor.py",
                 mem_floor_mb=2000, load_per_core=1.5, standby=[], one_shot_harness=["opencode"],
                 quiet_min=30, escalate_after=3, context_pct_override=0, context_pct=50,
-                to="leader", fallback_to="")
+                to="leader", fallback_to="", door_seats=set())
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -1296,6 +1720,7 @@ def selftest():
     check(f"EXEC ALLOWLIST: an EMPTY program path says MISSING PATH, not 'not an inline-fix "
           f"program' ({why[:60]}…)",
           ok is False and "MISSING PATH" in why and "not an inline-fix program" not in why)
+
     # ---- task 7.578: the leader-facing REMEDY TEXT is shell-safe; the ARGV stays raw.
     # ⚠ DRIVEN OFF `evaluate`'s REAL STALE-SENSOR DECISION, never a hand-composed string — the
     # defect is that the remedy a leader PASTES is built by interpolation, so the arm has to
@@ -1406,7 +1831,12 @@ def selftest():
     absent_snap = snap()
     absent_snap["roster_absent"] = [{"seat": hs, "pane": "%1", "liveness": "absent"},
                                     {"seat": hs + "-2", "pane": "%2", "liveness": "live"}]
-    ads = evaluate(absent_snap, b, {}, {}, fresh)[0]
+    # ⚠ TWO PASSES OVER ONE STATE, because GHOSTROW is DEBOUNCED: reading 1 emits
+    # GHOSTROW-PENDING and only reading 2 emits the deliverable row whose remedy this arm reads.
+    # (DEAD is not debounced and is present on either pass.)
+    st_absent = {}
+    evaluate(absent_snap, b, st_absent, {}, fresh)
+    ads = evaluate(absent_snap, b, st_absent, {}, fresh)[0]
     live_snap = snap()
     live_snap["seats"] = [{"seat": hs, "pane": "%3", "roster_active": True, "liveness": "live",
                            "prompt_pending": True, "last_activity_age_s": 99999,
@@ -1460,9 +1890,14 @@ def selftest():
     check(f"7.601 CENSUS: every remedy f-string built on `coord_cmd` interpolates nothing else "
           f"({len(coord_fstrings)} such f-string(s), smuggled={smuggled})",
           len(coord_fstrings) >= 2 and not smuggled)
-    # THE PATH THAT MUST NOT MOVE: no seat name reaches an exec argv at all, and the one `fix=`
-    # this loop can emit still carries the package RAW — a quote added there would be handed to
-    # coord as a literal character.
+    # THE PATH THAT MUST NOT MOVE: the REAP `fix=` this loop emits carries the package RAW and
+    # names no seat at all — a quote added there would be handed to coord as a literal character.
+    # ⚠ THIS COMMENT READ "no seat name reaches an exec argv at all" UNTIL TASK 7.662, and that
+    # was a claim about the two rows that existed rather than about the hazard. The REVIVAL row
+    # DOES put a seat name in an exec argv (`--seat`), and it is safe for the reason 7.601 is
+    # about in the first place: the hazard is a remedy STRING a leader pastes into a shell, and
+    # `revival_argv` is LIST-ARGV with no shell — its own arms below assert both halves. What
+    # still holds unchanged, and is what this arm measures, is the REAP row.
     reap_snap = snap()
     reap_snap["seats"] = [{"seat": hs, "pane": "%4", "roster_active": False, "liveness": "live"}]
     rp = next(x for x in evaluate(reap_snap, b, {}, {hs: CLEAN_CHECKOUT}, fresh)[0]
@@ -1470,6 +1905,98 @@ def selftest():
     check("7.601 EXEC PATH UNCHANGED: the reap fix argv is raw and unquoted, and no seat name is "
           "smuggled into its remedy",
           rp["fix"] == (b.coord, ["--package", hostile_pkg, "reap"]) and hs not in rp["remedy"])
+
+    # ---- task 7.662: THE REVIVAL ACTUATOR'S NEW HOME. The arms below are the ones a reader
+    # cannot verify by reading: that the SECOND exec door is the SAME door, that the target is
+    # snapshot-derived and refuses rather than guessing, and that a DOOR is never revived.
+    #
+    # ⚠ ONE GATE, BOTH DOORS — read off this file's OWN AST, so a future door that grows its own
+    # copy of the allowlist check is caught even if every behavioural arm below still passes.
+    # The `== 2` half is the vacuity guard: a renamed gate would otherwise find zero callers.
+    import ast as _ast662
+    _t662 = _ast662.parse(src_text)
+    _gate_callers = sorted({fn.name for fn in _ast662.walk(_t662)
+                            if isinstance(fn, _ast662.FunctionDef)
+                            and any(isinstance(c, _ast662.Call)
+                                    and getattr(c.func, "id", "") == "_inline_fix_program"
+                                    for c in _ast662.walk(fn))})
+    check(f"7.662 ONE GATE: every exec door goes through `_inline_fix_program` and there are "
+          f"exactly two of them ({_gate_callers})",
+          _gate_callers == ["run_inline", "run_revival"])
+    _out, _why = run_revival("/usr/bin/ignite", ["lifecycle-exec"], "unit-never-created")
+    check(f"7.662 SAME REFUSAL: the DETACHED door refuses a non-allowlisted program with the "
+          f"SAME text the inline door gives, and starts nothing ({_why[:52]}…)",
+          _out == "REFUSED" and _why == run_inline("/usr/bin/ignite", ["add-job"])[1])
+    check("7.662 ALLOWLIST UNWIDENED: the revival needs no new entry — `coord.py` was already "
+          "on it, and the set is still exactly the two programs",
+          INLINE_FIX_SCRIPTS == ("team_monitor.py", "coord.py"))
+
+    # ---- the target derivation: snapshot only, and it REFUSES rather than guessing.
+    _rev_snap = snap()
+    _rev_snap["seats"] = [{"seat": "other", "pane": "%9", "roster_active": True,
+                           "liveness": "live"}]
+    _tg, _ = revival_target({"seat": hs, "pane": "%1", "liveness": "no-harness"}, _rev_snap)
+    check("7.662 TARGET (in place): a `no-harness` row respawns onto its OWN pane, so the "
+          "window layout survives (G-12)", _tg == "%1")
+    _tg2, _w2 = revival_target({"seat": hs, "pane": "%1", "liveness": "absent"}, _rev_snap)
+    check("7.662 TARGET (re-place): a pane that LEFT the room re-places onto a live pane THIS "
+          "SNAPSHOT reports — never onto the dead pane, never onto a tmux query",
+          _tg2 == "%9" and "%1" != _tg2)
+    _tg3, _w3 = revival_target({"seat": hs, "pane": "", "liveness": "absent"}, snap())
+    check(f"7.662 TARGET REFUSES: no pane and no live anchor -> EMPTY target and a reason, "
+          f"never an empty string handed downward (tmux would resolve it to the LIVE room) "
+          f"({_w3[:40]}…)",
+          _tg3 == "" and "NO ANCHOR RESOLVES" in _w3)
+
+    # ---- the argv: the executor's contract, and no shell anywhere on this path.
+    _argv = revival_argv(b, hs, "%1", "%1", (4242, "99"))
+    check(f"7.662 ARGV: `lifecycle-exec --disposition revive --handoff-written 0`, the caller "
+          f"PAIR is present, and NO `--force` of any kind reaches the executor",
+          _argv[0] == "lifecycle-exec"
+          and _argv[_argv.index("--disposition") + 1] == "revive"
+          and _argv[_argv.index("--handoff-written") + 1] == "0"
+          and _argv[_argv.index("--caller-pid") + 1] == "4242"
+          and _argv[_argv.index("--caller-starttime") + 1] == "99"
+          and not [t for t in _argv if t.startswith("--force")])
+    check("7.662 ARGV IS LIST-ARGV: the hostile package is ONE element, raw and unquoted — the "
+          "exec takes no shell, so 7.601's quoting would corrupt a literal operand here",
+          hostile_pkg in _argv and _argv[_argv.index("--seat") + 1] == hs)
+
+    # ---- the ROW, driven off `evaluate` and never hand-composed.
+    _rev_args = _ns(coord=hostile_coord, package=hostile_pkg, caller_ident=(4242, "99"))
+    _ghost_snap = snap()
+    _ghost_snap["seats"] = [{"seat": "other", "pane": "%9", "roster_active": True,
+                             "liveness": "live"}]
+    _ghost_snap["roster_absent"] = [{"seat": hs, "pane": "%1", "liveness": "no-harness"}]
+
+    def _drive662(a_, passes=GHOSTROW_DEBOUNCE_PASSES):
+        st, ds = {}, []
+        for _ in range(passes):
+            ds = evaluate(_ghost_snap, a_, st, {}, fresh)[0]
+        return ds
+
+    _ds = _drive662(_rev_args)
+    _rev = [x for x in _ds if x["class"] == REVIVAL_CLASS]
+    check(f"7.662 ROW: a DEBOUNCED non-door ghost emits a REVIVAL row carrying a `fix` on the "
+          f"`--coord` path, and the GHOSTROW flag beside it is still emitted "
+          f"({[x['class'] for x in _ds if x['subject'] == hs]})",
+          len(_rev) == 1 and _rev[0]["fix"][0] == hostile_coord
+          and _rev[0]["fix"][1][:2] == ["lifecycle-exec", "--package"]
+          and any(x["class"] == "GHOSTROW" and x["subject"] == hs for x in _ds))
+    check("7.662 NOT DEBOUNCED AWAY: one reading fires NOTHING — the revival is gated by the "
+          "same debounce as the flag, so a harness mid-restart is never revived on top of",
+          not [x for x in _drive662(_rev_args, 1) if x["class"] == REVIVAL_CLASS])
+    check("7.662 A DOOR IS NEVER REVIVED: the same ghost declaring `relays:` yields NO revival "
+          "row at all — its pane deliberately outlives its session",
+          not [x for x in _drive662(_ns(coord=hostile_coord, package=hostile_pkg,
+                                        caller_ident=(4242, "99"), door_seats={hs}))
+               if x["class"] == REVIVAL_CLASS])
+    _no_id = _drive662(_ns(coord=hostile_coord, package=hostile_pkg))
+    check("7.662 NO IDENT -> NO FIRE, SAID OUT LOUD: without a caller (pid, starttime) pair no "
+          "REVIVAL row exists and the GHOSTROW flag carries the refusal",
+          not [x for x in _no_id if x["class"] == REVIVAL_CLASS]
+          and any(x["class"] == "GHOSTROW" and "NO REVIVAL WAS FIRED" in x["detail"]
+                  for x in _no_id))
 
     # ⚠ EVERY `decision(...)` CALL SITE, not only the rows this selftest happens to reach: parsed
     # off this file's own AST, so an unreachable row carrying a retired name is caught too.
@@ -1623,6 +2150,24 @@ def main():
               "deliberately." % exc, file=sys.stderr)
         return 2
     print("goal-watcher-job: floor %s" % floor_why, file=sys.stderr)
+    # ⚠ RESOLVED ONCE, HERE, AND REPORTED — same discipline as the room and the floor above. The
+    # count is printed on EVERY pass, including the zero case: a door exemption that silently
+    # stopped resolving would otherwise look exactly like a run with no doors in it, and the
+    # difference is whether `close-seat --renew` is about to be coached at the owner's channel.
+    args.door_seats = declared_door_seats(args)
+    print("goal-watcher-job: doors %d seat(s) declaring `relays:`%s"
+          % (len(args.door_seats),
+             (": " + ", ".join(sorted(args.door_seats))) if args.door_seats else ""),
+          file=sys.stderr)
+    # ⚠ RESOLVED ONCE, HERE, AND REPORTED — the same discipline as the doors above, and for the
+    # same reason: `evaluate` stays PURE, and a revival that stopped being possible must not look
+    # like a run with no ghosts in it (task 7.662).
+    args.caller_ident = caller_ident(args)
+    print("goal-watcher-job: revival caller ident %s"
+          % (f"pid {args.caller_ident[0]} starttime {args.caller_ident[1]}"
+             if args.caller_ident else
+             "UNREADABLE — the revival row will REFUSE this pass (see `caller_ident`)"),
+          file=sys.stderr)
     snap_path = args.state_json or str(pkg / "state.json")
     state_path = args.state_file or str(pkg / "coordination" / "goal-watcher-state.json")
     trail_path = args.shadow_trail or str(pkg / "coordination" / SHADOW_TRAIL_FILENAME)
@@ -1706,11 +2251,29 @@ def main():
     # argv because two rows may name one sweep, and the outcome is folded into the flag the
     # leader receives — a fix that ran and failed must never reach anyone as a bare detection.
     ran = {}
+    # ⚠ THE REVIVAL IS THE ONE FIX THAT IS NOT IDEMPOTENT, so it is the ONE fix gated on the row
+    # being FRESH — once per episode, re-armed only when the seat is seen healthy again. The
+    # other two run on every pass because running them twice is running them once (task 7.662).
+    fresh_keys = {f"{d['class']}:{d['subject']}" for d in fresh}
     if args.notify:
         for d in decisions:
             if not d.get("fix"):
                 continue
             script, tail = d["fix"]
+            if d["class"] == REVIVAL_CLASS:
+                if f"{d['class']}:{d['subject']}" not in fresh_keys:
+                    continue
+                # The unit name is STABLE per (package, seat): systemd refuses a second unit of
+                # that name while the first is active, which is the double-fire guard under this
+                # file's own — see WHAT DID NOT MOVE in the module docstring.
+                outcome, why = run_revival(script, tail, jobcontain.unit_name(
+                    REVIVAL_UNIT_PREFIX, f"{args.package}\t{d['subject']}"))
+                print(f"  revival [{d['subject']}]: {outcome}; {why}")
+                d["detail"] += (f" REVIVAL {outcome}: {why}."
+                                + ("" if outcome == "FIRED" else
+                                   " NOTHING IS RUNNING for this seat — which is exactly the "
+                                   "case CMP-21 leaves to the leader."))
+                continue
             key = (str(script), tuple(tail))
             if key not in ran:
                 ran[key] = run_inline(script, tail)
