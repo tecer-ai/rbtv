@@ -95,7 +95,13 @@ async function run(lines) {
   const roomTmpdir = path.join(os.tmpdir(), `e2a-jsl-${process.pid}`);
   fs.mkdirSync(roomTmpdir, { recursive: true, mode: 0o700 });
   const prevTmux = process.env.TMUX_TMPDIR;
+  const savedTmux = process.env.TMUX;
+  const savedTmuxPane = process.env.TMUX_PANE;
   process.env.TMUX_TMPDIR = roomTmpdir;
+  // $TMUX overrides TMUX_TMPDIR: run from inside a pane, every tmux call here — including the
+  // finally's kill-server — would hit the DEFAULT server. Cleared so the redirect actually binds.
+  delete process.env.TMUX;
+  delete process.env.TMUX_PANE;
 
   try {
     // ── 1 · HOMED → the seat folder ──────────────────────────────────────────────────────────
@@ -165,6 +171,8 @@ async function run(lines) {
   } finally {
     try { execFileSync('tmux', ['kill-server'], { stdio: 'ignore' }); } catch { /* already gone */ }
     if (prevTmux === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = prevTmux;
+    if (savedTmux === undefined) delete process.env.TMUX; else process.env.TMUX = savedTmux;
+    if (savedTmuxPane === undefined) delete process.env.TMUX_PANE; else process.env.TMUX_PANE = savedTmuxPane;
     try { fs.rmSync(roomTmpdir, { recursive: true, force: true }); } catch { /* best effort */ }
     if (prevEnv === undefined) delete process.env.RBTV_IGNITE_WORKSPACE_ROOT;
     else process.env.RBTV_IGNITE_WORKSPACE_ROOT = prevEnv;
