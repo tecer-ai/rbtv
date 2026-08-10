@@ -170,6 +170,9 @@ READS = [
     (SESSIONS, "seat"),          # which rows belong to the seat under verification
     (SESSIONS, "ended"),         # whether it FINISHED — CMP-25's precondition
     (SESSIONS, "disposition"),   # the durable check-out value; `done` alone advances an edge
+    (SESSIONS, "session-id"),    # row selection among OPEN rows — coord's `sessions_open_ids`
+                                 # (7.475 reader widening); audit row 16
+
     (SEAT_MD_OUTPUTS, None),     # its declared outputs, and the artifact paths they name
     # STEP 3 (M4-09) adds exactly these two, and both were already audited: trace-field-audit.md
     # rows 4 and 5 carry `{RUN}/taskforce.csv` `after` and `seat` for the `ready` state. Read
@@ -1923,9 +1926,7 @@ def _workspace_root(start):
     return start
 
 
-AUDIT = (_workspace_root(HERE) / ".rbtv" / "goals" / "build-core-daemon-mvp" / "runs"
-         / "run-3" / "planning" / "m4-workflow-engine-runs-DAG-edged-jobs"
-         / "trace-field-audit.md")
+AUDIT = HERE / "audit" / "trace-field-audit.md"
 
 # The fixture verdicts, spelled out. `None` means "the stage must refuse to decide".
 EXPECT = {
@@ -2862,9 +2863,7 @@ EXPECT_ENQUEUE_SEED = {
 EXPECT_ENQUEUE_SIGNATURE = ("(coord, pkg, job_id, profile, readiness_result=None, at=None, "
                             "submit=None, dry_run=False)")
 
-PROBE_RECORD = (_workspace_root(HERE) / ".rbtv" / "goals" / "build-core-daemon-mvp" / "runs"
-                / "run-3" / "planning" / "m4-workflow-engine-runs-DAG-edged-jobs"
-                / "probe-record-edge-runner-enqueue-builder.md")
+PROBE_RECORD = HERE / "audit" / "probe-record-edge-runner-enqueue-builder.md"
 
 
 def _stub_door():

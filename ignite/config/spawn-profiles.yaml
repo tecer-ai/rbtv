@@ -710,9 +710,11 @@ tools:
       # criterion 3's remainder. It carried `--package .../runs/run-1` for a run CLOSED
       # 2026-07-27, so a fire would have booted the recovery seat into a closed run's package
       # while the job's own status kept reading healthy. Swapping in run-3 reproduces that defect
-      # at the next run close; naming the GOAL and asking runs.csv does not. Same remedy and same
-      # shape as the live `selfheal-watch` entry below — resolved through coord.resolve_live_run
-      # (R10), which REFUSES rather than guesses on zero or two open rows.
+      # at the next run close; naming the GOAL and deriving the lease at fire time does not. Same
+      # remedy and same shape as the live `selfheal-watch` entry below — resolved through
+      # coord.derive_lease (7.607: liveness computed from live evidence — the goal's room and
+      # verified seat processes; no stored register), which REFUSES on unreadable or ambiguous
+      # evidence rather than guessing.
       - --goal
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp
       - --seat
@@ -774,10 +776,11 @@ tools:
       # is a home in waiting too, and it drifts in silence because nothing consumes it.
       # Re-pinning it to the then-live run would have reproduced the defect at the very next close,
       # so the target is now RESOLVED rather than pinned: `--goal` names the GOAL, and
-      # `selfheal-watch.py` asks `coord.resolve_live_run()` which run reads `state=open` in that
-      # goal's runs.csv AT FIRE TIME. There is no value left here to go stale.
-      # The resolver REFUSES on zero or two open rows rather than guessing (R9/R10), so an
-      # ambiguous register produces a loud non-zero exit, never a silently wrong target.
+      # `selfheal-watch.py` asks `coord.derive_lease()` AT FIRE TIME whether the goal is
+      # executing (7.607: live evidence — the goal's room + verified seat processes; the run
+      # register is extinguished). There is no value left here to go stale. The lease REFUSES on
+      # unreadable or ambiguous evidence rather than guessing, so a broken reading produces a
+      # loud non-zero exit, never a silently wrong target.
       - --goal
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp
       - --coord
@@ -903,10 +906,10 @@ tools:
       # close, so the value went stale while the invariant did not. ⚠ THIS COMMENT THEREFORE NAMES
       # NO RUN EITHER, deliberately: a run number in prose is a home in waiting too, and it drifts
       # in silence because nothing consumes it. Swapping in the then-live run would reproduce the
-      # defect at the very next close; naming the GOAL and asking runs.csv does not.
+      # defect at the very next close; naming the GOAL and deriving the lease at fire time does not.
       # Same remedy and same shape as the live `selfheal-watch` and `selfheal-room` entries above —
-      # resolved through coord.resolve_live_run (R10), which REFUSES rather than guesses on zero or
-      # two open rows. ⚠ THE PACKAGE WATCHED, one field up, KEEPS ITS CLOSED-RUN FIXTURE PATH: that
+      # resolved through coord.derive_lease (7.607: live evidence, no stored register), which
+      # REFUSES on unreadable or ambiguous evidence rather than guessing. ⚠ THE PACKAGE WATCHED, one field up, KEEPS ITS CLOSED-RUN FIXTURE PATH: that
       # one is ruled deliberate (7.117, leader ruling (b) on ask #204), and the two fields are in
       # different classes on purpose.
       - --room-goal
@@ -1012,8 +1015,9 @@ tools:
   #
   # ⚠ THIS ENTRY DELIBERATELY NAMES NO RUN, for the reason the three entries above name no run: a
   # run number in an argv is a HOME IN WAITING and goes stale at the next close (7.117, 7.188).
-  # `--goal` names the GOAL and edge-runner-job.py asks `coord.resolve_live_run` at FIRE TIME,
-  # which REFUSES rather than guesses on zero or two open rows (R9/R10).
+  # `--goal` names the GOAL and edge-runner-job.py asks `coord.derive_lease` at FIRE TIME
+  # (7.607: liveness from live evidence — room + verified seats; the run register is
+  # extinguished), which REFUSES on unreadable or ambiguous evidence rather than guessing.
   #
   # ⚠ AND IT PINS NEITHER --job-id NOR --profile, which would be the same defect one field over:
   # those two have exactly ONE home and it is the arm file above. A copy here would be free to
