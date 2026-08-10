@@ -477,6 +477,12 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       // Stamped from the ATTESTED sender, never from the payload (the audit trail
       // into job and session rows — spawn-profiles-spec.md Design 4).
       enqueuedBy: sender.id,
+      // Task 7.389 — the enqueuing SEAT, stamped from the PROVEN seat the ingress attached
+      // (gateway/sender-auth.js `attachProvenSeat`: socket inode → owning pid → cwd + /proc
+      // ancestry), never from the payload, for the same reason `enqueued_by` is not accepted from a
+      // sender (gateway/parse.js:126 — audit forgery). `sender.seat` is present ONLY when proven,
+      // so an unproven caller writes NULL and is byte-identical to the pre-7.389 row.
+      enqueuedSeat: sender.seat || null,
       dryRun,
     });
 

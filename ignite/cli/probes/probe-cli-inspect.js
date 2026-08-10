@@ -67,6 +67,32 @@ async function main() {
   ]);
   out(`seeded ${seededMsgs.length} message rows (2 on ${thread}, 1 on owner-feed)`);
 
+  // ⚑ Task 7.563 — THE INTERLOPER, seeded DELIBERATELY so the race is present on
+  // EVERY run instead of ~38% of them.
+  //
+  // This probe's OWN throwaway daemon is the injector: the fixture seeds an
+  // execution row with no live process (`seedCatalogue({withExecution:true})`
+  // above), and the ticker's crash sweep (server/ticker/ticker.js, `crash sweep:
+  // exit=...`) then writes its synthetic completion onto the SAME chain-stable
+  // thread this probe seeds — observed live as `msg_id 7, sender "ticker",
+  // "crash sweep: exit=null"`. Whether that lands before or after the CLI reads
+  // the thread is a tick race, which is what made this probe fail 16 of 42
+  // full-scope runs on 2026-08-08.
+  //
+  // The row below is that same row, written through the SAME store API the ticker
+  // uses, at a deterministic moment. It does two jobs: it drives the race instead
+  // of waiting for luck, and it makes the checks below assert on a thread that
+  // provably carries traffic the probe did not seed. The checks are therefore
+  // keyed to the msg_ids this probe knows about — NOT loosened to "at least 2
+  // rows": every seeded row is still asserted by id, type, sender, status, corpus
+  // and order, and the foreign-THREAD row must still be absent. An extra row on
+  // the thread is tolerated only because a live writer legitimately owns this
+  // thread too; an extra row on a thread the probe did not ask for is not.
+  const [interloper] = seedMessages(ws, [
+    { type: 'completion', sender: 'ticker', thread, corpus: 'crash sweep: exit=null\n--- log tail ---\n', status: 'failed' },
+  ]);
+  out(`seeded the ticker-shaped interloper row msg_id=${interloper.msg_id} on ${thread}`);
+
   const d = await bootDaemon(env);
   check('the throwaway daemon boots and its gateway listens', d.listening === true,
     d.listening ? `port ${port}` : `exit=${d.exitCode} ${d.errLog().slice(0, 300)}`);
@@ -192,37 +218,51 @@ async function main() {
       `exit=${r.code} parsed=${JSON.stringify(msgNfEnvelope)}`);
 
     // 12. The real listing path: envelope shape + CONTENT + ORDER + IDENTITY
-    // proof, never a bare count — exactly the seeded rows of exec's chain-stable
-    // thread, msg_id ascending, and the foreign-thread row absent.
+    // proof, never a bare count — every row this probe seeded on exec's
+    // chain-stable thread, asserted BY MSG_ID (not by position), msg_id
+    // ascending, every row thread-stamped, and the foreign-thread row absent.
     r = await runCli(['--json', 'inspect', 'messages', String(execId)], cliEnv);
     out('--- inspect messages --json (real rows) ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim());
     let msgEnvelope = null;
     try { msgEnvelope = JSON.parse(r.stdout.trim()); } catch {}
     const mrows = msgEnvelope && msgEnvelope.ok ? msgEnvelope.result.rows : [];
-    check('inspect messages --json returns exactly the thread\'s seeded rows, msg_id-ordered, thread stamped',
+    const byId = new Map(mrows.map((m) => [m.msg_id, m]));
+    const m0 = byId.get(seededMsgs[0].msg_id);
+    const m1 = byId.get(seededMsgs[1].msg_id);
+    const mInterloper = byId.get(interloper.msg_id);
+    check('inspect messages --json returns every row this probe seeded on the thread, in msg_id order, thread stamped, foreign thread excluded',
       r.code === 0 && msgEnvelope && msgEnvelope.ok === true
         && msgEnvelope.result.target === 'messages'
         && msgEnvelope.result.thread === thread
         && msgEnvelope.result.eof === true
-        && mrows.length === 2
-        && mrows[0].msg_id === seededMsgs[0].msg_id
-        && mrows[0].type === 'note'
-        && mrows[0].corpus === 'first note for the messages probe'
-        && mrows[1].msg_id === seededMsgs[1].msg_id
-        && mrows[1].type === 'completion'
-        && mrows[1].status === 'done'
-        && mrows[1].corpus === 'turn ended cleanly'
-        && mrows[0].msg_id < mrows[1].msg_id
-        && mrows.every((m) => m.thread === thread),
+        // Identity + content of each row THIS probe put on the thread — by id, not by index.
+        && !!m0 && m0.type === 'note' && m0.sender === 'probe-owner'
+        && m0.corpus === 'first note for the messages probe'
+        && !!m1 && m1.type === 'completion' && m1.sender === `exec-${execId}`
+        && m1.status === 'done' && m1.corpus === 'turn ended cleanly'
+        && !!mInterloper && mInterloper.type === 'completion' && mInterloper.sender === 'ticker'
+        && mInterloper.status === 'failed' && /^crash sweep: exit=/.test(mInterloper.corpus)
+        && m0.msg_id < m1.msg_id
+        // The listing as a whole: ascending msg_id, every row on the asked-for
+        // thread, and NOTHING from the foreign thread.
+        && mrows.every((m, i) => i === 0 || mrows[i - 1].msg_id < m.msg_id)
+        && mrows.every((m) => m.thread === thread)
+        && !mrows.some((m) => /foreign-thread row/.test(m.corpus)),
       `exit=${r.code} rows=${JSON.stringify(mrows)}`);
 
     // 13. The human rendering: one compact line per message, exit 0.
     r = await runCli(['inspect', 'messages', String(execId)], cliEnv);
     out('--- inspect messages (human render) ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim());
+    // The count line is asserted against the lines actually rendered rather than
+    // against a literal 2 (task 7.563): a live writer may add a row to this thread,
+    // but the header must never disagree with the body it heads.
+    const renderedCount = (r.stdout.match(/^#\d+ /gm) || []).length;
+    const headerCount = Number((r.stdout.match(/(\d+) row\(s\)/) || [])[1]);
     check('inspect messages renders compact per-message lines (msg_id, type, corpus preview), exit 0',
       r.code === 0
         && new RegExp(`thread ${thread}`).test(r.stdout)
-        && /2 row\(s\)/.test(r.stdout)
+        && renderedCount >= 3 && headerCount === renderedCount
+        && new RegExp(`#${interloper.msg_id} .*completion from=ticker status=failed crash sweep: exit=`).test(r.stdout)
         && new RegExp(`#${seededMsgs[0].msg_id} .*note from=probe-owner status=- first note for the messages probe`).test(r.stdout)
         && new RegExp(`#${seededMsgs[1].msg_id} .*completion from=exec-${execId} status=done turn ended cleanly`).test(r.stdout)
         && !/foreign-thread row/.test(r.stdout),

@@ -472,10 +472,18 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     argsObj[CHAIN_MARKER] = parentExecId;
     const argsJson = JSON.stringify(argsObj);
     const enqueuedAt = isoNow();
+    // Task 7.389 — the enqueuing SEAT is INHERITED from the parent turn, derived HERE rather than
+    // threaded through each of the four callers. Every one of them is a RECYCLE of `exec` (they
+    // pass `parentExecId: exec.exec_id` beside `enqueuedBy: exec.enqueued_by`), and the recycled
+    // turn is the same seat's work continuing — so the parent row already holds the answer and a
+    // per-caller argument would be the same fact copied four times, free to drift three ways.
+    // A chain root or a store predating the column yields NULL, which grants nothing.
+    const parent = parentExecId != null ? heartStore.getExecution(parentExecId) : null;
+    const enqueuedSeat = parent && parent.enqueued_seat ? parent.enqueued_seat : null;
     const result = runSql(`
-      INSERT INTO queue (job_id, args, session_mode, trigger_kind, run_at, enqueued_by, enqueued_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, jobId, argsJson, sessionMode, triggerKind, runAt, enqueuedBy, enqueuedAt);
+      INSERT INTO queue (job_id, args, session_mode, trigger_kind, run_at, enqueued_by, enqueued_seat, enqueued_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, jobId, argsJson, sessionMode, triggerKind, runAt, enqueuedBy, enqueuedSeat, enqueuedAt);
     return Number(result.lastInsertRowid);
   }
 

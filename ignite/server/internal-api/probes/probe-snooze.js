@@ -125,9 +125,24 @@ async function main() {
     spawnManager: { config: { profiles: { 'test-sleep': { headed: false } } } },
     secret,
   });
-  const gw = createGateway({ dispatch: api.dispatch, internalSecret: secret, sendersFilePath: sendersFile });
+  // Task 7.389 — this probe's gateway is taught `checkPeerSeat` (it was one of the six that
+  // constructed a gateway without one, so no seat could ever be proven here). The stub stands in
+  // for `resolvePeerSeat`, whose /proc walk is not reproducible in-process and is covered
+  // end-to-end by `probe-seat-seam`; the claim under test here is what the POLICY does with a
+  // proven seat, which is a different claim from how a seat is proven.
+  const SEAT_OF = new Map();
+  const gw = createGateway({
+    dispatch: api.dispatch,
+    internalSecret: secret,
+    sendersFilePath: sendersFile,
+    checkPeerSeat: (conn) => {
+      const seat = conn && SEAT_OF.get(conn);
+      return seat ? { ok: true, seat, goal: 'probe-goal', run: 'run-1' } : { ok: false, code: 'E_PEER_UNRESOLVED' };
+    },
+  });
+  const asSeat = (seat) => { const sock = { probeSeat: seat }; SEAT_OF.set(sock, seat); return sock; };
 
-  const snooze = (token, payload) => gw.handleRequest({ credential: token, body: { intent: 'snooze', payload } });
+  const snooze = (token, payload, socket = null) => gw.handleRequest({ credential: token, socket, body: { intent: 'snooze', payload } });
   // A direct-dispatch envelope (bypasses the gateway) to prove the CORE's own guards,
   // exactly as probe-revalidate crafts envelopes for the boundary tests.
   const ownerEnv = (payload) => ({
@@ -141,8 +156,31 @@ async function main() {
     w && w.cleared_at_tick === null && w.snoozed_until_tick === null,
     `disk warning=${JSON.stringify(w)}`);
 
+  // --- 0. TASK 7.389 · THE CONTROL THAT SNOOZE DID NOT WIDEN ──────────────────────────────────
+  // 7.389 armed a `creator-seat` grant off the new `enqueued_seat` column. Snooze is OWNER-ONLY
+  // (D45/D71) and must be UNMOVED by that: a warning is SYSTEM-raised, so there is no creator to
+  // grant to, and `canSnoozeWarning` passes `subject = null` so the creator grant is unreachable
+  // BY CONSTRUCTION rather than merely unused. That construction is now load-bearing for a second
+  // resolver, not just the first, so it is asserted rather than trusted — this is the arm that goes
+  // red if someone "helpfully" threads the subject row into the snooze decision.
+  let r = await snooze(AGENT_TOKEN, { kind: KIND, subject: SUBJECT, minutes: MINUTES },
+    asSeat('probe-goal/probe-seat'));
+  check('7.389 CONTROL: a PROVEN SEAT is still refused snooze — the creator grant is unreachable '
+    + 'here by construction (subject=null), so the new resolver did not widen an owner-only decision',
+    r.body.error && r.body.error.code === 'UNAUTHORIZED_SENDER',
+    `code=${r.body.error && r.body.error.code}`);
+  check('7.389 CONTROL: and even a proven `leader` seat — a principal this resolver DOES grant for '
+    + 'removal and kill — cannot snooze, so the refusal is the DECISION\'s, not a failure to prove a seat',
+    (await snooze(AGENT_TOKEN, { kind: KIND, subject: SUBJECT, minutes: MINUTES }, asSeat('leader')))
+      .body.error?.code === 'UNAUTHORIZED_SENDER');
+  {
+    const w0 = readBackWarning(KIND, SUBJECT);
+    check('7.389 CONTROL: neither seated refusal wrote anything — snoozed_until_tick still NULL on disk',
+      w0 && w0.snoozed_until_tick === null, `disk warning=${JSON.stringify(w0)}`);
+  }
+
   // --- 1. A NON-OWNER sender is REFUSED (owner-only, D45/D71) — and the denial writes NOTHING.
-  let r = await snooze(AGENT_TOKEN, { kind: KIND, subject: SUBJECT, minutes: MINUTES });
+  r = await snooze(AGENT_TOKEN, { kind: KIND, subject: SUBJECT, minutes: MINUTES });
   check('a NON-OWNER (kind: agent) snooze is refused UNAUTHORIZED_SENDER',
     r.body.error && r.body.error.code === 'UNAUTHORIZED_SENDER',
     `code=${r.body.error && r.body.error.code}`);

@@ -53,6 +53,7 @@ function check(name, ok, detail = '') {
 const findings = [];
 function finding(s) { findings.push(s); lines.push(`FINDING  ${s}`); }
 
+const { awaitExit } = require('./await-exit');
 const attached = require('../attached-execution');
 const record = require('../execution-record');
 const { createEngine } = require('../index');
@@ -452,7 +453,7 @@ async function main() {
 
   const appender = child('for(let i=0;i<N;i++)record.openExecution({goalFolder:G,seat:"s"+i,sessionId:"sid-"+i,lane:"attached",startedAt:"t"});');
   const closer = child('let i=0;const t=Date.now();while(i<N){if(record.closeExecution({goalFolder:G,sessionId:"sid-"+i,outcome:"done",endedAt:"t"}).closed){i++;continue;}if(Date.now()-t>60000)break;}');
-  await Promise.all([appender, closer].map((c) => new Promise((res) => c.on('exit', res))));
+  await Promise.all([appender, closer].map(awaitExit));
   clearInterval(poll);
 
   const raceRows = record.readExecutionRecord(raceGoal).rows;

@@ -35,6 +35,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { awaitExit } = require('./await-exit');
 
 const IGNITE_SRC = path.resolve(__dirname, '..', '..');
 const OUT_PATH = path.join(__dirname, 'probe-engine-library.out');
@@ -558,28 +559,44 @@ async function main() {
     { stdio: 'ignore', detached: true });
 
   // Wait until the run has actually STARTED something — killing before the first tick would prove
-  // only that an empty store reopens.
+  // only that an empty store reopens. ⚠ POLL ON THE TICK ROW, not only on the execution rows
+  // (task 7.629): execution rows are written DURING a tick, so a SIGKILL landing between the fire
+  // and the tick-row COMMIT leaves `getLastTick()` at 0 and the resume check below reads
+  // "resumed at tick 0 -> 1" — a red that measured the probe's own race, not the engine. The
+  // resume assertion needs `resumedAtTick >= 1`, i.e. a committed row in `ticks`, so that is what
+  // the kill waits for. Same bound as before; if it expires without a tick row the check below
+  // goes RED on its own precondition instead of mis-blaming the resume.
   const killStore = path.join(killDir, 'heart.db');
   let firedBeforeKill = 0;
-  for (let i = 0; i < 60 && firedBeforeKill === 0; i += 1) {
+  let tickBeforeKill = 0;
+  for (let i = 0; i < 60 && !(firedBeforeKill > 0 && tickBeforeKill >= 1); i += 1) {
     spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},250)'], { timeout: 5000 });
     if (fs.existsSync(killStore)) {
       const peek = spawnSync(process.execPath, ['-e', `
         const { openHeartStore } = require(${JSON.stringify(path.join(IGNITE_SRC, 'server', 'heart', 'heart-store'))});
         const s = openHeartStore({ dbPath: ${JSON.stringify(killStore)} });
-        process.stdout.write(String(s.dump().jobs_log.length)); s.close();
+        const d = s.dump();
+        process.stdout.write(JSON.stringify({
+          fired: d.jobs_log.length,
+          tick: d.ticks.length ? d.ticks[d.ticks.length - 1].tick : 0,
+        })); s.close();
       `], { encoding: 'utf8', timeout: 20000 });
-      firedBeforeKill = Number(peek.stdout) || 0;
+      try {
+        const seen = JSON.parse(peek.stdout);
+        firedBeforeKill = seen.fired;
+        tickBeforeKill = seen.tick;
+      } catch { /* store mid-write or not yet readable — the loop retries */ }
     }
   }
 
   try { process.kill(-victim.pid, 'SIGKILL'); } catch { victim.kill('SIGKILL'); }
-  const killedCleanly = await new Promise((resolve) => victim.on('exit', (code, sig) => resolve(sig === 'SIGKILL' || code !== 0)));
+  const { code: killCode, signal: killSignal } = await awaitExit(victim);
+  const killedCleanly = killSignal === 'SIGKILL' || killCode !== 0;
   await new Promise((r) => setTimeout(r, 300));
 
-  check('C3c the attached run was KILLED mid-run, with work already fired',
-    killedCleanly && firedBeforeKill > 0,
-    `${firedBeforeKill} execution row(s) existed when SIGKILL landed`);
+  check('C3c the attached run was KILLED mid-run, with work already fired AND a tick committed',
+    killedCleanly && firedBeforeKill > 0 && tickBeforeKill >= 1,
+    `${firedBeforeKill} execution row(s) and last committed tick ${tickBeforeKill} when SIGKILL landed`);
 
   const afterKill = runCli(['run', killDir, '--profile', 'probe-seat', '--config', configPath, '--max-ticks', '1', '--json']);
   let resumeJson = null;
