@@ -32,14 +32,10 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync, execFileSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const { createEngine } = require('./index');
 const substrate = require('./substrate');
 const { loadConfig } = require('../server/spawn/config');
-// The launch trace's own reader/writer — quote-aware and HEADER-DRIVEN (seat-identity/csv.js), the
-// same pair the daemon's at-dispatch row goes through. Not the minimal `readCsv` below: a
-// `sessions.csv` carries quoted fields, and a positional parse of it is wrong today.
-const { readCsv: readTraceCsv, appendRow: appendTraceRow } = require('../server/seat-identity/csv');
 // The lane-independent SEEDING machinery — moved out of this file, unchanged in behaviour, because
 // none of it was ever a property of the terminal a run is attached to (see seeding.js's header).
 const {
@@ -317,13 +313,11 @@ function spawnForegroundInTerminal(argv, cwd) {
 // non-zero exactly when the run has a real terminal, which is the second, human-readable mark of a
 // foreground row: the daemon's at-dispatch row always writes it empty.
 //
-// THE HEADER IS NOT SPELLED HERE. `coord.py` owns this schema (`SESSIONS_COLS`, task 7.37) and is
-// ASKED for it, at run time, only on the path where the append has ALREADY refused for want of one —
-// exactly the contract `spawn.js`'s `appendRowEnsuringHeader` follows. (Two callers of one schema
-// owner, not two schemas; that helper is not exported, and unifying them is a flagged loose end.)
-const SESSIONS_HEADER_ARGV = ['-c',
-  'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))'];
-
+// THE HEADER IS NOT SPELLED HERE, AND NEITHER IS THE ACT THAT ASKS FOR IT (7.628). `coord.py` owns
+// this schema (`SESSIONS_COLS`, task 7.37) and is asked for it at run time, only where the append
+// has ALREADY refused for want of one — through `spawn.js`'s `appendRowEnsuringHeader`, now IMPORTED
+// rather than copied. The copy that stood here duplicated the MECHANISM, never the schema, and only
+// because `spawn.js` was another session's dirty file at that build's moment.
 function appendForegroundSessionRow({ goalFolder, seat, sessionId, harness, workdir, logger = null }) {
   const csvPath = path.join(goalFolder, SESSIONS_CSV);
   const values = {
@@ -340,21 +334,17 @@ function appendForegroundSessionRow({ goalFolder, seat, sessionId, harness, work
     if (logger) logger({ level: 'warn', message, seat, sessionsCsv: csvPath, sessionId, ...extra });
   };
   try {
-    let written = appendTraceRow(csvPath, values);
+    // The lazy require is the shape this file already uses for every `server/spawn/` reach
+    // (`composeArgv`, `generateSessionId` below): the daemon subtree is relocatable, so nothing
+    // here holds a LOAD-time dependency on it.
+    const { appendRowEnsuringHeader } = require('../server/spawn/spawn');
+    const written = appendRowEnsuringHeader(csvPath, values,
+      (level, message, extra) => {
+        if (logger) logger({ level, message, seat, sessionsCsv: csvPath, sessionId, ...extra });
+      });
     if (!written.appended) {
-      // Only the missing-header refusal is answered, and structurally: a file that already has a
-      // header is not ours to touch, whatever the refusal said.
-      const before = readTraceCsv(csvPath);
-      if (before.exists && before.header.length > 0) {
-        warn('foreground session row NOT recorded — this seat will be UNATTRIBUTABLE', { reason: written.reason });
-        return written;
-      }
-      const kit = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '..'), 'team-kit');
-      const header = execFileSync('python3', [...SESSIONS_HEADER_ARGV, kit], { encoding: 'utf8', timeout: 30000 }).trim();
-      if (!header.includes(',')) throw new Error(`the schema owner returned no header: ${JSON.stringify(header)}`);
-      fs.writeFileSync(csvPath, `${header}\n`, 'utf8');
-      if (logger) logger({ level: 'info', message: 'session trace had no header; created it from coord.py SESSIONS_COLS', sessionsCsv: csvPath, header });
-      written = appendTraceRow(csvPath, values);
+      warn('foreground session row NOT recorded — this seat will be UNATTRIBUTABLE', { reason: written.reason });
+      return written;
     }
     if (written.appended && written.dropped.length && logger) {
       logger({ level: 'warn', message: 'session log lacks columns; they were dropped, not invented (task 7.37 owns the schema)', seat, sessionsCsv: csvPath, dropped: written.dropped });
@@ -894,12 +884,22 @@ async function executeAttached({
     for (;;) {
       // THE FOREGROUND CARRIER, ahead of the enqueue pass and BLOCKING: while this seat's session
       // owns the terminal nothing else in this run advances, which is the design's own sentence.
-      // One per pass — the terminal is serial, and the next pass picks up the next held seat.
+      // The terminal is SERIAL, but serial is not PACED (7.619): carrying one seat per pass cost
+      // (N-1) full tick intervals of blank terminal between N seats ready in the same wave — 10s of
+      // dead screen at the default cadence. The carriage now DRAINS the wave. The enqueue pass, the
+      // tick and the exit decision below still run exactly once per pass, so nothing else moves.
+      //
       // Re-read each pass: our own tick publishes to it, and the other lane may be writing to it
       // while we run. One small file read per pass, against a decision that must not be stale.
       let view = recordView(engine.heartStore, goalFolder, { relaunch: grants });
-      const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants, view);
-      if (held) {
+      // The one hazard the drain creates: a seat `nextHeldReadySeat` somehow returns twice was
+      // merely re-fired an interval later before, and would be a HOT LOOP now. Carried once per
+      // pass — a pathological repeat falls back to the old pacing instead of spinning the terminal.
+      const carriedThisPass = new Set();
+      for (;;) {
+        const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants, view);
+        if (!held || carriedThisPass.has(held.seat)) break;
+        carriedThisPass.add(held.seat);
         grants.delete(held.seat);            // the grant is SPENT at the launch, never re-read
         foreground.push(runForegroundSeat({
           heartStore: engine.heartStore,
@@ -917,7 +917,8 @@ async function executeAttached({
         // and the enqueue pass below would decide this seat's dependents against a picture from
         // before it ran — measured: a carried `block-and-queue` seat published `blocked`, the stale
         // view still had no row for it, and the store's own `done` turn let its dependent start
-        // anyway. One extra small read, on carriage passes only.
+        // anyway. One extra small read, on carriage passes only. It is ALSO what makes the next
+        // turn of this loop correct: the seat this one just unblocked is visible to it.
         view = recordView(engine.heartStore, goalFolder, { relaunch: grants });
       }
 
