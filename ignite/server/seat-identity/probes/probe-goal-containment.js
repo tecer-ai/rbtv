@@ -27,9 +27,21 @@ function check(name, pass, detail) {
   out(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
 }
 
-// The live workspace, for the CONTROL arm only (read-only).
-const LIVE_WS = process.env.RBTV_PROBE_WORKSPACE || path.resolve(__dirname, '..', '..', '..', '..', '..', '..', '..');
-const BEFORE = process.env.RBTV_PROBE_BEFORE || '';
+// The workspace whose goal set the CONTROL arm re-resolves (read-only): the env override, else
+// the nearest ancestor that actually carries `.rbtv/goals`. Null when there is none — the suite
+// runner supplies no env, so a probe that depended on one was really depending on how it was
+// launched, which is what made this file red under `probe-suite.js`.
+function findWorkspace(from) {
+  let dir = from;
+  for (;;) {
+    if (fs.existsSync(path.join(dir, '.rbtv', 'goals'))) return dir;
+    const up = path.dirname(dir);
+    if (up === dir) return null;
+    dir = up;
+  }
+}
+
+const LIVE_WS = process.env.RBTV_PROBE_WORKSPACE || findWorkspace(__dirname);
 
 function refusalOf(goal, workspaceRoot) {
   try {
@@ -82,22 +94,26 @@ function main() {
     !good.threw && good.value === path.join(goalsRoot, 'legit-goal'),
     good.threw ? good.err.message : good.value);
 
-  // ── ARM 3 — CONTROL: every goal that exists under the LIVE .rbtv/goals/ today resolves to a
-  // BYTE-IDENTICAL path. `before` was captured from the pre-guard function at HEAD.
-  if (BEFORE && fs.existsSync(BEFORE)) {
-    const before = fs.readFileSync(BEFORE, 'utf8').trimEnd().split('\n');
-    const liveRoot = path.join(LIVE_WS, '.rbtv', 'goals');
-    const names = fs.readdirSync(liveRoot, { withFileTypes: true })
-      .filter((e) => e.isDirectory()).map((e) => e.name).sort();
-    const after = names.map((g) => `${g} -> ${goalDirOf({ workspaceRoot: LIVE_WS, goal: g })}`);
-    const same = before.length === after.length && before.every((l, i) => l === after[i]);
-    check(`CONTROL: all ${names.length} live goals resolve byte-identically after the guard`,
-      same, same ? `${names.length} goals, diff empty` : `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`);
-    out('--- live-set resolution (after) ---');
-    after.forEach((l) => out('    ' + l));
-  } else {
-    check('CONTROL: live-set before/after diff', false, `no before-capture at ${BEFORE}`);
-  }
+  // ── ARM 3 — CONTROL: every goal that really exists resolves to a BYTE-IDENTICAL path.
+  //
+  // The expectation is the UNGUARDED join — literally the function's pre-guard body — so the arm
+  // carries its own baseline instead of a captured file: nothing to pass in, nothing to go stale,
+  // and it still fails the moment the guard alters a legitimate resolution. It runs over the LIVE
+  // goals root when one is resolvable and over this probe's own scratch root otherwise, so it is
+  // never skipped and never vacuous. (The scratch root's `symlinked-escapee` is a symlink, so
+  // `isDirectory()` excludes it here — it is the hostile arm's subject, not a legitimate goal.)
+  const controlWs = LIVE_WS || ws;
+  const controlRoot = path.join(controlWs, '.rbtv', 'goals');
+  const names = fs.readdirSync(controlRoot, { withFileTypes: true })
+    .filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  const drifted = names.filter((g) => goalDirOf({ workspaceRoot: controlWs, goal: g })
+    !== path.join(controlRoot, g));
+  check(`CONTROL: all ${names.length} goals under the ${LIVE_WS ? 'LIVE' : 'scratch'} goals root `
+    + 'resolve byte-identically to the unguarded join',
+    names.length > 0 && drifted.length === 0,
+    drifted.length ? `DRIFTED: ${JSON.stringify(drifted)}` : `${names.length} goals, diff empty (${controlRoot})`);
+  out('--- control-set resolution ---');
+  names.forEach((g) => out(`    ${g} -> ${goalDirOf({ workspaceRoot: controlWs, goal: g })}`));
 
   // ── ARM 4 — BOTH CALL SITES, not just the function. ───────────────────────────────────────
   // (a) seat-folder.js's own use, inside resolveSeatHome.
