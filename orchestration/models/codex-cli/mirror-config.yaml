@@ -6,7 +6,7 @@
 # root; this mirrors the workspace's CLAUDE.md body into it so the codex worker
 # sees the same instructions the Claude conductor does.
 # Config schema: ../mirror/mirror-config.md
-# Run: python orchestration/models/mirror/mirror.py --config orchestration/models/codex-cli/mirror-config.yaml --target <workspace>
+# (the former `# Run: … mirror.py …` line is gone — every mirror.py verb REFUSES; see the RETIRED header above)
 # (the manifest's guidance_file.mirror_entry: codex-mirror resolves to exactly this).
 # Scope note: this engine emits ONLY the AGENTS.md guidance mirror. The vault's own
 # .user/runtime/scripts/codex-mirror.py additionally renders .agents/ skills+rules and

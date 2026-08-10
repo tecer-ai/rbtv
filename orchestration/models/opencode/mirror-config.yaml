@@ -7,7 +7,7 @@
 # the workspace's CLAUDE.md body into it so the opencode worker sees the same instructions
 # the Claude conductor does.
 # Config schema: ../mirror/mirror-config.md
-# Run: python orchestration/models/mirror/mirror.py --config orchestration/models/opencode/mirror-config.yaml --target <workspace-or-worktree>
+# (the former `# Run: … mirror.py …` line is gone — every mirror.py verb REFUSES; see the RETIRED header above)
 # (the manifest's guidance_file.mirror_entry: opencode-mirror resolves to exactly this).
 # Worktree note: opencode dispatches are worktree-mandatory and a fresh vault worktree carries
 # NO AGENTS.md (gitignored) — the dispatch pre-flight runs this mirror with --target <worktree>

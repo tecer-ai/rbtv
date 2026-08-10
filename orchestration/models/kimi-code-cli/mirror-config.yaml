@@ -6,7 +6,7 @@
 # root; this mirrors the workspace's CLAUDE.md body into it so the kimi worker
 # sees the same instructions the Claude conductor does.
 # Config schema: ../mirror/mirror-config.md
-# Run: python orchestration/models/mirror/mirror.py --config orchestration/models/kimi-code-cli/mirror-config.yaml --target <workspace>
+# (the former `# Run: … mirror.py …` line is gone — every mirror.py verb REFUSES; see the RETIRED header above)
 # (the manifest's guidance_file.mirror_entry: kimi-mirror resolves to exactly this).
 
 model: kimi-code-cli                       # package id — matches models/kimi-code-cli/ and the manifest's `model`
