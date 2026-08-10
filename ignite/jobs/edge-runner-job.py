@@ -80,8 +80,9 @@ byte-identical before and after a full pass.
 `done` IS THE ONLY VALUE THAT ADVANCES AN EDGE
 ----------------------------------------------
 The enum is closed and it is coord's, not this file's: `RECORD_DISPOSITION_WRITER =
-{done, renew, revive, exited}` (coord.py, validated at write time by `validate_disposition`, which
-raises and never normalizes). `renew`, `revive` and `exited` each mark NOT-done here, and so does
+{done, renew, revive, exited, incomplete}` (coord.py, validated at write time by
+`validate_disposition`, which raises and never normalizes). `renew`, `revive`, `exited` and
+`incomplete` each mark NOT-done here, and so does
 an empty cell — coord.py's own comment on the column reads "AN EMPTY CELL IS `unknown`, NEVER
 `done`". An implementation that read `exited` as "probably done" would reintroduce the silent stall
 that value exists to make visible.
@@ -3559,8 +3560,8 @@ def _write_arm(pkg, payload):
 
 
 def check_fastpath_only_done_advances(coord, pkg):
-    """CRITERION 1 — a clean `done` check-out enqueues; `renew`, `revive` and `exited` enqueue
-    NOTHING.
+    """CRITERION 1 — a clean `done` check-out enqueues; every other value coord admits
+    (`FASTPATH_DOES_NOT_ADVANCE`) enqueues NOTHING.
 
     THE DISCRIMINATING ARM of this whole stage, and the one a wrong reading makes expensive: a hook
     that fired on every disposition would advance DEAD seats, and it would do it while the run
