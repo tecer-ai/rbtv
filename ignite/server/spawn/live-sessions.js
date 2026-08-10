@@ -37,10 +37,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn: childSpawn } = require('node:child_process');
 
-const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot } = require('./config');
+const { loadConfig, resolveWorkdir, resolveWorkspaceRoot } = require('./config');
 const { harnessOf, materializeHarnessConfig, planCagedSettings, materializeCagedSettings } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
-const { composeArgv, composeCageFor, exitFilePath } = require('./spawn');
+// `resolveSandbox`/`ensureLogPath` are IMPORTED (7.637). Copies of both stood here only because
+// `spawn.js` was another session's dirty file at build time. A live session's cage and its
+// transcript mode ARE the dispatch door's — now inexpressibly so, rather than by discipline.
+const { composeArgv, composeCageFor, exitFilePath, resolveSandbox, ensureLogPath } = require('./spawn');
 const { generateSessionId, selectCarrier, buildSystemdRunArgs, ensureDir } = require('./carrier');
 const { parseSeatPath, parseServiceSeatPath } = require('../seat-identity/seat-folder');
 const { appendRow } = require('../seat-identity/csv');
@@ -156,9 +159,7 @@ function createLiveSessions({
     // below is this PROCESS's identity (log file, unit name, sessions.csv row) and is deliberately
     // a different value — one conversation can burn several live processes over its life.
     const sessionId = generateSessionId();
-    const logPath = path.join(dataRoot, 'logs', `${sessionId}.log`);
-    ensureDir(path.dirname(logPath));
-    fs.appendFileSync(logPath, '', { mode: 0o600 });
+    const logPath = ensureLogPath(dataRoot, sessionId);
 
     // `prompt` is '' and the returned `stdinFile` is DISCARDED: a live session's prompt does not
     // ride a file, it rides the pipe. composeArgv still writes the (empty) prompt file because the
@@ -167,7 +168,7 @@ function createLiveSessions({
     const composed = composeArgv(profile, 'headless', sessionId, resolvedWorkdir, '', dataRoot, sessionRef);
     const argv = [...composed.argv, ...LIVE_INPUT_FLAGS];
 
-    const resolvedSandbox = resolveSandboxFor(profile, resolvedWorkdir);
+    const resolvedSandbox = resolveSandbox(profile.sandbox, resolvedWorkdir);
     const editablePaths = (() => {
       const rwp = resolvedSandbox && resolvedSandbox.ReadWritePaths;
       if (!rwp) return [];
@@ -246,22 +247,6 @@ function createLiveSessions({
 
     recordSitting(s);
     return s;
-  }
-
-  // Local copy of the dispatch door's sandbox slot resolution. spawn.js does not export it and
-  // is under concurrent edit by another session, so it is NOT refactored here. ~10 lines, one
-  // behaviour, and DISCLOSED as a duplicate rather than left to be discovered.
-  function resolveSandboxFor(profile, workdir) {
-    const sandbox = profile.sandbox;
-    if (!sandbox) return sandbox;
-    const values = { workdir };
-    const resolved = { ...sandbox };
-    for (const [key, value] of Object.entries(sandbox)) {
-      if (key === 'SeatBinds') continue;
-      if (typeof value === 'string') resolved[key] = resolveTemplateSlots([value], values)[0];
-      else if (Array.isArray(value) && value.every((v) => typeof v === 'string')) resolved[key] = resolveTemplateSlots(value, values);
-    }
-    return resolved;
   }
 
   // ONE sessions.csv row per live PROCESS (design §1 Accounting), by the SAME writer the dispatch

@@ -890,7 +890,11 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
     rejectFlagInjection(workdir, 'workdir');
 
-    if (!config.profiles[profileName]) {
+    // An OWN-property test, never a bare lookup: `config.profiles` is a plain object parsed from
+    // YAML, so a request naming an INHERITED key (`constructor`, `toString`, `valueOf`) passes a
+    // truthiness guard and hands the next line a FUNCTION where a profile object belongs. Same
+    // shape the C5 sweep applied to ticker.js and heart-store.js's catalogue lookups (task 7.542).
+    if (!Object.hasOwn(config.profiles || {}, profileName)) {
       throw new SpawnError(E_UNKNOWN_PROFILE, `unknown launch profile: ${profileName}`, { profile: profileName });
     }
     const profile = config.profiles[profileName];
@@ -1135,7 +1139,9 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   // because composition is the half that is checkable off a live room — the probe uses it, and so
   // does any caller that wants to see the exact argv before it runs.
   async function spawnSeat(execId, profileName, { room, seatName, seatDir, dryRun = false, enqueuedBy = 'unknown', readLease = undefined } = {}) {
-    if (!config.profiles || !config.profiles[profileName]) {
+    // An own-property test, for the reason given at the request-validation door above (task
+    // 7.542): a bare lookup admits every inherited key of `Object.prototype` as a profile name.
+    if (!Object.hasOwn(config.profiles || {}, profileName)) {
       throw new SpawnError(E_UNKNOWN_PROFILE, `unknown profile: ${profileName}`, { profile: profileName });
     }
     const profile = config.profiles[profileName];
@@ -1548,7 +1554,21 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 // composeCageFor is exported for the cage probes ONLY — they drive the real resolvers off a real
 // seat folder on disk, which is the only way a grant-class check tests the integration rather
 // than a hand-typed grant list. Nothing in the daemon calls it from outside this module.
-module.exports = { createSpawnManager, validateSpawnRequest, exitFilePath, ensureExitFile, composeCageFor, composeArgv };
+// The last three are exported to DELETE copies, not to grow an API: `resolveSandbox`/`ensureLogPath`
+// were duplicated in `live-sessions.js` and `appendRowEnsuringHeader` in `engine/attached-execution.js`,
+// each only because this file was another session's dirty file at that build's moment (7.637, 7.628).
+// The schema still has one owner (`coord.py SESSIONS_COLS`); what unifies here is the mechanism.
+module.exports = {
+  createSpawnManager,
+  validateSpawnRequest,
+  exitFilePath,
+  ensureExitFile,
+  composeCageFor,
+  composeArgv,
+  resolveSandbox,
+  ensureLogPath,
+  appendRowEnsuringHeader,
+};
 
 function validateSpawnRequest(req) {
   if (req === null || typeof req !== 'object' || Array.isArray(req)) {
