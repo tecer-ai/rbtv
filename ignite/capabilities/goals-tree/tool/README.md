@@ -105,8 +105,11 @@ seeds the goals assigned to it through `engine.seedGoal`; the console lane is `r
   console, or the reverse. A goal a console runner is attached to right now is never seeded against
   (the run lock is READ, never taken). Measured end to end:
   `ignite/engine/probes/probe-daemon-lane-watch.js`.
-- The marker's TERM is being minted registry-side; the filename is descriptive and this build coined
-  no noun for it.
+- The marker's TERM is **lane assignment**, values `daemon | console` — minted registry-side
+  2026-08-10 (`system-definition/decisions.md#d-lane-assignment`, `concepts/lane-assignment.md`);
+  this build coined no noun and the filename stays descriptive. `console` (who SHOULD run the goal)
+  and `attached` (how an execution-record row RAN) are the same lane's two readings — ruled, and
+  stated in that concept file alone.
 
 ### What `lint` checks
 

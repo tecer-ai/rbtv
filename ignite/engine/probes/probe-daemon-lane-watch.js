@@ -26,7 +26,7 @@
 //   · The seats' harness is `sleep 1` under the setsid carrier (no systemd user manager in a
 //     probe), the same substitution `probe-cross-lane-resume.js` makes.
 //
-// SIX MUTATION ARMS (L8) run the real pass against a single-string mutation of `lane-watch.js`,
+// SEVEN MUTATION ARMS (L8) run the real pass against a single-string mutation of `lane-watch.js`,
 // compiled in memory (no file is written into the source tree), and REQUIRE it to go red:
 //   · the assignment is ignored     -> the daemon seeds a CONSOLE goal
 //   · the run lock is ignored       -> the daemon seeds a goal a console runner is attached to
@@ -34,6 +34,7 @@
 //   · the unknown-profile guard off -> an unrunnable goal leaves ORPHAN job rows in the store
 //   · the no-profile branch silent  -> the only line saying why a goal never starts disappears
 //   · the human-interactive report off -> the seat is dispatched headless with nothing said
+//   · the seat's fallback ARM not read -> the report degrades to the pre-7.626 one
 // Each anchor is asserted present before it is replaced, so a mutation that silently matched
 // nothing can never pass for a mutation that was survived.
 
@@ -133,10 +134,20 @@ const badGoal = makeGoal('bad-profile-goal');   // assigned daemon with a profil
 const noProfGoal = makeGoal('no-profile-goal'); // assigned daemon by hand, naming no profile at all
 const hiGoal = makeGoal('human-interactive-goal');
 // The F1 fixture: an INTERACTIVE goal whose first seat declares `human-interactive:`. In the
-// attached lane that seat is carried in the terminal; in this one there is no terminal at all.
+// attached lane that seat is carried in the terminal; in this one there is no terminal at all —
+// and since 7.626 that is fine, because the goal's channel is the owner surface and the seat's
+// declared `fallback:` is what executes there.
 fs.writeFileSync(path.join(hiGoal, 'execution-mode'), 'interactive\n');
 fs.writeFileSync(path.join(hiGoal, 'seats', 'alpha', 'seat.md'),
   '---\nseat: alpha\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n');
+// THE 7.626 RESIDUAL: the same shape with NO `fallback:` — a `component-lint --check
+// interactive-fallback` violation that reached dispatch. It is the ONE case the pass must still
+// be loud about, and it needs its own goal because the arm-declared case must stay quiet in the
+// same run for the pair to discriminate.
+const armlessGoal = makeGoal('armless-goal');
+fs.writeFileSync(path.join(armlessGoal, 'execution-mode'), 'interactive\n');
+fs.writeFileSync(path.join(armlessGoal, 'seats', 'alpha', 'seat.md'),
+  '---\nseat: alpha\nhuman-interactive: yes\n---\n\nbody\n');
 
 const GOAL_CLI = path.join(IGNITE_SRC, 'capabilities', 'goals-tree', 'tool', 'goal_cli.py');
 // The CLI is the WRITER of the marker file, and it must work with no daemon anywhere — which is
@@ -209,6 +220,7 @@ async function main() {
   laneCli(['locked-goal', '--set', 'daemon', '--profile', 'probe-lane']);
   laneCli(['held-goal', '--set', 'daemon', '--profile', 'probe-lane']);
   laneCli(['human-interactive-goal', '--set', 'daemon', '--profile', 'probe-lane']);
+  laneCli(['armless-goal', '--set', 'daemon', '--profile', 'probe-lane']);
   laneCli(['console-goal', '--set', 'console']);
   // The two BROKEN markers only reachable by hand, since the door refuses both spellings.
   fs.writeFileSync(lanePath(badGoal), 'daemon probe-laneX\n');
@@ -279,6 +291,12 @@ async function main() {
     const engine = createEngine({
       dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
       logger: collectingLogger(log1),
+      // ⚑ THE LIVE-SESSION CAP IS RAISED FOR THIS FIXTURE, and it has to be. The default is 2, so
+      // one tick dispatches the first two queued seats and leaves the rest — which made L6's
+      // "the daemon REALLY dispatched alpha" a claim about QUEUE ORDER: adding one more goal to the
+      // tree (7.626's armless fixture) starved `switch-goal` and reddened four unrelated arms. The
+      // cap is not what any arm here measures.
+      tickerConfig: { max_live_agent_sessions: 16 },
     });
     try {
       pass1 = laneWatch.runLaneWatch({ goalsRoot, engine, logger: collectingLogger(log1) });
@@ -365,24 +383,37 @@ async function main() {
     fs.writeFileSync(lanePath(badGoal), 'daemon probe-laneX\n');
   }
 
-  // ── L5d · THE DIVERGENCE THE PASS STEPS OVER IS REPORTED (review F1) ────────────────────────
+  // ── L5d · THE HUMAN-INTERACTIVE SEAT IS DISPATCHED, AND ITS ARM IS REPORTED (7.626) ──────────
   //
-  // The BEHAVIOUR is the owner's ruled default and is deliberately unchanged: the daemon dispatches
-  // a human-interactive seat headless, where the attached lane would carry it in a terminal. What
-  // this arm requires is that it stops being SILENT — this is the AFK default path, because a
-  // channel-master goal is assigned `daemon` at birth.
+  // The BEHAVIOUR is the owner's ruled default and is unchanged: the daemon dispatches the seat
+  // headless, where the attached lane carries it in a terminal. What 7.626 changed is that the
+  // seat's declared `fallback:` now EXECUTES — at the ferry, on the goal channel — so the pass no
+  // longer warns about a step-over. It reports WHICH ARM each dispatched seat runs under (the one
+  // thing an operator cannot derive from the seat list), and warns only for the seat that declared
+  // none.
   const hiPickup = pass1.adopted.find((a) => a.goal === 'human-interactive-goal');
-  check('L5d the daemon DOES dispatch the human-interactive seat — the existing behaviour, unchanged '
-    + '(7.626 owns the fix, and this build did not take it)',
+  const armlessPickup = pass1.adopted.find((a) => a.goal === 'armless-goal');
+  check('L5d the daemon DOES dispatch the human-interactive seat — unchanged, and ruled: there is no '
+    + 'terminal here and #d-s19 says there need not be one (the goal channel is the owner surface)',
     Boolean(hiPickup) && hiPickup.enqueued.includes('alpha'),
     hiPickup ? JSON.stringify(hiPickup.enqueued) : 'goal not adopted');
-  check('L5d …and it is REPORTED — on the pass\'s own return AND on a warn line naming 7.626, so the '
-    + 'lane that dispatches silently no longer looks equivalent to the lane that refuses loudly',
-    Boolean(hiPickup) && Array.isArray(hiPickup.humanInteractiveDispatched)
-      && hiPickup.humanInteractiveDispatched.includes('alpha')
-      && log1.some((m) => m.goal === 'human-interactive-goal' && m.level === 'warn'
-        && /HUMAN-INTERACTIVE/.test(m.message || '') && /7\.626/.test(m.message || '')),
+  check('L5d …and its declared ARM rides the pass\'s own return — `alpha: block-and-queue`, read '
+    + 'through the ferry\'s OWN frontmatter reader, never a second parser',
+    Boolean(hiPickup) && hiPickup.humanInteractiveDispatched
+      && hiPickup.humanInteractiveDispatched.alpha === 'block-and-queue',
+    hiPickup ? JSON.stringify(hiPickup.humanInteractiveDispatched || null) : 'goal not adopted');
+  check('L5d …and a DECLARED arm is QUIET: no warn for that goal, because nothing is being stepped '
+    + 'over any more — the arm executes at the ferry',
+    !log1.some((m) => m.goal === 'human-interactive-goal' && m.level === 'warn'),
     JSON.stringify(log1.filter((m) => m.goal === 'human-interactive-goal').map((m) => m.level)));
+  check('L5d THE RESIDUAL, and the PAIR that makes the quiet above meaningful: a flagged seat with '
+    + 'NO `fallback:` IS warned about, named to `component-lint`, in the SAME pass',
+    Boolean(armlessPickup) && armlessPickup.enqueued.includes('alpha')
+      && armlessPickup.humanInteractiveDispatched
+      && armlessPickup.humanInteractiveDispatched.alpha === null
+      && log1.some((m) => m.goal === 'armless-goal' && m.level === 'warn'
+        && /NO declared `fallback:`/.test(m.message || '') && /component-lint/.test(m.message || '')),
+    JSON.stringify(log1.filter((m) => m.goal === 'armless-goal').map((m) => `${m.level}`)));
   check('L5d CONTROL: an AUTONOMOUS goal\'s seats are never reported as human-interactive — the '
     + 'report tracks the two gates, not the mere presence of the pass',
     !Object.hasOwn(pass1.adopted.find((a) => a.goal === 'switch-goal') || {}, 'humanInteractiveDispatched'));
@@ -570,11 +601,12 @@ async function main() {
       `lines for that goal: ${log.filter((m) => m.goal === 'no-profile-goal').length}`);
   }
 
-  // M6 · THE HUMAN-INTERACTIVE REPORT REMOVED — the silence review F1 named.
+  // M6 · THE HUMAN-INTERACTIVE REPORT REMOVED — the silence review F1 named, still reproduced
+  // after 7.626 turned the report from a warn into an arm map.
   {
     const mutant = mutantWatch(
-      '      humanInteractive = pickup.enqueued.filter((seat) => isHeld(seat));',
-      '      humanInteractive = [];');
+      '        if (!isHeld(seat)) continue;',
+      '        if (true) continue;');
     const mutRoot = path.join(tmp, 'm6');
     fs.cpSync(goalsRoot, mutRoot, { recursive: true });
     // heldSeatPredicate resolves the workspace root from the goal folder's own depth, so the copy
@@ -590,8 +622,55 @@ async function main() {
     check('L8 M6 the human-interactive report REMOVED -> the daemon dispatches the seat with nothing '
       + 'said (L5d RED) — the silence, reproduced',
       Boolean(hi) && !hi.humanInteractiveDispatched
-        && !log.some((m) => m.goal === 'human-interactive-goal' && /HUMAN-INTERACTIVE/.test(m.message || '')),
+        && !log.some((m) => m.goal === 'armless-goal' && m.level === 'warn'),
       hi ? JSON.stringify(hi.humanInteractiveDispatched || null) : 'goal not adopted');
+  }
+
+  // M7 · THE ARM IS NOT READ (7.626) — the report survives but every seat reads UNDECLARED, so the
+  // arm-bearing goal loses its arm AND acquires the residual warn that belongs to the other one.
+  // It is the discriminator between "the pass reports human-interactive seats" (M6's claim) and
+  // "the pass reports WHICH ARM each one runs under" (this row's).
+  {
+    const mutant = mutantWatch(
+      '        const arm = seatFallback(goalFolder, seat);',
+      '        const arm = null;');
+    // ⚑ ITS OWN FRESH GOAL, and that is not tidiness. By this point the real passes have DISPATCHED
+    // the shared fixture's human-interactive seat, so its execution-record row holds it `foreign` in
+    // any other store — the mutant would enqueue nothing, report nothing, and the arm would go green
+    // against a pass that never ran. A goal nothing has touched is the only honest input here.
+    const m7Goal = makeGoal('m7-arm-goal');
+    fs.writeFileSync(path.join(m7Goal, 'execution-mode'), 'interactive\n');
+    fs.writeFileSync(path.join(m7Goal, 'seats', 'alpha', 'seat.md'),
+      '---\nseat: alpha\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n');
+    laneCli(['m7-arm-goal', '--set', 'daemon', '--profile', 'probe-lane']);
+    const log = [];
+    const engine = createEngine({
+      dbPath: path.join(tmp, 'm7.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    let pass;
+    try { pass = mutant({ goalsRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
+    const hi = pass.adopted.find((a) => a.goal === 'm7-arm-goal');
+    check('L8 M7 the ARM is never read -> a `block-and-queue` seat reports NO arm and is warned about '
+      + 'as if it declared none (L5d RED) — the report degrades to the pre-7.626 one',
+      Boolean(hi) && hi.enqueued.includes('alpha')
+        && hi.humanInteractiveDispatched && hi.humanInteractiveDispatched.alpha === null
+        && log.some((m) => m.goal === 'm7-arm-goal' && m.level === 'warn'),
+      hi ? JSON.stringify(hi.humanInteractiveDispatched || null) : 'goal not adopted');
+    // THE CONTROL, in the same block: the UNMUTATED pass over the SAME fresh goal reports the arm
+    // and stays quiet — so the red above is the mutation and not the fixture.
+    const clog = [];
+    const cengine = createEngine({
+      dbPath: path.join(tmp, 'm7-control.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    let cpass;
+    try { cpass = laneWatch.runLaneWatch({ goalsRoot, engine: cengine, logger: collectingLogger(clog) }); } finally { cengine.close(); }
+    const chi = cpass.adopted.find((a) => a.goal === 'm7-arm-goal');
+    check('L8 M7 CONTROL: the UNMUTATED pass over that same untouched goal reports `block-and-queue` '
+      + 'and warns about nothing',
+      Boolean(chi) && chi.humanInteractiveDispatched
+        && chi.humanInteractiveDispatched.alpha === 'block-and-queue'
+        && !clog.some((m) => m.goal === 'm7-arm-goal' && m.level === 'warn'),
+      chi ? JSON.stringify(chi.humanInteractiveDispatched || null) : 'goal not adopted');
   }
 
   // M3 · THE WATCH IS NEVER CALLED — the state this whole build ends, mutated back into place. The

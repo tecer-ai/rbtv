@@ -481,17 +481,33 @@ async function main() {
       && anyReaders.includes('engine/attached-execution.js'),
     `server/: ${serverReaders.join(', ') || 'none'} · elsewhere: ${anyReaders.join(', ')}`);
 
+  // ⚑ THIS ARM WAS NEGATIVE AND IS NOW POSITIVE — the finding it recorded was RULED and BUILT
+  // (task 7.626, `#d-s19-fallback-rides-goal-channels`). It used to assert that the ferry did not
+  // know the word `fallback` at all, which was the measurement that filed the gap. Inverting it
+  // rather than deleting it keeps the same file answering the same question: WHERE does a held
+  // seat's declared arm get executed. The answer is: in this module, on the goal-channel surface.
   const ferry = fs.readFileSync(path.join(IGNITE_SRC, 'bridges', 'chat', 'bus-ferry.js'), 'utf8');
-  check('D3 the module that IMPLEMENTS the two gates does not know the word `fallback` at all',
-    !/fallback/.test(ferry),
-    'so the `fallback:` a held seat is REQUIRED to declare is consumed by no runtime reader');
-  finding('D3 a human-interactive seat dispatched by the DAEMON lane is spawned as an ordinary '
-    + 'detached child: nothing on that path reads the flag, so there is no point at which its '
-    + '`fallback:` (park | default-and-disclose | block-and-queue) could fire. The declaration is '
-    + 'validated at materialization (goal_cli.py) and read at exactly two places — the chat bridge\'s '
-    + 'message gate and, since B1, the attached engine\'s carrier. The daemon lane is not one of '
-    + 'them. Filed for a ruling: either the daemon lane REFUSES to dispatch a held seat of an '
-    + 'interactive goal, or something must execute the fallback it already requires them to declare.');
+  check('D3 the module that IMPLEMENTS the two gates now also EXECUTES the seat\'s declared `fallback:` '
+    + '— the reader, all three arms, and the `park` rung on the gate ladder live here (7.626)',
+    /function seatFallback\(/.test(ferry)
+      && ['park', 'default-and-disclose', 'block-and-queue'].every((a) => ferry.includes(`'${a}'`))
+      && /'fallback-park'/.test(ferry),
+    'the gap this arm used to measure is closed — see bus-ferry.js § THE SEAT\'S FALLBACK ARM');
+  const watch = fs.readFileSync(path.join(IGNITE_SRC, 'engine', 'lane-watch.js'), 'utf8');
+  check('D3 …and the DAEMON lane reads it through THAT module\'s reader — no second parser of a seat '
+    + 'descriptor anywhere on the path',
+    /require\('\.\.\/bridges\/chat\/bus-ferry'\)/.test(watch) && /seatFallback\(goalFolder, seat\)/.test(watch),
+    'lane-watch.js imports seatFallback from bus-ferry.js');
+  finding('D3 RESOLVED (7.626, ruling #d-s19-fallback-rides-goal-channels). The daemon lane still '
+    + 'dispatches a human-interactive seat as an ordinary detached child — nothing under server/ '
+    + 'reads the flag, and it does not need to: the ruled owner surface is the goal\'s Slack channel '
+    + 'with a thread per agent, so the arm executes AT THE FERRY. `park` parks the ask on the ferry\'s '
+    + 'own gate ladder (`gate: fallback-park`); `default-and-disclose` and `block-and-queue` are '
+    + 'delivered into the seat\'s thread and MARKED, so the owner can tell an FYI from a question; a '
+    + 'seat with no declared arm keeps its pre-7.626 behaviour and lane-watch warns, naming '
+    + '`component-lint --check interactive-fallback`. The bound left standing and disclosed: '
+    + '`block-and-queue` does not hold the DAG — the wait is the seat\'s own procedure plus the '
+    + 'existing revival leg (the owner\'s reply mints a session at the asking seat\'s home).');
 
   // ── D4 · THE CROSSOVER, RESUMED (owner ruling decisions.md#d-s23-single-execution-record-now)
   //

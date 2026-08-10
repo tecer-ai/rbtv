@@ -38,6 +38,11 @@
 // execution mode AND the sending seat declares itself human-interactive; otherwise it PARKS on
 // the bus and nothing is posted anywhere. Read the gate block below (§ THE TWO GATES) before
 // changing anything there — the reversal is an owner ruling with a named cost, not an oversight.
+//
+// ⚑ AND PAST BOTH GATES, THE SENDING SEAT'S OWN `fallback:` DECIDES WHAT THE ROW IS (7.626, ruling
+// `d-s19-fallback-rides-goal-channels`): `park` parks it on the same path the gates use, and the two
+// delivered arms are MARKED so the owner can tell "I am waiting on you" from "I have already
+// proceeded". See § THE SEAT'S FALLBACK ARM.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -201,6 +206,54 @@ function seatIsHumanInteractive(goalDir, seat) {
   return v === 'yes' || v === 'true';
 }
 
+// ── THE SEAT'S FALLBACK ARM (owner ruling `d-s19-fallback-rides-goal-channels`, task 7.626) ──
+//
+// A `human-interactive:` seat declares, in the SAME frontmatter, what it does when the owner is not
+// standing at a terminal — which on the DAEMON lane is always (planning-v4 D14 via D19; the field
+// is REQUIRED there, see `meta/planning/references/file-prompt.md` § `fallback`). Until this row the
+// field was validated at materialize time by `component-lint`'s `interactive-fallback` check and
+// read at run time by NOTHING: all three arms behaved identically — the seat was dispatched
+// headless and its ask was delivered if the gates opened, parked if they did not.
+//
+// THE ARMS DIFFER HERE, at the one surface the ruling names — the goal's channel, thread per agent:
+//
+//   park                  NOTHING is posted. The row takes the same park the gates take, with the
+//                         arm as the reason; the question waits durably on the bus, which is what
+//                         `park` means. The seat proceeds.
+//   default-and-disclose  posted into the agent's thread, MARKED as a disclosure — the agent has
+//                         proceeded on its stated default and is not waiting on a reply.
+//   block-and-queue       posted into the agent's thread, MARKED as blocking — the agent is waiting.
+//
+// ⚑ `block-and-queue`'s ANSWER LEG IS NOT BUILT HERE — IT ALREADY EXISTS, and that is the whole
+// reason this row is a marker and a gate rung rather than machinery. The owner's reply in the
+// agent's thread routes `kind: 'agent'` and mints a session HOMED AT THE ASKING SEAT
+// (`chat-bridge.js#routeOf` → `forward-path.js`). That revival IS "the seat proceeds".
+//
+// ⚑ ABSENT IS NOT A FOURTH ARM. A flagged seat with no `fallback:` keeps the behaviour it had —
+// delivered, unmarked — because acquiring a new behaviour through a LINT VIOLATION is exactly what
+// must not happen. `component-lint` refuses the combination at materialize time; `engine/lane-watch.js`
+// warns about it at run time. An unrecognised word reads the same way as absent, for the same reason
+// every other cannot-tell here does.
+//
+// ⚑ IT IS THE SEAT'S OWN DECLARATION, SO IT APPLIES ON EVERY LANE. This module has no lane and must
+// not grow one. A `park` seat carried in a terminal by the attached lane has its terminal; a bus row
+// it ALSO writes `to: owner` parks — which is what it declared its bus questions do. Disclosed
+// rather than special-cased.
+const FALLBACK_PARK = 'park';
+const FALLBACK_ARMS = ['park', 'default-and-disclose', 'block-and-queue'];
+
+// The declared arm, or null (absent, unreadable, or a word outside the vocabulary). FRONTMATTER
+// ONLY, `seatIsHumanInteractive`'s reason verbatim: a briefing line in the descriptor BODY that
+// quotes `fallback: park` must not be able to silence a seat nobody declared silent.
+function seatFallback(goalDir, seat) {
+  if (!isSafeName(seat)) return null;
+  let fm;
+  try { fm = fs.readFileSync(path.join(goalDir, 'seats', seat, 'seat.md'), 'utf8'); } catch { return null; }
+  const m = frontmatterOf(fm).match(/^fallback:[ \t]*(.+?)[ \t]*$/m);
+  const v = m ? m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '').toLowerCase() : '';
+  return FALLBACK_ARMS.includes(v) ? v : null;
+}
+
 // Parse a messages.md body into rows. DEFENSIVE by construction: the file is appended
 // by live agents, so the tail may be a half-written row.
 //
@@ -280,10 +333,22 @@ function chatThreadToken(body) {
 // in a goal channel the goal is the room — so the goal/run/`from` triple that a DM needs to be
 // legible is redundant there, while the agent's name is what the owner is looking for. Same
 // body, same truncation; only the header line differs.
-function formatMessage(row, { goalId, stamp, relPath, maxBodyChars = DEFAULT_MAX_BODY_CHARS, agentLead = false }) {
-  const header = agentLead
+//
+// ⚑ `arm` IS THE SENDING SEAT'S FALLBACK, RENDERED FOR THE OWNER (7.626). The two delivered arms
+// ask two different things of him — `block-and-queue` is waiting on his reply, `default-and-disclose`
+// has already proceeded and is telling him so — and a phone notification that does not say which is
+// a question he cannot triage. `park` never reaches here (it is a gate reason), and an undeclared
+// arm renders EXACTLY the pre-7.626 header, which is what keeps a lint violation behaviour-neutral.
+const FALLBACK_MARK = {
+  'block-and-queue': ' · ⏸ WAITING ON YOU',
+  'default-and-disclose': ' · ℹ proceeding on its default',
+};
+
+function formatMessage(row, { goalId, stamp, relPath, maxBodyChars = DEFAULT_MAX_BODY_CHARS, agentLead = false, arm = null }) {
+  const mark = FALLBACK_MARK[arm] || '';
+  const header = (agentLead
     ? `*🧵 ${row.from}* — ${goalId} · ${row.type} · #${row.id}`
-    : `*bus → you* — ${goalId}/${stamp} · from ${row.from} · ${row.type} · #${row.id}`;
+    : `*bus → you* — ${goalId}/${stamp} · from ${row.from} · ${row.type} · #${row.id}`) + mark;
   let body = row.body;
   if (body.length > maxBodyChars) {
     const cut = body.slice(0, maxBodyChars);
@@ -477,6 +542,13 @@ function createBusFerry({
           if (!humanInteractiveMemo.has(name)) humanInteractiveMemo.set(name, seatIsHumanInteractive(goalDir, name));
           return humanInteractiveMemo.get(name);
         };
+        // The FALLBACK ARM is a property of the sending seat too, memoized the same way and read
+        // only past both gates — a goal nobody can reach never opens a descriptor for it.
+        const fallbackMemo = new Map();
+        const fallbackArm = (name) => {
+          if (!fallbackMemo.has(name)) fallbackMemo.set(name, seatFallback(goalDir, name));
+          return fallbackMemo.get(name);
+        };
 
         // In id order, so one undeliverable row does not let a later one jump it.
         for (const row of rows) {
@@ -503,9 +575,16 @@ function createBusFerry({
           // THE TWO GATES — on AGENT-INITIATED contact only (read their header above). A row
           // carrying a chat-thread token is answering INTO the owner's own thread and is never
           // gated; every other row reaching here is `to: owner`, i.e. initiation.
+          //
+          // ⚑ THE THIRD RUNG IS THE SEAT'S OWN `fallback: park` (7.626) — a seat that CAN reach the
+          // owner and declared that its questions wait on the bus instead. It is a rung of this
+          // ladder and not a branch of its own precisely because the disposition is identical:
+          // nothing posted anywhere, cursor advanced, logged with its reason.
+          let arm = null;
           if (!chatThread) {
             const gate = executionMode !== INTERACTIVE_MODE ? 'execution-mode'
               : !isHumanInteractive(row.from) ? 'human-interactive'
+              : fallbackArm(row.from) === FALLBACK_PARK ? 'fallback-park'
               : null;
             if (gate) {
               cursors.set(key, row.id);
@@ -513,8 +592,9 @@ function createBusFerry({
               log('info', 'bus ferry PARKED a row — agent-initiated contact is gated, nothing posted anywhere', { key, msgId: row.id, from: row.from, gate, executionMode });
               continue;
             }
+            arm = fallbackArm(row.from);
           }
-          const text = formatMessage(row, { goalId, stamp, relPath, maxBodyChars });
+          const text = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, arm });
           let delivered = false;
           let error = null;
           let viaAgentThread = false;
@@ -534,7 +614,7 @@ function createBusFerry({
             // row. Any OTHER failure is a real post failure and takes the bounded-retry path
             // below — a rate limit must never be silently downgraded into a different surface.
             if (!chatThread && routeToAgentThread) {
-              const threadText = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true });
+              const threadText = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm });
               res = await routeToAgentThread({ goalId, agent: row.from, text: threadText });
               if (res && !res.delivered && res.reason === 'no-channel') res = null;
               // ⚑ `else if (res)`, never a bare `else`: an injected `routeToAgentThread` that
@@ -560,7 +640,7 @@ function createBusFerry({
             log('info', chatThread ? 'bus ferry routed a bus row to its named chat thread'
               : viaAgentThread ? 'bus ferry routed a bus row into the agent\'s own thread in the goal channel'
               : 'bus ferry delivered a bus row to the owner DM',
-                { key, msgId: row.id, from: row.from, chars: postedText.length, ...(chatThread ? { chatThread } : {}) });
+                { key, msgId: row.id, from: row.from, chars: postedText.length, arm, ...(chatThread ? { chatThread } : {}) });
             continue;
           }
           const akey = `${key}#${row.id}`;
@@ -641,4 +721,5 @@ module.exports = {
   createBusFerry, parseMessages, formatMessage, addressesOwner, goalBuses, executionStamp,
   OWNER_TOKEN, DEFAULT_MAX_BODY_CHARS,
   goalExecutionMode, seatIsHumanInteractive, isSafeName, INTERACTIVE_MODE, AUTONOMOUS_MODE,
+  seatFallback, FALLBACK_ARMS, FALLBACK_PARK, FALLBACK_MARK,
 };

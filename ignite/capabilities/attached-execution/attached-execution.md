@@ -431,23 +431,49 @@ and dispatches `alpha`, its own tick publishes `alpha=done`, the marker flips to
 `rbtv run` runs `bravo` and never touches `alpha` (`engine/probes/probe-daemon-lane-watch.js` L6,
 with six mutations red at L8).
 
-⚠ **THE DIVERGENCE THE PASS KNOWINGLY STEPS OVER — the two lanes do NOT treat a human-interactive
-seat the same way, and this trigger made the difference reachable by default.** A seat that declares
+⚠ **THE TWO LANES CARRY A HUMAN-INTERACTIVE SEAT DIFFERENTLY, AND BOTH ARE NOW WIRED** (task
+**7.626**, owner ruling `#d-s19-fallback-rides-goal-channels`). A seat that declares
 `human-interactive:` in an `interactive` goal is carried in the TERMINAL by the attached lane, which
-refuses rather than dispatches it when no terminal exists. Over here there is no terminal at all, so
-the daemon dispatches it as an ordinary detached child and its `fallback:` fires nowhere.
+refuses rather than dispatches it when no terminal exists. Over here there is no terminal — and the
+ruling is that there need not be one: **the goal's Slack channel with a thread per agent IS the
+owner surface**, so the daemon dispatches the seat exactly as before and its declared `fallback:`
+executes at the ferry.
 
-That behaviour is **unchanged and is the owner's ruled default** — the pass passes no `isHeld`
-predicate, because parking such seats forever would be a new behaviour wearing a bug fix's clothes,
-and migrate task **7.626** owns the actual fix. What this build DID change is that it is no longer
-silent: the pass logs the condition at `warn`, names 7.626, and carries
-`humanInteractiveDispatched` on its per-goal report. The reason that matters: a channel-master goal
-is assigned `daemon` at birth, so this is the AFK default path, and a lane that dispatched silently
-beside a lane that refuses loudly read as equivalent when it is not.
+| `fallback:` | what happens to the seat's `to: owner` bus row | the seat |
+|---|---|---|
+| `park` | **parked** — nothing posted anywhere, on the ferry's own gate ladder with the arm as the reason (`gate: fallback-park`); the question waits durably on the bus | proceeds |
+| `default-and-disclose` | delivered into the seat's thread, **marked** `ℹ proceeding on its default` | proceeds |
+| `block-and-queue` | delivered into the seat's thread, **marked** `⏸ WAITING ON YOU`; the owner's reply in that thread mints a session **at that seat's own home** — the existing leg, and what "the seat proceeds" is made of | waits |
+| absent | delivered **unmarked**, byte-identical to the pre-7.626 header | proceeds |
 
-⚠ **The marker's TERM is being minted registry-side; the filename is descriptive and this build
-coined no noun for it** (the same discipline `executions.csv` followed before
-`d-execution-record-name`).
+The reader is `bridges/chat/bus-ferry.js#seatFallback`, beside the two gate readers and scoped to the
+same frontmatter block — **no second parser of a seat descriptor** (7.626 criterion 2). The pass still
+passes **no `isHeld`**, and 7.626 confirmed that rather than changing it: holding such a seat would
+park it forever with nobody to release it, and would stop it ASKING, which every arm needs.
+`humanInteractiveDispatched` is now a **map seat → arm** on the per-goal report, and the `warn`
+survives for exactly one case — a flagged seat with **no** `fallback:`, a
+`component-lint --check interactive-fallback` violation that reached dispatch and whose asks
+therefore arrive unmarked.
+
+⚠ **A seat with NO `fallback:` and no flag is the D14 case and is untouched** — per
+`meta/planning/references/file-prompt.md` § `human-interactive`, *"a flagless seat can never reach
+the owner, by design"*, and `fallback:` is legal only on a flagged seat or an `interactive`-modality
+row. It is dispatched as an ordinary detached child and any `to: owner` row it writes is parked by
+**gate 1**. Nothing about it is new, and the pass does not report it.
+
+⚠ **DISCLOSED BOUNDS.** (1) The arm is the SEAT's declaration and the ferry has no lane, so `park`
+applies on the attached lane too: a `park` seat carried in a terminal has its terminal, and the bus
+rows it also writes `to: owner` park — which is what it declared its bus questions do. (2)
+`block-and-queue` does **not** hold the DAG: if the seat's headless session exits 0 after asking, the
+ticker records the turn `done` and the wave advances. The wait is the seat's own procedure plus the
+revival leg above; no daemon-side hold was ruled and none was invented.
+
+⚠ **The marker's TERM is `lane assignment`, values `daemon | console` — MINTED registry-side
+2026-08-10** (`system-definition/decisions.md#d-lane-assignment`, `concepts/lane-assignment.md`), per
+`PRIN-10`; this build coined no noun and the filename stays descriptive, the same discipline
+`executions.csv` followed before `d-execution-record-name`. `console` (who SHOULD run the goal) and
+`attached` (how an execution-record row RAN) are ruled the same lane's two readings; that equivalence
+lives in the concept file and is never restated here.
 
 ## The cross-lane refusal — RETIRED (it was v1, and this is its retirement)
 
@@ -549,9 +575,11 @@ direction); its arms now measure the resume, behaviourally, in both:
   `--status` answers `done` off the record with no store at all, the false-positive **control** (the
   attached lane re-running its own goal re-fires nothing), and the **BOUND** (a trace row with no
   record row neither refuses nor stops a re-run).
-- **D3 is unchanged** and still negative: nothing under `server/` asks whether a seat is
-  `human-interactive`, so a held seat dispatched by the daemon lane is spawned as an ordinary detached
-  child and its `fallback:` can fire nowhere (that gap is task 7.626, ruled by `#d-s19`).
+- **D3 is DISCHARGED** (7.626). It read: nothing under `server/` asks whether a seat is
+  `human-interactive`, so a daemon-dispatched held seat's `fallback:` fires nowhere. It now fires —
+  at the ferry, on the goal-channel surface `#d-s19` ruled, per the arm table above. Still true, and
+  deliberately so: nothing under `server/` reads the flag; the daemon dispatches the seat and the
+  BUS is where the arm is executed.
 - D1's former **measured bound** — "`seedGoal` exists and nothing under `server/` calls it" — is
   RETIRED with the trigger it named: the pass and its call site are measured next door.
 
@@ -569,13 +597,17 @@ the marker, the daemon lets go on the next pass, and `rbtv run` runs `bravo` hav
 BEFORE the tick. Then the FAILURE SURFACE (review F1/F2/F3): both broken markers a hand-edit can
 still produce — an unknown profile (skipped typed, with **nothing registered in the store**) and no
 profile at all (skipped with its own fix hint) — each loud ONCE and loud AGAIN the moment the marker
-text changes, plus the human-interactive seat dispatched **and reported**, with an autonomous CONTROL
-so the report tracks the two gates rather than the pass's mere presence. Six mutations, each an
-asserted single-string change compiled in memory and required to go red: **the assignment ignored**
+text changes, plus (7.626) the human-interactive seat dispatched **with its declared arm on the
+report and no warn**, PAIRED in the same pass with a flagged seat carrying **no** `fallback:` that IS
+warned about and named to `component-lint`, and an autonomous CONTROL so the report tracks the two
+gates rather than the pass's mere presence. Seven mutations, each an asserted single-string change
+compiled in memory and required to go red: **the assignment ignored**
 (the daemon seeds a console goal) · **the run lock ignored** (it seeds a goal a live console runner is
 attached to) · **the watch call removed** from the loop (the state this build closed) · **the
 unknown-profile guard removed** (orphan job rows for an unrunnable goal) · **the no-profile branch
-silenced** · **the human-interactive report removed**. Substitutions disclosed in its header: no
+silenced** · **the human-interactive report removed** · **the seat's ARM never read** (the report
+degrades to the pre-7.626 one) — the last against a goal minted fresh for it, because the shared
+fixture's seat has by then been dispatched and would be held `foreign` in any other store. Substitutions disclosed in its header: no
 daemon PROCESS, one synthesized completion (the dispatch itself is real), and `sleep` for a harness.
 
 `ignite/engine/probes/probe-attached-status.js` — the `--status` verb (A3).

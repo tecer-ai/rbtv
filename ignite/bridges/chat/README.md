@@ -199,6 +199,40 @@ construction: DMs, mentions, owner replies, and a row answering **into** a threa
 wrote in — the latter carries a `[chat-thread:]` token and takes the return leg *before* either
 gate is read.
 
+### The seat's fallback arm — what happens PAST both gates (task 7.626, owner ruling `d-s19-fallback-rides-goal-channels`)
+
+A `human-interactive:` seat is REQUIRED to declare, in the same frontmatter, what it does when the
+owner is not standing at a terminal — `fallback: park | default-and-disclose | block-and-queue`
+(planning-v4 D14 via D19). On the **daemon lane** that is always the case, and the ruling is that no
+terminal is needed: **this channel, with its thread per agent, is the owner surface.** Until 7.626
+the field was validated at materialize time (`component-lint --check interactive-fallback`) and read
+at run time by nothing, so all three arms behaved identically. They now differ **here**:
+
+| `fallback:` | the row | the seat |
+|---|---|---|
+| `park` | **nothing is posted.** It takes the same park the gates take, with the arm as the reason (`gate: fallback-park`) — the question waits durably on the bus, which is what `park` means | proceeds |
+| `default-and-disclose` | delivered into the seat's thread, header marked `· ℹ proceeding on its default` | proceeds |
+| `block-and-queue` | delivered into the seat's thread, header marked `· ⏸ WAITING ON YOU` | waits |
+| **absent** | delivered **unmarked** — the header is byte-identical to the pre-7.626 one | proceeds |
+
+**`block-and-queue`'s answer leg is not new — it is § *The loop, end to end* above.** The owner
+replies in that thread → `kind: 'agent'` → a `session-create` at the asking seat's own home with his
+words as the prompt. That revival **is** "the seat proceeds", which is why this shipped as a gate
+rung and a marker rather than machinery.
+
+**Absent is not a fourth arm, deliberately.** A flagged seat with no `fallback:` is a lint violation;
+letting it *acquire* an arm would be a behaviour bought with a defect. `engine/lane-watch.js` warns
+about exactly that case on the daemon lane and names the check.
+
+**The reader is `seatFallback` in `bus-ferry.js`**, beside the two gate readers and scoped to the
+same first `---`-fenced block — a line in a seat's PROSE cannot arm anything. The daemon lane imports
+it rather than parsing the descriptor a second time. ⚠ **The arm is the SEAT's declaration and this
+module has no lane**, so `park` applies on the attached lane too: such a seat has its terminal, and
+the bus rows it *also* addresses `to: owner` park. ⚠ **`block-and-queue` does not hold the DAG** — if
+the seat's session exits 0 after asking, the ticker records the turn `done` and the wave advances;
+the wait is the seat's own procedure plus the revival leg. Both bounds are disclosed, neither is
+built around.
+
 ### The return leg into a goal channel
 
 ⚠ **The token is VERIFIED before it counts** (S-13 owner ruling `d-s13-chat-thread-token-verified`).
@@ -427,7 +461,8 @@ to the bus; it reads workspace files and posts outbound through the transport.
 |---|---|
 | `to:` does **not** contain `owner`, and it names no chat thread | **nowhere** — not this ferry's business. The cursor advances because the ferry never had a claim on it; the bus delivers it to seats. |
 | `to: owner`, **gates shut** | **PARKS on the bus.** Nothing posted anywhere — not the goal channel, not the owner's DM — and nothing minted. Logged naming the gate (§ *The two gates on agent-initiated contact*). |
-| `to: owner`, **gates open** | **the sending agent's own thread in the goal channel** (§ *Thread per agent*). Only when that goal has **no channel** does it fall back to the historical leg: posted to the owner's DM with that post's thread **minted as a sitting** (`chat-bridge.js` `routeBusRowToMaster`), so an agent handles the row and the owner reads the handling instead of triaging it. |
+| `to: owner`, gates open, sender declares **`fallback: park`** | **PARKS on the bus**, exactly as a gated row does and logged `gate: fallback-park` — the seat declared that its questions wait there (§ *The seat's fallback arm*). |
+| `to: owner`, **gates open** | **the sending agent's own thread in the goal channel**, its header marked with the sender's fallback arm when it declared one (§ *The seat's fallback arm*). (§ *Thread per agent*). Only when that goal has **no channel** does it fall back to the historical leg: posted to the owner's DM with that post's thread **minted as a sitting** (`chat-bridge.js` `routeBusRowToMaster`), so an agent handles the row and the owner reads the handling instead of triaging it. |
 
 A row carrying a `[chat-thread:]` token **the bridge knows** is none of the three: it is an ANSWER
 into a thread the owner wrote in, so it is read **before** the gates and travels with both of them

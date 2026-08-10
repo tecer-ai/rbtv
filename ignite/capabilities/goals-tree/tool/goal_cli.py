@@ -66,8 +66,12 @@ GOAL_KIND_DEFAULT = "interactive"
 # watch pass (`ignite/engine/lane-watch.js`) reads it once a cadence and seeds the goals assigned
 # to it, so flipping this file is how a goal starts in one lane and finishes in the other.
 #
-# ⚠ The filename is DESCRIPTIVE, and the term it names is being minted registry-side. Do not coin
-# a noun for it here.
+# ⚠ NAMING. The marker's TERM is **lane assignment**, values `daemon | console` — MINTED
+# registry-side 2026-08-10 (system-definition/decisions.md#d-lane-assignment,
+# concepts/lane-assignment.md), per PRIN-10; this build coined no noun and the mint is now the
+# definition's one home. The filename stays descriptive. `console` (an ASSIGNMENT: who SHOULD run
+# the goal) and `attached` (an EXECUTION RECORD row: how it RAN) are ruled the SAME lane's two
+# readings — the equivalence lives in that concept file and is never restated here.
 #
 # ⚠ ABSENT MEANS `console`. The daemon adopts ONLY goals explicitly assigned to it — the reader's
 # whole argument is in lane-watch.js's header, and this writer must not disagree with it.

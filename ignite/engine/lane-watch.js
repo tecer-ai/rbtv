@@ -35,6 +35,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { RUN_LOCK, runnerAlive, heldSeatPredicate } = require('./attached-execution');
+// The seat's declared autonomous arm, read through the chat bridge's OWN reader — the same module
+// `heldSeatPredicate` reads both gates from. A second parser of that frontmatter is a lane that
+// disagrees with the ferry about what a seat declared (7.626 criterion 2).
+const { seatFallback } = require('../bridges/chat/bus-ferry');
 
 const LANE_FILE = 'execution-lane';
 const DAEMON = 'daemon';
@@ -109,11 +113,12 @@ function consoleRunIsLive(goalFolder) {
 // logged and skipped; the daemon serves every other goal from the same loop, and taking the tick
 // down over one goal folder is the one behaviour a watch pass must not have. The next pass retries.
 //
-// `isHeld` IS DELIBERATELY NOT PASSED, and that is the existing behaviour standing rather than a
-// gap being introduced: a human-interactive seat has no terminal to reach on the daemon side, and
-// what should happen to it there is migrate task 7.626 (the fallback gap), which this build was
-// explicitly told not to solve. Passing a predicate here would silently park such seats forever —
-// a NEW behaviour — so the daemon dispatches them exactly as it does today.
+// `isHeld` IS DELIBERATELY NOT PASSED, and 7.626 CONFIRMED that rather than changing it. `isHeld`
+// is the ATTACHED lane's "carry this seat in the terminal instead" seam; there is no terminal here
+// and the ruling (`d-s19-fallback-rides-goal-channels`) is that there need not be one — the goal's
+// channel is the owner surface, so a human-interactive seat is DISPATCHED and its declared
+// `fallback:` executes at the ferry. Holding it here would park it forever with nobody to release
+// it, and would also stop it ASKING — which is the one thing every arm needs it to do.
 //
 // ponytail: O(goals) `readdir` + one small read per goal per cadence, and `engine.seedGoal`
 // publishes the record once per adopted goal. At tens of goals and a 10 s cadence that is noise;
@@ -200,32 +205,42 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
     adopted.push(pickup);
     const held = Object.keys(pickup.heldByOtherLane || {});
 
-    // ── F1 · THE DIVERGENCE THIS PASS KNOWINGLY STEPS OVER (task 7.626) ───────────────────────
+    // ── THE HUMAN-INTERACTIVE SEATS AND THEIR ARMS (task 7.626, ruling
+    // `d-s19-fallback-rides-goal-channels`) ──────────────────────────────────────────────────
     //
-    // A seat that declares `human-interactive:` in an `interactive` goal is carried in the
-    // TERMINAL by the attached lane, and refused rather than dispatched when no terminal exists.
-    // Over here there is no terminal at all, and the daemon dispatches it as an ordinary detached
-    // child — its `fallback:` firing nowhere. That is the EXISTING behaviour and the owner's ruled
-    // default (7.626 owns the fix; d-daemon-lane-button deliberately did not solve it here).
+    // A seat that declares `human-interactive:` in an `interactive` goal is carried in the TERMINAL
+    // by the attached lane. Over here there is no terminal, and the ruling is that there does not
+    // need to be one: the goal's Slack channel with a thread per agent IS the owner surface, so the
+    // seat is dispatched exactly as it was and its declared `fallback:` executes AT THE FERRY —
+    // `park` parks the ask, the other two deliver it MARKED (`bus-ferry.js` § THE SEAT'S FALLBACK
+    // ARM). This pass therefore no longer steps over the condition; it REPORTS which arm each
+    // dispatched seat is running under, which is the only thing an operator cannot derive.
     //
-    // What was NOT acceptable is doing it SILENTLY, which is what shipped: a channel-master goal
-    // defaults to the daemon lane, so this is the AFK default path, and the lane that refuses the
-    // same seat loudly made the quiet one look equivalent. So the condition is REPORTED — on the
-    // log line and on the pass's own return — and named to the task that owns it. Nothing here
-    // changes what is dispatched.
+    // ⚠ THE RESIDUAL WARN IS THE UNDECLARED CASE, and only it: a flagged seat with NO `fallback:`
+    // is a `component-lint` violation that reached dispatch, and it keeps its pre-7.626 behaviour
+    // (delivered, unmarked) rather than acquiring an arm nobody wrote. That is worth a line; a
+    // declared arm is not.
     //
-    // Wrapped: the predicate reads the goal's `execution-mode` and each seat's descriptor off
-    // disk, and a malformed one must not be able to stop a pass that has already seeded.
-    let humanInteractive = [];
+    // Wrapped: both readers open descriptors off disk, and a malformed one must not be able to stop
+    // a pass that has already seeded.
+    let humanInteractive = {};
+    let undeclared = [];
     try {
       const isHeld = heldSeatPredicate(goalFolder);
-      humanInteractive = pickup.enqueued.filter((seat) => isHeld(seat));
-    } catch { /* unreadable descriptor: the report loses a line, the goal keeps running */ }
-    if (humanInteractive.length) {
+      for (const seat of pickup.enqueued) {
+        if (!isHeld(seat)) continue;
+        const arm = seatFallback(goalFolder, seat);
+        humanInteractive[seat] = arm;
+        if (!arm) undeclared.push(seat);
+      }
+    } catch { humanInteractive = {}; undeclared = []; }
+    if (Object.keys(humanInteractive).length) {
       pickup.humanInteractiveDispatched = humanInteractive;
-      say('warn', 'lane watch: dispatching HUMAN-INTERACTIVE seat(s) headless — there is no terminal in this lane, '
-        + 'so their `fallback:` fires nowhere. This is the existing ruled behaviour, NOT a decision taken here; '
-        + 'the fix is migrate task 7.626.', { goal, seats: humanInteractive });
+      if (undeclared.length) {
+        say('warn', 'lane watch: HUMAN-INTERACTIVE seat(s) dispatched with NO declared `fallback:` — their asks '
+          + 'reach the goal channel UNMARKED, so the owner cannot tell a question from a disclosure. This is a '
+          + '`component-lint --check interactive-fallback` violation that reached dispatch.', { goal, seats: undeclared });
+      }
     }
     // Loud when something moved, quiet otherwise: an adopted goal is re-read every cadence and an
     // info line per goal per 10 s is a journal nobody can read. `heldByOtherLane` is carried on the

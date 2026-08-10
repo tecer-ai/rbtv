@@ -108,7 +108,10 @@ function msgRow(id, from, to, type, body) {
 // 7.607 E3: GOAL-DIRECT. No `runs.csv`, no run folder — the coordination bus and the seats hang
 // off the goal folder itself, and the third element of identity is the EXECUTION STAMP
 // (design-lock item 5) written to `coordination/execution`.
-function seedGoal(root, goalId, { stamp = '2026-08-03a', executionMode = 'interactive', seats = {} } = {}) {
+// `fallbacks` is the 7.626 axis: the seat's declared autonomous arm, written into the SAME
+// frontmatter. Absent from the map = no `fallback:` line at all, which is a real state on disk (a
+// `component-lint` violation) and the one the ferry must leave behaviour-unchanged.
+function seedGoal(root, goalId, { stamp = '2026-08-03a', executionMode = 'interactive', seats = {}, fallbacks = {} } = {}) {
   const goalDir = path.join(root, '.rbtv', 'goals', goalId);
   fs.mkdirSync(path.join(goalDir, 'coordination'), { recursive: true });
   fs.writeFileSync(path.join(goalDir, 'coordination', 'execution'), `${stamp}\n`);
@@ -116,7 +119,8 @@ function seedGoal(root, goalId, { stamp = '2026-08-03a', executionMode = 'intera
   for (const [seat, flag] of Object.entries(seats)) {
     fs.mkdirSync(path.join(goalDir, 'seats', seat), { recursive: true });
     fs.writeFileSync(path.join(goalDir, 'seats', seat, 'seat.md'),
-      `---\nseat: ${seat}\n${flag === null ? '' : `human-interactive: ${flag}\n`}---\nbody\n`);
+      `---\nseat: ${seat}\n${flag === null ? '' : `human-interactive: ${flag}\n`}`
+      + `${fallbacks[seat] ? `fallback: ${fallbacks[seat]}\n` : ''}---\nbody\n`);
   }
   const file = path.join(goalDir, 'coordination', 'messages.md');
   fs.writeFileSync(file, '# messages — append-only coordination log (script-managed, do not edit by hand)\n\n'
@@ -206,8 +210,25 @@ const MUTATIONS = [
     expect: ['RULING (gates OPEN)', 'MUTATION (gate 1)'] },
   { name: 'every-address-ferried', file: 'bus-ferry.js', from: '.some((t) => t === OWNER_TOKEN)', to: '.some(() => true)',
     expect: ['RULING (gates OPEN)', 'RULING (gates shut)'] },
-  { name: 'gate1-not-scoped-to-frontmatter', file: 'bus-ferry.js', from: 'frontmatterOf(fm).match', to: 'String(fm).match',
+  // ⚑ THE ANCHOR CARRIES ITS KEY. `frontmatterOf(fm).match` alone stopped being unique the moment
+  // 7.626's `seatFallback` read the same file the same way — and an ambiguous anchor is not applied
+  // at all, so this arm would have gone red claiming "anchor absent" while measuring nothing.
+  { name: 'gate1-not-scoped-to-frontmatter', file: 'bus-ferry.js',
+    from: 'frontmatterOf(fm).match(/^human-interactive:', to: 'String(fm).match(/^human-interactive:',
     expect: ['scoped to the FRONTMATTER block'] },
+  // 7.626 — the three arms, each proven to be the thing doing the work.
+  { name: 'fallback-park-rung-removed', file: 'bus-ferry.js',
+    from: ": fallbackArm(row.from) === FALLBACK_PARK ? 'fallback-park'", to: ": false ? 'fallback-park'",
+    expect: ['ARM `park`'] },
+  { name: 'fallback-not-scoped-to-frontmatter', file: 'bus-ferry.js',
+    from: 'frontmatterOf(fm).match(/^fallback:', to: 'String(fm).match(/^fallback:',
+    expect: ['FRONTMATTER BLOCK ONLY'] },
+  { name: 'arm-marker-dropped', file: 'bus-ferry.js',
+    from: "const mark = FALLBACK_MARK[arm] || '';", to: "const mark = '';",
+    expect: ['ARM `default-and-disclose`', 'ARM `block-and-queue`', 'MUTATION (the arm)'] },
+  { name: 'undeclared-arm-invents-one', file: 'bus-ferry.js',
+    from: '  return FALLBACK_ARMS.includes(v) ? v : null;', to: "  return FALLBACK_ARMS.includes(v) ? v : 'block-and-queue';",
+    expect: ['NOT A FOURTH ARM'] },
   { name: 'owner-not-reserved-in-gate1', file: 'bus-ferry.js', from: '&& n !== OWNER_TOKEN', to: '',
     expect: ['`owner` is RESERVED'] },
   { name: 'owner-not-reserved-in-seat-resolver', file: 'forward-path.js',
@@ -222,7 +243,7 @@ const MUTATIONS = [
     expect: ['THE THREE-RUNG LADDER'] },
   { name: 'agent-thread-leg-not-tried', file: 'bus-ferry.js', from: 'if (!chatThread && routeToAgentThread) {', to: 'if (false) {',
     expect: ['ANCHORS a thread', 'MUTATION (gate 2)'] },
-  { name: 'header-not-agent-led', file: 'bus-ferry.js', from: 'const header = agentLead', to: 'const header = false',
+  { name: 'header-not-agent-led', file: 'bus-ferry.js', from: 'const header = (agentLead', to: 'const header = (false',
     expect: ['ANCHORS a thread'] },
   { name: 'routeof-agent-branch-removed', file: 'chat-bridge.js', from: "if (agent) return { kind: 'agent'", to: "if (false) return { kind: 'agent'",
     expect: ['routes as kind `agent`', 'HOMED AT THE ASKING SEAT'] },
@@ -519,6 +540,90 @@ async function main() {
       && !a.slack.posted.some((p) => /MASTER-ADDRESSED/.test(p.text))
       && a.bridge.busFerry._cursors.get('goal-threads/2026-08-03a') === 5,
       { channelPosts: chanPosts.length, cursor: a.bridge.busFerry._cursors.get('goal-threads/2026-08-03a') });
+    a.bridge.stop();
+  }
+
+  // 4b — THE SEAT'S FALLBACK ARM EXECUTES (task 7.626, owner ruling
+  //      `d-s19-fallback-rides-goal-channels`). FOUR seats, ONE interactive goal, ONE pass, both
+  //      gates OPEN on every one of them — so the only thing that differs between the four rows is
+  //      the word in each seat's own `fallback:` frontmatter. That is what makes this a measurement
+  //      of the ARM rather than a re-measurement of the gates.
+  {
+    const root = mkroot();
+    const { file, goalDir } = seedGoal(root, 'goal-arms', {
+      seats: { parker: 'yes', discloser: 'yes', blocker: 'yes', undeclared: 'yes' },
+      fallbacks: { parker: 'park', discloser: 'default-and-disclose', blocker: 'block-and-queue' },
+    });
+    const logs = [];
+    const a = makeBridge({ workspaceRoot: root, logs });
+    await a.bridge.start();
+    const reg = await a.bridge.registerGoal('goal-arms');
+    await a.bridge.busFerry.tick();                       // first sight → cursor at tail
+
+    append(file, msgRow(2, 'parker', 'owner', 'ask', 'park: my question waits on the bus'));
+    append(file, msgRow(3, 'discloser', 'owner', 'ask', 'default: I have proceeded on my stated default'));
+    append(file, msgRow(4, 'blocker', 'owner', 'ask', 'block: which shape do you want?'));
+    append(file, msgRow(5, 'undeclared', 'owner', 'ask', 'no arm declared anywhere'));
+    await a.bridge.busFerry.tick();
+
+    const headerOf = (from) => {
+      const p = a.slack.postsIn(reg.channelId).find((q) => q.text.includes(`🧵 ${from}`));
+      return p ? p.text.split('\n')[0] : null;
+    };
+    const parked = logs.filter((l) => /PARKED/.test(l.message));
+    check('ARM `park`: BOTH GATES OPEN and the row still PARKS — nothing in the goal channel, nothing in the owner DM, cursor advanced, and the gate reason is the ARM (`fallback-park`) on an `interactive` goal',
+      headerOf('parker') === null && a.slack.postsIn(DM).length === 0
+      && parked.length === 1 && parked[0].gate === 'fallback-park' && parked[0].from === 'parker'
+      && parked[0].executionMode === 'interactive'
+      && a.bridge.busFerry._cursors.get('goal-arms/2026-08-03a') === 5,
+      { parked, channelPosts: a.slack.postsIn(reg.channelId).map((p) => p.text.split('\n')[0]) });
+    check('ARM `default-and-disclose`: DELIVERED into the seat\'s own thread and MARKED as a disclosure',
+      headerOf('discloser') === '*🧵 discloser* — goal-arms · ask · #3 · ℹ proceeding on its default',
+      { header: headerOf('discloser') });
+    check('ARM `block-and-queue`: DELIVERED into the seat\'s own thread and MARKED as BLOCKING — the owner\'s phone can tell a question from an FYI, which is the whole difference between the two delivered arms',
+      headerOf('blocker') === '*🧵 blocker* — goal-arms · ask · #4 · ⏸ WAITING ON YOU',
+      { header: headerOf('blocker') });
+    check('NO `fallback:` IS NOT A FOURTH ARM: the row is delivered UNMARKED — the header is byte-identical to the pre-7.626 one — because a `component-lint` violation must not ACQUIRE a behaviour nobody declared',
+      headerOf('undeclared') === '*🧵 undeclared* — goal-arms · ask · #5',
+      { header: headerOf('undeclared') });
+    check('none of the four minted anything — the arms change WHERE a row goes, never whether a session is born',
+      a.forwarder.enqueued.length === 0, { enqueued: a.forwarder.enqueued.length });
+
+    // FRONTMATTER ONLY, `seatIsHumanInteractive`'s rule for the same reason: a briefing line that
+    // QUOTES the arm must not be able to silence a seat nobody declared silent.
+    fs.writeFileSync(path.join(goalDir, 'seats', 'undeclared', 'seat.md'),
+      // AT COLUMN 0, deliberately: the reader's regex is line-anchored, so a quoted-mid-sentence
+      // mention would be missed by an UNSCOPED reader too and the arm would pass either way.
+      '---\nseat: undeclared\nhuman-interactive: yes\n---\nthe procedure below states this seat\'s arm:\nfallback: park\n');
+    append(file, msgRow(6, 'undeclared', 'owner', 'note', 'the arm is only in my prose'));
+    await a.bridge.busFerry.tick();
+    check('the arm is read from the FRONTMATTER BLOCK ONLY — `fallback: park` in the descriptor BODY parks nothing',
+      a.slack.postsIn(reg.channelId).some((p) => /#6/.test(p.text)) && parked.length === 1,
+      { channelPosts: a.slack.postsIn(reg.channelId).map((p) => p.text.split('\n')[0]), parked: parked.length });
+
+    // THE PAIR for `park`: change that ONE word on that ONE seat and its next row travels. Without
+    // it the park check above would pass just as well against a ferry that ferries nothing at all.
+    fs.writeFileSync(path.join(goalDir, 'seats', 'parker', 'seat.md'),
+      '---\nseat: parker\nhuman-interactive: yes\nfallback: default-and-disclose\n---\nbody\n');
+    append(file, msgRow(7, 'parker', 'owner', 'ask', 'arm flipped, same seat, same goal'));
+    await a.bridge.busFerry.tick();
+    check('MUTATION (the arm): flipping that seat\'s ONE word from `park` to `default-and-disclose` lets its next row travel — into its own thread, marked as a disclosure',
+      headerOf('parker') === '*🧵 parker* — goal-arms · ask · #7 · ℹ proceeding on its default',
+      { header: headerOf('parker') });
+
+    // BLOCK-AND-QUEUE, END TO END — ask → the owner's thread → his answer → the seat proceeds.
+    // The last leg is the one that ALREADY EXISTED (§ 7 measures it in isolation): the owner's
+    // reply in the agent's thread mints a session at THAT SEAT's own home with his answer as the
+    // prompt. That revival IS "the seat proceeds", and it is why this row shipped a marker and a
+    // gate rung rather than a hold mechanism nobody ruled.
+    const blockerThread = a.bridge.agentThreadFor('goal-arms', 'blocker');
+    const reply = await a.bridge.onChatMessage(msg({ channel: reg.channelId, ts: '11.1', threadTs: blockerThread, text: 'the second shape' }));
+    const create = a.forwarder.creates()[0];
+    check('BLOCK-AND-QUEUE END TO END: the ask reached the blocker\'s OWN thread, the owner answered IN it, and that answer minted a session AT THE BLOCKER\'S SEAT carrying his words — the seat proceeds',
+      Boolean(blockerThread) && reply.forwarded === true && reply.leg === 'session-create' && reply.route === 'agent'
+      && Boolean(create) && create.payload.args.workdir === path.join(goalDir, 'seats', 'blocker')
+      && String(create.payload.args.prompt).endsWith('the second shape'),
+      { blockerThread, reply, workdir: create && create.payload.args.workdir });
     a.bridge.stop();
   }
 
