@@ -474,7 +474,7 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
       if (c.closed) {
         closed.push(`${home.seat}=${verdict.outcome}`);
         if (verdict.held) held.push({ seat: home.seat, goalFolder: home.goalFolder, evidence: verdict.held });
-        if (verdict.parked) proceeded.push({ seat: home.seat, goalFolder: home.goalFolder, evidence: verdict.parked });
+        if (verdict.parked) proceeded.push({ seat: home.seat, goalFolder: home.goalFolder, gate: verdict.gate, evidence: verdict.parked });
       }
     }
   }
@@ -503,7 +503,7 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
     if (logger) {
       logger({
         level: 'info',
-        message: 'seat PROCEEDED on its autonomous workaround — its ask was parked (autonomous goal), so the wave '
+        message: 'seat PROCEEDED on its autonomous workaround — its ask was parked (gate: ' + p.gate + '), so the wave '
           + 'was NOT held. Its derivation belongs in this goal\'s decisions.md / doubts.md; review it on return.',
         seat: p.seat,
         goalFolder: p.goalFolder,
