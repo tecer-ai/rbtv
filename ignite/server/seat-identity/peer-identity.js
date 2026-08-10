@@ -163,9 +163,16 @@ function cwdOfPid(pid) {
  *
  * @param {object} conn - what the KERNEL reported about the socket. Nothing here is caller-supplied
  *   content: these are properties of the connection, read from the server's own socket object.
+ * @param {object} [opts] - `{ readLease }`, the SAME injection point `checkIdentity` and
+ *   `checkGoalExecuting` already carry, threaded through so the seam can be driven end-to-end
+ *   without a live tmux room (7.607 E3b). It is NOT an assertion channel and cannot become one:
+ *   the gateway calls `checkPeerSeat(conn)` with ONE argument, so nothing on the wire can reach
+ *   this parameter — only the composition root (`server/index.js`) or a probe can, exactly as with
+ *   `checkIdentity({ readLease })`. And a lease reader supplies MEASURABLES (a tmux listing), never
+ *   a seat name or a verdict, so the property the header protects is untouched.
  * @returns the `checkIdentity` result (`{ ok: true, seat, ... }`) or a typed refusal.
  */
-function resolvePeerSeat(conn = {}) {
+function resolvePeerSeat(conn = {}, { readLease = undefined } = {}) {
   const {
     E_PEER_NOT_LOCAL, E_PEER_UNRESOLVED, E_PEER_AMBIGUOUS,
   } = require('../spawn/errors');
@@ -240,7 +247,7 @@ function resolvePeerSeat(conn = {}) {
   // THE HANDOFF. Same gate, same refusals, same code — the only difference is whose measurables
   // it is given. A second implementation of the gate here would be a second definition of what a
   // seat is, and the two would drift.
-  const result = checkIdentity({ cwd, pid });
+  const result = checkIdentity({ cwd, pid, readLease });
   return result.ok
     ? { ...result, resolvedFrom: 'connection', callerPid: pid, socketInode: inode }
     : { ...result, resolvedFrom: 'connection', callerPid: pid, socketInode: inode };

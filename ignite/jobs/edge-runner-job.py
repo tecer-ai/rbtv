@@ -2964,13 +2964,41 @@ def check_seed_carries_predecessor_outputs(coord, pkg):
     if absent:
         return False, ("criterion 2: %d seed path(s) do not exist: %s — a seed naming a path that "
                        "is not there is a launch that fails on its first read" % (len(absent), absent))
+    # ⚠ THE THIRD ARM, RE-FOUNDED (7.607 E3b). It used to assert that each command CARRIED the
+    # seed in `--args-json`. That contract was retired by M4-38/7.445 and `_enqueue_argv`'s own
+    # header now says the opposite in capitals — the door refuses an unregistered key by NAME
+    # (`E_BAD_ARGS`), and a seat is driven by its DESCRIPTOR and by the room, never by argv text.
+    # So this arm sat RED against a contract the code had deliberately abandoned, which is worse
+    # than no arm: a stale red trains a reader to ignore the file.
+    #
+    # WHAT IT ASSERTS NOW IS THE CURRENT CONTRACT, AND IT IS STRICTLY MORE THAN THE OLD ONE: the
+    # args object carries EXACTLY the three REGISTERED keys, `seed` is ABSENT (putting it back
+    # breaks every enqueue at the door — the failure this arm now guards), and the seat is
+    # addressed by the `workdir` that IS the seat folder, i.e. the surface its declared outputs
+    # actually reach it through. The seed's own correctness is unweakened: the `got != want` and
+    # on-disk-existence arms above are untouched and still grade every path.
+    registered = {"profile", "prompt", "workdir"}
     for argv in calls:
-        blob = argv[argv.index("--args-json") + 1]
-        if "seed" not in json.loads(blob):
-            return False, "criterion 2: an enqueue command carries no `seed` in its args"
+        blob = json.loads(argv[argv.index("--args-json") + 1])
+        if set(blob) != registered:
+            return False, ("criterion 2: an enqueue command's args carry %s, but the door's "
+                           "registered key set is %s — an unregistered key is refused BY NAME at "
+                           "the door (E_BAD_ARGS) and the launch never happens"
+                           % (sorted(blob), sorted(registered)))
+        if "seed" in blob:
+            return False, ("criterion 2: `seed` is back in the enqueue args. It is in NO registered "
+                           "args_schema (M4-38 / 7.445): the seed reaches a seat through its own "
+                           "seat.md, never through argv")
+        if not str(blob.get("workdir") or "").endswith(str(Path("seats") / Path(blob["workdir"]).name)):
+            return False, ("criterion 2: the args address workdir=%r, which is not a `seats/<seat>` "
+                           "folder — the seed's delivery surface is the seat's own folder, so an "
+                           "enqueue pointed elsewhere delivers nothing" % blob.get("workdir"))
     return True, ("criterion 2: all %d seeds match the predecessors' declared outputs by name "
-                  "(%d absolute path(s), all confirmed on disk), and every command carries its seed"
-                  % (len(got), sum(len(s) for s in got.values())))
+                  "(%d absolute path(s), all confirmed on disk), and every command carries exactly "
+                  "the %d registered args keys %s — `seed` deliberately NOT among them, delivered "
+                  "through each seat's own folder instead"
+                  % (len(got), sum(len(s) for s in got.values()), len(registered),
+                     sorted(registered)))
 
 
 def check_root_seat_empty_seed(coord, pkg):

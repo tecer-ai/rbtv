@@ -42,12 +42,13 @@ fs.writeFileSync(outPath, '');
 
 const { deriveLease, describeLease, roomNamesForGoal, packageDirForRoom, defaultTmuxProbe } = require('../lease');
 
-// 25 = 6 (pure predicate) + 5 (unreadable posture) + 14 (live layer). The live layer's skip branch
-// emits exactly 14 too, so a tmux-less box reaches the same denominator rather than shrinking it.
+// 29 = 6 (pure predicate) + 9 (unreadable posture, incl. E3b's L3c socket-location trio + its gate
+// arm) + 14 (live layer). The live layer's skip branch emits exactly 14 too, so a tmux-less box
+// reaches the same denominator rather than shrinking it.
 //
 // ⚠ THIS NUMBER WAS WRONG ON THE FIRST RUN (declared 21, ran 23) AND THE ASSERTION IS WHAT SAID SO:
 // every check passed and the probe still exited 1. Kept as the argument for the assertion existing.
-const EXPECTED_CHECKS = 25;
+const EXPECTED_CHECKS = 29;
 
 const checks = [];
 let skipped = 0;
@@ -149,6 +150,65 @@ check('⚠ L3b a connect failure that is NOT the no-server errno (an over-long s
       try { fs.rmSync(base, { recursive: true, force: true }); } catch { /* scratch */ }
     }
   })());
+
+// ⚠⚠ L3c — THE MISCONFIGURED-SOCKET FAIL-OPEN, CLOSED (7.607 E3b, §2-review r17). The trio below
+// is ONE layout with ONE variable — the socket LOCATION — and it is a trio on purpose: the two red
+// arms alone are satisfied by a module that calls everything unreadable, and the green arm alone by
+// the fail-open this closes. Measured before the fix: a live goal read `ok:true, live:false` against
+// a server-less socket dir, i.e. "not executing", because tmux reports a missing socket DIRECTORY
+// with the same `No such file or directory` phrase as a missing socket FILE. Every arm drives the
+// REAL binary through `deriveLease`'s own default probe; none hand-feeds a verdict.
+const L3C_WS = fs.mkdtempSync(path.join(os.tmpdir(), 'lz-ws-'));
+fs.mkdirSync(path.join(L3C_WS, '.rbtv', 'goals', 'gsock'), { recursive: true });
+fs.writeFileSync(path.join(L3C_WS, '.rbtv', 'goals', 'goals.csv'),
+  'name,created,due,type,status\ngsock,2026-08-09,,one-shot,active\n');
+const leaseAt = (dir) => onIsolatedSocket(dir, () => deriveLease({ workspaceRoot: L3C_WS, goal: 'gsock' }));
+
+check('⚠⚠ L3c RED 1 — a socket dir that DOES NOT EXIST is UNREADABLE, never EMPTY. tmux silently '
+  + 'falls back to the DEFAULT socket for a nonexistent TMUX_TMPDIR, so "no rooms" here would be a '
+  + 'verdict read off somebody else\'s server',
+  (() => {
+    const r = leaseAt(path.join(os.tmpdir(), `lz-absent-${UNIQUE}`));
+    return r.ok === false && r.live === undefined && /socket directory/.test(r.reason);
+  })());
+check('⚠⚠ L3c RED 2 — a socket dir that EXISTS but cannot be entered is UNREADABLE too. Permission '
+  + 'is a second configuration fault reaching the same errno family, and the fix must not be keyed '
+  + 'to absence alone',
+  (() => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lz-noperm-'));
+    try {
+      fs.chmodSync(dir, 0o000);
+      const r = leaseAt(dir);
+      return r.ok === false && r.live === undefined;
+    } finally {
+      try { fs.chmodSync(dir, 0o700); fs.rmSync(dir, { recursive: true, force: true }); } catch { /* scratch */ }
+    }
+  })());
+check('⚠⚠ L3c GREEN CONTROL — a REAL, readable socket dir with no server running is still a plain '
+  + 'EMPTY (`ok:true, live:false`). Without this row the two above are satisfied by a module that '
+  + 'refuses everything, which would take the daemon down rather than close a hole',
+  (() => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lz-fresh-'));
+    try {
+      const r = leaseAt(dir);
+      return r.ok === true && r.live === false;
+    } finally { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* scratch */ } }
+  })());
+check('⚠ L3c THE GATE ENGAGES: `seat-folder.checkGoalExecuting` — the command-time identity gate\'s '
+  + 'and spawnSeat\'s shared L2 — REFUSES on that unreadable lease naming IGNORANCE, and admits '
+  + 'nothing. A classification nothing consumes would close the hole on paper only',
+  (() => {
+    const { checkGoalExecuting } = require('../../seat-identity/seat-folder');
+    const parsed = {
+      workspaceRoot: L3C_WS,
+      goal: 'gsock',
+      goalsCsv: path.join(L3C_WS, '.rbtv', 'goals', 'goals.csv'),
+    };
+    const absent = path.join(os.tmpdir(), `lz-absent2-${UNIQUE}`);
+    const v = onIsolatedSocket(absent, () => checkGoalExecuting(parsed));
+    return v.ok === false && /UNREADABLE/.test(v.reason);
+  })());
+fs.rmSync(L3C_WS, { recursive: true, force: true });
 
 // ── LAYER 2: live, against an ISOLATED tmux server ────────────────────────────────────────────
 

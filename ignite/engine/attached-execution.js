@@ -144,7 +144,7 @@ function seedTaskforce(heartStore, goalFolder, { profile, logger }) {
     heartStore.registerJob({
       jobId,
       actionType: 'launch-agent',
-      function: `attached-run seat ${row.seat}`,
+      function: `attached-execution seat ${row.seat}`,
       // `required`/`optional` are OBJECTS of name -> type, not arrays — the store parses them
       // that way (parseArgsSchema) and REFUSES an array. Registration is strict on purpose: a
       // schema a future enqueue could never satisfy is what campaign issue S-2(a) was.
@@ -200,7 +200,7 @@ function enqueueEligible(heartStore, rows, { profile, goalFolder, logger }) {
       sessionMode: 'headless',
       triggerKind: 'scheduled',
       runAt: isoNow(),
-      enqueuedBy: 'attached-run',
+      enqueuedBy: 'attached-execution',
     });
     enqueued.push(row.seat);
     if (logger) logger({ level: 'info', message: 'enqueued seat', seat: row.seat, after: after || null });

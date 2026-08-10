@@ -141,7 +141,7 @@ function sessionStatusForEndedTurn(turnStatus) {
 //
 // Trailing separators are stripped so `…/seats/x` and `…/seats/x/` are one seat. No path
 // resolution beyond that: every producer in this tree submits an already-resolved absolute path
-// (edge-runner-job.py resolves it, attached-run.js path.join's it), and resolving a relative path
+// (edge-runner-job.py resolves it, attached-execution.js path.join's it), and resolving a relative path
 // HERE would resolve it against the daemon's CWD, which is not the caller's.
 // ⚠ LAUNCH-AGENT ONLY, and this bound is load-bearing rather than cautious. Occupying a seat is
 // what an AGENT SESSION does — the ruling's hazard is "a seat that has not yet REGISTERED ITSELF",
@@ -760,7 +760,7 @@ class HeartStore {
   // ── Task Q9 · THE IDEMPOTENT DOOR's lookup (ruling `d-q9-door`) ─────────────────────────────
   //
   // Who currently HOLDS this (run, seat), or null. TWO surfaces, and both are required — this is
-  // the `engine/attached-run.js` enqueueEligible grammar (pending row OR prior execution), read
+  // the `engine/attached-execution.js` enqueueEligible grammar (pending row OR prior execution), read
   // against the ruled non-terminal set rather than "ever ran".
   //
   // ⚠ THE SECOND SURFACE IS THE WHOLE FIX. A queue-only check is VACUOUS in the configuration

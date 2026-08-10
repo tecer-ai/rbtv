@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 # rbtv-goal-request — thin wrapper so the entry's verbs run from anywhere on PATH.
-# Same shape as its siblings' entry points (rbtv-goal, rbtv-subagent, rbtv-run).
+# Same shape as its siblings' entry points (rbtv-goal, rbtv-subagent, rbtv-execution).
 exec python3 "$(dirname "$(readlink -f "$0")")/goal_creation_request.py" "$@"

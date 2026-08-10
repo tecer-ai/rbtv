@@ -25,7 +25,9 @@ THE ARMS, and every green one has the red twin that makes it mean something:
       separates "a message exists" from "the finish edge fired")
   F5  ⚠⚠ THE SEPARATION: a finished goal whose room is still up reads LIVE from the lease. The
       lease is blind to the event by construction, and this is where that is measured
-  F6  `resolve_live_run` derives the package from the ROOM, and refuses (never guesses) with none
+  F6  the package is derived from the ROOM (7.607 E3b: off the lease's own room row — the
+      `resolve_live_run` accessor that used to wrap this is deleted), and with no room there is no
+      package: a readable "not executing", never a guess
   F7  ⚠ THE TWO SPELLINGS AGREE. `team_monitor.FINISH_MARKER` is a deliberate second copy of
       `coord.FINISH_MARKER` (separate custody — the disclosure is in both files). A drift between
       them makes team-monitor blind to a finish edge the room already fired, and nothing else on
@@ -105,9 +107,12 @@ def main():
             check("F6a `derive_lease` reads the live room through the ONE home (the node module), "
                   "so the python side holds no second predicate",
                   detail == "" and lease.get("live") is True, f"detail={detail!r}")
-            run_id, why = coord.resolve_live_run(goal)
-            check("F6b `resolve_live_run` derives the PACKAGE from the room, not from runs.csv",
-                  run_id == goal_name and why == "", f"run_id={run_id!r} why={why[:80]!r}")
+            # 7.607 E3b — `resolve_live_run` is DELETED; the package comes off the lease's own room
+            # row, which is where it always actually came from. Same fact, one fewer accessor.
+            check("F6b the PACKAGE is derived from the ROOM, not from runs.csv — the lease's room "
+                  "row homes at the goal folder (design-lock item 8)",
+                  [Path(r["packageDir"]).name for r in lease.get("rooms", [])] == [goal_name],
+                  f"rooms={[r.get('packageDir') for r in lease.get('rooms', [])]}")
 
             # ── F4 — a completion that is not a finish event ───────────────────────────────────
             coord.append_message(pkg / "coordination", "builder", "leader", "completion",
@@ -159,11 +164,13 @@ def main():
 
             # ── F6c — the refusal arm ─────────────────────────────────────────────────────────
             subprocess.run(["tmux", "kill-session", "-t", room], capture_output=True, timeout=20)
-            run_id2, why2 = coord.resolve_live_run(goal)
-            check("⚠ F6c with NO room, `resolve_live_run` REFUSES and names why — while runs.csv "
-                  "still reads `state=open` on disk, which the register-era resolver would have "
-                  "answered a live package to. That row is 7.608's shape",
-                  run_id2 == "" and "NOT EXECUTING" in why2, why2[:120])
+            lease3, detail3 = coord.derive_lease(goal)
+            check("⚠ F6c with NO room there is NO package — a READABLE answer saying the goal is "
+                  "not executing, while runs.csv still reads `state=open` on disk, which the "
+                  "register-era resolver would have answered a live package to. That row is "
+                  "7.608's shape, and the answer must come from the room and nothing else",
+                  detail3 == "" and lease3.get("live") is False and lease3.get("rooms") == [],
+                  f"detail={detail3[:80]!r} live={lease3.get('live')!r}")
         finally:
             subprocess.run(["tmux", "kill-server"], capture_output=True, timeout=20)
 

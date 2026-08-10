@@ -36,6 +36,7 @@ const { hashToken } = require('../sender-auth');
 // gateway directory's own modules, and the boundary rule is about what the SHIPPED gateway
 // reaches, not about what a test harness may assemble.
 const { resolvePeerSeat } = require('../../server/seat-identity/peer-identity');
+const { deriveLease } = require('../../server/lease/lease');
 
 function out(...lines) { fs.appendFileSync(outPath, lines.join('\n') + '\n'); }
 
@@ -63,20 +64,49 @@ function starttimeOf(pid) {
 // A LIVE, MATERIALIZED, ROSTERED seat registered to this process — which is a genuine ancestor of
 // the client below, so the identity match is honest rather than relaxed. The fixture supplies
 // measurables only; it never supplies the seat NAME to the resolver.
+//
+// ── 7.607 E3b — RE-KEYED TO THE GOAL-DIRECT GRAMMAR (E2a's cutover; this probe was its fallout) ──
+//
+// The shape is now `<ws>/.rbtv/goals/<goal>/seats/<seat>/` and every apparatus file sits at GOAL
+// level: `taskforce.csv` and `sessions.csv` beside `seats/`, no `runs/run-N/` segment and no
+// `runs.csv` at all (`decisions.md#d-extinguishment-design-lock` items 6/9; `seat-folder.js`
+// parses ONLY this shape and deliberately does not accept the old one). Under the old fixture
+// `parseSeatPath` still matched — `seats` is found by `lastIndexOf` — but it named the RUN dir as
+// the goal, so `goals.csv` membership failed and every seat was refused: the probe reported
+// `sender.seat=undefined` and read as a broken SEAM while the seam was fine and the FIXTURE was
+// stale. NOT ONE ASSERTION BELOW IS WEAKENED BY THE RE-KEY; only the shape on disk moved.
+// Every fixture root is remembered so the teardown can remove it. It was NOT removed before, and
+// this probe runs hourly under the probe-suite timer: 308 `ignite-seam-*` trees had accumulated in
+// /tmp by 2026-08-09, two per run since 2026-08-08. Fixed here rather than filed because the leak
+// is in the function this change was already rewriting.
+const fixtureRoots = [];
 function fixture(seat) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-seam-'));
+  fixtureRoots.push(root);
   const goalDir = path.join(root, '.rbtv', 'goals', 'seam-goal');
-  const runDir = path.join(goalDir, 'runs', 'run-1');
-  const seatDir = path.join(runDir, 'seats', seat);
+  const seatDir = path.join(goalDir, 'seats', seat);
   fs.mkdirSync(seatDir, { recursive: true });
   fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goals.csv'), 'name,created,due,type,status\nseam-goal,2026-07-27,,one-shot,active\n');
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-07-27 01:30,\n');
-  fs.writeFileSync(path.join(runDir, 'taskforce.csv'), `seat,role\n${seat},executor\n`);
+  fs.writeFileSync(path.join(goalDir, 'taskforce.csv'), `seat,role\n${seat},executor\n`);
   fs.writeFileSync(path.join(seatDir, 'seat.md'), `---\nseat: ${seat}\n---\n`);
-  fs.writeFileSync(path.join(runDir, 'sessions.csv'),
+  fs.writeFileSync(path.join(goalDir, 'sessions.csv'),
     `seat,session-id,pid,pid-starttime,started,ended\n${seat},s1,${process.pid},${starttimeOf(process.pid)},t,\n`);
   return seatDir;
 }
+
+// ⚠ THE LEASE, SUPPLIED AS A MEASURABLE — never as a verdict (7.607 E3b). E2a re-founded the
+// identity gate's L2 on `server/lease/lease.js`, so a seat is only admitted while its goal's tmux
+// ROOM exists. This probe must not start a tmux server to satisfy that: it runs under the hourly
+// probe-suite timer, and a suite probe that creates rooms would land them on the DEFAULT socket the
+// moment `TMUX_TMPDIR` were unset or wrong — on this box that server carries the owner's live
+// sessions. So the ONE tmux read is injected instead, exactly as `lease.js`'s own header sanctions
+// ("injectable so a probe supplies a real fixture server's output"): the real `deriveLease` runs,
+// over a real `sessions.csv`, and only the `tmux list-sessions` line is stood in for. The verdict
+// is still computed by the module under test.
+const seamLease = (o) => deriveLease({
+  ...o,
+  tmuxProbe: () => ({ sessions: 'seam-goal\n', panes: '' }),
+});
 
 const clientFile = path.join(os.tmpdir(), `ignite-seam-client-${process.pid}.js`);
 fs.writeFileSync(clientFile, `
@@ -97,7 +127,9 @@ const gateway = createGateway({
   dispatch: async (envelope) => { seen.push(envelope); return { ok: true, data: {} }; },
   internalSecret: 'seam-probe-internal-secret',
   sendersFilePath: sendersFile,
-  checkPeerSeat: resolvePeerSeat,
+  // The composition root injects `resolvePeerSeat` itself (`server/index.js`); the only difference
+  // here is the lease reader it resolves L2 through — a probe's injection point, never the wire's.
+  checkPeerSeat: (conn) => resolvePeerSeat(conn, { readLease: seamLease }),
 });
 
 async function main() {
@@ -172,4 +204,5 @@ main().then(() => {
 }).finally(() => {
   try { fs.unlinkSync(sendersFile); } catch {}
   try { fs.unlinkSync(clientFile); } catch {}
+  for (const root of fixtureRoots) { try { fs.rmSync(root, { recursive: true, force: true }); } catch {} }
 });

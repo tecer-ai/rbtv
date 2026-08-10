@@ -89,9 +89,64 @@ function ancestryPids(startPid, maxDepth = 64) {
   return out;
 }
 
+// ⚠ THE SOCKET PATH IS CHECKED BEFORE tmux IS ASKED ANYTHING (7.607 E3b, closing the §2-review r17
+// fail-open). The errno classifier below cannot close this hole, and that is the point of doing it
+// here instead: `no such file or directory` is the SAME phrase for the legitimate no-server case
+// (the socket file was never created) and for a MISCONFIGURED socket location (the directory the
+// socket would live in does not exist, or `$TMUX` names a socket path that is gone). Measured
+// 2026-08-09: a live goal read `ok:true, live:false, rooms:0` against a server-less socket dir —
+// indistinguishable from "this goal is not executing", which is fail-OPEN on the lease's PRIMARY
+// evidence in the one module whose header promises the opposite posture.
+//
+// The two cases ARE separable, just not from tmux's stderr: a socket DIRECTORY that does not exist
+// or cannot be entered is a configuration fault, whereas an existing readable directory holding no
+// socket is a real, readable EMPTY. So the directory is stat'd first and an absent/unreadable one
+// THROWS — `deriveLease` turns that into `{ ok:false }`, which is ignorance, and every caller's own
+// posture (the ticker gate's fail-closed, the watchers' fail-open) then applies to it correctly.
+//
+// ⚠ `$TMUX` IS CONSULTED FIRST BECAUSE IT WINS. Measured on this box 2026-08-09: with `$TMUX`
+// naming a nonexistent socket and `TMUX_TMPDIR` naming a live isolated server, tmux tried the
+// `$TMUX` path and failed — the environment variable inside a pane selects the socket outright and
+// `TMUX_TMPDIR` is not consulted. A guard that only checked `TMUX_TMPDIR` would therefore be blind
+// in exactly the context every team-kit seat runs in (a pane), and would ALSO invent a false
+// unreadable there whenever a seat's stale `TMUX_TMPDIR` pointed nowhere while its real socket was
+// fine. This is also the OTHER half of the E3 footgun the run's binding 12 names from the caller
+// side: a `TMUX_TMPDIR` naming a nonexistent directory makes tmux fall back to the DEFAULT socket,
+// so an "isolated" fixture silently reads the owner's live server. Refusing here means a
+// misconfigured caller is told, rather than quietly answered about the wrong server.
+function assertSocketReadable() {
+  const inPane = (process.env.TMUX || '').trim();
+  if (inPane) {
+    const sock = inPane.split(',')[0];
+    try {
+      fs.accessSync(sock, fs.constants.R_OK | fs.constants.W_OK);
+    } catch (err) {
+      throw new Error(`$TMUX names the socket ${sock}, which is not usable (${err.code}) — this is a `
+        + 'MISCONFIGURED socket location, not an absent server, and the two must not read alike');
+    }
+    return;
+  }
+  const dir = (process.env.TMUX_TMPDIR || '').trim() || '/tmp';
+  let st;
+  try {
+    st = fs.statSync(dir);
+    fs.accessSync(dir, fs.constants.R_OK | fs.constants.X_OK);
+  } catch (err) {
+    throw new Error(`the tmux socket directory ${dir} cannot be read (${err.code}) — a socket `
+      + 'location that does not exist or cannot be entered is a CONFIGURATION fault, and tmux '
+      + 'reports it with the same errno phrase as an absent server; classifying it EMPTY would be '
+      + 'fail-open on the lease\'s primary evidence');
+  }
+  if (!st.isDirectory()) {
+    throw new Error(`the tmux socket directory ${dir} is not a directory — the socket location is `
+      + 'misconfigured, which is ignorance about the lease, never an absent lease');
+  }
+}
+
 // The one tmux read. Injectable so a probe supplies a real fixture server's output rather than
 // this module growing an assertion channel.
 function defaultTmuxProbe() {
+  assertSocketReadable();
   const run = (args) => execFileSync('tmux', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   // `list-sessions` exits 1 with "no server running", or with `error connecting to <socket> (No
   // such file or directory)`, when nothing is up — that is a legitimate EMPTY, not an unreadable.
@@ -230,8 +285,8 @@ function describeLease() {
 
 module.exports = {
   deriveLease, describeLease, roomNamesForGoal, packageDirForRoom, verifiedSeats,
-  // exported for the probe's unreadable-classification arms ONLY — nothing else calls it.
-  defaultTmuxProbe,
+  // exported for the probe's unreadable-classification arms ONLY — nothing else calls them.
+  defaultTmuxProbe, assertSocketReadable,
 };
 
 // ── THE PY ACCESSOR'S ENTRY POINT (7.607 E1) ───────────────────────────────────────────────────
@@ -240,7 +295,9 @@ module.exports = {
 // the lease is live or not (an absent lease is an ANSWER); exit 1 only when it is UNREADABLE, so a
 // shell caller can tell ignorance from absence without parsing prose.
 //
-// It exists so `team-kit/coord.py resolve_live_run` can be a THIN ACCESSOR over this one home
+// It exists so `team-kit/coord.py derive_lease` can be a THIN ACCESSOR over this one home
+// (7.607 E3b: it named `resolve_live_run` until that wrapper was deleted — the package IS the goal
+// folder, so the wrapper's whole answer had collapsed to the goal's own name)
 // rather than a second implementation of the room predicate in Python. That second implementation
 // is precisely the drift PRIN-11 forbids and precisely what the register era produced: three
 // independent `runs.csv` parsers (inventory #33/#36/#37) that could disagree. One home, two

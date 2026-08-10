@@ -2426,45 +2426,23 @@ def derive_lease(goal):
     return out, ""
 
 
-def resolve_live_run(goal):
-    """(package-name, detail) — the goal's CURRENT execution, DERIVED from the live lease.
-
-    R10 unchanged in intent: goal-level state must read correctly across an execution boundary,
-    and this is still the one hop from the goal folder that gives a sensor that property. What
-    changed (7.607 E1) is the EVIDENCE. It was `runs.csv`'s `state` column — a stored status that
-    outlives what it describes, and the direct cause of the 7.608 deadlock (a goal whose row read
-    `open` while nothing ran). It is now the room: a goal is executing iff its room exists NOW.
-
-    The return VALUE keeps its shape so the three fire-time callers (`selfheal-watch.py`,
-    `recover-room.py`, `goal-watcher-job.py`, inventory #54) need no change: the PACKAGE NAME
-    under the goal. 7.607 E2b collapsed that to ONE spelling — the package IS the goal folder, so
-    this now returns the goal's own name whenever the goal is executing.
-
-    ⚠ STILL REFUSES RATHER THAN GUESSES, at three doors: an UNREADABLE lease (ignorance), NO lease
-    (the goal is not executing), and MORE THAN ONE matching room. The third is no longer reachable
-    through a second room SPELLING (E2b deleted the legacy arm) — it is reachable through tmux
-    reporting two sessions of one name, which cannot normally happen and is therefore exactly the
-    condition worth refusing on rather than picking from. A resolver that cannot be wrong quietly
-    is the whole point, and it survives the change of evidence unaltered.
-    """
-    goal = Path(goal)
-    lease, detail = derive_lease(goal)
-    if detail:
-        return "", (f"the lease for {goal.name} is UNREADABLE: {detail}. This is ignorance, not an "
-                    f"absent execution — refusing rather than reading it as 'not running'.")
-    rooms = lease.get("rooms") or []
-    if not rooms:
-        return "", (f"goal {goal.name} is NOT EXECUTING — no tmux room matching "
-                    f"{lease.get('evidence', {}).get('room-predicate', 'the room predicate')} "
-                    f"exists right now, so there is no current state to read")
-    if len(rooms) > 1:
-        names = ", ".join(r.get("room", "?") for r in rooms)
-        return "", (f"{len(rooms)} rooms match goal {goal.name} ({names}) — the design lock rules "
-                    f"ONE room per goal (item 2) and the predicate now accepts exactly one "
-                    f"spelling, so two matches means the box itself is in a state nothing here "
-                    f"should resolve. Refusing to pick: state read against the wrong room is "
-                    f"worse than a refusal that names the ambiguity.")
-    return Path(rooms[0].get("packageDir") or "").name, ""
+# ── 7.607 E3b — `resolve_live_run` IS DELETED, AND SO IS THE `current-run` VERB ───────────────
+#
+# It was the register-era question ("which package of this goal is EXECUTING") wearing the lease's
+# evidence, and design-lock item 8 removed its subject: THE PACKAGE IS THE GOAL FOLDER, so the
+# function's whole answer had collapsed to "the goal's own name whenever a room exists". Its three
+# fire-time callers (`selfheal-watch.py`, `recover-room.py`, `goal-watcher-job.py`) were re-founded
+# on `derive_lease` in E3 — taking `rooms[0].packageDir` DIRECTLY, which is what fixed the live bug
+# where they composed a `<goal>/runs/<name>` path that no longer exists. Keeping a second, thinner
+# accessor beside the one that survived is a second definition of the same fact, which is what
+# PRIN-11 forbids and what the register era's three `runs.csv` parsers actually were.
+#
+# The VERB goes with it rather than being re-pointed: it printed the goal name back to a caller who
+# had to name the goal to ask, and its own `next:` line advertised a `--run` flag E2b deleted.
+# `derive_lease` is the surviving question and `coordinate execution` the surviving stamp. Nothing
+# else in this tree called either symbol (verified at 6fd40b3: the only call sites were
+# `cmd_current_run` here and `probes/probe-finish-edge.py`'s F6 arms, which are re-founded on
+# `derive_lease` in this same change).
 
 
 def cmd_execution(args):
@@ -2484,17 +2462,6 @@ def cmd_execution(args):
         return 0
     print(current_execution(base))
     return 0
-
-
-def cmd_current_run(args):
-    goal = goal_dir(package_dir(args))
-    run_id, detail = resolve_live_run(goal)
-    if not run_id:
-        refuse("state", detail, 1)
-    print(run_id)
-    print(c(f"DERIVED from the live tmux room of {goal.name} (7.607 — no stored status is read; "
-            f"there is no runs.csv to consult), so goal-level state follows the execution "
-            f"boundary (R10). Execution stamp: {current_execution(base_dir(args))}", C_HINT))
 
 
 # ---------- 7.607 E1: THE FINISH EDGE — the ONLY thing that finishes a goal -------------------
@@ -27347,7 +27314,7 @@ HELP_EPILOG = """everyday
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / execution / current-run / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / execution / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -28082,19 +28049,6 @@ def build_parser():
     s.add_argument("--note", default="", help="free text appended to the finish event's body")
     add_identity_flags(s)
     s.set_defaults(func=cmd_finish_goal)
-
-    s = command(
-        "current-run",
-        "Which package of this goal is EXECUTING, DERIVED from the live tmux room (7.607 E1).\n"
-        "NO stored status is read — runs.csv is not consulted at any point. One hop from the goal\n"
-        "folder, so a sensor follows an execution boundary instead of staying pinned to the one it\n"
-        "was born in. Refuses — never guesses — at three doors: the lease is UNREADABLE, the goal\n"
-        "is NOT EXECUTING, or more than one room matches the E1 transitional predicate.",
-        "example:\n"
-        "  coordinate current-run\n"
-        "next: coordinate --run <that run> workers — read the live run's roster")
-    add_identity_flags(s)
-    s.set_defaults(func=cmd_current_run)
 
     s = command(
         "reap",

@@ -638,7 +638,7 @@ def relaunch_room(room, run_fn=None):
 
     ponytail: this restores the ROOM, not the seats inside it. Re-seating is the existing
     self-heal/recover-room path's job (`jobs/recover-room.py`, `jobs/selfheal-watch.py`), which
-    resolves its target through `coord.resolve_live_run` and therefore starts working again the
+    resolves its target through `coord.derive_lease` and therefore starts working again the
     moment a room exists. Upgrade path if that proves insufficient: have this call the recover-room
     job directly instead of tmux.
     """
@@ -7012,6 +7012,18 @@ def cmd_selftest():
               UNREADABLE_ESCALATION_LINE.split(" — ")[0]
               not in _rcturns(False, [_un, ("live", "room-a", 2, "2 verified seat(s)")]
                               * (UNREADABLE_BOUND + 1), limit=2 * UNREADABLE_BOUND + 2)[2])
+        # ⚠ THE CONSTANT ITSELF, SPELLED OUT (7.607 E3b — the twin of the arm E3's review F3 put
+        # on `team_monitor.UNREADABLE_BOUND`, which carries the identical constant and the
+        # identical mechanism-relative arms). Every arm above states its expectation RELATIVE to
+        # `UNREADABLE_BOUND` (`limit=UNREADABLE_BOUND + 3`, `- 1`, `* 2`), so a change to the
+        # NUMBER moves the expectation with it and every one of them stays green. 5 is a design
+        # choice — five consecutive blind passes before the loop says so out loud — and a choice
+        # nobody can change by accident is the difference between a guarded value and a documented
+        # one. This is the ONLY check here that can go red on a change to the number itself.
+        check("⚠ 7.607 E3b UNREADABLE_BOUND IS 5, asserted LITERALLY (got %r) — the mechanism arms "
+              "above read the constant as their own expectation, so nothing else in this file "
+              "notices the number moving" % UNREADABLE_BOUND,
+              UNREADABLE_BOUND == 5)
         # ---- 7.607 E1b — F-1: ONLY AN OCCUPIED ROOM RESETS THE RELAUNCH BUDGET.
         # The pair below is the whole fix, and it is a PAIR on purpose: the OCCUPIED arm must
         # stay silent (a bound that fires on a healthy room is a false escalation) and the HOLLOW
