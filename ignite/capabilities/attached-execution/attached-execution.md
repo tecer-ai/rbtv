@@ -239,6 +239,13 @@ time**, released on the normal path and on a signal, and only ever released if i
 **Owner ruling `decisions.md#d-s23-single-execution-record-now`** (pulling forward the Phase-6 task
 filed by `#d-s18-cross-lane-refusal`, and closing the `done`-vs-`exited` question S-23).
 
+**The term is MINTED.** `execution record` is now a registry concept —
+`system-definition/concepts/execution-record.md`, settled by
+`system-definition/decisions.md#d-execution-record` (owner ruling
+`#d-execution-record-name`, 2026-08-10). The words below are that term, not this document's
+coinage: use it as spelled, and take the definition, membership test and differentiation from
+the record (`sd-graph show 'execution record'`) rather than restating them here.
+
 `<goal-folder>/executions.csv` is the goal's **execution record**: one row per seat execution, opened
 at dispatch and closed with its outcome, written by **every lane that runs the goal's seats** and read
 by **every lane before it seeds**. A seat finished in one lane is not re-run by the other.
