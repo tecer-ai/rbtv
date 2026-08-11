@@ -764,7 +764,14 @@ tools:
       - --session
       - tw-room2
       - --package
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/seats/jobs-builder/throwaway/pkg-room
+      # ⚠ REPOINTED (2026-08-11) — this line read `…/build-core-daemon-mvp/seats/jobs-builder/…`,
+      # a path that does not exist and, per `git log` on the vault repo, NEVER did: seat folders
+      # have always homed under `runs/<run>/`. It was the boot validator's `broken:2` at EVERY
+      # boot, training operators to skim `level:error`. The fixture itself is intact and UNMOVED
+      # at the path below — six files, git-TRACKED as part of the closed run-1 record (vault
+      # commit `3fb6dba41`), so its lifetime is the repo history's, not a live seat folder's:
+      # deleting it is a reviewed diff, which is the bar `catalogue-paths.js` states.
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1/seats/jobs-builder/throwaway/pkg-room
       - --seat
       - tw-recovery
       - --coord
@@ -793,7 +800,12 @@ tools:
       - /usr/bin/python3
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/goal-watcher-job.py
       - --package
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/seats/enforcement-builder/throwaway/pkg
+      # ⚠ REPOINTED (2026-08-11), same defect and same remedy as the `selfheal-room-throwaway`
+      # entry above: the old value omitted the `runs/run-1/` segment, so it named a path that has
+      # never existed and produced one `level:error` line at every boot. The closed-run FIXTURE
+      # path stays deliberate (7.117 leader ruling (b) on ask #204) — it is git-TRACKED in the
+      # run-1 close record (vault commit `3fb6dba41`); only the missing segment is corrected here.
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1/seats/enforcement-builder/throwaway/pkg
       # The room flags are DELIVERED into is the live run; the package WATCHED is the throwaway.
       # Those are different things, and conflating them was a real defect this build's own probe
       # found: the recipient does not live in the room being watched.
