@@ -924,6 +924,103 @@ def declared_door_seats(args):
         return set()
 
 
+def cage_grant_keys():
+    """The cage-grant frontmatter keys, read from `materialize-seats.py#CAGE_GRANTS` — the ONE
+    home of that vocabulary, imported and never copied. A second list here would be free to fall
+    behind the emitter that WRITES those keys, and the caged detection below turns entirely on
+    the two agreeing.
+
+    An unreadable materializer yields an EMPTY tuple, which detects NO caged seat — today's
+    behaviour exactly, and LOUD rather than silent: one stderr line, keyed on the import failing
+    rather than on a platform or a path, because an empty grant vocabulary would otherwise look
+    identical to a run with no caged seats in it."""
+    import importlib.util
+    src = Path(__file__).resolve().parent.parent / "team-kit" / "materialize-seats.py"
+    try:
+        spec = importlib.util.spec_from_file_location("_materialize_seats_cage", src)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return tuple(mod.CAGE_GRANTS)
+    except Exception as exc:                                      # noqa: BLE001
+        print(f"goal-watcher-job: CAGE GRANTS UNREADABLE at {src} — {exc}; NO seat can be "
+              f"detected as caged this pass, so the shadow backstop's caged arm is INERT",
+              file=sys.stderr)
+        return ()
+
+
+def caged_seats(args):
+    """The seats that are CAGED BY DECLARATION — those whose OWN descriptor frontmatter carries at
+    least one cage grant. Declaration, not sensing, like the two readers above.
+
+    ⚠ THE KEY IS STRUCTURAL — "this seat was BUILT with no pane" — and it is NEVER "no live
+    session was found". Those two look identical from the room's side, because a caged seat and a
+    DEAD tmux room both present zero panes; keying on absence would hand every ordinary dead room
+    to the caged arm and manufacture shadow rows about seats whose sensor merely broke. A
+    descriptor is a file the run wrote about itself, so a seat is caged because the catalogue
+    granted it a sandbox, not because sensing failed.
+
+    ONE READER for the descriptor span — `coord.briefing_frontmatters`, the same reader
+    `declared_door_seats` reaches through — and ONE HOME for the grant vocabulary
+    (`cage_grant_keys`). `register=False` because this is a read-only pass and resolving a package
+    normally re-registers the run tag, which is a WRITE.
+
+    An unreadable descriptor set yields an EMPTY caged set: NOT caged, plus one stderr line. That
+    is today's behaviour and the conservative direction here — the caged arm only ADDS shadow
+    observation, so failing it closed loses a record rather than inventing one."""
+    prefixes = tuple(f"{k}:" for k in cage_grant_keys())
+    if not prefixes:
+        return set()
+    try:
+        sys.path.insert(0, str(Path(args.coord).resolve().parent))
+        import coord  # noqa: E402 — the descriptor frontmatter span's single reader
+        ns = argparse.Namespace(package=str(args.package), base=None, workers_dir=None)
+        fms = coord.briefing_frontmatters(coord.workers_dir(ns, register=False))
+    except Exception as exc:                                      # noqa: BLE001
+        print(f"goal-watcher-job: SEAT DESCRIPTORS UNREADABLE — {exc}; no seat is treated as "
+              f"caged this pass", file=sys.stderr)
+        return set()
+    return {seat for seat, (fm, _p) in fms.items()
+            if any(ln.startswith(prefixes) for ln in fm.splitlines())}
+
+
+def caged_out_of_room(args, seats):
+    """{seat: (pid, starttime)} for every caged seat that is OUT OF THE ROOM — it holds an OPEN
+    `sessions.csv` row (launched, never checked out) whose ident no longer names a live harness.
+
+    The ident PAIR is the identity, for the reason `caller_ident` states in full: a pid alone is
+    recycled onto another process. An unrecorded or unreadable ident counts as OUT — the same
+    conservative direction `declared_dispositions` takes, because this arm exists precisely for
+    the seat that did not come back.
+
+    `coord.idents_alive` is /proc-based, so on a non-POSIX host EVERY ident reads dead and this
+    returns every open caged row. That is why the real subject check is a VPS venue, and why the
+    selftest's fixture is deliberately built with idents that are dead everywhere — its verdict
+    must not depend on a live process table."""
+    if not seats:
+        return {}
+    try:
+        sys.path.insert(0, str(Path(args.coord).resolve().parent))
+        import coord  # noqa: E402 — the sessions table's single reader
+        pkg = Path(args.package)
+        open_ids = coord.sessions_open_ids(pkg)
+        header, rows = coord.read_csv_table(coord.sessions_csv(pkg), coord.SESSIONS_COLS)
+        idx = {c: i for i, c in enumerate(header)}
+        if not {"seat", "session-id", "pid", "pid-starttime"} <= set(idx):
+            return {}
+        idents = {}
+        for r in rows:
+            coord.pad_row(r, header)
+            seat = r[idx["seat"]].strip()
+            if seat in seats and open_ids.get(seat) == r[idx["session-id"]].strip():
+                idents[seat] = (r[idx["pid"]].strip(), r[idx["pid-starttime"]].strip())
+        alive = set(coord.idents_alive([i for i in idents.values() if i[0] and i[1]]))
+        return {s: i for s, i in idents.items() if i not in alive}
+    except Exception as exc:                                      # noqa: BLE001
+        print(f"goal-watcher-job: CAGED SESSION ROWS UNREADABLE — {exc}; the caged arm names no "
+              f"subject this pass", file=sys.stderr)
+        return {}
+
+
 def shadow_decide(disposition):
     """PURE. (decision, why) — the would-be FAILURE-MODE enqueue, COMPUTED, never performed.
 
@@ -2322,6 +2419,82 @@ def selftest():
           not any(t in (DEFAULT_LEADER_SEAT + "|" + DEFAULT_FALLBACK)
                   for t in RETIRED_ROLE_TOKENS))
 
+    # ---- THE CAGED BACKSTOP (task 7.751). The ONE family here that touches disk, and it has to:
+    # cagedness is a property of a DESCRIPTOR FILE, and a stub standing in for that file would be
+    # testing this selftest's idea of a descriptor rather than the one `coord` actually parses.
+    # So a real (throwaway) package is built and the REAL coord reads it. The idents are dead on
+    # every host — no live process table is consulted, so the verdicts hold on Windows too, which
+    # is the whole reason the fixture names a pid that cannot exist rather than spawning one.
+    import tempfile
+    _real_coord = Path(__file__).resolve().parent.parent / "team-kit" / "coord.py"
+    check("CAGED (7.751) GRANT VOCABULARY: the cage-grant keys come from "
+          "`materialize-seats.py#CAGE_GRANTS`, not from a copy in this file",
+          "read-root" in cage_grant_keys() and len(cage_grant_keys()) > 1)
+    with tempfile.TemporaryDirectory() as _td:
+        _pkg = Path(_td) / "pkg"
+        (_pkg / "coordination").mkdir(parents=True)
+        for _s, _grant in (("cg-killed", "read-root: true\n"), ("cg-done", "goals-write: true\n"),
+                           ("cg-plain", "")):
+            (_pkg / "seats" / _s).mkdir(parents=True)
+            (_pkg / "seats" / _s / "seat.md").write_text(
+                f"---\nagent: {_s}\nharness: claude\n{_grant}---\nbody\n", encoding="utf-8")
+        sys.path.insert(0, str(_real_coord.parent))
+        import coord as _c  # noqa: E402 — the same single reader the arm itself uses
+        with open(_pkg / "sessions.csv", "w", encoding="utf-8", newline="") as _fh:
+            import csv as _csv
+            _w = _csv.writer(_fh)
+            _w.writerow(_c.SESSIONS_COLS)
+            for _s in ("cg-killed", "cg-done", "cg-plain"):
+                _row = dict.fromkeys(_c.SESSIONS_COLS, "")
+                # pid 0 with a starttime that names no process: dead on POSIX AND unreadable
+                # anywhere else, so this row is OUT OF THE ROOM on every host.
+                _row.update({"session-id": f"sid-{_s}", "seat": _s, "harness": "claude",
+                             "pid": "0", "pid-starttime": "1"})
+                _w.writerow([_row[_col] for _col in _c.SESSIONS_COLS])
+        _c.write_seat_disposition(_pkg / "coordination", "cg-done", "sid-cg-done",
+                                  "done", "2026-08-11 09:30")
+        _ca = _ns(coord=str(_real_coord), package=str(_pkg))
+        _caged = caged_seats(_ca)
+        check(f"CAGED (7.751) DETECTION: cagedness is read off the seat's OWN descriptor "
+              f"frontmatter — the two grant-declaring seats are caged ({sorted(_caged)})",
+              _caged == {"cg-killed", "cg-done"})
+        check("CAGED (7.751) DEAD-ROOM CONTROL: a seat declaring NO cage grant is NOT caged even "
+              "though its ident is just as dead — absence of a pane is never the key",
+              "cg-plain" not in _caged)
+        _out = caged_out_of_room(_ca, _caged)
+        check(f"CAGED (7.751) SUBJECT: a caged seat holding an OPEN session row whose ident is "
+              f"not a live harness is out of the room ({sorted(_out)})",
+              set(_out) == {"cg-killed", "cg-done"})
+        _disp = declared_dispositions(_ca, sorted(_out))
+        check("CAGED (7.751) SHADOW: a KILLED caged seat — open row, dead ident, no durable "
+              "disposition — decides WOULD-ENQUEUE",
+              shadow_decide(_disp.get("cg-killed"))[0] == "WOULD-ENQUEUE")
+        check("CAGED (7.751) SHADOW: a caged seat whose own `coordination/` record says `done` "
+              "decides WOULD-NOT-ENQUEUE — read through `coord.session_disposition`, the ONE "
+              "reader, on the one surface a caged seat can write",
+              _disp.get("cg-done") == CLEAN_CHECKOUT
+              and shadow_decide(_disp["cg-done"])[0] == "WOULD-NOT-ENQUEUE")
+    # RIDER 1, ASSERTED RATHER THAN CLAIMED: every SHADOW-BACKSTOP row this file can emit — ROW
+    # 6's and the caged arm's alike — carries an action the delivery loop SKIPS (`none`). A row
+    # that ever named a real act would be delivered, and this is what makes "shadow-only" a check.
+    _shadow_actions = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "decision"):
+            continue
+        if not (node.args and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == "SHADOW-BACKSTOP"):
+            continue
+        act = node.args[2]
+        lead = act.value if isinstance(act, ast.Constant) else (
+            act.values[0].value if isinstance(act, ast.JoinedStr)
+            and isinstance(act.values[0], ast.Constant) else "")
+        _shadow_actions.append((node.lineno, lead))
+    check(f"CAGED (7.751) SHADOW-ONLY: every SHADOW-BACKSTOP row this file can emit is a "
+          f"REPORTED `none` action the delivery loop skips — no enqueue, either arm "
+          f"({_shadow_actions})",
+          len(_shadow_actions) == 2
+          and all(str(a).startswith("none") for _l, a in _shadow_actions))
+
     print(f"selftest: {len(fails)} failure(s)" if fails else "selftest: all green")
     return 1 if fails else 0
 
@@ -2459,6 +2632,16 @@ def main():
     # ⚠ RESOLVED ONCE, HERE, AND REPORTED — the same discipline as the doors above, and for the
     # same reason: `evaluate` stays PURE, and a revival that stopped being possible must not look
     # like a run with no ghosts in it (task 7.662).
+    # ⚠ RESOLVED ONCE, HERE, AND REPORTED — the same discipline as the doors above, and the count
+    # is printed on EVERY pass INCLUDING ZERO for the same reason (task 7.751): a detection that
+    # stopped resolving — an unreadable materializer, a descriptor set that moved — would
+    # otherwise be indistinguishable from a run with no caged seats in it, and the difference is
+    # whether the shadow backstop can see the one class of seat team-monitor structurally cannot.
+    args.caged_seats = caged_seats(args)
+    print("goal-watcher-job: caged %d seat(s) declaring a cage grant%s"
+          % (len(args.caged_seats),
+             (": " + ", ".join(sorted(args.caged_seats))) if args.caged_seats else ""),
+          file=sys.stderr)
     args.caller_ident = caller_ident(args)
     print("goal-watcher-job: revival caller ident %s"
           % (f"pid {args.caller_ident[0]} starttime {args.caller_ident[1]}"
@@ -2512,6 +2695,47 @@ def main():
                               fix=(args.team_monitor, tail))]
         paused = True
         trail = []
+        # ---- THE CAGED BACKSTOP (task 7.751). The STALE-SENSOR row above STAYS — for a caged
+        # goal the sensor is not broken, it is STRUCTURALLY BLIND: `state.json`'s only writer
+        # refuses a paneless roster (G-296) and a caged seat is paneless BY DESIGN, so this arm
+        # is that goal's NORMAL steady state rather than an incident. Enforcement stays PAUSED
+        # (`paused` is untouched) and `evaluate`'s pane rows — DEAD, GHOSTROW, REVIVAL, STALL —
+        # do NOT run here: every one of them reads a pane, and there is none to read.
+        #
+        # What the arm adds is OBSERVATION and nothing else. RIDER 1 IS NOT WEAKENED: there is no
+        # enqueue path on this branch, to any queue, under any name — the same `shadow_decide` /
+        # `shadow_record` pair ROW 6 uses is called directly here, so one predicate and one record
+        # builder serve both arms and neither can drift into acting.
+        caged_absent = caged_out_of_room(args, args.caged_seats)
+        if caged_absent:
+            # `shadow_record` reads exactly one key off the snapshot, and this arm HAS no snapshot
+            # to hand it — the sensor is what is missing. So the reading's own clock is supplied,
+            # rather than the `"?"` the stale-sensor placeholder above carries.
+            _cage_snap = {"captured_at_iso": time.strftime("%Y-%m-%dT%H:%M:%S",
+                                                           time.localtime(now))}
+            _cage_disp = declared_dispositions(args, sorted(caged_absent))
+            for _seat in sorted(caged_absent):
+                _d = _cage_disp.get(_seat)
+                _decision, _why = shadow_decide(_d)
+                # `pane` and `class` say IN THE RECORD that this row came from the coordination
+                # surface rather than from a roster row — the trail is compared against predicted
+                # decisions, so where a reading came from has to survive into it.
+                trail.append(shadow_record(
+                    _seat, "CAGED-ABSENT", "(none — a caged seat has no pane by design)",
+                    _d, _decision, _why, _cage_snap))
+                decisions.append(decision(
+                    "SHADOW-BACKSTOP", _seat,
+                    f"none — SHADOW: {_decision}, the act is NOT taken",
+                    f"{_why} This seat is CAGED BY DECLARATION and holds an OPEN session row "
+                    f"whose ident is no longer a live harness — launched, never checked out, "
+                    f"process gone. The sensor cannot see it at all (a caged seat has no pane, "
+                    f"so no snapshot exists to read), so the reading came from the run's own "
+                    f"coordination surface through `coord.session_disposition`. Trail record "
+                    f"emitted; no enqueue, to any queue, under any name. Trail greens never "
+                    f"ripen into authority — the real act needs a fresh OWNER-CLASS "
+                    f"authorization through the `master` (rider 1 of "
+                    f"`p-756-edge-consumption-true`).",
+                    ""))
     else:
         # The seats the DURABLE check-out record is asked about, and only these. Two rows need
         # it and they need it for the SAME question — did this seat check out cleanly:

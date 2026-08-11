@@ -57,9 +57,11 @@ TARGET = HERE.parent / "goal-watcher-job.py"
 OUT = HERE / "probe-goal-watcher-selftest.out"
 
 # The count the selftest carried at 2026-08-09 (task 7.575, raised 29 -> 35 by task 7.590's six
-# arms, 35 -> 45 by task 7.601's ten — the floor is RAISED IN THE SAME CHANGE that adds arms, or
-# the new coverage is deletable without reddening anything). See R2.
-ARM_FLOOR = 45
+# arms, 35 -> 45 by task 7.601's ten, 45 -> 74 by task 7.751 — which re-synced the floor to the
+# LIVE count as well as adding its seven, because the floor had drifted 22 arms below reality and
+# a floor that far under the count guards nothing. The floor is RAISED IN THE SAME CHANGE that
+# adds arms, or the new coverage is deletable without reddening anything). See R2.
+ARM_FLOOR = 74
 # Label prefixes whose disappearance is a silent loss of coverage. Each names a guard whose
 # failure mode is invisible without it — the two 7.578 rows are the text/exec split the row was
 # filed over, and RETIRED ROLE is the AST scan that makes `d-watcher-deterministic-chain`
@@ -97,6 +99,17 @@ REQUIRED_FAMILIES = (
     "7.601 CONTROL:",
     "7.601 CENSUS:",
     "7.601 EXEC PATH UNCHANGED:",
+    # Task 7.751 — the caged shadow backstop. DETECTION and DEAD-ROOM CONTROL are the pair that
+    # matters and neither survives alone: detection alone passes for a check that reads "no pane"
+    # as caged, which is the one misreading the design forbids, and the control alone passes for a
+    # detector that finds nothing. SHADOW-ONLY is the rider-1 guard — it is the only arm asserting
+    # that no SHADOW-BACKSTOP row this file can emit is ever DELIVERED.
+    "CAGED (7.751) GRANT VOCABULARY:",
+    "CAGED (7.751) DETECTION:",
+    "CAGED (7.751) DEAD-ROOM CONTROL:",
+    "CAGED (7.751) SUBJECT:",
+    "CAGED (7.751) SHADOW:",
+    "CAGED (7.751) SHADOW-ONLY:",
 )
 
 lines, failures, inoperative = [], [], []
