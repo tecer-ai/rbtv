@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """goal_creation_request — THE ENTRY: a goal-creation request arrives here, is validated against
-the landed request schema, and is discharged as three ordered acts — create -> arm -> launch.
+the landed request schema, and is discharged as two ordered acts — create -> launch.
 
 Core-build task **7.211** (design id `E16`) of run-3's `no-row-builds-the-entry` pass. This file
 exists because the wave that consumes the entry was designed on the premise that the entry already
@@ -17,12 +17,14 @@ verbatim: *"It holds NO spawn/queue capability (chat-bridge-spec.md Behavior #5)
 entry there would change a designed bound of another component. The entry is its own capability
 instead, following the shape its five siblings already use.
 
-THE ONE LOCATION COMPUTER — WHY THIS FILE IMPORTS RATHER THAN COMPUTES
-----------------------------------------------------------------------
-The arming marker's location is computed by `edge-runner-job.arm_path()` and by nothing else. This
-file IMPORTS it. A second computation of that location — here, to save an import — would be two
-readers free to disagree about which packages are armed, and a disagreement about ARMING is the C4
-failure itself. `arm_path()`'s own docstring says the same thing from the other side.
+ARMING IS RETIRED, AND THE CHAIN IS NOW create -> launch
+--------------------------------------------------------
+This file used to write `coordination/edge-fastpath.json` — the per-package marker that armed the
+Python edge-runner's check-out fast path — importing `edge-runner-job.arm_path()` so that the
+location had exactly one computer. Both the marker and that engine are GONE
+(`1-projects/rbtv-sb-merge-refactor-core-build/build/one-readiness-predicate.md`, owner-ruled
+2026-08-11): readiness is recomputed from disk every cadence by the daemon's seeding pass through
+`coordinate ready-seats --json`, so nothing is armed per package any more. See § 3 below.
 
 THE RULED NAME
 --------------
@@ -31,10 +33,13 @@ the script path `materialize-seats.py` behind it, and it never hand-rolls a spaw
 and `p-the-scaffold-seats-fix-is-NOT-a-text-alignment` bind — invoke the ruled name, do not align
 text to whatever a call site happens to say.
 
-⚠ ARMING DOES NOT GENERALISE FROM THIS FILE. This handler is the first production writer of an
-arming marker, for the path it builds and for nothing else (`decisions.md#p-E16-carries-the-durable-
-arming-writer-itself-and-that-does-NOT-generalise-arming`). A goal created by any OTHER path stays
-BORN INERT, and this file's existence closes no general arming issue.
+⚠ A GOAL CREATED HERE IS STILL BORN WITHOUT AN ADVANCER, and the reason has simply MOVED. It used
+to be that only this path armed its own marker (`decisions.md#p-E16-carries-the-durable-arming-
+writer-itself-and-that-does-NOT-generalise-arming`); now nothing is armed at all, and what decides
+whether a goal advances is its LANE ASSIGNMENT (`<goal>/execution-lane`, absent = `console`), which
+this handler does not write. Binding lane assignment to creation is named and deliberately deferred
+in the design's § Out of scope — until it lands, a goal created here advances only once someone
+assigns it a lane or runs `rbtv run` against it.
 
 THE REFUSAL ARM (task **7.206**, design id `E11`, arm **a**)
 ------------------------------------------------------------
@@ -212,27 +217,8 @@ REJECT_CLASS_ORDER = ("S", "P", "V")
 #       member for "wrong type", which §1 states as a Type column and not as a separate clause.
 _MULTI_VALUE_TYPES = (list, tuple, dict, set)
 
-# The ONE location computer, reached by file path because the module's filename is hyphenated and
-# so is not importable by name.
-EDGE_RUNNER_JOB = Path(__file__).resolve().parents[3] / "jobs" / "edge-runner-job.py"
-
-
 class Refusal(Exception):
     """A refusal with a reason. Never a crash: the caller gets a verdict it can act on."""
-
-
-def _edge_runner():
-    """The module that owns `arm_path`. Imported, never re-implemented — see the module docstring."""
-    if not EDGE_RUNNER_JOB.is_file():
-        raise Refusal(
-            f"{EDGE_RUNNER_JOB}: the one arming-location computer is not on disk, so this handler "
-            "cannot arm anything. It does NOT fall back to computing the location itself: a second "
-            "computer is the failure the import exists to prevent."
-        )
-    spec = importlib.util.spec_from_file_location("edge_runner_job", EDGE_RUNNER_JOB)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
 
 
 # ----------------------------------------------------------- 1 · VALIDATION
@@ -594,30 +580,20 @@ def create(request, goals_root, package, catalog_root, bindings, conduct, claude
     return steps
 
 
-# ------------------------------------------------------------------ 3 · ARM
-
-def arm(package, job_id, profile, note=None, dry_run=False):
-    """ARM — write the marker at the location `edge-runner-job.arm_path()` computes, then read the
-    result back through the fastpath's OWN reader.
-
-    The read-back is the point. A marker that is present but that its reader rejects is not a
-    partial success: absent, unreadable and unparseable all fail closed and are indistinguishable
-    from each other at the door, and that indistinguishability IS the criterion.
-    """
-    mod = _edge_runner()
-    path = mod.arm_path(package)          # THE one computer. Never recomputed here.
-    payload = {"job-id": job_id, "profile": profile}
-    if note:
-        payload["note"] = note
-    if dry_run:
-        return {"step": "arm", "dry-run": True, "arm-path": str(path)}
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    accepted, why = mod.fastpath_arm(package)
-    return {"step": "arm", "arm-path": str(path), "written": True,
-            "accepted-by-fastpath-reader": accepted is not None,
-            "reader-said": why if accepted is None else "armed",
-            "arm-read-back": accepted}
+# ------------------------------------------------------------------ 3 · (ARM — RETIRED)
+#
+# The chain was create -> arm -> launch. The ARM act wrote `coordination/edge-fastpath.json`, the
+# per-package marker that armed the check-out fast path of the Python edge-runner.
+#
+# BOTH ARE GONE (`build/one-readiness-predicate.md`, owner-ruled 2026-08-11). Advancement is no
+# longer armed per package and is no longer triggered by the check-out: the daemon's seeding pass
+# recomputes readiness from disk every cadence through `coordinate ready-seats --json`, which is the
+# ONE predicate. A goal therefore advances because it is ASSIGNED TO A LANE (`<goal>/execution-lane`),
+# not because something wrote a marker into it at birth.
+#
+# ⚠ NOTHING REPLACES THIS STEP HERE. If a newly created goal does not advance, the question is its
+# lane assignment, never a missing marker — and binding lane assignment to creation is deliberately
+# NOT done yet (that design's § Out of scope).
 
 
 # --------------------------------------------------------------- 4 · LAUNCH
@@ -690,8 +666,8 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, catalog_root, bi
 
     This function is the daemon side of that split: it drains the staged inbox, and for each
     accepted request it scaffolds the goal (the write the requester could not make) and QUEUES the
-    goal's first workflow job `delay_seconds` out. It ARMS NOTHING and LAUNCHES NOTHING — `arm()`
-    and `launch()` are the entry's other acts and stay out of this path deliberately.
+    goal's first workflow job `delay_seconds` out. It LAUNCHES NOTHING — `launch()` is the entry's
+    other act and stays out of this path deliberately. (It armed nothing either; arming is retired.)
 
     ⚑ VALIDATION STRICTLY PRECEDES THE SCAFFOLD. A malformed or refused payload must leave no goal
     directory behind, so parse and `validate()` both run before `scaffold_goal` is reached.
@@ -960,9 +936,9 @@ def _run(cmd, step, dry_run):
 # ----------------------------------------------------------------- the entry
 
 def handle(request, goals_root, package, catalog_root, bindings, conduct, claude_md, budget_json,
-           job_id, profile, seat=None, workflow=None, after=None, root=False, note=None,
+           seat=None, workflow=None, after=None, root=False, note=None,
            do_launch=True, dry_run=False):
-    """The entry: validate, then create -> arm -> launch, in that order and once.
+    """The entry: validate, then create -> launch, in that order and once.
 
     A refused request performs NO act. That ordering is the whole reason validation is a separate
     step rather than a check inside the create act.
@@ -996,20 +972,13 @@ def handle(request, goals_root, package, catalog_root, bindings, conduct, claude
         result["outcome"] = ("FAILED at create — later acts NOT performed. "
                              f"{len(failed)} step(s) returned non-zero: "
                              + ", ".join(f"{s['step']} rc={s['rc']}" for s in failed))
-        result["acts"]["arm"] = {"step": "arm", "performed": False,
-                                 "why": "the create act failed; arming an uncreated package is refused"}
         result["acts"]["launch"] = {"step": "launch", "performed": False,
                                     "why": "the create act failed"}
         return result
 
-    result["acts"]["arm"] = arm(package, job_id, profile, note=note, dry_run=dry_run)
-    if not dry_run and not result["acts"]["arm"].get("accepted-by-fastpath-reader"):
-        # Written-but-rejected is a FAILURE, not a partial success: absent, unreadable and
-        # unparseable all fail closed at the door and are indistinguishable from each other there.
-        result["outcome"] = ("FAILED at arm — the marker was written but the fastpath's own reader "
-                             "REJECTED it: " + str(result["acts"]["arm"].get("reader-said")))
-        result["acts"]["launch"] = {"step": "launch", "performed": False, "why": "the arm act failed"}
-        return result
+    # The ARM act stood here and is RETIRED (§ 3 above). The chain is create -> launch. The
+    # fail-closed guard above is UNCHANGED and still load-bearing: a later act never runs on an
+    # earlier act's failure.
     if do_launch:
         result["acts"]["launch"] = launch(package, only=seat, dry_run=dry_run)
         # THE LANE IS NAMED IN THE RESULT AND NEVER IN THE ARGV. It is computed from the argument
@@ -1047,14 +1016,14 @@ def handle(request, goals_root, package, catalog_root, bindings, conduct, claude
 def main(argv=None):
     p = argparse.ArgumentParser(
         prog="rbtv-goal-request",
-        description="The goal-creation request entry: validate a request, then create -> arm -> launch.")
+        description="The goal-creation request entry: validate a request, then create -> launch.")
     sub = p.add_subparsers(dest="verb", required=True)
 
     v = sub.add_parser("validate", help="validate a request payload; perform no act")
     v.add_argument("request", help="JSON file carrying the request payload, or - for stdin")
     v.add_argument("--goals-root", help="goals root the uniqueness checks resolve against")
 
-    h = sub.add_parser("handle", help="validate, then create -> arm -> launch")
+    h = sub.add_parser("handle", help="validate, then create -> launch")
     h.add_argument("request", help="JSON file carrying the request payload, or - for stdin")
     h.add_argument("--goals-root", required=True)
     h.add_argument("--package", required=True,
@@ -1065,8 +1034,6 @@ def main(argv=None):
     h.add_argument("--conduct", required=True)
     h.add_argument("--claude-md", required=True)
     h.add_argument("--budget-json", required=True)
-    h.add_argument("--job-id", required=True, help="the arming marker's job-id")
-    h.add_argument("--profile", required=True, help="the arming marker's spawn profile")
     h.add_argument("--note", help="free text written into the arming marker")
     g = h.add_mutually_exclusive_group(required=True)
     g.add_argument("--seat")
@@ -1144,7 +1111,7 @@ def main(argv=None):
                 print(out["stated-refusal"], file=sys.stderr)
             return 0 if out["accepted"] else 1
         out = handle(payload, args.goals_root, args.package, args.catalog_root, args.bindings,
-                     args.conduct, args.claude_md, args.budget_json, args.job_id, args.profile,
+                     args.conduct, args.claude_md, args.budget_json,
                      seat=args.seat, workflow=args.workflow, after=args.after, root=args.root,
                      note=args.note, do_launch=not args.no_launch, dry_run=args.dry_run)
         print(json.dumps(out, indent=2))

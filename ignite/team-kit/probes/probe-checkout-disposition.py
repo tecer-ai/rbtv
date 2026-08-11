@@ -14,9 +14,12 @@ WHAT THIS SCORES OVER, stated per arm, because "probes pass" reads as a clean cl
   A3 (RED, and the point)    The SAME barren seat, against a MUTANT coord.py carrying the
       pre-7.676 seams, checks out `done` — silently, with no refusal. An assertion that cannot go
       red is not an assertion; this is the old behaviour, executed, not described.
-  A4 (no silent advancement) `incomplete` is NOT in the fast path's advancing set: the edge fast
-      path gates on equality with `done` alone, so the honest ending cannot advance a DAG edge.
-      Scored on the CONSTANT the executor reads, not on a comment.
+  A4 — RETIRED with the Python edge-runner (`build/one-readiness-predicate.md`). It scored "the
+      honest ending cannot advance a DAG edge" on the CHECK-OUT FAST PATH's advancing constant;
+      that path and its file are deleted. The property is now structural in the ONE evaluator —
+      `coord.ready_seat_rows` satisfies an `after` member on a `done` check-out and on nothing
+      else — and is pinned by coord's own selftest RS-1 (`done` READY vs `renew` BLOCKED) and
+      RS-12 (`exited` never advances). See the note at the arm's former site.
   A5 (the enum invariants)   The three closure properties the in-file self-test asserts for this
       domain — the record enum's writer bounds, the deferral-class closure, and the bridge to
       `LIFECYCLE_INTENT_OF`. ⚠ THEY ARE RE-ASSERTED HERE ON PURPOSE: `coord.py selftest` ABORTS
@@ -234,29 +237,18 @@ def main():
                   "green arm above a real assertion",
                   code_m == 0 and rec_m is not None and rec_m["disposition"] == "done")
 
-        # ---- A4: the honest ending cannot advance an edge --------------------------------------
-        spec = importlib.util.spec_from_file_location("edge_runner_job", mod.EDGE_RUNNER_JOB_PATH)
-        edge = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(edge)
-        fired = edge.checkout_fastpath(mod, Path(pkg), "barren", "incomplete")
-        check("A4: the edge fast path REFUSES to fire on `incomplete` — called for real, not "
-              "grepped. Gate 1 is an equality against `done` alone, so the honest ending cannot "
-              "advance a DAG edge; this is the property that makes `incomplete` safe to offer",
-              isinstance(fired, dict) and not fired.get("fired")
-              and edge.ADVANCES_EDGE == "done")
-        # ⚠ A4b IS A DISCLOSURE ARM, AND IT ASSERTS THE SAFE HALF ONLY. `edge-runner-job.py` keeps
-        # its OWN hardcoded copy of coord's record enum (`EXPECTED_ENUM`), and 7.676 could not
-        # widen it — that file is outside this task's allowlist. The consequence is BENIGN BUT
-        # WRONG-WORDED: an `incomplete` seat grades as UNDECIDED ("outside coord's closed enum …
-        # cannot have been written through the kit") rather than as the declared not-done ending
-        # it is. Nothing advances either way, which is why this is a follow-up and not a blocker.
-        # The arm below scores the SAFETY property, which holds before AND after that copy is
-        # widened — an arm that went red the day someone fixed the drift would be a guard against
-        # the repair.
-        check("A4b: whatever the second enum copy in `edge-runner-job.py` says about it, "
-              "`incomplete` is not the advancing value — the ONE property this task must not "
-              "leave to a hardcoded mirror",
-              edge.ADVANCES_EDGE != "incomplete")
+        # ---- A4/A4b: DELETED with the Python edge-runner (`build/one-readiness-predicate.md`) ---
+        #
+        # Both arms' whole subject was `edge-runner-job.py#checkout_fastpath` — the check-out fast
+        # path — and they loaded it through `coord.EDGE_RUNNER_JOB_PATH`, which phase A deleted.
+        # The SAFETY PROPERTY they scored survives, and is now structural rather than mirrored:
+        # `coord.ready_seat_rows` is the ONE readiness evaluator, an `after` member is satisfied
+        # only by a predecessor whose check-out is `done`, and every other disposition —
+        # `incomplete` included — leaves the successor BLOCKED. That is pinned in coord's own
+        # selftest by the RS-1 family: RS-1 (`done` READY vs `renew` BLOCKED on fixtures differing
+        # in ONE cell, which is what tells a reader-of-the-disposition from a noticer-of-a-row) and
+        # RS-12 (`exited` NEVER advances the DAG). The second enum copy A4b disclosed died with the
+        # file that held it, so there is no mirror left to guard.
 
         # ---- A5: the closure properties the Windows-aborted self-test cannot reach --------------
         check("A5: `incomplete` is admitted from the SEAT and from nobody else — the kit may not "

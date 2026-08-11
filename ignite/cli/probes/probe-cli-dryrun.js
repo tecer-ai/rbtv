@@ -74,42 +74,10 @@ async function main() {
     check('a valid dry-run enqueues nothing (queue still empty)', Array.isArray(rows) && rows.length === 0,
       `rows=${JSON.stringify(rows)}`);
 
-    // 2b. TASK 7.736 DOOR 1's RENDERING. The launch-agent dry-run above carries NO `edge_fastpath`
-    // field (the server core answers arming for `start-workflow` rows and nothing else), so the CLI
-    // must print NOTHING about arming here — a renderer that fired on an absent field would stamp a
-    // verdict on every dry-run in the system, which is worse than the silence 7.736 removes.
-    check('7.736: a launch-agent dry-run prints NO arming line (the field is absent, and absent '
-      + 'prints nothing)', !/EDGE-FASTPATH|edge fast path/i.test(r.stdout),
-      `stdout=${r.stdout.trim()}`);
-
-    // The three branches of the printer itself, driven directly. `armed` is a TRISTATE and the
-    // third value is the one that matters: `null` means "could not look", and it must render as
-    // UNKNOWN — never as either verdict. A booted daemon proves nothing extra about three ifs.
-    const { renderEdgeFastpath } = require('../commands/add-job.js');
-    const printed = [];
-    const realLog = console.log;
-    console.log = (...a) => printed.push(a.join(' '));
-    try {
-      renderEdgeFastpath(undefined);
-      const absent = printed.length;
-      renderEdgeFastpath({ armed: true, scope: 'ARMED by /g/coordination/edge-fastpath.json' });
-      renderEdgeFastpath({ armed: false, scope: 'NOT ARMED: no /g/coordination/edge-fastpath.json' });
-      renderEdgeFastpath({ armed: null, scope: 'arm state UNREADABLE: python3 not found' });
-      console.log = realLog;
-      const text = printed.join('\n');
-      check('7.736: renderEdgeFastpath prints nothing for an ABSENT field, ARMED for true, '
-        + 'EDGE-FASTPATH-NOT-ARMED (with its consequence) for false, and EDGE-FASTPATH-UNKNOWN for '
-        + 'null — the tristate never collapses',
-        absent === 0
-        && /edge fast path: ARMED/.test(text)
-        && (text.match(/EDGE-FASTPATH-NOT-ARMED/g) || []).length === 2
-        && /CONSEQUENCE/.test(text)
-        && /EDGE-FASTPATH-UNKNOWN/.test(text)
-        && !/EDGE-FASTPATH-NOT-ARMED[^\n]*UNREADABLE/.test(text),
-        `absent-lines=${absent} printed=${JSON.stringify(printed)}`);
-    } finally {
-      console.log = realLog;
-    }
+    // 2b. RETIRED with the mechanism it rendered (`one-readiness-predicate.md` § Deletions): the
+    // server core no longer answers arming on a dry run and `renderEdgeFastpath` is gone, so the
+    // arms that drove its three branches would drive nothing. What replaced the whole question is
+    // `coordinate ready-seats`, consumed by the daemon's seeding pass.
 
     // 3. Invalid dry-run (unknown function): gateway shape-check passes, server
     // re-validation refuses -> exit 4, VALIDATION_FAILED, still nothing enqueued.

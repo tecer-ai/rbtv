@@ -40,7 +40,7 @@ const { loadConfig } = require('../server/spawn/config');
 // none of it was ever a property of the terminal a run is attached to (see seeding.js's header).
 const {
   readCsv, jobIdFor, seedTaskforce, executionsByJob, seatIsFinished, seatHasRun,
-  seatState, SEAT_STATES, enqueueEligible, recordView, afterMembers,
+  seatState, SEAT_STATES, enqueueEligible, recordView, readySeats,
 } = require('./seeding');
 // THE GOAL'S EXECUTION RECORD — the one place any lane's reader asks "did this seat finish"
 // (owner ruling decisions.md#d-s23-single-execution-record-now).
@@ -429,13 +429,17 @@ function closeForegroundSessionRow({ goalFolder, sessionId, logger = null }) {
   }
 }
 
-function nextHeldReadySeat(heartStore, rows, isHeld, relaunch, view = null) {
+function nextHeldReadySeat(heartStore, rows, isHeld, relaunch, view = null, ready = null) {
   const byJob = executionsByJob(heartStore, relaunch);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
   // `notFinished` rides along, or the carrier would pick up a seat the record holds (`blocked` on
   // the owner, or open in another lane) — the ONE predicate must answer the same way at every one
-  // of its call sites, which is why it is one predicate.
-  const opts = { done: view && view.done, foreign: view && view.foreign, notFinished: view && view.notFinished };
+  // of its call sites, which is why it is one predicate. `ready` is COORD's answer, handed in for
+  // the same reason (§ D1): the carrier may not promote a seat this lane's store merely has no row
+  // for, and with no coord answer in hand it carries nothing.
+  const opts = {
+    done: view && view.done, foreign: view && view.foreign, notFinished: view && view.notFinished, ready,
+  };
   return rows.find((row) => isHeld(row.seat) && seatState(row, byJob, queued, opts) === 'ready') || null;
 }
 
@@ -616,7 +620,7 @@ function reconcileForegroundOrphans(heartStore, { logger = null, endedAt = new D
 // status verb already does (greedy thread pairing in msg_id order), and one correlation shared by
 // the surface that REPORTS a question and the loop that STOPS on it is the only way the two can
 // agree about what is open.
-function evaluateExit(heartStore, rows, relaunch = null, view = null) {
+function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = null) {
   const asks = unansweredAsks(heartStore.dump().messages);
   if (asks.length) {
     return { done: true, reason: 'question', asks };
@@ -656,14 +660,20 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null) {
     // stuck ones rather than falling through to the `seat-failed` arm below — it did not fail, it
     // is waiting, and `blocked` is the reason word this function already has for exactly that.
     if (view && view.blocked && view.blocked.has(r.seat)) return true;
-    // The SAME cell grammar the eligibility predicate reads (`seeding.js` § THE `after` CELL
-    // GRAMMAR), and for the same reason: the whole cell read as ONE seat name called a
-    // multi-predecessor row stuck the moment it had more than one parent, so this loop returned
-    // `blocked` on a run that was advancing normally. A member this lane cannot evaluate IS stuck
-    // here — nothing a further tick does can release it.
-    const members = afterMembers(r.after);
-    return members.length > 0
-      && members.some((m) => m.unsupported || m.key !== null || !isFinished(m.name));
+    // A seat that RAN and did not finish is NOT stuck — it is FAILED, and the arm below is what
+    // says so. Kept explicit because coord does not offer such a seat either, so without this line
+    // every failed seat would report as `blocked` and the two reason words would collapse into one.
+    if (seatHasRun(byJob.get(jobIdFor(r.seat)))) return false;
+    // THE SAME ANSWER THE ELIGIBILITY PREDICATE USES, from the same place: coord's (§ D1). A seat
+    // coord does not offer as READY cannot be advanced from here — its `after` is unmet, its guard
+    // has not discharged, or its own last session ended UNDECLARED. No `after` grammar is read in
+    // JavaScript, so this loop and the enqueue pass can no longer disagree about what a cell means.
+    //
+    // ⚠ NO COORD ANSWER (a refusal, a SKEW, no python) MAKES EVERY UNFINISHED SEAT STUCK, and the
+    // run ENDS `blocked` naming them rather than spinning every 10s on a computation that is
+    // refusing. That is the same direction the refusal takes in the seeding pass: never proceed off
+    // an answer nobody has.
+    return !(ready && ready.has(r.seat));
   });
   if (stuck.length === unfinished.length) {
     return { done: true, reason: 'blocked', unfinished: unfinished.map((r) => r.seat) };
@@ -771,8 +781,14 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
   const workspaceRoot = path.resolve(goalFolder, '..', '..', '..');
   const executionMode = goalExecutionMode(workspaceRoot, path.basename(goalFolder));
 
+  // THE READINESS ANSWER IS COORD'S HERE TOO (§ D1), and asking it is safe on this surface:
+  // `ready-seats` launches nothing, writes nothing and messages nobody, which is exactly the bound
+  // this verb holds itself to. A refusal (no python, a SKEW) degrades every unfired seat to
+  // `waiting` rather than inventing a frontier — the same direction every other consumer takes.
+  const { ready } = readySeats(goalFolder);
+
   const seats = rows.map((row) => {
-    const state = seatState(row, byJob, queued, { done: view.done, foreign: view.foreign, notFinished: view.notFinished });
+    const state = seatState(row, byJob, queued, { done: view.done, foreign: view.foreign, notFinished: view.notFinished, ready });
     const humanInteractive = seatIsHumanInteractive(goalFolder, row.seat);
     // BLOCKED ON THE OWNER, reported the way `interrupted` is and for the same reason: the seat's
     // STATE is `live` (not dispatchable, not finished — the pair every reader of SEAT_STATES
@@ -929,12 +945,26 @@ async function executeAttached({
       // Re-read each pass: our own tick publishes to it, and the other lane may be writing to it
       // while we run. One small file read per pass, against a decision that must not be stale.
       let view = recordView(engine.heartStore, goalFolder, { relaunch: grants });
+      // COORD'S FRONTIER, ONCE PER PASS (§ D1). Every decision below — what the terminal carries,
+      // what is enqueued, and whether the run can advance at all — reads this ONE answer, so the
+      // three cannot disagree about which seats are ready. A refusal leaves it null, which reads
+      // as "no seat is ready" everywhere: the store may decline, never promote.
+      const { ready, rows: readyRows, reason: readyRefusal } = readySeats(goalFolder);
+      if (!ready && logger) {
+        logger({
+          level: 'warn',
+          message: 'readiness NOT computed this pass — `coordinate ready-seats` refused, so nothing is carried or '
+            + 'enqueued and the run cannot advance. A partial pass off a refused computation is worse than none.',
+          goalFolder,
+          evidence: readyRefusal,
+        });
+      }
       // The one hazard the drain creates: a seat `nextHeldReadySeat` somehow returns twice was
       // merely re-fired an interval later before, and would be a HOT LOOP now. Carried once per
       // pass — a pathological repeat falls back to the old pacing instead of spinning the terminal.
       const carriedThisPass = new Set();
       for (;;) {
-        const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants, view);
+        const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants, view, ready);
         if (!held || carriedThisPass.has(held.seat)) break;
         carriedThisPass.add(held.seat);
         grants.delete(held.seat);            // the grant is SPENT at the launch, never re-read
@@ -960,7 +990,9 @@ async function executeAttached({
         view = recordView(engine.heartStore, goalFolder, { relaunch: grants });
       }
 
-      enqueueEligible(engine.heartStore, rows, { profile, goalFolder, logger, isHeld, relaunch: grants, view });
+      enqueueEligible(engine.heartStore, rows, {
+        profile, goalFolder, logger, isHeld, relaunch: grants, view, ready, readyRows,
+      });
       await engine.tick(now());
       ticks += 1;
 
@@ -972,8 +1004,13 @@ async function executeAttached({
       // that. Measured: probe-foreground-carrier B1a/B1e/B1g returned `seat-failed` on a run that had
       // completed. The dispatch decision keeps the pre-tick view (its own read, its own moment); the
       // exit decision must see what the tick published.
+      // ⚠ AND THE FRONTIER IS RE-READ HERE FOR THE SAME REASON THE RECORD IS. A seat that finished
+      // INSIDE this tick may have CHECKED OUT inside it, and the pass's own frontier was read
+      // before that happened — so the pre-tick answer would call the seat it just unblocked
+      // unreachable and END THE RUN `blocked` one pass early. One extra `ready-seats` per pass
+      // (~0.4 s) against a decision that terminates the run.
       const verdict = evaluateExit(engine.heartStore, rows, grants,
-        recordView(engine.heartStore, goalFolder, { relaunch: grants }));
+        recordView(engine.heartStore, goalFolder, { relaunch: grants }), readySeats(goalFolder).ready);
       if (verdict.done) {
         return {
           host,

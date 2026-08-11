@@ -112,30 +112,6 @@ function build(argv) {
   return { intent: 'enqueue-job', payload };
 }
 
-// ── Task 7.736 · DOOR 1's RENDERING ────────────────────────────────────────────────────────────
-// The server core answers "is this goal's edge fast path armed?" on a `start-workflow` dry run
-// (server/internal-api/dispatch.js `edgeFastpathState`). The field is ABSENT for every other action,
-// and absence prints nothing — a row that was never asked must not look like a row that answered.
-//
-// ⚠ IT NEVER TOUCHES THE EXIT CODE (owner ruling, 7.736). `dry-run: VALID` stays true and stays
-// printed: the row IS valid, and a goal whose advance hook is disarmed still enqueues and still
-// runs. What was missing was anyone SAYING so. The tokens are stable on purpose — a downstream
-// monitor greps `EDGE-FASTPATH-NOT-ARMED`, never an exit status.
-function renderEdgeFastpath(state) {
-  if (!state) return;
-  if (state.armed === true) {
-    console.log(`edge fast path: ARMED — ${state.scope || ''}`.trimEnd());
-    return;
-  }
-  if (state.armed === false) {
-    console.log(`EDGE-FASTPATH-NOT-ARMED — ${state.scope || 'this goal carries no coordination/edge-fastpath.json'}`);
-    console.log('EDGE-FASTPATH-NOT-ARMED — CONSEQUENCE: seats will check out and the DAG will NOT advance on its own; every edge past a finished seat waits for a hand act. The row is still valid and still enqueues — this is a warning, not a refusal.');
-    return;
-  }
-  // `armed: null` — the door could not look. Never rendered as either verdict.
-  console.log(`EDGE-FASTPATH-UNKNOWN — ${state.scope || 'the arm state could not be read'}. This is NOT a verdict: nothing here says whether the advance hook is armed.`);
-}
-
 async function run(argv, ctx) {
   const { intent, payload } = build(argv);
   const { envelope } = await ctx.call(intent, payload);
@@ -144,12 +120,12 @@ async function run(argv, ctx) {
     renderSuccess: (result) => {
       if (result.dry_run) console.log('dry-run: VALID — validated, nothing enqueued');
       else console.log(`queued: queue id ${result.jobId}`);
-      renderEdgeFastpath(result.edge_fastpath);
     },
   });
 }
 
-// `renderEdgeFastpath` is exported for `cli/probes/probe-cli-dryrun.js`, which asserts its three
-// branches directly. It is a pure printer over one field — driving it through a booted daemon and a
-// seeded start-workflow catalogue would prove the same three lines at a hundred times the cost.
-module.exports = { HELP, build, run, renderEdgeFastpath };
+// ⚠ `renderEdgeFastpath` IS DELETED with the verdict it printed (`one-readiness-predicate.md`
+// § Deletions, "the arm file, everywhere"). The server core no longer answers arming on a
+// `start-workflow` dry run — there is no arm file and no edge-runner to read one — so a printer
+// over that field could only ever print nothing.
+module.exports = { HELP, build, run };

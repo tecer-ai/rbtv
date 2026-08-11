@@ -121,6 +121,37 @@ const goalStorePath = path.join(goalFolder, 'heart.db');
 const daemonStorePath = path.join(dataRoot, 'heart.db');
 const isoNow = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
+// ── THE SEAT'S OWN CHECK-OUT, AS A FIXTURE ACT ────────────────────────────────────────────────
+//
+// ⚠ WHY IT IS NEEDED HERE. Since `build/one-readiness-predicate.md` § D1 the ONE readiness
+// evaluator is `coord.ready_seat_rows`, and it satisfies an `after` member on a predecessor's
+// `done` CHECK-OUT and on nothing else — not a store turn, not an exit code, and not the execution
+// record. The carrier stamps `exited` on purpose ("`done` is the seat reporting its own work
+// finished, which no exit code can assert"), so substituting the carriage means substituting the
+// occupant's check-out too, or the fixture models a seat that finished and an edge that cannot
+// move. `coord.py session_close` would write exactly these three cells for a seat that declared
+// itself done; `seat` is the only writer the enum admits for that value.
+const { splitRow, quoteField } = require('../../server/seat-identity/csv');
+function checkOutDone(goal, seat) {
+  const csvPath = path.join(goal, 'sessions.csv');
+  const lines = fs.readFileSync(csvPath, 'utf8').split('\n');
+  const header = splitRow(lines[0]).map((h) => h.trim());
+  const at = (n) => header.indexOf(n);
+  for (let i = lines.length - 1; i >= 1; i -= 1) {       // the LAST open row: the live sitting
+    if (!lines[i].length) continue;
+    const cells = splitRow(lines[i]);
+    while (cells.length < header.length) cells.push('');
+    if ((cells[at('seat')] || '').trim() !== seat || (cells[at('ended')] || '').trim()) continue;
+    cells[at('ended')] = isoNow();
+    cells[at('disposition')] = 'done';
+    cells[at('disposition-writer')] = 'seat';
+    lines[i] = header.map((_, c) => quoteField(cells[c])).join(',');
+    fs.writeFileSync(csvPath, lines.join('\n'), 'utf8');
+    return true;
+  }
+  return false;
+}
+
 async function main() {
   say('probe-cross-lane-resume — console-run wave B item B3');
   say(`fixture: ${tmp}`);
@@ -129,13 +160,22 @@ async function main() {
   // ── D1 · ATTACHED first, then the daemon lane ──────────────────────────────────────────────
   say('D1 — a goal advanced in the ATTACHED lane, offered to the DAEMON lane');
 
+  // ⚠ TWO TICKS, NOT ONE, and the second is structural rather than slack: coord's frontier is read
+  // ONCE PER PASS, before the carriage runs, so `bravo` cannot be in the pass that carries `alpha`
+  // — its predecessor's check-out did not exist when that pass asked. The re-seed is a pull; one
+  // extra pass is what an advance costs (§ Why the re-seed stays the driver).
   await attached.executeAttached({
     goalFolder,
     profile: 'probe-lane',
     spawnConfigPath: configPath,
     tickIntervalMs: 200,
-    maxTicks: 1,
-    spawnForeground: () => ({ status: 0 }),     // alpha is held; it runs in "the terminal"
+    maxTicks: 2,
+    // alpha is held; it runs in "the terminal" — and the occupant checks out, which is the only
+    // thing that releases bravo.
+    spawnForeground: (argv, cwd) => {
+      checkOutDone(path.resolve(cwd, '..', '..'), path.basename(cwd));
+      return { status: 0 };
+    },
   });
   const goalStore = openHeartStore({ dbPath: goalStorePath });
   const goalRows = goalStore.dump().jobs_log;
@@ -601,8 +641,19 @@ async function main() {
       fs.mkdirSync(path.join(fresh, 'seats', 'bravo'), { recursive: true });
       fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(fresh, 'taskforce.csv'));
       for (const s2 of ['alpha', 'bravo']) fs.copyFileSync(path.join(goalFolder, 'seats', s2, 'seat.md'), path.join(fresh, 'seats', s2, 'seat.md'));
-      record.openExecution({ goalFolder: fresh, seat: 'alpha', sessionId: 'ffffffff-0000-0000-0000-000000000001', lane: 'daemon', startedAt: isoNow() });
-      record.closeExecution({ goalFolder: fresh, sessionId: 'ffffffff-0000-0000-0000-000000000001', outcome: 'done', endedAt: isoNow() });
+      const FRESH_SESSION = 'ffffffff-0000-0000-0000-000000000001';
+      record.openExecution({ goalFolder: fresh, seat: 'alpha', sessionId: FRESH_SESSION, lane: 'daemon', startedAt: isoNow() });
+      record.closeExecution({ goalFolder: fresh, sessionId: FRESH_SESSION, outcome: 'done', endedAt: isoNow() });
+      // …AND THE TRACE ROW THAT LANE'S SEAT LEFT, CHECKED OUT `done`. The record answers "did this
+      // seat FINISH" and coord answers "is bravo READY", and since § D1 they are DIFFERENT
+      // QUESTIONS asked of DIFFERENT FILES — a fixture writing only the record models a lane that
+      // ran a seat which never checked out, for which `bravo` correctly never becomes ready. Both
+      // halves are written here because the daemon lane writes both.
+      fs.writeFileSync(path.join(fresh, 'sessions.csv'), `${HEADER}\n${cell({
+        'session-id': FRESH_SESSION, seat: 'alpha', harness: 'claude',
+        workdir: path.join(fresh, 'seats', 'alpha'), started: isoNow(), ended: isoNow(),
+        disposition: 'done', 'disposition-writer': 'seat',
+      })}\n`);
       const st = attached.statusAttached({ goalFolder: fresh });
       return st.everRun === false && st.done.join() === 'alpha' && st.ready.join() === 'bravo'
         && !fs.existsSync(path.join(fresh, 'heart.db'));

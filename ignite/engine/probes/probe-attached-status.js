@@ -82,16 +82,41 @@ check('done / ready / next / waiting are computed from the after column',
 // ARM 2 — the status verb's ready set IS the enqueue pass's, measured through the shared
 // predicate rather than by re-deriving it here (which would only prove this file agrees with
 // itself). A fake store stands in: the enqueue pass needs a store, the predicate does not.
+//
+// ⚠ THE FRONTIER IS COORD'S SINCE § D1 (`one-readiness-predicate.md`), so it is HANDED to the
+// predicate here exactly as the status verb and the enqueue pass hand it: `readySeats` is the ONE
+// reader, and what this arm measures is that all three consumers get the same answer out of it.
+const { readySeats } = require('../seeding');
 const byJob = new Map();
 const queued = new Set();
 const rows = [{ seat: 'alpha', after: '' }, { seat: 'beta', after: 'alpha' }];
+const frontier = () => readySeats(goalFolder).ready;
 check('the ready set is the ONE eligibility predicate, shared with the enqueue pass',
-  rows.filter((r) => attached.seatState(r, byJob, queued) === 'ready').map((r) => r.seat).join() === st.ready.join());
-// … and it MOVES when the store says alpha finished: beta becomes ready, alpha done.
+  rows.filter((r) => attached.seatState(r, byJob, queued, { ready: frontier() }) === 'ready')
+    .map((r) => r.seat).join() === st.ready.join());
+// … and it MOVES when alpha CHECKS OUT `done` — the seat's own declaration, which is the only
+// thing that advances an edge now. A store turn is a fact about a process and advances nothing:
+// the `byJob` row below says alpha's execution finished, and beta moves because of the CHECK-OUT
+// beside it, not because of that.
+fs.writeFileSync(path.join(goalFolder, 'sessions.csv'),
+  'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,pid-starttime,tty,'
+  + 'disposition,disposition-writer,execution,checkin,model\n'
+  + 'sid-alpha,alpha,claude,,,,2026-08-11T10:00Z,2026-08-11T10:05Z,,,,done,seat,,,\n');
 byJob.set(attached.jobIdFor('alpha'), [{ status: 'done' }]);
-check('a finished predecessor releases its dependent (the wave advances)',
-  attached.seatState(rows[0], byJob, queued) === 'done'
-  && attached.seatState(rows[1], byJob, queued) === 'ready');
+const advanced = frontier();
+check('a CHECKED-OUT predecessor releases its dependent (the wave advances)',
+  attached.seatState(rows[0], byJob, queued, { ready: advanced }) === 'done'
+  && attached.seatState(rows[1], byJob, queued, { ready: advanced }) === 'ready');
+// The DISCRIMINATOR, and it is the whole design: the same store turn with the check-out taken
+// away leaves the dependent WAITING. Without this the arm above would pass on a predicate that
+// simply read the store's `done` row, which is what it did before § D1.
+fs.writeFileSync(path.join(goalFolder, 'sessions.csv'),
+  'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,pid-starttime,tty,'
+  + 'disposition,disposition-writer,execution,checkin,model\n'
+  + 'sid-alpha,alpha,claude,,,,2026-08-11T10:00Z,2026-08-11T10:05Z,,,,,,,,\n');
+check('…and with the SAME store turn but NO check-out, the dependent stays WAITING (UNDECLARED)',
+  attached.seatState(rows[1], byJob, queued, { ready: frontier() }) === 'waiting');
+fs.unlinkSync(path.join(goalFolder, 'sessions.csv'));
 
 // ARM 3 — the two gates, each measured with the other held OPEN.
 check('gate A+B open: a human-interactive seat in an interactive goal is HELD FOR USER',

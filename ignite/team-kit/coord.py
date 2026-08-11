@@ -3749,8 +3749,9 @@ def session_disposition(pkg, seat):
     surface a CAGED seat can write when its `sessions.csv` write is refused by the sandbox. The
     widening is here, INSIDE the one reader, and nowhere else: a sibling function answering the
     same question on a different surface is the two-readers-disagree shape (`G-301`) that this
-    file's `sessions_last_ended` comment already argues against, and `edge-runner-job.py` calls
-    THIS symbol rather than re-implementing it.
+    file's `sessions_last_ended` comment already argues against. Its out-of-tree consumer called
+    THIS symbol rather than re-implementing it, and is now retired with the rest of the second
+    readiness evaluator (`one-readiness-predicate`); the bound stands for whatever calls it next.
 
     ⚠ `sessions.csv` IS STILL FIRST AND THE RECORD NEVER OVERRIDES IT. The fallback is reached
     ONLY on the `or None` branch above. A CONSEQUENCE, stated rather than buried: a seat whose LAST
@@ -8145,64 +8146,28 @@ def deliver_handoff(args, base, seat):
                 f"keeps repeating.", C_DEAD), file=sys.stderr)
 
 
-# ---- M4-11 (task 7.126): THE CHECK-OUT FAST PATH ----------------------------------------------
+# ---- M4-11 (task 7.126): THE CHECK-OUT FAST PATH — DELETED (`one-readiness-predicate`) ---------
 #
-# A seat's clean check-out already MAKES its successors ready. Nothing ACTUATES that: advancement is
-# computed on demand and happens only when an agent runs the cadence sweep. This is the seam that
-# makes it prompt — the check-out itself puts the newly ready work in the queue.
+# The module path constant, the hook wrapper and its call site in `cmd_checkout` are GONE, with the
+# retired Python advancement job they loaded. Recorded here rather than erased silently, because
+# the seam they occupied is one a reader will propose re-cutting.
 #
-# ⚠ EVERYTHING RISKY ABOUT THIS LIVES ON THE OTHER SIDE OF ONE CALL, ON PURPOSE. coord.py is the
-# only communications path between every seat in a room; it is read fresh on every invocation and
-# has no fallback. So this file gains ONE call and one wrapper, and NOT the arming decision, NOT the
-# queue, NOT a second reader of anything. In particular it does NOT test for the arming file itself,
-# even though that would save an import on every check-out: a second reader of WHICH PACKAGES ARE
-# ARMED could disagree with the first, and a disagreement about arming is the C4 failure itself
-# (`r-cutover-gated`). One reader, in edge-runner-job.py, at the cost of one module load per
-# check-out — an act that already spawns a transcript export.
+# WHY IT WENT. THREE implementations of "is this seat ready to launch" existed at once — this
+# file's `ready_seat_rows`, a Python job under `jobs/`, and the daemon's own JS seeding pass. They
+# drifted, and the drift is what stalled the live goal. The ruling collapses readiness onto THIS
+# file (`ready-seats --json` is the one answer) and has the daemon's seeding pass consume it. Two
+# of the three go away; this call was the arm-gated entry into one of them and it had fired exactly
+# once ever, on a throwaway goal.
 #
-# ⚠⚠ THIS RUNS AFTER EVERY IRREVERSIBLE ACT OF THE CHECK-OUT AND MUST NEVER AFFECT ITS OUTCOME. By
-# the time it is reached the transcript is exported, the roster row is flipped, `awaiting-close` is
-# recorded and the session row is closed. None of that can be undone, so a throw here would report
-# failure for a session that is already over, to a seat that did nothing wrong — and it would do it
-# at the last command that seat will ever run. Hence `BaseException`: a candidate module that called
-# `sys.exit()` at import would otherwise take the check-out's process down with it, which is the
-# exact failure `save-coord.py` exists to describe. The hook is wrapped on ITS side too; this is the
-# second of two independent guards, because neither should be the only one.
-EDGE_RUNNER_JOB_PATH = Path(__file__).resolve().parent.parent / "jobs" / "edge-runner-job.py"
-
-
-def edge_fastpath_on_checkout(base, me, disposition):
-    """Let a CLEAN check-out enqueue the work it just made ready — for an ARMED package ONLY.
-
-    Returns the hook's result dict, or `None` when the hook could not be reached at all. The return
-    value is for callers that want it; `cmd_checkout` ignores it, because there is nothing it could
-    correctly do with a failure at this point except say so, which happens here.
-
-    THE ARMING DECISION IS NOT MADE HERE and no argument to this function can influence it. It is
-    read from `{RUN}/coordination/edge-fastpath.json` by the hook, off the package being checked out
-    of. An unarmed package — which is every package in this workspace unless someone deliberately
-    armed one — prints nothing and reaches no queue."""
-    try:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("edge_runner_job", EDGE_RUNNER_JOB_PATH)
-        if spec is None or spec.loader is None:
-            return None
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        # `sys.modules[__name__]` is THIS module, live — never a fresh `import coord`, which would
-        # give the hook a SECOND coord module object with its own state, one process, two coords.
-        res = mod.checkout_fastpath(sys.modules[__name__], Path(base).parent, me, disposition)
-        for line in mod.fastpath_lines(res):
-            print(line)
-        return res
-    except BaseException as exc:                                        # noqa: BLE001
-        try:
-            print(c(f"edge fast path stood down — {type(exc).__name__}: {exc}. YOUR CHECK-OUT "
-                    f"STANDS — it completed before this ran and nothing here can undo it; only the "
-                    f"advancement did not happen. Tell leader.", C_DEAD), file=sys.stderr)
-        except BaseException:                                           # noqa: BLE001
-            pass
-        return None
+# ⚠ AND CHECK-OUT DOES NOT DISPATCH, DELIBERATELY. The re-seed stays the driver because it is a
+# PULL: every cadence it asks disk what should be true and makes it true, so running it a thousand
+# times equals running it once and a missed pass costs latency and nothing else. Making check-out
+# dispatch makes it a PUSH, which must be delivered exactly once — a pane killed mid-close, a daemon
+# restarting, an enqueue that throws, and the goal is stranded permanently while every file on disk
+# says it should have advanced. That is why the deleted hook was wrapped in a catch-everything, and
+# a path that must swallow its own failures can never be the only path. If cadence latency ever
+# matters, check-out may POKE the daemon to run a pass now; losing that poke must cost ten seconds,
+# never the run.
 
 
 # ---- 7.676: THE DONE-CONTRACT CHECK — what the seat DECLARED it would produce ------------------
@@ -8229,6 +8194,22 @@ def edge_fastpath_on_checkout(base, me, disposition):
 # for: where the briefing declared no contract, the kit records that it had nothing to check
 # rather than inventing a contract nobody wrote, and a reader can tell a CHECKED `done` from an
 # asserted one BY READING THE RECORD instead of by trusting it.
+def resolved_outputs(w):
+    """[(declared token, RESOLVED absolute path)] for ONE seat descriptor's `outputs:`.
+
+    THE ONE RESOLUTION OF A DECLARED OUTPUT IN THIS MODULE, and it is split out of
+    `declared_outputs` because D4's seed needs the SAME resolution from a different place: the
+    readiness sweep hands a launching seat its predecessors' output paths, and it must not compute
+    them a second way. Resolving a declared output twice is how the check-out's `MISSING: /a/b`
+    and the successor's seed end up naming different files for one declaration.
+
+    Relative paths resolve against the seat's `cwd`, already absolutized by `discover_workers` at
+    the ONE parse point (a relative `cwd:` otherwise resolves against nothing). It reads the
+    descriptor dict it is handed and touches no disk — the PRESENCE question is `declared_outputs`'
+    and stays there."""
+    return [(d, str(Path(d) if os.path.isabs(d) else Path(w["cwd"]) / d)) for d in w["outputs"]]
+
+
 def declared_outputs(args, seat):
     """(declared, missing) — the seat's OWN `outputs:`, and which of them are not on disk.
 
@@ -8262,8 +8243,8 @@ def declared_outputs(args, seat):
                    f"nothing was written, nothing was exported, your roster row is still ACTIVE.",
                    1)
         missing = []
-        for d in w["outputs"]:
-            p = Path(d) if os.path.isabs(d) else Path(w["cwd"]) / d
+        for _d, _resolved in resolved_outputs(w):
+            p = Path(_resolved)
             try:
                 present = p.is_dir() or (p.is_file() and p.stat().st_size > 0)
             except OSError:
@@ -8383,7 +8364,12 @@ def cmd_checkout(args):
             f"never checked in, or you already checked out.\n"
             f"See the roster: {coord_invocation(args)} workers",
             1)
-    # ---- 7.676: VERIFY BEFORE ASSERTING `done` --------------------------------------------------
+    # ---- 7.676 (+ D3): VERIFY BEFORE ASSERTING `done` -------------------------------------------
+    #
+    # TWO QUESTIONS AT ONE GATE, and both are about a DEBT the seat's own briefing or the run's own
+    # DAG created: did this seat produce what it DECLARED it would (7.676, `outputs:`), and did it
+    # write the guard value a live `after` member READS (D3, `guarded_pairs`). Everything below
+    # about gating, refusing and not downgrading applies identically to both.
     #
     # ⚠ IT GATES THE `done` PATH ALONE. `--renew` asserts nothing finished (a successor is being
     # booted precisely because the work continues), and `--incomplete` is the seat ALREADY saying
@@ -8427,6 +8413,53 @@ def cmd_checkout(args):
                 f"Or END HONESTLY, if they are not coming — the run records that you said so, and "
                 f"leader picks the work up:\n"
                 f"  {coord_invocation(args)} checkout --incomplete \"<why they are unmet>\"",
+                1)
+        # ---- D3 (`one-readiness-predicate`): THE SECOND QUESTION AT THE SAME GATE ---------------
+        #
+        # Does this seat owe a GUARD VALUE that is not on disk? A guarded edge
+        # `<me>[<key>=<value>]` needs two things to advance: this seat's own `done`, and a recorded
+        # value for `<key>`. Without this question a seat checks out `done` having never written
+        # its value, every guarded successor stays BLOCKED on an unruled guard, and the run stalls
+        # pointing at a seat that has already departed and cannot be asked.
+        #
+        # ⚠ NOTHING NEW IS DECLARED. The keys a seat owes are `guarded_pairs()` — the pairs a LIVE
+        # `after` member actually references — filtered to this seat. A seat no edge guards owes
+        # nothing and never reaches the refusal; the debt is created by the DAG, not by this gate.
+        #
+        # ⚠⚠ ONLY THE `done` BRANCH IS GATED, and this is inside the `not renew and not incomplete`
+        # block for exactly that reason. `incomplete`, `failed`, `exited`, `renew` and `revive` are
+        # UNTOUCHED. A seat that cannot produce its value must still be able to END HONESTLY —
+        # gating those would rebuild the 2026-08-09 defect the `incomplete` disposition was minted
+        # to fix, where the only ending a seat could reach asserted a completion it had not made.
+        # The honest ending must never be harder to reach than the dishonest one.
+        #
+        # ⚠ AND IT REFUSES RATHER THAN WRITING A DEFAULT. Inventing a value would have the kit
+        # assert a fact about work only the seat witnessed — the same misgrading the writer bound
+        # bars, and the same reason the outputs check above refuses instead of downgrading.
+        _guard_pairs = guarded_pairs(package_dir(args))
+        _guard_have = load_guard_values(base)
+        _guard_owed = sorted({k for (_s, k) in _guard_pairs
+                              if _s == me and (me, k) not in _guard_have})
+        if _guard_owed:
+            refuse(
+                "state",
+                f"'{me}' owes {len(_guard_owed)} guard value(s) that "
+                f"{'is' if len(_guard_owed) == 1 else 'are'} NOT on disk, so this check-out will "
+                f"not record `done`. A guarded `after` member reads YOUR value to decide whether "
+                f"its edge is admitted, and `done` is the ONE disposition that advances the DAG — "
+                f"checking out without the value leaves every guarded successor BLOCKED on an "
+                f"unruled guard, with the only party who could have answered already departed. "
+                f"Nothing was written, nothing was exported and your roster row is still ACTIVE.\n"
+                + "".join(f"  UNWRITTEN: `{me}[{k}=…]`, read by "
+                          f"{', '.join('`' + str(t) + '`' for t in _guard_pairs[(me, k)])}\n"
+                          f"    write it: {coord_invocation(args)} rule-guard {me} {k}=<value> "
+                          f"--source \"<where you measured it>\" --go\n"
+                          for k in _guard_owed) +
+                f"Then re-run: {coord_invocation(args)} checkout\n"
+                f"Or END HONESTLY, if you cannot establish the value — the run records that you "
+                f"said so, and leader picks the work up:\n"
+                f"  {coord_invocation(args)} checkout --incomplete \"<why the guard is "
+                f"unestablished>\"",
                 1)
     if renew:
         if handoff is None:
@@ -8629,13 +8662,9 @@ def cmd_checkout(args):
         # ⚠ THIS LINE NO LONGER TEACHES `close <me> --renew`. Renewal is the SEAT's own act now
         # (`checkout --renew`), so naming leader's close-and-renew as this seat's follow-up would
         # teach the superseded ceremony at the one moment the seat is looking for its next step.
-        # M4-11 (7.126): the check-out fast path. DONE BRANCH ONLY and LAST — `renew` takes the
-        # other arm and never reaches this line, which is half of the criterion: a seat that has
-        # not finished must never advance an edge. `exited` cannot reach it either, since this
-        # path is the SEAT's own and `exited` is the kit attesting a harness terminated. The hook
-        # re-asserts the disposition itself rather than trusting this placement — a guard that
-        # exists only as a call-site convention survives exactly until someone moves the call.
-        edge_fastpath_on_checkout(base, me, checkout_disposition)
+        # ⚠ AND NOTHING IS DISPATCHED FROM HERE. The M4-11 edge fast path stood at this exact line
+        # and is DELETED (`one-readiness-predicate`) — the block above `declared_outputs` carries
+        # why check-out validates and declares but never dispatches. Do not re-cut this seam.
         # r-checkout-selfclose (owner, 2026-07-31): an `ephemeral: yes` seat's DONE-checkout
         # finishes the way `depart` finishes — after every bookkeeping act above, the CLI kills
         # the seat's own pane, no agent in the path. Run-3 measured the alternative: `depart` was
@@ -11434,19 +11463,61 @@ def taskforce_after(pkg):
 GUARDED_MEMBER_RE = re.compile(r"\A(?P<name>[^\[\]]+)\[(?P<key>[^\[\]=]+)=(?P<value>[^\[\]]*)\]\Z")
 
 
+def after_member_limbs(member):
+    """The alternates of ONE member: `a|b` -> `['a', 'b']`, `a[g=y]` -> `['a[g=y]']`.
+
+    ⚠ THE ORDER IS LOAD-BEARING and is `_manifest_after_ids`' own: bracketed content is
+    NEUTRALISED BEFORE the alternate split, so a `|` INSIDE a guard value never reads as an
+    alternate. Cutting the other way round is the strip-then-split defect (#3386): `a[g=y]|b`
+    truncated at the first `[` and limb `b` vanished from the graph — an edge never traversed,
+    reported clean. Blanked POSITIONALLY rather than removed, so each limb is sliced out of the
+    ORIGINAL text and keeps its own guard for the member-grammar read.
+
+    ⚠ THIS IS NOW THE ONLY BRACKET-NEUTRALISE IN THIS MODULE, and `parse_after_member` reaches
+    the alternate test THROUGH it (task `one-readiness-predicate` D6). Before D6 the test was a
+    `"|" in re.sub(...)` inlined in that function and there was nothing to split with, because
+    nothing was allowed to evaluate an alternate. D6 made an alternate EVALUABLE, which needs the
+    limbs — and one predicate answering "is this an alternate" while a second produced the limbs
+    is the two-readings drift W1 collapsed one layer up. The verdict is unchanged in every case:
+    `limbs != [t]` is true on exactly the tokens `"|" in re.sub(r"\\[[^\\]]*\\]", "", t)` was true
+    on, INCLUDING the degenerate `"|"` and the malformed unclosed `a[k=v|x`.
+
+    ⚠ A SECOND COPY LIVES IN `capabilities/goals-tree/tool/goal_cli.py#after_member_limbs`, which
+    already imports `parse_after_member` from this file through its grammar bridge. Re-pointing it
+    at this one is a real follow-up and is NOT done here (that file is outside this change); the
+    two are byte-identical in algorithm and are named the same so a reader finds both.
+    """
+    blanked = re.sub(r"\[[^\]]*\]", lambda m: "\0" * len(m.group(0)), member)
+    limbs, start = [], 0
+    for i, ch in enumerate(blanked):
+        if ch == "|":
+            limbs.append(member[start:i])
+            start = i + 1
+    limbs.append(member[start:])
+    return limbs
+
+
 def parse_after_member(token):
-    """(name, key, value, unsupported) for ONE member of an `after` cell.
+    """(name, key, value, alternate) for ONE member of an `after` cell.
 
     `name`        the CLEAN seat name — what `terminal_disposition` is asked about.
     `key`/`value` the guard's two halves, or `(None, None)` on a bare member.
-    `unsupported` True for an OR-alternate, whose readiness is a different system entirely.
+    `alternate`   True for an OR-alternate, which has MORE THAN ONE name and therefore no single
+                  decomposition to return. The fourth slot's historical name is `unsupported`,
+                  and it is kept on `AfterMember` and in every caller's unpacking because four
+                  files outside this one read it positionally — what changed with D6 is not this
+                  function's answer but what a CONSUMER may do with it.
 
-    THE ALTERNATE ARM FAILS LOUD RATHER THAN PICKING A LIMB. `a[g=y]|b` asks "either of these",
-    and a half-implementation would silently satisfy the edge on whichever arm it happened to
-    resolve — an admission nobody ruled. It renders `<unsupported-alternate>` and blocks."""
+    ⚠ THIS FUNCTION STILL REFUSES TO DECOMPOSE AN ALTERNATE, and that is not the same statement as
+    "an alternate cannot be evaluated". `a[g=y]|b` asks "either of these": it resolves no single
+    name, no single key and no single value, so returning one would be picking a limb here, in a
+    parser, where nothing knows which limb ran. The EVALUATION is `after_member_state`'s — it
+    splits with `after_member_limbs` and asks the same arithmetic of each limb (D6). Before D6
+    there was no such evaluator and every consumer rendered `<unsupported-alternate>` and blocked."""
     t = (token or "").strip()
-    # `_manifest_after_ids`' own ordering, reproduced: brackets out FIRST, alternate test SECOND.
-    if "|" in re.sub(r"\[[^\]]*\]", "", t):
+    # `_manifest_after_ids`' own ordering, reproduced — now inside `after_member_limbs`, which is
+    # its one home. An alternate is a token the bracket-aware split does NOT hand back whole.
+    if after_member_limbs(t) != [t]:
         return None, None, None, True
     m = GUARDED_MEMBER_RE.match(t)
     if m:
@@ -11755,6 +11826,90 @@ def terminal_disposition(pkg, base, seat, awaiting=None):
     return None, "", None
 
 
+# ---------- D6 (`one-readiness-predicate`): the MEMBER arithmetic, one home, alternates included --
+#
+# THE RULING THIS BUILDS. `plan-check-mechanization` depends on
+# `plan-interviewer[use-case=optimize]|plan-interviewer[use-case=port]|plan-interviewer[use-case=scaffold]`,
+# and every evaluator refused an alternate outright, so that seat was unreachable no matter what
+# else was fixed. Owner-ruled 2026-08-11: AN ALTERNATE IS SATISFIED WHEN ANY ONE MEMBER IS
+# SATISFIED. That is the reading the syntax already implies and the only one under which the live
+# goal's DAG terminates.
+#
+# ⚠ WHY THE BRANCH SET MOVED OUT OF `ready_seat_rows`'S LOOP. A limb needs EXACTLY the arithmetic a
+# top-level member gets — the same two terms in the same order, the same four renderings, the same
+# structured entry — and the alternative to lifting it was a second copy inside the alternate arm.
+# A second copy of a readiness term is the defect class 7.383 and 7.424 each closed once already.
+#
+# ⚠ AND `<unsupported-alternate>` IS GONE, not deprecated. It was the honest answer while no
+# arithmetic existed; keeping it as a fallback branch would leave a path that BLOCKS a member the
+# ruling says is satisfiable, and nothing on disk would say which path a given run took.
+
+def after_member_state(member, term, guards):
+    """(state, entry, met) for ONE `after` member — the WHOLE member arithmetic.
+
+    `state` the rendered value, spent by the BLOCKED/READY reason string and by `--explain` alike.
+    `entry` the structured UNMET member, or `None` when the member is MET.
+    `met`   the CLEAN predecessor names that SATISFIED it — `[]` when it is unmet. A LIST, because
+            an alternate can be carried by more than one limb, and every limb that ran left
+            artifacts its successor is entitled to read (that is the `seed` field, D4). For a bare
+            or guarded member it is `[]` or the member's one clean name.
+
+    `term` is `{clean name: (value, source, skew)}` and `guards` is `load_guard_values`' map —
+    passed IN rather than read here, because the caller hoists both ONCE per command and N members
+    must not cost N reads of two files.
+    """
+    pname, gkey, gval, alternate = after_member_parts(member)
+    if alternate:
+        # D6: EITHER OF THESE. Each limb is re-made through `AfterMember` so it carries the same
+        # decomposition a top-level member does — `after_member_parts` REFUSES a plain `str`, and
+        # a limb sliced out of a token is exactly the "lost its decomposition" shape it refuses.
+        limbs = [AfterMember(x.strip()) for x in after_member_limbs(str(member)) if x.strip()]
+        sub = [(limb, after_member_state(limb, term, guards)) for limb in limbs]
+        met = [n for _limb, (_s, _e, names) in sub for n in names]
+        if met:
+            # THE RENDERING NAMES THE LIMB THAT CARRIED IT, never a bare `done`. "This alternate is
+            # satisfied" is not readable evidence; "satisfied BY THIS limb, on THIS value" is, and
+            # it is the difference between a reader who can check the admission and one who cannot.
+            return ("any-of -> " + " + ".join(f"{limb}={s}"
+                                              for limb, (s, _e, names) in sub if names),
+                    None, met)
+        # UNMET: EVERY limb's own state, because "the alternate is unmet" sends the reader to look
+        # up three predecessors by hand. The structured entry carries the raw token as its `seat` —
+        # an alternate resolves no single roster row, which is stated rather than papered over with
+        # a name that resolves to nothing — and each limb's own entry underneath it.
+        return ("<any-of unmet: " + " ".join(f"{limb}={s}" for limb, (s, _e, _n) in sub) + ">",
+                {"seat": str(member), "state": "alternate-unmet",
+                 "limbs": [e for _limb, (_s, e, _n) in sub]},
+                [])
+    pv, _psrc, pskew = term.get(pname, (None, "", None))
+    if pskew:
+        return f"SKEW({pskew[0]}|{pskew[1]})", {"seat": pname, "state": "skew",
+                                                "skew": [pskew[0], pskew[1]]}, []
+    if pv is None:
+        return "<no check-out>", {"seat": pname, "state": "no-check-out"}, []
+    if pv != "done":
+        return pv, {"seat": pname, "state": pv}, []
+    if gkey is None:
+        # A BARE member, met — rendered exactly as it was before 7.383 existed.
+        return "done", None, [pname]
+    # 7.383: the SECOND term, reached only once the dependency half is `done`. The order is the
+    # design — a guarded edge whose predecessor never finished must read as an unfinished
+    # predecessor, not as an unruled guard, or the reason names the wrong thing to fix.
+    ruling = guards.get((pname, gkey))
+    if ruling is None:
+        return (f"<guard {gkey} unruled>",
+                {"seat": pname, "state": "guard-unruled",
+                 "guard": {"key": gkey, "required": gval}}, [])
+    if ruling["value"] != gval:
+        return (f"<guard {gkey}={ruling['value']}>",
+                {"seat": pname, "state": "guard-mismatch",
+                 "guard": {"key": gkey, "required": gval, "ruled": ruling["value"]}}, [])
+    # MET — and `done` alone would say the predecessor finished while saying NOTHING about the
+    # ruling that actually admitted the edge. Two facts carried this member; the met rendering
+    # names both.
+    return "done+guard-ruled", None, [pname]
+
+
 def ready_seat_rows(args):
     """[{seat, verdict, reason, ...}] for every `taskforce.csv` row, in file order.
 
@@ -11790,8 +11945,16 @@ def ready_seat_rows(args):
                so precedence decides only WHICH reason prints, and `UNDECLARED` names an
                unresolved DEFECT the leader must act on, which would be lost if a settled state
                printed over it. Ordering them the other way changes no seat's offerability.
-      BLOCKED  at least one `after` predecessor lacks a `done` check-out
+      BLOCKED  at least one `after` member is unsatisfied. A member is satisfied when its named
+               predecessor checked out `done` — plus, for a GUARDED member, a recorded value
+               matching its guard (7.383); an ALTERNATE (`a|b`) is satisfied when ANY ONE of its
+               members is (D6). `after_member_state` is that whole arithmetic, in one place.
       READY    every term above cleared
+
+    ⚠ EVERY ROW ALSO CARRIES `seed` (D4) — the resolved absolute paths of the declared outputs of
+    the predecessors that satisfied its members, `[]` on a root. On a READY row that is the
+    complete input set a launcher hands the seat; on any other row it is partial by construction
+    and is not a launch input. See the field's own note below.
 
     ⚠ `UNDECLARED` REMOVES SEATS FROM `READY` AND ADDS NONE. A consumer that filters
     `verdict == "READY"` — which is what the launch-offer path does — cannot be handed one of
@@ -11808,7 +11971,13 @@ def ready_seat_rows(args):
     # UNBUILT reason below spends the same value, and re-resolving it there was a second door onto
     # the same registration.
     wdir = workers_dir(args, register=False)
-    built = {w["agent"] for w in discover_workers(wdir)}
+    # D4: THE DESCRIPTORS ARE KEPT, not reduced to a name set on the spot. The seed below resolves
+    # a predecessor's declared `outputs:` against that seat's own absolutized `cwd`, and both live
+    # on this dict — so keeping it costs NOTHING (the same single `discover_workers` call this
+    # line always made) while re-reading it per predecessor would cost one descriptor sweep per
+    # edge. `built` is derived from it and is the identical set it always was.
+    seat_desc = {w["agent"]: w for w in discover_workers(wdir)}
+    built = set(seat_desc)
     awaiting = load_awaiting(base)
     # 7.237: hoisted ONCE, for the same reason `awaiting` above is — N seats must cost one read of
     # `sessions.csv`, not N. The map feeds `undeclared_endings` directly so the undeclared term and
@@ -11861,11 +12030,19 @@ def ready_seat_rows(args):
     # A predecessor named in an `after` set but carrying no row of its own is still a real term of
     # the predicate — resolved here so a dangling edge reads as "no check-out" rather than raising.
     # 7.383: resolved on the CLEAN name. An OR-alternate resolves NO name — it has more than one,
-    # which is why it is unsupported — and is skipped here rather than looked up as a seat.
+    # which is why it has no single decomposition.
+    # D6: SO ITS LIMBS' NAMES ARE RESOLVED INSTEAD. Before D6 an alternate was SKIPPED here, which
+    # was right while nothing downstream could evaluate one; `after_member_state` now asks `term`
+    # about every limb, and a limb absent from this map would read `<no check-out>` for a reason
+    # that has nothing to do with the limb's actual check-out.
     for _member in members:
-        _name, _key, _value, _unsupported = after_member_parts(_member)
-        if not _unsupported and _name not in term:
-            term[_name] = terminal_disposition(pkg, base, _name, awaiting=awaiting)
+        _limbs = ([_member] if not after_member_parts(_member)[3]
+                  else [AfterMember(_x.strip()) for _x in after_member_limbs(str(_member))
+                        if _x.strip()])
+        for _limb in _limbs:
+            _name = after_member_parts(_limb)[0]
+            if _name and _name not in term:
+                term[_name] = terminal_disposition(pkg, base, _name, awaiting=awaiting)
 
     out = []
     for seat, preds in after.items():
@@ -11890,65 +12067,53 @@ def ready_seat_rows(args):
         # output row, so `--explain` printed `<no check-out>` on its own account and would have
         # kept printing it even after the loop above was fixed. One computation, one home (PRIN-11).
         render = {}
+        # D4 (`one-readiness-predicate`): THE SEED — the resolved absolute paths of the declared
+        # outputs of the predecessors that SATISFIED this row's `after` members, de-duplicated with
+        # ORDER PRESERVED (two predecessors may declare the same artifact). A ROOT SEAT GETS `[]`,
+        # and that is a correct and complete seed, not a failure — the root case is the one an
+        # implementation keyed on predecessors forgets.
+        seed, seed_seen = [], set()
         for p in preds:
             # 7.383: THE PROSE KEEPS THE RAW TOKEN, THE STRUCTURE CARRIES THE CLEAN NAME. A reader
             # of the reason must see the guard that held the edge — dropping it renders a guard
             # failure as an ordinary unfinished predecessor. A CONSUMER resolves a roster by the
             # seat name, and `name[key=value]` matches no roster row anywhere.
             #
-            # ONE BRANCH SET PRODUCES BOTH SHAPES. `state` is the rendered value (prose and
+            # ONE CALL PRODUCES ALL THREE SHAPES. `state` is the rendered value (prose and
             # `--explain` alike); `entry` is the structured member, or `None` when the member is
-            # MET. Deriving one from the other after the fact means splitting `raw=state` on `=`,
-            # and a guard's own `=` sits inside the raw token — the split would cut in the wrong
-            # place on exactly the members this task is about.
-            pname, gkey, gval, unsupported = after_member_parts(p)
-            if unsupported:
-                # The one entry whose `seat` is the RAW token, because an alternate HAS no single
-                # clean name. Stated rather than papered over: a consumer that resolves this
-                # against a roster finds nothing, which is the honest answer for a member this
-                # release cannot evaluate.
-                state = "<unsupported-alternate>"
-                entry = {"seat": p, "state": "unsupported-alternate"}
-            else:
-                pv, _psrc, pskew = term[pname]
-                if pskew:
-                    state = f"SKEW({pskew[0]}|{pskew[1]})"
-                    entry = {"seat": pname, "state": "skew", "skew": [pskew[0], pskew[1]]}
-                elif pv is None:
-                    state, entry = "<no check-out>", {"seat": pname, "state": "no-check-out"}
-                elif pv != "done":
-                    state, entry = pv, {"seat": pname, "state": pv}
-                elif gkey is None:
-                    # A BARE member, met — rendered exactly as it was before this change existed.
-                    state, entry = "done", None
-                else:
-                    # 7.383: the SECOND term, reached only once the dependency half is `done`. The
-                    # order is the design — a guarded edge whose predecessor never finished must
-                    # read as an unfinished predecessor, not as an unruled guard, or the reason
-                    # names the wrong thing to fix.
-                    ruling = guards.get((pname, gkey))
-                    if ruling is None:
-                        state = f"<guard {gkey} unruled>"
-                        entry = {"seat": pname, "state": "guard-unruled",
-                                 "guard": {"key": gkey, "required": gval}}
-                    elif ruling["value"] != gval:
-                        state = f"<guard {gkey}={ruling['value']}>"
-                        entry = {"seat": pname, "state": "guard-mismatch",
-                                 "guard": {"key": gkey, "required": gval,
-                                           "ruled": ruling["value"]}}
-                    else:
-                        # MET — and `done` alone would say the predecessor finished while saying
-                        # NOTHING about the ruling that actually admitted the edge. Two facts
-                        # carried this member; the met rendering names both.
-                        state, entry = "done+guard-ruled", None
-            # `met` is the branch's OWN answer (an `entry` means unmet), never a re-test of the
-            # rendered word against a literal — a `met` derived by matching `state` against
-            # `("done", "done+guard-ruled")` would be a second copy of this branch set, and would
-            # silently go wrong the day a met rendering gains a third form.
+            # MET; `met_names` is the clean predecessor name(s) that carried it. Deriving any of
+            # them from another after the fact means splitting `raw=state` on `=`, and a guard's
+            # own `=` sits inside the raw token — the split would cut in the wrong place on exactly
+            # the members this arithmetic is about.
+            #
+            # `render[p]["met"]` is the call's OWN answer (an `entry` means unmet), never a re-test
+            # of the rendered word against a literal — a `met` derived by matching `state` against
+            # `("done", "done+guard-ruled")` would be a second copy of that branch set, and would
+            # silently go wrong the day a met rendering gains a third form (D6 added two).
+            state, entry, met_names = after_member_state(p, term, guards)
             render[p] = {"state": state, "met": entry is None}
             if entry is not None:
                 unmet.append(f"{p}={state}")
                 unmet_after.append(entry)
+            # ⚠ THE SEED RESOLVES THE CLEAN PREDECESSOR NAME, NEVER THE RAW MEMBER TOKEN.
+            # `seats/fx-route[risk=high]/` is a directory that cannot exist, and looking one up
+            # yields a SILENTLY EMPTY seed — the same name-lookup defect 7.383 closed at the
+            # readiness loop, one stage downstream. `met_names` carries the decomposition's clean
+            # name(s) and nothing else; for a bare member that IS the token, so no plain row moves.
+            for _name in met_names:
+                _w = seat_desc.get(_name)
+                # A predecessor with no descriptor contributes nothing (a dangling edge the leader
+                # ruled `done`), and so does one whose `outputs:` is MALFORMED: its tokens do not
+                # resolve to paths at all, and seeding a successor with garbage is worse than
+                # seeding it with less. `declared_outputs` REFUSES that descriptor at the seat's own
+                # `done` check-out, so the only way one reaches here is a leader's `rule-disposition`
+                # over an `exited` row — which does not open the descriptor. Hence the check.
+                if _w is None or _w["outputs_defect"]:
+                    continue
+                for _tok, _path in resolved_outputs(_w):
+                    if _path not in seed_seen:
+                        seed_seen.add(_path)
+                        seed.append(_path)
         rec = {"seat": seat, "after": list(preds), "disposition": value, "source": source,
                "skew": list(skew) if skew else None, "active": active,
                "built": seat in built,
@@ -11976,6 +12141,24 @@ def ready_seat_rows(args):
                # the readiness arithmetic AND reads a DANGLING predecessor as satisfied, because a
                # predecessor with no `taskforce.csv` row of its own gets no output row here.
                "unmet-after": unmet_after,
+               # D4: THE SEED, present on EVERY row (`[]` on a root and on a row nothing satisfies)
+               # — same rule and same reason as `unmet-after`, `row-outcome` and
+               # `undeclared-session` above: a key that appears only when it fires cannot be read
+               # as a term, and an ABSENT key raises in a consumer where an empty list decides.
+               # ⚠ THE FIELD NAME IS `seed` AND ITS VALUE IS AN ARRAY OF STRINGS. That is the
+               # contract the daemon's seeding pass is written against (D1 + D4): it enqueues every
+               # `READY` row and launches the seat with this list as its inputs. Renaming it or
+               # boxing the strings breaks a consumer in another language that this file's tests
+               # cannot see.
+               # ⚠ ON A NON-`READY` ROW IT IS PARTIAL BY CONSTRUCTION and is NOT a launch input:
+               # it carries the members that ARE satisfied so far. On a `READY` row every member is
+               # satisfied by definition, so it is complete — which is the only row the contract
+               # above is about.
+               # ⚠ IT ASSERTS NOTHING ABOUT EXISTENCE. The paths are RESOLVED, not stat-ed: a
+               # predecessor cannot reach `done` with a declared output missing (7.676 refuses that
+               # check-out), so a second existence sweep here would be a second reader of the same
+               # question, answering it later and from further away.
+               "seed": seed,
                # THE UNSPENT GRANT, present on EVERY row (`None` when there is none), never only on
                # the rows it fires on — same rule and same reason as `undeclared-session`,
                # `row-outcome` and `unmet-after` above. It is the grant ROW as the file carries it,
@@ -12767,32 +12950,52 @@ def cmd_rule_disposition(args):
 
 
 def cmd_rule_guard(args):
-    """(leader) Record a RULED value for a guarded `after` member's guard. BARE = report; `--go`
-    = write.
+    """(the seat named in the pair) Record the value for a guarded `after` member's guard. BARE =
+    report; `--go` = write.
 
     `r-gate-ships-with-its-own-key`: the guard term is a GATE — it refuses READY — and this is its
     KEY. They ship in one change, because a gate whose key does not exist is not a gate, it is a
-    wall: before this verb, a leader who had investigated and found a guard satisfied had NO
-    mechanism to say so, and the only path left was hand-editing the `after` cell to delete the
-    precondition. That edit destroys the record of a real precondition to silence a display, which
-    is how folklore is manufactured.
+    wall: without this verb, a party who had measured a guard's value had NO mechanism to say so,
+    and the only path left was hand-editing the `after` cell to delete the precondition. That edit
+    destroys the record of a real precondition to silence a display, which is how folklore is
+    manufactured.
 
-    THE COMMAND RECORDS A RULING; IT NEVER MAKES ONE. It reads nothing about the predecessor's
-    work — exactly `rule-disposition`'s shape, and for the same reason: the investigation is the
-    leader's and happens BEFORE this call.
+    ⚠⚠ WHO MAY WRITE, AND WHY IT CHANGED (`one-readiness-predicate` D2, owner-ruled 2026-08-11).
+    THE SEAT NAMED IN THE `(seat, key)` PAIR WRITES ITS OWN VALUE, AND NO OTHER SEAT MAY. The
+    leader gate is REMOVED, not widened: the leader is not a participant in advancement, and a
+    guard value is a FACT ABOUT THE PRODUCING SEAT'S OWN WORK — which use-case it took, whether
+    its retirement was safe — witnessed by that seat and by nothing else. Routing it through a
+    leader made the one party who knows the answer ask a party who does not to record it. This is
+    the same test every disposition writer answers to (`RECORD_DISPOSITION_WRITER`): WHO SAW IT.
+
+    THE COMMAND RECORDS A MEASUREMENT; IT NEVER MAKES ONE. It opens nothing and grades nothing —
+    exactly `rule-disposition`'s shape: the work happened BEFORE this call, and this is where its
+    result is written down.
+
+    ⚠ IT IS ONE HALF OF A DOUBLE VALIDATION. This verb bounds WHAT may be written (a pair a live
+    edge references, by the seat it is about). `cmd_checkout`'s D3 gate enforces THAT it was
+    written: a seat that owes a value cannot check out `done` without it.
 
     ⚠ `--source` IS MANDATORY. A guard ruling with no citation of where the value was measured is
     indistinguishable from a guess, and it is read months later by somebody who was not there.
     ⚠ THE PAIR MUST BE REFERENCED BY A LIVE EDGE. A ruling on a `(seat, key)` no `after` member
     consumes is a typo until proven otherwise, and a typo that writes is worse than a refusal."""
-    gate(args, "rule-guard", is_leader,
-         "the leader's alone — admitting a guarded edge is an adjudication, and "
-         "`r-gate-ships-with-its-own-key` grants it to the leader and to no other side. A seat "
-         "does not rule its own predecessor's guard",
-         remedy="ask the leader to run it; bring the citation your value was measured at")
+    # THE SEAT IS READ BEFORE THE GATE because it IS the gate's target — `role_verdict` compares
+    # the resolved caller against it. It is a pure argument, so reading it here consults no disk
+    # and a malformed invocation still costs nothing.
+    seat = (args.seat or "").strip()
+    ruler = gate(args, "rule-guard", lambda name: name == seat,
+                 f"'{seat}'s alone — the seat named in the `(seat, key)` pair writes its OWN guard "
+                 f"value, because that value is a fact about ITS work and no other party "
+                 f"witnessed it (`one-readiness-predicate` D2). No other seat may write it, and "
+                 f"the leader is not a party to advancement",
+                 target=seat,
+                 remedy=(f"'{seat}' runs it, at its own check-out, with the citation the value was "
+                         f"measured at. If that seat cannot produce the value, it ends honestly "
+                         f"with `checkout --incomplete \"<why>\"` and the work is re-routed — "
+                         f"nobody writes the value on its behalf"))
     pkg = package_dir(args)
     base = base_dir(args)
-    seat = (args.seat or "").strip()
     go = bool(getattr(args, "go", False))
 
     # LAYER 1, `input`: the SHAPE of what was typed. Checked before anything on disk is consulted,
@@ -12832,6 +13035,13 @@ def cmd_rule_guard(args):
 
     current = load_guard_values(base).get((seat, key))
     consumers = ", ".join(f"`{t}`" for t in pairs[(seat, key)])
+    # D2: the row names the CALLER, which the gate above has already proven is the seat the pair is
+    # about — never a constant. `DISPOSITION_WRITER_LEADER` was right while the leader was the only
+    # admitted writer and is a lie now. The `--force` lane can still carry an unresolvable identity
+    # past the gate; that writes `unresolved` rather than an empty cell, because an empty `ruled-by`
+    # renders as `(unrecorded)` and is indistinguishable from a row written before the column
+    # existed — which is exactly the folklore `--source` is mandatory to prevent.
+    ruled_by = ruler or "unresolved"
     if not go:
         # The CURRENT row is read off disk and printed, never assumed absent: a leader about to
         # supersede its own earlier ruling must see the value it is superseding, and the file is
@@ -12847,21 +13057,23 @@ def cmd_rule_guard(args):
                                                           "record; the append would be a no-op in "
                                                           "effect, and a second row on disk"))
         print(f"    would append: {key}={value}, source `{source}`, ruled-by "
-              f"`{DISPOSITION_WRITER_LEADER}`")
+              f"`{ruled_by}`")
         print(f"    consumed by: {consumers}")
         print("    (report only — nothing was written. Re-run with --go to record the ruling.)")
         return
-    written = append_guard_value(base, seat, key, value, source, DISPOSITION_WRITER_LEADER)
-    print(f"{c(seat, C_LABEL)}  RULED `{key}={value}` by {DISPOSITION_WRITER_LEADER}")
+    written = append_guard_value(base, seat, key, value, source, ruled_by)
+    print(f"{c(seat, C_LABEL)}  RULED `{key}={value}` by {ruled_by}")
     print(f"    {GUARD_VALUES_FILE}: appended — source `{written['source']}`, "
           f"stamp {written['stamp']}")
     if current is not None and current["value"] != value:
         print(f"    SUPERSEDES the earlier `{current['value']}` — that row stays on disk; the "
               f"LAST row per (seat, key) wins, so the record of what was ruled first survives")
     print(c(f"\nThe ruling is recorded, and the row names the party that made it and the source it "
-            f"was measured at. Advancement follows the ordinary arithmetic "
-            f"({coord_invocation(args)} ready-seats) — the guarded edge now reads this value, and "
-            f"still requires its predecessor's own `done`.", C_HINT))
+            f"was measured at. It also DISCHARGES this seat's check-out debt for `{key}` — a "
+            f"`done` check-out is refused while a guard the seat owes is unwritten (D3). "
+            f"Advancement follows the ordinary arithmetic ({coord_invocation(args)} ready-seats) "
+            f"— the guarded edge now reads this value, and still requires this seat's own `done`.",
+            C_HINT))
 
 
 def cmd_ready_seats(args):
@@ -13624,12 +13836,18 @@ def cmd_session_open(args):
     the ONLY function that CREATES a row in a package's `sessions.csv`, and production reached it
     from exactly ONE site — `launch_seat:11613`, inside this file. Every other trace call is a
     MUTATOR that requires the row to already exist. So a launcher that is not `launch_seat` — the
-    daemon's own spawn path — could not create a trace at all, and the edge-runner's gate 3
-    correctly refuses a package with no trace: no edge advances on the daemon. This verb is the
+    daemon's own spawn path — could not create a trace at all, and the advancement pass of the day
+    correctly refused a package with no trace: no edge advanced on the daemon. This verb is the
     act that path can invoke. It CALLS `session_open`; it does not reimplement it, and it changes
     neither `session_open` nor any of the six mutators.
 
-    ⚠ IT IS NOT A LICENCE TO HAND-WRITE THE TRACE, which gate 3's own refusal text forbids. The
+    ⚠ THE REFUSAL THAT EARNED IT IS RETIRED, THE REASON IS NOT. That pass is deleted with the
+    second readiness evaluator (`one-readiness-predicate`), and the surviving one —
+    `ready_seat_rows`, here — reads `sessions.csv` for the undeclared-ending term and for the
+    durable disposition. A daemon-launched seat with no trace row is still a seat this file cannot
+    reason about; the verb is still how that launcher opens one.
+
+    ⚠ IT IS NOT A LICENCE TO HAND-WRITE THE TRACE. The
     row it writes is `session_open`'s row, written by the kit, for a seat that has a descriptor in
     THIS package — and the caller is expected to have just brought that seat up. A row for a seat
     that never booted is the G-11 lie; the ORDERING is the caller's to get right (`launch_seat`
@@ -13653,8 +13871,9 @@ def cmd_session_open(args):
         refuse("state",
                f"no seat descriptor carries `agent: {args.seat}` in {workers_dir(args)}, so this "
                f"package has no such seat and there is nothing to open a session for. A trace row "
-               f"is NEVER fabricated for a name the package does not know — that is the "
-               f"hand-written trace the edge-runner's gate 3 exists to refuse.\n"
+               f"is NEVER fabricated for a name the package does not know — a trace row asserts a "
+               f"seat BOOTED, and one written for a name that has no descriptor asserts it about "
+               f"nothing.\n"
                f"seats in this package: {known}", 1)
     already = session_open_id(pkg, args.seat)
     if already:
@@ -22828,11 +23047,12 @@ def _selftest_checks(args, failures, names):
         #
         # ⚠ THIS SUITE BRINGS ITS OWN DISCRIMINATOR ON PURPOSE (leader,
         # `#p-a-guard-STUCK-RED-is-as-uninformative-as-one-stuck-GREEN-and-CW11-must-bring-its-own-discriminator`).
-        # `edge-runner-job.py`'s `check_reads_match_coord_reader` — the standing guard over exactly
-        # this drift — has been STUCK RED since 7.237 moved the row selection out of
-        # `session_disposition` (it greps `idx["<col>"]` from that function's own bytes and finds
-        # none), so it reads identically before and after this change and can signal nothing about
-        # it. A check that cannot change state is not evidence. These rows can change state.
+        # The out-of-tree `check_reads_match_coord_reader` — then the standing guard over exactly
+        # this drift — had been STUCK RED since 7.237 moved the row selection out of
+        # `session_disposition` (it grepped `idx["<col>"]` from that function's own bytes and found
+        # none), so it read identically before and after this change and could signal nothing about
+        # it. A check that cannot change state is not evidence. These rows can change state, and
+        # they are now the ONLY guard over this drift — that file went with `one-readiness-predicate`.
         _d9_cbase = Path(pkg) / "coordination"
         _d9_cbase.mkdir(parents=True, exist_ok=True)
 
@@ -23333,7 +23553,7 @@ def _selftest_checks(args, failures, names):
         # roster, and BOTH disposition surfaces — because the predicate has four terms and a row
         # that shares a package with its neighbours cannot isolate which term it moved.
         def _rs_make(name, tf, built=None, active=(), awaiting=(), sessions=(),
-                     store=None, store_ids=None, guards=None):
+                     store=None, store_ids=None, guards=None, outputs=None):
             """A self-contained run package. `tf` is [(seat, after-cell)]; `awaiting` and
             `sessions` are [(seat, disposition)] on the live and durable surfaces.
 
@@ -23345,7 +23565,12 @@ def _selftest_checks(args, failures, names):
             7.383: `guards` is [(seat, key, value)] written to `coordination/guard-values.csv` IN
             THE GIVEN ORDER, so a row can seed a supersession and assert the last one wins. `None`
             writes NO FILE AT ALL — the shape every package predating this change has, and the one
-            the "absent means no rulings, never an error" arm is asserted on."""
+            the "absent means no rulings, never an error" arm is asserted on.
+
+            D4: `outputs` is {seat: "a.md, b/"} written as the descriptor's `outputs:` key, with
+            `cwd:` pinned to that seat's own folder so a RELATIVE declaration resolves somewhere
+            this suite can predict. Omitted ⇒ no key, which is what every fixture above carries and
+            is why their `seed` is `[]`."""
             p = Path(td) / f"rs-{name}"
             (p / "coordination").mkdir(parents=True)
             (p / "seats").mkdir()
@@ -23368,8 +23593,14 @@ def _selftest_checks(args, failures, names):
             for s, _a in tf:
                 if built is None or s in built:
                     (p / "seats" / s).mkdir(exist_ok=True)
+                    # D4: `cwd:` is written ONLY for a seat that declares outputs, so every
+                    # fixture above this change keeps a byte-identical descriptor and no row
+                    # that reads `cwd` moves.
+                    _out = (outputs or {}).get(s)
                     (p / "seats" / s / "seat.md").write_text(
-                        f"---\nagent: {s}\nmodel: opus\n---\nbrief\n", encoding="utf-8")
+                        f"---\nagent: {s}\nmodel: opus\n"
+                        + (f"cwd: {p / 'seats' / s}\noutputs: {_out}\n" if _out else "")
+                        + "---\nbrief\n", encoding="utf-8")
             (p / "coordination" / "workers.md").write_text(
                 WORKERS_HEADER + "".join(
                     row_text({"agent": s, "active": "yes", "pane": "%1", "summary": "working",
@@ -23920,32 +24151,80 @@ def _selftest_checks(args, failures, names):
               and _rs21_sv == {"a": "DONE", "g": "READY", "bare": "READY"}
               and "a[safe=yes]=renew" in {r["seat"]: r for r in json.loads(
                   _rs(_rs21_pend, json=True)[0])}["g"]["reason"])
-        # ---- the OR-alternate: FAIL LOUD, never a limb picked in silence ----
-        _rs23 = _rs_make("23", [("a", ""), ("b", ""), ("alt", "a[safe=yes]|b")],
-                         sessions=[("a", "done"), ("b", "done")],
+        # ---- the OR-alternate (D6): ANY ONE member satisfies it, and NOTHING less does ----
+        # FIVE PACKAGES, ONE SHAPE, VARYING ONLY WHICH LIMB HOLDS. That is what separates "any one
+        # satisfies" from the two implementations nearest to it: one that requires ALL limbs greens
+        # on `both` alone, and one that satisfies on the FIRST limb's mere existence greens on
+        # `neither`. Both are red here.
+        _rs23_tf = [("a", ""), ("b", ""), ("alt", "a[safe=yes]|b")]
+        # (i) BOTH limbs carry: `a` is `done` with its guard ruled matching, `b` is `done`.
+        _rs23 = _rs_make("23", _rs23_tf, sessions=[("a", "done"), ("b", "done")],
                          guards=[("a", "safe", "yes")])
+        # (ii) ONLY the GUARDED limb carries — `b` never checked out.
+        _rs23_g = _rs_make("23g", _rs23_tf, sessions=[("a", "done")],
+                           guards=[("a", "safe", "yes")])
+        # (iii) ONLY the BARE limb carries — `a` is `done` but its guard is ruled the OTHER value,
+        #       so limb 1 is genuinely unsatisfied and only limb 2 can be carrying the member.
+        _rs23_b = _rs_make("23b", _rs23_tf, sessions=[("a", "done"), ("b", "done")],
+                           guards=[("a", "safe", "no")])
+        # (iv) NEITHER carries: `a` is `done` with a MISMATCHED guard, `b` never checked out.
+        _rs23_n = _rs_make("23n", _rs23_tf, sessions=[("a", "done")],
+                           guards=[("a", "safe", "no")])
         _rs23_v, _ = _rs_v(_rs23)
+        _rs23_gv, _ = _rs_v(_rs23_g)
+        _rs23_bv, _ = _rs_v(_rs23_b)
+        _rs23_nv, _ = _rs_v(_rs23_n)
         _rs23_rows = {r["seat"]: r for r in json.loads(_rs(_rs23, json=True)[0])}
-        check("dag-10 RS-23 (7.383) AN OR-ALTERNATE MEMBER FAILS LOUD AND IS NEVER SATISFIED BY "
-              "ONE LIMB. `a[safe=yes]|b` asks 'either of these', which is a different system: "
-              "readiness over alternates has its own arithmetic and this release does not have "
-              "it. THE FIXTURE IS THE HOSTILE ONE — BOTH limbs are `done` AND the guard on the "
-              "first is ruled MATCHING, so every half-implementation greens: one that picks the "
-              "first limb, one that picks the last, one that strips the bracket and looks up a "
-              "seat named `a|b`. Only a member that REFUSES TO EVALUATE blocks here, and it says "
-              "why rather than reporting a missing check-out. The member's structured entry "
-              "carries the RAW token, because an alternate has no single clean seat name — stated "
-              "rather than papered over with a name that resolves to nothing",
-              _rs23_v == {"a": "DONE", "b": "DONE", "alt": "BLOCKED"}
-              and "a[safe=yes]|b=<unsupported-alternate>" in _rs23_rows["alt"]["reason"]
-              and _rs23_rows["alt"]["unmet-after"] == [
-                  {"seat": "a[safe=yes]|b", "state": "unsupported-alternate"}]
+        _rs23_grows = {r["seat"]: r for r in json.loads(_rs(_rs23_g, json=True)[0])}
+        _rs23_brows = {r["seat"]: r for r in json.loads(_rs(_rs23_b, json=True)[0])}
+        _rs23_nrows = {r["seat"]: r for r in json.loads(_rs(_rs23_n, json=True)[0])}
+        check("dag-10 RS-23 (D6) AN OR-ALTERNATE IS SATISFIED WHEN ANY ONE MEMBER IS — owner-ruled "
+              "2026-08-11 (`one-readiness-predicate`), superseding this row's own former ruling "
+              "that it FAILS LOUD. The old answer was honest while no arithmetic for alternates "
+              "existed; keeping it made `plan-check-mechanization` — whose whole `after` cell is "
+              "one three-limb alternate — permanently unreachable, so the live goal's DAG could "
+              "not terminate no matter what else was fixed. ⚠ FOUR PACKAGES DIFFERING ONLY IN "
+              "WHICH LIMB HOLDS: both / guarded-only / bare-only / neither. `all limbs required` "
+              "reds on the two single-limb packages, `first limb wins regardless` reds on "
+              "`neither`, and `strip the bracket and look up a seat named a|b` reds on all four. "
+              "⚠ AND EACH LIMB GETS THE FULL MEMBER ARITHMETIC, not a name lookup: the guarded "
+              "limb is carried ONLY where a ruling MATCHES (package ii vs iv differ in nothing "
+              "else), which is the property a limb evaluated as a bare seat name would lose",
+              _rs23_v == {"a": "DONE", "b": "DONE", "alt": "READY"}
+              # `b` is a ROOT of this fixture, so with no check-out of its own it is READY,
+              # not BLOCKED — its LIMB is unsatisfied, which is a different question and is
+              # exactly the one the `alt` verdict beside it answers.
+              and _rs23_gv == {"a": "DONE", "b": "READY", "alt": "READY"}
+              and _rs23_bv == {"a": "DONE", "b": "DONE", "alt": "READY"}
+              and _rs23_nv == {"a": "DONE", "b": "READY", "alt": "BLOCKED"}
+              # THE RENDERING NAMES THE LIMB THAT CARRIED IT — "satisfied" is not evidence a
+              # reader can check; "satisfied BY THIS limb ON THIS value" is.
+              and _rs23_rows["alt"]["reason"] == (
+                  "after: a[safe=yes]|b=any-of -> a[safe=yes]=done+guard-ruled + b=done")
+              and _rs23_grows["alt"]["reason"] == (
+                  "after: a[safe=yes]|b=any-of -> a[safe=yes]=done+guard-ruled")
+              and _rs23_brows["alt"]["reason"] == "after: a[safe=yes]|b=any-of -> b=done"
+              and _rs23_rows["alt"]["unmet-after"] == []
+              # UNMET: the raw token as the entry's `seat` (an alternate resolves no single roster
+              # row, stated rather than papered over), and EVERY limb's own state underneath — the
+              # reader must not have to look three predecessors up by hand.
+              and _rs23_nrows["alt"]["unmet-after"] == [
+                  {"seat": "a[safe=yes]|b", "state": "alternate-unmet",
+                   "limbs": [{"seat": "a", "state": "guard-mismatch",
+                              "guard": {"key": "safe", "required": "yes", "ruled": "no"}},
+                             {"seat": "b", "state": "no-check-out"}]}]
+              and ("a[safe=yes]|b=<any-of unmet: a[safe=yes]=<guard safe=no> "
+                   "b=<no check-out>>") in _rs23_nrows["alt"]["reason"]
               # mirrored from `_manifest_after_ids`, whose ONE non-obvious property this asserts:
-              # brackets are stripped BEFORE the alternate test, so a `|` INSIDE a guard value is
-              # never read as an alternate. The two homes stay in step or this row reds.
+              # brackets are neutralised BEFORE the alternate split, so a `|` INSIDE a guard value
+              # is never read as a separator. The two homes stay in step or this row reds — and
+              # the LIMBS are asserted, not merely the verdict, because D6 made them load-bearing.
               and parse_after_member("s[k=a|b]") == ("s", "k", "a|b", False)
               and parse_after_member("s[k=v]|t")[3] is True
-              and parse_after_member("s") == ("s", None, None, False))
+              and parse_after_member("s") == ("s", None, None, False)
+              and after_member_limbs("s[k=a|b]") == ["s[k=a|b]"]
+              and after_member_limbs("s[k=v]|t") == ["s[k=v]", "t"]
+              and after_member_limbs("a|b|c") == ["a", "b", "c"])
         # ---- `--explain` reads the ONE computation, and no longer re-derives its own ----
         _rs24_out, _, _ = _rs(_rs21_ok, explain="g")
         _rs24_bout, _, _ = _rs(_rs21_ok, explain="bare")
@@ -24013,29 +24292,41 @@ def _selftest_checks(args, failures, names):
         _w1_src = Path(__file__).read_text(encoding="utf-8")
         import inspect as _w1_inspect
         _w1_body = _w1_inspect.getsource(parse_after_member)
+        _w1_altbody = _w1_inspect.getsource(after_member_limbs)
         # Needles ASSEMBLED from fragments so this check's own source is not a hit for its own
         # search — the `run-state-job.py` criterion-3 precedent, for the same reason.
         _w1_re_tok = "GUARDED_" + "MEMBER_RE"
         _w1_strip = "re.sub(r" + '"' + "\\[[^\\]]*\\]" + '"'
-        check("dag-10 W1-3 (7.424) THE MEMBER GRAMMAR IS DECOMPOSED IN EXACTLY ONE PLACE IN THIS "
-              "MODULE, AND THAT PLACE IS `parse_after_member`. This is the row that measures the "
-              "COLLAPSE rather than its consequences: W1-1 and W1-2 would both stay green with a "
-              "second parser still live beside the first, because they only assert what arrives at "
-              "a consumer. This one counts the SITES. The guarded-member regex may appear exactly "
-              "twice — its module-level definition and its ONE match, inside `parse_after_member` "
-              "— and the bracket-strip that must precede the alternate test exactly once, also "
-              "inside it. Re-inline either into a consumer (which is what `taskforce_after` and "
-              "`guarded_pairs` did before this change) and this row REDS. It cannot see a "
-              "hand-rolled parse that avoids both idioms; that bound is stated, not covered",
+        check("dag-10 W1-3 (7.424 + D6) THE MEMBER GRAMMAR IS DECOMPOSED IN EXACTLY TWO PLACES IN "
+              "THIS MODULE AND NO OTHER, AND EACH OWNS ONE HALF: `parse_after_member` holds the "
+              "guarded-member match, `after_member_limbs` holds the bracket-neutralise-then-split, "
+              "and the FIRST reaches the alternate question only by CALLING the second. This is "
+              "the row that measures the COLLAPSE rather than its consequences: W1-1 and W1-2 "
+              "would both stay green with a second parser still live beside the first, because "
+              "they only assert what arrives at a consumer. This one counts the SITES. ⚠ THE "
+              "SPLIT MOVED OUT OF `parse_after_member` WITH D6, and it had to: before D6 nothing "
+              "could evaluate an alternate, so a `\"|\" in <stripped>` TEST was all that was "
+              "needed; D6 needs the LIMBS, and a predicate answering 'is this an alternate' beside "
+              "a separate producer of its limbs is the two-readings drift W1 collapsed one layer "
+              "up. The delegation is asserted, not assumed — that is what keeps them one reading. "
+              "Re-inline either idiom into a consumer (which is what `taskforce_after` and "
+              "`guarded_pairs` did before 7.424) and this row REDS. It cannot see a hand-rolled "
+              "parse that avoids both idioms; that bound is stated, not covered",
               _w1_src.count(_w1_re_tok) == 2 and _w1_body.count(_w1_re_tok) == 1
-              and _w1_src.count(_w1_strip) == 1 and _w1_body.count(_w1_strip) == 1
-              # the definition is the other of the two, at module level — named so a future reader
-              # knows WHICH two occurrences this row admits
+              and _w1_src.count(_w1_strip) == 1 and _w1_altbody.count(_w1_strip) == 1
+              # the strip is NOT in `parse_after_member` any more, and its absence there is the
+              # half of the delegation a `count == 1` in the other function cannot see
+              and _w1_body.count(_w1_strip) == 0
+              and "after_member_limbs(" in _w1_body
+              # the definition is the other of the two regex occurrences, at module level — named
+              # so a future reader knows WHICH two this row admits
               and _w1_src.count(_w1_re_tok + " = re.compile(") == 1)
 
         # ---- the VERB: `rule-guard`, the key that ships with the gate ----
         def _rg_ns(pkg, **kw):
-            _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": "leader",
+            # D2: the DEFAULT CALLER IS `a` — the seat the `(seat, key)` pair is about — because
+            # that is now the one party admitted to write it. It was `leader` until 2026-08-11.
+            _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": "a",
                   "force": False, "go": True, "seat": "a", "guard": "safe=yes",
                   "source": "fixture §1 (derived verdict)"}
             _d.update(kw)
@@ -24045,14 +24336,28 @@ def _selftest_checks(args, failures, names):
             return load_guard_values(Path(pkg) / "coordination")
 
         _rg_pkg = _rs_make("rg", _rs21_tf, sessions=[("a", "done")])
+        # D2's RED ARM, and it is the whole point of the re-gate: `bare` is a REAL SEAT of this
+        # fixture with a real descriptor and a real taskforce row — every term but its NAME is
+        # right. Under the retired `is_leader` gate this call was refused for being a non-leader
+        # and the row could not tell "wrong seat" from "not the leader"; it is refused now for
+        # being the wrong seat, which is the property D2 actually asserts.
         _rg_role_o, _rg_role_e, _rg_role_c = harness_outcome(
             cmd_rule_guard, _rg_ns(_rg_pkg, as_agent="bare"))
+        # ...and the LEADER is refused too, by name. Removing the leader gate is not widening it:
+        # the leader is not a party to advancement, and a leader who could still write the value
+        # would leave the old path live beside the new one with nothing on disk saying which ran.
+        _rg_lead_o, _rg_lead_e, _rg_lead_c = harness_outcome(
+            cmd_rule_guard, _rg_ns(_rg_pkg, as_agent="leader"))
         _rg_src_o, _rg_src_e, _rg_src_c = harness_outcome(
             cmd_rule_guard, _rg_ns(_rg_pkg, source=None))
         _rg_shape_o, _rg_shape_e, _rg_shape_c = harness_outcome(
             cmd_rule_guard, _rg_ns(_rg_pkg, guard="safe"))
+        # D2 REORDERED THIS ARM, and the fixture says so rather than working around it: the role
+        # gate now keys on the SEAT, so it fires BEFORE the `state` layer's "no such seat" check.
+        # The caller is therefore `nobody` too — otherwise this row would silently stop measuring
+        # the state layer and would measure the role gate a second time.
         _rg_seat_o, _rg_seat_e, _rg_seat_c = harness_outcome(
-            cmd_rule_guard, _rg_ns(_rg_pkg, seat="nobody"))
+            cmd_rule_guard, _rg_ns(_rg_pkg, seat="nobody", as_agent="nobody"))
         _rg_pair_o, _rg_pair_e, _rg_pair_c = harness_outcome(
             cmd_rule_guard, _rg_ns(_rg_pkg, guard="unreferenced=yes"))
         _rg_after_refusals = _rg_values(_rg_pkg)
@@ -24062,19 +24367,24 @@ def _selftest_checks(args, failures, names):
         _rg_go_o, _rg_go_e, _rg_go_c = harness_outcome(cmd_rule_guard, _rg_ns(_rg_pkg))
         _rg_after_go = _rg_values(_rg_pkg)
         _rg_ready, _ = _rs_v(_rg_pkg)
-        check("dag-10 RS-25 (7.383) THE GATE SHIPS WITH ITS KEY, AND EVERY REFUSAL IS LAYERED AND "
-              "WRITES NOTHING. `r-gate-ships-with-its-own-key`: the guard term REFUSES READY, so "
-              "it is a gate, and a gate whose key does not exist is not a gate but a wall — the "
-              "leader's only remaining path would be hand-editing the `after` cell to DELETE the "
-              "precondition. Five refusals, deliberately at TWO layers with TWO exit codes so a "
-              "caller can tell a malformed invocation from a wrong one: `role gate`/2 for a "
-              "non-leader, `input`/2 for a malformed KEY=VALUE and for a missing --source, "
-              "`state`/1 for an unknown seat and for a (seat, key) no live edge references. ⚠ THE "
-              "MANDATORY --source IS A REFUSAL AND NOT AN argparse REQUIREMENT, so it carries a "
-              "layer and a remedy rather than a usage error. ⚠ AND THE FILE IS READ BACK AFTER "
-              "ALL FIVE: a refusal that printed correctly while writing anyway is exactly what a "
-              "success-line assertion cannot see",
+        check("dag-10 RS-25 (7.383 + D2) THE GATE SHIPS WITH ITS KEY, THE KEY IS THE PRODUCING "
+              "SEAT'S, AND EVERY REFUSAL IS LAYERED AND WRITES NOTHING. "
+              "`r-gate-ships-with-its-own-key`: the guard term REFUSES READY, so it is a gate, and "
+              "a gate whose key does not exist is not a gate but a wall — the only remaining path "
+              "would be hand-editing the `after` cell to DELETE the precondition. ⚠ D2 "
+              "(2026-08-11): THE SEAT NAMED IN THE PAIR HOLDS THE KEY. Both a WRONG SEAT and the "
+              "LEADER are refused at the role gate, by two separate arms — the leader arm is what "
+              "distinguishes a REMOVED gate from a WIDENED one, and it is the arm an "
+              "`is_leader or name == seat` implementation reds on. Six refusals, deliberately at "
+              "TWO layers with TWO exit codes so a caller can tell a malformed invocation from a "
+              "wrong one: `role gate`/2 for a seat that is not the one named, `input`/2 for a "
+              "malformed KEY=VALUE and for a missing --source, `state`/1 for an unknown seat and "
+              "for a (seat, key) no live edge references. ⚠ THE MANDATORY --source IS A REFUSAL "
+              "AND NOT AN argparse REQUIREMENT, so it carries a layer and a remedy rather than a "
+              "usage error. ⚠ AND THE FILE IS READ BACK AFTER ALL SIX: a refusal that printed "
+              "correctly while writing anyway is exactly what a success-line assertion cannot see",
               _rg_role_c == 2 and "refused [coord role gate]" in (_rg_role_o + _rg_role_e)
+              and _rg_lead_c == 2 and "refused [coord role gate]" in (_rg_lead_o + _rg_lead_e)
               and _rg_src_c == 2 and "refused [coord input]" in (_rg_src_o + _rg_src_e)
               and "--source is MANDATORY" in (_rg_src_o + _rg_src_e)
               and _rg_shape_c == 2 and "refused [coord input]" in (_rg_shape_o + _rg_shape_e)
@@ -24082,22 +24392,151 @@ def _selftest_checks(args, failures, names):
               and _rg_pair_c == 1 and "refused [coord state]" in (_rg_pair_o + _rg_pair_e)
               and "a[safe=…]" in (_rg_pair_o + _rg_pair_e)
               and _rg_after_refusals == {})
-        check("dag-10 RS-26 (7.383) BARE REPORTS AND WRITES NOTHING; `--go` APPENDS AND THE EDGE "
-              "MOVES. The report pass runs EVERY check the acting pass runs — one function, one "
-              "predicate — so a `--go` run can never record what a bare run refused, and the file "
-              "is read back off disk after the bare call to prove it stayed absent. The `--go` "
-              "call then writes the ruling WITH its source and the party that made it, and the "
-              "guarded successor goes BLOCKED -> READY in the same package: the verb and the gate "
-              "are proven against each other rather than each against its own docstring",
+        check("dag-10 RS-26 (7.383 + D2) BARE REPORTS AND WRITES NOTHING; `--go` APPENDS AND THE "
+              "EDGE MOVES. The report pass runs EVERY check the acting pass runs — one function, "
+              "one predicate — so a `--go` run can never record what a bare run refused, and the "
+              "file is read back off disk after the bare call to prove it stayed absent. The "
+              "`--go` call then writes the value WITH its source and the party that wrote it, and "
+              "the guarded successor goes BLOCKED -> READY in the same package: the verb and the "
+              "gate are proven against each other rather than each against its own docstring. "
+              "⚠ D2: `ruled-by` IS THE CALLER, ASSERTED AS THE SEAT — never the leader constant "
+              "the write used to carry. The row is the only durable record of who established the "
+              "value, and a constant there would name a party that no longer has the act",
               _rg_bare_c is None and "report only" in (_rg_bare_o + _rg_bare_e)
               and "UNRULED" in (_rg_bare_o + _rg_bare_e)
               and _rg_after_bare == {}
               and _rg_go_c is None
               and _rg_after_go[("a", "safe")]["value"] == "yes"
-              and _rg_after_go[("a", "safe")]["ruled-by"] == "leader"
+              and _rg_after_go[("a", "safe")]["ruled-by"] == "a"
+              and DISPOSITION_WRITER_LEADER != "a"
               and "fixture" in _rg_after_go[("a", "safe")]["source"]
               and _rg_after_go[("a", "safe")]["stamp"]
               and _rg_ready == {"a": "DONE", "g": "READY", "bare": "READY"})
+        # ---- D4: THE SEED — a READY row's predecessors' declared outputs, RESOLVED --------------
+        # ONE FIXTURE FAMILY, FOUR SHAPES OF ROW: a root (no predecessors), a BARE successor, a
+        # GUARDED successor, and a successor of a predecessor that declares NOTHING. The guarded
+        # and bare rows share ONE predecessor and must produce the IDENTICAL seed — that pair is
+        # the row's whole discriminating power, because the failure this exists to catch is a seed
+        # resolved on the RAW MEMBER TOKEN: `seats/p[safe=yes]/` is a directory that cannot exist,
+        # so the guarded row would come back SILENTLY EMPTY while the bare one looked perfect.
+        # It is the same name-lookup defect 7.383 closed at the readiness loop, one stage down.
+        _rs28_tf = [("p", ""), ("q", ""), ("bare2", "p"), ("g2", "p[safe=yes]"),
+                    ("nodecl", "q"), ("both", "p,q")]
+        _rs28 = _rs_make("28", _rs28_tf, sessions=[("p", "done"), ("q", "done")],
+                         guards=[("p", "safe", "yes")],
+                         outputs={"p": "plan.md, build/", "q": ""})
+        _rs28_rows = {r["seat"]: r for r in json.loads(_rs(_rs28, json=True)[0])}
+        _rs28_seat = Path(_rs28) / "seats" / "p"
+        _rs28_want = [str(_rs28_seat / "plan.md"), str(_rs28_seat / "build")]
+        check("dag-10 RS-28 (D4) EVERY ROW CARRIES `seed` — THE RESOLVED ABSOLUTE PATHS OF ITS "
+              "SATISFIED PREDECESSORS' DECLARED OUTPUTS — AND IT IS RESOLVED ON THE CLEAN "
+              "PREDECESSOR NAME. ⚠ THE GUARDED ROW AND THE BARE ROW SHARE ONE PREDECESSOR AND "
+              "MUST SEED IDENTICALLY: an implementation that resolved the RAW member token would "
+              "look for `seats/p[safe=yes]/`, a directory that CANNOT exist, and hand the guarded "
+              "seat a silently EMPTY seed while the bare seat beside it looked perfect. That is "
+              "the one failure mode with no symptom at the seed site. ⚠ A ROOT GETS `[]` AND SO "
+              "DOES A ROW WHOSE PREDECESSOR DECLARES NOTHING — both are correct and complete "
+              "seeds, not failures, and the root case is the one an implementation keyed on "
+              "predecessors forgets. ⚠ ORDER IS THE DECLARATION'S AND IS PRESERVED; RELATIVE "
+              "PATHS RESOLVE AGAINST THE PREDECESSOR'S OWN `cwd`, never the caller's",
+              _rs28_rows["g2"]["verdict"] == "READY"
+              and _rs28_rows["bare2"]["verdict"] == "READY"
+              and _rs28_rows["g2"]["seed"] == _rs28_want
+              and _rs28_rows["bare2"]["seed"] == _rs28_want
+              and _rs28_rows["p"]["seed"] == [] and _rs28_rows["q"]["seed"] == []
+              and _rs28_rows["nodecl"]["seed"] == []
+              # two predecessors, one of which declares nothing: the seed is the union in `after`
+              # order and gains no empty entry for the silent one
+              and _rs28_rows["both"]["seed"] == _rs28_want
+              # and it is JSON-shaped as the daemon's consumer reads it: a LIST OF STRINGS under
+              # the key `seed`. That contract is written in another language against these bytes.
+              and all(isinstance(_x, str) for _x in _rs28_rows["g2"]["seed"])
+              and all("seed" in _r for _r in json.loads(_rs(_rs28, json=True)[0])))
+        # THE UNSATISFIED DIRECTION, on its own fixture: a BLOCKED row must not seed from the
+        # predecessor that did NOT satisfy it. Without this arm a `seed` built from `after`
+        # membership rather than from the member's VERDICT passes every arm above.
+        _rs29 = _rs_make("29", [("p", ""), ("q", ""), ("both", "p,q")],
+                         sessions=[("p", "done")], outputs={"p": "plan.md", "q": "other.md"})
+        _rs29_rows = {r["seat"]: r for r in json.loads(_rs(_rs29, json=True)[0])}
+        check("dag-10 RS-29 (D4) THE SEED FOLLOWS THE MEMBER'S VERDICT, NOT ITS MEMBERSHIP. On a "
+              "BLOCKED row with two predecessors — one `done`, one with no check-out — the seed "
+              "carries the satisfied one's artifact and NOT the unsatisfied one's. A seed built by "
+              "walking the `after` cell would carry both and would hand a launcher a path its "
+              "producer has not written yet; a seed built from the verdict cannot",
+              _rs29_rows["both"]["verdict"] == "BLOCKED"
+              and _rs29_rows["both"]["seed"] == [str(Path(_rs29) / "seats" / "p" / "plan.md")])
+
+        # ---- D3: A `done` CHECK-OUT IS REFUSED WHILE THE SEAT OWES AN UNWRITTEN GUARD ----------
+        # Driven through the REAL `cmd_checkout`, on a real package, in the order a seat meets it:
+        # check in, try to finish, be refused, write the value, finish. The refusal arm and the
+        # admission arm run on the SAME package and the SAME seat and differ in ONE act, so the
+        # row cannot pass on a package that was unwritable or a seat that was never eligible.
+        def _d3_ns(pkg, **kw):
+            _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": "gp",
+                  "force": True, "renew": False, "handoff": None, "handoff_file": None,
+                  "incomplete": None, "no_export": True}
+            _d.update(kw)
+            return argparse.Namespace(**_d)
+
+        def _d3_checkin(pkg, seat, pane):
+            # ONE PANE PER SEAT, and it is not cosmetic: a second check-in on a pane another name
+            # already holds RETIRES that row, so two seats sharing `%91` leaves the first with no
+            # ACTIVE row and its check-out refuses for a reason that has nothing to do with D3.
+            harness_outcome(cmd_checkin, argparse.Namespace(
+                package=str(pkg), base=None, workers_dir=None, agent=seat, as_agent=None,
+                summary="D3 fixture", pane=pane, force=True))
+
+        # `gp` is the guarded PRODUCER (a live `after` member reads `gp[shipped=yes]`); `ug` is
+        # its control — a seat NO edge guards, which must stay untouched by this gate.
+        _d3_tf = [("gp", ""), ("ug", ""), ("s1", "gp[shipped=yes]"), ("s2", "ug")]
+        _d3_pkg = _rs_make("d3", _d3_tf)
+        _d3_checkin(_d3_pkg, "gp", "%91")
+        _d3_checkin(_d3_pkg, "ug", "%92")
+        _d3_o1, _d3_e1, _d3_c1 = harness_outcome(cmd_checkout, _d3_ns(_d3_pkg))
+        _d3_after_refusal = load_guard_values(Path(_d3_pkg) / "coordination")
+        _d3_uo, _d3_ue, _d3_uc = harness_outcome(cmd_checkout, _d3_ns(_d3_pkg, as_agent="ug"))
+        # the SAME seat, still owing the SAME key, ending honestly
+        _d3_io, _d3_ie, _d3_ic = harness_outcome(
+            cmd_checkout, _d3_ns(_d3_pkg, incomplete="the value is unestablished"))
+        _d3_idisp = {r["seat"]: r["disposition"] for r in json.loads(_rs(_d3_pkg, json=True)[0])}
+        check("dag-10 D3 A `done` CHECK-OUT IS REFUSED WHILE THE SEAT OWES A GUARD VALUE THAT IS "
+              "NOT ON DISK, AND THE REFUSAL NAMES THE KEY AND THE EXACT COMMAND THAT WRITES IT. "
+              "This is the enforcing half of the double validation D2 opens: the verb bounds WHAT "
+              "may be written, this bounds THAT it was. Without it a seat departs having never "
+              "written its value, every guarded successor sits BLOCKED on an unruled guard, and "
+              "the only party who could have answered is gone. ⚠ THE DEBT IS THE DAG'S, NOT THIS "
+              "GATE'S: the keys come from `guarded_pairs()` filtered to the seat, so the control "
+              "`ug` — a seat no live `after` member guards — checks out `done` untouched, and a "
+              "package with no guarded edge at all cannot be affected by this change. ⚠⚠ AND ONLY "
+              "THE `done` BRANCH IS GATED: the SAME seat, still owing the SAME key, checks out "
+              "`incomplete` and is ADMITTED. Gating the honest ending would rebuild the "
+              "2026-08-09 defect `incomplete` was minted to fix — an ending that must never be "
+              "harder to reach than the dishonest one. ⚠ AND THE REFUSAL WRITES NOTHING",
+              _d3_c1 == 1 and "refused [coord state]" in (_d3_o1 + _d3_e1)
+              and "UNWRITTEN: `gp[shipped=…]`" in (_d3_o1 + _d3_e1)
+              and "rule-guard gp shipped=<value> --source" in (_d3_o1 + _d3_e1)
+              and "gp[shipped=yes]" in (_d3_o1 + _d3_e1)      # names the edge that reads it
+              and _d3_after_refusal == {}
+              and _d3_uc is None                               # the unguarded control finishes
+              and _d3_ic is None                               # the honest ending is admitted
+              and _d3_idisp["gp"] == "incomplete" and _d3_idisp["ug"] == "done")
+        # THE ADMISSION ARM, on a FRESH package so the refused seat above is not carrying an
+        # ending already: write the value, then the same `done` check-out passes and the guarded
+        # successor moves. Without this arm a gate that refused EVERY `done` would pass the row.
+        _d3_pkg2 = _rs_make("d3b", _d3_tf)
+        _d3_checkin(_d3_pkg2, "gp", "%93")
+        harness_outcome(cmd_rule_guard, argparse.Namespace(
+            package=str(_d3_pkg2), base=None, workers_dir=None, as_agent="gp", force=False,
+            go=True, seat="gp", guard="shipped=yes", source="fixture §1"))
+        _d3_o2, _d3_e2, _d3_c2 = harness_outcome(cmd_checkout, _d3_ns(_d3_pkg2))
+        _d3_v2, _ = _rs_v(_d3_pkg2)
+        check("dag-10 D3 (admission arm) WITH THE VALUE WRITTEN, THE SAME `done` CHECK-OUT IS "
+              "ADMITTED AND THE GUARDED SUCCESSOR MOVES. The refusal arm above and this one differ "
+              "in exactly ONE act — the `rule-guard` write — so a gate that refused every `done`, "
+              "or one that refused none, reds one of the two. The successor's verdict is asserted "
+              "as well as the exit code: the point of writing the value is that an edge advances",
+              _d3_c2 is None and _d3_v2["gp"] == "DONE" and _d3_v2["s1"] == "READY")
+
         _rg_help = build_parser().format_help()
         check("dag-10 RS-27 (7.383) THE VERB IS REGISTERED AND THE INDEX A SEAT READS NAMES IT. "
               "A command that exists only as a function is unreachable, and a routing line naming "
@@ -29249,8 +29688,8 @@ def _selftest_checks(args, failures, names):
         check("MC4/7.446: RED ARM — a seat this package holds no descriptor for is REFUSED, exit "
               "non-zero, and NOTHING is appended. Its positive control is the three rows above, "
               "fired on the SAME package inside this block: the refusal is the unknown NAME, not "
-              "an unwritable package. A row fabricated for a name the package does not know is "
-              "the hand-written trace the edge-runner's gate 3 exists to refuse",
+              "an unwritable package. A row fabricated for a name the package does not know is a "
+              "trace asserting that a seat booted, about a seat that does not exist",
               _c5d != 0 and "refused [coord state]" in _o5d and len(_r5d) == 2)
 
     # ---- 7.581 / Q17: the dod-judge two-strikes derivation — four red-first arms per the
@@ -29660,12 +30099,12 @@ HELP_EPILOG = """everyday
   read        your unread messages, {limit} at a time (cursor persisted per agent)
   send / escalate / fail-status  message one agent, a group, or all — typed, their pane woken · dod-judge retry escalation: append the ONE escalation row, addressed `owner`, once a milestone's consecutive-FAIL count reaches its bar · read-only: that count, the resolved bar and where it came from
   pending     open asks: waiting on you, open to everyone, yours unanswered
-  checkout    end your session (exports your transcript first) · --renew --handoff hands this seat to your own next session
+  rule-guard / checkout  record YOUR OWN seat's value for a guard a live `after` member reads — the seat named in the (seat, key) pair writes it, no other seat may, --source mandatory (--go; reports bare) · end your session, exports your transcript first — REFUSED while a declared output or a guard you owe is missing; --renew --handoff hands this seat to your own next session
 
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / rule-relaunch / rule-guard  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · record YOUR ruling on a guarded `after` member's guard, --source mandatory (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / rule-relaunch  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -30336,8 +30775,8 @@ def build_parser():
         "session-open",
         "Open a seat's session-trace row — the row `sessions.csv` gets when the kit launches a\n"
         "seat, exposed as a verb for a launcher that is NOT this file's own `launch`. The daemon's\n"
-        "spawn path is that launcher: without this, a daemon-launched package has no trace at all\n"
-        "and the edge-runner's fast path refuses it wholesale, so no edge advances.\n"
+        "spawn path is that launcher: without this, a daemon-launched package has no trace at all,\n"
+        "so nothing that reads sessions.csv can say how any of its seats ended.\n"
         "\n"
         "CALL IT ONLY AFTER THE SEAT IS VERIFIED UP — a row for a seat that never booted is the\n"
         "lie the trace exists to prevent, and this command cannot check that for you. Refused for\n"
@@ -30769,22 +31208,25 @@ def build_parser():
 
     s = command(
         "rule-guard",
-        "(leader) Record a RULED value for a guarded `after` member's guard — the KEY that ships\n"
+        "Record YOUR OWN seat's value for a guarded `after` member's guard — the KEY that ships\n"
         "with the guard GATE (`r-gate-ships-with-its-own-key`). A guarded edge\n"
-        "`<seat>[<key>=<value>]` needs TWO things: its predecessor's own `done` check-out, AND a\n"
-        "recorded ruling that the guard holds. A GUARD NEVER AUTO-SATISFIES — with no ruling on\n"
-        "record the edge stays BLOCKED, which is why admitting one is an act with a name and a\n"
-        "writer. `--source` is MANDATORY: a ruling with no citation of where the value was\n"
-        "measured is indistinguishable from a guess. Refuses a seat with no taskforce.csv row,\n"
-        "and a (seat, key) no live `after` member references. Appends to\n"
-        "coordination/guard-values.csv, last row per (seat, key) wins. BARE = report only.",
+        "`<seat>[<key>=<value>]` needs TWO things: that seat's own `done` check-out, AND a\n"
+        "recorded value for the guard. A GUARD NEVER AUTO-SATISFIES — with nothing on record the\n"
+        "edge stays BLOCKED, which is why writing one is an act with a name and a writer.\n"
+        "⚠ THE SEAT NAMED IN THE PAIR WRITES IT, AND NO OTHER SEAT MAY: the value is a fact about\n"
+        "THAT seat's own work and nobody else witnessed it. `--source` is MANDATORY: a value with\n"
+        "no citation of where it was measured is indistinguishable from a guess. Refuses a seat\n"
+        "with no taskforce.csv row, and a (seat, key) no live `after` member references. Appends\n"
+        "to coordination/guard-values.csv, last row per (seat, key) wins. BARE = report only.",
         "example:\n"
         "  coordinate rule-guard k3 retirement-safe=yes --source \"record.md §1\"        # report\n"
         "  coordinate rule-guard k3 retirement-safe=yes --source \"record.md §1\" --go   # record\n"
-        "next: coordinate ready-seats — the guarded edge now reads this value, and still requires "
-        "its predecessor's own `done`")
-    s.add_argument("seat", help="the PREDECESSOR seat the guard is about — the name INSIDE the "
-                                "member token, never the successor being unblocked")
+        "next: coordinate checkout — a `done` checkout is REFUSED while a guard you owe is "
+        "unwritten, and this discharges that debt; the guarded edge then reads this value and "
+        "still requires your own `done`")
+    s.add_argument("seat", help="the seat the guard is ABOUT — the name INSIDE the member token, "
+                                "never the successor being unblocked. It must be YOU: the seat "
+                                "named here is the only party admitted to write its own value")
     s.add_argument("guard", metavar="KEY=VALUE",
                    help="the guard's two halves, e.g. `retirement-safe=yes`")
     s.add_argument("--source", help="MANDATORY — a ledger anchor, record path or message id "
@@ -30800,7 +31242,9 @@ def build_parser():
         "check-out of its own, no ACTIVE roster row, a descriptor on disk, and EVERY `after`\n"
         "predecessor in taskforce.csv carries a check-out with disposition `done`. Only `done`\n"
         "advances an edge — `renew`, `revive`, `exited` and the absence of a check-out all leave\n"
-        "the successor BLOCKED. Reads workers.md, awaiting-close.json and sessions.csv; when the\n"
+        "the successor BLOCKED. A GUARDED member `<seat>[<key>=<value>]` needs that `done` AND a\n"
+        "matching recorded value (coordinate rule-guard); an ALTERNATE `a|b` is satisfied when ANY\n"
+        "ONE member is. Reads workers.md, awaiting-close.json and sessions.csv; when the\n"
         "last two disagree about one seat it reports SKEW and exits 1 rather than picking a\n"
         "winner. READ-ONLY: launches nothing, writes nothing, messages nobody.",
         "example:\n"
@@ -30809,8 +31253,10 @@ def build_parser():
         "  coordinate ready-seats --explain execution-strategist\n"
         "next: launch what it reports READY — `coordinate launch --only <seat>`")
     s.add_argument("--json", action="store_true",
-                   help="the same rows as JSON, each carrying its verdict, reason, disposition "
-                        "and source — so a machine consumer never parses the reason text")
+                   help="the same rows as JSON, each carrying its verdict, reason, disposition, "
+                        "source and `seed` (the resolved absolute paths of the declared outputs "
+                        "of the predecessors that satisfied it; [] on a root) — so a machine "
+                        "consumer never parses the reason text")
     s.add_argument("--explain", metavar="SEAT",
                    help="print the full predicate evaluation for ONE seat, term by term")
     s.set_defaults(func=cmd_ready_seats)

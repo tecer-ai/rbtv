@@ -58,17 +58,12 @@ same name) one level over.
 """
 
 import argparse
-import importlib.util
 import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-
-# The sole consumer of the edge fast path's arming file, and therefore the sole reader of it.
-# `capabilities/<name>/tool/` → `capabilities/<name>/` → `capabilities/` → `ignite/`.
-EDGE_RUNNER_PATH = Path(__file__).resolve().parents[3] / "jobs" / "edge-runner-job.py"
 
 # The composed session name's grammar. Both inputs are kebab-validated upstream — `GOAL_NAME_RE` at
 # the request inbox and `argv-template.js`'s `nameRule` at BOTH enqueue and fire — but this program
@@ -230,58 +225,6 @@ def panes_launched(stdout):
             (LAUNCHED_PANE_RE.match(ln.strip()) for ln in (stdout or "").splitlines()) if m]
 
 
-def report_arming(package):
-    """Say whether this package's EDGE FAST PATH is armed. Returns nothing; never raises, never exits.
-
-    ⚠ DOORS 2 AND 3 OF TASK 7.736 (owner ruling 2026-08-11: warn at all three doors, exit stays 0).
-    Arming is the presence of `coordination/edge-fastpath.json` and nothing else. Its sole consumer
-    — `jobs/edge-runner-job.py` — reads it at CHECK-OUT time and is DELIBERATELY SILENT when
-    unarmed, which is correct there and was total everywhere else: a goal could be created,
-    launched, run, and check a seat out with the advance hook disarmed, and no surface on the launch
-    path ever said so. The run simply stopped advancing and looked like a stall. This is the
-    launcher's half of the fix — it SAYS so, on the dry-run path and the live path alike, because a
-    dry-run exists to show what a real launch would do.
-
-    THE PREDICATE IS IMPORTED, NEVER REIMPLEMENTED (PRIN-11), by the same `spec_from_file_location`
-    idiom `jobs/goal-state-job.py` uses on the same file for the same reason: `fastpath_arm` is THE
-    one reader of that file, and a second reader here would be free to disagree with the CONSUMER
-    about which packages are armed — and a disagreement about arming is the very failure this
-    reporting exists to surface.
-
-    ⚠ IT NEVER TOUCHES THE EXIT CODE. This program's exit is spent on exactly one claim ("this fire
-    opened at least one seat pane", see EXIT_NO_SEAT above), and an unarmed package still opens its
-    seats perfectly well — failing the launch over arming would convert a warning into an outage and
-    would write `failed` on a fire that did its whole job. The signal a downstream monitor greps is
-    the stable token `EDGE-FASTPATH-NOT-ARMED` in this log, never a code.
-    """
-    try:
-        spec = importlib.util.spec_from_file_location("edge_runner_job", EDGE_RUNNER_PATH)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules["edge_runner_job"] = mod
-        spec.loader.exec_module(mod)
-        arm, scope = mod.fastpath_arm(package)
-    except Exception as err:
-        # BROAD ON PURPOSE, and this is the only place this file catches everything: importing
-        # executes a whole sibling module's body, and the ARMING REPORT must never be the thing that
-        # breaks a launch. UNKNOWN is printed LOUDLY and is never collapsed into either verdict —
-        # "I could not look" is not "not armed", and it is emphatically not "armed".
-        log(f"EDGE-FASTPATH-UNKNOWN — could not read this package's arming state through "
-            f"{EDGE_RUNNER_PATH} ({type(err).__name__}: {err}). NOT FATAL, and NOT A VERDICT: the "
-            f"launch proceeds and its exit code is unaffected, but nothing here says whether the "
-            f"check-out advance hook is armed for this goal. Read that file before trusting the run "
-            f"to advance itself.")
-        return
-    if arm:
-        log(f"edge fast path: {scope}")
-        return
-    log(f"EDGE-FASTPATH-NOT-ARMED — {scope}")
-    log(f"EDGE-FASTPATH-NOT-ARMED — CONSEQUENCE: seats in this goal will check out and the DAG will "
-        f"NOT advance on its own; every edge past a finished seat waits for a hand act. This does "
-        f"NOT change this launch's exit code — the room still opens and the entry seat still runs. "
-        f"Arm the package by writing {package}/coordination/edge-fastpath.json (`job-id` and "
-        f"`profile` are both required) if this run is meant to advance itself.")
-
-
 def launch_argv(coord, package, entry_seat, pane):
     """The EXACT argv the launch delegates to. Built above every early return so --dry-run prints
     the real thing.
@@ -324,11 +267,6 @@ def main(argv=None):
     if not Path(args.coord).is_file():
         log(f"FATAL — coord.py not found at {args.coord}")
         return 2
-
-    # DOORS 2 AND 3 (7.736). Placed after the two REFUSALS and before everything else, so it runs on
-    # the dry-run path and the live path alike and cannot be reached by a launch that was going to
-    # refuse anyway. Nothing below it reads its result — it reports, and that is all it does.
-    report_arming(package)
 
     try:
         name = session_name(args.goal, package)

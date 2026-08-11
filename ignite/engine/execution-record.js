@@ -173,10 +173,33 @@ function ensureFileLocked(goalFolder) {
   return p;
 }
 
+// ── A DELETED GOAL IS SKIPPED, NEVER THROWN ON (IPH-15, owner-ruled `one-readiness-predicate.md`
+// § D7) ───────────────────────────────────────────────────────────────────────────────────────
+//
+// `publishToRecord` below full-scans EVERY status partition each tick, terminal rows included, so
+// it re-walks the rows of a goal whose folder was DELETED forever. The lock file's `openSync` then
+// throws ENOENT on the missing parent directory, and — measured on the VPS, 2026-08-11 — that
+// throw escaped into the daemon's lane-watch pass and ABORTED SEEDING FOR EVERY GOAL: the error
+// line named a healthy goal (`forge-reference-seat-id-naming`) while a dead one supplied the path,
+// 2160 occurrences in six hours. The workaround was two empty directories re-created by hand on
+// the box, with a standing "do not delete".
+//
+// A TERMINAL ROW FOR A VANISHED GOAL IS NORMAL. There is no record to publish to and nothing to
+// lose, so both writers answer with the same typed non-write every other refusal here uses. The
+// guard is on the WRITERS rather than in the publish loop because every caller routes through
+// them — the attached lane's foreground carriage writes here too, and a guard in one caller leaves
+// its sibling holding the same ENOENT.
+const VANISHED = 'the goal folder no longer exists — a terminal row for a deleted goal is normal, and there is no record to publish to';
+
+function goalFolderExists(goalFolder) {
+  return Boolean(goalFolder) && fs.existsSync(goalFolder);
+}
+
 // OPEN a row, in the dispatching act. Idempotent on `session-id`: a second call for the same
 // execution appends nothing, so a sync that runs every tick does not grow the file every tick.
 function openExecution({ goalFolder, seat, sessionId, lane, startedAt }) {
   if (!sessionId) return { appended: false, reason: 'no session id — the launch has not happened yet' };
+  if (!goalFolderExists(goalFolder)) return { appended: false, reason: VANISHED };
   // The idempotence CHECK and the append are one critical section: outside the lock, two publishes
   // of the same execution both read "absent" and both append.
   return withRecordLock(goalFolder, () => {
@@ -194,6 +217,7 @@ function openExecution({ goalFolder, seat, sessionId, lane, startedAt }) {
 // first witnessed it, and a second writer's guess must not replace a first writer's observation
 // (the same posture the foreground carrier's execution-row guard takes).
 function closeExecution(args) {
+  if (!goalFolderExists(args.goalFolder)) return { closed: false, reason: VANISHED };
   return withRecordLock(args.goalFolder, () => closeExecutionLocked(args));
 }
 

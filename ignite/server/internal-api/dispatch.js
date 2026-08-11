@@ -32,55 +32,8 @@ const { createAuthzPolicy } = require('./authz');
 const { jobFireability } = require('../heart/heart-store');
 const { appendKillRecord } = require('./keys-audit');
 const path = require('path');
-const { execFileSync } = require('child_process');
 
 const ENVELOPE_VERSION = 1;
-
-// ── Task 7.736 · DOOR 1 — the dry-run says whether the goal's EDGE FAST PATH is armed ─────────
-//
-// "Armed" is the presence of `<workdir>/coordination/edge-fastpath.json` and nothing else, and its
-// SOLE consumer is `jobs/edge-runner-job.py`, which reads it at CHECK-OUT time and is deliberately
-// silent when unarmed. That silence was total: `add-job --dry-run` printed `dry-run: VALID` for a
-// start-workflow whose goal could never advance past its first seat, and validity is exactly what a
-// dry-run exists to report on.
-//
-// IT SHELLS OUT TO THE ONE READER (PRIN-11). Re-deriving the predicate here — even as two lines of
-// `fs.existsSync` — would make this door a SECOND reader, free to disagree with the consumer about
-// which packages are armed; and a disagreement about arming is the failure this door exists to
-// surface. `--arm-state` is that reader's own JSON surface and always exits 0, because the verdict
-// is DATA and never an exit code.
-const EDGE_RUNNER_JOB = path.join(__dirname, '..', '..', 'jobs', 'edge-runner-job.py');
-const ARM_STATE_TIMEOUT_MS = 5000;
-
-function edgeFastpathState(workdir) {
-  // ⚠ UNKNOWN NEVER RENDERS AS ARMED, AND NEVER AS UNARMED EITHER. `false` is a measurement ("I
-  // looked, and the file is not there"); `null` is the ABSENCE of one ("I could not look"). Every
-  // failure mode — no python3 on PATH, the script missing, a timeout, a non-zero exit, output that
-  // is not the documented object, no workdir in the row's args — lands on `armed: null` with the
-  // reason carried in `scope`. Collapsing them would let a door that could not run its own check
-  // report a disarmed goal as fine, which is worse than the silence this door replaces.
-  if (typeof workdir !== 'string' || workdir.length === 0) {
-    return { armed: null, scope: 'arm state UNREADABLE: the row carries no `workdir` argument, so there is no package to look in' };
-  }
-  let out;
-  try {
-    out = execFileSync('python3', [EDGE_RUNNER_JOB, '--arm-state', '--package', workdir], {
-      encoding: 'utf8', timeout: ARM_STATE_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  } catch (err) {
-    return { armed: null, scope: `arm state UNREADABLE: ${EDGE_RUNNER_JOB} --arm-state failed (${err.code || err.message})` };
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(out);
-  } catch {
-    return { armed: null, scope: `arm state UNREADABLE: --arm-state did not return JSON (${String(out).slice(0, 120)})` };
-  }
-  if (!parsed || typeof parsed !== 'object' || typeof parsed.armed !== 'boolean') {
-    return { armed: null, scope: 'arm state UNREADABLE: --arm-state returned no boolean `armed` field' };
-  }
-  return parsed;
-}
 
 // The ratified intent surface (contract § 1). NEVER a raw spawn command,
 // NEVER a raw SQL/store handle. Future intents are ADDED by name under the same
@@ -547,30 +500,21 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     // store's COMPLETE re-validation PASSED (a failure throws VALIDATION_FAILED,
     // identical to the non-dry_run failure path). The verdict is plain data.
     if (dryRun) {
-      const verdict = { dry_run: true, valid: true };
-      // DOOR 1 (7.736), gated on the ACTION and nothing else. `start-workflow` is the action that
-      // opens a goal's seats, so it is the only dry-run for which "will this goal advance itself?"
-      // is even a question. Every other action_type is BYTE-UNCHANGED: no subprocess is spawned and
-      // no `edge_fastpath` key appears at all — an absent key is not a `null` verdict, and a caller
-      // must be able to tell "never asked" from "could not answer".
-      const job = heartStore.getJob(payload.job_id);
-      if (job && job.action_type === 'start-workflow') {
-        let workdir;
-        try {
-          const rowArgs = typeof payload.args === 'string' ? JSON.parse(payload.args) : (payload.args ?? {});
-          workdir = rowArgs && rowArgs.workdir;
-        } catch { /* unparseable args land on the no-workdir UNKNOWN, never on a throw out of a dry run */ }
-        verdict.edge_fastpath = edgeFastpathState(workdir);
-      }
-      return verdict;
+      // ⚠ THE 7.736 DOOR-1 `edge_fastpath` KEY IS GONE (`one-readiness-predicate.md` § Deletions).
+      // It reported whether a goal's EDGE FAST PATH was armed — a mechanism that no longer exists:
+      // readiness is `coordinate ready-seats`, consumed by the daemon's own seeding pass, and there
+      // is no arm file to be armed or unarmed. A verdict about a deleted mechanism is worse than no
+      // verdict, so the key is DELETED rather than left reporting `false` forever.
+      return { dry_run: true, valid: true };
     }
 
     // ── Task Q9 · the idempotent door's AUDIT SURFACE (ruling `d-q9-door`) ───────────────────
     // The store suppressed this enqueue because the (run, seat) is already held. It is a NO-OP,
     // so the ticker is NOT nudged — there is no new row to serve. The suppression MUST be
     // observable or it is indistinguishable from a real enqueue on the wire: the caller gets a
-    // valid queue id either way, by design (that is what keeps the periodic edge-runner's pass
-    // green instead of recording `failed` every cadence). This line is that observability, and
+    // valid queue id either way, by design (that is what kept the retired periodic edge-runner's
+    // pass green instead of recording `failed` every cadence, and what keeps a re-seeding pass
+    // idempotent now that the seeding pass is the one driver). This line is that observability, and
     // `idempotent-suppress` is the marker probes and log greps key on.
     // The daemon log is the operator's view; `deduped` on the result is the machine's.
     if (result.deduped) {

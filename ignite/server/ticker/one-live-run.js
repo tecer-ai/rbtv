@@ -33,7 +33,7 @@
 // ⚠ WHAT COUNTS AS A "SCHEDULED START", unchanged from 7.77 and still the one judgment in this
 // file: a queue row is a start when its CATALOGUE row is `action_type = 'start-workflow'` and is
 // homed at a goal (`goal_name`). Everything else is deliberately NOT gated, and each exclusion
-// matters: `launch-agent` rows are the edge-runner's seat launches INSIDE a live execution, and
+// matters: `launch-agent` rows are the seeding pass's seat launches INSIDE a live execution, and
 // `fire-tool` rows are the watchers and self-heal jobs that must keep firing precisely BECAUSE
 // one is live. Gating those would stop the room the moment it started working. (Item 7 of the
 // design lock renames this verb's vocabulary — "run start" becomes "start the goal's execution".

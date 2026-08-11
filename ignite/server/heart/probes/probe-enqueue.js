@@ -66,15 +66,17 @@ try {
   // Fixture stores ONLY — the live `heart.db` carries a periodic `goal-creation-request` row that
   // fires against the real box every 300 s and is never touched from here.
   //
-  // The catalogue below MIRRORS `config/spawn-profiles.yaml`'s live entries: `edge-runner` is the
-  // one entry in that file declaring an `args_allowlist` (a single permitted `goal`), and the rest
-  // declare none. The self-heal and goal-creation rows are the args shapes actually stored live
-  // (read read-only from `heart.db`: `{"tool":"selfheal-watch"}` / `{"tool":"goal-creation-request"}`),
-  // so arm 3 exercises the real rows rather than a plausible-looking stand-in.
+  // The catalogue below mirrors the SHAPES `config/spawn-profiles.yaml` admits, not its roster.
+  // ⚠ `allowlisted-tool` IS A FIXTURE AND HAS NO LIVE COUNTERPART: since `one-readiness-predicate.md`
+  // deleted `edge-runner` — the only entry that ever declared an `args_allowlist` — no shipped entry
+  // declares one. The 7.559 gate itself is untouched, so the door still has to be measured, and a
+  // fixture is now the only way to reach it. The self-heal and goal-creation rows below ARE the args
+  // shapes actually stored live (read read-only from `heart.db`: `{"tool":"selfheal-watch"}` /
+  // `{"tool":"goal-creation-request"}`), so arm 3 still exercises real rows.
   const LIVE_GOAL = '/home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp';
   const doorTools = {
-    'edge-runner': {
-      argv: ['/usr/bin/python3', '/…/edge-runner-job.py', '--goal', '{{goal}}'],
+    'allowlisted-tool': {
+      argv: ['/usr/bin/python3', '/…/some-job.py', '--goal', '{{goal}}'],
       args_allowlist: { goal: [LIVE_GOAL] },
     },
     'selfheal-watch': { argv: ['/usr/bin/python3', '/…/selfheal-watch.py'] },
@@ -93,7 +95,7 @@ try {
     enabled: 1,
   });
   const WITH_GOAL = { required: { tool: 'string' }, optional: { goal: 'string', workdir: 'string' } };
-  register('edge-runner', WITH_GOAL);
+  register('allowlisted-tool', WITH_GOAL);
   register('selfheal-watch', { required: { tool: 'string' }, optional: { workdir: 'string' } });
   register('goal-creation-request', { required: { tool: 'string' } });
   register('malformed-allowlist', WITH_GOAL);
@@ -134,15 +136,15 @@ try {
 
   // (1) HOSTILE ROW, REFUSED AT THE DOOR. `goal` is not the value the config author wrote down.
   refused('7.574(1) hostile goal on an allowlisted entry is refused at ENQUEUE',
-    'edge-runner', { tool: 'edge-runner', goal: '/etc/passwd' }, "not on this entry's allowlist");
+    'allowlisted-tool', { tool: 'allowlisted-tool', goal: '/etc/passwd' }, "not on this entry's allowlist");
   refused('7.574(1b) a near-miss (case) is a miss, refused at ENQUEUE',
-    'edge-runner', { tool: 'edge-runner', goal: LIVE_GOAL.toUpperCase() }, "not on this entry's allowlist");
+    'allowlisted-tool', { tool: 'allowlisted-tool', goal: LIVE_GOAL.toUpperCase() }, "not on this entry's allowlist");
   refused('7.574(1c) a control character in an allowlisted key is refused at ENQUEUE',
-    'edge-runner', { tool: 'edge-runner', goal: `${LIVE_GOAL}\n--x` }, 'must carry no control character');
+    'allowlisted-tool', { tool: 'allowlisted-tool', goal: `${LIVE_GOAL}\n--x` }, 'must carry no control character');
 
   // (2) THE LEGAL ROW STILL ENQUEUES — fail-closed must not swallow valid traffic.
   accepted('7.574(2) the allowlisted goal still enqueues',
-    'edge-runner', { tool: 'edge-runner', goal: LIVE_GOAL });
+    'allowlisted-tool', { tool: 'allowlisted-tool', goal: LIVE_GOAL });
 
   // (3) THE LIVE ROWS, BY THEIR ACTUAL STORED ARGS, STILL ENQUEUE UNCHANGED.
   accepted('7.574(3) live goal-creation-request row shape (periodic, queue_id 281) still enqueues',
@@ -151,8 +153,8 @@ try {
     'selfheal-watch', { tool: 'selfheal-watch' });
   // ⚠⚠ THE REGRESSION THIS ROW EXISTS TO CATCH. A `workdir` OUTSIDE `.rbtv/goals/` is legal on a
   // fire-tool row (a repo, a state root) and illegal on a start-workflow one. If this door is ever
-  // widened to the bare grammar call, THIS is the arm that goes red — and the live self-heal and
-  // edge-runner rows are what would have been refused in production.
+  // widened to the bare grammar call, THIS is the arm that goes red — and the live self-heal rows
+  // are what would have been refused in production.
   accepted('7.574(3) a fire-tool workdir outside `.rbtv/goals/` is still legal (no workflow containment)',
     'selfheal-watch', { tool: 'selfheal-watch', workdir: '/home/henri/ht-wkdir/second-brain' });
   accepted('7.574(3) an entry declaring NO args_allowlist admits its untemplated row unchanged',
@@ -173,16 +175,16 @@ try {
   // launchFireTool calls with the entry's allowlist; exercised here on the SAME hostile value arm 1
   // refuses at the door, so adding the door is visibly not a reason the boundary weakened.
   const { expandArgv } = require('../argv-template');
-  const fireArgv = doorTools['edge-runner'].argv;
-  const fireAllow = doorTools['edge-runner'].args_allowlist;
-  const fireBad = expandArgv(fireArgv, { tool: 'edge-runner', goal: '/etc/passwd' }, fireAllow);
+  const fireArgv = doorTools['allowlisted-tool'].argv;
+  const fireAllow = doorTools['allowlisted-tool'].args_allowlist;
+  const fireBad = expandArgv(fireArgv, { tool: 'allowlisted-tool', goal: '/etc/passwd' }, fireAllow);
   arms.push([
     typeof fireBad.refused === 'string' && fireBad.refused.includes("not on this entry's allowlist")
       && fireBad.argv === undefined,
     '7.574(4) the 7.559 FIRE-path refusal still fires on the same hostile value',
     JSON.stringify(fireBad),
   ]);
-  const fireOk = expandArgv(fireArgv, { tool: 'edge-runner', goal: LIVE_GOAL }, fireAllow);
+  const fireOk = expandArgv(fireArgv, { tool: 'allowlisted-tool', goal: LIVE_GOAL }, fireAllow);
   arms.push([
     Array.isArray(fireOk.argv) && fireOk.argv[3] === LIVE_GOAL && fireOk.refused === undefined,
     '7.574(4) the 7.559 FIRE path still composes the legal value into argv',

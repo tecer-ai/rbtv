@@ -22,10 +22,9 @@ The four checks, and what each catches:
   3. NO BESPOKE SPAWN, WITH A POSITIVE CONTROL — no seat-materialization or harness-launch
      construct other than the ruled name is reachable from the call site. The instrument is proven
      able to return non-zero by running it, unchanged, over a file that DOES carry such constructs.
-  4. ONE LOCATION COMPUTER — the arming marker's location comes from the imported `arm_path()` and
-     is computed nowhere else in this capability. Mutant: an inline
-     `pkg / "coordination" / "edge-fastpath.json"`, the second reader whose disagreement with the
-     first IS the C4 failure.
+  4. RETIRED — was ONE LOCATION COMPUTER, over the arming marker's location. Arming is gone
+     (`build/one-readiness-predicate.md`, owner-ruled 2026-08-11) and so is the act it measured.
+     The number is left as a GAP rather than reused: the later labels are cited elsewhere.
 
 Nothing here reads or writes a live goals package. Every mutant lives under `tempfile`.
 """
@@ -73,8 +72,6 @@ def bespoke_search(line):
         if rx.search(line):
             return arm
     return None
-# A location computation that is not the imported one.
-INLINE_ARM_PATH = re.compile(r"""["']coordination["']\s*[/,]\s*["']edge-fastpath\.json["']""")
 
 
 def code_only(src):
@@ -152,46 +149,39 @@ def check_no_bespoke_spawn(src, mod):
     return True, "0 bespoke spawn constructs (docstrings/comments excluded — see code_only)"
 
 
-def check_one_location_computer(src, mod):
-    if not re.search(r"mod\.arm_path\(", src):
-        return False, "the arm act does not call the imported arm_path()"
-    hits = [ln for ln in code_only(src).splitlines() if INLINE_ARM_PATH.search(ln)]
-    if hits:
-        return False, f"a SECOND location computation: {hits[0].strip()[:70]}"
-    return True, "location computed only by the imported arm_path()"
-
-
 def check_fails_closed(src, mod):
     """A failed CREATE must stop the chain — the arm act never runs on it.
 
     THIS CHECK EXISTS BECAUSE THE DEFECT WAS REAL, not anticipated. On task 7.211's first exercise
-    `scaffold-seats` refused the bindings and returned rc=1, and the handler armed the package
-    anyway and reported ACCEPTED. An arming marker on a package that was never created is read by
-    the door as a package to advance.
+    `scaffold-seats` refused the bindings and returned rc=1, and the handler ARMED the package
+    anyway and reported ACCEPTED. The arming act it caught is retired
+    (`build/one-readiness-predicate.md`, 2026-08-11) and the chain is now create -> launch — but the
+    ORDERING property is unchanged and is what this check has always measured, so it survives the
+    retirement rather than going with it. A LAUNCH into a package that was never created is the same
+    defect wearing the surviving act's name.
 
-    Driven by substituting the two acts, so the check needs no filesystem and no subprocess: what
-    is under test is the ORDERING, not either act's own work.
+    Driven by substituting the acts, so the check needs no filesystem and no subprocess: what is
+    under test is the ORDERING, not either act's own work.
     """
     if mod is None:
         return False, "module did not import"
     armed = []
-    real_create, real_arm, real_launch = mod.create, mod.arm, mod.launch
+    real_create, real_launch = mod.create, mod.launch
     try:
         mod.create = lambda *a, **k: [{"step": "create-package", "rc": 1, "argv": [],
                                        "stdout": "", "stderr": "refused"}]
-        mod.arm = lambda *a, **k: (armed.append("arm"), {"step": "arm"})[1]
         mod.launch = lambda *a, **k: (armed.append("launch"), {"step": "launch"})[1]
         out = mod.handle({"goal-name": "x-y", "goal-type": "one-shot",
                           "goal-contract": "c", "goal-kind": "interactive"},
                          None, "/nonexistent/pkg", "cat", "bind", "cond", "cmd", "budget",
-                         "job", "prof", seat="s", root=True)
+                         seat="s", root=True)
     finally:
-        mod.create, mod.arm, mod.launch = real_create, real_arm, real_launch
+        mod.create, mod.launch = real_create, real_launch
     if armed:
         return False, f"a later act RAN after create failed: {armed}"
     if not str(out.get("outcome", "")).startswith("FAILED"):
         return False, f"outcome does not report the failure: {out.get('outcome')!r}"
-    return True, "create rc=1 -> no arm, no launch, outcome FAILED"
+    return True, "create rc=1 -> no launch, outcome FAILED"
 
 
 def check_launch_gates_outcome(src, mod):
@@ -199,23 +189,22 @@ def check_launch_gates_outcome(src, mod):
 
     The discriminating case, and the reason this is not just "check the exit code": `session_open`
     runs only after the harness is verified up, so a pane that opened and whose harness then died
-    can leave rc=0 and no trace row. An entry whose create and arm are proven and whose launch
-    never actually ran is the artifact that passes every gate and then dies.
+    can leave rc=0 and no trace row. An entry whose create is proven and whose launch never actually
+    ran is the artifact that passes every gate and then dies.
     """
     if mod is None:
         return False, "module did not import"
-    real_create, real_arm, real_launch = mod.create, mod.arm, mod.launch
+    real_create, real_launch = mod.create, mod.launch
     try:
         mod.create = lambda *a, **k: [{"step": "create-package", "rc": 0}]
-        mod.arm = lambda *a, **k: {"step": "arm", "accepted-by-fastpath-reader": True}
         # rc=0 — a SUCCESSFUL-looking launch — against a package with no sessions.csv.
         mod.launch = lambda *a, **k: {"step": "launch", "rc": 0}
         out = mod.handle({"goal-name": "x-y", "goal-type": "one-shot",
                           "goal-contract": "c", "goal-kind": "interactive"},
                          None, "/nonexistent/pkg", "cat", "bind", "cond", "cmd", "budget",
-                         "job", "prof", seat="s", root=True)
+                         seat="s", root=True)
     finally:
-        mod.create, mod.arm, mod.launch = real_create, real_arm, real_launch
+        mod.create, mod.launch = real_create, real_launch
     if str(out.get("outcome", "")).startswith("ACCEPTED"):
         return False, "rc=0 with NO session row was reported ACCEPTED — the trace was never asserted"
     if not str(out.get("outcome", "")).startswith("FAILED at launch"):
@@ -301,7 +290,7 @@ def check_refusal_is_stated(src, mod):
         mod.create = lambda *a, **k: [{"step": "create-package", "rc": 0,
                                        "NOTE": "REACHED — the malformed request was not refused"}]
         out = mod.handle(MALFORMED, None, "/nonexistent/pkg", "cat", "bind", "cond", "cmd",
-                         "budget", "job", "prof", seat="s", root=True)
+                         "budget", seat="s", root=True)
     finally:
         mod.create = real_create
     if out.get("acts", {}).get("create"):
@@ -338,7 +327,7 @@ VALID_REQUEST = {"goal-name": "x-y", "goal-type": "one-shot", "goal-contract": "
 def _drive(mod, *, selection, insertion=("--root",), no_launch=False, dry_run=False):
     """Run one entry FORM end to end and RECORD the launch argv. Nothing is executed.
 
-    `create`, `arm` and `_run` are substituted inside the loaded module's own namespace before any
+    `create` and `_run` are substituted inside the loaded module's own namespace before any
     call, so no `coordinate` process, no `scaffold-seats` process and no pane is reachable from
     here; every path is a tempfile. `sessions.csv` is planted because the launch act asserts the
     trace row (check 6) — without it every form would read FAILED at launch for a reason that has
@@ -350,7 +339,7 @@ def _drive(mod, *, selection, insertion=("--root",), no_launch=False, dry_run=Fa
     if mod is None:
         return None, None, "module did not import"
     captured = []
-    real = (mod.create, mod.arm, mod._run)
+    real = (mod.create, mod._run)
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
         pkg = td / "pkg"
@@ -362,14 +351,12 @@ def _drive(mod, *, selection, insertion=("--root",), no_launch=False, dry_run=Fa
         req.write_text(json.dumps(VALID_REQUEST), encoding="utf-8")
         try:
             mod.create = lambda *a, **k: [{"step": "create-package", "rc": 0}]
-            mod.arm = lambda *a, **k: {"step": "arm", "accepted-by-fastpath-reader": True}
             mod._run = lambda cmd, step, dry_run=False: (
                 captured.append(list(cmd)),
                 {"step": step, "argv": list(cmd), "rc": 0, "stdout": "", "stderr": ""})[1]
             argv = ["handle", str(req), "--goals-root", str(goals_root), "--package", str(pkg),
                     "--catalog-root", "CAT", "--bindings", "BIND", "--conduct", "COND",
-                    "--claude-md", "CMD", "--budget-json", "BUD", "--job-id", "JOB",
-                    "--profile", "PROF", *selection, *insertion]
+                    "--claude-md", "CMD", "--budget-json", "BUD", *selection, *insertion]
             if no_launch:
                 argv.append("--no-launch")
             if dry_run:
@@ -381,7 +368,7 @@ def _drive(mod, *, selection, insertion=("--root",), no_launch=False, dry_run=Fa
         except Exception as exc:  # a mutant that CRASHES proves nothing — say so, never report red
             return None, None, f"the entry raised {exc!r} — no verdict"
         finally:
-            mod.create, mod.arm, mod._run = real
+            mod.create, mod._run = real
         return ([[t.replace(str(pkg), "{PKG}") for t in c] for c in captured], result, None)
 
 
@@ -534,9 +521,6 @@ CHECKS = [
      lambda s: s.replace("    ruled = shutil.which(RULED_LAUNCH_NAME)",
                          "    subprocess.run(['tmux', 'new-window', '-d'])\n"
                          "    ruled = shutil.which(RULED_LAUNCH_NAME)")),
-    ("4 one-location-computer", check_one_location_computer,
-     lambda s: s.replace("    path = mod.arm_path(package)",
-                         '    path = Path(package) / "coordination" / "edge-fastpath.json"')),
     ("5 chain-fails-closed", check_fails_closed,
      lambda s: s.replace('    failed = [s for s in result["acts"]["create"] if s.get("rc") not in (0, None)]',
                          '    failed = []')),

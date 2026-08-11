@@ -169,8 +169,8 @@ and statically checked on the Windows desktop — but they only ACT on Linux.
 **Author any brief that EXERCISES their real behaviour against the ignite VPS, not the desktop.**
 On a POSIX host the containment is byte-unchanged and REAL; degrading when the modules are absent
 is LOUD (one stderr line per function, keyed on the import failing — never on a platform name) and
-pinned by `jobs/probes/probe-jobcontain-degrade.py`. The other five scripts in the folder
-(`edge-runner-job.py`, `goal-state-job.py`, `recover-room.py`, `agent-tmp-clean.py`) do not import
+pinned by `jobs/probes/probe-jobcontain-degrade.py`. The other scripts in the folder
+(`recover-room.py`, `agent-tmp-clean.py`) do not import
 `jobcontain` and already load anywhere.
 
 ## Installation model

@@ -9,7 +9,6 @@ recovery agent every period regardless of health — an unbounded paid path.
 | Script | Job | Judges | Acts when |
 |--------|-----|--------|-----------|
 | `selfheal-room.py` | 7.71 | a tmux session named as the room | the session does not exist |
-| `edge-runner-job.py` | C1 | the executing goal's finished seats + every downstream `after` row | the package is ARMED (`{package}/coordination/edge-fastpath.json`); otherwise it stands down |
 | `goal-watcher-job.py` | 7.32 / B2 | the goal's `state.json` snapshot (CMP-20) and nothing raw | a threshold in CMP-21's Layout is crossed — see below; **DARK today, no live catalogue entry** |
 | `jobcontain.py` | both | — | (library: self-cap, wall clock, single-instance lock) |
 
@@ -21,9 +20,11 @@ mentions of the id elsewhere in this tree are HISTORY in prose, not a file that 
 Since task 7.715 the module LOADS anywhere (lazy imports) but only ACTS on the VPS — author any
 brief that exercises their real behaviour against it (`ignite/CLAUDE.md § jobs/`).
 
-(`goal-state-job.py`, `restart-daemon.py` and `recover-room.py` are also in this folder and are NOT
-in the table above — noticed while adding the `edge-runner` row, left alone rather than back-filled
-from guesswork.)
+(`restart-daemon.py` and `recover-room.py` are also in this folder and are NOT in the table above —
+noticed while adding the (since deleted) `edge-runner` row, left alone rather than back-filled from
+guesswork. `goal-state-job.py` was a third one; it is DELETED — `build/one-readiness-predicate.md`,
+owner-ruled 2026-08-11, as a third reader of the readiness question that `coordinate ready-seats`
+now answers alone.)
 
 `agent-tmp-clean.py` (task 7.404) is also in this folder and is **not** a `fire-tool` job — it has
 no catalogue entry and nothing fires it. It ages out `~/.cache/agent-tmp`, the disk-backed location
@@ -79,135 +80,29 @@ run: every row is decided and printed, nothing is delivered and no child process
 MUST set `--to` to the goal's actual leader seat — the throwaway's non-leader value exists only to
 exercise delivery.
 
-## `edge-runner-job.py` is the one whose registration is the whole point (task C1)
+## `edge-runner-job.py` — DELETED 2026-08-11, and nothing replaced it here
 
-Owner ruling `d-owner-batch1` (1): CMP-25's edge-runner registers as a REAL daemon job — the shape
-its registry record already described ("runs out of the heart store like any job") — superseding
-the interim in-process arm-file-gated call from `team-kit/coord.py`, which STAYS wired.
+Owner ruling `build/one-readiness-predicate.md`. There were THREE implementations of "is this seat
+ready to launch" — `coord.py`'s, this file's, and `engine/seeding.js`'s — they drifted, and the
+drift is what stalled the live goal. The ruling keeps ONE: `coord.py`'s `ready_seat_rows`, consumed
+by `engine/seeding.js` through `coordinate ready-seats --json`. The script, its `tools: edge-runner`
+catalogue entry, its probe and its audit record are gone; the `edge-runner` catalogue row in each
+machine's `heart.db` is per-machine runtime state and is removed by hand.
 
-Its catalogue entry is `tools: edge-runner` in `config/spawn-profiles.yaml`. Two things follow from
-that, and both are properties of THIS job rather than of the two above:
+What the ~130 lines that stood here documented, and where each still lives — because none of it was
+this job's alone:
 
-- **Its exit is CMP-25's step 5.** Called in-process the pass returns into a caller that keeps
-  running and nobody observes an exit. Fired as a job it is a process, and `recordToolCompletion`
-  records the exit — 0 → `done`, non-zero → `failed`, with the pass's own output tail as the
-  completion corpus. Registering it is what made step 5 exist; no exit arm was added to the file.
-- **The catalogue entry names a GOAL, and `job-id`/`profile` are not in it at all.** The package is
-  DERIVED from the goal's LIVE LEASE at fire time (`coord.derive_lease` — the goal's tmux room plus
-  its ancestry-verified seats; no stored status is read, and it refuses on an unreadable lease or on
-  anything but exactly one room), and STEP 4's `job-id`/`profile` are read from the resolved
-  package's own `coordination/edge-fastpath.json` — the same file the check-out fast path reads, so
-  the two triggers of CMP-25 are armed by ONE act. An unarmed package is marked, reported, and
-  advanced not at all. That is what keeps `r-cutover-gated` intact through the registration.
-- **STEP 5's two inputs come from the SAME file, and they are OPTIONAL keys in it** (task 7.718):
-  `catalog-root` (what a manifest reference is classified against) and `nested-bindings` (the
-  bindings JSON an expanded instance's seats are cast from). Both are per-RUN, so neither may be
-  pinned in the fixed catalogue argv without minting a second home. Without them a fired pass could
-  never expand a nested-workflow row at all — it left as a typed refusal every time. Optional
-  because a run with no nested rows needs neither, so every arm file written before they existed
-  still arms STEP 4 unchanged; an absent one is still a typed leave on the nested row, never a
-  guess. `--catalog-root` / `--nested-bindings` on the argv override the file, per input.
-
-  ```json
-  {"job-id": "edge-runner-launch", "profile": "claude-opus",
-   "catalog-root": "/abs/path/to/catalog", "nested-bindings": "/abs/path/to/bindings.json"}
-  ```
-
-  ⚠ Both paths are carried VERBATIM. A relative one resolves against the firing process's cwd —
-  under a fire-tool exec that is the unit's, not the run's — so write them absolute.
-
-Registering it on a machine (per-machine runtime state — never in git, and needing a daemon restart
-first so the boot-read catalogue carries the entry):
-
-```bash
-ignite register-job edge-runner --action-type fire-tool \
-  --args-schema '{"required":{"tool":"string","goal":"string"},"optional":{"workdir":"string"}}'
-# `workdir` is PASSED, not merely permitted — see the door-resolution warning below.
-# ⚠ Since task 7.562 a fire-tool `workdir` is GOVERNED: the only values admitted are the configured
-# `default_workdir_root` EXACTLY, or a path inside `.rbtv/goals/<goal>`. On every deployment to date
-# the unit sets `RBTV_IGNITE_WORKDIR_ROOT` to the workspace root, so "the workspace root" below and
-# `default_workdir_root` are the SAME string (verified on the live box 2026-08-10, and the one
-# edge-runner fire that has ever happened supplied exactly it). If you deploy them DIFFERENT, pass
-# `default_workdir_root` — the workspace root is refused, loudly and by name.
-ignite add-job --fn edge-runner \
-  --args-json '{"tool":"edge-runner","goal":"/home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp","workdir":"<the workspace root — the dir holding .rbtv/>"}' \
-  --trigger periodic --every 300
-```
-
-⚠⚠ **`goal` MUST be in the `--args-schema` AND in every `--args-json`, and getting the schema wrong
-BURNS THE ID PERMANENTLY.** Since task 7.559 the catalogue entry's `--goal` is a `{{goal}}`
-placeholder backed by the entry's `args_allowlist` (`config/spawn-profiles.yaml`), so every queue
-row must carry `goal`. A job registered WITHOUT `goal` in its schema has no route to that operand:
-an enqueue that carries `goal` is refused at the door (`unknown argument: goal`, `E_BAD_ARGS`), and
-an enqueue without it passes the door and then REFUSES AT EVERY FIRE
-(`placeholder {{goal}} has no value in the row args`, recorded `failed`). Registration is
-CREATE-ONLY with a typed duplicate refusal (`E_JOB_EXISTS`), and there is no UPDATE surface and no
-DELETE surface (`heart-store.js` above `registerJob`) — a schema registered without `goal` cannot be
-repaired in-band; the id is burnt forever. What you CAN do is stop the bleeding:
-`ignite deregister-job edge-runner` (task 7.364) sets `enabled = 0`, after which the ticker DEFERS
-every due row of that job and `add-job` refuses it; `ignite remove-job <queue-id>` then clears the
-pending rows a disable leaves behind (it defers them, it does not delete them). Neither frees the
-id — re-registering it is still `E_JOB_EXISTS`.
-Read the printed schema back before moving on.
-
-The example `goal` above is a REAL member of the entry's `args_allowlist` — today its only one.
-The value is admitted by `===` identity against that list, so an invented path, a trailing slash,
-or a near miss of any kind is itself refused; use a path that is literally on the list.
-
-⚠ **`--ignite-bin` in that entry is load-bearing.** STEP 4's door is the `ignite` CLI, and a
-`fire-tool` exec inherits the systemd `--user` MANAGER's PATH, which does not carry `~/.local/bin`.
-The bare name resolves for every interactive caller and for nobody under the daemon.
-
-✔ **PATH — and PATH only — is fixed at the carrier since F1** (`d-owner-f1-carrier-env-0808`). Every
-`fire-tool` exec is now composed with `--setenv PATH=<~/.local/bin>:…` (`server/spawn/carrier.js`
-`toolExecEnv`), so a bare tool name DOES resolve under the daemon and no future entry has to
-rediscover the lesson above. The flag stays regardless: it names the REPO file rather than the
-`~/.local/bin` symlink, and that reason is untouched by the environment fix. **Nothing else about
-the environment changed** — see the `workdir` note below, which still holds in full.
-
-⚠ **AND `workdir` IS THE OTHER HALF OF THAT DOOR, for the same reason one field over.** The door
-resolves its gateway endpoint and its sender token from FILES, never from the environment — the CLI
-reads `{workspace}/.rbtv/modules/ignite/server.json` and `{workspace}/.rbtv/config/.env`, and it
-finds `{workspace}` from `RBTV_IGNITE_WORKSPACE_ROOT` **or, absent that, from its own CWD**
-(`cli/lib/config.js` `resolveWorkspaceRoot`). A fired exec has neither: `runToolLikeExec` passes
-`envFile: null` and `systemd-run --user` does not carry the daemon's own `Environment=` lines to the
-child, so the variable the daemon unit sets **does not reach this job** — and the F1 carrier fix
-above does NOT change that, because it composes exactly one variable (`PATH`) and deliberately
-inherits nothing else. Its CWD is therefore the
-whole resolution, and its CWD is `args.workdir` falling back to `default_workdir_root`
-(`ticker.js` `launchFireTool`). Passing `workdir` explicitly is what stops the door's credentials
-from depending on an unrelated config key that happens to hold the right value today.
-
-⚠ **A RE-FIRE STILL ASKS FOR EVERY SEAT THAT HAS NOT BOOTED YET — THE DOOR IS WHAT MAKES THAT
-HARMLESS** (task Q9, ruling `d-q9-door`). This job holds no memory between fires and reads no
-queue: `launch_candidates` suppresses a seat on a terminal mark or an `active: yes` roster row,
-**and a roster row is written by the SEAT ITSELF after it boots and registers** — so between
-`add-job` and that registration a candidate is still invisible to THIS file's guard and a second
-fire still submits it. What changed is the other side: `heartStore.enqueue` is now IDEMPOTENT per
-(run, seat), so the second submission mints no row.
-
-- **The duplicate is absorbed at the door, not here** — and deliberately so: this file speaks to
-  the queue only through `submit` and must never read it back. A repeat submission for a (run,
-  seat) already held — by a pending row OR by a live turn — returns the ORIGINATING queue id, so
-  the pass sees an ordinary success and stays green. The daemon log names each one
-  (`idempotent-suppress`, with the originating id); the queue does not grow.
-- **A seat whose spawn never registers no longer re-enqueues without limit.** It re-submits on
-  every fire and is absorbed every time, so `inspect queue` no longer grows. The seat is released
-  the moment its turn reaches a TERMINAL outcome (`done`/`blocked`/`failed`/`killed`) — which is
-  what keeps crash-retry working; a seat that crash-loops is the goal-watcher's stall row to
-  escalate, not the door's.
-- **The interval is now a cost choice, not a correctness bound.** A shorter interval means more
-  absorbed submissions and more log lines, never duplicate launches. `300` remains the default
-  above because a pass is not free, not because a shorter one would double-launch a seat.
-
-⚠ **A PRODUCTIVE PASS IS RECORDED `failed` WHENEVER ANY CANDIDATE WAS REFUSED**, and that is the
-file's own pre-existing fail-loud contract (`return 1 if res["failed"]`), deliberately not changed
-by the registration. `recordToolCompletion` maps any non-zero exit to `failed`, so `jobs_log` shows
-`failed` identically for "advanced nine edges, refused two" and for "crashed on line one" — the
-exit code and the status do not distinguish them. **The distinction is only in the completion
-corpus** (the pass's output tail): a productive pass names every `QUEUED` row above its refusals,
-a crashed one does not. Read the corpus, never the status, to tell the two apart. Under a periodic
-trigger a run carrying one permanently-refused candidate reports `failed` on every fire.
+- registering a `fire-tool` job, and the ⚠ **CREATE-ONLY registration whose wrong schema burns the
+  id permanently** (`E_JOB_EXISTS`, no UPDATE surface and no DELETE surface) —
+  `server/heart/heart-store.js` above `registerJob`. The stop-the-bleeding pair is
+  `ignite deregister-job <fn>` (sets `enabled = 0`) then `ignite remove-job <queue-id>`; neither
+  frees the id.
+- ⚠ **why a fired job needs `--ignite-bin` and an explicit `workdir`** — a `fire-tool` exec inherits
+  the systemd `--user` MANAGER's PATH and is passed `envFile: null`, so the gateway CLI resolves its
+  endpoint and its token from its CWD. Stated on the surviving entries in
+  `config/spawn-profiles.yaml`.
+- the Q9 IDEMPOTENT DOOR (`d-q9-door`) that makes a periodic re-submission harmless — measured on
+  this job, binding on every enqueuer, and documented at `heartStore.enqueue`.
 
 ## THE FALLBACKS — one command each, and they stay armed (`r-cutover-gated`)
 

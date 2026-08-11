@@ -662,8 +662,8 @@ profiles:
 # is the difference between an ungoverned value and a governed one:
 #   · `args.workdir` — the cwd. Per-run and UNVALIDATED on this path, deliberately (a
 #     fire-tool row's workdir is legitimately a repo or a state root, so the `.rbtv/goals/`
-#     containment applied to start-workflow would refuse the live edge-runner and self-heal
-#     rows — `heart-store.js` records why). This predates 7.559 and is untouched by it; it
+#     containment applied to start-workflow would refuse the live self-heal rows —
+#     `heart-store.js` records why). This predates 7.559 and is untouched by it; it
 #     is filed as its own row (7.562). ⚠ It is a real residual exposure, not a design.
 #   · an `args_allowlist` KEY — an argv operand, admitted by IDENTITY against a list this
 #     file declares. Only entries that declare one have any per-run operand at all.
@@ -689,7 +689,9 @@ profiles:
 # integrator-owned restart — because extending an allowlist IS that same config edit, in
 # this same file. RELAXED, narrowly: an enqueuer who could previously influence only the
 # working directory can now also SELECT which of N pre-approved targets a job acts on,
-# where N is a number a human wrote in a reviewed diff. For `edge-runner` today N is 1.
+# where N is a number a human wrote in a reviewed diff. ⚠ NO ENTRY DECLARES A LIST TODAY —
+# `edge-runner`, the only one that ever did, was deleted with the Python edge-runner
+# (`build/one-readiness-predicate.md` § Deletions). The mechanism stays; it has no user.
 # The one-entry-per-target rule above is therefore RELIEVED ONLY where a list exists: an
 # allowlisted key replaces "one static entry per target" with "one entry, one reviewed list"
 # — it never lets an enqueue name a target nobody approved.
@@ -1037,107 +1039,6 @@ tools:
       - /usr/bin/python3
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/deploy/probe-suite-scheduled.py
 
-  # ── task C1 (owner ruling `d-owner-batch1` (1)) — CMP-25's edge-runner, as a REAL job ──────
-  # The registry record CMP-25 says this engine "runs out of the heart store like any job (CMP-2)".
-  # Until now nothing registered it: its only live trigger was an in-process Python call from the
-  # kit's check-out. The owner ruled the registry-conformant arm; this entry is it. The in-process
-  # fast path is NOT retired by it — that is a later ruling, and both triggers read one arm file.
-  #
-  # ⚠ LANDED IS NOT LIVE, twice over. This file is boot-read, so the entry reaches the daemon only
-  # through a restart; and a registered TOOL is not a registered JOB — firing it still needs an
-  # `ignite register-job edge-runner --action-type fire-tool` row in this machine's heart.db plus
-  # an `ignite add-job` queue row. Neither is in git (per-machine runtime state never is).
-  #
-  # ⚠ AND A FIRE STILL STANDS DOWN ON AN UNARMED RUN, which is what keeps `r-cutover-gated` (m4
-  # criterion C4) intact through the registration: STEP 4's `job-id` and `profile` are read from
-  # the resolved run's own `coordination/edge-fastpath.json` — the SAME file the check-out fast
-  # path reads — so arming is one act for both triggers and they cannot disagree. An unarmed run
-  # is marked, reported, and enqueues nothing.
-  #
-  # ⚠ THIS ENTRY DELIBERATELY NAMES NO RUN, for the reason the three entries above name no run: a
-  # run number in an argv is a HOME IN WAITING and goes stale at the next close (7.117, 7.188).
-  # `--goal` names the GOAL and edge-runner-job.py asks `coord.derive_lease` at FIRE TIME
-  # (7.607: liveness from live evidence — room + verified seats; the run register is
-  # extinguished), which REFUSES on unreadable or ambiguous evidence rather than guessing.
-  #
-  # ⚠ AND IT PINS NEITHER --job-id NOR --profile, which would be the same defect one field over:
-  # those two have exactly ONE home and it is the arm file above. A copy here would be free to
-  # disagree with it about what the run is armed for.
-  #
-  # ⚠ --ignite-bin IS NOT OPTIONAL HERE and it is not style. STEP 4's door is the `ignite` CLI, and
-  # a fire-tool exec inherits the systemd --user MANAGER's PATH (`runToolLikeExec` passes
-  # `envFile: null`) — which does not carry `~/.local/bin`. The bare name resolves for every
-  # interactive caller and for nobody under the daemon. Same lesson as the absolute-interpreter
-  # note on `restart-daemon` above. It names the REPO file, not the `~/.local/bin` symlink: the
-  # symlink's lifetime is shorter than this config's, which is precisely what S-6(b)'s boot-time
-  # catalogue-path check exists to catch.
-  #
-  # ✔ SINCE F1 (`d-owner-f1-carrier-env-0808`) THE CARRIER GUARANTEES THAT CLASS — `carrier.js
-  # toolExecEnv` puts `~/.local/bin` on every fire-tool exec's PATH, so no future entry has to
-  # rediscover this. The flag STAYS: it still names the REPO file rather than the symlink, and that
-  # second reason (lifetime, S-6(b)) is untouched by the environment fix.
-  #
-  # NO THROWAWAY TWIN, and the absence is reasoned rather than forgotten. A twin must point at a
-  # throwaway goal, and a throwaway goal's lifetime is SHORTER THAN THIS FILE'S — the exact rule
-  # `server/heart/catalogue-paths.js` was written to enforce ("production config must never
-  # reference a path whose lifetime is shorter than its own"). The equivalent cover is bound
-  # inside the program instead: `--selftest`'s `catalogue-entry-drives-parser` check hands THIS
-  # argv to edge-runner-job.py's real parser and proves a bogus flag is refused, so the entry
-  # cannot drift under the program it execs.
-  #
-  # ⚠⚠ AND SINCE TASK 7.559 ITS `--goal` IS THE ONE PER-RUN OPERAND IN THIS FILE. It is a
-  # placeholder, and the ONLY values a queue row may put there are the ones listed under
-  # `args_allowlist` below. See the `args_allowlist` block on this entry for the whole rule; the
-  # section header at the top of `tools:` carries the general statement.
-  edge-runner:
-    argv:
-      - /usr/bin/python3
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/edge-runner-job.py
-      - --goal
-      - "{{goal}}"
-      - --ignite-bin
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/cli/ignite.js
-      - --enqueue
-    # ═════════════════════════════════════════════════════════════════════════
-    # ⚠⚠ THIS LIST IS THE SECURITY BOUNDARY. IT IS NOT A CONVENIENCE FILTER.
-    #
-    # A queue row does NOT supply a string — it SELECTS one of these literals. The exact bytes that
-    # reach the command line are the bytes written here, by a human, in a reviewed diff. Admission is
-    # by IDENTITY (`===`): no case folding, no trimming, no prefix match, no pattern. A near miss is
-    # a miss, which is exactly what a "looks safe" grammar cannot give you — MEASURED, and measured
-    # AFRESH ON EVERY RUN rather than quoted here: arm F10 of
-    # `server/ticker/probes/probe-argv-template.js` deletes the membership test from a scratch copy
-    # and prints how many of its hostile arms flip from refused to composed (`;`-metacharacters,
-    # `..` traversal, `/etc/passwd`, `--dry-run`, a 10 000-byte value, a Cyrillic homoglyph).
-    # ⚠ THE FIGURE THAT USED TO STAND HERE SAID "12" AND THE PROBE SAID OTHERWISE (task 7.577) —
-    # run the arm for the number, and do not write one back into this comment.
-    # A value that is not on this list is a TYPED REFUSAL and the execution is recorded `failed` —
-    # never a pass-through, never an empty operand.
-    #
-    # ADDING A MEMBER COSTS EXACTLY WHAT THE ARGV FREEZE COST — a committed diff to this file plus
-    # an integrator-owned daemon restart (this file is boot-read; `loadMergedConfig`, no fs.watch).
-    # That is the point, and it is the whole reason the list lives HERE: it must NEVER move into a
-    # job registration, a runtime settings file, or an env var, because `register-job` is reachable
-    # by ANY enrolled agent token — an allowlist living there would be extensible by the very agents
-    # it bounds, with no restart and no reviewed diff, and the boundary would have MOVED rather than
-    # been preserved.
-    #
-    # ⚠ REMOVING A MEMBER IS PART OF RETIRING A GOAL. A member naming a folder that no longer exists
-    # is a STALE PERMISSION: the boot check (`server/heart/catalogue-paths.js`) logs one `error` line
-    # for it at EVERY boot, forever, and refuses nothing. That noise is intended and is not cleaned
-    # up automatically — a daemon that edits its own allowlist at boot is a worse system than one
-    # that complains. Delete the line by the same act that added it.
-    #
-    # ⚠ ONLY ONE MEMBER TODAY, and the absence of a second is reasoned, not forgotten: a goal that
-    # does not exist yet cannot be listed without buying that permanent boot error. A consumer that
-    # needs a different goal advanced (Wave D's D1) must pin a FIXED, already-created goal folder and
-    # add it here — one config edit + one restart, once — after which its advances are ordinary
-    # enqueues carrying `{"tool":"edge-runner","goal":"<a path from this list>"}`.
-    # ═════════════════════════════════════════════════════════════════════════
-    args_allowlist:
-      goal:
-        - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp
-
   # ── goal-creation-request (task C2) — the DAEMON-EXECUTED half of a caged requester's ask ──────
   #
   # WHY THIS ENTRY EXISTS AT ALL, in one sentence: a Slack-caged channel master cannot create a
@@ -1162,9 +1063,11 @@ tools:
   # entry's other acts and this path never reaches them; a goal born here is BORN INERT, and its
   # first workflow job is a QUEUE ROW ten minutes out, not a running session.
   #
-  # ⚠ --ignite-bin IS NOT OPTIONAL, for the reason spelled out on `edge-runner` above: a fire-tool
-  # exec inherits the systemd --user manager's PATH, which does not carry `~/.local/bin`. It names
-  # the REPO file, never the symlink.
+  # ⚠ --ignite-bin IS NOT OPTIONAL, and the reason is the absolute-interpreter one `restart-daemon`
+  # above carries: a fire-tool exec inherits the systemd --user MANAGER's PATH, which does not carry
+  # `~/.local/bin`, so the bare name resolves for every interactive caller and for nobody under the
+  # daemon. It names the REPO file, never the symlink — the symlink's lifetime is shorter than this
+  # config's, which is what `server/heart/catalogue-paths.js`'s boot check exists to catch.
   #
   # ⚠ LANDING THIS ENTRY DOES NOT ARM IT — three gated acts stand between here and a fire, and the
   # ORDER matters: (1) create the inbox dir `<.rbtv/goals/_channel-master/requests>`, (2) restart

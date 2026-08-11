@@ -207,6 +207,16 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
       continue;
     }
 
+    // READINESS REFUSED (§ D1): `coordinate ready-seats` exited non-zero — a SKEW, or a package it
+    // could not read. `seedGoal` already logged it at `warn` with the evidence and wrote NOTHING;
+    // this pass must not go on to report the goal as "seeded". Recorded as a skip so the pass's own
+    // return says which goals were left alone and why, and retried next cadence like every other
+    // transient here.
+    if (pickup.readinessRefused) {
+      skipped.push({ goal, reason: 'readiness-refused', evidence: pickup.readinessRefused });
+      continue;
+    }
+
     failedOn.delete(goalFolder);
     adopted.push(pickup);
     const held = Object.keys(pickup.heldByOtherLane || {});

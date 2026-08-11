@@ -141,14 +141,14 @@ function sessionStatusForEndedTurn(turnStatus) {
 //
 // Trailing separators are stripped so `…/seats/x` and `…/seats/x/` are one seat. No path
 // resolution beyond that: every producer in this tree submits an already-resolved absolute path
-// (edge-runner-job.py resolves it, attached-execution.js path.join's it), and resolving a relative path
+// (`engine/seeding.js` and `engine/attached-execution.js` path.join theirs), and resolving a relative path
 // HERE would resolve it against the daemon's CWD, which is not the caller's.
 // ⚠ LAUNCH-AGENT ONLY, and this bound is load-bearing rather than cautious. Occupying a seat is
 // what an AGENT SESSION does — the ruling's hazard is "a seat that has not yet REGISTERED ITSELF",
 // and registration is an agent-seat act. A `fire-tool` / `start-workflow` / `send-message` job
 // homed at a (goal, seat) is a one-shot process running OUT OF that home, not a claim on it, and
-// firing one twice is ordinary. Keying those too would gate the EDGE-RUNNER ITSELF — it is a
-// homed fire-tool job — and would make the door forbid the very cadence it exists to serve.
+// firing one twice is ordinary. Keying those too would gate every homed fire-tool job — the
+// edge-runner was the measured one — and would make the door forbid the very cadence it serves.
 function seatKeyOf(job, args) {
   if (!job || job.action_type !== 'launch-agent') return null;
   if (job.goal_name && job.seat_name) return `goal:${job.goal_name}/seat:${job.seat_name}`;
@@ -340,8 +340,8 @@ function validateArgs(args, schemaJson, actionType, tools = null, workdirRoot = 
     // ⚠⚠ THE ENTRY'S ALLOWLIST KEYS ONLY, AND NEVER `checkTemplateArgs(parsed)` WITH NO `allow`.
     // The bare call switches admission to the per-key GRAMMAR — including `workdirRule`'s
     // `.rbtv/goals/<goal>` containment, which is a WORKFLOW's rule. A fire-tool row's workdir is
-    // legitimately a repo or a state root, so a grammar call here would refuse the live edge-runner
-    // and self-heal rows. The start-workflow branch below records the same invariant from the other
+    // legitimately a repo or a state root, so a grammar call here would refuse the live self-heal
+    // rows. The start-workflow branch below records the same invariant from the other
     // side; this is why that branch is not simply widened to cover both.
     //
     // ⚠ AMENDED BY TASK 7.562, and the correction matters because this paragraph is the reason the
@@ -405,7 +405,7 @@ function validateArgs(args, schemaJson, actionType, tools = null, workdirRoot = 
     // START-WORKFLOW ONLY, and the narrowness is the point. `workdir` is an argument of every
     // action type, and the `.rbtv/goals/` containment is true of a WORKFLOW's workdir specifically
     // (a workflow belongs to a goal); a fire-tool row's workdir is legitimately a repo or a state
-    // root, and widening this to every action would refuse the live edge-runner and self-heal rows.
+    // root, and widening this to every action would refuse the live self-heal rows.
     const templateRefusal = checkTemplateArgs(parsed);
     if (templateRefusal) {
       throw new HeartStoreError(E_BAD_ARGS, `start-workflow args refused: ${templateRefusal}`, { field: 'args' });
@@ -793,11 +793,12 @@ class HeartStore {
   // against the ruled non-terminal set rather than "ever ran".
   //
   // ⚠ THE SECOND SURFACE IS THE WHOLE FIX. A queue-only check is VACUOUS in the configuration
-  // this exists for: the edge-runner enqueues `--trigger scheduled --at now`, fireQueueRow DELETES
-  // such a row at fire, the ticker cadence is 10s and the shipped edge-runner recipe is
-  // `--every 300` — so the pending row exists for ~3% of the cycle and the re-fire almost always
-  // lands when the seat is held by a LIVE TURN and nothing is pending. A door that only read
-  // `queue` would look exactly like this one and suppress almost nothing.
+  // this exists for, and the measured case was the edge-runner's: it enqueued `--trigger scheduled
+  // --at now`, fireQueueRow DELETES such a row at fire, the ticker cadence is 10s and its shipped
+  // recipe was `--every 300` — so the pending row existed for ~3% of the cycle and the re-fire
+  // almost always landed when the seat was held by a LIVE TURN and nothing was pending. A door that
+  // only read `queue` would look exactly like this one and suppress almost nothing. That caller is
+  // retired; the shape binds every periodic re-enqueuer, which is why the surface stays.
   //
   // NON-TERMINAL is the store's own TERMINAL_TURN_STATUSES, negated — never a second list here.
   // So `launching`/`running`/`stalled` hold the seat; `done`/`blocked`/`failed`/`killed` release
@@ -944,9 +945,9 @@ class HeartStore {
     // ── Task Q9 · THE IDEMPOTENT DOOR (owner-authorized ruling `d-q9-door`, 2026-08-08) ────────
     //
     // A second add-job for a (run, seat) still held is a NO-OP that RETURNS THE HELD OPERATION'S
-    // ID — idempotent-return-of-the-existing-operation, not a refusal. The caller this exists for
-    // is a PERIODIC edge-runner pass, and its door contract is exit 0 plus a parseable queue id
-    // (`edge-runner-job.py` _QUEUE_ID); a typed refusal here would record that productive pass
+    // ID — idempotent-return-of-the-existing-operation, not a refusal. The caller it was built for
+    // was a PERIODIC edge-runner pass whose door contract was exit 0 plus a parseable queue id; a
+    // typed refusal here would record that productive pass
     // `failed` on every fire while any seat is booting — rebirthing the recorded-failure-each-
     // cadence noise this run exists to remove. So: pending hold returns the REAL pending row;
     // live-turn hold returns the ORIGINATING queue id (the row whose fire produced that turn).
@@ -962,9 +963,9 @@ class HeartStore {
     // ⚠ SUPPRESSION DISCARDS THE ENTIRE NEW REQUEST — payload AND schedule, not just the row.
     // This returns BEFORE the INSERT, so the second call's `args` (a `prompt` included),
     // `run_at`, `trigger_kind` and `session_mode` are dropped and the caller is handed the HELD
-    // operation's id. That is exactly right when the re-submission is REDUNDANT — the
-    // edge-runner re-submits an IDENTICAL launch request, so nothing unique is lost, which is
-    // why the door is safe for the caller it was built for. It is LOSSY for any caller whose
+    // operation's id. That is exactly right when the re-submission is REDUNDANT — the caller it was
+    // built for re-submitted an IDENTICAL launch request, so nothing unique was lost, which is
+    // why the door was safe for it. It is LOSSY for any caller whose
     // payload carries something the held operation never saw. One such caller is in-tree and
     // live: `bridges/chat/forward-path.js` forwardSessionCreate homes every goal-channel session
     // at that goal's `goal-master` seat, so a NEW chat thread opened while that seat holds a live

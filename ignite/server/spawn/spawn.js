@@ -324,7 +324,10 @@ function ensureExitFile(dataRoot, sessionId) {
 // NOTHING creates that file. Package creation deliberately does not — `materialize-seats.py` plans
 // `taskforce.csv` and `state.csv`, and the capability's own doc says "sessions.csv is born at
 // LAUNCH, not at create". So on a package the kit never launched into, both doors no-op into a warn
-// line, the run has no trace at all, and the edge-runner's gate 3 refuses the whole package.
+// line and the run has no trace at all — which, when this was written, made the edge-runner's gate 3
+// refuse the whole package. That reader is retired; the trace is still what every disposition
+// reader answers off (`coord.session_disposition`, and through it `ready-seats`), so a traceless
+// package is no less broken today.
 //
 // SO THE FIX IS THE PRECONDITION, NOT A SECOND WRITER, and that distinction is the whole design.
 // Calling coord.py's `session-open` on top of a door that already appends yields TWO ROWS PER
@@ -476,6 +479,7 @@ function profileForSeatCast(profiles, seatDir, profileName, log) {
   };
   return castProfileFor(profiles, binding, profileName, log, seatDir ? path.basename(seatDir) : null);
 }
+
 
 // ── `rw-paths:` — the seat-declared READ-WRITE workspace paths (owner ruling "a", 2026-08-06) ──
 //
@@ -1066,6 +1070,14 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // not honoured — it falls back to the caller's profile exactly as before. Upgrade path if a
     // relative-workdir caller ever appears: resolve the workdir first and re-run the gates.
     profileName = profileForSeatCast(config.profiles || {}, workdir, profileName, log);
+
+    // ⚠ THE SEAT'S DECLARED `effort:` IS NOT READ HERE, and that is a RULING, not an oversight.
+    // `d-0811lp-effort-numeric-per-profile` (owner, 2026-08-11) made this lane a NUMERIC rung
+    // 1..N per profile and explicitly deferred "team-kit's 5-rung literal ladder migration" to its
+    // own task — and a seat.md/taskforce.csv row declares the literal WORD (`high`). Feeding that
+    // word to `resolveEffort` throws E_UNKNOWN_EFFORT, so wiring it here would refuse every launch
+    // of every cast seat. Until that migration lands, a seat's declared effort remains inert on
+    // every door; what this change DID fix is that the transport no longer names one either.
 
     // An OWN-property test, never a bare lookup: `config.profiles` is a plain object parsed from
     // YAML, so a request naming an INHERITED key (`constructor`, `toString`, `valueOf`) passes a
@@ -1779,6 +1791,10 @@ module.exports = {
   // read would prove the catalog and not the fix.
   seatDeclaresValue,
   profileForSeatCast,
+  // Exported for `engine/cage-admission.js` (§ D5): the pre-enqueue admission gate must reason
+  // about the SAME `goal-writes` grant this spawner will compose, so it calls the one declaration
+  // reader rather than parsing seat.md a second time.
+  seatDeclaresList,
 };
 
 function validateSpawnRequest(req) {

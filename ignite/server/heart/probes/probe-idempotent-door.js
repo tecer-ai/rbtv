@@ -7,11 +7,12 @@
 // fired edge-runner re-enqueues a seat that has not registered itself yet, forever.
 //
 // ⚠ THE ARM THAT MATTERS IS THE LIVE-TURN ONE, and it is why check 2 FIRES the row first. A
-// pending-row-only door would pass check 1 and still be vacuous in production: the edge-runner
-// enqueues `scheduled/at-now`, fireQueueRow DELETES that row at fire, the ticker cadence is 10s
-// and the shipped recipe is `--every 300` — so the re-fire almost always arrives when NOTHING is
-// pending and a live turn holds the seat. Check 1 alone would be green on a door that fixes
-// nothing.
+// pending-row-only door would pass check 1 and still be vacuous in production, and the measured
+// case that showed it was the edge-runner's: it enqueued `scheduled/at-now`, fireQueueRow DELETES
+// such a row at fire, the ticker cadence is 10s and its shipped recipe was `--every 300` — so the
+// re-fire almost always arrived when NOTHING was pending and a live turn held the seat. Check 1
+// alone would be green on a door that fixes nothing. (That caller is retired; the door is not, and
+// any periodic re-enqueuer lands in the same place.)
 //
 // ⚠ EVERY GREEN HERE CARRIES A RED ARM (check 7). The same scenario as check 2 is replayed
 // against a SCRATCH COPY of heart-store.js with the guard cut out, and it MUST mint two rows.
@@ -152,9 +153,10 @@ async function main() {
   // ── 7. THE GATEWAY HANDLER · the audit line, and the contract that keeps the caller green ───
   // Driven through the REAL internal API (`api.dispatch`), not by inspecting dispatch.js: the
   // ruling requires the suppression to be OBSERVABLE, and an un-exercised log line is a claim.
-  // The wire's `jobId` matters just as much — the edge-runner treats exit-0-without-a-queue-id as
-  // a door malfunction, so a suppression that returned no id would record every periodic pass
-  // `failed`. That is the whole reason the ruled return is the ORIGINATING id.
+  // The wire's `jobId` matters just as much — the caller this was measured on (the retired
+  // edge-runner) treated exit-0-without-a-queue-id as a door malfunction, so a suppression that
+  // returned no id would record every periodic pass `failed`. That is the whole reason the ruled
+  // return is the ORIGINATING id, and it binds every enqueuer, not just that one.
   const logged = [];
   const api = createInternalApi({
     heartStore: store, spawnManager: null, secret: 'probe-secret',

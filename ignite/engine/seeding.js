@@ -10,6 +10,24 @@
 // seeds a goal's taskforce into its own store" (owner ruling
 // decisions.md#d-s23-single-execution-record-now, criterion 2).
 //
+// ⚠⚠ THIS FILE NO LONGER COMPUTES READINESS (owner-ruled 2026-08-11,
+// `build/one-readiness-predicate.md` § D1). There were THREE implementations of "is this seat ready
+// to launch" — coord.py's, the edge-runner's and this one — they drifted, and the drift is what
+// stalled the live goal. The split is now TOTAL and there is no third term:
+//
+//   coord answers the DAG      has this seat checked out, with what disposition; are its `after`
+//                              members satisfied; do its guards discharge. ONE home, ONE grammar.
+//                              Reached ONCE PER GOAL PER PASS through `readySeats` below.
+//   seeding answers the store  has THIS store already registered, queued or fired this seat. It is
+//                              purely a no-double-fire guard: it can only ever DECLINE to enqueue,
+//                              never promote a seat to ready on its own.
+//
+// THE CONSEQUENCES ARE DELIBERATE AND ARE NOT TO BE WORKED AROUND. A seat whose session ended with
+// no check-out is `UNDECLARED` to coord — not READY and not DONE — so the goal STALLS there, loudly,
+// with the seat named. An exit code is not a check-out: "`done` is the seat reporting its own work
+// finished, which no exit code can assert" (coord.py's own words, and the defect this closes — the
+// ticker's clean-exit sweep advanced a seat that did nothing).
+//
 // TWO THINGS ARE NEW HERE, and both exist because a SECOND store may now do this:
 //
 //  1. THE COMPLETION AUTHORITY IS THE GOAL'S EXECUTION RECORD (`execution-record.js`), not the
@@ -28,7 +46,12 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { readExecutionRecord, finishedSeats, DONE, BLOCKED } = require('./execution-record');
+// The ONE interpreter resolver this repo already has (`python3` is a Microsoft-Store LIE on
+// Windows — it is on PATH, is executable, and runs no python).
+const { requirePythonCmd } = require('../lib/python-cmd');
+const { admitDeclaredOutputs } = require('./cage-admission');
 // The ONE quote-aware row splitter this module already has (`execution-record.js` reads the goal's
 // record with it). Reusing it is the whole CSV fix — see below.
 const { splitRow } = require('../server/seat-identity/csv');
@@ -67,71 +90,70 @@ function readCsv(file) {
   });
 }
 
-// ── THE `after` CELL GRAMMAR, PORTED — one grammar, two languages ─────────────────────────────
+// ── THE READINESS ANSWER — coord's, consumed here, computed nowhere (§ D1) ────────────────────
 //
-// THE AUTHORITY IS PYTHON AND STAYS PYTHON: `team-kit/coord.py#parse_after_member` (the member
-// grammar; `goal_cli.py#after_member_grammar` IMPORTS it rather than copying it) and
-// `coord.py#taskforce_after` (the CELL grammar: comma-separated members). This is the third
-// reading of that grammar and the FIRST one outside Python, so it is a MIRROR and is pinned by a
-// cross-language probe arm rather than by good intentions
-// (`probes/probe-daemon-lane-watch.js` § L0).
+// ONE subprocess per goal per pass:
 //
-// ⚠ THE ORDER IS LOAD-BEARING, and it is reproduced deliberately: bracketed content is neutralised
-// BEFORE the alternate test, so a `|` INSIDE a guard value never reads as an alternate. Ordered the
-// other way, `a[k=x|y]` silently becomes two alternates — the `check_acyclic` #3386 defect coord's
-// own comment names.
+//   python3 <ignite>/team-kit/coord.py --package <goal-folder> ready-seats --json
 //
-// THE DEFECT THIS CLOSES ON THE JS SIDE: the whole cell was treated as ONE seat name. `a,b` was a
-// seat literally named "a,b", `p[k=v]` a seat named "p[k=v]" — no row can carry either name, so
-// `isDone` was permanently false and the seat sat `waiting` forever on the daemon lane with nothing
-// saying why.
-const GUARDED_MEMBER_RE = /^([^[\]]+)\[([^[\]=]+)=([^[\]]*)\]$/;
+// ⚠ THE INTERPRETER AND THE SCRIPT ARE BOTH NAMED, NEVER RESOLVED ON PATH. A daemon-fired exec
+// inherits the systemd --user manager's PATH, which does NOT carry `~/.local/bin`, so `coordinate`
+// as a bare name resolves interactively and NOT here — the same fact every daemon-fired entry in
+// `config/spawn-profiles.yaml` and `workflow_launcher.py#launch_argv` states. The repo file is the
+// address; `requirePythonCmd` is the one interpreter resolver (task 7.700).
+//
+// ⚠ A NON-ZERO EXIT SEEDS NOTHING FOR THIS GOAL THIS PASS. `ready-seats` exits 1 on SKEW (the
+// durable and live surfaces disagree about one seat) and that is the one outcome a consumer must
+// not be able to sweep past. Every other failure — no python, an unreadable package, a timeout,
+// output that is not the documented array — lands in the same place, for the same reason: a
+// refused computation may never be PARTIALLY seeded off. `null` is the refusal; it is never an
+// empty ready set, because "nothing is ready" and "I could not ask" are different claims.
+//
+// ponytail: one python invocation per daemon-assigned goal per cadence. At the current scale that
+// is noise; if it stops being noise, batch the VERB (`ready-seats` over N packages) — never
+// reintroduce a JS reader.
+const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
+const READY_SEATS_TIMEOUT_MS = 60000;
 
-// `(name, key, value, unsupported)` for ONE member — `parse_after_member`'s four, as an object.
-// A bracketed token that does NOT match the grammar (`a[nokey]`, two groups) is NOT a guarded
-// member and falls to the bare path, where it reads as a predecessor no row can be: coord's own
-// fail-safe direction, kept, because an unparseable guard must never become a satisfied one.
-function parseAfterMember(token) {
-  const raw = String(token === undefined || token === null ? '' : token).trim();
-  if (raw.replace(/\[[^\]]*\]/g, '').includes('|')) {
-    return { raw, name: null, key: null, value: null, unsupported: true };
+function readySeats(goalFolder) {
+  const refuse = (reason) => ({ ready: null, rows: [], reason });
+  let raw;
+  try {
+    raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'ready-seats', '--json'], {
+      encoding: 'utf8', timeout: READY_SEATS_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    return refuse(`\`ready-seats --json\` did not answer (${err.code || err.message})`
+      + `${err.status === 1 ? ' — exit 1 is SKEW: the durable and live surfaces disagree about a seat, and coord refuses to pick a winner' : ''}`
+      + `${err.stderr ? `: ${String(err.stderr).trim().slice(0, 400)}` : ''}`);
   }
-  const m = GUARDED_MEMBER_RE.exec(raw);
-  if (m) return { raw, name: m[1].trim(), key: m[2].trim(), value: m[3].trim(), unsupported: false };
-  return { raw, name: raw, key: null, value: null, unsupported: false };
+  let rows;
+  try { rows = JSON.parse(raw); } catch { return refuse(`\`ready-seats --json\` returned no JSON: ${String(raw).slice(0, 200)}`); }
+  if (!Array.isArray(rows)) return refuse('`ready-seats --json` returned no row array');
+  // seat -> its predecessors' declared outputs, resolved absolute (§ D4, coord's own resolution).
+  // ⚠ AN ABSENT `seed` FIELD IS `[]` AND IS NEVER GUESSED AT HERE: resolving a predecessor's
+  // declared outputs in JS would be the second reader this whole design deletes.
+  const ready = new Map();
+  for (const r of rows) {
+    if (!r || r.verdict !== 'READY' || !r.seat) continue;
+    ready.set(r.seat, Array.isArray(r.seed) ? r.seed : []);
+  }
+  return { ready, rows, reason: null };
 }
 
-// The CELL grammar: comma-separated members, each through the one member reading.
-function afterMembers(cell) {
-  return String(cell === undefined || cell === null ? '' : cell)
-    .split(',').map((p) => p.trim()).filter((p) => p.length)
-    .map(parseAfterMember);
-}
-
-// ── AND THE SUBSET THIS LANE STOPS AT, STATED WHERE IT IS IMPLEMENTED ─────────────────────────
+// Does any OTHER row of this taskforce read `seat`'s declared output? Answered off coord's own
+// parsed `after` member list, so no `after` grammar is read in JavaScript — the whole point of D1.
 //
-// A member is EVALUABLE here when it is a bare seat name. Two shapes are not, and both are SKIPPED
-// LOUDLY (`enqueueEligible` logs them) and leave the seat `waiting`:
-//
-//   an ALTERNATE (`a|b`)      coord refuses it too — `<unsupported-alternate>`, blocks. Same answer.
-//   a GUARD (`a[k=v]`)        THE STATE IS NOT ON THIS LANE. coord discharges a guard against a
-//                             LEADER'S RULING in `coordination/guard-values.csv`, written by the
-//                             team-kit coordinator; the daemon lane runs no coordinator and no
-//                             goal folder it seeds carries that file. `jobs/edge-runner-job.py`
-//                             discharges the SAME syntax against the predecessor's VALIDATED
-//                             OUTPUT FIELD — a SECOND surface, and the two DISAGREE on an unruled
-//                             but field-satisfied guard, which is open to the leader as
-//                             `p-edge-runner-strictness-is-ONE-DIRECTIONAL`. A third evaluator
-//                             here would pick a side of an unsettled ruling, in the lane with the
-//                             least state to pick it from.
-//
-// The skip is the SAME direction both existing evaluators fail in (an unruled guard is unmet), and
-// it is the direction that cannot dispatch work nobody admitted. What changes is that it is now
-// SAID: a loudly-skipped cell beats a wrongly-dispatched seat, and beats today's silent forever-wait.
-function unevaluableAfter(row) {
-  return afterMembers(row && row.after)
-    .filter((m) => m.unsupported || m.key !== null)
-    .map((m) => m.raw);
+// ⚠ THE TEST IS CONTAINMENT OF THE SEAT NAME IN THE RAW MEMBER TEXT, and its error direction is
+// the safe one. A member that truly names the seat must contain the seat's characters, whatever
+// the grammar turns out to be, so a false NEGATIVE is impossible; a false POSITIVE (`x-terminal-2`
+// for `terminal`) answers `yes`, which only ever makes the cage admission STRICTER. This is
+// `edge-runner-job.py#successor_reads`' own bound, arrived at without a second decomposition of
+// the member grammar.
+function successorReads(rows, seat) {
+  return rows.some((r) => r && r.seat !== seat
+    && (Array.isArray(r.after) ? r.after : []).some((m) => String(m).includes(seat)))
+    ? 'yes' : 'no';
 }
 
 function taskforcePath(goalFolder) {
@@ -310,8 +332,10 @@ function jobIdFor(seat, goal = null) {
 // config — it is now the FALLBACK for a seat that declares no cast (the channel master's
 // `open_binding` case), not the answer for every seat. Deriving it here as well would be the
 // second mapping DEC-1's shared-profile-source ruling exists to prevent.
-function seedTaskforce(heartStore, goalFolder, { profile, logger, goal = null }) {
-  const rows = readTaskforce(goalFolder);
+// `rows` is the taskforce, optionally pre-read by a caller that already needed it (seedGoal reads
+// it before deciding whether to register anything at all). Default = read it here, as always.
+function seedTaskforce(heartStore, goalFolder, { profile, logger, goal = null, rows = null }) {
+  rows = rows || readTaskforce(goalFolder);
 
   // CREATE-ONLY, and that is what makes a re-run a RESUME rather than a replay. registerJob is
   // create-only in the store (it throws E_JOB_EXISTS); a second boot finds every job already
@@ -380,8 +404,8 @@ function seatHasRun(rows) {
 //   done     the goal's execution record says so, or a finished execution exists in this store
 //   live     an execution exists that has not finished (running / stalled / failed / …)
 //   queued   a pending queue row exists
-//   ready    never fired, and its `after` is done — the next thing the engine enqueues
-//   waiting  never fired, and its `after` is not done
+//   ready    never fired, and COORD says READY — the next thing the engine enqueues
+//   waiting  never fired, and coord does not say READY (or was never asked)
 //
 // `done` is a Set of seat names from `<goal>/executions.csv` — THE completion authority, and the
 // one arm that makes a seat finished in one lane invisible-to-re-running in the other. It is
@@ -396,7 +420,10 @@ const SEAT_STATES = ['done', 'live', 'queued', 'ready', 'waiting'];
 // the same reason a foreign one does — it is neither dispatchable nor finished, and every reader of
 // SEAT_STATES already understands that pair. WHY it is not moving is reported alongside the state
 // (`seedGoal().blockedOnOwner`, `statusAttached()`'s `blockedOnOwner` flag), never as a state word.
-function seatState(row, byJob, queued, { done = null, goal = null, foreign = null, notFinished = null } = {}) {
+// ⚠ `ready` IS COORD'S ANSWER, HANDED IN — never derived here (§ D1). Absent (a caller that could
+// not ask, or did not) means NO seat is ready: the store may decline, never promote. That is the
+// whole asymmetry, in one default.
+function seatState(row, byJob, queued, { done = null, goal = null, foreign = null, notFinished = null, ready = null } = {}) {
   const isDone = (seat) => !(notFinished && notFinished.has(seat))
     && ((done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat, goal))));
   if (isDone(row.seat)) return 'done';
@@ -408,14 +435,7 @@ function seatState(row, byJob, queued, { done = null, goal = null, foreign = nul
   if (foreign && foreign.has(row.seat)) return 'live';
   if (seatHasRun(byJob.get(jobId))) return 'live';
   if (queued.has(jobId)) return 'queued';
-  // EVERY member of the cell, AND-joined — an `after` cell names ALL the predecessors a seat
-  // follows, not one. An unevaluable member (§ THE `after` CELL GRAMMAR) holds the seat exactly as
-  // an unfinished predecessor does; `unevaluableAfter` is what says so out loud.
-  for (const m of afterMembers(row.after)) {
-    if (m.unsupported || m.key !== null) return 'waiting';
-    if (!isDone(m.name)) return 'waiting';
-  }
-  return 'ready';
+  return ready && ready.has(row.seat) ? 'ready' : 'waiting';
 }
 
 // Enqueue every seat whose `after` dependency has finished and which has never been fired. Returns
@@ -427,11 +447,16 @@ function seatState(row, byJob, queued, { done = null, goal = null, foreign = nul
 // taskforce — a held seat still blocks its dependents exactly as it would if it had been queued.
 function enqueueEligible(heartStore, rows, {
   profile, goalFolder, logger, isHeld = null, relaunch = null, goal = null, view = null,
+  ready = null, readyRows = [],
 }) {
   const byJob = executionsByJob(heartStore, relaunch, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
   const { done: finished, foreign, notFinished, blocked } = view || recordView(heartStore, goalFolder, { relaunch });
   const enqueued = [];
+  // The LIVE cage template this pass's launches compose against — the daemon's own resolved
+  // profile, never a re-read of the YAML and never a transcribed snapshot (§ D5). An uncaged
+  // profile yields `[]`, and `admitDeclaredOutputs` does not run against one.
+  const seatBinds = heartStore.config?.profiles?.[profile]?.sandbox?.SeatBinds || null;
 
   for (const row of rows) {
     const jobId = jobIdFor(row.seat, goal);
@@ -441,29 +466,40 @@ function enqueueEligible(heartStore, rows, {
     if (blocked && blocked.has(row.seat) && logger) {
       logger({ level: 'info', message: 'seat held — it is BLOCKED on the owner and its dependents wait with it', seat: row.seat, evidence: blocked.get(row.seat) });
     }
-    // THE LOUD SKIP. Never silent: a member this lane cannot evaluate holds the seat forever, and
-    // before this line nothing anywhere said which member or why — the seat simply never moved.
-    const unevaluable = unevaluableAfter(row);
-    if (unevaluable.length && logger) {
-      logger({
-        level: 'warn',
-        message: 'seat held — its `after` carries member(s) THIS LANE CANNOT EVALUATE; it is left waiting rather than dispatched',
-        seat: row.seat,
-        members: unevaluable,
-        evidence: 'a guard `ref[key=value]` is discharged against a leader\'s ruling in '
-          + '`coordination/guard-values.csv` (coord.py) or a predecessor\'s validated output '
-          + '(edge-runner-job.py) — neither surface exists on this lane; an alternate `a|b` is '
-          + 'unsupported in coord.py too. Advance this seat from the lane that owns the evaluator.',
-      });
-    }
-    if (seatState(row, byJob, queued, { done: finished, goal, foreign, notFinished }) !== 'ready') continue;
+    if (seatState(row, byJob, queued, { done: finished, goal, foreign, notFinished, ready }) !== 'ready') continue;
     if (isHeld && isHeld(row.seat)) continue;
+
+    // ── § D5 · CAGE ADMISSIBILITY, THE LAST PRE-QUEUE REFUSAL ────────────────────────────────
+    //
+    // Could this seat actually WRITE its declared outputs once sandboxed, and could a successor
+    // READING them read them? A row that declares a token the cage refuses fails at the FAR end,
+    // after a launch, as a missing artifact marked against the seat's WORK — when the truth is
+    // that its DECLARATION named a place it was never able to write. Refused here, at the door,
+    // it costs one refusal instead of one wasted seat and one misattributed mark.
+    //
+    // Ordered LAST of the pre-queue tests, exactly as the Python it replaces was: no seat that
+    // would have been declined for another reason is now declined for this one.
+    const refusal = admitDeclaredOutputs({
+      seatBinds, goalFolder, seat: row.seat, successorReads: successorReads(readyRows, row.seat),
+    });
+    if (refusal) {
+      if (logger) logger({ level: 'warn', message: 'seat NOT enqueued — a declared output is inadmissible for a caged launch', seat: row.seat, evidence: refusal });
+      continue;
+    }
     if (relaunch) relaunch.delete(row.seat);
 
     const after = (row.after || '').trim();
     const seatDir = path.join(goalFolder, 'seats', row.seat);
+    const seed = (ready && ready.get(row.seat)) || [];
     heartStore.enqueue({
       jobId,
+      // ⚠ THE SEED IS NOT IN THIS OBJECT, AND THAT IS THE DOOR'S RULE, NOT A CHOICE. The registered
+      // `args_schema` for a seat job is `{profile | workdir, prompt}` and `heart-store.js`
+      // validateArgs REFUSES an unregistered key by name (`E_BAD_ARGS: unknown argument: seed`).
+      // `edge-runner-job.py#_enqueue_argv` states the rule it was measured into: "THE SEED NO
+      // LONGER RIDES IN ARGV AND MUST NOT BE PUT BACK — a seat is driven by its DESCRIPTOR and by
+      // the room, never by argv text." So the seed coord resolves is CARRIED (logged per seat and
+      // returned on the pass) rather than submitted; the door is where it would have to be widened.
       args: JSON.stringify({ profile, workdir: seatDir }),
       sessionMode: 'headless',
       triggerKind: 'scheduled',
@@ -471,7 +507,7 @@ function enqueueEligible(heartStore, rows, {
       enqueuedBy: 'attached-execution',
     });
     enqueued.push(row.seat);
-    if (logger) logger({ level: 'info', message: 'enqueued seat', seat: row.seat, after: after || null });
+    if (logger) logger({ level: 'info', message: 'enqueued seat', seat: row.seat, after: after || null, seed });
   }
   return enqueued;
 }
@@ -495,16 +531,42 @@ function seedGoal({ heartStore, goalFolder, profile, goal, logger = null, isHeld
       'same name cannot share one job row in a store that holds every goal (the daemon\'s).'
     );
   }
+  const rows = readTaskforce(goalFolder);
+  const seats = rows.map((r) => r.seat);
+  // ⚠ COORD FIRST, AND BEFORE ANYTHING IS WRITTEN. A refused computation seeds NOTHING for this
+  // goal this pass — not a partial enqueue, and not even the create-only job registration, which
+  // would be store rows written off an answer nobody has. The next pass retries; missing any
+  // number of passes costs latency and nothing else (§ Why the re-seed stays the driver).
+  const { ready, rows: readyRows, reason } = readySeats(goalFolder);
+  if (!ready) {
+    if (logger) {
+      logger({
+        level: 'warn',
+        message: 'goal NOT seeded this pass — `coordinate ready-seats` refused to compute readiness, and a partial '
+          + 'seed off a refused computation is worse than none. Retried next cadence.',
+        goal,
+        goalFolder,
+        evidence: reason,
+      });
+    }
+    return {
+      goalFolder, goal, seats, enqueued: [], seeds: {}, skippedAsFinished: [],
+      heldByOtherLane: {}, blockedOnOwner: {}, states: {}, readinessRefused: reason,
+    };
+  }
   const view = recordView(heartStore, goalFolder, { relaunch });
-  const rows = seedTaskforce(heartStore, goalFolder, { profile, logger, goal });
-  const enqueued = enqueueEligible(heartStore, rows, { profile, goalFolder, logger, goal, view, isHeld, relaunch });
+  seedTaskforce(heartStore, goalFolder, { profile, logger, goal, rows });
+  const enqueued = enqueueEligible(heartStore, rows, { profile, goalFolder, logger, goal, view, isHeld, relaunch, ready, readyRows });
   const byJob = executionsByJob(heartStore, null, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
-  const seats = rows.map((r) => r.seat);
   return {
     goalFolder,
     goal,
     seats,
+    readinessRefused: null,
+    // The predecessors' declared outputs coord resolved for each seat this pass launched (§ D4).
+    // Reported rather than submitted — see the enqueue call's note on the door's registered keys.
+    seeds: Object.fromEntries(enqueued.map((s) => [s, ready.get(s) || []])),
     // ⚠ `finished`, NOT `done` (review F2): a seat with a `done` row and a LATER open or `blocked`
     // one was reported here as FINISHED while `states` said `live` — one report contradicting the
     // other, about the seat this build exists to hold.
@@ -518,7 +580,7 @@ function seedGoal({ heartStore, goalFolder, profile, goal, logger = null, isHeld
     // operator must be able to tell "somebody else is running it" from "it is waiting on YOU".
     blockedOnOwner: Object.fromEntries(seats.filter((s) => view.blocked.has(s)).map((s) => [s, view.blocked.get(s)])),
     enqueued,
-    states: Object.fromEntries(rows.map((r) => [r.seat, seatState(r, byJob, queued, { done: view.done, goal, foreign: view.foreign, notFinished: view.notFinished })])),
+    states: Object.fromEntries(rows.map((r) => [r.seat, seatState(r, byJob, queued, { done: view.done, goal, foreign: view.foreign, notFinished: view.notFinished, ready })])),
   };
 }
 
@@ -527,9 +589,8 @@ module.exports = {
   ALL_TURN_STATUSES,
   SEAT_STATES,
   readCsv,
-  parseAfterMember,
-  afterMembers,
-  unevaluableAfter,
+  readySeats,
+  successorReads,
   taskforcePath,
   readTaskforce,
   jobIdFor,

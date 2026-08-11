@@ -129,8 +129,9 @@ the carrier is a spawn variant.
 - **A foreground seat writes the goal's `sessions.csv` row, like any other launch** (owner ruling
   `decisions.md#d-s20-foreground-seat-writes-session-row`, closing S-20). It did not — that row was
   written only by the daemon spawn path this carriage deliberately does not go through — so a package
-  whose seats were ALL carried in the terminal was traceless, and the edge-runner's check-out fast
-  path refuses a traceless package wholesale. That case is now gone rather than carved out.
+  whose seats were ALL carried in the terminal was traceless — and the reader of the day (the
+  edge-runner's check-out fast path, since retired) refused a traceless package wholesale. That case
+  is now gone rather than carved out, and the trace is still where every disposition reader looks.
 
   | | daemon at-dispatch row | foreground row |
   |---|---|---|
@@ -160,7 +161,7 @@ the carrier is a spawn variant.
 
 - **…and the carrier CLOSES that row on the child's exit** (review finding). A row is normally closed
   by `coord.py session_close`, which a console-lane seat can never reach (`E_GOAL_NOT_LIVE` — no tmux
-  room), so an opened-and-never-closed row made `goal-state-job`'s `open_session_seats` — *rows whose
+  room), so an opened-and-never-closed row made the open-sitting derivation — *rows whose
   `ended` is empty* — report every **finished** foreground seat as a live-or-crashed sitting for the
   rest of the goal's life. A new false divergence signal, created by the row itself. The carrier is
   the one honest witness (it blocks on the child), so on exit it stamps:
@@ -168,7 +169,7 @@ the carrier is a spawn variant.
   | cell | value | why that one |
   |---|---|---|
   | `ended` | the exit timestamp | this is what closes the sitting |
-  | `disposition` | **`exited`** | `coord.py` reserves it for *"the kit attesting that a harness terminated, a fact a seat cannot witness about itself"*. **Never `done`** — `done` is a seat reporting its own work finished, which no exit code asserts. Every reader treats `exited` as NOT-done (edge-runner: `renew`/`revive`/`exited` do not advance the fast path), so nothing advances on an attestation nobody made. |
+  | `disposition` | **`exited`** | `coord.py` reserves it for *"the kit attesting that a harness terminated, a fact a seat cannot witness about itself"*. **Never `done`** — `done` is a seat reporting its own work finished, which no exit code asserts. Every reader treats `exited` as NOT-done (`coord.ready_seat_rows` satisfies an `after` member on `done` alone), so nothing advances on an attestation nobody made. ⚠ **CONSEQUENCE, since readiness became coord's alone**: a console-lane seat that only ever gets `exited` stamped on it advances NO successor. A goal whose seats are all terminal-carried STALLS unless the seat itself checks out `done`. That is the ruled behaviour (`build/one-readiness-predicate.md` § D1), not a defect. |
   | `disposition-writer` | `kit` | the pair the value is validated against |
 
   The exit CODE is not invented into a column: it is on the `jobs_log` row this session id joins to.
@@ -278,9 +279,9 @@ surface in the system, and the coexistence is stated rather than glossed:
 |---|---|---|
 | `executions.csv` (this file) | may this seat be dispatched again — engine OUTCOME | the engine, both lanes |
 | `sessions.csv` `disposition` | did this session's process end, and how | `coord.py` / the kit |
-| coord's check-out attestation (`goal-state-job`) | did the SEAT attest its work done | `coord.py`, the seat itself |
+| coord's check-out attestation (`coordinate ready-seats`) | did the SEAT attest its work done | `coord.py`, the seat itself |
 
-`goal-state-job` reads the attestation and knows nothing of this file, and that is correct: an engine
+`coordinate ready-seats` reads the attestation and knows nothing of this file, and that is correct: an engine
 `done` (the process finished cleanly) and a seat's attested `done` (the human-or-agent says the work is
 finished) are different facts, and its own fixture contains cases where they rightly disagree. Nothing
 here maps one onto the other.
@@ -568,21 +569,30 @@ ELIGIBILITY, the ticker decides DISPATCH.
 **comma-separated** and every member is a term: a seat is released only when **all** of them are
 done. `taskforce.csv` is written by `team-kit/materialize-seats.py` through `csv.writer`, so a
 multi-predecessor cell arrives **quoted** — it is read with the quote-aware splitter, never a bare
-`split(',')`, or every column to its right shifts. Each member is then read by the mirror of
-`team-kit/coord.py#parse_after_member` in `engine/seeding.js`, which is the grammar's **one
-authority**: a bare name, a guard `ref[key=value]` (bracketed content neutralised *before* the
-alternate test, so a `|` inside a guard value is not an alternate), or an alternate `a|b`.
+`split(',')`, or every column to its right shifts. That quote-aware read is still seeding's; the
+GRAMMAR is not.
 
-⚠ **The engine evaluates BARE members only, and says so out loud.** A guard is discharged against a
-leader's ruling in `coordination/guard-values.csv` (`coord.py`) or against the predecessor's
-validated output (`jobs/edge-runner-job.py`) — **two surfaces that disagree on an unruled but
-field-satisfied guard**, open to the leader as `p-edge-runner-strictness-is-ONE-DIRECTIONAL`, and
-neither of them exists on this lane. An alternate is `<unsupported-alternate>` in `coord.py` too. So
-a guarded or alternate member leaves the seat **waiting** — the same direction both existing
-evaluators fail in — and the engine **logs the member that is holding it** rather than parking it
-silently. A third evaluator here would pick a side of an unsettled ruling from the lane with the
-least state to pick it from. Measured: `probes/probe-daemon-lane-watch.js` § L0, which pins the JS
-reading term-by-term against `coord.py`'s own.
+⚠ **THE ENGINE NO LONGER EVALUATES `after` AT ALL** (owner ruling `build/one-readiness-predicate.md`
+§ D1). There were three implementations of "is this seat ready to launch" — `coord.py`'s, the
+edge-runner's and `engine/seeding.js`'s — they drifted, and the drift is what stalled the live goal.
+The split is now total: **coord answers the DAG** (`coordinate ready-seats --json`, run once per
+goal per pass) and **seeding answers the store** (has this store already registered, queued or fired
+this seat — it can only ever *decline*, never promote). A bare name, a guard `ref[key=value]` and an
+alternate `a|b` are all read in exactly one place, in Python.
+
+- a **guard** is discharged against the recorded value in `coordination/guard-values.csv`, written
+  by the seat named in the pair (§ D2) and gated at that seat's `done` check-out (§ D3);
+- an **alternate** is satisfied when **any one** member is (§ D6) — it was `<unsupported-alternate>`
+  in both old evaluators, which made an alternate row unreachable;
+- a seat whose session ended with **no check-out** is `UNDECLARED` — not READY and not DONE — so the
+  goal stalls there loudly with the seat named. That is correct, and there is no path that advances
+  it.
+
+✔ **`p-edge-runner-strictness-is-ONE-DIRECTIONAL` IS CLOSED — MOOT, 2026-08-11.** It recorded that
+two surfaces disagreed on an unruled but field-satisfied guard: `coord.py` discharged against the
+leader's ruling, `jobs/edge-runner-job.py` against the predecessor's validated output. The second
+surface has been deleted, so there is one evaluator and nothing left to disagree. Ruling:
+`build/one-readiness-predicate.md`.
 
 **The profile is passed by NAME and never derived HERE.** Mapping an elected (harness, model) onto
 one profile name is core-build task **7.54**'s catalog — built at `launch-profiles/catalog.js` and
@@ -632,7 +642,7 @@ holder as stale · treat a dead holder as live · overwrite a foreign terminal r
 (S-20) and **B1i** (S-21) carry the two later rulings: the foreground row joins its own execution by
 session id, is schema-conformant against the file's OWN header, carries the runner's identity pair,
 is CLOSED on the child's exit (`ended` + `exited`/`kit`) — verified through the real python readers,
-`goal-state-job.open_session_seats` and `coord.session_disposition`, not by inspecting a cell —
+the open-sitting derivation over `sessions.csv` and `coord.session_disposition`, not by inspecting a cell —
 and an ALL-FOREGROUND package's trace is born with the schema owner's header; every shipped
 `headed.tui` pins its profile's own model, and the pin survives composition on the real carrier path
 with a shipped profile. Mutations, all red: no-op the trace row · unpin one profile · pin the WRONG

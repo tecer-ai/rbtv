@@ -15,7 +15,7 @@
 // cannot create a symlink.
 //
 // ⚠ WHY THE GREEN ARMS ARE NOT DECORATION. The failure mode of this row is an OUTAGE, not a hole:
-// a containment rule that refuses the live self-heal or edge-runner rows disables the daemon's own
+// a containment rule that refuses the live self-heal rows disables the daemon's own
 // recovery. G1/G2/G3 are the criterion, and each carries a mutation that turns it RED — G2 goes red
 // the moment W1 is dropped from the root set, which is the "just reuse the workflow rule" mistake.
 //
@@ -64,7 +64,10 @@ const RED = [
 // The legitimate shapes, each with the live row it stands for (live store, 2026-08-10).
 const GREEN = [
   { id: 'G1', label: 'self-heal: NO workdir supplied (24,918 fires — selfheal-watch/room)', args: { tool: 'selfheal-watch' } },
-  { id: 'G2', label: 'edge-runner: workdir = default_workdir_root exactly (exec 25552, the ONE fire-tool row that ever supplied one)', args: { tool: 'edge-runner', workdir: ROOT } },
+  // ⚠ NO SHIPPED ENTRY SUPPLIES A WORKDIR TODAY — the one that ever did was `edge-runner` (exec
+  // 25552), whose catalogue entry died with the Python edge-runner. The SHAPE stays guarded: it is
+  // legal, W1 is in the root set for it, and M4 below is what proves the rule still admits it.
+  { id: 'G2', label: 'workdir = default_workdir_root exactly (the shape exec 25552 supplied — the ONE fire-tool row that ever did)', args: { tool: 'a-fire-tool', workdir: ROOT } },
   { id: 'G3', label: 'planning: workdir = a run package under .rbtv/goals/<goal>', args: { workflow: 'planning', workdir: `${GOALDIR}/runs/run-1` } },
 ];
 
@@ -180,10 +183,10 @@ try {
       'M3 with the control-character test removed, R4 is ACCEPTED', String(m3.mod.checkFireToolWorkdir({ workdir: RED[2].wd }, ROOT)));
   }
 
-  // M4 — drop W1 from the root set. G2 (the edge-runner) must go RED. This is the arm that catches
+  // M4 — drop W1 from the root set. G2 must go RED. This is the arm that catches
   // "just reuse the workflow rule unchanged", which is the outage the code comment predicted.
   check(checkFireToolWorkdir({ workdir: ROOT }, null) !== null,
-    'M4 with W1 dropped, G2 the edge-runner row is REFUSED — the naive rule really would break it');
+    'M4 with W1 dropped, G2 the root-workdir row is REFUSED — the naive rule really would break it');
 
   say('');
   say('── WIRED AT BOTH DOORS, AND EXACTLY ONE VALIDATOR EXISTS ──');

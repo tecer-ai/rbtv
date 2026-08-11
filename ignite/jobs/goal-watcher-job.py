@@ -267,7 +267,8 @@ So the row is built SHADOW, which is the sanctioned design that rider names:
           the design orders — the INPUTS READ, the DECISION REACHED, and the ACT NOT TAKEN
 
 **THE ACT IS NOT PERFORMED, AND THAT IS AN ACT-IDENTITY CLAIM, NOT A LABEL.** The barred act's
-side-effect set, read at `edge-runner-job.py:enqueue` → `default_submitter`, is: spawn
+side-effect set — read, while it existed, at `edge-runner-job.py:enqueue` → `default_submitter`,
+and carried unchanged by `engine/seeding.js#enqueueEligible` — is: spawn
 `ignite add-job` through `subprocess.run`, which reaches the daemon's gateway `enqueue-job`
 intent, which writes a durable queue row, which later launches a seat. This arm's side-effect
 set is: append lines to the trail file above, and print. THE INTERSECTION IS EMPTY, and it is
@@ -277,7 +278,7 @@ invariants 2 and 6 make the sensor restart and the reap confirmation INLINE MECH
 and a fix that spawns nothing is not a fix. So the claim is no longer "imports no
 `subprocess`" but the exact one that matters: `INLINE_FIX_SCRIPTS` is the COMPLETE set of
 programs `run_inline` may exec and it is enforced there by refusal, `ignite` is not in it and
-neither is any queue door, this file imports `edge-runner-job` not at all, and it contains no
+neither is any queue door, this file imports no enqueuing module at all, and it contains no
 enqueue verb and no queue call. A shadow that
 enqueued to a side queue would still be the barred act (D-3's act-identity test); the bar
 attaches to the side-effect set, never to the word on the branch.
@@ -370,8 +371,9 @@ DOOR_REMEDY = (
 SHADOW_TRAIL_FILENAME = "goal-watcher-shadow-trail.jsonl"
 SHADOW_TRAIL_KEEP = 500
 # The ONE value that is a clean check-out. Equality against one value — never a truthiness test,
-# never "not renew" — the same gate `edge-runner-job.py`'s ADVANCES_EDGE holds, for the same
-# reason: `renew`, `revive` and `exited` each name a seat that has NOT finished.
+# never "not renew" — the same gate `coord.ready_seat_rows` holds when it satisfies an `after`
+# member, for the same reason: `renew`, `revive` and `exited` each name a seat that has NOT
+# finished. (`edge-runner-job.py`'s ADVANCES_EDGE was the third holder of it; it is deleted.)
 CLEAN_CHECKOUT = "done"
 # The act this arm COMPUTES and DOES NOT PERFORM, written out in full because the record's
 # `act_not_taken` field is this constant and nothing else — there is deliberately no code path
@@ -1134,7 +1136,7 @@ def headless_live(snap):
 
 
 def run_stall(snap, args):
-    """CMP-21 invariant 5 — [decision] or []. DETECTION ONLY: launching is the edge-runner's.
+    """CMP-21 invariant 5 — [decision] or []. DETECTION ONLY: launching is the seeding pass's.
 
     Ready DAG rows with zero live executors and nothing queued is a stalled RUN even though
     every individual seat row looks clean — the contradiction no per-seat threshold can see.
@@ -1173,7 +1175,7 @@ def run_stall(snap, args):
         f"{live} live paned executor(s), {hl} live headless execution(s), {queued} queued "
         f"row(s) for this goal. Every seat row can look clean while this holds — that is the "
         f"contradiction this row exists to catch. DETECTION ONLY: launching a ready seat is the "
-        f"edge-runner's monopoly (CMP-25) and nothing here launches anything.",
+        f"seeding pass's monopoly (CMP-25) and nothing here launches anything.",
         "offer the ready rows, or say why they are not offerable", nudge="leader")]
 
 

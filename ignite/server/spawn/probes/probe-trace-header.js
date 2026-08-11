@@ -9,8 +9,10 @@
 //     if (!exists || header.length === 0) return { appended: false, reason: 'no header …' }
 //
 // inside a `try` whose only failure arm is a warn line. So on a package the kit never launched
-// into, the daemon's row silently does not land, the run's `sessions.csv` never comes into
-// existence, and the edge-runner's gate 3 refuses the whole package.
+// into, the daemon's row silently does not land and the run's `sessions.csv` never comes into
+// existence — which, when this was written, made the edge-runner's gate 3 refuse the whole package.
+// That reader is retired; the trace is still where every disposition reader looks, so the hole is
+// the same hole.
 //
 // WHAT THE FIX IS, AND WHAT IT DELIBERATELY IS NOT. It is NOT a second writer: adding
 // `coord.py session-open` on top of a door that already appends yields TWO rows per launch. It is

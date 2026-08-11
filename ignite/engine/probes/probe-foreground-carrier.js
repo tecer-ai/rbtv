@@ -58,6 +58,10 @@ function check(name, ok, detail = '') {
 
 const { awaitExit } = require('./await-exit');
 const attached = require('../attached-execution');
+// COORD'S FRONTIER, the readiness answer every arm below is measured against since
+// `build/one-readiness-predicate.md` § D1. The unit-level arms hand it in explicitly; the run-level
+// ones get it from `executeAttached`, which asks once per pass.
+const { readySeats } = require('../seeding');
 // The chat bridge's own gate readers — held BESIDE `heldSeatPredicate` so B1b can measure that the
 // two answer alike rather than asserting it (7.626 review F3).
 const ferry = require('../../bridges/chat/bus-ferry');
@@ -71,6 +75,60 @@ const workspace = path.join(tmp, 'workspace');
 const dataRoot = path.join(tmp, 'data');
 fs.mkdirSync(dataRoot, { recursive: true });
 
+// ── THE SEAT'S OWN CHECK-OUT, AS A FIXTURE ACT ────────────────────────────────────────────────
+//
+// ⚠ WHY THIS EXISTS AT ALL, and it is the whole reason this probe was red. Since § D1 the ONE
+// readiness evaluator is `coord.ready_seat_rows`, and it satisfies an `after` member on a
+// predecessor's `done` CHECK-OUT and on nothing else — no store turn, no exit code. The carrier
+// deliberately stamps `exited` ("`done` is the seat reporting its own work finished, which no exit
+// code can assert"), so a terminal-carried seat advances NOTHING unless the OCCUPANT checks out.
+// Substituting the carriage therefore means substituting the occupant's check-out too; every arm
+// below that needs an edge to move does it here, and the arms that measure the CARRIER's own
+// stamping (B1h) deliberately do not.
+//
+// Written as a standalone file so the in-process arms and the `headed.tui` SUBPROCESS arms share
+// ONE implementation — the subprocess ones cannot be handed a JS function.
+const CHECKOUT_JS = path.join(tmp, 'seat-checks-out-done.js');
+fs.writeFileSync(CHECKOUT_JS, `'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const { splitRow, quoteField } = require(${JSON.stringify(path.join(IGNITE_SRC, 'server', 'seat-identity', 'csv'))});
+
+// Close this seat's OPEN sessions.csv row the way \`coord.py session_close\` would for a seat that
+// declared its work finished: \`done\`, written by the \`seat\` (the only writer the enum admits for
+// that value). The carrier's own closer then finds \`ended\` set and stands down — the
+// "already closed by another writer" branch it documents.
+// ⚠ LAST OPEN ROW, NOT THE FIRST. A relaunched seat has an earlier row from the attempt that died
+// — closing THAT one would stamp \`done\` on a dead sitting while the live one still closes
+// \`exited\`, and every disposition reader takes the LAST ended row.
+function checkOutDone(goalFolder, seat) {
+  const csvPath = path.join(goalFolder, 'sessions.csv');
+  const lines = fs.readFileSync(csvPath, 'utf8').split('\\n');
+  const header = splitRow(lines[0]).map((h) => h.trim());
+  const at = (n) => header.indexOf(n);
+  for (let i = lines.length - 1; i >= 1; i -= 1) {
+    if (!lines[i].length) continue;
+    const cells = splitRow(lines[i]);
+    while (cells.length < header.length) cells.push('');
+    if ((cells[at('seat')] || '').trim() !== seat) continue;
+    if ((cells[at('ended')] || '').trim()) continue;
+    cells[at('ended')] = new Date().toISOString().replace(/\\.\\d{3}Z$/, 'Z');
+    cells[at('disposition')] = 'done';
+    cells[at('disposition-writer')] = 'seat';
+    lines[i] = header.map((_, c) => quoteField(cells[c])).join(',');
+    fs.writeFileSync(csvPath, lines.join('\\n'), 'utf8');
+    return true;
+  }
+  return false;
+}
+module.exports = { checkOutDone };
+// As a \`headed.tui\` command the cwd IS the seat folder, so both operands are read off it.
+if (require.main === module) {
+  checkOutDone(path.resolve(process.cwd(), '..', '..'), path.basename(process.cwd()));
+}
+`);
+const { checkOutDone } = require(CHECKOUT_JS);
+
 const yaml = require(path.join(IGNITE_SRC, 'node_modules', 'js-yaml'));
 const cfg = yaml.load(fs.readFileSync(COMMITTED_CONFIG, 'utf8'));
 cfg.spawn = { ...(cfg.spawn || {}), data_root: dataRoot, carrier: 'setsid' };
@@ -83,9 +141,12 @@ const CONTAINMENT = {
 };
 // The run profile. `exec` is what a DETACHED seat runs; `headed.tui` is what the FOREGROUND
 // carrier runs — two different templates in one profile, which is the whole point of B1c.
+// ⚠ ITS `headed.tui` IS THE CHECK-OUT SCRIPT, not `true`: the subprocess arms (B1e, B1g) drive a
+// REAL `rbtv run` and cannot inject a carriage, so the profile's own command is the only place the
+// occupant's check-out can be stood in for. See CHECKOUT_JS above for why an edge needs one.
 cfg.profiles['probe-fg'] = {
   exec: { argv: ['sleep', '1'], prompt: 'stdin' },
-  headed: { tui: { argv: ['true'] } },
+  headed: { tui: { argv: ['node', CHECKOUT_JS] } },
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
   ...CONTAINMENT,
@@ -98,10 +159,11 @@ cfg.profiles['probe-fg-slow'] = {
   workdir_root: '.rbtv/goals',
   ...CONTAINMENT,
 };
-// Holds the foreground seat long enough for a SECOND runner to try the same goal.
+// Holds the foreground seat long enough for a SECOND runner to try the same goal, then checks out
+// so runner A's own run can finish (B1g's last arm).
 cfg.profiles['probe-fg-hold'] = {
   exec: { argv: ['sleep', '1'], prompt: 'stdin' },
-  headed: { tui: { argv: ['sleep', '6'] } },
+  headed: { tui: { argv: ['sh', '-c', `sleep 6; exec node ${CHECKOUT_JS}`] } },
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
   ...CONTAINMENT,
@@ -187,7 +249,13 @@ async function main() {
   say('B1a — a held seat is CARRIED IN THE TERMINAL; its neighbour in the same run is DETACHED');
 
   const heldCalls = [];
-  const fakeCarriage = (argv, cwd) => { heldCalls.push({ argv, cwd }); return { status: 0 }; };
+  // The injected carriage stands in for the human in the seat — INCLUDING the check-out they would
+  // type. Without it `alpha` ends `exited`, which advances no edge (§ D1) and `bravo` never runs.
+  const fakeCarriage = (argv, cwd) => {
+    heldCalls.push({ argv, cwd });
+    checkOutDone(path.resolve(cwd, '..', '..'), path.basename(cwd));
+    return { status: 0 };
+  };
 
   const goal = makeGoal('fg-goal');
   const result = await attached.executeAttached({
@@ -217,9 +285,10 @@ async function main() {
     bravoRows.length === 1 && bravoRows[0].enqueued_by === 'attached-execution'
       && bravoRows[0].session_mode === 'headless',
     bravoRows.map((r) => `${r.enqueued_by}/${r.session_mode}/${r.status}`).join(' '));
-  check('B1a the held seat still BLOCKS its dependents — the wave math is unchanged',
-    result.seats.join() === 'alpha,bravo' && result.foreground.map((f) => f.seat).join() === 'alpha',
-    JSON.stringify(result.foreground));
+  check('B1a the held seat GATES its dependent — bravo runs only behind alpha\'s check-out, and only alpha is carried',
+    result.seats.join() === 'alpha,bravo' && result.foreground.map((f) => f.seat).join() === 'alpha'
+      && result.ticks >= 2,
+    `${JSON.stringify(result.foreground)} ticks=${result.ticks} (bravo cannot be in alpha's own pass — coord's frontier is read once per pass, BEFORE the carriage runs)`);
 
   // …and the BAR ITSELF, at the point the engine could detach one. The run above cannot reach it —
   // the carrier fires first, so a held seat is never `ready` when the enqueue pass looks — which is
@@ -229,10 +298,19 @@ async function main() {
   const barGoal = makeGoal('fg-goal-bar');
   const barStore = openHeartStore({ dbPath: path.join(barGoal, 'heart.db'), profiles: spawnConfig.profiles });
   const barRows = attached.seedTaskforce(barStore, barGoal, { profile: 'probe-fg' });
+  // ⚠ COORD'S ANSWER IS HANDED IN, off the REAL fixture on disk — not a hand-typed map. Without it
+  // `enqueueEligible` promotes nothing (the store may decline, never promote, § D1) and BOTH arms
+  // below would pass for the wrong reason: the bar arm would be vacuous and its control would be
+  // the thing that catches it, which is exactly the pairing that must not silently collapse.
+  const { ready: barReady, rows: barReadyRows } = readySeats(barGoal);
+  check('B1a coord offers `alpha` on the bar fixture — the precondition BOTH arms below rest on',
+    Boolean(barReady) && barReady.has('alpha'),
+    barReady ? `READY=${[...barReady.keys()].join()}` : 'coord refused to compute readiness');
   const heldBar = attached.enqueueEligible(barStore, barRows,
-    { profile: 'probe-fg', goalFolder: barGoal, isHeld: attached.heldSeatPredicate(barGoal) });
+    { profile: 'probe-fg', goalFolder: barGoal, isHeld: attached.heldSeatPredicate(barGoal), ready: barReady, readyRows: barReadyRows });
   const queuedAfterBar = barStore.listQueue().map((q) => q.job_id);
-  const freeBar = attached.enqueueEligible(barStore, barRows, { profile: 'probe-fg', goalFolder: barGoal });
+  const freeBar = attached.enqueueEligible(barStore, barRows,
+    { profile: 'probe-fg', goalFolder: barGoal, ready: barReady, readyRows: barReadyRows });
   check('B1a the enqueue pass REFUSES to queue a held seat — the bar, measured where it stands',
     heldBar.length === 0 && queuedAfterBar.length === 0,
     `enqueued=${JSON.stringify(heldBar)} queue=${JSON.stringify(queuedAfterBar)}`);
@@ -306,7 +384,7 @@ async function main() {
   say('B1c — the launched command is the profile\'s OWN headed template, plus the seat descriptor');
 
   check('B1c the foreground argv IS the profile\'s headed.tui argv (not a filtered `exec:`)',
-    heldCalls[0].argv.join(' ') === 'true'
+    heldCalls[0].argv.join(' ') === `node ${CHECKOUT_JS}`
       && spawnConfig.profiles['probe-fg'].exec.argv.join(' ') === 'sleep 1',
     `argv=${JSON.stringify(heldCalls[0].argv)}`);
 
@@ -570,8 +648,14 @@ async function main() {
     check('B1f POSITIVE CONTROL: with only the failed attempt on record the seat reads `live`…',
       attached.seatState(rows[0], deadOnly, new Set()) === 'live');
     deadOnly.delete(attached.jobIdFor('alpha'));
+    // ⚠ COORD'S TERM IS HANDED IN. `ready` is no longer derived from `after` here (§ D1), so this
+    // arm's subject — the STORE half, "the grant hides the history and the seat is offerable again"
+    // — is only reachable with the DAG half supplied. Its two neighbours above pin the other
+    // direction: a store term (`done`, `live`) outranks coord's answer whatever it says.
     check('B1f …and the grant\'s view — its history hidden, nothing rewritten — reads `ready`',
-      attached.seatState(rows[0], deadOnly, new Set()) === 'ready');
+      attached.seatState(rows[0], deadOnly, new Set(), { ready: new Map([['alpha', []]]) }) === 'ready'
+        // …and WITHOUT coord's offer the very same view reads `waiting`: the store may decline, never promote.
+        && attached.seatState(rows[0], deadOnly, new Set()) === 'waiting');
   } finally { view.close(); }
 
   // The reconciliation is SCOPED to the foreground marker: a detached row left non-terminal is the
@@ -630,10 +714,16 @@ async function main() {
     fgTrace.rows.map((r) => `${r.seat}:${r['session-id'].slice(0, 8)}`).join(' '));
 
   // THE CASE THE RULING EXISTS FOR: a package whose seats are ALL carried in the terminal. Before
-  // S-20 it was traceless — no launch ever went through the daemon door — and the edge-runner's
-  // check-out fast path refuses a traceless package wholesale. The header itself must be born here,
-  // from the schema owner, since nothing else has written the file.
-  const allFg = makeGoal('fg-goal-all-foreground', { humanInteractive: ['alpha', 'bravo'] });
+  // S-20 it was traceless — no launch ever went through the daemon door — and the reader of the day
+  // (the edge-runner's check-out fast path, since retired) refused a traceless package wholesale.
+  // The header itself must be born here, from the schema owner, since nothing else has written it.
+  //
+  // ⚠ A WAVE, NOT A CHAIN, AND THE SHAPE IS THE POINT: nothing here checks out, so the carrier's
+  // own `exited` is the only disposition on either row — which is exactly what the two arms below
+  // measure. A chained fixture could not reach the second seat at all, because `exited` advances no
+  // edge (§ D1). The stall that produces is CORRECT and is measured at B1a; here it would only hide
+  // the subject.
+  const allFg = makeWaveGoal('fg-goal-all-foreground', ['alpha', 'bravo']);
   await attached.executeAttached({
     goalFolder: allFg,
     profile: 'probe-fg',
@@ -651,8 +741,16 @@ async function main() {
   // …AND THE ROW HAS A CLOSER (review F2). A console-lane seat can never reach `coord.py
   // session_close` (`checkIdentity` refuses it E_GOAL_NOT_LIVE — there is no tmux room on this
   // lane), so a row nobody closes leaves every FINISHED foreground seat reading as an open sitting
-  // for the rest of the goal's life. Measured THROUGH THE REAL READERS, in python, because the
-  // claim is about what `goal-state-job` and `coord` say — not about a cell this probe can inspect.
+  // for the rest of the goal's life. Measured THROUGH THE REAL READER, in python, because the
+  // claim is about what `coord` says — not about a cell this probe can inspect.
+  //
+  // ⚠ THE OPEN-SITTING DERIVATION MOVED HERE when `jobs/goal-state-job.py` was deleted
+  // (`build/one-readiness-predicate.md`, owner-ruled 2026-08-11 — it was a THIRD reader of the
+  // readiness question). Nothing was reimplemented: that helper was twenty lines over
+  // `sessions.csv` using COORD'S OWN primitives (`sessions_csv`, `read_csv_table`, `SESSIONS_COLS`,
+  // `pad_row`), and those primitives are what run below. The parse stays coord's; only the wrapper
+  // is gone. This is a PROBE computing an assertion, never production code deciding anything, so it
+  // mints no second reader of the state it checks.
   check('B1h every foreground row is CLOSED — `ended` stamped, disposition `exited` by the `kit`',
     allTrace.rows.every((r) => r.ended && r.disposition === 'exited' && r['disposition-writer'] === 'kit'),
     allTrace.rows.map((r) => `${r.seat}:${r.ended || 'OPEN'}/${r.disposition || '-'}`).join(' '));
@@ -662,15 +760,27 @@ async function main() {
 import sys, pathlib, importlib.util
 sys.path.insert(0, 'team-kit')
 import coord
-def load(n, p):
-    s = importlib.util.spec_from_file_location(n, p); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
-gs = load('gsj', 'jobs/goal-state-job.py')
+def open_session_seats(pkg):
+    path = coord.sessions_csv(pkg)
+    if not path.exists():
+        return set()
+    header, rows = coord.read_csv_table(path, coord.SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if not {'seat', 'ended'} <= set(idx):
+        return set()
+    out = set()
+    for r in rows:
+        coord.pad_row(r, header)
+        seat = r[idx['seat']].strip()
+        if seat and not r[idx['ended']].strip():
+            out.add(seat)
+    return out
 pkg = pathlib.Path(${JSON.stringify(allFg)})
-print('OPEN=' + ','.join(sorted(gs.open_session_seats(coord, pkg))))
+print('OPEN=' + ','.join(sorted(open_session_seats(pkg))))
 print('DISP=' + ','.join('%s:%s' % (s, coord.session_disposition(pkg, s)) for s in ('alpha', 'bravo')))
 `);
   const readerOut = `${readersSay.stdout || ''}${readersSay.stderr || ''}`.trim();
-  check('B1h goal-state-job\'s `open_session_seats` no longer lists the FINISHED seats (the F2 harm)',
+  check('B1h no FINISHED seat is left reading as an OPEN sitting in the trace (the F2 harm)',
     /OPEN=\s*$/m.test(readerOut) || /OPEN=$/m.test(readerOut.split('\n')[0]),
     readerOut.split('\n')[0] || 'python said nothing');
   // F3, measured rather than assumed: gate 3's PURPOSE is that the trace can ANSWER disposition.

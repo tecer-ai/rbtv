@@ -189,17 +189,13 @@ async function main() {
   say(`fixture: ${tmp}`);
   say('');
 
-  // ── L0 · THE `taskforce.csv` READER AND THE `after` CELL GRAMMAR ────────────────────────────
+  // ── L0 · THE `taskforce.csv` READER ─────────────────────────────────────────────────────────
   //
-  // THE DEFECT: `seeding.js#readCsv` split every line on a bare comma, and `seatState` read the
-  // WHOLE `after` cell as ONE seat name. Both halves are measured here, against the REAL Python
-  // writer and the REAL Python grammar — no hand-written fixture line, no re-stated regex.
-  //
-  //   the writer   `team-kit/materialize-seats.py#_render_csv_line` (`csv.writer`, QUOTE_MINIMAL)
-  //   the grammar  `team-kit/coord.py#parse_after_member` — THE authority, of which the JS side is
-  //                a mirror. Both are loaded by path in a subprocess, exactly as
-  //                `goal_cli.py#after_member_grammar` reaches the grammar: imported, never copied.
-  say('L0 — the taskforce reader and the `after` cell grammar, pinned to their Python originals');
+  // THE DEFECT: `seeding.js#readCsv` split every line on a bare comma, so a QUOTED multi-predecessor
+  // `after` cell became several fields and every column to its right shifted. Measured against the
+  // REAL Python writer — `team-kit/materialize-seats.py#_render_csv_line` (`csv.writer`,
+  // QUOTE_MINIMAL), loaded by path in a subprocess — never a hand-written fixture line.
+  say('L0 — the taskforce reader, pinned to the REAL Python writer');
   const seeding = require('../seeding');
   const TEAM_KIT = path.join(IGNITE_SRC, 'team-kit');
   function pythonJson(body) {
@@ -240,79 +236,14 @@ async function main() {
       && assembler.model === 'opus' && assembler.effort === 'high'
       && assembler['milestone-id'] === 'm-1',
     JSON.stringify(assembler));
-  check('L0a …and the cell grammar reads SIX predecessors from it, not one seat named "p1,p2,…"',
-    seeding.afterMembers(assembler.after).map((m) => m.name).join('|') === SIX.join('|'),
-    JSON.stringify(seeding.afterMembers(assembler.after).map((m) => m.name)));
+  // ⚠ THE CELL GRAMMAR IS NO LONGER READ IN JAVASCRIPT, so its arms are DELETED rather than
+  // rewritten (`one-readiness-predicate.md` § Deletions). What stood here — L0b's cross-language
+  // pin against `coord.py#parse_after_member`, L0c's pre-fix oracle, L0d's loud skip of a guard and
+  // an alternate — pinned a MIRROR, and there is no mirror left to pin: `coordinate ready-seats`
+  // answers the DAG and `seeding.js` answers only "has this store already fired this seat".
+  // The CSV read above STAYS: reading `taskforce.csv` correctly is still seeding's job, and the
+  // naive split it replaced shifted five columns on a six-predecessor row.
 
-  // L0b — THE CROSS-LANGUAGE PIN. Two languages, ONE grammar, compared term by term over the whole
-  // token table — guards, an alternate, a guard value CARRYING a `|` (the ordering property), a
-  // malformed guard, a double bracket group. A divergence on ANY of them is red: the JS side is a
-  // mirror, and a mirror that drifts is the two-readings defect 7.424 closed inside Python.
-  const TOKENS = ['a', ' a ', 'a[k=v]', 'a[k=x|y]', 'a|b', 'a[g=y]|b', 'a[nokey]', 'a[k=]',
-    'a[k=v][j=w]', 'a[=v]', '', 'plan-dag-structurer[planning-mode=full]'];
-  const theirs = pythonJson(LOADER
-    + 'c = load("_c", "coord.py")\n'
-    + `print(json.dumps([list(c.parse_after_member(t)) for t in ${JSON.stringify(TOKENS)}]))\n`);
-  const mine = TOKENS.map((t) => {
-    const m = seeding.parseAfterMember(t);
-    return [m.name, m.key, m.value, m.unsupported];
-  });
-  check('L0b the JS member grammar answers EXACTLY what `coord.py#parse_after_member` answers, on '
-    + 'every token — including `a[k=x|y]`, whose `|` is inside a guard and is NOT an alternate '
-    + '(brackets neutralised BEFORE the alternate test, coord\'s own load-bearing order)',
-    JSON.stringify(mine) === JSON.stringify(theirs),
-    `js=${JSON.stringify(mine)} py=${JSON.stringify(theirs)}`);
-
-  // L0c — NOTHING CHANGES FOR A SINGLE BARE MEMBER. The oracle is the PRE-FIX line itself,
-  // `after && !isDone(after)`, run over the same inputs: the fix is allowed to release seats that
-  // were wrongly parked, and is NOT allowed to answer differently on the cells that already worked.
-  {
-    // The list carries a GUARDED and an ALTERNATE single-member cell on purpose: both are
-    // `waiting` under the old predicate (neither string is in `done`) and must stay `waiting`
-    // under the new one. Without them the oracle only ever saw cells the fix could not change,
-    // so it could not discriminate a fix that wrongly RELEASED a guard from one that did not.
-    const bare = ['', 'alpha', 'bravo', 'never-finished',
-      'alpha[planning-mode=full]', 'alpha|bravo'];
-    const doneSet = new Set(['alpha']);
-    const oldState = (afterCell) => {
-      const after = (afterCell || '').trim();
-      if (after && !doneSet.has(after)) return 'waiting';
-      return 'ready';
-    };
-    const diverged = bare.filter((cell) => seeding.seatState(
-      { seat: 'x', after: cell }, new Map(), new Set(), { done: doneSet }) !== oldState(cell));
-    check('L0c a SINGLE-member (or empty) `after` cell answers byte-identically to the pre-fix '
-      + 'predicate — including a guarded and an alternate cell, which stay `waiting` under both',
-      diverged.length === 0, `diverged on: ${JSON.stringify(diverged)}`);
-
-    // THE SHORT-CIRCUIT ABOVE THE `after` READ. A queued seat answers `queued` without the cell
-    // ever being consulted — so the cell here is one the after-walk would park on, and a
-    // `queued` answer is only reachable through the early return.
-    check('L0c a QUEUED seat answers `queued` from the job id alone — the `after` cell (an '
-      + 'unevaluable guard here) is never reached',
-      seeding.seatState({ seat: 'q', after: 'never-finished[g=v]' }, new Map(),
-        new Set([seeding.jobIdFor('q')]), { done: doneSet }) === 'queued');
-
-    // L0d — THE LOUD SKIP. A guard and an alternate are members this lane has no evaluator for
-    // (coord discharges a guard against `coordination/guard-values.csv`; `edge-runner-job.py`
-    // against the predecessor's validated output — neither surface is on the daemon lane). They
-    // hold the seat, and — the part that is NEW — they SAY SO.
-    const guarded = { seat: 'g', after: 'alpha[planning-mode=full]' };
-    const alternate = { seat: 'o', after: 'alpha|bravo' };
-    check('L0d a GUARDED member leaves the seat `waiting` even though its predecessor IS done — a '
-      + 'guard never auto-satisfies, which is coord\'s own fail-safe direction',
-      seeding.seatState(guarded, new Map(), new Set(), { done: doneSet }) === 'waiting');
-    check('L0d an ALTERNATE does the same — `coord.py` calls it `<unsupported-alternate>` and blocks',
-      seeding.seatState(alternate, new Map(), new Set(), { done: doneSet }) === 'waiting');
-    check('L0d …and BOTH are NAMED, never silently parked: `unevaluableAfter` hands the operator '
-      + 'the exact member that is holding the seat',
-      seeding.unevaluableAfter(guarded).join() === 'alpha[planning-mode=full]'
-        && seeding.unevaluableAfter(alternate).join() === 'alpha|bravo',
-      JSON.stringify([seeding.unevaluableAfter(guarded), seeding.unevaluableAfter(alternate)]));
-    check('L0d a MULTI-member bare cell is AND-joined — every predecessor, not the first',
-      seeding.seatState({ seat: 'm', after: 'alpha,bravo' }, new Map(), new Set(), { done: doneSet }) === 'waiting'
-        && seeding.seatState({ seat: 'm', after: 'alpha,alpha' }, new Map(), new Set(), { done: doneSet }) === 'ready');
-  }
   say('');
 
   // ── L1 · THE READER'S GRAMMAR ───────────────────────────────────────────────────────────────
@@ -623,6 +554,15 @@ async function main() {
       s.endTurnAndCloseSession(rows[0].exec_id, { turnStatus: 'done', sessionStatus: 'closed', endedAt: new Date() });
     }
     s.close();
+    // …AND ALPHA CHECKS OUT. Since § D1 (`one-readiness-predicate.md`) the turn status above is a
+    // fact about a PROCESS and advances no edge: `coordinate ready-seats` reads the seat's own
+    // check-out disposition, and a session that ended without one is UNDECLARED. A `sleep` child
+    // cannot run the check-out verb, so the row it would have written is synthesized here — same
+    // file, same columns (`coord.py SESSIONS_COLS`), same disposition the seat would declare.
+    fs.writeFileSync(path.join(switchGoal, 'sessions.csv'),
+      'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,pid-starttime,'
+      + 'tty,disposition,disposition-writer,execution,checkin,model\n'
+      + `${rows[0] ? rows[0].session_id : 'sid-alpha'},alpha,claude,,,,${isoNow()},${isoNow()},,,,done,seat,,,\n`);
   }
   {
     const engine = createEngine({
