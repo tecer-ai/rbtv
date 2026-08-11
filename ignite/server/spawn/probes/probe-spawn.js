@@ -157,6 +157,22 @@ capture('probe-spawn', async (lines) => {
     for (const line of show.split('\n')) {
       if (line.trim()) lines.push('  ' + line.trim());
     }
+    // ASSERT the caps, never merely dump them. `systemctl show` always exits 0 and reports
+    // `infinity` for an unset cap, so deleting the `caps:` loop in buildSystemdRunArgs would leave
+    // every headless worker uncontained while this probe printed exactly that and read PASS. The
+    // two values below are the fixture profile's declared caps (memory_max 64M, runtime_max 1h) as
+    // systemd normalizes them; TasksMax is deliberately NOT asserted — it is the host manager's
+    // default, not something this profile sets.
+    const props = Object.fromEntries(show.split('\n').filter((l) => l.includes('=')).map((l) => {
+      const eq = l.indexOf('=');
+      return [l.slice(0, eq).trim(), l.slice(eq + 1).trim()];
+    }));
+    for (const [prop, want] of [['MemoryMax', '67108864'], ['RuntimeMaxUSec', '1h']]) {
+      if (props[prop] !== want) {
+        throw new Error(`caps live: ${prop}=${props[prop]} != ${want} — the profile's caps did not reach the headless unit`);
+      }
+    }
+    lines.push('caps live PASS: MemoryMax=67108864 (=64M) and RuntimeMaxUSec=1h on the running headless unit');
 
     // Prove the worker is actually running.
     const active = execFileSync('systemctl', ['--user', 'is-active', row.unit_name], { encoding: 'utf8' }).trim();
@@ -181,8 +197,9 @@ capture('probe-spawn', async (lines) => {
     }
     lines.push(`stdin live PASS: running unit stdin connected to the prompt file (${showStdin})`);
 
-    // Prove the log file exists.
-    lines.push(`log file exists: ${require('node:fs').existsSync(row.log_path)}`);
+    // Prove the log file exists — ASSERTED, not recorded: `log file exists: false` was a PASS.
+    if (!fs.existsSync(row.log_path)) throw new Error(`log file missing: ${row.log_path}`);
+    lines.push(`log file exists: ${row.log_path}`);
 
     // Clean up.
     await ctx.mgr.kill(row.exec_id);

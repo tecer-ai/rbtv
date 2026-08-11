@@ -16,16 +16,20 @@ capture('probe-flag-injection', async (lines) => {
     // argv-last guard cases are config-load failures now (probe-carriage-vocab.js proves that).
     // The WORKDIR guard stays UNCONDITIONAL — a workdir always rides argv/unit properties.
     const cases = [
-      { name: 'flag in workdir', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, '-/tmp', 'probe') },
-      { name: 'unknown request key', fn: () => validateSpawnRequest({ profile: 'test-sleep', session_mode: 'headless', prompt: null, workdir: null, extra: 1 }) },
-      { name: 'unknown profile', fn: () => ctx.mgr.spawn(0, 'not-a-profile', 'headless', null, null, 'probe') },
+      { name: 'flag in workdir', code: 'E_FLAG_INJECTION', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, '-/tmp', 'probe') },
+      { name: 'unknown request key', code: 'E_UNKNOWN_REQUEST_KEY', fn: () => validateSpawnRequest({ profile: 'test-sleep', session_mode: 'headless', prompt: null, workdir: null, extra: 1 }) },
+      { name: 'unknown profile', code: 'E_UNKNOWN_PROFILE', fn: () => ctx.mgr.spawn(0, 'not-a-profile', 'headless', null, null, 'probe') },
     ];
+    // ASSERT the code, never merely record it — the same idiom 31149a02 put on probe-mode-gate and
+    // probe-workdir-gate. `if (!err.code)` accepted ANY typed throw, and ERR_INVALID_ARG_TYPE has a
+    // `.code`: this loop stayed green right through the 29220dc9 regression that turned two of the
+    // three codes below into it. A probe that cannot fail is not a probe.
     for (const c of cases) {
       try {
         await c.fn();
-        throw new Error(`${c.name}: UNEXPECTED PASS — refusal did not fire`);
+        throw new Error(`${c.name}: UNEXPECTED PASS — expected ${c.code}`);
       } catch (err) {
-        if (!err.code) throw err; // the UNEXPECTED PASS Error has no .code — rethrow
+        if (err.code !== c.code) throw err;
         lines.push(`${c.name}: ${err.code}`);
       }
     }
