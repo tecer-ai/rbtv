@@ -4,6 +4,8 @@ description: Unified component builder for RBTV and vault/non-RBTV systems. Acts
 nextStep: ./step-01-analyze.md
 ---
 
+> ⛔ **RETIRED 2026-08-11 by owner ruling — DO NOT FOLLOW.** Superseded by the meta/planning reference set and the forge workflow. Stop here and read `{rbtv_path}/builder/RETIRED.md`.
+
 # Component Creation
 
 ## Purpose

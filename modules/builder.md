@@ -2,13 +2,27 @@
 
 ## Purpose
 
-The RBTV-native module — for building RBTV itself. Install it in workspaces where you create or modify RBTV components: it ships the guided component-creation workflow (with a token-efficiency gate on every build), the component-review workflow (token-efficiency diagnosis of existing components), and the source-of-truth rule that keeps edits flowing to the repo instead of to the generated `.claude/` copies.
+The RBTV-native module. **Its component-creation half was RETIRED 2026-08-11 by owner ruling** — see `builder/RETIRED.md`. What the module still SHIPS is one thing: the source-of-truth rule that keeps edits flowing to the repo instead of to the generated `.claude/` copies. Component structure, naming, and the exposure/seat canon now live in the meta/planning reference set and the forge workflow.
 
 ---
 
 ## Components
 
-### `rbtv-create-component`
+### `source-of-truth` rule
+
+- **What**: An always-on rule stating that RBTV components installed into `.claude/` (skills, commands, rules, subagents) are generated thin loaders or copies, overwritten on every re-install — edits go to the RBTV source repo (module-first paths), then `python install.py` propagates them.
+- **When to use**: Always active once the builder module is installed. In workspaces where you BUILD RBTV components, the edit-source-not-installed-copies discipline is load-bearing, not redundant.
+- **How to invoke**: Automatic. No trigger — passive context.
+- **What it produces**: Changed agent behavior — component edits land in `{rbtv_path}/<module>/...` source paths, never in `.claude/`.
+
+---
+
+## RETIRED components (2026-08-11) — kept for history, never followed
+
+The three below no longer install and carry retirement banners. Details and the supersession:
+`builder/RETIRED.md`.
+
+### `rbtv-create-component` — RETIRED
 
 - **What**: Guided builder for any RBTV or vault AI component — skills, workflows, rules, commands, personas, tasks. Acts as a design partner: it challenges assumptions and forces key decisions before writing any file. Handles both RBTV-standard components (placed in the RBTV source repo, module-first) and workspace-native components (placed per that workspace's CLAUDE.md conventions).
 - **When to use**: Creating a new skill, workflow, or rule from scratch. Modifying an existing component. Trying to understand how a component is structured before editing it. Use this instead of manually exploring component directories — the workflow handles discovery. NOT for trivial text-only corrections to an existing component (stale reference, obsolete caveat, typo) that change no structure, frontmatter, steps, or behavior — edit those directly.
@@ -22,7 +36,7 @@ The RBTV-native module — for building RBTV itself. Install it in workspaces wh
 
 ---
 
-### `component-review` workflow (review mode of `rbtv-create-component`)
+### `component-review` workflow (review mode of `rbtv-create-component`) — RETIRED
 
 - **What**: Token-efficiency diagnosis of an existing component — any RBTV module, or any component in a workspace with a CLAUDE.md. Four steps: intake (target + owner's felt-waste hypotheses), measure (deterministic baseline via `scripts/measure-component.py` — words, imperative/conditional/arbitration density, longest prose run, open-deliberation cues, cross-file loads, duplicated blocks), investigate (read-only sonnet sub-agents, one lane per cost locus), synthesize (problem tree + hypothesis verdicts + ranked format fixes).
 - **When to use**: A component feels expensive to run — agents seem to read or reason too much to execute it — and you want measured evidence of where the cost lives before trimming. The owner's hypotheses are tested, not assumed: felt waste and measured waste routinely diverge.
@@ -34,17 +48,6 @@ The RBTV-native module — for building RBTV itself. Install it in workspaces wh
 
 ---
 
-### `source-of-truth` rule
+### `measure-component.py` tool (`exposure.csv`) — ORPHANED
 
-- **What**: An always-on rule stating that RBTV components installed into `.claude/` (skills, commands, rules, subagents) are generated thin loaders or copies, overwritten on every re-install — edits go to the RBTV source repo (module-first paths), then `python install.py` propagates them.
-- **When to use**: Always active once the builder module is installed. Recovered from retirement for this module: in workspaces where you BUILD RBTV components, the edit-source-not-installed-copies discipline is load-bearing, not redundant.
-- **How to invoke**: Automatic. No trigger — passive context.
-- **What it produces**: Changed agent behavior — component edits land in `{rbtv_path}/<module>/...` source paths, never in `.claude/`.
-
----
-
-## How They Fit Together
-
-`rbtv-create-component` places and structures new components module-first; the `source-of-truth` rule keeps every subsequent edit pointed at the repo. Together they make the repo's hard rule (every component change updates README + `modules/` + `module-manifest.json` in the same change) executable by agents.
-
-**Data file note:** `builder/workflows/component-creation/data/component-patterns.md` records the placement standard for reference data — shared cross-cutting data (e.g. `standards/`) lives in a top-level content-named folder; single-owner data nests in its owning component (co-located). This convention was blessed as of 2026-06-15 (studio-standardization D3) and `rbtv-architecture.md` carries an echo of it.
+The component-review measurement CLI still runs and is still the module's one `exposure.csv` row, but its owning workflow is retired. Left in place rather than dropped silently from the tool inventory.

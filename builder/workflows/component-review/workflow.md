@@ -5,6 +5,8 @@ nextStep: ./step-01-intake.md
 outputFolder: ASK-CLAUDE-MD
 ---
 
+> ⛔ **RETIRED 2026-08-11 by owner ruling — DO NOT FOLLOW.** Superseded by the meta/planning reference set and the forge workflow. Stop here and read `{rbtv_path}/builder/RETIRED.md`.
+
 # Component Review
 
 **Goal:** Produce an evidence-based token-efficiency diagnosis of a target component — measured costs, tested hypotheses, and prioritized format fixes that preserve every protection.

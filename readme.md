@@ -210,4 +210,4 @@ Some components ship in this repo but are flagged `stale` in the module manifest
 
 ## Extending RBTV
 
-Use `/rbtv-create-component`. When you create a new component, the agent will ask whether to publish it to the RBTV source (requires re-install to propagate) or write it locally to your workspace only.
+`/rbtv-create-component` was RETIRED 2026-08-11 (`builder/RETIRED.md`) and no longer installs. Component structure, naming, and the exposure/seat canon are defined by the meta/planning reference set and the forge workflow — build new components from those. Placement still follows the module-first layout above, and every component change still updates `README.md`, `modules/{module}.md`, and `admin/install/module-manifest.json` in the same change.

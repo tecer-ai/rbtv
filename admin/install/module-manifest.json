@@ -318,15 +318,7 @@
     }
   },
   "builder": {
-    "description": "Building RBTV itself — guided component creation/editing and the source-of-truth rule protecting installed copies.",
-    "skills": [
-      {
-        "source_template": "builder/skills/create-component/SKILL.md",
-        "target": ".claude/skills/rbtv-create-component/SKILL.md",
-        "bake": ["rbtv_path"],
-        "description": "Scaffold new RBTV components (skills, commands, rules, workflows)"
-      }
-    ],
+    "description": "The source-of-truth rule protecting installed copies. The component-creation/review half was RETIRED 2026-08-11 (builder/RETIRED.md) — superseded by the meta/planning reference set and the forge workflow.",
     "rules": [
       {
         "source": "builder/rules/source-of-truth.md",
