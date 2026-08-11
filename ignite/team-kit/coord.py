@@ -20752,7 +20752,8 @@ def _selftest_checks(args, failures, names):
               "inserted. Position is what `widen_header`'s append-only guarantee protects: run-1 "
               "and run-2 already disagree on column ORDER, so a column placed 'logically' beside "
               "`started` would put a fresh file and a widened one on two different layouts",
-              SESSIONS_COLS.count("checkin") == 1 and SESSIONS_COLS[-1] == "checkin")
+              SESSIONS_COLS.count("checkin") == 1
+              and SESSIONS_COLS[-2:] == ["checkin", "model"])
 
         _u96_w = [w for w in discover_workers(workers_dir(_u96_ns())) if w["agent"] == "zeta"][0]
         _u96_sid, _ = session_open(_u96_ns(), _u96_w, since=time.time(), wait=0.0)
@@ -22772,22 +22773,26 @@ def _selftest_checks(args, failures, names):
               "instead of raising, which is exactly how an appended column goes wrong quietly. "
               "⚠ THIS ROW IS THE SCHEMA'S TRIPWIRE AND IT HAS NOW FIRED THREE TIMES: 7.155's "
               "`disposition-writer` reddened it, 7.607 E2b's `execution` (the dated execution "
-              "stamp, design-lock item 5) reddened it again, and `755b197e`'s `checkin` reddened it "
-              "a third time — which is exactly why the tail is "
+              "stamp, design-lock item 5) reddened it again, `755b197e`'s `checkin` reddened it "
+              "a third time, and D19's `model` (the seat's launched cast) a fourth — which is "
+              "exactly why the tail is "
               "asserted by NAME and by INDEX rather than as 'the last one'. A claim that moves "
               "with the file grades nothing, and each firing is a schema change being SEEN",
               _d9_hdr[:len(_d9_cols_before_dag09)] == _d9_cols_before_dag09
-              and _d9_hdr[-4:] == ["disposition", "disposition-writer", "execution", "checkin"]
+              and _d9_hdr[-5:] == ["disposition", "disposition-writer", "execution", "checkin",
+                                   "model"]
               and _d9_idx["tty"] == 10
-              and _d9_idx["disposition"] == len(_d9_hdr) - 4
-              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 3
-              and _d9_idx["execution"] == len(_d9_hdr) - 2
-              and _d9_idx["checkin"] == len(_d9_hdr) - 1
+              and _d9_idx["disposition"] == len(_d9_hdr) - 5
+              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 4
+              and _d9_idx["execution"] == len(_d9_hdr) - 3
+              and _d9_idx["checkin"] == len(_d9_hdr) - 2
+              and _d9_idx["model"] == len(_d9_hdr) - 1
               and len(_d9_fields) == len(_d9_hdr)
               and "disposition" not in _d9_positional
               and "disposition-writer" not in _d9_positional
               and "execution" not in _d9_positional
               and "checkin" not in _d9_positional
+              and "model" not in _d9_positional
               and len(_d9_positional) == len(_d9_cols_before_dag09))
 
         check("dag-09 LG-14: `disposition` APPEARS EXACTLY ONCE — in the column constant and in "
