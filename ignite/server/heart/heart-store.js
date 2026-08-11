@@ -76,8 +76,8 @@ function jobFireability(job) {
       fireable: false,
       reason: `args_schema declares no ${missing.map((k) => `\`${k}\``).join(', ')} — ` +
         `${job.action_type} requires ${missing.length > 1 ? 'them' : 'it'}, so every enqueue is ` +
-        `refused "unknown argument". Registration is create-only with no update or unregister ` +
-        `surface, so this id CANNOT be repaired in place: register a new one and stop using this.`,
+        `refused "unknown argument". Registration is create-only — there is no update surface, so this ` +
+        `id CANNOT be repaired in place: register a new one and retire this one via deregister-job.`,
     };
   }
   return { fireable: true, reason: null };
