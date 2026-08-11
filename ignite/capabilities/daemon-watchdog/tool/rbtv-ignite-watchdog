@@ -189,7 +189,13 @@ def probe_probe_suite():
     # meaningful (not permanently RED on by-design refusals), and this — the one consumer that
     # already opens latest.json every fire and already owns an operator delivery path — reads it.
     # A failing probe is not a liveness problem and no restart fixes it, so a live RED is an
-    # `alarm` (human needed), never a `down` (which would restart the timer).
+    # `alarm` (human needed), never a `down` (which would restart the timer). Owner ruling
+    # 2026-08-11 WIDENS that from RED alone to ANY verdict that is not GREEN/UNKNOWN: the
+    # runner also grades ITSELF broken (ERROR · COVERAGE-MISMATCH · ARTIFACT-PATH-MISMATCH ·
+    # ARTIFACT-MISSING · INCOMPLETE, and whatever it learns to say next), and a run that
+    # produced no clean grade is exactly as un-restartable and as human-needing as a RED one.
+    # GREEN, UNKNOWN and a missing/empty verdict stay `up` — the liveness branches above are
+    # untouched, so "the suite is dead" and "the suite is broken" never collapse into one word.
     fired = a.get("fired_at")
     stale_after = a.get("stale_after_seconds")
     if not fired or not stale_after:
@@ -198,12 +204,19 @@ def probe_probe_suite():
     if age > float(stale_after):
         return "down", "last fired %ds ago, stale_after=%ss" % (int(age), stale_after)
     live = "last fired %ds ago (stale_after=%ss)" % (int(age), stale_after)
-    if a.get("verdict") == "RED":
-        failed = a.get("failed")
-        return "alarm", ("suite is LIVE but the correctness verdict is RED: %s genuine probe "
-                         "failure(s) (INOPERATIVE/by-design refusals already excluded) — %s"
-                         % (failed if failed is not None else "?", live))
-    return "up", "%s, verdict=%s" % (live, a.get("verdict") or "?")
+    verdict = a.get("verdict")
+    if isinstance(verdict, str) and verdict not in ("", "GREEN", "UNKNOWN"):
+        if verdict == "RED":
+            failed = a.get("failed")
+            return "alarm", ("suite is LIVE but the correctness verdict is RED: %s genuine probe "
+                             "failure(s) (INOPERATIVE/by-design refusals already excluded) — %s"
+                             % (failed if failed is not None else "?", live))
+        # The runner-grade-broken verdicts carry no `failed` count — they carry a `note` (or an
+        # `error` on the ERROR path). Read whichever is there; never assume either.
+        why = a.get("note") or a.get("error")
+        return "alarm", ("suite is LIVE but produced no clean grade: verdict=%s%s — %s"
+                         % (verdict, (" — %s" % why) if why else "", live))
+    return "up", "%s, verdict=%s" % (live, verdict or "?")
 
 
 def probe_goal_watcher():

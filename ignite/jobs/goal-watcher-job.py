@@ -1214,11 +1214,33 @@ def evaluate(snap, args, state, dispositions, now):
                 f"repair or remove {bpath}", nudge="leader"))
         else:
             _c = budget_mod.census(_b, snap, now)
-            if _c["verdict"] == "BREACH":
+            # 7.714: THE IN-RUN `cross_goal` CORRECTION — the same split as `coord.py` cmd_launch
+            # D5, ruled per-consumer 2026-08-11. `census()` files a live agent pane that has not
+            # CHECKED IN YET as `cross_goal` under `budget.py`'s rule 3 (the pane has no roster
+            # row, so rule 3 asks only whether SOME goal declares it), and `cross_goal` is
+            # deliberately NOT in `in_use` — so this run's own launched-but-unchecked-in seats
+            # under-count and the BREACH verdict arrives LATE. The term is on the ROW, never the
+            # class: only a row whose own `descriptor` resolves inside THIS run's own `seats/` is
+            # ours; a genuinely foreign one is untouched and still spends no slot. `census()`
+            # cannot make the split at its own home — it receives two mappings and never the run
+            # root — which is why it lives with the consumer that owns that root.
+            _seats_root = os.path.join(os.path.abspath(str(args.package)), "seats") + os.sep
+            _in_run = [_m for _m in _c["cross_goal"]
+                       if os.path.abspath(_m.get("descriptor") or "").startswith(_seats_root)]
+            _in_use = _c["in_use"] + len(_in_run)
+            _over = (_in_use - _c["cap"]
+                     if isinstance(_c["cap"], int) and not isinstance(_c["cap"], bool) else None)
+            # `_over > 0` SUBSUMES `verdict == "BREACH"` (a BREACH is `in_use > cap` on the same
+            # cap) and fires additionally on the corrected count, which is the whole row. A cap
+            # that is absent or non-numeric leaves `_over` None and this row silent, exactly as
+            # `census()`'s own UNKNOWN verdict did.
+            if _over is not None and _over > 0:
                 decisions.append(decision(
                     "BUDGET", "room", "nudge leader: ROOM OVER CAPACITY",
-                    f"{_c['in_use']} agent panes live against a declared cap of {_c['cap']} "
-                    f"({-_c['headroom']} over)"
+                    f"{_in_use} agent panes live against a declared cap of {_c['cap']} "
+                    f"({_over} over)"
+                    + (f"; {len(_in_run)} of them are this run's OWN seats not yet checked in "
+                       f"(census filed them cross_goal)" if _in_run else "")
                     + ("" if _c["complete"] else "; INCOMPLETE — unclassified seats") +
                     ". The cap is in budget.json with its ruling; if the cap is what is wrong, "
                     "change it THERE rather than working around it, or the number goes back to "
