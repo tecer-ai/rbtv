@@ -10,12 +10,14 @@ It fails loudly (non-zero exit + a clear message) and makes NO commit on:
   - a real merge conflict while syncing the remote,
   - any OTHER remote-sync failure (stale index.lock, network/auth, refused
     fast-forward) — reported as its own class, never as a conflict,
-  - a requested file that has no changes to commit,
-  - a staged/requested mismatch (defensive; should not happen after the reset).
+  - a requested file that has no changes to commit.
 
 Staging is made deterministic by unstaging EVERYTHING first, then staging only
-the requested files. A file a parallel session left staged is therefore never
-committed — its working-tree changes are preserved, simply left unstaged.
+the requested files. The COMMIT itself is bounded independently, by passing the
+requested paths as a pathspec (`git commit -- <paths>`), which re-resolves them
+at commit time: a file a parallel session stages in the window between the gate
+and the commit is therefore never committed either — its working-tree changes
+are preserved, simply left unstaged.
 
 Remote sync is commit-first: the requested files are committed locally, THEN the
 remote is pulled. A clean auto-merge is handled silently; a real conflict aborts
@@ -189,14 +191,17 @@ def main():
     unmatched = [p for p in requested if not any(covers(p, s) for s in staged)]
     if unmatched:
         fail("these requested paths have no changes to commit: " + ", ".join(sorted(unmatched)))
-    # A staged file under NO requested path must never ride along.
-    foreign = sorted(s for s in staged if not any(covers(p, s) for p in requested))
-    if foreign:
-        fail("staged index does not match requested paths (unexpected): " + ", ".join(foreign))
 
     # --- commit (capturing the undo target first), then sync the remote on top ---
     before = git(["rev-parse", "HEAD"], root, check=False).stdout.strip()
-    git(["commit", "-m", message], root)
+    # `-- <requested>` is what BOUNDS the commit. A bare `git commit` commits the
+    # whole index as it stands at commit time, so a parallel session's `git add`
+    # landing in the window between the gate above and this line rides along
+    # silently (measured 2026-08-11: commit f9cc81fa carried 4 files for 1). The
+    # pathspec re-resolves the paths AT COMMIT TIME, so nothing outside them can
+    # enter. It commits working-tree content at those paths (the `add` above
+    # still matters: an UNTRACKED path is not matched by a pathspec commit).
+    git(["commit", "-m", message, "--", *requested], root)
     committed = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()  # MY commit, before any sync merge
     if behind and before:
         sync_after_commit(root, before)

@@ -5,6 +5,7 @@ change, then runs commit.py inside it and inspects the resulting commit object.
 No network: every repo is local with no remote, so the remote-sync paths are
 inert and only the staging gate + commit are exercised.
 """
+import importlib.util
 import os
 import subprocess
 import sys
@@ -12,6 +13,13 @@ import sys
 import pytest
 
 COMMIT_PY = os.path.join(os.path.dirname(os.path.dirname(__file__)), "commit.py")
+
+# Imported as a module (not just run as a subprocess) so the race test below can
+# wrap commit.py's own git helper and land a foreign `git add` inside the window
+# between the staging gate and the commit.
+_spec = importlib.util.spec_from_file_location("commit_mod", COMMIT_PY)
+commit_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(commit_mod)
 
 
 def git(args, cwd):
@@ -172,3 +180,30 @@ def test_move_excludes_parallel_staged_file(repo):
     assert (repo / "unrelated.md").read_text() == "noise\n"
     status = git(["status", "--porcelain", "unrelated.md"], repo)
     assert status.startswith("??") or status.startswith(" "), status
+
+
+def test_foreign_staged_in_race_window_excluded(repo, monkeypatch):
+    """A parallel session's `git add` landing AFTER the staging gate and BEFORE the
+    commit must not ride along (measured leak: f9cc81fa carried 4 files for 1).
+    The race is made deterministic by wrapping commit.py's own git helper: the
+    foreign file is staged the instant the `commit` call is issued."""
+    write(repo, "mine.md", "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+
+    write(repo, "mine.md", "v2\n")
+    write(repo, "foreign.md", "parallel session\n")
+
+    real_git = commit_mod.git
+
+    def racing_git(args, root, **kw):
+        if args and args[0] == "commit":
+            subprocess.run(["git", "add", "foreign.md"], cwd=root, check=True)
+        return real_git(args, root, **kw)
+
+    monkeypatch.setattr(commit_mod, "git", racing_git)
+    monkeypatch.setattr(sys, "argv", ["commit.py", "-m", "mine only", "-f", "mine.md"])
+    monkeypatch.chdir(repo)
+    commit_mod.main()
+
+    assert commit_files(repo) == {"mine.md"}
