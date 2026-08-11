@@ -72,6 +72,11 @@ def sensor(path=None):
         p = Path(path) if path else SENSOR_PATH
         spec = importlib.util.spec_from_file_location("ctx_monitor", p)
         mod = importlib.util.module_from_spec(spec)
+        # REGISTERED, not just cached: a by-path module absent from `sys.modules` is invisible to
+        # every sys.modules-derived reader, and this file has one — `loaded_code_fingerprint`.
+        # Unregistered, it fingerprinted this module alone, which is precisely the watch.py-only
+        # blindness G-158 was filed for.
+        sys.modules.setdefault("ctx_monitor", mod)
         spec.loader.exec_module(mod)
         _SENSOR = mod
     return _SENSOR
@@ -94,6 +99,7 @@ def coord():
         p = HERE.parent.parent.parent / "ignite" / "team-kit" / "coord.py"
         spec = importlib.util.spec_from_file_location("_tm_coord", p)
         mod = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("_tm_coord", mod)   # see `sensor()` — same reason
         spec.loader.exec_module(mod)
         _COORD = mod
     return _COORD
@@ -135,6 +141,136 @@ def pressure(resource="memory"):
     return out
 
 
+# ---- /tmp uid-quota canary (task 7.401, re-homed here by 7.35 from `watch.py:282-385`) ----
+#
+# TRIP 4 (leader ruling #4246): `df`/`statvfs` read 775 MB free on `/tmp` at the SAME instant a
+# 1 KB uid-1000 write failed EDQUOT. The per-uid quota sits BELOW the tmpfs size, so a free-space
+# threshold — however configured — can never see this edge; it is ruled OUT as the flag key. The
+# only honest reading is a canary WRITE, which is why this is a raw read and why it lands in the
+# ONE component that owns raw reads (R24). `starter-set/budget.json`'s `floors.tmp_free_warn_mb`
+# names THIS canary as its binding probe.
+#
+# Leader ruling #4268: size the canary at the SMALLEST write that discriminates, never at a
+# configured floor's MB value — a gauge writing megabytes every cadence consumes the headroom it
+# exists to guard.
+TMP_CANARY_BYTES = 4096
+_TMP_QUOTA_ERRNOS = (errno.EDQUOT, errno.ENOSPC)
+
+
+def tmp_canary_write():
+    """Attempt open/write/unlink of TMP_CANARY_BYTES under /tmp, in-process. NO subprocess and NO
+    os.system anywhere in this function (provable by grep).
+
+    Returns (refused, errno_or_None):
+      refused=True   the write hit EDQUOT/ENOSPC — the quota signal itself.
+      refused=False  a clean write (cleanup best-effort; its own failure is not the signal).
+      refused=None   any OTHER OSError (permission denied, read-only fs, ...) — a different
+                     failure, reported by the caller, never mistaken for the quota edge.
+
+    THE CANARY MUST NOT BECOME THE SECOND CASUALTY (leader #4268) — a write failure IS the signal
+    this function exists to report, so it is caught here and returned, never raised. A detector
+    that dies exactly when its condition is true is indistinguishable from one that never fired.
+    """
+    probe = Path("/tmp") / f".tm-tmp-canary-{os.getpid()}.tmp"
+    refused, eno = False, None
+    try:
+        with open(probe, "wb") as f:
+            f.write(b"0" * TMP_CANARY_BYTES)
+    except OSError as e:
+        eno = e.errno
+        refused = True if e.errno in _TMP_QUOTA_ERRNOS else None
+    finally:
+        try:
+            probe.unlink()
+        except OSError:
+            pass
+    return refused, eno
+
+
+def tmp_quota_gauge():
+    """{"refused", "errno", "trend_mb"} — the canary verdict, with statvfs riding along LABELLED
+    as a trend and never as the flag key (trip 4 measured statvfs healthy during the exhaustion).
+    In-process only: no subprocess, no os.system, here or in `tmp_canary_write`."""
+    refused, eno = tmp_canary_write()
+    try:
+        st = os.statvfs("/tmp")
+        trend_mb = (st.f_bavail * st.f_frsize) // (1024 * 1024)
+    except (OSError, AttributeError):
+        trend_mb = None
+    return {"refused": refused, "errno": eno, "trend_mb": trend_mb}
+
+
+# ---- G-158: the source THIS PROCESS loaded (re-homed here by 7.35 from `watch.py:102-160`) ----
+#
+# WHY IT MOVED RATHER THAN DIED. `cmd_run` is a `while True:` single-process loop and python binds
+# module source at import: there is no reload path here. An edit to this file or to `coord.py`
+# NEVER reaches a running sensor, which keeps writing snapshots that are indistinguishable from a
+# correct run. Three long-lived processes ran stale code inside one hour on 2026-07-27 and every
+# one was caught by hand. `goal-watcher-job` is per-fire and re-imports, so it needs none of this;
+# this loop is now the ONLY long-lived process in the system, so the exposure moved here with it.
+#
+# NOT git metadata (a sha from `git log` describes the REPO; this process runs a FILE), and NOT
+# this file alone — the live code is the whole import surface, and on 2026-07-27 `coord.py` drifted
+# four commits under a loop whose own module was current. The set is DERIVED from `sys.modules`, so
+# a module added later to any of the custody directories below is covered without anyone
+# remembering to add it here.
+#
+# ONE DELIBERATE DIFFERENCE FROM `watch.py`'s: the fingerprint is taken at FIRST CAPTURE, not at
+# import. This module reaches `coord.py` and the sensor engine through LAZY by-path imports, so at
+# import time neither is in `sys.modules` and an import-time capture would fingerprint this file
+# alone — precisely the watch.py-only marker that read CURRENT throughout the drift it exists to
+# catch. Captured ONCE and memoized: recomputing it at stamp time hashes a file against itself and
+# can never disagree, which is the mutation `probe-g158-stale-code` scores as the defect.
+_CODE_DIRS = frozenset({
+    HERE,
+    SENSOR_PATH.parent,
+    (HERE.parent.parent.parent / "ignite" / "team-kit"),
+})
+_LOADED_CODE = None
+
+
+def loaded_code_fingerprint():
+    """sha256 per loaded source file under this sensor's custody directories. Captured once."""
+    global _LOADED_CODE
+    if _LOADED_CODE is not None:
+        return _LOADED_CODE
+    out = {}
+    for mod in list(sys.modules.values()):
+        path = getattr(mod, "__file__", None)
+        if not path:
+            continue
+        try:
+            resolved = Path(path).resolve()
+            if resolved.suffix != ".py" or resolved.parent not in _CODE_DIRS:
+                continue
+            out[str(resolved)] = hashlib.sha256(resolved.read_bytes()).hexdigest()
+        except OSError:
+            continue  # unreadable at capture: absent from the map, never a crash
+    _LOADED_CODE = out
+    return out
+
+
+def code_state():
+    """{"files", "known", "drifted"} — the loaded fingerprint against the SAME paths re-read NOW.
+
+    ABSENCE IS REPORTED AS UNKNOWN (`known: False`), NEVER AS OK. An empty map is
+    indistinguishable from a current one unless it is said out loud, which is the
+    absence-reads-as-health shape this whole class is made of."""
+    loaded = loaded_code_fingerprint()
+    if not loaded:
+        return {"files": {}, "known": False, "drifted": []}
+    drifted = []
+    for path, want in sorted(loaded.items()):
+        try:
+            now = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        except OSError:
+            drifted.append(Path(path).name + " (unreadable now)")
+            continue
+        if now != want:
+            drifted.append(Path(path).name)
+    return {"files": loaded, "known": True, "drifted": drifted}
+
+
 def box_facts():
     mi = meminfo()
     load = read_proc("/proc/loadavg").split()
@@ -149,6 +285,9 @@ def box_facts():
         "load15": float(load[2]) if len(load) > 2 else None,
         "cores": os.cpu_count(),
         "pressure_memory": pressure("memory"),
+        # The uid-quota canary. A BOX fact, so it rides in the box section — and a real write,
+        # because no free-space number can see this edge (see `tmp_canary_write`).
+        "tmp_quota": tmp_quota_gauge(),
     }
 
 
@@ -1162,6 +1301,8 @@ def capture(package, session=None, sensor_path=None, heart_db=None):
         "package": str(Path(package).resolve()),
         "sensor": str((Path(sensor_path) if sensor_path else SENSOR_PATH).resolve()),
         "box": box_facts(),
+        # G-158: what this long-lived process is actually RUNNING, and whether it has drifted.
+        "code": code_state(),
         "seats": seats,
         "roster_absent": absent_rows(rost, panes, seats, decls),
         "messages": messages_tail(package),
@@ -1350,6 +1491,36 @@ def escalate_relaunch_exhausted(package, room, seats):
               file=sys.stderr, flush=True)
 
 
+def escalate_unreadable(package, room, passes):
+    """The LOUD BUS half of the IGNORANCE escalation — the twin of `escalate_relaunch_exhausted`.
+
+    RESTORED, NOT INVENTED (task 7.35 Phase B, gap B22). `watch.py` carried this escalation as
+    `_escalate_unreadable`, the matched pair of the exhaustion one; task 7.664 removed watch.py's
+    ladder and brought across NEITHER, and Phase A restored only the exhaustion half. The
+    asymmetry left behind was an accident of that change, not a decision: an escalation that
+    reaches only the stderr of a DETACHED sensor is not an escalation, and this is the arm that
+    fires when the sensor has been blind for the whole window.
+
+    `coord()` IS THE LAZY BY-PATH IMPORT ALREADY IN THIS FILE, never a new import-level reach-out
+    into `ignite/` (`ignite/CLAUDE.md` rule 4) — same custody as every other borrowed symbol.
+
+    A delivery failure is REPORTED and never swallowed, and can never stop the loop.
+    """
+    try:
+        coord().append_message(
+            Path(package) / "coordination", "team-monitor", "leader", "ask",
+            f"{UNREADABLE_ESCALATION_LINE}\n\nroom: {room or 'UNKNOWN'}\nconsecutive unreadable "
+            f"passes: {passes}\n\nThis is a REPORT ABOUT THE METER, not a verdict about the goal: "
+            f"the sensor is still running, still watching, and has taken NO action on the unread "
+            f"state. What needs a human is the meter — the lease derives from `node` + the goal's "
+            f"tmux room, so check `node` is on PATH, the tmux server is reachable, and "
+            f"`ignite/server/lease/lease.js` is where the accessor expects it.")
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"team-monitor: the ignorance escalation could NOT be delivered to the bus "
+              f"({exc!r}) — the condition stands and is unreported to the leader",
+              file=sys.stderr, flush=True)
+
+
 def run_exit_never_alive(session, how):
     """The (message, exit-code) pair of a sensor aimed at a session that was NEVER alive.
 
@@ -1419,6 +1590,7 @@ def cmd_run(args):
                           f"node is on PATH, the tmux server is reachable, and "
                           f"`ignite/server/lease/lease.js` is where the accessor expects it.",
                           file=sys.stderr, flush=True)
+                    escalate_unreadable(args.package, session, unreadable_passes)
             elif alive and seats > 0:
                 unreadable_passes, unreadable_escalated = 0, False   # the meter reads again
                 relaunch_attempts, escalated = 0, False  # an OCCUPIED room is back: budget resets

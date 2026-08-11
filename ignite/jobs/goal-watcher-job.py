@@ -398,6 +398,18 @@ INLINE_FIX_TIMEOUT_S = 45
 # surface auditable and what enforces THE SHADOW BACKSTOP's act-identity claim, and both doors go
 # through the ONE gate `_inline_fix_program` with the ONE refusal (PRIN-11).
 REVIVAL_CLASS = "REVIVAL"
+# THE ATTEMPT LADDER (task 7.35 Phase B, ported from `watch.py:2436 revival_ladder`, which dies
+# with that file). The once-per-episode `armed` gate below suppresses REPEATS of a steady
+# condition; it does NOT bound an episode that keeps re-arming. A flag whose DELIVERY fails is
+# left UNARMED on purpose (see `DELIVER_RETRIES`), so one episode can legitimately reach this
+# fire more than once — and NOTHING capped it. Double-launch is covered three ways already
+# (`armed`, systemd's refusal of a second unit of the same name, coord's entry guard 3); RUNAWAY
+# was covered by nothing, and runaway is the storm case.
+#
+# Bounded BY CONSTRUCTION — the tuple's LENGTH is the cap, the `RELAUNCH_BACKOFF_S` idiom, so no
+# second constant can disagree with it and no configuration revives forever. Each element is what
+# that attempt is CALLED in the line a human reads, so the ladder's position is legible in the log.
+REVIVAL_ATTEMPTS = ("first", "second", "final")
 REVIVAL_UNIT_PREFIX = "rbtv-revival"
 
 
@@ -785,6 +797,33 @@ def save_state(path, state):
 
 # ---------------------------------------------------------------- decisions
 
+def revival_ladder(state, seat):
+    """SPEND one rung of the revival attempt ladder for `seat`. `(allowed, attempt, cap)`.
+
+    PURE over `state` (it mutates the dict it is handed and reads nothing else), so the bound is
+    measurable without firing anything — a probe that had to drive the real fire to score a
+    counter would start a real transient unit. `allowed` is False once the cap is reached, and the
+    counter is NOT advanced past it: an abandoned seat reports the same numbers every pass instead
+    of climbing forever.
+
+    The counter lives under a `_`-prefixed key, which is what survives the end-of-pass sweep."""
+    spent = dict(state.get("_revival_attempts") or {})
+    attempt = spent.get(seat, 0)
+    cap = len(REVIVAL_ATTEMPTS)
+    if attempt >= cap:
+        return False, attempt, cap
+    spent[seat] = attempt + 1
+    state["_revival_attempts"] = spent
+    return True, attempt, cap
+
+
+def prune_revival_attempts(state, subjects):
+    """Drop the spent attempts of every seat no longer asking to be revived — the ladder bounds
+    ONE episode, never the seat's whole life. Same pruning idiom as `_undelivered` below."""
+    state["_revival_attempts"] = {k: v for k, v in (state.get("_revival_attempts") or {}).items()
+                                  if k in subjects}
+
+
 def decision(cls, subject, action, detail, remedy="", nudge="leader", fix=None):
     """One element of the comparison object the shadow window scores (m2 shape §7.1).
 
@@ -1099,6 +1138,49 @@ def evaluate(snap, args, state, dispositions, now):
             "let finishing seats return their own RAM; the launch door refuses new ones "
             "below the run's declared floor",
             nudge="leader"))
+
+    # ---- ROW 8: DECLARED CAPACITY vs the LIVE CENSUS (gap B3, ported from
+    # `watch.py:1486 check_budget`, which dies with that file). Thresholding a declared cap
+    # against a census is exactly this file's half of R24, and the census input — `state.json`,
+    # already this pass's `snap` — is a sensor input it already holds, so NO new sensing arrives
+    # with it and the single-sensor invariant is untouched.
+    #
+    # THREE STATES, CARRIED VERBATIM, and collapsing the third into the first is the exact defect
+    # the LOUD branch exists to prevent:
+    #   SILENT           no budget.json here — the normal case for every other package;
+    #   current          declared and readable and within cap — no row, and the once-per-episode
+    #                    arm keeps a steady breach from repeating;
+    #   LOUD-unreadable  declared but UNREADABLE — the room has NO capacity signal at all, which
+    #                    is NOT the same fact as having declared none. A fail-soft that made a
+    #                    wrong path observationally identical to a run with no budget is what hid
+    #                    this defect for a whole run.
+    # A STALE snapshot never reaches here: ROW 5 returns first, so `census`'s own UNKNOWN-on-stale
+    # verdict can never be mistaken for a capacity claim.
+    bpath = Path(args.package) / "budget.json"
+    if bpath.exists():
+        _b, _err = budget_mod._load(str(bpath), "budget.json")
+        if _err:
+            decisions.append(decision(
+                "BUDGET", "room", "nudge leader: the capacity check is DOWN",
+                f"a budget.json IS declared at {bpath} but the capacity check cannot run: "
+                f"{_err}. THE ROOM HAS NO CAPACITY SIGNAL UNTIL THIS IS FIXED — treat it as the "
+                f"check being down, never as the room being within budget. Silence from this "
+                f"check is not a green.",
+                f"repair or remove {bpath}", nudge="leader"))
+        else:
+            _c = budget_mod.census(_b, snap, now)
+            if _c["verdict"] == "BREACH":
+                decisions.append(decision(
+                    "BUDGET", "room", "nudge leader: ROOM OVER CAPACITY",
+                    f"{_c['in_use']} agent panes live against a declared cap of {_c['cap']} "
+                    f"({-_c['headroom']} over)"
+                    + ("" if _c["complete"] else "; INCOMPLETE — unclassified seats") +
+                    ". The cap is in budget.json with its ruling; if the cap is what is wrong, "
+                    "change it THERE rather than working around it, or the number goes back to "
+                    "being folklore. NO SEAT IS CLOSED FOR THIS: report and judge "
+                    "(`p-no-seat-closed-for-memory`, CMP-21 invariant 6).",
+                    "raise the cap in budget.json with its reason, or let finishing seats leave",
+                    nudge="leader"))
 
     # ---- ROW 6: GHOSTROW / COMPLETED / DEAD, driven from `roster_absent` — team-monitor's
     # own designated GHOSTROW input, which already separates the two failures that look alike
@@ -1436,8 +1518,33 @@ def resolve_recipient(room_snap, args, d=None):
         fell = f"seat '{subject}' is NOT live — this seat nudge falls through to the leader; "
     else:
         fell = ""
+    # A FLAG ABOUT A SEAT IS NEVER SENT TO THAT SEAT FOR JUDGMENT (gap B17, ported from
+    # `watch.py:flag_recipient`). The rule is GENERAL rather than a special case for one role: it
+    # was FOUND as one — a context warning about the LEADER was delivered to the leader, which
+    # holds its own close/renew/approve with no seat above it and an AFK owner — and pointing the
+    # flags at any single named seat just moves the hole to that seat. So a judgment row whose
+    # SUBJECT is the primary recipient is diverted to the fallback, whichever seat it is about.
+    #
+    # THE ONE CARVE-OUT, and it is not an exception to the rule: a `nudge == "seat"` row above is
+    # an INSTRUCTION TO the seat (invariant 3's renewal is the seat's own act), not a warning ABOUT
+    # it handed over for adjudication. It already returned. Everything reaching here is addressed
+    # to the leader, which is exactly where the rule bites.
+    subject = (d or {}).get("subject") or ""
+    divert = bool(subject) and subject == args.to
+    if divert and args.fallback_to and args.fallback_to != subject \
+            and recipient_live(room_snap, args.fallback_to):
+        return args.fallback_to, (f"{fell}this flag is ABOUT '{subject}', which IS the primary "
+                                  f"recipient — diverted to '{args.fallback_to}': no seat "
+                                  f"adjudicates a warning about itself")
     if recipient_live(room_snap, args.to):
-        return args.to, f"{fell}leader seat '{args.to}' is live in the room's snapshot"
+        # ORPHANED is the honest third state: subject, primary and fallback are the same seat, so
+        # there is no independent recipient at all. The flag is delivered anyway AND says so — a
+        # monitor with nowhere impartial to report must say that, not quietly report to the
+        # subject.
+        orphan = (" ORPHANED: this flag is ABOUT that seat and no independent recipient exists "
+                  "(the fallback is the same seat, or is not live), so it is delivered to its own "
+                  "subject and this line is the record of that") if divert else ""
+        return args.to, f"{fell}leader seat '{args.to}' is live in the room's snapshot{orphan}"
     if args.fallback_to and recipient_live(room_snap, args.fallback_to):
         return args.fallback_to, (f"{fell}leader seat '{args.to}' is NOT live — escalated to "
                                   f"'{args.fallback_to}'")
@@ -2263,12 +2370,28 @@ def main():
             if d["class"] == REVIVAL_CLASS:
                 if f"{d['class']}:{d['subject']}" not in fresh_keys:
                     continue
+                # THE ATTEMPT LADDER (see REVIVAL_ATTEMPTS). Spent BEFORE the fire, and ABANDONED
+                # at the cap: the hole is then reported on every pass rather than going quiet,
+                # because a bound that silently stops trying cannot be told from a seat that
+                # recovered.
+                allowed, attempt, cap = revival_ladder(state, d["subject"])
+                if not allowed:
+                    print(f"  revival [{d['subject']}]: ABANDONED — {attempt}/{cap} "
+                          f"attempts spent")
+                    d["detail"] += (
+                        f" REVIVAL ABANDONED: the attempt ladder is EXHAUSTED ({attempt}/{cap} "
+                        f"attempts). NOTHING further will be launched for this seat "
+                        f"automatically — the bound exists so a seat that cannot be revived does "
+                        f"not re-launch forever. This row keeps reporting on every pass; it is "
+                        f"the leader's now.")
+                    continue
                 # The unit name is STABLE per (package, seat): systemd refuses a second unit of
                 # that name while the first is active, which is the double-fire guard under this
                 # file's own — see WHAT DID NOT MOVE in the module docstring.
                 outcome, why = run_revival(script, tail, jobcontain.unit_name(
                     REVIVAL_UNIT_PREFIX, f"{args.package}\t{d['subject']}"))
-                print(f"  revival [{d['subject']}]: {outcome}; {why}")
+                print(f"  revival [{d['subject']}]: {outcome} "
+                      f"({REVIVAL_ATTEMPTS[attempt]} of {cap} attempts); {why}")
                 d["detail"] += (f" REVIVAL {outcome}: {why}."
                                 + ("" if outcome == "FIRED" else
                                    " NOTHING IS RUNNING for this seat — which is exactly the "
@@ -2346,6 +2469,10 @@ def main():
             print(f"  UNDELIVERED {key} — left RETRYABLE for the next pass "
                   f"(attempt {attempt}/{DELIVER_RETRIES})")
     state["_undelivered"] = tries
+    # The ladder RE-ARMS when the condition clears: a seat with no revival row this pass has its
+    # spent attempts dropped, so the cap bounds ONE episode and never the seat's whole life.
+    prune_revival_attempts(state, {d["subject"] for d in decisions
+                                   if d["class"] == REVIVAL_CLASS})
     save_state(state_path, state)
     trailed = append_trail(trail_path, trail)
     if trailed:
