@@ -564,6 +564,26 @@ the wave structure**. Seats with no `after` are wave 1 and are enqueued together
 run at once is the ticker's `max_live_agent_sessions`, not this capability's: the wave decides
 ELIGIBILITY, the ticker decides DISPATCH.
 
+**The `after` cell's grammar, and the subset the engine evaluates.** The cell is
+**comma-separated** and every member is a term: a seat is released only when **all** of them are
+done. `taskforce.csv` is written by `team-kit/materialize-seats.py` through `csv.writer`, so a
+multi-predecessor cell arrives **quoted** — it is read with the quote-aware splitter, never a bare
+`split(',')`, or every column to its right shifts. Each member is then read by the mirror of
+`team-kit/coord.py#parse_after_member` in `engine/seeding.js`, which is the grammar's **one
+authority**: a bare name, a guard `ref[key=value]` (bracketed content neutralised *before* the
+alternate test, so a `|` inside a guard value is not an alternate), or an alternate `a|b`.
+
+⚠ **The engine evaluates BARE members only, and says so out loud.** A guard is discharged against a
+leader's ruling in `coordination/guard-values.csv` (`coord.py`) or against the predecessor's
+validated output (`jobs/edge-runner-job.py`) — **two surfaces that disagree on an unruled but
+field-satisfied guard**, open to the leader as `p-edge-runner-strictness-is-ONE-DIRECTIONAL`, and
+neither of them exists on this lane. An alternate is `<unsupported-alternate>` in `coord.py` too. So
+a guarded or alternate member leaves the seat **waiting** — the same direction both existing
+evaluators fail in — and the engine **logs the member that is holding it** rather than parking it
+silently. A third evaluator here would pick a side of an unsettled ruling from the lane with the
+least state to pick it from. Measured: `probes/probe-daemon-lane-watch.js` § L0, which pins the JS
+reading term-by-term against `coord.py`'s own.
+
 **The profile is passed by NAME and never derived HERE.** Mapping an elected (harness, model) onto
 one profile name is core-build task **7.54**'s catalog — built at `launch-profiles/catalog.js` and
 applied at the one shared launch point (`server/spawn/spawn.js#profileForSeatCast`, ruling D19), so

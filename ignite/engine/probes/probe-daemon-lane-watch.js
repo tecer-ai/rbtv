@@ -145,6 +145,10 @@ fs.writeFileSync(path.join(hiGoal, 'seats', 'alpha', 'seat.md'),
 // interactive-fallback` violation that reached dispatch. It is the ONE case the pass must still
 // be loud about, and it needs its own goal because the arm-declared case must stay quiet in the
 // same run for the pair to discriminate.
+// The PAUSE fixture: assigned to the daemon and then PAUSED by prefixing the marker. Its own goal
+// because the pause must be measured while other goals ARE being adopted in the same pass — a
+// "not adopted" that holds when nothing is adopted measures nothing.
+const pausedGoal = makeGoal('paused-goal');
 const armlessGoal = makeGoal('armless-goal');
 fs.writeFileSync(path.join(armlessGoal, 'execution-mode'), 'interactive\n');
 fs.writeFileSync(path.join(armlessGoal, 'seats', 'alpha', 'seat.md'),
@@ -166,6 +170,12 @@ function laneCli(args, { expectRefusal = false } = {}) {
     return { ok: false, out: String(err.stdout || '') + String(err.stderr || '') };
   }
 }
+// The lane verb's SIBLINGS (`pause` / `resume`) — same CLI, not under `lane`. Separate helper
+// rather than a parameter on the one above, because that one's whole shape is "the lane verb".
+function goalCli(verb, args) {
+  return execFileSync(requirePythonCmd(), [GOAL_CLI, '--root', goalsRoot, verb, ...args],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, RBTV_IGNITE_CONFIG_PATH: configPath } });
+}
 
 // A logger that keeps every line, so an arm can assert what the daemon would have REPORTED and not
 // only what it did — `heldByOtherLane` is a fact an operator reads, so it is measured where they
@@ -177,6 +187,132 @@ function collectingLogger(sink) {
 async function main() {
   say('probe-daemon-lane-watch — the daemon lane\'s goal-pickup trigger (d-daemon-lane-button)');
   say(`fixture: ${tmp}`);
+  say('');
+
+  // ── L0 · THE `taskforce.csv` READER AND THE `after` CELL GRAMMAR ────────────────────────────
+  //
+  // THE DEFECT: `seeding.js#readCsv` split every line on a bare comma, and `seatState` read the
+  // WHOLE `after` cell as ONE seat name. Both halves are measured here, against the REAL Python
+  // writer and the REAL Python grammar — no hand-written fixture line, no re-stated regex.
+  //
+  //   the writer   `team-kit/materialize-seats.py#_render_csv_line` (`csv.writer`, QUOTE_MINIMAL)
+  //   the grammar  `team-kit/coord.py#parse_after_member` — THE authority, of which the JS side is
+  //                a mirror. Both are loaded by path in a subprocess, exactly as
+  //                `goal_cli.py#after_member_grammar` reaches the grammar: imported, never copied.
+  say('L0 — the taskforce reader and the `after` cell grammar, pinned to their Python originals');
+  const seeding = require('../seeding');
+  const TEAM_KIT = path.join(IGNITE_SRC, 'team-kit');
+  function pythonJson(body) {
+    const script = path.join(tmp, `l0-${Math.random().toString(36).slice(2)}.py`);
+    fs.writeFileSync(script, body);
+    return JSON.parse(execFileSync(requirePythonCmd(), [script], { encoding: 'utf8', cwd: TEAM_KIT }));
+  }
+  const LOADER = 'import importlib.util,sys,json\n'
+    + 'sys.dont_write_bytecode=True\n'
+    + 'sys.path.insert(0, ".")\n'
+    + 'def load(name, fname):\n'
+    + '    spec = importlib.util.spec_from_file_location(name, fname)\n'
+    + '    mod = importlib.util.module_from_spec(spec)\n'
+    + '    spec.loader.exec_module(mod)\n'
+    + '    return mod\n';
+
+  // L0a — THE QUOTED MULTI-PREDECESSOR CELL. The row is rendered by the writer itself, so the
+  // quoting under test is the quoting production emits and not this probe's idea of it.
+  const SIX = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
+  const rendered = pythonJson(LOADER
+    + 'ms = load("ms", "materialize-seats.py")\n'
+    + `print(json.dumps(ms._render_csv_line(["tf-l0", "check-assembler", "${SIX.join(',')}", `
+    + '"claude", "opus", "high", "", "m-1"])))\n');
+  check('L0a the REAL writer QUOTES a multi-predecessor `after` cell — the shape the reader must survive',
+    rendered.includes(`"${SIX.join(',')}"`), rendered);
+  const l0Dir = path.join(tmp, 'l0');
+  fs.mkdirSync(l0Dir, { recursive: true });
+  const l0Csv = path.join(l0Dir, 'taskforce.csv');
+  fs.writeFileSync(l0Csv,
+    'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n'
+    + `${rendered}\n`
+    + 'tf-l0,solo,p1,claude,opus,high,,m-1\n');
+  const l0Rows = seeding.readCsv(l0Csv);
+  const assembler = l0Rows.find((r) => r.seat === 'check-assembler');
+  check('L0a the reader parses that row WITHOUT SHIFTING: the quoted cell is ONE field and every '
+    + 'column to its right keeps its own value (before the fix, `harness` read `p2`)',
+    Boolean(assembler) && assembler.after === SIX.join(',') && assembler.harness === 'claude'
+      && assembler.model === 'opus' && assembler.effort === 'high'
+      && assembler['milestone-id'] === 'm-1',
+    JSON.stringify(assembler));
+  check('L0a …and the cell grammar reads SIX predecessors from it, not one seat named "p1,p2,…"',
+    seeding.afterMembers(assembler.after).map((m) => m.name).join('|') === SIX.join('|'),
+    JSON.stringify(seeding.afterMembers(assembler.after).map((m) => m.name)));
+
+  // L0b — THE CROSS-LANGUAGE PIN. Two languages, ONE grammar, compared term by term over the whole
+  // token table — guards, an alternate, a guard value CARRYING a `|` (the ordering property), a
+  // malformed guard, a double bracket group. A divergence on ANY of them is red: the JS side is a
+  // mirror, and a mirror that drifts is the two-readings defect 7.424 closed inside Python.
+  const TOKENS = ['a', ' a ', 'a[k=v]', 'a[k=x|y]', 'a|b', 'a[g=y]|b', 'a[nokey]', 'a[k=]',
+    'a[k=v][j=w]', 'a[=v]', '', 'plan-dag-structurer[planning-mode=full]'];
+  const theirs = pythonJson(LOADER
+    + 'c = load("_c", "coord.py")\n'
+    + `print(json.dumps([list(c.parse_after_member(t)) for t in ${JSON.stringify(TOKENS)}]))\n`);
+  const mine = TOKENS.map((t) => {
+    const m = seeding.parseAfterMember(t);
+    return [m.name, m.key, m.value, m.unsupported];
+  });
+  check('L0b the JS member grammar answers EXACTLY what `coord.py#parse_after_member` answers, on '
+    + 'every token — including `a[k=x|y]`, whose `|` is inside a guard and is NOT an alternate '
+    + '(brackets neutralised BEFORE the alternate test, coord\'s own load-bearing order)',
+    JSON.stringify(mine) === JSON.stringify(theirs),
+    `js=${JSON.stringify(mine)} py=${JSON.stringify(theirs)}`);
+
+  // L0c — NOTHING CHANGES FOR A SINGLE BARE MEMBER. The oracle is the PRE-FIX line itself,
+  // `after && !isDone(after)`, run over the same inputs: the fix is allowed to release seats that
+  // were wrongly parked, and is NOT allowed to answer differently on the cells that already worked.
+  {
+    // The list carries a GUARDED and an ALTERNATE single-member cell on purpose: both are
+    // `waiting` under the old predicate (neither string is in `done`) and must stay `waiting`
+    // under the new one. Without them the oracle only ever saw cells the fix could not change,
+    // so it could not discriminate a fix that wrongly RELEASED a guard from one that did not.
+    const bare = ['', 'alpha', 'bravo', 'never-finished',
+      'alpha[planning-mode=full]', 'alpha|bravo'];
+    const doneSet = new Set(['alpha']);
+    const oldState = (afterCell) => {
+      const after = (afterCell || '').trim();
+      if (after && !doneSet.has(after)) return 'waiting';
+      return 'ready';
+    };
+    const diverged = bare.filter((cell) => seeding.seatState(
+      { seat: 'x', after: cell }, new Map(), new Set(), { done: doneSet }) !== oldState(cell));
+    check('L0c a SINGLE-member (or empty) `after` cell answers byte-identically to the pre-fix '
+      + 'predicate — including a guarded and an alternate cell, which stay `waiting` under both',
+      diverged.length === 0, `diverged on: ${JSON.stringify(diverged)}`);
+
+    // THE SHORT-CIRCUIT ABOVE THE `after` READ. A queued seat answers `queued` without the cell
+    // ever being consulted — so the cell here is one the after-walk would park on, and a
+    // `queued` answer is only reachable through the early return.
+    check('L0c a QUEUED seat answers `queued` from the job id alone — the `after` cell (an '
+      + 'unevaluable guard here) is never reached',
+      seeding.seatState({ seat: 'q', after: 'never-finished[g=v]' }, new Map(),
+        new Set([seeding.jobIdFor('q')]), { done: doneSet }) === 'queued');
+
+    // L0d — THE LOUD SKIP. A guard and an alternate are members this lane has no evaluator for
+    // (coord discharges a guard against `coordination/guard-values.csv`; `edge-runner-job.py`
+    // against the predecessor's validated output — neither surface is on the daemon lane). They
+    // hold the seat, and — the part that is NEW — they SAY SO.
+    const guarded = { seat: 'g', after: 'alpha[planning-mode=full]' };
+    const alternate = { seat: 'o', after: 'alpha|bravo' };
+    check('L0d a GUARDED member leaves the seat `waiting` even though its predecessor IS done — a '
+      + 'guard never auto-satisfies, which is coord\'s own fail-safe direction',
+      seeding.seatState(guarded, new Map(), new Set(), { done: doneSet }) === 'waiting');
+    check('L0d an ALTERNATE does the same — `coord.py` calls it `<unsupported-alternate>` and blocks',
+      seeding.seatState(alternate, new Map(), new Set(), { done: doneSet }) === 'waiting');
+    check('L0d …and BOTH are NAMED, never silently parked: `unevaluableAfter` hands the operator '
+      + 'the exact member that is holding the seat',
+      seeding.unevaluableAfter(guarded).join() === 'alpha[planning-mode=full]'
+        && seeding.unevaluableAfter(alternate).join() === 'alpha|bravo',
+      JSON.stringify([seeding.unevaluableAfter(guarded), seeding.unevaluableAfter(alternate)]));
+    check('L0d a MULTI-member bare cell is AND-joined — every predecessor, not the first',
+      seeding.seatState({ seat: 'm', after: 'alpha,bravo' }, new Map(), new Set(), { done: doneSet }) === 'waiting'
+        && seeding.seatState({ seat: 'm', after: 'alpha,alpha' }, new Map(), new Set(), { done: doneSet }) === 'ready');
+  }
   say('');
 
   // ── L1 · THE READER'S GRAMMAR ───────────────────────────────────────────────────────────────
@@ -197,6 +333,18 @@ async function main() {
     tolerant.lane === 'daemon' && tolerant.profile === 'probe-lane', JSON.stringify(tolerant));
   check('L1 a `daemon` marker with NO profile parses, and carries none — the pass warns rather than guessing',
     readsAs('daemon\n').lane === 'daemon' && readsAs('daemon\n').profile === null);
+  // ⚑ THE PAUSE MARKER, and it needs NO reader change — which is the arm. A pause is written by
+  // PREFIXING the assignment (`paused daemon <profile>`), so the FIRST token stops being `daemon`
+  // and the fail-closed default catches it: the goal reads `console`, the daemon does not adopt
+  // it, and the profile it will return to is preserved verbatim in the marker for the resume to
+  // put back. Pinned here because the pause verb DEPENDS on this reader behaviour — a reader that
+  // grew tolerant of a leading word would silently un-pause every paused goal on the tree.
+  const paused = readsAs('paused daemon probe-lane\n');
+  check('L1 a PAUSED marker (`paused daemon <profile>`) reads as the CONSOLE lane — the pause verb '
+    + 'rides the fail-closed default rather than a new word in this reader',
+    paused.lane === 'console' && paused.profile === null && paused.present === true
+      && paused.raw === 'paused daemon probe-lane',
+    JSON.stringify(paused));
   fs.unlinkSync(lanePath(grammar));
 
   // ── L2 · THE CLI IS THE WRITER, AND IT WORKS DAEMON-DOWN ────────────────────────────────────
@@ -223,6 +371,16 @@ async function main() {
   laneCli(['human-interactive-goal', '--set', 'daemon', '--profile', 'probe-lane']);
   laneCli(['armless-goal', '--set', 'daemon', '--profile', 'probe-lane']);
   laneCli(['console-goal', '--set', 'console']);
+  // Assigned to the daemon by the CLI, then PAUSED by prefixing its marker — the pause is a
+  // prefix, so the assignment (and the profile) survives it verbatim.
+  laneCli(['paused-goal', '--set', 'daemon', '--profile', 'probe-lane']);
+  goalCli('pause', ['paused-goal']);
+  check('L2 `rbtv-goal pause` stashes the assignment behind a `paused ` PREFIX — the profile it '
+    + 'returns to is kept verbatim, and the DAEMON\'s reader resolves the result to `console` '
+    + 'with no word of its own (two languages, one grammar, cross-checked)',
+    fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon probe-lane'
+      && laneWatch.readLane(pausedGoal).lane === 'console',
+    JSON.stringify(laneWatch.readLane(pausedGoal)));
   // The two BROKEN markers only reachable by hand, since the door refuses both spellings.
   fs.writeFileSync(lanePath(badGoal), 'daemon probe-laneX\n');
   fs.writeFileSync(lanePath(noProfGoal), 'daemon\n');
@@ -317,6 +475,22 @@ async function main() {
       const d = s.dump();
       s.close();
       return !JSON.stringify([d.jobs, d.queue, d.jobs_log]).includes('console-goal');
+    })());
+  // ⚑ THE PAUSED GOAL — the same two facts as the console control, for a goal that IS assigned to
+  // the daemon and is merely held. It must be skipped for the ordinary not-assigned reason and
+  // leave no trace in the store, or a pause would be a pause in name only.
+  check('L5 a PAUSED goal (`paused daemon <profile>`) is NOT adopted — skipped for the ordinary '
+    + 'not-assigned reason, with the profile it returns to still written in its marker',
+    !adoptedNames.includes('paused-goal')
+      && pass1.skipped.some((s) => s.goal === 'paused-goal' && s.reason === 'not-assigned-to-the-daemon')
+      && fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon probe-lane',
+    JSON.stringify(pass1.skipped.filter((s) => s.goal === 'paused-goal')));
+  check('L5 …and NOTHING of the paused goal reached the daemon\'s store either',
+    (() => {
+      const s = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+      const d = s.dump();
+      s.close();
+      return !JSON.stringify([d.jobs, d.queue, d.jobs_log]).includes('paused-goal');
     })());
   check('L5 a goal a CONSOLE RUNNER IS ATTACHED TO is not seeded against — the lock is read, never taken',
     !adoptedNames.includes('locked-goal')

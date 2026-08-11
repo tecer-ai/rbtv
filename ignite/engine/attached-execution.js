@@ -40,7 +40,7 @@ const { loadConfig } = require('../server/spawn/config');
 // none of it was ever a property of the terminal a run is attached to (see seeding.js's header).
 const {
   readCsv, jobIdFor, seedTaskforce, executionsByJob, seatIsFinished, seatHasRun,
-  seatState, SEAT_STATES, enqueueEligible, recordView,
+  seatState, SEAT_STATES, enqueueEligible, recordView, afterMembers,
 } = require('./seeding');
 // THE GOAL'S EXECUTION RECORD — the one place any lane's reader asks "did this seat finish"
 // (owner ruling decisions.md#d-s23-single-execution-record-now).
@@ -656,8 +656,14 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null) {
     // stuck ones rather than falling through to the `seat-failed` arm below — it did not fail, it
     // is waiting, and `blocked` is the reason word this function already has for exactly that.
     if (view && view.blocked && view.blocked.has(r.seat)) return true;
-    const after = (r.after || '').trim();
-    return after && !isFinished(after);
+    // The SAME cell grammar the eligibility predicate reads (`seeding.js` § THE `after` CELL
+    // GRAMMAR), and for the same reason: the whole cell read as ONE seat name called a
+    // multi-predecessor row stuck the moment it had more than one parent, so this loop returned
+    // `blocked` on a run that was advancing normally. A member this lane cannot evaluate IS stuck
+    // here — nothing a further tick does can release it.
+    const members = afterMembers(r.after);
+    return members.length > 0
+      && members.some((m) => m.unsupported || m.key !== null || !isFinished(m.name));
   });
   if (stuck.length === unfinished.length) {
     return { done: true, reason: 'blocked', unfinished: unfinished.map((r) => r.seat) };

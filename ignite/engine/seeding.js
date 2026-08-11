@@ -29,6 +29,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { readExecutionRecord, finishedSeats, DONE, BLOCKED } = require('./execution-record');
+// The ONE quote-aware row splitter this module already has (`execution-record.js` reads the goal's
+// record with it). Reusing it is the whole CSV fix — see below.
+const { splitRow } = require('../server/seat-identity/csv');
 
 const TASKFORCE = 'taskforce.csv';
 
@@ -36,20 +39,99 @@ function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-// Minimal CSV read — the taskforce file is written by `rbtv goal` with plain comma-joined fields
-// and no embedded commas or quotes. Reading it with a general CSV parser would be a dependency
-// bought for a shape this repo already writes by hand (goal_cli.py write_csv).
+// Header-driven CSV read. The cell split is `splitRow` — RFC-4180 quoting (a double-quoted field
+// with embedded commas, `""` for a literal quote) — and NOT the plain `line.split(',')` this
+// replaces.
+//
+// ⚠ THE DEFECT THE PLAIN SPLIT WAS. `taskforce.csv` is NOT written by hand: the writer is
+// `team-kit/materialize-seats.py#_render_csv_line`, which is `csv.writer` (QUOTE_MINIMAL) — so a
+// MULTI-PREDECESSOR `after` cell is written QUOTED, because it carries commas. Split naively, that
+// one cell became several and EVERY COLUMN TO ITS RIGHT SHIFTED: `harness`, `model`, `effort` and
+// `milestone-id` were read off the wrong fields, and the `after` the wave math saw was the first
+// predecessor only. A six-predecessor row (the planning workflow's check-assembler) shifted five
+// columns. No dependency is bought for this: the splitter already existed one folder over.
+//
+// ponytail: line-oriented, so a field containing an EMBEDDED NEWLINE would still break. The writer
+// cannot produce one (a seat name, a guard and a milestone id have no newlines) and the previous
+// reader had the same ceiling; upgrade to a full streaming parse the day a cell can carry one.
 function readCsv(file) {
   const text = fs.readFileSync(file, 'utf8');
   const lines = text.split('\n').filter((l) => l.trim().length);
   if (!lines.length) return [];
-  const cols = lines[0].split(',').map((c) => c.trim());
+  const cols = splitRow(lines[0]).map((c) => c.trim());
   return lines.slice(1).map((line) => {
-    const cells = line.split(',');
+    const cells = splitRow(line);
     const row = {};
     cols.forEach((c, i) => { row[c] = (cells[i] === undefined ? '' : cells[i]).trim(); });
     return row;
   });
+}
+
+// ── THE `after` CELL GRAMMAR, PORTED — one grammar, two languages ─────────────────────────────
+//
+// THE AUTHORITY IS PYTHON AND STAYS PYTHON: `team-kit/coord.py#parse_after_member` (the member
+// grammar; `goal_cli.py#after_member_grammar` IMPORTS it rather than copying it) and
+// `coord.py#taskforce_after` (the CELL grammar: comma-separated members). This is the third
+// reading of that grammar and the FIRST one outside Python, so it is a MIRROR and is pinned by a
+// cross-language probe arm rather than by good intentions
+// (`probes/probe-daemon-lane-watch.js` § L0).
+//
+// ⚠ THE ORDER IS LOAD-BEARING, and it is reproduced deliberately: bracketed content is neutralised
+// BEFORE the alternate test, so a `|` INSIDE a guard value never reads as an alternate. Ordered the
+// other way, `a[k=x|y]` silently becomes two alternates — the `check_acyclic` #3386 defect coord's
+// own comment names.
+//
+// THE DEFECT THIS CLOSES ON THE JS SIDE: the whole cell was treated as ONE seat name. `a,b` was a
+// seat literally named "a,b", `p[k=v]` a seat named "p[k=v]" — no row can carry either name, so
+// `isDone` was permanently false and the seat sat `waiting` forever on the daemon lane with nothing
+// saying why.
+const GUARDED_MEMBER_RE = /^([^[\]]+)\[([^[\]=]+)=([^[\]]*)\]$/;
+
+// `(name, key, value, unsupported)` for ONE member — `parse_after_member`'s four, as an object.
+// A bracketed token that does NOT match the grammar (`a[nokey]`, two groups) is NOT a guarded
+// member and falls to the bare path, where it reads as a predecessor no row can be: coord's own
+// fail-safe direction, kept, because an unparseable guard must never become a satisfied one.
+function parseAfterMember(token) {
+  const raw = String(token === undefined || token === null ? '' : token).trim();
+  if (raw.replace(/\[[^\]]*\]/g, '').includes('|')) {
+    return { raw, name: null, key: null, value: null, unsupported: true };
+  }
+  const m = GUARDED_MEMBER_RE.exec(raw);
+  if (m) return { raw, name: m[1].trim(), key: m[2].trim(), value: m[3].trim(), unsupported: false };
+  return { raw, name: raw, key: null, value: null, unsupported: false };
+}
+
+// The CELL grammar: comma-separated members, each through the one member reading.
+function afterMembers(cell) {
+  return String(cell === undefined || cell === null ? '' : cell)
+    .split(',').map((p) => p.trim()).filter((p) => p.length)
+    .map(parseAfterMember);
+}
+
+// ── AND THE SUBSET THIS LANE STOPS AT, STATED WHERE IT IS IMPLEMENTED ─────────────────────────
+//
+// A member is EVALUABLE here when it is a bare seat name. Two shapes are not, and both are SKIPPED
+// LOUDLY (`enqueueEligible` logs them) and leave the seat `waiting`:
+//
+//   an ALTERNATE (`a|b`)      coord refuses it too — `<unsupported-alternate>`, blocks. Same answer.
+//   a GUARD (`a[k=v]`)        THE STATE IS NOT ON THIS LANE. coord discharges a guard against a
+//                             LEADER'S RULING in `coordination/guard-values.csv`, written by the
+//                             team-kit coordinator; the daemon lane runs no coordinator and no
+//                             goal folder it seeds carries that file. `jobs/edge-runner-job.py`
+//                             discharges the SAME syntax against the predecessor's VALIDATED
+//                             OUTPUT FIELD — a SECOND surface, and the two DISAGREE on an unruled
+//                             but field-satisfied guard, which is open to the leader as
+//                             `p-edge-runner-strictness-is-ONE-DIRECTIONAL`. A third evaluator
+//                             here would pick a side of an unsettled ruling, in the lane with the
+//                             least state to pick it from.
+//
+// The skip is the SAME direction both existing evaluators fail in (an unruled guard is unmet), and
+// it is the direction that cannot dispatch work nobody admitted. What changes is that it is now
+// SAID: a loudly-skipped cell beats a wrongly-dispatched seat, and beats today's silent forever-wait.
+function unevaluableAfter(row) {
+  return afterMembers(row && row.after)
+    .filter((m) => m.unsupported || m.key !== null)
+    .map((m) => m.raw);
 }
 
 function taskforcePath(goalFolder) {
@@ -326,8 +408,13 @@ function seatState(row, byJob, queued, { done = null, goal = null, foreign = nul
   if (foreign && foreign.has(row.seat)) return 'live';
   if (seatHasRun(byJob.get(jobId))) return 'live';
   if (queued.has(jobId)) return 'queued';
-  const after = (row.after || '').trim();
-  if (after && !isDone(after)) return 'waiting';
+  // EVERY member of the cell, AND-joined — an `after` cell names ALL the predecessors a seat
+  // follows, not one. An unevaluable member (§ THE `after` CELL GRAMMAR) holds the seat exactly as
+  // an unfinished predecessor does; `unevaluableAfter` is what says so out loud.
+  for (const m of afterMembers(row.after)) {
+    if (m.unsupported || m.key !== null) return 'waiting';
+    if (!isDone(m.name)) return 'waiting';
+  }
   return 'ready';
 }
 
@@ -353,6 +440,21 @@ function enqueueEligible(heartStore, rows, {
     }
     if (blocked && blocked.has(row.seat) && logger) {
       logger({ level: 'info', message: 'seat held — it is BLOCKED on the owner and its dependents wait with it', seat: row.seat, evidence: blocked.get(row.seat) });
+    }
+    // THE LOUD SKIP. Never silent: a member this lane cannot evaluate holds the seat forever, and
+    // before this line nothing anywhere said which member or why — the seat simply never moved.
+    const unevaluable = unevaluableAfter(row);
+    if (unevaluable.length && logger) {
+      logger({
+        level: 'warn',
+        message: 'seat held — its `after` carries member(s) THIS LANE CANNOT EVALUATE; it is left waiting rather than dispatched',
+        seat: row.seat,
+        members: unevaluable,
+        evidence: 'a guard `ref[key=value]` is discharged against a leader\'s ruling in '
+          + '`coordination/guard-values.csv` (coord.py) or a predecessor\'s validated output '
+          + '(edge-runner-job.py) — neither surface exists on this lane; an alternate `a|b` is '
+          + 'unsupported in coord.py too. Advance this seat from the lane that owns the evaluator.',
+      });
     }
     if (seatState(row, byJob, queued, { done: finished, goal, foreign, notFinished }) !== 'ready') continue;
     if (isHeld && isHeld(row.seat)) continue;
@@ -425,6 +527,9 @@ module.exports = {
   ALL_TURN_STATUSES,
   SEAT_STATES,
   readCsv,
+  parseAfterMember,
+  afterMembers,
+  unevaluableAfter,
   taskforcePath,
   readTaskforce,
   jobIdFor,
