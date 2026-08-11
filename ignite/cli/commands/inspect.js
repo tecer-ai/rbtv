@@ -24,19 +24,22 @@ ignite inspect daemon
 ignite inspect ticker
 ignite inspect messages <exec-id>
 ignite inspect executions --status <status> [--offset <n>] [--limit <n>]
+ignite inspect executions --status <status> --tail <n>
 
   Read-only. Renders server state (or the full envelope with --json).
   messages:   the message rows of the execution's chain-stable thread.
-  executions: every execution in one status, paged —
-              launching|running|done|blocked|failed|stalled|killed.`;
+  executions: every execution in one status, paged OLDEST-FIRST —
+              launching|running|done|blocked|failed|stalled|killed.
+              --tail <n>: the NEWEST n, plus the total, in one command.`;
 
 const TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions']);
 
-// A single page's line count for the (offset, limit) walk logs paging does.
-// Generous but arbitrary — the server-side page bound (internal-api-contract-
-// spec.md §1 inspect) governs the real ceiling; this just keeps the walk to a
-// handful of round trips for an ordinary log.
-const LOG_PAGE_LIMIT = 500;
+// A single page's size for the (offset, limit) walk that `--tail` does — for
+// logs, and since the executions tail, for executions too. Generous but
+// arbitrary — the server-side page bound (internal-api-contract-spec.md §1
+// inspect) governs the real ceiling; this just keeps the walk to a handful of
+// round trips.
+const PAGE_LIMIT = 500;
 
 function renderRows(label, rows) {
   console.log(`${label}: ${rows.length} row(s)`);
@@ -100,7 +103,7 @@ async function runLogs(argv, ctx) {
   let lines = [];
   let lastEnvelope = null;
   for (;;) {
-    const { envelope } = await ctx.call('inspect', { target: 'logs', id: rawId, offset, limit: LOG_PAGE_LIMIT });
+    const { envelope } = await ctx.call('inspect', { target: 'logs', id: rawId, offset, limit: PAGE_LIMIT });
     lastEnvelope = envelope;
     if (!envelope.ok) break;
     const chunk = envelope.result.lines || [];
@@ -159,14 +162,29 @@ async function runMessages(argv, ctx) {
 // drift (the enum already lives at gateway/parse.js and dispatch.js, and a third
 // copy here would be guarded by nothing at the moment a caller most needs the right
 // answer). The cost is one round trip on a typo; the refusal names the valid set.
+function renderExecutionRow(r) {
+  console.log(`#${r.exec_id} ${r.fired_at} ${r.action_type} job=${r.job_id} session=${r.session_id ?? '-'} pid=${r.pid ?? '-'} exit=${r.exit_code ?? '-'} thread=${r.thread ?? '-'}`);
+}
+
 async function runExecutions(argv, ctx) {
   const status = takeValue(argv, '--status');
   if (status === undefined) throw new CliUsageError('inspect executions requires --status <status>');
+
+  const rawTail = takeValue(argv, '--tail');
+  let tail;
+  if (rawTail !== undefined) {
+    if (!/^\d+$/.test(rawTail) || Number(rawTail) <= 0) throw new CliUsageError('--tail must be a positive integer');
+    tail = Number(rawTail);
+  }
 
   const payload = { target: 'executions', status };
   for (const flag of ['--offset', '--limit']) {
     const raw = takeValue(argv, flag);
     if (raw === undefined) continue;
+    // --tail names a window from the END; --offset/--limit name one from the START.
+    // Accepting both would silently honour one — the shape that teaches a caller a
+    // flag works when it does not (parse.js's stated reason for refusing both ways).
+    if (tail !== undefined) throw new CliUsageError(`inspect executions: ${flag} and --tail are mutually exclusive`);
     const key = flag.slice(2);
     if (!/^\d+$/.test(raw)) throw new CliUsageError(`${flag} must be a non-negative integer`);
     if (key === 'limit' && Number(raw) <= 0) throw new CliUsageError('--limit must be a positive integer');
@@ -174,15 +192,43 @@ async function runExecutions(argv, ctx) {
   }
   if (argv.length > 0) throw new CliUsageError(`inspect executions: unrecognized argument(s): ${argv.join(' ')}`);
 
+  // --tail N: the listing is ordered OLDEST-FIRST (jobs_log ORDER BY exec_id) and the
+  // contract exposes offset/limit paging only, never a reverse read or a total — so the
+  // newest row costs blind offset probes. Same answer `inspect logs --tail` already gives
+  // for the same contract: walk the pages through the gateway and keep the last N
+  // client-side. `tailOf` IS the total the envelope never carried.
+  if (tail !== undefined) {
+    let offset = 0;
+    let rows = [];
+    let lastEnvelope = null;
+    for (;;) {
+      const { envelope } = await ctx.call('inspect', { ...payload, offset, limit: PAGE_LIMIT });
+      lastEnvelope = envelope;
+      if (!envelope.ok) break;
+      const chunk = envelope.result.rows || [];
+      rows = rows.concat(chunk);
+      if (envelope.result.eof || chunk.length === 0) break;
+      offset = envelope.result.nextOffset;
+    }
+    if (!lastEnvelope.ok) return finish(lastEnvelope, { json: ctx.json });
+
+    const synth = { ok: true, result: { target: 'executions', status, rows: rows.slice(-tail), eof: true, tailOf: rows.length } };
+    return finish(synth, {
+      json: ctx.json,
+      renderSuccess: (result) => {
+        console.log(`executions (status ${result.status}): newest ${result.rows.length} of ${result.tailOf} row(s)`);
+        for (const r of result.rows) renderExecutionRow(r);
+      },
+    });
+  }
+
   const { envelope } = await ctx.call('inspect', payload);
   return finish(envelope, {
     json: ctx.json,
     renderSuccess: (result) => {
       const rows = result.rows || [];
       console.log(`executions (status ${result.status}): ${rows.length} row(s)`);
-      for (const r of rows) {
-        console.log(`#${r.exec_id} ${r.fired_at} ${r.action_type} job=${r.job_id} session=${r.session_id ?? '-'} pid=${r.pid ?? '-'} exit=${r.exit_code ?? '-'} thread=${r.thread ?? '-'}`);
-      }
+      for (const r of rows) renderExecutionRow(r);
       if (result.eof === false) {
         console.log(`... more available (nextOffset=${result.nextOffset})`);
       }

@@ -1,6 +1,7 @@
 'use strict';
 
-// probe-cli-executions — proves `ignite inspect executions --status <s> [--offset n] [--limit n]`
+// probe-cli-executions — proves `ignite inspect executions --status <s> [--offset n] [--limit n]
+// [--tail n]`
 // (task 7.62) end-to-end through the REAL CLI BINARY, as a REAL CHILD PROCESS, over the REAL HTTP
 // transport, against a REAL (throwaway) daemon.
 //
@@ -196,6 +197,43 @@ async function main() {
       check('walking nextOffset through the CLI reaches every row exactly once and ends at eof:true',
         JSON.stringify(walked) === JSON.stringify(expectFailed) && p2.result.eof === true,
         `walked=${JSON.stringify(walked)} want=${JSON.stringify(expectFailed)} eof=${p2.result.eof}`);
+    }
+
+    // ── 5b. --tail N — the NEWEST rows in ONE command. The listing is oldest-first with no total,
+    // so before this the newest row cost blind offset probes. The check that matters is that the
+    // tail is the LAST row of the walk, not the first: a --tail that forgot to reverse-slice
+    // passes "returns 1 row" and fails only here.
+    {
+      const newestFailed = Math.max(a, c);
+      const r = await runCli(['--json', 'inspect', 'executions', '--status', 'failed', '--tail', '1'], cliEnv);
+      const e = parseJson(r.stdout);
+      out('--- inspect executions --status failed --tail 1 ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim().slice(0, 400));
+      check('--tail 1 returns exactly the NEWEST row of the status, in one command',
+        r.code === 0 && e && e.ok === true && e.result.rows.length === 1 && e.result.rows[0].exec_id === newestFailed,
+        `got=${JSON.stringify(e && e.result && e.result.rows.map((x) => x.exec_id))} want=[${newestFailed}]`);
+      check('--tail reports the TOTAL the paged envelope never carried (tailOf)',
+        e && e.result && e.result.tailOf === 2 && e.result.eof === true,
+        `tailOf=${e && e.result && e.result.tailOf} eof=${e && e.result && e.result.eof}`);
+
+      const h = await runCli(['inspect', 'executions', '--status', 'failed', '--tail', '1'], cliEnv);
+      check('the rendered --tail says which slice of what total it is showing',
+        h.code === 0 && /executions \(status failed\): newest 1 of 2 row\(s\)/.test(h.stdout),
+        `exit=${h.code} stdout=${JSON.stringify(h.stdout.trim().slice(0, 200))}`);
+
+      // --tail names a window from the END, --offset/--limit one from the START: refused, never
+      // silently honouring one of the two.
+      const x = await runCli(['inspect', 'executions', '--status', 'failed', '--tail', '1', '--limit', '1'], cliEnv);
+      check('--tail with --limit is REFUSED rather than silently honouring one of them',
+        x.code !== 0 && /mutually exclusive/.test(x.stdout + x.stderr),
+        `exit=${x.code} output=${JSON.stringify((x.stdout + x.stderr).trim().slice(0, 200))}`);
+
+      // The oldest-first default is UNCHANGED — the flag adds a view, it does not flip the order
+      // every existing caller (and check 5 above) reads.
+      const d0 = parseJson((await runCli(['--json', 'inspect', 'executions', '--status', 'failed'], cliEnv)).stdout);
+      const ids = ((d0.result || {}).rows || []).map((x2) => x2.exec_id);
+      check('the DEFAULT listing is still oldest-first (no default was flipped)',
+        JSON.stringify(ids) === JSON.stringify([a, c].sort((x2, y2) => x2 - y2)),
+        `default=${JSON.stringify(ids)}`);
     }
 
     // ── 6. The target is DISCOVERABLE from the CLI's own help — a surface nobody can find is
