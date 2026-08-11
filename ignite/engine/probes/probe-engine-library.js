@@ -83,7 +83,29 @@ fs.mkdirSync(goalFolder, { recursive: true });
 fs.mkdirSync(dataRoot, { recursive: true });
 
 const SEATS = ['alpha', 'bravo', 'charlie'];
-for (const s of SEATS) fs.mkdirSync(path.join(goalFolder, 'seats', s), { recursive: true });
+
+// ⚠ A GOAL FOLDER, NOT THREE EMPTY SEAT DIRECTORIES — and the missing half hid for exactly the
+// reason the seat folders themselves once did (see C5's note below). `config/spawn-profiles.yaml`
+// § SeatBinds carries two sources with NO `-try` suffix — `ro-bind:{seatDir}/seat.md` and
+// `bind:{goalDir}/coordination` — and bwrap fails the WHOLE namespace on a missing bind source. So
+// every seat this fixture fired died at `bwrap: Can't find source path .../seat.md`, `sleep 1`
+// never ran, and C5 returned `max-ticks` (exit 0) or `seat-failed` (exit 1) purely on whether the
+// tick bound landed before the exit-condition pass saw the wreckage — a coin flip, not a check:
+// 3 red in 6 consecutive hand runs, and 7 red across the 49 retained scheduled runs of
+// 2026-08-09..11. Every other arm stayed green throughout, which is why this sat: they measure
+// what was ENQUEUED and what the wave decision RELEASED, neither of which needs a seat to survive
+// its cage.
+//
+// `seat.md` is written by the SHIPPED materializer, not by a literal here: it is the same call the
+// ticker makes for a job-born seat, so the fixture's descriptor cannot drift from the real one.
+const { parseSeatPath, materializeSeatFolder } = require(path.join(IGNITE_SRC, 'server', 'seat-identity', 'seat-folder.js'));
+function makeGoalFolder(dir) {
+  fs.mkdirSync(path.join(dir, 'coordination'), { recursive: true });
+  for (const s of SEATS) {
+    materializeSeatFolder(parseSeatPath(path.join(dir, 'seats', s)), { jobId: 'probe-engine-library fixture' });
+  }
+}
+makeGoalFolder(goalFolder);
 
 // taskforce.csv in the goals tree's own shape (goal_cli.py write_csv). `after` is the WAVE
 // structure: alpha and bravo have none (wave 1), charlie follows alpha (wave 2).
@@ -525,12 +547,15 @@ async function main() {
     `exit ${noProfile.status}`);
 
   const cliDir = path.join(workspace, '.rbtv', 'goals', 'cli-goal');
-  // ⚠ THE SEAT FOLDERS, and they are not decoration. A seat's workdir is its own folder; without
+  // ⚠ THE WHOLE GOAL FOLDER, and it is not decoration. A seat's workdir is its own folder; without
   // one every fire of this fixture REFUSED at the workdir guard and the rows landed `failed`. That
   // was invisible while `--max-ticks 1` returned first and reported `max-ticks` over the wreckage
   // — the outcome word said "the bound was reached", never "every seat failed". Console-run B1's
-  // `seat-failed` verdict returns before the bound and made it visible.
-  for (const s of SEATS) fs.mkdirSync(path.join(cliDir, 'seats', s), { recursive: true });
+  // `seat-failed` verdict returns before the bound and made it visible. The SAME defect then sat
+  // one layer deeper for weeks — the folders existed, the CAGE's `seat.md` and `coordination`
+  // sources did not — and `makeGoalFolder` is where that half is fixed; it is what makes this arm
+  // measure a real advance instead of a coin flip between the two outcome words.
+  makeGoalFolder(cliDir);
   fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(cliDir, 'taskforce.csv'));
   const cliRes = runCli(['run', cliDir, '--profile', 'probe-seat', '--config', configPath, '--max-ticks', '1', '--json']);
   let cliJson = null;
@@ -553,7 +578,7 @@ async function main() {
   say('C3c — SIGKILLed mid-run, then re-run (criterion 3, done rather than approximated)');
 
   const killDir = path.join(workspace, '.rbtv', 'goals', 'kill-goal');
-  for (const s of SEATS) fs.mkdirSync(path.join(killDir, 'seats', s), { recursive: true });
+  makeGoalFolder(killDir);
   fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(killDir, 'taskforce.csv'));
 
   const { spawn: spawnProc, spawnSync } = require('node:child_process');

@@ -528,6 +528,17 @@ def main():
         fire_env.pop("TMUX", None)            # a fired exec inherits neither; neither does this
         fire_env.pop("TMUX_PANE", None)
         fire_env.pop("COORD_LAUNCH_TARGET", None)
+        # 7.738 dropped this launcher's unconditional `--force` (P3b above pins that argv), so
+        # `coordinate launch`'s ROLE gate now binds on the P5/P6 fires. In production the caller is
+        # the daemon and resolves `ignite-daemon` from KERNEL MEASURABLES (coord F16,
+        # `daemon_exec_identity`) — a probe is not a daemon-fired exec and MUST NOT claim that
+        # identity through the environment: `COORD_AGENT` outranks the F16 lane in `resolve_agent`,
+        # so spelling `ignite-daemon` here would hold this file green straight through a real break
+        # of the lane every unattended launch depends on. `leader` is the gate's OTHER admitted
+        # launcher, claimed the documented way, so the gate is SATISFIED rather than overridden.
+        # Without it every fire exits 2 at the role gate and P5/P5b/P5c/P6 go red on a precondition
+        # none of them is about (measured 2026-08-11).
+        fire_env["COORD_AGENT"] = "leader"
         _, calls5, root5 = drain(tmpdir / "c", flags, goal="probe-firstfire")
         pkg5 = root5 / "probe-firstfire"
         room = "probe-firstfire"

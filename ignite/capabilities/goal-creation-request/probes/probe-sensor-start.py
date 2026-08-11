@@ -171,6 +171,17 @@ def main():
         env["PATH"] = f"{shims}{os.pathsep}{os.environ.get('PATH', '')}"
         for v in ("TMUX", "TMUX_PANE", "COORD_LAUNCH_TARGET"):
             env.pop(v, None)
+        # 7.738 dropped `workflow_launcher.py`'s unconditional `--force`, so `coordinate launch`'s
+        # ROLE gate now binds on every fire below. In production the caller is the daemon and
+        # resolves `ignite-daemon` from KERNEL MEASURABLES (coord F16, `daemon_exec_identity`) — a
+        # probe is not a daemon-fired exec and MUST NOT claim that identity through the
+        # environment: `COORD_AGENT` outranks the F16 lane in `resolve_agent`, so spelling
+        # `ignite-daemon` here would hold this file green straight through a real break of the
+        # lane every unattended launch depends on. `leader` is the gate's OTHER admitted launcher,
+        # claimed the documented way, so the gate is SATISFIED rather than overridden and the arms
+        # below still measure the shipped path. Without it every fire exits 2 at the role gate and
+        # eleven arms go red on a precondition none of them is about (measured 2026-08-11).
+        env["COORD_AGENT"] = "leader"
         os.environ["PATH"] = env["PATH"]          # so this probe's own `tmux()` hits the shim too
 
         _out, _calls, root = ep.drain(tmpdir / "a", flags, goal=GOAL)
