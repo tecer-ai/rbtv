@@ -761,7 +761,7 @@ tools:
       - --require-cmd
       - codex
       - --budget-s
-      - "600"
+      - "60"
       - --
       # NOT bare `coordinate launch` — that argv CANNOT recover a dead room and, worse, would
       # guess. `launch` contains zero `new-session` calls (it only opens a window in an EXISTING
@@ -809,7 +809,7 @@ tools:
       - --require-cmd
       - codex
       - --budget-s
-      - "600"
+      - "60"
       - --
       # The twin's recovery is the SAME PROGRAM as the live entry's, pointed at a throwaway
       # session, package and seat. It used to be `tmux new-session`, and once the live entry
@@ -1242,7 +1242,7 @@ tools:
       - --budget-json
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/budget.json
       - --delay-seconds
-      - "600"
+      - "60"
       - --ignite-bin
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/cli/ignite.js
 
