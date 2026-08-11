@@ -2809,7 +2809,8 @@ def check_guard_reads_the_validated_output(coord, pkg):
     def flip(scratch):
         doc = json.loads((scratch / FX_ROUTE_ARTIFACT).read_text(encoding="utf-8"))
         doc["risk"] = "low"
-        (scratch / FX_ROUTE_ARTIFACT).write_text(json.dumps(doc, indent=2) + "\n")
+        (scratch / FX_ROUTE_ARTIFACT).write_text(json.dumps(doc, indent=2) + "\n",
+                                                 encoding="utf-8")
 
     flipped, _ = _fixture_readiness(coord, flip)
     got = _readiness_verdicts(flipped)
@@ -3217,13 +3218,13 @@ def check_missing_seed_path_fails_loudly(coord, pkg):
     on a branch nothing reaches. The artifact is restored before returning."""
     res3 = readiness(coord, pkg)
     artifact = pkg / "outputs" / "present.md"
-    body = artifact.read_text()
+    body = artifact.read_text(encoding="utf-8")
     submit, _ = _stub_door()
     try:
         artifact.unlink()
         res = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, readiness_result=res3, submit=submit)
     finally:
-        artifact.write_text(body)
+        artifact.write_text(body, encoding="utf-8")
     failed = {r["seat"]: r for r in res["failed"]}
     landed = {r["seat"] for r in res["enqueued"]}
     for seat in ("fx-r-one-done", "fx-r-two-done", "fx-r-spaces"):
@@ -4084,12 +4085,13 @@ def build_fixture(root):
     so `--selftest --fixture <DIR>` runs the same assertions against real disk."""
     pkg = root / "run-fx"
     (pkg / "outputs").mkdir(parents=True, exist_ok=True)
-    (pkg / "outputs" / "present.md").write_text("fixture artifact — exists on disk\n")
+    (pkg / "outputs" / "present.md").write_text("fixture artifact — exists on disk\n",
+                                                encoding="utf-8")
     # 7.425: `fx-route`'s VALIDATED OUTPUT — the object every guard in READY_AFTER is evaluated
     # against. Three scalar kinds on purpose: a string, a number and a bool, because the guard's
     # right-hand side is always TEXT and `_canonical_field` is what makes the comparison decidable.
     (pkg / "outputs" / "route.json").write_text(
-        json.dumps({"risk": "high", "count": 2, "ok": True}, indent=2) + "\n")
+        json.dumps({"risk": "high", "count": 2, "ok": True}, indent=2) + "\n", encoding="utf-8")
     (pkg / "sessions.csv").write_text(
         "session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,"
         "pid-starttime,tty,disposition\n"
@@ -4103,7 +4105,8 @@ def build_fixture(root):
         "s-08,fx-renewed-then-done,claude,n-08,/fx,,2026-07-30 05:00,2026-07-30 05:30,108,1000,/dev/pts/8,renew\n"
         "s-09,fx-renewed-then-done,claude,n-09,/fx,,2026-07-30 05:31,2026-07-30 06:10,109,1000,/dev/pts/9,done\n"
         "s-10,fx-no-iospec,claude,n-10,/fx,,2026-07-30 06:00,2026-07-30 06:10,110,1000,/dev/pts/10,done\n"
-        "s-11,fx-route,claude,n-11,/fx,,2026-07-30 06:00,2026-07-30 06:10,111,1000,/dev/pts/11,done\n")
+        "s-11,fx-route,claude,n-11,/fx,,2026-07-30 06:00,2026-07-30 06:10,111,1000,/dev/pts/11,done\n",
+        encoding="utf-8")
     # The ROSTER half of `seats_of` is load-bearing, not decoration: `fx-no-row` has no session row
     # at all and is discoverable ONLY here. Without this file the stage silently never verifies it,
     # which is exactly how an un-launched seat becomes invisible instead of undecided — the first
@@ -4127,7 +4130,8 @@ def build_fixture(root):
         d.mkdir(parents=True, exist_ok=True)
         d.joinpath("seat.md").write_text(
             "---\nseat: %s\nharness: claude\n---\n<role id=\"fx-role\" version=\"latest\">\n"
-            "A step-3 fixture row: it exists to carry an `after` cell.\n</role>\n" % seat)
+            "A step-3 fixture row: it exists to carry an `after` cell.\n</role>\n" % seat,
+            encoding="utf-8")
     iospec = {"fx-done-output-missing": "outputs/absent.md",
               "fx-route": "outputs/route.json"}
     for seat in EXPECT:
@@ -4137,13 +4141,13 @@ def build_fixture(root):
             d.joinpath("seat.md").write_text(
                 "---\nseat: fx-no-iospec\n---\n<role id=\"fx-role\" version=\"latest\">\n"
                 "A fixture seat carrying no io-spec block — the shape every {TG} seat.md has on "
-                "disk.\n</role>\n")
+                "disk.\n</role>\n", encoding="utf-8")
             continue
         d.joinpath("seat.md").write_text(
             "---\nseat: %s\n---\n<io-spec id=\"fx-io\" version=\"latest\">\n## Inputs\n\n"
             "- nothing; this is a fixture seat.\n\n## Outputs\n\n- `%s` — the declared artifact "
             "this fixture seat's done contract names.\n</io-spec>\n"
-            % (seat, iospec.get(seat, "outputs/present.md")))
+            % (seat, iospec.get(seat, "outputs/present.md")), encoding="utf-8")
     return pkg
 
 
