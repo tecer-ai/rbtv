@@ -2735,32 +2735,34 @@ INTERACTIVE_EXPOSES_REL = Path(
 def _interactive_expose_refs(comp_dir: Path) -> list[str]:
     """The configured skill part refs for interactive seats — [] when the
     workspace carries no such file. The workspace is DERIVED, never guessed:
-    the first ancestor holding a `.rbtv/config/` is the anchor (the same walk
-    `_rbtv_repo_root` does), and only THAT workspace's file is read, so a
-    grandparent tree can never leak its policy in."""
-    for parent in (comp_dir, *comp_dir.parents):
-        if not (parent / ".rbtv" / "config").is_dir():
-            continue
-        book = parent / INTERACTIVE_EXPOSES_REL
-        if not book.is_file():
-            return []
-        try:
-            refs = json.loads(book.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise Refuse(
-                "interactive-exposes-invalid",
-                f"the interactive-seat expose list is not readable JSON — "
-                f"{exc}",
-                str(book)) from exc
-        if not isinstance(refs, list) or not all(
-                isinstance(r, str) and r.strip() for r in refs):
-            raise Refuse(
-                "interactive-exposes-invalid",
-                "the interactive-seat expose list must be a JSON list of "
-                "part-ref strings (the `exposes:` reference grammar)",
-                str(book))
-        return [r.strip() for r in refs]
-    return []
+    `_workspace_root`, which since IPH-6 / D33 is LITERALLY the same walk
+    `_rbtv_repo_root` does rather than merely claiming to be. Only THAT
+    workspace's file is read, so a grandparent tree can never leak its policy
+    in. An underivable workspace injects NOTHING rather than refusing — the
+    block comment above rules that an install without the convention renders
+    byte-identically to before, and that predates any prefixed reference."""
+    try:
+        parent = _workspace_root(comp_dir)
+    except Refuse:
+        return []
+    book = parent / INTERACTIVE_EXPOSES_REL
+    if not book.is_file():
+        return []
+    try:
+        refs = json.loads(book.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise Refuse(
+            "interactive-exposes-invalid",
+            f"the interactive-seat expose list is not readable JSON — {exc}",
+            str(book)) from exc
+    if not isinstance(refs, list) or not all(
+            isinstance(r, str) and r.strip() for r in refs):
+        raise Refuse(
+            "interactive-exposes-invalid",
+            "the interactive-seat expose list must be a JSON list of "
+            "part-ref strings (the `exposes:` reference grammar)",
+            str(book))
+    return [r.strip() for r in refs]
 
 
 def _assembled_is_interactive(assembled: str) -> bool:
@@ -2786,8 +2788,11 @@ ENTRY_AUTHORED = "__entry-point-authored__"
 
 def _workspace_root(start: Path) -> Path:
     """The WORKSPACE rooting `start` — the first ancestor holding a
-    `.rbtv/config/` DIRECTORY — and the base a `ws:` entry-point resolves
-    against (owner ruling, 2026-08-11, IPH-6 / D33).
+    `.rbtv/config/` DIRECTORY. THE one walk this file does: the base a `ws:`
+    entry-point resolves against, the root `_rbtv_repo_root` finds `rbtv.json`
+    at, and the anchor `_interactive_expose_refs` reads its policy from
+    (owner ruling, 2026-08-11, IPH-6 / D33 — the `install.json` walk that used
+    to be a second, disagreeing derivation is gone).
 
     The directory walk is the ONE derivation correct in both production and
     the selftest fixture: no `parents[n]` rule off `--package` or
@@ -2804,10 +2809,10 @@ def _workspace_root(start: Path) -> Path:
             return parent
     raise Refuse(
         "ws-root-underivable",
-        "a `ws:` entry-point resolves against the workspace root and no "
-        "`.rbtv/config/` directory exists at or above the referencing "
-        "component — searched "
-        + " · ".join(str(p) for p in (start, *start.parents)),
+        "the workspace is underivable: no `.rbtv/config/` directory exists at "
+        "or above the referencing component, so a `ws:` entry-point has no "
+        "base and a `rbtv:` reference has no root to find `rbtv.json` at — "
+        "searched " + " · ".join(str(p) for p in (start, *start.parents)),
         str(start))
 
 
@@ -2890,44 +2895,28 @@ def _rbtv_repo_root(comp_dir: Path) -> Path:
     The catalog root and the repo are DIFFERENT TREES: a mirror component
     (`.rbtv/mirror/<module>/<component>/`) cannot reach the repo with the
     3-segment grammar, whose arithmetic is relative to the referencing
-    component's own position. The entry book is `.rbtv/config/install.json`
-    (install2's record) — found by walking UP from the referencing component,
-    so the workspace is derived, never guessed. install.json records the
-    workspace as `target` but carries NO repo source path; the repo path is
-    `rbtv.json`'s `rbtv_path` at that workspace root (the same book
-    `{rbtv_path}` is resolved from everywhere else). Both books must be
-    present and carry their field, else REFUSE with what was found."""
-    book = None
-    for parent in (comp_dir, *comp_dir.parents):
-        cand = parent / ".rbtv" / "config" / "install.json"
-        if cand.is_file():
-            book = cand
-            break
-    if book is None:
-        raise Refuse(
-            "exposes-repo-root-underivable",
-            "a `rbtv:` reference resolves through the install book and no "
-            ".rbtv/config/install.json exists at or above the referencing "
-            "component — nothing addresses the repo tree",
-            str(comp_dir))
-    try:
-        data = json.loads(book.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise Refuse(
-            "exposes-repo-root-underivable",
-            f"install book is not readable JSON — {exc}",
-            str(book)) from exc
-    target = str((data or {}).get("target") or "").strip()
-    workspace = Path(target) if target else book.parent.parent.parent
+    component's own position. So the workspace is derived by
+    `_workspace_root` — ONE walk, shared with `ws:` — and the repo path is
+    `rbtv.json`'s `rbtv_path` at that root (the same book `{rbtv_path}` is
+    resolved from everywhere else). That book must be present and carry its
+    field, else REFUSE with what was found.
+
+    ⚠ `.rbtv/config/install.json` is NO LONGER READ (owner ruling 2026-08-11,
+    IPH-6 / D33). Its `target` was redundant with the book's OWN location —
+    install2 writes `target.resolve()` into `target/.rbtv/config/`, so the two
+    can only agree (measured equal on the live install before this landed),
+    and the walk-derived value was already the fallback whenever `target` was
+    absent. Dropping it deletes a second walk that disagreed with this one
+    (file vs directory), a second failure mode, and the reason `rbtv:` could
+    not resolve on any workspace that had never run install2."""
+    workspace = _workspace_root(comp_dir)
     rbtv_book = workspace / "rbtv.json"
     if not rbtv_book.is_file():
         raise Refuse(
             "exposes-repo-root-underivable",
-            "install.json carries no repo source path (its keys: "
-            + ", ".join(sorted((data or {}).keys()))
-            + f") and {rbtv_book} — the book that records `rbtv_path` — does "
-            "not exist; a `rbtv:` reference has no tree to resolve against",
-            str(book))
+            f"{rbtv_book} — the book that records `rbtv_path` — does not "
+            "exist; a `rbtv:` reference has no tree to resolve against",
+            str(workspace))
     try:
         rbtv_path = str((json.loads(rbtv_book.read_text(encoding="utf-8"))
                          or {}).get("rbtv_path") or "").strip()
@@ -4386,15 +4375,17 @@ def build_fixture(tmp: Path) -> dict:
         "#!/usr/bin/env python3\nprint('wstool')\n", encoding="utf-8")
     # The SECOND RESOLUTION ROOT (d-path-exposes-authorable): a `rbtv:` ref
     # addresses the rbtv REPO tree, found by walking up from the referencing
-    # component to `.rbtv/config/install.json` and reading `rbtv.json`'s
-    # `rbtv_path` at the workspace that book records. `tmp` stands in for the
-    # workspace; `tmp/repo` for the rbtv repo, module manifest at module root
-    # exactly as `ignite/exposure.csv` sits today.
+    # component to the `.rbtv/config/` DIRECTORY and reading `rbtv.json`'s
+    # `rbtv_path` at that workspace root. `tmp` stands in for the workspace;
+    # `tmp/repo` for the rbtv repo, module manifest at module root exactly as
+    # `ignite/exposure.csv` sits today.
+    #
+    # ⚠ NO `install.json` IS WRITTEN (IPH-6 / D33). Its absence is not an
+    # oversight to be repaired — it is the PROOF that the install book is no
+    # longer consulted: every `rbtv:` arm below resolves without it, and
+    # restoring the file would silently retire that proof. The DIRECTORY is
+    # still required — it is what the one walk looks for.
     (tmp / ".rbtv" / "config").mkdir(parents=True)
-    (tmp / ".rbtv" / "config" / "install.json").write_text(
-        json.dumps({"schema": 1, "installer": "install2.py",
-                    "target": str(tmp), "components": {}}) + "\n",
-        encoding="utf-8")
     (tmp / "rbtv.json").write_text(
         json.dumps({"rbtv_version": "0.0.0-fixture", "rbtv_path": "repo"})
         + "\n", encoding="utf-8")
@@ -5289,7 +5280,16 @@ def run_dag05_acceptance(check, env: dict) -> None:
         # dropped to a root-only arm, which CP-6 already covers) because it is
         # the suite's ONLY exercise of the materialize -> launch coupling on a
         # NON-ROOT seat.
-        cpl = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+        #
+        # ⚠ IDENTITY CORRECTED (task 7.738). Every `launch` arm below used to
+        # claim `--as chief-of-staff`; that role is RETIRED and was removed from
+        # `coord.py#is_authorized_launcher`, so each one refused at the ROLE gate
+        # naming a role that no longer exists. `leader` is the gate's surviving
+        # human launcher, and `--as` on a DRY RUN is admitted (F17's entry bound
+        # refuses an uncorroborated claim only on a non-dry run — see CP-6's own
+        # note below). The claim stays because the role gate is not what these
+        # rows assert; they assert the materialize -> launch coupling.
+        cpl = coord(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "alpha"])
         check("SC-1: coordinate launch --dry-run --only alpha resolves "
               "a harness command (root seat, before its own check-out)",
@@ -5300,7 +5300,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         # SC-1 control (unmet-predecessor half): while the predecessor has NOT
         # checked out, the dependent seat is refused BY CLASS — the term that
         # makes the green arm below a coupling rather than a second root.
-        cpu = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+        cpu = coord(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "beta"])
         check("SC-1 control: with its predecessor not checked out, the "
               "dependent seat is DEFERRED with class unmet-predecessor",
@@ -5323,7 +5323,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         check("SC-1 setup: alpha's check-out lands disposition done on disk",
               awaiting.get("alpha", {}).get("disposition") == "done",
               str(awaiting)[:200])
-        cpl = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+        cpl = coord(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "beta"])
         check("SC-1: coordinate launch --dry-run --only beta resolves "
               "a harness command (dependent seat, predecessor done)",
@@ -5339,7 +5339,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         check("SC-1 control setup: the beta row mutation actually lands",
               mutated != text)
         tf.write_text(mutated, encoding="utf-8")
-        cpl = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+        cpl = coord(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "beta"])
         check("SC-1 control: a divergent registry row REFUSES the dry-run "
               "through check_bindings",
@@ -5356,7 +5356,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
               cpd.returncode == 1 and "no-registry-row" in cpd.stdout
               and "beta" in cpd.stdout,
               (cpd.stdout + cpd.stderr).strip()[:200])
-        cpl = coord(["--package", fx["pkg"], "--as", "chief-of-staff",
+        cpl = coord(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "beta"])
         # MEASURED, not asserted as policy: check_bindings compares only rows
         # that EXIST, so launch --dry-run does NOT refuse a deleted row — the
@@ -5826,7 +5826,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
               (cp.stdout + cp.stderr).strip()[:200])
 
         # CP-6: the created package is LAUNCHABLE.
-        cpl = coord(["--package", str(pkg), "--as", "chief-of-staff",
+        cpl = coord(["--package", str(pkg), "--as", "leader",
                      "launch", "--dry-run", "--only", "alpha"])
         check("CP-6: coordinate launch --dry-run --only alpha resolves a "
               "harness command against the freshly created package",
@@ -6992,9 +6992,11 @@ def run_selftest() -> int:
             _FM_RE.match((sd / "seat.md").read_text(encoding="utf-8")).group(1))
         coordfix = str(Path(fxe["repo_mod"]) / "team-kit" / "coordfix.py")
         wstool = str(Path(fxe["tmp"]) / "wsbin" / "wstool.py")
-        check("EXP-1 green: a `rbtv:`-prefixed `path` ref resolves through "
-              "install.json/rbtv.json and lands in seat.md as `exposed-clis:` "
-              "— `<part-id> <absolute entry point>`, the cage's grant surface",
+        check("EXP-1 green: a `rbtv:`-prefixed `path` ref resolves through the "
+              "`.rbtv/config/` walk + rbtv.json — WITH NO install.json IN THE "
+              "FIXTURE, which is the proof the install book is no longer read "
+              "(IPH-6 / D33) — and lands in seat.md as `exposed-clis:`: "
+              "`<part-id> <absolute entry point>`, the cage's grant surface",
               f"coordfix {coordfix}" in (sfm.get("exposed-clis") or []),
               repr(sfm.get("exposed-clis")))
         check("EXP-1 green: a `ws:`-prefixed ENTRY-POINT resolves against the "
@@ -7130,6 +7132,21 @@ def run_selftest() -> int:
                   "workspace is DERIVED, never guessed, and an underivable one "
                   "is a refusal rather than a silent join against nothing",
                   ws_code == "ws-root-underivable", ws_code)
+            # …and the OTHER prefix takes the SAME walk since IPH-6 / D33.
+            # This is the arm that fails if `_rbtv_repo_root` ever grows a
+            # second derivation back: before the collapse it walked for the
+            # install.json FILE and answered `exposes-repo-root-underivable`
+            # here; one walk means one answer.
+            try:
+                _rbtv_repo_root(lone)
+                repo_code = "(no refusal — the repo root resolved)"
+            except Refuse as exc:
+                repo_code = exc.code
+            check("EXP-1 red: a `rbtv:` reference under that same component "
+                  "takes the SAME ws-root-underivable refusal — both prefixes "
+                  "share ONE workspace walk, and no install.json is consulted "
+                  "to reach it",
+                  repo_code == "ws-root-underivable", repo_code)
 
     print("RF-1 --refresh: bring an existing seat folder to the catalog's shape")
     with tempfile.TemporaryDirectory() as rf_td:
