@@ -51,7 +51,7 @@ function out(...lines) {
 }
 
 const checks = [];
-const skipped = 0;
+let skipped = 0;   // 7.736 §6 raises it where `--arm-state` is unreadable (no python3 → a VPS proof)
 function check(name, pass, detail) {
   checks.push({ name, pass });
   out(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
@@ -85,6 +85,9 @@ async function main() {
   const store = openHeartStore({
     dbPath: tmpDb,
     profiles: { 'test-sleep': { headed: false } },
+    // Section 6 (7.736) enqueues a `start-workflow` row, and the store re-validates the named
+    // workflow against this map exactly as it re-validates a named profile above.
+    workflows: { planning: { argv: ['/usr/bin/python3'] } },
   });
   store.registerJob({
     jobId: 'launch-worker',
@@ -191,7 +194,81 @@ async function main() {
     after.length === seededCount + 2,
     `disk queue rows=${after.length} (seeded=${seededCount})`);
 
-  // --- 6. The envelope version is UNCHANGED (additive field, no envelope bump — D72/D73).
+  // --- 6. TASK 7.736 DOOR 1: a `start-workflow` dry-run carries the goal's ARMING verdict. ------
+  // The point of the door: `dry-run: VALID` used to be printed for a start-workflow whose goal
+  // could never advance past its first seat, because arming (`coordination/edge-fastpath.json`) is
+  // read only by `jobs/edge-runner-job.py` at CHECK-OUT time and is silent there when unarmed.
+  //
+  // ⚠ THE NEGATIVE ROW IS THE ONE THAT CANNOT BE FAKED: a non-start-workflow dry-run must carry NO
+  // `edge_fastpath` KEY AT ALL. An absent key and a `null` verdict are different claims — "never
+  // asked" versus "could not answer" — and a door that emitted the key everywhere would make the
+  // action gate unobservable.
+  //
+  // ⚠ The two ARMED/UNARMED rows shell out to `edge-runner-job.py --arm-state` through `python3`.
+  // Where that is unavailable (the Windows desktop) the door correctly reports `armed: null` —
+  // UNKNOWN, never armed — and these rows read that as the SKIP it is, so the probe never claims a
+  // verdict it did not obtain. The armed/unarmed verdicts are a VPS proof.
+  const wfRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-dryrun-wf-'));
+  const armedPkg = path.join(wfRoot, '.rbtv', 'goals', 'probe-armed-goal');
+  const unarmedPkg = path.join(wfRoot, '.rbtv', 'goals', 'probe-unarmed-goal');
+  fs.mkdirSync(path.join(armedPkg, 'coordination'), { recursive: true });
+  fs.mkdirSync(path.join(unarmedPkg, 'coordination'), { recursive: true });
+  fs.writeFileSync(path.join(armedPkg, 'coordination', 'edge-fastpath.json'),
+    JSON.stringify({ 'job-id': 'probe-edge-runner', profile: 'planning' }));
+
+  store.registerJob({
+    jobId: 'start-planning',
+    actionType: 'start-workflow',
+    function: 'startWorkflow',
+    argsSchema: JSON.stringify({ required: { workflow: 'string', workdir: 'string', goal: 'string', 'entry-seat': 'string' }, optional: {} }),
+    enabled: 1,
+  });
+  const wfDry = async (workdir) => (await gw.handleRequest({
+    credential: AGENT_TOKEN,
+    source: '127.0.0.1',
+    body: {
+      intent: 'enqueue-job',
+      payload: {
+        job_id: 'start-planning',
+        args: JSON.stringify({ workflow: 'planning', workdir, goal: path.basename(workdir), 'entry-seat': 'elicitator' }),
+        trigger_kind: 'scheduled',
+        run_at: runAt,
+        session_mode: 'headless',
+        dry_run: true,
+      },
+    },
+  })).body.result;
+
+  const unarmedVerdict = await wfDry(unarmedPkg);
+  const armedVerdict = await wfDry(armedPkg);
+  check('7.736 D1: a start-workflow dry-run is still VALID and now CARRIES an edge_fastpath verdict',
+    unarmedVerdict && unarmedVerdict.dry_run === true && unarmedVerdict.valid === true
+      && unarmedVerdict.edge_fastpath !== undefined,
+    `result=${JSON.stringify(unarmedVerdict)}`);
+  if (unarmedVerdict && unarmedVerdict.edge_fastpath && unarmedVerdict.edge_fastpath.armed === null) {
+    skipped += 2;
+    out(`SKIP: --arm-state UNREADABLE here, so the armed/unarmed verdicts are a VPS proof — ${unarmedVerdict.edge_fastpath.scope}`);
+  } else {
+    check('7.736 D1: an UNARMED goal reports armed===false (the warning add-job renders)',
+      unarmedVerdict && unarmedVerdict.edge_fastpath && unarmedVerdict.edge_fastpath.armed === false,
+      `edge_fastpath=${JSON.stringify(unarmedVerdict && unarmedVerdict.edge_fastpath)}`);
+    check('7.736 D1 (control): an ARMED goal reports armed===true — the door reads the package, not the action',
+      armedVerdict && armedVerdict.edge_fastpath && armedVerdict.edge_fastpath.armed === true,
+      `edge_fastpath=${JSON.stringify(armedVerdict && armedVerdict.edge_fastpath)}`);
+  }
+  const plainVerdict = (await gw.handleRequest({
+    credential: AGENT_TOKEN, body: addJob('test-sleep', true), source: '127.0.0.1',
+  })).body.result;
+  check('7.736 D1 (control): a NON-start-workflow dry-run carries NO edge_fastpath key at all — '
+    + 'absent is not null, and the action gate is what makes that observable',
+    plainVerdict && plainVerdict.valid === true && !('edge_fastpath' in plainVerdict),
+    `result=${JSON.stringify(plainVerdict)}`);
+  after = readBackQueue();
+  check('7.736 D1: every one of those dry-runs wrote NOTHING ON DISK (count still +2 over seed)',
+    after.length === seededCount + 2,
+    `disk queue rows=${after.length} (seeded=${seededCount})`);
+
+  // --- 7. The envelope version is UNCHANGED (additive field, no envelope bump — D72/D73).
   // The invariant is that the internal-API ENVELOPE_VERSION constant stays 1 (no bump).
   // NOTE: the gateway's success response body is { ok, result } — it does NOT echo `v`
   // (pre-existing gateway behaviour, untouched by p4-1c), so `r.body.v` is legitimately
