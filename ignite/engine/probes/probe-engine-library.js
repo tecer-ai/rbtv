@@ -30,6 +30,12 @@
 // ⚠ EVERY NEGATIVE HERE CARRIES A POSITIVE CONTROL IN THE SAME RUN (`bars.md` 11 second half):
 // each refusal check is paired with a case that must NOT refuse. A refusal that fires
 // unconditionally and a refusal that works print the same thing without its control.
+//
+// ⚠ KNOWN CAPABLE OF A TRANSIENT FALSE-RED UNDER VPS LOAD. C3's kill-and-recover races a REAL
+// subprocess against fixed sleeps (250 ms / 300 ms) and hard spawnSync timeouts (5 s / 20 s) —
+// margins a loaded shared box can eat. Measured red 2026-08-11 at VPS HEAD 8ae0978a;
+// unreproducible, 48/48 green on re-run the same day. Diagnosis: environment/timing, not code.
+// Widening any of those budgets is an owner call, not a fix.
 
 const fs = require('node:fs');
 const os = require('node:os');
