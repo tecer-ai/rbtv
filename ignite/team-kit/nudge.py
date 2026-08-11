@@ -35,7 +35,10 @@ TRANSPORTS are pluggable so the loop can be built and proven without touching tm
 KNOWN LIMITATIONS, stated rather than discovered:
   - ONE loop per (heartbeat file). Enforced with an exclusive `flock` on `<heartbeat>.lock`; a
     second loop refuses with exit code 3, because two loops sharing a heartbeat would each resume
-    the sequence from the same max and emit duplicate seqs, destroying the gap signal.
+    the sequence from the same max and emit duplicate seqs, destroying the gap signal. Where
+    `fcntl` does not import the loop RUNS UNLOCKED and says so once on stderr (see
+    `_degraded_once`) — `check` mode's DUPLICATE finding is what catches the double-run after the
+    fact on such a host.
   - No heartbeat rotation. The file grows one JSON line per tick (~200 bytes; ~0.3 MB/day at 60s).
   - `check` mode's staleness verdict needs a clock; it compares the last record's epoch against
     `time.time()`. A consumer on another box with a skewed clock reads it wrong.
@@ -47,7 +50,6 @@ KNOWN LIMITATIONS, stated rather than discovered:
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import re
@@ -416,6 +418,21 @@ def build_parser():
     return p
 
 
+_DEGRADED = set()
+
+
+def _degraded_once(func, missing, lost):
+    """Warn ONCE per process that a POSIX guarantee is off on this host.
+
+    Keyed on the import having FAILED, never on a platform name: on POSIX the import cannot
+    raise, so this line is unreachable there by construction — an operator who sees it has found
+    a broken interpreter, not a portability note (7.715)."""
+    if func not in _DEGRADED:
+        _DEGRADED.add(func)
+        sys.stderr.write(f"{func}: {missing} unavailable — {lost}\n")
+        sys.stderr.flush()
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     # `run` is the default mode so the loop can be pasted as `nudge.py --package X --to Y`.
@@ -444,12 +461,18 @@ def main(argv=None):
         Path(args.heartbeat).parent.mkdir(parents=True, exist_ok=True)
         lock_fh = open(str(args.heartbeat) + ".lock", "w", encoding="utf-8")
         try:
-            fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            print(f"refused: another nudge loop already holds {args.heartbeat}.lock — two loops "
-                  f"on one heartbeat emit duplicate seqs and destroy the gap signal",
-                  file=sys.stderr)
-            return 3
+            import fcntl
+        except ImportError:
+            _degraded_once("nudge", "fcntl", "NO single-loop lock on this host — a second loop on "
+                                             "this heartbeat will emit duplicate seqs")
+        else:
+            try:
+                fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                print(f"refused: another nudge loop already holds {args.heartbeat}.lock — two loops "
+                      f"on one heartbeat emit duplicate seqs and destroy the gap signal",
+                      file=sys.stderr)
+                return 3
         lock_fh.write(f"{os.getpid()}\n")
         lock_fh.flush()
     try:
