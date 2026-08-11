@@ -18,25 +18,39 @@ at the SPAWN, one owner message later, with the sitting already accounted for.
 The owner's ruling was explicit: **do not change the system, give the agent a tool to interact with
 it in its native place.** So this file edits one line of that JSON and nothing else.
 
-⚠ EFFORT IS NOT ON THIS WIRE, AND THE `--effort` FLAG IS THEREFORE ABSENT BY MEASUREMENT, NOT BY
-OVERSIGHT. Traced end to end for this build (2026-08-10):
+EFFORT — A NUMERIC RUNG, AND THE LANE UNDER IT WAS BUILT ON 2026-08-11
+----------------------------------------------------------------------
+⚠ THIS SECTION REPLACES A REFUSAL. Until 2026-08-11 this docstring carried a measured trace ending
+"adding `--effort` here would have written a value nothing reads — a knob that turns and does
+nothing". That trace was CORRECT at its HEAD: `forward-path.js` composed `args: {profile, prompt}`,
+the `chat-agent` job's schema admitted no `effort`, `ticker.js#launchAgent` read three arg keys, and
+`spawn.js` never touched the profile's `effort:` table. Owner ruling `d-0811lp-effort-lane-build-now`
+(run exec-0811-live-proofs) ruled the LANE built rather than the knob dropped, explicitly overriding
+the "NO daemon caller today — Re-rule at 7.43/7.54" reservation at `internal-api/dispatch.js:405`
+and the sibling refusal in `spawn.js` (G-144). Every link in that trace now carries the field.
 
-  · `forward-path.js` composes the session-create enqueue as `args: { profile, prompt }` — no
-    effort key, and the `chat-agent` job's registered `args_schema` is
-    `{required:{profile}, optional:{prompt, workdir}}`, so a row carrying one would be REFUSED at
-    the enqueue door (`register-job` is create-only — the schema cannot be widened in place);
-  · `ticker.js#launchAgent` reads exactly `args.profile` / `args.prompt` / `args.workdir` and calls
-    `spawnManager.spawn(execId, profileName, sessionMode, prompt, workdir, enqueuedBy, resumeRef)`
-    — a seven-parameter signature with no effort parameter at all;
-  · the effort TRANSLATION table each profile declares (`effort: {dialect, values, argv}`) is
-    consumed only by `launch-profiles/resolveProfile`, and `internal-api/dispatch.js` states its
-    own status verbatim: `E_UNKNOWN_EFFORT` is *"raised only inside resolveProfile (the effort
-    translation table), which has NO daemon caller today"*. `spawn.js` resolves `exec.argv`
-    directly and never appends the effort argv.
+  · `bridges/chat/config.js` reads `master_effort`; `forward-path.js#effortFor` pairs it with the
+    MASTER profile only and puts it in the enqueue `args`;
+  · the job id the bridge names must admit it — a registered `args_schema` is CREATE-ONLY, so the
+    old `chat-agent` id could not be widened and a NEW one carrying `"effort": "integer"` was
+    registered and pointed at by `session_job_id` (the old id is retired in place, still refusing);
+  · `ticker.js#launchAgent` reads `args.effort` and passes it to `spawnManager.spawn(...)`;
+  · `spawn.js#composeArgv` composes it through `resolveEffort()` — the SAME function
+    `launch-profiles/resolveProfile` calls, never a second reading of the table.
 
-So the dial exists in the config vocabulary and is not connected to the master's spawn path. Adding
-`--effort` here would have written a value nothing reads — a knob that turns and does nothing, which
-is worse than no knob. Wiring it is a daemon change (7.43/7.54), not a tool change.
+WHAT A RUNG IS (owner ruling `d-0811lp-effort-numeric-per-profile`): an integer 1..N, ordered lowest
+to highest reasoning, in the ladder THAT PROFILE declares in `spawn-profiles.yaml` (`effort.rungs`).
+N differs per harness — claude 5 (low·medium·high·xhigh·max), codex 3, kimi 2 — so a rung is only
+meaningful against a profile, and a request outside that profile's range is REFUSED naming it. A
+profile with no dial (`effort: { inert: true }`, e.g. `claude-haiku` and the whole `opencode-*` set)
+ACCEPTS any rung and reports it inert (G-270): the dial visibly does nothing there, which is the
+honest report rather than a silent drop. Omit the rung and the harness runs its own default.
+
+⚠ THE RUNG IS WRITTEN WITH THE PROFILE, ALWAYS, AND CLEARED WHEN NONE IS GIVEN. `request opus`
+without `--effort` REMOVES `master_effort`. That is not tidiness: a rung left behind across a switch
+to a shorter-laddered harness (rung 4 on claude, then a switch to codex, whose top is 3) would pass
+every door here and REFUSE AT THE SPAWN, one owner message later — the exact failure mode the
+profile-name validation exists to prevent, one field over.
 
 WHY THIS IS TWO HALVES AND NOT ONE COMMAND
 -------------------------------------------
@@ -164,6 +178,70 @@ def validate(name, profiles_path=DEFAULT_PROFILES):
     return name
 
 
+EFFORT_KEY = "master_effort"
+
+# `rungs: [low, medium, high, xhigh, max]` / `rungs: ["--no-thinking", "--thinking"]`, with an
+# optional trailing `# comment`. Same ponytail ceiling as `known_profiles` above and for the same
+# reason — see that docstring.
+_RUNGS = re.compile(r"^\s*rungs:\s*\[([^\]]*)\]")
+_INERT = re.compile(r"^\s*effort:\s*\{\s*inert:\s*true\s*\}")
+
+
+def effort_ladder(profile, profiles_path=DEFAULT_PROFILES):
+    """This profile's ordered rungs. `[]` means an INERT dial; `None` means NO dial at all.
+
+    The distinction is the whole point (G-270): inert ACCEPTS a rung and does nothing with it,
+    while a profile declaring no `effort:` block at all cannot translate one and refuses.
+    """
+    lines = Path(profiles_path).read_text(encoding="utf-8").splitlines()
+    at = next((i for i, ln in enumerate(lines) if ln.rstrip() == f"  {profile}:"), None)
+    if at is None:
+        return None
+    for ln in lines[at + 1:]:
+        if ln.strip() and not ln.startswith("    ") and not ln.lstrip().startswith("#"):
+            break                       # the next profile (or root key) ends this one
+        if _INERT.match(ln):
+            return []
+        m = _RUNGS.match(ln)
+        if m:
+            return [v.strip().strip('"\'') for v in m.group(1).split(",") if v.strip()]
+    return None
+
+
+def validate_effort(profile, rung, profiles_path=DEFAULT_PROFILES):
+    """The ONE effort validator, called by both halves — same reason `validate` is, and one more:
+    a rung is only meaningful against a PROFILE, so it is checked against the profile this same
+    request is switching TO, never against the one in force."""
+    if rung is None:
+        return None
+    if not isinstance(rung, int) or isinstance(rung, bool) or rung < 1:
+        raise Refusal(f"effort must be an integer rung >= 1 (rung 1 = lowest reasoning), got {rung!r}")
+    ladder = effort_ladder(profile, profiles_path)
+    if ladder is None:
+        raise Refusal(f"`{profile}` declares no `effort:` block in {profiles_path}, so it cannot "
+                      f"translate a rung. Omit the effort: the harness runs its own default.")
+    if ladder == []:
+        return rung                     # inert — accepted and reported, never silently dropped
+    if rung > len(ladder):
+        raise Refusal(f"effort {rung} is outside `{profile}`'s range 1..{len(ladder)} "
+                      f"({', '.join(f'{i + 1}={v}' for i, v in enumerate(ladder))}). Every harness "
+                      f"declares its OWN ladder, so a rung that is valid on one profile is not on "
+                      f"another — refused HERE because out of range does not fail at the bridge, "
+                      f"it fails at the spawn, one owner message later.")
+    return rung
+
+
+def ladders(profiles_path=DEFAULT_PROFILES):
+    """Every profile with what may be asked of it — what `show` prints so nobody has to guess N."""
+    out = {}
+    for name in known_profiles(profiles_path):
+        ladder = effort_ladder(name, profiles_path)
+        out[name] = ("no effort block — omit the rung" if ladder is None
+                     else "inert (accepts any rung, applies none — G-270)" if ladder == []
+                     else f"1..{len(ladder)} ({', '.join(f'{i + 1}={v}' for i, v in enumerate(ladder))})")
+    return out
+
+
 # ───────────────────────────────────────────────────────────────── the targeted JSON edit
 #
 # ⚠ A LINE EDIT, NOT A json.load/json.dump ROUND TRIP. The live file is hand-authored with
@@ -172,25 +250,34 @@ def validate(name, profiles_path=DEFAULT_PROFILES):
 # that are the value.
 
 _LINE = re.compile(r'^(\s*"%s"\s*:\s*)"([^"]*)"(\s*,?\s*)$' % KEY)
+_ELINE = re.compile(r'^(\s*"%s"\s*:\s*)(-?\d+)(\s*,?\s*)$' % EFFORT_KEY)
 
 
 def read_value(config=DEFAULT_CONFIG):
     """The value in force and where it comes from. Pure read — safe from inside the cage."""
     config = Path(config)
     lines = config.read_text(encoding="utf-8").splitlines(keepends=True)
+    effort, effort_line = None, None
+    for i, ln in enumerate(lines):
+        e = _ELINE.match(ln.rstrip("\n"))
+        if e:
+            effort, effort_line = int(e.group(2)), i + 1
     for i, ln in enumerate(lines):
         m = _LINE.match(ln.rstrip("\n"))
         if m:
             return {"profile": m.group(2), "source": "explicit", "config": str(config),
-                    "line": i + 1,
+                    "line": i + 1, "effort": effort, "effort-line": effort_line,
                     "where": f"{config}:{i + 1} — the `{KEY}` field, read at boot by "
                              f"bridges/chat/config.js and selected for master (DM) traffic by "
-                             f"forward-path.js#profileFor"}
+                             f"forward-path.js#profileFor"
+                             + (f"; `{EFFORT_KEY}` = rung {effort} at :{effort_line}, paired with it "
+                                f"by forward-path.js#effortFor" if effort is not None
+                                else f"; no `{EFFORT_KEY}` — the harness runs its own default")}
     # No key: `profileFor` falls through to `session_profile`. Say so with the value, because
     # "absent" alone leaves the reader to guess what the master is actually running on.
     doc = json.loads(config.read_text(encoding="utf-8"))
     return {"profile": doc.get("session_profile"), "source": "session_profile-fallback",
-            "config": str(config), "line": None,
+            "config": str(config), "line": None, "effort": effort, "effort-line": effort_line,
             "where": f"`{KEY}` is ABSENT from {config}, so forward-path.js#profileFor "
                      f"(`config.masterProfile || config.sessionProfile`) falls back to "
                      f"`session_profile`"}
@@ -218,6 +305,59 @@ def write_value(config, name):
                   f"`session_profile` by fallback, and creating the key would split the two "
                   f"surfaces apart — a configuration decision, not a value change. Add "
                   f"`\"{KEY}\": \"<profile>\"` to that file by hand first; this tool then owns it.")
+
+
+def write_effort(config, rung):
+    """Set, replace or REMOVE the `master_effort` line. Unlike `write_value` this one may CREATE
+    its key — and the asymmetry is not an oversight. An absent `master_profile` is a live
+    configuration choice (master traffic riding `session_profile` by fallback), so minting it would
+    decide something nobody decided; an absent `master_effort` has no such second meaning — it is
+    simply "harness default" — and a knob that can be turned up but never down is worse than none.
+
+    ⚠ THE RESULT IS PARSED BEFORE IT IS COMMITTED. This is a line edit into a hand-authored
+    document (same reason as `write_value`), and inserting or deleting a line is where a line edit
+    can produce invalid JSON — a trailing comma before `}`. `json.loads` on the composed text is
+    the cheapest possible proof that it did not, and it runs before `os.replace` touches anything.
+    """
+    config = Path(config)
+    lines = config.read_text(encoding="utf-8").splitlines(keepends=True)
+    previous, at = None, None
+    for i, ln in enumerate(lines):
+        m = _ELINE.match(ln.rstrip("\n"))
+        if m:
+            previous, at = int(m.group(2)), i
+            break
+
+    if rung is None:
+        if at is None:
+            return {"action": "absent", "previous": None, "effort": None}
+        del lines[at]
+        action = "removed"
+    elif at is not None:
+        lines[at] = f'{_ELINE.match(lines[at].rstrip(chr(10))).group(1)}{rung}{_ELINE.match(lines[at].rstrip(chr(10))).group(3)}\n'
+        action = "updated"
+    else:
+        # Inserted directly BELOW `master_profile`, whose indentation and trailing comma it copies:
+        # the two are one setting in two fields and a reader diffs them together.
+        host = next((i for i, ln in enumerate(lines) if _LINE.match(ln.rstrip("\n"))), None)
+        if host is None:
+            raise Refusal(f"{config} carries no `{KEY}` field to pair an effort with — set the "
+                          f"profile first (this tool refuses to create that key; see write_value).")
+        m = _LINE.match(lines[host].rstrip("\n"))
+        indent = m.group(1)[:len(m.group(1)) - len(m.group(1).lstrip())]
+        lines.insert(host + 1, f'{indent}"{EFFORT_KEY}": {rung},\n')
+        action = "created"
+
+    text = "".join(lines)
+    try:
+        json.loads(text)
+    except Exception as exc:
+        raise Refusal(f"the composed {config} is not valid JSON after the `{EFFORT_KEY}` edit "
+                      f"({type(exc).__name__}: {exc}) — NOTHING was written")
+    tmp = config.with_name(config.name + f".master-effort.{os.getpid()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, config)
+    return {"action": action, "previous": previous, "effort": rung}
 
 
 # ────────────────────────────────────── the self-report back into the owner's own chat thread
@@ -291,7 +431,19 @@ def _report_body(record, restart):
         line = (f"restarting `{RESTART_UNIT}` now — the last act of this job, and it ends this sitting"
                 if restart else
                 f"SKIPPED (--no-restart) — the change stays inert until `{RESTART_UNIT}` restarts")
+        eff = record.get("effort-change") or {}
+        rung = record.get("requested-effort")
+        if rung is None:
+            effort_line = "effort: harness default (no rung set)"
+        elif record.get("effort-inert"):
+            effort_line = (f"effort: rung {rung} recorded, but `{record['requested']}` has NO dial "
+                           f"(inert) — it will apply nothing")
+        else:
+            effort_line = f"effort: rung {rung} of `{record['requested']}`'s ladder ({record.get('effort-ladder')})"
+        if eff.get("previous") is not None and eff.get("previous") != rung:
+            effort_line += f"  (was rung {eff['previous']})"
         return (f"*master profile changed* — `{change.get('previous')}` → `{record['requested']}`\n"
+                f"{effort_line}\n"
                 f"restart: {line}\n"
                 f"scope: applies to NEW threads only — this thread stays on its current profile")
     return (f"*master profile change REFUSED* — still `{record['before']['profile']}`\n"
@@ -302,8 +454,9 @@ def _report_body(record, restart):
 # ─────────────────────────────────────────────────────────────────────────── the client half
 
 def request(inbox, name, ignite_bin, profiles_path=DEFAULT_PROFILES, job_id=JOB_ID, dry_run=False,
-            chat_thread=None):
+            chat_thread=None, effort=None):
     validate(name, profiles_path)
+    validate_effort(name, effort, profiles_path)     # against the TARGET profile, not the one in force
     if chat_thread is not None:
         validate_chat_thread(chat_thread)
     inbox = Path(inbox)
@@ -312,6 +465,8 @@ def request(inbox, name, ignite_bin, profiles_path=DEFAULT_PROFILES, job_id=JOB_
     inbox.mkdir(parents=True, exist_ok=True)
     staged = inbox / f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.json"
     payload = {"master-profile": name}
+    if effort is not None:
+        payload["effort"] = effort
     if chat_thread:
         payload["chat-thread"] = chat_thread
     out = {"ok": True, "staged": str(staged), **payload}
@@ -388,9 +543,10 @@ def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=F
         try:
             payload = json.loads(src.read_text(encoding="utf-8"))
             if (not isinstance(payload, dict) or "master-profile" not in payload
-                    or not set(payload) <= {"master-profile", "chat-thread"}):
+                    or not set(payload) <= {"master-profile", "chat-thread", "effort"}):
                 raise Refusal(f"the payload must be {{\"master-profile\": \"<name>\"}} with an "
-                              f"optional \"chat-thread\": \"<channel>:<ts>\"; "
+                              f"optional \"effort\": <rung> and an optional "
+                              f"\"chat-thread\": \"<channel>:<ts>\"; "
                               f"got keys {sorted(payload) if isinstance(payload, dict) else type(payload).__name__}")
             # READ BEFORE THE VALUE IS VALIDATED, so a REFUSED request still knows where to report
             # itself. A malformed token refuses the request instead of being reported into nowhere.
@@ -398,8 +554,19 @@ def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=F
                 record["chat-thread"] = validate_chat_thread(payload["chat-thread"])
             name = validate(payload["master-profile"], profiles_path)
             record["requested"] = name
+            # Client-side validation is not validation: the payload is written by the requester and
+            # can be edited between staging and the fire. Re-checked here against the SAME target.
+            rung = validate_effort(name, payload.get("effort"), profiles_path)
+            ladder = effort_ladder(name, profiles_path)
+            record["requested-effort"] = rung
+            record["effort-inert"] = ladder == []
+            record["effort-ladder"] = (None if not ladder else
+                                       ", ".join(f"{i + 1}={v}" for i, v in enumerate(ladder)))
             if not dry_run:
                 record["change"] = write_value(config, name)
+                # ⚠ THE PAIR IS WRITTEN TOGETHER AND AN OMITTED RUNG CLEARS THE OLD ONE — see the
+                # module docstring: a rung outliving its profile refuses at the spawn, not here.
+                record["effort-change"] = write_effort(config, rung)
             verdict = "ACCEPTED"
             accepted.append(name)
         except Refusal as exc:
@@ -444,8 +611,9 @@ def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=F
 def main(argv=None):
     p = argparse.ArgumentParser(
         prog="rbtv-master-profile",
-        description="read and change which harness+model the channel master's next sitting runs "
-                    "on — the `master_profile` field of .rbtv/config/chat-bridge-config.json")
+        description="read and change which harness+model — and at which reasoning RUNG — the "
+                    "channel master's next sitting runs on: the `master_profile` and "
+                    "`master_effort` fields of .rbtv/config/chat-bridge-config.json")
     # ⚠ THE OPTIONS HANG OFF THE VERBS, NOT OFF THE ROOT PARSER — a FIX, not a style call. As root
     # options argparse accepts them only BEFORE the verb, while the `tools:` entry and every
     # documented example spell them after (`apply --inbox … --config X --profiles Y`). The twin
@@ -469,6 +637,11 @@ def main(argv=None):
                        help="[the seat's verb] stage a change and enqueue the daemon "
                             "job that applies it")
     q.add_argument("profile")
+    q.add_argument("--effort", type=int, default=None,
+                   help="the reasoning RUNG for the NEW profile: an integer 1..N in that profile's "
+                        "own ladder, 1 = lowest reasoning. `show` prints every profile's N. OMIT IT "
+                        "and the harness default is used — and any rung currently set is CLEARED, "
+                        "because a rung is only meaningful against the profile it was chosen for.")
     q.add_argument("--inbox", required=True)
     q.add_argument("--ignite-bin", default="ignite")
     q.add_argument("--chat-thread", default=None,
@@ -489,18 +662,23 @@ def main(argv=None):
         if args.verb == "show":
             v = read_value(args.config)
             v["available"] = sorted(known_profiles(args.profiles))
+            v["effort-ladders"] = ladders(args.profiles)
             if args.json:
                 print(json.dumps(v, indent=2))
             else:
                 print(f"master_profile: {v['profile']}  ({v['source']})")
+                print(f"master_effort:  {v['effort'] if v['effort'] is not None else 'unset (harness default)'}"
+                      f"   [{v['effort-ladders'].get(v['profile'], 'unknown profile')}]")
                 print(f"from: {v['where']}")
-                print(f"available: {', '.join(v['available'])}")
+                print("available (profile — effort rungs you may ask for):")
+                for n in v["available"]:
+                    print(f"  {n}: {v['effort-ladders'][n]}")
                 print("boot-read: a change needs an `rbtv-chat-bridge` restart to take effect, "
                       "and that restart ends the live chat session")
             return 0
         if args.verb == "request":
             out = request(args.inbox, args.profile, args.ignite_bin, profiles_path=args.profiles,
-                          dry_run=args.dry_run, chat_thread=args.chat_thread)
+                          dry_run=args.dry_run, chat_thread=args.chat_thread, effort=args.effort)
             print(json.dumps(out, indent=2))
             return 0 if out["ok"] else 1
         out = apply(args.inbox, args.config, profiles_path=args.profiles,

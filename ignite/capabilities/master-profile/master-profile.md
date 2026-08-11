@@ -21,31 +21,71 @@ NAME from `profiles:` in `config/spawn-profiles.yaml`; today's live set is fourt
 `opencode-*` set · `test-sleep`), and `show` prints it rather than restating it here, because a
 roster written into a document goes stale silently.
 
-## ⚠ There is no `--effort` flag, and that is a MEASUREMENT, not an oversight
+## The effort rung — a wall until 2026-08-11, built since
 
-The question was asked directly and traced end to end (2026-08-10). **Reasoning effort is not
-carried on the master-sitting spawn path**, at three independent points:
+⚠ **THIS SECTION REPLACES A REFUSAL, AND THE REFUSAL WAS RIGHT WHEN IT WAS WRITTEN.** Until
+2026-08-11 this document carried a measured trace ending *"shipping `--effort` here would have
+written a value nothing reads — a knob that turns and does nothing"*. Every line of that trace was
+true at its HEAD: `forward-path.js` composed `args: {profile, prompt}`; the `chat-agent` job's
+registered `args_schema` admitted no `effort` and `register-job` is create-only, so it could not be
+widened; `ticker.js#launchAgent` read three arg keys and called a seven-parameter `spawn(...)`; and
+the profiles' `effort:` tables had, in `dispatch.js`'s own words, **"NO daemon caller today"**.
 
-| Where | What was found |
+Owner ruling **`d-0811lp-effort-lane-build-now`** (run `exec-0811-live-proofs`) ruled the LANE
+built rather than the knob dropped, explicitly overriding that reservation. What changed, in order:
+
+| Link | What it does now |
 |---|---|
-| `bridges/chat/forward-path.js` | the session-create enqueue is composed as `args: { profile, prompt }` — no effort key. The `chat-agent` job's registered `args_schema` is `{required:{profile}, optional:{prompt, workdir}}`, so a row carrying one would be **refused at the enqueue door** — and `register-job` is create-only, so that schema cannot be widened in place |
-| `server/ticker/ticker.js#launchAgent` | reads exactly `args.profile` / `args.prompt` / `args.workdir`, then calls `spawnManager.spawn(execId, profileName, sessionMode, prompt, workdir, enqueuedBy, resumeRef)` — a seven-parameter signature with **no effort parameter at all** |
-| the `effort:` block each profile declares | consumed only by `launch-profiles/resolveProfile`. `server/internal-api/dispatch.js` states its own status verbatim: `E_UNKNOWN_EFFORT` is *"raised only inside resolveProfile (the effort translation table), which has **NO daemon caller today**"*. `server/spawn/spawn.js` resolves `exec.argv` directly and never appends the effort argv |
+| `bridges/chat/config.js` | reads `master_effort` (integer, shape-checked at boot) |
+| `bridges/chat/forward-path.js#effortFor` | pairs it with the **master** profile and puts it in the enqueue `args` (goal/agent traffic carries none) |
+| the catalogue job id | a **new** id whose `args_schema` declares `"effort": "integer"`, named by `session_job_id`. Registration is create-only, so the old id could not be widened — it stays registered and still refuses, retired in place |
+| `server/ticker/ticker.js#launchAgent` | reads `args.effort`, passes it to `spawnManager.spawn(...)` |
+| `server/spawn/spawn.js#composeArgv` | composes it through `resolveEffort()` — the **same** function `launch-profiles/resolveProfile` calls, never a second reading of the table |
 
-So the dial exists in the config vocabulary and is **not connected**. Shipping `--effort` here would
-have written a value nothing reads — a knob that turns and does nothing, which is worse than no
-knob. Wiring it is a daemon change (tasks 7.43 / 7.54, both unbuilt), not a tool change.
+`dispatch.js`'s five "re-rule at 7.43/7.54" notes are now four: `E_UNKNOWN_EFFORT` is re-ruled and
+raised live. **Half selection is still refused** (G-144) and still belongs to 7.43/7.54 — the
+effort ladder was separable from it, which is why this could ship without that refactor.
 
-What the master CAN change today is the profile, and a profile pins its model (`--model` is in every
-`exec`/`resume` argv, and `headed.tui` pins it too since `d-s21-headed-tui-pins-model`).
+## ⚠ What a rung IS — a number, 1..N, in **that profile's** ladder
+
+Owner ruling **`d-0811lp-effort-numeric-per-profile`**: *"use N levels (1-N), from lower to higher
+reasoning. this way each harness/model can have as many as they want."* Rung 1 is the lowest
+reasoning, rung N the highest, and **N differs per profile** because each harness's real dial does:
+
+| Profile | Ladder | Mechanism |
+|---|---|---|
+| `claude-fable` · `claude-opus` · `claude-sonnet` | 1..5 — low · medium · high · xhigh · max | `--effort <level>` |
+| `codex-gpt-5-5` | 1..3 — low · medium · high | `-c model_reasoning_effort=<level>` |
+| `kimi` | 1..2 — `--no-thinking` · `--thinking` | the rung IS the flag |
+| `claude-haiku`, every `opencode-*`, `test-sleep` | **inert** | no dial exists — measured, not assumed |
+
+- **Out of range is refused, loudly, naming the range** — at `request`, again at `apply`, and again
+  at the spawn. A rung is only meaningful against a profile, so it is always checked against the
+  profile the request is switching **to**, never the one in force.
+- **An inert profile ACCEPTS a rung and applies none** (G-270), and says so. So a rung set while
+  the master runs on `claude-haiku` visibly does nothing — the honest report, not a defect.
+- **No rung at all = the harness default**, which is exactly the behaviour before this existed.
+- `show` prints every profile's ladder, so nobody has to know N out of band.
+
+## ⚠ The rung is written WITH the profile, and an omitted rung CLEARS the old one
+
+`request claude-opus --effort 4` writes both fields. `request codex-gpt-5-5` — no `--effort` —
+writes the profile and **removes** `master_effort`. That is not tidiness: rung 4 chosen for a
+five-rung harness, left behind across a switch to a three-rung one, passes every door in this tool
+and then **refuses at the spawn**, one owner message later — the exact failure the profile-name
+validation exists to prevent, one field over.
+
+(`master_profile` itself is still never *created* by this tool — see below. `master_effort` is,
+because an absent `master_effort` has no second meaning: it is simply "harness default", and a knob
+that can be turned up but never down is worse than no knob.)
 
 ## The three verbs
 
 | Verb | What it does | Who runs it |
 |---|---|---|
-| `show [--json]` | the profile in force, whether it is explicit or the `session_profile` fallback, the exact `file:line`, and the **names that may be requested** | anyone, including a caged seat |
-| `request <profile> --inbox D [--chat-thread C:TS]` | validate against the live roster → stage `{"master-profile": "<name>"}` (plus the thread id when given) → `ignite add-job` | **the seat** |
-| `apply --inbox D --config F --profiles P [--no-restart]` | drain, edit the JSON, record the outcome, **report into the requester's chat thread**, restart `rbtv-chat-bridge` LAST | **the daemon**, via `tools: master-profile` |
+| `show [--json]` | the profile **and rung** in force, whether the profile is explicit or the `session_profile` fallback, the exact `file:line`, and **every profile with the rungs it admits** | anyone, including a caged seat |
+| `request <profile> [--effort N] --inbox D [--chat-thread C:TS]` | validate the name against the live roster **and the rung against that profile's ladder** → stage `{"master-profile": …, "effort": N}` (plus the thread id when given) → `ignite add-job` | **the seat** |
+| `apply --inbox D --config F --profiles P [--no-restart]` | drain, re-validate, edit **both** JSON fields, record the outcome, **report into the requester's chat thread**, restart `rbtv-chat-bridge` LAST | **the daemon**, via `tools: master-profile` |
 
 Exit 0 when everything drained was accepted (or the inbox was empty), 1 otherwise.
 
@@ -131,9 +171,11 @@ must ride in the row's body for the ferry to route on it. It sits on the last li
 # what is it now, and what may I ask for?
 .../capabilities/master-profile/tool/rbtv-master-profile show
 
-# change it (validates against the live roster, stages, enqueues — one command)
+# change it (validates name AND rung against the live config, stages, enqueues — one command)
 # `--chat-thread` is YOUR thread: the plain `chat-thread:` line at the top of your prompt.
-.../capabilities/master-profile/tool/rbtv-master-profile request claude-opus \
+# `--effort` is OPTIONAL: omit it for the harness default — and note that omitting it CLEARS any
+# rung currently set, because a rung belongs to the profile it was chosen for.
+.../capabilities/master-profile/tool/rbtv-master-profile request claude-opus --effort 4 \
   --chat-thread C0ABCDEFG:1754812345.123456 \
   --inbox /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/settings-requests/master-profile
 
@@ -169,4 +211,17 @@ parses it (fields by key) with the bracketed token, the old→new line and the s
 newline; the restart stub's **snapshot of the bus** already holds that row (report precedes restart);
 an untokened request appends nothing; a refused one reports its refusal. The fixture's inbox has the
 real `<goal>/settings-requests/<capability>` shape, because that is what the bus path is derived
-from — and it keeps the probe off the live bus.
+from — and it keeps the probe off the live bus. Check 10 covers the effort rung end to end: the
+ladders are read off the LIVE `spawn-profiles.yaml` per profile; `request --effort` stages the rung
+and `apply` writes `master_effort` beside `master_profile` **in the file**, read back off the file
+rather than off the record; the SAME rung is refused on a shorter-laddered profile and accepted on a
+longer one, which is what proves the range is the profile's and not a global ceiling; an inert
+profile accepts it and records `effort-inert`; and a switch with no rung clears the stale one. Check
+10b proves a refused rung rides the SAME `[deliver: wake]` outcome mapping check 9c proves for a
+refused profile name — one outcome path, not a second.
+
+The daemon side of the lane has its own probe, `server/spawn/probes/probe-effort-lane.js`: the
+composer applies a rung on three differently-spelled harnesses, refuses out of range naming it,
+leaves an inert profile's argv byte-identical, is byte-identical again when no rung is asked for,
+and — the control that matters — shows the pre-ruling `args_schema` shape STILL refusing `effort`
+with `unknown argument: effort` while the new one admits it.

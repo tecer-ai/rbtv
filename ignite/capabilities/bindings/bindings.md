@@ -72,13 +72,23 @@ can never disagree. It is composed from exactly two measured sources:
    is a MEASUREMENT under G-270 (*"a harness whose dial does not exist says so"*), so an inert
    profile has no dial and refuses any effort number.
 
-…and the **levels** of a dial that exists are the harness's NATIVE ladder, not the profile's
-`effort.values` table. Those are different objects: the table maps the daemon lane's four ABSTRACT
-levels onto harness strings, while a bindings value is passed to the harness LITERALLY
-(`coord.py#harness_command`: `claude --model {model} --effort {effort}`). claude's literal ladder is
-five rungs (`claude --help`: *"low, medium, high, xhigh, max"*; same five in
-`orchestration/models/claude-code-cli/manifest.yaml`), and binding through the four-rung translation
-table would make `xhigh` unspellable on a dial that has it.
+…and the **levels** of a dial that exists are the harness's NATIVE ladder. A bindings value is
+passed to the harness LITERALLY (`coord.py#harness_command`: `claude --model {model} --effort
+{effort}`); claude's literal ladder is five rungs (`claude --help`: *"low, medium, high, xhigh,
+max"*; same five in `orchestration/models/claude-code-cli/manifest.yaml`).
+
+⚠ **This used to say the profile's `effort.values` table was a different object** — four abstract
+levels mapped onto harness strings, through which `xhigh` was unspellable. **That table is gone.**
+Owner ruling `d-0811lp-effort-numeric-per-profile` (2026-08-11) replaced it with a per-profile
+ordered `effort.rungs` list, 1..N, and the claude profiles now declare the same five strings in the
+same order as `NATIVE_EFFORT["claude"]`; codex (3) and kimi (2) match their entries too. So
+`NATIVE_EFFORT` and the profiles' `rungs:` are now **two copies of one fact**, and this tool's
+1-based `<effort-number>` is the same numbering as the daemon lane's rung.
+
+**Collapsing them is a follow-up, deliberately not done with that ruling:** kimi's two lanes still
+store different literals (`no-think`/`think` here vs `--no-thinking`/`--thinking` in the daemon
+argv), so the merge needs that reconciled first. Until then, a change to either ladder must be made
+in both.
 
 Every row is finally passed through **`coord.py#validate_seat`** — the same predicate
 `materialize-seats.py`'s F6 gate imports for the whole batch before any write. A profile that

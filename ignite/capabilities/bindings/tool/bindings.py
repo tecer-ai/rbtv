@@ -52,12 +52,23 @@ disagree. It is composed from exactly two measured sources, and nothing else:
      profile has NO dial here and refuses any effort number.
 
   …and the LEVELS of a dial that exists come from the harness's NATIVE ladder (`NATIVE_EFFORT`
-  below), NOT from the profile's `effort.values` table. Those are different objects: the table maps
-  the daemon lane's four ABSTRACT levels onto harness strings, while the value a bindings file
-  stores is passed to the harness LITERALLY (`coord.py#harness_command`: `claude --model {model}
-  --effort {effort}`). claude's literal ladder is five rungs (`claude --help`: "low, medium, high,
-  xhigh, max"), and binding through the four-rung translation table would make `xhigh` unspellable
-  on a dial that has it.
+  below). A bindings value is passed to the harness LITERALLY (`coord.py#harness_command`:
+  `claude --model {model} --effort {effort}`), and claude's literal ladder is five rungs
+  (`claude --help`: "low, medium, high, xhigh, max").
+
+  ⚠ THE REASON THIS PARAGRAPH EXISTED HAS EXPIRED, AND THE DUPLICATION IT DESCRIBES HAS NOT.
+  It used to say the profile's `effort.values` table was a DIFFERENT object — "the daemon lane's
+  four ABSTRACT levels onto harness strings" — so binding through it would make `xhigh`
+  unspellable. That table is GONE: owner ruling `d-0811lp-effort-numeric-per-profile` (2026-08-11)
+  replaced it with a per-profile ORDERED `effort.rungs` list, 1..N, and the claude profiles now
+  declare exactly `[low, medium, high, xhigh, max]` — the SAME five, in the SAME order, as
+  `NATIVE_EFFORT["claude"]` below. Codex (3) and kimi (2) match their entries too.
+  ⇒ So `NATIVE_EFFORT` and the profiles' `rungs:` are now TWO COPIES OF ONE FACT, and this file's
+  1-based `<effort-number>` and the daemon lane's rung are the SAME numbering. Collapsing them —
+  reading the ladder off `spawn-profiles.yaml` and deleting `NATIVE_EFFORT` — is a FOLLOW-UP, not
+  done here: kimi's two lanes still store different literals (`no-think`/`think` for the tmux lane
+  vs `--no-thinking`/`--thinking` for the daemon argv), so the merge needs that reconciled first.
+  Until then, a change to either ladder MUST be made in both.
 
 Every catalog row is finally passed through `coord.py#validate_seat` — the SAME predicate
 `materialize-seats.py` applies to the whole batch before any write (its F6 gate, which imports it

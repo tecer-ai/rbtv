@@ -113,6 +113,20 @@ function resolveConfig(overrides = {}) {
   const channelPrefix =
     overrides.channelPrefix || file.channel_prefix || 'goal-';
   const masterProfile = overrides.masterProfile || file.master_profile || null;
+  // `master_effort` — the reasoning RUNG the master's DM sittings launch at (owner ruling
+  // `d-0811lp-effort-lane-build-now` + `d-0811lp-effort-numeric-per-profile`, 2026-08-11). A
+  // 1-based integer in the ladder `master_profile` declares in spawn-profiles.yaml; ABSENT means
+  // the harness default, which is exactly the behaviour every deployment had before this key.
+  // ⚠ NOT RANGE-CHECKED HERE, deliberately: a range belongs to a PROFILE, and this file may not
+  // read spawn-profiles.yaml. `master_profile.py` checks it against the target profile at request
+  // AND at apply, and `resolveEffort` refuses it again at the spawn — three doors, one ladder.
+  // What IS checked here is the shape, because a non-integer would be refused by the enqueue door
+  // one owner message later, with the sitting already accounted for.
+  const masterEffort = overrides.masterEffort != null ? overrides.masterEffort
+    : (file.master_effort != null ? file.master_effort : null);
+  if (masterEffort !== null && (!Number.isInteger(masterEffort) || masterEffort < 1)) {
+    throw new Error(`chat-bridge master_effort must be an integer rung >= 1, got: ${JSON.stringify(masterEffort)}`);
+  }
   const goalProfile = overrides.goalProfile || file.goal_profile || null;
 
   // Conversation state across restarts (chat-bridge.js § persistence). NON-SECRET
@@ -174,6 +188,7 @@ function resolveConfig(overrides = {}) {
     workspaceRoot,
     channelPrefix,
     masterProfile,
+    masterEffort,
     goalProfile,
     stateFile,
     busFerry,

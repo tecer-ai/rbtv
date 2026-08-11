@@ -653,6 +653,12 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     const profileName = args.profile;
     const prompt = args.prompt ?? null;
     const workdir = args.workdir ?? null;
+    // The reasoning RUNG this row asks for (owner ruling `d-0811lp-effort-lane-build-now`,
+    // 2026-08-11). Read here and passed straight through — the ticker validates nothing about it:
+    // the enqueue door already type-checked it against the job's `args_schema`, and WHAT a rung
+    // MEANS is the profile's ladder, read once in `resolveEffort`. Absent ⇒ harness default, which
+    // is every row enqueued before this lane existed.
+    const effort = args.effort ?? null;
 
     if (parentExecId) {
       const thread = chainThread(parentExecId);
@@ -758,8 +764,9 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         // Task 7.12 — resolved INSIDE the try so a homed job whose seat cannot be resolved fails
         // loud against this exec's own jobs_log row (see resolveJobHome above).
         const homedWorkdir = resolveJobHome(queueRow, workdir);
-        await spawnManager.spawn(exec.exec_id, profileName, queueRow.session_mode, attempt.prompt, homedWorkdir, queueRow.enqueued_by, attempt.ref);
+        await spawnManager.spawn(exec.exec_id, profileName, queueRow.session_mode, attempt.prompt, homedWorkdir, queueRow.enqueued_by, attempt.ref, effort);
         const spawnAction = { phase: 'dispatch', action: 'spawn', execId: exec.exec_id, queueId: queueRow.queue_id, profile: profileName, thread: exec.thread };
+        if (effort !== null) spawnAction.effort = effort;
         if (homedWorkdir !== workdir) spawnAction.homed = homedWorkdir;
         if (compactTurn) spawnAction.compact = true;
         if (attempt.path) { spawnAction.chain = attempt.path; spawnAction.chainReason = attempt.reason; }

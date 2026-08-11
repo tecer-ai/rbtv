@@ -40,6 +40,16 @@ live conversation — a probe may not cost that.
      from restart-then-report; a request with NO token appends nothing at all; and a REFUSED
      request with a token reports its refusal, because "your switch did not happen, and here is
      why" is the answer the owner is owed most.
+ 10. THE EFFORT RUNG RIDES WITH THE PROFILE, END TO END (owner rulings
+     `d-0811lp-effort-lane-build-now` + `d-0811lp-effort-numeric-per-profile`, 2026-08-11):
+     `request --effort` stages the rung, `apply` writes `master_effort` beside `master_profile` in
+     the COPY and `show`/`read_value` read it back OFF THE FILE; a rung outside the TARGET
+     profile's own ladder is refused at BOTH halves with the range named; a rung valid on one
+     profile and invalid on another proves the range is the profile's, not a global ceiling; an
+     INERT profile ACCEPTS the rung and says so (G-270); and an omitted rung CLEARS a stale one,
+     because a rung outliving its profile would pass every door here and refuse at the SPAWN. The
+     refused-effort outcome rides the SAME `[deliver: wake]` mapping check 9c proves for a refused
+     profile name — one outcome path, not a second.
 """
 
 import hashlib
@@ -454,6 +464,101 @@ def main():
         check(bool(rows) and "[deliver: wake]" in rows[0]["body"],
               "and a REFUSED outcome asks to WAKE an agent — the refusal needs follow-up "
               "(owner ruling 2026-08-10: post always, wake when agent action is needed)")
+
+    # ── 10 THE EFFORT RUNG ────────────────────────────────────────────────────────────────
+    #
+    # ⚠ EVERY ASSERTION READS THE FILE, NEVER THE RECORD. `apply`'s return value is the tool's own
+    # account of what it did; the bridge boot-reads the FILE. Check 1 draws that line for the
+    # profile field and this leg holds it for the rung — a write that returned "created" and left
+    # the file untouched is exactly the failure both are here to catch.
+    print("check 10 — the effort RUNG: staged, written beside the profile, and range-checked "
+          "against the profile it is FOR")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        inbox = tmp / "goal" / "settings-requests" / "master-profile"
+        bus = tmp / "goal" / "coordination" / "messages.md"
+        cfg = tmp / "chat-bridge-config.json"
+        shutil.copy2(LIVE_CONFIG, cfg)
+        stub, rec, snap = stub_operator(tmp, cfg, bus=bus)
+        mod.DAEMON_OPERATOR = stub
+
+        # (a) the ladders come off the LIVE spawn-profiles document, not a list retyped here — the
+        #     same discipline check 4 applies to the profile roster, and for the same reason.
+        claude = mod.effort_ladder("claude-opus", LIVE_PROFILES)
+        codex = mod.effort_ladder("codex-gpt-5-5", LIVE_PROFILES)
+        haiku = mod.effort_ladder("claude-haiku", LIVE_PROFILES)
+        check(isinstance(claude, list) and len(claude) >= 4 and haiku == [],
+              f"the live ladders are read per profile (claude={claude}, haiku inert={haiku == []})")
+
+        # (b) staged, then applied — and read back OFF THE FILE.
+        out = mod.request(inbox, "claude-opus", "/bin/true", profiles_path=LIVE_PROFILES,
+                          effort=len(claude))
+        staged = json.loads(Path(out["staged"]).read_text())
+        check(staged.get("effort") == len(claude),
+              f"request --effort stages the rung in the payload (got {staged.get('effort')!r})")
+        mod.apply(inbox, cfg, profiles_path=LIVE_PROFILES)
+        on_disk = json.loads(cfg.read_text(encoding="utf-8"))
+        check(on_disk.get("master_effort") == len(claude)
+              and on_disk.get("master_profile") == "claude-opus",
+              f"the FILE carries master_profile+master_effort as a pair "
+              f"({on_disk.get('master_profile')!r}, {on_disk.get('master_effort')!r})")
+        check(mod.read_value(cfg)["effort"] == len(claude),
+              "and read_value reports the rung back, so `show` can print what is in force")
+
+        # (c) THE RANGE IS THE PROFILE'S, NOT A CEILING. The SAME rung that just succeeded on
+        #     claude is refused on codex — which is the whole content of the numeric-rung ruling.
+        #     A global ceiling passes (b) and fails here.
+        over = len(codex) + 1
+        codex_refused = claude_ok = False
+        try:
+            mod.request(inbox, "codex-gpt-5-5", "/bin/true", profiles_path=LIVE_PROFILES, effort=over)
+        except mod.Refusal as exc:
+            codex_refused = f"1..{len(codex)}" in str(exc)
+        try:
+            mod.validate_effort("claude-opus", over, LIVE_PROFILES)
+            claude_ok = True
+        except mod.Refusal:
+            pass
+        check(codex_refused and claude_ok,
+              f"rung {over} is refused on codex NAMING 1..{len(codex)} and accepted on claude — "
+              f"the range belongs to the profile")
+
+        # (d) an INERT profile accepts the rung rather than refusing the pair (G-270).
+        stage(inbox, {"master-profile": "claude-haiku", "effort": 3})
+        out = mod.apply(inbox, cfg, profiles_path=LIVE_PROFILES)
+        r = out["results"][-1]
+        check(r["outcome"] == "ACCEPTED" and r["effort-inert"] is True
+              and json.loads(cfg.read_text())["master_effort"] == 3,
+              "an inert profile ACCEPTS the rung and records it inert — stated, never dropped")
+
+        # (e) an OMITTED rung CLEARS the stale one. Without this, a rung chosen for a 5-rung
+        #     harness survives a switch to a 3-rung one and refuses at the SPAWN, one owner
+        #     message later — the exact failure the name validation exists to prevent.
+        stage(inbox, {"master-profile": "codex-gpt-5-5"})
+        mod.apply(inbox, cfg, profiles_path=LIVE_PROFILES)
+        after = json.loads(cfg.read_text(encoding="utf-8"))
+        check("master_effort" not in after and after["master_profile"] == "codex-gpt-5-5",
+              f"a switch with no rung CLEARS the old one (keys now: {sorted(after)})")
+
+    print("check 10b — a REFUSED EFFORT rides the same [deliver: wake] outcome path as a refused name")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        inbox = tmp / "goal" / "settings-requests" / "master-profile"
+        bus = tmp / "goal" / "coordination" / "messages.md"
+        cfg = tmp / "chat-bridge-config.json"
+        shutil.copy2(LIVE_CONFIG, cfg)
+        digest = sha(cfg)
+        stub, rec, snap = stub_operator(tmp, cfg, bus=bus)
+        mod.DAEMON_OPERATOR = stub
+        over = len(mod.effort_ladder("codex-gpt-5-5", LIVE_PROFILES)) + 1
+        stage(inbox, {"master-profile": "codex-gpt-5-5", "effort": over, "chat-thread": THREAD})
+        out = mod.apply(inbox, cfg, profiles_path=LIVE_PROFILES)
+        rows = bus_rows(bus)
+        check(out["ok"] is False and sha(cfg) == digest and not rec.exists(),
+              "an out-of-range rung refuses the WHOLE request — config byte-identical, no restart")
+        check(len(rows) == 1 and "[deliver: wake]" in rows[0]["body"]
+              and "REFUSED" in rows[0]["body"],
+              f"and it wakes an agent on the thread through the ONE outcome mapping (got {len(rows)} row(s))")
 
     if inoperative:
         print(f"probe-master-profile: INOPERATIVE — {inoperative}")

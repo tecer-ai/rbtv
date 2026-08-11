@@ -218,3 +218,33 @@ Guarded by `server/spawn/probes/probe-flag-injection.js` — present / absent / 
 mutation-tested (3 mutations, 3 red). Folding it in properly means a profile-level opt-in key
 with its own validation; worth doing when a second harness gains a MEASURED equivalent, never
 on a guessed one.
+
+## Effort is a numeric rung, 1..N, per profile (2026-08-11)
+
+Owner rulings `d-0811lp-effort-numeric-per-profile` and `d-0811lp-effort-lane-build-now`
+(run `exec-0811-live-proofs`). **This replaced the four-level abstract vocabulary**
+(`low|medium|high|max` + a per-profile `values:` map) that task 7.42 shipped.
+
+| | Before (7.42) | Now |
+|---|---|---|
+| what a caller names | one of four abstract levels, closed and cross-harness | an **integer rung**, 1 = lowest reasoning, N = highest |
+| what a profile declares | `effort: { dialect, values: {low:…, medium:…, high:…, max:…}, argv }` | `effort: { dialect, rungs: [ … ordered … ], argv }` |
+| how wide the ladder is | the same four for everyone | **each profile's own N** |
+| an unknown request | a level outside the closed set | a rung outside **that profile's** 1..N, refused naming the range |
+| a harness with no dial | `effort: { inert: true }` — accept and report | unchanged (G-270) |
+| no effort at all | harness default | unchanged |
+
+**Why.** A closed cross-harness vocabulary can only be as wide as its narrowest member, or it
+mistranslates — and it did both: claude's real dial is five rungs, so `xhigh` was unspellable
+through the four-level table, and codex's is three, so `max` was silently collapsed onto `high`.
+Per-profile ladders are neither. The rung number is the ONLY thing shared across harnesses; every
+spelling is the profile's own.
+
+**The ladders in the shipped config:** claude (fable/opus/sonnet) 1..5
+`low·medium·high·xhigh·max`; codex 1..3 `low·medium·high` (carried as
+`-c model_reasoning_effort=`); kimi 1..2 `--no-thinking·--thinking` (the rung IS the flag);
+claude-haiku and the whole `opencode-*` set inert, measured.
+
+**`resolveEffort` is exported, and that is the point.** `server/spawn/spawn.js#composeArgv` calls
+it — the daemon composes its own argv (G-144 still stands, half selection is still 7.43/7.54) but
+does NOT own a second reading of the `effort:` table. One interpreter, two callers.

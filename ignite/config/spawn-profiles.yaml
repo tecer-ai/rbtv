@@ -51,6 +51,18 @@ default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every s
 #   profiles:  ONE profile per harness+model; each carries ONLY exec / headed (where the
 #              harness has a TUI) / effort / session_ref / toolset_ceiling / workdir_root.
 #              Effort, launch home and tool rights are PER-DISPATCH parameters, never identity.
+#
+# ⚑ EFFORT IS A NUMERIC RUNG, 1..N, AND EVERY PROFILE DECLARES ITS OWN LADDER (owner ruling
+# `d-0811lp-effort-numeric-per-profile`, 2026-08-11). `effort.rungs` is an ORDERED list of the
+# strings THIS harness accepts — rung 1 lowest reasoning, rung N highest — and `effort.argv` is the
+# fragment that carries the chosen one ({effort}). A rung outside 1..N is refused NAMING the range.
+# A harness with no dial declares `effort: { inert: true }`: it ACCEPTS any rung and reports
+# `effortInert` (G-270), so an absent dial is stated rather than silently dropped. Absent effort is
+# the harness default.
+#   ⚠ This REPLACED the four-level abstract vocabulary (low|medium|high|max + a `values:` map) that
+#   7.42 shipped. That scheme could only be as wide as its narrowest member: claude's fifth rung
+#   `xhigh` was unspellable and codex's `max` was silently collapsed onto `high`. The ladders below
+#   are each harness's OWN, measured — never a translation of a shared one.
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
 
 # ── THE SHARED SEAT CAGE (r-seats-only-architecture (1)) ───────────────────────────────────────
@@ -305,7 +317,7 @@ profiles:
       tui: { argv: ["claude", "--model", "claude-fable-5"] }
     effort:
       dialect: effort
-      values: { low: low, medium: medium, high: high, max: max }
+      rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
       argv: ["--effort", "{effort}"]
     session_ref: { source: assigned }
     toolset_ceiling: full
@@ -334,7 +346,7 @@ profiles:
       tui: { argv: ["claude", "--model", "claude-opus-5"] }
     effort:
       dialect: effort
-      values: { low: low, medium: medium, high: high, max: max }
+      rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
       argv: ["--effort", "{effort}"]
     session_ref: { source: assigned }
     toolset_ceiling: full
@@ -359,7 +371,7 @@ profiles:
       tui: { argv: ["claude", "--model", "claude-sonnet-5"] }
     effort:
       dialect: effort
-      values: { low: low, medium: medium, high: high, max: max }
+      rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
       argv: ["--effort", "{effort}"]
     session_ref: { source: assigned }
     toolset_ceiling: full
@@ -368,8 +380,10 @@ profiles:
   claude-haiku:
     # ⚑ `effort: { inert: true }` IS A MEASUREMENT, NOT A SHORTCUT. The claude-code-cli manifest
     # gives haiku `reasoning_modes.depths: []` / `invocation: none` — Haiku is single-mode and
-    # has no effort dial. An inert table makes the resolver ACCEPT a caller's level and report
-    # it back as `effortInert: true`; omitting the block would refuse the pair (G-270).
+    # has no effort dial. An inert table makes the resolver ACCEPT any rung and report it back as
+    # `effortInert: true`; omitting the block would refuse the pair (G-270). ⚠ SO A MASTER RUNNING
+    # ON HAIKU CARRIES AN EFFORT THAT VISIBLY DOES NOTHING — accepted, reported inert, no argv.
+    # That is the honest report, not a defect; switch to a dialed profile to move the dial.
     exec:
       argv: ["claude", "-p", "--model", "claude-haiku-4-5",
              "--session-id", "{session_ref}",
@@ -396,9 +410,13 @@ profiles:
   # `--sandbox danger-full-access` — codex's own sandbox is OFF and containment is the seat cage
   # (the D61 lineage). Model PINNED (`-m`): an unpinned profile records a mapping true on
   # one machine at one moment. Effort: codex spells the dial `thinking` and its manifest declares
-  # depths [low, medium, high] — THREE, not four; the abstract `max` maps to `high`, a LOSSY but
-  # honest collapse the resolver reports rather than silently drops. No `headed:` — the retired
-  # set never declared a codex TUI and none is verified here.
+  # depths [low, medium, high] — THREE rungs, and since the numeric-rung ruling that is simply what
+  # this profile's LADDER IS. ⚠ The note that stood here — "the abstract `max` maps to `high`, a
+  # LOSSY but honest collapse" — described the RETIRED four-level vocabulary and is gone with it:
+  # rung 3 is codex's top, and asking for rung 4 is a refusal naming 1..3, never a silent
+  # downgrade. The dial rides a `-c` config override (`codex exec --help`: "-c, --config
+  # <key=value>"), which is why the fragment is two tokens and not a flag. No `headed:` — the
+  # retired set never declared a codex TUI and none is verified here.
   # `--dangerously-bypass-hook-trust` (owner-ruled, core-build d-codex-hook-trust-bypass,
   # 2026-08-09): codex trust-gates hooks BY HASH, and seat-folder hooks.json files are derived
   # and regenerated freely, so persisted trust re-breaks on every re-materialize; daemon-fired
@@ -414,7 +432,7 @@ profiles:
       prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
     effort:
       dialect: thinking
-      values: { low: low, medium: medium, high: high, max: high }
+      rungs: [low, medium, high]                 # 1..3 — codex's own depths; there is no fourth
       argv: ["-c", "model_reasoning_effort={effort}"]
     session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
     toolset_ceiling: full
@@ -425,9 +443,12 @@ profiles:
   # the seat cage's. `--yolo` deliberately ABSENT: `--quiet` implies `--print`, which already
   # auto-approves tool calls for the invocation. ⚠ THE MODEL PIN IS THE MANIFEST'S, VERIFIED
   # AGAINST THIS BOX, NOT READ OFF IT: a machine whose kimi config does not carry this id refuses
-  # loudly at dispatch rather than silently running another model. Effort: depths [no-think,
-  # think] — a BINARY dial, not a ladder; the four abstract levels collapse two-and-two, lossy
-  # and stated rather than implied.
+  # loudly at dispatch rather than silently running another model. Effort: a BINARY dial, measured
+  # on this box 2026-08-11 (`kimi --help`: "--thinking / --no-thinking   Enable thinking"). So the
+  # ladder is TWO rungs and each rung IS the flag — the argv fragment is a bare `{effort}`.
+  # ⚠ The note that stood here ("the four abstract levels collapse two-and-two, lossy and stated")
+  # described the RETIRED four-level vocabulary. Nothing collapses now: rung 2 is kimi's top and
+  # rung 3 is a refusal naming 1..2.
 
   kimi:
     exec:
@@ -435,7 +456,7 @@ profiles:
       prompt: stdin
     effort:
       dialect: thinking-toggle
-      values: { low: "--no-thinking", medium: "--no-thinking", high: "--thinking", max: "--thinking" }
+      rungs: ["--no-thinking", "--thinking"]     # 1..2 — the rung IS the flag; the fragment is bare
       argv: ["{effort}"]
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full

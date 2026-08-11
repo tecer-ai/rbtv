@@ -177,25 +177,39 @@ check('(7) a portable-LESS profile FAILS CLOSED on a cage-less host', () => {
   return out;
 });
 
-// ── 8/9/10/11 · the effort slot, against the SHIPPED file ────────────────────────────────────
-check('(8) effort round-trips through the claude dialect', () => {
-  const r = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'high', slots: { session_ref: SESSION_REF } });
-  if (!r.argv.includes('--effort') || !r.argv.includes('high')) throw new Error(r.argv.join(' '));
-  return `dialect=${r.effort.dialect} argv-tail=${r.argv.slice(-2).join(' ')}`;
+// ── 8/9/10/11 · the effort RUNG, against the SHIPPED file ────────────────────────────────────
+// Migrated 2026-08-11 from the four-level abstract vocabulary to per-profile numeric rungs (owner
+// ruling `d-0811lp-effort-numeric-per-profile`). The legs test the SAME property they always did —
+// one caller vocabulary, each harness's own spelling — with the ladder now the profile's, not a
+// shared closed set. Leg 9b changed SUBJECT with the scheme: there is no longer a lossy collapse
+// to observe (that was the four-level table's artefact), so it now asserts what replaced it —
+// the SAME rung number renders differently per harness, and the TOP rung differs per harness.
+check('(8) a rung round-trips through the claude ladder (rung 4 = xhigh, the 5-rung dial\'s fourth)', () => {
+  const r = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 4, slots: { session_ref: SESSION_REF } });
+  if (!r.argv.includes('--effort') || !r.argv.includes('xhigh')) throw new Error(r.argv.join(' '));
+  if (r.effort.of !== 5) throw new Error(`ladder size ${r.effort.of}`);
+  return `dialect=${r.effort.dialect} rung=${r.effort.rung}/${r.effort.of} argv-tail=${r.argv.slice(-2).join(' ')}`;
 });
-check('(9) …and through a SECOND, differently-spelled dialect (codex)', () => {
-  const r = lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 'high', slots: { workdir: '/tmp' } });
+check('(9) …and through a SECOND, differently-spelled dialect (codex: a -c override, 3 rungs)', () => {
+  const r = lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 3, slots: { workdir: '/tmp' } });
   const tail = r.argv.slice(-2).join(' ');
   if (!tail.includes('model_reasoning_effort=high')) throw new Error(tail);
-  if (r.effort.dialect !== 'thinking') throw new Error(`dialect=${r.effort.dialect}`);
-  return `dialect=${r.effort.dialect} argv-tail=${tail}`;
+  if (r.effort.dialect !== 'thinking' || r.effort.of !== 3) throw new Error(`${r.effort.dialect}/${r.effort.of}`);
+  return `dialect=${r.effort.dialect} rung=${r.effort.rung}/${r.effort.of} argv-tail=${tail}`;
 });
-check('(9b) the table TRANSLATES rather than passes through (max -> high on codex [3-depth dial, lossy stated collapse], max on claude)', () => {
-  const cx = lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 'max', slots: { workdir: '/tmp' } });
-  const cl = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'max', slots: { session_ref: SESSION_REF } });
-  if (cx.effort.value !== 'high') throw new Error(`codex max -> ${cx.effort.value}`);
-  if (cl.effort.value !== 'max') throw new Error(`claude max -> ${cl.effort.value}`);
-  return 'ONE abstract level, two different rendered values — translation, not passthrough';
+check('(9b) ONE rung number, three harness spellings — and each ladder has its OWN top', () => {
+  const three = [
+    ['claude-sonnet', lp.resolveProfile(shipped, 'claude-sonnet', { effort: 2, slots: { session_ref: SESSION_REF } })],
+    ['codex-gpt-5-5', lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 2, slots: { workdir: '/tmp' } })],
+    ['kimi', lp.resolveProfile(shipped, 'kimi', { effort: 2, slots: { workdir: '/tmp' } })],
+  ];
+  const rendered = three.map(([n, r]) => `${n}:${r.effort.value}`);
+  if (rendered.join(' ') !== 'claude-sonnet:medium codex-gpt-5-5:medium kimi:--thinking') throw new Error(rendered.join(' '));
+  // The tops DIFFER — which is the whole reason the closed four-level vocabulary was retired: it
+  // could only be as wide as its narrowest member, so claude's `xhigh` was unspellable through it.
+  const tops = three.map(([n, r]) => `${n}:${r.effort.of}`).join(' ');
+  if (tops !== 'claude-sonnet:5 codex-gpt-5-5:3 kimi:2') throw new Error(tops);
+  return `${rendered.join(' ')} | ladder sizes ${tops}`;
 });
 check('(10) an INERT dial is STATED, never silently dropped', () => {
   const dir = path.dirname(fixture);
@@ -212,14 +226,24 @@ check('(10) an INERT dial is STATED, never silently dropped', () => {
       },
     },
   }));
-  const r = lp.resolveProfile(lp.loadConfig(f), 'no-dial', { effort: 'high' });
+  // An inert profile declares NO range, so ANY rung is accepted on it — including one no dialed
+  // profile in the shipped file would admit. That is the G-270 posture, not a missing bound.
+  const r = lp.resolveProfile(lp.loadConfig(f), 'no-dial', { effort: 99 });
   if (r.effortInert !== true) throw new Error('inert not reported');
   if (r.argv.length !== 2) throw new Error(`argv grew: ${r.argv.join(' ')}`);
   return 'effortInert=true reported to the caller; argv unchanged';
 });
-check('(11) an effort level outside the abstract vocabulary is refused', () => {
-  const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'turbo', slots: { session_ref: SESSION_REF } }));
-  return err.code;
+check('(11) a rung outside THIS profile\'s range is refused, and the refusal NAMES the range', () => {
+  const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 4, slots: { workdir: '/tmp' } }));
+  if (!/range 1\.\.3/.test(err.message)) throw new Error(err.message);
+  // The CONTROL that makes it a range check rather than a ceiling: the same rung composes on a
+  // profile whose ladder is longer, so nothing about "4" is refused — only "4 on codex".
+  const ok = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 4, slots: { session_ref: SESSION_REF } });
+  if (ok.effort.value !== 'xhigh') throw new Error(ok.effort.value);
+  // …and a level from the RETIRED abstract vocabulary is now refused as a non-integer, so a caller
+  // left on the old scheme fails loudly instead of resolving to something plausible.
+  expectCode('E_UNKNOWN_EFFORT', () => lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'high', slots: { session_ref: SESSION_REF } }));
+  return `${err.code}; rung 4 still composes on claude (xhigh); legacy 'high' refused`;
 });
 
 // ── 12 · the pinned-flag pre-flight, against a REAL installed binary ─────────────────────────
