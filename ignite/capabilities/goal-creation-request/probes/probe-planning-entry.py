@@ -378,6 +378,20 @@ def main():
                    "" if r is None else
                    next((l for l in r.stdout.splitlines() if "room for this goal" in l), "")[:160])
 
+            # ---- P3b · the DELEGATED argv carries NO gate flag (task 7.738) -------
+            # Until 7.738 this line ended in an unconditional `--force`: compliance with a standing
+            # act spelled as an override, which made a real override and a routine daemon fire
+            # indistinguishable in the log (every launch printed `WARNING launching anyway`). The
+            # grant now lives at the gate — `coord.py#is_authorized_launcher` names DAEMON_IDENTITY
+            # — so the flag is gone and a role refusal here is a REAL one. Read off the launcher's
+            # OWN `DRY-RUN argv:` line, the exact string it will exec, never off the source that
+            # composes it: a pin on the source would survive the flag moving to another call site.
+            _dry_argv = ("" if r is None else
+                         next((l for l in r.stdout.splitlines() if "DRY-RUN argv:" in l), ""))
+            report("P3b delegated launch argv passes NO gate flag (7.738 dropped --force; "
+                   "--force-memory was never passed and still is not)", "green",
+                   bool(_dry_argv) and "--force" not in _dry_argv, True, _dry_argv[-200:])
+
             # ---- RED · the injection arms, on the SHIPPED argv --------------------
             # ⚠ `ok` IS "DID IT COMPOSE", NEVER "DID IT REFUSE" — the same polarity every arm above
             # uses. The first draft passed "did it refuse" here and all four arms reported BAD while

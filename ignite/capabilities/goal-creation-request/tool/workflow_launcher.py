@@ -33,15 +33,28 @@ materializes no seat and boots no harness itself; it opens a room and hands the 
 own coordination CLI, which stays the only writer of a session row. It is a separate file so that
 check keeps meaning what it says instead of being widened to admit the construct it exists to catch.
 
-⚠ IT PASSES `--force` AND NOT `--force-memory`, and the split is load-bearing. `--force` carries
-the ROLE gate: a daemon-fired exec has no pane and therefore no seat identity, so it can pass no
-identity-keyed gate however it is invoked. `--force-memory` carries the MEMORY gate and is NOT
-passed: this is a NEW launch, exactly what that floor is sized for. `jobs/recover-room.py` does pass
-it, correctly and for a reason that is FALSE here — a recovery replaces a seat that already died, so
-it is load-neutral; a fresh planning wave is not. Reusing that program as this launcher was
-considered and rejected for precisely that: it would arm an unattended memory override on every
-auto-created goal while disclosing a reason that does not hold, which is G-41 (a different mechanism
-wearing the same name) one level over.
+⚠ IT PASSES NEITHER `--force` NOR `--force-memory`, and each absence is its own claim.
+
+`--force` (the ROLE gate) WAS passed unconditionally, on the premise that "a daemon-fired exec has
+no pane and therefore no seat identity, so it can pass no identity-keyed gate however it is
+invoked". That premise is FALSE against the tree: `coord.py`'s F16 lane resolves a daemon-fired
+exec's identity from KERNEL MEASURABLES (`daemon_exec_identity` → `DAEMON_IDENTITY`), so this call
+does arrive with an identity — it simply held no grant. Owner ruling, task 7.738 (2026-08-11):
+`is_authorized_launcher` now names `DAEMON_IDENTITY`, and the flag is DROPPED here. What it bought
+was never an override; it was compliance with a standing act spelled as one, which is the exact
+defect G-257 filed one layer over — and it made every unattended launch print
+`role gate: REFUSED, overridden with --force` / `WARNING launching anyway`, so a real override and a
+routine fire were indistinguishable in the log. A launch that now refuses on the role gate is a
+REAL refusal: the daemon's identity did not resolve, and that must surface rather than be forced
+through.
+
+`--force-memory` (the MEMORY gate) is still NOT passed, unchanged and for the original reason: this
+is a NEW launch, exactly what that floor is sized for. `jobs/recover-room.py` does pass it,
+correctly and for a reason that is FALSE here — a recovery replaces a seat that already died, so it
+is load-neutral; a fresh planning wave is not. Reusing that program as this launcher was considered
+and rejected for precisely that: it would arm an unattended memory override on every auto-created
+goal while disclosing a reason that does not hold, which is G-41 (a different mechanism wearing the
+same name) one level over.
 """
 
 import argparse
@@ -222,7 +235,7 @@ def launch_argv(coord, package, entry_seat, pane):
     than a symlink. `coordinate` as a bare name resolves interactively and not here.
     """
     return [sys.executable, str(coord), "--package", str(package),
-            "launch", "--only", entry_seat, "--tmux-target", pane, "--force"]
+            "launch", "--only", entry_seat, "--tmux-target", pane]
 
 
 def main(argv=None):
@@ -296,8 +309,10 @@ def main(argv=None):
     env.pop("COORD_LAUNCH_TARGET", None)
     cmd = launch_argv(args.coord, package, args.entry_seat, pane)
     log("launching: " + " ".join(cmd))
-    log("--force is passed for the ROLE gate only (a daemon-fired exec has no seat identity); "
-        "--force-memory is deliberately NOT passed — this is a new launch and the memory floor binds")
+    log("no gate flag is passed: the ROLE gate admits the daemon on its own identity since 7.738 "
+        "(`is_authorized_launcher` names DAEMON_IDENTITY), so `--force` is gone and a role refusal "
+        "here is a REAL one; --force-memory stays deliberately NOT passed — this is a new launch "
+        "and the memory floor binds")
     try:
         res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:

@@ -21,9 +21,12 @@ entries below cite.
   any-subset/silence-is-held semantics — measured to compound with the ordering, where ordering
   alone did not clear the queue. Leader never writes to the run's target surfaces.
   Seat-lifecycle authority is DISTRIBUTED, not leader-only: `launch` accepts the leader AND the
-  chief-of-staff (`coord.py` `is_authorized_launcher` — `r-cos-is-an-authorized-launcher`, the
-  G-257 repair; every TERMINATING verb — close, renew-of-another, reap, kill, revive — stays off
-  the chief-of-staff per `d-cos-may-launch`), and a healthy seat's renewal is its OWN
+  **ignite daemon** (`coord.py` `is_authorized_launcher` — task 7.738, owner 2026-08-11: a
+  daemon-fired `start-workflow` opens the goal's entry seat, so the grant is stated at the gate
+  instead of spelled as a `--force` by the caller. It replaces the retired chief-of-staff's half of
+  the G-257 repair — `starter-set/conduct.md` 87-88 retires that role; every TERMINATING verb —
+  close, renew-of-another, reap, kill, revive — stays off this predicate per `d-cos-may-launch`, so
+  the bound is still open-versus-terminate), and a healthy seat's renewal is its OWN
   deterministic act — `checkout --renew --handoff "<note>"`, no approval, no closer
   (`r-self-renewal-is-the-seats-own-act`, `r-cos-self-renew-carveout-generalized`; the one
   exception is a `close: mechanical` seat, whose renewal stays the leader-side

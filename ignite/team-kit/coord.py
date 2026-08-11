@@ -4788,13 +4788,25 @@ def is_leader_or_closer(name):
 
 
 def is_authorized_launcher(name):
-    """Who may OPEN panes in this run: the leader, and the chief-of-staff.
+    """Who may OPEN panes in this run: the leader, and the ignite daemon.
 
-    THE CoS's HALF IS AN OWNER RULING, NOT A LOOSENING -- `r-cos-launches-the-staffed-seat` (goal
-    decisions.md) makes launching the seat the staffer produces the chief-of-staff's ROUTINE DUTY,
-    and this gate predated it (G-257). Before this, compliance with a standing ruling required
-    `--force`: a flag that reads as an override of policy while actually being compliance with it,
-    which trains the room to force and spends the flag's only signal.
+    THE DAEMON'S HALF IS AN OWNER RULING (task 7.738, 2026-08-11): a daemon-fired
+    `start-workflow` opens the goal's entry seat, which is a LAUNCH, and until this ruling the only
+    way it passed this gate was `workflow_launcher.py` handing `coordinate launch` an unconditional
+    `--force`. That is a flag reading as an override of policy while actually being compliance with
+    it -- the same defect G-257 filed for the seat this predicate used to name -- and it made every
+    unattended launch indistinguishable from a real override in the log. The flag is DROPPED at
+    that caller in the same change; the grant is now stated here, where it can be read.
+    Named through `DAEMON_IDENTITY` rather than a second spelling of the string: the identity this
+    admits is the one `daemon_exec_identity` resolves from kernel measurables (F16), and two
+    literals for one identity is how a gate and its key drift apart.
+
+    THE CHIEF-OF-STAFF IS REMOVED, and this is a RETIREMENT, not a narrowing of a live duty:
+    `starter-set/conduct.md` (§ DETECTION, lines 87-88) declares `chief-of-staff` and `closer`
+    RETIRED roles -- "never wake, spawn, address, or fall back to one; any code, config, or prompt
+    that does is built against a dead spec". `r-cos-launches-the-staffed-seat` and the G-257 repair
+    it earned are HISTORY now; they stay cited across this file because they explain why the
+    widening must not come back on its own, never because a seat still holds it.
 
     MINTED RATHER THAN REUSING the then-existing `is_leader_or_cos_or_closer`
     (`core-build-run-adjustments/decisions.md#d-g257-widening-not-threading`). That predicate
@@ -4802,15 +4814,14 @@ def is_authorized_launcher(name):
     `launch` to closers is not what was ruled, and reusing it here would have quietly granted it.
     It NO LONGER EXISTS: `d-cos-off-pane-kill` (s12-12) took the chief-of-staff off those two
     commands, they moved to `is_leader_or_closer`, and the predicate was DELETED rather than left
-    callerless -- a dead permission predicate is how a widening gets silently restored. So this
-    function is now the ONLY place `chief-of-staff` appears in a role predicate, which is exactly
-    the scoping the ⚠ below asserts.
-    ⚠ THIS WIDENS `launch` ALONE (`d-cos-inbox-is-convention`: "`launch` and nothing else").
-    `close-run`, `panel`, `reap --go`, `add-to-group` and `remove-from-group` stay the leader's,
-    and `d-cos-may-launch` bars the chief-of-staff from every TERMINATING verb -- close, renew,
-    reap, kill, revive. The bound is open-versus-terminate; this is not a second leader.
+    callerless -- a dead permission predicate is how a widening gets silently restored.
+    ⚠ THIS WIDENS `launch` ALONE (`d-cos-inbox-is-convention`: "`launch` and nothing else"), and
+    7.738 re-points that bound at the daemon WITHOUT loosening it. `close-run`, `panel`,
+    `reap --go`, `add-to-group` and `remove-from-group` stay the leader's, and every TERMINATING
+    verb -- close, renew, reap, kill, revive -- stays off this predicate. The bound is
+    open-versus-terminate; the daemon is not a second leader.
     """
-    return name in ("leader", "chief-of-staff")
+    return name in ("leader", DAEMON_IDENTITY)
 
 
 # `is_leader_or_cos_or_closer` STOOD HERE and is DELETED (s12-12, `d-cos-off-pane-kill`).
@@ -4821,8 +4832,10 @@ def is_authorized_launcher(name):
 # and the seat reaches a pane it must destroy through the leader.
 # It is DELETED rather than left with zero callers ON PURPOSE: a callerless permission predicate
 # is a loaded gun a later call site re-points at itself, and the widening comes back with no
-# ruling behind it. The chief-of-staff's ONE remaining role predicate is
-# `is_authorized_launcher` — open, never terminate.
+# ruling behind it. Since 7.738 the chief-of-staff holds NO role predicate in this file at all —
+# `is_authorized_launcher` names the leader and the ignite daemon, and the role is RETIRED
+# (`starter-set/conduct.md` 87-88). The bound that predicate carries is unchanged: open, never
+# terminate.
 
 
 def is_closer(name):
@@ -4862,18 +4875,35 @@ def gate_role_names(pred):
         tree = ast.parse(textwrap.dedent(inspect.getsource(pred)))
     except (OSError, TypeError, SyntaxError):
         return []
+    mod_globals = getattr(pred, "__globals__", {})
+
+    def role_str(node):
+        """The role a comparand names: a string literal, or a MODULE CONSTANT resolved by name.
+
+        The constant arm is not a generalization -- it is what keeps this function honest after
+        7.738, which admits the daemon through `DAEMON_IDENTITY` rather than a second spelling of
+        `'ignite-daemon'`. Reading literals ONLY, this renderer would have returned {leader} for a
+        gate that admits two, and advertised a set SMALLER than the gate enforces: the same fork
+        this function exists to close, arriving through the door that closes it. Only names bound
+        to a str in the predicate's own module resolve; anything else stays unrenderable and is
+        reported as such by the callers."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name) and isinstance(mod_globals.get(node.id), str):
+            return mod_globals[node.id]
+        return None
+
     found = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Compare) and len(node.ops) == 1:
             right = node.comparators[0]
-            if (isinstance(node.ops[0], ast.Eq) and isinstance(right, ast.Constant)
-                    and isinstance(right.value, str)):
-                found.append((right.lineno, right.col_offset, right.value))
+            if isinstance(node.ops[0], ast.Eq) and role_str(right) is not None:
+                found.append((right.lineno, right.col_offset, role_str(right)))
             elif (isinstance(node.ops[0], ast.In)
                   and isinstance(right, (ast.Tuple, ast.List, ast.Set))):
                 for elt in right.elts:
-                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                        found.append((elt.lineno, elt.col_offset, elt.value))
+                    if role_str(elt) is not None:
+                        found.append((elt.lineno, elt.col_offset, role_str(elt)))
         elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
               and node.func.attr == "startswith" and node.args
               and isinstance(node.args[0], ast.Constant)
@@ -13531,7 +13561,7 @@ def cmd_launch(args):
                             "this process is not inside any tmux pane, so there is no roster row "
                             "to check it against at all"),
                 invocation=coord_invocation(args)), 2)
-    role_desc = "leader's and the chief-of-staff's (it opens seats and spends plan budget)"
+    role_desc = "leader's and the ignite-daemon's (it opens seats and spends plan budget)"
     # #210: the roster is resolved FIRST because the memory gate is sized by seat COUNT, and both
     # gates must be answered together. Nothing here opens a pane or writes a surface — reading
     # briefings has no side effect — so evaluating the role gate a few lines later costs nothing
@@ -17149,12 +17179,16 @@ def _selftest_checks(args, failures, names):
         finally:
             globals()["daemon_exec_identity"] = _f16_real
         check("F17: THE F16-RESOLVED PATH IS ADMITTED BY THIS BOUND — an identity resolved from "
-              "kernel measurables carries no `--as`, so the bound never fires on it. What refuses "
-              "it is the ROLE gate, honestly, because 'ignite-daemon' holds no launch grant "
-              "(`is_authorized_launcher` untouched, leader's ruling on F16). Two layers, and this "
-              "row is what proves the gate did not capture its own key",
-              _f17_kc == 2 and _f17_mark not in _f17_k and _f17_role in _f17_k
-              and DAEMON_IDENTITY in _f17_k)
+              "kernel measurables carries no `--as`, so the bound never fires on it. Since 7.738 "
+              "(owner ruling 2026-08-11) the ROLE gate admits it too: `is_authorized_launcher` "
+              "names DAEMON_IDENTITY, so the daemon reaches the launch the widening was ruled for "
+              "and `workflow_launcher.py` no longer spells compliance as `--force`. This row still "
+              "proves the gate did not capture its own key — the `--as` bound is INTACT (its own "
+              "mark is absent, so it did not fire) and no role-gate refusal stands in front of the "
+              "daemon. The grant is read at the predicate, never inferred from the absence of a "
+              "refusal line",
+              _f17_mark not in _f17_k and _f17_role not in _f17_k
+              and is_authorized_launcher(DAEMON_IDENTITY))
         # ADMITTED (3 of 3): the corroborated claim, which is the whole point of keying on STATE.
         calling_pane["v"] = "%3"   # alpha's registered pane
         _f17_corrob, _f17_cc = refuse(cmd_launch, as_agent="alpha", only="hk-1", dry_run=False)
@@ -21219,7 +21253,7 @@ def _selftest_checks(args, failures, names):
             check("#230: --force-memory does NOT carry the ROLE gate — the memory flag is not a "
                   "back door into a leader-only command",
                   code == 2
-                  and "role gate: REFUSED — `launch` is leader's and the chief-of-staff's"
+                  and "role gate: REFUSED — `launch` is leader's and the ignite-daemon's"
                   in out)
             out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
             check("#230: the LEADER is refused by the memory gate like anyone else and still sees "
@@ -21524,23 +21558,32 @@ def _selftest_checks(args, failures, names):
               and re.search(r"^refused \[coord state\]: ", _s3_lb_head, re.M) is not None
               and re.search(r"^refused \[coord role gate\]: ", _s12k_out, re.M) is not None)
 
-        # ============ s12-04: the launch gate recognises the CHIEF-OF-STAFF (G-257) ============
-        # `r-cos-launches-the-staffed-seat` (goal decisions.md) makes launching the staffed seat
-        # the chief-of-staff's ROUTINE DUTY, and this gate predated it: every routine CoS launch
-        # required `--force` -- a flag that reads as an override of policy while actually being
-        # compliance with it, which trains the room to force and spends the flag's only signal.
+        # ============ s12-04: the launch gate recognises the IGNITE DAEMON (G-257 / 7.738) =====
+        # RE-POINTED, NOT REWRITTEN (task 7.738, owner 2026-08-11). This block was earned by G-257
+        # against the chief-of-staff: launching the staffed seat was that seat's ROUTINE DUTY and
+        # the gate predated it, so every routine launch required `--force` -- a flag that reads as
+        # an override of policy while actually being compliance with it, which trains the room to
+        # force and spends the flag's only signal. `starter-set/conduct.md` 87-88 has since RETIRED
+        # the role, and the SAME defect reappeared one layer over: `workflow_launcher.py` passed an
+        # unconditional `--force` on every daemon-fired `start-workflow`. So the rows keep their
+        # shape and change their subject; the S4-cos row below is added so the retirement itself
+        # has a control, and deleting the block would have discarded the evidence for both.
         #
         # THE FIX IS A PREDICATE WIDENING, NOT THE SELF/OTHER THREADING
-        # (`core-build-run-adjustments/decisions.md#d-g257-widening-not-threading`): a
-        # chief-of-staff launching a WORKER is never a self-act, so `is_self` stays False and
-        # s12-02's threading is INERT here -- it could never have discharged G-257. Scope is
-        # `launch` and nothing else (`d-cos-inbox-is-convention`), which S4-f is the control for.
+        # (`core-build-run-adjustments/decisions.md#d-g257-widening-not-threading`): a daemon
+        # launching a WORKER is never a self-act, so `is_self` stays False and s12-02's threading
+        # is INERT here -- it could never have discharged G-257. Scope is `launch` and nothing else
+        # (`d-cos-inbox-is-convention`), which S4-f is the control for.
         _s4_only = "hk-1"     # never the caller's OWN name: the SELF template is not this claim
 
         _s4b_out, _s4b_code = refuse(cmd_launch, agent="gamma", only=_s4_only,
                                      dry_run=True, force=False, force_memory=False)
         _s4b2_out, _s4b2_code = refuse(cmd_launch, agent="closer-alpha", only=_s4_only,
                                        dry_run=True, force=False, force_memory=False)
+        _s4dmn_dry, _s4dmn_dry_code = refuse(cmd_launch, agent=DAEMON_IDENTITY, only=_s4_only,
+                                             dry_run=True, force=False, force_memory=False)
+        # THE RETIREMENT'S OWN CONTROL (7.738). Read on the SAME command and the SAME branch as the
+        # grant above, so nothing but the name differs between them.
         _s4cos_dry, _s4cos_dry_code = refuse(cmd_launch, agent="chief-of-staff", only=_s4_only,
                                              dry_run=True, force=False, force_memory=False)
         # ⚠ EVERY `cmd_launch` CALL IN THIS BLOCK CARRIES `agent=`, NOT `as_agent=`, AND F17 IS WHY.
@@ -21564,44 +21607,56 @@ def _selftest_checks(args, failures, names):
         _s4d_real, _s4d_real_code = refuse(cmd_launch, agent="beta", only=_s4_only,
                                            dry_run=False, force=False, force_memory=False)
 
-        # ⚠ THE CoS's REAL-BRANCH CALL RUNS ONE MB UNDER THE PACKAGE'S DECLARED FLOOR, and that is
+        # ⚠ THE DAEMON'S REAL-BRANCH CALL RUNS ONE MB UNDER THE PACKAGE'S DECLARED FLOOR, and that is
         # what makes a PASS verdict OBSERVABLE AT ALL: `launch_gates` prints its verdict block only
         # on a refusal, so "role gate: PASS" is readable only when the OTHER gate supplies the
         # refusal. It also means this row opens no pane and spends nothing.
         _s4_avail_real = available_mb
         available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
         try:
-            _s4a_out, _s4a_code = refuse(cmd_launch, agent="chief-of-staff", only=_s4_only,
+            _s4a_out, _s4a_code = refuse(cmd_launch, agent=DAEMON_IDENTITY, only=_s4_only,
                                          dry_run=False, force=False, force_memory=False)
         finally:
             available_mb = _s4_avail_real
 
-        check("s12-04 S4-a: the chief-of-staff's ROUTINE LAUNCH NEEDS NO FLAG -- with force=False "
+        check("s12-04 S4-a: the IGNITE DAEMON'S ROUTINE LAUNCH NEEDS NO FLAG -- with force=False "
               "and force_memory=False it passes the role gate and the command PROCEEDS. An "
-              "owner-ruled duty (`r-cos-launches-the-staffed-seat`) is what the tool PERMITS now, "
-              "instead of compliance a seat has to spell as an override -- which is what trained "
-              "the room to force, and is the defect G-257 filed",
-              _s4cos_dry_code == 0
-              and "[dry-run] hk-1" in _s4cos_dry
-              and "refused [coord role gate]" not in _s4cos_dry)
+              "owner-ruled act (7.738: a daemon-fired `start-workflow` opens the entry seat) is "
+              "what the tool PERMITS now, instead of compliance a caller has to spell as an "
+              "override -- which is what trained the room to force, and is the defect G-257 filed "
+              "against the seat this row was originally written for",
+              _s4dmn_dry_code == 0
+              and "[dry-run] hk-1" in _s4dmn_dry
+              and "refused [coord role gate]" not in _s4dmn_dry)
+
+        check("s12-04 S4-cos (control): the CHIEF-OF-STAFF is REFUSED on `launch`, at the ROLE "
+              "GATE. 7.738 RE-POINTED this widening, it did not add a second holder: the role is "
+              "RETIRED (`starter-set/conduct.md` 87-88) and a retired role that still passes a "
+              "live gate is a dead spec with a live grant. Read on the same command and branch as "
+              "S4-a, so only the NAME differs between the row that passes and the row that does "
+              "not",
+              _s4cos_dry_code == 2
+              and re.search(r"^refused \[coord role gate\]: ", _s4cos_dry, re.M) is not None
+              and not is_authorized_launcher("chief-of-staff"))
 
         check("s12-04 S4-b (control): an ordinary seat is STILL refused on `launch`, the refusal "
-              "NAMES ITS LAYER, and it names who may act -- the widening ADDED the chief-of-staff, "
+              "NAMES ITS LAYER, and it names who may act -- the widening ADDED the ignite daemon, "
               "it did not open the gate. S4-a without this row is not evidence",
               _s4b_code == 2
               and re.search(r"^refused \[coord role gate\]: ", _s4b_out, re.M) is not None
-              and "leader's and the chief-of-staff's" in _s4b_out)
+              and "leader's and the ignite-daemon's" in _s4b_out)
 
         check("s12-04 S4-b2 (control): a `closer-*` seat is STILL refused on `launch` -- the row "
               "that proves the then-existing `is_leader_or_cos_or_closer` was NOT reused (it "
               "admitted every closer; s12-12 has since DELETED it). "
-              "`d-cos-inbox-is-convention` scopes this widening to the chief-of-staff on "
-              "`launch` and nothing else (`d-g257-widening-not-threading`)",
+              "`d-cos-inbox-is-convention` scopes this widening to ONE holder on "
+              "`launch` and nothing else (`d-g257-widening-not-threading`); 7.738 changed WHO "
+              "that holder is, never how wide the scope runs",
               _s4b2_code == 2
               and re.search(r"^refused \[coord role gate\]: ", _s4b2_out, re.M) is not None)
 
         check("s12-04 S4-c: the widening did NOT touch the MEMORY gate -- that same flagless "
-              "chief-of-staff launch, one MB under the package's declared floor, still REFUSES on "
+              "daemon launch, one MB under the package's declared floor, still REFUSES on "
               "MEMORY and opens nothing. `--force` carries the ROLE gate ONLY (G-257 says so "
               "explicitly), so a widened role predicate may never become a way under the floor",
               _s4a_code == 2 and "memory gate: REFUSED" in _s4a_out
@@ -21626,23 +21681,23 @@ def _selftest_checks(args, failures, names):
               json.loads(_s4e_out) == {"--force": ["role"], "--force-memory": ["memory"]})
 
         _s4f = [
-            ("close", refuse(cmd_close, target="delta", as_agent="chief-of-staff", dry_run=True,
+            ("close", refuse(cmd_close, target="delta", as_agent=DAEMON_IDENTITY, dry_run=True,
                              renew=False, no_export=True, force_memory=False)),
-            ("close-seat", refuse(cmd_close_seat, target="delta", as_agent="chief-of-staff",
+            ("close-seat", refuse(cmd_close_seat, target="delta", as_agent=DAEMON_IDENTITY,
                                   renew=False, no_export=True)),
-            ("reap --go", refuse(cmd_reap, as_agent="chief-of-staff", go=True)),
-            ("panel", refuse(cmd_panel, as_agent="chief-of-staff")),
-            ("owner", refuse(cmd_owner, as_agent="chief-of-staff", state="afk", note="")),
-            ("add-to-group", refuse(cmd_add_to_group, as_agent="chief-of-staff", group="pair",
+            ("reap --go", refuse(cmd_reap, as_agent=DAEMON_IDENTITY, go=True)),
+            ("panel", refuse(cmd_panel, as_agent=DAEMON_IDENTITY)),
+            ("owner", refuse(cmd_owner, as_agent=DAEMON_IDENTITY, state="afk", note="")),
+            ("add-to-group", refuse(cmd_add_to_group, as_agent=DAEMON_IDENTITY, group="pair",
                                     members=["gamma"])),
-            ("remove-from-group", refuse(cmd_remove_from_group, as_agent="chief-of-staff",
+            ("remove-from-group", refuse(cmd_remove_from_group, as_agent=DAEMON_IDENTITY,
                                          group="pair", members=["gamma"])),
         ]
         check("s12-04 S4-f: the widening is scoped to `launch` AND NOTHING ELSE -- close, "
               "close-seat, reap --go, panel, owner, add-to-group and "
-              "remove-from-group every one still REFUSE the chief-of-staff on the role gate. The "
-              "terminating verbs among them are barred by `d-cos-may-launch`: the bound is "
-              "open-versus-terminate, and a chief-of-staff is not a second leader",
+              "remove-from-group every one still REFUSE the ignite daemon on the role gate. The "
+              "terminating verbs among them are barred by the open-versus-terminate bound "
+              "(`d-cos-may-launch`, re-pointed by 7.738): the daemon is not a second leader",
               all(code == 2
                   and re.search(r"^refused \[coord role gate\]: ", out, re.M) is not None
                   for _name, (out, code) in _s4f))
@@ -21651,13 +21706,13 @@ def _selftest_checks(args, failures, names):
         # what they say -- S4-a and S4-b own the verdicts. Asserting the verdict here would make a
         # revert of BOTH branches red this row too, and a mutation that reds two rows is evidence
         # about neither (G-62, and `--expect-fail` refuses it by construction). It is with S4-a
-        # that this row establishes the REAL branch's chief-of-staff verdict: S4-a proves the
+        # that this row establishes the REAL branch's daemon verdict: S4-a proves the
         # dry-run branch passes, this one proves the real branch says the same. And the real-side
         # token is not read off silence -- S4-c independently proves that same call RENDERS its
         # verdict block (it refuses on memory), so "not refused" here is a read, not an absence.
-        _s4g = [("chief-of-staff", _s4cos_dry, _s4a_out), ("gamma", _s4b_out, _s4gamma_real)]
+        _s4g = [(DAEMON_IDENTITY, _s4dmn_dry, _s4a_out), ("gamma", _s4b_out, _s4gamma_real)]
         check("s12-04 S4-g: BOTH of `launch`'s branches carry the SAME predicate -- a --dry-run "
-              "and a real launch return the SAME role verdict, for the chief-of-staff and for an "
+              "and a real launch return the SAME role verdict, for the ignite daemon and for an "
               "ordinary seat alike. Widening one branch and not the other leaves a dry-run and a "
               "real launch disagreeing about who may act: the shape a reader trusts and a test "
               "misses",
@@ -21706,13 +21761,15 @@ def _selftest_checks(args, failures, names):
                   and "refused [coord role gate]" not in out
                   for _who, (out, _code) in _pk_ctl))
 
-        check("s12-12 PK-4: the widened predicate is GONE from the module, and `launch`'s own is "
-              "UNTOUCHED. A callerless permission predicate is how a widening comes back with no "
-              "ruling behind it — a later call site re-points at it and nothing reads as changed. "
-              "`is_authorized_launcher` stays the chief-of-staff's ONE role predicate: open, "
-              "never terminate (`d-cos-may-launch`)",
+        check("s12-12 PK-4: the widened predicate is GONE from the module, and `launch`'s own "
+              "carries exactly ONE holder beside the leader. A callerless permission predicate is "
+              "how a widening comes back with no ruling behind it — a later call site re-points at "
+              "it and nothing reads as changed. Since 7.738 that holder is the IGNITE DAEMON and "
+              "the chief-of-staff holds no role predicate anywhere in this file: the role is "
+              "RETIRED, and the bound is unchanged — open, never terminate (`d-cos-may-launch`)",
               "is_leader_or_cos_or_closer" not in globals()
-              and is_authorized_launcher("chief-of-staff")
+              and is_authorized_launcher(DAEMON_IDENTITY)
+              and not is_authorized_launcher("chief-of-staff")
               and not is_authorized_launcher("closer-alpha")
               and not is_leader_or_closer("chief-of-staff")
               and is_leader_or_closer("closer-alpha") and is_leader_or_closer("leader"))
@@ -21733,10 +21790,15 @@ def _selftest_checks(args, failures, names):
         # well as a real derivation does. These two predicates have DIFFERENT sets and different
         # shapes (membership tuple; bare equality), so a constant cannot satisfy all three rows.
         check("C5.2 GD-2 (control): the SAME renderer, read against two other predicates, returns "
-              "THEIR sets — `is_authorized_launcher` {leader, chief-of-staff} and `is_leader` "
-              "{leader}. Without this row GD-1 is satisfied by a hardcoded answer",
-              gate_role_names(is_authorized_launcher) == ["leader", "chief-of-staff"]
-              and gate_roles_help(is_authorized_launcher) == "(leader/chief-of-staff)"
+              "THEIR sets — `is_authorized_launcher` {leader, ignite-daemon} and `is_leader` "
+              "{leader}. Without this row GD-1 is satisfied by a hardcoded answer. ⚠ AND SINCE "
+              "7.738 IT IS ALSO THE MODULE-CONSTANT ROW: that predicate names its second member as "
+              "`DAEMON_IDENTITY`, not as a literal, so a renderer reading string literals ONLY "
+              "would return {leader} here — a set SMALLER than the gate enforces, which is the "
+              "exact fork this derivation exists to close, arriving through the door that closes "
+              "it",
+              gate_role_names(is_authorized_launcher) == ["leader", DAEMON_IDENTITY]
+              and gate_roles_help(is_authorized_launcher) == f"(leader/{DAEMON_IDENTITY})"
               and gate_role_names(is_leader) == ["leader"]
               and gate_roles_help(is_leader) == "(leader)")
 

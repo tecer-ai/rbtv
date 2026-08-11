@@ -59,7 +59,9 @@ applies to it in its own pre-reads.
 - **Seat lifecycle is DISTRIBUTED across three hands, and they do not overlap:**
   - **DETECTION is the deterministic watch loop's — no seat watches.** A run staffs no watcher seat;
     a detection duty nobody staffs does not vanish, it is silently absorbed by whoever notices.
-  - **MECHANICAL RESPONSE is the chief-of-staff's:** leader-pre-authorized flag-to-command mappings,
+  - **MECHANICAL RESPONSE is the DETERMINISTIC WATCH LAYER'S** (`chief-of-staff` is a RETIRED role —
+    `starter-set/conduct.md` § DETECTION; its duties route here, per `d-watcher-deterministic-chain`):
+    leader-pre-authorized flag-to-command mappings,
     plus a STANDING SWEEP over the conditions no flag covers — a seat that checked out but was never
     closed (close it, the debt is resources), a seat finished with no next item (dispatch it directly
     off the fill list), a freed slot (pull the next fill-list item and launch from the ratified brief
@@ -75,7 +77,7 @@ applies to it in its own pre-reads.
   resources — so a half-finished lifecycle is always the leader's, never the seat's.**
   **SCOPE:** this governs only what still REACHES the leader. The sweep's mechanical cases route
   through no approval at all — a finished seat with no pending ask, a freed slot, and a stale
-  heartbeat are the chief-of-staff's to act on directly. **No approval means no approval to
+  heartbeat are the deterministic watch layer's to act on directly. **No approval means no approval to
   half-finish.** What still comes to the leader: an ambiguous flag, a seat idle WITH an open ask,
   a next item needing a bespoke brief line, and every close/renew/approve.
 - ⚠ **PRE-AUTHORIZATION REMOVES THE MESSAGE, NEVER THE CHECK.** A mechanical mapping's preconditions
