@@ -1120,8 +1120,14 @@ def launch_candidates(coord, pkg, ready, self_marks, catalog_root=None):
                                       "seat: it names a workflow manifest, so it has no descriptor "
                                       "and this stage can never launch it. REFUSED BY NAME rather "
                                       "than left ready forever — every successor of `%s` waits on "
-                                      "a row nothing will ever advance. The launch path for a "
-                                      "nested workflow is %s." % (seat, NESTED_ROW_TASK)})
+                                      "a row nothing will ever advance. MATERIALIZING the instance "
+                                      "IS built (`materialize-seats.py --workflow %s --nested`, "
+                                      "composed seat names + a `tf-<n>-<prefix><m>` instance id); "
+                                      "what is missing is HERE — advancing this row when the "
+                                      "instance finishes needs taskforce.csv's `taskforce-id` "
+                                      "column, which is not in this stage's audited read "
+                                      "inventory. See %s."
+                                      % (seat, seat, NESTED_ROW_TASK)})
             continue
         if not (pkg / "seats" / seat / "seat.md").exists():
             excluded.append({"seat": seat, "term": "no-descriptor", "value": None,
@@ -1254,12 +1260,19 @@ def _seed_member(pkg, seed, missing, seen, pred, resolvable, absent):
 # CONFIDENTLY. That is the one failure mode a reader cannot see from a refusal alone, which is why
 # the provenance travels IN the refusal text: a refusal that cannot be dated cannot be trusted.
 #
-# ⚠⚠ AND THE TABLE IS INCOMPLETE, WHICH IS A DIFFERENT DEFECT FROM STALE. It carries no row for
-# `branches/<b>/coordination/`. An unmapped subtree is `undecided`, and `undecided` REFUSES — it is
-# NEVER admitted and never passed through (leader bar, 2026-08-07). A branch-relative token that
-# reads admissible on paper may be unwritable in fact: `composeCageFor` passes `runDir` straight
-# through, and the one construction site found builds a PARENT-run path. Fail-closed here is
-# load-bearing, not defensive tidiness.
+# ⚠⚠ AND THE TABLE IS NECESSARILY INCOMPLETE, WHICH IS A DIFFERENT DEFECT FROM STALE. It maps the
+# subtrees CW2 measured and no others. An unmapped subtree is `undecided`, and `undecided` REFUSES
+# — it is NEVER admitted and never passed through (leader bar, 2026-08-07). A token that reads
+# admissible on paper may be unwritable in fact, so admitting one on the strength of a MISSING
+# measurement is the one direction that turns a gap into a green. Fail-closed here is load-bearing,
+# not defensive tidiness.
+#
+# ⚠ THE `branches/<b>/outputs/` ROW IS DELETED (2026-08-10, task 7.615). The branch FOLDER is
+# abolished (`r-branch-folder-deleted-nested-seats-are-ordinary-run-seats`) and a nested workflow's
+# seats are ORDINARY seats of the parent goal, so no package token can name that subtree; its rows
+# are covered by `seats/<self>/` and `coordination/` like any other seat's. Deleting it is not a
+# loss of measurement: a `branches/…` token now falls through to `undecided` and REFUSES, which is
+# the same refusal the row gave, arrived at without keeping a dead shape mapped.
 
 _ADMISSIBLE = "admissible"
 _INADMISSIBLE = "inadmissible"
@@ -1276,9 +1289,9 @@ _ADMISSION_RULE = (
 
 _ADMISSION_HOMES = (
     "WHERE AN ADMISSIBLE TOKEN LIVES: no successor reads it -> `seats/<self>/...`; a successor "
-    "reads it -> `coordination/<producer>-<artifact>`; `outputs/` and `branches/.../outputs/` are "
-    "INADMISSIBLE for a caged producer. The `coordination/` home is an INTERIM and retires at task "
-    "7.57, when the gateway path supersedes it.")
+    "reads it -> `coordination/<producer>-<artifact>`; `outputs/` is INADMISSIBLE for a caged "
+    "producer. The `coordination/` home is an INTERIM and retires at task 7.57, when the gateway "
+    "path supersedes it.")
 
 _CAGE_MAP_PROVENANCE = (
     "PROVENANCE OF THE CAGE CLASSIFICATION (task 7.466 / CW2, 2026-08-07, VANTAGE: DISK): composed "
@@ -1290,26 +1303,31 @@ _CAGE_MAP_PROVENANCE = (
     "sha256:c36a11b409238eb7, asserting composed-flag digests producer 1c8ef7c433259527, successor "
     "0507cfef2345526e, templates 21. THIS IS A SNAPSHOT, NOT A LIVE SPEC: if `cage.SeatBinds` has "
     "changed since, this refusal is STALE and not current -- re-run 7.466's driver before trusting "
-    "it. It is also INCOMPLETE: there is no `branches/<b>/coordination/` row, so a token there is "
-    "`undecided` and refused rather than admitted.")
+    "it. It is also NECESSARILY INCOMPLETE: it maps the subtrees CW2 measured and no others, so a "
+    "token under an unmapped subtree is `undecided` and refused rather than admitted.")
 
 # subtree -> (writable-by-producer, readable-by-peer, deciding-entry), transcribed from CW2's
 # record. Keys are patterns over a RUN-PACKAGE-RELATIVE token; `<x>` matches one path segment. The
 # record's sixth row is its NEGATIVE CONTROL (`{goalDir}/runs/run-decoy/`) and is deliberately not
 # transcribed: it is a control on the instrument, not a subtree any package token can name.
+#
+# ⚠ THE DECIDING-ENTRY STRINGS SPELL `{runDir}` AND STAY THAT WAY. They are CW2's transcribed bwrap
+# flags, and `runDir` is what the emitter was called on 2026-08-07; the slot itself is retired
+# (`cage.js`: "runDir is RETIRED, the package IS the goal folder"). Rewriting a transcription to
+# today's vocabulary would falsify the record it exists to be. The MAP KEY is a different thing —
+# it is live input to `cage_subtree_of` — so that one is spelled `{goalDir} root`.
 _CAGE_SUBTREES = {
     "outputs/":              (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
-    "branches/<b>/outputs/": (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
     "seats/<self>/":         (True,  False, "W bind:{seatDir} | R tmpfs:{runDir}/seats"),
     "coordination/":         (True,  True,  "W bind:{runDir}/coordination | "
                                             "R bind:{runDir}/coordination"),
-    "{runDir} root":         (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
+    "{goalDir} root":        (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
 }
 
 
 def _cage_key_pattern(key):
     """A cage-map key as a regex over a token. `<x>` matches exactly one path segment."""
-    if key == "{runDir} root":
+    if key == "{goalDir} root":
         return re.compile(r"[^/]+\Z")
     parts = [r"[^/]+" if re.fullmatch(r"<[^>]+>", p) else re.escape(p)
              for p in key.rstrip("/").split("/")]
@@ -1905,19 +1923,25 @@ def fastpath_lines(res):
 # constants.
 #
 # ⚠⚠ WHAT IS NOT REBUILT HERE, STATED SO NOBODY READS THE DELETION AS A COMPLETION.
-# A nested-workflow row in a parent's `taskforce.csv` now has NO LAUNCHER and NO MARK DERIVATION.
-# Re-founding those on prefix-named parent seats is a DESIGN act, not a mechanical re-key, and it
-# is deliberately NOT performed in this stage — the measured boundary is written up in the E2b
-# findings. Concretely, three mechanisms had no goal-direct equivalent to re-key onto:
-#   (1) IDENTITY — a branch home was matched to its row by its taskforce seat set being the frozen
-#       copy of the nested manifest's (Rule 13). Prefix-named seats live in the PARENT's one
-#       `seats/` and the PARENT's one `taskforce.csv`, so there is no second registry to compare;
-#       what identifies the instance is the prefix, and no rule mints or records one today.
-#   (2) TERMINAL STATE — `branch_terminal_mark` read the branch package's OWN terminal rows. With
-#       one registry there is no separate terminal set to read.
-#   (3) IDEMPOTENCE — "already materialized" was answered by the branch home existing. With
-#       ordinary seats it must be answered by the prefix already being present, which presupposes
-#       (1).
+# A nested-workflow row in a parent's `taskforce.csv` still has NO LAUNCHER and NO MARK DERIVATION.
+# Re-founding those on prefix-named parent seats is a DESIGN act, not a mechanical re-key. Three
+# mechanisms had no goal-direct equivalent to re-key onto; TWO NOW HAVE ONE and the third is what
+# still stops this arm (re-measured 2026-08-10, task 7.615):
+#   (1) IDENTITY — RESOLVED. A branch home was matched to its row by its taskforce seat set being
+#       the frozen copy of the nested manifest's (Rule 13). Owner ruling
+#       `d-r2-tfid-structured-counter` mints an instance id — `tf-<n>-<prefix><m>` — and
+#       `materialize-seats.py --nested` WRITES it on every row of the instance. The instance is now
+#       a recorded, addressable row set.
+#   (2) IDEMPOTENCE — RESOLVED by (1) plus the composed name: an instance already materialized is
+#       one whose composed roots already carry an `after` cell naming this nested row.
+#   (3) TERMINAL STATE — ⚠ STILL BLOCKED, AND NOT ON DESIGN. `branch_terminal_mark` read the branch
+#       package's OWN terminal rows; the goal-direct equivalent is "every row carrying this
+#       instance's taskforce-id is terminal". That needs THIS STAGE to read `taskforce.csv`'s
+#       `taskforce-id` column — a read site the DECLARED READ INVENTORY above does not carry and
+#       `check_reads_subset_of_audit` refuses to let it acquire: "Report the field to the leader;
+#       do not read it." Adding the audit row is not this stage's act. Until it exists, a nested
+#       row's successors could only be advanced by GUESSING the instance's row set, so the arm
+#       below stays a typed refusal — a deliberate stop, not an unfinished edit.
 # `nested_rows` and MC9's classifier SURVIVE: telling a seat reference from a workflow reference is
 # still a real question, still has one home, and its checks still run.
 
@@ -3418,7 +3442,7 @@ def check_admission_carries_the_rule(coord, _pkg):
                              (_ADMISSION_HOMES, "the admissible-home table"),
                              ("sha256:c36a11b409238eb7", "the cage map's digest"),
                              ("SNAPSHOT, NOT A LIVE SPEC", "the staleness disclosure"),
-                             ("`branches/<b>/coordination/` row", "the incompleteness disclosure")):
+                             ("NECESSARILY INCOMPLETE", "the incompleteness disclosure")):
             if needle not in text:
                 return False, "the refusal omits %s" % what
         return True, ("the refusal carries the rule verbatim, the home table, the cage map's "
@@ -3467,10 +3491,14 @@ def check_admission_is_scoped_to_caged(coord, _pkg):
 def check_admission_undecided_refuses(_coord, _pkg):
     """An UNMAPPED subtree is `undecided`, and `undecided` REFUSES — it is never admitted.
 
-    The cage map carries no `branches/<b>/coordination/` row. A branch-relative token may be
+    The cage map carries only the subtrees CW2 measured. A token under any other one may be
     unwritable in fact, so admitting it on the strength of a missing measurement is the one
-    direction that turns a gap into a green (leader bar, 2026-08-07)."""
-    unmapped = "branches/branch-1/coordination/nested.json"
+    direction that turns a gap into a green (leader bar, 2026-08-07).
+
+    The probe token was `branches/branch-1/coordination/…` until 2026-08-10, when the deleted
+    `branches/<b>/outputs/` row took the last branch spelling out of this file. Any unmapped
+    subtree proves the same thing; this one is a plain unmeasured package folder."""
+    unmapped = "planning/nested.json"
     if cage_subtree_of(unmapped) is not None:
         return False, ("`%s` is now MAPPED — this check's premise is gone and its green would be "
                        "vacuous" % unmapped)
@@ -3486,9 +3514,9 @@ def check_admission_undecided_refuses(_coord, _pkg):
         return False, ("an undecided discriminator did not carry through on `seats/<self>/`, where "
                        "it GENUINELY decides — that is the half of the leader bar option (b) does "
                        "not touch")
-    return True, ("`branches/branch-1/coordination/nested.json` is unmapped and refuses at all "
-                  "three discriminator values, while its MAPPED sibling `coordination/…` is "
-                  "admitted — the refusal is a decision, not a stuck red")
+    return True, ("`%s` is unmapped and refuses at all three discriminator values, while its "
+                  "MAPPED sibling `coordination/…` is admitted — the refusal is a decision, not a "
+                  "stuck red" % unmapped)
 
 
 def check_admission_truth_table(_coord, _pkg):
@@ -3505,8 +3533,10 @@ def check_admission_truth_table(_coord, _pkg):
         ("seats/<self>/",         "no",        _ADMISSIBLE,   "writable, unreadable, unread"),
         ("outputs/",              "yes",       _INADMISSIBLE, "unwritable"),
         ("outputs/",              "no",        _INADMISSIBLE, "unwritable"),
-        ("branches/<b>/outputs/", "yes",       _INADMISSIBLE, "unwritable"),
-        ("branches/<b>/outputs/", "no",        _INADMISSIBLE, "unwritable"),
+        # `branches/<b>/outputs/` had two rows here until 2026-08-10; the subtree is deleted with
+        # the branch folder, so a `branches/…` token is now UNDECIDED — the row below.
+        ("{goalDir} root",        "yes",       _INADMISSIBLE, "unwritable"),
+        ("{goalDir} root",        "no",        _INADMISSIBLE, "unwritable"),
         # option (b): the discriminator is consulted only where it can change the answer
         ("coordination/",         "undecided", _ADMISSIBLE,   "(b): readable, so unknown cannot "
                                                               "change the answer"),
@@ -3514,8 +3544,7 @@ def check_admission_truth_table(_coord, _pkg):
         ("seats/<self>/",         "undecided", _UNDECIDED,    "(b): here it GENUINELY decides"),
     ]
     tokens = {"coordination/": "coordination/p-a.json", "seats/<self>/": "seats/s/a.json",
-              "outputs/": "outputs/a.json",
-              "branches/<b>/outputs/": "branches/b1/outputs/a.json"}
+              "outputs/": "outputs/a.json", "{goalDir} root": "a.json"}
     for key, sr, want, why in cases:
         tok = tokens[key]
         if cage_subtree_of(tok) != key:
@@ -4538,20 +4567,13 @@ def main():
     p.add_argument("--catalog-root", default=None, dest="catalog_root",
                    help="the component catalog root a manifest reference is classified against "
                         "(MC9)")
-    p.add_argument("--bindings", default=None,
-                   help="with --branch-arm: the JSON bindings file the branch's seats are "
-                        "materialized with")
-    p.add_argument("--milestone-id", default=None, dest="milestone_id",
-                   help="with --branch-arm: passed through to the materialize command")
-    p.add_argument("--conduct", default=None,
-                   help="with --branch-arm: conduct.md base text for the created branch package; "
-                        "omitted, the parent's own is inherited")
-    p.add_argument("--claude-md", default=None, dest="claude_md",
-                   help="with --branch-arm: run CLAUDE.md base text for the created branch "
-                        "package; omitted, the parent's own is inherited")
-    p.add_argument("--budget-json", default=None, dest="budget_json",
-                   help="with --branch-arm: budget.json for the created branch package; omitted, "
-                        "the parent's own is inherited. A PATH, never a value (R-10)")
+    # `--bindings`, `--milestone-id`, `--conduct`, `--claude-md` and `--budget-json` are DELETED
+    # (2026-08-10, task 7.615). Every one of them existed for `--branch-arm`, which 7.607 E2b
+    # deleted, and none had another reader — argparse accepted them and nothing ever looked. The
+    # nested launch arm, when it is built, declares what IT needs; carrying five flags forward as a
+    # guess at that is dead flexibility, and a flag that is accepted and ignored is worse than an
+    # absent one. Note the deleted trio is CREATION input: a nested instance materializes into the
+    # EXISTING parent goal and creates no package, so two of the five could not come back anyway.
     p.add_argument("--arming-scope", action="store_true",
                    help="M4-11 (C4): print whether --package is armed for the check-out fast path, "
                         "the mechanism that scopes it, and — always, whatever --package is — "
