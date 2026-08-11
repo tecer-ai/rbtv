@@ -33,6 +33,11 @@ tecer-gsmm-introduction*.html
 # Untracked, a capture is unambiguously the LAST RUN's output. Nothing is lost: git history keeps
 # every capture ever committed, and probe-suite archives each run under the workspace `.rbtv/`
 # runtime root. Probes still WRITE them, so the 7.50 staleness grading (which reads mtime from
-# disk, never git) is unaffected. Scope is probe captures ONLY — `ignite/deploy/*.out` are
-# one-off harness outputs preserve mode never touched, and stay tracked.
-ignite/**/probes/*.out
+# disk, never git) is unaffected. Scope is probe captures ONLY, in EVERY module — `ignite/deploy/*.out`
+# are one-off harness outputs preserve mode never touched, and stay tracked; they sit directly in
+# `deploy/`, so a `probes/`-anchored pattern never matches them.
+# Widened from `ignite/**/probes/*.out` on 2026-08-11: the ignite-scoped form silently left
+# `orchestration/`'s only capture tracked (a rule never untracks what is already tracked, so it also
+# needed a `git rm --cached` to take effect), and a second per-module line would have reopened the
+# same gap for whichever module grew probes next.
+**/probes/*.out
