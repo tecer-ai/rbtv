@@ -843,6 +843,61 @@ tools:
       - --budget-s
       - "120"
 
+  # ── task 7.560a / 7.106 — the LIVE goal-watcher entry ──────────────────────
+  # The counterpart the "STAGED DAEMON EXPOSURE" note above says is DELIBERATELY ABSENT until the
+  # twin and a shadow window are green. Both are: the twin fired twice under the daemon (execs 221
+  # and 224, 2026-07-27, both `done` exit 0), so the fire-tool path — argv, the daemon's exec
+  # environment, `jobcontain`, delivery, exit recording — is PROVEN.
+  #
+  # ⚠ THE WATCHED GOAL IS `system-health`, per the standing owner ruling
+  # `d-owner-waved-scope-0808-amended`, re-affirmed 2026-08-11 (`d-0811-goalwatcher-arm-long-cadence`).
+  # 7.560's authored plan (`dossiers/7560a-catalogue-entry-plan.md`) drafted this block against
+  # `build-core-daemon-mvp`; the ruling re-aims it. Everything else below is that plan's block.
+  #
+  # ⚠ NEITHER TARGET FIELD NAMES A RUN — deliberately, and here that costs nothing: a run number in
+  # an argv is a HOME IN WAITING and goes stale at the next close (7.117, 7.168, 7.188). `--package`
+  # names the GOAL FOLDER (the plan had to pin `runs/run-3` for its own target and disclosed that as
+  # the entry's one defect; re-aiming at a goal with no runs removes it). `--room-goal` names the
+  # GOAL and the room resolves at FIRE TIME through `coord.derive_lease()`, which REFUSES rather than
+  # guesses on zero or two open rows (R9/R10).
+  #
+  # ⚠⚠ TODAY `system-health` HAS NO RUNS AT ALL (no `runs.csv`, measured 2026-08-11), so the room has
+  # no live lease and a fire REFUSES with exit 2 — which the ticker records as `failed`. That is KNOWN
+  # AND ACCEPTED by the owner ruling above, and is exactly why the periodic row is armed at 1800 s
+  # rather than the 30 s of `r-job-fire-interval-30s`: a dead target polled twice an hour, not twice a
+  # minute, until a live run exists and the cadence is tightened.
+  #
+  # ⚠ `--to leader` IS NAMED, unlike the twin's `enforcement-builder`. The twin's own comment requires
+  # it: copying that value would route every judgment row to a builder. `leader` is a ROLE NAME, not a
+  # policy value — a fixed seat of the run system, present in every run — so the home-in-waiting
+  # argument above does not apply to it.
+  #
+  # ⚠ AND DELIBERATELY NO `--fallback-to`: here it would name the SAME seat as `--to`, and
+  # `recipient()` only consults the fallback when `--to` is NOT live, so it would be a dead branch
+  # that reads as a safety net. NO `--cadence-s` / `--tolerance-mult` / `--quiet-min` /
+  # `--load-per-core` / `--budget-s`: every one COPIES the program's own default (20.0 / 3.0 / 30 /
+  # 1.5 / 120), a second home for a policy number that can only drift. NO `--standby`: a standby SEAT
+  # name has a lifetime far shorter than this file's. NO `--mem-floor-mb`: forbidden by
+  # `r-floor-single-source` — the floor is READ from `{--package}/budget.json`.
+  goal-watcher:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/goal-watcher-job.py
+      - --package
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/system-health
+      - --room-goal
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/system-health
+      - --coord
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
+      # ⚠ NOT REMEDY TEXT ONLY. Since the CMP-21 realignment the staleness row runs this program's
+      # idempotent `ensure` as an INLINE MECHANICAL FIX under `--notify`, so an absent or wrong path
+      # here downgrades that row from a fix to a nudge, silently.
+      - --team-monitor
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/orchestration/cli/team-monitor/team_monitor.py
+      - --to
+      - leader
+      - --notify
+
   # ── r-restart-daemon-job (owner, 2026-08-04) — the leader-triggerable restart ──
   # The daemon restart stops requiring an owner's hand. NO THROWAWAY TWIN, and the absence
   # is reasoned rather than forgotten (elicitation-brief O-3): there is no throwaway daemon
