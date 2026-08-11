@@ -131,9 +131,56 @@ function profileForBinding(profiles, binding, { seat = null } = {}) {
   );
 }
 
+// ── THE SEAT'S CAST → THE PROFILE THAT RUNS IT (task 7.54 · owner ruling D19, extending D16) ────
+//
+// The defect: two launch paths reached a seat and NEITHER read what the seat was cast as. The
+// daemon lane passed one profile for every seat of a goal (`engine/seeding.js`), and the chat
+// bridge passed a deployment-wide chat profile by surface (`bridges/chat/forward-path.js`) — so
+// the planning interviewer, cast `claude-fable-5` in `taskforce.csv` AND in its own `seat.md`, was
+// revived on `claude-sonnet-5` whenever the owner answered it in Slack, with `sessions.csv`
+// recording the launch as if nothing had diverged.
+//
+// ⚑ IT LIVES HERE, IN THE ONE SHARED RESOLVER, AND THAT PLACEMENT IS THE FIX (owner ruling D27,
+// 2026-08-11). It shipped inside `server/spawn/spawn.js`, which put profile knowledge — including
+// the profile-name literals above — on the spawn path, where `probe-caged-settings`'s standing
+// "no per-profile special case anywhere in `server/spawn/`" invariant reads it as a violation. The
+// invariant is right: DEC-1 § Shared profile source is the same rule this whole file exists to
+// serve, and a second home for profile knowledge is the drift it forbids. `spawn.js` now reads the
+// seat's declaration (seat.md parsing is a spawn concern, and its reader lives there) and DELEGATES
+// the resolution here; nothing about the behaviour below changed in the move.
+//
+// ⚑ RESOLVED IN THE ONE FUNCTION EVERY LAUNCH ROUTES THROUGH. `spawn()` is downstream of the
+// ticker, the chat bridge, the daemon lane, the attached lane and the warm-session leg alike, and
+// it is also UPSTREAM of both records (`jobs_log.profile` and the at-dispatch `sessions.csv` row),
+// so record and reality cannot drift apart by construction — they are written from the resolved
+// value, not the requested one.
+//
+// ⚑ THE CAST OUTRANKS THE CALLER'S NAMED PROFILE, deliberately. A caller's profile is what runs a
+// seat that declares NO cast; it is not a licence to override one that does. That is G-111's rule
+// (an asserted value never outranks a declared one) applied to the model, and it is the whole
+// content of ruling D16 — the record is the authority for what a seat runs.
+//
+// Returns the caller's own `profileName` unchanged whenever the seat declares no cast, which is
+// the channel master (`open_binding`), every unmaterialized seat, and every pre-D19 deployment —
+// so a workspace that casts nothing behaves exactly as it did before this function existed.
+function castProfileFor(profiles, binding, profileName, log, seat) {
+  if (!declaresBinding(binding)) return profileName;
+  // Throws E_UNMAPPED_BINDING / E_AMBIGUOUS_BINDING — never falls back. A cast this workspace
+  // cannot spawn must stop the launch: continuing on the caller's profile is precisely the silent
+  // wrong-model launch being fixed.
+  const cast = profileForBinding(profiles, binding, { seat });
+  if (cast !== profileName) {
+    log('info', 'launching the profile the seat is CAST as, not the one the caller named (D19)', {
+      seat, requested: profileName, cast, harness: binding.harness, model: binding.model,
+    });
+  }
+  return cast;
+}
+
 module.exports = {
   bindingOf,
   catalogOf,
+  castProfileFor,
   declaresBinding,
   profileForBinding,
   MODEL_FLAGS,

@@ -51,6 +51,18 @@ default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every s
 #   profiles:  ONE profile per harness+model; each carries ONLY exec / headed (where the
 #              harness has a TUI) / effort / session_ref / toolset_ceiling / workdir_root.
 #              Effort, launch home and tool rights are PER-DISPATCH parameters, never identity.
+#
+# ⚑ EFFORT IS A NUMERIC RUNG, 1..N, AND EVERY PROFILE DECLARES ITS OWN LADDER (owner ruling
+# `d-0811lp-effort-numeric-per-profile`, 2026-08-11). `effort.rungs` is an ORDERED list of the
+# strings THIS harness accepts — rung 1 lowest reasoning, rung N highest — and `effort.argv` is the
+# fragment that carries the chosen one ({effort}). A rung outside 1..N is refused NAMING the range.
+# A harness with no dial declares `effort: { inert: true }`: it ACCEPTS any rung and reports
+# `effortInert` (G-270), so an absent dial is stated rather than silently dropped. Absent effort is
+# the harness default.
+#   ⚠ This REPLACED the four-level abstract vocabulary (low|medium|high|max + a `values:` map) that
+#   7.42 shipped. That scheme could only be as wide as its narrowest member: claude's fifth rung
+#   `xhigh` was unspellable and codex's `max` was silently collapsed onto `high`. The ladders below
+#   are each harness's OWN, measured — never a translation of a shared one.
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
 
 # ── THE SHARED SEAT CAGE (r-seats-only-architecture (1)) ───────────────────────────────────────
@@ -342,7 +354,7 @@ profiles:
       tui: { argv: ["claude", "--model", "claude-fable-5"] }
     effort:
       dialect: effort
-      values: { low: low, medium: medium, high: high, max: max }
+      rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
       argv: ["--effort", "{effort}"]
     session_ref: { source: assigned }
     toolset_ceiling: full
@@ -371,7 +383,7 @@ profiles:
       tui: { argv: ["claude", "--model", "claude-opus-5"] }
     effort:
       dialect: effort
-      values: { low: low, medium: medium, high: high, max: max }
+      rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
       argv: ["--effort", "{effort}"]
     session_ref: { source: assigned }
     toolset_ceiling: full
@@ -396,7 +408,7 @@ profiles:
       tui: { argv: ["claude", "--model", "claude-sonnet-5"] }
     effort:
       dialect: effort
-      values: { low: low, medium: medium, high: high, max: max }
+      rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
       argv: ["--effort", "{effort}"]
     session_ref: { source: assigned }
     toolset_ceiling: full
@@ -405,8 +417,10 @@ profiles:
   claude-haiku:
     # ⚑ `effort: { inert: true }` IS A MEASUREMENT, NOT A SHORTCUT. The claude-code-cli manifest
     # gives haiku `reasoning_modes.depths: []` / `invocation: none` — Haiku is single-mode and
-    # has no effort dial. An inert table makes the resolver ACCEPT a caller's level and report
-    # it back as `effortInert: true`; omitting the block would refuse the pair (G-270).
+    # has no effort dial. An inert table makes the resolver ACCEPT any rung and report it back as
+    # `effortInert: true`; omitting the block would refuse the pair (G-270). ⚠ SO A MASTER RUNNING
+    # ON HAIKU CARRIES AN EFFORT THAT VISIBLY DOES NOTHING — accepted, reported inert, no argv.
+    # That is the honest report, not a defect; switch to a dialed profile to move the dial.
     exec:
       argv: ["claude", "-p", "--model", "claude-haiku-4-5",
              "--session-id", "{session_ref}",
@@ -433,9 +447,13 @@ profiles:
   # `--sandbox danger-full-access` — codex's own sandbox is OFF and containment is the seat cage
   # (the D61 lineage). Model PINNED (`-m`): an unpinned profile records a mapping true on
   # one machine at one moment. Effort: codex spells the dial `thinking` and its manifest declares
-  # depths [low, medium, high] — THREE, not four; the abstract `max` maps to `high`, a LOSSY but
-  # honest collapse the resolver reports rather than silently drops. No `headed:` — the retired
-  # set never declared a codex TUI and none is verified here.
+  # depths [low, medium, high] — THREE rungs, and since the numeric-rung ruling that is simply what
+  # this profile's LADDER IS. ⚠ The note that stood here — "the abstract `max` maps to `high`, a
+  # LOSSY but honest collapse" — described the RETIRED four-level vocabulary and is gone with it:
+  # rung 3 is codex's top, and asking for rung 4 is a refusal naming 1..3, never a silent
+  # downgrade. The dial rides a `-c` config override (`codex exec --help`: "-c, --config
+  # <key=value>"), which is why the fragment is two tokens and not a flag. No `headed:` — the
+  # retired set never declared a codex TUI and none is verified here.
   # `--dangerously-bypass-hook-trust` (owner-ruled, core-build d-codex-hook-trust-bypass,
   # 2026-08-09): codex trust-gates hooks BY HASH, and seat-folder hooks.json files are derived
   # and regenerated freely, so persisted trust re-breaks on every re-materialize; daemon-fired
@@ -451,7 +469,7 @@ profiles:
       prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
     effort:
       dialect: thinking
-      values: { low: low, medium: medium, high: high, max: high }
+      rungs: [low, medium, high]                 # 1..3 — codex's own depths; there is no fourth
       argv: ["-c", "model_reasoning_effort={effort}"]
     session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
     toolset_ceiling: full
@@ -462,9 +480,12 @@ profiles:
   # the seat cage's. `--yolo` deliberately ABSENT: `--quiet` implies `--print`, which already
   # auto-approves tool calls for the invocation. ⚠ THE MODEL PIN IS THE MANIFEST'S, VERIFIED
   # AGAINST THIS BOX, NOT READ OFF IT: a machine whose kimi config does not carry this id refuses
-  # loudly at dispatch rather than silently running another model. Effort: depths [no-think,
-  # think] — a BINARY dial, not a ladder; the four abstract levels collapse two-and-two, lossy
-  # and stated rather than implied.
+  # loudly at dispatch rather than silently running another model. Effort: a BINARY dial, measured
+  # on this box 2026-08-11 (`kimi --help`: "--thinking / --no-thinking   Enable thinking"). So the
+  # ladder is TWO rungs and each rung IS the flag — the argv fragment is a bare `{effort}`.
+  # ⚠ The note that stood here ("the four abstract levels collapse two-and-two, lossy and stated")
+  # described the RETIRED four-level vocabulary. Nothing collapses now: rung 2 is kimi's top and
+  # rung 3 is a refusal naming 1..2.
 
   kimi:
     exec:
@@ -472,7 +493,7 @@ profiles:
       prompt: stdin
     effort:
       dialect: thinking-toggle
-      values: { low: "--no-thinking", medium: "--no-thinking", high: "--thinking", max: "--thinking" }
+      rungs: ["--no-thinking", "--thinking"]     # 1..2 — the rung IS the flag; the fragment is bare
       argv: ["{effort}"]
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
@@ -891,6 +912,61 @@ tools:
       - --notify
       - --budget-s
       - "120"
+
+  # ── task 7.560a / 7.106 — the LIVE goal-watcher entry ──────────────────────
+  # The counterpart the "STAGED DAEMON EXPOSURE" note above says is DELIBERATELY ABSENT until the
+  # twin and a shadow window are green. Both are: the twin fired twice under the daemon (execs 221
+  # and 224, 2026-07-27, both `done` exit 0), so the fire-tool path — argv, the daemon's exec
+  # environment, `jobcontain`, delivery, exit recording — is PROVEN.
+  #
+  # ⚠ THE WATCHED GOAL IS `system-health`, per the standing owner ruling
+  # `d-owner-waved-scope-0808-amended`, re-affirmed 2026-08-11 (`d-0811-goalwatcher-arm-long-cadence`).
+  # 7.560's authored plan (`dossiers/7560a-catalogue-entry-plan.md`) drafted this block against
+  # `build-core-daemon-mvp`; the ruling re-aims it. Everything else below is that plan's block.
+  #
+  # ⚠ NEITHER TARGET FIELD NAMES A RUN — deliberately, and here that costs nothing: a run number in
+  # an argv is a HOME IN WAITING and goes stale at the next close (7.117, 7.168, 7.188). `--package`
+  # names the GOAL FOLDER (the plan had to pin `runs/run-3` for its own target and disclosed that as
+  # the entry's one defect; re-aiming at a goal with no runs removes it). `--room-goal` names the
+  # GOAL and the room resolves at FIRE TIME through `coord.derive_lease()`, which REFUSES rather than
+  # guesses on zero or two open rows (R9/R10).
+  #
+  # ⚠⚠ TODAY `system-health` HAS NO RUNS AT ALL (no `runs.csv`, measured 2026-08-11), so the room has
+  # no live lease and a fire REFUSES with exit 2 — which the ticker records as `failed`. That is KNOWN
+  # AND ACCEPTED by the owner ruling above, and is exactly why the periodic row is armed at 1800 s
+  # rather than the 30 s of `r-job-fire-interval-30s`: a dead target polled twice an hour, not twice a
+  # minute, until a live run exists and the cadence is tightened.
+  #
+  # ⚠ `--to leader` IS NAMED, unlike the twin's `enforcement-builder`. The twin's own comment requires
+  # it: copying that value would route every judgment row to a builder. `leader` is a ROLE NAME, not a
+  # policy value — a fixed seat of the run system, present in every run — so the home-in-waiting
+  # argument above does not apply to it.
+  #
+  # ⚠ AND DELIBERATELY NO `--fallback-to`: here it would name the SAME seat as `--to`, and
+  # `recipient()` only consults the fallback when `--to` is NOT live, so it would be a dead branch
+  # that reads as a safety net. NO `--cadence-s` / `--tolerance-mult` / `--quiet-min` /
+  # `--load-per-core` / `--budget-s`: every one COPIES the program's own default (20.0 / 3.0 / 30 /
+  # 1.5 / 120), a second home for a policy number that can only drift. NO `--standby`: a standby SEAT
+  # name has a lifetime far shorter than this file's. NO `--mem-floor-mb`: forbidden by
+  # `r-floor-single-source` — the floor is READ from `{--package}/budget.json`.
+  goal-watcher:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/goal-watcher-job.py
+      - --package
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/system-health
+      - --room-goal
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/system-health
+      - --coord
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
+      # ⚠ NOT REMEDY TEXT ONLY. Since the CMP-21 realignment the staleness row runs this program's
+      # idempotent `ensure` as an INLINE MECHANICAL FIX under `--notify`, so an absent or wrong path
+      # here downgrades that row from a fix to a nudge, silently.
+      - --team-monitor
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/orchestration/cli/team-monitor/team_monitor.py
+      - --to
+      - leader
+      - --notify
 
   # ── r-restart-daemon-job (owner, 2026-08-04) — the leader-triggerable restart ──
   # The daemon restart stops requiring an owner's hand. NO THROWAWAY TWIN, and the absence

@@ -59,7 +59,7 @@ const NO_GOAL_SEAT_NOTICE = "⚠ no goal-master seat is open for this goal — a
 // wording was an INSTRUCTION to re-send, and following it now would deliver the message twice —
 // once by hand and once by the retry. So the wording and the guard shipped together: a manual
 // re-send on the thread DROPS the pending retry, and the notice stops asking for one.
-const SEAT_BUSY_NOTICE = "⚠ that work is still busy with the previous message — yours will be sent again automatically as soon as it frees";
+const SEAT_BUSY_NOTICE = "⚠ that work is still busy with the previous message — yours was NOT delivered yet; it will be sent again automatically as soon as it frees";
 
 // The give-up twin of the notice above: the seat stayed busy past the retry window, so the
 // re-submit was abandoned. Only HERE does the owner get told to send it again — and by then there
@@ -185,6 +185,19 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     return config.masterProfile || config.sessionProfile;
   }
 
+  // The reasoning RUNG that rides with the profile, MASTER SURFACE ONLY (owner ruling
+  // `d-0811lp-effort-lane-build-now`, 2026-08-11). Goal and agent traffic carry no effort key and
+  // run the harness default — there is no `goal_effort`, and inventing one would be a config
+  // surface nobody asked for (the same call `profileFor`'s header records for the third profile key).
+  // ⚠ IT IS PAIRED WITH THE PROFILE, NOT INDEPENDENT OF IT: a rung is 1..N in the ladder THAT
+  // profile declares, so `master_profile.py` writes the two together and clears the rung whenever
+  // the profile changes without one. A rung surviving a switch to a shorter-laddered harness would
+  // refuse at the spawn, one owner message later.
+  function effortFor(route) {
+    if (route && (route.kind === 'goal' || route.kind === 'agent')) return null;
+    return config.masterEffort ?? null;
+  }
+
   // WHERE the session runs, by surface. Master/mention traffic uses the configured
   // `workdir` as it always has. GOAL traffic is homed at that goal's OPEN run's
   // goal-master seat, so the session boots inside the seat folder whose descriptor
@@ -252,6 +265,10 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       run_at: nowIsoUtc(),                      // due now: the next tick dispatches it
     };
     if (home.workdir) payload.args.workdir = home.workdir;
+    // Only present when configured, so a deployment on the pre-ruling `chat-agent` job id — whose
+    // args_schema admits no `effort` — is unaffected and enqueues exactly what it always did.
+    const effort = effortFor(route);
+    if (effort !== null) payload.args.effort = effort;
 
     const res = await forwarder.forward('enqueue-job', payload);
     if (!res.ok) {

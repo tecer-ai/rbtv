@@ -557,7 +557,7 @@ def cmd_scaffold(args) -> int:
     # longer written here: it is one of the five write-if-something files and comes off
     # `standard_artifacts` with the other four (its old body called itself a "decision log",
     # which is the exact word §9 rules these files are NOT).
-    created_names = ["goal.md", "threads.sql", EXECUTION_MODE_FILE,
+    created_names = ["goal.md", "threads.sql", EXECUTION_MODE_FILE, "milestones.csv",
                      *standard_artifacts(name)]
     plan = {
         "goal": name,
@@ -579,6 +579,11 @@ def cmd_scaffold(args) -> int:
     # file, so a comment or a header line here would read as "not interactive" and silently
     # make every goal autonomous.
     (goal_dir / EXECUTION_MODE_FILE).write_text(mode + "\n", encoding="utf-8", newline="\n")
+    # 7.136 / d-0811lp-milestones-flow-writes: `lint` requires milestones.csv on EVERY goal, and
+    # until now its only writer was the selftest — so every goal born through the creation flow
+    # failed its own lint gate. Header-only: a goal is born with no milestones, and the spine is
+    # filled in by planning. Same columns the lint reader and the selftest fixture expect.
+    write_csv(goal_dir / "milestones.csv", ["milestone-id", "name", "status"], [])
     # R21 (+ Q16): the per-harness routers + the five write-if-something files, from deterministic
     # templates. Written LAST so the routers describe a folder that already holds what they name.
     write_standard_artifacts(goal_dir, name)
@@ -2361,13 +2366,26 @@ def cmd_selftest(args) -> int:
         # moves with any edit to it and can never go red (7.582; the goal-kind arm below states
         # the same rule for the same reason). The probe carries the content proof; this arm is
         # the selftest's own enumerator staying complete.
-        for fname in ("goal.md", "threads.sql", "CLAUDE.md", "AGENTS.md",
+        for fname in ("goal.md", "threads.sql", "milestones.csv", "CLAUDE.md", "AGENTS.md",
                       "issues.md", "decisions.md", "doubts.md", "gotchas.md", "ideas.md"):
             check(f"creates {fname}", (gd / fname).is_file())
         idx = list(csv.DictReader((root / "goals.csv").open(encoding="utf-8")))
         check("goals.csv carries the row", len(idx) == 1 and idx[0]["name"] == "demo-goal",
               str(idx))
         check("status is briefed", idx and idx[0]["status"] == "briefed")
+
+        # 7.136: a goal born through scaffold carries a milestones.csv the lint gate accepts.
+        # The header is spelled as a LITERAL for the same reason the file list above is: an
+        # expectation that reads the writer's own argument can never go red.
+        ms_text = ((gd / "milestones.csv").read_text(encoding="utf-8")
+                   if (gd / "milestones.csv").is_file() else None)
+        check("scaffold writes a header-only milestones.csv",
+              ms_text == "milestone-id,name,status\n", repr(ms_text))
+        check("a freshly scaffolded goal raises NO milestones finding",
+              not any(i["check"] == "milestones.csv parses"
+                      for i in lint_goal(root, "demo-goal").items),
+              str([i for i in lint_goal(root, "demo-goal").items
+                   if i["check"] == "milestones.csv parses"]))
 
         # goal-kind (d-owner-batch1 (2)). demo-goal above named NO kind, so it is the
         # absence arm; the enum default is spelled out as a LITERAL rather than read from

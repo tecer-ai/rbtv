@@ -42,4 +42,7 @@ module.exports = {
   resolveWorkspaceRoot: shared.resolveWorkspaceRoot,
   sessionsRootFor: shared.sessionsRootFor,
   CLOSED_SLOTS: shared.CLOSED_SLOTS,
+  // The effort ladder's one interpreter, passed straight through — the daemon composes its own
+  // argv (G-144) but must NOT own a second reading of the profile's `effort:` table.
+  resolveEffort: shared.resolveEffort,
 };

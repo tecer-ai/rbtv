@@ -4,11 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn: childSpawn, execFileSync } = require('node:child_process');
 const { requirePythonCmd } = require('../../lib/python-cmd');
-const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot } = require('./config');
+const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, resolveEffort } = require('./config');
 // The (harness, model) -> profile-name catalog, from the ONE shared resolver (task 7.54). Reached
 // through `server/spawn/config.js`'s own upstream — this module already depends on that adapter,
 // so nothing new crosses the daemon boundary.
-const { declaresBinding, profileForBinding, bindingOf } = require('../../launch-profiles/catalog');
+const { castProfileFor, bindingOf } = require('../../launch-profiles/catalog');
 const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCagedSettings } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
@@ -186,6 +186,17 @@ function resolveSandbox(sandbox, workdir) {
 // THIS IS A TYPED REFUSAL, NOT HALF SUPPORT. Routing this module through resolveProfile() is the
 // root-cause shape and belongs with its ruled consumers (7.43 / 7.54, both unbuilt); doing it
 // here would be reimplementing half selection in the one place 7.42 exists to remove it from.
+//
+// ⚑ AMENDED 2026-08-11, owner ruling `d-0811lp-effort-lane-build-now` (run exec-0811-live-proofs).
+// HALF SELECTION is still refused here and 7.43/7.54 still own it — nothing below changed. What
+// the ruling lifted is narrower and separable: the profile's `effort:` LADDER is now read by this
+// module too, through the shared `resolveEffort()` that `resolveProfile` itself calls
+// (launch-profiles/profiles.js). That is the opposite of reimplementation — ONE interpreter of the
+// table, two callers — and it is what let the channel master's DM sittings carry a reasoning rung
+// without waiting for the whole 7.43 refactor. The ruling explicitly overrode the reservation this
+// comment's sibling at `internal-api/dispatch.js` recorded ("NO daemon caller today … Re-rule at
+// 7.43/7.54"): that reservation now holds for E_NO_PORTABLE_HALF and E_RAW_FLAG, and NOT for
+// E_UNKNOWN_EFFORT, which this path raises live.
 // What this removes is the crash and the silence — the daemon now says WHICH profile and WHICH
 // halves, so the operator reads a refusal instead of a stack.
 //
@@ -211,7 +222,10 @@ function requireExecShape(profile, profileName) {
 // `resumeRef` (r-chat-chain-resumes-session): non-null selects the profile's RESUME template
 // instead of `exec` — same block shape, same carriage, one extra slot value. The caller has
 // already established the profile carries one; this function does not decide policy.
-function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot, resumeRef = null) {
+// `effort` (owner ruling `d-0811lp-effort-lane-build-now`, 2026-08-11): a NUMERIC RUNG, 1..N, in
+// the ladder THIS profile declares — null means the harness default, which is every pre-ruling
+// caller's behaviour unchanged. `profileName` rides with it only so a refusal can name the profile.
+function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot, resumeRef = null, effort = null, profileName = null) {
   const isHeaded = mode === 'headed';
   const block = isHeaded ? profile.headed.tui : (resumeRef ? profile.resume : profile.exec);
   const promptCarriage = block.prompt;
@@ -260,6 +274,18 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot, resume
   if (descriptor && harnessOf(profile) === 'claude' && fs.existsSync(descriptor)) {
     argv.push('--append-system-prompt-file', descriptor);
   }
+
+  // ── the effort rung, composed by the profile's OWN ladder ─────────────────────────────────
+  // ⚠ ONE INTERPRETER, IMPORTED — never a second reading of the `effort:` table here. `resolveEffort`
+  // is the same function `launch-profiles/resolveProfile` calls; this module owns argv composition
+  // (G-144) but not the ladder's meaning. An out-of-range rung throws E_UNKNOWN_EFFORT naming the
+  // profile's range; a profile whose dial is declared INERT accepts the rung and emits nothing
+  // (G-270), so an effort set while the master runs on such a profile visibly does nothing.
+  // ⚠ NO PROFILE IS NAMED HERE, and that is a rule this module is probed against
+  // (probe-caged-settings, 'no per-profile special case anywhere in server/spawn/'): which
+  // profiles have a dial is the CONFIG's statement, never this file's.
+  const { argv: effortArgv } = resolveEffort(profile, effort, profileName || '(unnamed profile)');
+  argv.push(...effortArgv);
 
   return { argv, stdinFile, promptCarriage };
 }
@@ -432,46 +458,23 @@ function seatDeclaresValue(seatDir, key) {
   }
 }
 
-// ── THE SEAT'S CAST → THE PROFILE THAT RUNS IT (task 7.54 · owner ruling D19, extending D16) ────
+// ── THE SEAT'S CAST → THE PROFILE THAT RUNS IT — the READ half only (task 7.54 · D19 · D27) ─────
 //
-// The defect: two launch paths reached a seat and NEITHER read what the seat was cast as. The
-// daemon lane passed one profile for every seat of a goal (`engine/seeding.js`), and the chat
-// bridge passed a deployment-wide chat profile by surface (`bridges/chat/forward-path.js`) — so
-// the planning interviewer, cast `claude-fable-5` in `taskforce.csv` AND in its own `seat.md`, was
-// revived on `claude-sonnet-5` whenever the owner answered it in Slack, with `sessions.csv`
-// recording the launch as if nothing had diverged.
+// Reads what the seat declares and hands it to the ONE shared resolver. The resolution law, the
+// refusals and the reasoning all live in `launch-profiles/catalog.js#castProfileFor`; this side
+// owns only the seat.md read, because that reader (`seatDeclaresValue`) is a spawn concern and
+// lives here.
 //
-// ⚑ RESOLVED HERE, IN THE ONE FUNCTION EVERY LAUNCH ROUTES THROUGH, and that placement IS the fix.
-// Resolving it in either caller would have left the other one broken and added a second mapping;
-// `spawn()` is downstream of the ticker, the chat bridge, the daemon lane, the attached lane and
-// the warm-session leg alike, and it is also UPSTREAM of both records (`jobs_log.profile` and the
-// at-dispatch `sessions.csv` row are written below), so record and reality cannot drift apart by
-// construction — they are written from the resolved value, not the requested one.
-//
-// ⚑ THE CAST OUTRANKS THE CALLER'S NAMED PROFILE, deliberately. A caller's profile is what runs a
-// seat that declares NO cast; it is not a licence to override one that does. That is G-111's rule
-// (an asserted value never outranks a declared one) applied to the model, and it is the whole
-// content of ruling D16 — the record is the authority for what a seat runs.
-//
-// Returns the caller's own `profileName` unchanged whenever the seat declares no cast, which is
-// the channel master (`open_binding`), every unmaterialized seat, and every pre-D19 deployment —
-// so a workspace that casts nothing behaves exactly as it did before this function existed.
+// ⚠ NOTHING PROFILE-SPECIFIC MAY LAND IN THIS FILE. `probe-caged-settings` asserts "no per-profile
+// special case anywhere in `server/spawn/`" and greps this tree for profile-name literals — the
+// standing DEC-1 rule that profile knowledge has exactly one home. The resolution logic lived here
+// until owner ruling D27 (2026-08-11) moved it out; keep it out, comments included.
 function profileForSeatCast(profiles, seatDir, profileName, log) {
   const binding = {
     harness: seatDeclaresValue(seatDir, 'harness'),
     model: seatDeclaresValue(seatDir, 'model'),
   };
-  if (!declaresBinding(binding)) return profileName;
-  // Throws E_UNMAPPED_BINDING / E_AMBIGUOUS_BINDING — never falls back. A cast this workspace
-  // cannot spawn must stop the launch: continuing on the caller's profile is precisely the silent
-  // wrong-model launch being fixed.
-  const cast = profileForBinding(profiles, binding, { seat: path.basename(seatDir) });
-  if (cast !== profileName) {
-    log('info', 'launching the profile the seat is CAST as, not the one the caller named (D19)', {
-      seatDir, requested: profileName, cast, harness: binding.harness, model: binding.model,
-    });
-  }
-  return cast;
+  return castProfileFor(profiles, binding, profileName, log, path.basename(seatDir));
 }
 
 // ── `rw-paths:` — the seat-declared READ-WRITE workspace paths (owner ruling "a", 2026-08-06) ──
@@ -1041,7 +1044,10 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   // `resumeRef` is DAEMON-INTERNAL (r-chat-chain-resumes-session): it is never a request key —
   // no gateway caller supplies it — so it stays out of validateRequestKeys below. The ticker
   // passes the predecessor turn's `jobs_log.session_ref`; every other caller passes nothing.
-  async function spawn(execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown', resumeRef = null) {
+  // `effort` is DAEMON-INTERNAL in the same sense `resumeRef` is: the ticker reads it off the queue
+  // row's args (the catalogue job whose schema admits it) and passes it here; no gateway caller
+  // supplies it directly, so it stays out of validateRequestKeys below.
+  async function spawn(execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown', resumeRef = null, effort = null) {
     // Strict request-key validation for object-style callers (gateway path).
     validateRequestKeys({ profile: profileName, session_mode: sessionMode, prompt, workdir });
 
@@ -1166,7 +1172,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
     const sessionId = generateSessionId();
     const logPath = ensureLogPath(dataRoot, sessionId);
-    const { argv: composedArgv, stdinFile } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot, resumeRef);
+    const { argv: composedArgv, stdinFile } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot, resumeRef, effort, profileName);
 
     // Task 7.444 (MC2) — carry the profile's `--settings` file INTO the cage. See harness-config.js
     // for why this is a materialization rather than a widened SeatBinds template. Done here, after

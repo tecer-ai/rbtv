@@ -400,9 +400,18 @@ const NOT_WIRE_REACHABLE = new Map([
   // says so at launch-profiles/index.js:46.
   // ⚠ TASKS 7.43 / 7.54 WIRE resolveProfile INTO THE SPAWN PATH. When they do, RE-RULE these five
   // rather than inheriting this rationale: it is true of today's call graph, not of the design's.
+  //
+  // ⚑ ONE OF THE FIVE HAS BEEN RE-RULED — E_UNKNOWN_EFFORT, on 2026-08-11, owner ruling
+  // `d-0811lp-effort-lane-build-now` (run exec-0811-live-proofs), which explicitly overrode the
+  // "Re-rule at 7.43/7.54" reservation on that ONE code rather than waiting for the refactor. The
+  // effort ladder was separable from half selection: `resolveEffort()` (launch-profiles) is now
+  // called BOTH by resolveProfile and by `server/spawn/spawn.js#composeArgv`, so the daemon raises
+  // this code live, on a request it received. The other four notes are UNCHANGED and still true —
+  // half selection, the caller-slot bound and the pre-flight remain unwired.
   ['E_NO_PORTABLE_HALF', 'raised only inside resolveProfile (launch-profiles/profiles.js), which has NO daemon caller today — the spawn path resolves exec: directly (G-144). Re-rule at 7.43/7.54'],
   ['E_RAW_FLAG', 'raised only inside resolveProfile (the caller-slot bound), which has NO daemon caller today. Re-rule at 7.43/7.54'],
-  ['E_UNKNOWN_EFFORT', 'raised only inside resolveProfile (the effort translation table), which has NO daemon caller today — config-LOAD effort validation raises E_CONFIG_LOAD instead. Re-rule at 7.43/7.54'],
+  // RE-RULED 2026-08-11 (d-0811lp-effort-lane-build-now): this one now has a live daemon caller.
+  ['E_UNKNOWN_EFFORT', 'raised by resolveEffort (launch-profiles/profiles.js) — the effort LADDER, shared by resolveProfile AND by the daemon spawn path since 2026-08-11 (d-0811lp-effort-lane-build-now). A request naming a rung outside the target profile\'s 1..N range, or a non-integer rung, reaches this code live; config-LOAD ladder validation still raises E_CONFIG_LOAD instead'],
   ['E_PINNED_FLAG_ABSENT', 'raised only inside preflightPinnedFlags (launch-profiles/preflight.js), exported but deliberately NOT wired into the daemon spawn path (barrel comment, index.js:46). Re-rule when pre-flight is wired'],
   ['E_PREFLIGHT_UNAVAILABLE', 'raised only inside the pre-flight help reader (launch-profiles/preflight.js), same deliberately-unwired module; a --help that cannot be read is a pre-flight outcome, not a request outcome'],
 ]);

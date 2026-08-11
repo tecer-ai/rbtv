@@ -25,7 +25,7 @@ const {
   resolveWorkspaceRoot,
   sessionsRootFor,
   CLOSED_SLOTS,
-  KNOWN_EFFORT_LEVELS,
+  resolveEffort,
 } = require('./profiles');
 const { detectHostCapability, CAGED, PORTABLE } = require('./host');
 const { preflightPinnedFlags, pinnedFlagsOf, readHelp } = require('./preflight');
@@ -66,7 +66,10 @@ module.exports = {
   E_AMBIGUOUS_BINDING,
   // vocabulary
   CLOSED_SLOTS,
-  KNOWN_EFFORT_LEVELS,
+  // the effort ladder's ONE interpreter — shared with server/spawn/spawn.js (2026-08-11,
+  // d-0811lp-effort-lane-build-now), which composes exec/resume/headed blocks resolveProfile
+  // has no path for and must not own a second copy of the table.
+  resolveEffort,
   // errors — re-exported so a consumer never reaches into server/spawn/errors.js
   ...errors,
 };
