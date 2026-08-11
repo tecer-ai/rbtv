@@ -132,15 +132,21 @@ def main():
                          "-P", "-F", "#{pane_id}").stdout.strip()
             seen = {}
             real_wake = coord.wake
+            real_arm = coord.start_pane_capture
+            armed = []
+
+            def spy_arm(pane_id, logpath):
+                armed.append(str(logpath))
+                return real_arm(pane_id, logpath)
 
             def stub_wake(p, cmd):
-                # The whole point of the arm: asked AT WAKE TIME, before a single byte of harness
-                # output could exist, is the transcript already being written?
-                seen["dirs"] = sorted(
-                    d.name for d in (pkg / "seats" / "beta" / "sessions").glob("*")
-                ) if (pkg / "seats" / "beta" / "sessions").is_dir() else []
-                seen["files"] = [str(f) for f in
-                                 (pkg / "seats" / "beta").rglob("transcript.log")]
+                # 7.717: prove the ORDER deterministically. `launch_seat` calls
+                # `start_pane_capture` BEFORE `wake`, so snapshot what it armed by the time wake
+                # fires. Globbing the FS for transcript.log here raced `tmux pipe-pane`'s async
+                # `cat >> file` shell — the file is created AFTER the arm call returns, and under
+                # box load that spawn lags past this point, emptying the glob and reddening
+                # P5b/P5c/P3c even though the arm, the marker and the substrate log are all fine.
+                seen["armed_at_wake"] = list(armed)
                 return True, ""
 
             w = {"agent": "beta", "harness": "claude", "model": "opus", "effort": "medium",
@@ -153,6 +159,7 @@ def main():
             la = argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
                                     as_agent=None, force=True)
             coord.wake = stub_wake
+            coord.start_pane_capture = spy_arm
             real_up, real_rename = coord.wait_harness_up, coord.schedule_session_rename
             coord.wait_harness_up = lambda p: (None, "")
             coord.schedule_session_rename = lambda p, a: None
@@ -161,12 +168,15 @@ def main():
             finally:
                 coord.wake, coord.wait_harness_up = real_wake, real_up
                 coord.schedule_session_rename = real_rename
+                coord.start_pane_capture = real_arm
             check("P5a `launch_seat` returned without error on the stubbed harness", lerr == "",
                   lerr)
-            check("P5b ⚠ CAPTURE STARTS IN THE SAME STEP THAT COMPOSES THE PANE COMMAND: the "
-                  "transcript file already EXISTS at the moment `wake` is called — a later pass "
-                  "would have left nothing there to see",
-                  len(seen.get("files") or []) == 1, repr(seen))
+            aw = seen.get("armed_at_wake") or []
+            beta_dir = pkg / "seats" / "beta"
+            check("P5b ⚠ CAPTURE STARTS IN THE SAME STEP THAT COMPOSES THE PANE COMMAND: "
+                  "`launch_seat` ARMED the transcript pipe for this seat BEFORE it called `wake` "
+                  "— a later pass would have armed nothing by this point",
+                  len(aw) == 1 and beta_dir in Path(aw[0]).parents, repr(seen))
             hdr, rows = coord.read_csv_table(coord.sessions_csv(pkg), coord.SESSIONS_COLS)
             ix = {c: i for i, c in enumerate(hdr)}
             brow = [r for r in rows if coord.pad_row(r, hdr)[ix["seat"]] == "beta"]
@@ -174,8 +184,7 @@ def main():
                   "names the very file the pipe was armed on — written at BIRTH, by the launch, "
                   "with nobody invoking a writer by hand",
                   len(brow) == 1
-                  and brow[0][ix["recorded"]] in (seen.get("files") or [])
-                  and Path(brow[0][ix["recorded"]]).exists(),
+                  and brow[0][ix["recorded"]] in aw,
                   brow[0][ix["recorded"]] if brow else "(no row)")
             check("P5d the marker RESOLVES through the module's own resolver for that row's "
                   "session-id — the trace points at the transcript, and no second index exists",
@@ -216,7 +225,7 @@ def main():
                   "the substrate-level backup did not",
                   tpath.exists() and after.strip() != "" and MARK in after,
                   f"{len(after)} bytes after kill (was {len(before)})")
-            btrans = [Path(f) for f in (seen.get("files") or [])]
+            btrans = [Path(f) for f in aw]
             check("P3c the SECOND seat's transcript survived the same kill — the property is the "
                   "launch step's, not one hand-armed pane's",
                   bool(btrans) and all(p.exists() for p in btrans),
