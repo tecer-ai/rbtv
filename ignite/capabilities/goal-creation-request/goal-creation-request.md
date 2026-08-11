@@ -329,11 +329,13 @@ The per-goal OWNER-CONTACT policy (registry concept `execution mode`; ABSENT rea
 Optional is the point: a requester who says nothing gets the WORKFLOW's default, resolved from the
 workflow's own scaffolding, which is a better answer than any default this layer could invent.
 
-**Resolution ladder, in this order:** (1) the request payload's own `execution-mode` → (2) the
-workflow's DECLARED `default-execution-mode:` → (3) DERIVED from that workflow's manifest Modality
-column → (4) the model's own `autonomous` where no workflow is named or none resolves. Each rung's
-reason, and why the declaration outranks the derivation, is § *Three properties* item 4 below —
-that item is the normative statement of the ladder; this line is only its order.
+**Resolution ladder, in this order:** (1) the request payload's own `execution-mode` → (2) a
+`goal-kind` of `non-interactive` → `autonomous` → (3) the workflow's DECLARED
+`default-execution-mode:` → (4) DERIVED from that workflow's manifest Modality column → (5) the
+model's own `autonomous` where no workflow is named or none resolves. Each rung's reason, why the
+declaration outranks the derivation, and why rung 2 reads the kind in ONE direction only, is
+§ *Three properties* item 4 below — that item is the normative statement of the ladder; this line
+is only its order.
 
 **Where each half is enforced:**
 
@@ -448,13 +450,21 @@ type" member the schema does not carry.
    `rbtv-goal scaffold --execution-mode`, and the `create-goal` step reports both
    `execution-mode` and `execution-mode-source`.
 
-   **The resolution ladder, in this order:** the request payload's own `execution-mode` → the
-   target workflow's DECLARED `default-execution-mode:` (frontmatter of
-   `<catalog-root>/<component>/workflows/<W>/workflow.md`) → DERIVED from that workflow's
-   manifest (any row whose Modality reads `interactive` → `interactive`, none → `autonomous`) →
-   the model's own `autonomous` where no workflow is named (a `--seat` creation) or the workflow
-   resolves to no single manifest. Every rung names its source in the step record, so a fallback
-   is never mistaken for a resolution.
+   **The resolution ladder, in this order:** the request payload's own `execution-mode` → a
+   `goal-kind` of `non-interactive` → the target workflow's DECLARED `default-execution-mode:`
+   (frontmatter of `<catalog-root>/<component>/workflows/<W>/workflow.md`) → DERIVED from that
+   workflow's manifest (any row whose Modality reads `interactive` → `interactive`, none →
+   `autonomous`) → the model's own `autonomous` where no workflow is named (a `--seat` creation)
+   or the workflow resolves to no single manifest. Every rung names its source in the step
+   record, so a fallback is never mistaken for a resolution.
+
+   ⚠ **The goal-kind rung reads the kind in ONE direction** (owner ruling 2026-08-11, task
+   `7.753`). `goal-kind: non-interactive` resolves `autonomous`, OVERRIDING the workflow default:
+   a goal nobody will ever sit with was being born `interactive` whenever its workflow declared
+   that default, so its seats waited on an owner who was never coming. `goal-kind: interactive`
+   derives NOTHING and falls through to the workflow — a goal someone MAY sit with is not thereby
+   a goal that must wait, and that call belongs to the manifest, which is what knows whether a
+   seat is actually interactive. An explicit request `execution-mode` still outranks both.
 
    ⚠ **The declaration outranks the derivation on purpose.** Derivation cannot express the one
    case the owner named: a workflow WITH interactive seats that should still default autonomous.

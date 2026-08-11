@@ -42,6 +42,13 @@ half.
      checks 1 and 4 are scoring nothing, because the creation verb's own `autonomous` default
      would be producing whatever they read; the probe then exits 2 INOPERATIVE rather than
      reporting a pass it did not earn.
+  7. THE GOAL-KIND RUNG (owner ruling 2026-08-11, task 7.753) — a goal nobody will sit with was
+     still born `interactive` whenever its workflow declared that default, so its seats waited on
+     an owner who was never coming. Three arms, because the rung is PRECEDENCE, not a mapping:
+     `goal-kind: non-interactive` with no requested mode overrides the declared `interactive`;
+     an explicitly requested `interactive` still beats the kind; and an `interactive` kind derives
+     NOTHING — it falls through to the workflow, deliberately one-directional. Two of the three
+     would pass against a hard-wire; only all three pin the order.
 
 Nothing here touches a live goals package: every act runs under `tempfile`, and the path driven is
 `scaffold_goal`, which invokes `rbtv-goal scaffold` ONLY. It never reaches `scaffold-seats`, so no
@@ -52,6 +59,8 @@ this probe wrote to agree with itself.
 """
 
 import importlib.util
+import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -60,6 +69,8 @@ from pathlib import Path
 
 TOOL = Path(__file__).resolve().parents[1] / "tool" / "goal_creation_request.py"
 GOAL_CLI = Path(__file__).resolve().parents[2] / "goals-tree" / "tool" / "goal_cli.py"
+# Check 8's subject: the control plane's own execution-mode reader, required as the real module.
+BUS_FERRY = Path(__file__).resolve().parents[3] / "bridges" / "chat" / "bus-ferry.js"
 
 REAL_WORKFLOW = "planning"
 
@@ -111,10 +122,10 @@ def load(src: str | None = None):
     return mod
 
 
-def request(name: str, mode: str | None = None) -> dict:
+def request(name: str, mode: str | None = None, kind: str = "interactive") -> dict:
     req = {"goal-name": name, "goal-type": "one-shot",
            "goal-contract": "Ship the thing, verified at the edge.",
-           "goal-kind": "interactive"}
+           "goal-kind": kind}
     if mode is not None:
         req["execution-mode"] = mode
     return req
@@ -237,8 +248,9 @@ def main() -> int:
               str(out.get("checked")))
 
         print("4. with NO declaration, the default is DERIVED from the manifest — both ways")
+        cats: dict[str, Path] = {}  # kept for check 7c, which needs the no-interactive-seat one
         for modality, expect in (("interactive", "interactive"), ("agentic", "autonomous")):
-            cat = synthetic_catalog(tmp, modality)
+            cat = cats[modality] = synthetic_catalog(tmp, modality)
             derived, source = mod.workflow_default_execution_mode(str(cat), "synth-flow")
             check(f"a manifest whose seat is {modality!r} derives {expect!r}",
                   derived == expect, f"derived {derived!r} from {source}")
@@ -265,6 +277,86 @@ def main() -> int:
         check("a caller passing no --execution-mode gets the file, reading 'autonomous'",
               proc.returncode == 0 and got_control == "autonomous",
               f"rc={proc.returncode} file reads {got_control!r}")
+
+        print("7. the goal-kind rung — non-interactive is born autonomous, one-directionally")
+        # a. THE RUNG. Same real `planning` workflow as check 1, which DECLARES `interactive`, and
+        #    no mode in the request — so the only thing that can produce `autonomous` here is the
+        #    kind. Read from the file on disk for check 1's reason: a step dict that said
+        #    `autonomous` while the goal was written `interactive` is the exact defect.
+        step = mod.scaffold_goal(request("kind-nonint-goal", kind="non-interactive"), str(root),
+                                 catalog_root=str(CATALOG_ROOT), workflow=REAL_WORKFLOW)
+        got = born_mode(root / "kind-nonint-goal")
+        check("a non-interactive goal-kind is born 'autonomous', OVERRIDING the declared "
+              "'interactive' workflow default",
+              step.get("rc") == 0 and got == "autonomous",
+              f"rc={step.get('rc')} file reads {got!r}")
+        check("the step attributes the mode to the goal-kind, not to the workflow",
+              "goal-kind" in (step.get("execution-mode-source") or ""),
+              str(step.get("execution-mode-source")))
+
+        # b. THE EXPLICIT ASK STILL WINS. Without this the rung would be a hard-wire: a request
+        #    that deliberately asks for owner contact on a non-interactive goal must get it.
+        step = mod.scaffold_goal(request("kind-nonint-explicit-goal", "interactive",
+                                         kind="non-interactive"), str(root),
+                                 catalog_root=str(CATALOG_ROOT), workflow=REAL_WORKFLOW)
+        got = born_mode(root / "kind-nonint-explicit-goal")
+        check("an explicit 'interactive' beats the non-interactive goal-kind (rung 1 > rung 2)",
+              step.get("rc") == 0 and got == "interactive"
+              and step.get("execution-mode-source") == "the request payload",
+              f"rc={step.get('rc')} file reads {got!r} source={step.get('execution-mode-source')!r}")
+
+        # c. ONE-DIRECTIONAL. An `interactive` goal-kind derives NOTHING — it falls through to the
+        #    workflow, which here DERIVES `autonomous` from a manifest with no interactive seat.
+        #    Read against the synthetic no-interactive-seat catalog rather than `planning`, whose
+        #    declared `interactive` would agree with a kind-driven answer by coincidence and score
+        #    nothing.
+        step = mod.scaffold_goal(request("kind-int-goal", kind="interactive"), str(root),
+                                 catalog_root=str(cats["agentic"]), workflow="synth-flow")
+        got = born_mode(root / "kind-int-goal")
+        check("an INTERACTIVE goal-kind derives nothing and still takes the workflow's answer",
+              step.get("rc") == 0 and got == "autonomous"
+              and (step.get("execution-mode-source") or "").startswith("the workflow default"),
+              f"rc={step.get('rc')} file reads {got!r} source={step.get('execution-mode-source')!r}")
+
+        print("8. the FERRY SEAM — the control plane's own reader, on the goals just created")
+        # The rung above is only worth anything if the surface that ENFORCES owner contact agrees
+        # with it. `bus-ferry.js#goalExecutionMode` is that surface (gate 2 of agent-initiated
+        # owner contact), and until now NO probe drove it against a goal the creation path
+        # actually made — both sides were guarded, the seam between them was not. Driven as the
+        # REAL exported function over the REAL goal directories written above, never a re-read of
+        # the file with this probe's own grammar, which would only prove the probe agrees with
+        # itself.
+        node = shutil.which("node")
+        if node is None:
+            inoperative.append("no `node` on PATH — the ferry seam could not be driven, and the "
+                               "goal-kind rung is unproven at the surface that enforces it")
+        else:
+            reader = (
+                "const f=require(process.argv[1]);"
+                "console.log(JSON.stringify(process.argv.slice(3).map("
+                "(g)=>f.goalExecutionMode(process.argv[2],g))));"
+            )
+            subjects = ["kind-nonint-goal", "mode-default-goal"]
+            proc = subprocess.run(
+                [node, "-e", reader, str(BUS_FERRY), str(tmp), *subjects],
+                capture_output=True, text=True)
+            modes = None
+            if proc.returncode == 0:
+                try:
+                    modes = dict(zip(subjects, json.loads(proc.stdout.strip())))
+                except ValueError:
+                    modes = None
+            print(f"     ferry reads {modes} (rc={proc.returncode})")
+            if modes is None:
+                inoperative.append(f"the ferry reader did not answer (rc={proc.returncode}): "
+                                   f"{(proc.stderr or proc.stdout)[:200]}")
+            else:
+                check("the ferry reads the flow-born NON-INTERACTIVE goal as 'autonomous'",
+                      modes.get("kind-nonint-goal") == "autonomous", str(modes))
+                # The control: without it the arm passes against a ferry hard-wired to
+                # `autonomous`, which is the pre-2026-08-10 defect the mode file exists to close.
+                check("…and still reads the interactive-workflow goal as 'interactive' (control)",
+                      modes.get("mode-default-goal") == "interactive", str(modes))
 
         print("6. the mutant — the --execution-mode forwarding removed; check 1 MUST go red")
         src = TOOL.read_text(encoding="utf-8")
@@ -307,8 +399,8 @@ def main() -> int:
         return 1
     print("probe-execution-mode-birth: PASS — a created goal is born with its execution mode: the "
           "workflow's declared default lands, an explicit request value wins, an invalid one "
-          "refuses creating nothing, derivation answers both ways, and the verb's own default is "
-          "intact")
+          "refuses creating nothing, derivation answers both ways, a non-interactive goal-kind "
+          "overrides the workflow default one-directionally, and the verb's own default is intact")
     return 0
 
 

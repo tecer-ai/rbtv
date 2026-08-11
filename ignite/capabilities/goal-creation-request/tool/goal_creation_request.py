@@ -104,6 +104,11 @@ GOAL_TYPES = ("one-shot", "recurring")
 # literal for the same reason GOAL_NAME_RE does — deliberate duplication of a contract constant, not
 # drift — so the request layer's schema does not become importable from a tool's internals.
 GOAL_KINDS = ("interactive", "non-interactive")
+# Named off the tuple rather than re-spelled: `resolve_execution_mode` derives a mode from this
+# one member (owner ruling 2026-08-11, task 7.753), and a second literal is a second thing to
+# keep in step with the enum. V6 already refuses anything outside GOAL_KINDS, so the value this
+# compares against and the value the schema admits are the same object.
+NON_INTERACTIVE_KIND = GOAL_KINDS[1]
 
 # ── `execution-mode`: the OPTIONAL sixth field (owner ruling 2026-08-10) ───────────────────────
 #
@@ -441,7 +446,8 @@ def workflow_default_execution_mode(catalog_root, workflow):
 
 
 def resolve_execution_mode(request, catalog_root=None, workflow=None):
-    """The mode a goal is BORN with: the request's own value, else the workflow's default.
+    """The mode a goal is BORN with: the request's own value, else a non-interactive goal-kind,
+    else the workflow's default (the rung comment below states the precedence in full).
 
     Returns (mode, source). Raises `Refusal` on a payload value outside the enum — see the
     EXECUTION_MODES header for why this is a refusal HERE rather than a reject-set member.
@@ -455,6 +461,23 @@ def resolve_execution_mode(request, catalog_root=None, workflow=None):
                 "policy, and a value the control plane cannot read would silently make the goal "
                 "autonomous — which is why it refuses instead of falling back to a default.")
         return asked, "the request payload"
+
+    # THE GOAL-KIND RUNG (owner ruling 2026-08-11, task 7.753). Full precedence:
+    #   1. the request's own `execution-mode` (above) — an explicit ask ALWAYS wins;
+    #   2. `goal-kind: non-interactive` → `autonomous`, OVERRIDING the workflow default;
+    #   3. the workflow default (declared, else derived from the manifest).
+    #
+    # ⚠ ONE-DIRECTIONAL, DELIBERATELY. `goal-kind: interactive` derives NOTHING and falls through
+    # to (3): a goal nobody will sit with cannot be born waiting for an owner, but a goal someone
+    # MAY sit with is not thereby a goal that must wait — that is the workflow's call, and the
+    # manifest is what knows whether a seat is actually interactive. Reading the kind in both
+    # directions would let a goal-kind silently overrule a workflow that declares its own default.
+    #
+    # ⚠ The two `interactive`s are DIFFERENT AXES sharing a word (see the EXECUTION_MODES header,
+    # open issue F-96) — which is exactly why only the UNAMBIGUOUS member is read here.
+    if request.get("goal-kind") == NON_INTERACTIVE_KIND:
+        return "autonomous", f"goal-kind {NON_INTERACTIVE_KIND!r} (overrides the workflow default)"
+
     mode, source = workflow_default_execution_mode(catalog_root, workflow)
     return mode, f"the workflow default — {source}"
 
