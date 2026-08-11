@@ -30,7 +30,7 @@ Environment (every per-instance value is resolved at runtime; nothing is baked i
   RBTV_WATCHDOG_DAEMON_UNIT   default rbtv-ignite.service
   RBTV_WATCHDOG_BRIDGE_UNIT   default rbtv-chat-bridge.service
   RBTV_WATCHDOG_PROBE_TIMER   default rbtv-probe-suite.timer
-  RBTV_WATCHDOG_WATCH_JOB     goal-watcher job id  (default selfheal-watch)
+  RBTV_WATCHDOG_WATCH_JOB     goal-watcher job id  (default goal-watcher-job)
   RBTV_WATCHDOG_TARGETS       comma list to scope the pass (default: all four).
                               The test-override hook, mirroring RBTV_IGNITE_UNIT —
                               a probe points this at a throwaway unit instead of
@@ -83,7 +83,7 @@ GATEWAY = env("RBTV_WATCHDOG_GATEWAY", "http://127.0.0.1:7431/")
 DAEMON_UNIT = env("RBTV_WATCHDOG_DAEMON_UNIT", "rbtv-ignite.service")
 BRIDGE_UNIT = env("RBTV_WATCHDOG_BRIDGE_UNIT", "rbtv-chat-bridge.service")
 PROBE_TIMER = env("RBTV_WATCHDOG_PROBE_TIMER", "rbtv-probe-suite.timer")
-WATCH_JOB = env("RBTV_WATCHDOG_WATCH_JOB", "selfheal-watch")
+WATCH_JOB = env("RBTV_WATCHDOG_WATCH_JOB", "goal-watcher-job")
 TIMEOUT = float(env("RBTV_WATCHDOG_TIMEOUT_SECONDS", "10"))
 
 
@@ -236,16 +236,20 @@ def probe_goal_watcher():
     rows = [r for r in detail.get("result", {}).get("rows", [])
             if r.get("job_id") == WATCH_JOB]
     if not rows:
-        # NOT SCHEDULED is not DOWN. Whether this job should be armed is a ruling —
-        # jobs are disarmed deliberately (a run closes, an owner removes the row), and
-        # nothing observable from here separates "disarmed on purpose" from "row lost":
-        # the catalogue entry stays enabled either way (verified on the live store,
-        # 2026-08-08 — catalogue enabled=1, queue empty, by ruling). No restart creates a
-        # queue row, so alarming would report, every 60s forever, a condition this
-        # component can neither judge nor act on — invariant 3 by volume, and invariant 2
-        # (it would be interpreting policy). It stays VISIBLE on stdout and in the
-        # journal; it does not page anyone.
-        return "skip", "job '%s' has no queue row — not scheduled (arming it is a ruling, not a restart)" % WATCH_JOB
+        # NOT SCHEDULED is an ALARM, not a skip (owner ruling 2026-08-11). The former
+        # `skip` was correct in the abstract — no restart creates a queue row, so this
+        # is a human's call — but it made the arm's ONE hard failure indistinguishable
+        # from health on the only channel that pushes, and it hid a real one: the arm sat
+        # pointed at a deregistered job id for a full night, logging this line every pass
+        # while the live watcher went unwatched. `alarm` is exactly the right state for
+        # "real, and no restart fixes it": main() never restarts on it, and the DM says a
+        # human is needed. The dedupe + re-alert ceiling above bounds the volume that the
+        # old comment feared. Invariant 2 still holds — this REPORTS an absence, it does
+        # not judge whether the job should be armed or act on it.
+        return "alarm", ("job '%s' has NO queue row — the goal-watcher is NOT scheduled and "
+                         "nothing is watching. Arming it is a ruling, not a restart: enqueue "
+                         "the periodic row, or repoint RBTV_WATCHDOG_WATCH_JOB if the id moved"
+                         % WATCH_JOB)
     row = rows[0]
     interval = row.get("interval_seconds")
     run_at = row.get("run_at")

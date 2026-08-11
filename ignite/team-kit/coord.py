@@ -1475,7 +1475,12 @@ def tmux_raise_history_limit():
 #          hand-reaped by the leader; hand-reaping does not scale to an unattended night.
 # Both are answered the same way: ask the process table, never the roster.
 
-HARNESS_PROCS = ("claude", "codex", "opencode")
+# 7.731: DERIVED, never re-typed. A harness's descriptor keyword IS the basename it launches as
+# (`harness_command` runs CLAUDE_BIN/CODEX_BIN/OPENCODE_BIN, all defaulting to those exact names),
+# so the launch surface and the process-matching surface are ONE list. Re-declaring it here let a
+# 4th harness reach `validate_seat` while every live pane of it read as DEAD — the same second-copy
+# drift 7.689 closed in edge-runner-job.py. The name stays: it reads right at the `ps` sites.
+HARNESS_PROCS = HARNESSES
 HARNESS_UP_TIMEOUT = 25.0   # cold claude start measured ~2-4s on this box; generous, bounded
 HARNESS_UP_POLL = 0.5
 PID_EXIT_TIMEOUT = 6.0
