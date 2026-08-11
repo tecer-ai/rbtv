@@ -7323,6 +7323,12 @@ def run_selftest() -> int:
               and not any(_cage_rw_covers(p) for p in gw_refused),
               str([p for p in gw_writable if not _cage_rw_covers(p)])
               + str([p for p in gw_refused if _cage_rw_covers(p)]))
+        # d-s31-planning-workspace-shared-rw: the cage template opens the planning workspace
+        # read-write. Read through the SAME preflight a goal-writes declaration goes through,
+        # against the LIVE spawn-profiles.yaml — deleting or shadowing the line turns this red
+        # rather than turning a seat's workspace silently absent at spawn.
+        check("CG-1 green: the planning workspace is READ-WRITE in the seat cage",
+              _cage_rw_covers("planning/current/findings-edges.md"))
         for bad, code in (
                 ("read-root ghost-grant,1-projects", "cage-grant-unknown"),
                 ("read-root,/abs/path", "cage-rw-path-absolute"),

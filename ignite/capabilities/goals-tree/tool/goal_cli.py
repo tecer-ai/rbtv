@@ -558,7 +558,7 @@ def cmd_scaffold(args) -> int:
     # `standard_artifacts` with the other four (its old body called itself a "decision log",
     # which is the exact word §9 rules these files are NOT).
     created_names = ["goal.md", "threads.sql", EXECUTION_MODE_FILE, "milestones.csv",
-                     *standard_artifacts(name)]
+                     "planning/", *standard_artifacts(name)]
     plan = {
         "goal": name,
         "root": str(root),
@@ -587,6 +587,11 @@ def cmd_scaffold(args) -> int:
     # R21 (+ Q16): the per-harness routers + the five write-if-something files, from deterministic
     # templates. Written LAST so the routers describe a folder that already holds what they name.
     write_standard_artifacts(goal_dir, name)
+    # d-s31-planning-workspace-shared-rw: the per-milestone planning workspace, the one surface a
+    # multi-seat planning phase hands artifacts across. Born empty with the goal because the seat
+    # cage's `bind-try:{goalDir}/planning` needs an existing mountpoint — the goal root is
+    # read-only inside the cage, so no seat can create it.
+    (goal_dir / "planning").mkdir()
 
     write_csv(root / "goals.csv", GOALS_INDEX_COLUMNS, project_goals(root))
 
@@ -2369,6 +2374,10 @@ def cmd_selftest(args) -> int:
         for fname in ("goal.md", "threads.sql", "milestones.csv", "CLAUDE.md", "AGENTS.md",
                       "issues.md", "decisions.md", "doubts.md", "gotchas.md", "ideas.md"):
             check(f"creates {fname}", (gd / fname).is_file())
+        # d-s31-planning-workspace-shared-rw: the ONE directory a created goal carries. It is the
+        # mountpoint the seat cage's `bind-try:{goalDir}/planning` needs — absent it, every seat
+        # silently loses the planning workspace instead of failing to spawn.
+        check("creates planning/", (gd / "planning").is_dir())
         idx = list(csv.DictReader((root / "goals.csv").open(encoding="utf-8")))
         check("goals.csv carries the row", len(idx) == 1 and idx[0]["name"] == "demo-goal",
               str(idx))

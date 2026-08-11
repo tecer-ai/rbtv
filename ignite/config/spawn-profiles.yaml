@@ -156,6 +156,25 @@ cage:
     - "bind-try:{goalDir}/doubts.md"
     - "bind-try:{goalDir}/gotchas.md"
     - "bind-try:{goalDir}/ideas.md"
+    # THE PLANNING WORKSPACE, READ-WRITE FOR EVERY SEAT (owner ruling
+    # d-s31-planning-workspace-shared-rw, 2026-08-11). A multi-seat phase needs a surface its seats
+    # can hand artifacts ACROSS, and until this line there was none: the planning units name "the
+    # milestone's planning workspace" and no mount composed it, so the assembler's draft landed in
+    # its own seat folder — which `tmpfs:{goalDir}/seats` below hides from all seven checkers — and
+    # every findings file landed the same way.
+    # ⚠ A DIRECTORY, NOT A FILE — the reason this is a cage line and not a `goal-writes` declaration:
+    # goal-writes is ONE path and `spawn.js#resolveGoalWriteGrants` creates it with
+    # `writeFileSync(target, '')` — a FILE; the assembler's output is a manifest plus one prompt+task
+    # pair per seat, inexpressible in that column.
+    # NO WRITE ISOLATION BETWEEN SEATS, RULED (owner, 2026-08-11): the planning phase is cooperative.
+    # Per-pass containment is the growth path and needs no rework of this line — a pass folder is a
+    # SUBDIRECTORY of what this opens.
+    # `bind-try` (not `bind`): a goal predating this line has no `planning/` and must lose the
+    # workspace, never fail to spawn. `goal_cli.py#cmd_scaffold` creates it from now on.
+    # ORDER: after the read-only goal floor above (which would re-cover it); nothing below covers
+    # `planning/` — the seats tmpfs, the seat.md carve and the coordination bind are all disjoint
+    # from it.
+    - "bind-try:{goalDir}/planning"
     # GOAL-WRITES grant (owner ruling D9): the ONE goal-folder path this seat's role PRODUCES —
     # the interviewer's `goal.md`, the structurer's `milestones.csv`. Declared in the seat
     # catalogue's `goal-writes` column, emitted by `team-kit/materialize-seats.py` into seat.md's
