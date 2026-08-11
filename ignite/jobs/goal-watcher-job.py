@@ -929,12 +929,36 @@ def headless_live(snap):
 
     An UNREADABLE source is `None`, never 0 — the same discipline CMP-20 applies to the run
     block's own terms, and for the same reason: a 0 standing in for "unknown" satisfies a third
-    of the stall predicate with a fabrication."""
+    of the stall predicate with a fabrication.
+
+    THE VIEW ITSELF IS BOUNDED (task 7.556). `snap['headless']` is not every headless row this
+    run ever had — team-monitor's `headless()` ages a row out of it once it is older than
+    `HEADLESS_WINDOW_S` AND beyond its `(job_id, seat)` group's `HEADLESS_KEEP` newest, and
+    counts every one it drops into `source['retention_dropped']` (the closure guarantee:
+    `scoped == emitted + retention_dropped + unattributed`). A row aged out this way is
+    UNOBSERVED, not absent — counting only what remains in view would silently undercount a
+    long-lived seat on a repeatedly-fired periodic job with total confidence. So `retention_dropped`
+    is READ here (never recomputed — `headless()` already counted it) and, exactly like an
+    unreadable source, turns the count `None` rather than trusting a view known to be short a row.
+
+    A source with NO `retention_dropped` key is read as 0, not as unknown — deliberately, unlike
+    every other term this file guards with the null-never-0 rule. `headless()` ITSELF always
+    carries the key (it is set at the top of its `source` dict before any row is scored), so a
+    missing key can only mean a fixture built before this field existed, never a live run; five
+    such fixtures already ship in this repo's own probe suite (`headless_source` sans
+    `retention_dropped`), each asserting an UNRELATED contract via a `run_stall` decision this
+    field must not silently swallow. Reading the true absent-VALUE case as 0 keeps those probes'
+    coverage intact; reading a REAL, POSITIVE `retention_dropped` as unknown — the case that can
+    actually happen against live data — is the whole of what task 7.556 asked for."""
     src = snap.get("headless_source")
     if not isinstance(src, dict):
         return None, "snapshot carries no headless_source (older sensor)"
     if not src.get("readable"):
         return None, (src.get("reason") or "headless[] source not readable")
+    dropped = src.get("retention_dropped") or 0
+    if dropped > 0:
+        return None, (f"{dropped} headless row(s) aged out of the view for this run "
+                       f"(retention_dropped={dropped}) — the live count would undercount")
     return sum(1 for r in (snap.get("headless") or []) if r.get("outcome") is None), ""
 
 
@@ -1644,7 +1668,10 @@ def selftest():
             fails.append(label)
 
     fresh = time.time()
-    ok_src = {"readable": True, "reason": ""}
+    # `retention_dropped: 0` is part of the emitter's real contract (team_monitor.headless()
+    # always sets it — task 7.556): a fixture that omits it would be testing a shape the sensor
+    # never actually produces.
+    ok_src = {"readable": True, "reason": "", "retention_dropped": 0}
 
     def snap(ready=1, live=0, queued=0, headless=(), src=None, run=True):
         s = {"captured_at": fresh, "captured_at_iso": "iso", "seats": [], "roster_absent": [],
@@ -1684,6 +1711,27 @@ def selftest():
     check("HEADLESS-LIVE: counts non-terminal rows only",
           headless_live(snap(headless=[{"outcome": None}, {"outcome": {}},
                                        {"outcome": None}]))[0] == 2)
+    # 7.556 — a row aged out of the view makes the count UNKNOWN, never a number, never 0.
+    dropped_src = {"readable": True, "reason": "", "retention_dropped": 1}
+    hl_dropped = headless_live(snap(headless=[{"outcome": None}], src=dropped_src))
+    check("HEADLESS-LIVE (7.556): retention_dropped > 0 makes the count UNKNOWN, not a number",
+          hl_dropped[0] is None and "retention_dropped" in hl_dropped[1])
+    missing_src = {"readable": True, "reason": ""}
+    check("HEADLESS-LIVE (7.556): a source with no retention_dropped KEY reads as 0, not unknown "
+          "(headless() itself always sets the key; a missing key is a pre-7.556 test fixture, "
+          "never live data — five of those fixtures ship in this suite and must keep working)",
+          headless_live(snap(headless=[{"outcome": None}], src=missing_src))[0] == 1)
+    check("HEADLESS-LIVE (7.556): retention_dropped == 0 still returns a real number "
+          "(the fix does not degrade every pass to unknown)",
+          headless_live(snap(headless=[{"outcome": None}]))[0] == 1)
+    # THE FLOW-THROUGH: an aged-out row must not let the stall predicate silently read the
+    # unknown headless count as if it were 0 (the "same action as zero" the task criteria name).
+    # ready>0, live=0, queued=0 with hl==0 fires RUN-STALL; the SAME shape with a dropped row
+    # must instead report UNDECIDABLE — a different action, not a quieter version of the same one.
+    d = run_stall(snap(headless=[{"outcome": None}], src=dropped_src), a)
+    check("STALL (7.556): a dropped headless row is UNDECIDABLE, never treated as hl==0",
+          len(d) == 1 and d[0]["nudge"] == "" and "UNDECIDABLE" in d[0]["action"]
+          and "headless-live" in d[0]["action"])
 
     # ---- the recipient chain
     room = {"seats": [{"seat": "alpha", "liveness": "live", "harness_pid": 7},
