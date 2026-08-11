@@ -9339,7 +9339,92 @@ def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None, 
 VERDICT_CLAUSE = re.compile(r"^verdict:\s*(PASS|FAIL)\b", re.IGNORECASE | re.MULTILINE)
 # The escalation record's first body line — what makes it findable (idempotency scan) and what
 # excludes it from the trial walk. It is a record ABOUT trials, not a trial.
+#
+# ⚠ The word "second" survives the bar becoming configurable ON PURPOSE. This is a MACHINE MARKER,
+# not prose: it is the appended row's identity, and the at-most-once scan finds an escalation that
+# landed on an earlier invocation by matching it. Rename it and every escalation row already in a
+# live log goes invisible to the scan, which appends a second one. The human-readable line beneath
+# it names the resolved bar.
 ESCALATION_MARKER = "escalation: second-consecutive-FAIL"
+
+# ---- the retry threshold: ONE authority (IPH-11) -----------------------------------------------
+#
+# The bar `escalate` compares the derived count against. Absent everywhere it is 2 — the
+# two-strikes number this verb shipped with. Two rungs override it, first hit wins:
+#   1. the milestone's own `retry-threshold` cell in `<goal>/milestones.csv`  (per-milestone)
+#   2. `<goal>/retry-threshold`, one integer                                  (per-goal default)
+# `<goal>` is `base.parent`: `base_dir` builds base as `<goal>/coordination` (the same derivation
+# `cmd_reap` states at length beside its own use). No new path plumbing.
+#
+# FAIL-CLOSED ON A BAD VALUE, and the direction is the whole point: this reader is the code that
+# raises the owner's alarm. Refusing here would append NO escalation row, so one junk character
+# would silently switch the safety OFF. A junk value warns on stderr and the next rung answers.
+# Refusing loudly is the WRITER's job (`rbtv-goal retry-threshold --set`).
+#
+# The floor is 1, never 0: the gate reads `count < bar`, so `bar = 0` is never true and a goal
+# would escalate on ZERO fails.
+RETRY_THRESHOLD_DEFAULT = 2
+RETRY_THRESHOLD_FILE = "retry-threshold"
+RETRY_THRESHOLD_COLUMN = "retry-threshold"
+
+
+def _retry_threshold_int(raw, where):
+    """`raw` as a threshold >= 1, or None plus ONE stderr line saying which value was ignored.
+
+    `.strip()` is load-bearing, not tidiness: the live goal-root markers on the Windows vault are
+    CRLF-terminated and `int("3\\r\\n")` raises."""
+    try:
+        n = int(raw.strip())
+    except ValueError:
+        n = None
+    if n is None or n < 1:
+        print(f"warning: {where}: retry threshold {raw.strip()!r} is not an integer >= 1 — "
+              f"ignoring it and falling back (the bar below 1 would escalate on zero FAILs)",
+              file=sys.stderr)
+        return None
+    return n
+
+
+def resolve_retry_threshold(base, milestone_id):
+    """(bar, source) — the escalation bar for this milestone and WHICH rung answered
+    (`milestone` | `goal` | `default`). The gate and every surface that REPORTS the bar call
+    this one function, so the reported bar and the enforced bar are one object."""
+    root = base.parent
+    path = root / "milestones.csv"
+    try:
+        with open(path, encoding="utf-8", newline="") as fh:
+            # By column NAME: two milestones.csv header shapes are live in this workspace
+            # (`milestone-id,name,status` and `milestone-id,title,done-when,state`), so a
+            # positional read is wrong on one of them. An absent column falls through.
+            for row in csv.DictReader(fh):
+                if (row.get("milestone-id") or "").strip() != str(milestone_id):
+                    continue
+                cell = (row.get(RETRY_THRESHOLD_COLUMN) or "").strip()
+                if cell:
+                    n = _retry_threshold_int(cell, f"{path} ({milestone_id})")
+                    if n is not None:
+                        return n, "milestone"
+                break
+    except (OSError, csv.Error):
+        pass
+    try:
+        raw = (root / RETRY_THRESHOLD_FILE).read_text(encoding="utf-8")
+    except OSError:
+        raw = ""
+    if raw.strip():
+        n = _retry_threshold_int(raw, str(root / RETRY_THRESHOLD_FILE))
+        if n is not None:
+            return n, "goal"
+    return RETRY_THRESHOLD_DEFAULT, "default"
+
+
+def escalation_row(base, milestone_id):
+    """The milestone's escalation row, or None — the one scan `escalate` and `fail-status`
+    share, so "already escalated" means the same thing to both."""
+    want = f"milestone-{milestone_id}"
+    return next((b for b in load_messages(base)[1]
+                 if b["type"] == "verdict" and (b["why"] or "") == want
+                 and ESCALATION_MARKER in "\n".join(b["lines"][1:])), None)
 
 
 def trailing_fail_verdicts(base, milestone_id):
@@ -9365,16 +9450,24 @@ def trailing_fail_verdicts(base, milestone_id):
     return count
 
 
-def escalate_if_second_fail(base, milestone_id, sender, to="master"):
-    """On the SECOND consecutive FAIL for `milestone_id`, append EXACTLY ONE escalation row —
-    a `verdict` message addressed to `to` (the owner channel's relay) — and return the derived
-    count; return None otherwise (count < 2, or the row already exists). Derivation, existence
-    scan and append share ONE `coord_lock` hold, so two concurrent judges cannot both observe
-    "no escalation yet" (the same race append_message's own lock closes for numbering)."""
+def escalate_if_second_fail(base, milestone_id, sender):
+    """On the milestone's Nth consecutive FAIL — N being the resolved retry threshold — append
+    EXACTLY ONE escalation row and return the derived count; return None otherwise (below the
+    bar, or the row already exists). Derivation, existence scan and append share ONE
+    `coord_lock` hold, so two concurrent judges cannot both observe "no escalation yet" (the
+    same race append_message's own lock closes for numbering).
+
+    ⚠ THE RECIPIENT IS THE RESERVED `owner` TOKEN AND IS NOT A PARAMETER
+    (`decisions.md#d-agents-address-owner-not-master`, owner, 2026-08-09). One verb, one legal
+    recipient: an initiation toward the human addresses `owner`, and a seat that never types an
+    address cannot type the wrong one. This append is also the ONE write path that reaches
+    `_append_message_unlocked` — which validates nothing — so the token is pinned here rather
+    than trusted from a caller."""
     want = f"milestone-{milestone_id}"
     with coord_lock(base):
         count = trailing_fail_verdicts(base, milestone_id)
-        if count < 2:
+        bar, _source = resolve_retry_threshold(base, milestone_id)
+        if count < bar:
             return None
         _, blocks = load_messages(base)
         for b in blocks:
@@ -9382,10 +9475,10 @@ def escalate_if_second_fail(base, milestone_id, sender, to="master"):
                     and ESCALATION_MARKER in "\n".join(b["lines"][1:])):
                 return None
         _append_message_unlocked(
-            base, sender, to, "verdict",
+            base, sender, OWNER_TOKEN, "verdict",
             f"{ESCALATION_MARKER}\n"
-            f"{count} consecutive FAIL verdicts for {want} — the gap-wave loop halts here; "
-            f"this row travels the owner channel and waits for the owner's answer.",
+            f"{count} consecutive FAIL verdicts for {want} (bar: {bar}) — the gap-wave loop "
+            f"halts here; this row travels the owner channel and waits for the owner's answer.",
             why=want)
         return count
 
@@ -9400,20 +9493,55 @@ def cmd_escalate(args):
     (an existing escalation row is what "already" means), never re-derived."""
     base = base_dir(args)
     sender = resolve_agent(args)
-    count = escalate_if_second_fail(base, args.milestone, sender, to=args.to)
+    count = escalate_if_second_fail(base, args.milestone, sender)
     want = f"milestone-{args.milestone}"
-    row = next((b for b in load_messages(base)[1]
-                if b["type"] == "verdict" and (b["why"] or "") == want
-                and ESCALATION_MARKER in "\n".join(b["lines"][1:])), None)
+    row = escalation_row(base, args.milestone)
+    bar, source = resolve_retry_threshold(base, args.milestone)
     if count is not None:
-        print(f"escalated: sent message #{row['num']} ({sender} -> {args.to}, type: verdict, "
-              f"why: {want}) — {count} consecutive FAIL verdicts")
+        print(f"escalated: sent message #{row['num']} ({sender} -> {OWNER_TOKEN}, type: verdict, "
+              f"why: {want}) — {count} consecutive FAIL verdicts (bar: {bar}, from {source})")
     elif row is not None:
         print(f"already-escalated: message #{row['num']} already carries {want}'s escalation "
               f"row — nothing appended (at-most-once)")
     else:
-        print(f"no-second-fail: trailing FAIL count for {want} is "
-              f"{trailing_fail_verdicts(base, args.milestone)} (bar: 2) — nothing appended")
+        # The bar is REPORTED from the same resolver the gate enforced, never re-stated as a
+        # literal: this line printed `(bar: 2)` while the gate compared against something else
+        # for exactly as long as the number was hardcoded in two places.
+        print(f"below-bar: trailing FAIL count for {want} is "
+              f"{trailing_fail_verdicts(base, args.milestone)} (bar: {bar}, from {source}) — "
+              f"nothing appended")
+
+
+def cmd_fail_status(args):
+    """READ-ONLY: what the escalation gate would decide for this milestone right now.
+
+    The pass-opener used to RE-DERIVE the count and the bar itself — a second implementation of
+    the authority, free to disagree with the one that enforces. This verb is the authority's own
+    answer: `bar` comes from `resolve_retry_threshold` and `fail_count` from
+    `trailing_fail_verdicts`, the two functions `escalate` itself calls."""
+    base = base_dir(args, register=False)   # a command whose contract is "this writes nothing"
+    count = trailing_fail_verdicts(base, args.milestone)
+    bar, source = resolve_retry_threshold(base, args.milestone)
+    payload = {
+        "milestone": args.milestone,
+        "fail_count": count,
+        "bar": bar,
+        "at_bar": count >= bar,
+        "escalated": escalation_row(base, args.milestone) is not None,
+        "source": source,
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"milestone-{payload['milestone']}: {payload['fail_count']} consecutive FAIL "
+              f"verdict(s), bar {payload['bar']} (from {payload['source']})")
+        print(f"at-bar: {str(payload['at_bar']).lower()}   "
+              f"escalated: {str(payload['escalated']).lower()}")
+        if payload["at_bar"] or payload["escalated"]:
+            print("=> the contract is HALTED: queue nothing here until the owner answers")
+        else:
+            print("=> below the bar: one gap-fill pass is warranted")
+    return 0
 
 
 def log_delivery_failures(base, failures):
@@ -29143,7 +29271,7 @@ def _selftest_checks(args, failures, names):
                                              encoding="utf-8")
 
         def verdict81(clause, why="milestone-m1"):
-            append_message(base81, "dod-judge", "master", "verdict",
+            append_message(base81, "dod-judge", OWNER_TOKEN, "verdict",
                            f"verdict: {clause}\nclause 1: evidence …", why=why)
 
         def esc_rows81(mid):
@@ -29256,15 +29384,203 @@ def _selftest_checks(args, failures, names):
               "row's number, sender and recipient",
               c81v is None and len(esc_rows81("m5")) == 1
               and o81v.startswith("escalated: sent message #")
-              and f"#{esc_rows81('m5')[0]['num']} (dod-judge -> master" in o81v)
+              and f"#{esc_rows81('m5')[0]['num']} (dod-judge -> {OWNER_TOKEN}" in o81v)
         check("F1 verb: the quiet outcomes NAME THEMSELVES and append nothing — a re-run "
-              "reports already-escalated against the same single row, a milestone with no "
-              "second FAIL reports its derived count, and both return normally (re-running "
-              "the verb is always safe)",
+              "reports already-escalated against the same single row, a milestone below its "
+              "bar reports its derived count, and both return normally (re-running the verb "
+              "is always safe)",
               c81w is None and o81w.startswith("already-escalated: message #")
               and len(esc_rows81("m5")) == 1
-              and c81x is None and o81x.startswith("no-second-fail:")
-              and "is 0 (bar: 2)" in o81x and len(esc_rows81("m-none")) == 0)
+              and c81x is None and o81x.startswith("below-bar:")
+              and "is 0 (bar: 2, from default)" in o81x and len(esc_rows81("m-none")) == 0)
+
+        # ---- IPH-11: the bar is CONFIGURATION, and IPH-7: the recipient is not a choice --------
+        # The fixtures are built explicitly here, each in its own package, so no arm can pass by
+        # inheriting another's state; every threshold file is written with the exact bytes under
+        # test (CRLF included) rather than through a writer that would normalise it.
+        def mk81(tmp, name):
+            b = Path(tmp) / name / "coordination"
+            b.mkdir(parents=True)
+            return b
+
+        def fail81(b, mid, n=1):
+            for _ in range(n):
+                append_message(b, "dod-judge", OWNER_TOKEN, "verdict",
+                               "verdict: FAIL\nclause 1: evidence …", why=f"milestone-{mid}")
+
+        def resolve81(b, mid):
+            """((bar, source), stderr) — the resolver with its fail-closed warning CAPTURED, so
+            an arm exercising a bad value does not print into the suite's own output."""
+            box = []
+            _o, e, _c = harness_outcome(
+                lambda _a: box.append(resolve_retry_threshold(b, mid)), None)
+            return box[0], e
+
+        with tempfile.TemporaryDirectory() as tdrt:
+            # arm 1 — nothing configured anywhere: the built-in 2, and the gate honours it.
+            bA = mk81(tdrt, "a")
+            fail81(bA, "m1")
+            _a1 = resolve_retry_threshold(bA, "m1")
+            _a1_one = escalate_if_second_fail(bA, "m1", "dod-judge")
+            fail81(bA, "m1")
+            _a1_two = escalate_if_second_fail(bA, "m1", "dod-judge")
+            check("IPH-11 arm 1: with no threshold configured anywhere the resolver returns the "
+                  "built-in 2 sourced `default`, and the gate agrees — one FAIL escalates "
+                  "nothing, the second returns the count",
+                  _a1 == (2, "default") and _a1_one is None and _a1_two == 2)
+
+            # arm 2 — the per-GOAL file. RED mutation: read the file but ignore it in the gate.
+            bB = mk81(tdrt, "b")
+            (bB.parent / "retry-threshold").write_text("3\n", encoding="utf-8")
+            fail81(bB, "m1", 2)
+            _b_at2 = escalate_if_second_fail(bB, "m1", "dod-judge")
+            fail81(bB, "m1")
+            _b_at3 = escalate_if_second_fail(bB, "m1", "dod-judge")
+            check("IPH-11 arm 2: a goal-root `retry-threshold` of 3 MOVES the gate — two FAILs "
+                  "escalate nothing (where the default would have fired) and the third returns "
+                  "3, sourced `goal`",
+                  resolve_retry_threshold(bB, "m1") == (3, "goal")
+                  and _b_at2 is None and _b_at3 == 3)
+
+            # arm 3 — the per-MILESTONE override, and that it does not leak to a sibling.
+            bC = mk81(tdrt, "c")
+            (bC.parent / "retry-threshold").write_text("2\n", encoding="utf-8")
+            (bC.parent / "milestones.csv").write_text(
+                "milestone-id,name,retry-threshold\nm1,hard,4\nm2,easy,\n", encoding="utf-8")
+            check("IPH-11 arm 3: a `retry-threshold` cell on m1's row wins for m1 alone — m1 "
+                  "resolves 4 sourced `milestone` while its sibling m2, whose cell is empty, "
+                  "falls through to the goal file's 2 (the override does not leak)",
+                  resolve_retry_threshold(bC, "m1") == (4, "milestone")
+                  and resolve_retry_threshold(bC, "m2") == (2, "goal")
+                  and resolve_retry_threshold(bC, "m-absent") == (2, "goal"))
+
+            # arm 4 — FAIL-CLOSED on junk. The direction is the point: refusing here would append
+            # no escalation row, so a bad value would silently switch the safety OFF.
+            bD = mk81(tdrt, "d")
+            _d = {}
+            for bad in ("garbage", "0", "-1", "2.5"):
+                (bD.parent / "retry-threshold").write_text(bad, encoding="utf-8")
+                _d[bad] = resolve81(bD, "m1")
+            (bD.parent / "retry-threshold").write_text("   \n", encoding="utf-8")
+            _d_empty = resolve81(bD, "m1")
+            check("IPH-11 arm 4: a threshold that is not an integer >= 1 — garbage, 0, -1, 2.5 — "
+                  "resolves to the default 2 with ONE stderr warning naming the value, never a "
+                  "crash and never a refusal (a refusal would append no escalation row and fail "
+                  "OPEN); a blank file is ABSENT, so it warns not at all",
+                  all(v == (2, "default") and e.count("warning:") == 1 and bad in e
+                      for bad, (v, e) in _d.items())
+                  and _d_empty == ((2, "default"), ""))
+
+            # arm 5 — CRLF. `int("3\r\n")` raises; the live goal-root markers on the Windows
+            # vault are CRLF-terminated, so a reader that does not strip breaks HERE.
+            bE = mk81(tdrt, "e")
+            (bE.parent / "retry-threshold").write_bytes(b"3\r\n")
+            (bE.parent / "milestones.csv").write_bytes(
+                b"milestone-id,name,retry-threshold\r\nm1,hard, 4 \r\n")
+            check("IPH-11 arm 5: a CRLF-terminated threshold file resolves 3, and a CRLF "
+                  "milestones.csv cell with surrounding spaces resolves 4 — the reader strips, "
+                  "so the live vault's line endings are not a parse error",
+                  resolve_retry_threshold(bE, "m2") == (3, "goal")
+                  and resolve_retry_threshold(bE, "m1") == (4, "milestone"))
+
+            # arm 6 — the no-op string reports the RESOLVED bar. That literal is the one a
+            # parameterisation silently leaves behind: it printed `(bar: 2)` for as long as the
+            # number lived in two places. RED mutation: hardcode 2 in the print.
+            bF = mk81(tdrt, "f")
+            (bF.parent / "retry-threshold").write_text("3\n", encoding="utf-8")
+            fail81(bF, "m1", 2)
+            pF = build_parser()
+            nsF = pF.parse_args(["--base", str(bF), "escalate", "m1", "--as", "dod-judge"])
+            _oF, _eF, _cF = harness_outcome(nsF.func, nsF)
+            check("IPH-11 arm 6: `escalate` below the bar reports the RESOLVED bar and its "
+                  "source, never a literal — two FAILs under a goal threshold of 3 print "
+                  "`below-bar: ... is 2 (bar: 3, from goal)` and append nothing",
+                  "below-bar:" in _oF and "is 2 (bar: 3, from goal)" in _oF
+                  and not [b for b in load_messages(bF)[1]
+                           if ESCALATION_MARKER in "\n".join(b["lines"][1:])])
+
+            # arm 8 — the plain verb addresses `owner`, read off the appended row's own header.
+            bG = mk81(tdrt, "g")
+            fail81(bG, "m3", 2)
+            pG = build_parser()
+            nsG = pG.parse_args(["--base", str(bG), "escalate", "m3", "--as", "dod-judge"])
+            harness_outcome(nsG.func, nsG)
+            _rowG = escalation_row(bG, "m3")
+            check("IPH-7 arm 8: a plain `escalate m3` appends ONE row whose header reads "
+                  "`to: owner` — the reserved token, pinned at the append site. This append is "
+                  "the one write path that bypasses cmd_send's refusal, so the header is read "
+                  "back from the log rather than trusted from the call",
+                  _rowG is not None and _rowG["to"] == OWNER_TOKEN
+                  and f"| to: {OWNER_TOKEN} |" in _rowG["lines"][0]
+                  and MASTER_TOKEN not in _rowG["lines"][0])
+
+            # arm 9 — the flag is GONE, so the old shape is an argparse error (SystemExit 2),
+            # not a silently-accepted-and-ignored option.
+            _argv_err = None
+            try:
+                build_parser().parse_args(["--base", str(bG), "escalate", "m3",
+                                           "--to", MASTER_TOKEN])
+            except SystemExit as exc:
+                _argv_err = exc.code
+            check("IPH-7 arm 9: `escalate --to master` is now an ARGPARSE ERROR — the flag is "
+                  "deleted, so the mis-address cannot be typed at all rather than being "
+                  "accepted and quietly overridden",
+                  _argv_err == 2)
+
+            # arm 10 — both LIVE milestones.csv header shapes, read by column NAME. A positional
+            # read is right on one of them and wrong on the other.
+            bH = mk81(tdrt, "h")
+            (bH.parent / "milestones.csv").write_text(
+                "milestone-id,name,status,retry-threshold\nm1,x,,5\n", encoding="utf-8")
+            _h1 = resolve_retry_threshold(bH, "m1")
+            (bH.parent / "milestones.csv").write_text(
+                'milestone-id,retry-threshold,title,done-when,state\n'
+                'm1,5,x,"a, quoted; multi-clause done-when",open\n', encoding="utf-8")
+            _h2 = resolve_retry_threshold(bH, "m1")
+            (bH.parent / "milestones.csv").write_text(
+                "milestone-id,name,status\nm1,x,\n", encoding="utf-8")
+            check("IPH-11 arm 10: both live milestones.csv header shapes resolve the same "
+                  "answer because the read is by column NAME — including one where the column "
+                  "sits at a different index and a quoted done-when cell carries commas — and a "
+                  "sheet with NO such column falls through to the default",
+                  _h1 == (5, "milestone") and _h2 == (5, "milestone")
+                  and resolve_retry_threshold(bH, "m1") == (2, "default"))
+
+            # `fail-status`: the read-only surface the pass-opener reads INSTEAD of re-deriving
+            # the authority for itself. Its bar must come from the same object the gate enforced.
+            bI = mk81(tdrt, "i")
+            (bI.parent / "retry-threshold").write_text("3\n", encoding="utf-8")
+            fail81(bI, "m1", 2)
+            pI = build_parser()
+
+            def fs81(mid):
+                nsI = pI.parse_args(["--base", str(bI), "fail-status", mid, "--json"])
+                o, _e, _c = harness_outcome(nsI.func, nsI)
+                return json.loads(o)
+
+            _fs_below = fs81("m1")
+            fail81(bI, "m1")
+            nsI2 = pI.parse_args(["--base", str(bI), "escalate", "m1", "--as", "dod-judge"])
+            harness_outcome(nsI2.func, nsI2)
+            _fs_at = fs81("m1")
+            _fs_bytes = (bI / "messages.md").read_bytes()
+            _fs_files = sorted(p.name for p in bI.parent.rglob("*"))
+            fs81("m2")
+            fs81("m1")
+            check("IPH-11 fail-status: the read-only verb answers off the SAME resolver the gate "
+                  "enforces — below the bar it reports at_bar false with the escalation absent; "
+                  "at the bar, after the row lands, both flags read true and `source` names the "
+                  "rung that answered",
+                  _fs_below == {"milestone": "m1", "fail_count": 2, "bar": 3, "at_bar": False,
+                                "escalated": False, "source": "goal"}
+                  and _fs_at == {"milestone": "m1", "fail_count": 3, "bar": 3, "at_bar": True,
+                                 "escalated": True, "source": "goal"})
+            check("IPH-11 fail-status: it writes NOTHING — the message log is byte-identical "
+                  "across two further calls (one of them on a milestone at its bar, the arm a "
+                  "reader that quietly escalated would fail) and the package gains no file; it "
+                  "resolves through base_dir(register=False), so not even a run tag is written",
+                  (bI / "messages.md").read_bytes() == _fs_bytes
+                  and sorted(p.name for p in bI.parent.rglob("*")) == _fs_files)
 
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
@@ -29342,7 +29658,7 @@ HELP_EPILOG = """everyday
   checkin     register this session — binds this tmux pane to your agent name
   status      where you stand: identity, pane, owner, unread, cursor, open asks
   read        your unread messages, {limit} at a time (cursor persisted per agent)
-  send / escalate  message one agent, a group, or all — typed, their pane woken · dod-judge two-strikes: append the ONE escalation row on a milestone's second consecutive FAIL
+  send / escalate / fail-status  message one agent, a group, or all — typed, their pane woken · dod-judge retry escalation: append the ONE escalation row, addressed `owner`, once a milestone's consecutive-FAIL count reaches its bar · read-only: that count, the resolved bar and where it came from
   pending     open asks: waiting on you, open to everyone, yours unanswered
   checkout    end your session (exports your transcript first) · --renew --handoff hands this seat to your own next session
 
@@ -29881,22 +30197,44 @@ def build_parser():
 
     s = command(
         "escalate",
-        "The dod-judge two-strikes escalation. On the SECOND consecutive FAIL verdict for a\n"
-        "milestone it appends EXACTLY ONE escalation row addressed to the owner channel's\n"
-        "relay; otherwise it appends nothing and says why. The count is DERIVED from the\n"
-        "verdict log at the moment of the call (a PASS resets it by construction; never a\n"
-        "stored counter), and derive + at-most-once scan + append share one lock hold — so\n"
-        "the command is always safe to re-run.",
+        "The dod-judge retry escalation. Once a milestone's consecutive-FAIL count REACHES ITS\n"
+        "BAR it appends EXACTLY ONE escalation row, addressed to the reserved `owner` token;\n"
+        "otherwise it appends nothing and says why. The bar defaults to 2 and is per-goal\n"
+        "configuration (`rbtv-goal retry-threshold`) — never type it, read it with\n"
+        "`coordinate fail-status`. The count is DERIVED from the verdict log at the moment of\n"
+        "the call (a PASS resets it by construction; never a stored counter), and derive +\n"
+        "at-most-once scan + append share one lock hold — so the command is always safe to\n"
+        "re-run.\n"
+        "\n"
+        "There is no recipient flag: one verb, one legal recipient. An initiation toward the\n"
+        "human is addressed `owner` (d-agents-address-owner-not-master), and a seat that never\n"
+        "types an address cannot type the wrong one.",
         "example:\n"
         "  coordinate escalate m3\n"
-        "next: nothing to send — the row is in the log addressed to master; the gap-wave loop\n"
-        "      halts on it and waits for the owner channel's answer")
+        "next: nothing to send — the row is in the log addressed to owner; the gap-wave loop\n"
+        "      halts on it and waits for the owner's answer")
     s.add_argument("milestone",
                    help="the milestone id, bare (e.g. m3) — the log's verdict rows carry it as milestone-<id> in their why: clause")
-    s.add_argument("--to", default="master", metavar="NAME",
-                   help="recipient of the escalation row (default: master, the owner channel's relay)")
     add_identity_flags(s)
     s.set_defaults(func=cmd_escalate)
+
+    s = command(
+        "fail-status",
+        "What the escalation gate would decide for a milestone RIGHT NOW: its derived\n"
+        "consecutive-FAIL count, the resolved bar and where that bar came from, whether the\n"
+        "count has reached it, and whether the escalation row is already in the log. Writes\n"
+        "nothing — not even a run-tag registration.\n"
+        "\n"
+        "It exists so the pass-opener stops re-deriving the authority for itself: the bar it\n"
+        "reads here is the same object `escalate` enforces, so the two can never disagree.\n"
+        "Queue nothing when at_bar or escalated is true; otherwise one gap-fill pass.",
+        "example:\n"
+        "  coordinate fail-status m3 --json\n"
+        "next: nothing — this command reads state and changes none")
+    s.add_argument("milestone",
+                   help="the milestone id, bare (e.g. m3) — the same id `escalate` takes")
+    s.add_argument("--json", action="store_true", help="machine-readable, for an asserting caller")
+    s.set_defaults(func=cmd_fail_status)
 
     s = command(
         "gates",

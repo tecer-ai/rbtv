@@ -18,9 +18,21 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   `restart` / `stop` / `kill` / `unit`) that work precisely when the daemon is DOWN. Contract:
   `capabilities/daemon-operator/daemon-operator.md`.
 - **`goals-tree/`** — the goals-tree machinery (`scaffold` / `reindex` / `lint` / `materialize` /
-  `lane` — the last being the DAEMON'S PICKUP BUTTON: one word in `<goal>/execution-lane` that the
-  daemon's watch pass reads before every tick, `d-daemon-lane-button`).
-  Contract: `capabilities/goals-tree/tool/README.md`.
+  `lane` / `pause` / `resume` / `dag` / `add-seat` / `retry-threshold`). `retry-threshold` is the
+  MILESTONE RETRY BAR (issue `IPH-11`): the consecutive-FAIL count at which the dod-judge escalates
+  to the owner — per goal, with a per-milestone override in the `retry-threshold` column of
+  `milestones.csv`, absent everywhere = 2. It writes the two files `coord.py`'s
+  `resolve_retry_threshold` reads, which is the enforcing authority; `coordinate fail-status` is
+  where a seat READS the resolved bar, so no prompt ever types a number.
+  `lane` is the DAEMON'S PICKUP BUTTON: one word
+  in `<goal>/execution-lane` that the daemon's watch pass reads before every tick,
+  `d-daemon-lane-button`. The last four grow a LIVE goal's seat roster (issue `S-33`): `pause`
+  stashes the lane assignment behind a `paused ` prefix BOTH lane readers already resolve to
+  `console` (so no reader changed) and `resume` returns it byte-for-byte; `dag` is the read-only
+  one-shot graph view; `add-seat` gates, mints through `team-kit/materialize-seats.py`, then
+  splices the seat into the after-graph in ONE atomic registry write. ⚠ **Pausing bounds SEEDING,
+  not execution** — it stops the daemon starting anything new for the goal, never a session already
+  running. Contract: `capabilities/goals-tree/tool/README.md`.
 - **`attached-execution/`** — the ATTACHED lane, the **`rbtv run`** verb (`rbtv run <goal-folder>
   --profile <name>`; entry point `capabilities/attached-execution/tool/rbtv-execution`, reached by
   delegation from the TOP-LEVEL `rbtv` CLI — never `rbtv ignite`). Owner ruling

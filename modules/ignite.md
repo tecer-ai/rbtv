@@ -63,7 +63,19 @@ QUOTED verbatim:
   reload is REJECTED, not unimplemented — write-then-restart composes two mechanisms that exist.
   Contract in `ticker-settings.md`.
 - **`goals-tree`** (`ignite/capabilities/goals-tree/`) — the goals-tree machinery
-  (`scaffold`/`reindex`/`lint`/`materialize`/`lane`). `lane` is the DAEMON'S PICKUP BUTTON (owner
+  (`scaffold`/`reindex`/`lint`/`materialize`/`lane`/`pause`/`resume`/`dag`/`add-seat`/`retry-threshold`).
+  `retry-threshold` sets the consecutive-FAIL bar the dod-judge escalates at — per goal, with a
+  per-milestone override column in `milestones.csv`, absent everywhere 2 (issue `IPH-11`).
+  The last four GROW A LIVE GOAL'S SEAT ROSTER (issue `S-33`): `pause` rewrites the lane marker to
+  `paused ` + its previous text verbatim and `resume` strips exactly that prefix back — no reader
+  changed, because both lane readers already resolve any first token that is not `daemon` to
+  `console`; ⚠ it bounds SEEDING, never a session already running. `dag` is the read-only one-shot
+  graph view (every row's predecessors through the after grammar + its state derived from
+  `executions.csv`). `add-seat` gates (paused · quiescent · no `--before` seat has run · no attached
+  run · bindings cover the seat · no complex cell on a stashed daemon lane), mints through
+  `team-kit/materialize-seats.py`, then splices the seat into the after-graph in ONE atomic write
+  behind a canonical-form guard — every line but the re-parented ones is byte-unchanged. Every
+  refusal carries a CODE, machine-readable under `--json`. `lane` is the DAEMON'S PICKUP BUTTON (owner
   ruling `d-daemon-lane-button`, 2026-08-10): it writes one word into `<goal>/execution-lane` saying
   which lane currently runs the goal, and the daemon's watch pass (`ignite/engine/lane-watch.js`,
   fired by the daemon loop before every tick) seeds the goals assigned `daemon` through

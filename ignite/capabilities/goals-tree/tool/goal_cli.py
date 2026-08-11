@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """rbtv-goal — the goals-tree machinery (task 7.63).
 
-Five verbs over the CMP-4 goals tree, all LOCAL file operations (they work with
+The verbs over the CMP-4 goals tree, all LOCAL file operations (they work with
 the daemon down, which is why they live on the rbtv side and never on ignite):
 
     rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--kind K] [--due DATE] [--dry-run]
     rbtv-goal reindex
     rbtv-goal lint <goal-name>
     rbtv-goal materialize <goal-name> [--catalog-root DIR] [--force] [--dry-run]
+    rbtv-goal lane <goal-name> [--set daemon --profile NAME | --set console]
+    rbtv-goal pause <goal-name>            # stash the lane assignment (issue S-33)
+    rbtv-goal resume <goal-name>           # …and hand it back, byte for byte
+    rbtv-goal dag <goal-name>              # the graph + each seat's derived state
+    rbtv-goal add-seat <goal-name> --seat X --after a[,b] [--before x[,y]] --bindings SHEET
+                                   --catalog-root DIR [--splice-only] [--dry-run]
     rbtv-goal gate-key-check <goal-name> --pass-folder NAME [--override ANCHOR]
+    rbtv-goal check-acyclic <file> [--id-col C] [--after-col C]
 
 Grammar is owner-ruled (r-763-grammar-ruled, all four items at their recommended
 defaults) and is implemented here, not re-derived. Exit codes follow the sd-graph
@@ -84,6 +91,24 @@ GOAL_KIND_DEFAULT = "interactive"
 # 03:00 in a journal.
 LANE_FILE = "execution-lane"
 LANES = ("daemon", "console")
+
+# ── PAUSE: the lane marker's STASH prefix (issue S-33, growing a live goal's roster) ───────────
+#
+# `pause <goal>` rewrites the marker to `paused ` + WHATEVER IT SAID BEFORE, byte for byte;
+# `resume` strips exactly that prefix and writes the remainder back. Nothing else in the system
+# learns a new word, and that is the whole design: BOTH lane readers — `read_lane` below and
+# `engine/lane-watch.js#readLane` — already resolve any first token that is not `daemon` to
+# `console`, so a paused marker reads as "not assigned to the daemon" on both sides with ZERO
+# reader change. The daemon lets go on its next pass; the stashed assignment is still on disk.
+#
+# ⚠ IT BOUNDS SEEDING, NOT EXECUTION. Pausing stops the daemon from SEEDING new seats for this
+# goal. It does not stop a session that is already running, and it does not touch an attached
+# `rbtv run` (which reads the marker for nothing). "Nothing new starts" is the guarantee; "nothing
+# is running" is not, and `add-seat`'s quiescence gate is what checks the second.
+LANE_PAUSED = "paused"
+# `paused` as the FIRST token, followed by a space or end-of-text. `pausedfoo` is not a pause
+# marker, and treating it as one would strip a prefix off a word the operator meant literally.
+LANE_PAUSED_RE = re.compile(r"^\s*" + LANE_PAUSED + r"(?: |$)")
 
 # ── The goal's EXECUTION MODE (owner ruling 2026-08-10) ───────────────────────────────────────
 #
@@ -347,7 +372,19 @@ STANDIN_VERSION_PREFIX = "standin-sha256:"
 
 
 class Refusal(Exception):
-    """Exit 1 — a refusal, gate-fail, or not-found. Never a crash."""
+    """Exit 1 — a refusal, gate-fail, or not-found. Never a crash.
+
+    `code` is OPTIONAL and additive: every pre-existing raise passes a message alone and
+    keeps working. A coded refusal is one a CALLER (a selftest arm, a probe, an agent
+    reading `--json`) must be able to key on WITHOUT matching prose — message text is
+    edited freely, a code is a contract. `materialize-seats.py`'s own `Refuse` carries the
+    same field for the same reason; this is that discipline reaching the verbs added by the
+    live-roster-growth arm, not a second refusal vocabulary.
+    """
+
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 # ---------------------------------------------------------------- helpers
@@ -625,6 +662,311 @@ def read_lane(goal_dir: Path) -> tuple[str, str | None]:
     return "daemon", (parts[1] if len(parts) > 1 else None)
 
 
+def read_lane_raw(goal_dir: Path) -> str:
+    """The marker's RAW TEXT — the byte-preserving read `pause`/`resume` round-trip through.
+
+    `read_lane` above answers "which lane", which is a four-line normalisation that throws the
+    bytes away. Pause has to put them back exactly, so it reads them here instead. An absent or
+    unreadable file is `console\\n` — the SAME answer `read_lane` gives it, spelled as the text a
+    resume would restore (owner ruling: previous text = `console` when the file is absent).
+    """
+    try:
+        return (goal_dir / LANE_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return "console\n"
+
+
+def lane_is_paused(raw: str) -> bool:
+    return bool(LANE_PAUSED_RE.match(raw))
+
+
+def write_lane_raw(goal_dir: Path, text: str) -> None:
+    """tmp + replace, `cmd_lane`'s own discipline: a truncate-then-write leaves a window where
+    the marker reads EMPTY, which the daemon's reader resolves as `console` — silently dropping
+    a goal mid-assignment. One writer, one construct."""
+    tmp = goal_dir / f"{LANE_FILE}.tmp"
+    tmp.write_text(text, encoding="utf-8", newline="")
+    tmp.replace(goal_dir / LANE_FILE)
+
+
+def _lane_goal_dir(args) -> tuple[Path, Path, str]:
+    """(root, goal_dir, name) for the three marker verbs — `cmd_lane`'s own gate, once."""
+    root = resolve_goals_root(args.root)
+    name = args.goal_name
+    if not GOAL_NAME_RE.match(name):
+        raise Refusal(
+            f"goal name '{name}' violates the naming rule — lowercase kebab-case "
+            "([a-z0-9] words joined by single hyphens)", "goal-name-invalid")
+    goal_dir = root / name
+    if not goal_dir.is_dir():
+        raise Refusal(f"{goal_dir}: no such goal", "goal-absent")
+    return root, goal_dir, name
+
+
+def cmd_pause(args) -> int:
+    """Stash the lane assignment behind `paused ` — nothing new is seeded until `resume`."""
+    _root, goal_dir, name = _lane_goal_dir(args)
+    raw = read_lane_raw(goal_dir)
+    already = lane_is_paused(raw)
+    if not already:
+        # `paused ` + the previous text VERBATIM. Not re-rendered, not normalised: `resume` is
+        # required to hand back the exact bytes, and the only way to promise that is to keep them.
+        write_lane_raw(goal_dir, f"{LANE_PAUSED} {raw}")
+    stashed = LANE_PAUSED_RE.sub("", read_lane_raw(goal_dir), count=1)
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "goal": name, "paused": True,
+                          "already_paused": already, "paused_from": stashed.strip(),
+                          "file": str(goal_dir / LANE_FILE)}, indent=2))
+    else:
+        print(f"{name}: PAUSED"
+              + (" (already)" if already else "")
+              + f" — stashed lane assignment: {stashed.strip()!r}. "
+                "Nothing new is SEEDED for this goal until `rbtv-goal resume`; a session already "
+                "running is untouched.")
+    return 0
+
+
+def cmd_resume(args) -> int:
+    """Unstash: strip the `paused ` prefix and write the remainder back byte for byte."""
+    _root, goal_dir, name = _lane_goal_dir(args)
+    raw = read_lane_raw(goal_dir)
+    if not lane_is_paused(raw):
+        raise Refusal(
+            f"{goal_dir / LANE_FILE}: the lane marker does not start with `{LANE_PAUSED}` "
+            f"(it reads {raw.strip()!r}) — `resume` unstashes a PAUSE, and stripping a prefix "
+            "that is not there would rewrite an assignment nobody paused. Use `lane --set` to "
+            "assign a lane.", "not-paused")
+    write_lane_raw(goal_dir, LANE_PAUSED_RE.sub("", raw, count=1))
+    lane, profile = read_lane(goal_dir)
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "goal": name, "paused": False,
+                          "lane": lane, "profile": profile,
+                          "file": str(goal_dir / LANE_FILE)}, indent=2))
+    else:
+        print(f"{name}: RESUMED — lane assignment restored to {lane.upper()}"
+              + (f", profile {profile}" if profile else "")
+              + f" ({goal_dir / LANE_FILE})")
+    return 0
+
+
+# ---------------------------------------------------------------- retry threshold
+#
+# THE MILESTONE RETRY THRESHOLD (IPH-11, owner ruling 2026-08-11 — `build/decisions.md` D32/D34).
+#
+# The bar the dod-judge's escalation fires at. `coord.py#resolve_retry_threshold` is the
+# AUTHORITY: it is the code the gate calls, and everything below writes the two files that
+# resolver reads. The ladder is stated here a second time, deliberately and with the same three
+# rungs — a per-milestone cell, a per-goal file, then 2 — because this CLI must run with no
+# `--package` and coord.py is not importable from an arbitrary cwd (its own module body imports
+# siblings; `_module_level_literals` above exists for exactly that reason). The selftest CROSS-
+# CHECKS the three literals against coord.py's own source rather than bridging them, the same
+# treatment `ATTACHED_RUN_LOCK` and `read_lane`'s grammar already get.
+#
+# ⚠ THE GOAL FOLDER IS THE HOME, because `coord.py` reads `base.parent` and `base_dir` builds
+# base as `<goal>/coordination`. A goal whose coordination folder sits under `runs/<run>/`
+# instead (the older layout — `build-core-daemon-mvp`) resolves against THAT folder, so `show`
+# prints the path it answered from rather than asserting one.
+RETRY_THRESHOLD_FILE = "retry-threshold"
+RETRY_THRESHOLD_COLUMN = "retry-threshold"
+RETRY_THRESHOLD_DEFAULT = 2
+MILESTONES_FILE = "milestones.csv"
+MILESTONE_ID_COLUMN = "milestone-id"
+
+
+def _csv_field_spans(line: str) -> list[tuple[int, int]]:
+    """(start, end) of every field in ONE csv line, quotes respected.
+
+    The offsets a LINE-PRECISE edit splices into. This is not a parse and produces no values:
+    everything between the spans — delimiters, quoting, spacing — goes back to the file
+    untouched. `milestones.csv` carries quoted multi-clause `done-when` prose, and a csv
+    round trip re-renders every cell in the file to satisfy one of them (the reason
+    `goal-launch-delay` edits its own hand-authored config line-precisely too).
+    """
+    spans, start, i, n, inq = [], 0, 0, len(line), False
+    while i < n:
+        ch = line[i]
+        if inq:
+            if ch == '"':
+                if i + 1 < n and line[i + 1] == '"':
+                    i += 1          # an escaped quote INSIDE a quoted field
+                else:
+                    inq = False
+        elif ch == '"':
+            inq = True
+        elif ch == ",":
+            spans.append((start, i))
+            start = i + 1
+        i += 1
+    spans.append((start, n))
+    return spans
+
+
+def _split_eol(line: str) -> tuple[str, str]:
+    """(text, line-ending) — CRLF preserved. The live goal files on the Windows vault are
+    CRLF-terminated and an edit that normalises them rewrites every line it did not touch."""
+    for eol in ("\r\n", "\n", "\r"):
+        if line.endswith(eol):
+            return line[:-len(eol)], eol
+    return line, ""
+
+
+def _milestone_cells(path: Path) -> tuple[list[str], int | None, dict[str, int]]:
+    """(raw lines with endings, retry-threshold column index or None, {milestone-id: line no}).
+
+    Read for a WRITE, so it reads the bytes rather than a DictReader's values.
+    """
+    lines = path.read_text(encoding="utf-8", newline="").splitlines(keepends=True)
+    if not lines:
+        raise Refusal(f"{path}: empty — no header to write a column into", "milestones-empty")
+    head, _ = _split_eol(lines[0])
+    cols = [head[a:b].strip().strip('"') for a, b in _csv_field_spans(head)]
+    col = cols.index(RETRY_THRESHOLD_COLUMN) if RETRY_THRESHOLD_COLUMN in cols else None
+    idc = cols.index(MILESTONE_ID_COLUMN) if MILESTONE_ID_COLUMN in cols else 0
+    rows: dict[str, int] = {}
+    for n, raw in enumerate(lines[1:], start=1):
+        text, _ = _split_eol(raw)
+        if not text.strip():
+            continue
+        spans = _csv_field_spans(text)
+        if idc < len(spans):
+            a, b = spans[idc]
+            rows.setdefault(text[a:b].strip().strip('"'), n)
+    return lines, col, rows
+
+
+def read_retry_threshold(goal_dir: Path, milestone: str | None) -> tuple[int, str, Path | None]:
+    """(threshold, source, path) — the same three rungs `coord.py` enforces, in the same order.
+
+    A value that is not an integer >= 1 is IGNORED and the next rung answers. `show` is a
+    READ: it never repairs and never refuses a bad file, because the reader that matters
+    (the escalation gate) does not either — it warns and falls back, so the safety fails
+    CLOSED. `--set` is where a bad value is refused, loudly.
+    """
+    if milestone:
+        ms = goal_dir / MILESTONES_FILE
+        if ms.is_file():
+            with ms.open(encoding="utf-8", newline="") as fh:
+                for row in csv.DictReader(fh):
+                    if (row.get(MILESTONE_ID_COLUMN) or "").strip() != milestone:
+                        continue
+                    cell = (row.get(RETRY_THRESHOLD_COLUMN) or "").strip()
+                    if cell.isdigit() and int(cell) >= 1:
+                        return int(cell), "milestone", ms
+                    break
+    marker = goal_dir / RETRY_THRESHOLD_FILE
+    try:
+        raw = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        raw = ""
+    if raw.isdigit() and int(raw) >= 1:
+        return int(raw), "goal", marker
+    return RETRY_THRESHOLD_DEFAULT, "default", None
+
+
+def _retry_write_gate(goal_dir: Path, goal_name: str) -> None:
+    """Owner ruling 11: a `--set` REFUSES while a planning pass is open.
+
+    `check-unblocked`'s done contract asserts `milestones.csv` is byte-identical before and
+    after its own pass, so a write landing mid-pass fails a criterion the writer never sees.
+    The signal is the one `add-seat`'s gate (b) already uses — an execution row with an empty
+    outcome — rather than a second notion of "open".
+    """
+    open_rows = [r for r in read_executions(goal_dir) if not (r.get("outcome") or "").strip()]
+    if open_rows:
+        raise Refusal(
+            f"{goal_dir / EXECUTIONS_FILE}: "
+            + ", ".join(sorted({(r.get('seat') or '?').strip() for r in open_rows}))
+            + " still carry an OPEN execution row (empty outcome), so a planning pass is "
+              "running. Its done contract asserts milestones.csv is byte-identical across the "
+              f"pass — a write now fails a criterion the seat cannot see. Wait for the record "
+              f"to close, then set the threshold (`rbtv-goal dag {goal_name}` shows who is "
+              "still open).", "pass-open")
+
+
+def cmd_retry_threshold(args) -> int:
+    """Show or set the milestone retry threshold — the bar the escalation fires at."""
+    _root, goal_dir, name = _lane_goal_dir(args)
+    milestone = getattr(args, "milestone", None)
+    target = getattr(args, "set", None)
+    unset = getattr(args, "unset", False)
+    if target is not None and unset:
+        raise Refusal("--set and --unset say opposite things — pass one", "set-and-unset")
+
+    if target is not None or unset:
+        value = ""
+        if target is not None:
+            try:
+                n = int(target.strip())
+            except (ValueError, AttributeError):
+                n = None
+            if n is None or n < 1:
+                raise Refusal(
+                    f"--set {target!r}: the threshold is an integer >= 1. The FLOOR IS 1, not 0: "
+                    "the gate reads `count < bar`, so a bar of 0 is never true and the goal "
+                    "would escalate on ZERO FAILs — the safety switched off by a value that "
+                    "looks like it tightened it.", "retry-threshold-invalid")
+            value = str(n)
+        _retry_write_gate(goal_dir, name)
+        if milestone:
+            ms = goal_dir / MILESTONES_FILE
+            if not ms.is_file():
+                raise Refusal(f"{ms}: absent — no milestone rows to carry an override",
+                              "milestones-absent")
+            lines, col, rows = _milestone_cells(ms)
+            if milestone not in rows:
+                raise Refusal(
+                    f"--milestone {milestone}: no row in {ms}. Known: "
+                    + (", ".join(sorted(rows)) or "(none)"), "milestone-unknown")
+            if col is None:
+                # The column is APPENDED to every line — the one structural edit that adds
+                # bytes and rewrites none. Every existing cell, quote and line ending survives.
+                out = []
+                for i, raw in enumerate(lines):
+                    text, eol = _split_eol(raw)
+                    if not text.strip() and i:
+                        out.append(raw)
+                        continue
+                    add = RETRY_THRESHOLD_COLUMN if i == 0 else (value if i == rows[milestone]
+                                                                 else "")
+                    out.append(f"{text},{add}{eol}")
+                ms.write_text("".join(out), encoding="utf-8", newline="")
+            else:
+                text, eol = _split_eol(lines[rows[milestone]])
+                spans = _csv_field_spans(text)
+                if col >= len(spans):          # a short row: pad to the column, add nothing else
+                    text = text + "," * (col - len(spans) + 1)
+                    spans = _csv_field_spans(text)
+                a, b = spans[col]
+                lines[rows[milestone]] = f"{text[:a]}{value}{text[b:]}{eol}"
+                ms.write_text("".join(lines), encoding="utf-8", newline="")
+        else:
+            marker = goal_dir / RETRY_THRESHOLD_FILE
+            if unset:
+                marker.unlink(missing_ok=True)
+            else:
+                # tmp + replace, `write_lane_raw`'s discipline: a truncate-then-write leaves a
+                # window where the file reads EMPTY, and coord.py resolves empty as ABSENT —
+                # silently dropping the goal back to 2 mid-write.
+                tmp = goal_dir / f"{RETRY_THRESHOLD_FILE}.tmp"
+                tmp.write_text(f"{value}\n", encoding="utf-8", newline="\n")
+                tmp.replace(marker)
+
+    threshold, source, path = read_retry_threshold(goal_dir, milestone)
+    payload = {"goal": name, "milestone": milestone, "threshold": threshold,
+               "source": source, "path": str(path) if path else None}
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, **payload}, indent=2))
+    else:
+        where = {"milestone": f"the milestone's own cell in {path}",
+                 "goal": f"the goal default at {path}",
+                 "default": "the built-in default (nothing configured)"}[source]
+        scope = f"{name}/{milestone}" if milestone else name
+        print(f"{scope}: retry threshold {threshold} — from {where}")
+        print(f"  the dod-judge escalates to the owner on FAIL #{threshold}; "
+              f"a PASS resets the count by construction")
+    return 0
+
+
 # THE ONE CONFIG, read — never a second interpretation of it (DEC-1 § Shared profile source).
 # All this does is take the KEYS of `profiles:`; the schema, the effort table and the argv
 # composition stay `launch-profiles/profiles.js`'s business and are not re-implemented here.
@@ -665,6 +1007,14 @@ def cmd_lane(args) -> int:
 
     target = getattr(args, "set", None)
     if target:
+        # THE STASH IS PROTECTED. `--set` writes the marker WHOLE, so setting a lane while a
+        # pause is in force would overwrite the stashed assignment with no trace of what it was —
+        # and the operator would believe the goal is paused while the daemon reads it as assigned.
+        if lane_is_paused(read_lane_raw(goal_dir)):
+            raise Refusal(
+                f"{goal_dir / LANE_FILE}: this goal is PAUSED and `--set` writes the marker "
+                "whole, which would discard the stashed assignment behind the pause. Run "
+                f"`rbtv-goal resume {name}` first, then set the lane.", "lane-paused")
         if target not in LANES:
             raise Refusal(f"--set {target}: must be one of {', '.join(LANES)}")
         profile = getattr(args, "profile", None)
@@ -698,13 +1048,23 @@ def cmd_lane(args) -> int:
 
     lane, profile = read_lane(goal_dir)
     present = (goal_dir / LANE_FILE).exists()
+    raw = read_lane_raw(goal_dir)
+    paused = lane_is_paused(raw)
+    paused_from = LANE_PAUSED_RE.sub("", raw, count=1).strip() if paused else None
     if args.json:
         print(json.dumps({
             "ok": True, "goal": name, "file": str(goal_dir / LANE_FILE),
             "assigned": present, "lane": lane, "profile": profile,
+            "paused": paused, "paused_from": paused_from,
         }, indent=2))
     else:
         where = f"{goal_dir / LANE_FILE}"
+        if paused:
+            # Printed BEFORE the lane line, not instead of it: `lane` reads CONSOLE while paused
+            # (both readers resolve it that way) and a reader who saw only that would conclude the
+            # daemon assignment was thrown away.
+            print(f"{name}: PAUSED — stashed lane assignment {paused_from!r}; nothing new is "
+                  f"seeded until `rbtv-goal resume {name}` ({where})")
         if lane == "daemon":
             print(f"{name}: DAEMON lane, profile {profile} — the daemon's watch pass picks it up ({where})")
         elif present:
@@ -845,6 +1205,43 @@ def after_pred_names(raw: str) -> list[str]:
                 continue
             names.append(parse(limb)[0] or limb.strip())
     return names
+
+
+def substitute_after_ids(raw: str, mapping: dict[str, str]) -> str:
+    """An `after` cell with its MEMBER IDS substituted and NOTHING else touched.
+
+    Bracketed guard spans pass through untouched: a guard's field or value may spell a seat
+    id, and substituting inside one would rewrite a CONDITION rather than a member. Outside
+    the brackets the only tokens are member ids and the `,`/`|` joins, so a blanket id
+    substitution there is exactly the rename.
+
+    ⚠ ONE HOME, TWO CALLERS, and this is it. `materialize-seats.py#rename_after_cell` — the
+    nested-instance rename (Rule 13's "verbatim apart from the instance renaming") — now
+    DELEGATES here; `add-seat`'s splice is the second caller, substituting a predecessor for
+    the freshly inserted seat. The grammar this walks is already this module's (`after_cell_
+    members` / `after_member_limbs` / the imported `parse_after_member`), so a second copy in
+    the team-kit was a second reading of an `after` cell waiting to drift.
+    """
+    return "".join(
+        part if part.startswith("[")
+        else re.sub(r"[a-z0-9][a-z0-9-]*",
+                    lambda m: mapping.get(m.group(0), m.group(0)), part)
+        for part in re.split(r"(\[[^\]]*\])", raw))
+
+
+def render_csv_line(values: list[str]) -> str:
+    """One registry line, csv-quoted exactly as the taskforce.csv append writes it (a
+    multi-predecessor `after` cell carries commas and must quote).
+
+    ⚠ THE CANONICAL FORM, and `add-seat`'s splice depends on it being the SAME one the
+    append uses — its canonical-form guard re-renders every UNMUTATED row through this
+    function and refuses unless the result is byte-identical to the file. Rendering through
+    a second writer would let the guard pass on a file the append would have written
+    differently. `materialize-seats.py#_render_csv_line` delegates here.
+    """
+    buf = io.StringIO()
+    csv.writer(buf, lineterminator="\n").writerow(values)
+    return buf.getvalue()[:-1]
 
 
 # The rules, stated once. A refusal message NAMES the rule it violated: the `check`
@@ -2335,6 +2732,610 @@ def cmd_materialize(args) -> int:
     return 0
 
 
+# ------------------------------------------------------- dag / add-seat (issue S-33)
+#
+# GROWING A LIVE GOAL'S SEAT ROSTER. Both verbs below serve one owner requirement: a goal that
+# is already running turns out to need a seat nobody planned, and the only honest way to add it
+# is to (1) let an agent SEE the graph without reading four files, and (2) insert the seat with
+# every edge rewired in one atomic act that refuses anything it cannot do safely.
+
+EXECUTIONS_FILE = "executions.csv"
+# `engine/attached-execution.js#RUN_LOCK`. Stated, not imported — it is one filename across a
+# language boundary and there is no bridge, so BOTH sides hold their own literal.
+# ⚠ THE PIN IS NOT IN THIS FILE, AND A SELFTEST CANNOT BE IT: a Python arm comparing this literal
+# to itself proves nothing about the JS side, which is what it was doing. The real pin is
+# `probes/probe-goal-splice.py`'s cross-language arm — it evaluates
+# `require('engine/attached-execution').RUN_LOCK` in node and asserts equality with this constant,
+# so a rename on either side surfaces as a red arm rather than a gate that silently stops firing.
+ATTACHED_RUN_LOCK = ".attached-run.lock"
+
+
+def read_executions(goal_dir: Path) -> list[dict]:
+    """The goal's execution record, or `[]` when it has never run.
+
+    ABSENT IS EMPTY, deliberately: a goal that has never run has no record file, and that is
+    the quiescent case rather than a failure. `read_csv` refuses a missing file (right for a
+    registry, wrong for a ledger that is born on first execution).
+    """
+    p = goal_dir / EXECUTIONS_FILE
+    if not p.is_file():
+        return []
+    with p.open(encoding="utf-8", newline="") as fh:
+        return [dict(r) for r in csv.DictReader(fh)]
+
+
+def seat_states(goal_dir: Path) -> dict[str, dict]:
+    """Per-seat execution state, DERIVED from the execution record — never stored.
+
+    Three answers, in the record's own vocabulary:
+      never-ran  no row names this seat
+      open       its LAST row carries an EMPTY outcome (`ended` unstamped: still going, as far
+                 as the lane that wrote it knows)
+      done       its LAST row is stamped; the outcome reported is that row's
+
+    ⚠ THE LAST ROW DECIDES, IN FILE ORDER — never "any row is open". The record is append-only
+    and the engine keys on exactly this (`engine/execution-record.js`: "the seat's LAST word in
+    the record is what every reader keys on"; `engine/seeding.js#recordView` takes the last row
+    per seat in file order and calls a seat with an unstamped last row not-finished). A seat with
+    rows [done, open] read `open` here while a seat with [open, done] read `open` too — so a
+    revived seat that finished still reported as running, and the two readers disagreed about the
+    same file. File order, not `started`, because that is the ordering the engine uses; sorting
+    by `started` here would re-introduce the disagreement in the other direction.
+    """
+    by_seat: dict[str, list[dict]] = {}
+    for row in read_executions(goal_dir):
+        seat = (row.get("seat") or "").strip()
+        if seat:
+            by_seat.setdefault(seat, []).append(row)
+    states: dict[str, dict] = {}
+    for seat, rows in by_seat.items():
+        outcome = (rows[-1].get("outcome") or "").strip()
+        states[seat] = {"state": "done" if outcome else "open",
+                        "outcome": outcome, "runs": len(rows)}
+    return states
+
+
+def topo_order(rows: list[dict]) -> list[str]:
+    """Seats in dependency order — predecessors first, registry order among ready seats.
+
+    Acyclicity is NOT proven here and is not this function's claim (`check_acyclic` is the
+    room's only sanctioned walk, Rule 9). Anything still pending when no seat is ready is
+    appended in registry order rather than dropped: `dag` is a READ verb, and a listing that
+    silently omits the seats caught in a cycle would hide the very thing worth seeing.
+    """
+    order, placed = [], set()
+    seats = [(r.get("seat") or "").strip() for r in rows]
+    preds = {(r.get("seat") or "").strip(): after_pred_names(r.get("after") or "")
+             for r in rows}
+    pending = [s for s in seats if s]
+    while pending:
+        ready = [s for s in pending
+                 if all(p not in preds or p in placed for p in preds[s])]
+        if not ready:
+            return order + pending
+        for s in ready:
+            order.append(s)
+            placed.add(s)
+            pending.remove(s)
+    return order
+
+
+def cmd_dag(args) -> int:
+    """The goal's graph in ONE read — seats, their predecessors, and where each one stands.
+
+    Owner requirement R6: an agent deciding where a new seat belongs should not have to open
+    `taskforce.csv`, `executions.csv` and `seats/` and join them in its head. Everything here
+    is DERIVED from those three; this verb stores nothing and writes nothing.
+    """
+    root = resolve_goals_root(args.root)
+    goal_dir = resolve_goal_dir(root, args.goal_name)
+    if not goal_dir.is_dir():
+        raise Refusal(f"{goal_dir}: no such goal folder", "goal-absent")
+    tf_path = goal_dir / "taskforce.csv"
+    if not tf_path.is_file():
+        raise Refusal(f"{tf_path}: absent — this goal has no seat registry to graph",
+                      "registry-absent")
+    rows = read_csv(tf_path)
+    states = seat_states(goal_dir)
+    by_seat = {(r.get("seat") or "").strip(): r for r in rows if (r.get("seat") or "").strip()}
+
+    seats_dir = goal_dir / "seats"
+    materialized = {p.name for p in seats_dir.iterdir() if p.is_dir()} if seats_dir.is_dir() else set()
+    # DRIFT, both directions. A folder with no row is a seat nothing will ever schedule; a row
+    # with no folder is a seat that cannot launch. Neither is a refusal here — `dag` reports.
+    orphan_folders = sorted(materialized - set(by_seat))
+    unmaterialized = sorted(set(by_seat) - materialized)
+
+    nodes = []
+    for seat in topo_order(rows):
+        row = by_seat[seat]
+        st = states.get(seat, {"state": "never-ran", "outcome": "", "runs": 0})
+        nodes.append({
+            "seat": seat,
+            "after": (row.get("after") or "").strip(),
+            "predecessors": after_pred_names(row.get("after") or ""),
+            "state": st["state"],
+            "outcome": st["outcome"],
+            "runs": st["runs"],
+            "materialized": seat in materialized,
+        })
+
+    if args.json:
+        print(json.dumps({"ok": True, "goal": args.goal_name, "nodes": nodes,
+                          "orphan_seat_folders": orphan_folders,
+                          "unmaterialized_rows": unmaterialized}, indent=2))
+        return 0
+
+    print(f"goal-dag {args.goal_name}  ({len(nodes)} seat row(s), dependency order)")
+    for n in nodes:
+        state = n["state"] + (f"={n['outcome']}" if n["outcome"] else "")
+        preds = ", ".join(n["predecessors"]) or "(root)"
+        flag = "" if n["materialized"] else "   <-- no seat folder"
+        print(f"  {n['seat']:<28} after: {preds:<34} {state}{flag}")
+        if n["after"] and n["after"] != ", ".join(n["predecessors"]):
+            # The RAW cell, whenever guards or alternates make it differ from the plain
+            # predecessor list — that is the text `add-seat` would rewrite.
+            print(f"  {'':<28} cell: {n['after']}")
+    for name in orphan_folders:
+        print(f"  DRIFT: seats/{name}/ exists with no taskforce.csv row")
+    if not nodes:
+        print("  (no rows)")
+    return 0
+
+
+# ------------------------------------- add-seat: the splice
+#
+# ⚠ THE WRITE ORDER IS MINT-THEN-SPLICE, NEVER THE REVERSE. `materialize-seats.py` writes the
+# seat's descriptors BEFORE its registry row (its own discipline: a refusal on the last seat
+# leaves zero rows). Splicing first would point live `after` cells at a seat that does not yet
+# exist — a window in which the daemon could seed against an unresolvable edge. Minting first
+# leaves the opposite window, which is harmless: a seat with a row and no successor pointing at
+# it is simply a seat nothing waits for. `--splice-only` is the crash-resume for the gap.
+
+
+def _split_seat_list(raw: str | None) -> list[str]:
+    return [s.strip() for s in (raw or "").split(",") if s.strip()]
+
+
+def _read_registry_raw(path: Path) -> str:
+    """The registry's bytes as text, with NO newline translation.
+
+    ⚠ `read_text()` UNIVERSAL-NEWLINES a CRLF registry into LF before the canonical-form guard
+    can see it, so the guard passed — and the atomic write then replaced the file with LF
+    throughout. Every line changed, which is exactly the damage that guard exists to refuse, and
+    it was invisible because the reader had already destroyed the evidence. Read the bytes.
+    """
+    with path.open(encoding="utf-8", newline="") as fh:
+        return fh.read()
+
+
+def _parse_registry(text: str) -> tuple[list[str], list[str], int, int, list, dict]:
+    """The registry's raw lines, parsed cells and seat index — with every WHOLE-FILE precondition
+    already refused: unterminated tail, empty, header drift, CRLF, non-canonical form.
+
+    ONE reader, TWO callers, and that is the point: `_preflight_splice` runs it PRE-MINT so a
+    refusable splice costs nothing, and `splice_new_seat` runs it again on the post-mint baseline
+    it actually rewrites. A second reading here would be two answers to "is this file spliceable".
+    """
+    if text and not text.endswith("\n"):
+        raise Refusal(
+            "taskforce.csv does not end in a newline — a partial trailing line is unparseable "
+            "by every consumer at once; repair the registry before splicing",
+            "taskforce-tail-unterminated")
+    # CRLF, NAMED. Without this the canonical-form guard below fires on EVERY line (each carries a
+    # trailing `\r` the writer never emits) and told the operator to "repair the registry" without
+    # saying what was wrong with it. The precondition is LF-only, so say so; normalizing silently
+    # would rewrite every byte of a file this verb promises to leave alone.
+    if "\r\n" in text:
+        raise Refusal(
+            "taskforce.csv has CRLF line endings — the registry's canonical form is LF-only "
+            "(every writer emits `\\n`), so a splice through it would rewrite every line's "
+            "terminator. Convert the file to LF and re-run; nothing is normalized for you.",
+            "taskforce-noncanonical")
+    lines = text.split("\n")[:-1]
+    if not lines:
+        raise Refusal("taskforce.csv is empty — there is no registry to splice into",
+                      "taskforce-empty")
+    header = next(csv.reader([lines[0]]))
+    if "seat" not in header or "after" not in header:
+        raise Refusal(
+            f"taskforce.csv header is {lines[0]!r} — a splice needs the 'seat' and 'after' "
+            "columns and will not guess which is which", "taskforce-header-drift")
+    seat_at, after_at = header.index("seat"), header.index("after")
+
+    cells = [next(csv.reader([ln])) if ln.strip() else None for ln in lines[1:]]
+    index = {}
+    for i, cs in enumerate(cells):
+        if cs is None:
+            continue
+        s = cs[seat_at].strip() if seat_at < len(cs) else ""
+        if s:
+            index.setdefault(s, i)
+
+    # ── THE CANONICAL-FORM GUARD ──────────────────────────────────────────────────────────────
+    #
+    # Re-render EVERY row through the same writer the append uses and require byte-equality
+    # BEFORE mutating anything. Without it, a hand-edited registry (an unquoted cell, a stray
+    # space after a comma, CRLF) would come back through this splice REWRITTEN — every line
+    # changed, the diff unreviewable, and the operator unable to tell the splice from the
+    # reformatting. Refusing keeps the promise `add-seat` actually makes: every line but the
+    # rewritten ones is byte-unchanged.
+    for i, cs in enumerate(cells):
+        if cs is None:
+            continue
+        if render_csv_line(cs) != lines[i + 1]:
+            raise Refusal(
+                f"taskforce.csv line {i + 2} is not in the registry's canonical csv form "
+                f"({lines[i + 1]!r} re-renders as {render_csv_line(cs)!r}) — a splice rewrites "
+                "ONLY the rows it re-parents and cannot promise that over a file whose other "
+                "rows would be reformatted on the way through. Repair the registry first.",
+                "taskforce-noncanonical")
+    if render_csv_line(header) != lines[0]:
+        raise Refusal(
+            f"taskforce.csv header line is not in canonical csv form ({lines[0]!r}) — "
+            "repair the registry before splicing", "taskforce-noncanonical")
+    return lines, header, seat_at, after_at, cells, index
+
+
+def _check_before(target: str, index: dict, cells: list, after_at: int,
+                  after: list[str]) -> tuple[int, list, str]:
+    """One `--before` seat ruled on: it exists, and it actually WAITS on something in `--after`.
+
+    Returns `(row index, its cells, its current after cell)`. Both refusals are computable from
+    the registry alone, which is why the preflight can fire them before a single byte is minted.
+    """
+    if target not in index:
+        raise Refusal(
+            f"--before {target}: no taskforce.csv row carries that seat — the insertion "
+            f"point must be a seat that exists. Known seats: {', '.join(sorted(index))}",
+            "splice-before-unknown")
+    i = index[target]
+    cs = list(cells[i])
+    old = cs[after_at] if after_at < len(cs) else ""
+    after_set = set(after)
+    if not [m for m in after_cell_members(old)
+            if any(n in after_set for n in after_pred_names(m))]:
+        raise Refusal(
+            f"--before {target}: its `after` cell is {old!r}, which shares no member with "
+            f"--after ({', '.join(after) or 'none'}) — the new seat would not be BETWEEN "
+            "anything, so this is not an insertion. Name a successor that actually waits "
+            "on one of the --after seats.", "splice-not-an-insertion")
+    return i, cs, old
+
+
+def _preflight_splice(text: str, after: list[str], before: list[str]) -> None:
+    """Every splice refusal computable BEFORE the mint, fired from the gate block.
+
+    ⚠ THIS IS WHY IT EXISTS. `splice_new_seat` runs after the mint, so a registry that was never
+    spliceable — an unknown `--before`, a `--before` that is not an insertion point, a
+    non-canonical file — used to refuse with the seat's row ALREADY APPENDED and `seats/<seat>/`
+    ALREADY ASSEMBLED: a half-grown goal produced by a gate. Every one of those answers is a pure
+    function of the pre-mint registry, so it is ruled on here, where refusing costs nothing.
+
+    `splice-no-row` is deliberately NOT here: pre-mint the new seat has no row BY CONSTRUCTION,
+    and that check belongs to the post-mint baseline alone.
+    """
+    _lines, _header, _seat_at, after_at, cells, index = _parse_registry(text)
+    for target in before:
+        _check_before(target, index, cells, after_at, after)
+
+
+def splice_new_seat(text: str, new_seat: str, after: list[str],
+                    before: list[str]) -> tuple[str, list[dict]]:
+    """PURE. `taskforce.csv` raw text in, spliced raw text + the rewrite log out.
+
+    For each `--before` seat: the members of its `after` cell that are in the `--after` set are
+    substituted with `new_seat` — so `x after a` becomes `x after new-seat` when the new seat was
+    inserted after `a`. Members NOT in the `--after` set stay exactly where they are: an
+    insertion re-parents only the edges it sits on.
+
+    Every refusal here fires BEFORE any byte is produced, and the caller writes the result in
+    ONE atomic replace, so a refusal at the last row leaves the registry untouched. Every check
+    but `splice-no-row` ALSO fired pre-mint through `_preflight_splice`; they re-run here because
+    the baseline is a different file (the mint appended to it) — a passing preflight is not a
+    licence to skip the real one.
+    """
+    lines, _header, _seat_at, after_at, cells, index = _parse_registry(text)
+
+    if new_seat not in index:
+        raise Refusal(
+            f"taskforce.csv carries no row for seat '{new_seat}' — the splice re-parents edges "
+            "onto a registered seat, and there is nothing to point at. Mint the seat first "
+            "(drop --splice-only, or run materialize-seats.py --seat directly).",
+            "splice-no-row")
+
+    after_set = set(after)
+    rewrites: list[dict] = []
+    for target in before:
+        i, cs, old = _check_before(target, index, cells, after_at, after)
+        # Substitute through the ONE after-grammar substitution (guard spans untouched), then
+        # dedupe order-preserving: `a,b` both replaced collapses to a single `new-seat` member
+        # rather than listing it twice.
+        substituted = substitute_after_ids(old, {a: new_seat for a in after_set})
+        seen, members = set(), []
+        for m in after_cell_members(substituted):
+            if m not in seen:
+                seen.add(m)
+                members.append(m)
+        new_cell = ",".join(members)
+        cs[after_at] = new_cell
+        cells[i] = cs
+        rewrites.append({"seat": target, "old_after": old, "new_after": new_cell})
+
+    out = [lines[0]] + [render_csv_line(cs) if cs is not None else lines[i + 1]
+                        for i, cs in enumerate(cells)]
+    return "\n".join(out) + "\n", rewrites
+
+
+def cmd_add_seat(args) -> int:
+    """Grow a LIVE goal's roster: gate, mint the seat, splice it into the graph.
+
+    Every gate below fires BEFORE any write, and every one of them fires under `--dry-run` too —
+    a dry run that skipped the gates would be a rehearsal of a different act. Gate (g) extends
+    that to the SPLICE: the checks computable from the pre-mint registry are ruled on here, so a
+    refusable splice never leaves a half-grown goal. Only `splice-no-row`, the mutated-graph
+    validation and the changed-underfoot re-read stay post-mint — each needs the file the mint
+    wrote.
+    """
+    import subprocess
+    import tempfile
+
+    root = resolve_goals_root(args.root)
+    goal_dir = resolve_goal_dir(root, args.goal_name)
+    if not goal_dir.is_dir():
+        raise Refusal(f"{goal_dir}: no such goal folder", "goal-absent")
+    tf_path = goal_dir / "taskforce.csv"
+    if not tf_path.is_file():
+        raise Refusal(f"{tf_path}: absent — nothing to splice into", "registry-absent")
+
+    seat = args.seat
+    after = _split_seat_list(args.after)
+    before = _split_seat_list(args.before)
+    if not after:
+        raise Refusal("--after names the predecessor(s) the new seat waits on and is required — "
+                      "an omitted insertion point never defaults to root", "after-required")
+
+    # ── GATE (a): the goal is PAUSED ──────────────────────────────────────────────────────────
+    # Not a formality. Splicing a live goal's graph while the daemon is free to seed means the
+    # seeder can read `taskforce.csv` mid-rewrite, or seed a successor whose `after` cell is
+    # about to change under it. Pause is the one thing that makes the window unreachable.
+    if not lane_is_paused(read_lane_raw(goal_dir)):
+        raise Refusal(
+            f"{goal_dir / LANE_FILE}: this goal is NOT paused. Growing a live roster rewrites "
+            "`after` cells the seeder reads every cadence, so the daemon must be let go of "
+            f"first: run `rbtv-goal pause {args.goal_name}`, add the seat, then "
+            f"`rbtv-goal resume {args.goal_name}`.", "goal-not-paused")
+
+    # ── GATE (b): QUIESCENT — no seat's LAST execution is still open ──────────────────────────
+    # Read through `seat_states`, so this gate and `dag` answer the same question the same way,
+    # and both answer it the way the engine does (`seeding.js#recordView`: a seat's LAST row is
+    # its state; an earlier open row that a later row superseded is spent, not live).
+    executions = read_executions(goal_dir)
+    still_open = {s for s, st in seat_states(goal_dir).items() if st["state"] == "open"}
+    open_rows = [r for r in executions if not (r.get("outcome") or "").strip()
+                 and (r.get("seat") or "").strip() in still_open]
+    if open_rows and not args.allow_open_execution:
+        # ⚠ NAME THE ROWS. A killed run leaves its row open FOREVER — nothing ever closes it —
+        # so "wait for the record to close" described an event that would never happen, and this
+        # gate became a permanent refusal with no way past it. The operator now gets the exact
+        # rows to judge, plus the escape.
+        detail = "; ".join(
+            f"seat {(r.get('seat') or '?').strip()} session {(r.get('session-id') or '?').strip()}"
+            f" started {(r.get('started') or '?').strip()}"
+            for r in open_rows)
+        raise Refusal(
+            f"{goal_dir / EXECUTIONS_FILE}: {detail} — open execution row(s) (empty outcome). "
+            "Pause stops new SEEDING; it does not stop a session already running, and "
+            "re-parenting the graph under a running seat changes what its successors wait on "
+            "mid-turn. Wait for the record to close — or, if the session is GONE (a killed run "
+            "never closes its row), pass --allow-open-execution to proceed deliberately.",
+            "goal-not-quiescent")
+
+    # ── GATE (c): no --before seat has EVER run ───────────────────────────────────────────────
+    # A seat that has already run resolved its `after` cell once. Re-parenting it now means the
+    # graph no longer describes the run that happened, and a resume would re-derive readiness
+    # from an edge set that never gated anything.
+    ran = {(r.get("seat") or "").strip() for r in executions}
+    already = [b for b in before if b in ran]
+    if already:
+        raise Refusal(
+            "--before " + ", ".join(already) + ": already carries execution-record row(s), so "
+            "its `after` cell has already been resolved once — re-parenting it now would make "
+            "the registry describe a graph that never ran. Attach the new seat before a "
+            "successor that has not started.", "splice-target-has-run")
+
+    # ── GATE (d): no attached run holds this goal ─────────────────────────────────────────────
+    if (goal_dir / ATTACHED_RUN_LOCK).exists():
+        raise Refusal(
+            f"{goal_dir / ATTACHED_RUN_LOCK}: an ATTACHED run (`rbtv run`) holds this goal — its "
+            "engine is advancing the same graph this splice rewrites. Let the run finish or "
+            "stop it, then add the seat. (A lock whose runner is gone is cleared by the runner "
+            "itself on the next `rbtv run`.)", "attached-run-live")
+
+    # ── GATE (e): the shared bindings sheet actually carries this seat ────────────────────────
+    # The materializer refuses this too (`bindings-missing-seat`), but it does so after a
+    # subprocess hop, and its message is about "the set being materialized" — which reads as a
+    # workflow problem. Checked here, where the answer is one line: your sheet has no seat 'X'.
+    sheet_path = Path(args.bindings).expanduser().resolve()
+    try:
+        sheet = json.loads(sheet_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise Refusal(f"--bindings {sheet_path}: unreadable ({exc})", "bindings-unreadable")
+    if not isinstance(sheet, dict) or not isinstance(sheet.get("seats"), dict):
+        raise Refusal(f"--bindings {sheet_path}: must be a JSON object carrying a 'seats' mapping",
+                      "bindings-schema")
+    if seat not in sheet["seats"]:
+        raise Refusal(
+            f"--bindings {sheet_path}: carries no entry for seat '{seat}' — a missing binding is "
+            "a refusal, never a default (which harness, model and effort the seat runs on has "
+            f"no honest guess). Known seats: {', '.join(sorted(sheet['seats'])) or '(none)'}",
+            "bindings-missing-seat")
+
+    # The PRE-MINT graph — what the gates rule on. The new seat is deliberately not in it yet.
+    rows = read_csv(tf_path)
+
+    # ── GATE (f): a COMPLEX cell + a stashed DAEMON lane ──────────────────────────────────────
+    # Every cell this run would WRITE — the new seat's own `after` and each rewritten cell.
+    # Multi-member or guarded cells are exactly the shapes the daemon seeder's readiness read
+    # handles least well; combined with a stashed `daemon` assignment, resuming would hand the
+    # seeder a cell class the parallel seeder fix is being built to cover.
+    stashed = LANE_PAUSED_RE.sub("", read_lane_raw(goal_dir), count=1).strip()
+    stashed_daemon = stashed.split()[:1] == ["daemon"]
+    by_seat = {(r.get("seat") or "").strip(): r for r in rows}
+    written_cells = {seat: ",".join(after)}
+    for b in before:
+        if b in by_seat:
+            written_cells[b] = (by_seat[b].get("after") or "").strip()
+    complex_cells = {s: c for s, c in written_cells.items()
+                     if len(after_cell_members(c)) > 1 or "[" in c}
+    if complex_cells and stashed_daemon:
+        detail = "; ".join(f"{s}: {c!r}" for s, c in sorted(complex_cells.items()))
+        if args.dry_run:
+            print(f"WARNING daemon-complex-cell: {detail} — multi-member or guarded cell(s) on a "
+                  "goal whose stashed lane is `daemon`. The real run refuses this unless "
+                  "--allow-daemon-complex-cell is passed.")
+        elif not args.allow_daemon_complex_cell:
+            raise Refusal(
+                f"{detail} — this splice writes multi-member or guarded `after` cell(s) and the "
+                f"stashed lane assignment is `{stashed}`, so resuming hands the daemon seeder "
+                "exactly the cell class it reads least reliably today. The parallel seeder fix "
+                "(engine/seeding.js) lifts this concern once deployed; until then, either resume "
+                "into the console lane (`rbtv-goal resume`, then `lane --set console`) or pass "
+                "--allow-daemon-complex-cell to accept the risk deliberately.",
+                "daemon-complex-cell")
+
+    # ── GATE (g): the splice this run WOULD perform is possible at all ────────────────────────
+    # Ruled on the PRE-MINT registry, so an impossible splice never mints. Before this gate the
+    # splice validations lived only after the mint, and a bad `--before` — or a non-canonical
+    # registry — refused with the row already appended and `seats/<seat>/` already assembled.
+    _preflight_splice(_read_registry_raw(tf_path), after, before)
+
+    # ── SCOPED SHEET ──────────────────────────────────────────────────────────────────────────
+    # The materializer refuses a sheet naming any seat OUTSIDE the set being materialized
+    # (`bindings-extra-seat`), and the goal's shared sheet names every seat of the workflow. So
+    # a one-seat sheet is written for the subprocess. OUTSIDE the goal folder on purpose: a
+    # temp file inside it would be a stray artifact under the very tree this verb is auditing,
+    # and a crash between mint and splice would leave it there.
+    scoped = None
+    minted = None
+    try:
+        if not args.splice_only:
+            fd, scoped_name = tempfile.mkstemp(prefix=f"add-seat-{seat}-", suffix=".json")
+            scoped = Path(scoped_name)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump({"defaults": sheet.get("defaults", {}),
+                           "seats": {seat: sheet["seats"][seat]}}, fh, indent=2)
+            materializer = Path(__file__).resolve().parents[3] / "team-kit" / "materialize-seats.py"
+            if not materializer.is_file():
+                raise Refusal(f"{materializer}: the seat materializer is absent — this verb mints "
+                              "through it and never re-implements assembly", "materializer-absent")
+            cmd = [sys.executable, str(materializer),
+                   "--package", str(goal_dir), "--seat", seat,
+                   "--after", ",".join(after),
+                   "--catalog-root", str(Path(args.catalog_root).expanduser().resolve()),
+                   "--bindings", str(scoped), "--json"]
+            # ⚠ NO `--taskforce-id` IS PASSED, and that is the materializer's own contract, not an
+            # omission: the append reads the run's taskforce-id "from the file, never argv"
+            # (`materialize-seats.py`, the `registry-absent` refusal). The flag does not exist
+            # there, and passing it made every mint fail on an unrecognised argument.
+            if args.dry_run:
+                cmd.append("--dry-run")
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            minted = {"cmd": cmd[1:], "returncode": proc.returncode,
+                      "stdout": proc.stdout, "stderr": proc.stderr}
+            if proc.returncode != 0:
+                hint = ""
+                if "seat-exists" in (proc.stdout + proc.stderr):
+                    hint = ("\nThe seat is ALREADY minted. If a previous `add-seat` died between "
+                            "the mint and the splice, re-run with --splice-only to finish it.")
+                raise Refusal(
+                    f"the seat mint refused (exit {proc.returncode}):\n"
+                    + (proc.stderr.strip() or proc.stdout.strip()) + hint, "mint-refused")
+    finally:
+        if scoped is not None:
+            scoped.unlink(missing_ok=True)
+
+    # ── SPLICE ────────────────────────────────────────────────────────────────────────────────
+    if args.dry_run:
+        # Nothing was minted, so the new seat's row does not exist yet and `splice_new_seat`
+        # would refuse `splice-no-row`. The REVIEW SURFACE is the local graph instead: what the
+        # operator is being asked to approve is which edges move.
+        preview = []
+        for b in before:
+            old = (by_seat.get(b, {}).get("after") or "").strip()
+            hit = [m for m in after_cell_members(old)
+                   if any(n in set(after) for n in after_pred_names(m))]
+            preview.append({"seat": b, "old_after": old,
+                            "would_become": ",".join(dict.fromkeys(after_cell_members(
+                                substitute_after_ids(old, {a: seat for a in after})))),
+                            "members_replaced": hit})
+        plan = {"ok": True, "dry_run": True, "goal": args.goal_name, "seat": seat,
+                "after": after, "before": before, "rewrites": preview, "mint": minted}
+        if args.json:
+            print(json.dumps(plan, indent=2))
+        else:
+            print(f"dry-run add-seat {seat} into {args.goal_name}")
+            print(f"  predecessors -> {', '.join(after)}")
+            print(f"  {' ' * 14} -> {seat}")
+            for p in preview:
+                print(f"  {seat} -> {p['seat']}   after: {p['old_after']!r} "
+                      f"becomes {p['would_become']!r}")
+            if not before:
+                print(f"  (no --before: {seat} is a LEAF — nothing waits on it)")
+        return 0
+
+    # ⚠ READ AFTER THE MINT, never before. The mint APPENDS the new seat's registry row through a
+    # subprocess, so a snapshot taken before it does not contain the row the splice re-parents
+    # onto — measured: splicing the pre-mint text refuses `splice-no-row` on a run that had just
+    # minted the seat successfully, leaving the goal in exactly the half-done state
+    # `--splice-only` exists to resume. This read is also the baseline the changed-underfoot
+    # guard below compares against, which is what makes that guard mean "another writer", rather
+    # than "the mint wrote, as instructed".
+    raw_text = _read_registry_raw(tf_path)
+    spliced, rewrites = splice_new_seat(raw_text, seat, after, before)
+
+    # Validate the MUTATED rowset through the SAME two functions, in the SAME order,
+    # `cmd_materialize` uses — no copy, no second walk, no new rule.
+    mutated_rows = list(csv.DictReader(io.StringIO(spliced)))
+    graph = Findings()
+    check_acyclic(mutated_rows, graph, tf_path)
+    check_after_grammar(mutated_rows, graph, tf_path)
+    if graph:
+        raise Refusal(
+            f"{tf_path}: the SPLICED after-graph does not validate, so nothing was written "
+            f"({len(graph.items)} finding(s)):\n"
+            + "\n".join(f"  [{i['check']}] {i['reason']}" for i in graph.items),
+            "spliced-graph-invalid")
+
+    # CHANGED-UNDERFOOT. `spliced` was computed from the post-mint snapshot; validating the
+    # mutated graph is not instantaneous, and a parallel writer could have appended in the
+    # meantime. Re-read and refuse rather than clobbering whatever landed.
+    if _read_registry_raw(tf_path) != raw_text:
+        raise Refusal(
+            f"{tf_path}: changed on disk between the read and the write. The mint's own append "
+            "is already inside the snapshot this splice was computed from, so this means "
+            "ANOTHER writer touched the registry. Nothing was written — re-run with "
+            "--splice-only.", "taskforce-changed-underfoot")
+
+    tmp = tf_path.with_suffix(tf_path.suffix + ".tmp")
+    tmp.write_text(spliced, encoding="utf-8", newline="")
+    tmp.replace(tf_path)
+
+    if args.json:
+        print(json.dumps({"ok": True, "goal": args.goal_name, "seat": seat, "after": after,
+                          "rewrites": rewrites, "mint": minted,
+                          "taskforce": str(tf_path)}, indent=2))
+    else:
+        print(f"add-seat: {seat} spliced into {args.goal_name}")
+        print(f"  after: {', '.join(after)}")
+        for r in rewrites:
+            print(f"  rewired {r['seat']}: {r['old_after']!r} -> {r['new_after']!r}")
+        if not rewrites:
+            print(f"  {seat} is a LEAF — no successor was re-parented")
+        print(f"  resume the goal with `rbtv-goal resume {args.goal_name}`")
+    return 0
+
+
 # ---------------------------------------------------------------- selftest
 
 
@@ -3268,6 +4269,357 @@ def cmd_selftest(args) -> int:
         check("failed reindex left goals.csv untouched",
               (root / "goals.csv").read_text(encoding="utf-8") == before_idx)
 
+        # ── pause / resume / dag / add-seat (issue S-33) ──────────────────────────────────────
+        #
+        # Its own goals root, deliberately: the reindex arms above count goals, and a fixture
+        # added to `root` would make that count a moving target.
+        import contextlib
+
+        print("pause / resume")
+        s33 = tmp / "s33" / ".rbtv" / "goals"
+        s33.mkdir(parents=True)
+        live = s33 / "live-goal"
+        live.mkdir()
+
+        def _ns(**kw):
+            base = dict(root=str(s33), json=False, goal_name="live-goal")
+            base.update(kw)
+            return argparse.Namespace(**base)
+
+        def _code(fn, ns):
+            """The refusal CODE, or None when the call did not refuse. Every gate arm below
+            asserts on this rather than on message text — prose is edited, a code is a
+            contract, and an arm keyed on prose goes green the day someone rewords it."""
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    fn(ns)
+                return None
+            except Refusal as exc:
+                return getattr(exc, "code", None)
+
+        # BYTE-EXACT ROUND TRIP is the whole promise: `daemon <profile>` must come back
+        # identical, or a resume silently changes which profile the daemon seeds with.
+        original = "daemon claude-sonnet\n"
+        (live / LANE_FILE).write_text(original, encoding="utf-8", newline="")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_pause(_ns())
+        check("pause stashes the marker behind `paused `",
+              (live / LANE_FILE).read_text(encoding="utf-8") == "paused daemon claude-sonnet\n",
+              repr((live / LANE_FILE).read_text(encoding="utf-8")))
+        check("a paused marker reads as CONSOLE to the unchanged lane reader",
+              read_lane(live) == ("console", None), str(read_lane(live)))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_pause(_ns())
+        check("pause is IDEMPOTENT — a second pause does not double the prefix",
+              (live / LANE_FILE).read_text(encoding="utf-8") == "paused daemon claude-sonnet\n",
+              repr((live / LANE_FILE).read_text(encoding="utf-8")))
+        check("`lane --set` REFUSES while paused (the stash is protected)",
+              _code(cmd_lane, _ns(set="console", profile=None)) == "lane-paused")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_resume(_ns())
+        check("resume round-trips the marker BYTE-EXACTLY",
+              (live / LANE_FILE).read_text(encoding="utf-8") == original,
+              repr((live / LANE_FILE).read_text(encoding="utf-8")))
+        check("resume on a NOT-paused goal refuses `not-paused`",
+              _code(cmd_resume, _ns()) == "not-paused")
+        # The absent-file branch: `console` is the previous text a resume must restore.
+        (live / LANE_FILE).unlink()
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_pause(_ns())
+        check("pausing a goal with NO marker stashes `console`",
+              (live / LANE_FILE).read_text(encoding="utf-8") == "paused console\n",
+              repr((live / LANE_FILE).read_text(encoding="utf-8")))
+
+        print("splice (pure)")
+        TF_HEAD = ["taskforce-id", "seat", "after", "harness", "model", "effort",
+                   "ctx-refresh", "milestone-id"]
+
+        def _tf(*rows):
+            return "\n".join([render_csv_line(TF_HEAD)]
+                             + [render_csv_line(["tf-1", s, a, "claude", "claude-opus-5",
+                                                 "medium", "50", "m1"]) for s, a in rows]) + "\n"
+
+        base_text = _tf(("a", ""), ("b", "a"), ("c", "a,b"), ("d", "a[gate=b]"), ("new", "a"))
+        spliced, rewrites = splice_new_seat(base_text, "new", ["a"], ["b"])
+        check("splice re-parents the --before row onto the new seat",
+              rewrites == [{"seat": "b", "old_after": "a", "new_after": "new"}], str(rewrites))
+        untouched_before = [ln for ln in base_text.split("\n") if not ln.startswith("tf-1,b,")]
+        untouched_after = [ln for ln in spliced.split("\n") if not ln.startswith("tf-1,b,")]
+        check("splice leaves every OTHER line byte-unchanged",
+              untouched_before == untouched_after,
+              str([x for x in untouched_after if x not in untouched_before]))
+        # GUARD PRESERVATION: `a[gate=b]` with BOTH a and b in the --after set. The member id
+        # outside the brackets is substituted; the `b` INSIDE the guard is a condition, not a
+        # member, and substituting it would rewrite what the edge tests for.
+        _s2, rw2 = splice_new_seat(base_text, "new", ["a", "b"], ["d"])
+        check("a `[key=value]` guard span survives the splice untouched",
+              rw2[0]["new_after"] == "new[gate=b]", str(rw2))
+        # ALTERNATE + DEDUPE: `a,b` with both replaced must collapse to ONE member, not `new,new`.
+        _s3, rw3 = splice_new_seat(base_text, "new", ["a", "b"], ["c"])
+        check("two replaced members collapse to one (order-preserving dedupe)",
+              rw3[0]["new_after"] == "new", str(rw3))
+        check("--before naming no row refuses `splice-before-unknown`",
+              _code(lambda _: splice_new_seat(base_text, "new", ["a"], ["nope"]), None)
+              == "splice-before-unknown")
+        check("a --before row sharing no member with --after refuses `splice-not-an-insertion`",
+              _code(lambda _: splice_new_seat(base_text, "new", ["b"], ["b"]), None)
+              == "splice-not-an-insertion")
+        check("a new seat with no registry row refuses `splice-no-row`",
+              _code(lambda _: splice_new_seat(base_text, "ghost", ["a"], ["b"]), None)
+              == "splice-no-row")
+        # CANONICAL-FORM GUARD: an unnecessarily quoted cell re-renders differently, so the
+        # splice would silently reformat the whole file on its way through. Refused.
+        noncanon = base_text.replace('tf-1,a,', 'tf-1,"a",', 1)
+        check("a non-canonical registry refuses `taskforce-noncanonical`",
+              _code(lambda _: splice_new_seat(noncanon, "new", ["a"], ["b"]), None)
+              == "taskforce-noncanonical")
+        # CRLF names ITSELF rather than surfacing as a per-line "repair the registry".
+        check("a CRLF registry refuses `taskforce-noncanonical` NAMING the line endings",
+              _code(lambda _: splice_new_seat(base_text.replace("\n", "\r\n"), "new",
+                                              ["a"], ["b"]), None) == "taskforce-noncanonical")
+        _crlf_msg = ""
+        try:
+            splice_new_seat(base_text.replace("\n", "\r\n"), "new", ["a"], ["b"])
+        except Refusal as exc:
+            _crlf_msg = str(exc)
+        check("…and the message says CRLF, not just 'repair the registry'",
+              "CRLF" in _crlf_msg and "LF-only" in _crlf_msg, _crlf_msg[:200])
+
+        # THE PREFLIGHT — the same three answers, computable with NO row for the new seat, which
+        # is what lets the gate block fire them before the mint.
+        premint = _tf(("a", ""), ("b", "a"), ("c", "a,b"), ("d", "a[gate=b]"))   # no `new` row
+        check("preflight refuses `splice-before-unknown` with no row for the new seat",
+              _code(lambda _: _preflight_splice(premint, ["a"], ["nope"]), None)
+              == "splice-before-unknown")
+        check("preflight refuses `splice-not-an-insertion` with no row for the new seat",
+              _code(lambda _: _preflight_splice(premint, ["b"], ["b"]), None)
+              == "splice-not-an-insertion")
+        check("preflight refuses `taskforce-noncanonical` with no row for the new seat",
+              _code(lambda _: _preflight_splice(
+                  premint.replace('tf-1,a,', 'tf-1,"a",', 1), ["a"], ["b"]), None)
+              == "taskforce-noncanonical")
+        check("preflight PASSES the legal splice it will later perform — it never refuses "
+              "`splice-no-row`, which is the post-mint baseline's alone",
+              _code(lambda _: _preflight_splice(premint, ["a"], ["b"]), None) is None)
+
+        print("add-seat gates + dag")
+        (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
+        sheet = tmp / "bindings.json"
+        sheet.write_text(json.dumps({"defaults": {"harness": "claude"},
+                                     "seats": {"new": {"model": "claude-opus-5"}}}),
+                         encoding="utf-8")
+
+        def _add(**kw):
+            base = dict(seat="new", after="a", before="b", bindings=str(sheet),
+                        catalog_root=str(tmp), splice_only=True,
+                        allow_daemon_complex_cell=False, allow_open_execution=False,
+                        dry_run=False)
+            base.update(kw)
+            return _ns(**base)
+
+        (live / LANE_FILE).write_text("console\n", encoding="utf-8", newline="")
+        check("add-seat on an UNPAUSED goal refuses `goal-not-paused`",
+              _code(cmd_add_seat, _add()) == "goal-not-paused")
+        (live / LANE_FILE).write_text("paused console\n", encoding="utf-8", newline="")
+        (live / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "a,s1,attached,t0,,\n", encoding="utf-8", newline="")
+        check("an OPEN execution row refuses `goal-not-quiescent`",
+              _code(cmd_add_seat, _add()) == "goal-not-quiescent")
+        # THE DEADLOCK ESCAPE. A killed run's row is never closed by anything, so without a flag
+        # this refusal is permanent. The refusal NAMES the row so the operator can judge it.
+        _q = ""
+        try:
+            cmd_add_seat(_add())
+        except Refusal as exc:
+            _q = str(exc)
+        check("…and the refusal names the offending seat, session and start",
+              "seat a" in _q and "session s1" in _q and "started t0" in _q, _q[:250])
+        (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
+        check("--allow-open-execution is the deliberate escape past a never-closing row",
+              _code(cmd_add_seat, _add(allow_open_execution=True)) is None)
+        # A SUPERSEDED open row is NOT live: the seat's LAST row decides, as the engine reads it.
+        (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
+        (live / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "a,s1,attached,t0,,\n"
+            "a,s2,attached,t1,t2,done\n", encoding="utf-8", newline="")
+        check("a seat whose LAST row is stamped is quiescent even with an earlier OPEN row",
+              _code(cmd_add_seat, _add()) is None)
+        check("…and `seat_states` reports it `done`, not `open`",
+              seat_states(live)["a"] == {"state": "done", "outcome": "done", "runs": 2},
+              str(seat_states(live)))
+        (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
+        (live / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "b,s1,attached,t0,t1,done\n", encoding="utf-8", newline="")
+        check("a --before seat that has already RUN refuses `splice-target-has-run`",
+              _code(cmd_add_seat, _add()) == "splice-target-has-run")
+        (live / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "a,s1,attached,t0,t1,done\n", encoding="utf-8", newline="")
+        (live / ATTACHED_RUN_LOCK).write_text("pid\n", encoding="utf-8")
+        check("a live attached run refuses `attached-run-live`",
+              _code(cmd_add_seat, _add()) == "attached-run-live")
+        (live / ATTACHED_RUN_LOCK).unlink()
+        check("a seat absent from the shared sheet refuses `bindings-missing-seat`",
+              _code(cmd_add_seat, _add(seat="absent")) == "bindings-missing-seat")
+        # daemon-complex-cell: --before c carries `a,b` (multi-member) and the STASHED lane is
+        # `daemon`. Refused on the real run; the flag is the deliberate acceptance.
+        (live / LANE_FILE).write_text("paused daemon claude-sonnet\n", encoding="utf-8",
+                                      newline="")
+        check("a multi-member cell + a stashed DAEMON lane refuses `daemon-complex-cell`",
+              _code(cmd_add_seat, _add(before="c", after="a,b")) == "daemon-complex-cell")
+        check("--allow-daemon-complex-cell is the deliberate escape",
+              _code(cmd_add_seat, _add(before="c", after="a,b",
+                                       allow_daemon_complex_cell=True)) is None)
+        # …and the console lane never trips it at all (the green discriminator: without this
+        # the arm above would also pass if the gate simply refused every complex cell).
+        (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
+        (live / LANE_FILE).write_text("paused console\n", encoding="utf-8", newline="")
+        check("the same complex cell on a stashed CONSOLE lane is NOT refused",
+              _code(cmd_add_seat, _add(before="c", after="a,b")) is None)
+
+        (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = cmd_add_seat(_add(json=True))
+        payload = json.loads(buf.getvalue())
+        check("add-seat --splice-only writes the spliced registry", rc == 0 and payload["ok"])
+        check("…and the registry now names the new seat as b's predecessor",
+              "tf-1,b,new," in (live / "taskforce.csv").read_text(encoding="utf-8"),
+              (live / "taskforce.csv").read_text(encoding="utf-8"))
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = cmd_dag(_ns(json=True))
+        dag = json.loads(buf.getvalue())
+        seats_seen = [n["seat"] for n in dag["nodes"]]
+        check("dag exits 0 and lists every registry row", rc == 0 and len(seats_seen) == 5,
+              str(seats_seen))
+        check("dag orders predecessors before their successors",
+              seats_seen.index("a") < seats_seen.index("new") < seats_seen.index("b"),
+              str(seats_seen))
+        by = {n["seat"]: n for n in dag["nodes"]}
+        check("dag derives execution state from executions.csv",
+              by["a"]["state"] == "done" and by["a"]["outcome"] == "done"
+              and by["c"]["state"] == "never-ran", json.dumps(by["a"]))
+        check("dag reports the new seat's predecessors through the after grammar",
+              by["b"]["predecessors"] == ["new"], str(by["b"]))
+
+        # ---- IPH-11: the retry threshold -------------------------------------------------
+        # The fixture is the HARD milestones.csv, not a tidy one: the second live header shape,
+        # a quoted multi-clause `done-when`, an embedded doubled quote, and CRLF endings. A csv
+        # round trip re-renders every one of those to satisfy the one cell being written, which
+        # is the failure this verb's line-precise edit exists to make impossible.
+        print("retry-threshold")
+        rt = s33 / "rt-goal"
+        (rt / "seats").mkdir(parents=True)
+        MS_CRLF = (
+            b'milestone-id,title,done-when,state\r\n'
+            b'm1,First,"a, quoted; multi-clause done-when with an ""inner"" quote",open\r\n'
+            b'm2,Second,"another, quoted clause",open\r\n')
+        (rt / MILESTONES_FILE).write_bytes(MS_CRLF)
+
+        def _rt(**kw):
+            base = dict(root=str(s33), json=False, goal_name="rt-goal",
+                        milestone=None, unset=False)
+            base.setdefault("set", None)
+            base.update(kw)
+            ns_rt = argparse.Namespace(**{k: v for k, v in base.items() if k != "set"})
+            setattr(ns_rt, "set", base["set"])
+            return ns_rt
+
+        def _rt_show(**kw):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cmd_retry_threshold(_rt(json=True, **kw))
+            return json.loads(buf.getvalue())
+
+        check("nothing configured resolves the built-in default, source `default`",
+              _rt_show()["threshold"] == RETRY_THRESHOLD_DEFAULT
+              and _rt_show()["source"] == "default"
+              and _rt_show()["path"] is None)
+
+        # THE CROSS-CHECK, not a bridge: coord.py owns the ENFORCED ladder and is not importable
+        # from an arbitrary cwd, so the three literals are pinned against its own source. A
+        # rename there turns this arm red instead of silently splitting the authority in two.
+        _coord_lits = _module_level_literals(coord_source_path().read_text(encoding="utf-8"))
+        check("the ladder's three literals match coord.py's enforcing copy",
+              _coord_lits.get("RETRY_THRESHOLD_DEFAULT") == RETRY_THRESHOLD_DEFAULT
+              and _coord_lits.get("RETRY_THRESHOLD_FILE") == RETRY_THRESHOLD_FILE
+              and _coord_lits.get("RETRY_THRESHOLD_COLUMN") == RETRY_THRESHOLD_COLUMN,
+              str({k: v for k, v in _coord_lits.items() if k.startswith("RETRY_")}))
+
+        for bad in ("abc", "0", "-1", "", "2.5"):
+            check(f"--set {bad!r} refuses `retry-threshold-invalid` and writes nothing",
+                  _code(cmd_retry_threshold, _rt(**{"set": bad})) == "retry-threshold-invalid"
+                  and not (rt / RETRY_THRESHOLD_FILE).exists()
+                  and (rt / MILESTONES_FILE).read_bytes() == MS_CRLF)
+        check("--set on an unknown --milestone refuses `milestone-unknown`, writing nothing",
+              _code(cmd_retry_threshold,
+                    _rt(milestone="m9", **{"set": "3"})) == "milestone-unknown"
+              and (rt / MILESTONES_FILE).read_bytes() == MS_CRLF)
+        check("--set and --unset together refuse `set-and-unset`",
+              _code(cmd_retry_threshold, _rt(unset=True, **{"set": "3"})) == "set-and-unset")
+
+        check("--set 3 writes the per-goal default and show sources it `goal`",
+              _code(cmd_retry_threshold, _rt(**{"set": "3"})) is None
+              and (rt / RETRY_THRESHOLD_FILE).read_text(encoding="utf-8") == "3\n"
+              and _rt_show()["threshold"] == 3 and _rt_show()["source"] == "goal")
+
+        # ARM 11 — the line-precise write. Every OTHER byte identical, quoted prose included.
+        check("--set --milestone appends the column and leaves every other byte alone",
+              _code(cmd_retry_threshold, _rt(milestone="m1", **{"set": "4"})) is None
+              and (rt / MILESTONES_FILE).read_bytes() == (
+                  b'milestone-id,title,done-when,state,retry-threshold\r\n'
+                  b'm1,First,"a, quoted; multi-clause done-when with an ""inner"" quote",'
+                  b'open,4\r\n'
+                  b'm2,Second,"another, quoted clause",open,\r\n'),
+              (rt / MILESTONES_FILE).read_text(encoding="utf-8", newline=""))
+        check("the override wins for its own milestone and does NOT leak to its sibling",
+              _rt_show(milestone="m1")["threshold"] == 4
+              and _rt_show(milestone="m1")["source"] == "milestone"
+              and _rt_show(milestone="m2")["threshold"] == 3
+              and _rt_show(milestone="m2")["source"] == "goal")
+
+        _rt_before = (rt / MILESTONES_FILE).read_bytes()
+        check("a SECOND --set on an existing column rewrites that cell alone",
+              _code(cmd_retry_threshold, _rt(milestone="m1", **{"set": "7"})) is None
+              and (rt / MILESTONES_FILE).read_bytes()
+              == _rt_before.replace(b'open,4\r\n', b'open,7\r\n'),
+              (rt / MILESTONES_FILE).read_text(encoding="utf-8", newline=""))
+        check("--unset --milestone clears the cell and the goal default answers again",
+              _code(cmd_retry_threshold, _rt(milestone="m1", unset=True)) is None
+              and _rt_show(milestone="m1")["threshold"] == 3
+              and (rt / MILESTONES_FILE).read_bytes()
+              == _rt_before.replace(b'open,4\r\n', b'open,\r\n'))
+        check("--unset at goal scope removes the file and the default answers",
+              _code(cmd_retry_threshold, _rt(unset=True)) is None
+              and not (rt / RETRY_THRESHOLD_FILE).exists()
+              and _rt_show()["source"] == "default")
+
+        # Owner ruling 11 — the write refuses while a planning pass is OPEN.
+        (rt / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "plan-dod-judge,s1,daemon,t0,,\n", encoding="utf-8", newline="")
+        _rt_open_before = (rt / MILESTONES_FILE).read_bytes()
+        check("--set REFUSES `pass-open` while an execution row is still open, writing nothing",
+              _code(cmd_retry_threshold, _rt(**{"set": "5"})) == "pass-open"
+              and _code(cmd_retry_threshold,
+                        _rt(milestone="m1", **{"set": "5"})) == "pass-open"
+              and not (rt / RETRY_THRESHOLD_FILE).exists()
+              and (rt / MILESTONES_FILE).read_bytes() == _rt_open_before)
+        check("…and SHOW still answers while the pass is open — the gate is on the write only",
+              _rt_show()["threshold"] == RETRY_THRESHOLD_DEFAULT)
+        (rt / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "plan-dod-judge,s1,daemon,t0,t1,done\n", encoding="utf-8", newline="")
+        check("a CLOSED record lets the same --set through — a HALTED goal is exactly when the "
+              "owner raises the bar, so the gate must not bar that case",
+              _code(cmd_retry_threshold, _rt(**{"set": "5"})) is None
+              and _rt_show()["threshold"] == 5)
+
     print()
     if failures:
         print(f"selftest: {len(failures)} FAILURE(S)")
@@ -3340,6 +4692,75 @@ def build_parser() -> argparse.ArgumentParser:
                         "this goal's seats with (from `profiles:` in the one shared config)")
     p.set_defaults(func=cmd_lane)
 
+    # The PAUSE pair (issue S-33). `pause` stashes the lane assignment behind a `paused ` prefix
+    # both lane readers already resolve to `console`; `resume` hands the exact bytes back.
+    p = add_common(sub.add_parser(
+        "pause",
+        help="stash the lane assignment — nothing NEW is seeded for this goal until `resume`"))
+    p.add_argument("goal_name")
+    p.set_defaults(func=cmd_pause)
+
+    p = add_common(sub.add_parser(
+        "resume", help="unstash the lane assignment a `pause` put away, byte for byte"))
+    p.add_argument("goal_name")
+    p.set_defaults(func=cmd_resume)
+
+    # IPH-11 — the escalation bar as CONFIGURATION. Bare, it is read-only: `retry-threshold
+    # <goal>` is also the orientation verb ("what will the judge escalate at").
+    p = add_common(sub.add_parser(
+        "retry-threshold",
+        help="show or set the consecutive-FAIL bar the dod-judge escalates to the owner at"))
+    p.add_argument("goal_name")
+    p.add_argument("--milestone", default=None,
+                   help="scope to ONE milestone: show resolves that milestone's ladder, and "
+                        "--set writes the `retry-threshold` column of its milestones.csv row "
+                        "(line-precisely — every other byte of the file is left alone)")
+    p.add_argument("--set", default=None, metavar="N",
+                   help="the new threshold, an integer >= 1. The floor is 1, not 0: the gate "
+                        "reads `count < bar`, so 0 would escalate on zero FAILs")
+    p.add_argument("--unset", action="store_true",
+                   help="remove the override at this scope so the next rung answers")
+    p.set_defaults(func=cmd_retry_threshold)
+
+    # R6 — the one-shot graph view. Read-only: it opens taskforce.csv, executions.csv and
+    # seats/, and joins them so an agent does not have to.
+    p = add_common(sub.add_parser(
+        "dag", help="the goal's seat graph + each seat's execution state (read-only)"))
+    p.add_argument("goal_name")
+    p.set_defaults(func=cmd_dag)
+
+    p = add_common(sub.add_parser(
+        "add-seat",
+        help="grow a PAUSED goal's roster: mint a seat and splice it into the after-graph"))
+    p.add_argument("goal_name")
+    p.add_argument("--seat", required=True, help="the catalog seat id to mint and splice")
+    p.add_argument("--after", required=True,
+                   help="comma-separated predecessor seat(s) the new seat waits on "
+                        "(an omitted insertion point never defaults to root)")
+    p.add_argument("--before", default=None,
+                   help="comma-separated successor seat(s) to RE-PARENT onto the new seat. "
+                        "Only the members they share with --after are substituted; omit it to "
+                        "attach the new seat as a leaf")
+    p.add_argument("--bindings", required=True,
+                   help="the goal's SHARED bindings sheet (JSON). A one-seat scoped copy is "
+                        "written outside the goal folder for the mint and removed after")
+    p.add_argument("--catalog-root", required=True,
+                   help="root of the component databases the seat definition resolves through")
+    p.add_argument("--splice-only", action="store_true",
+                   help="skip the mint and splice only — the crash-resume for a run that died "
+                        "between minting the seat and rewiring the graph")
+    p.add_argument("--allow-daemon-complex-cell", action="store_true",
+                   help="accept writing a multi-member or guarded `after` cell on a goal whose "
+                        "stashed lane is `daemon` (refused by default)")
+    p.add_argument("--allow-open-execution", action="store_true",
+                   help="proceed even though a seat's LAST execution row is still open. The "
+                        "escape for a KILLED run, whose row nothing will ever close — never for "
+                        "a session that is actually alive (refused by default)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="run every gate and print the local graph around the new seat; "
+                        "touch nothing")
+    p.set_defaults(func=cmd_add_seat)
+
     p = add_common(sub.add_parser("lint", help="read-only validate + dry-run emulate (exit 0/1)"))
     p.add_argument("goal_name")
     p.set_defaults(func=cmd_lint)
@@ -3392,7 +4813,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return args.func(args)
     except Refusal as exc:
-        print(f"refused: {exc}", file=sys.stderr)
+        code = getattr(exc, "code", None)
+        print(f"refused{f' ({code})' if code else ''}: {exc}", file=sys.stderr)
+        # A coded refusal is machine-readable under --json — an agent keys on the code, never
+        # on the prose. Uncoded refusals keep the stderr-only shape they have always had.
+        if code and getattr(args, "json", False):
+            print(json.dumps({"ok": False,
+                              "refusal": {"code": code, "message": str(exc)}}, indent=2))
         return 1
 
 

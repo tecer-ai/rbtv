@@ -11,6 +11,13 @@ rbtv-goal reindex
 rbtv-goal lint <goal-name>
 rbtv-goal materialize <goal-name> --catalog-root DIR [--force] [--dry-run]
 rbtv-goal lane <goal-name> [--set daemon --profile NAME | --set console]
+rbtv-goal pause <goal-name>
+rbtv-goal resume <goal-name>
+rbtv-goal dag <goal-name>
+rbtv-goal add-seat <goal-name> --seat X --after a[,b] [--before x[,y]]
+                               --bindings SHEET.json --catalog-root DIR
+                               [--splice-only] [--allow-daemon-complex-cell]
+                               [--allow-open-execution] [--dry-run]
 rbtv-goal selftest
 ```
 
@@ -75,6 +82,10 @@ stand-in pattern, no contract change at fold-in.
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
 | `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
 | `lane` | Shows or sets WHICH LANE runs the goal — the daemon's pickup button (§ below). With no `--set` it is read-only orientation. Works **daemon-down**: it is a file read and a file write, which is most of why the trigger is a file. | Runs anything, or creates a goal — it assigns an EXISTING one |
+| `pause` / `resume` | Stashes the lane assignment behind a `paused ` prefix and hands it back byte-for-byte (§ below). Bounds **SEEDING only** — see the warning there. | Stops a running session, or invents a lane |
+| `dag` | READ-ONLY one-shot graph view: every `taskforce.csv` row with its predecessors (through the after grammar, never a comma split) and its execution state derived from `executions.csv`, in dependency order, plus `seats/` folders with no row. | Writes anything, or stores a state — every field is derived |
+| `add-seat` | Grows a **paused** goal's roster: gates, mints the seat through `materialize-seats.py`, then splices it into the after-graph in ONE atomic registry write (§ below). | Runs without a pause, splices before minting, or rewrites a row it did not re-parent |
+| `retry-threshold` | Shows or sets the consecutive-FAIL bar the dod-judge escalates to the owner at (§ below). Bare, it is READ-ONLY orientation. | Enforces the bar, or resolves it for the gate — `coord.py#resolve_retry_threshold` is the authority; this verb writes the two files it reads |
 
 ### `lane` — the daemon's pickup button (owner ruling `d-daemon-lane-button`, 2026-08-10)
 
@@ -110,6 +121,129 @@ seeds the goals assigned to it through `engine.seedGoal`; the console lane is `r
   this build coined no noun and the filename stays descriptive. `console` (who SHOULD run the goal)
   and `attached` (how an execution-record row RAN) are the same lane's two readings — ruled, and
   stated in that concept file alone.
+
+### `pause` / `resume` — the lane stash (issue `S-33`)
+
+```
+rbtv-goal pause  <goal>      # execution-lane: `daemon claude-sonnet` -> `paused daemon claude-sonnet`
+rbtv-goal resume <goal>      # …and back, byte for byte
+```
+
+**The marker grammar is one token wider, and NEITHER READER CHANGED.** `pause` rewrites
+`<goal>/execution-lane` to `paused ` + whatever it said before, verbatim; `resume` strips exactly
+that prefix and writes the remainder back. Both lane readers — `goal_cli.read_lane` and
+`engine/lane-watch.js#readLane` — already resolve any first token that is not `daemon` to
+`console`, so a paused marker reads as "not assigned to the daemon" on both sides with zero reader
+change. The daemon lets go on its next watch pass; the stashed assignment is still on disk, and
+`lane --json` reports `paused` / `paused_from` so nothing has to be inferred.
+
+- **Pausing bounds SEEDING, not EXECUTION.** It stops the daemon starting anything NEW for this
+  goal. It does **not** stop a session that is already running, and it does not touch an attached
+  `rbtv run` (which never reads the marker). "Nothing new starts" is the guarantee; "nothing is
+  running" is `add-seat`'s quiescence gate, which is a different check against `executions.csv`.
+- **`pause` is idempotent** — a second pause does not double the prefix, and reports the stash it
+  already holds.
+- **`resume` refuses `not-paused`** rather than stripping a prefix that is not there: doing so
+  would rewrite an assignment nobody paused.
+- **`lane --set` refuses `lane-paused` while the stash is held.** `--set` writes the marker WHOLE,
+  so setting a lane during a pause would discard the stashed assignment silently — and leave the
+  operator believing the goal is paused while the daemon reads it as assigned.
+- Absent file → the stashed text is `console`, which is what an absent file already reads as.
+
+### `retry-threshold` — the milestone retry bar (issue `IPH-11`, owner ruling 2026-08-11)
+
+```
+rbtv-goal retry-threshold <goal>                      # show: the resolved bar and which rung answered
+rbtv-goal retry-threshold <goal> --set 3              # the per-goal default -> <goal>/retry-threshold
+rbtv-goal retry-threshold <goal> --milestone m4 --set 5   # the override -> milestones.csv's column
+rbtv-goal retry-threshold <goal> --milestone m4 --unset   # clear it; the next rung answers
+```
+
+The bar the produced taskforce's dod-judge escalates to the owner at. Three rungs, first hit wins:
+the milestone's own `retry-threshold` cell in `milestones.csv` · `<goal>/retry-threshold` · **2**.
+
+- **This verb is not the authority — `coord.py#resolve_retry_threshold` is**, because that is the
+  function the escalation gate calls. This verb writes the two files that resolver reads, and
+  `goal_cli`'s selftest cross-checks the three literals against `coord.py`'s own source rather than
+  bridging them. A seat READS the resolved bar from `coordinate fail-status <milestone-id>`, which
+  answers off the same resolver — so no prompt ever states a number.
+- **The floor is 1, not 0.** The gate reads `count < bar`, so `bar = 0` is never true and the goal
+  would escalate on ZERO FAILs — the safety switched off by a value that looks like it tightened it.
+  A non-integer, `0`, `-1` or an empty `--set` refuses `retry-threshold-invalid` and writes nothing.
+- **Write refuses vs. read falls back, deliberately.** `--set` refuses loudly; the READER warns on
+  stderr and falls back to the next rung, because refusing there would append no escalation row and
+  fail OPEN — silently disabling the halt.
+- **`--milestone` edits `milestones.csv` LINE-PRECISELY, never through a csv round trip.** The file
+  carries quoted multi-clause `done-when` prose that a round trip re-renders to satisfy one cell.
+  A missing column is APPENDED to every line — the one structural edit that adds bytes and rewrites
+  none. Refuses `milestone-unknown` for an id with no row.
+- **`--set` refuses `pass-open` while an execution row carries an empty outcome.** `check-unblocked`
+  asserts `milestones.csv` is byte-identical across its own pass, so a write landing mid-pass fails
+  a criterion the writer never sees. A HALTED goal's rows are all closed, so the case the owner
+  actually raises the bar in is never barred.
+
+### `add-seat` — growing a LIVE goal's roster (issue `S-33`)
+
+```
+rbtv-goal pause my-goal
+rbtv-goal add-seat my-goal --seat reviewer --after builder --before shipper \
+                   --bindings .rbtv/config/.../bindings.json --catalog-root <dir> --dry-run
+rbtv-goal add-seat my-goal --seat reviewer --after builder --before shipper \
+                   --bindings … --catalog-root …
+rbtv-goal resume my-goal
+```
+
+A goal that is already running turns out to need a seat nobody planned. `add-seat` inserts it
+BETWEEN existing seats: the new seat waits on `--after`, and each `--before` successor is
+re-parented onto the new seat — but only for the members it shares with `--after`. An insertion
+re-parents the edges it sits on and nothing else.
+
+**Write order is MINT-then-SPLICE, never the reverse.** `materialize-seats.py` writes the seat's
+descriptors before its registry row (its own discipline). Splicing first would point live `after`
+cells at a seat that does not exist yet — a window the daemon could seed against. Minting first
+leaves the opposite window, which is harmless: a seat nothing waits on. `--splice-only` is the
+**crash resume** for a run that died in that gap; it skips the mint and finishes the rewiring.
+
+**Which checks fire under `--dry-run`, exactly.** Everything computable from the PRE-MINT registry
+fires under a dry run — a dry run that skipped them would rehearse a different act — and, since
+the same checks now run before the mint on a real run, a refusable splice never mints. Only three
+checks are post-mint-only, because each needs the file the mint just wrote:
+
+| When it fires | Checks |
+|---|---|
+| **Every run, including `--dry-run`** (pre-mint) | `goal-not-paused` · `goal-not-quiescent` · `splice-target-has-run` · `attached-run-live` · `bindings-missing-seat` / `bindings-unreadable` / `bindings-schema` · `daemon-complex-cell` (warns under `--dry-run`) · and the **preflight splice** checks: `splice-before-unknown` · `splice-not-an-insertion` · `taskforce-noncanonical` / `taskforce-tail-unterminated` / `taskforce-empty` / `taskforce-header-drift` |
+| **Post-mint only** | `splice-no-row` (pre-mint the new seat has no row by construction) · `spliced-graph-invalid` (the acyclic + grammar validation of the ACTUALLY-MINTED rowset) · `taskforce-changed-underfoot` |
+
+Each refuses with a CODE (machine-readable on `--json`, so an agent never matches prose):
+
+| Code | Refuses |
+|---|---|
+| `goal-not-paused` | the goal is not paused — the seeder reads `taskforce.csv` every cadence and this act rewrites it |
+| `goal-not-quiescent` | a seat's LAST `executions.csv` row carries an EMPTY outcome: it is still going, and re-parenting the graph under it changes what its successors wait on mid-turn. The refusal NAMES each offending row (seat, session-id, started). ⚠ **`--allow-open-execution` is the escape** — a KILLED run's row is never closed by anything, so without the flag this gate is permanent. Pass it only when the session is genuinely gone; passing it while a session is alive re-parents the graph under a running seat, which is the exact damage the gate exists to prevent |
+| `splice-target-has-run` | a `--before` seat already has execution-record rows, so its `after` cell was resolved once — re-parenting now makes the registry describe a graph that never ran |
+| `attached-run-live` | the goal carries `.attached-run.lock`: an `rbtv run` engine is advancing the same graph |
+| `bindings-missing-seat` | the shared sheet has no entry for the seat (which harness/model/effort it runs on has no honest default) |
+| `daemon-complex-cell` | the run would write a multi-member or guarded `after` cell AND the stashed lane is `daemon`. WARNS under `--dry-run`; `--allow-daemon-complex-cell` accepts it deliberately. The parallel seeder fix (`engine/seeding.js`) lifts this concern once deployed |
+| `splice-before-unknown` · `splice-not-an-insertion` · `splice-no-row` | a `--before` seat with no row · a `--before` cell sharing no member with `--after` (so the new seat would not be BETWEEN anything) · a new seat with no registry row (`--splice-only` before the mint) |
+| `taskforce-noncanonical` | a registry row that does not re-render byte-identically through the append's own csv writer — see below. **CRLF line endings refuse under this code with a message naming them**: the registry's canonical form is LF-only and nothing is normalized for you |
+| `spliced-graph-invalid` · `taskforce-changed-underfoot` | the MUTATED graph fails the same `check_acyclic` + `check_after_grammar` pair `materialize` runs, in the same order · another writer touched the registry between the read and the write |
+
+**The canonical-form guard is what makes the promise checkable.** Before mutating anything, every
+row is re-rendered through the **same** writer the registry append uses (`render_csv_line`, which
+`materialize-seats.py#_render_csv_line` now delegates to) and must come back byte-identical. Without
+it a hand-edited registry — one unnecessarily quoted cell — would be silently REFORMATTED on the way
+through, every line changed and the diff unreviewable. With it, `add-seat`'s actual promise holds:
+**every line but the re-parented ones is byte-unchanged**, and the registry is replaced in ONE
+atomic write.
+
+Guards and alternates survive: the substitution runs through the one after-grammar substitution
+(`substitute_after_ids`), so a `[key=value]` span passes untouched even when its value spells a seat
+id, and members replaced more than once collapse order-preservingly (`a,b` → `new`, never
+`new,new`). `--bindings` takes the goal's SHARED sheet; a one-seat scoped copy is written to a temp
+file **outside** the goal folder for the mint and removed in a `finally`.
+
+Measured end to end by `../probes/probe-goal-splice.py`
+(`node deploy/probe-suite.js --only goal-splice`), which runs the real command as a subprocess.
 
 ### What `lint` checks
 
@@ -270,8 +404,16 @@ violation rejection, cycle rejection, the full assembly (frozen assembled refs, 
 refs, stamped XML blocks, loader stubs not inlined), refuse-without-`--force`, `--force`,
 refuse-without-`--catalog-root`, reindex's fail-loud-and-leave-untouched behaviour, and the
 guard-grammar arm (clean guarded manifest, malformed guard, empty alternate limb, a cycle through
-an alternate limb, and the control that the arm stays silent on a clean file). Run it after
-ANY edit to `goal_cli.py` — it must exit 0.
+an alternate limb, and the control that the arm stays silent on a clean file), and the S-33 roster
+arm (the pause/resume byte-exact round trip, pause idempotence, `lane --set`'s `lane-paused`
+refusal, the splice's happy path with every other line byte-unchanged, guard preservation,
+alternate dedupe, every `add-seat` gate asserted BY REFUSAL CODE, and `dag`'s ordering and derived
+state). Run it after ANY edit to `goal_cli.py` — it must exit 0.
+
+The selftest calls those verbs IN PROCESS. `probes/probe-goal-splice.py` runs the same acts as
+real subprocesses, which is what covers verb registration, flag `dest`s, exit codes, and the
+MINT half `--splice-only` skips — a read-ordering defect there (splicing a pre-mint snapshot, so a
+perfect mint refused `splice-no-row`) was invisible to every in-process arm.
 
 The one row the selftest CANNOT carry is that the grammar is imported rather than copied: it would
 have to mutate `coord.py`. That control runs on a mirrored scratch tree — mutate
