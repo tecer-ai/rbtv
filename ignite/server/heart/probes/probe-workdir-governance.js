@@ -8,6 +8,12 @@
 // `.rbtv/goals/<goal>` — refuses every hostile shape with a typed reason that NAMES the sanctioned
 // root, and is CALLED at both fire-tool doors.
 //
+// Section S (ruling `d-0811-workdir-symlink-boot-resolve`, 2026-08-11) adds the boot-time
+// goals-root resolve: the hostile symlinked goal segment the C5 review measured is REFUSED, both
+// legal cases the ruling names are ADMITTED, and M5 shows the arm RED with the compare removed.
+// Its fixtures live in a temp dir this probe owns and are SKIPPED — never faked — on a host that
+// cannot create a symlink.
+//
 // ⚠ WHY THE GREEN ARMS ARE NOT DECORATION. The failure mode of this row is an OUTAGE, not a hole:
 // a containment rule that refuses the live self-heal or edge-runner rows disables the daemon's own
 // recovery. G1/G2/G3 are the criterion, and each carries a mutation that turns it RED — G2 goes red
@@ -21,6 +27,7 @@
 // fire-tool path at all) is arm M0.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const start = Date.now();
@@ -63,6 +70,7 @@ const GREEN = [
 
 // Build a scratch copy of argv-template.js with one guard removed, and return its exports.
 const scratches = [];
+let tmpRoot = null;
 function mutant(tag, mutate) {
   const original = fs.readFileSync(SRC, 'utf8');
   const mutated = mutate(original);
@@ -194,6 +202,100 @@ try {
     definers.map((f) => path.basename(f)).join(','));
 
   say('');
+  say('── BOOT-TIME GOALS-ROOT RESOLVE (ruling `d-0811-workdir-symlink-boot-resolve`) ──');
+  // Every fixture below lives in a temp dir this probe owns. NOTHING is created under a real
+  // `.rbtv/` — that tree holds live goal state.
+  //
+  // The whole section is gated on being able to CREATE a symlink: on Windows that needs elevation
+  // or developer mode, and the fixtures are absolute POSIX paths besides. Keyed on the error the
+  // attempt raises, never on a platform name (the `jobcontain` degrade pattern).
+  const { setResolvedGoalsRoot } = require(SRC);
+  let symlinkErr = null;
+  try {
+    const t = fs.mkdtempSync(path.join(os.tmpdir(), 'wdgov-cap-'));
+    fs.symlinkSync(t, path.join(t, 'self'));
+    fs.rmSync(t, { recursive: true, force: true });
+  } catch (err) {
+    symlinkErr = err;
+  }
+  if (symlinkErr) {
+    say(`SKIP S1..S5 — this host cannot create a symlink (${symlinkErr.code || symlinkErr.message}); `
+      + 'the resolve-compare arms are exercised on the POSIX host, never faked here');
+  } else {
+    tmpRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wdgov-')));
+    const WS = path.posix.join(tmpRoot, 'ws');
+    const GOALS = path.posix.join(WS, '.rbtv', 'goals');
+    const OUTSIDE = path.posix.join(tmpRoot, 'outside');
+    fs.mkdirSync(GOALS, { recursive: true });
+    fs.mkdirSync(path.posix.join(GOALS, 'real-goal'), { recursive: true });
+    fs.mkdirSync(OUTSIDE, { recursive: true });
+    // The hostile shape, measured in the C5 review: the segments read `.rbtv/goals/<x>`, and `<x>`
+    // is a symlink out of the goals root.
+    fs.symlinkSync(OUTSIDE, path.posix.join(GOALS, 'escapee'));
+
+    const booted = setResolvedGoalsRoot(WS);
+    check(booted === GOALS, 'S0 the boot resolve cached the goals root', `cached: ${booted}`);
+
+    const escape = `${GOALS}/escapee`;
+    const escapeDeep = `${GOALS}/escapee/runs/run-1`;
+    const s1 = checkFireToolWorkdir({ workdir: escape }, WS);
+    check(typeof s1 === 'string' && s1.includes('boot-resolved goals root'),
+      'S1 the hostile symlinked goal segment is REFUSED post-fix',
+      s1 === null ? 'ACCEPTED — the C5 hole is open' : `reason: ${s1}`);
+    check(checkFireToolWorkdir({ workdir: escapeDeep }, WS) !== null,
+      'S1b a path THROUGH the symlinked segment is REFUSED too — the escape is not one segment deep only');
+
+    // Legal case A — `goal_creation_request.py:476` composes `goals_root / <goal-name>` BEFORE the
+    // scaffold creates it. A goal that is not on disk yet must still be admitted.
+    check(checkFireToolWorkdir({ workdir: `${GOALS}/not-yet-scaffolded/runs/run-1` }, WS) === null,
+      'S2 LEGAL CASE A — a workdir whose goal folder does not exist yet is ADMITTED',
+      String(checkFireToolWorkdir({ workdir: `${GOALS}/not-yet-scaffolded/runs/run-1` }, WS)));
+    check(checkFireToolWorkdir({ workdir: `${GOALS}/real-goal` }, WS) === null,
+      'S2b an ordinary on-disk goal is still ADMITTED — the compare refuses nothing legitimate',
+      String(checkFireToolWorkdir({ workdir: `${GOALS}/real-goal` }, WS)));
+
+    // Legal case B — the `.rbtv/goals` root is ITSELF a symlink onto another volume. SERVED, not
+    // refused: the boot resolve cached the root's real path, so its goals resolve inside it.
+    const ALT = path.posix.join(tmpRoot, 'alt-volume-goals');
+    const WS2 = path.posix.join(tmpRoot, 'ws2');
+    fs.mkdirSync(path.posix.join(ALT, 'b-goal'), { recursive: true });
+    fs.mkdirSync(path.posix.join(WS2, '.rbtv'), { recursive: true });
+    fs.symlinkSync(ALT, path.posix.join(WS2, '.rbtv', 'goals'));
+    const booted2 = setResolvedGoalsRoot(WS2);
+    check(booted2 === ALT, 'S3a the boot resolve followed the symlinked goals root to its real path',
+      `cached: ${booted2}`);
+    check(checkFireToolWorkdir({ workdir: `${WS2}/.rbtv/goals/b-goal` }, WS2) === null,
+      'S3 LEGAL CASE B — a goals root that is itself a symlink SERVES its goals',
+      String(checkFireToolWorkdir({ workdir: `${WS2}/.rbtv/goals/b-goal` }, WS2)));
+    check(checkFireToolWorkdir({ workdir: `${WS2}/.rbtv/goals/not-yet` }, WS2) === null,
+      'S3b case B and case A compose — a not-yet-scaffolded goal under a symlinked root is ADMITTED');
+
+    // M5 — the RED control. Delete the resolve-compare from a scratch copy; S1 must flip to
+    // ACCEPTED, which is what proves the arm measures the fix and not the lexical rule.
+    const m5 = mutant('resolve', (s) => s.replace(
+      '  if (resolvedGoalsRoot && !resolvesInsideGoalsRoot(value)) {',
+      '  if (false) { // MUTANT M5 — the boot-resolve compare removed'));
+    if (m5.error) {
+      check(false, 'M5 the resolve-compare mutant was built', m5.error);
+    } else {
+      m5.mod.setResolvedGoalsRoot(WS);
+      check(m5.mod.checkFireToolWorkdir({ workdir: escape }, WS) === null,
+        'M5 RED CONTROL — with the resolve-compare removed the hostile symlink is ACCEPTED',
+        String(m5.mod.checkFireToolWorkdir({ workdir: escape }, WS)));
+    }
+
+    // Back to the unbooted state: with no cached root the rule is byte-for-byte the lexical one,
+    // which is what every arm above this section relies on.
+    setResolvedGoalsRoot(null);
+    check(checkFireToolWorkdir({ workdir: escape }, WS) === null,
+      'S5 with NO cached root the resolve-compare never runs — the pre-ruling behaviour is intact',
+      String(checkFireToolWorkdir({ workdir: escape }, WS)));
+    check(checkFireToolWorkdir({ workflow: 'planning', workdir: `${GOALDIR}/runs/run-1` }, ROOT) === null,
+      'S5b G3 still passes unbooted — the fixture root that exists on no disk is untouched',
+      String(checkFireToolWorkdir({ workflow: 'planning', workdir: `${GOALDIR}/runs/run-1` }, ROOT)));
+  }
+
+  say('');
   say(`RESULT: ${failures === 0 ? 'workdir governance holds at both doors, no legitimate row refused' : failures + ' check(s) failed'}`);
   exit = failures === 0 ? 0 : 1;
 } catch (err) {
@@ -201,6 +303,7 @@ try {
   exit = 1;
 } finally {
   for (const f of scratches) { try { fs.unlinkSync(f); } catch { /* best effort */ } }
+  if (tmpRoot) { try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best effort */ } }
 }
 
 say('EXIT: ' + exit);

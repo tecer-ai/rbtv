@@ -140,12 +140,22 @@ const CLOSED_SLOTS = new Set(['{workdir}', '{prompt_file}', '{session_ref}', '{e
 const SLOT_RE = /\{(workdir|prompt_file|session_ref|extra_dir)\}/g;
 const UNKNOWN_SLOT_RE = /\{[^}]+\}/g;
 
-// The ABSTRACT effort vocabulary (#d-profile-source-unification (3)). Closed, harness-agnostic.
-// A caller names a level from THIS set; the profile's own table translates it into the harness's
-// dialect (claude "effort", codex "thinking"). A harness with no such dial declares the slot
-// INERT — stated, never silently dropped.
-const KNOWN_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'max']);
-const KNOWN_EFFORT_KEYS = new Set(['dialect', 'values', 'argv', 'inert']);
+// EFFORT IS A NUMERIC RUNG, 1..N — ordered lower→higher reasoning, each profile declaring its
+// OWN ladder (owner ruling `d-0811lp-effort-numeric-per-profile`, 2026-08-11: "use N levels (1-N),
+// from lower to higher reasoning. this way each harness/model can have as many as they want").
+//
+// ⚠ THIS REPLACES the four-level ABSTRACT vocabulary (low|medium|high|max) 7.42 shipped, and the
+// replacement is the ruling, not a rename. That vocabulary forced every harness onto ONE ladder and
+// had to lie about two of the four it served: claude's real dial is FIVE rungs, so `xhigh` was
+// unspellable through it, and codex's is THREE, so `max` was collapsed onto `high`. A closed
+// cross-harness vocabulary can only be as wide as its narrowest member OR mistranslate; per-profile
+// rungs are neither. `values:` (the old level→dialect map) is GONE from the schema — a second live
+// scheme is the drift this module exists to remove.
+//
+// The ladder is 1-BASED and ORDERED: rung 1 = lowest reasoning, rung N = highest. A request outside
+// 1..N is REFUSED naming that profile's range. A harness with no dial declares `inert: true` and
+// ACCEPTS any rung, reporting `effortInert` (G-270 — stated, never silently dropped).
+const KNOWN_EFFORT_KEYS = new Set(['dialect', 'rungs', 'argv', 'inert']);
 const KNOWN_COMMAND_HALVES = new Set([CAGED, PORTABLE]);
 
 function assertObject(value, name, filePath) {
@@ -405,33 +415,31 @@ function validateEffort(effort, profileName, filePath) {
   }
 
   assertString(effort.dialect, `profiles.${profileName}.effort.dialect`, filePath);
-  assertObject(effort.values, `profiles.${profileName}.effort.values`, filePath);
+  assertArrayOfStrings(effort.rungs, `profiles.${profileName}.effort.rungs`, filePath);
   assertArrayOfStrings(effort.argv, `profiles.${profileName}.effort.argv`, filePath);
 
-  // The table must cover the WHOLE abstract vocabulary. A partial table would make a level's
-  // availability depend on the profile, so `--effort max` would work on claude and vanish on
-  // codex — the per-harness drift this unification removes.
-  for (const level of KNOWN_EFFORT_LEVELS) {
-    if (typeof effort.values[level] !== 'string' || effort.values[level].length === 0) {
+  // An EMPTY ladder would declare a dial with no reachable setting — which is what `inert: true`
+  // means, and the two must not be spellable as the same thing: an empty `rungs:` would refuse
+  // every rung while READING as a working dial, while inert accepts and says so.
+  if (effort.rungs.length === 0) {
+    throw new SpawnError(
+      E_CONFIG_LOAD,
+      `profiles.${profileName}.effort.rungs is empty — a dial with no rungs is an INERT dial and ` +
+      `must declare itself one ('effort: { inert: true }'), never an empty ladder`,
+      { file: filePath, key: `profiles.${profileName}.effort.rungs` },
+    );
+  }
+  for (let i = 0; i < effort.rungs.length; i++) {
+    if (effort.rungs[i].length === 0) {
       throw new SpawnError(
         E_CONFIG_LOAD,
-        `profiles.${profileName}.effort.values must map every abstract level ` +
-        `(${Array.from(KNOWN_EFFORT_LEVELS).join('|')}) to a non-empty dialect string — missing ${level}`,
-        { file: filePath, key: `profiles.${profileName}.effort.values.${level}` },
+        `profiles.${profileName}.effort.rungs[${i}] is empty — rung ${i + 1} would compose the ` +
+        `harness's flag with no value`,
+        { file: filePath, key: `profiles.${profileName}.effort.rungs` },
       );
     }
   }
-  for (const level of Object.keys(effort.values)) {
-    if (!KNOWN_EFFORT_LEVELS.has(level)) {
-      throw new SpawnError(
-        E_CONFIG_LOAD,
-        `profiles.${profileName}.effort.values carries ${level}, which is not in the abstract ` +
-        `vocabulary (${Array.from(KNOWN_EFFORT_LEVELS).join('|')})`,
-        { file: filePath, key: `profiles.${profileName}.effort.values.${level}` },
-      );
-    }
-  }
-  // The argv fragment MUST carry the {effort} slot, else the level would be validated and then
+  // The argv fragment MUST carry the {effort} slot, else the rung would be validated and then
   // thrown away — a dial that reads as working and changes nothing.
   if (!effort.argv.some((el) => el.includes('{effort}'))) {
     throw new SpawnError(
@@ -440,6 +448,63 @@ function validateEffort(effort, profileName, filePath) {
       { file: filePath, key: `profiles.${profileName}.effort.argv` },
     );
   }
+}
+
+// ── resolveEffort — THE ONE implementation of rung → argv, shared by BOTH live consumers ─────
+//
+// `resolveProfile` (below) calls it, and so does the daemon's own `server/spawn/spawn.js#composeArgv`
+// (wired 2026-08-11 under owner ruling `d-0811lp-effort-lane-build-now`). It is EXPORTED for exactly
+// that: spawn.js composes `exec:` / `resume:` / `headed.tui:` blocks that resolveProfile has no path
+// for — routing the whole composition through resolveProfile is tasks 7.43/7.54 and is NOT done here
+// — so the choice was between sharing this function or writing the table's second interpreter. "A
+// second interpreter of the one file is the same drift as a second file" (#d-profile-source-
+// unification), so: one function, two callers, one table.
+//
+// Returns { argv, applied, inert }. `applied` carries the rung, the harness's dialect name, the
+// literal it composed and the ladder's size — a consumer logs what actually happened rather than
+// what it asked for.
+function resolveEffort(profile, rung, profileName) {
+  if (rung === null || rung === undefined) return { argv: [], applied: null, inert: false };
+  if (!Number.isInteger(rung) || rung < 1) {
+    throw new SpawnError(
+      E_UNKNOWN_EFFORT,
+      `effort must be an INTEGER RUNG >= 1 (rung 1 = lowest reasoning, rung N = highest), got: ` +
+      `${JSON.stringify(rung)}`,
+      { profile: profileName, effort: rung },
+    );
+  }
+  if (!profile.effort) {
+    throw new SpawnError(
+      E_UNKNOWN_EFFORT,
+      `profile ${profileName} declares no effort table — it cannot translate a rung. A harness ` +
+      `with no such dial must declare 'effort: { inert: true }' so the slot is STATED inert ` +
+      `rather than silently dropped.`,
+      { profile: profileName, effort: rung },
+    );
+  }
+  if (profile.effort.inert === true) {
+    // STATED, never silently dropped (G-270): the caller's rung is accepted and reported back as
+    // inert, so a consumer logs "this harness has no effort dial" instead of believing it applied
+    // one. An inert profile declares NO range, so no rung is out of range on it.
+    return { argv: [], applied: null, inert: true };
+  }
+  const rungs = profile.effort.rungs;
+  if (rung > rungs.length) {
+    throw new SpawnError(
+      E_UNKNOWN_EFFORT,
+      `effort rung ${rung} is outside profile ${profileName}'s range 1..${rungs.length} ` +
+      `(${rungs.map((r, i) => `${i + 1}=${r}`).join(', ')})`,
+      { profile: profileName, effort: rung, min: 1, max: rungs.length, rungs: rungs.slice() },
+    );
+  }
+  const value = rungs[rung - 1];
+  const argv = resolveTemplateSlots(
+    profile.effort.argv,
+    // The {effort} slot is NOT in CLOSED_SLOTS (that set governs the workdir/prompt/session
+    // vocabulary), so it is substituted here against the profile's own rung literal.
+    {},
+  ).map((el) => el.replace('{effort}', value));
+  return { argv, applied: { rung, of: rungs.length, dialect: profile.effort.dialect, value }, inert: false };
 }
 
 function validateProfile(profile, name, filePath, seatBindValidator, toolsetNames = null) {
@@ -837,43 +902,9 @@ function resolveProfile(config, name, opts = {}) {
 
   const argv = resolveTemplateSlots(execBlock.argv, slots);
 
-  // ── effort: an abstract level translated by the profile's OWN table ───────────────────────
-  let effortArgv = [];
-  let effortApplied = null;
-  let effortInert = false;
-  if (effort !== null && effort !== undefined) {
-    if (!KNOWN_EFFORT_LEVELS.has(effort)) {
-      throw new SpawnError(
-        E_UNKNOWN_EFFORT,
-        `effort must be one of ${Array.from(KNOWN_EFFORT_LEVELS).join('|')} (abstract vocabulary), got: ${effort}`,
-        { profile: name, effort },
-      );
-    }
-    if (!profile.effort) {
-      throw new SpawnError(
-        E_UNKNOWN_EFFORT,
-        `profile ${name} declares no effort table — it cannot translate an effort level. A harness ` +
-        `with no such dial must declare 'effort: { inert: true }' so the slot is STATED inert ` +
-        `rather than silently dropped.`,
-        { profile: name, effort },
-      );
-    }
-    if (profile.effort.inert === true) {
-      // STATED, never silently dropped: the caller's level is accepted and reported back as
-      // inert, so a consumer can log "this harness has no effort dial" instead of believing it
-      // applied one.
-      effortInert = true;
-    } else {
-      const dialectValue = profile.effort.values[effort];
-      effortArgv = resolveTemplateSlots(
-        profile.effort.argv,
-        // The {effort} slot is NOT in CLOSED_SLOTS (that set governs the workdir/prompt/session
-        // vocabulary), so it is substituted here against the profile's own translated value.
-        {},
-      ).map((el) => el.replace('{effort}', dialectValue));
-      effortApplied = { level: effort, dialect: profile.effort.dialect, value: dialectValue };
-    }
-  }
+  // ── effort: a numeric rung composed by the profile's OWN ladder (resolveEffort, above) ────
+  const { argv: effortArgv, applied: effortApplied, inert: effortInert } =
+    resolveEffort(profile, effort, name);
 
   const finalArgv = argv.concat(effortArgv);
 
@@ -960,7 +991,7 @@ module.exports = {
   sessionsRootFor,
   CLOSED_SLOTS,
   DAEMON_ONLY_ROOT_KEYS,
-  KNOWN_EFFORT_LEVELS,
+  resolveEffort,
   // r-seats-only-architecture (2) — the toolset surface, owned here.
   TOOLSET_ORDER,
   E_UNKNOWN_TOOLSET,
