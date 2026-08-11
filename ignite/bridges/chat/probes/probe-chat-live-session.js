@@ -47,7 +47,15 @@ function check(name, pass, detail = {}) {
 // `default_workdir_root`). Copying it rather than authoring a minimal one is deliberate: the cage
 // template, the caps and the claude profiles under test are exactly what the live daemon runs, so
 // this probe cannot pass against a cage the deployment does not use.
-function scratchWorkspace({ humanInteractive = true } = {}) {
+// The casts the fixtures declare. Since owner ruling D2 (2026-08-11) a seat's descriptor decides
+// which profile runs it, so a probe drives `eligible()`'s gates by RE-CASTING the seat rather than
+// by naming a different profile at the call — the caller's name no longer decides anything on a
+// cast seat. `probe-nonclaude-with-resume` gained a `-m` pin for exactly this: a profile with no
+// model pin cannot be cast TO, so without one the harness gate is unreachable through a cast.
+const DEFAULT_CAST = 'harness: claude\nmodel: claude-sonnet-5\n';
+const NONCLAUDE_CAST = 'harness: kimi\nmodel: probe-kimi-model\n';
+
+function scratchWorkspace({ humanInteractive = true, cast = DEFAULT_CAST } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-live-'));
   const ws = path.join(root, 'ws');
   const seatDir = path.join(ws, '.rbtv', 'goals', 'livegoal', 'seats', 'liveseat');
@@ -56,7 +64,12 @@ function scratchWorkspace({ humanInteractive = true } = {}) {
   // source does not exist, so the package has to be shaped like a real one.
   fs.mkdirSync(path.join(ws, '.rbtv', 'goals', 'livegoal', 'coordination'), { recursive: true });
   fs.writeFileSync(path.join(ws, '.rbtv', 'goals', 'livegoal', 'seats', 'liveseat', 'seat.md'),
-    `---\nseat: liveseat\n${humanInteractive ? 'human-interactive: yes\n' : ''}fallback: park\n---\n\n`
+    // ⚑ CAST since owner ruling D2 (2026-08-11): `eligible()` resolves the seat's cast FIRST, because
+  // the gates below it must reason about the profile that will actually run, not the one the caller
+  // named. An uncast fixture therefore refuses with `uncastable-seat` and MASKS every gate this
+  // file is about (harness, resume template, human-interactive). Casting it puts those gates back
+  // in reach — the refusals asserted below are then the real ones.
+  `---\nseat: liveseat\n${cast}${humanInteractive ? 'human-interactive: yes\n' : ''}fallback: park\n---\n\n`
     + 'Answer with the single word asked for and nothing else.\n');
   // sessions.csv with its header — the manager APPENDS by column name and refuses a headerless
   // file (seat-identity/csv.js), exactly as the dispatch door does.
@@ -78,10 +91,10 @@ function scratchWorkspace({ humanInteractive = true } = {}) {
   yamlText = yamlText.replace(/^tools:/m,
     '  probe-nonclaude-with-resume:\n'
     + '    exec:\n'
-    + '      argv: ["kimi", "--quiet", "--work-dir", "{workdir}"]\n'
+    + '      argv: ["kimi", "--quiet", "-m", "probe-kimi-model", "--work-dir", "{workdir}"]\n'
     + '      prompt: stdin\n'
     + '    resume:\n'
-    + '      argv: ["kimi", "--quiet", "--resume", "{session_ref}"]\n'
+    + '      argv: ["kimi", "--quiet", "-m", "probe-kimi-model", "--resume", "{session_ref}"]\n'
     + '      prompt: stdin\n'
     + '    session_ref: { source: assigned }\n'
     + '    toolset_ceiling: full\n'
@@ -136,18 +149,39 @@ async function main() {
       // The discriminating pair for the HARNESS gate: same seat, same resume template, only the
       // harness differs. `--input-format stream-json` is claude's flag and no other harness's
       // equivalent has been MEASURED, so a non-claude profile is ineligible rather than guessed at.
-      const nonClaude = mgr.eligible({ profileName: 'probe-nonclaude-with-resume', workdir: w.seatDir });
-      check('arm1: a NON-claude profile that HAS a resume template is still refused, ON THE HARNESS',
+      // ⚑ EVERY GATE BELOW IS DRIVEN THROUGH THE SEAT'S CAST, not the caller's profile name
+      // (owner ruling D2, 2026-08-11). `eligible()` resolves the cast FIRST — it must, or it would
+      // answer about a profile that is not the one going to run — so on a CAST seat the caller's
+      // profile decides nothing and passing a kimi or a nonexistent name here would prove nothing.
+      // These arms therefore RE-CAST the seat and keep passing the same caller profile, which is
+      // also what makes them discriminating: the only thing that changes is the descriptor.
+      const nonClaudeSeat = scratchWorkspace({ humanInteractive: true, cast: NONCLAUDE_CAST });
+      cleanups.push(nonClaudeSeat.cleanup);
+      const mgrNc = createLiveSessions({ configPath: nonClaudeSeat.configPath, workspaceRoot: nonClaudeSeat.ws, reapPollMs: 3600000 });
+      cleanups.push(() => mgrNc.stop());
+      const nonClaude = mgrNc.eligible({ profileName: 'claude-haiku', workdir: nonClaudeSeat.seatDir });
+      check('arm1: a seat CAST to a non-claude harness whose profile HAS a resume template is refused, ON THE HARNESS',
         nonClaude.ok === false && /harness-not-live-capable/.test(nonClaude.reason), { got: nonClaude });
 
-      // The shipped non-claude profiles are refused one gate earlier, and that is stated so the
-      // check above cannot be mistaken for this one.
-      const kimi = mgr.eligible({ profileName: 'kimi', workdir: w.seatDir });
-      check('arm1: the SHIPPED `kimi` profile is refused (at the no-resume-template gate, before the harness gate)',
-        kimi.ok === false && kimi.reason === 'profile-has-no-resume-template', { got: kimi });
+      // …and a seat cast to a pair NO profile carries is refused earlier still, by the cast itself.
+      const badCast = scratchWorkspace({ humanInteractive: true, cast: 'harness: claude\nmodel: no-such-model-5\n' });
+      cleanups.push(badCast.cleanup);
+      const mgrBad = createLiveSessions({ configPath: badCast.configPath, workspaceRoot: badCast.ws, reapPollMs: 3600000 });
+      cleanups.push(() => mgrBad.stop());
+      const unmapped = mgrBad.eligible({ profileName: 'claude-haiku', workdir: badCast.seatDir });
+      check('arm1: a seat cast to a pair no profile carries is refused AT THE CAST',
+        unmapped.ok === false && /uncastable-seat/.test(unmapped.reason), { got: unmapped });
 
-      const unknown = mgr.eligible({ profileName: 'no-such-profile', workdir: w.seatDir });
-      check('arm1: an unknown profile is refused', unknown.ok === false && unknown.reason === 'unknown-profile', { got: unknown });
+      // An UNCAST seat still reaches the profile-name gates, because with nothing declared the
+      // caller's profile is all there is — and an unknown one is refused there. This is the arm
+      // that keeps `unknown-profile` reachable at all, and it pairs with the two above: cast seat
+      // → the descriptor decides; uncast seat → the caller's name decides.
+      const uncast = scratchWorkspace({ humanInteractive: true, cast: '' });
+      cleanups.push(uncast.cleanup);
+      const mgrUncast = createLiveSessions({ configPath: uncast.configPath, workspaceRoot: uncast.ws, reapPollMs: 3600000 });
+      cleanups.push(() => mgrUncast.stop());
+      const unknown = mgrUncast.eligible({ profileName: 'no-such-profile', workdir: uncast.seatDir });
+      check('arm1: on an UNCAST seat an unknown caller profile is refused', unknown.ok === false && unknown.reason === 'unknown-profile', { got: unknown });
 
       // The SAME profile at a seat that does not declare the flag — the discriminator is the
       // seat, not the profile, so the pair is what proves gate 1 is read at all.
@@ -163,7 +197,7 @@ async function main() {
       const { seatIsHumanInteractive } = require(LIVE_MODULE);
       const bodyOnly = path.join(w2.root, 'bodyseat');
       fs.mkdirSync(bodyOnly, { recursive: true });
-      fs.writeFileSync(path.join(bodyOnly, 'seat.md'), '---\nseat: x\n---\n\nhuman-interactive: yes\n');
+      fs.writeFileSync(path.join(bodyOnly, 'seat.md'), '---\nseat: x\nharness: claude\nmodel: claude-sonnet-5\n---\n\nhuman-interactive: yes\n');
       check('arm1: `human-interactive: yes` in the BODY does NOT open gate 1', seatIsHumanInteractive(bodyOnly) === false);
       check('arm1: control — the same line in the FRONTMATTER does', seatIsHumanInteractive(w.seatDir) === true);
     }

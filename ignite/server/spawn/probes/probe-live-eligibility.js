@@ -36,11 +36,15 @@ const REAL_PROFILES = path.join(IGNITE, 'config', 'spawn-profiles.yaml');
 const LIVE_MODULE = path.join(IGNITE, 'server', 'spawn', 'live-sessions.js');
 const FERRY_MODULE = path.join(IGNITE, 'bridges', 'chat', 'bus-ferry.js');
 
-const SEAT_YES = '---\nseat: s\nhuman-interactive: yes\nfallback: park\n---\n\nbody\n';
-const SEAT_NONE = '---\nseat: s\nfallback: park\n---\n\nbody\n';
+// ⚑ EVERY FIXTURE SEAT CARRIES A CAST since owner ruling D2 (2026-08-11): an uncast seat
+// REFUSES at the eligibility gate, which resolves the cast for the same reason `launch()`
+// does. A fixture without one measures the refusal, not the eligibility this file is about.
+const CAST = 'harness: claude\nmodel: claude-sonnet-5\n';
+const SEAT_YES = `---\nseat: s\n${CAST}human-interactive: yes\nfallback: park\n---\n\nbody\n`;
+const SEAT_NONE = `---\nseat: s\n${CAST}fallback: park\n---\n\nbody\n`;
 // Both forms are TRUE to the `yaml.safe_load` that `component-lint` validates the seat with, so a
 // reader that answers FALSE to either is the F3 defect (bus-ferry `seatDirIsHumanInteractive`).
-const SEAT_QUOTED = '---\nseat: s\nhuman-interactive: "yes"\n---\n\nbody\n';
+const SEAT_QUOTED = `---\nseat: s\n${CAST}human-interactive: "yes"\n---\n\nbody\n`;
 const SEAT_COMMENTED = '---\nseat: s\nhuman-interactive: true # ratified 2026-08-09\n---\n\nbody\n';
 
 function writeSeat(dir, text) {

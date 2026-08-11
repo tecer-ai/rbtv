@@ -368,12 +368,23 @@ def main():
             # drives NOTHING, so the real restart leg is exercised as far as it can be without
             # touching a live service.
             env["RBTV_IGNITE_UNIT"] = "rbtv-probe-no-such-unit-master-profile.service"
+            before = cfg.read_text(encoding="utf-8")
             r = subprocess.run(run_argv, capture_output=True, text=True, env=env)
-            check(r.returncode == 0,
-                  f"the registered argv runs clean (exit {r.returncode}) — "
-                  f"{(r.stderr.strip().splitlines() or [''])[-1][:120]}")
-            check(mod.read_value(cfg)["profile"] == "claude-haiku",
-                  "and the edit it was fired to make landed in the copy")
+            # ⚑ INVERTED 2026-08-11 (launch-cast unification, owner ruling D2). `apply` used to be
+            # asserted to run clean AND land its edit. It is now OUT OF SERVICE: the keys it edits
+            # (`master_profile`/`master_effort`) no longer decide anything — the chat bridge stopped
+            # naming execution and the channel master is cast like every other seat — so writing
+            # them would change nothing while reading as a working knob. The tool refuses instead,
+            # and these two arms are the pair that proves it: it EXITS NONZERO, and the config it
+            # was fired at is BYTE-IDENTICAL afterwards. The second is the load-bearing one — a
+            # refusal that had already written would be the exact failure being prevented.
+            check(r.returncode != 0,
+                  f"the registered argv REFUSES while out of service (exit {r.returncode}) — "
+                  f"{(r.stdout.strip().splitlines() or [''])[-1][:120]}")
+            check(cfg.read_text(encoding="utf-8") == before,
+                  "and it wrote NOTHING — the config it was fired at is byte-identical")
+            check("bindings/channel-master.json" in (r.stdout + r.stderr),
+                  "and the refusal names WHERE the cast now lives, so the reader can act on it")
 
     # ── 9 THE SELF-REPORT INTO THE OWNER'S OWN CHAT THREAD ────────────────────────────────
     #

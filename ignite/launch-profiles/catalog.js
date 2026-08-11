@@ -50,6 +50,10 @@ const { SpawnError } = require('./errors');
 const E_UNMAPPED_BINDING = 'E_UNMAPPED_BINDING';
 // Two profiles claim one (harness, model). See the ambiguity note above.
 const E_AMBIGUOUS_BINDING = 'E_AMBIGUOUS_BINDING';
+// The seat declares no cast at all (owner ruling D2, 2026-08-11). Distinct from UNMAPPED on
+// purpose: unmapped means "you named a pair this workspace cannot spawn", uncast means "you named
+// nothing", and the two need different fixes — fix the spelling vs. cast the seat.
+const E_UNCAST_SEAT = 'E_UNCAST_SEAT';
 
 // The flags a profile pins its model with, in the order `bindings.py` searches them. The order is
 // load-bearing where a profile carries both: whichever this list names first wins on BOTH sides.
@@ -149,22 +153,60 @@ function profileForBinding(profiles, binding, { seat = null } = {}) {
 // seat's declaration (seat.md parsing is a spawn concern, and its reader lives there) and DELEGATES
 // the resolution here; nothing about the behaviour below changed in the move.
 //
-// ⚑ RESOLVED IN THE ONE FUNCTION EVERY LAUNCH ROUTES THROUGH. `spawn()` is downstream of the
-// ticker, the chat bridge, the daemon lane, the attached lane and the warm-session leg alike, and
-// it is also UPSTREAM of both records (`jobs_log.profile` and the at-dispatch `sessions.csv` row),
-// so record and reality cannot drift apart by construction — they are written from the resolved
-// value, not the requested one.
+// ⚑ RESOLVED IN THE ONE FUNCTION EVERY LAUNCH ROUTES THROUGH — which is THIS one, not `spawn()`.
+// ⚠ CORRECTED 2026-08-11 (launch-cast unification): this paragraph used to say `spawn()` was
+// "downstream of the ticker, the chat bridge, the daemon lane, the attached lane and the
+// WARM-SESSION LEG alike". That last clause was FALSE and it is why the warm door drifted for as
+// long as it did — `live-sessions.js#launch()` never calls `spawn()`, it reuses only its composers,
+// so a claim resting on `spawn()` being the single choke point was resting on nothing. The two
+// doors now each call `castProfileFor` directly (see `live-sessions.js`'s own header), so the
+// choke point is this function. It is also UPSTREAM of both records (`jobs_log.profile` and the
+// at-dispatch `sessions.csv` row), so record and reality cannot drift apart by construction — they
+// are written from the resolved value, not the requested one.
 //
 // ⚑ THE CAST OUTRANKS THE CALLER'S NAMED PROFILE, deliberately. A caller's profile is what runs a
 // seat that declares NO cast; it is not a licence to override one that does. That is G-111's rule
 // (an asserted value never outranks a declared one) applied to the model, and it is the whole
 // content of ruling D16 — the record is the authority for what a seat runs.
 //
-// Returns the caller's own `profileName` unchanged whenever the seat declares no cast, which is
-// the channel master (`open_binding`), every unmaterialized seat, and every pre-D19 deployment —
-// so a workspace that casts nothing behaves exactly as it did before this function existed.
+// ⚑ A SEAT THAT DECLARES NO CAST REFUSES TO LAUNCH (owner ruling D2, launch-cast unification,
+// 2026-08-11). This function used to return the caller's `profileName` untouched in that case, and
+// that fallback is the whole failure this design closes: the transport's value could decide what
+// an agent runs, so a seat reached over one surface ran a different model than the same seat
+// reached over another. There is no longer any value to fall back TO — the chat bridge no longer
+// names execution — and a fallback kept anywhere preserves the shape of the defect one level
+// further away. Loud at launch beats quiet and wrong.
+//
+// The one seat this broke on arrival was the channel master, whose `open_binding` deliberately
+// omitted the pair so the bridge could name it at spawn time. It is cast like every other seat now
+// (its bindings file), which is the ruling "the master is just another agent" made mechanical.
 function castProfileFor(profiles, binding, profileName, log, seat) {
-  if (!declaresBinding(binding)) return profileName;
+  if (!declaresBinding(binding)) {
+    // ⚑ D3(a), owner-ruled 2026-08-11: the refusal fires only where a MODEL IS ACTUALLY BEING
+    // CHOSEN. A cast is derived by reading a profile's own command line for its model pin, so a
+    // profile that pins none — the `sleep`-based stand-ins the probes launch to exercise spawning,
+    // caging and killing without burning tokens — can be NAMED but can never be CAST TO. Demanding
+    // a declaration that points at it demands something unwriteable, and D2 exists to stop a
+    // transport deciding a MODEL, not to require a model where there is none to get wrong.
+    //
+    // The bound is exact and it is measured against the caller's profile, not assumed: if that
+    // profile pins a model, a seat with no cast is a real gap and still refuses. Every production
+    // profile pins one, so production behaviour is identical either way — this only readmits the
+    // model-less case.
+    const named = profiles && Object.hasOwn(profiles, profileName) ? profiles[profileName] : null;
+    const namedCast = named ? bindingOf(named) : null;
+    if (!namedCast || !declaresBinding(namedCast)) return profileName;
+    throw new SpawnError(
+      E_UNCAST_SEAT,
+      `REFUSING TO LAUNCH: ${seat ? `seat '${seat}'` : 'this seat'} declares no cast — `
+      + `\`harness:\` and \`model:\` must BOTH be present in its seat.md `
+      + `(got harness ${JSON.stringify((binding && binding.harness) || null)}, `
+      + `model ${JSON.stringify((binding && binding.model) || null)}). Cast it in the workflow's `
+      + `bindings sheet (\`rbtv-bindings set\`) and re-materialize; the caller named `
+      + `'${profileName}', and running that instead is what this refusal exists to prevent.`,
+      { harness: (binding && binding.harness) || null, model: (binding && binding.model) || null, seat, requested: profileName },
+    );
+  }
   // Throws E_UNMAPPED_BINDING / E_AMBIGUOUS_BINDING — never falls back. A cast this workspace
   // cannot spawn must stop the launch: continuing on the caller's profile is precisely the silent
   // wrong-model launch being fixed.
@@ -186,4 +228,5 @@ module.exports = {
   MODEL_FLAGS,
   E_UNMAPPED_BINDING,
   E_AMBIGUOUS_BINDING,
+  E_UNCAST_SEAT,
 };

@@ -122,6 +122,39 @@ TEAM_KIT = _IGNITE / "team-kit"      # `coord.py` — the ONE allocator of bus m
 # The workspace root is the folder that roots `.rbtv/` — <workspace>/3-resources/tools/rbtv/ignite
 DEFAULT_CONFIG = _IGNITE.parents[3] / ".rbtv" / "config" / "chat-bridge-config.json"
 
+# ── request/apply DISABLED 2026-08-11 — launch-cast unification, owner ruling D2 ────────────────
+#
+# This tool's whole mechanism is a line-precise edit of `master_profile` (and `master_effort`) in
+# `.rbtv/config/chat-bridge-config.json`, followed by a bridge restart. Those keys no longer decide
+# anything: the chat bridge stopped naming execution, and the channel master is cast like every
+# other seat — in its bindings sheet, read into its `seat.md`, resolved daemon-side at every launch
+# door. Writing them would edit a value nothing reads.
+#
+# REFUSING rather than retargeting, deliberately and temporarily. The correct target is
+# `.rbtv/config/modules/meta/master-agent/bindings/channel-master.json` plus a `--repass` re-render,
+# which is a different write (a JSON object field, not a hand-authored config line), a different
+# validation (a cast the profile catalog can spawn, not a known profile NAME), and a different apply
+# step (re-materialize, no restart — so the knob stops costing the owner the chat session he is
+# using to turn it). That is a build, not an edit, and a half-retargeted knob is worse than one that
+# says plainly it is out of order: the failure this whole change closes is a control that reads as
+# working and changes nothing.
+#
+# `show` still works and still tells the truth about the retired keys, which is what a reader
+# arriving here needs to see.
+RETARGET_REFUSAL = (
+    "master-profile request/apply are OUT OF SERVICE since the launch-cast unification "
+    "(2026-08-11, owner ruling D2). The chat bridge no longer names the master's harness or model, "
+    "so `master_profile`/`master_effort` in chat-bridge-config.json decide nothing and writing them "
+    "would change nothing. The channel master is now CAST like every other seat. To change what it "
+    "runs: edit the cast in "
+    ".rbtv/config/modules/meta/master-agent/bindings/channel-master.json (harness · model · effort "
+    "— all three or none), then re-render its descriptor with "
+    "`materialize-seats.py --package <ws>/.rbtv/goals/_channel-master --seat channel-master "
+    "--catalog-root <ws>/.rbtv/mirror/meta --bindings <that file> --repass --root`. No bridge "
+    "restart is needed, so this no longer ends a live chat session. Retargeting this tool to do "
+    "that automatically is a filed follow-up."
+)
+
 KEY = "master_profile"
 ENTRY_TOOL_KEY = "master-profile"   # this capability's own `tools:` key
 JOB_ID = "master-profile"           # the registered fire-tool job id the client half enqueues
@@ -283,20 +316,25 @@ def read_value(config=DEFAULT_CONFIG):
         if m:
             return {"profile": m.group(2), "source": "explicit", "config": str(config),
                     "line": i + 1, "effort": effort, "effort-line": effort_line,
-                    "where": f"{config}:{i + 1} — the `{KEY}` field, read at boot by "
-                             f"bridges/chat/config.js and selected for master (DM) traffic by "
-                             f"forward-path.js#profileFor"
-                             + (f"; `{EFFORT_KEY}` = rung {effort} at :{effort_line}, paired with it "
-                                f"by forward-path.js#effortFor" if effort is not None
-                                else f"; no `{EFFORT_KEY}` — the harness runs its own default")}
-    # No key: `profileFor` falls through to `session_profile`. Say so with the value, because
-    # "absent" alone leaves the reader to guess what the master is actually running on.
+                    "where": f"{config}:{i + 1} — the `{KEY}` field. ⚠ RETIRED 2026-08-11 "
+                             f"(launch-cast unification, owner ruling D2): NOTHING READS IT. "
+                             f"bridges/chat/config.js no longer resolves it, and "
+                             f"forward-path.js#profileFor no longer picks a profile per surface. "
+                             f"The master's harness+model+effort live in its bindings sheet, like "
+                             f"every other seat's — this line is residue"
+                             + (f"; `{EFFORT_KEY}` = rung {effort} at :{effort_line}, equally dead "
+                                f"— `forward-path.js#effortFor` no longer exists"
+                                if effort is not None else f"; no `{EFFORT_KEY}`")}
+    # No key — which since the 2026-08-11 retirement is simply the normal state, not a fallback
+    # case. `session_profile` is reported because it is the one value every surface still carries,
+    # NOT because anything selects the master's execution from it any more.
     doc = json.loads(config.read_text(encoding="utf-8"))
     return {"profile": doc.get("session_profile"), "source": "session_profile-fallback",
             "config": str(config), "line": None, "effort": effort, "effort-line": effort_line,
-            "where": f"`{KEY}` is ABSENT from {config}, so forward-path.js#profileFor "
-                     f"(`config.masterProfile || config.sessionProfile`) falls back to "
-                     f"`session_profile`"}
+            "where": f"`{KEY}` is ABSENT from {config} — the expected state since its retirement "
+                     f"(2026-08-11, owner ruling D2). No surface reads it. `session_profile` is "
+                     f"the one non-deciding value every surface carries; the master's execution "
+                     f"comes from its bindings sheet"}
 
 
 def write_value(config, name):
@@ -676,6 +714,8 @@ def main(argv=None):
 
     args = p.parse_args(argv)
     try:
+        if args.verb in ("request", "apply"):
+            raise Refusal(RETARGET_REFUSAL)
         if args.verb == "show":
             v = read_value(args.config)
             v["available"] = sorted(known_profiles(args.profiles))

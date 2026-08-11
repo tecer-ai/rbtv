@@ -10,8 +10,9 @@
 //      with the arm that shows the same input succeeding when it should.
 //
 //   2. THE FIX resolves a REAL `seat.md` descriptor — the seat's cast beats the caller's profile,
-//      an undeclared cast falls back to the caller's profile unchanged (the channel master's
-//      `open_binding` case), and an unmappable cast STOPS the launch. Exercised through
+//      an UNCAST seat REFUSES (owner ruling D2, 2026-08-11: the caller's profile is no longer a
+//      fallback; arm 8 asserted the opposite until that ruling), and an unmappable cast STOPS the
+//      launch. Exercised through
 //      `spawn.js#profileForSeatCast` against descriptors written to a temp dir, never a stub: a
 //      probe that stubbed the descriptor read would prove the catalog and not the fix.
 //
@@ -160,26 +161,45 @@ check('(7) a seat cast claude-fable-5 launches claude-fable even when the caller
 // ── 8 · THE FIX · an undeclared cast falls back, unchanged ───────────────────────────────────
 // The channel master (`open_binding`: all three omitted) and every unmaterialized seat. This is
 // the arm that keeps the fix additive — a workspace that casts nothing behaves as it did before.
-check('(8) open-binding / absent / partial descriptors fall back to the caller profile', () => {
-  const master = seatWith('seat: goal-master\nagent_type: master\nmode: interactive');
-  eq(profileForSeatCast(shipped, master, 'claude-sonnet', quiet), 'claude-sonnet', 'open binding');
-
-  const noFrontmatter = seatWith(null);
-  eq(profileForSeatCast(shipped, noFrontmatter, 'claude-sonnet', quiet), 'claude-sonnet', 'no frontmatter');
-
-  const missingDir = path.join(os.tmpdir(), 'cast-probe-absent-seat');
-  eq(profileForSeatCast(shipped, missingDir, 'claude-sonnet', quiet), 'claude-sonnet', 'no seat.md');
-
-  // A HALF cast (harness with no model) is not a cast — `declaresBinding` needs both, matching
-  // `open_binding`'s all-three-or-none rule. It falls back rather than refusing, because the
-  // materializer already refuses a partial declaration at authoring time.
-  const half = seatWith('seat: half\nharness: claude\nmode: interactive');
-  eq(profileForSeatCast(shipped, half, 'claude-sonnet', quiet), 'claude-sonnet', 'partial cast');
-
-  // …and the CONTROL that this arm is not vacuous: the same reader on a full cast does divert.
+check('(8) an UNCAST seat REFUSES — the caller\'s profile is never a fallback', () => {
+  // ⚑ THIS ARM WAS INVERTED 2026-08-11 (launch-cast unification, owner ruling D2). It used to
+  // assert the OPPOSITE — that an open, absent or partial descriptor falls back to the caller's
+  // profile — and that fallback was the defect: it is how a transport's value came to decide what
+  // an agent ran. The old expectation is preserved here in words because a reader meeting this
+  // check needs to know it changed by ruling, not by drift.
+  const cases = [
+    ['open binding', seatWith('seat: goal-master\nagent_type: master\nmode: interactive')],
+    ['no frontmatter', seatWith(null)],
+    ['no seat.md', path.join(os.tmpdir(), 'cast-probe-absent-seat')],
+    // A HALF cast (harness, no model) is not a cast — `declaresBinding` needs both, matching
+    // `open_binding`'s all-three-or-none rule. It refuses with the rest now.
+    ['partial cast', seatWith('seat: half\nharness: claude\nmode: interactive')],
+  ];
+  for (const [what, dir] of cases) {
+    let code = null;
+    try { profileForSeatCast(shipped, dir, 'claude-sonnet', quiet); }
+    catch (err) { code = err.code; }
+    if (code !== 'E_UNCAST_SEAT') {
+      throw new Error(`${what}: expected E_UNCAST_SEAT, got ${code || 'NO THROW — the caller profile was returned'}`);
+    }
+  }
+  // …and the CONTROL that this arm is not vacuous: a FULL cast does not refuse, it diverts. Without
+  // it, a resolver that threw E_UNCAST_SEAT unconditionally would read green on every line above.
   const full = seatWith('seat: full\nharness: claude\nmodel: claude-opus-5\neffort: high');
   eq(profileForSeatCast(shipped, full, 'claude-sonnet', quiet), 'claude-opus', 'control diverts');
-  return 'four fallbacks + control';
+
+  // ⚑ D3(a), owner-ruled 2026-08-11 — THE BOUND ON THE REFUSAL. A profile that pins NO model can
+  // never be cast to, so an uncast seat launched on one passes through instead of refusing: the
+  // rule guards a model being chosen, and here none is. The pair is the whole check — the SAME
+  // uncast seat refuses on a model-pinning profile and passes on a model-less one, so this cannot
+  // read green on a resolver that simply stopped refusing.
+  const modelless = { 'test-sleep': { exec: { argv: ['sleep', '3600'], prompt: 'stdin' } } };
+  const bare = seatWith('seat: bare\nmode: interactive');
+  eq(profileForSeatCast(modelless, bare, 'test-sleep', quiet), 'test-sleep', 'model-less passes through');
+  let refused = null;
+  try { profileForSeatCast(shipped, bare, 'claude-sonnet', quiet); } catch (err) { refused = err.code; }
+  eq(refused, 'E_UNCAST_SEAT', 'the same seat still refuses on a model-pinning profile');
+  return 'four refusals + control diverts + model-less pass-through (paired)';
 });
 
 // ── 9 · THE FIX · an unmappable cast STOPS the launch ────────────────────────────────────────

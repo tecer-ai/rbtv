@@ -108,26 +108,29 @@ function resolveConfig(overrides = {}) {
   // goal→channel name a BIJECTION (goal-channel-map.js); it also bounds which
   // channels this bridge will ever create, so a deployment under a test-channels-only
   // ruling sets it to `test-` and the bridge cannot create anything outside that
-  // namespace. `masterProfile`/`goalProfile` both fall back to `sessionProfile`, so
-  // an unconfigured deployment behaves exactly as it did before 7.58.
+  // namespace.
   const channelPrefix =
     overrides.channelPrefix || file.channel_prefix || 'goal-';
-  const masterProfile = overrides.masterProfile || file.master_profile || null;
-  // `master_effort` — the reasoning RUNG the master's DM sittings launch at (owner ruling
-  // `d-0811lp-effort-lane-build-now` + `d-0811lp-effort-numeric-per-profile`, 2026-08-11). A
-  // 1-based integer in the ladder `master_profile` declares in spawn-profiles.yaml; ABSENT means
-  // the harness default, which is exactly the behaviour every deployment had before this key.
-  // ⚠ NOT RANGE-CHECKED HERE, deliberately: a range belongs to a PROFILE, and this file may not
-  // read spawn-profiles.yaml. `master_profile.py` checks it against the target profile at request
-  // AND at apply, and `resolveEffort` refuses it again at the spawn — three doors, one ladder.
-  // What IS checked here is the shape, because a non-integer would be refused by the enqueue door
-  // one owner message later, with the sitting already accounted for.
-  const masterEffort = overrides.masterEffort != null ? overrides.masterEffort
-    : (file.master_effort != null ? file.master_effort : null);
-  if (masterEffort !== null && (!Number.isInteger(masterEffort) || masterEffort < 1)) {
-    throw new Error(`chat-bridge master_effort must be an integer rung >= 1, got: ${JSON.stringify(masterEffort)}`);
-  }
-  const goalProfile = overrides.goalProfile || file.goal_profile || null;
+
+  // ── `master_profile` · `goal_profile` · `master_effort` — DELETED 2026-08-11 ─────────────────
+  // (launch-cast unification, owner ruling D2. Design: `build/launch-cast-unification.md`.)
+  //
+  // THE TRANSPORT DOES NOT NAME EXECUTION. These three keys let the surface a message arrived on
+  // decide which harness, model and reasoning rung an agent ran at — so one seat answered a DM as
+  // one model and the same seat answered a goal thread as another, with its own `seat.md` saying
+  // a third thing. The seat's record is the authority now, resolved daemon-side at every launch
+  // door (`launch-profiles/catalog.js#castProfileFor`), and a seat that declares no cast REFUSES
+  // rather than inheriting whatever the transport happened to carry.
+  //
+  // `session_profile` SURVIVES and decides nothing. `launch-agent` requires a non-empty `profile`
+  // argument (heart-store.js REQUIRED_ARGS), so the enqueue must carry a name; the daemon replaces
+  // it with the seat's cast or refuses. It is the request, never the decision. Removing the store's
+  // requirement so this key can go too is the follow-up — it touches the queue schema, the gateway
+  // parse and every other producer, which is a larger blast radius than this change.
+  //
+  // A deployment still carrying the three keys is not broken by their presence: they are simply
+  // never read. `master_profile.py` (the master's self-service knob) retargets to the bindings
+  // sheet in the same change — see `capabilities/master-profile/`.
 
   // Conversation state across restarts (chat-bridge.js § persistence). NON-SECRET
   // (conversation ids and Slack channel/thread ids only — never a token), so it may
@@ -187,9 +190,6 @@ function resolveConfig(overrides = {}) {
     workdir,
     workspaceRoot,
     channelPrefix,
-    masterProfile,
-    masterEffort,
-    goalProfile,
     stateFile,
     busFerry,
     busFerryDmUser,

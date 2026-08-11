@@ -250,12 +250,18 @@ MUTANTS = [
      lambda m, mani, croot: _five_letter_arm(m, croot)),
     ("the castable-pair set", "    known = castable(profiles_path)\n",
      "    known = dict(castable(profiles_path))\n"
-     "    known[(harness, model)] = {'effort-levels': list(NATIVE_EFFORT.get(harness, ())),\n"
+     "    known[(harness, model)] = {'effort-levels': ['low', 'medium', 'high', 'xhigh', 'max'],\n"
      "                               'effort-dial': None}\n",
      lambda m, mani, croot: m.set_seat(mani, "plan-planner", "claude", "probe-only-model", 4,
                                        config_root=croot, profiles_path=LIVE_PROFILES)),
-    ("the native effort ladder's length", '"claude": ("low", "medium", "high", "xhigh", "max"),',
-     '"claude": ("low", "medium", "high", "xhigh", "max", "probe-only-rung"),',
+    # Retargeted 2026-08-11: the per-harness `NATIVE_EFFORT` table this used to mutate is DELETED
+    # (effort is per MODEL, owner-ruled), and the ladder is now read off each profile's own
+    # `rungs:` list. The equivalent mutation is therefore in the READER — widen every profile's
+    # ladder by one and the out-of-range rung 6 becomes acceptable, which is the same discrimination
+    # the old mutant proved against the old source.
+    ("the profile ladder reader's length",
+     '    return tuple(w.strip().strip(\'"\\\'\') for w in m.group(1).split(",") if w.strip())',
+     '    return tuple(w.strip().strip(\'"\\\'\') for w in m.group(1).split(",") if w.strip()) + ("probe-only-rung",)',
      lambda m, mani, croot: m.set_seat(mani, "plan-planner", "claude", "claude-opus-5", 6,
                                        config_root=croot, profiles_path=LIVE_PROFILES)),
     ("the manifest-membership check", 'if seat not in wf["seats"]:', "if False:",

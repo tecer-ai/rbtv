@@ -57,24 +57,17 @@ disagree. It is composed from exactly two measured sources, and nothing else:
      is a MEASUREMENT under G-270 ("a harness whose dial does not exist says so"), so an inert
      profile has NO dial here and refuses any effort number.
 
-  …and the LEVELS of a dial that exists come from the harness's NATIVE ladder (`NATIVE_EFFORT`
-  below). A bindings value is passed to the harness LITERALLY (`coord.py#harness_command`:
-  `claude --model {model} --effort {effort}`), and claude's literal ladder is five rungs
-  (`claude --help`: "low, medium, high, xhigh, max").
+  …and the LEVELS of a dial that exists come from THE PROFILE'S OWN `effort.rungs` list — the one
+  copy, read straight off `spawn-profiles.yaml` (`_profile_rungs` below). A bindings value is passed
+  to the harness LITERALLY (`coord.py#harness_command`), and the rung NUMBER indexes that list.
 
-  ⚠ THE REASON THIS PARAGRAPH EXISTED HAS EXPIRED, AND THE DUPLICATION IT DESCRIBES HAS NOT.
-  It used to say the profile's `effort.values` table was a DIFFERENT object — "the daemon lane's
-  four ABSTRACT levels onto harness strings" — so binding through it would make `xhigh`
-  unspellable. That table is GONE: owner ruling `d-0811lp-effort-numeric-per-profile` (2026-08-11)
-  replaced it with a per-profile ORDERED `effort.rungs` list, 1..N, and the claude profiles now
-  declare exactly `[low, medium, high, xhigh, max]` — the SAME five, in the SAME order, as
-  `NATIVE_EFFORT["claude"]` below. Codex (3) and kimi (2) match their entries too.
-  ⇒ So `NATIVE_EFFORT` and the profiles' `rungs:` are now TWO COPIES OF ONE FACT, and this file's
-  1-based `<effort-number>` and the daemon lane's rung are the SAME numbering. Collapsing them —
-  reading the ladder off `spawn-profiles.yaml` and deleting `NATIVE_EFFORT` — is a FOLLOW-UP, not
-  done here: kimi's two lanes still store different literals (`no-think`/`think` for the tmux lane
-  vs `--no-thinking`/`--thinking` for the daemon argv), so the merge needs that reconciled first.
-  Until then, a change to either ladder MUST be made in both.
+  ⚑ PER MODEL, NEVER PER HARNESS (owner ruling 2026-08-11: "effort level is not per harness, is per
+  model"). A profile IS one harness+model pair, so its own block is already the right granularity:
+  `claude-haiku` is single-mode and declares `effort: { inert: true }` while `claude-fable` declares
+  five rungs — same harness, different ladders. The per-harness `NATIVE_EFFORT` table this paragraph
+  used to point at could not express that and is DELETED; the duplication it warned about is gone
+  with it, and so is the kimi blocker that deferred the merge (two lanes may spell rung N however
+  each needs to — the NUMBER is what the sheet stores, and a number has no spelling).
 
 Every catalog row is finally passed through `coord.py#validate_seat` — the SAME predicate
 `materialize-seats.py` applies to the whole batch before any write (its F6 gate, which imports it
@@ -112,21 +105,40 @@ TEAM_KIT = _IGNITE / "team-kit"
 
 # The harness's OWN ordered effort levels — the strings the binary itself accepts, which is what a
 # bindings value becomes. Measured, each with its source; never the profile translation table.
-NATIVE_EFFORT = {
-    # `claude --help`, measured on this box 2026-08-10: "--effort <level>  Effort level for the
-    # current session (low, medium, high, xhigh, max)". Same five in
-    # orchestration/models/claude-code-cli/manifest.yaml reasoning_modes.depths for fable/opus/sonnet.
-    "claude": ("low", "medium", "high", "xhigh", "max"),
-    # orchestration/models/codex-cli/manifest.yaml: depths [low, medium, high] — THREE, and
-    # spawn-profiles' own codex comment says the same ("depths [low, medium, high] — THREE, not
-    # four").
-    "codex": ("low", "medium", "high"),
-    # PROBED 2026-07-09 (orchestration/models/opencode/manifest.yaml): opencode forwards `--variant`
-    # unvalidated and a bogus level returns identically to `max` — no honoured ladder at all.
-    "opencode": (),
-    # orchestration/models/kimi-code-cli/manifest.yaml: depths [no-think, think] — a binary dial.
-    "kimi": ("no-think", "think"),
-}
+# ── THE LADDER IS THE PROFILE'S OWN, AND IT IS PER MODEL ────────────────────────────────────────
+#
+# `NATIVE_EFFORT` — a per-HARNESS tuple of rung words — is DELETED (owner ruling 2026-08-11:
+# "effort level is not per harness, is per model"). It was the second copy of a fact
+# `spawn-profiles.yaml` already carries per profile, and the two spellings could not both be right:
+# a profile IS one harness+model pair, so `claude-haiku` (single-mode, `effort: {inert: true}`) and
+# `claude-fable` (five rungs) share a harness and have different ladders. Keyed by harness, the
+# table had to pick one and was wrong for the other.
+#
+# It also mis-zeroed opencode. Its entry was `()` on a 2026-07-09 note reading "opencode forwards
+# `--variant` unvalidated … no honoured ladder at all" — a conclusion about the HARNESS drawn from
+# one model, when `opencode run --help` calls `--variant` "model variant (provider-specific
+# reasoning effort)". Provider-specific is per model by definition. Those profiles still declare
+# `effort: {inert: true}` and so still report no dial; giving them real rungs needs a measurement
+# per model and is filed, not guessed at here.
+#
+# Reading the rungs off the profile block makes the numbering ONE object end to end: this file's
+# 1-based `<effort-number>`, the daemon's `resolveEffort` rung, and the seat's declared `effort:`
+# are the same index into the same list.
+_RUNGS_RE = re.compile(r"^\s*rungs:\s*\[([^\]]*)\]", re.M)
+
+
+def _profile_rungs(block_text):
+    """The profile's own ordered rung words, or () when it declares no dial.
+
+    Text-scraped for the same reason the model pin above is: this tool reads the hand-authored
+    `spawn-profiles.yaml` without a YAML round trip, which would destroy its comments."""
+    if re.search(r"effort:\s*\{\s*inert:\s*true", block_text):
+        return ()
+    m = _RUNGS_RE.search(block_text)
+    if not m:
+        return ()
+    return tuple(w.strip().strip('"\'') for w in m.group(1).split(",") if w.strip())
+
 
 # The lane fields `scaffold` prefills. They are CONSTANTS of the materialize lane, not casting
 # choices: `cwd-mode: seat-folder` is the only ruled cwd, `agent_type: staff` is what a workflow
@@ -305,14 +317,14 @@ def catalog(profiles_path=DEFAULT_PROFILES):
                 break
         text = "\n".join(block)
         inert = bool(re.search(r"effort:\s*\{\s*inert:\s*true", text))
-        levels = () if inert else NATIVE_EFFORT.get(harness, ())
+        levels = _profile_rungs(text)
         reason = validate_seat({"agent": name, "harness": harness, "model": model})
         rows.append({"profile": name, "harness": harness, "model": model,
                      "effort-levels": list(levels), "castable": not reason,
                      "not-castable-because": reason or None,
                      "effort-dial": "inert (the profile declares `effort: { inert: true }` — G-270: "
                                     "a harness whose dial does not exist says so)" if inert
-                                    else ("none — this harness has no native effort ladder"
+                                    else ("none — this profile declares no effort ladder"
                                           if not levels else None)})
     return rows
 

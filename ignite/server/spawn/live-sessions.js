@@ -43,7 +43,7 @@ const { buildBwrapArgv } = require('./bwrap');
 // `resolveSandbox`/`ensureLogPath` are IMPORTED (7.637). Copies of both stood here only because
 // `spawn.js` was another session's dirty file at build time. A live session's cage and its
 // transcript mode ARE the dispatch door's — now inexpressibly so, rather than by discipline.
-const { composeArgv, composeCageFor, exitFilePath, resolveSandbox, ensureLogPath } = require('./spawn');
+const { composeArgv, composeCageFor, exitFilePath, resolveSandbox, ensureLogPath, profileForSeatCast } = require('./spawn');
 const { generateSessionId, selectCarrier, buildSystemdRunArgs, ensureDir } = require('./carrier');
 const { parseSeatPath, parseServiceSeatPath } = require('../seat-identity/seat-folder');
 const { appendRow } = require('../seat-identity/csv');
@@ -124,8 +124,29 @@ function createLiveSessions({
   }
 
   // ── Eligibility — asked BEFORE anything is spawned, and answerable from config + disk alone ────
+  //
+  // ⚑ IT ASKS ABOUT THE PROFILE THE SEAT IS CAST AS, not the one the caller named — the same
+  // resolution `launch()` performs a few lines below, and it MUST be the same or this gate answers
+  // about a different profile than the one that will run. Concretely: the caller names a profile
+  // that declares a `resume:` template, the seat is cast as one that does not, and a gate reading
+  // the caller's value says "warm, go" straight into a `launch()` that then throws
+  // E_UNKNOWN_MODE. Resolving here makes the refusal `profile-has-no-resume-template` — routine,
+  // and the caller falls through to the cold path exactly as it does for every other ineligible
+  // reason. (No profile is NAMED here on purpose: `probe-caged-settings` holds a standing "no
+  // per-profile special case anywhere in server/spawn/" invariant, and a literal in a comment
+  // reads to it exactly like a literal in a branch — correctly, since both are profile knowledge
+  // on the spawn path. The names live in `launch-profiles/`, which is where they belong.)
+  //
+  // An UNCAST seat throws E_UNCAST_SEAT out of the resolver (ruling D2). Caught and reported as an
+  // ineligible reason rather than propagated: this gate's whole contract is that it answers, and
+  // the cold path the caller falls through to raises the same refusal where it can be acted on.
   function eligible({ profileName, workdir }) {
     if (!profileName) return { ok: false, reason: 'no-profile' };
+    try {
+      profileName = profileForSeatCast(config.profiles || {}, workdir, profileName, log);
+    } catch (err) {
+      return { ok: false, reason: `uncastable-seat:${err.code || 'unknown'}` };
+    }
     const profile = config.profiles && config.profiles[profileName];
     if (!profile) return { ok: false, reason: 'unknown-profile' };
     if (!profile.resume) return { ok: false, reason: 'profile-has-no-resume-template' };
@@ -144,6 +165,23 @@ function createLiveSessions({
   // live-pipe carriage. Nothing about the cage, the caps or the writable set is relaxed for a live
   // session — a warm process is the same session, held open.
   function launch({ conversationId, profileName, workdir, sessionRef }) {
+    // ── THE SEAT'S CAST WINS HERE TOO (launch-cast unification, owner-ruled 2026-08-11) ────────
+    //
+    // This door did not apply it, and `catalog.js`'s own header claimed it did — "`spawn()` is
+    // downstream of the ticker, the chat bridge, the daemon lane, the attached lane and THE WARM-
+    // SESSION LEG alike". That sentence was false for this file: `launch()` never calls `spawn()`,
+    // it reuses only its composers. So the first message of a Slack thread ran the seat's cast and
+    // every message after it ran whatever the transport named, on the same seat, in the same
+    // thread — the exact "two different agents wearing one thread" that `forward-path.js` exports
+    // `profileFor` to prevent. Measured on `plan-interviewer` 2026-08-11: it ran a different model
+    // than its descriptor cast it as, on every Slack turn. (Neither model is NAMED here — see the
+    // eligibility gate's note on `probe-caged-settings`'s no-profile-knowledge invariant.)
+    //
+    // Read off the RAW `workdir`, before `resolveWorkdir` normalizes it — the same ordering and
+    // the same stated ceiling as `spawn()`: a relative workdir resolves no descriptor, so it
+    // cannot be cast, and under ruling D2 it now REFUSES rather than running the caller's profile.
+    profileName = profileForSeatCast(config.profiles || {}, workdir, profileName, log);
+
     const profile = config.profiles[profileName];
     if (!profile) throw new SpawnError(E_UNKNOWN_PROFILE, `unknown launch profile: ${profileName}`, { profile: profileName });
     if (!sessionRef) throw new SpawnError(E_BAD_REQUEST, 'a live session RESUMES a chain and therefore requires its session_ref', { profile: profileName });
@@ -168,7 +206,7 @@ function createLiveSessions({
     // ride a file, it rides the pipe. composeArgv still writes the (empty) prompt file because the
     // profile declares `prompt: stdin` carriage; that is a harmless 0-byte artifact and NOT worth
     // a branch in the shared composer, which the dispatch door depends on.
-    const composed = composeArgv(profile, 'headless', sessionId, resolvedWorkdir, '', dataRoot, sessionRef);
+    const composed = composeArgv(profile, 'headless', sessionId, resolvedWorkdir, '', dataRoot, sessionRef, null, profileName);
     const argv = [...composed.argv, ...LIVE_INPUT_FLAGS];
 
     const resolvedSandbox = resolveSandbox(profile.sandbox, resolvedWorkdir);
@@ -366,6 +404,23 @@ function createLiveSessions({
   async function feed({ conversationId, profileName, workdir, prompt, sessionRef = null, start = false }) {
     if (!conversationId) return { ok: false, reason: 'no-conversation' };
     if (typeof prompt !== 'string' || !prompt) return { ok: false, reason: 'empty-prompt' };
+
+    // ⚑ RESOLVE THE CAST BEFORE ANYTHING COMPARES A PROFILE NAME (launch-cast unification,
+    // 2026-08-11). `launch()` stores the RESOLVED name on the session, so the switch check below
+    // MUST compare against the resolved name too — comparing it with the caller's would report a
+    // switch on every single turn of a cast seat and reap the warm process each time, turning the
+    // whole warm path into two cold spawns per message. That is exactly what
+    // `probe-chat-live-session` arms 2 and 3 measured when this line was missing: "ONE process
+    // served BOTH turns" went red with `reason: profile-switched` between them.
+    //
+    // Resolution is idempotent — it reads the seat's descriptor and ignores the name it is handed —
+    // so `eligible()` and `launch()` re-resolving below is harmless and keeps each entry point
+    // correct on its own. An UNCAST seat throws here; swallowed, because `eligible()` a few lines
+    // down turns it into an ordinary ineligible reason and the caller falls through to the cold
+    // path, which is where that refusal belongs.
+    try {
+      profileName = profileForSeatCast(config.profiles || {}, workdir, profileName, log);
+    } catch { /* eligible() reports it below */ }
 
     let s = sessions.get(conversationId);
     if (s && s.dead) { sessions.delete(conversationId); s = null; }
