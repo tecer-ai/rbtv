@@ -262,7 +262,10 @@ def do_tick(cfg, seq):
     ok = False
     if pane is None:
         outcome = f"skipped:{why}"
-    elif cfg.transport == "tmux" and at_approval_gate(pane):
+    elif not cfg.dry_run and cfg.transport == "tmux" and at_approval_gate(pane):
+        # `not cfg.dry_run` FIRST, and it is load-bearing: the detector SHELLS OUT to tmux, so
+        # probing before the dry-run gate made `--dry-run` execute tmux (C5a). A rehearsal reports
+        # what it WOULD do and touches nothing; the gate only guards a real send.
         # Only the tmux transport can be corrupted by a modal — a stdout or file nudge is not
         # typed into the pane. Scoping the check here also keeps those transports tmux-free:
         # coord.py's detector SHELLS OUT to tmux, and subprocess raises (not returncode!=0) when

@@ -331,9 +331,13 @@ def a_tmux_live_argv_names_the_pane(mod):
         assert r.returncode == 0, f"exited {r.returncode}: {r.stderr}"
         assert marker.exists(), "the live tmux transport called nothing"
         calls = [json.loads(ln) for ln in marker.read_text(encoding="utf-8").splitlines() if ln]
-        assert len(calls) == 2, f"expected a text call and an Enter call, got {calls}"
-        assert calls[0] == ["send-keys", "-t", "%999999", "-l", "[nudge #1] CHECKS"], calls[0]
-        assert calls[1] == ["send-keys", "-t", "%999999", "Enter"], calls[1]
+        # On the LIVE path the approval-gate probe (`display-message … #{pane_title}`) legitimately
+        # precedes the send. This claim is about the SEND argv, so the ledger is filtered to
+        # send-keys rather than the probe being suppressed — suppressing it would delete the gate.
+        sends = [c for c in calls if c[:1] == ["send-keys"]]
+        assert len(sends) == 2, f"expected a text call and an Enter call, got {calls}"
+        assert sends[0] == ["send-keys", "-t", "%999999", "-l", "[nudge #1] CHECKS"], sends[0]
+        assert sends[1] == ["send-keys", "-t", "%999999", "Enter"], sends[1]
         assert read_hb(hb)[0]["outcome"] == "sent:tmux:%999999", read_hb(hb)[0]
 
 
@@ -555,7 +559,8 @@ CLAIMS = [
     ("C11", "a recipient parked on an approval gate is skipped, never typed into",
      a_gated_pane_is_not_nudged,
      [("approval-gate guard removed (the nudge lands in the modal)",
-       [("    elif cfg.transport == \"tmux\" and at_approval_gate(pane):", "    elif False:")]),
+       [("    elif not cfg.dry_run and cfg.transport == \"tmux\" and at_approval_gate(pane):",
+         "    elif False:")]),
       ("guard mutated into a mute (nothing is ever delivered)",
        [("cfg.transport == \"tmux\" and at_approval_gate(pane)", "True")])]),
 ]
