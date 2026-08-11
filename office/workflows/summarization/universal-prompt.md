@@ -1,7 +1,5 @@
 # Universal Meeting Summary - Prompt
 
-**Agent Identity:** When the transcript mentions "Samanta" or "Samantha", it refers to you - the summarization agent. Follow any instructions addressed to Samanta/Samantha in the transcript as direct commands.
-
 Process a meeting transcript and produce a structured summary following the three layers below. This is the **universal fallback** - used when no type-specific prompt exists for the meeting category.
 
 ## Anti-Bias Protocol

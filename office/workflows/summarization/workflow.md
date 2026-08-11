@@ -104,7 +104,7 @@ After user confirms, determine the correct filename and output folder.
   - Inside entity folders (where the folder name carries context): drop the entity name from the slug. Keep date + topic: `YYYY-MM-DD-{topic}.{ext}`
   - Outside entity folders: keep the full descriptive slug since no entity context is carried by the folder
   - Bad slugs (too generic): `weekly`, `team-sync`, `meeting-notes`
-  - Good slugs: `yuri-kenu-runway-planning`, `invoice-automation-demo`, `tam-deep-dive`
+  - Good slugs: `acme-q3-planning`, `invoice-automation-demo`, `tam-deep-dive`
 - Extract the meeting date from the transcript CONTENT (not file creation date). If ambiguous, ask.
 
 **Determine output folder:**

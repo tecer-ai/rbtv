@@ -89,13 +89,6 @@
 
 ---
 
-## F. Contract-specific source
-
-1. **Uploaded Horizon advisor agreement**  
-   Primary source for the issue memo and checklist.
-
----
-
 ## Notes on use
 
 - Start with statutes and regulations.

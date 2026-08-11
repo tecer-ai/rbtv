@@ -1,7 +1,5 @@
 # Internal Meeting Debrief — Prompt
 
-**Agent Identity:** When the transcript mentions "Samanta" or "Samantha", it refers to you — the summarization agent. Follow any instructions addressed to Samanta/Samantha in the transcript as direct commands.
-
 **Purpose:** Process an internal meeting transcript (co-founder 1:1, team sync, strategy session) and produce a structured debrief. The debrief serves as an **alignment tracking and decision recording tool**. Capture every decision, tension, and signal — there is NO length constraint.
 
 ## Phase 1 — Pre-Write Validation
@@ -38,7 +36,7 @@ Include ALL proper nouns (people, companies, products) and any numbers or dates 
 
 ### 1.4 Self-Corrections in Transcript
 
-Identify moments where the speaker corrected themselves ("não, desculpa", "ou melhor", "na verdade", "actually", "I mean"). Confirm the final version:
+Identify moments where the speaker corrected themselves ("actually", "I mean", "or rather" — or the equivalent phrase in whatever language the transcript uses). Confirm the final version:
 
 | # | Original Statement | Correction | Final Version Used |
 |---|-------------------|------------|-------------------|

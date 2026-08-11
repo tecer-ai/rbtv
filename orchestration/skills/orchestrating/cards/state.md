@@ -78,12 +78,12 @@ The file WORKERS read (with their own task file) to pick up decisions, discoveri
 
 | Run kind | Which `decisions.md` |
 |----------|----------------------|
-| **Plan-backed** | REUSE the plan's worker-facing decisions file — `decisions.md` after the D13 rename, or `shape.md` for a plan authored before it (the rename lands at p4-2; earlier plans, including this build's own, carry `shape.md`). Do NOT create a second one. The plan's companion IS the run's worker-facing decisions file; match the name it actually carries. |
+| **Plan-backed** | REUSE the plan's worker-facing decisions file — `decisions.md` for a plan authored under the current filename convention, or `shape.md` for one authored before that rename. Do NOT create a second one. The plan's companion IS the run's worker-facing decisions file; match the name it actually carries. |
 | **Plan-less** | CREATE one at intake, in the spine location. It starts empty and accretes forward-affecting entries as the run proceeds. |
 
 The `Decisions file:` field in `state-capsule.md` records the ONE resolved path (the plan's file for a plan-backed run; the spine-local file for a plan-less run) — never both, never ambiguous. A resumed conductor reads exactly that path.
 
-**Entry-shape discipline is NOT restated here — it lives in one source.** Follow `{rbtv_path}/orchestration/workflows/_shared/authoring/decisions-discipline.md`: every entry is decision + rationale + scope ONLY (plus an optional one-word `compoundable` marker for harvest-worthy findings); never a files-changed list; never an N→M count narrative; supersede an earlier entry by APPENDING a new one (UPDATE-not-REWRITE), never by rewriting it; routine completions are excluded. That file is the source the `decisions-template` hard text carries (lands at p4-2).
+**Entry-shape discipline is NOT restated here — it lives in one source.** Follow `{rbtv_path}/orchestration/workflows/_shared/authoring/decisions-discipline.md`: every entry is decision + rationale + scope ONLY (plus an optional one-word `compoundable` marker for harvest-worthy findings); never a files-changed list; never an N→M count narrative; supersede an earlier entry by APPENDING a new one (UPDATE-not-REWRITE), never by rewriting it; routine completions are excluded. That file is the source the `decisions-template` hard text carries.
 
 > `decisions.md` entries: decision + rationale + scope ONLY (+ optional one-word `compoundable` marker for harvest-worthy findings) — never file-lists or N→M narratives; supersede by appending, never rewrite.
 

@@ -2,7 +2,7 @@
 
 Per-model delta for the **claude** Agent-tool worker — **Claude as an in-session sub-agent** dispatched via the Agent tool (the Task tool), NOT as a process. This is the DEFAULT carrier for a Claude tier (routing card §4): when the boundedness tree picks a mid- or top-tier Claude, the default carrier is an Agent-tool sub-agent. Use `claude -p` (the sibling `../claude-code-cli/` package) instead ONLY when a process-boundary sub-conductor is needed (the worker must itself drive CLI workers — the nesting wall forces a process) or when native workspace-rule loading is required.
 
-This package is a **SIBLING to `../claude-code-cli/`, not a replacement.** The two Claude carriers are deliberately distinct manifest rows so the conductor evaluates each as its own agent. This package's ABSENCE was the "Claude collapses to one entity" gap: `claude-code-cli` modeled `opus`/`sonnet` variants while the Agent-tool tiers had no manifest at all, so a deterministic selector could not enumerate them. (Decision: `1-projects/rbtv-evolution/orchestration/api-workers/api-workers-build/decisions.md` — "Claude-tier modeling", 2026-06-09.)
+This package is a **SIBLING to `../claude-code-cli/`, not a replacement.** The two Claude carriers are deliberately distinct manifest rows so the conductor evaluates each as its own agent. This package's ABSENCE was the "Claude collapses to one entity" gap: `claude-code-cli` modeled `opus`/`sonnet` variants while the Agent-tool tiers had no manifest at all, so a deterministic selector could not enumerate them.
 
 **Carrier differences from claude-code-cli (this delta mirrors claude-code-cli's SHAPE but differs on every one of these):**
 

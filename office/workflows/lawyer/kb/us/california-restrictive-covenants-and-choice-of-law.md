@@ -55,19 +55,19 @@ But that does **not** mean every broad restraint is fine. It only means the anal
 
 ---
 
-## 4. Why the Horizon clause is still vulnerable
+## 4. Why an overbroad restrictive-covenant clause is vulnerable
 
-The Horizon agreement goes beyond a narrow direct-competition restriction. It says the advisor may provide consulting/advisory services to third parties only if:
+The Company's agreement goes beyond a narrow direct-competition restriction. It says the advisor may provide consulting/advisory services to third parties only if:
 1. they are not competing,
 2. they do not create a conflict, and
 3. the advisor gives prior written notice with client identity and scope,
-4. after which Horizon may object.
+4. after which the Company may object.
 
 From the advisor’s side, this is vulnerable because it:
 - can operate as a veto over outside work,
 - may force disclosure of third-party confidential information,
 - is broader than a simple “no direct competition during the term” clause,
-- can chill lawful advisory work beyond what is necessary to protect Horizon.
+- can chill lawful advisory work beyond what is necessary to protect the Company.
 
 ---
 
@@ -82,7 +82,7 @@ A company has a stronger argument for:
 ### After termination
 California is much less friendly to ongoing restraints after the relationship ends, especially if the clause is functionally a non-compete.
 
-This matters because Horizon’s agreement says Section 11 survives termination, but the non-compete sentence itself is not carefully cabined.
+This matters because the Company's agreement says Section 11 survives termination, but the non-compete sentence itself is not carefully cabined.
 
 ---
 
@@ -95,7 +95,7 @@ If a worker:
 an employer generally cannot require that person to adjudicate outside California or deprive them of California substantive protections, unless the person was individually represented by counsel in negotiating that term.
 
 ### Why this matters
-If Horizon later argues she was effectively an employee in California, Labor Code § 925 can become relevant even if the contract labels her an independent contractor.
+If the Company later argues the advisor was effectively an employee in California, Labor Code § 925 can become relevant even if the contract labels the advisor an independent contractor.
 
 ---
 
@@ -104,7 +104,7 @@ If Horizon later argues she was effectively an employee in California, Labor Cod
 A safer company-protective clause would usually be closer to:
 
 - No direct competitive services **during the term**
-- No use or disclosure of Horizon confidential information
+- No use or disclosure of the Company's confidential information
 - Prompt disclosure only of engagements that the advisor **reasonably believes** pose a material direct conflict
 - No duty to disclose third-party confidential information
 - No post-termination non-compete

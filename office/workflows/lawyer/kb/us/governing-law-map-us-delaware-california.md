@@ -6,11 +6,11 @@
 
 ## 1. Why this map matters
 
-The Horizon agreement combines at least three legal layers:
+The Company's agreement combines at least three legal layers:
 
 | Layer | Why it matters here |
 |---|---|
-| **Delaware corporate law** | Horizon is a Delaware corporation; board authority, stock grants, director-conflict safe harbors, and indemnification are Delaware questions |
+| **Delaware corporate law** | The Company is a Delaware corporation; board authority, stock grants, director-conflict safe harbors, and indemnification are Delaware questions |
 | **California contract law / statutory policy** | The agreement says California law governs; restrictive covenants and some contract enforceability questions are therefore heavily California-shaped |
 | **Federal law** | Securities, tax, IP, trade secrets, and parts of worker classification sit at federal level |
 
@@ -43,7 +43,7 @@ The mistake to avoid is assuming that “Delaware company” means Delaware law 
 A Delaware corporation is managed under board authority, and stock issuances / option grants must fit the Delaware General Corporation Law, the certificate of incorporation, bylaws, and any equity plan.
 
 ### Interested-director transactions
-If the advisor also has a role at another company that contracts with Horizon, Delaware law matters for how Horizon’s board approves or cleanses conflict situations.
+If the advisor also has a role at another company that contracts with the Company, Delaware law matters for how the Company's board approves or cleanses conflict situations.
 
 ### Indemnification and exculpation
 Whether the company can protect directors/officers (and sometimes others by contract) is usually driven by DGCL rules plus the charter/bylaws.

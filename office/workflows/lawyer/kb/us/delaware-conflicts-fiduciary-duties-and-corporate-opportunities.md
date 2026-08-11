@@ -7,10 +7,7 @@
 
 ## 1. Why this matters here
 
-Your girlfriend appears to sit near a triangle:
-- she is tied to a company that contracts with Horizon,
-- she may have a director/advisory/employee role there,
-- she is being asked to advise Horizon.
+The advisor may sit near a triangle: they are tied to a company that contracts with the Company, they may have a director or advisory role there, and they are being asked to advise the Company.
 
 That does **not** automatically make the arrangement illegal or breached on day one.  
 But it absolutely creates a **process problem** that should be handled explicitly.
@@ -25,7 +22,7 @@ Delaware fiduciary law is heavily focused on loyalty:
 - undisclosed divided loyalties are dangerous.
 
 ### Practical point
-If she is actually a director of another company, her duties to that company may be stronger and more formal than her duties as a mere advisor to Horizon.
+If the advisor is actually a director of another company, their duties to that company may be stronger and more formal than their duties as a mere advisor to the Company.
 
 ---
 
@@ -58,7 +55,7 @@ A fiduciary may not simply appropriate for themselves (or channel elsewhere) a b
 Delaware allows a corporation, under the right governing document setup, to renounce specified categories of corporate opportunities.
 
 ### Why this matters for overlapping roles
-If she is expected to source:
+If the advisor is expected to source:
 - customers,
 - hires,
 - partnerships,
@@ -76,8 +73,8 @@ A strong conflict-management package would do the following:
 | Step | Why it helps |
 |---|---|
 | Disclose existing roles in writing | Prevents later “you hid the conflict” arguments |
-| Have Horizon expressly approve those roles | Avoids ambiguity on signature day |
-| Clarify that she will not advise on both sides of the same negotiation without consent | Reduces divided-loyalty risk |
+| Have the Company expressly approve those roles | Avoids ambiguity on signature day |
+| Clarify that the advisor will not advise on both sides of the same negotiation without consent | Reduces divided-loyalty risk |
 | Build information barriers | Prevents misuse of confidential information |
 | Limit role scope | Helps keep advisory duties from sprawling into conflicted operational control |
 | Require recusal from specific matters if needed | Standard governance hygiene |
@@ -103,7 +100,7 @@ The contract should not just say “avoid any situation that creates or could re
 
 Better approach:
 1. list the known existing roles,
-2. state that Horizon acknowledges them,
+2. state that the Company acknowledges them,
 3. require prompt disclosure of **new material conflicts**,
 4. reserve recusal / discussion mechanisms for specific matters,
 5. tie the restriction to actual conflict management rather than broad ex ante veto power.
@@ -112,12 +109,12 @@ Better approach:
 
 ## 8. Fair company-side point
 
-Horizon is reasonable to want:
+The Company is reasonable to want:
 - visibility into overlapping roles,
 - protection from divided loyalties,
 - assurance against misuse of information.
 
-But from the advisor side, the company should solve that with **specific disclosure and process**, not a vague blanket clause that becomes whatever Horizon later says it is.
+But from the advisor side, the company should solve that with **specific disclosure and process**, not a vague blanket clause that becomes whatever the Company later says it is.
 
 ---
 

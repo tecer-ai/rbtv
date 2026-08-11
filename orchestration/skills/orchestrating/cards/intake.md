@@ -91,7 +91,7 @@ Every run gets the three-file spine before dispatch (D12). The State card owns t
 |------|----------------|
 | `run-log.md` | New, empty append-only audit log. The run's first event rows land here. |
 | `state-capsule.md` | New, with the resume point set to "intake complete," an empty delegation map (filled at routing), and empty active-red-sets / active-doubts sections. |
-| `decisions.md` | Plan-backed run: REUSE the plan's worker-facing decisions file (do not create a second one) — `decisions.md` for a plan authored after the D13 rename, or `shape.md` for a plan authored before it (the rename lands at p4-2; plans built earlier, including this build's own, carry `shape.md`). Match the filename the plan actually carries. Plan-less run: create a new empty `decisions.md` here at intake. |
+| `decisions.md` | Plan-backed run: REUSE the plan's worker-facing decisions file (do not create a second one) — `decisions.md` for a plan authored under the current filename convention, or `shape.md` for one authored before that rename. Match the filename the plan actually carries. Plan-less run: create a new empty `decisions.md` here at intake. |
 
 **Where the spine lives.**
 

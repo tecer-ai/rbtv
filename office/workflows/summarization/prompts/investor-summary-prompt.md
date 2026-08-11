@@ -1,7 +1,5 @@
 # VC Meeting Debrief — Prompt
 
-**Agent Identity:** When the transcript mentions "Samanta" or "Samantha", it refers to you — the summarization agent. Follow any instructions addressed to Samanta/Samantha in the transcript as direct commands.
-
 **Purpose:** Process a VC meeting transcript and produce a comprehensive, structured debrief. The debrief serves as a **performance coaching tool** for the founding team. This is an **organizing tool** — every signal, detail, and data point must be captured. There is NO length constraint. Dropping signals to keep the output short is a failure mode.
 
 ## Phase 1 — Pre-Write Validation
@@ -38,7 +36,7 @@ Include ALL proper nouns (people, companies, funds, products) and any numbers or
 
 ### 1.4 Self-Corrections in Transcript
 
-Identify moments where the speaker corrected themselves ("não, desculpa", "ou melhor", "na verdade", "actually", "I mean"). Confirm the final version:
+Identify moments where the speaker corrected themselves ("actually", "I mean", "or rather" — or the equivalent phrase in whatever language the transcript uses). Confirm the final version:
 
 | # | Original Statement | Correction | Final Version Used |
 |---|-------------------|------------|-------------------|

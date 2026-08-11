@@ -86,7 +86,7 @@ But once the “advisor” starts acting like an internal executive, classificat
 
 ---
 
-## 5. How this interacts with the Horizon agreement
+## 5. How this interacts with an advisor agreement
 
 ### Facts that help contractor status
 - independent-contractor label,
@@ -108,10 +108,10 @@ But once the “advisor” starts acting like an internal executive, classificat
 
 ## 6. Why this matters for the restrictive covenant review
 
-If she is a true independent contractor:
+If the advisor is a true independent contractor:
 - the company will argue the contract is a business-to-business restriction.
 
-If she is employee-like:
+If the advisor is employee-like:
 - California’s anti-restraint policy becomes even more hostile to the non-compete structure.
 
 So classification affects litigation posture even if the text says “independent contractor.”
@@ -123,7 +123,7 @@ So classification affects litigation posture even if the text says “independen
 - define services as strategic / advisory, not operational management
 - avoid fixed employee-style schedule
 - preserve ability to work for others, subject only to narrow direct-conflict limits
-- avoid manager-like authority over Horizon staff
+- avoid manager-like authority over the Company's staff
 - keep deliverables and scope bounded
 - do not make the advisor essential to daily ordinary-course operations
 
@@ -148,4 +148,4 @@ The problem appears when the facts drift from “strategic advisor” to “embe
 5. California ABC-test authorities
 
 **Practical point**
-For Horizon, the contractor label helps, but the real risk depends on how the relationship is actually run in practice.
+For the Company, the contractor label helps, but the real risk depends on how the relationship is actually run in practice.

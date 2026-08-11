@@ -7,7 +7,7 @@
 
 ## 1. Why this matters here
 
-The Horizon agreement includes:
+The Company's agreement includes:
 - broad confidentiality language,
 - return-of-materials language,
 - assignment of inventions created in connection with services,
@@ -55,7 +55,7 @@ Federal law protects certain confidential disclosures of trade secrets to govern
 ### Notice point
 A company that enters a contract governing trade secrets or confidential information with employees or contractors should include the DTSA immunity notice if it wants to preserve certain remedies.
 
-### Horizon note
+### Example clause
 The agreement includes a DTSA section. That is generally a company-favorable but standard inclusion.
 
 ---
@@ -66,7 +66,7 @@ This is where advisor agreements often overreach.
 
 A good advisor-side contract should distinguish among:
 
-| Category | Should Horizon own it? |
+| Category | Should the Company own it? |
 |---|---|
 | Deliverables or inventions created specifically in connection with the services | Usually yes, if properly defined |
 | Advisor’s pre-existing materials / frameworks / templates | Usually no, except perhaps a limited license if incorporated |
@@ -109,10 +109,10 @@ From the advisor side, request:
 
 ## 8. Why this matters especially with overlapping roles
 
-If she has another active role, the agreement should be explicit that:
-- she will not use one company’s confidential information for the other,
-- she is not required to disclose third-party confidential information to Horizon,
-- her obligations are limited to Horizon information and deliverables properly within scope.
+If the advisor has another active role, the agreement should be explicit that:
+- the advisor will not use one company’s confidential information for the other,
+- the advisor is not required to disclose third-party confidential information to the Company,
+- their obligations are limited to the Company's information and deliverables properly within scope.
 
 ---
 

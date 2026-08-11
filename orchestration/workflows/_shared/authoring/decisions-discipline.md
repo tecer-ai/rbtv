@@ -4,13 +4,13 @@ The entry-shape discipline for the worker-facing `decisions.md` — the append-o
 
 | Surface | Carries | Lands at (build artifact) |
 |---------|---------|---------------------------|
-| `decisions-template.md` hard text (`orchestration/workflows/_shared/templates/decisions-template.md`) | The full discipline below, as enforced template text | shipped at task p4-2 |
-| Plan + task one-line reminder (in `planning/data/plan-creation-rules.md` § Decisions-File Discipline + generated task files) | The Reminder Line | shipped at task p4-3 |
-| Reviewer audit step (the verification card references THIS file directly; planning checkpoints carry the Audit Checklist via `plan-creation-rules.md` § Decisions-File Discipline) | The Audit Checklist + size-floor enforcement | shipped at task p4-3 |
+| `decisions-template.md` hard text (`orchestration/workflows/_shared/templates/decisions-template.md`) | The full discipline below, as enforced template text | — |
+| Plan + task one-line reminder (in `planning/data/plan-creation-rules.md` § Decisions-File Discipline + generated task files) | The Reminder Line | — |
+| Reviewer audit step (the verification card references THIS file directly; planning checkpoints carry the Audit Checklist via `plan-creation-rules.md` § Decisions-File Discipline) | The Audit Checklist + size-floor enforcement | — |
 
 This file is the single source of the discipline; the three carrying surfaces above reference it.
 
-Rationale (D13): the worker-facing decisions file exists to carry SIGNAL that changes future work, not an execution log. Two compounds confirmed routing confusion and rewrite-corruption when entries became narratives; this discipline is the prevention that replaced post-hoc compaction.
+Rationale: the worker-facing decisions file exists to carry SIGNAL that changes future work, not an execution log. Two compounds confirmed routing confusion and rewrite-corruption when entries became narratives; this discipline is the prevention that replaced post-hoc compaction.
 
 ---
 

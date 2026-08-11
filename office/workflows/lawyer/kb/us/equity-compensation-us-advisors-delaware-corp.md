@@ -14,7 +14,7 @@
 | **RSU** | Promise to issue stock later | Deferral / tax timing |
 | **Phantom equity / cash bonus formula** | Contractual economic right, not actual stock | Contract-only right, no stockholder status |
 
-The Horizon agreement is problematic because it says the award may be an **option or restricted stock award**. Those are materially different.
+The Company's agreement is problematic because it says the award may be an **option or restricted stock award**. Those are materially different.
 
 ---
 
@@ -36,7 +36,7 @@ That distinction matters for tax treatment and drafting.
 
 For an option, the exercise price is usually fixed **on the grant date**, not at some later future valuation date.
 
-The Horizon agreement says the exercise or purchase price per share will equal the fair market value per share on the date of grant, as determined by the board in good faith. That is broadly consistent with standard startup practice, but it still leaves questions open:
+The Company's agreement says the exercise or purchase price per share will equal the fair market value per share on the date of grant, as determined by the board in good faith. That is broadly consistent with standard startup practice, but it still leaves questions open:
 - what valuation supports the FMV?
 - has the board actually approved the grant?
 - is there a current 409A valuation?
@@ -138,25 +138,7 @@ Before accepting an equity grant, ask for:
 
 ---
 
-## 9. Horizon-specific reading
-
-### What is normal
-- board approval requirement,
-- FMV-based exercise price,
-- 4-year vesting with 1-year cliff,
-- use of standard plan documents.
-
-### What is weak for the advisor
-- no cash comp,
-- no guaranteed grant,
-- “0.1%” ambiguity,
-- instrument ambiguity,
-- missing plan name,
-- missing supporting docs.
-
----
-
-## 10. Source map
+## 9. Source map
 
 **Primary / official**
 1. DGCL § 157  

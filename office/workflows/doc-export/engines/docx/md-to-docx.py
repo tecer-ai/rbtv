@@ -29,23 +29,23 @@ from docx.oxml import OxmlElement
 
 
 # ---------------------------------------------------------------------------
-# Defaults (equivalent to the original Tecer constants)
+# Generic fallback defaults, used only when --style is omitted
 # ---------------------------------------------------------------------------
 
 DEFAULTS = {
     "font": {
-        "family": "Outfit",
-        "monospace": "Space Mono",
+        "family": "Calibri",
+        "monospace": "Courier New",
         "sizes": {"body": 10, "h1": 16, "h2": 13, "h3": 11, "small": 8},
         "line_spacing": 1.15,
     },
     "colors": {
-        "primary": "#1B2B4B",
-        "heading": "#1B2B4B",
+        "primary": "#333333",
+        "heading": "#333333",
         "table": {
-            "header_bg": "E8EDF5",
-            "border": "8DA0C0",
-            "alt_row": "F5F7FA",
+            "header_bg": "EDEDED",
+            "border": "B0B0B0",
+            "alt_row": "F7F7F7",
         },
     },
     "logo": {

@@ -31,4 +31,4 @@ Signature blocks must include:
 
 ## When No Style Is Provided
 
-The `md-to-docx.py` built-in defaults (Outfit font, branded colors) are NOT acceptable for legal output. Always pass `legal-docx-style.yaml` explicitly. Never omit `--style` for legal DOCX generation.
+The `md-to-docx.py` built-in defaults are generic fallback values, not appropriate for legal output. Always pass `legal-docx-style.yaml` explicitly. Never omit `--style` for legal DOCX generation.

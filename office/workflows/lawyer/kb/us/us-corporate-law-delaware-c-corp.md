@@ -29,7 +29,7 @@ Practical implications:
 - The board must approve the issuance or a valid process must exist.
 - The consideration must be what Delaware permits and what the company documents authorize.
 
-### Why this matters for the Horizon agreement
+### Why this matters for the agreement
 If the agreement says the advisor will receive stock or restricted stock, the company must still:
 1. have authorized shares available,
 2. follow the plan / charter / board process,
@@ -76,7 +76,7 @@ Delaware does **not** automatically invalidate a transaction just because a dire
 - fairness of the transaction.
 
 Practical point:
-If your girlfriend has a role at another company that contracts with Horizon, Delaware law does **not** mean “automatic breach.” It means the company should manage the conflict through disclosure, process, and approval.
+If the advisor has a role at another company that contracts with the Company, Delaware law does **not** mean “automatic breach.” It means the company should manage the conflict through disclosure, process, and approval.
 
 ---
 
@@ -104,7 +104,7 @@ Why it matters:
 If a person serves multiple companies in overlapping spaces, corporate-opportunity arguments can arise unless boundaries are clear.
 
 Questions to ask:
-- Has Horizon renounced any categories of corporate opportunities?
+- Has the Company renounced any categories of corporate opportunities?
 - Does the charter say anything on this?
 - Is the advisor expected to source deals, hires, or partnerships that could overlap with another role?
 
@@ -119,7 +119,7 @@ Delaware allows indemnification and advancement in many cases for directors, off
 The certificate can eliminate certain monetary liability for directors, and now in some cases officers, but not for all duty-of-loyalty or bad-faith claims.
 
 Why this matters here:
-An **advisor** is not automatically a director/officer. If Horizon wants the advisor to take meaningful governance risk, ask whether there is:
+An **advisor** is not automatically a director/officer. If the Company wants the advisor to take meaningful governance risk, ask whether there is:
 - indemnification language,
 - D&O coverage,
 - a separate indemnification agreement,
