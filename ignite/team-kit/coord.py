@@ -24588,7 +24588,27 @@ def _selftest_checks(args, failures, names):
         def _c3_run(**kw):
             _d = dict(agent="leader", package=str(_c3l), dry_run=True)
             _d.update(kw)
-            return refuse(cmd_launch, **_d)
+            # ⚠ 7.718: THIS BLOCK SETS ITS OWN LAUNCH TARGET, like every sibling block that launches
+            # for real (`os.environ["COORD_LAUNCH_TARGET"] = "%0"` before a `dry_run=False` refuse).
+            # A real launch resolves `COORD_LAUNCH_TARGET or TMUX_PANE` or REFUSES, and this block
+            # can inherit NEITHER: an earlier block pops `COORD_LAUNCH_TARGET` unconditionally, and
+            # `$TMUX_PANE` belongs to whatever shell invoked the suite. It is set HERE, in the one
+            # helper every row of the block launches through, rather than around the block, so no
+            # future `dry_run=False` row can be added without it. Left unset, the four real launches
+            # below take `cmd_launch`'s `environment` refusal and exit 1 with every capacity verdict
+            # still CORRECT — the rows fail on `code == 0` alone — and, having launched nothing,
+            # write no `sessions.csv`, so the census-absent rows behind them read COLD-START instead
+            # of census-unproducible: EIGHT rows red on any host whose shell is outside tmux.
+            # NOT a weakening of that refusal, which is ruled behaviour with its own rows (F18).
+            _c3_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
+            os.environ["COORD_LAUNCH_TARGET"] = "%0"
+            try:
+                return refuse(cmd_launch, **_d)
+            finally:
+                if _c3_prior_target is None:
+                    os.environ.pop("COORD_LAUNCH_TARGET", None)
+                else:
+                    os.environ["COORD_LAUNCH_TARGET"] = _c3_prior_target
 
         def _c3_defer_lines(text):
             return [_ln for _ln in text.splitlines() if "DEFERRED (capacity)" in _ln]
@@ -24933,6 +24953,12 @@ def _selftest_checks(args, failures, names):
         # pass unchanged (this fix only widens the ONE reading none of them exercise: a package
         # nothing has EVER touched). This section needs a package that has genuinely never had a
         # sensor or a seat, so it builds its own.
+        # ⚠ "BY CONSTRUCTION" IS CONSTRUCTED BY `_c3_run`'s LAUNCH TARGET, NOT BY THE HOST. Until
+        # 7.718 that claim was FALSE whenever the suite ran outside tmux: the rows above refused on
+        # the missing target, launched nothing, and left `_c3l` with no `sessions.csv` — the very
+        # marker D1 keys on — so D1/D3/D4/D5 read COLD-START and went red. `_c3_run` now sets
+        # `COORD_LAUNCH_TARGET` itself, so the launches land on every host and the claim holds
+        # unconditionally. Never re-derive this block's non-virginity from an inherited `$TMUX_PANE`.
         _c4l = _rs_make("c4-coldstart", [("cs1", ""), ("cs2", "")])
         for _c4_s in ("cs1", "cs2"):
             (_c4l / "seats" / _c4_s / "seat.md").write_text(
