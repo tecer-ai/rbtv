@@ -141,6 +141,22 @@ either: a read-only check must not write into the goals workspace as the price o
 dispatch fenced against `.rbtv/**` can run the suite without breaching its own fence. A summary
 worth keeping is worth naming — pass `--summary <path>` and it is written verbatim there.
 
+## jobs/ — four scripts ACT on Linux only (author their briefs against the VPS)
+
+`ignite/jobs/` holds the daemon's `fire-tool` detector scripts. Four of them —
+`goal-watcher-job.py`, `selfheal-watch.py`, `selfheal-room.py` and `restart-daemon.py` — import
+`jobcontain.py`, whose containment ACTIONS exist only on POSIX: `single_instance`'s `fcntl`
+double-run lock and `contain`/`child_preexec`'s `resource` memory cap. Since task 7.715 those
+imports are LAZY and keyed on `ImportError`, so the four scripts LOAD anywhere — they can be read
+and statically checked on the Windows desktop — but they only ACT on Linux.
+
+**Author any brief that EXERCISES their real behaviour against the ignite VPS, not the desktop.**
+On a POSIX host the containment is byte-unchanged and REAL; degrading when the modules are absent
+is LOUD (one stderr line per function, keyed on the import failing — never on a platform name) and
+pinned by `jobs/probes/probe-jobcontain-degrade.py`. The other five scripts in the folder
+(`edge-runner-job.py`, `goal-state-job.py`, `recover-room.py`, `agent-tmp-clean.py`) do not import
+`jobcontain` and already load anywhere.
+
 ## Installation model
 
 Canonical statement of the ignite install model (owner ruling D27, 2026-07-14, `…/phase-7-plan/decisions.md`).

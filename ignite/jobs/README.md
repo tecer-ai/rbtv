@@ -13,6 +13,11 @@ recovery agent every period regardless of health — an unbounded paid path.
 | `goal-watcher-job.py` | 7.32 / B2 | the goal's `state.json` snapshot (CMP-20) and nothing raw | a threshold in CMP-21's Layout is crossed — see below; **DARK today, no live catalogue entry** |
 | `jobcontain.py` | both | — | (library: self-cap, wall clock, single-instance lock) |
 
+**Runs on: Linux only.** `goal-watcher-job.py`, `selfheal-watch.py`, `selfheal-room.py` and
+`restart-daemon.py` import `jobcontain.py`, whose containment ACTIONS need POSIX `fcntl`/`resource`.
+Since task 7.715 the module LOADS anywhere (lazy imports) but only ACTS on the VPS — author any
+brief that exercises their real behaviour against it (`ignite/CLAUDE.md § jobs/`).
+
 (`goal-state-job.py`, `restart-daemon.py` and `recover-room.py` are also in this folder and are NOT
 in the table above — noticed while adding the `edge-runner` row, left alone rather than back-filled
 from guesswork.)

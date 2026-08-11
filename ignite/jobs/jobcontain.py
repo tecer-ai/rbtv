@@ -22,16 +22,27 @@ including the run's own seats. A fork bomb in a detector is a smaller risk than 
 detector that locks the box's own user out of forking.
 """
 
-import fcntl
 import hashlib
 import os
-import resource
 import shutil
 import signal
 import subprocess
 import sys
 
 _ORIGINAL_LIMITS = {}
+_DEGRADED = set()
+
+
+def _degraded_once(func, missing, lost):
+    """Warn ONCE per process that a POSIX containment guarantee is off on this host.
+
+    Keyed on the import having FAILED, never on a platform name: on POSIX the import cannot
+    raise, so this line is unreachable there by construction — a Linux operator who sees it
+    has found a broken interpreter, not a portability note (7.715)."""
+    if func not in _DEGRADED:
+        _DEGRADED.add(func)
+        sys.stderr.write(f"{func}: {missing} unavailable — {lost}\n")
+        sys.stderr.flush()
 
 
 class _Timeout(Exception):
@@ -69,6 +80,11 @@ def _on_alarm(signum, frame):
 
 def contain(mem_mb=256, seconds=600):
     """Cap THIS process's address space and wall clock. Children are exempted."""
+    try:
+        import resource
+    except ImportError:
+        _degraded_once("contain", "resource", "NO memory cap or wall-clock alarm on this host")
+        return
     for key in (resource.RLIMIT_AS, resource.RLIMIT_CPU):
         _ORIGINAL_LIMITS[key] = resource.getrlimit(key)
     soft, hard = _ORIGINAL_LIMITS[resource.RLIMIT_AS]
@@ -83,6 +99,11 @@ def child_preexec():
     """preexec_fn for every child: restore the pre-`contain()` limits and clear the alarm.
 
     Without this the child inherits the detector's cap — see the module docstring."""
+    try:
+        import resource
+    except ImportError:
+        _degraded_once("child_preexec", "resource", "child rlimits NOT restored on this host")
+        return
     for key, (soft, hard) in _ORIGINAL_LIMITS.items():
         try:
             resource.setrlimit(key, (soft, hard))
@@ -200,6 +221,13 @@ def single_instance(lock_path):
     The lock is released by process exit; a killed instance never leaves a stale lock."""
     os.makedirs(os.path.dirname(lock_path), exist_ok=True)
     fh = open(lock_path, "w")
+    try:
+        import fcntl
+    except ImportError:
+        _degraded_once("single_instance", "fcntl", "NO double-run lock on this host")
+        fh.write(f"{os.getpid()}\n")
+        fh.flush()
+        return fh
     try:
         fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
