@@ -75,6 +75,11 @@ function enqueue(ctx, jobId, runAt) {
   });
 }
 
+// The tally is COUNTED, never typed: a hand-written "3/3" stops being true the moment a scenario is
+// added and would read as green while covering less (the idiom probe-one-live-run and
+// probe-queued-start-notify already use in this folder).
+let scenarios = 0;
+
 async function run(lines) {
   // The seat tree must live inside the profile's `workdir_root` or the containment gate refuses
   // it (E_WORKDIR_ESCAPE) — the same boundary every spawn crosses, REUSED here, never relaxed.
@@ -119,10 +124,21 @@ async function run(lines) {
     }
     lines.push(`PASS  a homed job launched into its seat folder: ${spawnAction.homed}`);
 
-    // The session's cwd IS the seat folder — asserted at the spawn manager, not inferred from the
-    // action we just read (that action is our own code's report about itself).
+    // The session's cwd IS the seat folder — ASSERTED against the workdir the SPAWN MANAGER
+    // resolved and persisted (`resolveWorkdir` → `jobs_log.workdir`), never against
+    // `spawnAction.homed`, which is the ticker echoing back the argument it just passed in: the
+    // claim above is our own code agreeing with itself. Realpath the expected side because
+    // canonicalizeWorkdir realpaths the requested one — a raw compare would go red on symlink
+    // resolution rather than on the homing. Recording this value without comparing it is what let
+    // the mode-gate regression stay green (31149a02).
     const execRow = ctx.store.dump().jobs_log.find((x) => x.job_id === 'homed-job');
-    lines.push(`PASS  jobs_log row exists for the homed launch: exec ${execRow.exec_id}, status ${execRow.status}`);
+    if (!execRow) throw new Error('no jobs_log row for the homed launch');
+    const seatReal = fs.realpathSync(seatDir);
+    if (execRow.workdir !== seatReal) {
+      throw new Error(`the spawn manager resolved workdir=${execRow.workdir}, expected the seat folder ${seatReal}`);
+    }
+    lines.push(`PASS  the spawn manager resolved the seat folder as the session workdir: ${execRow.workdir} (exec ${execRow.exec_id}, status ${execRow.status})`);
+    scenarios += 1;
     try { await ctx.mgr.kill(execRow.exec_id); } catch { /* best effort */ }
 
     // ── 2 · HOMED BUT UNRESOLVABLE → FAIL LOUD, never the interim path ───────────────────────
@@ -147,6 +163,7 @@ async function run(lines) {
       throw new Error(`spawn-failed carries the wrong reason: ${failedAction.error}`);
     }
     lines.push(`PASS  an unresolvable homed job FAILED LOUD, no interim fallback: ${failedAction.error}`);
+    scenarios += 1;
 
     // ── 3 · UNHOMED → REFUSAL, never a flat-path spawn (r-seats-only-architecture) ───────────
     ctx.store.registerJob({
@@ -165,10 +182,32 @@ async function run(lines) {
       try { if (row) await ctx.mgr.kill(row.exec_id); } catch { /* best effort */ }
       throw new Error(`an unhomed launch SPAWNED — the retired flat path is live: ${JSON.stringify(flatSpawn)}`);
     }
-    lines.push('PASS  an unhomed launch did not spawn — refusal, not a flat dir (r-seats-only-architecture)');
+    // An ABSENCE alone is not the claim. "Refused for the right reason" and "never reached
+    // dispatch" both leave no spawn action, so the same three assertions scenario 2 makes are made
+    // here: the refusal is RECORDED (`spawn-failed`), it names the RIGHT cause, and it lands
+    // against a REAL `jobs_log` row — the operator record ticker.js § resolveJobHome promises. A
+    // quiet `return null` in that branch would consume the queue row and satisfy an absence check.
+    //
+    // ⚠ MATCHED ON `MISSING FIELDS: goal_name/seat_name`, not on the shared `REFUSING SEATLESS
+    // DISPATCH` prefix. THIS IS THE TICK-LEVEL PROBE, so the refusal under test is the TICKER's —
+    // and the spawn door's own seatless refusal (spawn.js § spawn, `MISSING FIELD: workdir`)
+    // opens with the same prefix. Measured: replacing the throw at ticker.js § resolveJobHome
+    // with `return null` left a prefix match GREEN, because the door downstream refused instead.
+    // The plural-fields wording is what only the ticker's branch says.
+    const refusal = r.actions.find((a) => a.action === 'spawn-failed');
+    if (!refusal) throw new Error(`expected spawn-failed for the unhomed job, got ${JSON.stringify(r.actions)}`);
+    if (!/MISSING FIELDS: goal_name\/seat_name/.test(refusal.error)) {
+      throw new Error(`spawn-failed did not come from the ticker's own seatless branch: ${refusal.error}`);
+    }
+    const unhomedRow = ctx.store.dump().jobs_log.find((x) => x.job_id === 'unhomed-job');
+    if (!unhomedRow || unhomedRow.exec_id !== refusal.execId) {
+      throw new Error(`the refusal names exec ${refusal.execId} but jobs_log carries ${JSON.stringify(unhomedRow)}`);
+    }
+    lines.push(`PASS  an unhomed launch was REFUSED and recorded against exec ${unhomedRow.exec_id} (status ${unhomedRow.status}): ${refusal.error}`);
+    scenarios += 1;
 
     lines.push('');
-    lines.push('CHECKS: 3/3 scenarios passed');
+    lines.push(`CHECKS: ${scenarios}/${scenarios} scenarios passed`);
   } finally {
     try { execFileSync('tmux', ['kill-server'], { stdio: 'ignore' }); } catch { /* already gone */ }
     if (prevTmux === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = prevTmux;
