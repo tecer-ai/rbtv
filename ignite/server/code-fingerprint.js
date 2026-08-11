@@ -29,8 +29,9 @@
  * most likely to be "simplified" by someone who finds the caching odd.
  *
  * ⚠ THE SET IS DERIVED FROM `require.cache`, NOT ENUMERATED. An entry-file-only marker certifies
- * exactly the state it exists to detect — measured on the twin: the live loop's own `watch.py` was
- * current while `coord.py` had drifted four commits underneath it. The process's code is its whole
+ * exactly the state it exists to detect — measured on the twin (the retired `team-kit/watch.py`
+ * loop, 2026-07): its own module was current while `coord.py` had drifted four commits
+ * underneath it. The process's code is its whole
  * import closure, so the closure is the unit.
  *
  * BOUNDARIES, stated rather than discovered later:
@@ -126,10 +127,11 @@ function writeCodeMarker(workspaceRoot, fingerprint) {
     const body = JSON.stringify({
       pid: process.pid,
       // The absolute root the fingerprint's paths are relative to. CARRIED, never re-derived by the
-      // reader: the reader is `watch.py` in a kit SHARED by every workspace, and a literal like
-      // `3-resources/tools/rbtv/ignite/server` there would freeze this vault's layout into a tool
-      // other installs use — the same objection that keeps role names out of that kit. G-107's
-      // lesson: carry the subject, never infer it.
+      // reader: the reader is `daemon_code_state` in the daemon-watchdog capability's
+      // `rbtv-ignite-watchdog` (it replaced the retired `team-kit/watch.py` reader, task 7.35),
+      // a component every install runs, and a literal like `3-resources/tools/rbtv/ignite/server`
+      // there would freeze this vault's layout into it. G-107's lesson: carry the subject, never
+      // infer it.
       root: path.resolve(__dirname),
       // Absent when the daemon is run outside systemd (a dev run). Written as null rather than
       // omitted, so a reader can tell "no systemd identity" from "field I forgot to read".
