@@ -2030,6 +2030,12 @@ EXPECT = {
     "fx-renew": "failed",
     "fx-revive": "failed",
     "fx-exited": "failed",
+    # 7.712: the seat's OWN words for "I did not finish". It grades through the same ADVANCES_EDGE
+    # rule as every other not-`done` value — no special case — and the row exists so the GRADING
+    # path is what proves it. `check_enum_matches_coord` cannot: that check catches a WIDENING of
+    # coord's mapping, not a regression of `verify`'s membership test back to a hardcoded literal,
+    # which is exactly how `incomplete` once graded UNDECIDED and stayed a launch candidate (7.689).
+    "fx-incomplete": "failed",
     "fx-empty-disposition": "failed",
     "fx-open-sitting": None,
     "fx-no-row": None,
@@ -2116,6 +2122,7 @@ EXPECT_READY = {
     "fx-renew":                ("ready", []),
     "fx-revive":               ("ready", []),
     "fx-exited":               ("ready", []),
+    "fx-incomplete":           ("ready", []),
     "fx-empty-disposition":    ("ready", []),
     "fx-open-sitting":         ("ready", []),
     "fx-no-row":               ("ready", []),
@@ -2916,8 +2923,8 @@ def check_guard_red_arms_fire(coord, pkg):
 FX_JOB_ID = "fx-launch-seat"
 FX_PROFILE = "fx-profile"
 
-# Every ready seat the self-state intersection MUST exclude, with the mark that excludes it. All
-# nine are `ready` on the `after` term — their `after` cells are empty — and all nine are the
+# Every ready seat the self-state intersection MUST exclude, with the mark that excludes it. Every
+# row is `ready` on the `after` term — their `after` cells are empty — and every row is the
 # wrong thing to launch. This is the leader's bar, spelled out row by row.
 EXPECT_ENQUEUE_EXCLUDED = {
     "fx-done-outputs-present": "done",
@@ -2925,6 +2932,10 @@ EXPECT_ENQUEUE_EXCLUDED = {
     "fx-renew":                "failed",
     "fx-revive":               "failed",
     "fx-exited":               "failed",
+    # 7.712: the half `check_dispositions` cannot see. UNDECIDED is `None`, and this exclusion
+    # fires only on a NON-`None` terminal mark — so a misgraded `incomplete` would stay a LAUNCH
+    # CANDIDATE and be re-enqueued. The seat must be here, not merely graded.
+    "fx-incomplete":           "failed",
     "fx-empty-disposition":    "failed",
     "fx-renewed-then-done":    "done",
     "fx-no-iospec":            "done",
@@ -3106,7 +3117,7 @@ def check_enqueue_excludes_self_marked(coord, pkg):
     """CRITERION 1 / LEADER BAR — readiness is NOT launch candidacy.
 
     Every ready seat carrying a terminal mark must be EXCLUDED and NAMED, with the mark that
-    excluded it. The expectation is the eight-row table above, compared exactly: a seat that stops
+    excluded it. The expectation is the table above, compared exactly: a seat that stops
     being excluded is red, and so is one that starts."""
     submit, _ = _stub_door()
     res = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, submit=submit)
@@ -4105,7 +4116,9 @@ def build_fixture(root):
         "s-08,fx-renewed-then-done,claude,n-08,/fx,,2026-07-30 05:00,2026-07-30 05:30,108,1000,/dev/pts/8,renew\n"
         "s-09,fx-renewed-then-done,claude,n-09,/fx,,2026-07-30 05:31,2026-07-30 06:10,109,1000,/dev/pts/9,done\n"
         "s-10,fx-no-iospec,claude,n-10,/fx,,2026-07-30 06:00,2026-07-30 06:10,110,1000,/dev/pts/10,done\n"
-        "s-11,fx-route,claude,n-11,/fx,,2026-07-30 06:00,2026-07-30 06:10,111,1000,/dev/pts/11,done\n",
+        "s-11,fx-route,claude,n-11,/fx,,2026-07-30 06:00,2026-07-30 06:10,111,1000,/dev/pts/11,done\n"
+        # 7.712: the seat that ENDED saying, in its own words, that it did not finish.
+        "s-12,fx-incomplete,claude,n-12,/fx,,2026-07-30 06:00,2026-07-30 06:10,112,1000,/dev/pts/12,incomplete\n",
         encoding="utf-8")
     # The ROSTER half of `seats_of` is load-bearing, not decoration: `fx-no-row` has no session row
     # at all and is discoverable ONLY here. Without this file the stage silently never verifies it,
