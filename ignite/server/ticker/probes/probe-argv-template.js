@@ -409,9 +409,9 @@ async function run(lines) {
     const TOOL = 'c7559-edge';
     const goalA = path.join(ctx.workRoot, '.rbtv', 'goals', 'test-7559-approved');
     const goalB = path.join(ctx.workRoot, '.rbtv', 'goals', 'test-7559-unapproved');
-    const fireDir = path.join(ctx.workRoot, 'fire-7559');
-    const frozenDir = path.join(ctx.workRoot, 'frozen-7559');
-    const refusedDir = path.join(ctx.workRoot, 'refused-7559');
+    const fireDir = path.join(ctx.workRoot, '.rbtv', 'goals', 'test-7559-fire-dir');
+    const frozenDir = path.join(ctx.workRoot, '.rbtv', 'goals', 'test-7559-frozen-dir');
+    const refusedDir = path.join(ctx.workRoot, '.rbtv', 'goals', 'test-7559-refused-dir');
     for (const d of [goalA, goalB, fireDir, frozenDir, refusedDir]) fs.mkdirSync(d, { recursive: true });
 
     const ECHO = path.join(__dirname, '_argv-echo.js');
@@ -636,7 +636,7 @@ async function run(lines) {
     // by the `ticks` row. Each of the three is a positive observation of work done, not of harm
     // absent.
     ctx.store.config.tools['c7577-bad-shape'] = { argv: FIRE_TEMPLATE, args_allowlist: 'goal' };
-    const shapeDir = path.join(ctx.workRoot, 'shape-7577');
+    const shapeDir = path.join(ctx.workRoot, '.rbtv', 'goals', 'test-7577-shape-dir');
     fs.mkdirSync(shapeDir, { recursive: true });
     const marker = attempt(() => ctx.store.recordMessage({
       type: 'note', sender: 'probe-7577', thread: 'probe-7577', corpus: 'broadcast marker for S2e',
