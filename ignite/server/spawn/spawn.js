@@ -8,7 +8,7 @@ const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, 
 // The (harness, model) -> profile-name catalog, from the ONE shared resolver (task 7.54). Reached
 // through `server/spawn/config.js`'s own upstream — this module already depends on that adapter,
 // so nothing new crosses the daemon boundary.
-const { declaresBinding, profileForBinding, bindingOf } = require('../../launch-profiles/catalog');
+const { castProfileFor, bindingOf } = require('../../launch-profiles/catalog');
 const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCagedSettings } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
@@ -458,46 +458,23 @@ function seatDeclaresValue(seatDir, key) {
   }
 }
 
-// ── THE SEAT'S CAST → THE PROFILE THAT RUNS IT (task 7.54 · owner ruling D19, extending D16) ────
+// ── THE SEAT'S CAST → THE PROFILE THAT RUNS IT — the READ half only (task 7.54 · D19 · D27) ─────
 //
-// The defect: two launch paths reached a seat and NEITHER read what the seat was cast as. The
-// daemon lane passed one profile for every seat of a goal (`engine/seeding.js`), and the chat
-// bridge passed a deployment-wide chat profile by surface (`bridges/chat/forward-path.js`) — so
-// the planning interviewer, cast `claude-fable-5` in `taskforce.csv` AND in its own `seat.md`, was
-// revived on `claude-sonnet-5` whenever the owner answered it in Slack, with `sessions.csv`
-// recording the launch as if nothing had diverged.
+// Reads what the seat declares and hands it to the ONE shared resolver. The resolution law, the
+// refusals and the reasoning all live in `launch-profiles/catalog.js#castProfileFor`; this side
+// owns only the seat.md read, because that reader (`seatDeclaresValue`) is a spawn concern and
+// lives here.
 //
-// ⚑ RESOLVED HERE, IN THE ONE FUNCTION EVERY LAUNCH ROUTES THROUGH, and that placement IS the fix.
-// Resolving it in either caller would have left the other one broken and added a second mapping;
-// `spawn()` is downstream of the ticker, the chat bridge, the daemon lane, the attached lane and
-// the warm-session leg alike, and it is also UPSTREAM of both records (`jobs_log.profile` and the
-// at-dispatch `sessions.csv` row are written below), so record and reality cannot drift apart by
-// construction — they are written from the resolved value, not the requested one.
-//
-// ⚑ THE CAST OUTRANKS THE CALLER'S NAMED PROFILE, deliberately. A caller's profile is what runs a
-// seat that declares NO cast; it is not a licence to override one that does. That is G-111's rule
-// (an asserted value never outranks a declared one) applied to the model, and it is the whole
-// content of ruling D16 — the record is the authority for what a seat runs.
-//
-// Returns the caller's own `profileName` unchanged whenever the seat declares no cast, which is
-// the channel master (`open_binding`), every unmaterialized seat, and every pre-D19 deployment —
-// so a workspace that casts nothing behaves exactly as it did before this function existed.
+// ⚠ NOTHING PROFILE-SPECIFIC MAY LAND IN THIS FILE. `probe-caged-settings` asserts "no per-profile
+// special case anywhere in `server/spawn/`" and greps this tree for profile-name literals — the
+// standing DEC-1 rule that profile knowledge has exactly one home. The resolution logic lived here
+// until owner ruling D27 (2026-08-11) moved it out; keep it out, comments included.
 function profileForSeatCast(profiles, seatDir, profileName, log) {
   const binding = {
     harness: seatDeclaresValue(seatDir, 'harness'),
     model: seatDeclaresValue(seatDir, 'model'),
   };
-  if (!declaresBinding(binding)) return profileName;
-  // Throws E_UNMAPPED_BINDING / E_AMBIGUOUS_BINDING — never falls back. A cast this workspace
-  // cannot spawn must stop the launch: continuing on the caller's profile is precisely the silent
-  // wrong-model launch being fixed.
-  const cast = profileForBinding(profiles, binding, { seat: path.basename(seatDir) });
-  if (cast !== profileName) {
-    log('info', 'launching the profile the seat is CAST as, not the one the caller named (D19)', {
-      seatDir, requested: profileName, cast, harness: binding.harness, model: binding.model,
-    });
-  }
-  return cast;
+  return castProfileFor(profiles, binding, profileName, log, path.basename(seatDir));
 }
 
 // ── `rw-paths:` — the seat-declared READ-WRITE workspace paths (owner ruling "a", 2026-08-06) ──
