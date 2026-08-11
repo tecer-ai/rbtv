@@ -412,6 +412,11 @@ EXPECT_STATE = {
     "fx-renew": "failed",
     "fx-revive": "failed",
     "fx-exited": "failed",
+    # 7.712 added this seat to the SHARED fixture. It ended saying, in its own words, that it did
+    # not finish — a terminal mark that is not `done`, so it reads `failed` here exactly as
+    # `renew`/`revive`/`exited` do. Not a divergence: it has no roster row, so the terminal and
+    # roster readings agree and EXPECT_DIVERGENCE stays at two entries.
+    "fx-incomplete": "failed",
     "fx-empty-disposition": "failed",     # ended with an EMPTY cell — unknown, never done
     "fx-renewed-then-done": "done",
     "fx-no-iospec": "done",
