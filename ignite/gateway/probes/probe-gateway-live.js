@@ -132,8 +132,9 @@ function bootDaemon(env, { expectExit = false } = {}) {
   return new Promise((resolve) => {
     const proc = spawn(process.execPath, [ENTRY], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let settled = false;
+    let bootTimeout = null;
     const base = { proc, log: () => state.stdout, errLog: () => state.stderr };
-    const done = (res) => { if (!settled) { settled = true; resolve({ ...base, ...res }); } };
+    const done = (res) => { if (!settled) { settled = true; clearTimeout(bootTimeout); resolve({ ...base, ...res }); } };
 
     proc.stdout.on('data', (d) => {
       state.stdout += d.toString();
@@ -144,7 +145,10 @@ function bootDaemon(env, { expectExit = false } = {}) {
     // at all, so a bare listener leaves this promise to the 20s timeout and reports a
     // spawn failure as a plain no-listening boot (task 7.686, 7.621's class).
     awaitExit(proc).then(({ code }) => done({ exitCode: code, listening: false }));
-    setTimeout(() => done({ listening: false, timedOut: true }), 20000);
+    // G-157: the safety net must not outlive the boot it guards. Uncleared, it held this
+    // probe open for its full 20s after the work was done - 20.3s of wall for 0.4s of
+    // checks, every run. Same repair the cli probes shared fixture already carries.
+    bootTimeout = setTimeout(() => done({ listening: false, timedOut: true }), 20000);
   });
 }
 
@@ -231,7 +235,12 @@ async function main() {
     // probe, the event fired before this line and a late listener never would (7.686).
     const exited = awaitExit(b.proc);
     b.proc.kill('SIGTERM');
-    await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
+    // Cleared for the same G-157 reason as the boot timeout above: the loser of this race
+    // is still an armed 5s timer, and it held the probe open for its full 5s after a
+    // shutdown that had already completed.
+    let graceTimer = null;
+    await Promise.race([exited, new Promise((r) => { graceTimer = setTimeout(r, 5000); })]);
+    clearTimeout(graceTimer);
     try { b.proc.kill('SIGKILL'); } catch {}
   }
 
