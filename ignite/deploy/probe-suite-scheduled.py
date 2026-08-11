@@ -27,13 +27,14 @@ demonstrably fires". ⚠⚠ NO SUCH MECHANISM EXISTS — verified absent across 
 (2026-07-29). That false sentence is what kept a RED verdict sitting unread for ~22h: a reader
 checking whether RED reaches anyone found a line saying it did. The TRUE delivery state:
   · WRITTEN — `latest.json` (rewritten on every fire) plus the per-run summary. Both land on disk.
-  · READ — exactly one consumer: the CMP-28 daemon-watchdog
-    (`ignite/capabilities/daemon-watchdog/tool/rbtv-ignite-watchdog`, `probe_probe_suite`), and it
-    reads this artifact for LIVENESS ONLY — `verdict`/`passed`/`failed` are, in its own words,
-    "deliberately never read here" (CMP-28 § Differentiation: the suite grades correctness, the
-    watchdog grades liveness).
-  · THEREFORE — NO component reads the verdict. A RED sits on disk unread until a human looks at it.
-Which consumer closes that gap is an OPEN OWNER DECISION (task 7.107). Do not assume one exists.
+  · READ — the CMP-28 daemon-watchdog
+    (`ignite/capabilities/daemon-watchdog/tool/rbtv-ignite-watchdog`, `probe_probe_suite`) reads
+    this artifact for BOTH liveness AND the correctness verdict: a live suite reporting RED is
+    delivered to the operator as an `alarm` (no restart fixes a failing probe). This CLOSED the
+    gap that let a RED sit unread — owner ruling `d-probe-suite-verdict-delivery` (2026-08-10),
+    part 2. Part 1 of that ruling gave the runner an INOPERATIVE class (exit 2) distinct from
+    `failed`, so the verdict the watchdog reads is meaningful and not permanently RED on the
+    by-design unattended refusals (task 7.107).
 ⚠ This script MUST NOT be extended to notify anyone itself: the obvious route
 is `watch.py`, which is `ignite/team-kit/` and barred to this seat (r-engineer-not-team-kit).
 
@@ -299,6 +300,7 @@ def main():
             return int(m.group(1)) if m else None
 
         attempted, passed, failed = num('attempted'), num('passed'), num('failed')
+        inoperative = num('inoperative')
         run_discovered = num('discovered')
         verdict_m = re.search(r'SUITE-COMPLETE verdict=(\w+)', tail)
         summary_m = re.search(r'^summary:\s*(\S+)$', tail, re.M)
@@ -316,6 +318,7 @@ def main():
             'expected_to_run': expected,
             'attempted': attempted,
             'passed': passed,
+            'inoperative': inoperative,
             'failed': failed,
             'excluded': [{'probe': p, 'why': EXCLUDED_DIRS[os.path.dirname(p)]} for p in excluded_probes],
             'coverage_ok': coverage_ok,

@@ -183,9 +183,13 @@ def probe_probe_suite():
             a = json.load(f)
     except Exception as ex:
         return "down", "cannot read %s (%s)" % (path, type(ex).__name__)
-    # LIVENESS ONLY. `verdict`/`passed`/`failed` in this same artifact are a
-    # CORRECTNESS grade and are deliberately never read here (CMP-28
-    # § Differentiation: the probe suite grades correctness, this grades liveness).
+    # LIVENESS FIRST, then CORRECTNESS. This row historically read `verdict`/`passed`/`failed`
+    # NEVER — liveness only. Owner ruling `d-probe-suite-verdict-delivery` (2026-08-10) REVERSES
+    # that: the runner now classifies exit-2 INOPERATIVE apart from `failed`, so the verdict is
+    # meaningful (not permanently RED on by-design refusals), and this — the one consumer that
+    # already opens latest.json every fire and already owns an operator delivery path — reads it.
+    # A failing probe is not a liveness problem and no restart fixes it, so a live RED is an
+    # `alarm` (human needed), never a `down` (which would restart the timer).
     fired = a.get("fired_at")
     stale_after = a.get("stale_after_seconds")
     if not fired or not stale_after:
@@ -193,7 +197,13 @@ def probe_probe_suite():
     age = time.time() - utc_epoch(fired)
     if age > float(stale_after):
         return "down", "last fired %ds ago, stale_after=%ss" % (int(age), stale_after)
-    return "up", "last fired %ds ago (stale_after=%ss)" % (int(age), stale_after)
+    live = "last fired %ds ago (stale_after=%ss)" % (int(age), stale_after)
+    if a.get("verdict") == "RED":
+        failed = a.get("failed")
+        return "alarm", ("suite is LIVE but the correctness verdict is RED: %s genuine probe "
+                         "failure(s) (INOPERATIVE/by-design refusals already excluded) — %s"
+                         % (failed if failed is not None else "?", live))
+    return "up", "%s, verdict=%s" % (live, a.get("verdict") or "?")
 
 
 def probe_goal_watcher():

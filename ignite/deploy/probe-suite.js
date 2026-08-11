@@ -253,6 +253,13 @@ function grade(probe, r) {
   if (r.timedOut) return { verdict: 'TIMEOUT', ok: false, counted: true };
   if (r.spawnError) return { verdict: 'CRASH', ok: false, counted: true };
   if (typeof r.exit !== 'number') return { verdict: 'NOT-ATTEMPTED', ok: false, counted: false };
+  // exit 2 = INOPERATIVE: the probe self-declared it could not meaningfully run (absent
+  // fixture, unlocatable mutation target, a refused-unattended arm) and scored NOTHING — it is
+  // neither a pass nor a failure. This is a codebase-wide probe convention (`sys.exit(2 if
+  // inoperative ...)`, `process.exit(2)` under an INOPERATIVE/ABORT print). Counted as attempted
+  // (it ran) but kept OUT of `failed`, so the scheduled verdict stops being permanently RED on
+  // by-design refusals — owner ruling d-probe-suite-verdict-delivery.
+  if (r.exit === 2) return { verdict: 'INOPERATIVE', ok: false, counted: true, refused: true };
   if (r.exit !== 0) return { verdict: 'FAIL', ok: false, counted: true };
 
   // exit 0. Execution evidence: if this probe writes a capture, it must have been written inside
@@ -379,7 +386,8 @@ function runSuite(opts) {
 function finish({ discovered, rows, refreshed = [], archiveFailures = [], reason, opts, emit }) {
   const attempted = rows.filter((r) => r.counted).length;
   const passed = rows.filter((r) => r.ok).length;
-  const failed = attempted - passed;
+  const inoperative = rows.filter((r) => r.verdict === 'INOPERATIVE').length;
+  const failed = attempted - passed - inoperative;
   const incomplete = discovered === 0 || attempted === 0 || attempted < discovered;
 
   let verdict;
@@ -393,6 +401,7 @@ function finish({ discovered, rows, refreshed = [], archiveFailures = [], reason
     'discovered: ' + discovered,
     'attempted: ' + attempted,
     'passed: ' + passed,
+    'inoperative: ' + inoperative,
     'failed: ' + failed,
     'not-attempted: ' + (discovered - attempted),
     // Named `captures-refreshed`, and it is now the HEALTHY reading. Under preserve mode this
@@ -407,7 +416,7 @@ function finish({ discovered, rows, refreshed = [], archiveFailures = [], reason
   ].join('\n');
   emit(trailer);
 
-  return { verdict, exitCode, discovered, attempted, passed, failed,
+  return { verdict, exitCode, discovered, attempted, passed, failed, inoperative,
     notAttempted: discovered - attempted, rows, refreshed, archiveFailures,
     reason: reason || null };
 }
@@ -728,6 +737,49 @@ function selftest() {
       }
     });
 
+  // ---- INOPERATIVE: exit 2 is a THIRD class, counted but never failed -------------------
+  // The red-first proof for d-probe-suite-verdict-delivery: BEFORE this class existed, a probe
+  // that exited 2 graded FAIL and turned the whole suite RED — permanently, because by-design
+  // unattended refusals exit 2 on every scheduled fire. AFTER, exit 2 is INOPERATIVE: counted
+  // (it ran) but excluded from `failed`, so a run whose only non-passes are inoperative is GREEN.
+  const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-suite-inop-'));
+  const dir3 = path.join(tmp3, 'mod', 'probes');
+  fs.mkdirSync(dir3, { recursive: true });
+  fs.writeFileSync(path.join(dir3, 'probe-inop.js'), 'console.log("INOPERATIVE: nothing to run");process.exit(2);');
+  fs.writeFileSync(path.join(dir3, 'probe-green.js'), 'process.exit(0);');
+  const runInop = (re) => runSuite({ root: tmp3, timeoutMs: 4000,
+    discover: (root) => discoverProbes(root).filter((p) => !re || re.test(p.id)) });
+
+  t('S17 exit 2 grades INOPERATIVE, not FAIL', () => {
+    const r = runInop(/probe-inop\.js$/);
+    eq(r.rows[0].verdict, 'INOPERATIVE', 'verdict');
+    eq(r.failed, 0, 'failed');
+    eq(r.inoperative, 1, 'inoperative');
+  });
+
+  t('S18 a run whose only non-pass is INOPERATIVE is GREEN, exit 0 (the red-first proof) — exit 2 '
+    + 'used to grade FAIL and turn the suite permanently RED', () => {
+      const r = runInop(null);
+      eq(r.discovered, 2, 'discovered');
+      eq(r.attempted, 2, 'attempted (inoperative still counts — it ran)');
+      eq(r.passed, 1, 'passed');
+      eq(r.inoperative, 1, 'inoperative');
+      eq(r.failed, 0, 'failed');
+      eq(r.verdict, 'GREEN', 'verdict');
+      eq(r.exitCode, EXIT_GREEN, 'exit');
+    });
+
+  t('S19 a GENUINE failure (exit 1) still turns the suite RED beside an INOPERATIVE', () => {
+    fs.writeFileSync(path.join(dir3, 'probe-fail.js'), 'process.exit(1);');
+    const r = runInop(null);
+    eq(r.failed, 1, 'failed');
+    eq(r.inoperative, 1, 'inoperative');
+    eq(r.verdict, 'RED', 'verdict');
+    eq(r.exitCode, EXIT_FAILED, 'exit');
+    fs.rmSync(path.join(dir3, 'probe-fail.js'));
+  });
+
+  fs.rmSync(tmp3, { recursive: true, force: true });
   fs.rmSync(tmp2, { recursive: true, force: true });
   fs.rmSync(tmp, { recursive: true, force: true });
 
