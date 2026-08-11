@@ -27,7 +27,7 @@ identical on every row: **acted, or acted and it did not come back.** Nothing no
 |-----|-------|----------------|
 | `daemon` | `POST /` `{intent:"inspect", payload:{target:"daemon"}}` at the gateway with a Bearer token. Connect failure / timeout / non-200 = **down**. HTTP 401 = **alarm**, never down: the daemon is up and answering, the token is not accepted — restarting cannot fix that and would loop | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart` |
 | `bridge` | `is-active`, AND the newest Socket-Mode lifecycle line in the last 200 journal lines. `active` only proves the Node process exists — Slack's socket can die under it. The bridge's own `reconnect()` is the first line of self-heal, so what this catches is that **backoff loop being stuck**: newest marker is a reconnect failure with no later hello. Neither marker present is NOT a fault; a healthy bridge is quiet | `RBTV_IGNITE_UNIT=<bridge unit> rbtv-ignite-daemon restart` |
-| `probe-suite` | `<workspace>/.rbtv/runtime/probe-suite/latest.json`: `now - fired_at > stale_after_seconds`. **Liveness only** — `verdict`/`passed`/`failed` sit in that same artifact and are deliberately never read here | `RBTV_IGNITE_UNIT=<timer> rbtv-ignite-daemon restart` — see § The row that used to bypass the operator |
+| `probe-suite` | `<workspace>/.rbtv/runtime/probe-suite/latest.json`: `now - fired_at > stale_after_seconds`. **Liveness first, then correctness**: a LIVE artifact whose `verdict` is anything other than `GREEN`/`UNKNOWN` is an **alarm**, never a down — a failing or ungraded suite is not a liveness problem and no restart fixes it. That covers `RED` (`d-probe-suite-verdict-delivery`, 2026-08-10) and the runner-grade-broken set — `ERROR` · `COVERAGE-MISMATCH` · `ARTIFACT-PATH-MISMATCH` · `ARTIFACT-MISSING` · `INCOMPLETE` (owner ruling 2026-08-11), which carry a `note`/`error` instead of a `failed` count and were previously reported as healthy | `RBTV_IGNITE_UNIT=<timer> rbtv-ignite-daemon restart` — see § The row that used to bypass the operator |
 | `goal-watcher` | the job's own periodic **queue row**, via `inspect queue`: overdue by more than the row's OWN `interval_seconds`. No row at all = **skip** (see below). Queue unreadable = **skip**, because that means the daemon is down and the `daemon` row already owns both the cause and the only lever | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart` — a FULL daemon restart, and the DM says so in those words |
 
 ## The fifth row: daemon IDENTITY — RESTARTED · CRASH-LOOP · IDENTITY · STALE CODE
@@ -209,6 +209,13 @@ host and never touches the live unit or the real `.rbtv/runtime/`. It carries a 
 control of its own: `RBTV_WATCHDOG_TOOL_PATH=<another copy>` points it at a different
 watchdog, and a watchdog missing the verdicts is reported as four named red arms rather than
 one traceback.
+
+`probes/probe-runner-grade-verdicts.py` proves the `probe-suite` row's grading — a fixture
+`latest.json` per verdict (`RED`, `ERROR`, `COVERAGE-MISMATCH`, `GREEN`, `UNKNOWN`) with a
+fresh `fired_at`, asserting alarm/alarm/alarm/up/up and that each alarm message names its
+verdict without an unresolved placeholder (the broken verdicts carry no `failed` count, so
+the RED wording cannot be reused for them). Same red-first control: against a pre-widening
+copy via `RBTV_WATCHDOG_TOOL_PATH` the two runner-grade rows go red.
 
 ## Retirement
 
