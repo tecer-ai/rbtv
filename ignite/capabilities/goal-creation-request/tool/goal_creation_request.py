@@ -143,6 +143,11 @@ INTERACTIVE_MODALITY = "interactive"
 
 RULED_LAUNCH_NAME = "scaffold-seats"
 
+# THE single source of truth for the goal-launch delay — the seconds a created goal's first
+# workflow job waits before it fires. Every other statement of it is derived, never retyped:
+# `goal_launch_delay.py`'s `show` reads THIS assignment out of this file as text.
+DELAY_DEFAULT = 600
+
 # ------------------------------------------- the CLOSED reject set (E3's §6.1)
 #
 # FOURTEEN members, id -> (member name, the field or shape it rejects). The set is CLOSED: these are
@@ -665,7 +670,7 @@ REFUSED_DIR = "refused"
 
 
 def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, catalog_root, bindings,
-                       conduct, claude_md, budget_json, delay_seconds=600,
+                       conduct, claude_md, budget_json, delay_seconds=DELAY_DEFAULT,
                        ignite_bin="ignite", dry_run=False):
     """SCAFFOLD-AND-QUEUE — the daemon-executed half of a caged requester's ask (task C2).
 
@@ -1103,8 +1108,8 @@ def main(argv=None):
                    help="caller-supplied CLAUDE.md base text for the created goal package")
     q.add_argument("--budget-json", required=True,
                    help="caller-supplied budget.json for the created goal package (a PATH, never a value)")
-    q.add_argument("--delay-seconds", type=int, default=600,
-                   help="how far out the workflow job is queued (default 600 = 10 minutes)")
+    q.add_argument("--delay-seconds", type=int, default=DELAY_DEFAULT,
+                   help="how far out the workflow job is queued (default: %(default)s seconds)")
     q.add_argument("--ignite-bin", default="ignite",
                    help="the door's binary; a daemon-fired exec has no ~/.local/bin on PATH")
     q.add_argument("--dry-run", action="store_true")

@@ -115,11 +115,22 @@ FLAG = "--delay-seconds"
 # ENTRY_TOOL_KEY is the argv the daemon fires to run this tool.
 ENTRY_TOOL_KEY = "goal-launch-delay"
 
-# The value the tool's own argparse default supplies when the flag is absent from the argv.
-# Duplicated here deliberately (the same call `goal_creation_request.py` makes on the other side),
-# so `show` can say "absent — the tool default applies" with the number, instead of printing a
-# blank where a reader would supply their own guess.
-TOOL_DEFAULT = 600
+# The value that applies when the flag is absent from the argv. NOT a copy — it is READ, as text,
+# out of the ONE place the number lives: `goal_creation_request.py`'s `DELAY_DEFAULT`. Read, not
+# imported: that module is a 1100-line sibling and `show` must work inside the read-only cage, so
+# this side depends on one assignment line, not on the sibling importing cleanly.
+# It RAISES when the assignment does not resolve — a fallback number here would silently be the
+# duplicate this derivation exists to delete.
+GCR_TOOL = _IGNITE / "capabilities" / "goal-creation-request" / "tool" / "goal_creation_request.py"
+DELAY_DEFAULT_RE = re.compile(r"^DELAY_DEFAULT = (\d+)$", re.M)
+
+
+def tool_default():
+    m = DELAY_DEFAULT_RE.search(GCR_TOOL.read_text(encoding="utf-8"))
+    if not m:
+        raise Refusal(f"the goal-launch delay's one home, `DELAY_DEFAULT = <int>` in {GCR_TOOL}, "
+                      f"did not resolve — this tool states no default of its own")
+    return int(m.group(1))
 
 # The ceiling is a REFUSAL, not a clamp. A request for 10_000_000 is a mistake, and silently
 # storing 86400 for it would hide the mistake behind a plausible number. 86400 = one day: past it
@@ -225,10 +236,11 @@ def read_value(config):
             return {"seconds": seconds, "source": "explicit",
                     "config": str(config), "line": op_idx + 1,
                     "where": f"{config}:{op_idx + 1} — `tools: {ENTRY}:` argv, operand of {FLAG}"}
-    return {"seconds": TOOL_DEFAULT, "source": "tool-default",
+    default = tool_default()
+    return {"seconds": default, "source": "tool-default",
             "config": str(config), "line": None,
             "where": (f"{FLAG} is ABSENT from the `tools: {ENTRY}:` argv in {config}, so "
-                      f"`goal_creation_request.py`'s own argparse default ({TOOL_DEFAULT}) applies")}
+                      f"`goal_creation_request.py`'s own `DELAY_DEFAULT` ({default}) applies")}
 
 
 def write_value(config, seconds):

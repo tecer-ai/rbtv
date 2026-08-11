@@ -11,7 +11,7 @@ The tool is `tool/rbtv-goal-launch-delay`.
 **There is no "delay setting" in this system.** The delay is the operand of `--delay-seconds` in
 the `tools: goal-creation-request:` argv of `config/spawn-profiles.yaml`, read by
 `goal_creation_request.py#scaffold_and_queue` and turned into the queued job's `--at`. When the flag
-is **absent** from that argv, the tool's own argparse default (600) applies — so *absent* and *600*
+is **absent** from that argv, the tool's own default applies — so *absent* and *explicit*
 are the same effective value reached two different ways, and `show` says which of the two is in
 force rather than printing a number that hides the difference.
 

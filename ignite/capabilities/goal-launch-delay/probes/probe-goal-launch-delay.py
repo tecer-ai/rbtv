@@ -237,9 +237,21 @@ def main():
         check(n == 1, "the fixture removed the shipped --delay-seconds pair")
         cfg.write_text(stripped, encoding="utf-8")
 
+        # FIRST, because everything below depends on it: the tool default is not a number this
+        # module holds, it is READ out of `goal_creation_request.py`'s `DELAY_DEFAULT`. Nothing
+        # re-states it, so the only thing left to assert is that the read still RESOLVES — a rename
+        # or a reworded assignment must refuse here, never fall back to an invented number.
+        try:
+            resolved = mod.tool_default()
+        except Exception as exc:
+            resolved = f"{type(exc).__name__}: {exc}"
+        check(isinstance(resolved, int),
+              f"the tool default RESOLVES from `goal_creation_request.py`'s DELAY_DEFAULT "
+              f"(got {resolved!r})")
+
         v = mod.read_value(cfg)
-        check(v["seconds"] == mod.TOOL_DEFAULT and v["source"] == "tool-default",
-              f"show reports {mod.TOOL_DEFAULT} sourced as tool-default (got {v['seconds']}/{v['source']})")
+        check(v["seconds"] == resolved and v["source"] == "tool-default",
+              f"show reports {resolved} sourced as tool-default (got {v['seconds']}/{v['source']})")
 
         inbox = tmp / "inbox"
         stub, rec, snap = stub_operator(tmp, cfg)
