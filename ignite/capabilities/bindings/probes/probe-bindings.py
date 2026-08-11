@@ -32,6 +32,15 @@ throwaway goal package with `--dry-run`. The live `.rbtv/config/modules/` is rea
      Every other check exercises this tool alone; this one is the only evidence that the artifact it
      writes is the artifact the consumer reads. Its negative twin: the SAME call with one seat left
      uncast must refuse.
+  8. THE BOTH-DOORS SWEEP — every rung of every CASTABLE ladder is composed twice, by the daemon
+     door (`launch-profiles/profiles.js#resolveEffort`, loaded through the daemon's own
+     `server/spawn/config.js`) and by the tmux door (`team-kit/coord.py#harness_command`), and the
+     two must yield the same tokens in the same order. Its COVERAGE FLOOR is the check, not its
+     setup: the sweep refuses to grade until it has seen more than one harness and more than one
+     dialect, because every live seat is claude and a claude-only matrix would pass every cell
+     while certifying the exact defect this closes. That floor is proven to FIRE by handing the
+     same predicate a claude-only cell set. One `node` call covers the whole matrix — a scheduled
+     probe cannot afford a process per cell.
 """
 
 import atexit
@@ -39,6 +48,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -122,9 +132,15 @@ with tempfile.TemporaryDirectory() as td:
           "model ids the shipped profiles pin (no aliases, owner ruling 2026-08-10)",
           ("claude", "claude-fable-5") in pairs and ("claude", "claude-opus-5") in pairs,
           f"{len(base)} rows")
-    check("kimi and test-sleep are REPORTED not-castable with a stated reason, not dropped",
-          all(any(r["profile"] == n and not r["castable"] and r["not-castable-because"]
-                  for r in base) for n in ("kimi", "test-sleep")))
+    check("test-sleep is REPORTED not-castable with a stated reason, not dropped — its `exec:` argv "
+          "is `sleep`, a harness no launch door speaks",
+          any(r["profile"] == "test-sleep" and not r["castable"] and r["not-castable-because"]
+              for r in base))
+    check("kimi is CASTABLE — it was reported not-castable only because `coord.py#HARNESSES` did "
+          "not carry it, so `validate_seat` refused `unknown harness` before its fully authored "
+          "profile was ever reached. This row moves with that predicate, which is the whole reason "
+          "the catalog is gated on it rather than on a list kept here",
+          any(r["profile"] == "kimi" and r["castable"] for r in base))
     vs = mod._coord_validate_seat()
     bad = [f"{r['harness']}/{r['model']}" for r in base if r["castable"]
            and vs({"agent": r["profile"], "harness": r["harness"], "model": r["model"]})]
@@ -347,6 +363,113 @@ with tempfile.TemporaryDirectory() as td:
           r.stdout.count("seat-descriptor:") == len(seats),
           f"{r.stdout.count('seat-descriptor:')} of {len(seats)}")
     check("--dry-run wrote nothing into the package", not any(pkg.iterdir()))
+
+# ────────────────────────────────────────────────────────────────────────────────── check 8
+#
+# THE BOTH-DOORS SWEEP. A seat's declared effort reaches a binary through two independent
+# compositions: the DAEMON door (`launch-profiles/profiles.js#resolveEffort`, reached here through
+# `server/spawn/config.js` so the loader is the daemon's own) and the TMUX door
+# (`team-kit/coord.py#harness_command`). Until 2026-08-11 the second one hardcoded claude's
+# `--effort {word}` and nothing else, so a codex seat (a real 3-rung ladder), a kimi seat and all
+# seven opencode seats launched with their declared effort SILENTLY DROPPED — and an invalid
+# opencode `--variant` exits 0 applying nothing, so even the binary would not have said so.
+#
+# ⚠⚠ THE COVERAGE ASSERTION IS THE POINT OF THIS CHECK, NOT ITS PREAMBLE. Every one of the 21 live
+# seats is claude, and the selftest arm that asserts the claude case passed throughout the entire
+# life of the defect. A matrix that silently collapsed to claude-only would therefore pass every
+# cell it compared AND certify exactly the bug — so the sweep refuses to grade itself until it has
+# seen MORE THAN ONE HARNESS and MORE THAN ONE DIALECT. The floor is proven to FIRE below, by
+# handing the same predicate a single-profile cell set.
+print("check 8 — the BOTH-DOORS sweep: daemon and tmux spell every rung of every castable ladder "
+      "identically")
+
+# ONE node call for the WHOLE matrix. Per-cell subprocesses would make a scheduled probe unusably
+# slow (~40 node boots), and the daemon side is a pure function of the config — there is nothing a
+# per-cell process could observe that this cannot.
+_DOOR_A = r"""
+const cfgmod = require(process.argv[1]);
+const cfg = cfgmod.loadConfig(process.argv[2]);
+const out = [];
+for (const [name, p] of Object.entries(cfg.profiles || {})) {
+  const eff = p && p.effort;
+  if (!eff || eff.inert === true || !Array.isArray(eff.rungs)) continue;
+  for (let r = 1; r <= eff.rungs.length; r += 1) {
+    const res = cfgmod.resolveEffort(p, r, name);
+    out.push({ profile: name, rung: r, word: eff.rungs[r - 1], argv: res.argv,
+               dialect: (res.applied || {}).dialect });
+  }
+}
+process.stdout.write(JSON.stringify(out));
+"""
+
+sys.path.insert(0, str(IGNITE / "team-kit"))
+import coord as coord_mod  # noqa: E402 — the tmux door itself, never a re-implementation of it
+
+_r = subprocess.run(["node", "-e", _DOOR_A, str(IGNITE / "server" / "spawn" / "config.js"),
+                     str(LIVE_PROFILES)], capture_output=True, text=True)
+if _r.returncode != 0:
+    inoperative.append("door A did not run — the whole sweep scored nothing")
+    check("door A (the daemon's own loader + resolveEffort) answers for the live profiles",
+          False, (_r.stderr or _r.stdout).strip().splitlines()[-1][:180] if (_r.stderr or _r.stdout)
+          else f"exit {_r.returncode}")
+    cells = []
+else:
+    _castable = mod.castable(LIVE_PROFILES)                    # {(harness, model): row}
+    _by_profile = {row["profile"]: (h, m) for (h, m), row in _castable.items()}
+    # A cell is (harness, model, rung word, door-A argv, dialect). Profiles with a ladder this
+    # workspace cannot CAST are skipped: a pair `harness_command` would refuse is not a
+    # disagreement between the doors, it is a pair with no second door.
+    cells = [(_by_profile[c["profile"]][0], _by_profile[c["profile"]][1],
+              c["word"], [str(a) for a in c["argv"]], c["dialect"])
+             for c in json.loads(_r.stdout) if c["profile"] in _by_profile]
+
+
+def _coverage(cs):
+    """(harnesses, dialects) a cell set exercises — the sweep's own floor, and its own mutant."""
+    return {c[0] for c in cs}, {c[4] for c in cs}
+
+
+_h, _d = _coverage(cells)
+_covered = check(
+    "COVERAGE FLOOR — the sweep exercised more than one harness AND more than one dialect before "
+    "comparing anything. Every live seat is claude and the claude case already passed for the "
+    "whole life of the defect, so a matrix that collapsed to claude-only would certify the bug "
+    "with a full green sweep",
+    len(_h) > 1 and len(_d) > 1,
+    f"{len(cells)} cells · harnesses {sorted(_h)} · dialects {sorted(_d)}")
+
+if not _covered:
+    inoperative.append("the sweep's coverage floor was not met — its cells scored nothing")
+else:
+    _mismatch = []
+    for harness, model, word, argv_a, _dialect in cells:
+        seat = {"agent": "sweep", "harness": harness, "model": model, "effort": word,
+                "cwd": "/tmp"}
+        cmd_b, err_b = coord_mod.harness_command(seat, prompt_path="/tmp/p.txt")
+        toks = shlex.split(cmd_b) if cmd_b else []
+        # A CONTIGUOUS token subsequence, so this scores the flag SPELLING and the literal and
+        # their ORDER — `--variant max` passing because `max` appears somewhere in the line would
+        # be the check grading itself.
+        if not any(toks[i:i + len(argv_a)] == argv_a for i in range(len(toks) + 1)):
+            _mismatch.append(f"{harness}/{model} rung '{word}': door A {argv_a} absent from "
+                             f"door B {cmd_b or ('REFUSED: ' + err_b)}")
+        if coord_mod.validate_seat(seat):
+            _mismatch.append(f"{harness}/{model} rung '{word}': on its OWN profile's ladder yet "
+                             f"validate_seat refuses it — {coord_mod.validate_seat(seat)}")
+    check("every rung of every castable ladder reaches BOTH doors as the same tokens, in the same "
+          "order — and each is accepted by the launch predicate that gates the tmux door",
+          not _mismatch, "; ".join(_mismatch[:3]) or f"{len(cells)} cells agree")
+
+    # THE FLOOR'S OWN MUTANT: the identical predicate over a single-harness cell set MUST fail.
+    # Without this the floor is a sentence, not a check — it would read as satisfied whether or not
+    # it could ever have said no.
+    _one = [c for c in cells if c[0] == "claude"]
+    _h1, _d1 = _coverage(_one)
+    check("the coverage floor FIRES: handed a single-profile-family cell set (claude only, the "
+          "exact shape the defect survived under) the SAME predicate reports insufficient — so the "
+          "green above is a floor that was cleared, not one that cannot fail",
+          bool(_one) and not (len(_h1) > 1 and len(_d1) > 1),
+          f"{len(_one)} claude cells · harnesses {sorted(_h1)} · dialects {sorted(_d1)}")
 
 verdict = ("INOPERATIVE" if inoperative else ("FAIL" if failures else "PASS"))
 print(f"probe-bindings: {verdict} — "

@@ -18,6 +18,7 @@ Stdlib only; no PATH install. Liveness/context monitoring lives in watch.py besi
 import argparse
 import csv
 import difflib
+import functools
 import hashlib
 import json
 import os
@@ -51,6 +52,7 @@ VAULT_ROOT = "/home/henri/ht-wkdir/second-brain"
 CLAUDE_BIN = os.environ.get("COORD_CLAUDE_BIN", "claude")
 CODEX_BIN = os.environ.get("COORD_CODEX_BIN", "codex")
 OPENCODE_BIN = os.environ.get("COORD_OPENCODE_BIN", "opencode")
+KIMI_BIN = os.environ.get("COORD_KIMI_BIN", "kimi")
 # T1/7.400: every launched seat's tmp writes (harness captures, session state, startup
 # extraction) redirect here — off the quota'd usr-quota tmpfs backing `/tmp`, onto `/dev/sda1`.
 # Bound into `identity_prefix()`, the one env-prefix door every harness command passes through
@@ -59,7 +61,7 @@ OPENCODE_BIN = os.environ.get("COORD_OPENCODE_BIN", "opencode")
 AGENT_TMPDIR = "/home/henri/.cache/agent-tmp"
 DEFAULT_MODEL = "claude-opus-5"
 DEFAULT_EFFORT = "high"
-HARNESSES = ("claude", "codex", "opencode")
+HARNESSES = ("claude", "codex", "opencode", "kimi")
 CLOSER_MODEL = "claude-sonnet-5"
 CLOSERS_WINDOW = "closers"  # every closer pane lands here, never in the control-panel window
 # tmux default history (2000 lines) truncates transcript exports; raise it before creating seats.
@@ -11328,8 +11330,17 @@ def discover_workers(wdir):
             # 7.278 (C3): "" means the descriptor DECLARED NOTHING. Kept distinguishable from a
             # declared value on purpose — the capacity term prints the undeclared ones by name.
             "agent_type": mt.group(1) if mt else "",
-            "model": mm.group(1) if mm else (DEFAULT_MODEL if harness == "claude" else ""),
-            "effort": me.group(1) if me else DEFAULT_EFFORT,
+            # ⚠ AN UNDECLARED CAST IS `""` — NEVER A PLAN DEFAULT, on either field. A claude seat
+            # with no `model:` used to be handed DEFAULT_MODEL and a seat with no `effort:` was
+            # handed DEFAULT_EFFORT, so an UNCAST seat launched silently on somebody else's
+            # choice and the record said otherwise. The daemon door already refuses exactly this
+            # (`launch-profiles/catalog.js`, `E_UNCAST_SEAT`: "declares no cast — `harness:` and
+            # `model:` must BOTH be present"); with the fallbacks gone, `validate_seat` refuses it
+            # here too, on the rules that were already written. The CONSTANTS stay: `DEFAULT_EFFORT`
+            # is the closer pane's OWN authored literal (see `closer` composition), which is a
+            # choice this kit makes about a seat it invents, not a fallback for one it read.
+            "model": mm.group(1) if mm else "",
+            "effort": me.group(1) if me else "",
             "cwd": cwd,
             "window": _fm_window(fm),
             "ephemeral": _fm_yes(fm, "ephemeral"),
@@ -13475,6 +13486,111 @@ def window_drift(w, peers):
             f"Fix the descriptor, or launch with --force if '{name}' is genuinely a new window.")
 
 
+# ---------- the seat's cast -> its PROFILE'S OWN effort dial (config/spawn-profiles.yaml) --------
+#
+# ⚑ THE FRAGMENT IS AUTHORED PER PROFILE, NEVER HERE. `--effort {w['effort']}` was hardcoded on the
+# claude branch of `harness_command` and nowhere else, so a codex seat (a real 3-rung ladder), a
+# kimi seat and all seven opencode seats launched with their declared effort SILENTLY DROPPED. The
+# daemon door composes the same thing from `effort.argv` in `config/spawn-profiles.yaml`
+# (`launch-profiles/profiles.js#resolveEffort`); this reads that same authored list, so the two
+# doors agree BY CONSTRUCTION and the next harness added to that file is honoured here with no code
+# change. `probe-bindings.py`'s both-doors sweep is what holds the two spellings together.
+#
+# ⚠ THE LADDER IS READ BY `bindings.py#profile_effort` AND BY NOTHING ELSE. Two scrapers of these
+# same bytes already disagreed on identical input (measured 2026-08-11 — one read INERT where the
+# other read a five-rung ladder), so this file adds no third opinion on the rungs. What it reads for
+# itself is only WHICH profile runs this cast and that profile's `effort.argv`.
+#
+# ⚠ THE (harness, model) DERIVATION LAW HAS TWO SIBLINGS and a change belongs in all three, in the
+# same change — `launch-profiles/catalog.js#bindingOf` and
+# `capabilities/bindings/tool/bindings.py#catalog`:
+#     harness = basename(exec.argv[0])
+#     model   = the token following the FIRST of `--model` / `-m` that appears in argv, never the
+#               last token (a trailing flag has no value to read)
+# A third reader is a real cost, and it is paid deliberately: the two siblings both reach this
+# answer only THROUGH a call that would re-enter `validate_seat` (`bindings.py#catalog` gates every
+# row on it), so calling either from here is unbounded recursion, not reuse.
+#
+# ⚠ IMPORT DIRECTION — S-4. `bindings.py` imports `validate_seat` FROM this file, lazily, inside its
+# own function. This import mirrors that exactly: LAZY, inside the function, and FAIL-SOFT. A
+# module-level import would risk that cycle AND drag PyYAML into the file every seat's messaging
+# runs through — an import-time failure there takes the whole room's comms down, including every
+# recovery path. When anything about the read fails, the answer is "no dial", which is byte-for-byte
+# the behaviour every harness but claude already had.
+@functools.lru_cache(maxsize=4)
+def _profiles_doc(path, _stamp):
+    """The parsed profiles document, memoized on its own (mtime_ns, size).
+
+    ponytail: MEASURED, not anticipated. `yaml.safe_load` on this document costs ~121 ms on the VPS
+    (pure-Python PyYAML, ~1400 lines), and `validate_seat` + `harness_command` are called per seat
+    on every launch, every dry-run display and ~100 times in the selftest — 25 s added to a probe
+    that already runs 129 s against a 180 s timeout. Ceiling: a rewrite inside the same nanosecond
+    AND at the same size reads stale. Upgrade path: hash the bytes, the day that is cheaper than
+    parsing them (today it is not — reading 60 KB to hash it is most of the cost of parsing it)."""
+    import yaml
+    return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+
+
+@functools.lru_cache(maxsize=64)
+def _profile_rungs(name, path, _stamp):
+    """This profile's ladder as a tuple — `bindings.py#profile_effort`'s three-way answer, memoized
+    per profile on the same stamp. The caller has already put its directory on `sys.path`."""
+    from bindings import profile_effort
+    rungs = profile_effort(name, path)
+    return None if rungs is None else tuple(rungs)
+
+
+def _cast_effort(w):
+    """`(rungs, fragment)` for this seat's cast, both read off the profile that runs it.
+
+    `rungs` is `bindings.py#profile_effort`'s three-way answer, forwarded verbatim: `None` = no dial
+    (or no profile in this workspace casts this pair), `[]` = an INERT dial (G-270 — accepted and
+    reported, never silently dropped), `[...]` = a real ladder. `fragment` is the profile's own
+    `effort.argv` with `{effort}` substituted and each element shell-quoted, ready to splice into a
+    launch line — and it is `''` unless the seat's declared word is ON that ladder.
+
+    THAT LAST BOUND IS A SAFETY PROPERTY, not tidiness: an invalid `--variant` is SILENTLY ACCEPTED
+    by opencode (exit 0, no warning — measured 2026-08-11), so an unvalidated word must never reach
+    a binary. `validate_seat` refuses the off-ladder word one guard earlier; this returns nothing
+    for it, so neither door can emit one."""
+    try:
+        tool = Path(__file__).resolve().parents[1] / "capabilities" / "bindings" / "tool"
+        if str(tool) not in sys.path:
+            sys.path.append(str(tool))
+        from bindings import DEFAULT_PROFILES
+        path = str(DEFAULT_PROFILES)
+        st = os.stat(path)
+        stamp = (st.st_mtime_ns, st.st_size)
+        for name, block in (_profiles_doc(path, stamp).get("profiles") or {}).items():
+            argv = ((block or {}).get("exec") or {}).get("argv") or []
+            if not argv or os.path.basename(str(argv[0])) != w.get("harness"):
+                continue
+            model = ""
+            for flag in ("--model", "-m"):
+                if flag in [str(a) for a in argv[:-1]]:
+                    model = str(argv[[str(a) for a in argv].index(flag) + 1])
+                    break
+            if model != (w.get("model") or ""):
+                continue
+            # ponytail: FIRST match wins where two profiles claim one (harness, model).
+            # `catalog.js` refuses that case and `bindings.py` silently takes the last; all three
+            # disagree, and `profiles:` is documented one-per-pair so none of them is reachable
+            # today. Ceiling: a duplicated pair resolves to whichever is authored first. Upgrade
+            # path: refuse, the way `catalog.js#profileForBinding` already does — worth doing the
+            # day that law is unified rather than a fourth private answer to it now.
+            rungs = _profile_rungs(name, path, stamp)
+            rungs = None if rungs is None else list(rungs)
+            declared = str(w.get("effort") or "").strip()
+            if not rungs or declared not in rungs:
+                return rungs, ""
+            frag = [str(el).replace("{effort}", declared)
+                    for el in ((block.get("effort") or {}).get("argv") or [])]
+            return rungs, " ".join(shlex.quote(el) for el in frag)
+    except Exception:
+        return None, ""
+    return None, ""
+
+
 def validate_seat(w):
     """Pre-flight launch validation — PROP-8 (tv-ux-review): an invalid model slug in one
     wave's briefings stalled the ENTIRE wave at model-init, after every pane had already
@@ -13496,6 +13612,27 @@ def validate_seat(w):
         if not OPENCODE_MODEL_RE.fullmatch(w["model"]):
             return (f"opencode model '{w['model']}' is not a provider/model slug "
                     f"(e.g. deepseek/deepseek-v4-pro)")
+    # THE EFFORT TERM. Until this existed a bad effort surfaced only when the real binary rejected
+    # the composed line INSIDE AN ALREADY-OPENED PANE — or, on opencode, not at all (an invalid
+    # `--variant` exits 0 and applies nothing). It is gated on the KEY being present, never on its
+    # truthiness: `bindings.py#catalog` calls this with exactly {agent, harness, model} to ask the
+    # harness+model question, and must keep getting that answer. A caller who omits the key
+    # therefore gets NO effort validation rather than a refusal — the deliberate compatible shape,
+    # and the reason this cannot be `if not w.get("effort")`, which would refuse that call site.
+    if "effort" in w:
+        rungs, _frag = _cast_effort(w)
+        if rungs:  # `[]` (inert, G-270) and `None` (no dial / uncatalogued pair) both ACCEPT
+            declared = str(w.get("effort") or "").strip()
+            ladder = ", ".join(f"{i + 1}={r}" for i, r in enumerate(rungs))
+            if not declared:
+                return (f"effort-missing: seat '{w.get('agent')}' carries no 'effort' — the "
+                        f"harness·model·effort triple is required, and {w['harness']}/{w['model']} "
+                        f"runs on a profile with a real ladder ({ladder})")
+            if declared not in rungs:
+                return (f"effort '{declared}' is not a rung of the ladder "
+                        f"{w['harness']}/{w['model']} runs on ({ladder}) — a seat stores the "
+                        f"HARNESS'S OWN WORD, so a word from another harness's ladder, or one this "
+                        f"ladder no longer carries, refuses HERE rather than reaching the binary")
     return ""
 
 
@@ -13523,8 +13660,26 @@ def harness_command(w, prompt=None, prompt_path=None):
         arg = '"$(cat ' + shlex.quote(str(prompt_path)) + ')"'
     else:
         arg = shlex.quote(prompt or "")
+    # The seat's effort, spelled the way ITS OWN PROFILE spells it — see `_cast_effort`. Empty for
+    # an inert dial, for a pair no profile in this workspace casts, and for a word off the ladder
+    # (which `validate_seat` refuses one guard earlier). Already shell-quoted element by element,
+    # which is what closes the raw f-string interpolation the claude line used to carry.
+    eff = _cast_effort(w)[1]
+    eff = f" {eff}" if eff else ""
     if w["harness"] == "claude":
-        return f"{env}{CLAUDE_BIN} --model {w['model']} --effort {w['effort']} {arg}", ""
+        return f"{env}{CLAUDE_BIN} --model {w['model']}{eff} {arg}", ""
+    if w["harness"] == "kimi":
+        # Mirrors this profile's `exec:` argv in `config/spawn-profiles.yaml` (`kimi`), verified
+        # against `kimi --help` on this box rather than read off the profile alone — G-13 is the
+        # standing lesson that a launch line nobody executed end to end is not a launch line.
+        # `--quiet` is kimi's own alias for `--print --output-format text --final-message-only`,
+        # so it imposes the SAME ONE-SHOT SHAPE the opencode branch documents below: the seat runs
+        # its prompt and exits, cannot be woken later, and must read its own messages before it
+        # finishes. `-p` is the prompt flag (`--prompt/--command/-p/-c`); kimi has no positional
+        # prompt, so the G-11 file form rides `-p` here instead of a bare argument.
+        model = f" -m {shlex.quote(w['model'])}" if w["model"] else ""
+        return (f"{env}{KIMI_BIN} --quiet{model} "
+                f"--work-dir {shlex.quote(str(w.get('cwd') or '.'))}{eff} -p {arg}"), ""
     if w["harness"] == "codex":
         model = f" -m {shlex.quote(w['model'])}" if w["model"] else ""
         # 7.612 / `d-codex-hook-trust-bypass` (2026-08-09): codex trust-gates hooks BY HASH,
@@ -13536,7 +13691,7 @@ def harness_command(w, prompt=None, prompt_path=None):
         # only two codex compositions in this file, and BOTH build agent-seat commands. The
         # flag rides agent seats ONLY — if a human-interactive codex composition is ever added
         # here, it stays clean.
-        return f"{env}{CODEX_BIN} --dangerously-bypass-hook-trust{model} {arg}", ""
+        return f"{env}{CODEX_BIN} --dangerously-bypass-hook-trust{model}{eff} {arg}", ""
     if w["harness"] == "opencode":
         if not w["model"]:
             return None, "opencode seats require an explicit model: (provider/model slug)"
@@ -13558,7 +13713,7 @@ def harness_command(w, prompt=None, prompt_path=None):
         #   `opencode run --auto -m X P`  -> returns the expected string
         # The wrong form is the dangerous one precisely because it exits 0: it would look like a
         # fix, pass any check that only asserts the flag is present, and launch nothing.
-        return f"{env}{OPENCODE_BIN} run --auto -m {shlex.quote(w['model'])} {arg}", ""
+        return f"{env}{OPENCODE_BIN} run --auto -m {shlex.quote(w['model'])}{eff} {arg}", ""
     return None, f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
 
 
@@ -13624,6 +13779,43 @@ def scratchpad_instruction(w):
             f"you by your own check-in, on its `session:` line, and the folder already exists. "
             f"Your seat.md/agent.md descriptor, your memory.md and any conventions.md STAY at "
             f"{w['folder']}/ — nothing already at that root moves into the scratchpad. ")
+
+
+def cmd_boot_prompt(args):
+    """Print ONE seat's boot prompt — the exact bytes `launch` writes to that seat's prompt file.
+
+    THE ONE COMPOSER, REACHED FROM OUTSIDE. `boot_prompt` above is what `launch_seat` boots every
+    seat on, and it is the only place that knows the ephemeral/persistent split, the memory-file
+    instruction, the leader's resume-first form and the scratchpad sentence. A LAUNCHER THAT IS NOT
+    `launch` — the daemon's seeding pass, `engine/seeding.js` — needs those same bytes, and until
+    this verb existed it had no way to ask for them: its queue row carried `{profile, workdir}` and
+    no `prompt` at all, so the spawn path wrote a 0-BYTE prompt file and the harness exited 1 on
+    "Input must be provided either through stdin or as a prompt argument when using --print"
+    (measured on two goals, 2026-08-11, execs 26274 and 26358). Composing the prompt a second time
+    in JavaScript would be the drift PRIN-11 exists to prevent, so the launcher asks THIS one.
+
+    A SEAT WITH NO DESCRIPTOR IS REFUSED BY NAME, never answered with an empty prompt — an empty
+    prompt IS the defect above, and printing one here would only move it.
+
+    READ-ONLY ON THE PACKAGE: writes no prompt file, opens no pane, messages nobody, wakes
+    nobody. It resolves the package like every other command, which (re-)registers the run tag
+    in ~/.config/rbtv — the same idempotent best-effort write `launch` itself makes."""
+    wdir = workers_dir(args, register=False)
+    seats = discover_workers(wdir)
+    w = next((x for x in seats if x["agent"] == args.seat), None)
+    if w is None:
+        refuse("input",
+               f"'{args.seat}' has no descriptor under {wdir}, so there is nothing to compose a "
+               f"boot prompt FROM — and an empty prompt boots a harness that exits on empty "
+               f"input. Seats with a descriptor here: "
+               f"{', '.join(sorted(x['agent'] for x in seats)) or '(none)'}\n"
+               f"Materialize the taskforce first: python3 "
+               f"{Path(__file__).resolve().parent / 'materialize-seats.py'} --package "
+               f"{package_dir(args, register=False)}",
+               2)
+    # NO trailing newline: the caller writes these bytes to the harness's stdin verbatim, and a
+    # consumer that has to strip anything is a consumer that has begun re-assembling the prompt.
+    sys.stdout.write(boot_prompt(w, args))
 
 
 # ---------- worker-mirror refresh (pre-launch) ----------
@@ -16690,14 +16882,28 @@ def _selftest_checks(args, failures, names):
         (pkg / "budget.json").write_text(
             json.dumps({"floors": {"launch_refuse_mb": 2000, "pressure_warn_mb": 2000}}))
         (pkg / "workers").mkdir()
-        (pkg / "workers" / "alpha.md").write_text("---\nagent: alpha\nmodel: fable\neffort: xhigh\n---\nbrief\n")
-        (pkg / "workers" / "beta.md").write_text("---\nagent: beta\n---\nbrief\n")
+        # alpha is cast on the PROFILE'S PINNED LITERAL, like all 21 live seats — not on the alias
+        # `fable` it used to carry. The effort fragment is now read off the profile that runs the
+        # cast (`_cast_effort`), and an alias joins back to no profile row, so a fixture on an alias
+        # would have been asserting `--effort` reaches the command line on the one input where it
+        # cannot. The alias arm did not disappear with it: `validate_seat` still accepts aliases and
+        # is still asserted on one below, and the alias's effort gap is pinned by its own check.
+        (pkg / "workers" / "alpha.md").write_text(
+            "---\nagent: alpha\nmodel: claude-fable-5\neffort: xhigh\n---\nbrief\n")
+        # beta declares a model but NO effort: an alias, so no ladder gates it, which keeps it
+        # launchable while its `effort` stays the empty string the fallback now yields.
+        (pkg / "workers" / "beta.md").write_text("---\nagent: beta\nmodel: opus\n---\nbrief\n")
         (pkg / "workers" / "watcher.md").write_text("---\nagent: watcher\nobserver: yes\nauto-wake: yes\n---\nbrief\n")
         # folder-form seats (v2): opencode window seat, codex seat, memoryless validator
         gdir = pkg / "workers" / "gamma"
         gdir.mkdir()
         (gdir / "agent.md").write_text(
-            "---\nagent: gamma\nharness: opencode\nmodel: zai-coding-plan/glm-5.2\nwindow: yes\n---\nbrief\n")
+            "---\nagent: gamma\nharness: opencode\nmodel: zai-coding-plan/glm-5.2\n"
+            # `high` is rung 1 of THIS model's ladder (`opencode models zai-coding-plan --verbose`
+            # publishes no low/medium at all) and is what gamma's `taskforce.csv` row below states,
+            # so the G-51 registry-agreement rows keep measuring agreement. Without an effort at
+            # all the seat is now REFUSED: its profile carries a real ladder.
+            "effort: high\nwindow: yes\n---\nbrief\n")
         (gdir / "memory.md").write_text("# memory\nprior state\n")
         ddir = pkg / "workers" / "delta"
         ddir.mkdir()
@@ -16980,9 +17186,15 @@ def _selftest_checks(args, failures, names):
         # ---- v2: discovery over both briefing forms ----
         ws = discover_workers(workers_dir(ns()))
         by = {w["agent"]: w for w in ws}
-        check("launch: per-seat model/effort from frontmatter (flat form)",
-              by["alpha"]["model"] == "fable" and by["alpha"]["effort"] == "xhigh"
-              and by["beta"]["model"] == "claude-opus-5" and by["beta"]["effort"] == DEFAULT_EFFORT)
+        check("launch: per-seat model/effort from frontmatter (flat form) — and AN UNDECLARED CAST "
+              "IS THE EMPTY STRING ON BOTH FIELDS, never a plan default. `model:` absent used to "
+              "yield DEFAULT_MODEL and `effort:` absent DEFAULT_EFFORT, so an UNCAST seat launched "
+              "silently on somebody else's choice while the record said otherwise — the case the "
+              "daemon door refuses by name (E_UNCAST_SEAT). beta pins the effort half (it declares "
+              "a model and no effort) and watcher pins both (it declares neither)",
+              by["alpha"]["model"] == "claude-fable-5" and by["alpha"]["effort"] == "xhigh"
+              and by["beta"]["model"] == "opus" and by["beta"]["effort"] == ""
+              and by["watcher"]["model"] == "" and by["watcher"]["effort"] == "")
         check("v2: folder-form seat discovered with harness/model/window/cwd",
               by["gamma"]["harness"] == "opencode" and by["gamma"]["model"] == "zai-coding-plan/glm-5.2"
               and by["gamma"]["window"] and by["gamma"]["cwd"] == str(gdir)
@@ -16998,7 +17210,24 @@ def _selftest_checks(args, failures, names):
 
         # ---- v2: harness command builders (+ T1 identity injection) ----
         cmd, _ = harness_command(by["alpha"], "P")
-        check("v2: claude command carries model+effort", "--model fable" in cmd and "--effort xhigh" in cmd)
+        check("v2: claude command carries model+effort — AND THE EFFORT FRAGMENT IS THE PROFILE'S "
+              "OWN, not a literal this file holds. `--effort {effort}` was hardcoded on this branch "
+              "and nowhere else, so codex, kimi and all seven opencode seats dropped their declared "
+              "effort silently; it now comes from `effort.argv` of the profile the cast resolves to "
+              "(`_cast_effort`), which is the same authored list the daemon door composes from",
+              "--model claude-fable-5" in cmd and "--effort xhigh" in cmd)
+        # THE ALIAS GAP, PINNED RATHER THAN LEFT TO BE DISCOVERED. A cast on an alias joins back to
+        # no profile row (`catalog.js`: "only the pinned literal joins a binding back to a profile
+        # row"), so there is no ladder to read a fragment off and NO effort reaches the command
+        # line. `validate_seat` still ACCEPTS it — the model vocabulary is not this door's ruling to
+        # change — so the one thing that can go wrong here is that it goes unnoticed. It does not.
+        _alias_cmd, _ = harness_command(dict(by["alpha"], model="fable"), "P")
+        check("an ALIAS-cast claude seat emits its model and NO effort fragment: the alias resolves "
+              "no profile, so no ladder and no `effort.argv` exist to compose from. The daemon door "
+              "refuses this cast outright (E_UNMAPPED_BINDING); this door accepts it and drops the "
+              "dial, and that divergence is stated here rather than found in a pane",
+              "--model fable" in _alias_cmd and "--effort" not in _alias_cmd
+              and validate_seat(dict(by["alpha"], model="fable")) == "")
         check("T1: every harness command is prefixed with the seat's COORD_AGENT identity",
               cmd.startswith("COORD_AGENT=alpha ")
               and f"COORD_AGENT=alpha TMPDIR={AGENT_TMPDIR} {CLAUDE_BIN}" in cmd)
@@ -17021,6 +17250,14 @@ def _selftest_checks(args, failures, names):
         check("7.400: the opencode command carries TMPDIR ahead of the binary",
               f"TMPDIR={AGENT_TMPDIR} " in cmd
               and cmd.index(f"TMPDIR={AGENT_TMPDIR} ") < cmd.index(OPENCODE_BIN))
+        check("the opencode seat's declared effort reaches its command line in ITS OWN DIALECT — "
+              "`--variant high`, never claude's `--effort`. This branch read no effort at all until "
+              "the fragment came from the profile, and an invalid `--variant` is SILENTLY ACCEPTED "
+              "by opencode (exit 0, applies nothing), so a wrong word here is undetectable at the "
+              "binary and must be right before it is composed. It sits AFTER the `run` subcommand, "
+              "where `--variant` is declared",
+              "--variant high" in cmd and "--effort" not in cmd
+              and cmd.index(" run ") < cmd.index("--variant"))
         cmd, _ = harness_command(by["delta"], "P")
         check("v2: codex command uses plan default when model empty",
               cmd.startswith(f"COORD_AGENT=delta TMPDIR={AGENT_TMPDIR} {CODEX_BIN}")
@@ -17040,6 +17277,40 @@ def _selftest_checks(args, failures, names):
         cmd, err = harness_command(bad, "P")
         check("v2: opencode without model refused", cmd is None and "require" in err)
 
+        # ---- the other two harnesses' dialects, and kimi's door at all ----
+        # Neither is a fixture seat: codex's pinned model and kimi's whole profile are cast by the
+        # bindings sheet, not by hand-written frontmatter. The point of these two rows is that ONE
+        # lookup serves four harnesses — the fragment is authored per profile in
+        # `config/spawn-profiles.yaml`, so nothing here spells any of them.
+        _cx = {"agent": "cx", "harness": "codex", "model": "gpt-5.5", "effort": "high",
+               "cwd": "/tmp"}
+        _cx_cmd, _ = harness_command(_cx, "P")
+        check("the codex seat's effort reaches its command line as `-c "
+              "model_reasoning_effort=high` — codex owns a real 3-rung ladder and this branch never "
+              "read effort at all, so every codex seat ever launched from this kit ran at the "
+              "binary's own default while its descriptor said otherwise",
+              "-c model_reasoning_effort=high" in _cx_cmd and validate_seat(_cx) == ""
+              and "--effort" not in _cx_cmd)
+        # kimi's rung IS the flag (`rungs: ["--no-thinking", "--thinking"]`, `argv: ["{effort}"]`) —
+        # the one dialect where the fragment carries no flag of its own, which is why a hardcoded
+        # `--<name> {word}` shape could never have expressed it.
+        _km = {"agent": "km", "harness": "kimi", "model": "kimi-code/kimi-for-coding",
+               "effort": "--thinking", "cwd": "/tmp/kimi-cwd"}
+        _km_cmd, _km_err = harness_command(_km, "P")
+        check("kimi is a KNOWN harness with a launch line: it was absent from HARNESSES, so a kimi "
+              "seat was refused `unknown harness` before this function was ever reached, although "
+              "its profile is fully authored. The line mirrors that profile's `exec:` argv and its "
+              "bare rung lands as `--thinking` with no flag name in front of it",
+              "kimi" in HARNESSES and _km_cmd and validate_seat(_km) == ""
+              and " --thinking " in _km_cmd
+              and f"-m {shlex.quote('kimi-code/kimi-for-coding')}" in _km_cmd
+              and "--work-dir /tmp/kimi-cwd" in _km_cmd and _km_cmd.endswith("-p P"))
+        check("kimi: a word off ITS ladder is refused by name with the ladder NUMBERED, and no "
+              "fragment is composed for it — claude's `high` is not a kimi rung, and the refusal "
+              "says so rather than letting the binary meet a flag it does not have",
+              "1=--no-thinking, 2=--thinking" in validate_seat(dict(_km, effort="high"))
+              and "--thinking" not in harness_command(dict(_km, effort="high"), "P")[0])
+
         # ---- PROP-8: pre-flight harness/model validation (local knowledge only) ----
         check("PROP-8: every fixture seat's launch config validates clean",
               validate_seat(by["alpha"]) == "" and validate_seat(by["gamma"]) == ""
@@ -17053,6 +17324,35 @@ def _selftest_checks(args, failures, names):
               "provider/model" in validate_seat(dict(by["gamma"], model="deepseek-reasoner")))
         check("PROP-8: an unknown harness is refused at pre-flight, not mid-spawn",
               "unknown harness" in validate_seat(dict(by["alpha"], harness="gemini")))
+        # ---- PROP-8's effort term: the ONE thing this predicate did not know about a seat ----
+        # It validated harness and model-slug SHAPE only, so a bad effort surfaced when the real
+        # binary rejected the composed line INSIDE AN ALREADY-OPENED PANE — and on opencode not
+        # even then. The three arms are the three answers a profile can give.
+        check("PROP-8/effort: a cast whose profile carries a REAL ladder and no declared effort is "
+              "refused BEFORE any pane opens, sharing materialize-seats' `effort-missing` reason so "
+              "both doors' refusals read as one thing",
+              validate_seat(dict(by["alpha"], effort="")).startswith("effort-missing:"))
+        check("PROP-8/effort: a word off that ladder is refused with the ladder NUMBERED, so the "
+              "author is told what to write instead of what is wrong",
+              "1=low, 2=medium, 3=high, 4=xhigh, 5=max"
+              in validate_seat(dict(by["alpha"], effort="ultra")))
+        check("PROP-8/effort: an INERT dial ACCEPTS any rung and applies none (G-270, owner "
+              "ruling) — haiku's profile states `effort: { inert: true }`, and a refusal there "
+              "would make a harness with no dial unlaunchable rather than dial-less",
+              validate_seat({"agent": "hz", "harness": "claude", "model": "claude-haiku-4-5",
+                             "effort": "max"}) == ""
+              and "--effort" not in harness_command(
+                  {"agent": "hz", "harness": "claude", "model": "claude-haiku-4-5",
+                   "effort": "max"}, "P")[0])
+        check("PROP-8/effort: the term is gated on the KEY, not its truthiness — "
+              "`bindings.py#catalog` gates every catalog row on this predicate with exactly "
+              "{agent, harness, model} to ask the harness+model question, and a truthiness test "
+              "would refuse that call site and empty the catalog the authoring tool offers. A "
+              "caller who omits the key gets NO effort validation rather than a refusal",
+              validate_seat({"agent": "claude-opus", "harness": "claude",
+                             "model": "claude-opus-5"}) == ""
+              and validate_seat({"agent": "claude-opus", "harness": "claude",
+                                 "model": "claude-opus-5", "effort": ""}) != "")
 
         # ---- v2: boot prompt mentions memory only for persistent folder seats ----
         # ⚠ KEYED ON THE INSTRUCTION, NOT ON THE BARE FILENAME (retightened by 7.96). Both rows
@@ -30671,7 +30971,7 @@ leader
   add-to-group / remove-from-group  join or drop an existing group's members
 
 other
-  workers / descriptors / ready-seats / gateway-status  who is alive and on what · seat-descriptor audit · which seats are launchable NOW, recomputed from disk (a seat is READY when every `after` predecessor checked out done) · is a daemon serving this workspace (--probe proves the wire)
+  workers / descriptors / ready-seats / boot-prompt / gateway-status  who is alive and on what · seat-descriptor audit · which seats are launchable NOW, recomputed from disk (a seat is READY when every `after` predecessor checked out done) · the exact boot prompt ONE seat launches on, for a launcher that is not `launch` · is a daemon serving this workspace (--probe proves the wire)
   create-group       open a message group for one workstream
   export-transcript  capture a seat's pane scrollback into its worker folder
   depart      ephemeral seats: export + check out + kill your own pane
@@ -31835,6 +32135,23 @@ def build_parser():
     s.add_argument("--explain", metavar="SEAT",
                    help="print the full predicate evaluation for ONE seat, term by term")
     s.set_defaults(func=cmd_ready_seats)
+
+    s = command(
+        "boot-prompt",
+        "Print ONE seat's boot prompt: the exact bytes `launch` writes to that seat's prompt file,\n"
+        "composed from its descriptor by the ONE composer both launchers share. For a LAUNCHER\n"
+        "THAT IS NOT `launch` — the daemon's seeding pass — which enqueues the seat WITH this text\n"
+        "so its harness boots on instructions instead of empty stdin. A seat with no descriptor on\n"
+        "disk is REFUSED by name: an empty prompt is never printed, because an empty prompt is the\n"
+        "defect this verb exists to close. READ-ONLY on the package: composes and prints, opens\n"
+        "no pane, writes no prompt file, wakes nobody.",
+        "example:\n"
+        "  coordinate --package /abs/path/to/goal boot-prompt plan-interviewer\n"
+        "next: the caller launches that seat with these bytes as its prompt — this verb never does")
+    s.add_argument("seat", metavar="SEAT",
+                   help="the TARGET seat whose boot prompt to print, as in its descriptor's "
+                        "`agent:` key — never the caller")
+    s.set_defaults(func=cmd_boot_prompt)
 
     s = command(
         "gateway-status",
