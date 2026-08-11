@@ -22360,8 +22360,15 @@ def _selftest_checks(args, failures, names):
         # The probed DOMAIN is a different matter and is deliberately WIDER than the model: the
         # literal writers below UNION the model's own, so a writer added to the mapping later is
         # probed by this row instead of silently falling outside it.
+        #
+        # ⚠ THE LITERAL HAS BEEN PAID ONCE, AND PAYING IT IS THE PROCEDURE. 7.676 widened the
+        # mapping with `incomplete<-seat`; this row went RED on the VPS run (task 7.695) exactly as
+        # designed, and the owner RULED the widening admitted (7.708). The pair below was then added
+        # BY HAND, with its justification written into the row's own prose. That is the only way a
+        # pair may ever enter this set — never by deriving it from the mapping, which would retire
+        # the tripwire on the first widening it was built to catch.
         _w154_expected = {("done", "seat"), ("done", "leader"), ("renew", "seat"),
-                          ("revive", "kit"), ("exited", "kit")}
+                          ("revive", "kit"), ("exited", "kit"), ("incomplete", "seat")}
         _w154_domain = ({"seat", "kit", "leader", "auditor"}
                         | set().union(*RECORD_DISPOSITION_WRITER.values()))
         _w154_admitted = {(_d, _w) for _d in RECORD_DISPOSITION_WRITER for _w in _w154_domain
@@ -22370,14 +22377,29 @@ def _selftest_checks(args, failures, names):
         check("7.154: THE WRITER MODEL ADMITS THE LEADER'S RULED FLIP AND NOTHING ELSE. Over the "
               "full cross product of the enum and a writer domain WIDER than the model's own, the "
               "admitted set is EXACTLY {done<-seat, done<-leader, renew<-seat, revive<-kit, "
-              "exited<-kit} — five pairs, compared against a literal so this row cannot move with "
-              "the mapping it grades. The leader is admitted for `done` (`d-exited-row-closure`: "
-              "investigate the routed row, and where the work had CONCLUDED switch it to `done`) "
-              "and is REFUSED for `exited` by name — a leader writing `exited` would attest to a "
-              "termination it did not witness, which is the misgrading R-6 bars and which the "
-              "ruling does not grant. Control arms both directions: `done<-leader` must be "
-              "ADMITTED and `exited<-leader` must RAISE, so a model that granted nothing and a "
-              "model that granted everything both red this row",
+              "exited<-kit, incomplete<-seat} — six pairs, compared against a literal so this row "
+              "cannot move with the mapping it grades. The leader is admitted for `done` "
+              "(`d-exited-row-closure`: investigate the routed row, and where the work had "
+              "CONCLUDED switch it to `done`) and is REFUSED for `exited` by name — a leader "
+              "writing `exited` would attest to a termination it did not witness, which is the "
+              "misgrading R-6 bars and which the ruling does not grant. `incomplete<-seat` is the "
+              "sixth pair and it is the SEAT'S ALONE, admitted on the same test the other five "
+              "answer to — WHO SAW IT. A seat's own done-contract being UNMET is a fact the "
+              "occupant holds and nothing else observes: `cmd_checkout` reaches the value only "
+              "through the seat's own `--incomplete <REASON>`, refuses that flag EMPTY because the "
+              "reason IS the value, and writes it with `DISPOSITION_WRITER_SEAT` on the same three "
+              "surfaces `done` takes. `declared_outputs` proves the bound from the other side: "
+              "when a seat's declared paths are absent the kit REFUSES the `done` and hands the "
+              "seat this word to say for itself, and it deliberately does NOT downgrade `done` to "
+              "`incomplete` on the seat's behalf — a downgrade would have the KIT assert a fact "
+              "about work only the SEAT witnessed, and would land the ending carrying no reason, "
+              "since the kit has none to give. So the LEADER is refused `incomplete` for the same "
+              "reason it is refused `exited`: a leader who believes a seat unfinished has "
+              "`exited`'s investigation path, never a word to put in the seat's mouth — and this "
+              "is the one value whose entire purpose is that it was SELF-declared. Control arms "
+              "both directions: `done<-leader` must be ADMITTED and `exited<-leader` must RAISE, "
+              "so a model that granted nothing and a model that granted everything both red this "
+              "row",
               _w154_admitted == _w154_expected
               and _d8_val("done", DISPOSITION_WRITER_LEADER) is None
               and _w154_leader_exited and "exited" in _w154_leader_exited
