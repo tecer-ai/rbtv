@@ -91,8 +91,20 @@ swallow the very restart the next real pass exists to announce.
    fingerprint dedupe + re-alert ceiling (§ Environment, `RBTV_WATCHDOG_REALERT_SECONDS`).
    Invariant 2 holds: the row REPORTS an absence, it does not judge whether the job should
    be armed. Deliberately disarming this job now means also scoping the pass off it
-   (`RBTV_WATCHDOG_TARGETS`) — a disarm is a ruling, and the ruling now has to be written
-   down somewhere the watchdog can read.
+   (`RBTV_WATCHDOG_TARGETS`) — a disarm is a ruling, and the ruling has to be written down
+   somewhere the watchdog can read.
+
+   **Where it is written, and why that is not a new mechanism** (ruled 2026-08-11). It goes in
+   `units/rbtv-watchdog.service` as an `Environment="RBTV_WATCHDOG_TARGETS=daemon,bridge,probe-suite"`
+   line, with the reason for the omission in a comment directly above it. That unit is a
+   git-tracked template already carrying `Environment=` lines, `main()` reads the variable on
+   every pass, and an unknown name there exits `2` rather than being ignored — so the ruling is
+   versioned, reviewable, colocated with its reason, and enforced by the same read that scopes
+   the pass. A disarm REGISTRY was considered and NOT built: it would be a second home for one
+   fact that this line already holds, and a registry the watchdog had to consult could itself go
+   stale, reintroducing the exact silent-`skip` failure the `alarm` ruling just closed. The cost
+   is real and accepted — the omission lives in the unit rather than beside the row it disarms,
+   so a reader of this table does not see it. That is what the mandatory comment is for.
 
 ## The row that used to bypass the operator, and why it no longer does
 
@@ -154,7 +166,7 @@ Every per-instance value is resolved at runtime; nothing is baked into the code.
 | `IGNITE_WATCHDOG_TOKEN` | unset. **No fallback to another sender's token, deliberately** — borrowing one would file every probe under the wrong sender id in the gateway's audit columns AND would silently satisfy the mint that § Enabling this thing exists to force. Absent = `alarm`, re-alerted on the ceiling below until someone mints it |
 | `RBTV_WATCHDOG_DAEMON_UNIT` · `_BRIDGE_UNIT` · `_PROBE_TIMER` | `rbtv-ignite.service` · `rbtv-chat-bridge.service` · `rbtv-probe-suite.timer` |
 | `RBTV_WATCHDOG_WATCH_JOB` | `goal-watcher-job` — the live goal-watcher catalogue entry. Was `selfheal-watch` until 2026-08-11; that job was deregistered and the arm went permanently inert against it |
-| `RBTV_WATCHDOG_TARGETS` | all four rows. **The test-override hook** — mirrors `RBTV_IGNITE_UNIT`: a probe scopes the pass to one row and points that row's unit variable at a throwaway unit, instead of editing the real probe table |
+| `RBTV_WATCHDOG_TARGETS` | all four rows. **The test-override hook** — mirrors `RBTV_IGNITE_UNIT`: a probe scopes the pass to one row and points that row's unit variable at a throwaway unit, instead of editing the real probe table. **Also the recorded-disarm surface**: set persistently in `units/rbtv-watchdog.service` to omit a row that is disarmed ON PURPOSE, with the reason commented above it (§ NOT SCHEDULED is an ALARM). Refuses an unknown name with exit `2` — never a silent no-op |
 | `RBTV_WATCHDOG_OPERATOR` | the sibling `daemon-operator/tool/rbtv-ignite-daemon`, else `rbtv-ignite-daemon` on PATH |
 | `RBTV_WATCHDOG_STATE` | `<workspace>/.rbtv/runtime/watchdog/state.json` |
 | `RBTV_WATCHDOG_DAEMON_STATE` | `<workspace>/.rbtv/runtime/watchdog/daemon.json` — the prior-pass daemon identity the RESTARTED / CRASH-LOOP / IDENTITY verdicts compare against. Its OWN file: `RBTV_WATCHDOG_STATE` above is cleared to `null` on every all-green pass, which is exactly the pass a restart has to be detected ACROSS |
