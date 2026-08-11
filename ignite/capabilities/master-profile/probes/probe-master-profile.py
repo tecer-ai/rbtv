@@ -406,6 +406,8 @@ def main():
                   f"and its header carries from/to/type the ferry requires ({f})")
             check(f"[chat-thread: {THREAD}]" in body,
                   "the BRACKETED token is in the body — the plain form does not route")
+            check("[deliver: post]" in body,
+                  "an ACCEPTED outcome asks to be POSTED verbatim — nothing to act on")
             check(f"`{prev}` → `claude-opus`" in body,
                   f"the body states the change as old → new (`{prev}` → `claude-opus`)")
             check("NEW threads only" in body, "and carries the thread-scope line the owner needs")
@@ -449,6 +451,9 @@ def main():
         check(len(rows) == 1 and "REFUSED" in rows[0]["body"]
               and f"[chat-thread: {THREAD}]" in rows[0]["body"],
               f"and exactly one row reports the refusal into the thread (got {len(rows)} row(s))")
+        check(bool(rows) and "[deliver: wake]" in rows[0]["body"],
+              "and a REFUSED outcome asks to WAKE an agent — the refusal needs follow-up "
+              "(owner ruling 2026-08-10: post always, wake when agent action is needed)")
 
     if inoperative:
         print(f"probe-master-profile: INOPERATIVE — {inoperative}")

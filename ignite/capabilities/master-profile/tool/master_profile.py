@@ -75,6 +75,13 @@ and the owner was shown nothing. A settled switch is a FACT, already composed he
 be POSTED verbatim instead — no agent, no inference, no ~12s spawn pipeline
 (`bridges/chat/bus-ferry.js` § `deliverToken`; `live-session-design.md` §3a).
 
+⚠ A REFUSED OUTCOME CARRIES `[deliver: wake]` INSTEAD — post always, wake when agent action is
+needed (owner-ruled 2026-08-10). `wake` posts the row verbatim AND mints a sitting with it as the
+prompt, so the owner sees the refusal and an agent is standing on the thread that has to answer it.
+An ACCEPTED change is a settled fact nobody must act on and stays `post`; only the unfinished job
+wakes anybody. The choice is made at the ONE call site in `apply` — the outcome verdict IS the
+signal, so no second flag decides it.
+
 ⚠ THE REPORT PRECEDES THE RESTART, so it cannot state the restart's exit code — it states what is
 ABOUT to happen. Restart-last is a ruled invariant (above); reporting after it would mean reporting
 from inside a killed process. The rc stays where it always was: the outcome record on disk.
@@ -251,7 +258,7 @@ def _bus_dir(inbox):
     return Path(inbox).resolve().parents[1] / "coordination"
 
 
-def report_to_thread(inbox, thread, body):
+def report_to_thread(inbox, thread, body, deliver="post"):
     """Append ONE `to: owner` row carrying the bracketed token. NEVER raises — see the module
     docstring: the switch must not be lost to save the message.
 
@@ -267,7 +274,7 @@ def report_to_thread(inbox, thread, body):
         base = _bus_dir(inbox)
         base.mkdir(parents=True, exist_ok=True)
         n = append_message(base, REPORT_SENDER, "owner", "note",
-                           f"{body}\n\n[chat-thread: {thread}] [deliver: post]")
+                           f"{body}\n\n[chat-thread: {thread}] [deliver: {deliver}]")
         return {"appended": n, "bus": str(base / "messages.md"), "chat-thread": thread}
     except Exception as exc:
         return {"appended": None, "chat-thread": thread,
@@ -414,8 +421,12 @@ def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=F
         for r in results:
             if not r.get("chat-thread"):
                 continue
+            # post always; wake when agent action is needed (owner ruling 2026-08-10). A
+            # settled change is a fact nobody has to act on and is POSTED verbatim; a REFUSAL
+            # is an unfinished job, so it WAKES an agent on the thread that asked for it.
             r["chat-report"] = report_to_thread(inbox, r["chat-thread"],
-                                                _report_body(r, restart))
+                                                _report_body(r, restart),
+                                                "wake" if r["outcome"] == "REFUSED" else "post")
             if r.get("moved-to"):
                 _outcome(Path(r["moved-to"]), r)
 
