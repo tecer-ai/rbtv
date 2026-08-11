@@ -58,8 +58,10 @@ disagree. It is composed from exactly two measured sources, and nothing else:
      profile has NO dial here and refuses any effort number.
 
   …and the LEVELS of a dial that exists come from THE PROFILE'S OWN `effort.rungs` list — the one
-  copy, read straight off `spawn-profiles.yaml` (`_profile_rungs` below). A bindings value is passed
-  to the harness LITERALLY (`coord.py#harness_command`), and the rung NUMBER indexes that list.
+  copy, read straight off `spawn-profiles.yaml` (`profile_effort` below, which is ALSO the
+  master-profile capability's `effort_ladder`: one function, imported, not two that agree). A
+  bindings value is passed to the harness LITERALLY (`coord.py#harness_command`), and the rung
+  NUMBER indexes that list.
 
   ⚑ PER MODEL, NEVER PER HARNESS (owner ruling 2026-08-11: "effort level is not per harness, is per
   model"). A profile IS one harness+model pair, so its own block is already the right granularity:
@@ -99,6 +101,8 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
 _IGNITE = Path(__file__).resolve().parents[3]
 DEFAULT_PROFILES = _IGNITE / "config" / "spawn-profiles.yaml"
 TEAM_KIT = _IGNITE / "team-kit"
@@ -117,27 +121,58 @@ TEAM_KIT = _IGNITE / "team-kit"
 # It also mis-zeroed opencode. Its entry was `()` on a 2026-07-09 note reading "opencode forwards
 # `--variant` unvalidated … no honoured ladder at all" — a conclusion about the HARNESS drawn from
 # one model, when `opencode run --help` calls `--variant` "model variant (provider-specific
-# reasoning effort)". Provider-specific is per model by definition. Those profiles still declare
-# `effort: {inert: true}` and so still report no dial; giving them real rungs needs a measurement
-# per model and is filed, not guessed at here.
+# reasoning effort)". Provider-specific is per model by definition. ⚠ THAT MEASUREMENT HAS SINCE
+# BEEN MADE (2026-08-11) and the seven `opencode-*` profiles now declare REAL ladders, enumerated
+# per model from opencode's own registry — `opencode models <provider> --verbose`, whose `variants`
+# keys ARE the ladder, so no live model call is needed. The per-model claim is not a nicety: the
+# ladders are NOT uniform even within one provider (`zai-coding-plan/glm-5.2` is `[high, max]` with
+# no low or medium; `google/gemini-flash-latest` is `[low, high]` with no medium, while its sibling
+# `gemini-3.1-pro-preview` has three). A harness-keyed table could not have expressed any of that.
+# ⚠ AND THE GUARD MUST STAY UPSTREAM, HERE: an invalid `--variant` is accepted by opencode
+# SILENTLY — exit 0, no warning — so a wrong rung would fail invisibly. Nothing invalid may ever
+# reach the binary, which is why `set` range-checks against the ladder at authoring time rather
+# than trusting a return code at launch.
 #
 # Reading the rungs off the profile block makes the numbering ONE object end to end: this file's
 # 1-based `<effort-number>`, the daemon's `resolveEffort` rung, and the seat's declared `effort:`
 # are the same index into the same list.
-_RUNGS_RE = re.compile(r"^\s*rungs:\s*\[([^\]]*)\]", re.M)
 
 
-def _profile_rungs(block_text):
-    """The profile's own ordered rung words, or () when it declares no dial.
+def profile_effort(profile, profiles_path=DEFAULT_PROFILES):
+    """This profile's ordered rungs. `[]` means an INERT dial; `None` means NO dial at all.
 
-    Text-scraped for the same reason the model pin above is: this tool reads the hand-authored
-    `spawn-profiles.yaml` without a YAML round trip, which would destroy its comments."""
-    if re.search(r"effort:\s*\{\s*inert:\s*true", block_text):
-        return ()
-    m = _RUNGS_RE.search(block_text)
-    if not m:
-        return ()
-    return tuple(w.strip().strip('"\'') for w in m.group(1).split(",") if w.strip())
+    THE ONE PYTHON READER OF THE LADDER. `master_profile.effort_ladder` IS this function, imported —
+    not a second implementation that agrees. It had been one, and the two DID NOT agree on identical
+    bytes: this file searched the whole profile block for `effort: { inert: true }` while its sibling
+    line-scanned and returned on whichever of `inert` / `rungs:` appeared FIRST, so a `rungs:` line
+    sitting ABOVE an inert declaration read as INERT here and as a FIVE-RUNG LADDER there (measured
+    2026-08-11; moving that one line below flipped it back, which is what made ORDER the cause).
+
+    The three-way answer is load-bearing and is the SIBLING's contract, kept because it is the
+    richer one (G-270): `[]` ACCEPTS a rung and applies nothing, while `None` cannot translate one
+    at all and refuses. A two-way `()` collapsed those and could not say which.
+
+    ⚠ READING IS NOT WRITING, and the earlier note here confused them. `yaml.safe_load` destroys
+    nothing — only DUMPING would. The asymmetry this capability's siblings actually live under is:
+    reads of `spawn-profiles.yaml` are PARSES, writes to it stay line-precise edits, because the
+    document is hand-authored and its comments are its documentation. A scrape bought nothing on the
+    read side and cost this drift: `rungs:` written as a YAML block sequence (`rungs:` / `  - low`)
+    is read correctly by the authoritative `launch-profiles/profiles.js#loadConfig` and was invisible
+    to BOTH scrapers (also measured 2026-08-11). One parser, one answer.
+
+    `inert: true` alongside `rungs:` answers INERT regardless of line order — `profiles.js`
+    refuses that combination at load, so it is unreachable in a config the daemon boots; answering
+    it deterministically is what keeps line order from ever mattering again.
+    """
+    doc = yaml.safe_load(Path(profiles_path).read_text(encoding="utf-8")) or {}
+    block = (doc.get("profiles") or {}).get(profile)
+    effort = block.get("effort") if isinstance(block, dict) else None
+    if not isinstance(effort, dict):
+        return None                                 # no profile, or a profile with no dial
+    if effort.get("inert") is True:
+        return []
+    rungs = effort.get("rungs")
+    return [str(r) for r in rungs] if isinstance(rungs, list) and rungs else None
 
 
 # The lane fields `scaffold` prefills. They are CONSTANTS of the materialize lane, not casting
@@ -255,10 +290,11 @@ def bindings_path(wf, config_root=None):
 def _profile_blocks(profiles_path):
     """The `profiles:` section as {name: [block lines]}.
 
-    ponytail: a line scan, not a YAML parse — the same call `master-profile#known_profiles` makes,
-    for the same reason (this would be the only reader of this document needing a parser, for a
-    question a scan answers exactly). Ceiling: a profile declared at a non-standard indent or with a
-    quoted key is invisible. Upgrade path: PyYAML, already a daemon dependency."""
+    ponytail: a line scan, not a YAML parse — it needs the block's LINES (`_exec_argv` reads the
+    `argv:` list positionally off them), which a parse discards. The EFFORT question left this scan
+    for `profile_effort`'s parser precisely because a scan answered it wrongly; this one is kept
+    deliberately, not by inertia. Ceiling: a profile declared at a non-standard indent or with a
+    quoted key is invisible. Upgrade path: PyYAML, now imported by this module anyway."""
     lines = Path(profiles_path).read_text(encoding="utf-8").splitlines()
     at = next((i for i, ln in enumerate(lines) if ln.rstrip() == "profiles:"), None)
     if at is None:
@@ -315,17 +351,18 @@ def catalog(profiles_path=DEFAULT_PROFILES):
             if flag in argv[:-1]:
                 model = argv[argv.index(flag) + 1]
                 break
-        text = "\n".join(block)
-        inert = bool(re.search(r"effort:\s*\{\s*inert:\s*true", text))
-        levels = _profile_rungs(text)
+        # ONE call answers both questions. The second `inert` regex that used to live here was a
+        # third opinion on the same bytes, disagreeing with `profile_effort` by construction: it
+        # could report a dial INERT while the levels beside it listed five rungs.
+        levels = profile_effort(name, profiles_path)
         reason = validate_seat({"agent": name, "harness": harness, "model": model})
         rows.append({"profile": name, "harness": harness, "model": model,
-                     "effort-levels": list(levels), "castable": not reason,
+                     "effort-levels": list(levels or []), "castable": not reason,
                      "not-castable-because": reason or None,
                      "effort-dial": "inert (the profile declares `effort: { inert: true }` — G-270: "
-                                    "a harness whose dial does not exist says so)" if inert
+                                    "a harness whose dial does not exist says so)" if levels == []
                                     else ("none — this profile declares no effort ladder"
-                                          if not levels else None)})
+                                          if levels is None else None)})
     return rows
 
 

@@ -41,7 +41,7 @@
 // the refusal prints the castable set so the author can see what it should have said.
 
 const path = require('node:path');
-const { SpawnError } = require('./errors');
+const { SpawnError, E_UNKNOWN_EFFORT } = require('./errors');
 
 // A seat declares a cast this workspace cannot spawn — an alias where the pinned literal belongs,
 // a model that left `profiles:`, a harness that was never configured. FAIL LOUD: the alternative
@@ -219,11 +219,65 @@ function castProfileFor(profiles, binding, profileName, log, seat) {
   return cast;
 }
 
+// ── THE SEAT'S DECLARED `effort:` WORD → THAT PROFILE'S RUNG NUMBER (owner-settled 2026-08-11) ──
+//
+// ⚑ STORAGE IS THE WORD, RESOLUTION IS THE NUMBER, AND THIS IS THE ONE JOINT BETWEEN THEM. A seat
+// stores the HARNESS'S OWN WORD (`xhigh`, `--thinking`, `max`) — written by `bindings.py#set_seat`
+// from a 1-based number it validated against this same ladder, rendered into `seat.md` and
+// `taskforce.csv` by `materialize-seats.py`. `resolveEffort` downstream takes a NUMBER. Storing
+// the number instead was considered and REFUSED: a rung INSERTED into a ladder silently
+// reinterprets every stored number, with no diff anywhere and no check firing, whereas a stale
+// WORD refuses loudly at every door that reads it, this one included.
+//
+// ⚑ IT LIVES HERE FOR THE REASON `castProfileFor` DOES. `spawn.js` reads the descriptor (seat.md
+// parsing is a spawn concern) and delegates the MEANING of what it read, because
+// `probe-caged-settings` holds `server/spawn/` to "no per-profile special case anywhere" and a
+// ladder is per-profile knowledge by definition. Same split, same file, one law.
+//
+// ⚠ AND IT IS SEPARATE FROM `resolveEffort` ON PURPOSE — never widen that one to take a word.
+// `probe-launch-profiles` leg 11 asserts it REFUSES the legacy word `'high'`, which is what keeps
+// a caller left on the retired abstract vocabulary failing loudly instead of resolving to
+// something plausible. Word→rung and rung→argv are two questions; one function each.
+//
+// Returns { rung, inert }. `inert` is REPORTED, never folded into the null rung: where no dial
+// exists the seat's declaration is ACCEPTED and said so (G-270, owner ruling), and a caller that
+// could only see `rung: null` could not tell accept-and-report from a silent drop.
+function effortRungFor(profile, word, profileName, seatName = null) {
+  const want = String(word || '').trim();
+  if (!want) return { rung: null, inert: false };          // undeclared — the harness's own default
+  const effort = profile && profile.effort;
+  // ponytail: no `effort:` block reads as "no dial" rather than refusing. Ceiling: unreachable
+  // from a loaded config today — every castable profile declares a block, and `validateEffort`
+  // forces even a dial-less harness to say `inert: true` explicitly. Upgrade path if a profile
+  // ever ships without one: make this a throw, since by then the silence would be a real gap.
+  if (!effort) return { rung: null, inert: false };
+  if (effort.inert === true) return { rung: null, inert: true };
+  const rungs = Array.isArray(effort.rungs) ? effort.rungs : [];
+  const at = rungs.indexOf(want);
+  if (at < 0) {
+    // ⚠ -1 MUST NOT FLOW ONWARD. `resolveEffort` would report "effort must be an INTEGER RUNG
+    // >= 1, got 0" — true of the number it received, and useless: it sends the reader hunting a
+    // rung nobody wrote instead of the stale word in the descriptor in front of them.
+    throw new SpawnError(
+      E_UNKNOWN_EFFORT,
+      `REFUSING TO LAUNCH: ${seatName ? `seat '${seatName}'` : 'this seat'} declares effort `
+      + `'${want}', which is not a rung of profile ${profileName}'s ladder `
+      + `(${rungs.map((r, i) => `${i + 1}=${r}`).join(', ') || '(empty)'}). A seat stores the `
+      + `HARNESS'S OWN WORD, so a word from another harness's ladder — or one this ladder no `
+      + `longer carries — refuses HERE rather than reaching the binary. Re-cast the seat `
+      + `(\`rbtv-bindings set\`) and re-materialize.`,
+      { profile: profileName, seat: seatName, effort: want, rungs: rungs.slice() },
+    );
+  }
+  return { rung: at + 1, inert: false };
+}
+
 module.exports = {
   bindingOf,
   catalogOf,
   castProfileFor,
   declaresBinding,
+  effortRungFor,
   profileForBinding,
   MODEL_FLAGS,
   E_UNMAPPED_BINDING,

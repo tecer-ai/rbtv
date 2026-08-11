@@ -8,7 +8,7 @@ const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, 
 // The (harness, model) -> profile-name catalog, from the ONE shared resolver (task 7.54). Reached
 // through `server/spawn/config.js`'s own upstream — this module already depends on that adapter,
 // so nothing new crosses the daemon boundary.
-const { castProfileFor, bindingOf } = require('../../launch-profiles/catalog');
+const { castProfileFor, bindingOf, effortRungFor } = require('../../launch-profiles/catalog');
 const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCagedSettings } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
@@ -1045,6 +1045,37 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     if (logger) logger({ level, message, ...extra });
   }
 
+  // ── THE SEAT'S DECLARED `effort:` — read at BOTH doors, OUTRANKED by an explicit rung ───────
+  //
+  // ⚠ THIS REVERSES A STANDING "NOT READ HERE" RULING, so the reversal is written down rather
+  // than just applied. `d-0811lp-effort-numeric-per-profile` deferred the read because a seat.md
+  // declares the harness's own WORD (`xhigh`) while `resolveEffort` takes an INTEGER rung, so
+  // wiring the word straight through would have thrown E_UNKNOWN_EFFORT on every cast seat. The
+  // missing piece was the word→rung joint, not the wiring; it exists now as
+  // `launch-profiles/catalog.js#effortRungFor`, reading the profile's OWN ladder.
+  //
+  // PRECEDENCE — an explicit caller/queue-row rung WINS; the seat's declaration only FILLS IN.
+  // `??` and never `||`: rung 0 is a refusal downstream, and a falsy test here would silently
+  // re-open it by reading an explicit 0 as "unset". No live producer passes a rung today (the
+  // queue-row operand has none), so the fallback is the only branch production takes and every
+  // current caller's argv is byte-unchanged until one appears.
+  //
+  // ⚠ NO PROFILE IS NAMED AND NO LADDER IS READ IN THIS FILE — `probe-caged-settings` holds
+  // `server/spawn/` to "no per-profile special case anywhere". What a word MEANS is the config's
+  // statement, resolved in `launch-profiles/`; this side owns only the seat.md read. Same split
+  // as `profileForSeatCast` above, for the same reason.
+  function seatEffortRung(profile, seatDir, profileName, effort) {
+    const seat = seatDir ? path.basename(seatDir) : null;
+    const declared = effortRungFor(profile, seatDeclaresValue(seatDir, 'effort'), profileName, seat);
+    if (declared.inert) {
+      // ACCEPTED AND REPORTED, never silently dropped (G-270): a seat cast onto a dial-less
+      // profile carries an effort that visibly does nothing, and the log says so.
+      log('info', 'the seat declares an effort but this profile\'s dial is INERT — accepted, composes nothing (G-270)',
+        { seat, profile: profileName });
+    }
+    return effort ?? declared.rung;
+  }
+
   // `resumeRef` is DAEMON-INTERNAL (r-chat-chain-resumes-session): it is never a request key —
   // no gateway caller supplies it — so it stays out of validateRequestKeys below. The ticker
   // passes the predecessor turn's `jobs_log.session_ref`; every other caller passes nothing.
@@ -1071,14 +1102,6 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // relative-workdir caller ever appears: resolve the workdir first and re-run the gates.
     profileName = profileForSeatCast(config.profiles || {}, workdir, profileName, log);
 
-    // ⚠ THE SEAT'S DECLARED `effort:` IS NOT READ HERE, and that is a RULING, not an oversight.
-    // `d-0811lp-effort-numeric-per-profile` (owner, 2026-08-11) made this lane a NUMERIC rung
-    // 1..N per profile and explicitly deferred "team-kit's 5-rung literal ladder migration" to its
-    // own task — and a seat.md/taskforce.csv row declares the literal WORD (`high`). Feeding that
-    // word to `resolveEffort` throws E_UNKNOWN_EFFORT, so wiring it here would refuse every launch
-    // of every cast seat. Until that migration lands, a seat's declared effort remains inert on
-    // every door; what this change DID fix is that the transport no longer names one either.
-
     // An OWN-property test, never a bare lookup: `config.profiles` is a plain object parsed from
     // YAML, so a request naming an INHERITED key (`constructor`, `toString`, `valueOf`) passes a
     // truthiness guard and hands the next line a FUNCTION where a profile object belongs. Same
@@ -1088,6 +1111,12 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     }
     const profile = config.profiles[profileName];
     requireExecShape(profile, profileName); // G-144 — door 1 (composeArgv's `profile.exec`)
+
+    // The seat's declared `effort:`, read here because this is the first line at which the
+    // resolved PROFILE exists to number the word against (see seatEffortRung above for the law
+    // and the precedence). It inherits the raw-`workdir` ceiling the cast resolution states a few
+    // lines up — a relative workdir resolves no descriptor, so it declares nothing.
+    effort = seatEffortRung(profile, workdir, profileName, effort);
 
     // A resume asked of a profile that declares no resume template is REFUSED, not silently
     // downgraded to a fresh spawn: the caller composed a new-messages-only prompt for it, and
@@ -1358,6 +1387,11 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     if (!seatDir) {
       throw new SpawnError(E_BAD_REQUEST, 'seat spawn requires seatDir — the seat descriptor folder supplies role/briefing/workdir (R7)', { profile: profileName });
     }
+
+    // The seat's declared `effort:`, same law and same precedence as the headless door (see
+    // seatEffortRung above). `seatDir` is this door's explicit argument, so no relative-path
+    // ceiling applies here; the rung reaches `resolveEffort` in the argv composition below.
+    effort = seatEffortRung(profile, seatDir, profileName, effort);
 
     // The workdir gate is REUSED, not relaxed. A seat folder outside the profile's `workdir_root`
     // is refused with E_WORKDIR_ESCAPE — the same containment boundary every other spawn crosses.

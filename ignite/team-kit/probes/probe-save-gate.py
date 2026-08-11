@@ -9,7 +9,9 @@ WHAT THIS SCORES OVER, stated so "probes pass" is never read as a clean class:
   · a mutant that imports fine but whose PARSER BUILD dies (argparse construction), because G-45's
     real death was after the module body,
   · that a REFUSED candidate leaves the target file byte-identical,
-  · that a PASSING candidate is actually moved into place, atomically.
+  · that a PASSING candidate is actually moved into place, atomically,
+  · a candidate that is HEALTHY but BEHIND the target — the only leg that scores the target rather
+    than the candidate, and the one failure mode every check above is blind to by construction.
 It does NOT score coord.py's behaviour — that is `coord.py selftest`.
 
 Every mutant lives in a temp directory and every subprocess runs with HOME pointed inside it (G-75:
@@ -226,6 +228,68 @@ def main():
                  "--target", str(target)], home)
         check("a candidate in a DIFFERENT directory is refused rather than replaced non-atomically",
               r.returncode == 1 and "different directories" in r.stderr)
+
+        # ---- 6 · a candidate that is HEALTHY but BEHIND the target -------------
+        # Every leg above scores the CANDIDATE. None of them opens the target, and neither did the
+        # gate: a candidate branched from an older coord.py imports cleanly, builds its parser
+        # cleanly, and was installed over work it does not contain — printing SAVED, exit 0, as it
+        # landed. Measured live 2026-08-11: coord.py carried 259 uncommitted insertions of a
+        # parallel session's work, and the candidate sitting beside it, branched two hours earlier,
+        # carried none of them. One save would have destroyed all of it and reported success.
+        #
+        # ⚠ THREE ARMS, BECAUSE EACH ONE ALONE PASSES FOR A DIFFERENT BROKEN GATE:
+        #   (a) a refusal is also what a gate that refuses EVERYTHING produces — hence (b);
+        #   (b) an exit code cannot see an os.replace that already ran before the message printed,
+        #       which is precisely the failure being guarded — hence the sha256 either side of (a);
+        #   (c) without --force still installing, the gate is a wall and the merge-then-retry path
+        #       documented in the refusal itself does not exist.
+        target_sha = sha(target)
+        stale = work / "candidate-stale.py"
+        stale.write_text(live_src + "\n# branched earlier; carries none of the target's work\n",
+                         encoding="utf-8")
+        # Relative to the TARGET's own mtime, so the fixture holds whatever the legs above left.
+        behind = os.stat(target).st_mtime - 7200
+        os.utime(stale, (behind, behind))
+        r = run([sys.executable, str(SAVE_COORD), "--candidate", str(stale),
+                 "--target", str(target)], home)
+        check("a STALE candidate — healthy, but older than the target it would overwrite — is "
+              "REFUSED", r.returncode == 1 and "STALE CANDIDATE" in r.stderr)
+        check("...and the TARGET is BYTE-IDENTICAL after that refusal — the exit code alone cannot "
+              "see a replace that already happened, so the bytes are what score it",
+              sha(target) == target_sha)
+        check("...and the candidate is still on disk to be merged, not consumed", stale.is_file())
+        check("...and the refusal names BOTH files and BOTH timestamps, in its OWN words — a stale "
+              "candidate is fine but BEHIND, so the broken-candidate block's 'the live coord.py is "
+              "untouched' would be the wrong news and the wrong remedy",
+              str(target) in r.stderr and str(stale) in r.stderr
+              and r.stderr.count("Z  ") >= 2 and "merge" in r.stderr.lower()
+              and "the live coord.py is untouched" not in r.stderr)
+
+        # (b) THE POSITIVE CONTROL. Without it every arm above is satisfied by a gate that refuses
+        #     every save there is — which is its own total outage, arriving as a wall of REFUSED.
+        fresh = work / "candidate-fresh.py"
+        fresh.write_text(live_src + "\n# written after the target — the ordinary case\n",
+                         encoding="utf-8")
+        os.chmod(fresh, 0o644)
+        fresh_sha = sha(fresh)
+        ahead = os.stat(target).st_mtime + 5
+        os.utime(fresh, (ahead, ahead))
+        r = run([sys.executable, str(SAVE_COORD), "--candidate", str(fresh),
+                 "--target", str(target)], home)
+        check("a NEWER candidate still SAVES — the staleness check is a gate, not a wall",
+              r.returncode == 0 and sha(target) == fresh_sha)
+
+        # (c) --force: the path the refusal itself tells the reader to take, after merging.
+        forced = work / "candidate-forced.py"
+        forced.write_text(live_src + "\n# merged onto the current file by hand, then forced\n",
+                          encoding="utf-8")
+        forced_sha = sha(forced)
+        os.utime(forced, (behind, behind))
+        r = run([sys.executable, str(SAVE_COORD), "--candidate", str(forced),
+                 "--target", str(target), "--force"], home)
+        check("...and --force installs a stale candidate anyway, so the merge-then-retry remedy "
+              "the refusal names is actually reachable",
+              r.returncode == 0 and sha(target) == forced_sha)
 
         # The real coord.py was never a target of anything above.
         check("the LIVE coord.py is untouched by this probe",

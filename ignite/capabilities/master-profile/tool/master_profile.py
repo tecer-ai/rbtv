@@ -214,32 +214,29 @@ def validate(name, profiles_path=DEFAULT_PROFILES):
 
 EFFORT_KEY = "master_effort"
 
-# `rungs: [low, medium, high, xhigh, max]` / `rungs: ["--no-thinking", "--thinking"]`, with an
-# optional trailing `# comment`. Same ponytail ceiling as `known_profiles` above and for the same
-# reason — see that docstring.
-_RUNGS = re.compile(r"^\s*rungs:\s*\[([^\]]*)\]")
-_INERT = re.compile(r"^\s*effort:\s*\{\s*inert:\s*true\s*\}")
-
-
-def effort_ladder(profile, profiles_path=DEFAULT_PROFILES):
-    """This profile's ordered rungs. `[]` means an INERT dial; `None` means NO dial at all.
-
-    The distinction is the whole point (G-270): inert ACCEPTS a rung and does nothing with it,
-    while a profile declaring no `effort:` block at all cannot translate one and refuses.
-    """
-    lines = Path(profiles_path).read_text(encoding="utf-8").splitlines()
-    at = next((i for i, ln in enumerate(lines) if ln.rstrip() == f"  {profile}:"), None)
-    if at is None:
-        return None
-    for ln in lines[at + 1:]:
-        if ln.strip() and not ln.startswith("    ") and not ln.lstrip().startswith("#"):
-            break                       # the next profile (or root key) ends this one
-        if _INERT.match(ln):
-            return []
-        m = _RUNGS.match(ln)
-        if m:
-            return [v.strip().strip('"\'') for v in m.group(1).split(",") if v.strip()]
-    return None
+# ── THE LADDER READER IS IMPORTED, NEVER RE-SCRAPED ─────────────────────────────────────────────
+#
+# `effort_ladder` IS `bindings.profile_effort` — the same function object, not a copy that agrees.
+# It was a copy until 2026-08-11, and the copies DISAGREED on identical bytes: this file line-scanned
+# a profile block and returned on whichever of `inert` / `rungs:` came FIRST, while the bindings
+# capability searched the whole block for `inert` before looking at rungs. A `rungs:` line above an
+# `effort: { inert: true }` line read as a FIVE-RUNG LADDER here and as INERT there — for the same
+# profile, in the same file, in the same second. Two copies agree on the day they are written; that
+# is the only day they are guaranteed to.
+#
+# The contract that survived is THIS file's three-way one (`None` / `[]` / list), because it is the
+# richer one — see `validate_effort` below, which needs to tell "accepts a rung and applies nothing"
+# (G-270 inert) from "cannot translate a rung at all" (no dial). The scrape's two-way `()` could not.
+#
+# The direction is bindings ← master-profile, and it is acyclic: `bindings` imports nothing from
+# here, and its ONE cross-tool import (`coord.py#validate_seat`) is function-scoped and lazy, so
+# importing it here does not drag `team-kit/` in. Enforced as OBJECT IDENTITY by
+# `probes/probe-master-profile.py`, not as value equality — equality is what two drifting copies
+# report right up until they drift.
+_BINDINGS_TOOL = str(_IGNITE / "capabilities" / "bindings" / "tool")
+if _BINDINGS_TOOL not in sys.path:
+    sys.path.insert(0, _BINDINGS_TOOL)
+from bindings import profile_effort as effort_ladder     # noqa: E402
 
 
 def validate_effort(profile, rung, profiles_path=DEFAULT_PROFILES):

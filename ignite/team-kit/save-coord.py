@@ -29,12 +29,15 @@ WHAT IT PROVES, exactly (say what you scored over):
      restored and the repair is announced. `import` passing is not runnability: a 0644 coord.py
      imports perfectly and hands every seat "Permission denied".
   5. The target's bytes equal the bytes that were gated — proof the replace landed what was checked.
+  6. The candidate is not BEHIND the target — the one check that reads the target at all, and the
+     only one that is about the work already in the file rather than the health of the new one.
 It does NOT run `coord.py selftest` — that takes minutes and is the DONE gate, not the SAVE gate. Run
 it yourself after saving.
 
 USAGE
   save-coord.py --candidate NEW.py [--target /abs/path/coord.py]   # gate, then replace
   save-coord.py --check FILE                                       # gate only, change nothing
+  save-coord.py --candidate NEW.py --force                         # ...after merging onto current
 Exit 0 = gated (and replaced, unless --check). Exit 1 = REFUSED, target untouched, candidate kept.
 """
 
@@ -42,6 +45,7 @@ import argparse
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_TARGET = Path(__file__).resolve().parent / "coord.py"
@@ -60,6 +64,10 @@ IMPORT_SNIPPET = (
 
 def run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=120, **kw)
+
+
+def stamp(ts):
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "Z"
 
 
 def gate(candidate: Path, target_dir: Path):
@@ -89,6 +97,9 @@ def main():
     g.add_argument("--check", help="gate this file and report; never move anything")
     ap.add_argument("--target", default=str(DEFAULT_TARGET),
                     help=f"the coord.py to replace (default: {DEFAULT_TARGET})")
+    ap.add_argument("--force", action="store_true",
+                    help="install a candidate OLDER than the target anyway — only after you have "
+                         "merged your change onto the current file")
     args = ap.parse_args()
 
     src = Path(args.candidate or args.check).resolve()
@@ -114,6 +125,39 @@ def main():
               f"os.replace() is not guaranteed atomic across them.\nWrite the candidate beside "
               f"the target and retry.", file=sys.stderr)
         return 1
+
+    # The gate above scores the CANDIDATE and nothing else — it never opens the target. So a
+    # candidate branched from an OLDER coord.py imports cleanly, builds its parser cleanly, and is
+    # installed over work it does not contain, with SAVED printed as it lands. Measured 2026-08-11:
+    # the live coord.py carried 259 uncommitted insertions of a parallel session's work; the
+    # candidate sitting beside it, branched two hours earlier, carried none of them. One save would
+    # have destroyed all of it and reported success. Nothing else in this file looks at the target's
+    # content or age, so nothing else could have caught it.
+    #
+    # This refusal deliberately does NOT reuse the gate-failure wording above. There the candidate
+    # is broken and the news is "the live coord.py is untouched"; here the candidate is fine and
+    # merely BEHIND, and the remedy is a merge — different fact, different fix, different words.
+    #
+    # A stale SIBLING candidate this run was not pointed at is deliberately NOT warned about. The
+    # gate can only install the file it was named, so a candidate nobody names destroys nothing;
+    # finding siblings would need a filename convention this gate does not own (two spellings are
+    # live in this folder right now, `coord-candidate.py` and `coord-candidate-d8c.py`); and a
+    # warning the reader is never required to act on is how readers learn to skip the line that
+    # matters. The check fires where the damage is — on the file actually being installed.
+    #
+    # ponytail: mtime, not content ancestry — misses a sub-second race and a candidate touched
+    # after branching. Upgrade path: candidate carries its base sha256 in a header line.
+    if target.is_file() and not args.force:
+        t_at, s_at = os.stat(target).st_mtime, os.stat(src).st_mtime
+        if t_at > s_at:
+            print(f"REFUSED: STALE CANDIDATE — {target} was modified AFTER {src} was written, so "
+                  f"installing it would silently drop everything that changed in between.\n"
+                  f"  target    {stamp(t_at)}  {target}\n"
+                  f"  candidate {stamp(s_at)}  {src}\n"
+                  f"Diff them first (`diff {target.name} {src.name}`), merge your change onto the "
+                  f"CURRENT {target.name}, and retry. `--force` installs it as-is and is only "
+                  f"correct once that merge is done.", file=sys.stderr)
+            return 1
 
     # The target's MODE is part of it working. `coordinate` on this box is a symlink to coord.py
     # and is executed directly, so a candidate written by a text editor (0644) silently strips the

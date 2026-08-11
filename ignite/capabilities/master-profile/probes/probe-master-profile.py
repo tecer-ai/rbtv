@@ -573,6 +573,60 @@ def main():
               and "REFUSED" in rows[0]["body"],
               f"and it wakes an agent on the thread through the ONE outcome mapping (got {len(rows)} row(s))")
 
+    # ── 10d ONE LADDER READER, PINNED BY OBJECT IDENTITY ──────────────────────────────────
+    #
+    # ⚠ VALUE EQUALITY IS THE VACUOUS VERSION OF THIS CHECK. Two copies of the ladder reader agree
+    # on the day they are written and drift silently after — and these two DID: until 2026-08-11
+    # this file line-scanned a profile block returning on whichever of `inert` / `rungs:` came
+    # first, while the bindings capability searched the whole block for `inert` before looking at
+    # rungs. A `rungs:` line above an `effort: { inert: true }` line read as a five-rung ladder here
+    # and as INERT there, on the same bytes in the same second. A check comparing their OUTPUTS
+    # would have been green for weeks. So: same object, or nothing.
+    print("check 10d — the ladder reader IS the bindings capability's function object, and "
+          "validate_effort consumes that object")
+    bindings_mod = sys.modules.get("bindings")
+    # The path is spelled independently ON PURPOSE here, unlike LIVE_CONFIG above: the question is
+    # whether the module the tool imported is the bindings TOOL, and a path taken from the tool's
+    # own resolution could not tell. A `bindings` shadowed from anywhere else on sys.path would
+    # satisfy the identity assertion below while pointing at the wrong file.
+    want = Path(__file__).resolve().parents[3] / "capabilities" / "bindings" / "tool" / "bindings.py"
+    check(bindings_mod is not None
+          and Path(bindings_mod.__file__).resolve() == want,
+          f"the tool imported the bindings TOOL itself "
+          f"({getattr(bindings_mod, '__file__', None)})")
+    check(bindings_mod is not None and mod.effort_ladder is bindings_mod.profile_effort,
+          "master_profile.effort_ladder IS bindings.profile_effort — one object, not two that agree")
+
+    # THE MUTATION CONTROL. Without it the identity assertion could be matching a name nothing
+    # calls: `validate_effort` might hold a private scraper and the alias be decoration.
+    # ⚠ THE PATCH GOES ON `mod.effort_ladder`, NOT ON `bindings_mod.profile_effort`, and that is not
+    # a weakening. `from bindings import profile_effort as effort_ladder` binds the OBJECT, so
+    # rebinding the source module's attribute cannot reach a consumer that already imported it —
+    # the mutation would fail to propagate and report RED for the binding style rather than for any
+    # defect. Patching the global the consumer actually resolves asks the real question: does
+    # `validate_effort` route through the imported reader, or around it? The identity check above
+    # already pins that this global IS bindings' function.
+    real = mod.effort_ladder
+    full = real("claude-opus", LIVE_PROFILES)
+    # The pre-condition IS part of the control: if rung N were already refused, the refusal after
+    # the patch would prove nothing — it would be the same refusal, arriving for the same reason.
+    accepted_before = mod.validate_effort("claude-opus", len(full), LIVE_PROFILES) == len(full)
+    try:
+        mod.effort_ladder = lambda p, pp=None, _r=real: _r(p, pp or LIVE_PROFILES)[:-1]
+        shortened = ""
+        try:
+            mod.validate_effort("claude-opus", len(full), LIVE_PROFILES)
+        except mod.Refusal as exc:
+            shortened = str(exc)
+    finally:
+        mod.effort_ladder = real
+    check(len(full) >= 2 and accepted_before and f"1..{len(full) - 1}" in shortened,
+          f"dropping the last rung from THAT object shortens the ladder validate_effort enforces — "
+          f"rung {len(full)} was accepted before and is refused as 1..{len(full) - 1} after "
+          f"(got: {shortened[:80] or 'no refusal — validate_effort did not consume the patched reader'})")
+    check(mod.effort_ladder is bindings_mod.profile_effort,
+          "...and the reader is restored, so nothing below runs on a patched module")
+
     # ── 10c THE PROSE→RUNG GUIDANCE ───────────────────────────────────────────────────────
     #
     # The requester is an LLM handed effort in prose. The scheme is only usable if the explanation

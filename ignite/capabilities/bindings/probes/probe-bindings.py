@@ -259,9 +259,14 @@ MUTANTS = [
     # `rungs:` list. The equivalent mutation is therefore in the READER — widen every profile's
     # ladder by one and the out-of-range rung 6 becomes acceptable, which is the same discrimination
     # the old mutant proved against the old source.
+    # Retargeted AGAIN 2026-08-11 (same day): the reader is no longer the `_profile_rungs` text
+    # scrape — it is `profile_effort`, a `yaml.safe_load` parse shared with the master-profile
+    # capability. The anchor moved with it; the arm and its discrimination are unchanged. ⚠ AN
+    # ANCHOR THAT ROTS DOES NOT GO QUIET: it reported INOPERATIVE + FAIL here the moment the line
+    # left the source, which is how this retarget was found rather than assumed.
     ("the profile ladder reader's length",
-     '    return tuple(w.strip().strip(\'"\\\'\') for w in m.group(1).split(",") if w.strip())',
-     '    return tuple(w.strip().strip(\'"\\\'\') for w in m.group(1).split(",") if w.strip()) + ("probe-only-rung",)',
+     "    return [str(r) for r in rungs] if isinstance(rungs, list) and rungs else None",
+     '    return [str(r) for r in rungs] + ["probe-only-rung"] if isinstance(rungs, list) and rungs else None',
      lambda m, mani, croot: m.set_seat(mani, "plan-planner", "claude", "claude-opus-5", 6,
                                        config_root=croot, profiles_path=LIVE_PROFILES)),
     ("the manifest-membership check", 'if seat not in wf["seats"]:', "if False:",

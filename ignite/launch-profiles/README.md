@@ -81,7 +81,7 @@ vocabulary, and values for **DECLARED SLOTS**. It supplies no argv, no flags, an
 | Undeclared slot keys | `E_RAW_FLAG` — a caller cannot invent a key to smuggle a flag |
 | A value becoming its own argv element | **arity is ASSERTED** after resolution, not documented |
 | Choosing the half | impossible — `detectHostCapability()` takes no argument |
-| An unknown effort level | `E_UNKNOWN_EFFORT` (closed vocabulary `low\|medium\|high\|max`) |
+| An unknown effort level | `E_UNKNOWN_EFFORT`, raised from **two** places against the profile's OWN ladder — never a closed cross-harness vocabulary. `profiles.js#resolveEffort` refuses an integer RUNG outside `1..N`; `catalog.js#effortRungFor` refuses a declared WORD that is not on the ladder, naming the word, the seat and the numbered rungs. ⚠ The `low\|medium\|high\|max` set this row used to name is the RETIRED abstract vocabulary (see § the rungs migration below): a closed set can only be as wide as its narrowest member, so `xhigh` was unspellable and `max` silently collapsed onto `high` on codex. |
 
 "Rejects raw flags" is **structural**, not a blocklist. Rejecting strings starting with `-` would
 be a losing game over caller text. The real guarantee is that no code path pushes a caller-supplied

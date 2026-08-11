@@ -81,23 +81,37 @@ can never disagree. It is composed from exactly two measured sources:
    is a MEASUREMENT under G-270 (*"a harness whose dial does not exist says so"*), so an inert
    profile has no dial and refuses any effort number.
 
-…and the **levels** of a dial that exists are the harness's NATIVE ladder. A bindings value is
-passed to the harness LITERALLY (`coord.py#harness_command`: `claude --model {model} --effort
-{effort}`); claude's literal ladder is five rungs (`claude --help`: *"low, medium, high, xhigh,
-max"*; same five in `orchestration/models/claude-code-cli/manifest.yaml`).
+…and the **levels** of a dial that exists come from **the profile's own `effort.rungs` list** — per
+MODEL, never per harness (owner ruling 2026-08-11: *"effort level is not per harness, is per
+model"*). A profile IS one harness+model pair, so `claude-haiku` declares `effort: { inert: true }`
+while `claude-fable` declares five rungs: same harness, different ladders. A bindings value is passed
+to the harness LITERALLY (`coord.py#harness_command`), and this tool's 1-based `<effort-number>`
+indexes that list — the same numbering as the daemon lane's rung.
 
-⚠ **This used to say the profile's `effort.values` table was a different object** — four abstract
-levels mapped onto harness strings, through which `xhigh` was unspellable. **That table is gone.**
-Owner ruling `d-0811lp-effort-numeric-per-profile` (2026-08-11) replaced it with a per-profile
-ordered `effort.rungs` list, 1..N, and the claude profiles now declare the same five strings in the
-same order as `NATIVE_EFFORT["claude"]`; codex (3) and kimi (2) match their entries too. So
-`NATIVE_EFFORT` and the profiles' `rungs:` are now **two copies of one fact**, and this tool's
-1-based `<effort-number>` is the same numbering as the daemon lane's rung.
+⚠ **This section used to describe a per-harness `NATIVE_EFFORT` table as a live second copy of that
+fact, and a collapse deferred until kimi's two spellings were reconciled. Both are gone.** The table
+was deleted with the ruling above — keyed by harness it could not express two ladders for one
+harness, and it mis-zeroed opencode — and the kimi blocker went with it, because the sheet stores a
+NUMBER and a number has no spelling.
 
-**Collapsing them is a follow-up, deliberately not done with that ruling:** kimi's two lanes still
-store different literals (`no-think`/`think` here vs `--no-thinking`/`--thinking` in the daemon
-argv), so the merge needs that reconciled first. Until then, a change to either ladder must be made
-in both.
+What is there now is ONE ladder, in `spawn-profiles.yaml`, and **two readers — one per language
+runtime**:
+
+| Reader | What it is |
+|--------|------------|
+| `launch-profiles/profiles.js#loadConfig` | The authoritative `js-yaml` parse: the loader the daemon itself boots on, which also VALIDATES the block (an empty `rungs:` list, or `inert: true` beside a translation, is refused at load). |
+| `bindings.py#profile_effort` | The one PYTHON reader, a `yaml.safe_load` parse. Three-way answer: `None` = no dial · `[]` = an INERT dial (G-270 — accepts a rung, applies none) · a list = the rungs. **`master_profile.effort_ladder` IS this function object**, imported. |
+
+There were THREE readers until 2026-08-11, and the two Python ones disagreed on identical bytes: a
+`rungs:` line sitting above an `effort: { inert: true }` line read as INERT to one and as a five-rung
+ladder to the other, and a `rungs:` written as a YAML block sequence was invisible to both while the
+authoritative reader read it correctly. Both scrapes were replaced by the one parse. The remaining
+two are pinned by **object identity** in `capabilities/master-profile/probes/probe-master-profile.py`
+— never by value equality, which is what two copies report right up until they drift.
+
+⚠ **Reading is not writing.** Reads of `spawn-profiles.yaml` are PARSES; writes to it stay
+line-precise edits, because the document is hand-authored and its comments are its documentation.
+Only a DUMP would destroy them, and nothing here dumps.
 
 Every row is finally passed through **`coord.py#validate_seat`** — the same predicate
 `materialize-seats.py`'s F6 gate imports for the whole batch before any write. A profile that

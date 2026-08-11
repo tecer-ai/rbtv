@@ -520,9 +520,7 @@ profiles:
 
   # ── opencode (7 models) ──────────────────────────────────────────────────────────────────────
   # DEC-2 / POC Finding 3: opencode has NO sandbox of its own (it touched the live vault
-  # unprompted) — containment is entirely the seat cage's. Effort is INERT on all seven and that
-  # is MEASURED, not assumed: a 2026-07-09 probe found opencode forwards `--variant` to the
-  # provider without validating it, so there is no honored ladder. session_ref cwd-implicit:
+  # unprompted) — containment is entirely the seat cage's. session_ref cwd-implicit:
   # opencode resumes per-cwd; the seat folder IS the ref. Headed: TUI argv pinning the profile's
   # model with `-m` (d-s21-headed-tui-pins-model — same flag and value as `exec`, verified against
   # `opencode --help` on this box: `-m, --model  model to use in the format of provider/model`, a
@@ -533,6 +531,23 @@ profiles:
   # 8h caps overrides: carried from the pre-doctrine per-profile blocks, pending ruling.
   # Roster owner-ruled 2026-08-06; model IDs verified live on this box via `opencode models`
   # (Google, DeepSeek, Sakana AI, Z.AI all authenticated per `opencode auth list`).
+  #
+  # ⚠ EFFORT WAS `inert: true` ON ALL SEVEN UNTIL 2026-08-11, AND THAT WAS A STALE INFERENCE, not
+  # the measurement it read as. The 2026-07-09 note it rested on — "opencode forwards `--variant`
+  # to the provider without validating it, so there is no honored ladder" — generalized ONE
+  # model's behaviour to all seven. `opencode run --help` (1.17.18) declares `--variant   model
+  # variant (provider-specific reasoning effort)`, and PROVIDER-SPECIFIC IS PER MODEL by
+  # definition — which is why every ladder below is enumerated from that model's own `variants`
+  # object and none is copied from its neighbour. Two of them prove the point: glm-5.2 carries no
+  # low/medium at all, gemini-flash no medium.
+  # ⚠⚠ AN INVALID `--variant` IS SILENTLY ACCEPTED — exit 0, no warning, no error (measured live,
+  # 2026-08-11). So nothing invalid may ever reach the binary, and the guards are both UPSTREAM of
+  # it, reading these same ladders: `bindings.py#set_seat` range-checks the number at authoring
+  # time, `catalog.js#effortRungFor` refuses an unknown word at launch. This file is the one copy.
+  # RUNG ORDER IS AUTHORED JUDGEMENT, NOT MEASUREMENT: models.dev publishes variant NAMES, not a
+  # reasoning ranking. Ascending-reasoning is the contract (rung 1 = lowest) and these follow the
+  # plain reading of the words. A model whose `variants` is `{}` KEEPS `inert: true` — that one
+  # is a measurement, with a command behind it.
 
   opencode-glm-5-2:
     exec:
@@ -540,7 +555,10 @@ profiles:
       prompt: stdin
     headed:
       tui: { argv: ["opencode", "-m", "zai-coding-plan/glm-5.2"] }
-    effort: { inert: true }
+    effort:
+      dialect: variant
+      rungs: [high, max]   # `opencode models zai-coding-plan --verbose` .variants, 2026-08-11 — NO low/medium
+      argv: ["--variant", "{effort}"]
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
@@ -552,7 +570,10 @@ profiles:
       prompt: stdin
     headed:
       tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-flash"] }
-    effort: { inert: true }
+    effort:
+      dialect: variant
+      rungs: [low, medium, high, max]   # `opencode models deepseek --verbose` .variants, 2026-08-11
+      argv: ["--variant", "{effort}"]
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
@@ -564,7 +585,10 @@ profiles:
       prompt: stdin
     headed:
       tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-pro"] }
-    effort: { inert: true }
+    effort:
+      dialect: variant
+      rungs: [low, medium, high, max]   # `opencode models deepseek --verbose` .variants, 2026-08-11
+      argv: ["--variant", "{effort}"]
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
@@ -576,7 +600,10 @@ profiles:
       prompt: stdin
     headed:
       tui: { argv: ["opencode", "-m", "sakana/fugu"] }
-    effort: { inert: true }
+    effort:
+      dialect: variant
+      rungs: [low, medium, high]   # `opencode models sakana --verbose` .variants, 2026-08-11
+      argv: ["--variant", "{effort}"]
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
@@ -588,7 +615,10 @@ profiles:
       prompt: stdin
     headed:
       tui: { argv: ["opencode", "-m", "sakana/fugu-ultra"] }
-    effort: { inert: true }
+    effort:
+      dialect: variant
+      rungs: [low, medium, high]   # `opencode models sakana --verbose` .variants, 2026-08-11
+      argv: ["--variant", "{effort}"]
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
@@ -601,7 +631,10 @@ profiles:
       prompt: stdin
     headed:
       tui: { argv: ["opencode", "-m", "google/gemini-flash-latest"] }
-    effort: { inert: true }
+    effort:
+      dialect: variant
+      rungs: [low, high]   # `opencode models google --verbose` .variants, 2026-08-11 — NO medium
+      argv: ["--variant", "{effort}"]
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
@@ -614,7 +647,10 @@ profiles:
       prompt: stdin
     headed:
       tui: { argv: ["opencode", "-m", "google/gemini-3.1-pro-preview"] }
-    effort: { inert: true }
+    effort:
+      dialect: variant
+      rungs: [low, medium, high]   # `opencode models google --verbose` .variants, 2026-08-11
+      argv: ["--variant", "{effort}"]
     session_ref: { source: cwd-implicit }
     toolset_ceiling: full
     workdir_root: .rbtv/goals
