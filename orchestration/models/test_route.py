@@ -1598,6 +1598,9 @@ def _build_synth_only_corpus(tmp_path: Path) -> Path:
 # Scratch catalog for the credential-confinement pin: a cost-1 package whose availability
 # hangs on DEEPSEEK_API_KEY, plus a cost-2 keyless package that wins whenever the keyed one is
 # dropped. Package id `deepseek-api` is deliberate — route.py derives DEEPSEEK_API_KEY from it.
+# The keyed variant also declares `auth.credential_store`, so it carries BOTH host-state
+# resolution paths (OS env var and a harness's stored-login file) and the one pin below covers
+# each — d-0811-seam-confines-credential-store.
 _SCRATCH_KEYED_MANIFEST = """model: deepseek-api
 evidence_status: validated
 
@@ -1615,6 +1618,8 @@ variants:
       required: true
       method: api-key
       interactive: false
+      credential_store: opencode
+      credential_store_key: deepseek
 """
 
 _SCRATCH_FREE_MANIFEST = """model: synthetic-free
@@ -1757,19 +1762,30 @@ class TestModelsDir:
         key it was dropped and the cost-2 keyless package won — the same scratch corpus giving
         opposite answers on different machines. The seam now resolves credential presence from
         the scratch root only (no OS env, no live-vault env_file), so both runs agree.
+
+        BOTH host-state paths are pinned (d-0811-seam-confines-credential-store): the OS env var
+        AND a harness's stored-login file, which the keyed variant also declares. The store is
+        planted under a scratch XDG_DATA_HOME — never the real one — so the four combinations of
+        (env key, stored login) must all agree, and each alone would flip the verdict unconfined.
         """
         scratch_models_dir = _build_keyed_scratch_corpus(tmp_path)
+        store = tmp_path / "xdg" / "opencode" / "auth.json"
+        store.parent.mkdir(parents=True)
+        store.write_text(json.dumps({"deepseek": {"type": "api", "key": "not-real"}}), encoding="utf-8")
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
             inlined_context_size=10000,
         )
 
-        def _seam_verdict(key_present: bool) -> tuple:
+        def _seam_verdict(key_present: bool, store_present: bool = False) -> tuple:
             env = os.environ.copy()
             env.pop("DEEPSEEK_API_KEY", None)      # never read the host's own credential state
             if key_present:
                 env["DEEPSEEK_API_KEY"] = "test-fake-not-real"
+            # Point the store resolver at scratch either way: with the planted store, or at an
+            # empty dir — never at the developer's real ~/.local/share/opencode/auth.json.
+            env["XDG_DATA_HOME"] = str(tmp_path / ("xdg" if store_present else "xdg-empty"))
             proc = subprocess.run(
                 [sys.executable, str(ROUTE_PY), "--models-dir", str(scratch_models_dir)],
                 input=json.dumps(profile),
@@ -1781,15 +1797,17 @@ class TestModelsDir:
             result = json.loads(proc.stdout)
             return result["model"], result["variant"]
 
-        with_key = _seam_verdict(True)
-        without_key = _seam_verdict(False)
-        assert with_key == without_key, (
-            "scratch-seam run is credential-DEPENDENT: host key present gave "
-            f"{with_key}, absent gave {without_key}"
+        verdicts = {
+            (key, stored): _seam_verdict(key, stored)
+            for key in (True, False)
+            for stored in (True, False)
+        }
+        assert len(set(verdicts.values())) == 1, (
+            f"scratch-seam run is credential-DEPENDENT across (env key, stored login): {verdicts}"
         )
         # Non-vacuous: the agreed answer is the confined one (keyed package unavailable).
-        assert with_key == ("synthetic-free", "free-dearer"), (
-            f"seam should route the keyless package, got {with_key}"
+        assert verdicts[(True, True)] == ("synthetic-free", "free-dearer"), (
+            f"seam should route the keyless package, got {verdicts[(True, True)]}"
         )
 
     def test_flag_absent_default_identity(self, live_corpus_keys):

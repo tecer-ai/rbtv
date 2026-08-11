@@ -506,8 +506,10 @@ def _parse_manifest_yaml(path: Path) -> dict:
 # Test-seam credential confinement (d-0811-route-seam-credential-confinement + the
 # d-0811-route-seam-flag-split extension, 2026-08-11). main() sets this True when
 # --models-dir / --rbtv-json is given: key presence then resolves ONLY from the scratch root's
-# env_file — the host's OS env is NOT consulted — so a scratch what-if run answers the same on
-# every machine. Seamless runs (and the pure election bypass --no-election) leave it False, so
+# env_file — neither the host's OS env NOR a harness's stored-login file is consulted (the
+# latter added by d-0811-seam-confines-credential-store, 2026-08-11: both are host state, and
+# confining one and not the other left the seam machine-dependent anyway) — so a scratch what-if
+# run answers the same on every machine. Seamless runs (and the pure election bypass --no-election) leave it False, so
 # their resolution is unchanged: OS env first, then the live vault's env_file.
 # ponytail: module-level flag rather than a `confined` parameter threaded through the ~10
 # _is_variant_available call sites; only main() writes it, once, before any routing call.
@@ -618,7 +620,15 @@ def _check_stored_credential(store_id: str | None, store_key: str | None) -> boo
 
     Unknown store id, blank key, absent/unreadable file, or malformed JSON → False (degrade,
     never raise — manifest-schema.md §4: a manifest must NEVER crash route.py).
+
+    Under the scratch seam this path is CLOSED (owner ruling d-0811-seam-confines-credential-store):
+    a CLI's login file is host state exactly as the OS env is, so confining one and not the other
+    left the seam still answering differently per machine — the one property it exists for. A
+    scratch corpus that must model an available stored-login variant points XDG_DATA_HOME (or the
+    store's own resolver env) at scratch instead.
     """
+    if _SEAM_CONFINED:
+        return False
     if not store_id or not store_key:
         return False
     resolver = CREDENTIAL_STORE_RESOLVERS.get(store_id)
