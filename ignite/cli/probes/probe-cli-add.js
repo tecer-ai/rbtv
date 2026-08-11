@@ -123,8 +123,10 @@ async function main() {
     check('add-job resolves the gateway from the committed server.json (D27/ADX-3) when no env override is set',
       r.code === 0 && /queued: queue id \d+/.test(r.stdout), `exit=${r.code}`);
 
-    // 7. The token never appears in the captured child argv (process-list leak check).
-    check('the sender token never appears in the CLI invocation argv', true, 'token passed only via IGNITE_SENDER_TOKEN env, never a flag (see runCli calls above)');
+    // DELETED: a `check(…, true, …)` claiming "the sender token never appears in the CLI
+    // invocation argv". Its boolean was the literal `true` — a comment wearing a check's clothes,
+    // counted into `CHECKS: n/n passed` as evidence. Nothing here read a child's argv, and the only
+    // argv it could have read is the one THIS file writes, which proves nothing about the CLI.
   } finally {
     await stopDaemon(d);
     try { fs.rmSync(ws.tmp, { recursive: true, force: true }); } catch {}

@@ -36,12 +36,20 @@ const OUT = path.join(__dirname, 'probe-launch-profiles.out');
 const lines = [];
 const started = new Date();
 let failed = null;
+const skipped = [];
+
+// A SKIP IS A DISTINCT VERDICT, NEVER A PASS. `check` grades any return as PASS, so a leg that
+// returned the STRING 'skipped — codex not installed' was counted into `checks: N (N pass)` as
+// evidence — the leg that never ran read exactly like the leg that ran and held. A leg that cannot
+// measure throws this instead, and the run exits 2 (see the accounting block).
+class Skip extends Error {}
 
 function check(label, fn) {
   try {
     const detail = fn();
     lines.push(`PASS ${label}${detail ? ` -> ${detail}` : ''}`);
   } catch (err) {
+    if (err instanceof Skip) { skipped.push(label); lines.push(`SKIP ${label} -> ${err.message}`); return; }
     lines.push(`FAIL ${label} -> ${err.message}`);
     if (!failed) failed = err;
   }
@@ -267,7 +275,7 @@ check('(14b) help is read from the SUBCOMMAND page, not the top-level binary', (
   // Ground truth first, so this leg fails if the premise ever stops holding: `--json` is on
   // `codex exec --help` and ABSENT from `codex --help`.
   let top;
-  try { top = lp.readHelp('codex', { helpArgs: ['--help'] }); } catch { return 'skipped — codex not installed on this host'; }
+  try { top = lp.readHelp('codex', { helpArgs: ['--help'] }); } catch { throw new Skip('codex not installed on this host — the subcommand-page property is UNMEASURED here'); }
   if (top.includes('--json')) throw new Error('premise gone: codex --help now lists --json');
   const r = lp.preflightPinnedFlags({ name: 'ctl', argv: ['codex', 'exec', '--cd', '{workdir}', '--json'] });
   return `checked ${r.checked.join(' ')} against \`codex exec --help\``;
@@ -342,14 +350,20 @@ check('(15) exactly ONE file in the repo defines profiles', () => {
 });
 
 const ended = new Date();
+// EXIT CHANNEL for a skip: 2 = INOPERATIVE, the suite runner's existing third class ("the probe
+// self-declared it could not meaningfully run" — counted as attempted, kept OUT of `failed`, so a
+// by-design refusal never turns the scheduled verdict permanently RED, d-probe-suite-verdict-delivery).
+// A FAIL still wins the exit code. On the VPS every leg measures, so exit stays 0 there; on a host
+// missing a harness CLI the run now reads INOPERATIVE instead of falsely GREEN.
+const exitCode = failed ? 1 : skipped.length ? 2 : 0;
 const body = [
   'probe: probe-launch-profiles',
   `started: ${started.toISOString()}`,
   'command: node launch-profiles/probes/probe-launch-profiles.js',
   ...lines,
-  `status: ${failed ? 'FAIL' : 'PASS'}`,
-  `checks: ${lines.length} (${lines.filter((l) => l.startsWith('PASS')).length} pass, ${lines.filter((l) => l.startsWith('FAIL')).length} fail)`,
-  `exit: ${failed ? 1 : 0}`,
+  `status: ${failed ? 'FAIL' : skipped.length ? 'INOPERATIVE' : 'PASS'}`,
+  `checks: ${lines.length} (${lines.filter((l) => l.startsWith('PASS')).length} pass, ${lines.filter((l) => l.startsWith('FAIL')).length} fail, ${skipped.length} skipped)`,
+  `exit: ${exitCode}`,
   `wall_ms: ${ended - started}`,
   `ended: ${ended.toISOString()}`,
   '',
@@ -358,4 +372,4 @@ fs.writeFileSync(OUT, body);
 process.stdout.write(body);
 // A truncated run must never read greener than a complete one (G-121): the check count above is
 // asserted by the reader, and the exit code is the authority.
-process.exit(failed ? 1 : 0);
+process.exit(exitCode);

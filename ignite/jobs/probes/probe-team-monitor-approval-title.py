@@ -106,10 +106,14 @@ def main():
           f"target imported; coord's marker set = {markers}")
 
     fires = [m for m in markers if tm.prompt_pending(f"codex — {m.title()}")]
-    check("R1", tm.prompt_pending("codex — Action Required") and len(fires) == len(markers),
+    # ⚠ THE NEGATIVE HALF IS ASSERTED, not merely printed. It lived inside the detail f-string, so a
+    # `prompt_pending` that fired on EVERYTHING — e.g. a defensive `if not title: return True`, with
+    # `coord.pane_title()` really returning "" on an unreadable pane — kept this arm green while
+    # every unreadable-title pane read as gated. A recorded value cannot fail.
+    quiet = not tm.prompt_pending("codex — bash") and not tm.prompt_pending("")
+    check("R1", tm.prompt_pending("codex — Action Required") and len(fires) == len(markers) and quiet,
           f"a gated TITLE fires; {len(fires)}/{len(markers)} of coord's markers fire "
-          f"({fires}); an ordinary title is quiet="
-          f"{not tm.prompt_pending('codex — bash') and not tm.prompt_pending('')}")
+          f"({fires}); an ordinary title is quiet={quiet}")
 
     check("R2", not tm.prompt_pending(QUOTING_CONTENT),
           "a pane whose CONTENT quotes the prompt while its title is ordinary does NOT fire — "

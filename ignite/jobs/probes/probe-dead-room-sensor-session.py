@@ -40,6 +40,9 @@ ARMS
       and no sensor comes up. This is the pre-fix behaviour, produced by the shipping code.
   R2  a pass over a readable snapshot BANKS the room's session from the snapshot's own `session`
       field (`remember_session`) — never derived from the package path (`G-296`).
+  R3-pre  the room is ASSERTED back into the dead state before R3 measures it: `team_monitor stop`
+      exited 0, no sensor survives R2, no snapshot on disk. A no-op `stop` would leave R2's sensor
+      alive and collapse R3 into a second copy of R4.
   R3  GREEN, THE DEAD-ROOM ARM — snapshot now ABSENT, same pass, and the inline fix runs
       `ensure … --session <room>`, exits OK, and a sensor is ALIVE afterwards (writer lock held).
   R4  the other call site (stale-but-readable snapshot, `evaluate`'s ROW 5) carries `--session`
@@ -220,11 +223,19 @@ def main():
         # for real and a sensor came up), and a live sensor rewrites state.json within a cadence —
         # so without this the "absent snapshot" arm would read a FRESH one, take no stale branch
         # at all, and score an empty string as if it were a verdict.
-        subprocess.run([sys.executable, "-B", str(TEAM_MONITOR), "stop", "--package", str(pkg)],
-                       capture_output=True, text=True, timeout=60)
+        # ⚠ THE PRECONDITION IS ASSERTED, not `say()`-ed. Spelling "(both must be False)" into a
+        # printed line gates NOTHING, and discarding `stop`'s exit code hides a `stop --package`
+        # regressed to a no-op: R2's sensor survives, satisfies `pid > 0`, rewrites state.json, and
+        # R3 silently degenerates into a duplicate of R4 while still calling itself the dead-room arm.
+        stopped = subprocess.run(
+            [sys.executable, "-B", str(TEAM_MONITOR), "stop", "--package", str(pkg)],
+            capture_output=True, text=True, timeout=60)
         (pkg / "state.json").unlink(missing_ok=True)
-        say(f"R3 pre-state: sensor running={bool(sensor_pid(pkg))}, "
-            f"state.json present={(pkg / 'state.json').exists()} (both must be False)")
+        check("R3-pre", stopped.returncode == 0 and not sensor_pid(pkg)
+              and not (pkg / "state.json").exists(),
+              f"`team_monitor stop` exit={stopped.returncode}; sensor running="
+              f"{bool(sensor_pid(pkg))}, state.json present={(pkg / 'state.json').exists()} "
+              f"(both must be False) — the room is back in the dead state R3 measures")
         out3 = job_pass(pkg)
         fix3 = inline_line(out3)
         pid = sensor_pid(pkg)
