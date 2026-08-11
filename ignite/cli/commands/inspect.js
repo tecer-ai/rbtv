@@ -86,11 +86,12 @@ async function runLogs(argv, ctx) {
     const { envelope } = await ctx.call('inspect', { target: 'logs', id: rawId });
     return finish(envelope, {
       json: ctx.json,
+      // No page cursor is printed: `logs` accepts only --tail, so a nextOffset
+      // would be an instruction nothing can follow (7c80ba4b, same fix for
+      // `messages`). `--json` still carries nextOffset/eof for the internal-API
+      // paging consumers; runExecutions keeps its line — its flags exist.
       renderSuccess: (result) => {
         for (const line of result.lines || []) console.log(line);
-        if (result.eof === false) {
-          console.log(`... more available (nextOffset=${result.nextOffset}); re-run with --tail to see the end`);
-        }
       },
     });
   }

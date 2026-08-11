@@ -63,7 +63,14 @@ async function main() {
   const LOG_LINES = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
   const { execId } = seedCatalogue(ws, { withExecution: true }); // never-spawned: no log_path
   const { execId: execIdWithLog } = seedCatalogue(ws, { withExecution: true, withLogLines: LOG_LINES });
-  out(`seeded exec_id=${execId} (no log), exec_id=${execIdWithLog} (${LOG_LINES.length} real log lines)`);
+  // A log LONGER than the server's default page (dispatch.js DEFAULT_PAGE = 200), so the
+  // default `inspect logs` call comes back with eof===false — the only shape in which the
+  // dropped page-cursor line could ever have printed. The 20-line log above never crosses
+  // it, so it cannot pin the cursor's absence.
+  const LONG_LOG_LINES = Array.from({ length: 250 }, (_, i) => `long line ${i + 1}`);
+  const { execId: execIdWithLongLog } = seedCatalogue(ws, { withExecution: true, withLogLines: LONG_LOG_LINES });
+  out(`seeded exec_id=${execId} (no log), exec_id=${execIdWithLog} (${LOG_LINES.length} real log lines),`
+    + ` exec_id=${execIdWithLongLog} (${LONG_LOG_LINES.length} lines — past the server default page)`);
 
   // Seed real message rows for `inspect messages` (ce-5). Both seeded
   // executions are chain ROOTS (recordExecutionStart with no parent), so each
@@ -198,6 +205,28 @@ async function main() {
       r.code === 0 && realTailEnvelope && realTailEnvelope.ok === true
         && JSON.stringify(realTailEnvelope.result.lines) === JSON.stringify(expectedTail),
       `exit=${r.code} got=${JSON.stringify(realTailEnvelope && realTailEnvelope.result && realTailEnvelope.result.lines)} expected=${JSON.stringify(expectedTail)}`);
+
+    // 8b. The DEFAULT (non --json) `inspect logs` render on a log that DOES exceed the
+    // server's default page: `logs` accepts only --tail, so a printed nextOffset is an
+    // instruction nothing can follow — same defect and same fix as `inspect messages`
+    // (7c80ba4b). The positive half is the vacuity guard: a render that printed nothing
+    // at all would satisfy the negative pin by accident.
+    r = await runCli(['inspect', 'logs', String(execIdWithLongLog)], cliEnv);
+    out('--- inspect logs (human render, log past the default page) ---', 'EXIT=' + r.code,
+      'STDOUT-TAIL=' + JSON.stringify(r.stdout.trim().slice(-160)));
+    const longRendered = (r.stdout.match(/^long line \d+$/gm) || []).length;
+    check('the default logs render advertises no page cursor the CLI cannot accept',
+      r.code === 0 && longRendered > 0 && !/more available|nextOffset=/.test(r.stdout),
+      `exit=${r.code} renderedLines=${longRendered} tail=${JSON.stringify(r.stdout.trim().slice(-160))}`);
+
+    // …and the envelope the render was built from really was an unfinished page (eof===false):
+    // without this the check above passes on a log the server returned whole, pinning nothing.
+    const longEnvelope = parseJson((await runCli(['--json', 'inspect', 'logs', String(execIdWithLongLog)], cliEnv)).stdout);
+    check('that same log really is longer than one server page (the cursor line COULD have printed)',
+      longEnvelope && longEnvelope.ok === true && longEnvelope.result.eof === false
+        && longEnvelope.result.lines.length < LONG_LOG_LINES.length,
+      `eof=${longEnvelope && longEnvelope.result && longEnvelope.result.eof}`
+        + ` page=${longEnvelope && longEnvelope.result && longEnvelope.result.lines.length}/${LONG_LOG_LINES.length}`);
 
     // 9. Local usage errors: bad target, missing id for status.
     r = await runCli(['inspect', 'bogus'], cliEnv);
