@@ -14,7 +14,8 @@
 // Usage: ignite <command> [...args] [--json]
 // Auth/config: IGNITE_GATEWAY_ADDR, IGNITE_SENDER_TOKEN (never a flag — the
 // token never appears in argv; it falls back to the workspace's gitignored
-// .rbtv/config/.env, which is how a caged seat gets one; see lib/config.js).
+// .rbtv/config/sender-token.env, which is how a caged seat gets one; see
+// lib/config.js).
 
 const { resolveGatewayAddr, resolveToken } = require('./lib/config');
 const { callGateway } = require('./lib/gateway-client');
@@ -41,7 +42,7 @@ function topHelp() {
   }
   lines.push('Auth/config: IGNITE_GATEWAY_ADDR, IGNITE_SENDER_TOKEN (never a flag; tokens');
   lines.push('must never appear in argv). The token falls back to the workspace\'s gitignored');
-  lines.push('.rbtv/config/.env; the server address falls back to its committed');
+  lines.push('.rbtv/config/sender-token.env; the server address falls back to its committed');
   lines.push('.rbtv/modules/ignite/server.json (D27 install model).');
   return lines.join('\n');
 }

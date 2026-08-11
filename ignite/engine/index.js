@@ -31,6 +31,7 @@ const path = require('node:path');
 const { openHeartStore } = require('../server/heart/heart-store');
 const { createSpawnManager } = require('../server/spawn/spawn');
 const { createTicker } = require('../server/ticker/ticker');
+const { setResolvedGoalsRoot } = require('../server/heart/argv-template');
 const substrate = require('./substrate');
 const { publishToRecord } = require('./execution-record');
 const { seedGoal } = require('./seeding');
@@ -92,6 +93,13 @@ function createEngine({
   // spawn manager loads, and the spawn manager is built FROM the store. One assignment beats
   // loading that config twice or reordering the composition root.
   heartStore.config.workdirRoot = spawnManager.config.default_workdir_root || null;
+
+  // Ruling `d-0811-workdir-symlink-boot-resolve` — resolve the goals root ONCE, HERE, from the same
+  // boot-read trusted value the line above threads. This is the seam because it is the one place
+  // that already holds `default_workdir_root` after the config load and before the first tick can
+  // fire, and BOTH attachments (daemon and `rbtv run`) pass through it — a resolve at the daemon's
+  // composition root would leave the attached lane on the lexical rule alone.
+  setResolvedGoalsRoot(heartStore.config.workdirRoot);
 
   const ticker = createTicker({
     heartStore,

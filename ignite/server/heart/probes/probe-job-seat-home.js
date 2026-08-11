@@ -127,6 +127,10 @@ try {
         enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       );
     `);
+    // A real v2 store also HAS `queue` and `jobs_log`; the fixture omitted them until the
+    // enqueuing-seat migration (v4) was armed and the walk-forward tried to ALTER them.
+    old.exec('CREATE TABLE queue (queue_id INTEGER PRIMARY KEY, job_id TEXT);');
+    old.exec('CREATE TABLE jobs_log (exec_id INTEGER PRIMARY KEY, job_id TEXT);');
     old.exec("INSERT INTO jobs VALUES ('legacy','launch-agent','spawn','{}',NULL,1,'t','t');");
     old.exec('PRAGMA user_version = 2;');
 

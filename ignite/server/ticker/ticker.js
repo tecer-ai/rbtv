@@ -479,11 +479,11 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // per-caller argument would be the same fact copied four times, free to drift three ways.
     // A chain root or a store predating the column yields NULL, which grants nothing.
     const parent = parentExecId != null ? heartStore.getExecution(parentExecId) : null;
-    const enqueuedSeat = parent && parent.enqueued_seat ? parent.enqueued_seat : null;
+    const enqueuingSeat = parent && parent.enqueuing_seat ? parent.enqueuing_seat : null;
     const result = runSql(`
-      INSERT INTO queue (job_id, args, session_mode, trigger_kind, run_at, enqueued_by, enqueued_seat, enqueued_at)
+      INSERT INTO queue (job_id, args, session_mode, trigger_kind, run_at, enqueued_by, enqueuing_seat, enqueued_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, jobId, argsJson, sessionMode, triggerKind, runAt, enqueuedBy, enqueuedSeat, enqueuedAt);
+    `, jobId, argsJson, sessionMode, triggerKind, runAt, enqueuedBy, enqueuingSeat, enqueuedAt);
     return Number(result.lastInsertRowid);
   }
 
@@ -919,8 +919,8 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // ⚠ IT NARROWS, IT DOES NOT CLOSE. cwd is not a security boundary: this exec still runs with
     // the daemon user's full ambient authority. What it stops is a scheduled job being POINTED AT
     // A FOLDER THAT REDIRECTS ITS CREDENTIALS — `cli/lib/config.js` resolveToken walks UP from cwd
-    // and the first `.rbtv/config/.env` wins, so a chosen cwd substitutes the gateway address and
-    // sender token of a job whose whole purpose is to call back through the door. It is not a
+    // and the first `.rbtv/config/sender-token.env` wins, so a chosen cwd substitutes the sender
+    // token of a job whose whole purpose is to call back through the door. It is not a
     // sandbox and must never be described as one.
     //
     // RECORDED, NOT THROWN — the shape every other refusal on this path uses: `tick()` has a

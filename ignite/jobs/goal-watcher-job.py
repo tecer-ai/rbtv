@@ -412,6 +412,41 @@ REVIVAL_CLASS = "REVIVAL"
 REVIVAL_ATTEMPTS = ("first", "second", "final")
 REVIVAL_UNIT_PREFIX = "rbtv-revival"
 
+# ---- THE PROMPT ALLOWLIST (CMP-21 invariant 4), AND IT IS NOT THE EXEC ALLOWLIST ABOVE.
+# ⚠ TWO DIFFERENT OBJECTS WITH TWO DIFFERENT PURPOSES, and they are never merged:
+#   `INLINE_FIX_SCRIPTS`  bounds which PROGRAMS this file may exec. Its narrowness enforces THE
+#                         SHADOW BACKSTOP's act-identity claim. Widening it is a bar breach.
+#   `SANCTIONED_PROMPTS`  bounds which PENDING PROMPTS may be answered WITHOUT A HUMAN. Widening
+#                         it grants nothing new to exec — the answer runs through `coord.py`,
+#                         already on the exec list, so this build needed NO exec widening at all.
+# Each row is `(marker, keys)`: `marker` is matched case-insensitively as a SUBSTRING of the
+# snapshot's `prompt_text`, `keys` is what `coord approve --keys` sends ("" = press Enter, the
+# highlighted option). First match wins. A prompt matching NO row is residue for the leader.
+#
+# ⚠ IT SHIPS EMPTY, AND THAT IS A REFUSAL RATHER THAN AN OVERSIGHT. The MECHANISM is what task
+# 7.730 owns; WHICH prompt a machine may answer with no human in the loop is an owner-class
+# ruling that does not exist yet, and a builder inventing one would be minting exactly the
+# autonomous-actuation policy the invariant exists to bound. Empty means every prompt takes the
+# SAFE arm (leader), which is the pre-7.730 behaviour — so landing this costs no behaviour
+# change until the owner rules a row in. Adding a row is a one-line edit HERE.
+SANCTIONED_PROMPTS = ()
+
+
+def sanctioned_answer(prompt_text):
+    """The keys that answer a prompt on the PROMPT allowlist, or `None` for residue.
+
+    FAIL-CLOSED on absence, and that is the load-bearing case rather than a nicety: a snapshot
+    written by a pre-ruling sensor carries `prompt_pending: true` and NO `prompt_text`, and an
+    empty identity must never match a marker. It returns `None` there — the leader's arm — so an
+    old sensor degrades to the old behaviour instead of auto-answering an unread prompt.
+
+    The table is read off the module GLOBAL at call time rather than bound as a default, so the
+    selftest can prove BOTH arms against an injected table while the shipped one is empty."""
+    t = (prompt_text or "").lower()
+    if not t:
+        return None
+    return next((keys for marker, keys in SANCTIONED_PROMPTS if marker.lower() in t), None)
+
 
 def _inline_fix_program(script):
     """(name, refusal) — THE allowlist gate. ONE implementation, BOTH exec doors. `refusal` is
@@ -1421,21 +1456,38 @@ def evaluate(snap, args, state, dispositions, now):
         # ROW 1: the approval gate is reported FIRST because it EXPLAINS quiet — a gated pane
         # is frozen, so it trips the quiet threshold with a remedy that is wrong for a seat
         # waiting on one keypress.
+        # ⚠ THE SPLIT IS BUILT NOW (task 7.730), and the branch below is no longer
+        # unconditional. It stayed unconditional while CMP-20 published `prompt_pending` as a
+        # BOOLEAN and no identity: from `state.json` alone — invariant 1, the only input this
+        # job has — no prompt could be matched against any allowlist, so EVERY prompt was
+        # non-allowlisted residue by construction. The owner's 2026-08-08 ruling
+        # (`d-prompt-identity-full-text`) closed that bound by publishing `prompt_text`, so the
+        # match now has its input and the deterministic arm is reachable. THE INPUT STILL COMES
+        # OFF THE SNAPSHOT AND NOWHERE ELSE — no pane read, no harness file, no `/proc`.
         if s.get("prompt_pending"):
-            decisions.append(decision(
-                "APPROVAL", name, "nudge leader: non-allowlisted prompt residue",
-                f"pane {pane} is parked on an interactive approval prompt — it is frozen "
-                f"until someone answers, and a wake typed into it lands in the modal. "
-                f"⚠ CMP-21 invariant 4 splits this row: allowlisted residue is answered "
-                f"DETERMINISTICALLY here and only the rest is the leader's. THE ALLOWLIST HALF "
-                f"IS NOT BUILT, and the reason is a snapshot bound rather than an omission: "
-                f"CMP-20 carries `prompt_pending` as a BOOLEAN and no prompt identity, so from "
-                f"`state.json` alone — invariant 1, the only input this job has — no prompt can "
-                f"be matched against any allowlist. Every prompt is therefore non-allowlisted "
-                f"residue by construction, which is the SAFE arm of the split. Answering one "
-                f"needs CMP-20 to carry the prompt's identity first.",
-                "inspect the pane, then: " + coord_seat("approve", name),
-                nudge="leader"))
+            keys = sanctioned_answer(s.get("prompt_text"))
+            if keys is not None:
+                decisions.append(decision(
+                    "APPROVAL-AUTO", name, "inline fix: answer the SANCTIONED prompt",
+                    f"pane {pane} is parked on a prompt whose text is on the sanctioned "
+                    f"allowlist — CMP-21 invariant 4 answers this one DETERMINISTICALLY, so "
+                    f"nobody is woken for it. The act is `coord approve`, the same sanctioned "
+                    f"pane-touch a human would use, through the exec door `coord.py` was "
+                    f"already on: no new program, no widened exec allowlist.",
+                    coord_seat("approve", name, "--keys", keys), nudge="",
+                    fix=(args.coord, ["--package", str(args.package),
+                                      "approve", name, "--keys", keys])))
+            else:
+                decisions.append(decision(
+                    "APPROVAL", name, "nudge leader: non-allowlisted prompt residue",
+                    f"pane {pane} is parked on an interactive approval prompt — it is frozen "
+                    f"until someone answers, and a wake typed into it lands in the modal. "
+                    f"Its text matches NO row of the sanctioned allowlist (and an absent "
+                    f"`prompt_text` matches nothing by construction), so it is the leader's "
+                    f"half of invariant 4: a human inspects the pane and decides. Nothing "
+                    f"mechanical answers a prompt it cannot identify.",
+                    "inspect the pane, then: " + coord_seat("approve", name),
+                    nudge="leader"))
 
         # ROW 2: quiet. G-68 — a standby seat's correct state is WAITING.
         age_s = s.get("last_activity_age_s")
@@ -1918,6 +1970,61 @@ def selftest():
     check(f"EXEC ALLOWLIST: an EMPTY program path says MISSING PATH, not 'not an inline-fix "
           f"program' ({why[:60]}…)",
           ok is False and "MISSING PATH" in why and "not an inline-fix program" not in why)
+
+    # ---- task 7.730: CMP-21 invariant 4's SPLIT. Until this build the branch was
+    # UNCONDITIONAL — every pending prompt became leader residue — because CMP-20 published no
+    # identity to match. Both arms below are driven through the REAL `evaluate`, never through a
+    # local re-run of the match, so they measure the call site rather than the helper.
+    #
+    # ⚠ THE TABLE IS INJECTED HERE ON PURPOSE: `SANCTIONED_PROMPTS` ships EMPTY (which prompt a
+    # machine may answer unattended is an owner-class ruling, not a builder's), so the shipped
+    # table can prove the residue arm and never the deterministic one. The injection proves the
+    # MECHANISM the ruling will arm.
+    def prompt_seat(text):
+        sp = snap()
+        sp["seats"] = [{"seat": "alpha", "pane": "%7", "roster_active": True,
+                        "liveness": "live", "prompt_pending": True, "prompt_text": text}]
+        return sp
+
+    def approvals(text):
+        return [d for d in evaluate(prompt_seat(text), a, {}, {}, fresh)[0]
+                if d["class"].startswith("APPROVAL")]
+
+    _shipped_prompts = SANCTIONED_PROMPTS
+    globals()["SANCTIONED_PROMPTS"] = (("resume this session?", "1"),)
+    try:
+        auto = approvals("  Resume this session?\n  > 1. Yes   2. No — Esc to cancel\n")
+        residue = approvals("  Delete the worktree?\n  > 1. Yes   2. No — Esc to cancel\n")
+        blind = approvals("")
+    finally:
+        globals()["SANCTIONED_PROMPTS"] = _shipped_prompts
+
+    check("7.730 ALLOWLISTED ARM: a prompt ON the allowlist is answered DETERMINISTICALLY — one "
+          "row, carrying the mechanical fix and its allowlisted keys",
+          len(auto) == 1 and auto[0]["class"] == "APPROVAL-AUTO"
+          and auto[0]["fix"] == (a.coord, ["--package", str(a.package),
+                                           "approve", "alpha", "--keys", "1"]))
+    check("7.730 ALLOWLISTED ARM: and NOBODY is nudged for it — not the leader, not the seat",
+          len(auto) == 1 and auto[0]["nudge"] == "")
+    check("7.730 RESIDUE ARM: a prompt OFF the allowlist nudges the LEADER and is NOT answered "
+          "(no fix on the row, so `--notify` execs nothing for it)",
+          len(residue) == 1 and residue[0]["class"] == "APPROVAL"
+          and residue[0]["nudge"] == "leader" and residue[0]["fix"] is None)
+    # FAIL-CLOSED, and this is the arm that matters when a pre-ruling sensor is still running:
+    # `prompt_pending` with no identity must take the leader's arm, never match a marker.
+    check("7.730 NO IDENTITY -> NO AUTO-ANSWER: a pending prompt with an EMPTY `prompt_text` is "
+          "the leader's, so an old sensor degrades to the old behaviour",
+          len(blind) == 1 and blind[0]["class"] == "APPROVAL" and blind[0]["fix"] is None)
+    # ⚠ THE TWO ALLOWLISTS ARE DIFFERENT OBJECTS. This arm is the standing guard against the
+    # collision: the auto-answer's program must ALREADY be on the exec allowlist, so arming a
+    # prompt row can never become a reason to widen the exec surface.
+    check("7.730 NO EXEC WIDENING: the auto-answer runs a program already on INLINE_FIX_SCRIPTS, "
+          "and the two allowlists stay separate objects",
+          bool(auto) and bool(auto[0]["fix"])
+          and os.path.basename(auto[0]["fix"][0]) in INLINE_FIX_SCRIPTS
+          and SANCTIONED_PROMPTS is not INLINE_FIX_SCRIPTS)
+    check("7.730 SHIPPED TABLE IS EMPTY: nothing is auto-answered until the owner rules a row in",
+          SANCTIONED_PROMPTS == () and sanctioned_answer("Resume this session?") is None)
 
     # ---- task 7.578: the leader-facing REMEDY TEXT is shell-safe; the ARGV stays raw.
     # ⚠ DRIVEN OFF `evaluate`'s REAL STALE-SENSOR DECISION, never a hand-composed string — the

@@ -15,9 +15,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { createForwardPath } = require('./forward-path');
+const { createForwardPath, SEAT_BUSY_GAVE_UP_NOTICE } = require('./forward-path');
 const { createLiveLeg } = require('./live-sessions');
-const { createReplyLeg, extractFenced } = require('./reply-leg');
+const { createReplyLeg, checkReplyContract, bestEffortText } = require('./reply-leg');
 const { createBusFerry } = require('./bus-ferry');
 
 const STATE_VERSION = 1;
@@ -50,6 +50,8 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     forwarder,
     deliver: (args) => deliverToOwner(args),
     redispatch: (args) => forwardPath.forwardFollowUp({ ...args, corrective: true }),
+    // The pending re-submit sweep rides the reply leg's EXISTING poll pass (§ pending re-submit).
+    retrySweep: () => retryPending(),
     logger,
     ...replyLegOptions,
   });
@@ -446,6 +448,12 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // — it is refused downstream and never reaches the thread map.
     const chatMsg = { ...rawMsg, chatThreadId: route ? route.conversationId : (rawMsg && rawMsg.chatThreadId), route };
 
+    // ⚠ THE ANTI-DOUBLE GUARD, FIRST AND UNCONDITIONAL (§ pending re-submit). A human message on
+    // this thread supersedes any re-submit the bridge was holding for it — including a refused or
+    // unroutable one, which is why this sits above admission rather than beside the outcome: the
+    // pending text is the human's own, and he is here typing again.
+    if (chatMsg.chatThreadId) dropPendingRetry(chatMsg.chatThreadId);
+
     // Remember the Slack reply address for outbound delivery on this conversation.
     // Goal traffic replies IN-CHANNEL (top level) unless the human posted inside a
     // Slack thread — the goal's surface is the channel, so burying every reply in a
@@ -505,9 +513,19 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         // posting it raw delivered the owner the same answer twice with `<<<SLACK-REPLY>>>`
         // between the halves (owner-observed 2026-08-10, minutes after df65147). One extractor
         // for both legs, never a second regex: last complete pair wins, sentinels matched as
-        // whole lines. An UNFENCED reply is posted byte-for-byte as before — this can only
-        // ever remove the duplication, never change a reply that never had it.
-        const text = extractFenced(warm.text) || warm.text;
+        // whole lines.
+        //
+        // ⚑ AND THE SAME CONTRACT VERDICT THE COLD PATH DELIVERS ON (owner ruling 2026-08-11,
+        // option b). A conformant reply travels VERBATIM — never through the converter, that is
+        // the contract's point. Anything else goes out best-effort: clamped, converted to mrkdwn,
+        // behind the marker that attributes the shape to the agent. What the warm arm does NOT do
+        // is the cold path's corrective revive — a warm turn has no exec and no queue row to
+        // re-dispatch against, so the safety net is the whole remedy here. `verdict.body` is null
+        // only when there was no text at all, and then the raw text is still better than nothing.
+        const verdict = checkReplyContract(warm.text);
+        const text = verdict.ok
+          ? verdict.body
+          : (verdict.body !== null ? bestEffortText(verdict.body) : warm.text);
         const delivered = await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text, markAsk: false });
         if (delivered && delivered.delivered !== false) {
           const out = { forwarded: true, leg: 'live-session', warm: true, ms: warm.ms };
@@ -523,6 +541,13 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     }
 
     const outcome = await forwardPath.onChatMessage(chatMsg);
+    // The door suppressed the create and handed back the text it discarded — record it for the
+    // automatic re-submit (§ pending re-submit). `undeliveredText` rides ONLY that refusal.
+    if (outcome && outcome.undeliveredText && chatMsg.chatThreadId) {
+      pendingRetries.set(chatMsg.chatThreadId, { text: outcome.undeliveredText, route, since: Date.now() });
+      saveState();
+      log('info', 'message held for automatic re-submit — the seat is busy', { chatThreadId: chatMsg.chatThreadId, reason: outcome.reason });
+    }
     // Arm the reply leg on every FORWARDED turn — a session-create (new conversation)
     // or a follow-up (the chain re-dispatches → a new exec on the same queue). The
     // leg then watches for the spawn, awaits turn-end, and delivers the reply.
@@ -533,10 +558,12 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       // REPLACES the fire-and-forget 🤖 of 2026-08-06 — see that section for why two
       // independent indicators could not be ordered against each other.
       markPending(chatMsg.chatThreadId, chatMsg._channel, chatMsg._msgTs);
-    } else if (chatMsg && chatMsg.chatThreadId) {
+    } else if (chatMsg && chatMsg.chatThreadId && !pendingRetries.has(chatMsg.chatThreadId)) {
       // REFUSED after the warm attempt marked it. Nothing is coming for this message, so the
       // ⏳ must not outlive it — a marker with no answer behind it is dead air wearing the
       // costume of work in progress. A no-op when nothing was marked.
+      // ⚑ UNLESS A RE-SUBMIT IS HELD: then something IS coming, and clearing the marker would
+      // be the mirror lie — work in progress wearing the costume of nothing.
       clearPending(chatMsg.chatThreadId);
     }
     log('info', 'chat message handled', { chatThreadId: chatMsg && chatMsg.chatThreadId, ...outcome });
@@ -613,6 +640,65 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     queueReaction(() => transport.unreact({ channel: at.channel, ts: at.ts, name: HOURGLASS }));
   }
 
+  // ── PENDING RE-SUBMIT (owner ruling 2026-08-11, task 7.541) ─────────────────
+  //
+  // The daemon's idempotent door refuses a session-create while the seat holds a live turn, and
+  // the owner used to be told to send his message again. He should not have to: the bridge holds
+  // the text (it rides the refusal as `undeliveredText`, forward-path.js) and re-submits it when
+  // the seat frees.
+  //
+  // ⚠ THE HAZARD THIS EXISTS TO PREVENT IS THE DOUBLE, NOT THE LOSS. The door only dedupes while
+  // the seat is STILL HELD, so the dangerous sequence is SEQUENTIAL and the door cannot see it:
+  // refused → seat frees → the human re-sends by hand → the retry fires afterwards → the message
+  // is delivered TWICE. So ANY inbound message on the thread DROPS the pending retry,
+  // unconditionally and before anything else happens (see onChatMessage) — the human superseded
+  // it, and whether his new text is the same or different is not the bridge's judgement to make.
+  // The reworded notice is the other half: it no longer asks for the re-send that caused this.
+  //
+  // ⚑ NO TIMER, NO SECOND MECHANISM. "The seat freed" is discovered by RE-ASKING THE DOOR: the
+  // re-submit is the same `forwardSessionCreate` call, and a still-held seat simply dedupes again.
+  // That is what makes this ~20 lines instead of a seat-key subscription the bridge has no way to
+  // hold. It rides the reply leg's existing poll pass (reply-leg.js `retrySweep`), and it rides
+  // the existing state file, so a bridge restart does not swallow the message it promised to send.
+  //
+  // ponytail: one attempt per poll pass, no backoff — a refused create is a single cheap gateway
+  // call and the whole window is 10 minutes. Add backoff if the gateway ever notices.
+  const pendingRetries = new Map(); // chatThreadId -> { text, route, since }
+
+  // How long a re-submit keeps trying before it gives up and SAYS SO. The same 10-minute patience
+  // the reply leg gives a spawn that has not appeared (reply-leg.js DEFAULT_WINDOW_MS): both are
+  // waiting on the same thing, a seat finishing its turn.
+  const RETRY_WINDOW_MS = 10 * 60 * 1000;
+
+  function dropPendingRetry(chatThreadId) {
+    if (!pendingRetries.delete(chatThreadId)) return false;
+    log('info', 'pending re-submit dropped — the human sent a new message on this thread', { chatThreadId });
+    saveState();
+    return true;
+  }
+
+  async function retryPending() {
+    if (pendingRetries.size === 0) return;
+    for (const [id, r] of Array.from(pendingRetries.entries())) {
+      const res = await forwardPath.forwardSessionCreate({ chatThreadId: id, text: r.text, route: r.route, retry: true });
+      if (res && res.forwarded) {
+        pendingRetries.delete(id);
+        replyLeg.arm(id);
+        saveState();
+        log('info', 'pending re-submit delivered — the seat freed', { chatThreadId: id, queueId: res.queueId, waitedMs: Date.now() - r.since });
+        continue;
+      }
+      const stillBusy = String((res && res.reason) || '').startsWith('seat-busy-deduped');
+      if (stillBusy && (Date.now() - r.since) <= RETRY_WINDOW_MS) continue; // the seat is still held — wait
+      // Bounded, and honest at the bound: this is the ONE place the owner is asked to send it
+      // again, and by now there is no pending retry left for that re-send to double with.
+      pendingRetries.delete(id);
+      saveState();
+      log('warn', 'pending re-submit GIVING UP — the message was NOT delivered', { chatThreadId: id, waitedMs: Date.now() - r.since, reason: (res && (res.reason || res.error)) || 'unknown' });
+      await deliverToOwner({ chatThreadId: id, text: SEAT_BUSY_GAVE_UP_NOTICE, markAsk: false });
+    }
+  }
+
   // ── CONVERSATION STATE ACROSS RESTARTS (owner ruling 2026-08-06) ────────────
   //
   // The bridge is a systemd unit with Restart=on-failure, so restarts happen
@@ -648,6 +734,9 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       // orphan every open agent thread: the owner's reply would land in a thread the bridge no
       // longer attributes to anybody and be handled as ordinary goal traffic.
       agentThreads: Object.fromEntries(agentThreads),
+      // Same additive rule once more (task 7.541). A restart must not swallow a message the
+      // bridge already told the owner it would send again.
+      pendingRetries: Object.fromEntries(pendingRetries),
     };
     // Atomic: temp file in the SAME directory (rename is only atomic within a
     // filesystem) + rename over the target. A reader never sees a half-written file,
@@ -695,8 +784,16 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     for (const [k, v] of Object.entries(doc.agentThreads || {})) {
       if (v && typeof v === 'object' && v.threadTs) agentThreads.set(String(k), { threadTs: String(v.threadTs) });
     }
-    log('info', 'chat bridge conversation state restored', { stateFile, threads, replyAddresses: replyAddr.size, busCursors, agentThreads: agentThreads.size, savedAt: doc.savedAt || null });
-    return { loaded: true, threads, replyAddresses: replyAddr.size, busCursors, agentThreads: agentThreads.size };
+    // Held re-submits ride the file too. An entry with no text is DROPPED rather than half-
+    // restored: a re-submit with nothing to send would burn the window and then apologize.
+    pendingRetries.clear();
+    for (const [k, v] of Object.entries(doc.pendingRetries || {})) {
+      if (v && typeof v === 'object' && typeof v.text === 'string' && v.text) {
+        pendingRetries.set(String(k), { text: v.text, route: v.route || { kind: 'master', goalId: null }, since: Number(v.since) || Date.now() });
+      }
+    }
+    log('info', 'chat bridge conversation state restored', { stateFile, threads, replyAddresses: replyAddr.size, busCursors, agentThreads: agentThreads.size, pendingRetries: pendingRetries.size, savedAt: doc.savedAt || null });
+    return { loaded: true, threads, replyAddresses: replyAddr.size, busCursors, agentThreads: agentThreads.size, pendingRetries: pendingRetries.size };
   }
 
   // Every thread-map mutation persists — including the ones resolveChainThread makes
@@ -810,7 +907,9 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     onChatMessage, deliverToOwner, start, stop,
     registerGoal, closeGoal, routeOf,
     routeToAgentThread, agentThreadFor, agentForThread, knowsThread,
-    _replyAddr: replyAddr, _agentThreads: agentThreads, forwardPath, replyLeg, busFerry, goalChannels, liveLeg,
+    retryPending,
+    _replyAddr: replyAddr, _agentThreads: agentThreads, _pendingRetries: pendingRetries,
+    forwardPath, replyLeg, busFerry, goalChannels, liveLeg,
     _saveState: saveState, _loadState: loadState, stateFile,
   };
 }

@@ -420,6 +420,27 @@ def prompt_pending(title):
     return any(m in (title or "").lower() for m in coord().APPROVAL_TITLE_MARKERS)
 
 
+def prompt_text(title, tail):
+    """The pending prompt VERBATIM, or `""` when none is pending (CMP-20 § Interface, owner
+    ruling 2026-08-08 `d-prompt-identity-full-text`).
+
+    The boolean above answers WHETHER; this answers WHICH — and only the second is matchable
+    against CMP-21's sanctioned prompt allowlist, which is why invariant 4's deterministic half
+    had no buildable input while presence was all this sensor published.
+
+    ⚠ THE PREDICATE IS STILL THE TITLE'S ALONE. The pane content appears here as the ANSWER's
+    payload and never as the QUESTION's evidence — the gating read stays `prompt_pending`, so
+    the rejected content-matching reading (see the comment above) is not re-introduced by the
+    back door: a pane merely quoting a prompt has a quiet title and therefore publishes `""`.
+
+    ⚠ EXPOSURE, ruled and accepted rather than discovered downstream: this text is arbitrary
+    harness output and the snapshot is rendered to a human viewport by teamview (CMP-24). The
+    owner chose the verbatim text over a narrower classifier token AGAINST the recommendation,
+    because a narrowed surface puts the allowlist match back out of reach. No redaction and no
+    truncation is applied here on purpose."""
+    return tail if prompt_pending(title) else ""
+
+
 # ---------- the run roster ----------
 
 def roster(package):
@@ -1279,6 +1300,9 @@ def capture(package, session=None, sensor_path=None, heart_db=None):
             # activity is content-derived" is readable off the snapshot instead of inferred.
             "activity_digest": digest,
             "prompt_pending": prompt_pending(rec.get("title")),
+            # WHETHER (above) and WHICH (here). `tail` is the pane capture already taken for
+            # the activity read — publishing it costs no second raw-source touch (invariant 1).
+            "prompt_text": prompt_text(rec.get("title"), tail),
             "ram_mb": round(rss_kb / 1024, 1),
             "liveness": ("live" if harness_pid else
                          ("shell" if rec.get("shell") else "no-harness")),
@@ -1942,6 +1966,21 @@ def cmd_selftest(args):
                              "  > 1. Yes / Esc to cancel — answer it before the wake\n"))
     # ⚠ The retired symbol is spelled in TWO HALVES on purpose: written whole, this very line
     # would be the match and the arm would fire on its own statement of the rule.
+    # ---- the prompt's IDENTITY, published beside the boolean (CMP-20 § Interface / Layout;
+    # owner ruling `d-prompt-identity-full-text`). CMP-21's allowlist match reads this field.
+    _gated_tail = "  Do you want to proceed?\n  > 1. Yes  2. No — Esc to cancel\n"
+    check("PROMPT TEXT: a gated pane publishes its prompt VERBATIM — untruncated and unredacted",
+          prompt_text("codex — Action Required", _gated_tail) == _gated_tail)
+    check("PROMPT TEXT: no pending prompt publishes the EMPTY string, never the pane tail",
+          prompt_text("codex — bash", _gated_tail) == ""
+          and prompt_text(None, _gated_tail) == "")
+    # ⚠ THE CONTROL, and it is what stops the identity field from smuggling the rejected
+    # CONTENT reading back in: the pane below quotes the prompt while its title is quiet, so it
+    # is not gated — and it must publish NOTHING. The arm reds if the text is ever published on
+    # the strength of the content rather than the title.
+    check("PROMPT TEXT CONTROL: a pane merely QUOTING a prompt publishes no identity — the "
+          "gating read is the title's alone",
+          prompt_text("codex — bash", "the harness asks 'Do you want to proceed?'") == "")
     check("APPROVAL MARKERS: the marker set is coord's ONE definition, not a local copy",
           ("PROMPT_" + "PATTERNS") not in Path(__file__).read_text(encoding="utf-8")
           and bool(coord().APPROVAL_TITLE_MARKERS))

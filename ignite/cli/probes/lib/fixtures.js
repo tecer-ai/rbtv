@@ -101,7 +101,37 @@ function baseEnv(ws, port) {
 
 // Boots the real daemon entry point as a real child process, resolving once
 // its own log says the gateway is listening (never a sleep).
+//
+// ⚑ Task 7.702 — PLATFORM GATE for all twelve cli probes, in the ONE place they
+// share. On win32 this boot cannot succeed, for two POSIX-rooted reasons that
+// are the daemon being a Linux/systemd daemon and nothing any probe asserts:
+//   1. gateway/sender-auth.js loadSendersFile REFUSES TO START unless the
+//      senders file's mode is 0600. NTFS has no POSIX mode: node's fs.chmodSync
+//      only moves the read-only bit and stat reports 0666, so a fixture's
+//      chmod 0600 can never satisfy the gate.
+//   2. Past that gate, server/spawn/carrier.js selectCarrier throws
+//      E_SYSTEMD_NOT_AVAILABLE — the shipped profile asks for the systemd
+//      carrier and there is no systemctl.
+// So the honest verdict is INOPERATIVE (exit 2, the suite's idiom — probe-suite.js
+// keeps exit 2 OUT of `failed`), never a red (nothing the probe measures broke)
+// and never a green (nothing ran). It lives HERE rather than in each probe
+// because all twelve reach the daemon through this one function and no other
+// route — one guard, one wording, one place to change. Owner ruling 2026-08-11,
+// decisions.md#d-7702-win32-guard-in-bootdaemon; that ruling also read D4's
+// actual words (fixtures.js takes no NEW HELPERS) and found they do not reach an
+// edit inside an existing function.
+// ⚠ This ends the process rather than returning — a probe whose world cannot be
+// built has nothing left to do. A future cli probe that must run WITHOUT a daemon
+// therefore cannot reach that work through bootDaemon.
+// Linux is byte-unchanged: the branch is false there.
 function bootDaemon(env) {
+  if (process.platform === 'win32') {
+    console.log('VERDICT: INOPERATIVE — win32: the throwaway daemon cannot boot here — the '
+      + 'senders_file 0600 startup gate is unsatisfiable on NTFS, and the spawn carrier '
+      + 'requires a systemd user manager');
+    console.log('EXIT: 2');
+    process.exit(2);
+  }
   const state = { stdout: '', stderr: '' };
   return new Promise((resolve) => {
     const proc = spawn(process.execPath, [SERVER_ENTRY], { env, stdio: ['ignore', 'pipe', 'pipe'] });

@@ -157,7 +157,7 @@ async function main() {
     `disk warning=${JSON.stringify(w)}`);
 
   // --- 0. TASK 7.389 · THE CONTROL THAT SNOOZE DID NOT WIDEN ──────────────────────────────────
-  // 7.389 armed a `creator-seat` grant off the new `enqueued_seat` column. Snooze is OWNER-ONLY
+  // 7.389 armed a `creator-seat` grant off the new `enqueuing_seat` column. Snooze is OWNER-ONLY
   // (D45/D71) and must be UNMOVED by that: a warning is SYSTEM-raised, so there is no creator to
   // grant to, and `canSnoozeWarning` passes `subject = null` so the creator grant is unreachable
   // BY CONSTRUCTION rather than merely unused. That construction is now load-bearing for a second

@@ -10,7 +10,7 @@
 //
 // ⚠ WHAT THIS PROBE EXISTS TO PROVE — four claims, and the third is the one a fresh-fixture suite
 // cannot see:
-//   (a) a FRESH store gets `enqueued_seat` on BOTH tables from `schema.sql`;
+//   (a) a FRESH store gets `enqueuing_seat` on BOTH tables from `schema.sql`;
 //   (b) the value WRITES THROUGH the whole path — enqueue → fire → jobs_log — rather than being
 //       accepted at the door and dropped one layer in (the 7.10 failure this campaign already ate
 //       once: producer green, consumer green, the line between them dropping the field);
@@ -60,11 +60,11 @@ function cols(db, table) {
 }
 function queueRow(queueId) {
   const raw = new DatabaseSync(tmpDb, { readOnly: true });
-  try { return raw.prepare('SELECT queue_id, enqueued_by, enqueued_seat FROM queue WHERE queue_id = ?').get(queueId) || null; } finally { raw.close(); }
+  try { return raw.prepare('SELECT queue_id, enqueued_by, enqueuing_seat FROM queue WHERE queue_id = ?').get(queueId) || null; } finally { raw.close(); }
 }
 function execRow(execId) {
   const raw = new DatabaseSync(tmpDb, { readOnly: true });
-  try { return raw.prepare('SELECT exec_id, queue_id, enqueued_by, enqueued_seat FROM jobs_log WHERE exec_id = ?').get(execId) || null; } finally { raw.close(); }
+  try { return raw.prepare('SELECT exec_id, queue_id, enqueued_by, enqueuing_seat FROM jobs_log WHERE exec_id = ?').get(execId) || null; } finally { raw.close(); }
 }
 
 const RUN_AT = '2026-01-01T00:00:00Z';
@@ -85,18 +85,18 @@ try {
 
   const qCols = cols(tmpDb, 'queue');
   const jCols = cols(tmpDb, 'jobs_log');
-  check('fresh store: queue carries enqueued_seat', qCols.includes('enqueued_seat'), `queue columns: ${qCols.join(',')}`);
-  check('fresh store: jobs_log carries enqueued_seat', jCols.includes('enqueued_seat'), `jobs_log columns: ${jCols.join(',')}`);
+  check('fresh store: queue carries enqueuing_seat', qCols.includes('enqueuing_seat'), `queue columns: ${qCols.join(',')}`);
+  check('fresh store: jobs_log carries enqueuing_seat', jCols.includes('enqueuing_seat'), `jobs_log columns: ${jCols.join(',')}`);
 
   // ── LEG 2 · the seat ROUND-TRIPS to disk at enqueue ──────────────────────────────────────────
   const seated = store.enqueue({
     jobId: 'launch-worker', args: ARGS, triggerKind: 'scheduled', runAt: RUN_AT,
-    enqueuedBy: 'sender-alpha', enqueuedSeat: 'client-x/leader',
+    enqueuedBy: 'sender-alpha', enqueuingSeat: 'client-x/leader',
   });
   const seatedRow = queueRow(seated.queue_id);
   check('a queue row enqueued by a PROVEN seat stores that seat, read back from disk',
-    seatedRow && seatedRow.enqueued_seat === 'client-x/leader',
-    seatedRow ? `enqueued_by=${seatedRow.enqueued_by} enqueued_seat=${seatedRow.enqueued_seat}` : 'row missing');
+    seatedRow && seatedRow.enqueuing_seat === 'client-x/leader',
+    seatedRow ? `enqueued_by=${seatedRow.enqueued_by} enqueuing_seat=${seatedRow.enqueuing_seat}` : 'row missing');
 
   check('the sender-id column is UNTOUCHED by the new one — they are two different facts, not a rename',
     seatedRow && seatedRow.enqueued_by === 'sender-alpha',
@@ -111,19 +111,19 @@ try {
     enqueuedBy: 'sender-bravo',
   });
   const unseatedRow = queueRow(unseated.queue_id);
-  check('an UNPROVEN caller (no enqueuedSeat at all) stores SQL NULL, not undefined and not a string',
-    unseatedRow && unseatedRow.enqueued_seat === null,
-    unseatedRow ? `enqueued_seat=${JSON.stringify(unseatedRow.enqueued_seat)}` : 'row missing');
+  check('an UNPROVEN caller (no enqueuingSeat at all) stores SQL NULL, not undefined and not a string',
+    unseatedRow && unseatedRow.enqueuing_seat === null,
+    unseatedRow ? `enqueuing_seat=${JSON.stringify(unseatedRow.enqueuing_seat)}` : 'row missing');
 
   const emptySeat = store.enqueue({
     jobId: 'launch-worker', args: ARGS, triggerKind: 'scheduled', runAt: RUN_AT,
-    enqueuedBy: 'sender-charlie', enqueuedSeat: '',
+    enqueuedBy: 'sender-charlie', enqueuingSeat: '',
   });
   const emptyRow = queueRow(emptySeat.queue_id);
   check('an EMPTY-STRING seat is normalized to NULL — else it would compare equal to an unproven '
     + "caller's empty seat at the grant and hand creator-seat over the row to anyone",
-    emptyRow && emptyRow.enqueued_seat === null,
-    emptyRow ? `enqueued_seat=${JSON.stringify(emptyRow.enqueued_seat)}` : 'row missing');
+    emptyRow && emptyRow.enqueuing_seat === null,
+    emptyRow ? `enqueuing_seat=${JSON.stringify(emptyRow.enqueuing_seat)}` : 'row missing');
 
   // ── LEG 4 · THE WRITE-THROUGH · the seat survives the FIRE into jobs_log ─────────────────────
   // This is claim (b), and it is the one that catches a field accepted at the door and dropped one
@@ -133,8 +133,8 @@ try {
   const firedSeated = store.fireQueueRow({ queueId: seated.queue_id, now: new Date(), tick: 1 });
   const firedSeatedRow = execRow(firedSeated.exec_id);
   check('FIRE denormalizes the seat into jobs_log — the row canKillSession is handed carries it',
-    firedSeatedRow && firedSeatedRow.enqueued_seat === 'client-x/leader',
-    firedSeatedRow ? `enqueued_seat=${firedSeatedRow.enqueued_seat}` : 'exec row missing');
+    firedSeatedRow && firedSeatedRow.enqueuing_seat === 'client-x/leader',
+    firedSeatedRow ? `enqueuing_seat=${firedSeatedRow.enqueuing_seat}` : 'exec row missing');
 
   check('the queue row is GONE after its one-shot fire — so the jobs_log copy is the ONLY surviving '
     + 'record of the seat, which is why it is denormalized rather than joined',
@@ -143,8 +143,8 @@ try {
   const firedUnseated = store.fireQueueRow({ queueId: unseated.queue_id, now: new Date(), tick: 2 });
   const firedUnseatedRow = execRow(firedUnseated.exec_id);
   check('an unseated queue row fires to an unseated jobs_log row (NULL through, never a placeholder)',
-    firedUnseatedRow && firedUnseatedRow.enqueued_seat === null,
-    firedUnseatedRow ? `enqueued_seat=${JSON.stringify(firedUnseatedRow.enqueued_seat)}` : 'exec row missing');
+    firedUnseatedRow && firedUnseatedRow.enqueuing_seat === null,
+    firedUnseatedRow ? `enqueuing_seat=${JSON.stringify(firedUnseatedRow.enqueuing_seat)}` : 'exec row missing');
 
   // ── LEG 5 · recordExecutionStart — the daemon's OWN internal starts hold no seat ─────────────
   const internal = store.recordExecutionStart({
@@ -153,22 +153,22 @@ try {
   });
   const internalRow = execRow(internal.exec_id);
   check('recordExecutionStart defaults the seat to NULL — the daemon\'s own starts prove no seat',
-    internalRow && internalRow.enqueued_seat === null,
-    internalRow ? `enqueued_seat=${JSON.stringify(internalRow.enqueued_seat)}` : 'exec row missing');
+    internalRow && internalRow.enqueuing_seat === null,
+    internalRow ? `enqueuing_seat=${JSON.stringify(internalRow.enqueuing_seat)}` : 'exec row missing');
 
   const internalSeated = store.recordExecutionStart({
     jobId: 'launch-worker', actionType: 'launch-agent', args: ARGS,
-    enqueuedBy: 'sender-alpha', enqueuedSeat: 'client-x/engineer', firedTick: 4, firedAt: new Date(),
+    enqueuedBy: 'sender-alpha', enqueuingSeat: 'client-x/engineer', firedTick: 4, firedAt: new Date(),
   });
   const internalSeatedRow = execRow(internalSeated.exec_id);
   check('...and it STORES one when given it — the positive control for the default above',
-    internalSeatedRow && internalSeatedRow.enqueued_seat === 'client-x/engineer',
-    internalSeatedRow ? `enqueued_seat=${internalSeatedRow.enqueued_seat}` : 'exec row missing');
+    internalSeatedRow && internalSeatedRow.enqueuing_seat === 'client-x/engineer',
+    internalSeatedRow ? `enqueuing_seat=${internalSeatedRow.enqueuing_seat}` : 'exec row missing');
 
   closeHeartStore();
 
   // ── LEG 6 · THE ONE THAT MATTERS · an EXISTING store is walked forward by the migration ──────
-  // Built at the OLD shape deliberately: queue and jobs_log WITHOUT `enqueued_seat`, user_version
+  // Built at the OLD shape deliberately: queue and jobs_log WITHOUT `enqueuing_seat`, user_version
   // stamped to 3 (the shape before this migration). Asserting against a store that already had the
   // column would be the exact blindness G-135 documents.
   {
@@ -196,7 +196,7 @@ try {
     const qBefore = old.prepare('PRAGMA table_info(queue)').all().map((r) => r.name);
     const jBefore = old.prepare('PRAGMA table_info(jobs_log)').all().map((r) => r.name);
     check('migration precondition: the store genuinely LACKS the column on BOTH tables before migrating',
-      !qBefore.includes('enqueued_seat') && !jBefore.includes('enqueued_seat'),
+      !qBefore.includes('enqueuing_seat') && !jBefore.includes('enqueuing_seat'),
       `queue: ${qBefore.join(',')} | jobs_log: ${jBefore.join(',')}`);
 
     // Injected, exactly as `migrate()` exposes for this purpose — the migration is NOT registered.
@@ -204,17 +204,17 @@ try {
 
     const qAfter = old.prepare('PRAGMA table_info(queue)').all().map((r) => r.name);
     const jAfter = old.prepare('PRAGMA table_info(jobs_log)').all().map((r) => r.name);
-    check('after migrating: queue carries enqueued_seat', qAfter.includes('enqueued_seat'), `queue: ${qAfter.join(',')}`);
-    check('after migrating: jobs_log carries enqueued_seat', jAfter.includes('enqueued_seat'), `jobs_log: ${jAfter.join(',')}`);
+    check('after migrating: queue carries enqueuing_seat', qAfter.includes('enqueuing_seat'), `queue: ${qAfter.join(',')}`);
+    check('after migrating: jobs_log carries enqueuing_seat', jAfter.includes('enqueuing_seat'), `jobs_log: ${jAfter.join(',')}`);
 
     // NO BACKFILL, and it is a ruling rather than an omission: the enqueuing seat of an
     // already-written row is NOT RECOVERABLE (sender→seat is many-to-one under a shared token), so
     // any backfill would be a guess written as a fact — and the guess would then hand `creator-seat`
     // to whoever it named. A pre-existing row must read NULL.
-    const legacyQ = old.prepare('SELECT enqueued_by, enqueued_seat FROM queue WHERE job_id = ?').get('legacy');
-    const legacyJ = old.prepare('SELECT enqueued_by, enqueued_seat FROM jobs_log WHERE job_id = ?').get('legacy');
+    const legacyQ = old.prepare('SELECT enqueued_by, enqueuing_seat FROM queue WHERE job_id = ?').get('legacy');
+    const legacyJ = old.prepare('SELECT enqueued_by, enqueuing_seat FROM jobs_log WHERE job_id = ?').get('legacy');
     check('NO BACKFILL: pre-existing rows read NULL on both tables, never a guess derived from enqueued_by',
-      legacyQ && legacyQ.enqueued_seat === null && legacyJ && legacyJ.enqueued_seat === null,
+      legacyQ && legacyQ.enqueuing_seat === null && legacyJ && legacyJ.enqueuing_seat === null,
       `queue=${JSON.stringify(legacyQ)} jobs_log=${JSON.stringify(legacyJ)}`);
     check('...and the migration did not disturb the sender-id it could have been tempted to copy',
       legacyQ && legacyQ.enqueued_by === 'legacy-sender' && legacyJ && legacyJ.enqueued_by === 'legacy-sender');
@@ -231,21 +231,17 @@ try {
   }
 
   // ── LEG 7 · THE ARMING STATE IS ASSERTED, NOT ASSUMED ────────────────────────────────────────
-  // Deliberately the INVERSE of probe-job-seat-home's leg 5, and the difference is the point.
-  // MIGRATION_ENQUEUING_SEAT is NOT in MIGRATIONS: landing a migration ARMS it (`migrate()` runs at
-  // DAEMON START), and arming against the live catalogue is the owner's ratification, not a
-  // builder's. This check FAILS THE DAY IT IS ARMED — that is intended: whoever adds the push must
-  // come here, invert this row, and correct the comment beside the migration in the same change,
-  // exactly as MIGRATION_SESSION_SPLIT's had to be. An arming that slips in silently is the thing
-  // being guarded against.
-  check('MIGRATION_ENQUEUING_SEAT is NOT YET in MIGRATIONS (arming is owner-ratified; invert this '
-    + 'row in the same change that adds the push)',
-    !MIGRATIONS.includes(MIGRATION_ENQUEUING_SEAT),
+  // Inverted 2026-08-11 with the owner's ruling on task 7.707, which armed the migration in the same
+  // change that renamed the column. Before that these two rows asserted the UNARMED state, so an
+  // arming could not slip in silently; now they assert the ARMED state, so an accidental REMOVAL of
+  // the push goes RED instead — the same guard, pointed the other way (probe-job-seat-home's leg 5).
+  check('MIGRATION_ENQUEUING_SEAT IS in MIGRATIONS (armed, per the task-7.707 ruling)',
+    MIGRATIONS.includes(MIGRATION_ENQUEUING_SEAT),
     `MIGRATIONS versions: ${MIGRATIONS.map((m) => m.version).join(',')}; mine: ${MIGRATION_ENQUEUING_SEAT.version}`);
 
-  check('its version does not COLLIDE with an armed migration — a duplicate version would make the '
-    + 'walk-forward ambiguous the day it is armed',
-    MIGRATIONS.filter((m) => m.version === MIGRATION_ENQUEUING_SEAT.version).length === 0,
+  check('its version is carried by EXACTLY ONE armed migration — a duplicate version would make the '
+    + 'walk-forward ambiguous and run the same ALTER twice',
+    MIGRATIONS.filter((m) => m.version === MIGRATION_ENQUEUING_SEAT.version).length === 1,
     `mine: ${MIGRATION_ENQUEUING_SEAT.version}`);
 
   const failed = checks.filter((c) => !c.pass);
