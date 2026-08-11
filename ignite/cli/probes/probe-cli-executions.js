@@ -99,7 +99,9 @@ async function main() {
   const d = await bootDaemon(env);
   check('the throwaway daemon boots and its gateway listens', d.listening === true,
     d.listening ? `port ${port}` : `exit=${d.exitCode} ${d.errLog().slice(0, 300)}`);
-  if (!d.listening) { out('ABORT: daemon never listened.'); return; }
+  // The summary block that sets the exit code is INSIDE main(), so this abort must carry
+  // its own verdict: a bare `return` here exited 0 with the check above FAILED (7.701).
+  if (!d.listening) { out('ABORT: daemon never listened.'); process.exit(1); }
 
   const cliEnv = { ...process.env, IGNITE_GATEWAY_ADDR: `127.0.0.1:${port}`, IGNITE_SENDER_TOKEN: ws.OWNER_TOKEN };
 
