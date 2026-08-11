@@ -22,7 +22,7 @@ const { minutesToTicks } = require('./warnings');
 
 const SCHEMA_SQL = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 const { migrate, isFreshStore } = require('./migrations');
-const { checkTemplateArgs } = require('./argv-template');
+const { checkTemplateArgs, checkFireToolWorkdir } = require('./argv-template');
 
 const ACTION_TYPES = new Set(['launch-agent', 'fire-tool', 'start-workflow', 'send-message']);
 
@@ -286,7 +286,9 @@ function validateSchemaTypes(schemaJson, { required, optional }) {
 // rather than reached for, because this function is module-level and has no `this`. Task 7.574
 // needs it for the fire-tool branch below; every other branch ignores it, and the `null` default
 // keeps a caller that has no catalogue behaving exactly as before.
-function validateArgs(args, schemaJson, actionType, tools = null) {
+// `workdirRoot` is the same config's `default_workdir_root` (task 7.562), handed in for the same
+// reason and with the same null-default semantics.
+function validateArgs(args, schemaJson, actionType, tools = null, workdirRoot = null) {
   let parsed;
   try {
     parsed = JSON.parse(args);
@@ -342,6 +344,14 @@ function validateArgs(args, schemaJson, actionType, tools = null) {
     // and self-heal rows. The start-workflow branch below records the same invariant from the other
     // side; this is why that branch is not simply widened to cover both.
     //
+    // ⚠ AMENDED BY TASK 7.562, and the correction matters because this paragraph is the reason the
+    // gap survived. Its warning is right about the BARE call and MEASURABLY OVER-BROAD about the
+    // rows: the self-heal rows supply NO `workdir` at all (24,918 fires, zero supplied), so no rule
+    // on the caller-supplied value can refuse them, and the one edge-runner fire that ever supplied
+    // one supplied the configured `default_workdir_root` exactly. The workdir check added below is
+    // therefore NOT the bare grammar call this warns against — it reads only `workdir`, only when
+    // the caller SUPPLIED it, against a two-root predicate that admits both live shapes.
+    //
     // NO `args_allowlist` ON THE ENTRY ⇒ THIS DOOR DOES NOTHING, matching the fire path EXACTLY
     // (`ticker.js` launchFireTool: a falsy `allow` on an untemplated argv falls through to the
     // byte-identical exec, never reaching `checkTemplateArgs`). A door stricter than the fire path
@@ -367,6 +377,19 @@ function validateArgs(args, schemaJson, actionType, tools = null) {
       const templateRefusal = checkTemplateArgs(parsed, allow);
       if (templateRefusal) {
         throw new HeartStoreError(E_BAD_ARGS, `fire-tool args refused: ${templateRefusal}`, { field: 'args' });
+      }
+    }
+    // Task 7.562 · the ENQUEUE half of the workdir gate — UX and defence in depth, NOT the
+    // boundary (that is `ticker.js` launchFireTool). What it buys: a bad value is refused at the
+    // CLI immediately instead of poisoning a PERIODIC row that then records a failed execution
+    // every cadence forever. Unconditional on `allow`, because the allowlist branch above switches
+    // the per-key grammar OFF and would otherwise leave `workdir` unchecked on exactly the entries
+    // that declare one. Silent when the composition root handed no root (probes, attached-execution
+    // stores): the fire door knows it and is the boundary anyway.
+    if (workdirRoot) {
+      const workdirRefusal = checkFireToolWorkdir(parsed, workdirRoot);
+      if (workdirRefusal) {
+        throw new HeartStoreError(E_BAD_ARGS, `fire-tool args refused: ${workdirRefusal}`, { field: 'workdir' });
       }
     }
   } else if (actionType === 'start-workflow') {
@@ -567,6 +590,12 @@ class HeartStore {
       // means the same wall-clock duration at any tick_interval_ms. Absent → the
       // ticker's own 10 s default (warnings.js).
       tick_interval_ms: opts.tickIntervalMs,
+      // Task 7.562 — the sanctioned fire-tool workdir. Set by the composition root AFTER the spawn
+      // manager loads the launch-profile config (engine/index.js), because that config is where
+      // `default_workdir_root` lives and the spawn manager is built from this store. Null until
+      // then, and null forever for a store opened without one — the enqueue door then stays silent
+      // and the fire door, which reads the value directly, remains the boundary.
+      workdirRoot: opts.workdirRoot || null,
     };
   }
 
@@ -812,7 +841,7 @@ class HeartStore {
     }
 
     const args = req.args !== undefined ? req.args : '{}';
-    validateArgs(args, job.args_schema, job.action_type, this.config.tools);
+    validateArgs(args, job.args_schema, job.action_type, this.config.tools, this.config.workdirRoot);
 
     const parsedArgs = JSON.parse(args);
     if (job.action_type === 'launch-agent') {

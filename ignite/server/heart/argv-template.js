@@ -106,7 +106,13 @@ function nameRule(label) {
 // — strictly more access than this rule defends against. A row author cannot reach it: the inbox
 // boundary carries a goal NAME through `GOAL_NAME_RE`, which creates a directory and never a link.
 // Tightening this needs an owner ruling on the two legal cases above, not a silent realpath.
-function workdirRule(value) {
+//
+// ⚠ `sanctionedRoot` (task 7.562, owner ruling `d-owner-board-clear-0809`) is the configured
+// `default_workdir_root`, admitted by EXACT EQUALITY and never as a prefix. "Anything under the
+// workspace root" would be no containment at all — that root holds `.rbtv/config/.env` and the
+// source tree. Passed by the fire-tool doors, which know it; omitted elsewhere, where the rule is
+// exactly what it has always been. Widening only, so no value accepted before is refused now.
+function workdirRule(value, sanctionedRoot = null) {
   if (typeof value !== 'string') return `workdir must be a string, got ${typeof value}`;
   if (value.length === 0 || value.length > MAX_PATH) {
     return `workdir must be 1..${MAX_PATH} characters, got ${value.length}`;
@@ -114,10 +120,17 @@ function workdirRule(value) {
   if (!path.posix.isAbsolute(value)) return 'workdir must be an absolute path';
   const raw = value.split('/');
   if (raw.includes('..')) return 'workdir must carry no ".." segment';
+  if (sanctionedRoot && value === sanctionedRoot) return null;
   const parts = path.posix.normalize(value).split('/');
   const i = parts.indexOf('.rbtv');
   if (i === -1 || parts[i + 1] !== 'goals' || !parts[i + 2]) {
-    return 'workdir must resolve inside a `.rbtv/goals/<goal>` containment';
+    // The refusal NAMES the sanctioned root, because the one thing no read can enumerate is a row
+    // an operator hand-registered and never documented (7.562 §3.5) — that operator must read what
+    // IS allowed rather than guess.
+    return sanctionedRoot
+      ? `workdir must be exactly the configured default_workdir_root (${sanctionedRoot}) `
+        + 'or resolve inside a `.rbtv/goals/<goal>` containment'
+      : 'workdir must resolve inside a `.rbtv/goals/<goal>` containment';
   }
   return null;
 }
@@ -212,10 +225,39 @@ function checkTemplateArgs(args, allow = null) {
     if (typeof value === 'string' && CONTROL_RE.test(value)) {
       return `${key} must carry no control character`;
     }
+    // No sanctioned root is threaded here on purpose: this is the `start-workflow` grammar path,
+    // whose every live row already supplies a `.rbtv/goals/…` workdir (measured — 4 of 7 rows, all
+    // W2). Widening it too would be a change nothing asks for.
     const reason = allow ? allowValue(key, allow[key], value) : TEMPLATE_KEYS[key](value);
     if (reason) return reason;
   }
   return null;
+}
+
+// ── Task 7.562 · THE FIRE-TOOL WORKDIR DOOR (owner rulings `d-owner-7559-design-rulings-0808` C1,
+// `d-owner-board-clear-0809`; design `dossiers/7562-workdir-governance-design.md`) ───────────────
+//
+// `fire-tool` never reaches `checkTemplateArgs`'s grammar: an entry with no `args_allowlist` skips
+// the call entirely, and an entry WITH one switches the per-key grammar OFF. So `args.workdir` —
+// a value whoever enqueues the row chooses — reached `--property WorkingDirectory=` ungoverned,
+// on a path that runs with NO sandbox (`ticker.js` runToolLikeExec passes literal `caps: {}` /
+// `sandbox: {}`; `buildBwrapArgv` count in that file is 0). This is that one gap, wired to the
+// validator above rather than to a second parallel one.
+//
+// ⚠⚠ IT GOVERNS THE SUPPLIED VALUE, NEVER THE RESOLVED ONE, and that is the whole outage
+// avoidance. The fire path resolves `args.workdir || default_workdir_root`; the fallback is
+// server-composed from the unit's environment and boot-validated (`index.js` refuses the seed
+// placeholder), so it is not caller-influenceable and needs no gate. MEASURED on the live store
+// 2026-08-10 (25,999 rows, exec_id 1..25999, no gaps): of 25,648 fire-tool executions ever fired,
+// exactly ONE supplied a workdir — `edge-runner` exec 25552, and its value was the configured
+// `default_workdir_root` exactly. A rule on the SUPPLIED value refuses nothing that has ever run;
+// a rule on the RESOLVED value would refuse every one of them.
+function checkFireToolWorkdir(args, sanctionedRoot = null) {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) return null;
+  if (!Object.hasOwn(args, 'workdir')) return null;
+  const value = args.workdir;
+  if (typeof value === 'string' && CONTROL_RE.test(value)) return 'workdir must carry no control character';
+  return workdirRule(value, sanctionedRoot);
 }
 
 // Expand a registered argv against a row's args. Returns `{ argv }` or `{ refused }` — never
@@ -275,5 +317,6 @@ module.exports = {
   MAX_NAME,
   MAX_PATH,
   checkTemplateArgs,
+  checkFireToolWorkdir,
   expandArgv,
 };

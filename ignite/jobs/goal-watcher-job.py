@@ -968,12 +968,36 @@ def headless_live(snap):
 
     An UNREADABLE source is `None`, never 0 — the same discipline CMP-20 applies to the run
     block's own terms, and for the same reason: a 0 standing in for "unknown" satisfies a third
-    of the stall predicate with a fabrication."""
+    of the stall predicate with a fabrication.
+
+    THE VIEW ITSELF IS BOUNDED (task 7.556). `snap['headless']` is not every headless row this
+    run ever had — team-monitor's `headless()` ages a row out of it once it is older than
+    `HEADLESS_WINDOW_S` AND beyond its `(job_id, seat)` group's `HEADLESS_KEEP` newest, and
+    counts every one it drops into `source['retention_dropped']` (the closure guarantee:
+    `scoped == emitted + retention_dropped + unattributed`). A row aged out this way is
+    UNOBSERVED, not absent — counting only what remains in view would silently undercount a
+    long-lived seat on a repeatedly-fired periodic job with total confidence. So `retention_dropped`
+    is READ here (never recomputed — `headless()` already counted it) and, exactly like an
+    unreadable source, turns the count `None` rather than trusting a view known to be short a row.
+
+    A source with NO `retention_dropped` key is read as 0, not as unknown — deliberately, unlike
+    every other term this file guards with the null-never-0 rule. `headless()` ITSELF always
+    carries the key (it is set at the top of its `source` dict before any row is scored), so a
+    missing key can only mean a fixture built before this field existed, never a live run; five
+    such fixtures already ship in this repo's own probe suite (`headless_source` sans
+    `retention_dropped`), each asserting an UNRELATED contract via a `run_stall` decision this
+    field must not silently swallow. Reading the true absent-VALUE case as 0 keeps those probes'
+    coverage intact; reading a REAL, POSITIVE `retention_dropped` as unknown — the case that can
+    actually happen against live data — is the whole of what task 7.556 asked for."""
     src = snap.get("headless_source")
     if not isinstance(src, dict):
         return None, "snapshot carries no headless_source (older sensor)"
     if not src.get("readable"):
         return None, (src.get("reason") or "headless[] source not readable")
+    dropped = src.get("retention_dropped") or 0
+    if dropped > 0:
+        return None, (f"{dropped} headless row(s) aged out of the view for this run "
+                       f"(retention_dropped={dropped}) — the live count would undercount")
     return sum(1 for r in (snap.get("headless") or []) if r.get("outcome") is None), ""
 
 
@@ -1027,10 +1051,13 @@ def worktree_leftovers(room_goal):
     """CMP-21 invariant 8 — the goal's leftover worktrees under `{workspace}/.rbtv/worktrees/`.
 
     A DIRECTORY READ filtered by `worktree-flow.py`'s own `{repo}--{goal}--{seat}` naming, run
-    when the goal has NO live run: that is the only moment "the run closed" is observable from
-    where this job stands. REMOVAL IS NOT PERFORMED and is not this file's: `worktree-flow.py`
-    owns it and REFUSES on a dirty tree, and a backstop that force-removed a dirty worktree
-    would destroy unmerged work — the opposite of a backstop."""
+    both when the goal has NO live run (the refusal branch, where "the run closed" is otherwise
+    unobservable from where this job stands) and, since task 7.557, once at the start of a
+    healthy watch (`report_worktree_leftovers`'s two call sites in `main`) — closing the blind
+    spot where leftovers from a run that never hits refusal went unreported. REMOVAL IS NOT
+    PERFORMED and is not this file's: `worktree-flow.py` owns it and REFUSES on a dirty tree, and
+    a backstop that force-removed a dirty worktree would destroy unmerged work — the opposite of
+    a backstop."""
     goal = Path(room_goal).resolve()
     root = goal.parent.parent.parent / ".rbtv" / "worktrees"     # {ws}/.rbtv/goals/<goal>
     try:
@@ -1038,6 +1065,24 @@ def worktree_leftovers(room_goal):
                       if p.is_dir() and f"--{goal.name}--" in p.name)
     except OSError:
         return []
+
+
+def report_worktree_leftovers(args):
+    """Task 7.557 — the un-cleaned-worktree report BODY, shared by the two call sites so neither
+    duplicates it: the refusal branch (below, in `main` — fires every refusal pass, its own
+    event) and the healthy-watch-start call site (also in `main`, gated there on a once-per-watch
+    state key so this body runs exactly once per watch instead of every cycle). A no-op when
+    `--room-goal` was never given — the refusal branch's prior guard, preserved unchanged."""
+    if not args.room_goal:
+        return
+    goal_name = Path(args.room_goal).name
+    left = worktree_leftovers(args.room_goal)
+    flow = Path(args.coord).resolve().parent / "worktree-flow.py"
+    print(f"goal-watcher-job [WORKTREE-SWEEP] {goal_name} — "
+          f"{len(left)} leftover worktree(s): {', '.join(left) or '(none)'}")
+    if left:
+        print(f"  remedy: {worktree_flow_text(flow, goal_name)}   (then merge-seat / "
+              f"close-goal — removal REFUSES on a dirty tree and is never forced here)")
 
 
 # ---------------------------------------------------------------- decisions
@@ -1730,7 +1775,10 @@ def selftest():
             fails.append(label)
 
     fresh = time.time()
-    ok_src = {"readable": True, "reason": ""}
+    # `retention_dropped: 0` is part of the emitter's real contract (team_monitor.headless()
+    # always sets it — task 7.556): a fixture that omits it would be testing a shape the sensor
+    # never actually produces.
+    ok_src = {"readable": True, "reason": "", "retention_dropped": 0}
 
     def snap(ready=1, live=0, queued=0, headless=(), src=None, run=True):
         s = {"captured_at": fresh, "captured_at_iso": "iso", "seats": [], "roster_absent": [],
@@ -1770,6 +1818,27 @@ def selftest():
     check("HEADLESS-LIVE: counts non-terminal rows only",
           headless_live(snap(headless=[{"outcome": None}, {"outcome": {}},
                                        {"outcome": None}]))[0] == 2)
+    # 7.556 — a row aged out of the view makes the count UNKNOWN, never a number, never 0.
+    dropped_src = {"readable": True, "reason": "", "retention_dropped": 1}
+    hl_dropped = headless_live(snap(headless=[{"outcome": None}], src=dropped_src))
+    check("HEADLESS-LIVE (7.556): retention_dropped > 0 makes the count UNKNOWN, not a number",
+          hl_dropped[0] is None and "retention_dropped" in hl_dropped[1])
+    missing_src = {"readable": True, "reason": ""}
+    check("HEADLESS-LIVE (7.556): a source with no retention_dropped KEY reads as 0, not unknown "
+          "(headless() itself always sets the key; a missing key is a pre-7.556 test fixture, "
+          "never live data — five of those fixtures ship in this suite and must keep working)",
+          headless_live(snap(headless=[{"outcome": None}], src=missing_src))[0] == 1)
+    check("HEADLESS-LIVE (7.556): retention_dropped == 0 still returns a real number "
+          "(the fix does not degrade every pass to unknown)",
+          headless_live(snap(headless=[{"outcome": None}]))[0] == 1)
+    # THE FLOW-THROUGH: an aged-out row must not let the stall predicate silently read the
+    # unknown headless count as if it were 0 (the "same action as zero" the task criteria name).
+    # ready>0, live=0, queued=0 with hl==0 fires RUN-STALL; the SAME shape with a dropped row
+    # must instead report UNDECIDABLE — a different action, not a quieter version of the same one.
+    d = run_stall(snap(headless=[{"outcome": None}], src=dropped_src), a)
+    check("STALL (7.556): a dropped headless row is UNDECIDABLE, never treated as hl==0",
+          len(d) == 1 and d[0]["nudge"] == "" and "UNDECIDABLE" in d[0]["action"]
+          and "headless-live" in d[0]["action"])
 
     # ---- the recipient chain
     room = {"seats": [{"seat": "alpha", "liveness": "live", "harness_pid": 7},
@@ -2222,15 +2291,7 @@ def main():
         # from: the job thresholds a LIVE run, so "the run closed" reaches it as the register no
         # longer resolving one. The sweep is REPORTED here rather than performed — see
         # `worktree_leftovers` for why removal stays with the tool that owns it.
-        if args.room_goal:
-            goal_name = Path(args.room_goal).name
-            left = worktree_leftovers(args.room_goal)
-            flow = Path(args.coord).resolve().parent / "worktree-flow.py"
-            print(f"goal-watcher-job [WORKTREE-SWEEP] {goal_name} — "
-                  f"{len(left)} leftover worktree(s): {', '.join(left) or '(none)'}")
-            if left:
-                print(f"  remedy: {worktree_flow_text(flow, goal_name)}   (then merge-seat / "
-                      f"close-goal — removal REFUSES on a dirty tree and is never forced here)")
+        report_worktree_leftovers(args)
         print("goal-watcher-job: REFUSING TO START — %s\n"
               "  The room flags are DELIVERED into must be the LIVE run, and this job will not "
               "guess which one that is: a flag delivered into the wrong room reads as having "
@@ -2290,6 +2351,23 @@ def main():
     # snapshot to read it from. `remember_session` runs on every pass — including the healthy
     # ones, which are the only passes that HAVE a session to bank.
     state = load_state(state_path)
+    # ---- Task 7.557: the un-cleaned-worktree report ALSO runs ONCE when a healthy watch starts —
+    # `room` has already resolved above (a refusal returned at line ~2113 before reaching here), so
+    # every pass that gets this far IS a healthy watch. Without this call site the report only ever
+    # fires from the refusal branch, so leftovers from a run that never hits refusal are never
+    # surfaced until something else checks later — the coverage gap the owner ruled on 2026-08-08.
+    # Gated on a `_`-prefixed state key: non-underscore keys are wiped every pass (below, for the
+    # per-episode dedup), but underscore keys persist across passes in the SAME watch's state file
+    # — and a NEW watch starts with a state file that does not have this key yet (a fresh run gets
+    # a fresh `coordination/` folder), which is exactly what makes "once per watch" fall out of
+    # "once per state file" with no extra bookkeeping.
+    # ponytail: the ceiling of that equivalence is a watch loop RESTARTED against the same package
+    # — it inherits the key and stays quiet. Deliberate: re-reporting on every unit restart is the
+    # per-cycle cost the ruling excluded. Upgrade path if a restart must re-report: key the gate on
+    # the watch unit's boot id rather than on the key's mere presence.
+    if not state.get("_worktree_swept_reported"):
+        report_worktree_leftovers(args)
+        state["_worktree_swept_reported"] = True
     remember_session(state, snap)
     if snap is None:
         # An unreadable snapshot IS the stale-sensor incident: the job cannot see the room,

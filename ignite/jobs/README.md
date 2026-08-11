@@ -99,6 +99,12 @@ first so the boot-read catalogue carries the entry):
 ignite register-job edge-runner --action-type fire-tool \
   --args-schema '{"required":{"tool":"string","goal":"string"},"optional":{"workdir":"string"}}'
 # `workdir` is PASSED, not merely permitted — see the door-resolution warning below.
+# ⚠ Since task 7.562 a fire-tool `workdir` is GOVERNED: the only values admitted are the configured
+# `default_workdir_root` EXACTLY, or a path inside `.rbtv/goals/<goal>`. On every deployment to date
+# the unit sets `RBTV_IGNITE_WORKDIR_ROOT` to the workspace root, so "the workspace root" below and
+# `default_workdir_root` are the SAME string (verified on the live box 2026-08-10, and the one
+# edge-runner fire that has ever happened supplied exactly it). If you deploy them DIFFERENT, pass
+# `default_workdir_root` — the workspace root is refused, loudly and by name.
 ignite add-job --fn edge-runner \
   --args-json '{"tool":"edge-runner","goal":"/home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp","workdir":"<the workspace root — the dir holding .rbtv/>"}' \
   --trigger periodic --every 300

@@ -258,7 +258,13 @@ FM_KEY = {
     # the rest SILENTLY — the exact half-read that would make a two-output seat verifiable on one.
     # ABSENT MEANS UNDECLARED, never "nothing to produce" — `declared_outputs` carries that
     # distinction all the way onto the durable record rather than collapsing it to a bool.
-    "outputs": re.compile(r"^outputs:\s*(.+?)\s*$", re.MULTILINE),
+    # ⚠ `[ \t]*`, NEVER `\s*` (7.711). `\s` matches the NEWLINE, so `^outputs:\s*(.+?)\s*$` reached
+    # PAST an empty `outputs:` and captured the NEXT LINE — `outputs:` + an indented `- plan.md`
+    # block parsed to the single value `- plan.md`, and a bare `outputs:` before `cwd:` parsed to
+    # `cwd: /x`. Both declare a path that can never exist, and a declared-but-absent output
+    # HARD-BLOCKS the seat's `done` forever. The docstring below promises `[]` for a key with
+    # nothing after it; only a horizontal-space class keeps that promise.
+    "outputs": re.compile(r"^outputs:[ \t]*(.+?)[ \t]*$", re.MULTILINE),
     "observer": re.compile(r"^observer:\s*(\S+)\s*$", re.MULTILINE),
     "auto-wake": re.compile(r"^auto-wake:\s*(\S+)\s*$", re.MULTILINE),
     # r-cos-bounded-inbox / r-engineer-contact — the SENDER BOUND: a comma-separated allow-list of
@@ -344,6 +350,34 @@ def _fm_outputs(fm):
     check-out's."""
     m = FM_KEY["outputs"].search(fm)
     return [s.strip() for s in m.group(1).split(",") if s.strip()] if m else []
+
+
+# 7.711: the key is read off ONE line as a bare comma-separated list, so the three shapes an author
+# reaches for by reflex — an indented YAML block list, a flow/bracket list, and the inline `#`
+# comment every SIBLING key tolerates (they capture `(\S+)` and drop the rest; this one captures the
+# whole line) — all parse to paths that CANNOT EXIST. That is strictly worse than declaring nothing:
+# an absent key is admitted and recorded `none-declared`, while a malformed one hard-blocks the
+# seat's `done` with a "MISSING: - plan.md" the author cannot act on. Named refusal instead.
+_OUTPUTS_BLOCK_YAML = re.compile(r"^outputs:[ \t]*\r?\n[ \t]*-[ \t]", re.MULTILINE)
+
+
+def _fm_outputs_defect(fm):
+    """Why this descriptor's `outputs:` cannot be a path list — "" when there is nothing wrong.
+
+    Detected on the descriptor, not on the check-out, because the value is WRONG the moment it is
+    written; the check-out is merely where it becomes unsatisfiable."""
+    if _OUTPUTS_BLOCK_YAML.search(fm):
+        return ("it is an INDENTED YAML BLOCK LIST. This key is read off ONE line — "
+                "`outputs: plan.md, build/report.json`")
+    for v in _fm_outputs(fm):
+        if v.startswith("[") or v.endswith("]"):
+            return (f"the entry `{v}` carries YAML flow-list punctuation. This key is a BARE "
+                    f"comma-separated list, not YAML — `outputs: plan.md, build/report.json`")
+        if "#" in v:
+            return (f"the entry `{v}` carries an inline `#` comment. Unlike its sibling keys this "
+                    f"one captures the REST OF THE LINE, so the comment becomes part of the path — "
+                    f"put the note on its own line above the key")
+    return ""
 
 
 def briefing_files(wdir):
@@ -8131,6 +8165,19 @@ def declared_outputs(args, seat):
     for w in discover_workers(workers_dir(args)):
         if w["agent"] != seat:
             continue
+        # 7.711 — refused HERE, and only here, though the defect is detected at the parse point:
+        # `discover_workers` is read by launch, status and the sensors, and killing those over
+        # another seat's descriptor typo would be a worse failure than the one being fixed. This is
+        # the one caller for which the value is load-bearing.
+        if w["outputs_defect"]:
+            refuse("input",
+                   f"'{seat}' has a MALFORMED `outputs:` declaration and this check-out cannot be "
+                   f"satisfied as written: {w['outputs_defect']}.\n"
+                   f"  descriptor: {w['briefing']}\n"
+                   f"Rewrite it on one line, or DELETE the key — an absent `outputs:` is admitted "
+                   f"and the record says `none-declared`. Refusing here costs the re-run only: "
+                   f"nothing was written, nothing was exported, your roster row is still ACTIVE.",
+                   1)
         missing = []
         for d in w["outputs"]:
             p = Path(d) if os.path.isabs(d) else Path(w["cwd"]) / d
@@ -10789,6 +10836,8 @@ def discover_workers(wdir):
             # is absolutized at THIS parse point and a declared output is resolved against it.
             # Parsing the descriptor twice would be two readers of one file (PRIN-11).
             "outputs": _fm_outputs(fm),
+            # 7.711: read at the SAME parse point for the same reason — one reader of one file.
+            "outputs_defect": _fm_outputs_defect(fm),
         })
     return found
 
@@ -13198,9 +13247,14 @@ CAPACITY_NOTE_CROSS_GOAL = ("  capacity: {k} cross_goal pane(s) resolve OUTSIDE 
 CAPACITY_NOTE_IN_RUN = ("  capacity: {k} cross_goal pane(s) resolve INSIDE this run's own seats/ — "
                         "this run's OWN seat(s), harness live, not yet checked in. `census()` files "
                         "them cross_goal and leaves them OUT of in_use, so they are COUNTED here "
-                        "and headroom is reduced by {k}. Before 7.555 this DEGRADED the act to CAP "
-                        "NOT CONSULTED instead, and that degrade never cleared while the harness "
-                        "stayed live and silent.")
+                        "and headroom is reduced by {k}. Before 7.555 this DEGRADED the act and "
+                        "left the cap unconsulted instead, and that degrade never cleared while "
+                        "the harness stayed live and silent.")
+# ⚠ THE LINE ABOVE DELIBERATELY DOES NOT CONTAIN THE DEGRADE MARKER `CAP NOT CONSULTED`, and this
+# is not style. That string is a WIRE MARKER several rows assert the ABSENCE of to prove the act
+# took the full-capacity branch; a note that merely NARRATES the old behaviour using the marker
+# makes every such row read its own commentary and go red on correct code. Measured here: the first
+# draft of this note carried the phrase and reddened 7.555's own D5 row.
 CAPACITY_NOTE_BREACH = ("  capacity: census verdict BREACH — the room is already over "
                         "cap.agent_panes. Every counted candidate is DEFERRED.")
 # 7.278's own addition, ruled `p-7278-wire-form-confirmed`: C1 §2.1 defines COUNTED by membership
@@ -22252,8 +22306,15 @@ def _selftest_checks(args, failures, names):
         # The probed DOMAIN is a different matter and is deliberately WIDER than the model: the
         # literal writers below UNION the model's own, so a writer added to the mapping later is
         # probed by this row instead of silently falling outside it.
+        #
+        # ⚠ THE LITERAL HAS BEEN PAID ONCE, AND PAYING IT IS THE PROCEDURE. 7.676 widened the
+        # mapping with `incomplete<-seat`; this row went RED on the VPS run (task 7.695) exactly as
+        # designed, and the owner RULED the widening admitted (7.708). The pair below was then added
+        # BY HAND, with its justification written into the row's own prose. That is the only way a
+        # pair may ever enter this set — never by deriving it from the mapping, which would retire
+        # the tripwire on the first widening it was built to catch.
         _w154_expected = {("done", "seat"), ("done", "leader"), ("renew", "seat"),
-                          ("revive", "kit"), ("exited", "kit")}
+                          ("revive", "kit"), ("exited", "kit"), ("incomplete", "seat")}
         _w154_domain = ({"seat", "kit", "leader", "auditor"}
                         | set().union(*RECORD_DISPOSITION_WRITER.values()))
         _w154_admitted = {(_d, _w) for _d in RECORD_DISPOSITION_WRITER for _w in _w154_domain
@@ -22262,14 +22323,29 @@ def _selftest_checks(args, failures, names):
         check("7.154: THE WRITER MODEL ADMITS THE LEADER'S RULED FLIP AND NOTHING ELSE. Over the "
               "full cross product of the enum and a writer domain WIDER than the model's own, the "
               "admitted set is EXACTLY {done<-seat, done<-leader, renew<-seat, revive<-kit, "
-              "exited<-kit} — five pairs, compared against a literal so this row cannot move with "
-              "the mapping it grades. The leader is admitted for `done` (`d-exited-row-closure`: "
-              "investigate the routed row, and where the work had CONCLUDED switch it to `done`) "
-              "and is REFUSED for `exited` by name — a leader writing `exited` would attest to a "
-              "termination it did not witness, which is the misgrading R-6 bars and which the "
-              "ruling does not grant. Control arms both directions: `done<-leader` must be "
-              "ADMITTED and `exited<-leader` must RAISE, so a model that granted nothing and a "
-              "model that granted everything both red this row",
+              "exited<-kit, incomplete<-seat} — six pairs, compared against a literal so this row "
+              "cannot move with the mapping it grades. The leader is admitted for `done` "
+              "(`d-exited-row-closure`: investigate the routed row, and where the work had "
+              "CONCLUDED switch it to `done`) and is REFUSED for `exited` by name — a leader "
+              "writing `exited` would attest to a termination it did not witness, which is the "
+              "misgrading R-6 bars and which the ruling does not grant. `incomplete<-seat` is the "
+              "sixth pair and it is the SEAT'S ALONE, admitted on the same test the other five "
+              "answer to — WHO SAW IT. A seat's own done-contract being UNMET is a fact the "
+              "occupant holds and nothing else observes: `cmd_checkout` reaches the value only "
+              "through the seat's own `--incomplete <REASON>`, refuses that flag EMPTY because the "
+              "reason IS the value, and writes it with `DISPOSITION_WRITER_SEAT` on the same three "
+              "surfaces `done` takes. `declared_outputs` proves the bound from the other side: "
+              "when a seat's declared paths are absent the kit REFUSES the `done` and hands the "
+              "seat this word to say for itself, and it deliberately does NOT downgrade `done` to "
+              "`incomplete` on the seat's behalf — a downgrade would have the KIT assert a fact "
+              "about work only the SEAT witnessed, and would land the ending carrying no reason, "
+              "since the kit has none to give. So the LEADER is refused `incomplete` for the same "
+              "reason it is refused `exited`: a leader who believes a seat unfinished has "
+              "`exited`'s investigation path, never a word to put in the seat's mouth — and this "
+              "is the one value whose entire purpose is that it was SELF-declared. Control arms "
+              "both directions: `done<-leader` must be ADMITTED and `exited<-leader` must RAISE, "
+              "so a model that granted nothing and a model that granted everything both red this "
+              "row",
               _w154_admitted == _w154_expected
               and _d8_val("done", DISPOSITION_WRITER_LEADER) is None
               and _w154_leader_exited and "exited" in _w154_leader_exited
@@ -24291,10 +24367,35 @@ def _selftest_checks(args, failures, names):
                                       "box": {"available_mb": 999999},
                                       "seats": list(seats)}), encoding="utf-8")
 
-        def _c3_run(**kw):
+        def _c3_run(no_target=False, **kw):
             _d = dict(agent="leader", package=str(_c3l), dry_run=True)
             _d.update(kw)
-            return refuse(cmd_launch, **_d)
+            # ⚠ 7.718: THIS BLOCK SETS ITS OWN LAUNCH TARGET, like every sibling block that launches
+            # for real (`os.environ["COORD_LAUNCH_TARGET"] = "%0"` before a `dry_run=False` refuse).
+            # A real launch resolves `COORD_LAUNCH_TARGET or TMUX_PANE` or REFUSES, and this block
+            # can inherit NEITHER: an earlier block pops `COORD_LAUNCH_TARGET` unconditionally, and
+            # `$TMUX_PANE` belongs to whatever shell invoked the suite. It is set HERE, in the one
+            # helper every row of the block launches through, rather than around the block, so no
+            # future `dry_run=False` row can be added without it. Left unset, the four real launches
+            # below take `cmd_launch`'s `environment` refusal and exit 1 with every capacity verdict
+            # still CORRECT — the rows fail on `code == 0` alone — and, having launched nothing,
+            # write no `sessions.csv`, so the census-absent rows behind them read COLD-START instead
+            # of census-unproducible: EIGHT rows red on any host whose shell is outside tmux.
+            # NOT a weakening of that refusal, which is ruled behaviour with its own rows (F18) —
+            # and `no_target=True` is how those rows OPT OUT: F18 reproduces a daemon-fired exec's
+            # environment (NEITHER variable set) and asserts the refusal, so the helper must hand it
+            # the empty environment it popped rather than quietly re-supply the input under test.
+            if no_target:
+                return refuse(cmd_launch, **_d)
+            _c3_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
+            os.environ["COORD_LAUNCH_TARGET"] = "%0"
+            try:
+                return refuse(cmd_launch, **_d)
+            finally:
+                if _c3_prior_target is None:
+                    os.environ.pop("COORD_LAUNCH_TARGET", None)
+                else:
+                    os.environ["COORD_LAUNCH_TARGET"] = _c3_prior_target
 
         def _c3_defer_lines(text):
             return [_ln for _ln in text.splitlines() if "DEFERRED (capacity)" in _ln]
@@ -24494,6 +24595,13 @@ def _selftest_checks(args, failures, names):
               and "CAP NOT CONSULTED" not in _c3_d5
               and "cross_goal row(s) resolve inside this run's own seats/" not in _c3_d5
               and "cross_goal pane(s) resolve INSIDE this run's own seats/" in _c3_d5
+              # ⚠ N2 IS ASSERTED ABSENT HERE, and it is the only thing pinning N2's COUNT SOURCE.
+              # Before 7.555 N2 read `len(_cap_cross)` — EVERY cross_goal row — and was suppressed
+              # whenever an in-run row existed; it now reads `_cap_cross_out` alone. The N2 row
+              # below cannot detect a revert to the old source, because its fixture has no in-run
+              # row and the two lists are IDENTICAL there. This fixture is the other half: it has
+              # ONLY an in-run row, so the old source would print N2 with k=1 and this goes RED.
+              and "cross_goal pane(s) resolve OUTSIDE this run" not in _c3_d5
               and "headroom is reduced by 1" in _c3_d5
               and len(_c3_defer_lines(_c3_d5)) == 2)
         # ---- 7.555's DISCRIMINATING TWIN: the TRANSIENT regime is PRESERVED, not fixed away -----
@@ -24525,7 +24633,12 @@ def _selftest_checks(args, failures, names):
               and "[dry-run] cap3" not in _c3_ci
               and "CAP NOT CONSULTED" not in _c3_ci
               and "resolve INSIDE this run's own seats/" not in _c3_ci
-              and len(_c3_defer_lines(_c3_ci)) == 1)
+              # TWO deferrals, not one: the checked-in pane is INSIDE `in_use`, so headroom is 1
+              # and `cap2` waits beside `cap3`. That is the cap binding on a seat that really is
+              # occupying the room — the correct reading, and the arithmetic differs from the row
+              # above (which reduces the SAME cap by an uncounted row) precisely because the two
+              # arrive at it through different terms.
+              and len(_c3_defer_lines(_c3_ci)) == 2)
         _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
                           "harness": "claude", "liveness": "dead",
                           "cwd": str(_c3l / "seats" / "cap1")}])
@@ -24627,6 +24740,12 @@ def _selftest_checks(args, failures, names):
         # pass unchanged (this fix only widens the ONE reading none of them exercise: a package
         # nothing has EVER touched). This section needs a package that has genuinely never had a
         # sensor or a seat, so it builds its own.
+        # ⚠ "BY CONSTRUCTION" IS CONSTRUCTED BY `_c3_run`'s LAUNCH TARGET, NOT BY THE HOST. Until
+        # 7.718 that claim was FALSE whenever the suite ran outside tmux: the rows above refused on
+        # the missing target, launched nothing, and left `_c3l` with no `sessions.csv` — the very
+        # marker D1 keys on — so D1/D3/D4/D5 read COLD-START and went red. `_c3_run` now sets
+        # `COORD_LAUNCH_TARGET` itself, so the launches land on every host and the claim holds
+        # unconditionally. Never re-derive this block's non-virginity from an inherited `$TMUX_PANE`.
         _c4l = _rs_make("c4-coldstart", [("cs1", ""), ("cs2", "")])
         for _c4_s in ("cs1", "cs2"):
             (_c4l / "seats" / _c4_s / "seat.md").write_text(
@@ -24733,10 +24852,15 @@ def _selftest_checks(args, failures, names):
         wake_ok["v"] = True
         _f18_splits = len(split_targets)
         try:
-            _f18_none, _f18_none_code = _c3_run(only="cap1", dry_run=False)
-            _f18_blank, _f18_blank_code = _c3_run(only="cap1", dry_run=False, tmux_target="   ")
+            # `no_target=True` on all three: popping the two variables above is only half of
+            # reproducing the daemon exec's environment — `_c3_run` supplies its own
+            # `COORD_LAUNCH_TARGET` (7.718), and the arm under test must not be handed the very
+            # input it exists to prove is missing.
+            _f18_none, _f18_none_code = _c3_run(only="cap1", dry_run=False, no_target=True)
+            _f18_blank, _f18_blank_code = _c3_run(only="cap1", dry_run=False, no_target=True,
+                                                  tmux_target="   ")
             _f18_mid = len(split_targets)
-            _f18_ok, _f18_ok_code = _c3_run(only="cap1", dry_run=False,
+            _f18_ok, _f18_ok_code = _c3_run(only="cap1", dry_run=False, no_target=True,
                                             tmux_target="%f18-explicit")
         finally:
             wake_ok["v"] = _f18_prior_wake

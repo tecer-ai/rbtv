@@ -28,6 +28,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 HERE = Path(__file__).resolve().parent
 NUDGE = HERE / "nudge.py"
@@ -417,6 +418,29 @@ def a_roster_grammar_matches_coord_py(mod):
         f"  nudge.py: {m.WORKER_ROW.pattern!r}")
 
 
+def a_gated_pane_is_not_nudged(mod):
+    """C11 — a recipient whose pane is parked on an approval gate gets NO nudge, and the skip is
+    recorded as such. G-289: typing into a frozen approval modal lands the nudge INSIDE the
+    modal's input and corrupts the gate. The detector is coord.py's `at_approval_gate`, stubbed
+    here so no tmux is reached; the second half proves the guard is a GATE and not a mute — an
+    ungated pane on the same path still gets its nudge, so a control that always skips goes red."""
+    m = load_module(mod, "nudge_gate_" + str(abs(hash(str(mod)))))
+    sent, gated = [], {"%10"}
+    m.at_approval_gate = lambda pane: pane in gated          # coord.py's detector, stubbed
+    m.transport_tmux = lambda text, pane, dry_run: (sent.append(pane), (f"sent:tmux:{pane}", True))[1]
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = make_package(tmp, [("chief-of-staff", "yes", "%10")])
+        cfg = SimpleNamespace(package=pkg, to="chief-of-staff", transport="tmux", out=None,
+                              dry_run=False, interval=60.0, message="CHECKS")
+        rec = m.do_tick(cfg, 1)
+        assert rec["outcome"] == "skipped:at-approval-gate", f"gated pane was not skipped: {rec}"
+        assert rec["ok"] is False, f"a skipped tick must not claim delivery: {rec}"
+        assert sent == [], f"a nudge was typed into a pane parked on an approval modal: {sent}"
+        gated = set()
+        rec = m.do_tick(cfg, 2)
+        assert sent == ["%10"] and rec["ok"] is True, f"an UNGATED pane must still be nudged: {rec}"
+
+
 # ------------------------------------------------------------------ controls
 # (claim id, description, assertion, [(control name, [(old, new), ...]), ...])
 
@@ -527,6 +551,13 @@ CLAIMS = [
     ("C6", "the roster grammar has not drifted from coord.py's WORKER_ROW",
      a_roster_grammar_matches_coord_py,
      [("regex mutated", [("(?P<agent>[^|]+?)", "(?P<agent>[^|]+)")])]),
+
+    ("C11", "a recipient parked on an approval gate is skipped, never typed into",
+     a_gated_pane_is_not_nudged,
+     [("approval-gate guard removed (the nudge lands in the modal)",
+       [("    elif cfg.transport == \"tmux\" and at_approval_gate(pane):", "    elif False:")]),
+      ("guard mutated into a mute (nothing is ever delivered)",
+       [("cfg.transport == \"tmux\" and at_approval_gate(pane)", "True")])]),
 ]
 
 

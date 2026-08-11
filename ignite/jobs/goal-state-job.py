@@ -412,6 +412,11 @@ EXPECT_STATE = {
     "fx-renew": "failed",
     "fx-revive": "failed",
     "fx-exited": "failed",
+    # 7.712 added this seat to the SHARED fixture. It ended saying, in its own words, that it did
+    # not finish — a terminal mark that is not `done`, so it reads `failed` here exactly as
+    # `renew`/`revive`/`exited` do. Not a divergence: it has no roster row, so the terminal and
+    # roster readings agree and EXPECT_DIVERGENCE stays at two entries.
+    "fx-incomplete": "failed",
     "fx-empty-disposition": "failed",     # ended with an EMPTY cell — unknown, never done
     "fx-renewed-then-done": "done",
     "fx-no-iospec": "done",
@@ -992,7 +997,8 @@ def build_fixture(root):
         d.mkdir(parents=True, exist_ok=True)
         d.joinpath("seat.md").write_text(
             "---\nseat: %s\n---\n<io-spec id=\"fx-io\" version=\"latest\">\n## Inputs\n\n- none.\n"
-            "\n## Outputs\n\n- `outputs/present.md` — the declared artifact.\n</io-spec>\n" % seat)
+            "\n## Outputs\n\n- `outputs/present.md` — the declared artifact.\n</io-spec>\n" % seat,
+            encoding="utf-8")
 
     # Session rows for the two that need a trace: one terminal-and-still-rostered, one CRASHED
     # (open row, and its roster row will be inactive).

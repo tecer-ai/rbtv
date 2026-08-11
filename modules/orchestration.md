@@ -48,6 +48,15 @@ The long-horizon work module — creating structured plans, executing them throu
 
 ---
 
+### `rbtv-dispatch-resolve`
+
+- **What**: A thin loader over the `dispatch-resolve` capability (`orchestration/capabilities/dispatch-resolve/`) — the conductor's pre-flight for a CLI-worker dispatch (`dispatch-wrapper.md` §5a, gate 5). One call resolves a NAMED launch profile through the ONE shared resolver (`ignite/launch-profiles/`) into the exact argv + binary, substitutes the work-target into the profile's own add-dir position when the profile declares `{extra_dir}` (`addDirResolved` says which), and runs the pinned-flag pre-flight against the live `--help` — refusing on `E_SEATBINDS_PROFILE`, `E_ADD_DIR_ABSENT`, `E_ADD_DIR_RELATIVE`, `E_UNKNOWN_PROFILE`, `E_RAW_FLAG`, `E_UNKNOWN_EFFORT`, `E_PINNED_FLAG_ABSENT`, `E_PREFLIGHT_UNAVAILABLE`. **Manual invocation is the contract** — no code path consumes it (`route.py` emits an invocation pointer, `scaffold.py` only checks manual drift, the AGENT types the command), and the skill exists so the conductor reaches for the resolver instead of hand-composing the command line (owner ruling `d-r2-preflight-manual-plus-skill`, 2026-08-10). The skill carries no logic: it points at the capability doc and the one-line `node -e` invocation.
+- **When to use**: Before packaging a dispatch to any CLI worker whose `(model, variant)` records a `launch_profile`. A variant without one dispatches from its package manual as before.
+- **How to invoke**: `rbtv-dispatch-resolve`, or on the gate-5 step of the dispatch-wrapper card.
+- **Inputs / outputs**: Input — profile NAME, an absolute work-target, an abstract effort level, declared-slot values (never argv, never flags). Output — `{ argv, binary, addDir, addDirResolved, preflight }`, or a thrown refusal carrying an `E_*` code.
+
+---
+
 ### `/rbtv-source-mining`
 
 - **What**: Processes a long source (conversation export, transcript, book chapter, long document) that the orchestrator Claude cannot read directly due to context limits. It chunks the source, dispatches sub-agents to extract decisions or concepts from each chunk, groups the results, and synthesizes them into either a **reconciled document** (updates an existing doc with session decisions + user line-comments) or a **study note**. The orchestrator never reads the source — only sub-agents do.

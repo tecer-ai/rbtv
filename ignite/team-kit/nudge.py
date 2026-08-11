@@ -115,6 +115,46 @@ def resolve_recipient(package: Path, to: str):
     return row["pane"], "ok"
 
 
+# ---------------------------------------------------------------- approval gate
+
+# G-289. A pane parked on its harness's interactive approval modal is a BLIND GATE: the pane is
+# frozen, so a nudge typed into it is not read and lands as stray text INSIDE the modal's own
+# input — corrupting the very gate the leader has to answer. coord.py already owns that detection
+# (`at_approval_gate`, pane TITLE only) and `deliver_wakes` already skips on it; this loop CALLS
+# that function instead of growing a second detector that could drift from it.
+#
+# Imported LAZILY and never fatally, unlike the WORKER_ROW grammar above (copied for exactly these
+# reasons): coord.py is 2 MB, is under another seat's custody, and a broken save there has taken
+# the room's messaging down at import once already. A loop that cannot tick because coord.py is
+# mid-save is a worse failure than an undetected gate, so a failed import turns detection OFF and
+# says so on stderr — the same fail-open direction as at_approval_gate itself, which returns False
+# on any missing signal rather than declaring a seat gated.
+_COORD_GATE = None          # coord.at_approval_gate; False once the import has failed
+
+
+def at_approval_gate(pane):
+    """True when coord.py says this pane is parked on an interactive approval prompt."""
+    global _COORD_GATE
+    if _COORD_GATE is None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        try:
+            from coord import at_approval_gate as gate
+        except Exception as exc:
+            print(f"[nudge] coord.py unavailable ({type(exc).__name__}: {exc}) — approval-gate "
+                  f"detection is OFF for this loop", file=sys.stderr, flush=True)
+            gate = False
+        _COORD_GATE = gate
+    if not _COORD_GATE:
+        return False
+    try:
+        return _COORD_GATE(pane)
+    except Exception:
+        # The detector shells out to tmux; if tmux is gone it RAISES rather than returning False.
+        # A gate check must never be the thing that stops a tick — same fail-safe direction as
+        # at_approval_gate's own "missing signal is not a gate".
+        return False
+
+
 # ---------------------------------------------------------------- transports
 
 # Every transport returns (outcome, delivered). `delivered` is what the heartbeat's `ok` field
@@ -222,6 +262,13 @@ def do_tick(cfg, seq):
     ok = False
     if pane is None:
         outcome = f"skipped:{why}"
+    elif cfg.transport == "tmux" and at_approval_gate(pane):
+        # Only the tmux transport can be corrupted by a modal — a stdout or file nudge is not
+        # typed into the pane. Scoping the check here also keeps those transports tmux-free:
+        # coord.py's detector SHELLS OUT to tmux, and subprocess raises (not returncode!=0) when
+        # tmux is not installed, so an unconditional check turns every tick on a tmux-less box
+        # into a tick-error. Measured 2026-08-10.
+        outcome = "skipped:at-approval-gate"
     else:
         try:
             outcome, ok = deliver(cfg, text, pane)

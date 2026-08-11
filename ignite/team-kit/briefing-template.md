@@ -33,6 +33,15 @@ ctx-refresh: 50            # optional; context-refresh threshold % for THIS seat
                            # persistent seat is flagged to leader, who relays it — renewal is
                            # YOUR act: `checkout --renew`, then the second call it prints,
                            # carrying `--handoff "<what your next session must do>"`
+outputs: plan.md, build/report.json
+                           # optional; comma-separated paths this seat must have PRODUCED.
+                           # Plain `checkout` REFUSES to record `done` while any of them is
+                           # missing or zero-byte. Relative paths resolve against `cwd:`
+                           # (folder form: the seat's own folder). Omit the key and the
+                           # check-out records `none-declared` — the `done` is unverified.
+                           # NOT the "Surfaces you own" claim below — that is what a seat may
+                           # WRITE; this is what it must have PRODUCED. Often the same paths,
+                           # never the same question. Details: `briefing-authoring.md`
 ---
 
 # {agent-name} — {one-line role}

@@ -87,6 +87,12 @@ function createEngine({
     ? decorateSpawnManager(bareSpawnManager, heartStore)
     : bareSpawnManager;
 
+  // Task 7.562 — hand the store the sanctioned fire-tool workdir. It arrives here rather than
+  // through `openHeartStore` because `default_workdir_root` lives in the launch-profile config the
+  // spawn manager loads, and the spawn manager is built FROM the store. One assignment beats
+  // loading that config twice or reordering the composition root.
+  heartStore.config.workdirRoot = spawnManager.config.default_workdir_root || null;
+
   const ticker = createTicker({
     heartStore,
     spawnManager,

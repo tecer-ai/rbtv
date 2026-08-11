@@ -80,8 +80,9 @@ byte-identical before and after a full pass.
 `done` IS THE ONLY VALUE THAT ADVANCES AN EDGE
 ----------------------------------------------
 The enum is closed and it is coord's, not this file's: `RECORD_DISPOSITION_WRITER =
-{done, renew, revive, exited}` (coord.py, validated at write time by `validate_disposition`, which
-raises and never normalizes). `renew`, `revive` and `exited` each mark NOT-done here, and so does
+{done, renew, revive, exited, incomplete}` (coord.py, validated at write time by
+`validate_disposition`, which raises and never normalizes). `renew`, `revive`, `exited` and
+`incomplete` each mark NOT-done here, and so does
 an empty cell — coord.py's own comment on the column reads "AN EMPTY CELL IS `unknown`, NEVER
 `done`". An implementation that read `exited` as "probably done" would reintroduce the silent stall
 that value exists to make visible.
@@ -185,16 +186,36 @@ READS = [
     # roster readers (`load_workers` / `current_row`), never with a private parser.
     (ROSTER, "agent"),           # which roster row belongs to the seat
     (ROSTER, "active"),          # whether it is occupying a pane right now — a double-launch guard
+    # STEP 5 (task 7.615) adds exactly this one, under the OWNER GRANT
+    # `d-r2-taskforce-id-read-granted` (2026-08-10), whose condition is that the audit row lands in
+    # the SAME change as the arm — it did: trace-field-audit.md row 17. THE GRANT IS ONE COLUMN AT
+    # ONE STAGE. It is what lets the nested arm answer "which rows are THIS instance's" by the id
+    # the instance was minted with, instead of by a name-prefix match — and a prefix match is not a
+    # near-miss here, it is the wrong answer whenever a SECOND instance of the same workflow exists,
+    # because both instances share the four letters and only the id separates them.
+    (TASKFORCE, "taskforce-id"),
     # STEP 3b (7.425 / W2) adds exactly this one, and it is audited at row 14 — see the constant.
     # The FIELD is `None` because the guard NAMES its own field (`ref[field=value]`), so no fixed
     # column resolves the site; that is the same reason row 14 carries `field: null`.
     (DECLARED_ARTIFACTS, None),  # the guard's field, read off the predecessor's VALIDATED OUTPUT
 ]
 
-# coord's closed enum, restated here ONLY as the literal this file's checks compare against, so a
+# coord's closed enum, restated here ONLY as the literal this file's CHECKS compare against, so a
 # check's expectation is never read from the value under test. `check_enum_matches_coord` asserts
 # it equals coord's own `RECORD_DISPOSITION_WRITER` keys — drift makes that check red, not silent.
-EXPECTED_ENUM = {"done", "renew", "revive", "exited"}
+#
+# ⚠ 7.689: IT IS NOT WHAT THE STAGE GRADES AGAINST. `verify` reads the membership test straight off
+# `coord.RECORD_DISPOSITION_WRITER`, because "would the kit admit this value?" is a question about
+# COORD and a copy of the answer can only ever desync from it. When 7.676 added `incomplete`, this
+# literal was the grading enum, so an honestly-incomplete seat graded UNDECIDED ("cannot have been
+# written through the kit") and — because UNDECIDED is not a terminal mark — stayed a LAUNCH
+# CANDIDATE. Widening the literal would have fixed that one value and rebuilt the class for the
+# next one. So the two jobs are split: coord's set decides membership; this literal is only the
+# REVIEW GATE, the record of which dispositions a human has ruled the NOT-done handling for. A new
+# coord disposition now grades correctly (not-`done` ⇒ not-done) AND turns this check red, asking
+# for the ruling. `incomplete` is listed because 7.689 ruled it: see `ADVANCES_EDGE` below — it is
+# a declared ending, not-done, terminal, and NOT relaunched.
+EXPECTED_ENUM = {"done", "renew", "revive", "exited", "incomplete"}
 
 ADVANCES_EDGE = "done"   # the ONE value. Not a default, not a fallback, not a prefix match.
 
@@ -344,11 +365,14 @@ def verify(coord, pkg, seat):
                            "No check-out was made, so no edge advances.")
         result["grades-applied"].append("shape")
         return result
-    if value not in EXPECTED_ENUM:
+    # 7.689: DERIVED, never a copy. The question is "would coord's own writer admit this value?", so
+    # it is asked of coord's enum at read time — a restated set answers for whatever coord looked
+    # like when the set was typed, which is how `incomplete` came to grade UNDECIDED.
+    if value not in coord.RECORD_DISPOSITION_WRITER:
         result["undecided-reason"] = (
             "disposition %r is outside coord's closed enum %s. `validate_disposition` raises rather "
             "than normalizing, so this value cannot have been written through the kit — refusing to "
-            "interpret it." % (value, sorted(EXPECTED_ENUM)))
+            "interpret it." % (value, sorted(coord.RECORD_DISPOSITION_WRITER)))
         return result
     result["grades-applied"].append("shape")
     if value != ADVANCES_EDGE:
@@ -1103,9 +1127,15 @@ def launch_candidates(coord, pkg, ready, self_marks, catalog_root=None):
                             "reason": "MC9's classifier reads this row as a NESTED WORKFLOW, not a "
                                       "seat: it names a workflow manifest, so it has no descriptor "
                                       "and this stage can never launch it. REFUSED BY NAME rather "
-                                      "than left ready forever — every successor of `%s` waits on "
-                                      "a row nothing will ever advance. The launch path for a "
-                                      "nested workflow is %s." % (seat, NESTED_ROW_TASK)})
+                                      "than left ready forever. IT IS NOT DEAD: STEP 5's "
+                                      "`nested_arm` EXPANDS `%s` into an instance of this goal "
+                                      "(composed seat names + a `tf-<n>-<prefix><m>` id) and marks "
+                                      "it terminal when every row carrying that instance's "
+                                      "taskforce-id is terminal — scoped by the ID, never by the "
+                                      "name prefix a sibling instance shares. The arm needs a "
+                                      "catalog root AND a bindings file; without them this row is "
+                                      "excluded here and expanded by nobody. See %s."
+                                      % (seat, NESTED_ROW_TASK)})
             continue
         if not (pkg / "seats" / seat / "seat.md").exists():
             excluded.append({"seat": seat, "term": "no-descriptor", "value": None,
@@ -1238,12 +1268,19 @@ def _seed_member(pkg, seed, missing, seen, pred, resolvable, absent):
 # CONFIDENTLY. That is the one failure mode a reader cannot see from a refusal alone, which is why
 # the provenance travels IN the refusal text: a refusal that cannot be dated cannot be trusted.
 #
-# ⚠⚠ AND THE TABLE IS INCOMPLETE, WHICH IS A DIFFERENT DEFECT FROM STALE. It carries no row for
-# `branches/<b>/coordination/`. An unmapped subtree is `undecided`, and `undecided` REFUSES — it is
-# NEVER admitted and never passed through (leader bar, 2026-08-07). A branch-relative token that
-# reads admissible on paper may be unwritable in fact: `composeCageFor` passes `runDir` straight
-# through, and the one construction site found builds a PARENT-run path. Fail-closed here is
-# load-bearing, not defensive tidiness.
+# ⚠⚠ AND THE TABLE IS NECESSARILY INCOMPLETE, WHICH IS A DIFFERENT DEFECT FROM STALE. It maps the
+# subtrees CW2 measured and no others. An unmapped subtree is `undecided`, and `undecided` REFUSES
+# — it is NEVER admitted and never passed through (leader bar, 2026-08-07). A token that reads
+# admissible on paper may be unwritable in fact, so admitting one on the strength of a MISSING
+# measurement is the one direction that turns a gap into a green. Fail-closed here is load-bearing,
+# not defensive tidiness.
+#
+# ⚠ THE `branches/<b>/outputs/` ROW IS DELETED (2026-08-10, task 7.615). The branch FOLDER is
+# abolished (`r-branch-folder-deleted-nested-seats-are-ordinary-run-seats`) and a nested workflow's
+# seats are ORDINARY seats of the parent goal, so no package token can name that subtree; its rows
+# are covered by `seats/<self>/` and `coordination/` like any other seat's. Deleting it is not a
+# loss of measurement: a `branches/…` token now falls through to `undecided` and REFUSES, which is
+# the same refusal the row gave, arrived at without keeping a dead shape mapped.
 
 _ADMISSIBLE = "admissible"
 _INADMISSIBLE = "inadmissible"
@@ -1260,9 +1297,9 @@ _ADMISSION_RULE = (
 
 _ADMISSION_HOMES = (
     "WHERE AN ADMISSIBLE TOKEN LIVES: no successor reads it -> `seats/<self>/...`; a successor "
-    "reads it -> `coordination/<producer>-<artifact>`; `outputs/` and `branches/.../outputs/` are "
-    "INADMISSIBLE for a caged producer. The `coordination/` home is an INTERIM and retires at task "
-    "7.57, when the gateway path supersedes it.")
+    "reads it -> `coordination/<producer>-<artifact>`; `outputs/` is INADMISSIBLE for a caged "
+    "producer. The `coordination/` home is an INTERIM and retires at task 7.57, when the gateway "
+    "path supersedes it.")
 
 _CAGE_MAP_PROVENANCE = (
     "PROVENANCE OF THE CAGE CLASSIFICATION (task 7.466 / CW2, 2026-08-07, VANTAGE: DISK): composed "
@@ -1274,26 +1311,31 @@ _CAGE_MAP_PROVENANCE = (
     "sha256:c36a11b409238eb7, asserting composed-flag digests producer 1c8ef7c433259527, successor "
     "0507cfef2345526e, templates 21. THIS IS A SNAPSHOT, NOT A LIVE SPEC: if `cage.SeatBinds` has "
     "changed since, this refusal is STALE and not current -- re-run 7.466's driver before trusting "
-    "it. It is also INCOMPLETE: there is no `branches/<b>/coordination/` row, so a token there is "
-    "`undecided` and refused rather than admitted.")
+    "it. It is also NECESSARILY INCOMPLETE: it maps the subtrees CW2 measured and no others, so a "
+    "token under an unmapped subtree is `undecided` and refused rather than admitted.")
 
 # subtree -> (writable-by-producer, readable-by-peer, deciding-entry), transcribed from CW2's
 # record. Keys are patterns over a RUN-PACKAGE-RELATIVE token; `<x>` matches one path segment. The
 # record's sixth row is its NEGATIVE CONTROL (`{goalDir}/runs/run-decoy/`) and is deliberately not
 # transcribed: it is a control on the instrument, not a subtree any package token can name.
+#
+# ⚠ THE DECIDING-ENTRY STRINGS SPELL `{runDir}` AND STAY THAT WAY. They are CW2's transcribed bwrap
+# flags, and `runDir` is what the emitter was called on 2026-08-07; the slot itself is retired
+# (`cage.js`: "runDir is RETIRED, the package IS the goal folder"). Rewriting a transcription to
+# today's vocabulary would falsify the record it exists to be. The MAP KEY is a different thing —
+# it is live input to `cage_subtree_of` — so that one is spelled `{goalDir} root`.
 _CAGE_SUBTREES = {
     "outputs/":              (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
-    "branches/<b>/outputs/": (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
     "seats/<self>/":         (True,  False, "W bind:{seatDir} | R tmpfs:{runDir}/seats"),
     "coordination/":         (True,  True,  "W bind:{runDir}/coordination | "
                                             "R bind:{runDir}/coordination"),
-    "{runDir} root":         (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
+    "{goalDir} root":        (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
 }
 
 
 def _cage_key_pattern(key):
     """A cage-map key as a regex over a token. `<x>` matches exactly one path segment."""
-    if key == "{runDir} root":
+    if key == "{goalDir} root":
         return re.compile(r"[^/]+\Z")
     parts = [r"[^/]+" if re.fullmatch(r"<[^>]+>", p) else re.escape(p)
              for p in key.rstrip("/").split("/")]
@@ -1554,7 +1596,11 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
     at = at or iso_utc_now()
     after = coord.taskforce_after(pkg)
 
-    candidates, excluded = launch_candidates(coord, pkg, res["ready"], res["self-marks"])
+    # STEP 5: the catalog root rides on the readiness result `nested_pass` hands in (see its
+    # docstring — this interface's signature is a recorded contract and does not grow a parameter
+    # for it). Absent, this is exactly today's call: `None`, and the untyped refusal answers.
+    candidates, excluded = launch_candidates(coord, pkg, res["ready"], res["self-marks"],
+                                             catalog_root=res.get("catalog-root"))
     seats = seat_prompts(coord, pkg)
     # STEP 4a: ONE resolution per pass — the whole call shares one `profile`, so caged-ness is one
     # boolean for every candidate below, not a per-seat question.
@@ -1754,8 +1800,9 @@ def checkout_fastpath(coord, pkg, seat, disposition, submit=None, at=None):
 
     THREE GATES, and all three are load-bearing:
 
-      1. **`disposition` must be `done`.** `renew`, `revive` and `exited` each name a seat that has
-         NOT finished its work. Enqueuing on one of them advances a dead seat silently, which is
+      1. **`disposition` must be `done`.** `renew`, `revive`, `exited` and `incomplete` each name a
+         seat that has NOT finished its work (`incomplete` says so in the seat's own words — 7.676).
+         Enqueuing on one of them advances a dead seat silently, which is
          precisely the failure the closed disposition enum exists to make visible. The gate is an
          equality against ONE value — never a truthiness test, never a prefix match, never
          "not renew".
@@ -1802,9 +1849,9 @@ def checkout_fastpath(coord, pkg, seat, disposition, submit=None, at=None):
         arm, scope = fastpath_arm(pkg)
         res["scope"] = scope
         if disposition != ADVANCES_EDGE:
-            res["why-not"] = ("disposition is `%s`, and only `%s` advances an edge. `renew`, "
-                              "`revive` and `exited` each name a seat that has NOT finished; "
-                              "enqueuing on one of them advances a dead seat."
+            res["why-not"] = ("disposition is `%s`, and only `%s` advances an edge. Every other "
+                              "value coord admits names a seat that has NOT finished; enqueuing on "
+                              "one of them advances a dead seat."
                               % (disposition, ADVANCES_EDGE))
             return res
         if arm is None:
@@ -1888,21 +1935,60 @@ def fastpath_lines(res):
 # constants.
 #
 # ⚠⚠ WHAT IS NOT REBUILT HERE, STATED SO NOBODY READS THE DELETION AS A COMPLETION.
-# A nested-workflow row in a parent's `taskforce.csv` now has NO LAUNCHER and NO MARK DERIVATION.
-# Re-founding those on prefix-named parent seats is a DESIGN act, not a mechanical re-key, and it
-# is deliberately NOT performed in this stage — the measured boundary is written up in the E2b
-# findings. Concretely, three mechanisms had no goal-direct equivalent to re-key onto:
-#   (1) IDENTITY — a branch home was matched to its row by its taskforce seat set being the frozen
-#       copy of the nested manifest's (Rule 13). Prefix-named seats live in the PARENT's one
-#       `seats/` and the PARENT's one `taskforce.csv`, so there is no second registry to compare;
-#       what identifies the instance is the prefix, and no rule mints or records one today.
-#   (2) TERMINAL STATE — `branch_terminal_mark` read the branch package's OWN terminal rows. With
-#       one registry there is no separate terminal set to read.
-#   (3) IDEMPOTENCE — "already materialized" was answered by the branch home existing. With
-#       ordinary seats it must be answered by the prefix already being present, which presupposes
-#       (1).
+# A nested-workflow row in a parent's `taskforce.csv` still has NO LAUNCHER and NO MARK DERIVATION.
+# Re-founding those on prefix-named parent seats is a DESIGN act, not a mechanical re-key. Three
+# mechanisms had no goal-direct equivalent to re-key onto; TWO NOW HAVE ONE and the third is what
+# still stops this arm (re-measured 2026-08-10, task 7.615):
+#   (1) IDENTITY — RESOLVED. A branch home was matched to its row by its taskforce seat set being
+#       the frozen copy of the nested manifest's (Rule 13). Owner ruling
+#       `d-r2-tfid-structured-counter` mints an instance id — `tf-<n>-<prefix><m>` — and
+#       `materialize-seats.py --nested` WRITES it on every row of the instance. The instance is now
+#       a recorded, addressable row set.
+#   (2) IDEMPOTENCE — RESOLVED by (1) plus the composed name: an instance already materialized is
+#       one whose composed roots already carry an `after` cell naming this nested row.
+#   (3) TERMINAL STATE — RESOLVED 2026-08-10 by the owner grant `d-r2-taskforce-id-read-granted`.
+#       `branch_terminal_mark` read the branch package's OWN terminal rows; the goal-direct
+#       equivalent is "every row carrying this instance's taskforce-id is terminal", and THIS STAGE
+#       may now read that column (audit row 17, landed in this same change — the grant's condition).
+#       `nested_arm` below is the re-founding. It is no longer a refusal.
 # `nested_rows` and MC9's classifier SURVIVE: telling a seat reference from a workflow reference is
 # still a real question, still has one home, and its checks still run.
+#
+# ---- THE ARM ITSELF: EXPAND ON READY, TERMINAL BY INSTANCE ID --------------------------------
+#
+# Two legs, and one link holds them together.
+#
+#   EXPAND    a nested row that is READY and unmarked is materialized as an INSTANCE of the parent
+#             goal — `materialize-seats.py --workflow W --nested --after <the nested row>`. Every
+#             composed seat is an ORDINARY parent seat, so the ordinary launch path launches it.
+#   TERMINAL  when every row carrying that instance's taskforce-id is terminal, the nested row is
+#             MARKED — `done` when they are all `done`, `failed` otherwise — and its successors
+#             advance. Scoping is BY ID, never by the four-letter name prefix: a second instance of
+#             the same workflow shares the prefix, and a prefix scope would mark this row on a
+#             sibling's rows.
+#
+# THE LINK IS `--after`, AND IT IS WRITTEN BY THE MATERIALIZER, NOT HERE. Passing the nested row as
+# the instance's insertion point puts it in the instance ROOTS' own `after` cell, so "has this row
+# already expanded, and into which rows" is answerable off `taskforce.csv` with no second state
+# surface and no bespoke write from this file. That is also the whole idempotence test: a second
+# pass finds the roots and expands nothing.
+#
+# ⚠ THE CONSEQUENCE OF THAT LINK, STATED RATHER THAN DISCOVERED. The instance roots are `after` a
+# row that is `done` only once THEY are, so ordinary readiness leaves them BLOCKED forever and
+# would deadlock the instance. `nested_pass` therefore READIES exactly the rows of an in-flight
+# instance whose ONLY unmet predecessor is their own nested row — a bounded, named exception, not a
+# change to the readiness predicate, and it is exercised as a selftest arm rather than argued for.
+# No second enqueue is written: the readied rows go into the readiness result STEP 4 already takes.
+#
+# ⚠ THE ARM NEEDS A CATALOG ROOT AND A BINDINGS FILE, AND SAYS SO. Classification needs the first
+# (the daemon's argv carries none — the untyped refusal above is still that condition's answer) and
+# materializing needs the second, since a bindings file is where the harness·model·effort triple
+# lives and this stage invents no launch policy. Neither is guessed and neither is defaulted; an
+# absent one is a TYPED refusal on that row, and the rest of the pass is unaffected.
+#
+# ⚠ NO MILESTONE-ID IS CARRIED FORWARD, and that is the grant holding. Reading the nested row's
+# `milestone-id` cell to pass it to the materializer would be a SECOND unaudited column. The grant
+# is one column; the instance materializes without a milestone rather than acquiring a read.
 
 MATERIALIZE_PATH = HERE.parent / "team-kit" / "materialize-seats.py"
 
@@ -1947,6 +2033,200 @@ def nested_rows(coord, pkg, catalog_root, ms=None):
     return nested, refused
 
 
+def taskforce_ids(pkg):
+    """`{seat: taskforce-id}` off `taskforce.csv` — THE GRANTED READ (`d-r2-taskforce-id-read-
+    granted`, audit row 17), and the only place this file touches that column.
+
+    A row with no id carries `""` rather than being dropped: "this row belongs to no instance" is an
+    answer the caller must be able to see, and a missing key would read as a missing ROW."""
+    out = {}
+    tf = pkg / "taskforce.csv"
+    if not tf.exists():
+        return out
+    with tf.open(newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            seat = (row.get("seat") or "").strip()
+            if seat:
+                out[seat] = (row.get("taskforce-id") or "").strip()
+    return out
+
+
+def instance_of(coord, pkg, ms, nested_seat, prefix, tf_ids):
+    """`(taskforce-id, [rows], error)` — the instance `nested_seat` has already expanded to.
+
+    `(None, [], None)` means NOT YET EXPANDED, which is the input the expand leg acts on; an
+    `error` string means the link is there but does not name ONE instance, which is refused rather
+    than guessed at.
+
+    A ROOT of the instance is a row whose `after` names the nested row (the link `--after` wrote)
+    AND whose seat name parses as an instance name of this workflow's prefix. Both terms are
+    required: the first alone would catch an ordinary successor of the nested row, and the second
+    alone would catch a sibling instance."""
+    roots = []
+    for seat, preds in coord.taskforce_after(pkg).items():
+        parsed = ms.parse_instance_seat_name(seat)
+        if not parsed or parsed[0] != prefix:
+            continue
+        names = [pred for member in preds for pred, _alt in _seed_predecessors(coord, member)]
+        if nested_seat in names:
+            roots.append(seat)
+    if not roots:
+        return None, [], None
+    ids = sorted({tf_ids.get(s, "") for s in roots})
+    if len(ids) != 1 or not ids[0]:
+        return None, [], ("the rows attached to this nested row (%s) carry %d taskforce-id(s) %s — "
+                          "an instance is ONE row set with ONE id, and which one this row owns "
+                          "cannot be read. Refused rather than guessed."
+                          % (", ".join(sorted(roots)), len(ids), ids))
+    tfid = ids[0]
+    return tfid, sorted(s for s, i in tf_ids.items() if i == tfid), None
+
+
+def instance_terminal_mark(rows, marks):
+    """The nested row's DERIVED mark — `done` when every row of the instance is marked `done`,
+    `failed` when they are all terminal and at least one is not, `None` while any is unmarked.
+
+    `None` is not a failure state and must never be read as one: it is an instance still running,
+    and the same rule STEP 1-2 states holds here — an absent mark is never `done`."""
+    if not rows:
+        return None
+    values = [marks.get(r, NO_MARK) for r in rows]
+    if any(v is None for v in values):
+        return None
+    return ADVANCES_EDGE if all(v == ADVANCES_EDGE for v in values) else "failed"
+
+
+def _nested_materialize_argv(pkg, catalog_root, bindings, workflow, nested_seat):
+    """The materializer's argv for ONE nested expansion. Split out so a check can read the command
+    without running it — and so the flags this arm needs are stated in exactly one place."""
+    return [sys.executable, str(MATERIALIZE_PATH),
+            "--package", str(pkg),
+            "--workflow", workflow,
+            "--nested",
+            "--catalog-root", str(catalog_root),
+            "--bindings", str(bindings),
+            "--after", nested_seat,
+            "--json"]
+
+
+def _run_materialize(argv):
+    """Run the materializer. Default runner only — every caller may inject its own, which is how a
+    check drives the arm without a catalog on disk."""
+    cp = subprocess.run(argv, capture_output=True, text=True)     # noqa: S603 — argv is built above
+    return cp.returncode, cp.stdout, cp.stderr
+
+
+def nested_arm(coord, pkg, catalog_root, bindings=None, marks=None, ms=None, run=None):
+    """STEP 5 — expand every ready nested-workflow row, and mark every finished instance.
+
+    Returns `{marks, expanded, instances, refused}`. `marks` is the input marks PLUS the derived
+    mark of every nested row whose instance is terminal; it is a copy, so a caller's dict is never
+    mutated under it. `refused` carries one typed row per nested row this arm could not act on —
+    the arm never raises and never acts on a guess."""
+    ms = ms or load_materialize()
+    run = run or _run_materialize
+    marks = dict(marks if marks is not None else
+                 {r["seat"]: r["disposition"] for r in run_stage(coord, pkg)})
+    out = {"marks": marks, "expanded": [], "instances": [], "refused": [], "unclassified": []}
+    try:
+        nested, unresolvable = nested_rows(coord, pkg, catalog_root, ms)
+    except Exception as exc:                                       # noqa: BLE001 — reported as data
+        out["refused"].append({"seat": None, "code": "classification-unreachable",
+                               "reason": "classifying this package's rows raised %s: %s. No row is "
+                                         "expanded on an unread classification."
+                                         % (type(exc).__name__, exc)})
+        return out
+    # CARRIED, NOT REFUSED. A row the classifier could not resolve is the ORDINARY case for a live
+    # goal whose seats are not in the catalog (`nested_rows`' own docstring), and it is not a nested
+    # row this arm failed to act on. `refused` is reported LOUD to a human; conflating the two would
+    # make every ordinary pass red, which is how a red nobody reads gets made.
+    out["unclassified"].extend({"seat": r["seat"], "code": r["code"], "reason": r["message"]}
+                               for r in unresolvable)
+    if not nested:
+        return out
+    ready = set(readiness(coord, pkg, marks)["ready"])
+    tf_ids = taskforce_ids(pkg)
+    for seat, ref in sorted(nested.items()):
+        try:
+            prefix = ms.read_workflow_prefix(Path(ref.source).parent)
+        except Exception as exc:                                   # noqa: BLE001 — reported as data
+            out["refused"].append({"seat": seat, "code": "workflow-prefix-unreadable",
+                                   "reason": "%s: %s" % (type(exc).__name__, exc)})
+            continue
+        tfid, rows, err = instance_of(coord, pkg, ms, seat, prefix, tf_ids)
+        if err:
+            out["refused"].append({"seat": seat, "code": "instance-ambiguous", "reason": err})
+            continue
+        if tfid is None:
+            if seat not in ready or marks.get(seat, NO_MARK) is not None:
+                continue        # not this pass's row: unready, or already terminal
+            if not bindings:
+                out["refused"].append({"seat": seat, "code": "nested-bindings-absent",
+                                       "reason": "this row is READY to expand, and expanding it "
+                                                 "materializes seats — which needs the bindings "
+                                                 "file that carries their harness·model·effort. No "
+                                                 "bindings input reached this pass, and this stage "
+                                                 "invents no launch policy. Pass "
+                                                 "--nested-bindings."})
+                continue
+            rc, sout, serr = run(_nested_materialize_argv(pkg, catalog_root, bindings, ref.name, seat))
+            if rc != 0:
+                out["refused"].append({"seat": seat, "code": "materialize-refused",
+                                       "reason": "the materializer returned %d expanding %r: %s"
+                                                 % (rc, ref.name, (serr or sout or "").strip())})
+                continue
+            out["expanded"].append({"seat": seat, "workflow": ref.name, "stdout": sout})
+            tf_ids = taskforce_ids(pkg)                 # re-read: the rows are new as of a line ago
+            tfid, rows, err = instance_of(coord, pkg, ms, seat, prefix, tf_ids)
+            if err or tfid is None:
+                out["refused"].append({"seat": seat, "code": "instance-unfound-after-expand",
+                                       "reason": err or ("the materializer reported success but no "
+                                                         "row attached after %r carries an instance "
+                                                         "name of prefix %r — the expansion is not "
+                                                         "readable back, so nothing is advanced on "
+                                                         "it" % (seat, prefix))})
+                continue
+        mark = instance_terminal_mark(rows, marks)
+        out["instances"].append({"seat": seat, "taskforce-id": tfid, "rows": rows, "mark": mark})
+        if mark is not None:
+            marks[seat] = mark
+    return out
+
+
+def nested_pass(coord, pkg, catalog_root, bindings=None, marks=None, ms=None, run=None):
+    """`(readiness_result, arm_report)` — the arm, folded into the readiness result STEP 4 takes.
+
+    Two things the plain predicate cannot do are done here and NOWHERE else: the derived nested
+    marks are fed back through `readiness`, and the rows of an IN-FLIGHT instance whose only unmet
+    predecessor is their own nested row are moved from `blocked` to `ready` (see the header — that
+    edge is the expansion link, and waiting on it is the deadlock)."""
+    report = nested_arm(coord, pkg, catalog_root, bindings, marks, ms=ms, run=run)
+    res = readiness(coord, pkg, report["marks"])
+    pending = {i["seat"]: set(i["rows"]) for i in report["instances"] if i["mark"] is None}
+    still_blocked = []
+    for b in res["blocked"]:
+        owner = next((n for n, rows in pending.items()
+                      if b["seat"] in rows and b["unmet"] == [n]), None)
+        if owner is None:
+            still_blocked.append(b)
+            continue
+        res["ready"].append(b["seat"])
+        res["self-marks"][b["seat"]] = report["marks"].get(b["seat"], NO_MARK)
+    res["blocked"] = still_blocked
+    # STEP 4 reads the catalog root off the readiness result rather than off a parameter of its own:
+    # its signature is a recorded contract with three consumers (`check_enqueue_signature_is_
+    # recorded`), and the root is a property of the PASS, which is what this result already is.
+    res["catalog-root"] = str(catalog_root)
+    res["nested"] = report
+    res["caveats"] = list(res["caveats"]) + [
+        "STEP 5 ran: %d nested row(s) classified, %d expanded this pass, %d refused. A row of an "
+        "IN-FLIGHT instance whose only unmet predecessor is its own nested row was READIED here — "
+        "that edge is the expansion link and nothing else will ever satisfy it."
+        % (len(report["instances"]), len(report["expanded"]), len(report["refused"])),
+    ]
+    return res, report
+
+
 
 
 
@@ -1989,6 +2269,12 @@ EXPECT = {
     "fx-renew": "failed",
     "fx-revive": "failed",
     "fx-exited": "failed",
+    # 7.712: the seat's OWN words for "I did not finish". It grades through the same ADVANCES_EDGE
+    # rule as every other not-`done` value — no special case — and the row exists so the GRADING
+    # path is what proves it. `check_enum_matches_coord` cannot: that check catches a WIDENING of
+    # coord's mapping, not a regression of `verify`'s membership test back to a hardcoded literal,
+    # which is exactly how `incomplete` once graded UNDECIDED and stayed a launch candidate (7.689).
+    "fx-incomplete": "failed",
     "fx-empty-disposition": "failed",
     "fx-open-sitting": None,
     "fx-no-row": None,
@@ -2075,6 +2361,7 @@ EXPECT_READY = {
     "fx-renew":                ("ready", []),
     "fx-revive":               ("ready", []),
     "fx-exited":               ("ready", []),
+    "fx-incomplete":           ("ready", []),
     "fx-empty-disposition":    ("ready", []),
     "fx-open-sitting":         ("ready", []),
     "fx-no-row":               ("ready", []),
@@ -2768,7 +3055,8 @@ def check_guard_reads_the_validated_output(coord, pkg):
     def flip(scratch):
         doc = json.loads((scratch / FX_ROUTE_ARTIFACT).read_text(encoding="utf-8"))
         doc["risk"] = "low"
-        (scratch / FX_ROUTE_ARTIFACT).write_text(json.dumps(doc, indent=2) + "\n")
+        (scratch / FX_ROUTE_ARTIFACT).write_text(json.dumps(doc, indent=2) + "\n",
+                                                 encoding="utf-8")
 
     flipped, _ = _fixture_readiness(coord, flip)
     got = _readiness_verdicts(flipped)
@@ -2874,8 +3162,8 @@ def check_guard_red_arms_fire(coord, pkg):
 FX_JOB_ID = "fx-launch-seat"
 FX_PROFILE = "fx-profile"
 
-# Every ready seat the self-state intersection MUST exclude, with the mark that excludes it. All
-# nine are `ready` on the `after` term — their `after` cells are empty — and all nine are the
+# Every ready seat the self-state intersection MUST exclude, with the mark that excludes it. Every
+# row is `ready` on the `after` term — their `after` cells are empty — and every row is the
 # wrong thing to launch. This is the leader's bar, spelled out row by row.
 EXPECT_ENQUEUE_EXCLUDED = {
     "fx-done-outputs-present": "done",
@@ -2883,6 +3171,10 @@ EXPECT_ENQUEUE_EXCLUDED = {
     "fx-renew":                "failed",
     "fx-revive":               "failed",
     "fx-exited":               "failed",
+    # 7.712: the half `check_dispositions` cannot see. UNDECIDED is `None`, and this exclusion
+    # fires only on a NON-`None` terminal mark — so a misgraded `incomplete` would stay a LAUNCH
+    # CANDIDATE and be re-enqueued. The seat must be here, not merely graded.
+    "fx-incomplete":           "failed",
     "fx-empty-disposition":    "failed",
     "fx-renewed-then-done":    "done",
     "fx-no-iospec":            "done",
@@ -3064,7 +3356,7 @@ def check_enqueue_excludes_self_marked(coord, pkg):
     """CRITERION 1 / LEADER BAR — readiness is NOT launch candidacy.
 
     Every ready seat carrying a terminal mark must be EXCLUDED and NAMED, with the mark that
-    excluded it. The expectation is the eight-row table above, compared exactly: a seat that stops
+    excluded it. The expectation is the table above, compared exactly: a seat that stops
     being excluded is red, and so is one that starts."""
     submit, _ = _stub_door()
     res = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, submit=submit)
@@ -3176,13 +3468,13 @@ def check_missing_seed_path_fails_loudly(coord, pkg):
     on a branch nothing reaches. The artifact is restored before returning."""
     res3 = readiness(coord, pkg)
     artifact = pkg / "outputs" / "present.md"
-    body = artifact.read_text()
+    body = artifact.read_text(encoding="utf-8")
     submit, _ = _stub_door()
     try:
         artifact.unlink()
         res = enqueue(coord, pkg, FX_JOB_ID, FX_PROFILE, readiness_result=res3, submit=submit)
     finally:
-        artifact.write_text(body)
+        artifact.write_text(body, encoding="utf-8")
     failed = {r["seat"]: r for r in res["failed"]}
     landed = {r["seat"] for r in res["enqueued"]}
     for seat in ("fx-r-one-done", "fx-r-two-done", "fx-r-spaces"):
@@ -3401,7 +3693,7 @@ def check_admission_carries_the_rule(coord, _pkg):
                              (_ADMISSION_HOMES, "the admissible-home table"),
                              ("sha256:c36a11b409238eb7", "the cage map's digest"),
                              ("SNAPSHOT, NOT A LIVE SPEC", "the staleness disclosure"),
-                             ("`branches/<b>/coordination/` row", "the incompleteness disclosure")):
+                             ("NECESSARILY INCOMPLETE", "the incompleteness disclosure")):
             if needle not in text:
                 return False, "the refusal omits %s" % what
         return True, ("the refusal carries the rule verbatim, the home table, the cage map's "
@@ -3450,10 +3742,14 @@ def check_admission_is_scoped_to_caged(coord, _pkg):
 def check_admission_undecided_refuses(_coord, _pkg):
     """An UNMAPPED subtree is `undecided`, and `undecided` REFUSES — it is never admitted.
 
-    The cage map carries no `branches/<b>/coordination/` row. A branch-relative token may be
+    The cage map carries only the subtrees CW2 measured. A token under any other one may be
     unwritable in fact, so admitting it on the strength of a missing measurement is the one
-    direction that turns a gap into a green (leader bar, 2026-08-07)."""
-    unmapped = "branches/branch-1/coordination/nested.json"
+    direction that turns a gap into a green (leader bar, 2026-08-07).
+
+    The probe token was `branches/branch-1/coordination/…` until 2026-08-10, when the deleted
+    `branches/<b>/outputs/` row took the last branch spelling out of this file. Any unmapped
+    subtree proves the same thing; this one is a plain unmeasured package folder."""
+    unmapped = "planning/nested.json"
     if cage_subtree_of(unmapped) is not None:
         return False, ("`%s` is now MAPPED — this check's premise is gone and its green would be "
                        "vacuous" % unmapped)
@@ -3469,9 +3765,9 @@ def check_admission_undecided_refuses(_coord, _pkg):
         return False, ("an undecided discriminator did not carry through on `seats/<self>/`, where "
                        "it GENUINELY decides — that is the half of the leader bar option (b) does "
                        "not touch")
-    return True, ("`branches/branch-1/coordination/nested.json` is unmapped and refuses at all "
-                  "three discriminator values, while its MAPPED sibling `coordination/…` is "
-                  "admitted — the refusal is a decision, not a stuck red")
+    return True, ("`%s` is unmapped and refuses at all three discriminator values, while its "
+                  "MAPPED sibling `coordination/…` is admitted — the refusal is a decision, not a "
+                  "stuck red" % unmapped)
 
 
 def check_admission_truth_table(_coord, _pkg):
@@ -3488,8 +3784,10 @@ def check_admission_truth_table(_coord, _pkg):
         ("seats/<self>/",         "no",        _ADMISSIBLE,   "writable, unreadable, unread"),
         ("outputs/",              "yes",       _INADMISSIBLE, "unwritable"),
         ("outputs/",              "no",        _INADMISSIBLE, "unwritable"),
-        ("branches/<b>/outputs/", "yes",       _INADMISSIBLE, "unwritable"),
-        ("branches/<b>/outputs/", "no",        _INADMISSIBLE, "unwritable"),
+        # `branches/<b>/outputs/` had two rows here until 2026-08-10; the subtree is deleted with
+        # the branch folder, so a `branches/…` token is now UNDECIDED — the row below.
+        ("{goalDir} root",        "yes",       _INADMISSIBLE, "unwritable"),
+        ("{goalDir} root",        "no",        _INADMISSIBLE, "unwritable"),
         # option (b): the discriminator is consulted only where it can change the answer
         ("coordination/",         "undecided", _ADMISSIBLE,   "(b): readable, so unknown cannot "
                                                               "change the answer"),
@@ -3497,8 +3795,7 @@ def check_admission_truth_table(_coord, _pkg):
         ("seats/<self>/",         "undecided", _UNDECIDED,    "(b): here it GENUINELY decides"),
     ]
     tokens = {"coordination/": "coordination/p-a.json", "seats/<self>/": "seats/s/a.json",
-              "outputs/": "outputs/a.json",
-              "branches/<b>/outputs/": "branches/b1/outputs/a.json"}
+              "outputs/": "outputs/a.json", "{goalDir} root": "a.json"}
     for key, sr, want, why in cases:
         tok = tokens[key]
         if cage_subtree_of(tok) != key:
@@ -3516,12 +3813,12 @@ def check_admission_truth_table(_coord, _pkg):
 
 # ---- STEP 4b's checks (M4-11) -----------------------------------------------------------------
 
-# The four values of coord's closed disposition enum, spelled out as LITERALS. Not one is read from
+# Every value of coord's closed disposition enum, spelled out as LITERALS. Not one is read from
 # `ADVANCES_EDGE` or `EXPECTED_ENUM`: a check whose expectation is read from the constant under test
 # moves with that constant and passes any change to it. `check_enum_matches_coord` separately binds
 # these words to coord's own enum, so a rename there goes RED here instead of going silent.
 FASTPATH_ADVANCES = "done"
-FASTPATH_DOES_NOT_ADVANCE = ("renew", "revive", "exited")
+FASTPATH_DOES_NOT_ADVANCE = ("renew", "revive", "exited", "incomplete")
 
 FASTPATH_FIXTURE_ARM = {"job-id": "fx-edge-runner", "profile": "fx-profile"}
 
@@ -3543,8 +3840,8 @@ def _write_arm(pkg, payload):
 
 
 def check_fastpath_only_done_advances(coord, pkg):
-    """CRITERION 1 — a clean `done` check-out enqueues; `renew`, `revive` and `exited` enqueue
-    NOTHING.
+    """CRITERION 1 — a clean `done` check-out enqueues; every other value coord admits
+    (`FASTPATH_DOES_NOT_ADVANCE`) enqueues NOTHING.
 
     THE DISCRIMINATING ARM of this whole stage, and the one a wrong reading makes expensive: a hook
     that fired on every disposition would advance DEAD seats, and it would do it while the run
@@ -4033,17 +4330,148 @@ def check_nested_row_refuses_out_loud(coord, pkg):
 
 
 
+_NESTED_FX_SESSIONS = ("session-id,seat,harness,native-session-id,workdir,recorded,started,ended,"
+                       "pid,pid-starttime,tty,disposition\n")
+
+
+def _nested_fx_close(pkg, *seats):
+    """Give each named seat one ENDED session row with a clean `done` check-out, so STEP 1-2 marks
+    it. Rewritten whole each time — the fixture's trace is an input here, not an accumulation."""
+    rows = "".join("s-%02d,%s,claude,n-%02d,/fx,,2026-08-10 06:00,2026-08-10 06:10,%d,1000,"
+                   "/dev/pts/%d,done\n" % (i, s, i, 100 + i, i)
+                   for i, s in enumerate(seats, 1))
+    (pkg / "sessions.csv").write_text(_NESTED_FX_SESSIONS + rows, encoding="utf-8")
+
+
+def check_nested_arm_expands_and_marks(coord, _pkg):
+    """7.615 — STEP 5's arm, end to end, on the MATERIALIZER'S OWN fixture (a catalog, a workflow
+    that declares its four letters, and a bindings file — none of which the edge fixture has).
+
+    Five arms, and the last one is the reason the read was granted:
+
+      RED FIRST     before the arm runs, the nested row is READY and reaches the queue as NOTHING:
+                    it is excluded `nested-workflow-row`, and no instance row exists. Without this
+                    the green below could be measuring a row that was never blocked.
+      EXPAND        one pass materializes the instance, its rows carry ONE `tf-<n>-<prefix><m>` id,
+                    and the instance ROOT — blocked on the nested row, which nothing else will ever
+                    satisfy — is READIED. Ready -> launched, in one pass.
+      IDEMPOTENT    a second pass expands NOTHING. The link is read back off disk, so a re-fire
+                    cannot mint a second instance.
+      TERMINAL      with every row of THAT instance checked out `done`, the nested row's derived
+                    mark is `done` and its successors can advance.
+      SIBLING       a SECOND instance of the SAME workflow is materialized and left unfinished. The
+                    mark above must not move. The by-name-prefix scoping is computed right here as
+                    the control: it sees the sibling's rows and answers NOT-terminal, so the two
+                    scopings DISAGREE on this fixture and the granted id column is what makes the
+                    answer right."""
+    ms = load_materialize()
+    tmp = Path(tempfile.mkdtemp(prefix="edge-nested-arm-"))
+    try:
+        fx = ms.build_fixture(tmp)
+        pkg, catalog, bindings = Path(fx["pkg"]), fx["catalog"], fx["b_both"]
+        nested_seat, prefix = "demo-flow", "demo"
+        with (pkg / "taskforce.csv").open("a", encoding="utf-8", newline="") as fh:
+            fh.write("tf-1,%s,chief,claude,claude-opus-5,high,,m1\n" % nested_seat)
+        _nested_fx_close(pkg, "chief")
+
+        # RED FIRST — the row is ready, and the launch path does nothing with it but refuse.
+        marks0 = {r["seat"]: r["disposition"] for r in run_stage(coord, pkg)}
+        res0 = readiness(coord, pkg, marks0)
+        if nested_seat not in res0["ready"]:
+            return False, ("RED FIRST: %r is not even ready on the fixture (blocked: %s), so every "
+                           "arm below would be vacuous"
+                           % (nested_seat, [b["seat"] for b in res0["blocked"]]))
+        _c0, excl0 = launch_candidates(coord, pkg, res0["ready"], res0["self-marks"],
+                                       catalog_root=catalog)
+        if not any(e["seat"] == nested_seat and e["term"] == "nested-workflow-row" for e in excl0):
+            return False, "RED FIRST: the nested row was not excluded `nested-workflow-row`"
+        if any(ms.parse_instance_seat_name(s) and ms.parse_instance_seat_name(s)[0] == prefix
+               and s != nested_seat for s in taskforce_ids(pkg)):
+            return False, "RED FIRST: an instance row already existed before the arm ran"
+
+        # EXPAND
+        res1, arm1 = nested_pass(coord, pkg, catalog, bindings, marks0, ms=ms)
+        if arm1["refused"]:
+            return False, "EXPAND: the arm refused — %s" % arm1["refused"]
+        if len(arm1["expanded"]) != 1:
+            return False, "EXPAND: %d row(s) expanded, expected exactly 1" % len(arm1["expanded"])
+        inst = arm1["instances"][0]
+        if not re.fullmatch(r"tf-\d+-%s\d+" % prefix, inst["taskforce-id"]):
+            return False, ("EXPAND: the instance id %r is not the ruled `tf-<n>-<prefix><m>` shape"
+                           % inst["taskforce-id"])
+        if inst["mark"] is not None:
+            return False, "EXPAND: a just-materialized instance was already marked %r" % inst["mark"]
+        # The root is READ BACK, never spelled: this fixture's workflow is literally named
+        # `demo-flow`, which the amended name shape reads as instance 1 of `demo`, so its own
+        # instances start at ordinal 2. That ambiguity is documented and accepted upstream
+        # (`parse_instance_seat_name`); a hardcoded `demo-alpha` here would be this check asserting
+        # the composer's output instead of the arm's.
+        roots = [s for s in inst["rows"] if s in res1["ready"]]
+        if len(roots) != 1:
+            return False, ("EXPAND: %d instance row(s) are READY, expected exactly the root "
+                           "(rows=%s, ready=%s) — the expansion link would deadlock"
+                           % (len(roots), inst["rows"], res1["ready"]))
+        root = roots[0]
+
+        # IDEMPOTENT
+        _res2, arm2 = nested_pass(coord, pkg, catalog, bindings, ms=ms)
+        if arm2["expanded"]:
+            return False, "IDEMPOTENT: a second pass expanded %s" % arm2["expanded"]
+
+        # TERMINAL — every row of THIS instance checks out clean.
+        _nested_fx_close(pkg, "chief", *inst["rows"])
+        _res3, arm3 = nested_pass(coord, pkg, catalog, bindings, ms=ms)
+        if arm3["marks"].get(nested_seat) != ADVANCES_EDGE:
+            return False, ("TERMINAL: the nested row's derived mark is %r, expected %r with every "
+                           "instance row done" % (arm3["marks"].get(nested_seat), ADVANCES_EDGE))
+
+        # SIBLING — a second instance of the same workflow, attached elsewhere and left unfinished.
+        rc, out, err = _run_materialize(
+            [sys.executable, str(MATERIALIZE_PATH), "--package", str(pkg), "--workflow",
+             nested_seat, "--nested", "--catalog-root", catalog, "--bindings", bindings,
+             "--after", "chief", "--json"])
+        if rc != 0:
+            return False, "SIBLING: could not materialize the sibling instance — %s" % (err or out)
+        _res4, arm4 = nested_pass(coord, pkg, catalog, bindings, ms=ms)
+        if arm4["marks"].get(nested_seat) != ADVANCES_EDGE:
+            return False, ("SIBLING: the mark MOVED to %r when an unrelated instance of the same "
+                           "workflow appeared — the scoping is not by id"
+                           % arm4["marks"].get(nested_seat))
+        by_prefix = sorted(s for s in taskforce_ids(pkg)
+                           if s != nested_seat and ms.parse_instance_seat_name(s)
+                           and ms.parse_instance_seat_name(s)[0] == prefix)
+        control = instance_terminal_mark(by_prefix, arm4["marks"])
+        if set(by_prefix) <= set(inst["rows"]):
+            return False, ("SIBLING CONTROL is vacuous: the by-prefix set %s adds nothing to this "
+                           "instance's rows %s" % (by_prefix, inst["rows"]))
+        if control is not None:
+            return False, ("SIBLING CONTROL did not fire: scoping by the name prefix answered %r "
+                           "over %s, so this fixture does not discriminate the two scopings"
+                           % (control, by_prefix))
+        return True, ("red first: %r ready and refused, no instance row; EXPAND: instance %s "
+                      "(%s) minted and its root %r READIED in one pass; IDEMPOTENT: the second "
+                      "pass expanded nothing; TERMINAL: derived mark `%s`; SIBLING: a second "
+                      "instance of the same workflow left the mark alone — and the by-prefix "
+                      "scoping over %s answers NOT-terminal, which is the wrong answer the granted "
+                      "`taskforce-id` read replaces"
+                      % (nested_seat, inst["taskforce-id"], ", ".join(inst["rows"]), root,
+                         ADVANCES_EDGE, by_prefix))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def build_fixture(root):
     """Write the fixture tree. Identical in content to the on-disk fixture the probe record drives,
     so `--selftest --fixture <DIR>` runs the same assertions against real disk."""
     pkg = root / "run-fx"
     (pkg / "outputs").mkdir(parents=True, exist_ok=True)
-    (pkg / "outputs" / "present.md").write_text("fixture artifact — exists on disk\n")
+    (pkg / "outputs" / "present.md").write_text("fixture artifact — exists on disk\n",
+                                                encoding="utf-8")
     # 7.425: `fx-route`'s VALIDATED OUTPUT — the object every guard in READY_AFTER is evaluated
     # against. Three scalar kinds on purpose: a string, a number and a bool, because the guard's
     # right-hand side is always TEXT and `_canonical_field` is what makes the comparison decidable.
     (pkg / "outputs" / "route.json").write_text(
-        json.dumps({"risk": "high", "count": 2, "ok": True}, indent=2) + "\n")
+        json.dumps({"risk": "high", "count": 2, "ok": True}, indent=2) + "\n", encoding="utf-8")
     (pkg / "sessions.csv").write_text(
         "session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,"
         "pid-starttime,tty,disposition\n"
@@ -4057,7 +4485,10 @@ def build_fixture(root):
         "s-08,fx-renewed-then-done,claude,n-08,/fx,,2026-07-30 05:00,2026-07-30 05:30,108,1000,/dev/pts/8,renew\n"
         "s-09,fx-renewed-then-done,claude,n-09,/fx,,2026-07-30 05:31,2026-07-30 06:10,109,1000,/dev/pts/9,done\n"
         "s-10,fx-no-iospec,claude,n-10,/fx,,2026-07-30 06:00,2026-07-30 06:10,110,1000,/dev/pts/10,done\n"
-        "s-11,fx-route,claude,n-11,/fx,,2026-07-30 06:00,2026-07-30 06:10,111,1000,/dev/pts/11,done\n")
+        "s-11,fx-route,claude,n-11,/fx,,2026-07-30 06:00,2026-07-30 06:10,111,1000,/dev/pts/11,done\n"
+        # 7.712: the seat that ENDED saying, in its own words, that it did not finish.
+        "s-12,fx-incomplete,claude,n-12,/fx,,2026-07-30 06:00,2026-07-30 06:10,112,1000,/dev/pts/12,incomplete\n",
+        encoding="utf-8")
     # The ROSTER half of `seats_of` is load-bearing, not decoration: `fx-no-row` has no session row
     # at all and is discoverable ONLY here. Without this file the stage silently never verifies it,
     # which is exactly how an un-launched seat becomes invisible instead of undecided — the first
@@ -4081,7 +4512,8 @@ def build_fixture(root):
         d.mkdir(parents=True, exist_ok=True)
         d.joinpath("seat.md").write_text(
             "---\nseat: %s\nharness: claude\n---\n<role id=\"fx-role\" version=\"latest\">\n"
-            "A step-3 fixture row: it exists to carry an `after` cell.\n</role>\n" % seat)
+            "A step-3 fixture row: it exists to carry an `after` cell.\n</role>\n" % seat,
+            encoding="utf-8")
     iospec = {"fx-done-output-missing": "outputs/absent.md",
               "fx-route": "outputs/route.json"}
     for seat in EXPECT:
@@ -4091,13 +4523,13 @@ def build_fixture(root):
             d.joinpath("seat.md").write_text(
                 "---\nseat: fx-no-iospec\n---\n<role id=\"fx-role\" version=\"latest\">\n"
                 "A fixture seat carrying no io-spec block — the shape every {TG} seat.md has on "
-                "disk.\n</role>\n")
+                "disk.\n</role>\n", encoding="utf-8")
             continue
         d.joinpath("seat.md").write_text(
             "---\nseat: %s\n---\n<io-spec id=\"fx-io\" version=\"latest\">\n## Inputs\n\n"
             "- nothing; this is a fixture seat.\n\n## Outputs\n\n- `%s` — the declared artifact "
             "this fixture seat's done contract names.\n</io-spec>\n"
-            % (seat, iospec.get(seat, "outputs/present.md")))
+            % (seat, iospec.get(seat, "outputs/present.md")), encoding="utf-8")
     return pkg
 
 
@@ -4169,6 +4601,8 @@ def cmd_selftest(fixture):
         ("branch-arm-reaches-classifier", lambda: check_branch_arm_reaches_the_classifier()),
         # 7.607 E3 (E2b review OQ1) — the dead nested-workflow row refuses out loud
         ("nested-row-refuses-out-loud", lambda: check_nested_row_refuses_out_loud(coord, pkg)),
+        # STEP 5 (task 7.615) — the nested launch arm
+        ("nested-arm-expands-and-marks", lambda: check_nested_arm_expands_and_marks(coord, pkg)),
         # STEP 5 / the daemon entry (task C1, owner ruling d-owner-batch1 (1))
         ("goal-resolves-the-live-run", lambda: check_goal_resolves_the_live_run()),
         ("arming-has-one-home", lambda: check_arming_has_exactly_one_home(coord, pkg)),
@@ -4520,21 +4954,20 @@ def main():
                         "`validated`, never `enqueued` — the two are different claims")
     p.add_argument("--catalog-root", default=None, dest="catalog_root",
                    help="the component catalog root a manifest reference is classified against "
-                        "(MC9)")
-    p.add_argument("--bindings", default=None,
-                   help="with --branch-arm: the JSON bindings file the branch's seats are "
-                        "materialized with")
-    p.add_argument("--milestone-id", default=None, dest="milestone_id",
-                   help="with --branch-arm: passed through to the materialize command")
-    p.add_argument("--conduct", default=None,
-                   help="with --branch-arm: conduct.md base text for the created branch package; "
-                        "omitted, the parent's own is inherited")
-    p.add_argument("--claude-md", default=None, dest="claude_md",
-                   help="with --branch-arm: run CLAUDE.md base text for the created branch "
-                        "package; omitted, the parent's own is inherited")
-    p.add_argument("--budget-json", default=None, dest="budget_json",
-                   help="with --branch-arm: budget.json for the created branch package; omitted, "
-                        "the parent's own is inherited. A PATH, never a value (R-10)")
+                        "(MC9). With --enqueue it also ARMS STEP 5's nested arm: a nested-workflow "
+                        "row can only be expanded by a pass that can classify it")
+    p.add_argument("--nested-bindings", default=None, dest="nested_bindings",
+                   help="with --enqueue and --catalog-root: the bindings JSON a nested instance is "
+                        "materialized with (the harness·model·effort of its seats). No default — "
+                        "this stage invents no launch policy, and a ready nested row with no "
+                        "bindings input is a TYPED refusal, never a guessed materialization")
+    # `--bindings`, `--milestone-id`, `--conduct`, `--claude-md` and `--budget-json` are DELETED
+    # (2026-08-10, task 7.615). Every one of them existed for `--branch-arm`, which 7.607 E2b
+    # deleted, and none had another reader — argparse accepted them and nothing ever looked. The
+    # nested launch arm, when it is built, declares what IT needs; carrying five flags forward as a
+    # guess at that is dead flexibility, and a flag that is accepted and ignored is worse than an
+    # absent one. Note the deleted trio is CREATION input: a nested instance materializes into the
+    # EXISTING parent goal and creates no package, so two of the five could not come back anyway.
     p.add_argument("--arming-scope", action="store_true",
                    help="M4-11 (C4): print whether --package is armed for the check-out fast path, "
                         "the mechanism that scopes it, and — always, whatever --package is — "
@@ -4553,8 +4986,8 @@ def main():
     if args.signature:
         print("edge-runner-job STEP 4 — the ONE enqueue interface of the m4 wave (task 7.125).")
         print("Called by: the check-out fast path (M4-11), the created goal's first workflow "
-              "(M4-20), the C1 rehearsal (M4-22), and STEP 5's branch arm (MC11 / 7.453), which "
-              "applies it to a BRANCH package.")
+              "(M4-20) and the C1 rehearsal (M4-22). STEP 5's NESTED ARM (7.615) writes no enqueue "
+              "of its own — it hands its rows to this one in the readiness result.")
         print("\n  from edge_runner_job import enqueue")
         print("  enqueue%s" % (inspect.signature(enqueue),))
         print("\n  -> {%s}" % ", ".join(ENQUEUE_RESULT_KEYS))
@@ -4649,7 +5082,21 @@ def main():
             print("NOT ENQUEUED (whole pass stood down) — %s" % arming, file=sys.stderr)
             return 0
         full = marks if not args.seat else run_stage(coord, pkg)
-        res3 = readiness(coord, pkg, {r["seat"]: r["disposition"] for r in full})
+        full_marks = {r["seat"]: r["disposition"] for r in full}
+        if args.catalog_root:
+            res3, arm = nested_pass(coord, pkg, args.catalog_root, args.nested_bindings, full_marks)
+            for e in arm["expanded"]:
+                print("EXPANDED  %-28s workflow %s" % (e["seat"], e["workflow"]))
+            for i in arm["instances"]:
+                print("INSTANCE  %-28s %s — %d row(s), mark: %s"
+                      % (i["seat"], i["taskforce-id"], len(i["rows"]), i["mark"] or "in flight"))
+            # FAIL LOUD, on stderr, for the same reason every other refusal here is: a nested row
+            # nobody expanded is a branch of the DAG that silently never runs.
+            for r in arm["refused"]:
+                print("NOT EXPANDED  %s — [%s] %s" % (r["seat"], r["code"], r["reason"]),
+                      file=sys.stderr)
+        else:
+            res3 = readiness(coord, pkg, full_marks)
         res = enqueue(coord, pkg, job_id, profile, readiness_result=res3, submit=door,
                       at=args.at, dry_run=args.dry_run or bool(arm_dry))
         if args.json:

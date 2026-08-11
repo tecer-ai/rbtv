@@ -220,12 +220,28 @@ TASKFORCE_HEADER = ("taskforce-id", "seat", "after", "harness", "model",
 # ---- dag-06 create-package constants ----
 
 # The state-cursor header a CREATED package's state.csv carries — byte-exact,
-# the ruled run-3 authoring input (`r-stage0-state-cursor-interim-convention`
-# (a), goal decisions.md — the ONE ledger this line is consumed from). HEADER
-# ONLY: the first real row is the leader's at bootstrap, never this command's
-# (clause (b)); run-2's off-schema cursor is frozen history, never repaired.
+# the KG `state-cursor` record's column list (`sd-graph show state-cursor`;
+# file-schema block). HEADER ONLY: the first real row is the leader's at
+# bootstrap, never this command's; run-2's off-schema cursor is frozen
+# history, never repaired.
+#
+# ⚠ THE ACCEPTANCE, RECORDED WHERE THE NEXT BUILDER LOOKS. This line and the
+# KG record are the SAME contract in two repos and nothing joins them: the KG
+# lives in the vault (`1-projects/rbtv-sb-merge-refactor/system-definition/
+# concepts/state-cursor.md`), outside this repo, and a path to it here would
+# break the no-hardcoded-workspace-paths rule (root CLAUDE.md). They diverged
+# once already — the 5-column `stamped-at,run-state,seat,session-id,note`
+# form survived here after owner ruling `d-runs-extinguished-transcription`
+# (2026-08-09) ADDED `execution-stamp` and RENAMED `run-state` -> `goal-state`.
+# CHANGING THIS LINE MEANS THE KG RECORD CHANGED: re-read it first, and update
+# the literal in the selftest arm that pins this constant (search
+# STATE_CSV_HEADER) in the same change — that arm is the tripwire that stops a
+# silent edit. `coord.py#append_state_advance` is header-agnostic (it builds
+# rows BY NAME off the on-disk header), so nothing else catches drift.
+# ponytail: a prose acceptance, not a machine check — a real cross-repo
+# comparison becomes possible only if the KG record ships into this repo.
 STATE_CSV_NAME = "state.csv"
-STATE_CSV_HEADER = "stamped-at,run-state,seat,session-id,note"
+STATE_CSV_HEADER = "stamped-at,execution-stamp,goal-state,seat,session-id,note"
 
 # The caller-supplied content surfaces of a created package
 # (`d-run3-seeds-from-run2-amended`): surface name -> the argv option whose
@@ -573,9 +589,29 @@ def _csv_rows(path: Path) -> list[dict]:
 # act and is NOT performed here — see the findings' measured boundary.
 
 
-def derive_taskforce_id(package: Path) -> str:
+# The BARE goal taskforce-id. A NESTED instance's id (`tf-<n>-<prefix><m>`) is a
+# SECOND NAMESPACE in the same column and is deliberately not matched here: the
+# counter counts goal taskforces, and a nested id read as one would advance it.
+BARE_TF_RE = re.compile(r"tf-(\d+)")
+# ...and the nested id, so a reader of the column can subtract that namespace.
+# Deliberately NOT the complement of BARE_TF_RE: a goal's id may legitimately be
+# neither (a hand-authored `tf-a` exists in the wild), and treating "not bare" as
+# "nested" would silently unread it.
+NESTED_TF_RE = re.compile(r"tf-\d+-[a-z]{4}\d+")
+
+
+def derive_taskforce_id(package: Path, prefix: str = "",
+                        ordinal: int = 0) -> str:
     """The taskforce-id a zero-data-row registry carries: a COUNTER read from the
     goal's own `taskforce.csv` — `max existing + 1` (design-lock item 10 / D3).
+
+    With `prefix`/`ordinal` (the NESTED path) it composes the owner's ruled
+    nested shape instead — `tf-<n>-<prefix><m>`, e.g. `tf-2-rsch1`
+    (`d-r2-tfid-structured-counter`, 2026-08-10). `n` is this same counter, the
+    prefix is the workflow's declared four letters and `m` is the instance
+    ordinal, so the id names WHICH instance minted the rows. The former
+    `tf-<run>-<prefix><n>` form is STRUCK: the run layer is extinguished and
+    `<run>` has no input left.
 
     NO FOLDER-NAME INPUT, and that is the whole change. The id used to be the run
     ordinal (`runs/run-3` -> `tf-3`), which was only ever available because the
@@ -590,10 +626,11 @@ def derive_taskforce_id(package: Path) -> str:
     """
     top = 0
     for row in _csv_rows(package / TASKFORCE_NAME):
-        m = re.fullmatch(r"tf-(\d+)", (row.get("taskforce-id") or "").strip())
+        m = BARE_TF_RE.fullmatch((row.get("taskforce-id") or "").strip())
         if m:
             top = max(top, int(m.group(1)))
-    return f"tf-{top + 1}"
+    n = top + 1
+    return f"tf-{n}-{prefix}{ordinal}" if prefix else f"tf-{n}"
 
 
 def validate_package(raw: str) -> Path:
@@ -687,17 +724,13 @@ def seat_home(package: Path, seat: str) -> Path:
 # `taskforce.csv` seat cell, an `after` member and a descriptor's `seat:` key.
 # Nothing below ever feeds a composed name back into a catalog lookup.
 #
-# ⚠ SCOPE, MEASURED AT THIS HEAD AND DISCLOSED RATHER THAN PAPERED OVER: this
-# file has NO nested-workflow materialization path to call these from. 7.607
-# E2b deleted `materialize_branch` and `--branch-of`/`--branch` with the branch
-# FOLDER, and states on its own face that re-founding the nested-workflow
-# LAUNCH on the ordinary-seat shape is a DESIGN act not performed there; the
-# launch half is still a typed refusal (`jobs/edge-runner-job.py`, the
-# `kind=nested_workflow` arm). So the naming is landed here, complete and
-# self-checked, as the surface that re-founding will consume — and it composes
-# nothing today. That is the honest state, not a half-build: the alternative
-# was to invent the nested expansion inside a naming task, which is the design
-# act the extinguishment lock reserves.
+# THE CALLER IS `--nested` (re-founded 2026-08-10, the design act 7.607 E2b
+# reserved). `--workflow W --nested` materializes W as an INSTANCE of the
+# parent goal: `nested_instance` below re-keys the resolved set through
+# `compose_seat_name` and everything downstream — folders, descriptors,
+# `taskforce.csv` seat cells and `after` cells — carries the composed name with
+# no second spelling. `--workflow W` alone is unchanged and still materializes
+# bare catalog ids, which is what a goal's OWN workflow is.
 
 WORKFLOW_DESCRIPTOR_NAME = "workflow.md"
 # The key a workflow folder DECLARES its four letters under (dossier §2 option
@@ -814,6 +847,55 @@ def compose_seat_name(prefix: str, ordinal: int, seat: str) -> str:
             "instance is 1 and carries NO ordinal in its name",
         )
     return f"{prefix}-{seat}" if ordinal == 1 else f"{prefix}-{ordinal}-{seat}"
+
+
+def rename_after_cell(raw: str, rename: dict[str, str]) -> str:
+    """A frozen `after` cell with its MEMBERS renamed and NOTHING else touched —
+    Rule 13's "verbatim apart from the instance renaming" (criterion 8).
+
+    Bracketed guard spans pass through untouched: a guard's field or value may
+    spell a seat id, and renaming inside one would rewrite a condition rather
+    than a member. Outside the brackets the only tokens are member ids and the
+    `,`/`|` joins, so a blanket id substitution there is exactly the rename."""
+    return "".join(
+        part if part.startswith("[")
+        else re.sub(r"[a-z0-9][a-z0-9-]*",
+                    lambda m: rename.get(m.group(0), m.group(0)), part)
+        for part in re.split(r"(\[[^\]]*\])", raw))
+
+
+def nested_instance(package: Path, catalog_root: Path, workflow: str,
+                    added: list[str]) -> dict:
+    """`{prefix, ordinal, rename}` for materializing `workflow` as a NESTED
+    INSTANCE into `package` — the catalog-id -> composed-name map every other
+    surface of this run is re-keyed through.
+
+    `resolve_added` has already refused an absent or ambiguous manifest, so the
+    glob below resolves exactly one folder."""
+    wf_dir = sorted(
+        catalog_root.glob(f"*/workflows/{workflow}/{workflow}.csv"))[0].parent
+    prefix = read_workflow_prefix(wf_dir)
+    ordinal = next_instance_ordinal(package, prefix)
+    return {"prefix": prefix, "ordinal": ordinal, "workflow": workflow,
+            "rename": {s: compose_seat_name(prefix, ordinal, s) for s in added}}
+
+
+def rekey_bindings(bindings: dict, rename: dict[str, str]) -> None:
+    """Re-key the LOADED bindings onto the composed names, IN MEMORY.
+
+    ⚠ THE TWO-NAME MODEL, and the one place it is enforced (criterion 7). The
+    bindings FILE stays keyed by CATALOG ID — nothing on disk is rewritten, so
+    every live bindings file keeps working and `bindings-missing-seat` cannot
+    fire on a composed name. The composed name exists only from here on, and
+    only as a DISK name. Re-keyed rather than ALIASED because
+    `check_bindings_cover` refuses an EXTRA key, and an alias set would be
+    exactly that."""
+    bindings["seats"] = {
+        rename.get(seat, seat):
+            (dict(entry, after=[rename.get(a, a) for a in entry["after"]])
+             if isinstance(entry, dict) and isinstance(entry.get("after"), list)
+             else entry)
+        for seat, entry in bindings["seats"].items()}
 
 
 def load_bindings(path: Path) -> dict:
@@ -3007,9 +3089,23 @@ def render_taskforce_rows(plan: dict) -> None:
     # registry that HAS rows still yields their one id. A
     # registry that HAS rows but no readable id still refuses (red arm), and
     # an id read from rows always wins over the derivation.
+    #
+    # ⚠ THE NESTED PATH TAKES NEITHER BRANCH. A nested instance mints its OWN
+    # id (`tf-<n>-<prefix><m>`, owner ruling `d-r2-tfid-structured-counter`) so
+    # the roster can tell one instance's rows from another's — which is the
+    # IDENTITY the deleted branch package used to carry in its folder name. Two
+    # consequences, both deliberate: the goal's bare id is READ past those rows
+    # (the filter below — nested ids are a second namespace in one column), and
+    # a registry carrying ONLY nested rows still refuses `taskforce-id-
+    # unreadable`, since a nested instance always attaches after a parent row.
     ids = {(r.get("taskforce-id") or "").strip() for r in existing_rows}
     ids.discard("")
-    if not existing_rows:
+    ids = {i for i in ids if not NESTED_TF_RE.fullmatch(i)}
+    nested = plan.get("nested")
+    if nested:
+        tf_id = derive_taskforce_id(Path(plan["package"]),
+                                    nested["prefix"], nested["ordinal"])
+    elif not existing_rows:
         tf_id = derive_taskforce_id(Path(plan["package"]))
     elif len(ids) != 1:
         raise Refuse(
@@ -3040,9 +3136,10 @@ def render_taskforce_rows(plan: dict) -> None:
     # MECHANICAL RENAME, not an authored edge: the membership, the ordering,
     # the guards and the alternates are untouched. It affects the nested path
     # ONLY; ordinary goal materialization still copies the cell byte-for-byte,
-    # which is what the loop below does and all it does. No nested caller
-    # exists at this HEAD (see the naming block beside `seat_home`), so the
-    # amendment lands as the wording it will be built against.
+    # which is what the loop below does and all it does. The rename happens
+    # ONCE, in `run`'s `--nested` re-key (`rename_after_cell`), so by the time
+    # the cell reaches this loop it is already the instance's own — this loop
+    # copies verbatim on both paths and knows nothing about instances.
     attach_cell = ",".join(plan["attach_after"])
     after_cells = {
         seat: (plan["internal_after_raw"][seat]
@@ -3374,6 +3471,21 @@ def run(args) -> dict:
                 "a descriptor deliberately, the other refuses anything that "
                 "does not byte-match",
             )
+    if getattr(args, "nested", False):
+        if not args.workflow:
+            raise Refuse(
+                "nested-without-workflow",
+                "--nested names an INSTANCE of a workflow — a single --seat "
+                "has no workflow to be the Nth of, and top-level seats keep "
+                "bare names",
+            )
+        if repass:
+            raise Refuse(
+                "nested-with-repass",
+                "--repass/--refresh re-render seats that ALREADY exist and are "
+                "already named; --nested mints a new instance's names. Pass "
+                "the composed seat names to --repass instead",
+            )
     if standing_seat(package):
         # A standing-seat home is ONE seat with many sessions and no goal
         # around it (r-master-seat-homes): no conduct.md, no budget.json, no
@@ -3414,10 +3526,33 @@ def run(args) -> dict:
     normalize_seat_rows(catalogs[0])
     added, internal_after, internal_after_raw = resolve_added(
         args, catalog_root, catalogs[0])
+    # THE NESTED PATH. One re-key, here, and every surface below is unchanged:
+    # the composed name IS the seat id from this line on, so folders,
+    # descriptors, the registry seat cell and the frozen `after` cells all
+    # carry it with no second spelling and no per-site translation.
+    nested = None
+    if getattr(args, "nested", False):
+        nested = nested_instance(package, catalog_root, args.workflow, added)
+        rename = nested["rename"]
+        added = [rename[s] for s in added]
+        internal_after = {rename[s]: [rename[p] for p in preds]
+                          for s, preds in internal_after.items()}
+        # Criterion 8 / Rule 13: the frozen copy is mapped through the SAME
+        # single naming function everything else goes through.
+        internal_after_raw = {rename[s]: rename_after_cell(raw, rename)
+                              for s, raw in internal_after_raw.items()}
+        # The seat CATALOG is aliased, never re-keyed: it is a read-only lookup
+        # shared with every other seat in the root, and the composed name must
+        # resolve the SAME row the catalog id does.
+        for cid, name in rename.items():
+            if cid in catalogs[0]:
+                catalogs[0][name] = catalogs[0][cid]
     # The seat set is resolved FIRST because a refresh reads its bindings out
     # of those seats' own existing descriptors.
     bindings = (load_bindings(Path(args.bindings)) if args.bindings
                 else bindings_from_descriptors(package, added))
+    if nested:
+        rekey_bindings(bindings, nested["rename"])
     check_bindings_cover(bindings, added)
     attach_after = validate_after(args, package, added)
     validate_milestone(args, package)
@@ -3429,6 +3564,7 @@ def run(args) -> dict:
     assembled = assemble_all(added, bindings, catalogs, units)
     plan = build_plan(package, added, internal_after, internal_after_raw,
                       attach_after, assembled, bindings, args, creation)
+    plan["nested"] = nested
     # Seat-exposure resolution fires for BOTH paths (its gates are pre-write,
     # and the descriptor frontmatter carries the validated mapping); the
     # loader FILES are planned only on the materialize path below — a repass
@@ -3506,6 +3642,17 @@ def build_parser() -> argparse.ArgumentParser:
     what.add_argument("--workflow",
                       help="materialize a whole workflow "
                            "(<component>/workflows/<W>/<W>.csv manifest)")
+    p.add_argument("--nested", action="store_true",
+                   help="with --workflow: materialize it as a NESTED INSTANCE "
+                        "of the parent goal — every seat named "
+                        "<four-letters>-<seat> (first instance) or "
+                        "<four-letters>-<n>-<seat> (second onward), from the "
+                        "prefix the workflow's own workflow.md DECLARES. The "
+                        "seats are ORDINARY seats of the parent goal "
+                        "(r-branch-folder-deleted-nested-seats-are-ordinary-"
+                        "run-seats): one seats/, one taskforce.csv, no "
+                        "branches/ tree. The rows carry the instance's own "
+                        "taskforce-id (tf-<n>-<prefix><m>)")
     p.add_argument("--catalog-root", required=True, dest="catalog_root",
                    help="component catalog root the definitions are read from")
     where = p.add_mutually_exclusive_group()
@@ -3772,6 +3919,12 @@ def build_fixture(tmp: Path) -> dict:
         'Seat/workflow,after,i/o,Modality\n'
         'alpha,,"in: run inputs; out: alpha-notes.md",agentic\n'
         'beta,alpha,"in: alpha-notes.md; out: beta-report.md",agentic\n',
+        encoding="utf-8")
+    # The four letters this workflow DECLARES for its nested instances
+    # (criterion 2, dossier §2 option B). Only the nested path reads it, which
+    # is why the 40 live manifests need no edit.
+    wf_dir.joinpath(WORKFLOW_DESCRIPTOR_NAME).write_text(
+        "---\nid: demo-flow\nfour-letters: demo\n---\n\nThe demo flow.\n",
         encoding="utf-8")
     # A manifest whose ROW ORDER is deliberately anti-topological (the
     # dependent b2 listed before its root a2) — the dag-05 topo-order proof.
@@ -5257,9 +5410,21 @@ def run_dag06_acceptance(check, env: dict) -> None:
               "argv without it completed the package",
               (pkg / TASKFORCE_NAME).is_file())
         check("state.csv: the created cursor carries EXACTLY the ruled "
-              "header, header only (r-stage0-state-cursor-interim-convention)",
+              "header, header only (KG `state-cursor` file-schema)",
               (pkg / STATE_CSV_NAME).read_text(encoding="utf-8")
               == STATE_CSV_HEADER + "\n")
+        # The DIVERGENCE TRIPWIRE. Every other arm compares against the
+        # constant, so all of them stay green while the constant drifts away
+        # from the KG record — which is exactly how the 5-column form survived
+        # `d-runs-extinguished-transcription`. This one pins the literal, so
+        # editing the constant reddens the suite and sends the editor to the
+        # acceptance note above it (which says: re-read the KG record first).
+        check("state.csv: STATE_CSV_HEADER still equals the KG `state-cursor` "
+              "column list — edit both or neither (see the acceptance note at "
+              "the constant)",
+              STATE_CSV_HEADER
+              == "stamped-at,execution-stamp,goal-state,seat,session-id,note",
+              STATE_CSV_HEADER)
 
         rows = list(csv.DictReader(
             (pkg / TASKFORCE_NAME).read_text(encoding="utf-8").splitlines()))
@@ -5785,6 +5950,9 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "PF-3": (("PF-3 green",), ("PF-3 red",)),
     # The pass folder's m{N} row-check (task 7.678).
     "PF-4": (("PF-4 green",), ("PF-4 red",)),
+    # The nested-workflow materialization path (task 7.615).
+    "NEST-1": (("NEST-1 green", "NEST-1: the frozen-cell rename"),
+               ("NEST-1 red",)),
 }
 
 
@@ -6291,6 +6459,108 @@ def run_selftest() -> int:
               "catalog and no bindings at all",
               not any(tok in naming_src for tok in
                       ("seats_cat", "bindings", "assemble_seat")))
+
+    print("NEST-1 nested-workflow materialization pass (7.615)")
+    with tempfile.TemporaryDirectory() as nest_td:
+        nfx = build_fixture(Path(nest_td))
+        npkg = Path(nfx["pkg"])
+        bindings_before = Path(nfx["b_both"]).read_bytes()
+
+        def nest(*extra) -> subprocess.CompletedProcess:
+            return _invoke(["--package", nfx["pkg"], "--workflow", "demo-flow",
+                            "--catalog-root", nfx["catalog"], "--bindings",
+                            nfx["b_both"], "--milestone-id", "m1", "--after",
+                            "chief", "--json", *extra], clean_env)
+
+        def code(cp) -> str:
+            try:
+                return (json.loads(cp.stdout).get("refusal") or {}).get("code", "")
+            except ValueError:
+                return ""
+
+        def rows_by_seat() -> dict:
+            return {(r.get("seat") or "").strip(): r
+                    for r in _csv_rows(npkg / TASKFORCE_NAME)}
+
+        # ---- RED FIRST: the collision the composed names close -----------
+        bare_1, bare_2 = nest(), nest()
+        check("NEST-1 red (the pre-fix collision, pinned BEFORE the fix is "
+              "exercised): a SECOND materialization of one workflow into one "
+              "goal WITHOUT --nested refuses `seat-exists` — bare catalog ids "
+              "give two instances ONE folder",
+              bare_1.returncode == 0 and bare_2.returncode == 1
+              and code(bare_2) == "seat-exists",
+              f"first rc={bare_1.returncode} second={code(bare_2)!r}")
+        # ---- GREEN: two instances, end to end ----------------------------
+        nest_1, nest_2 = nest("--nested"), nest("--nested")
+        try:
+            added_1 = json.loads(nest_1.stdout).get("added_seats")
+            added_2 = json.loads(nest_2.stdout).get("added_seats")
+        except ValueError:
+            added_1 = added_2 = None
+        check("NEST-1 green: the FIRST nested instance materializes with BARE "
+              "composed names (demo-alpha, demo-beta) and the SECOND carries "
+              "the ordinal (demo-2-alpha, demo-2-beta) — the same call twice, "
+              "no rename of the first",
+              added_1 == ["demo-alpha", "demo-beta"]
+              and added_2 == ["demo-2-alpha", "demo-2-beta"],
+              f"{added_1} then {added_2} "
+              f"[{nest_1.stderr.strip()}|{nest_2.stderr.strip()}]")
+        check("NEST-1 green: all four seat folders exist and are DISTINCT — "
+              "the one-folder collision above is closed on disk",
+              all((npkg / "seats" / s).is_dir() for s in
+                  ("demo-alpha", "demo-beta", "demo-2-alpha", "demo-2-beta")))
+        rows = rows_by_seat()
+        check("NEST-1 green (criterion 8 / Rule 13): the frozen `after` cell "
+              "is copied VERBATIM APART FROM THE INSTANCE RENAMING — each "
+              "instance's internal edge points at ITS OWN root, never the "
+              "sibling's and never the bare id",
+              (rows.get("demo-beta") or {}).get("after") == "demo-alpha"
+              and (rows.get("demo-2-beta") or {}).get("after") == "demo-2-alpha"
+              and (rows.get("demo-2-alpha") or {}).get("after") == "chief",
+              str({k: v.get("after") for k, v in rows.items()}))
+        check("NEST-1 green (the tf-id ruling d-r2-tfid-structured-counter): "
+              "each instance's rows carry tf-<n>-<prefix><m> — counter, "
+              "declared prefix, instance ordinal, and NO run segment",
+              {(rows.get(s) or {}).get("taskforce-id")
+               for s in ("demo-alpha", "demo-beta")} == {"tf-2-demo1"}
+              and {(rows.get(s) or {}).get("taskforce-id")
+                   for s in ("demo-2-alpha", "demo-2-beta")} == {"tf-2-demo2"},
+              str({k: v.get("taskforce-id") for k, v in rows.items()}))
+        check("NEST-1 green (criterion 5, the door's input): the descriptor's "
+              "`seat:` key carries the COMPOSED name — the heart-store door "
+              "keys on the stored seat name, so two instances derive two keys",
+              _descriptor_fm(npkg / "seats" / "demo-2-alpha" / "seat.md")
+              .get("seat") == "demo-2-alpha")
+        check("NEST-1 green (criterion 7, the two-name model): the bindings "
+              "FILE is byte-unchanged and still keyed by CATALOG ID — the "
+              "composed name is a DISK name and never becomes a lookup key",
+              Path(nfx["b_both"]).read_bytes() == bindings_before
+              and set(json.loads(bindings_before)["seats"]) == {"alpha", "beta"})
+        # ---- the red arms of the flag itself -----------------------------
+        check("NEST-1 red: --nested with a single --seat is REFUSED "
+              "(nested-without-workflow) — a top-level seat has no workflow "
+              "instance to be the Nth of, and its name stays bare",
+              code(_invoke(["--package", nfx["pkg"], "--seat", "a2",
+                            "--catalog-root", nfx["catalog"], "--bindings",
+                            nfx["b_both"], "--after", "chief", "--nested",
+                            "--json"], clean_env)) == "nested-without-workflow")
+        check("NEST-1 red: a workflow whose workflow.md declares NO "
+              "`four-letters:` REFUSES (workflow-prefix-undeclared) rather "
+              "than deriving a prefix — derivation collides on 2 of 40 ids",
+              code(_invoke(["--package", nfx["pkg"], "--workflow",
+                            "scramble-flow", "--catalog-root", nfx["catalog"],
+                            "--bindings", nfx["b_scramble"], "--after",
+                            "chief", "--nested", "--json"], clean_env))
+              == "workflow-prefix-undeclared")
+        check("NEST-1: the frozen-cell rename touches MEMBERS only — a guard "
+              "span passes through byte-verbatim, alternates and ordering "
+              "intact",
+              rename_after_cell("s2|s3,s1[g=a|b]",
+                                {"s1": "demo-s1", "s2": "demo-s2",
+                                 "s3": "demo-s3"})
+              == "demo-s2|demo-s3,demo-s1[g=a|b]",
+              rename_after_cell("s2|s3,s1[g=a|b]", {"s1": "demo-s1"}))
 
     print("MCP-1 plugin/MCP registration pass (d-mcp-registration-is-config)")
     with tempfile.TemporaryDirectory() as mcp_td:

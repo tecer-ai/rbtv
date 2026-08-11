@@ -20,8 +20,8 @@
  "job_fire": {
   "interval_seconds": 30,
   "ruling": "r-job-fire-interval-30s — owner, 2026-07-30.",
-  "_scope": "The self-heal jobs' FIRE interval — how often a queued periodic job fires. Deliberately its OWN section: a fourth kind of number, not the watch layer's pass cadence (cadence.watch_loop_max_seconds), not a cap, not a floor. Its equality with the watch cadence is a coincidence of value, never of meaning — neither may be derived from the other.",
-  "_read_never_copied": "Same doctrine as floors and cadence: consumers READ this field, never carry the value in argv, env, or prose.",
+  "_scope": "The self-heal jobs' FIRE interval — how often a queued periodic job fires. Deliberately its OWN section: a fourth kind of number, not a cap, not a floor. The watch layer's pass cadence (cadence.watch_loop_max_seconds) used to be the third kind and is GONE — retired with watch.py, task 7.35 — so nothing here may be derived from it.",
+  "_read_never_copied": "Same doctrine as floors: consumers READ this field, never carry the value in argv, env, or prose.",
   "_landed_is_not_live": "A value written here does not reach a running queue until an actuation carries it, and whoever performs the act that invalidates a written claim owes the walk-back in the same act."
  },
  "counting": {
