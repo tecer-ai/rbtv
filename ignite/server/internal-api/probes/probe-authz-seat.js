@@ -55,12 +55,12 @@ const OWNER = { id: 'the-owner', kind: 'owner' };
 
 // The subject rows. A queue row and a jobs_log row carry the SAME two columns for this purpose,
 // which is the point of denormalizing the seat at fire.
-const ROW_SEAT_A = { queue_id: 1, enqueued_by: 'sender-alpha', enqueued_seat: 'probe-goal/seat-a' };
-const ROW_SEAT_B = { queue_id: 2, enqueued_by: 'sender-bravo', enqueued_seat: 'probe-goal/seat-b' };
-const ROW_NO_SEAT = { queue_id: 3, enqueued_by: 'sender-charlie', enqueued_seat: null };
-const ROW_EMPTY_SEAT = { queue_id: 4, enqueued_by: 'sender-charlie', enqueued_seat: '' };
-const EXEC_SEAT_A = { exec_id: 10, enqueued_by: 'sender-delta', enqueued_seat: 'probe-goal/seat-a' };
-const EXEC_NO_SEAT = { exec_id: 11, enqueued_by: 'sender-delta', enqueued_seat: null };
+const ROW_SEAT_A = { queue_id: 1, enqueued_by: 'sender-alpha', enqueuing_seat: 'probe-goal/seat-a' };
+const ROW_SEAT_B = { queue_id: 2, enqueued_by: 'sender-bravo', enqueuing_seat: 'probe-goal/seat-b' };
+const ROW_NO_SEAT = { queue_id: 3, enqueued_by: 'sender-charlie', enqueuing_seat: null };
+const ROW_EMPTY_SEAT = { queue_id: 4, enqueued_by: 'sender-charlie', enqueuing_seat: '' };
+const EXEC_SEAT_A = { exec_id: 10, enqueued_by: 'sender-delta', enqueuing_seat: 'probe-goal/seat-a' };
+const EXEC_NO_SEAT = { exec_id: 11, enqueued_by: 'sender-delta', enqueuing_seat: null };
 
 try {
   out('COMMAND: node ' + path.relative(process.cwd(), __filename));
@@ -137,14 +137,14 @@ try {
   // at all (`p-g137-retirement-falsified-approximations-stay-armed`). Pinned as an assertion so the
   // retirement can never happen as a side effect: BOTH rows below go red on the day it lands, and
   // inverting them is then part of that change.
-  held = policy.principalsOf(AGENT_NO_SEAT, { enqueued_by: 'sender-alpha', enqueued_seat: null });
+  held = policy.principalsOf(AGENT_NO_SEAT, { enqueued_by: 'sender-alpha', enqueuing_seat: null });
   check('UNRETIRED: the sender-id approximation still grants creator-seat with no seat anywhere '
     + '(RED the day it is retired — invert this row then)',
     held.includes('creator-seat'), `principals=[${held.join(',')}]`);
 
   d = policy.canRemoveQueueRow({
     sender: AGENT_SEAT_A,
-    row: { queue_id: 9, enqueued_by: 'sender-alpha', enqueued_seat: 'probe-goal/seat-b' },
+    row: { queue_id: 9, enqueued_by: 'sender-alpha', enqueuing_seat: 'probe-goal/seat-b' },
   });
   check('THE UNION MAKES THE WEAKER GRANT DECISIVE: seat-a is refused by the SEAT check yet still '
     + 'ALLOWED, because the approximation matched the shared sender-id. This is D65(B)\'s '

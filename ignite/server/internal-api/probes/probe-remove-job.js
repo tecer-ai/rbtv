@@ -62,10 +62,10 @@ function check(name, pass, detail) {
 function readBackQueue() {
   const raw = new DatabaseSync(tmpDb, { readOnly: true });
   try {
-    // `enqueued_seat` (task 7.389) is selected here so the seat arms read it back from DISK on a
+    // `enqueuing_seat` (task 7.389) is selected here so the seat arms read it back from DISK on a
     // fresh read-only connection, like every other state assertion in this probe — a return-value
     // check would have passed under the mutation p4-0 caught.
-    return raw.prepare('SELECT queue_id, job_id, enqueued_by, enqueued_seat, trigger_kind FROM queue ORDER BY queue_id').all();
+    return raw.prepare('SELECT queue_id, job_id, enqueued_by, enqueuing_seat, trigger_kind FROM queue ORDER BY queue_id').all();
   } finally {
     raw.close();
   }
@@ -285,8 +285,8 @@ async function main() {
     const idOwnRow = await add(AGENT_A_TOKEN, {}, seatSock);
     const ownDisk = readBackQueue().find((x) => x.queue_id === idOwnRow);
     check('7.389: enqueuing over a connection with a PROVEN seat records that seat on the row',
-      ownDisk && ownDisk.enqueued_seat === 'probe-goal/probe-seat',
-      ownDisk ? `enqueued_by=${ownDisk.enqueued_by} enqueued_seat=${ownDisk.enqueued_seat}` : 'row missing');
+      ownDisk && ownDisk.enqueuing_seat === 'probe-goal/probe-seat',
+      ownDisk ? `enqueued_by=${ownDisk.enqueued_by} enqueuing_seat=${ownDisk.enqueuing_seat}` : 'row missing');
 
     r = await remove(AGENT_A_TOKEN, idOwnRow, seatSock);
     check('7.389 RIDER 2 — THE CAPABILITY TEST: a seat CAN REMOVE ITS OWN ROW, and the grant it '
@@ -324,8 +324,8 @@ async function main() {
     const idNoSeat = await add(AGENT_B_TOKEN, {});
     const noSeatDisk = readBackQueue().find((x) => x.queue_id === idNoSeat);
     check('7.389: a row enqueued over a connection with NO proven seat records NULL',
-      noSeatDisk && noSeatDisk.enqueued_seat === null,
-      noSeatDisk ? `enqueued_seat=${JSON.stringify(noSeatDisk.enqueued_seat)}` : 'row missing');
+      noSeatDisk && noSeatDisk.enqueuing_seat === null,
+      noSeatDisk ? `enqueuing_seat=${JSON.stringify(noSeatDisk.enqueuing_seat)}` : 'row missing');
     r = await remove(AGENT_A_TOKEN, idNoSeat, seatSock);
     check('7.389: a proven seat gets NO grant over a row whose seat is NULL — absence never matches',
       r.body.error && r.body.error.code === 'UNAUTHORIZED_SENDER',

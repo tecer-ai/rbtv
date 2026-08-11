@@ -467,6 +467,57 @@ def check_lane_named_in_result_not_argv(src, mod):
     return True, f"lanes {seen}, neither reaching any argv"
 
 
+def check_v2_discloses_partial_state(src, mod):
+    """A V2 refusal (the goal name is TAKEN) tells an ORPHAN apart from a HEALTHY goal — task 7.550,
+    owner ruling `d-owner-seven-smalls-0808` (DISCLOSE, ruled against the recommendation).
+
+    THE DISCRIMINATING CASE, and why "did it refuse" cannot stand in for it: both directories below
+    refuse identically and correctly. Pre-fix the two refusal RECORDS are byte-identical apart from
+    the request file name, so an operator holding one cannot tell "pick another name" from "a failed
+    fire left this behind — clean it up and retry". The check therefore asserts DISTINGUISHABILITY,
+    not refusal.
+
+    The signal is `seats/`, read off the handler's own creation path: `create` scaffolds the goal
+    folder and then NECESSARILY materializes at least one seat, so a goal dir holding no seat never
+    got past its first step. NOT a run package — the run layer is extinguished
+    (`decisions.md#d-runs-extinguished`).
+    """
+    if mod is None:
+        return False, "module did not import"
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / "goals"
+        (root / "orphan-goal").mkdir(parents=True)
+        (root / "orphan-goal" / "goal.md").write_text("name: orphan-goal\n", encoding="utf-8")
+        (root / "healthy-goal" / "seats" / "plan-planner").mkdir(parents=True)
+        (root / "healthy-goal" / "goal.md").write_text("name: healthy-goal\n", encoding="utf-8")
+        inbox = Path(td) / "inbox"
+        inbox.mkdir()
+        for name in ("orphan-goal", "healthy-goal"):
+            (inbox / f"{name}.json").write_text(json.dumps({
+                "goal-name": name, "goal-type": "one-shot",
+                "goal-contract": "c", "goal-kind": "interactive"}), encoding="utf-8")
+        out = mod.scaffold_and_queue(inbox, root, "W", "plan-planner", Path(td), Path(td),
+                                     Path(td), Path(td), Path(td), dry_run=True)
+        recs = {r.get("goal-name") or Path(r["request-file"]).stem: r for r in out["requests"]}
+    if len(recs) != 2 or any(r["outcome"] != "REFUSED" for r in recs.values()):
+        return False, f"expected two V2 refusals, got {out['requests']}"
+    members = {m for r in recs.values() for m in
+               (x.get("member") for x in r.get("refusals", []))}
+    if members != {"V2"}:
+        return False, f"the fixture did not refuse on V2 alone: {members}"
+    orphan, healthy = recs.get("orphan-goal"), recs.get("healthy-goal")
+    if orphan is None or healthy is None:
+        return False, f"the refusal records do not name the goal they collided with: {list(recs)}"
+    if orphan.get("goal-seats") != 0 or not healthy.get("goal-seats"):
+        return False, (f"the two refusals are INDISTINGUISHABLE — orphan goal-seats="
+                       f"{orphan.get('goal-seats')!r}, healthy goal-seats="
+                       f"{healthy.get('goal-seats')!r}")
+    if not orphan.get("goal-dir") or orphan.get("goal-exists") is not True:
+        return False, f"the collided directory is not named/confirmed: {orphan}"
+    return True, (f"orphan -> goal-seats=0, healthy -> goal-seats={healthy['goal-seats']}, "
+                  f"both naming goal-dir and goal-exists (R8b's own keys)")
+
+
 # The mutation each check must be able to catch. Text substitutions, applied to a throwaway copy.
 CHECKS = [
     # ⚠ THIS MUTATION WAS REPAIRED BY TASK 7.206, AND THE REPAIR IS THE HARNESS WORKING. The
@@ -544,6 +595,12 @@ CHECKS = [
     ("15 lane-named-in-result", check_lane_named_in_result_not_argv,
      lambda s: s.replace('            "named-seat" if seat is not None else "staged-workflow")',
                          '            "named-seat")')),
+    # --- task 7.550: the V2 refusal's partial-state disclosure ---
+    # THE PRE-FIX SHAPE ITSELF: the disclosure keys withheld. The refusal is still correct, still
+    # names V2, and an orphan and a healthy goal produce the same record — which is the gap the
+    # owner ruled DISCLOSE on.
+    ("16 v2-discloses-partial-state", check_v2_discloses_partial_state,
+     lambda s: s.replace('                    **({"goal-name": taken,', '                    **({} if True else {"goal-name": taken,')),
 ]
 
 

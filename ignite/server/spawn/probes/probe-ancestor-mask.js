@@ -13,6 +13,10 @@
 //   d  the LAUNCH FOLDER's own artifacts are untouched
 //   e  the auto-memory dir is masked while a SIBLING transcript stays readable (bound iii — the
 //      one bound whose failure mode is silent: it breaks `--resume`, not the mask)
+//
+// Legs g/h carry a LATER ruling on the same mask surface (owner, 2026-08-11, task 7.566): the
+// third-party secrets file `.rbtv/config/.env` is masked for every seat, while the one-key
+// `.rbtv/config/sender-token.env` beside it stays readable so a caged seat keeps gateway auth.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -56,6 +60,11 @@ function fixture() {
   fs.writeFileSync(path.join(seatDir, 'CLAUDE.md'), 'SEAT-OWN-RULES\n');
   fs.writeFileSync(path.join(seatDir, '.claude', 'skills', 's.md'), 'SEAT-OWN-SKILL\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,pid,pid-starttime\nmine,1,1\n');
+  // 7.566 — the two config files leg (g) is about: the third-party secrets file that must be
+  // MASKED, and the one-key sender-token file beside it that must NOT be.
+  fs.mkdirSync(path.join(ws, '.rbtv', 'config'), { recursive: true });
+  fs.writeFileSync(path.join(ws, '.rbtv', 'config', '.env'), 'SLACK_BOT_TOKEN=xoxb-THIRD-PARTY-SECRET\n');
+  fs.writeFileSync(path.join(ws, '.rbtv', 'config', 'sender-token.env'), 'IGNITE_SENDER_TOKEN=SENDER-TOKEN-VALUE\n');
   return { root, ws, goalDir, runDir, seatDir };
 }
 
@@ -163,6 +172,38 @@ capture('probe-ancestor-mask', async (lines) => {
       joined.indexOf(`--ro-bind ${f.ws} ${f.ws}`) < joined.indexOf(`--tmpfs ${f.ws}/.claude`) &&
       mask.masked.configDirs >= 1 && mask.masked.instructionFiles >= 2 && mask.policy === 'cut-all',
       `policy=${mask.policy} masked=${JSON.stringify(mask.masked)}`);
+
+    // ── (g) 7.566: the third-party secrets file is MASKED, the sender token stays readable ────
+    // The whole exposure is `read-root: true` — the entire workspace bound read-only, secrets
+    // file included. This is the leg that says the seat still reaches the gateway afterwards:
+    // masking without the split would take the channel master's auth with it, and that failure
+    // is invisible until the master goes silent.
+    const g = inCage(f, true,   // the channel policy — the ONE live read-root seat runs it
+      `echo "secrets=[$(cat ${f.ws}/.rbtv/config/.env 2>/dev/null)]"; ` +
+      `echo "token=[$(cat ${f.ws}/.rbtv/config/sender-token.env 2>/dev/null)]"`);
+    leg('G', '.rbtv/config/.env is masked in-cage while .rbtv/config/sender-token.env stays readable',
+      /secrets=\[\]/.test(g) && /token=\[IGNITE_SENDER_TOKEN=SENDER-TOKEN-VALUE\]/.test(g),
+      `in-cage: ${JSON.stringify(g.trim())}`);
+
+    // ── (h) the absent-path discipline, composition-only ──────────────────────────────────────
+    // Masking a path nothing bound would make bwrap mkdir a mountpoint over nothing (cage.js's
+    // own note). No `.env` on disk -> no flag, and the counter says so.
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'anc-mask-bare-'));
+    try {
+      const spec = composeSeatCage({
+        seatBinds: TEMPLATE,
+        values: { workdir: f.seatDir, seatDir: f.seatDir, goalDir: f.goalDir },
+        grants: [{ readRoot: bare }],
+      });
+      const m = composeAncestorMasks(spec, { workspaceRoot: bare, launchFolder: f.seatDir });
+      const withEnv = cageFor(f, true).mask;
+      leg('H', 'the .env mask fires only when the file exists (masked.secrets 1 with it, 0 without)',
+        withEnv.masked.secrets === 1 && m.masked.secrets === 0
+        && !m.flags.join(' ').includes(path.join(bare, '.rbtv', 'config', '.env')),
+        `with-file=${JSON.stringify(withEnv.masked)} without-file=${JSON.stringify(m.masked)}`);
+    } finally {
+      try { fs.rmSync(bare, { recursive: true, force: true }); } catch {}
+    }
 
     lines.push('');
     lines.push(`legs: ${fails.length === 0 ? 'ALL PASS' : `FAILED -> ${fails.join(', ')}`}`);

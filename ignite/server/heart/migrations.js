@@ -28,6 +28,25 @@
 
 const { HeartStoreError, E_MIGRATION_FAILED, E_STORE_NEWER_THAN_CODE } = require('./errors');
 
+// ⚠⚠ `r-746-schema-pregrant` — THE ARMING RIDER (owner, 2026-08-11, task 7.707;
+// decisions.md#d-7707-enqueuing-seat-armed-renamed-and-the-pregrant-rider).
+//
+// The standing posture is that ARMING a migration is the owner's line, not the builder's (each
+// migration below restates why). The rider closes the hole that posture left open:
+//
+//   A WRITE SITE THAT DEPENDS ON AN UNARMED MIGRATION'S SCHEMA MAY NOT LAND. The arming line and
+//   EVERY site that reads or writes its columns land in ONE ratification, or none of them do.
+//
+// This is not a style rule. It was measured: task 7.389's write sites shipped in `3e5a945` while
+// its migration sat unarmed here, and the owner's 2026-08-10 22:38 UTC restart put the LIVE VPS
+// daemon into a hard crash loop (`table jobs_log has no column named enqueued_seat`, first tick,
+// ~6 s cycle, 12 minutes) until an emergency DB-level repair added the columns by hand. The
+// half-landed state is the ONLY reachable state that breaks — armed works, and unlanded works —
+// so the rider forbids exactly that state and nothing else.
+// Accepted cost, ruled knowingly: a finished schema-dependent feature waits for ratification
+// before ANY of it lands. The alternative (make every write site tolerate a missing column) was
+// declined — it trades a loud crash for a feature sitting silently inert on a live store.
+
 // ⚠ A LANDED MIGRATION IS IMMUTABLE. Editing one changes what already-migrated stores did, which
 // no version number can detect. To change the schema again, APPEND a new entry.
 const MIGRATIONS = [
@@ -217,30 +236,23 @@ const MIGRATION_ENQUEUING_SEAT = {
   up(db) {
     for (const table of ['queue', 'jobs_log']) {
       const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((r) => r.name);
-      if (!cols.includes('enqueued_seat')) {
-        db.exec(`ALTER TABLE ${table} ADD COLUMN enqueued_seat TEXT;`);
+      if (!cols.includes('enqueuing_seat')) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN enqueuing_seat TEXT;`);
       }
     }
   },
 };
 
-// ⚠ ARMING IS THE OWNER'S LINE, NOT THE BUILDER'S — the standing posture of this file
-// (`r-746-schema-pregrant`, and both migrations above): LANDING A MIGRATION ARMS IT, because
-// `migrate()` runs at DAEMON START, so appending it migrates the LIVE catalogue on the owner's next
-// restart — a deploy nobody decided to make. The migration above is DEFINED and proven by INJECTION
-// (`migrate(db, { migrations: [...] })`, the parameter this module exposes for exactly this;
-// `probe-migration-enqueuing-seat` drives it). Ratification is then ONE reviewable line, placed
-// HERE — below the const, the spot both siblings use (the comment-block
-// spot precedes the definition and throws a module-load ReferenceError, measured at §R.10c):
-//
-//     MIGRATIONS.push(MIGRATION_ENQUEUING_SEAT);
-//
-// UNTIL THAT LINE LANDS: a FRESH store carries both columns (schema.sql) and the whole 7.389 path
-// works on it; the LIVE store does not, and there `sender.seat` is recorded nowhere, so the
-// `creator-seat` grant simply never fires and authorization behaves exactly as it did before this
-// change. That degrade is the fail-closed direction — the grant is purely ADDITIVE (authz.js).
-// (It is exported BY NAME in the block at the foot of this file — never with a `module.exports.x =`
-// line here, which the terminal `module.exports = { … }` assignment would silently clobber.)
+// ARMED per the owner's ruling on task 7.707 (2026-08-11), which renamed the column to
+// `enqueuing_seat` and ratified the arming in the same change. Arming is the owner's line, not the
+// builder's (`r-746-schema-pregrant`): `migrate()` runs at DAEMON START, so this push migrates the
+// LIVE catalogue on the owner's next restart. Placed HERE — below the const, the spot both siblings
+// use (the comment-block spot precedes the definition and throws a module-load ReferenceError,
+// measured at §R.10c). It is ALSO exported BY NAME in the block at the foot of this file — never
+// with a `module.exports.x =` line here, which the terminal `module.exports = { … }` assignment
+// would silently clobber — because `probe-migration-enqueuing-seat` still drives it by INJECTION
+// (`migrate(db, { migrations: [...] })`).
+MIGRATIONS.push(MIGRATION_ENQUEUING_SEAT);
 
 function userVersion(db) {
   const row = db.prepare('PRAGMA user_version').get();

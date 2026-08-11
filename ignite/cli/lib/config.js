@@ -17,7 +17,8 @@
 // server.json (credentials never travel in git, D27). That surface has two
 // spellings of the same thing: the IGNITE_SENDER_TOKEN variable, and — for a
 // caller that cannot be handed an environment, such as a caged seat — the
-// workspace's gitignored `.rbtv/config/.env`. See resolveToken below.
+// workspace's gitignored `.rbtv/config/sender-token.env`. See resolveToken
+// below for why that is its OWN file and not the neighbouring `.env`.
 //
 // Field names/shape mirror server/index.js's OWN resolution verbatim
 // (resolveWorkspaceRoot / ensureInstallState / isServerJsonValid) so the CLI
@@ -146,8 +147,18 @@ function resolveGatewayAddr() {
 //
 // Resolution order:
 //   1. IGNITE_SENDER_TOKEN in the environment — the explicit surface.
-//   2. The workspace's GITIGNORED `.rbtv/config/.env`, walking up from the
-//      cwd. Same untracked env surface, read instead of inherited.
+//   2. The workspace's GITIGNORED `.rbtv/config/sender-token.env`, walking up
+//      from the cwd. Same untracked env surface, read instead of inherited.
+//
+// ⚑ ITS OWN FILE, one key, and that is the WHOLE point (owner ruling
+// 2026-08-11, task 7.566). It used to be a key inside `.rbtv/config/.env`,
+// which also holds third-party secrets — and a `read-root: true` seat binds
+// the entire workspace read-only, so every one of those secrets was legible
+// to any occupant of that cage. `.env` is now MASKED in the seat cage
+// (server/spawn/cage.js) and the ONE key a caged seat legitimately needs
+// moved out to this file, which stays readable. Splitting the file is what
+// makes the mask possible; masking without the split would only take the
+// gateway away from the channel master.
 //
 // (2) exists because (1) reaches nobody in a CAGED session. bwrap does not
 // clear the environment, so a caged seat inherits the daemon's — and the
@@ -170,18 +181,18 @@ function resolveToken() {
   return readEnvFileToken(resolveWorkspaceRoot());
 }
 
-// Walk up from `start` for `.rbtv/config/.env` and read IGNITE_SENDER_TOKEN
-// out of it. The walk is what makes this work from a SEAT FOLDER — a caged
+// Walk up from `start` for `.rbtv/config/sender-token.env` and read
+// IGNITE_SENDER_TOKEN out of it. The walk is what makes this work from a SEAT FOLDER — a caged
 // session's cwd is its own seat dir, several levels below the workspace root,
 // and the root is not otherwise knowable in there. Unreadable, absent, or
 // key-less file -> null, exactly like an unset env var: this function never
-// throws, so a workspace with no `.env` still reaches the gateway's own
+// throws, so a workspace with no token file still reaches the gateway's own
 // AUTH_REFUSED rather than dying locally.
 function readEnvFileToken(start) {
   for (let dir = path.resolve(start); ; dir = path.dirname(dir)) {
     let raw;
     try {
-      raw = fs.readFileSync(path.join(dir, '.rbtv', 'config', '.env'), 'utf8');
+      raw = fs.readFileSync(path.join(dir, '.rbtv', 'config', 'sender-token.env'), 'utf8');
     } catch {
       if (dir === path.dirname(dir)) return null;
       continue;

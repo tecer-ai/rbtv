@@ -47,31 +47,13 @@ function parseJson(stdout) {
   try { return JSON.parse(stdout); } catch { return null; }
 }
 
-// ⚑ Task 7.699 — PLATFORM GATE, INOPERATIVE (exit 2), the suite's existing
-// idiom for "this probe cannot build its world here" (probe-planning-entry.py's
-// tmux gate prints the same VERDICT line and returns 2).
-//
-// This probe boots the REAL daemon entry point. On win32 that boot cannot
-// succeed, for two POSIX-rooted reasons measured on the Windows desktop
-// 2026-08-10 — neither of them anything this probe asserts:
-//   1. gateway/sender-auth.js loadSendersFile REFUSES TO START unless the
-//      senders file's mode is 0600. NTFS has no POSIX mode: node's fs.chmodSync
-//      only moves the read-only bit and stat reports 0666, so the fixture's
-//      chmod 0600 can never satisfy the gate.
-//   2. Past that gate, server/spawn/carrier.js selectCarrier throws
-//      E_SYSTEMD_NOT_AVAILABLE — the shipped profile asks for the systemd
-//      carrier and there is no systemctl.
-// Both are the daemon being a Linux/systemd daemon, so the honest verdict is
-// INOPERATIVE on win32 — never a red (the probe measures the CLI's inspect
-// round trip, which is not what broke) and never a green (nothing ran). The
-// checks below are UNCHANGED and still run in full on Linux/the VPS.
-const inoperative = process.platform === 'win32'
-  ? 'win32: the throwaway daemon cannot boot here — the senders_file 0600 startup gate is '
-    + 'unsatisfiable on NTFS, and the spawn carrier requires a systemd user manager'
-  : null;
+// ⚑ Task 7.702 superseded this probe's own win32 gate (task 7.699). The gate now
+// lives in lib/fixtures.js#bootDaemon — the one function all twelve cli probes
+// reach the daemon through — so it covers this probe and the other eleven from a
+// single wording. See that comment for the two POSIX-rooted reasons the boot
+// cannot succeed on win32. Nothing below changed; on Linux this runs in full.
 
 async function main() {
-  if (inoperative) return;
   out('COMMAND: node ' + path.relative(process.cwd(), __filename));
 
   const ws = makeWorkspace('p4-2-cli-inspect');
@@ -355,13 +337,6 @@ async function main() {
 }
 
 main().then(() => {
-  if (inoperative) {
-    out(`VERDICT: INOPERATIVE — ${inoperative}`);
-    out('EXIT: 2');
-    out(`WALL_MS: ${Date.now() - start}`);
-    process.exitCode = 2;
-    return;
-  }
   const failed = checks.filter((c) => !c.pass);
   out('');
   out(`CHECKS: ${checks.length - failed.length}/${checks.length} passed`);

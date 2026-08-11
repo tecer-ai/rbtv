@@ -742,12 +742,36 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, catalog_root, bi
 
             verdict = validate(payload, goals_root=goals_root)
             if not verdict["accepted"]:
+                # 7.550 (owner ruling `d-owner-seven-smalls-0808`, knowingly against the presented
+                # recommendation): a V2 refusal — the name is TAKEN — DISCLOSES the state of the
+                # directory it collided with, on the same keys the R8b failure arm below uses. An
+                # operator reading a bare "already resolves" cannot tell a HEALTHY goal from an
+                # ORPHAN a failed fire left behind, and the two need opposite actions (pick another
+                # name / clean up and retry).
+                #
+                # THE SIGNAL IS `seats/`, and it is read off THIS FILE'S OWN CREATION PATH: `create`
+                # scaffolds the goal folder and then NECESSARILY materializes at least one seat
+                # ("There is NO create-only mode on the second"), so a goal dir holding no seat is
+                # one that never got past its first step. NOT a run package — the run layer is
+                # extinguished (`decisions.md#d-runs-extinguished`) and a goal's content sits
+                # directly under the goal folder now. Deliberately a count and nothing more: this
+                # is a disclosure, not an orphan-detection feature.
+                taken = payload.get("goal-name") if isinstance(payload, dict) else None
+                hit = (Path(goals_root) / taken) if (
+                    goals_root is not None and isinstance(taken, str)
+                    and any(r["member"] == "V2" for r in verdict["refusals"])) else None
                 results.append(settle(src, "REFUSED", {
                     "stated-refusal": verdict["stated-refusal"],
                     "refusal-site": verdict["refusal-site"],
                     "refusals": verdict["refusals"],
                     "classes-evaluated": verdict["classes-evaluated"],
                     "scaffolded": False,
+                    **({"goal-name": taken,
+                        "goal-dir": str(hit),
+                        "goal-exists": hit.is_dir(),
+                        "goal-seats": len(list((hit / "seats").iterdir()))
+                                      if (hit / "seats").is_dir() else 0}
+                       if hit is not None else {}),
                 }))
                 continue
 

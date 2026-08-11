@@ -31,7 +31,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { makeCapture, nowMs, sleep } = require('./lib');
 const { buildBridge } = require('../index');
-const { FENCE_OPEN, FENCE_CLOSE } = require('../reply-leg');
+const { FENCE_OPEN, FENCE_CLOSE, UNFORMATTED_PREFIX } = require('../reply-leg');
+const { toMrkdwn } = require('../mrkdwn');
 
 const OUT = path.join(__dirname, 'probe-chat-warm-post.out');
 
@@ -188,17 +189,40 @@ async function main() {
       bridge.stop();
     }
 
-    // 4 — REGRESSION GUARD: an UNFENCED warm reply is posted BYTE-FOR-BYTE. The extraction may
-    //     only ever remove a duplication that is there; a reply that never carried a fence must
-    //     travel exactly as it did before the fix.
+    // 4 — AN UNFENCED WARM REPLY IS NON-CONFORMANT, exactly as it is on the cold path. Its text
+    //     still reaches the owner — through the safety net, behind the marker that attributes the
+    //     shape to the agent. Nothing of the answer is lost; only its billing changes.
+    //     (Was "posted byte-for-byte" until the owner ruled the warm arm mirrors the cold path's
+    //     final delivery, 2026-08-11 — a no-fence verdict is `ok: false` there and now here.)
     {
       const PLAIN = 'no fence here, just an answer with a <<<not-a-sentinel>>> inside it';
       const { bridge, slack } = await warmedBridge({ liveReply: PLAIN });
       await bridge.onChatMessage(msg('3.1', 'follow-up'));
       await sleep(50);
       const post = slack.posted[slack.posted.length - 1];
-      check('D1 regression: an UNFENCED warm reply is posted unchanged',
-        Boolean(post) && post.text === PLAIN, { posted: post && post.text });
+      check('D4: an UNFENCED warm reply is flagged unformatted and its text survives intact',
+        Boolean(post) && post.text === `${UNFORMATTED_PREFIX}${PLAIN}`, { posted: post && post.text });
+      bridge.stop();
+    }
+
+    // 6 — THE MRKDWN SAFETY NET ON THE WARM ARM (owner ruling 2026-08-11, option b). A reply that
+    //     IS fenced but whose fenced body is markdown is non-conformant: the cold leg converts it
+    //     and flags it, and the warm arm — which has no exec to revive — must do the same rather
+    //     than post raw markdown into Slack. The table is the tell: `toMrkdwn` deliberately
+    //     refuses to rewrite pipe tables, so it survives verbatim INSIDE a converted body, which
+    //     is exactly what proves the body went through the converter rather than around it.
+    {
+      const INSIDE = ['# The plan', '', '**bold** matters here.', '', '| a | b |', '| - | - |'].join('\n');
+      const raw = ['Here you go.', '', FENCE_OPEN, INSIDE, FENCE_CLOSE].join('\n');
+      const { bridge, slack } = await warmedBridge({ liveReply: raw });
+      await bridge.onChatMessage(msg('5.1', 'follow-up with markdown in the fence'));
+      await sleep(50);
+      const post = slack.posted[slack.posted.length - 1];
+      check('D5: a markdown-ism inside the warm fence is CONVERTED and flagged unformatted',
+        Boolean(post) && post.text === `${UNFORMATTED_PREFIX}${toMrkdwn(INSIDE)}`, { posted: post && post.text });
+      check('D5: the heading and the bold are mrkdwn, and no markdown syntax reaches Slack',
+        Boolean(post) && post.text.includes('*The plan*') && post.text.includes('*bold* matters here.')
+        && !post.text.includes('**') && !post.text.includes('# The plan'), { posted: post && post.text });
       bridge.stop();
     }
 

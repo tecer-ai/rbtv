@@ -20,6 +20,13 @@
 // matters: a pending row exists for ~3% of the ticker cycle, so production suppression is almost
 // always a live turn.
 //
+// ⚠ ARMS 5-9 · AUTO-RE-SUBMIT (owner ruling task 7.541, 2026-08-11). The refusal above is honest
+// but it made the HUMAN do the work: the notice told him to send it again. The bridge now holds
+// the discarded text and re-fires it when the seat frees. The arm that matters is 7 — the
+// SEQUENTIAL double the door cannot see (refused → seat frees → the human re-sends by hand → the
+// retry fires afterwards → delivered TWICE) — and it asserts a COUNT, because presence passes
+// against the very defect.
+//
 // ⚠ EVERY GREEN HERE CARRIES A RED ARM (arm 4). The same scenario is replayed against a SCRATCH COPY
 // of forward-path.js with the guard cut out — the PRE-FIX code exactly — and it MUST map the thread
 // to the held id and post no notice. Without it arms 1-3 would pass identically against a bridge
@@ -33,6 +40,7 @@ const forwardPathModule = require('../forward-path');
 const { createThreadMap } = require('../thread-map');
 const { createAllowlist } = require('../allowlist');
 const { createGatewayForwarder } = require('../gateway-forwarder');
+const { buildBridge } = require('../index');
 
 const OUT = path.join(__dirname, 'probe-chat-dedup-refusal.out');
 const FWD_SRC = path.join(__dirname, '..', 'forward-path.js');
@@ -81,6 +89,82 @@ function makeRig(createFP, daemon, { workdir = null, workspaceRoot = null } = {}
   return { fp, threadMap, posted, forwarder };
 }
 
+// ── THE AUTO-RE-SUBMIT RIG (arms 5-8, task 7.541) ────────────────────────────────────────────
+//
+// These arms are about the BRIDGE'S OWN BOOKKEEPING around the refusal — holding the text,
+// re-firing it, and above all DROPPING it when the human re-sends — so they drive a whole bridge
+// (buildBridge, as probe-chat-state-persistence does) rather than a bare forward path.
+//
+// ⚠ AND THEY USE A STUB DOOR, which the header's "drive the door for real" rule permits here for
+// arm 3b's exact reason: what the real door alone can prove — that `deduped`/`because` are the
+// field names and that suppression really discards the text — is proved by arms 1-2 above, in this
+// same probe, against the real store. What these arms need instead is a seat that frees ON DEMAND
+// between two calls, which no throwaway daemon can be made to do deterministically. The busy flag
+// IS the seat.
+function makeDoor() {
+  const enqueued = [];
+  let nextId = 500;
+  const door = {
+    enqueued,
+    busy: true,
+    async forward(intent, payload) {
+      const jobId = nextId++;
+      if (door.busy && payload && payload.job_id === 'chat-launch') {
+        // The real door's shape, measured in arms 1-2: it returns BEFORE the INSERT, so the args
+        // are discarded and the caller gets the HELD operation's id.
+        return { ok: true, result: { jobId: 499, deduped: true, because: 'seat-busy', seat_key: 'k' } };
+      }
+      enqueued.push({ intent, payload, jobId });
+      return { ok: true, result: { jobId } };
+    },
+    async inspect() { return { ok: true, result: { recent_ticks: [], live_sessions: [] } }; },
+  };
+  return door;
+}
+
+function makeFakeSlack() {
+  const posted = [];
+  return {
+    posted,
+    async authTest() { return { ok: true, userId: 'U_BOT' }; },
+    async createChannel() { return { ok: false, error: 'name_taken' }; },
+    async listChannels() { return { ok: true, channels: [], nextCursor: null }; },
+    async archiveChannel() { return { ok: true }; },
+    async sendToOwner({ channel, threadTs, text }) { posted.push({ channel, threadTs, text }); return { delivered: true, ts: '1.0' }; },
+    async start() { return { connected: true }; },
+    stop() {},
+  };
+}
+
+function makeBridgeRig({ stateFile = null, door = makeDoor() } = {}) {
+  const slack = makeFakeSlack();
+  const built = buildBridge({
+    gatewayAddr: '127.0.0.1:0', bridgeToken: 'stub',
+    sessionJobId: 'chat-launch', sendMessageJobId: 'send-message',
+    sessionProfile: 'worker', masterProfile: 'worker', goalProfile: 'worker',
+    workdir: '/shared/master/seat', workspaceRoot: null, channelPrefix: 'test-',
+    stateFile, allowlist: [USER],
+    slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
+  }, {
+    logger: () => {},
+    makeTransport: () => slack,
+    forwarderImpl: door,
+    replyLegOptions: { pollMs: 3600000 }, // the sweep is driven by hand via replyLeg.tick()
+  });
+  return { ...built, slack, door };
+}
+
+const dm = (ts, text) => ({
+  chatUserId: USER, chatThreadId: `D_IM:${ts}`, text,
+  _channel: 'D_IM', _threadTs: ts, _channelType: 'im', _inThread: false, _msgTs: ts,
+});
+
+// How many session-creates actually carried this text into the queue. The whole double-delivery
+// question is a COUNT, never a presence.
+const createsCarrying = (door, needle) => door.enqueued
+  .filter((e) => e.payload.job_id === 'chat-launch' && String(e.payload.args && e.payload.args.prompt).includes(needle))
+  .length;
+
 // Fire a queue row so a LIVE TURN holds its seat (status `launching` — non-terminal).
 function fireToLiveTurn(daemon, queueId) {
   return daemon.store.fireQueueRow({ queueId, now: new Date(Date.now() + 1000), tick: 1 });
@@ -98,6 +182,149 @@ function textInStore(daemon, needle) {
   const hit = (r) => String(r.args || '').includes(needle);
   if (daemon.store.listQueue().some(hit)) return true;
   return ALL_TURN_STATUSES.some((s) => daemon.store.listExecutionsByStatus(s).some(hit));
+}
+
+// ARMS 5-9 · THE AUTO-RE-SUBMIT ARMS, hoisted out of main() and EXPORTED. They need no daemon —
+// only the bridge and the stub door — while arms 1-4 above cannot run without one. Keeping them
+// callable on their own is what let the red-first proof run on a host where the throwaway daemon
+// refuses to start (the POSIX 0600 senders-file gate). The suite still runs everything via main().
+async function autoResubmitArms(check) {
+  // ── ARM 5 · a refused message is HELD for automatic re-submit ─────────────────────────────
+  {
+    const r = makeBridgeRig();
+    await r.bridge.start();
+    const out = await r.bridge.onChatMessage(dm('5.1', 'ARM5 hold this for me'));
+    const held = r.bridge._pendingRetries;
+    check('arm5-refused-message-is-recorded-as-a-pending-re-submit',
+      out.forwarded === false && Boolean(held && held.has('D_IM:5.1'))
+        && (held && held.get('D_IM:5.1').text) === 'ARM5 hold this for me'
+        && createsCarrying(r.door, 'ARM5') === 0,
+      { forwarded: out.forwarded, reason: out.reason, pending: held ? held.size : 'NO SUCH TABLE',
+        enqueued: createsCarrying(r.door, 'ARM5') });
+    const notice = r.slack.posted[r.slack.posted.length - 1];
+    check('arm5-notice-promises-the-automatic-re-send-and-asks-for-none',
+      Boolean(notice) && notice.text === forwardPathModule.SEAT_BUSY_NOTICE
+        && /automatically/i.test(notice.text) && !/please send it again/i.test(notice.text),
+      { notice: notice && notice.text });
+    r.bridge.stop();
+  }
+
+  // ── ARM 6 · the seat frees → the held message is re-submitted and DELIVERED ────────────────
+  {
+    const r = makeBridgeRig();
+    await r.bridge.start();
+    await r.bridge.onChatMessage(dm('6.1', 'ARM6 ship the invoice'));
+    const heldBefore = createsCarrying(r.door, 'ARM6');
+
+    // The sweep runs on the reply leg's EXISTING pass — no timer of its own. While the seat is
+    // still held it changes nothing, which is the first half of the claim.
+    await r.bridge.replyLeg.tick();
+    const afterBusyTick = createsCarrying(r.door, 'ARM6');
+
+    r.door.busy = false; // the turn ended; the seat is free
+    await r.bridge.replyLeg.tick();
+
+    check('arm6-re-submit-lands-when-the-seat-frees-and-not-before',
+      heldBefore === 0 && afterBusyTick === 0 && createsCarrying(r.door, 'ARM6') === 1
+        && Boolean(r.bridge._pendingRetries) && r.bridge._pendingRetries.size === 0
+        && r.threadMap.has('D_IM:6.1') === true,
+      { atRefusal: heldBefore, whileBusy: afterBusyTick, afterFree: createsCarrying(r.door, 'ARM6'),
+        pendingLeft: r.bridge._pendingRetries ? r.bridge._pendingRetries.size : 'NO SUCH TABLE',
+        mapped: r.threadMap.has('D_IM:6.1') });
+    r.bridge.stop();
+  }
+
+  // ── ARM 7 · ⚠ THE CRITICAL ARM · a MANUAL re-send cancels the pending retry ────────────────
+  //
+  // The sequence the door cannot see, because it is SEQUENTIAL and not concurrent:
+  //   refused → seat frees → the human re-sends by hand → the retry fires afterwards.
+  // Without the drop guard both land and the owner's message is delivered TWICE. The assertion
+  // is therefore a COUNT — presence would pass against the defect.
+  {
+    const r = makeBridgeRig();
+    await r.bridge.start();
+    await r.bridge.onChatMessage(dm('7.1', 'ARM7 SHIP THE INVOICE TODAY'));
+    const heldAfterRefusal = Boolean(r.bridge._pendingRetries && r.bridge._pendingRetries.has('D_IM:7.1'));
+
+    r.door.busy = false; // the seat frees
+    // The human does exactly what the OLD notice told him to do — in the thread he was told it
+    // in, which is the conversation the retry is keyed on.
+    const manual = await r.bridge.onChatMessage({
+      chatUserId: USER, chatThreadId: 'D_IM:7.1', text: 'ARM7 SHIP THE INVOICE TODAY',
+      _channel: 'D_IM', _threadTs: '7.1', _channelType: 'im', _inThread: true, _msgTs: '7.2',
+    });
+    const droppedOnInbound = Boolean(r.bridge._pendingRetries) && !r.bridge._pendingRetries.has('D_IM:7.1');
+
+    // …and the sweep runs afterwards, which is when the double would happen.
+    await r.bridge.replyLeg.tick();
+    await r.bridge.replyLeg.tick();
+
+    check('arm7-manual-re-send-DROPS-the-pending-retry',
+      heldAfterRefusal === true && droppedOnInbound === true,
+      { heldAfterRefusal, droppedOnInbound,
+        pending: r.bridge._pendingRetries ? Array.from(r.bridge._pendingRetries.keys()) : 'NO SUCH TABLE' });
+
+    check('arm7-the-owners-message-is-delivered-EXACTLY-ONCE',
+      manual.forwarded === true && createsCarrying(r.door, 'ARM7 SHIP THE INVOICE TODAY') === 1,
+      { manualForwarded: manual.forwarded, createsCarryingTheText: createsCarrying(r.door, 'ARM7 SHIP THE INVOICE TODAY'),
+        note: '2 = the double this guard exists to prevent' });
+    r.bridge.stop();
+  }
+
+  // ── ARM 8 · the give-up bound fires and TELLS THE HUMAN ───────────────────────────────────
+  //
+  // The seat never frees. The retry is bounded and, at the bound, the owner is told honestly —
+  // and told to send it again, which is safe precisely because nothing is held any more. The
+  // window is reached by ageing the record rather than by adding a config knob for a probe.
+  {
+    const r = makeBridgeRig();
+    await r.bridge.start();
+    await r.bridge.onChatMessage(dm('8.1', 'ARM8 never lands'));
+    const rec = r.bridge._pendingRetries && r.bridge._pendingRetries.get('D_IM:8.1');
+    if (rec) rec.since = Date.now() - (11 * 60 * 1000); // past the 10-minute window
+    const postedBefore = r.slack.posted.length;
+    await r.bridge.replyLeg.tick();
+    const last = r.slack.posted[r.slack.posted.length - 1];
+
+    check('arm8-give-up-bound-drops-the-retry-and-says-so-in-the-thread',
+      Boolean(rec) && r.bridge._pendingRetries.size === 0
+        && r.slack.posted.length === postedBefore + 1
+        && Boolean(last) && last.text === forwardPathModule.SEAT_BUSY_GAVE_UP_NOTICE
+        && createsCarrying(r.door, 'ARM8') === 0,
+      { hadRecord: Boolean(rec), pendingLeft: r.bridge._pendingRetries ? r.bridge._pendingRetries.size : 'NO SUCH TABLE',
+        lastPost: last && last.text, enqueued: createsCarrying(r.door, 'ARM8') });
+    r.bridge.stop();
+  }
+
+  // ── ARM 9 · a held re-submit SURVIVES A BRIDGE RESTART ────────────────────────────────────
+  //
+  // The bridge promised the owner it would send the message again. A systemd restart
+  // (Restart=on-failure) must not swallow that promise, so the record rides the existing state
+  // file — the same additive discipline the ferry cursors and agent threads ride.
+  {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-retrystate-'));
+    const stateFile = path.join(stateDir, 'chat-state.json');
+    const door = makeDoor();
+    const a = makeBridgeRig({ stateFile, door });
+    await a.bridge.start();
+    await a.bridge.onChatMessage(dm('9.1', 'ARM9 survives a restart'));
+    a.bridge.stop();
+    const doc = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+
+    const b = makeBridgeRig({ stateFile, door }); // a fresh process, same file, same daemon
+    await b.bridge.start();
+    const restored = Boolean(b.bridge._pendingRetries && b.bridge._pendingRetries.has('D_IM:9.1'));
+    door.busy = false;
+    await b.bridge.replyLeg.tick();
+
+    check('arm9-a-held-re-submit-survives-a-restart-and-still-lands',
+      Boolean(doc.pendingRetries && doc.pendingRetries['D_IM:9.1'])
+        && restored === true && createsCarrying(door, 'ARM9') === 1,
+      { onDisk: doc.pendingRetries ? Object.keys(doc.pendingRetries) : 'KEY ABSENT',
+        restored, enqueuedAfterRestart: createsCarrying(door, 'ARM9') });
+    b.bridge.stop();
+    try { fs.rmSync(stateDir, { recursive: true, force: true }); } catch {}
+  }
 }
 
 async function main() {
@@ -138,11 +365,16 @@ async function main() {
         b.forwarded === false && b.queueId === undefined && String(b.reason || '').startsWith('seat-busy-deduped'),
         { reason: b.reason, queueId: b.queueId });
 
+      // ⚑ THE WORDING CHANGED AT TASK 7.541 and the assertion changed WITH it, deliberately.
+      // The notice used to end "please send it again shortly" — an instruction that, now that the
+      // bridge re-submits by itself, produces the DOUBLE DELIVERY arms 5-8 exist to prevent. It
+      // must promise the automatic re-send and must NOT ask for a manual one.
       const notice = rig.posted[rig.posted.length - 1];
       check('arm1-honest-in-thread-notice-posted-to-THAT-thread',
         Boolean(notice) && notice.chatThreadId === 'D_IM:2.2'
           && notice.text === forwardPathModule.SEAT_BUSY_NOTICE
-          && /not delivered/i.test(notice.text) && /again/i.test(notice.text),
+          && /sent again automatically/i.test(notice.text)
+          && !/please send it again/i.test(notice.text),
         { posted: rig.posted.length, notice });
 
       // "Never drop text silently": the text the door discarded rides the refusal, so no caller
@@ -205,9 +437,13 @@ async function main() {
     // internals into the owner's chat.
     {
       const n = forwardPathModule.SEAT_BUSY_NOTICE;
-      check('arm3-notice-is-a-fixed-string-with-no-internals',
-        typeof n === 'string' && !/queue|seat_key|exec|job_id|dedup|workdir|\d{2,}/i.test(n),
-        { notice: n });
+      const g = forwardPathModule.SEAT_BUSY_GAVE_UP_NOTICE;
+      const clean = (s) => typeof s === 'string' && !/queue|seat_key|exec|job_id|dedup|workdir|\d{2,}/i.test(s);
+      check('arm3-notice-is-a-fixed-string-with-no-internals', clean(n), { notice: n });
+      // Its give-up twin (task 7.541) holds the same line — it is the one the owner reads when the
+      // re-submit was abandoned, and it is the ONLY one that asks him to send the message again.
+      check('arm3-give-up-notice-is-a-fixed-string-with-no-internals',
+        clean(g) && /send it again/i.test(g || ''), { notice: g });
     }
 
     // ── ARM 3b · NO REGRESSION for a daemon WITHOUT the door (the RUNNING one) ─────────────────
@@ -287,6 +523,8 @@ async function main() {
       check('arm4-UNGUARDED-bridge-maps-the-new-thread-to-the-HELD-turn', false,
         { detail: 'SKIPPED — the mutation could not be built, so the red arm proves nothing' });
     }
+
+    await autoResubmitArms(check);
   } finally {
     try { fs.unlinkSync(scratchPath); } catch {}
     if (daemon) { try { await daemon.close(); } catch {} }
@@ -301,4 +539,6 @@ async function main() {
   process.exit(exit);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { autoResubmitArms };

@@ -49,7 +49,7 @@
 //     decision that rests on the approximation.
 //
 // ⚑ UPDATED BY TASK 7.389 — G-137's precondition (b) IS NOW MET; (a) IS NOT, so the retirement is
-// STILL BLOCKED and the approximation STILL STANDS. `queue.enqueued_seat` / `jobs_log.enqueued_seat`
+// STILL BLOCKED and the approximation STILL STANDS. `queue.enqueuing_seat` / `jobs_log.enqueuing_seat`
 // are the column (b) said no table had, and `seatPrincipalResolver` now grants `creator-seat` off
 // them as a genuine seat-to-seat check. What did NOT change, deliberately: the approximation in
 // `tokenKindResolver` is untouched and armed. Dropping it while (a) stands would remove the only
@@ -86,12 +86,12 @@ const PRINCIPALS = Object.freeze({
     // second WITHOUT retiring the first (G-137's other half; see seatPrincipalResolver):
     //   1. the sender-id APPROXIMATION (`tokenKindResolver`) — a DEVICE identity compared to an
     //      audit column, exact only at 1:1 sender:seat and coarser under a shared token;
-    //   2. the SEAT check (`seatPrincipalResolver`) — `enqueued_seat === the proven seat`, which is
+    //   2. the SEAT check (`seatPrincipalResolver`) — `enqueuing_seat === the proven seat`, which is
     //      what the ruling actually says and carries none of (1)'s coarseness.
     // While (1) stands, the WEAKER of the two is what a reader must assume held for any given
     // grant, so do not describe this principal as seat-based on the strength of (2) alone.
     enforcedInV1: true,
-    provenBy: 'EITHER the seat check (enqueued_seat === the CMP-13-proven seat, task 7.389) OR the older APPROXIMATION (enqueued_by === authenticated sender-id; exact only at 1:1 sender:seat, coarser under a shared token) — the approximation is NOT retired, so assume the weaker one',
+    provenBy: 'EITHER the seat check (enqueuing_seat === the CMP-13-proven seat, task 7.389) OR the older APPROXIMATION (enqueued_by === authenticated sender-id; exact only at 1:1 sender:seat, coarser under a shared token) — the approximation is NOT retired, so assume the weaker one',
   }),
   // The master APPROXIMATION (owner ruling 2026-07-25, task 7.12, build (ii)) —
   // recorded here so the honest name of what is enforced appears beside the honest
@@ -219,7 +219,7 @@ const SEAT_NAME_PRINCIPALS = Object.freeze({
 //   `queue.enqueued_by` and `jobs_log.enqueued_by` are sender-ids and no column records the
 //   enqueuing SEAT. Proving creator-seat needs that column."
 //
-// `queue.enqueued_seat` / `jobs_log.enqueued_seat` are that column (G-137 precondition (b)). This
+// `queue.enqueuing_seat` / `jobs_log.enqueuing_seat` are that column (G-137 precondition (b)). This
 // grant is a SEAT-TO-SEAT comparison — the proven seat behind the connection against the seat
 // recorded at enqueue — so it is NOT the sender-id approximation `tokenKindResolver` still makes.
 //
@@ -249,8 +249,8 @@ function seatPrincipalResolver(sender, subject) {
   if (!sender || typeof sender.seat !== 'string' || sender.seat.length === 0) return held;
   for (const p of SEAT_NAME_PRINCIPALS[sender.seat] || []) held.push(p);
 
-  if (subject && typeof subject.enqueued_seat === 'string' && subject.enqueued_seat.length > 0
-      && subject.enqueued_seat === sender.seat) {
+  if (subject && typeof subject.enqueuing_seat === 'string' && subject.enqueuing_seat.length > 0
+      && subject.enqueuing_seat === sender.seat) {
     held.push('creator-seat');
   }
   return held;

@@ -250,6 +250,12 @@ function createReplyLeg({
   // other edge of this leg is injected: the driver holds no transport and mints no path of its
   // own. Absent (an embedder that wires none) → non-conformance goes straight to best-effort.
   redispatch = null,
+  // One call per driver pass, for work that needs a heartbeat but not a second timer: the
+  // bridge's pending re-submits (chat-bridge.js § pending re-submit, task 7.541). It runs BEFORE
+  // the `pending.size === 0` early return, because a conversation whose create was refused was
+  // never armed — the leg holds nothing for it, and that is exactly when the sweep must still run.
+  // Injected and optional, like every other edge here: an embedder that wires none loses nothing.
+  retrySweep = null,
   logger = null,
   pollMs = DEFAULT_POLL_MS,
   windowMs = DEFAULT_WINDOW_MS,
@@ -346,6 +352,10 @@ function createReplyLeg({
     if (ticking) return;
     ticking = true;
     try {
+      // Isolated: a sweep that throws must never abort the reply driver's own pass.
+      if (typeof retrySweep === 'function') {
+        try { await retrySweep(); } catch (err) { log('warn', 'pending re-submit sweep threw', { error: err.message }); }
+      }
       if (pending.size === 0) return;
 
       // 1. Capture new execIds from ticker spawn actions, per conversation. A
@@ -468,7 +478,7 @@ function createReplyLeg({
               const text = verdict.ok
                 ? verdict.body
                 : (verdict.body !== null
-                  ? `${UNFORMATTED_PREFIX}${toMrkdwn(clampBestEffort(verdict.body))}`
+                  ? bestEffortText(verdict.body)
                   : FALLBACK_TEXT);
               if (!verdict.ok) {
                 log('warn', 'reply leg delivering a NON-CONFORMANT reply', {
@@ -581,8 +591,15 @@ function clampBestEffort(s) {
   return s.length <= BEST_EFFORT_MAX_CHARS ? s : `${s.slice(0, BEST_EFFORT_MAX_CHARS)}\n… (truncated)`;
 }
 
+// THE BEST-EFFORT DELIVERY SHAPE, shared by BOTH legs. The cold leg reaches it after its revive
+// budget is spent; the warm arm reaches it immediately (no revive there — owner ruling 2026-08-11).
+// One function so the two can never drift into posting a non-conformant reply differently.
+function bestEffortText(body) {
+  return `${UNFORMATTED_PREFIX}${toMrkdwn(clampBestEffort(body))}`;
+}
+
 module.exports = {
   createReplyLeg, extractReplyText, extractCodexText, normalizeLog, extractFenced,
-  checkReplyContract, buildFeedback,
+  checkReplyContract, buildFeedback, bestEffortText,
   FALLBACK_TEXT, GIVE_UP_NOTICE, DEAD_AIR_NOTICE, FENCE_OPEN, FENCE_CLOSE, CONTRACT_TEMPLATE, UNFORMATTED_PREFIX,
 };

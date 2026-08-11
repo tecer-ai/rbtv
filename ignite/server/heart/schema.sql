@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS queue (
   -- column existed hold no seat, and a NULL here must never read as "some seat" — the
   -- `creator-seat` grant in internal-api/authz.js refuses NULL on both sides for exactly that
   -- reason. No default: absence is the honest value.
-  enqueued_seat TEXT,
+  enqueuing_seat TEXT,
   enqueued_at  TEXT NOT NULL,
   CHECK ((trigger_kind = 'periodic') = (interval_seconds IS NOT NULL)),
   CHECK (trigger_kind = 'scheduled' OR repeat_rule IS NULL),
@@ -109,10 +109,10 @@ CREATE TABLE IF NOT EXISTS jobs_log (
   action_type  TEXT NOT NULL,
   args         TEXT NOT NULL,
   enqueued_by  TEXT NOT NULL,
-  -- Task 7.389 — the enqueuing SEAT, denormalized at fire from `queue.enqueued_seat` exactly as
+  -- Task 7.389 — the enqueuing SEAT, denormalized at fire from `queue.enqueuing_seat` exactly as
   -- `enqueued_by` is (heart-store.js § fireQueueRow). Nullable for the same reasons stated on the
   -- queue column; `canKillSession` reads it through the same resolver `canRemoveQueueRow` does.
-  enqueued_seat TEXT,
+  enqueuing_seat TEXT,
   session_mode TEXT NOT NULL DEFAULT 'headless' CHECK (session_mode IN ('headless','headed')),
   fired_tick   INTEGER NOT NULL,
   fired_at     TEXT NOT NULL,

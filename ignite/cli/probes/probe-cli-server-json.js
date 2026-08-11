@@ -10,7 +10,7 @@
 // multi-server ambiguity; and the legacy flat-shape fallback.
 //
 // It also covers the CLI's OTHER config half — SENDER-TOKEN resolution, and
-// specifically its fallback to the workspace's gitignored `.rbtv/config/.env`
+// specifically its fallback to the workspace's gitignored token file
 // (owner-directed 2026-08-07). The two belong in one probe because they are
 // one question — "how does this CLI find out who and where to call" — and
 // because the token half's whole point is the case the address half already
@@ -76,14 +76,22 @@ async function main() {
   // The env var reaches nobody in a CAGED session — the daemon's unit ships
   // `EnvironmentFile=-/dev/null`, and bwrap passes on the environment it has —
   // so every caged seat promised the `ignite` CLI met AUTH_REFUSED. The
-  // gitignored `.rbtv/config/.env` was already the RULED distribution channel
-  // for this token; it just had no reader. These drive the reader off a real
-  // temp tree, and the WALK leg is the one the caged case depends on.
+  // gitignored env surface was already the RULED distribution channel for this
+  // token; it just had no reader. These drive the reader off a real temp tree,
+  // and the WALK leg is the one the caged case depends on.
+  //
+  // ⚑ THE FILE IS `.rbtv/config/sender-token.env`, NOT the `.env` beside it
+  // (owner ruling 2026-08-11, task 7.566). `.env` holds third-party secrets and
+  // is now MASKED inside every seat cage; the token lives in its own one-key
+  // file so a caged seat keeps gateway auth and loses everything else. The
+  // decoy check below is what holds that split: a token sitting in `.env` must
+  // NOT be found, or the mask would silently take the master's auth with it.
   const tokRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'p720-token-'));
   const tokDeep = path.join(tokRoot, '.rbtv', 'goals', '_svc');
   fs.mkdirSync(tokDeep, { recursive: true });
   fs.mkdirSync(path.join(tokRoot, '.rbtv', 'config'), { recursive: true });
-  const envFile = path.join(tokRoot, '.rbtv', 'config', '.env');
+  const envFile = path.join(tokRoot, '.rbtv', 'config', 'sender-token.env');
+  const secretsFile = path.join(tokRoot, '.rbtv', 'config', '.env');
   const prevTok = process.env.IGNITE_SENDER_TOKEN;
   const prevTokWs = process.env.RBTV_IGNITE_WORKSPACE_ROOT;
   try {
@@ -95,8 +103,19 @@ async function main() {
       `resolveToken()=${JSON.stringify(resolveToken())}`);
 
     delete process.env.IGNITE_SENDER_TOKEN;
-    check('with no env var, the token is read from the gitignored .rbtv/config/.env',
+    check('with no env var, the token is read from the gitignored .rbtv/config/sender-token.env',
       resolveToken() === 'from-file', `resolveToken()=${JSON.stringify(resolveToken())}`);
+
+    // THE SPLIT (7.566). The secrets file is not a token source: masking it in the cage may
+    // never cost the seat its gateway auth, and reading it there would mean the mask does.
+    fs.writeFileSync(secretsFile, 'SLACK_BOT_TOKEN=xoxb-real\nIGNITE_SENDER_TOKEN=from-secrets-file\n');
+    check('a token sitting in the MASKED .rbtv/config/.env is NOT read — only sender-token.env is',
+      resolveToken() === 'from-file', `resolveToken()=${JSON.stringify(resolveToken())}`);
+    fs.rmSync(envFile);
+    check('with only .rbtv/config/.env present, the token resolves to null — no second source',
+      resolveToken() === null, `resolveToken()=${JSON.stringify(resolveToken())}`);
+    fs.rmSync(secretsFile);
+    fs.writeFileSync(envFile, 'SLACK_BOT_TOKEN=xoxb-decoy\nIGNITE_SENDER_TOKEN=from-file\nOTHER=z\n');
 
     // THE CAGED LEG. A seat's cwd is its own folder, several levels below the
     // workspace root, and the root is not otherwise knowable in there.
