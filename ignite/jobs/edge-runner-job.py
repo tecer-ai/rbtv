@@ -57,17 +57,18 @@ that disagree is the shape of `issues.md` G-301, where `taskforce_after()` and
 `goal_cli.check_acyclic` read one `after` cell differently and one of them reports nothing wrong.
 A second disposition reader here would reproduce that at the disposition column.
 
-ONE read this file DOES perform itself, and the invariant that keeps it honest: whether the seat
-has an ENDED row at all. `session_disposition` returns `None` for four different causes — no
-`sessions.csv`, no `disposition` column, no ended row, or an empty cell — and two of those must be
-marked differently (an empty cell on an ended row is a seat that FINISHED without declaring, which
-is `failed`; no ended row at all is a seat that has not finished, which is not this stage's to
-decide). Answering the precondition therefore needs a row scan, and it uses coord's OWN parsing
-primitives (`read_csv_table`, `pad_row`, `SESSIONS_COLS`) rather than a private csv reader.
-**The duplication hazard that creates is converted into a measured invariant, not waved at:**
-`check_scan_agrees_with_coord_reader` asserts, per seat and off disk, that whenever the scan finds
-an ended row with a non-empty cell, `session_disposition` returns exactly that cell. If the two
-ever drift apart, that check goes red instead of a workflow advancing on a disagreement.
+⚠ 7.739 REMOVED THE ONE READ THIS FILE STILL PERFORMED ITSELF. It used to answer "has the seat
+ENDED at all?" with a private row scan (`ended_rows`) and take only the VALUE from coord's reader,
+because `session_disposition` returns `None` for causes that must be marked differently: an empty
+cell on an ended row is a seat that FINISHED without declaring (`failed`), while no record anywhere
+is a seat that has not finished (undecided). THE SCAN WAS THE DEFECT, NOT THE SOLUTION — it read
+`sessions.csv` ONLY, so a CAGED seat, which cannot write that file (D-3) and leaves no ended row,
+short-circuited to undecided BEFORE the reader that would have found its `coordination/` record was
+ever called. Both questions now go through coord: `session_disposition` for the value, and coord's
+OWN `undeclared_endings` to separate the two `None` causes. There is no second reader left here to
+disagree with, so the old duplication invariant is retired in favour of a ONE-DIRECTIONAL one:
+`check_mark_never_outruns_coord_reader` asserts this stage never marks a seat the reader said
+nothing about, and never marks `done` where the reader did not say exactly `done`.
 
 STATE IS DERIVED. NO STATUS COLUMN, ANYWHERE (Rule 14)
 ------------------------------------------------------
@@ -96,8 +97,10 @@ VERIFICATION IS GRADED, AND THE GRADE IT CANNOT AFFORD IS NAMED (PRIN-5)
 PRIN-5: "existence -> shape -> content — apply the deepest grade the artifact affords at the edge's
 cost budget." Applied here as:
 
-  existence  the check-out record exists (the seat has an ended session row)
-  shape      its disposition validates against coord's closed enum, and is `done`
+  shape      a check-out record exists on EITHER of coord's two surfaces, and its disposition
+             validates against coord's closed enum and is `done`. 7.739 folded the former separate
+             `existence` grade into this one: it was a private scan of one surface, and grading
+             existence apart from value is what let a caged seat's record go unread
   content    every resolvable path the seat's own `<io-spec> Outputs` declares exists on disk
 
 The fourth grade a reader might expect — whether each artifact's CONTENT is correct — is **not
@@ -127,6 +130,7 @@ Usage:
 import argparse
 import ast
 import csv
+import hashlib
 import inspect
 import json
 import re
@@ -140,12 +144,27 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 COORD_PATH = HERE.parent / "team-kit" / "coord.py"
 
+# THE SHARED CAGE READER (task IPH-2). `team-kit/cagespec.py` is the ONE Python reading of
+# `cage.SeatBinds`, and `team-kit/materialize-seats.py`'s generation-time preflight calls the same
+# functions — so the gate that refuses a seat's declaration at AUTHORING time and the gate that
+# refuses it at ENQUEUE time can never answer the same question differently. Bound at import rather
+# than inside `load_coord` because STEP 4a's constants below are module-level; the path is the same
+# folder `load_coord` binds, and the hosts are hyphenated (unimportable), so the underscore module
+# beside them is forced rather than chosen.
+if str(COORD_PATH.parent) not in sys.path:
+    sys.path.insert(0, str(COORD_PATH.parent))
+import cagespec  # noqa: E402 — path bound just above
+
 # ---- THE DECLARED READ INVENTORY — closed, and asserted against the audit off disk ------------
 #
 # `field=None` marks a read SITE that resolves to no column, carried visibly rather than dropped:
 # a seat's declared outputs are a section of its own seat.md plus the paths that section names.
 # trace-field-audit.md row 14 carries the same site with `field: null` for the same reason.
 SESSIONS = "{RUN}/sessions.csv"
+# 7.739: the reader's SECOND surface, named as its own evidence site. `session_disposition` has
+# consulted it since 7.475/CW11 and it is the ONLY surface a CAGED seat can write, so a verdict that
+# named `sessions.csv` alone under-reported what the decision actually consulted.
+SEAT_DISPOSITION_RECORD = "{RUN}/coordination/disposition-<seat>.json"
 SEAT_MD_OUTPUTS = "{RUN}/seats/*/seat.md"
 TASKFORCE = "{RUN}/taskforce.csv"
 ROSTER = "{RUN}/coordination/workers.md"
@@ -255,7 +274,14 @@ def resolve_declared_path(pkg, tok):
     written for the seed would be free to disagree with the grade about what a token means — the
     two-readers shape this whole file is bounded against, at the smallest possible seam. The bases
     are the run package and the goal root, in that order, and a token that resolves against neither
-    is returned as None rather than silently assumed present."""
+    is returned as None rather than silently assumed present.
+
+    ponytail: the SECOND base (`pkg.parent.parent`) is a legacy of the retired run layer and can
+    resolve a token OUTSIDE the goal folder, while STEP 4a's live deriver reads every token as
+    goal-relative — so on that one path the two disagree about what a token names. Pre-existing and
+    deliberately untouched by IPH-2 (removing it is a token-migration question, not a cage one); it
+    errs toward FINDING an artifact, never toward admitting a write. Delete the base once the goal
+    folder is the only base any live package uses."""
     cand = Path(tok)
     if cand.is_absolute():
         return cand if cand.exists() else None
@@ -311,34 +337,40 @@ def declared_outputs(pkg, seat):
 
 # ---- the stage --------------------------------------------------------------------------------
 
-def ended_rows(coord, pkg, seat):
-    """The seat's ENDED session rows, in file order, using coord's OWN csv primitives.
-
-    Answers CMP-25's precondition only ("has S finished?"). The disposition VALUE is never taken
-    from here — `session_disposition` owns it, and `check_scan_agrees_with_coord_reader` asserts
-    the two never disagree on a non-empty cell."""
-    path = coord.sessions_csv(pkg)
-    if not path.exists():
-        return None
-    header, rows = coord.read_csv_table(path, coord.SESSIONS_COLS)
-    idx = {c: i for i, c in enumerate(header)}
-    if not {"seat", "ended"} <= set(idx):
-        return None
-    out = []
-    for r in rows:
-        coord.pad_row(r, header)
-        if r[idx["seat"]].strip() == seat and r[idx["ended"]].strip():
-            out.append(r[idx["disposition"]].strip() if "disposition" in idx else "")
-    return out
-
-
 def verify(coord, pkg, seat):
     """`{seat, disposition, evidence-read, ...}` for one seat. disposition is `done`, `failed`, or
     None — and None is always accompanied by `undecided-reason`.
 
+    ⚠ 7.739 RETIRED THIS STAGE'S OWN EXISTENCE GATE. Until this change the seat's EXISTENCE
+    question ("has it finished?") was answered here by a private scan of `sessions.csv` (`ended_rows`,
+    deleted) and only its VALUE came from coord's reader. That split was the whole defect: a CAGED
+    seat cannot write `sessions.csv` at all (D-3) and its `session_close` never completes, so it
+    leaves NO ended row — the scan found nothing, short-circuited to `disposition=None`, and coord's
+    reader, which HAS consulted `coordination/disposition-<seat>.json` since 7.475/CW11, was never
+    asked. Measured as a three-way disagreement on the W-D control run: coord said DONE, goal-state
+    said READY, this stage said "own mark: none", and the chain stopped with no hand act available.
+    EXISTENCE AND VALUE NOW COME FROM THE ONE READER, `coord.session_disposition`.
+
+    THE ASYMMETRY IS UNCHANGED AND IS STILL THE SAFETY ARGUMENT: `None` NEVER means done. The two
+    states that reader cannot tell apart are separated by coord's OWN second question,
+    `undeclared_endings` — a seat whose last ENDED row declares nothing FINISHED WITHOUT DECLARING
+    and is `failed` (coord's column comment: "AN EMPTY CELL IS `unknown`, NEVER `done`"), while a
+    seat neither surface says anything about has not finished and is not this stage's to mark.
+    Without that branch the entire back-catalogue of ended-empty-cell seats would silently degrade
+    from `failed` to undecided, and undecided is not terminal — every one of them would return to
+    the launch-candidate set.
+
+    ⚠ THE STALE-ROW PRECEDENCE IS INHERITED, NOT DECIDED HERE. `session_disposition` reads
+    `sessions.csv` FIRST and consults the seat's record ONLY where the csv is silent, so a seat whose
+    last ended row carries a STALE non-empty value reads as that stale value and its fresher record
+    is never seen. That is the reader's own documented behaviour and this stage does not layer a
+    freshness rule over it — `terminal_disposition`'s SKEW verdict is deliberately NOT wired in
+    here, because a second precedence rule at this seam is the two-readers shape the whole file is
+    bounded against.
+
     `evidence-read` names the fields THIS seat's decision actually consulted, never the full
-    possible set: a seat with no ended row never reaches the disposition cell or its declared
-    outputs, and its evidence list is correspondingly shorter."""
+    possible set: a seat whose value never resolved never reaches its declared outputs, and its
+    evidence list is correspondingly shorter."""
     result = {"seat": seat, "disposition": None, "undecided-reason": None,
               "evidence-read": [], "grades-applied": [],
               "grades-not-afforded": GRADES_NOT_AFFORDED, "reason": None, "outputs": None}
@@ -350,28 +382,29 @@ def verify(coord, pkg, seat):
             % SESSIONS)
         return result
 
-    # GRADE 1 — existence: did the seat FINISH? (CMP-25 fires "on S finished".)
-    result["evidence-read"] = ["%s::seat" % SESSIONS, "%s::ended" % SESSIONS]
-    rows = ended_rows(coord, pkg, seat)
-    result["grades-applied"].append("existence")
-    if not rows:
-        result["undecided-reason"] = (
-            "no ENDED session row for this seat, so it has not finished. CMP-25's pass fires on a "
-            "FINISHED seat; a seat that never sat, or is sitting now, is not this stage's to mark. "
-            "Refusing to decide rather than defaulting either way.")
-        return result
-
-    # GRADE 2 — shape: the durable value, read by coord's ONE reader.
-    result["evidence-read"].append("%s::disposition" % SESSIONS)
+    # GRADE — shape: existence AND value, both from coord's ONE reader (7.739). Both of the reader's
+    # surfaces are named as evidence because the reader consults both: the seat's row in
+    # `sessions.csv` first, then — only where that is silent — the seat's own durable record, which
+    # is the ONE surface a caged seat can write.
+    result["evidence-read"] = ["%s::seat" % SESSIONS, "%s::ended" % SESSIONS,
+                               "%s::disposition" % SESSIONS, SEAT_DISPOSITION_RECORD]
     value = coord.session_disposition(pkg, seat)
     if value is None:
-        # An ended row exists and the cell is empty: the seat finished WITHOUT declaring. coord's
-        # own column comment: "AN EMPTY CELL IS `unknown`, NEVER `done`". It is somebody else
-        # ending the row (`close-seat`/`depart`), and neither witnessed what the occupant meant.
-        result["disposition"] = "failed"
-        result["reason"] = ("the seat ENDED with an EMPTY disposition cell — unknown, never done. "
-                           "No check-out was made, so no edge advances.")
-        result["grades-applied"].append("shape")
+        if seat in coord.undeclared_endings(pkg):
+            # The seat's last ENDED row carries an EMPTY cell: it finished WITHOUT declaring. It is
+            # somebody else ending the row (`close-seat`/`depart`), and neither witnessed what the
+            # occupant meant. THE PRESERVATION — this branch is why the retired existence gate could
+            # be dropped without moving a single existing verdict.
+            result["disposition"] = "failed"
+            result["reason"] = ("the seat ENDED with an EMPTY disposition cell — unknown, never "
+                                "done. No check-out was made, so no edge advances.")
+            result["grades-applied"].append("shape")
+            return result
+        result["undecided-reason"] = (
+            "NEITHER surface declares anything for this seat: %s carries no ENDED row for it, and "
+            "there is no readable %s. It has not finished — a seat that never sat, or is sitting "
+            "now, is not this stage's to mark (CMP-25's pass fires on a FINISHED seat). Refusing to "
+            "decide rather than defaulting either way." % (SESSIONS, SEAT_DISPOSITION_RECORD))
         return result
     # 7.689: DERIVED, never a copy. The question is "would coord's own writer admit this value?", so
     # it is asked of coord's enum at read time — a restated set answers for whatever coord looked
@@ -1267,28 +1300,41 @@ def _seed_member(pkg, seed, missing, seen, pred, resolvable, absent):
 # 251-token migration. So an UNCAGED row is NOT refused — and this check is precisely the mechanism
 # that makes that deferral honest rather than a promise (`r-gate-ships-with-its-own-key`, K1).
 #
-# ⚠⚠ THE CAGE CLASSIFICATION IS A MEASURED SNAPSHOT, NOT A LIVE COMPOSITION, and every refusal says
-# so on its own face rather than in this comment. No Python frame on this path holds a composed
-# cage spec and none can: composing one here would be a SECOND cage composer in a second language,
-# against `r-seats-only-architecture (1)`. So the wall was measured ONCE, from INSIDE real composed
-# cages with real writes and real reads, by task 7.466 — and the table below is that measurement,
-# transcribed. If `cage.SeatBinds` changes, this table goes stale WHILE STILL REFUSING
-# CONFIDENTLY. That is the one failure mode a reader cannot see from a refusal alone, which is why
-# the provenance travels IN the refusal text: a refusal that cannot be dated cannot be trusted.
+# ⚠⚠ THE CAGE CLASSIFICATION IS DERIVED LIVE, NOT TRANSCRIBED (task IPH-2, owner-ruled Design B,
+# 2026-08-11). It was a MEASURED SNAPSHOT until this change — a four-row table transcribed from task
+# 7.466's in-cage measurement — and that table's own disclosure was its epitaph: it went stale WHILE
+# STILL REFUSING CONFIDENTLY the moment `cage.SeatBinds` changed, and it was NECESSARILY INCOMPLETE
+# in a way no reader could see from a refusal. `d-s31-planning-workspace-shared-rw` added the
+# `planning/` opening on 2026-08-11 and the table did not know: the one artifact surface a multi-seat
+# phase hands work across read `undecided` and refused.
 #
-# ⚠⚠ AND THE TABLE IS NECESSARILY INCOMPLETE, WHICH IS A DIFFERENT DEFECT FROM STALE. It maps the
-# subtrees CW2 measured and no others. An unmapped subtree is `undecided`, and `undecided` REFUSES
-# — it is NEVER admitted and never passed through (leader bar, 2026-08-07). A token that reads
-# admissible on paper may be unwritable in fact, so admitting one on the strength of a MISSING
-# measurement is the one direction that turns a gap into a green. Fail-closed here is load-bearing,
-# not defensive tidiness.
+# WHAT REPLACES IT. `token_admissible` now DERIVES writable/readable from the profile-resolved
+# `cage.SeatBinds` the daemon's own `config.js` loader returns (`profile_seat_binds`, one atomic
+# probe beside the caged-ness one) plus the seat's own `goal-writes` declaration, through the shared
+# reader `team-kit/cagespec.py`. Two calls answer the whole rule: `evaluate(..., seat=<producer>)`
+# for writable, `evaluate(..., seat=cagespec.PEER)` for readable-by-a-distinct-successor.
 #
-# ⚠ THE `branches/<b>/outputs/` ROW IS DELETED (2026-08-10, task 7.615). The branch FOLDER is
+# ⚠⚠ IT IS STILL NOT A SECOND CAGE COMPOSER, and the bound is asserted rather than promised.
+# `cage.js#composeSeatCage` remains the only thing that composes a real bwrap spec;
+# `cagespec.compose` is a goal-relative MIRROR of it, and `check_deriver_mirrors_the_composer` drives
+# the REAL composer through node over the LIVE SeatBinds and asserts the mirror matches entry-for-
+# entry — plus that every entry the mirror DROPS resolves outside the goal folder under node. That
+# check is the standing replacement for the retired only-measurement-counts guarantee.
+#
+# ⚠⚠ AND EVERYTHING UNDERIVABLE STILL REFUSES. An unknown verb, an unknown slot, an unknown
+# `{grant:FIELD}`, a malformed entry, a goal-escaping token, or a half-answered probe (`caged: true`
+# with no binds) all evaluate `undecided`, and `undecided` is NEVER admitted (leader bar,
+# 2026-08-07). A token that reads admissible on paper may be unwritable in fact, so admitting one on
+# the strength of a MISSING derivation is the one direction that turns a gap into a green.
+# Fail-closed here is load-bearing, not defensive tidiness — and it is what makes template GROWTH
+# safe: a line class added to `cage.SeatBinds` refuses every token until this reader learns it.
+#
+# ⚠ THE `branches/<b>/outputs/` SHAPE IS GONE (2026-08-10, task 7.615). The branch FOLDER is
 # abolished (`r-branch-folder-deleted-nested-seats-are-ordinary-run-seats`) and a nested workflow's
-# seats are ORDINARY seats of the parent goal, so no package token can name that subtree; its rows
-# are covered by `seats/<self>/` and `coordination/` like any other seat's. Deleting it is not a
-# loss of measurement: a `branches/…` token now falls through to `undecided` and REFUSES, which is
-# the same refusal the row gave, arrived at without keeping a dead shape mapped.
+# seats are ORDINARY seats of the parent goal, so no package token can name that subtree; its
+# tokens are covered by `seats/<self>/` and `coordination/` like any other seat's. Under the live
+# deriver a `branches/…` token is covered only by the read-only goal floor and is INADMISSIBLE —
+# the same refusal, arrived at without keeping a dead shape mapped.
 
 _ADMISSIBLE = "admissible"
 _INADMISSIBLE = "inadmissible"
@@ -1309,62 +1355,52 @@ _ADMISSION_HOMES = (
     "producer. The `coordination/` home is an INTERIM and retires at task 7.57, when the gateway "
     "path supersedes it.")
 
-_CAGE_MAP_PROVENANCE = (
-    "PROVENANCE OF THE CAGE CLASSIFICATION (task 7.466 / CW2, 2026-08-07, VANTAGE: DISK): composed "
-    "and executed OUT-OF-PROCESS against `server/spawn/cage.js` and `config/spawn-profiles.yaml` "
-    "as they sat on disk -- `composeSeatCage` + `specToBwrapFlags` DRIVEN (never the YAML read in "
-    "place of the emitter), the flags handed to `bwrap.buildBwrapArgv`, and a REAL write from a "
-    "producer cage plus a REAL read from a DISTINCT successor cage attempted per row; `os.access` "
-    "never consulted; grants NONE (the ordinary-seat case). Record `cage-subtree-map.csv` "
-    "sha256:c36a11b409238eb7, asserting composed-flag digests producer 1c8ef7c433259527, successor "
-    "0507cfef2345526e, templates 21. THIS IS A SNAPSHOT, NOT A LIVE SPEC: if `cage.SeatBinds` has "
-    "changed since, this refusal is STALE and not current -- re-run 7.466's driver before trusting "
-    "it. It is also NECESSARILY INCOMPLETE: it maps the subtrees CW2 measured and no others, so a "
-    "token under an unmapped subtree is `undecided` and refused rather than admitted.")
+def _seat_binds_digest(seat_binds):
+    """A short digest of the LIVE template a verdict was derived from.
 
-# subtree -> (writable-by-producer, readable-by-peer, deciding-entry), transcribed from CW2's
-# record. Keys are patterns over a RUN-PACKAGE-RELATIVE token; `<x>` matches one path segment. The
-# record's sixth row is its NEGATIVE CONTROL (`{goalDir}/runs/run-decoy/`) and is deliberately not
-# transcribed: it is a control on the instrument, not a subtree any package token can name.
-#
-# ⚠ THE DECIDING-ENTRY STRINGS SPELL `{runDir}` AND STAY THAT WAY. They are CW2's transcribed bwrap
-# flags, and `runDir` is what the emitter was called on 2026-08-07; the slot itself is retired
-# (`cage.js`: "runDir is RETIRED, the package IS the goal folder"). Rewriting a transcription to
-# today's vocabulary would falsify the record it exists to be. The MAP KEY is a different thing —
-# it is live input to `cage_subtree_of` — so that one is spelled `{goalDir} root`.
-_CAGE_SUBTREES = {
-    "outputs/":              (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
-    "seats/<self>/":         (True,  False, "W bind:{seatDir} | R tmpfs:{runDir}/seats"),
-    "coordination/":         (True,  True,  "W bind:{runDir}/coordination | "
-                                            "R bind:{runDir}/coordination"),
-    "{goalDir} root":        (False, True,  "W ro-bind:{runDir} | R ro-bind:{runDir}"),
-}
+    It is what makes a refusal datable without dating it: two refusals carrying the same digest were
+    derived from the same wall, and a template edit changes it. The count travels beside it because
+    a digest alone tells a reader nothing about what it summarises."""
+    return hashlib.sha256("\n".join(str(e) for e in (seat_binds or [])).encode("utf-8")).hexdigest()
 
 
-def _cage_key_pattern(key):
-    """A cage-map key as a regex over a token. `<x>` matches exactly one path segment."""
-    if key == "{goalDir} root":
-        return re.compile(r"[^/]+\Z")
-    parts = [r"[^/]+" if re.fullmatch(r"<[^>]+>", p) else re.escape(p)
-             for p in key.rstrip("/").split("/")]
-    return re.compile("/".join(parts) + "/")
+def _admission_provenance(seat_binds):
+    """The provenance sentence carried IN every refusal — the successor of `_CAGE_MAP_PROVENANCE`.
+
+    Its predecessor's whole burden was a date and two disclosures (snapshot, incomplete). Neither
+    applies now, and saying so is the point: a reader who met the old text needs to know that the
+    thing they were told to re-measure is now derived on every pass."""
+    return (
+        "PROVENANCE OF THE CAGE CLASSIFICATION (task IPH-2, 2026-08-11, VANTAGE: THE DAEMON'S OWN "
+        "LOADER): DERIVED LIVE, NOT TRANSCRIBED. The writable/readable verdicts above were computed "
+        "on THIS pass from the profile-resolved `cage.SeatBinds` returned by `server/spawn/"
+        "config.js#loadConfig` (%d entries, sha256:%s) plus this seat's own `goal-writes` "
+        "declaration, through the shared reader `team-kit/cagespec.py` -- the SAME evaluator "
+        "`team-kit/materialize-seats.py`'s generation-time preflight calls, so the authoring gate "
+        "and this one cannot disagree. It replaces task 7.466/CW2's MEASURED SNAPSHOT "
+        "(`cage-subtree-map.csv`), which went stale while still refusing confidently whenever the "
+        "template changed. The mirror is held against `cage.js#composeSeatCage` entry-for-entry by "
+        "`check_deriver_mirrors_the_composer`, and anything underivable -- unknown verb, unknown "
+        "slot, unknown grant field, goal-escaping token, or a probe answering caged-with-no-binds "
+        "-- is `undecided` and REFUSED rather than admitted."
+        % (len(seat_binds or []), _seat_binds_digest(seat_binds)[:16]))
 
 
-def cage_subtree_of(token):
-    """The cage-map subtree covering `token`, longest key wins; None when NO row covers it.
-
-    None is not "no restriction" — it is the F1 shape, and its caller refuses on it."""
-    hits = [k for k in _CAGE_SUBTREES if _cage_key_pattern(k).match(token)]
-    return max(hits, key=len) if hits else None
-
-
-def token_admissible(token, successor_reads_verdict):
+def token_admissible(token, successor_reads_verdict, seat_binds, seat, goal_writes=()):
     """(verdict, reason) for ONE declared-output token. THE RULE, as code.
 
-    `token` is run-package-relative; `successor_reads_verdict` is that row's discriminator — `yes`,
-    `no`, or anything else, which is treated as undecided. An undecided operand is CARRIED THROUGH,
-    never past: this function never picks a side on an upstream absence, because an unmapped
-    subtree that defaulted to admissible would admit exactly the write the cage will refuse.
+    `token` is run-package-relative (which is goal-relative: the package IS the goal folder);
+    `successor_reads_verdict` is that row's discriminator — `yes`, `no`, or anything else, which is
+    treated as undecided. `seat_binds` is the LIVE profile-resolved cage template, `seat` the
+    producing seat, `goal_writes` its own declared `goal-writes` items. An undecided operand is
+    CARRIED THROUGH, never past: this function never picks a side on an upstream absence, because a
+    template this reader cannot derive, defaulted to admissible, would admit exactly the write the
+    cage will refuse.
+
+    TWO CALLS ANSWER THE WHOLE RULE, and they differ only in the occupant: `seat` for what the
+    PRODUCER may write, `cagespec.PEER` for what a DISTINCT SUCCESSOR may read. The successor's
+    goal-writes grant is deliberately omitted — a successor's list differs from the producer's in
+    exactly those two lines, and both omissions err closed.
 
     ⚠ THE DISCRIMINATOR IS CONSULTED ONLY WHERE IT DECIDES, AND THAT ORDER IS THE RULING, NOT AN
     OPTIMISATION (run `decisions.md`
@@ -1373,41 +1409,42 @@ def token_admissible(token, successor_reads_verdict):
     parenthesis is true for EVERY discriminator value, unknown included — so testing the
     discriminator's VALIDITY first computes an artifact of statement order rather than the rule,
     and it refused 2 of the 11 tokens task 7.470 migrates TO. The 8-row yes/no truth table is
-    UNCHANGED by this order; only undecided inputs move, and only where the subtree already
+    UNCHANGED by this order; only undecided inputs move, and only where the derivation already
     decides. `undecided` still refuses wherever the discriminator genuinely decides — an own-seat
     token with an undecidable discriminator is refused, exactly as before."""
-    subtree = cage_subtree_of(token)
-    if subtree is None:
+    produced, w_entry = cagespec.evaluate(seat_binds, token, seat=seat, goal_writes=goal_writes)
+    if produced == cagespec.UNDECIDED:
         return (_UNDECIDED,
-                "undecided: no cage-map row covers `%s`, and an unmapped subtree NEVER defaults to "
-                "admissible -- the missing row is task 7.466's to measure from inside a composed "
-                "cage" % token)
-    writable, readable, entry = _CAGE_SUBTREES[subtree]
-    if not writable:
+                "undecided: the live cage template does not derive a verdict for `%s` -- %s. An "
+                "underivable opening NEVER defaults to admissible; the fix is to teach "
+                "`team-kit/cagespec.py` the shape, never to admit it" % (token, w_entry))
+    readable_verdict, r_entry = cagespec.evaluate(seat_binds, token, seat=cagespec.PEER)
+    readable = readable_verdict in (cagespec.WRITABLE, cagespec.READONLY)
+    if produced != cagespec.WRITABLE:
         return (_INADMISSIBLE,
-                "producer-cannot-write: subtree `%s` is not writable in the producing seat's "
-                "composed cage (deciding entry: %s)" % (subtree, entry))
+                "producer-cannot-write: `%s` is %s in the producing seat's composed cage (deciding "
+                "entry: %s)" % (token, produced, w_entry))
     if readable:
         return (_ADMISSIBLE,
-                "admissible: subtree `%s` is writable in the producer's cage AND readable from a "
-                "successor's, so no value of the successor-read discriminator can change this "
-                "(deciding entry: %s)" % (subtree, entry))
+                "admissible: `%s` is writable in the producer's cage AND %s from a successor's, so "
+                "no value of the successor-read discriminator can change this (deciding entries: "
+                "W %s | R %s)" % (token, readable_verdict, w_entry, r_entry))
     sr = str(successor_reads_verdict).strip().lower()
     if sr not in ("yes", "no"):
         return (_UNDECIDED,
-                "undecided: subtree `%s` is writable by the producer but NOT readable from a "
-                "successor's cage, so the verdict turns on whether a successor reads `%s` -- and "
-                "that discriminator is `%s`, not yes/no. Here it genuinely decides, so it is "
-                "carried through rather than resolved (deciding entry: %s)"
-                % (subtree, token, successor_reads_verdict, entry))
+                "undecided: `%s` is writable by the producer but %s from a successor's cage, so the "
+                "verdict turns on whether a successor reads it -- and that discriminator is `%s`, "
+                "not yes/no. Here it genuinely decides, so it is carried through rather than "
+                "resolved (deciding entries: W %s | R %s)"
+                % (token, readable_verdict, successor_reads_verdict, w_entry, r_entry))
     if sr == "yes":
         return (_INADMISSIBLE,
-                "successor-cannot-read: subtree `%s` is writable by the producer but not readable "
-                "from a successor's composed cage, and this row IS read by a successor (deciding "
-                "entry: %s)" % (subtree, entry))
+                "successor-cannot-read: `%s` is writable by the producer but %s from a successor's "
+                "composed cage, and this row IS read by a successor (deciding entries: W %s | R %s)"
+                % (token, readable_verdict, w_entry, r_entry))
     return (_ADMISSIBLE,
-            "admissible: subtree `%s` is writable in the producer's cage and no successor reads "
-            "this row (deciding entry: %s)" % (subtree, entry))
+            "admissible: `%s` is writable in the producer's cage and no successor reads this row "
+            "(deciding entry: %s)" % (token, w_entry))
 
 
 def successor_reads(coord, seat, after):
@@ -1463,17 +1500,50 @@ def successor_reads(coord, seat, after):
 # and a second parse would be free to disagree with the emitter about whether a seat is caged,
 # which is the two-readers shape this file is bounded against. `node` is not a new dependency on
 # this path — the enqueue door (`IGNITE_BIN`) is itself a node program.
+# ⚠ THE PROBE ANSWERS BOTH HALVES IN ONE CALL, ATOMICALLY, AND THAT IS A REFUSAL OF A FAILURE MODE
+# RATHER THAN A ROUND-TRIP SAVING (IPH-2 risk 3). Asking "is it caged?" and "what does it bind?" in
+# two subprocesses admits a HALF ANSWER — caged=True beside an empty bind list — under which the
+# deriver composes a cage covering nothing and refuses EVERY token with total confidence. One JSON
+# emission makes the pair inseparable; `cagespec.compose` treats an empty list as undecided anyway,
+# and `check_caged_predicate_is_the_daemons` asserts the pairing on both arms.
 _CAGE_PROBE_JS = (
     "const {loadConfig} = require(process.argv[1]);\n"
     "const prof = (loadConfig(process.argv[2]).profiles || {})[process.argv[3]];\n"
-    "if (!prof) { console.log('unknown'); process.exit(0); }\n"
+    "if (!prof) { console.log(JSON.stringify({verdict: 'unknown'})); process.exit(0); }\n"
     "const t = prof.sandbox && prof.sandbox.SeatBinds;\n"
-    "console.log(Array.isArray(t) && t.length ? 'caged' : 'uncaged');\n")
+    "const caged = Array.isArray(t) && t.length > 0;\n"
+    "console.log(JSON.stringify({verdict: caged ? 'caged' : 'uncaged',\n"
+    "                            seatBinds: caged ? t : []}));\n")
 
 _IGNITE_ROOT = Path(__file__).resolve().parent.parent
 _CAGE_LOADER_JS = _IGNITE_ROOT / "server" / "spawn" / "config.js"
 _CAGE_CONFIG_YAML = _IGNITE_ROOT / "config" / "spawn-profiles.yaml"
 _CAGED_CACHE = {}
+
+
+def _cage_probe(profile, config=None):
+    """`(caged, seat_binds)` from ONE resolution of the daemon's own loader. `(None, [])` = UNKNOWN.
+
+    The pair is cached together because it is answered together: a cache holding the boolean alone
+    would re-open the very half-answer the single emission closes."""
+    key = (profile, str(config or _CAGE_CONFIG_YAML))
+    if key in _CAGED_CACHE:
+        return _CAGED_CACHE[key]
+    answer = (None, [])
+    try:
+        p = subprocess.run(["node", "-e", _CAGE_PROBE_JS, str(_CAGE_LOADER_JS),
+                            str(config or _CAGE_CONFIG_YAML), str(profile)],
+                           capture_output=True, text=True, timeout=30)
+        line = ((p.stdout or "").strip().splitlines() or [""])[-1]
+        if p.returncode == 0:
+            payload = json.loads(line)
+            if payload.get("verdict") in ("caged", "uncaged"):
+                binds = payload.get("seatBinds") or []
+                answer = (payload["verdict"] == "caged", binds if isinstance(binds, list) else [])
+    except (OSError, ValueError, subprocess.SubprocessError):
+        answer = (None, [])
+    _CAGED_CACHE[key] = answer
+    return answer
 
 
 def profile_launches_caged(profile, config=None):
@@ -1490,24 +1560,22 @@ def profile_launches_caged(profile, config=None):
     check that could never observe `False` would leave this predicate's scoping arm — the arm the
     whole §2.4 deferral rests on — asserted rather than driven. The override drives the SAME
     loader against a fixture config; it never substitutes a second reading."""
-    key = (profile, str(config or _CAGE_CONFIG_YAML))
-    if key in _CAGED_CACHE:
-        return _CAGED_CACHE[key]
-    verdict = None
-    try:
-        p = subprocess.run(["node", "-e", _CAGE_PROBE_JS, str(_CAGE_LOADER_JS),
-                            str(config or _CAGE_CONFIG_YAML), str(profile)],
-                           capture_output=True, text=True, timeout=30)
-        answer = ((p.stdout or "").strip().splitlines() or [""])[-1]
-        if p.returncode == 0 and answer in ("caged", "uncaged"):
-            verdict = answer == "caged"
-    except (OSError, subprocess.SubprocessError):
-        verdict = None
-    _CAGED_CACHE[key] = verdict
-    return verdict
+    return _cage_probe(profile, config)[0]
 
 
-def admission_scope_caveat(profile, caged):
+def profile_seat_binds(profile, config=None):
+    """The LIVE, PROFILE-RESOLVED `cage.SeatBinds` this profile launches under — `[]` when it is not
+    caged or cannot be resolved.
+
+    THE TRUTH SOURCE OF STEP 4a SINCE IPH-2, and it comes from the daemon's own `loadConfig` rather
+    than a Python read of the YAML — the top-level `cage:` block is merged into every profile's
+    sandbox by `launch-profiles/profiles.js`, so a profile could diverge from the raw file and a
+    re-parse would never know. `[]` is never treated as "an empty cage": `cagespec.compose` answers
+    `undecided` for it, so an unresolvable template refuses rather than admitting everything."""
+    return _cage_probe(profile, config)[1]
+
+
+def admission_scope_caveat(profile, caged, seat_binds=()):
     """The one line STEP 4a says about ITSELF on every pass, whichever way it went.
 
     A check whose absence is silent is indistinguishable from a check that ran and found nothing —
@@ -1515,10 +1583,15 @@ def admission_scope_caveat(profile, caged):
     inferred from an empty `failed` list."""
     if caged is True:
         return ("STEP 4a RAN: profile `%s` resolves to a composed seat cage, so every candidate "
-                "above had its OWN declared-output tokens admitted against task 7.466's MEASURED "
-                "cage map (`cage-subtree-map.csv` sha256:c36a11b409238eb7, VANTAGE: DISK). That "
-                "map is a SNAPSHOT: a `cage.SeatBinds` change since 2026-08-07 makes these "
-                "verdicts stale while they still read confidently." % profile)
+                "above had its OWN declared-output tokens admitted against the cage DERIVED LIVE "
+                "from that profile's resolved `cage.SeatBinds` (%d entries, sha256:%s) — not "
+                "against a transcribed snapshot, which is what task 7.466/CW2's retired map was "
+                "and why it could go stale while still refusing confidently. The derivation is held "
+                "against `cage.js#composeSeatCage` by `check_deriver_mirrors_the_composer`, and "
+                "against real bwrap cages once by the IPH-2 acceptance evidence at "
+                "`1-projects/ignite-planning-hardening/build/done-gate-evidence/"
+                "iph-cage-deriver-validation.md`."
+                % (profile, len(seat_binds or []), _seat_binds_digest(seat_binds)[:16]))
     if caged is False:
         return ("STEP 4a DID NOT RUN: profile `%s` resolves to NO seat cage, and an uncaged row is "
                 "deliberately not refused (milestone-task-dag §2.4, arm 2 — refusing it would "
@@ -1530,11 +1603,29 @@ def admission_scope_caveat(profile, caged):
             "above is UNCHECKED for declared-output admissibility." % profile)
 
 
-def declared_output_admission(coord, pkg, seat, after, caged):
+def seat_goal_writes(pkg, seat):
+    """The seat's own `goal-writes` declaration, read from its seat.md — `[]` when it declares none.
+
+    ⚠ IT IS PART OF THE WALL, NOT A HINT. The cage template's `bind-try:{grant:goalWrite}` line
+    composes ONE read-write opening per declared item (owner ruling D9), so a token admissible for a
+    seat that declares it is INADMISSIBLE for one that does not. Read through
+    `cagespec.seat_declares_list` — the Python half of `spawn.js#seatDeclaresList`, the reader the
+    spawner itself uses — so the grant this gate reasons about is the grant the spawner will
+    compose. Absent file, absent frontmatter, absent key: `[]`, fail-closed."""
+    seat_md = pkg / "seats" / seat / "seat.md"
+    if not seat_md.exists():
+        return []
+    return cagespec.seat_declares_list(seat_md.read_text(encoding="utf-8", errors="replace"),
+                                       "goal-writes")
+
+
+def declared_output_admission(coord, pkg, seat, after, caged, seat_binds):
     """`(bad, reason)` refusing `seat`'s OWN declared-output tokens, or None to admit.
 
     `caged` is `profile_launches_caged`'s verdict: **only True refuses.** False is the ruled §2.4
     scope (an uncaged row is not refused) and None is undecidable, which defaults neither way.
+    `seat_binds` is `profile_seat_binds`'s LIVE template — the truth source every verdict below is
+    derived from.
 
     The tokens come from `declared_outputs` — the ONE existing reader of the `<io-spec> ## Outputs`
     grammar, of which this is the third caller. A reader authored here instead would be free to
@@ -1546,12 +1637,15 @@ def declared_output_admission(coord, pkg, seat, after, caged):
     if not declared:
         return None                      # no seat.md, no <io-spec>, or no path-shaped token
     sr = successor_reads(coord, seat, after)
+    goal_writes = seat_goal_writes(pkg, seat)
     bad = []
     for tok in list(resolvable) + list(missing):
-        verdict, why = token_admissible(tok, sr)
+        verdict, why = token_admissible(tok, sr, seat_binds, seat, goal_writes)
         if verdict != _ADMISSIBLE:
             bad.append({"token": tok, "verdict": verdict, "why": why,
-                        "subtree": cage_subtree_of(tok), "successor-reads": sr})
+                        "deciding-entry": cagespec.evaluate(seat_binds, tok, seat=seat,
+                                                            goal_writes=goal_writes)[1],
+                        "successor-reads": sr})
     if not bad:
         return None
     return bad, (
@@ -1561,7 +1655,7 @@ def declared_output_admission(coord, pkg, seat, after, caged):
         "artifact and been marked against the seat's work rather than against its declaration. An "
         "UNCAGED row is NOT refused; this row's profile resolves to a composed seat cage." % (
             "; ".join("`%s` -- %s" % (b["token"], b["why"]) for b in bad),
-            _ADMISSION_RULE, _ADMISSION_HOMES, _CAGE_MAP_PROVENANCE))
+            _ADMISSION_RULE, _ADMISSION_HOMES, _admission_provenance(seat_binds)))
 
 
 def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=None,
@@ -1611,8 +1705,10 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
                                              catalog_root=res.get("catalog-root"))
     seats = seat_prompts(coord, pkg)
     # STEP 4a: ONE resolution per pass — the whole call shares one `profile`, so caged-ness is one
-    # boolean for every candidate below, not a per-seat question.
+    # boolean for every candidate below, not a per-seat question. The LIVE template comes back from
+    # the same probe resolution, so the boolean and the wall it implies can never be a pass apart.
     caged = profile_launches_caged(profile)
+    seat_binds = profile_seat_binds(profile)
 
     enqueued, held, validated, failed = [], [], [], []
     for seat in candidates:
@@ -1632,7 +1728,7 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
         # STEP 4a (7.469): LAST of the pre-queue refusals, deliberately. Every existing refusal
         # reason still fires first, so no candidate that failed before this change fails for a new
         # reason now — only a candidate that WOULD have been queued can be refused here.
-        admission = declared_output_admission(coord, pkg, seat, after, caged)
+        admission = declared_output_admission(coord, pkg, seat, after, caged, seat_binds)
         if admission:
             bad, why = admission
             failed.append({"seat": seat, "missing-seed-paths": [], "detail": bad,
@@ -1684,7 +1780,7 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
             "artifact was deleted between the marking pass and this one — never a routine outcome.",
             "the artifact GRADE this seeds from is existence, not content: `grades-not-afforded` "
             "still holds, so a seed path being present is not a claim that its content is right.",
-            admission_scope_caveat(profile, caged),
+            admission_scope_caveat(profile, caged, seat_binds),
         ],
     }
 
@@ -2325,6 +2421,14 @@ EXPECT = {
     # 7.425: the guarded rows' predecessor. It checks out `done` and its ONE declared output is a
     # `.json` object — the VALIDATED OUTPUT every guard below is evaluated against.
     "fx-route": "done",
+    # 7.739: THE CAGED CHECK-OUT. Its `sessions.csv` row is still OPEN — a caged seat's
+    # `session_close` never completes, so it leaves no ended row at all (worse than an empty cell)
+    # — and its ending lives ONLY in its own `coordination/disposition-<seat>.json` record. The old
+    # GRADE-1 existence gate scanned `sessions.csv` alone, found no ended row, and short-circuited
+    # to UNDECIDED before coord's reader (which HAS consulted the record since 7.475/CW11) was ever
+    # asked. That is the three-way disagreement the W-D control run measured: coord DONE,
+    # goal-state READY, edge-runner "own mark: none".
+    "fx-caged-record": "done",
 }
 
 
@@ -2361,6 +2465,11 @@ READY_AFTER = {
     "fx-r-join-malformed":  "fx-route[risk=a|b]|fx-route",
     "fx-r-skip-propagates": "fx-r-guard-miss",
     "fx-r-block-beats-skip": "fx-route[risk=low],fx-open-sitting",
+    # 7.739: THE LOGIC HALF OF THE 2-SEAT CAGED ADVANCE. Seat B waits on the caged seat A above.
+    # Pre-fix A marks UNDECIDED, so this row is BLOCKED and the chain stops dead with no hand act
+    # available to restart it; post-fix A marks `done` off its own record and B reaches the enqueue
+    # door. The daemon half of the end-to-end criterion is a VPS capture, not this check.
+    "fx-r-caged-next":      "fx-caged-record",
 }
 
 # The expected verdict and the expected UNMET SET for every fixture row, written out by hand.
@@ -2397,6 +2506,10 @@ EXPECT_READY = {
     "fx-r-join-malformed":  ("blocked", ["fx-route[risk=a|b]|fx-route"]),
     "fx-r-skip-propagates": ("skipped", ["fx-r-guard-miss"]),
     "fx-r-block-beats-skip": ("blocked", ["fx-open-sitting"]),
+    # 7.739: ready ONLY because the caged seat's own record marks it `done`. Written by hand from
+    # the record on disk, never from the mark table.
+    "fx-r-caged-next":      ("ready",   []),
+    "fx-caged-record":         ("ready", []),
     "fx-route":                ("ready", []),
     "fx-done-outputs-present": ("ready", []),
     "fx-done-output-missing":  ("ready", []),
@@ -2573,9 +2686,20 @@ def check_evidence_is_per_seat(coord, pkg):
     outputs_site = "%s::<io-spec> Outputs" % SEAT_MD_OUTPUTS
     disp_site = "%s::disposition" % SESSIONS
     unfinished = rows["fx-no-row"]["evidence-read"]
-    if disp_site in unfinished or outputs_site in unfinished:
-        return False, ("criterion 3: fx-no-row never reached the disposition cell, yet its "
+    # ⚠ 7.739 NARROWED THIS ARM DELIBERATELY, and the narrowing is the finding. It used to assert
+    # that an undecided seat's evidence names NEITHER the disposition cell NOR the outputs section.
+    # The disposition half is now FALSE BY DESIGN: with the private existence scan retired, an
+    # undecided verdict is reached by ASKING coord's reader (both its surfaces) and getting nothing
+    # back — so the seat legitimately consulted the disposition site, and claiming otherwise would
+    # under-report the evidence. The outputs half is untouched and still the real bar: a seat whose
+    # value never resolved must never claim to have graded its declared artifacts.
+    if outputs_site in unfinished:
+        return False, ("criterion 3: fx-no-row never reached its declared outputs, yet its "
                        "evidence-read claims %s" % unfinished)
+    if disp_site not in unfinished:
+        return False, ("criterion 3: fx-no-row is undecided, which since 7.739 means coord's "
+                       "reader WAS asked and answered nothing — yet its evidence-read omits %s"
+                       % disp_site)
     notdone = rows["fx-renew"]["evidence-read"]
     if outputs_site in notdone:
         return False, ("criterion 3: fx-renew never reached its declared outputs (it is not-done), "
@@ -2591,27 +2715,45 @@ def check_evidence_is_per_seat(coord, pkg):
                  "fully graded %d)" % (len(unfinished), len(notdone), len(done))
 
 
-def check_scan_agrees_with_coord_reader(coord, pkg):
-    """The duplication invariant. This file answers "did it end?" with its own scan and "what did
-    it declare?" with coord's reader. Where the scan finds an ended row with a NON-EMPTY cell,
-    coord's reader must return exactly that cell. Two readers that disagree is G-301's shape."""
-    for seat in EXPECT:
-        rows = ended_rows(coord, pkg, seat)
-        if not rows:
+def check_mark_never_outruns_coord_reader(coord, pkg):
+    """THE ONE-DIRECTIONAL INVARIANT (7.739), successor to `check_scan_agrees_with_coord_reader`.
+
+    Its predecessor guarded a duplication that no longer exists: this file kept a private row scan
+    beside coord's reader and the check asserted the two never disagreed on a non-empty cell. The
+    scan is deleted, so that check would now compare the reader against itself and pass vacuously.
+
+    WHAT IS WORTH GUARDING AFTER THE MERGE IS THE DIRECTION, and it is the direction a false `done`
+    would travel: this stage may be STRICTER than coord (its declared-artifact grade demotes a
+    `done` check-out whose artifact is absent, the named divergence criterion 7 carries), but it may
+    NEVER be more generous. Two arms, both off disk:
+
+      1. A terminal mark exists ONLY where coord answered — either `session_disposition` returned a
+         value, or `undeclared_endings` names the seat. A mark on a seat both surfaces are silent
+         about is this stage inventing an ending.
+      2. `done` appears ONLY where the reader said exactly `done`. Every other path to `done` is the
+         one error that advances a workflow past work nobody did."""
+    undeclared = coord.undeclared_endings(pkg)
+    checked = 0
+    for row in run_stage(coord, pkg):
+        seat, mark = row["seat"], row["disposition"]
+        if mark is None:
             continue
-        last_nonempty = None
-        for cell in rows:
-            if cell:
-                last_nonempty = cell
-        if rows[-1]:
-            if coord.session_disposition(pkg, seat) != rows[-1]:
-                return False, ("reader agreement: %s — scan's last ended cell is %r but "
-                               "coord.session_disposition returned %r"
-                               % (seat, rows[-1], coord.session_disposition(pkg, seat)))
-        elif last_nonempty is not None:
-            pass
-    return True, "reader agreement: the row scan and coord.session_disposition agree on every " \
-                 "fixture seat with a non-empty last cell"
+        checked += 1
+        value = coord.session_disposition(pkg, seat)
+        if value is None and seat not in undeclared:
+            return False, ("one-directional: %s carries mark %r, but coord.session_disposition "
+                           "returned None and undeclared_endings does not name it — the mark rests "
+                           "on nothing the reader said" % (seat, mark))
+        if mark == ADVANCES_EDGE and value != ADVANCES_EDGE:
+            return False, ("one-directional: %s is marked `%s` but coord.session_disposition "
+                           "returned %r — the only value that advances an edge was not the value "
+                           "the reader read" % (seat, ADVANCES_EDGE, value))
+    if checked < 2:
+        return False, ("one-directional: only %d terminally-marked seat(s) were compared — an "
+                       "invariant this narrow holds vacuously" % checked)
+    return True, ("one-directional: %d terminal mark(s) compared against coord's reader; every one "
+                  "rests on a value the reader returned or an ending `undeclared_endings` names, "
+                  "and no `%s` outran the reader" % (checked, ADVANCES_EDGE))
 
 
 def check_no_status_column_written(coord, pkg):
@@ -3221,6 +3363,11 @@ EXPECT_ENQUEUE_EXCLUDED = {
     "fx-renewed-then-done":    "done",
     "fx-no-iospec":            "done",
     "fx-route":                "done",      # 7.425's guard predecessor — finished, never relaunched
+    # 7.739: the caged seat is TERMINAL and must never be relaunched. Pre-fix its mark was `None`,
+    # and this exclusion fires only on a non-`None` terminal mark — so the seat whose work had
+    # ALREADY concluded sat in the launch-candidate set, which is the exact harm
+    # `undeclared_endings` names.
+    "fx-caged-record":         "done",
 }
 
 # The seat -> seed the stage must produce, as paths RELATIVE to the fixture package (the check
@@ -3243,6 +3390,10 @@ EXPECT_ENQUEUE_SEED = {
     "fx-r-guard-number":   ["outputs/route.json"],
     "fx-r-join-one-taken": ["outputs/route.json"],
     "fx-r-alternate":      ["outputs/present.md"],
+    # 7.739: seat B's seed is seat A's declared artifact. That this row appears at all is the logic
+    # half of the caged advance — a seat whose predecessor checked out ONLY on `coordination/`
+    # reaching the enqueue door.
+    "fx-r-caged-next":     ["outputs/present.md"],
 }
 
 # The interface signature three later seats call. Spelled out as a literal, and asserted against
@@ -3654,12 +3805,22 @@ def check_caged_predicate_is_the_daemons(_coord, _pkg):
 
     Inputs are not hand-supplied: one arm reads the committed config, the other the same config
     with only `cage:` removed. A predicate that answered from a fixture dict would prove that the
-    fixture dict was read."""
+    fixture dict was read.
+
+    ⚠ SINCE IPH-2 IT ALSO ASSERTS THE PAIRING, because the boolean is no longer the whole answer:
+    the caged arm must come back with a NON-EMPTY `seatBinds` and the uncaged arm with `[]`. A probe
+    that answered `caged: true` beside an empty list would compose a cage covering nothing and
+    refuse every token with total confidence (risk 3) — the one failure mode of the live deriver
+    that reads exactly like a working gate."""
     tmp = Path(tempfile.mkdtemp(prefix="edge-runner-cage-probe-"))
     try:
         live = profile_launches_caged(_FX_CAGED_PROFILE)
-        none_cage = profile_launches_caged(_FX_CAGED_PROFILE, _fx_uncaged_config(tmp))
+        live_binds = profile_seat_binds(_FX_CAGED_PROFILE)
+        uncaged_cfg = _fx_uncaged_config(tmp)
+        none_cage = profile_launches_caged(_FX_CAGED_PROFILE, uncaged_cfg)
+        none_binds = profile_seat_binds(_FX_CAGED_PROFILE, uncaged_cfg)
         unknown = profile_launches_caged("fx-no-such-profile-exists")
+        unknown_binds = profile_seat_binds("fx-no-such-profile-exists")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if live is not True:
@@ -3673,9 +3834,18 @@ def check_caged_predicate_is_the_daemons(_coord, _pkg):
     if unknown is not None:
         return False, ("an unknown profile answered %r, not None — an undecidable caged-ness must "
                        "default NEITHER way (7.469 F1)" % (unknown,))
-    return True, ("7.469 scope: the daemon's own loader answers caged=True on the committed config "
-                  "and caged=False on the same config with only `cage:` removed (one variable, "
-                  "both arms); an unknown profile answers None and defaults neither way")
+    if not live_binds or not all(isinstance(e, str) for e in live_binds):
+        return False, ("the CAGED arm answered True beside seatBinds %r — a half answer composes a "
+                       "cage covering nothing and refuses every token confidently (IPH-2 risk 3)"
+                       % (live_binds,))
+    if none_binds != [] or unknown_binds != []:
+        return False, ("an UNCAGED (%r) or UNKNOWN (%r) profile carried a non-empty seatBinds — the "
+                       "template must travel with the verdict that says it exists"
+                       % (none_binds, unknown_binds))
+    return True, ("7.469 scope + IPH-2 pairing: the daemon's own loader answers caged=True with %d "
+                  "live SeatBinds entries on the committed config and caged=False with [] on the "
+                  "same config with only `cage:` removed (one variable, both arms); an unknown "
+                  "profile answers None with [] and defaults neither way" % len(live_binds))
 
 
 def check_admission_refuses_and_admits(coord, _pkg):
@@ -3731,16 +3901,32 @@ def check_admission_carries_the_rule(coord, _pkg):
         if not hit:
             return False, "no refusal to inspect — the refuse arm did not fire"
         text = hit[0]["reason"]
+        binds = profile_seat_binds(_FX_CAGED_PROFILE)
+        # ⚠ THE OLD NEEDLES DIED WITH THE TABLE, DELIBERATELY. `sha256:c36a11b409238eb7`,
+        # `SNAPSHOT, NOT A LIVE SPEC` and `NECESSARILY INCOMPLETE` were the transcribed map's
+        # disclosures; a refusal still carrying them would be claiming a provenance it no longer
+        # has. What must travel now is that the verdict was DERIVED, from WHICH template, and by
+        # WHICH entry.
         for needle, what in ((_ADMISSION_RULE, "the rule verbatim"),
                              (_ADMISSION_HOMES, "the admissible-home table"),
-                             ("sha256:c36a11b409238eb7", "the cage map's digest"),
-                             ("SNAPSHOT, NOT A LIVE SPEC", "the staleness disclosure"),
-                             ("NECESSARILY INCOMPLETE", "the incompleteness disclosure")):
+                             ("DERIVED LIVE, NOT TRANSCRIBED", "the live-derivation disclosure"),
+                             ("%d entries" % len(binds), "the live template's entry count"),
+                             ("sha256:%s" % _seat_binds_digest(binds)[:16],
+                              "the live template's digest"),
+                             (hit[0]["detail"][0]["deciding-entry"], "the deciding cage entry")):
             if needle not in text:
                 return False, "the refusal omits %s" % what
-        return True, ("the refusal carries the rule verbatim, the home table, the cage map's "
-                      "digest sha256:c36a11b409238eb7, and BOTH disclosures (snapshot + "
-                      "incomplete) — %d chars, no second document needed" % len(text))
+        for dead in ("sha256:c36a11b409238eb7", "SNAPSHOT, NOT A LIVE SPEC",
+                     "NECESSARILY INCOMPLETE"):
+            if dead in text:
+                return False, ("the refusal still carries the RETIRED transcribed map's "
+                               "disclosure `%s` — a live derivation must not claim a snapshot's "
+                               "provenance" % dead)
+        return True, ("the refusal carries the rule verbatim, the home table, `DERIVED LIVE, NOT "
+                      "TRANSCRIBED`, the live template (%d entries, sha256:%s) and the deciding "
+                      "cage entry `%s` — %d chars, no second document needed"
+                      % (len(binds), _seat_binds_digest(binds)[:16],
+                         hit[0]["detail"][0]["deciding-entry"], len(text)))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -3756,16 +3942,17 @@ def check_admission_is_scoped_to_caged(coord, _pkg):
     try:
         _fx_declare(pkg, seat, "outputs/uncaged-must-pass.json")
         after = coord.taskforce_after(pkg)
+        binds = profile_seat_binds(_FX_CAGED_PROFILE)
         uncaged = profile_launches_caged(_FX_CAGED_PROFILE, _fx_uncaged_config(tmp))
         if uncaged is not False:
             return False, "could not obtain an UNCAGED verdict to test with (%r)" % (uncaged,)
-        if declared_output_admission(coord, pkg, seat, after, False):
+        if declared_output_admission(coord, pkg, seat, after, False, binds):
             return False, ("an UNCAGED row declaring `outputs/…` was REFUSED — that converts a "
                            "ruled deferral into a forced 251-token migration")
-        if declared_output_admission(coord, pkg, seat, after, None):
+        if declared_output_admission(coord, pkg, seat, after, None, binds):
             return False, ("an UNDECIDABLE caged-ness REFUSED — 7.469's F1 arm forbids defaulting "
                            "in either direction")
-        if not declared_output_admission(coord, pkg, seat, after, True):
+        if not declared_output_admission(coord, pkg, seat, after, True, binds):
             return False, ("the same seat and token was ADMITTED when caged — the two arms above "
                            "would then pass for the wrong reason")
         submit, _calls = _stub_door()
@@ -3782,75 +3969,223 @@ def check_admission_is_scoped_to_caged(coord, _pkg):
 
 
 def check_admission_undecided_refuses(_coord, _pkg):
-    """An UNMAPPED subtree is `undecided`, and `undecided` REFUSES — it is never admitted.
+    """An UNDERIVABLE opening is `undecided`, and `undecided` REFUSES — it is never admitted.
 
-    The cage map carries only the subtrees CW2 measured. A token under any other one may be
-    unwritable in fact, so admitting it on the strength of a missing measurement is the one
-    direction that turns a gap into a green (leader bar, 2026-08-07).
+    TWO WAYS A DERIVATION CAN FAIL, and both must refuse. The TOKEN can be underivable: a path that
+    escapes the goal folder is covered by no composed entry and can be covered by none, because
+    every reasoned entry roots at `{goalDir}` or `{seatDir}`. Or the TEMPLATE can be: a
+    `cage.SeatBinds` carrying a grant class this reader has never met makes EVERY token undecided,
+    which is what makes template growth safe — a new line class refuses until the mirror learns it,
+    rather than being silently dropped from the wall.
 
-    The probe token was `branches/branch-1/coordination/…` until 2026-08-10, when the deleted
-    `branches/<b>/outputs/` row took the last branch spelling out of this file. Any unmapped
-    subtree proves the same thing; this one is a plain unmeasured package folder."""
-    unmapped = "planning/nested.json"
-    if cage_subtree_of(unmapped) is not None:
-        return False, ("`%s` is now MAPPED — this check's premise is gone and its green would be "
-                       "vacuous" % unmapped)
+    ⚠ THE FIXTURE TOKEN WAS `planning/nested.json` UNTIL 2026-08-11. `d-s31-planning-workspace-
+    shared-rw` opened `bind-try:{goalDir}/planning` for every seat, so that token is now WRITABLE
+    and admissible — the premise died with the ruling. The replacement is permanently underivable
+    rather than merely unmeasured, and it is still `_PATHISH` so it rides the real token pipeline.
+
+    The control arm is not optional: without it this check passes just as well on a deriver that
+    refuses everything."""
+    binds = profile_seat_binds(_FX_CAGED_PROFILE)
+    if not binds:
+        return False, ("no live SeatBinds to derive against — the caged probe answered nothing, so "
+                       "every arm below would refuse for the wrong reason")
+    seat = "fx-r-root"
+    outside = "../outside-the-goal/nested.json"
     for sr in ("yes", "no", "undecided"):
-        verdict, why = token_admissible(unmapped, sr)
+        verdict, why = token_admissible(outside, sr, binds, seat)
         if verdict != _UNDECIDED:
-            return False, "unmapped subtree returned %s (%s) at successor-reads=%s" % (verdict,
-                                                                                       why, sr)
-    if token_admissible("coordination/mapped.json", "no")[0] != _ADMISSIBLE:
-        return False, ("the MAPPED sibling `coordination/…` is not admissible either — this check "
-                       "would then pass because everything is refused")
-    if token_admissible("seats/self/x.json", "undecided")[0] != _UNDECIDED:
-        return False, ("an undecided discriminator did not carry through on `seats/<self>/`, where "
-                       "it GENUINELY decides — that is the half of the leader bar option (b) does "
-                       "not touch")
-    return True, ("`%s` is unmapped and refuses at all three discriminator values, while its "
-                  "MAPPED sibling `coordination/…` is admitted — the refusal is a decision, not a "
-                  "stuck red" % unmapped)
+            return False, ("a goal-escaping token returned %s (%s) at successor-reads=%s"
+                           % (verdict, why, sr))
+    # TEMPLATE GROWTH: an ordinary, plainly-admissible token goes undecided when the template
+    # carries a grant class this reader does not know.
+    grown = list(binds) + ["bind:{grant:futureCageThing}"]
+    ordinary = "coordination/%s-a.json" % seat
+    if token_admissible(ordinary, "no", grown, seat)[0] != _UNDECIDED:
+        return False, ("an unknown `{grant:…}` field did NOT make an ordinary token undecided — a "
+                       "line class added to `cage.SeatBinds` would then be silently dropped from "
+                       "the wall this gate reasons about")
+    # CONTROL: the same token under the LIVE template is admitted, so the refusals above are
+    # decisions rather than a stuck red.
+    if token_admissible(ordinary, "no", binds, seat)[0] != _ADMISSIBLE:
+        return False, ("the sibling `%s` is not admissible under the live template either — this "
+                       "check would then pass because everything is refused" % ordinary)
+    # …and the undecided DISCRIMINATOR still carries through where it genuinely decides.
+    if token_admissible("seats/%s/x.json" % seat, "undecided", binds, seat)[0] != _UNDECIDED:
+        return False, ("an undecided discriminator did not carry through on the seat's OWN folder, "
+                       "where it GENUINELY decides — that is the half of the leader bar option (b) "
+                       "does not touch")
+    return True, ("`%s` refuses at all three discriminator values, an unknown `{grant:…}` field "
+                  "makes an ordinary token undecided, and the same token under the live template "
+                  "is ADMITTED — the refusals are decisions, not a stuck red" % outside)
 
 
 def check_admission_truth_table(_coord, _pkg):
-    """The rule's 8-row truth table, SPELLED OUT here rather than read back from the code.
+    """The rule's truth table on REAL TOKENS against the LIVE cage, verdicts spelled out as literals.
 
     A check whose expectation is computed by the thing under test moves with it and passes any
-    change to it. These verdicts are literals. The last three rows are option (b)'s whole subject:
-    an undecided discriminator is carried through ONLY where it decides."""
+    change to it. These verdicts are literals, and they are asserted against the template the daemon
+    actually resolves — so the day `cage.SeatBinds` changes what a seat may write, this row set is
+    what says so.
+
+    THE ROWS ARE THE WALL, READ BACK: the coordination dir and the shared planning workspace are
+    writable AND readable; the five goal-root ledgers likewise; the seat's OWN folder is writable
+    but ABSENT to a successor (the `seats` tmpfs), so the discriminator decides there and only
+    there; the goal root is read-only until a `goal-writes` grant opens ONE path in it; and
+    `sessions.csv` stays refused even WITH that grant, because the `ro-bind-try` carve takes it back
+    by POSITION — D9's ground-truth refusal, with no second list anywhere."""
+    binds = profile_seat_binds(_FX_CAGED_PROFILE)
+    if not binds:
+        return False, ("no live SeatBinds to derive against — every row below would be testing the "
+                       "undecided branch instead of the rule")
+    seat = "p"
     cases = [
-        # (subtree key, discriminator, expected verdict, why this row exists)
-        ("coordination/",         "yes",       _ADMISSIBLE,   "writable+readable"),
-        ("coordination/",         "no",        _ADMISSIBLE,   "writable+readable"),
-        ("seats/<self>/",         "yes",       _INADMISSIBLE, "writable, unreadable, read"),
-        ("seats/<self>/",         "no",        _ADMISSIBLE,   "writable, unreadable, unread"),
-        ("outputs/",              "yes",       _INADMISSIBLE, "unwritable"),
-        ("outputs/",              "no",        _INADMISSIBLE, "unwritable"),
-        # `branches/<b>/outputs/` had two rows here until 2026-08-10; the subtree is deleted with
-        # the branch folder, so a `branches/…` token is now UNDECIDED — the row below.
-        ("{goalDir} root",        "yes",       _INADMISSIBLE, "unwritable"),
-        ("{goalDir} root",        "no",        _INADMISSIBLE, "unwritable"),
-        # option (b): the discriminator is consulted only where it can change the answer
-        ("coordination/",         "undecided", _ADMISSIBLE,   "(b): readable, so unknown cannot "
-                                                              "change the answer"),
-        ("outputs/",              "undecided", _INADMISSIBLE, "(b): unwritable decides alone"),
-        ("seats/<self>/",         "undecided", _UNDECIDED,    "(b): here it GENUINELY decides"),
+        # (token, discriminator, goal-writes, expected verdict, why this row exists)
+        ("coordination/p-a.json",  "yes",       (),               _ADMISSIBLE,
+         "the interim hand-across surface: writable and readable"),
+        ("coordination/p-a.json",  "no",        (),               _ADMISSIBLE, "same, unread"),
+        ("coordination/p-a.json",  "undecided", (),               _ADMISSIBLE,
+         "(b): readable, so no discriminator value can change it"),
+        ("planning/current/findings-edges.md", "yes", (),         _ADMISSIBLE,
+         "d-s31-planning-workspace-shared-rw: the shared planning workspace"),
+        ("issues.md",              "yes",       (),               _ADMISSIBLE,
+         "D2/D9: the five write-if-something ledgers are RW under the ro goal floor"),
+        ("seats/p/a.json",         "yes",       (),               _INADMISSIBLE,
+         "writable by the producer, ABSENT to a successor, and read"),
+        ("seats/p/a.json",         "no",        (),               _ADMISSIBLE, "…and unread"),
+        ("seats/p/a.json",         "undecided", (),               _UNDECIDED,
+         "(b): here the discriminator GENUINELY decides"),
+        ("seats/peer/x.json",      "no",        (),               _INADMISSIBLE,
+         "another seat's folder: the `seats` tmpfs is the last cover — absent, not writable"),
+        ("goal.md",                "no",        (),               _INADMISSIBLE,
+         "the goal root is read-only without a grant"),
+        ("goal.md",                "yes",       ("goal.md",),     _ADMISSIBLE,
+         "D9: the goal-writes grant opens exactly the ONE declared path"),
+        ("sessions.csv",           "no",        ("sessions.csv",), _INADMISSIBLE,
+         "…and the ro-bind-try carve takes it back BY POSITION — ground truth stays refused"),
+        ("outputs/a.json",         "no",        (),               _INADMISSIBLE,
+         "`outputs/` is under the ro goal floor and nothing reopens it"),
     ]
-    tokens = {"coordination/": "coordination/p-a.json", "seats/<self>/": "seats/s/a.json",
-              "outputs/": "outputs/a.json", "{goalDir} root": "a.json"}
-    for key, sr, want, why in cases:
-        tok = tokens[key]
-        if cage_subtree_of(tok) != key:
-            return False, "`%s` no longer classifies as `%s` — the row is testing nothing" % (tok,
-                                                                                              key)
-        got, reason = token_admissible(tok, sr)
+    for tok, sr, gw, want, why in cases:
+        got, reason = token_admissible(tok, sr, binds, seat, gw)
         if got != want:
-            return False, "%s at successor-reads=%s: got %s, want %s (%s) -- %s" % (key, sr, got,
-                                                                                    want, why,
-                                                                                    reason)
-    return True, ("all %d rows of the rule hold as literals: the 8 yes/no rows UNCHANGED by the "
-                  "(b) ordering, and the 3 undecided rows carrying through only where the "
-                  "discriminator decides" % len(cases))
+            return False, ("`%s` at successor-reads=%s, goal-writes=%r: got %s, want %s (%s) -- %s"
+                           % (tok, sr, list(gw), got, want, why, reason))
+    return True, ("all %d rows hold as literals against the LIVE cage (%d entries, sha256:%s): the "
+                  "yes/no rows UNCHANGED by the (b) ordering, the undecided rows carrying through "
+                  "only where the discriminator decides, and the D9 grant admitted while the carve "
+                  "that follows it still refuses ground truth"
+                  % (len(cases), len(binds), _seat_binds_digest(binds)[:16]))
+
+
+def check_deriver_mirrors_the_composer(_coord, _pkg):
+    """THE ANTI-DRIFT CHECK (IPH-2 risk 1): the Python mirror IS `cage.js#composeSeatCage`.
+
+    The whole live-derivation design rests on `team-kit/cagespec.py` reading `cage.SeatBinds` the
+    way the daemon's composer does. Nothing about a mirror makes that true, so it is DRIVEN: the
+    REAL composer runs under node over the LIVE SeatBinds with concrete values and one grant per
+    class, and its output is compared to the mirror's ENTRY FOR ENTRY after re-rooting at the goal
+    folder.
+
+    THREE ASSERTIONS, and the last two are the ones a reader would skip. (1) Every entry the
+    composer lands INSIDE the goal folder is present in the mirror's spec, same verb, same order,
+    same goal-relative path. (2) Every grant class the mirror drops AS OUTSIDE-BY-CONSTRUCTION
+    really does compose outside the goal folder under the real composer — that is exactly the claim
+    each drop rests on, and a claim nobody re-derives is a comment. (3) `readRoot` is the ONE drop
+    that cannot rest on that claim, because the workspace root CONTAINS the goal folder: it is
+    dropped because the very next template line re-covers the goal folder with the SAME read-only
+    verb class, so the verdict is identical either way. That is asserted on the composer's own
+    output, never assumed.
+
+    It needs `node` and the repo's own `cage.js`; it needs no bwrap, no daemon and no goal on disk,
+    so it runs anywhere the caged-ness probe does."""
+    binds = profile_seat_binds(_FX_CAGED_PROFILE)
+    if not binds:
+        return False, "no live SeatBinds to drive the composer with"
+    seat = "p"
+    ws_root = "/fx/ws"
+    goal_dir = ws_root + "/.rbtv/goals/fx-goal"
+    goal_write = goal_dir + "/goal.md"
+    # ONE FIELD PER GRANT OBJECT, so the composer emits exactly one opening per class and the
+    # mapping back from a spec entry to the class that produced it is by construction, not by guess.
+    outside = {
+        "busWrite": "/fx/ws/.rbtv/goals/other-goal/coordination",
+        "goalsWrite": "/fx/ws/.rbtv/goals/other-goal",
+        "goalsWriteGroundTruth": "/fx/ws/.rbtv/goals/other-goal/sessions.csv",
+        "worktree": "/fx/ws/.rbtv/worktrees/r--g--p",
+        "repoGit": "/fx/repo/.git",
+        "worktreeGitDir": "/fx/repo/.git/worktrees/r--g--p",
+        "harnessCreds": "/fx/home/.claude",
+        "localBin": "/fx/home/.local/bin",
+        "tmuxSocketDir": "/fx/tmp/tmux-1000",
+        "rwPath": "/fx/ws/3-resources/tools/google/credentials",
+    }
+    if set(outside) | {"readRoot"} != set(cagespec.DROPPED_GRANTS):
+        return False, ("this check drives %r but the mirror drops %r — a class was added to one "
+                       "side only, so the drops it claims are outside the goal are unproven"
+                       % (sorted(set(outside) | {"readRoot"}), sorted(cagespec.DROPPED_GRANTS)))
+    grants = [{"readRoot": ws_root}, {"goalWrite": goal_write}] + \
+             [{k: v} for k, v in outside.items()]
+    script = (
+        "const {composeSeatCage} = require(process.argv[1]);\n"
+        "const a = JSON.parse(process.argv[2]);\n"
+        "console.log(JSON.stringify(composeSeatCage("
+        "{seatBinds: a.seatBinds, values: a.values, grants: a.grants})));\n")
+    payload = json.dumps({"seatBinds": list(binds), "grants": grants,
+                          "values": {"goalDir": goal_dir,
+                                     "seatDir": goal_dir + "/seats/" + seat,
+                                     "workdir": goal_dir + "/seats/" + seat}})
+    try:
+        p = subprocess.run(["node", "-e", script, str(_IGNITE_ROOT / "server" / "spawn" / "cage.js"),
+                            payload], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, "could not drive the real composer: %s" % exc
+    if p.returncode != 0:
+        return False, ("`cage.js#composeSeatCage` REFUSED the live SeatBinds: %s"
+                       % (p.stderr or p.stdout or "").strip()[:300])
+    # `path.normalize` is the host's, so a Windows run comes back with backslashes; the comparison
+    # is about WHICH path, never about which separator the composer's host spells it with.
+    spec = [(e["verb"], str(e["path"]).replace("\\", "/"))
+            for e in json.loads((p.stdout or "").strip().splitlines()[-1])]
+    inside = [(verb, path[len(goal_dir):].lstrip("/"))
+              for verb, path in spec if path == goal_dir or path.startswith(goal_dir + "/")]
+    mine = cagespec.compose(binds, seat=seat, goal_writes=["goal.md"])
+    if mine is None:
+        return False, ("the mirror answered UNDECIDED on the live template — it has met a verb, "
+                       "slot or grant field it does not know, and every token now refuses")
+    if mine != inside:
+        return False, ("the mirror and `composeSeatCage` DISAGREE — mirror %r vs composer %r"
+                       % (mine, inside))
+    # ASSERTION 2 — every OUTSIDE-BY-CONSTRUCTION drop really does land outside the goal folder.
+    for field, value in sorted(outside.items()):
+        hits = [(verb, path) for verb, path in spec
+                if path == value or path.startswith(value + "/")]
+        if not hits:
+            return False, ("the composer produced NO opening for dropped grant `%s` — the mirror's "
+                           "drop is unproven rather than derived" % field)
+        stray = [h for h in hits if h[1] == goal_dir or h[1].startswith(goal_dir + "/")]
+        if stray:
+            return False, ("dropped grant `%s` composes INSIDE the goal folder (%r) — the mirror is "
+                           "silently dropping a real opening" % (field, stray))
+    # ASSERTION 3 — `readRoot` CONTAINS the goal folder, so its drop rests on RE-COVERAGE instead:
+    # the workspace-root opening is read-only, and the very next entry re-covers the goal folder
+    # with the same read-only verb class. Identical verdict, which is why dropping it is lossless.
+    root_hits = [i for i, (_v, path) in enumerate(spec) if path == ws_root]
+    if len(root_hits) != 1:
+        return False, ("expected exactly one `readRoot` opening at %s, got %d — the re-coverage "
+                       "argument is about ONE floor entry" % (ws_root, len(root_hits)))
+    root_verb = spec[root_hits[0]][0]
+    recover = next(((v, p) for v, p in spec[root_hits[0] + 1:] if p == goal_dir), None)
+    if root_verb in cagespec.RW_VERBS or recover is None or recover[0] in cagespec.RW_VERBS:
+        return False, ("`readRoot` composes `%s:%s` and the goal folder is re-covered by %r — the "
+                       "mirror drops the read-root floor on the strength of an IDENTICAL read-only "
+                       "verdict, and that is no longer true" % (root_verb, ws_root, recover))
+    return True, ("the real `cage.js#composeSeatCage` and `cagespec.compose` agree entry-for-entry "
+                  "on %d in-goal openings of the LIVE %d-entry template (sha256:%s); all %d "
+                  "outside-by-construction grant classes compose OUTSIDE the goal folder under the "
+                  "real composer, and the `readRoot` floor (%s) is re-covered at the goal by %s — "
+                  "same read-only verdict, so dropping it loses nothing"
+                  % (len(inside), len(binds), _seat_binds_digest(binds)[:16], len(outside),
+                     root_verb, recover[0]))
 
 
 # ---- STEP 4b's checks (M4-11) -----------------------------------------------------------------
@@ -4567,8 +4902,19 @@ def build_fixture(root):
         "s-10,fx-no-iospec,claude,n-10,/fx,,2026-07-30 06:00,2026-07-30 06:10,110,1000,/dev/pts/10,done\n"
         "s-11,fx-route,claude,n-11,/fx,,2026-07-30 06:00,2026-07-30 06:10,111,1000,/dev/pts/11,done\n"
         # 7.712: the seat that ENDED saying, in its own words, that it did not finish.
-        "s-12,fx-incomplete,claude,n-12,/fx,,2026-07-30 06:00,2026-07-30 06:10,112,1000,/dev/pts/12,incomplete\n",
+        "s-12,fx-incomplete,claude,n-12,/fx,,2026-07-30 06:00,2026-07-30 06:10,112,1000,/dev/pts/12,incomplete\n"
+        # 7.739: THE CAGED CHECK-OUT'S ROW, AND IT IS OPEN ON PURPOSE — `ended` empty, so this seat
+        # has NO ended row at all. A caged seat's `session_close` never completes
+        # (`p-the-caged-checkout-leaves-NO-ended-row-at-all-which-is-worse-than-an-empty-cell`), and
+        # "matches an open row" is precisely the state coord's `coordination/` fallback exists for.
+        "s-13,fx-caged-record,claude,n-13,/fx,,2026-07-30 06:00,,113,1000,/dev/pts/13,\n",
         encoding="utf-8")
+    # 7.739: the ONE surface a caged seat CAN write, written through coord's OWN writer rather than
+    # as hand-built JSON — a fixture that hand-rolls this file would keep passing after the writer's
+    # shape moved, which is the failure the record exists to catch.
+    (pkg / "coordination").mkdir(parents=True, exist_ok=True)
+    load_coord().write_seat_disposition(pkg / "coordination", "fx-caged-record", "s-13", "done",
+                                        "2026-07-30 06:10")
     # The ROSTER half of `seats_of` is load-bearing, not decoration: `fx-no-row` has no session row
     # at all and is discoverable ONLY here. Without this file the stage silently never verifies it,
     # which is exactly how an un-launched seat becomes invisible instead of undecided — the first
@@ -4631,7 +4977,8 @@ def cmd_selftest(fixture):
         ("dispositions", lambda: check_dispositions(coord, pkg)),
         ("refusal-is-explicit", lambda: check_refusal_is_explicit(coord, pkg)),
         ("evidence-is-per-seat", lambda: check_evidence_is_per_seat(coord, pkg)),
-        ("scan-agrees-with-coord-reader", lambda: check_scan_agrees_with_coord_reader(coord, pkg)),
+        ("mark-never-outruns-coord-reader",
+         lambda: check_mark_never_outruns_coord_reader(coord, pkg)),
         ("no-status-column-written", lambda: check_no_status_column_written(coord, pkg)),
         # STEP 3 (M4-09)
         ("readiness-verdicts", lambda: check_readiness_verdicts(coord, pkg)),
@@ -4655,7 +5002,8 @@ def cmd_selftest(fixture):
         ("held-pass-not-enqueued", lambda: check_held_pass_is_not_recorded_enqueued(coord, pkg)),
         ("single-enqueue-call-site", lambda: check_single_enqueue_call_site()),
         ("enqueue-signature-recorded", lambda: check_enqueue_signature_is_recorded()),
-        # STEP 4a (7.469) — the declared-output admission check
+        # STEP 4a (7.469, live-derived since IPH-2) — the declared-output admission check
+        ("deriver-mirrors-composer", lambda: check_deriver_mirrors_the_composer(coord, pkg)),
         ("admission-truth-table", lambda: check_admission_truth_table(coord, pkg)),
         ("admission-undecided-refuses", lambda: check_admission_undecided_refuses(coord, pkg)),
         ("admission-caged-predicate", lambda: check_caged_predicate_is_the_daemons(coord, pkg)),
@@ -5230,6 +5578,13 @@ def main():
                         "whether the LIVE BUILD RUN's own package is armed. Then exit. This is the "
                         "surface that answers 'what was this armed for?' off disk rather than off "
                         "a diff")
+    p.add_argument("--arm-state", action="store_true", dest="arm_state",
+                   help="task 7.736: print this package's arming as ONE JSON object "
+                        "{package, armed, arm-path, scope} and exit 0, ALWAYS. The machine-readable "
+                        "twin of --arming-scope, for the three doors that must warn when a "
+                        "start-workflow targets an UNARMED package. The verdict is DATA, never the "
+                        "exit code — a caller that reads armedness off an exit status cannot "
+                        "distinguish `not armed` from `could not look`")
     p.add_argument("--signature", action="store_true",
                    help="print this wave's ONE enqueue interface signature and its result schema, "
                         "for the three seats that call it, then exit")
@@ -5261,6 +5616,26 @@ def main():
         print("  inject it to exercise the interface without a daemon and without arming anything.")
         print("\n  DO NOT WRITE A SECOND ENQUEUE. Two implementations diverge, and the expensive")
         print("  half of that shape is that one of the two keeps reporting success (G-301).")
+        return 0
+
+    if args.arm_state:
+        # Task 7.736. The THREE DOORS that must warn about an unarmed start-workflow read arming
+        # THROUGH THIS, never by looking for the file themselves: `arm_path`/`fastpath_arm` stay the
+        # one home of the predicate (PRIN-11), and a door that stat'd `edge-fastpath.json` directly
+        # would be free to disagree with the check-out path about which packages are armed.
+        #
+        # ⚠ EXIT IS ALWAYS 0 AND THAT IS THE CONTRACT, NOT AN OVERSIGHT. `--arming-scope` above
+        # exits 1 on an armed LIVE BUILD RUN because its subject is C4 (an ungated cutover is the
+        # alarm). This flag's subject is a caller's package, where `armed` and `unarmed` are both
+        # ordinary answers — encoding one of them as a failure exit would make every unarmed
+        # dry-run look like a broken tool, and would leave a caller unable to tell `not armed` from
+        # `could not look`. Both are DATA: `armed` is a bool, `scope` is the sentence.
+        target, prov = resolve_package(args)
+        arm, scope = fastpath_arm(target) if target is not None else (None, prov)
+        print(json.dumps({"package": str(target) if target is not None else None,
+                          "armed": arm is not None,
+                          "arm-path": str(arm_path(target)) if target is not None else None,
+                          "scope": scope}, indent=2))
         return 0
 
     if args.arming_scope:

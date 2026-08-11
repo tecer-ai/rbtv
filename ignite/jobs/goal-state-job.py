@@ -471,11 +471,27 @@ EXPECT_STATE = {
     "fx-active-clean": "running",          # active roster row, no terminal mark
     "fx-crashed": "blocked",               # OPEN trace row + INACTIVE roster -> the rider's shape
     "fx-done-but-active": "done",          # terminal mark WINS over an active roster row
+    # 7.739's two rows, inherited from edge_runner_job.build_fixture. NO CODE IN THIS FILE CHANGED
+    # for them — the states below are what the UNCHANGED precedence produces once edge-runner stops
+    # short-circuiting on a caged seat, and that is the proof this CLI needed no fix of its own:
+    # it consumes `er.run_stage`'s marks and `er.readiness`, so repairing the reader repaired this
+    # surface too. `fx-caged-record` has no roster row and a terminal mark, so the terminal term
+    # decides; `fx-r-caged-next` falls to the `after` term with its one predecessor now `done`.
+    "fx-caged-record": "done",
+    "fx-r-caged-next": "ready",
 }
 
 EXPECT_DIVERGENCE = {
     "fx-crashed": "crashed-seat",
     "fx-done-but-active": "terminal-but-roster-active",
+    # 7.739 — A MEASURED CONSEQUENCE WORTH STATING, not a table kept quiet. On the TRACE/ROSTER axes
+    # a caged check-out is INDISTINGUISHABLE from a crashed seat: its `session_close` never
+    # completed, so it leaves an OPEN session row, and it holds no roster row. This CLI's rider
+    # therefore reports it under the existing `crashed-seat` class — correctly, because the two
+    # readings really do disagree. What has changed is that the disagreement is no longer the whole
+    # story: the seat's own `coordination/` record supplies the terminal mark, so the row reports
+    # `done` WHILE naming the divergence. Reported, never normalized, exactly as the rider requires.
+    "fx-caged-record": "crashed-seat",
 }
 
 
