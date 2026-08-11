@@ -832,7 +832,10 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       const all = heartStore.getMessages().filter((m) => m.thread === payload.thread);
       const rows = all.slice(offset, offset + limit);
       const nextOffset = offset + rows.length;
-      return { target, thread: payload.thread, rows, nextOffset, eof: nextOffset >= all.length };
+      // `total` — same reason as the executions listing above: the read already materialised the
+      // whole filtered set, and it is what makes the LAST page addressable on a msg_id-ASC listing
+      // with no reverse read (`inspect messages --tail` jumps to `total - n` on it).
+      return { target, thread: payload.thread, rows, total: all.length, nextOffset, eof: nextOffset >= all.length };
     }
 
     // status/logs/messages are execution-scoped: `id` is required and must exist
@@ -864,7 +867,9 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       const all = heartStore.getMessages().filter((m) => m.thread === execRow.thread);
       const rows = all.slice(offset, offset + limit);
       const nextOffset = offset + rows.length;
-      return { target, id, thread: execRow.thread, rows, nextOffset, eof: nextOffset >= all.length };
+      // `total` — see the thread-addressed branch above; free here for the same reason (`all` is
+      // already materialised) and it is what `inspect messages --tail` jumps on.
+      return { target, id, thread: execRow.thread, rows, total: all.length, nextOffset, eof: nextOffset >= all.length };
     }
 
     if (target === 'status') {

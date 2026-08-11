@@ -209,9 +209,6 @@ async function runMessages(argv, ctx) {
       const rows = result.rows || [];
       console.log(`messages (thread ${result.thread}): ${rows.length} row(s)`);
       for (const m of rows) renderMessageRow(m);
-      if (result.eof === false) {
-        console.log(`... more available (nextOffset=${result.nextOffset})`);
-      }
     },
   });
 }

@@ -41,6 +41,12 @@ function check(name, pass, detail) {
   out(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
 }
 
+// Same one-liner probe-cli-executions.js carries, for the same reason: a non-JSON stdout is a
+// FAILED check with its output printed, never a thrown probe.
+function parseJson(stdout) {
+  try { return JSON.parse(stdout); } catch { return null; }
+}
+
 // ⚑ Task 7.699 — PLATFORM GATE, INOPERATIVE (exit 2), the suite's existing
 // idiom for "this probe cannot build its world here" (probe-planning-entry.py's
 // tmux gate prints the same VERDICT line and returns 2).
@@ -291,6 +297,57 @@ async function main() {
         && new RegExp(`#${seededMsgs[1].msg_id} .*completion from=exec-${execId} status=done turn ended cleanly`).test(r.stdout)
         && !/foreign-thread row/.test(r.stdout),
       `exit=${r.code}`);
+
+    // The default render offers no next-page cursor, because the messages command has no
+    // --offset/--limit to spend one on. `--tail` is the whole paging surface; a printed
+    // nextOffset was an instruction nothing could follow.
+    check('the default messages render advertises no page cursor the CLI cannot accept',
+      !/more available|nextOffset=/.test(r.stdout),
+      `stdout=${JSON.stringify(r.stdout.trim().slice(-160))}`);
+
+    // ── 13b. `inspect messages --tail N` — the NEWEST rows in ONE command, and the `total` it
+    // jumps on. The thread is msg_id ASC with no reverse read, so before this the newest message
+    // cost blind offset probes (the same defect fixed one command over on `inspect executions`).
+    //
+    // ⚑ The checks are keyed to the DEFAULT listing read in the same breath, never to a literal
+    // msg_id: a live writer legitimately owns this thread (see the interloper note above), so
+    // "the tail is the LAST row of the default listing" is the assertion that stays true under
+    // traffic AND still fails a --tail that forgot to reverse-slice — which is the whole bug.
+    {
+      const dflt = parseJson((await runCli(['--json', 'inspect', 'messages', String(execId)], cliEnv)).stdout);
+      const dRows = ((dflt || {}).result || {}).rows || [];
+
+      check('a message PAGE reports the total of the whole thread, not just of the page',
+        dflt && dflt.result.total === dRows.length,
+        `total=${dflt && dflt.result.total} rows=${dRows.length}`);
+
+      // The DEFAULT order is UNCHANGED — the flag adds a view, it does not flip the order every
+      // existing consumer reads (check 12 above, and coord.py's gateway read leg).
+      check('the DEFAULT messages listing is still oldest-first (no default was flipped)',
+        dRows.length > 1 && dRows.every((m, i) => i === 0 || dRows[i - 1].msg_id < m.msg_id),
+        `ids=${JSON.stringify(dRows.map((m) => m.msg_id))}`);
+
+      const t = parseJson((await runCli(['--json', 'inspect', 'messages', String(execId), '--tail', '1'], cliEnv)).stdout);
+      out('--- inspect messages --tail 1 ---', 'STDOUT=' + JSON.stringify(t && t.result));
+      check('--tail 1 returns exactly the NEWEST row of the thread, in one command',
+        t && t.ok === true && t.result.rows.length === 1
+          && t.result.rows[0].msg_id >= dRows[dRows.length - 1].msg_id
+          && t.result.thread === thread && t.result.eof === true,
+        `got=${t && t.result && t.result.rows.map((m) => m.msg_id)} newest-of-default=${dRows[dRows.length - 1].msg_id}`);
+      check('--tail reports the TOTAL the paged envelope never carried (tailOf)',
+        t && t.result && t.result.tailOf >= dRows.length,
+        `tailOf=${t && t.result && t.result.tailOf} default=${dRows.length}`);
+
+      const th = await runCli(['inspect', 'messages', String(execId), '--tail', '1'], cliEnv);
+      check('the rendered --tail says which slice of what total it is showing',
+        th.code === 0 && new RegExp(`messages \\(thread ${thread}\\): newest 1 of \\d+ row\\(s\\)`).test(th.stdout),
+        `exit=${th.code} stdout=${JSON.stringify(th.stdout.trim().slice(0, 200))}`);
+
+      const bad = await runCli(['inspect', 'messages', String(execId), '--tail', '0'], cliEnv);
+      check('--tail 0 is a LOCAL usage error, exit 2 — never a silently empty answer',
+        bad.code === 2 && /--tail must be a positive integer/.test(bad.stdout + bad.stderr),
+        `exit=${bad.code} output=${JSON.stringify((bad.stdout + bad.stderr).trim().slice(0, 200))}`);
+    }
   } finally {
     await stopDaemon(d);
     try { fs.rmSync(ws.tmp, { recursive: true, force: true }); } catch {}
