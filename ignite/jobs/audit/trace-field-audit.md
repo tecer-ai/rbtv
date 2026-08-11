@@ -160,8 +160,23 @@ explicitly, never silently.
 | 14 | `7.56` | (b) run-state recompute CLI — `declared outputs` | `null` | `{RUN}/seats/*/seat.md` `<io-spec>` Outputs + the artifact paths it names | `null` — no column resolves this site (44 instances on disk) |
 | 15 | `7.56` | (b) run-state recompute CLI — `skipped` | `null` | none — DERIVED state, computed from `edge-runner-job.readiness()`'s THIRD verdict list (task 7.425 built the guard evaluator) | `null` — no column resolves this site |
 | 16 | `7.475` | durable disposition reader — row selection among OPEN session rows (`sessions_open_ids`, `coord.py`; added by the 7.475 reader widening, audited 7.607 E4) | `session-id` | `{RUN}/sessions.csv` | **true** |
+| 17 | `7.615` | nested launch arm — WHICH instance a nested-workflow row expanded to, and whether every row of THAT instance is terminal | `taskforce-id` | `{RUN}/taskforce.csv` | **true** |
 
-**14 rows `present=true` · 0 rows `present=false` · 2 rows `present=null` · `missing[] = []`.** (Row 16 appended 2026-08-10, task 7.607 E4 — the E3b `reads-match-coord-reader` red's prescribed remedy; the 13-row tally below this point is historical.)
+**15 rows `present=true` · 0 rows `present=false` · 2 rows `present=null` · `missing[] = []`.** (Row 16 appended 2026-08-10, task 7.607 E4 — the E3b `reads-match-coord-reader` red's prescribed remedy; the 13-row tally below this point is historical.)
+
+> [!note] Row 17 appended 2026-08-10, task 7.615, under the owner grant `d-r2-taskforce-id-read-granted`.
+> `present` is **true** off §4's own recorded header — `{RUN}/taskforce.csv` reads
+> `taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id`, and `taskforce-id` is its
+> first column. No re-run of §4's script produced this row and none is claimed: the column's
+> presence is read from the header §4 already recorded, which is the same evidence rows 4 and 5
+> stand on for the same surface.
+> **The grant is ONE COLUMN AT ONE STAGE.** It authorizes `edge-runner-job.py`'s STEP-5 nested arm
+> to read `taskforce-id`, and nothing else. The arm needs it because a nested instance is a ROW SET
+> and its id is the only thing that names it: a second instance of the SAME workflow carries the
+> same four-letter name prefix, so scoping a terminal mark by name prefix marks a sibling
+> instance's rows too. It reads no second column under this grant — the milestone-id a
+> materialization would otherwise carry forward is deliberately NOT read, and the instance is
+> materialized without one rather than acquiring an unaudited read.
 
 > [!warning] Row 15's reason clause was CORRECTED on 2026-08-06 (task 7.454 / MC12). The original is retained here, not erased.
 > **As originally written:** *"none — the state is unreachable, no guard evaluator is built (G-301/G-308)"*.

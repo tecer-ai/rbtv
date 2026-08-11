@@ -186,6 +186,14 @@ READS = [
     # roster readers (`load_workers` / `current_row`), never with a private parser.
     (ROSTER, "agent"),           # which roster row belongs to the seat
     (ROSTER, "active"),          # whether it is occupying a pane right now — a double-launch guard
+    # STEP 5 (task 7.615) adds exactly this one, under the OWNER GRANT
+    # `d-r2-taskforce-id-read-granted` (2026-08-10), whose condition is that the audit row lands in
+    # the SAME change as the arm — it did: trace-field-audit.md row 17. THE GRANT IS ONE COLUMN AT
+    # ONE STAGE. It is what lets the nested arm answer "which rows are THIS instance's" by the id
+    # the instance was minted with, instead of by a name-prefix match — and a prefix match is not a
+    # near-miss here, it is the wrong answer whenever a SECOND instance of the same workflow exists,
+    # because both instances share the four letters and only the id separates them.
+    (TASKFORCE, "taskforce-id"),
     # STEP 3b (7.425 / W2) adds exactly this one, and it is audited at row 14 — see the constant.
     # The FIELD is `None` because the guard NAMES its own field (`ref[field=value]`), so no fixed
     # column resolves the site; that is the same reason row 14 carries `field: null`.
@@ -1119,15 +1127,15 @@ def launch_candidates(coord, pkg, ready, self_marks, catalog_root=None):
                             "reason": "MC9's classifier reads this row as a NESTED WORKFLOW, not a "
                                       "seat: it names a workflow manifest, so it has no descriptor "
                                       "and this stage can never launch it. REFUSED BY NAME rather "
-                                      "than left ready forever — every successor of `%s` waits on "
-                                      "a row nothing will ever advance. MATERIALIZING the instance "
-                                      "IS built (`materialize-seats.py --workflow %s --nested`, "
-                                      "composed seat names + a `tf-<n>-<prefix><m>` instance id); "
-                                      "what is missing is HERE — advancing this row when the "
-                                      "instance finishes needs taskforce.csv's `taskforce-id` "
-                                      "column, which is not in this stage's audited read "
-                                      "inventory. See %s."
-                                      % (seat, seat, NESTED_ROW_TASK)})
+                                      "than left ready forever. IT IS NOT DEAD: STEP 5's "
+                                      "`nested_arm` EXPANDS `%s` into an instance of this goal "
+                                      "(composed seat names + a `tf-<n>-<prefix><m>` id) and marks "
+                                      "it terminal when every row carrying that instance's "
+                                      "taskforce-id is terminal — scoped by the ID, never by the "
+                                      "name prefix a sibling instance shares. The arm needs a "
+                                      "catalog root AND a bindings file; without them this row is "
+                                      "excluded here and expanded by nobody. See %s."
+                                      % (seat, NESTED_ROW_TASK)})
             continue
         if not (pkg / "seats" / seat / "seat.md").exists():
             excluded.append({"seat": seat, "term": "no-descriptor", "value": None,
@@ -1588,7 +1596,11 @@ def enqueue(coord, pkg, job_id, profile, readiness_result=None, at=None, submit=
     at = at or iso_utc_now()
     after = coord.taskforce_after(pkg)
 
-    candidates, excluded = launch_candidates(coord, pkg, res["ready"], res["self-marks"])
+    # STEP 5: the catalog root rides on the readiness result `nested_pass` hands in (see its
+    # docstring — this interface's signature is a recorded contract and does not grow a parameter
+    # for it). Absent, this is exactly today's call: `None`, and the untyped refusal answers.
+    candidates, excluded = launch_candidates(coord, pkg, res["ready"], res["self-marks"],
+                                             catalog_root=res.get("catalog-root"))
     seats = seat_prompts(coord, pkg)
     # STEP 4a: ONE resolution per pass — the whole call shares one `profile`, so caged-ness is one
     # boolean for every candidate below, not a per-seat question.
@@ -1934,16 +1946,49 @@ def fastpath_lines(res):
 #       a recorded, addressable row set.
 #   (2) IDEMPOTENCE — RESOLVED by (1) plus the composed name: an instance already materialized is
 #       one whose composed roots already carry an `after` cell naming this nested row.
-#   (3) TERMINAL STATE — ⚠ STILL BLOCKED, AND NOT ON DESIGN. `branch_terminal_mark` read the branch
-#       package's OWN terminal rows; the goal-direct equivalent is "every row carrying this
-#       instance's taskforce-id is terminal". That needs THIS STAGE to read `taskforce.csv`'s
-#       `taskforce-id` column — a read site the DECLARED READ INVENTORY above does not carry and
-#       `check_reads_subset_of_audit` refuses to let it acquire: "Report the field to the leader;
-#       do not read it." Adding the audit row is not this stage's act. Until it exists, a nested
-#       row's successors could only be advanced by GUESSING the instance's row set, so the arm
-#       below stays a typed refusal — a deliberate stop, not an unfinished edit.
+#   (3) TERMINAL STATE — RESOLVED 2026-08-10 by the owner grant `d-r2-taskforce-id-read-granted`.
+#       `branch_terminal_mark` read the branch package's OWN terminal rows; the goal-direct
+#       equivalent is "every row carrying this instance's taskforce-id is terminal", and THIS STAGE
+#       may now read that column (audit row 17, landed in this same change — the grant's condition).
+#       `nested_arm` below is the re-founding. It is no longer a refusal.
 # `nested_rows` and MC9's classifier SURVIVE: telling a seat reference from a workflow reference is
 # still a real question, still has one home, and its checks still run.
+#
+# ---- THE ARM ITSELF: EXPAND ON READY, TERMINAL BY INSTANCE ID --------------------------------
+#
+# Two legs, and one link holds them together.
+#
+#   EXPAND    a nested row that is READY and unmarked is materialized as an INSTANCE of the parent
+#             goal — `materialize-seats.py --workflow W --nested --after <the nested row>`. Every
+#             composed seat is an ORDINARY parent seat, so the ordinary launch path launches it.
+#   TERMINAL  when every row carrying that instance's taskforce-id is terminal, the nested row is
+#             MARKED — `done` when they are all `done`, `failed` otherwise — and its successors
+#             advance. Scoping is BY ID, never by the four-letter name prefix: a second instance of
+#             the same workflow shares the prefix, and a prefix scope would mark this row on a
+#             sibling's rows.
+#
+# THE LINK IS `--after`, AND IT IS WRITTEN BY THE MATERIALIZER, NOT HERE. Passing the nested row as
+# the instance's insertion point puts it in the instance ROOTS' own `after` cell, so "has this row
+# already expanded, and into which rows" is answerable off `taskforce.csv` with no second state
+# surface and no bespoke write from this file. That is also the whole idempotence test: a second
+# pass finds the roots and expands nothing.
+#
+# ⚠ THE CONSEQUENCE OF THAT LINK, STATED RATHER THAN DISCOVERED. The instance roots are `after` a
+# row that is `done` only once THEY are, so ordinary readiness leaves them BLOCKED forever and
+# would deadlock the instance. `nested_pass` therefore READIES exactly the rows of an in-flight
+# instance whose ONLY unmet predecessor is their own nested row — a bounded, named exception, not a
+# change to the readiness predicate, and it is exercised as a selftest arm rather than argued for.
+# No second enqueue is written: the readied rows go into the readiness result STEP 4 already takes.
+#
+# ⚠ THE ARM NEEDS A CATALOG ROOT AND A BINDINGS FILE, AND SAYS SO. Classification needs the first
+# (the daemon's argv carries none — the untyped refusal above is still that condition's answer) and
+# materializing needs the second, since a bindings file is where the harness·model·effort triple
+# lives and this stage invents no launch policy. Neither is guessed and neither is defaulted; an
+# absent one is a TYPED refusal on that row, and the rest of the pass is unaffected.
+#
+# ⚠ NO MILESTONE-ID IS CARRIED FORWARD, and that is the grant holding. Reading the nested row's
+# `milestone-id` cell to pass it to the materializer would be a SECOND unaudited column. The grant
+# is one column; the instance materializes without a milestone rather than acquiring a read.
 
 MATERIALIZE_PATH = HERE.parent / "team-kit" / "materialize-seats.py"
 
@@ -1986,6 +2031,200 @@ def nested_rows(coord, pkg, catalog_root, ms=None):
         if ref.kind == "nested_workflow":
             nested[seat] = ref
     return nested, refused
+
+
+def taskforce_ids(pkg):
+    """`{seat: taskforce-id}` off `taskforce.csv` — THE GRANTED READ (`d-r2-taskforce-id-read-
+    granted`, audit row 17), and the only place this file touches that column.
+
+    A row with no id carries `""` rather than being dropped: "this row belongs to no instance" is an
+    answer the caller must be able to see, and a missing key would read as a missing ROW."""
+    out = {}
+    tf = pkg / "taskforce.csv"
+    if not tf.exists():
+        return out
+    with tf.open(newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            seat = (row.get("seat") or "").strip()
+            if seat:
+                out[seat] = (row.get("taskforce-id") or "").strip()
+    return out
+
+
+def instance_of(coord, pkg, ms, nested_seat, prefix, tf_ids):
+    """`(taskforce-id, [rows], error)` — the instance `nested_seat` has already expanded to.
+
+    `(None, [], None)` means NOT YET EXPANDED, which is the input the expand leg acts on; an
+    `error` string means the link is there but does not name ONE instance, which is refused rather
+    than guessed at.
+
+    A ROOT of the instance is a row whose `after` names the nested row (the link `--after` wrote)
+    AND whose seat name parses as an instance name of this workflow's prefix. Both terms are
+    required: the first alone would catch an ordinary successor of the nested row, and the second
+    alone would catch a sibling instance."""
+    roots = []
+    for seat, preds in coord.taskforce_after(pkg).items():
+        parsed = ms.parse_instance_seat_name(seat)
+        if not parsed or parsed[0] != prefix:
+            continue
+        names = [pred for member in preds for pred, _alt in _seed_predecessors(coord, member)]
+        if nested_seat in names:
+            roots.append(seat)
+    if not roots:
+        return None, [], None
+    ids = sorted({tf_ids.get(s, "") for s in roots})
+    if len(ids) != 1 or not ids[0]:
+        return None, [], ("the rows attached to this nested row (%s) carry %d taskforce-id(s) %s — "
+                          "an instance is ONE row set with ONE id, and which one this row owns "
+                          "cannot be read. Refused rather than guessed."
+                          % (", ".join(sorted(roots)), len(ids), ids))
+    tfid = ids[0]
+    return tfid, sorted(s for s, i in tf_ids.items() if i == tfid), None
+
+
+def instance_terminal_mark(rows, marks):
+    """The nested row's DERIVED mark — `done` when every row of the instance is marked `done`,
+    `failed` when they are all terminal and at least one is not, `None` while any is unmarked.
+
+    `None` is not a failure state and must never be read as one: it is an instance still running,
+    and the same rule STEP 1-2 states holds here — an absent mark is never `done`."""
+    if not rows:
+        return None
+    values = [marks.get(r, NO_MARK) for r in rows]
+    if any(v is None for v in values):
+        return None
+    return ADVANCES_EDGE if all(v == ADVANCES_EDGE for v in values) else "failed"
+
+
+def _nested_materialize_argv(pkg, catalog_root, bindings, workflow, nested_seat):
+    """The materializer's argv for ONE nested expansion. Split out so a check can read the command
+    without running it — and so the flags this arm needs are stated in exactly one place."""
+    return [sys.executable, str(MATERIALIZE_PATH),
+            "--package", str(pkg),
+            "--workflow", workflow,
+            "--nested",
+            "--catalog-root", str(catalog_root),
+            "--bindings", str(bindings),
+            "--after", nested_seat,
+            "--json"]
+
+
+def _run_materialize(argv):
+    """Run the materializer. Default runner only — every caller may inject its own, which is how a
+    check drives the arm without a catalog on disk."""
+    cp = subprocess.run(argv, capture_output=True, text=True)     # noqa: S603 — argv is built above
+    return cp.returncode, cp.stdout, cp.stderr
+
+
+def nested_arm(coord, pkg, catalog_root, bindings=None, marks=None, ms=None, run=None):
+    """STEP 5 — expand every ready nested-workflow row, and mark every finished instance.
+
+    Returns `{marks, expanded, instances, refused}`. `marks` is the input marks PLUS the derived
+    mark of every nested row whose instance is terminal; it is a copy, so a caller's dict is never
+    mutated under it. `refused` carries one typed row per nested row this arm could not act on —
+    the arm never raises and never acts on a guess."""
+    ms = ms or load_materialize()
+    run = run or _run_materialize
+    marks = dict(marks if marks is not None else
+                 {r["seat"]: r["disposition"] for r in run_stage(coord, pkg)})
+    out = {"marks": marks, "expanded": [], "instances": [], "refused": [], "unclassified": []}
+    try:
+        nested, unresolvable = nested_rows(coord, pkg, catalog_root, ms)
+    except Exception as exc:                                       # noqa: BLE001 — reported as data
+        out["refused"].append({"seat": None, "code": "classification-unreachable",
+                               "reason": "classifying this package's rows raised %s: %s. No row is "
+                                         "expanded on an unread classification."
+                                         % (type(exc).__name__, exc)})
+        return out
+    # CARRIED, NOT REFUSED. A row the classifier could not resolve is the ORDINARY case for a live
+    # goal whose seats are not in the catalog (`nested_rows`' own docstring), and it is not a nested
+    # row this arm failed to act on. `refused` is reported LOUD to a human; conflating the two would
+    # make every ordinary pass red, which is how a red nobody reads gets made.
+    out["unclassified"].extend({"seat": r["seat"], "code": r["code"], "reason": r["message"]}
+                               for r in unresolvable)
+    if not nested:
+        return out
+    ready = set(readiness(coord, pkg, marks)["ready"])
+    tf_ids = taskforce_ids(pkg)
+    for seat, ref in sorted(nested.items()):
+        try:
+            prefix = ms.read_workflow_prefix(Path(ref.source).parent)
+        except Exception as exc:                                   # noqa: BLE001 — reported as data
+            out["refused"].append({"seat": seat, "code": "workflow-prefix-unreadable",
+                                   "reason": "%s: %s" % (type(exc).__name__, exc)})
+            continue
+        tfid, rows, err = instance_of(coord, pkg, ms, seat, prefix, tf_ids)
+        if err:
+            out["refused"].append({"seat": seat, "code": "instance-ambiguous", "reason": err})
+            continue
+        if tfid is None:
+            if seat not in ready or marks.get(seat, NO_MARK) is not None:
+                continue        # not this pass's row: unready, or already terminal
+            if not bindings:
+                out["refused"].append({"seat": seat, "code": "nested-bindings-absent",
+                                       "reason": "this row is READY to expand, and expanding it "
+                                                 "materializes seats — which needs the bindings "
+                                                 "file that carries their harness·model·effort. No "
+                                                 "bindings input reached this pass, and this stage "
+                                                 "invents no launch policy. Pass "
+                                                 "--nested-bindings."})
+                continue
+            rc, sout, serr = run(_nested_materialize_argv(pkg, catalog_root, bindings, ref.name, seat))
+            if rc != 0:
+                out["refused"].append({"seat": seat, "code": "materialize-refused",
+                                       "reason": "the materializer returned %d expanding %r: %s"
+                                                 % (rc, ref.name, (serr or sout or "").strip())})
+                continue
+            out["expanded"].append({"seat": seat, "workflow": ref.name, "stdout": sout})
+            tf_ids = taskforce_ids(pkg)                 # re-read: the rows are new as of a line ago
+            tfid, rows, err = instance_of(coord, pkg, ms, seat, prefix, tf_ids)
+            if err or tfid is None:
+                out["refused"].append({"seat": seat, "code": "instance-unfound-after-expand",
+                                       "reason": err or ("the materializer reported success but no "
+                                                         "row attached after %r carries an instance "
+                                                         "name of prefix %r — the expansion is not "
+                                                         "readable back, so nothing is advanced on "
+                                                         "it" % (seat, prefix))})
+                continue
+        mark = instance_terminal_mark(rows, marks)
+        out["instances"].append({"seat": seat, "taskforce-id": tfid, "rows": rows, "mark": mark})
+        if mark is not None:
+            marks[seat] = mark
+    return out
+
+
+def nested_pass(coord, pkg, catalog_root, bindings=None, marks=None, ms=None, run=None):
+    """`(readiness_result, arm_report)` — the arm, folded into the readiness result STEP 4 takes.
+
+    Two things the plain predicate cannot do are done here and NOWHERE else: the derived nested
+    marks are fed back through `readiness`, and the rows of an IN-FLIGHT instance whose only unmet
+    predecessor is their own nested row are moved from `blocked` to `ready` (see the header — that
+    edge is the expansion link, and waiting on it is the deadlock)."""
+    report = nested_arm(coord, pkg, catalog_root, bindings, marks, ms=ms, run=run)
+    res = readiness(coord, pkg, report["marks"])
+    pending = {i["seat"]: set(i["rows"]) for i in report["instances"] if i["mark"] is None}
+    still_blocked = []
+    for b in res["blocked"]:
+        owner = next((n for n, rows in pending.items()
+                      if b["seat"] in rows and b["unmet"] == [n]), None)
+        if owner is None:
+            still_blocked.append(b)
+            continue
+        res["ready"].append(b["seat"])
+        res["self-marks"][b["seat"]] = report["marks"].get(b["seat"], NO_MARK)
+    res["blocked"] = still_blocked
+    # STEP 4 reads the catalog root off the readiness result rather than off a parameter of its own:
+    # its signature is a recorded contract with three consumers (`check_enqueue_signature_is_
+    # recorded`), and the root is a property of the PASS, which is what this result already is.
+    res["catalog-root"] = str(catalog_root)
+    res["nested"] = report
+    res["caveats"] = list(res["caveats"]) + [
+        "STEP 5 ran: %d nested row(s) classified, %d expanded this pass, %d refused. A row of an "
+        "IN-FLIGHT instance whose only unmet predecessor is its own nested row was READIED here — "
+        "that edge is the expansion link and nothing else will ever satisfy it."
+        % (len(report["instances"]), len(report["expanded"]), len(report["refused"])),
+    ]
+    return res, report
 
 
 
@@ -4091,6 +4330,136 @@ def check_nested_row_refuses_out_loud(coord, pkg):
 
 
 
+_NESTED_FX_SESSIONS = ("session-id,seat,harness,native-session-id,workdir,recorded,started,ended,"
+                       "pid,pid-starttime,tty,disposition\n")
+
+
+def _nested_fx_close(pkg, *seats):
+    """Give each named seat one ENDED session row with a clean `done` check-out, so STEP 1-2 marks
+    it. Rewritten whole each time — the fixture's trace is an input here, not an accumulation."""
+    rows = "".join("s-%02d,%s,claude,n-%02d,/fx,,2026-08-10 06:00,2026-08-10 06:10,%d,1000,"
+                   "/dev/pts/%d,done\n" % (i, s, i, 100 + i, i)
+                   for i, s in enumerate(seats, 1))
+    (pkg / "sessions.csv").write_text(_NESTED_FX_SESSIONS + rows, encoding="utf-8")
+
+
+def check_nested_arm_expands_and_marks(coord, _pkg):
+    """7.615 — STEP 5's arm, end to end, on the MATERIALIZER'S OWN fixture (a catalog, a workflow
+    that declares its four letters, and a bindings file — none of which the edge fixture has).
+
+    Five arms, and the last one is the reason the read was granted:
+
+      RED FIRST     before the arm runs, the nested row is READY and reaches the queue as NOTHING:
+                    it is excluded `nested-workflow-row`, and no instance row exists. Without this
+                    the green below could be measuring a row that was never blocked.
+      EXPAND        one pass materializes the instance, its rows carry ONE `tf-<n>-<prefix><m>` id,
+                    and the instance ROOT — blocked on the nested row, which nothing else will ever
+                    satisfy — is READIED. Ready -> launched, in one pass.
+      IDEMPOTENT    a second pass expands NOTHING. The link is read back off disk, so a re-fire
+                    cannot mint a second instance.
+      TERMINAL      with every row of THAT instance checked out `done`, the nested row's derived
+                    mark is `done` and its successors can advance.
+      SIBLING       a SECOND instance of the SAME workflow is materialized and left unfinished. The
+                    mark above must not move. The by-name-prefix scoping is computed right here as
+                    the control: it sees the sibling's rows and answers NOT-terminal, so the two
+                    scopings DISAGREE on this fixture and the granted id column is what makes the
+                    answer right."""
+    ms = load_materialize()
+    tmp = Path(tempfile.mkdtemp(prefix="edge-nested-arm-"))
+    try:
+        fx = ms.build_fixture(tmp)
+        pkg, catalog, bindings = Path(fx["pkg"]), fx["catalog"], fx["b_both"]
+        nested_seat, prefix = "demo-flow", "demo"
+        with (pkg / "taskforce.csv").open("a", encoding="utf-8", newline="") as fh:
+            fh.write("tf-1,%s,chief,claude,claude-opus-5,high,,m1\n" % nested_seat)
+        _nested_fx_close(pkg, "chief")
+
+        # RED FIRST — the row is ready, and the launch path does nothing with it but refuse.
+        marks0 = {r["seat"]: r["disposition"] for r in run_stage(coord, pkg)}
+        res0 = readiness(coord, pkg, marks0)
+        if nested_seat not in res0["ready"]:
+            return False, ("RED FIRST: %r is not even ready on the fixture (blocked: %s), so every "
+                           "arm below would be vacuous"
+                           % (nested_seat, [b["seat"] for b in res0["blocked"]]))
+        _c0, excl0 = launch_candidates(coord, pkg, res0["ready"], res0["self-marks"],
+                                       catalog_root=catalog)
+        if not any(e["seat"] == nested_seat and e["term"] == "nested-workflow-row" for e in excl0):
+            return False, "RED FIRST: the nested row was not excluded `nested-workflow-row`"
+        if any(ms.parse_instance_seat_name(s) and ms.parse_instance_seat_name(s)[0] == prefix
+               and s != nested_seat for s in taskforce_ids(pkg)):
+            return False, "RED FIRST: an instance row already existed before the arm ran"
+
+        # EXPAND
+        res1, arm1 = nested_pass(coord, pkg, catalog, bindings, marks0, ms=ms)
+        if arm1["refused"]:
+            return False, "EXPAND: the arm refused — %s" % arm1["refused"]
+        if len(arm1["expanded"]) != 1:
+            return False, "EXPAND: %d row(s) expanded, expected exactly 1" % len(arm1["expanded"])
+        inst = arm1["instances"][0]
+        if not re.fullmatch(r"tf-\d+-%s\d+" % prefix, inst["taskforce-id"]):
+            return False, ("EXPAND: the instance id %r is not the ruled `tf-<n>-<prefix><m>` shape"
+                           % inst["taskforce-id"])
+        if inst["mark"] is not None:
+            return False, "EXPAND: a just-materialized instance was already marked %r" % inst["mark"]
+        # The root is READ BACK, never spelled: this fixture's workflow is literally named
+        # `demo-flow`, which the amended name shape reads as instance 1 of `demo`, so its own
+        # instances start at ordinal 2. That ambiguity is documented and accepted upstream
+        # (`parse_instance_seat_name`); a hardcoded `demo-alpha` here would be this check asserting
+        # the composer's output instead of the arm's.
+        roots = [s for s in inst["rows"] if s in res1["ready"]]
+        if len(roots) != 1:
+            return False, ("EXPAND: %d instance row(s) are READY, expected exactly the root "
+                           "(rows=%s, ready=%s) — the expansion link would deadlock"
+                           % (len(roots), inst["rows"], res1["ready"]))
+        root = roots[0]
+
+        # IDEMPOTENT
+        _res2, arm2 = nested_pass(coord, pkg, catalog, bindings, ms=ms)
+        if arm2["expanded"]:
+            return False, "IDEMPOTENT: a second pass expanded %s" % arm2["expanded"]
+
+        # TERMINAL — every row of THIS instance checks out clean.
+        _nested_fx_close(pkg, "chief", *inst["rows"])
+        _res3, arm3 = nested_pass(coord, pkg, catalog, bindings, ms=ms)
+        if arm3["marks"].get(nested_seat) != ADVANCES_EDGE:
+            return False, ("TERMINAL: the nested row's derived mark is %r, expected %r with every "
+                           "instance row done" % (arm3["marks"].get(nested_seat), ADVANCES_EDGE))
+
+        # SIBLING — a second instance of the same workflow, attached elsewhere and left unfinished.
+        rc, out, err = _run_materialize(
+            [sys.executable, str(MATERIALIZE_PATH), "--package", str(pkg), "--workflow",
+             nested_seat, "--nested", "--catalog-root", catalog, "--bindings", bindings,
+             "--after", "chief", "--json"])
+        if rc != 0:
+            return False, "SIBLING: could not materialize the sibling instance — %s" % (err or out)
+        _res4, arm4 = nested_pass(coord, pkg, catalog, bindings, ms=ms)
+        if arm4["marks"].get(nested_seat) != ADVANCES_EDGE:
+            return False, ("SIBLING: the mark MOVED to %r when an unrelated instance of the same "
+                           "workflow appeared — the scoping is not by id"
+                           % arm4["marks"].get(nested_seat))
+        by_prefix = sorted(s for s in taskforce_ids(pkg)
+                           if s != nested_seat and ms.parse_instance_seat_name(s)
+                           and ms.parse_instance_seat_name(s)[0] == prefix)
+        control = instance_terminal_mark(by_prefix, arm4["marks"])
+        if set(by_prefix) <= set(inst["rows"]):
+            return False, ("SIBLING CONTROL is vacuous: the by-prefix set %s adds nothing to this "
+                           "instance's rows %s" % (by_prefix, inst["rows"]))
+        if control is not None:
+            return False, ("SIBLING CONTROL did not fire: scoping by the name prefix answered %r "
+                           "over %s, so this fixture does not discriminate the two scopings"
+                           % (control, by_prefix))
+        return True, ("red first: %r ready and refused, no instance row; EXPAND: instance %s "
+                      "(%s) minted and its root %r READIED in one pass; IDEMPOTENT: the second "
+                      "pass expanded nothing; TERMINAL: derived mark `%s`; SIBLING: a second "
+                      "instance of the same workflow left the mark alone — and the by-prefix "
+                      "scoping over %s answers NOT-terminal, which is the wrong answer the granted "
+                      "`taskforce-id` read replaces"
+                      % (nested_seat, inst["taskforce-id"], ", ".join(inst["rows"]), root,
+                         ADVANCES_EDGE, by_prefix))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def build_fixture(root):
     """Write the fixture tree. Identical in content to the on-disk fixture the probe record drives,
     so `--selftest --fixture <DIR>` runs the same assertions against real disk."""
@@ -4232,6 +4601,8 @@ def cmd_selftest(fixture):
         ("branch-arm-reaches-classifier", lambda: check_branch_arm_reaches_the_classifier()),
         # 7.607 E3 (E2b review OQ1) — the dead nested-workflow row refuses out loud
         ("nested-row-refuses-out-loud", lambda: check_nested_row_refuses_out_loud(coord, pkg)),
+        # STEP 5 (task 7.615) — the nested launch arm
+        ("nested-arm-expands-and-marks", lambda: check_nested_arm_expands_and_marks(coord, pkg)),
         # STEP 5 / the daemon entry (task C1, owner ruling d-owner-batch1 (1))
         ("goal-resolves-the-live-run", lambda: check_goal_resolves_the_live_run()),
         ("arming-has-one-home", lambda: check_arming_has_exactly_one_home(coord, pkg)),
@@ -4583,7 +4954,13 @@ def main():
                         "`validated`, never `enqueued` — the two are different claims")
     p.add_argument("--catalog-root", default=None, dest="catalog_root",
                    help="the component catalog root a manifest reference is classified against "
-                        "(MC9)")
+                        "(MC9). With --enqueue it also ARMS STEP 5's nested arm: a nested-workflow "
+                        "row can only be expanded by a pass that can classify it")
+    p.add_argument("--nested-bindings", default=None, dest="nested_bindings",
+                   help="with --enqueue and --catalog-root: the bindings JSON a nested instance is "
+                        "materialized with (the harness·model·effort of its seats). No default — "
+                        "this stage invents no launch policy, and a ready nested row with no "
+                        "bindings input is a TYPED refusal, never a guessed materialization")
     # `--bindings`, `--milestone-id`, `--conduct`, `--claude-md` and `--budget-json` are DELETED
     # (2026-08-10, task 7.615). Every one of them existed for `--branch-arm`, which 7.607 E2b
     # deleted, and none had another reader — argparse accepted them and nothing ever looked. The
@@ -4609,8 +4986,8 @@ def main():
     if args.signature:
         print("edge-runner-job STEP 4 — the ONE enqueue interface of the m4 wave (task 7.125).")
         print("Called by: the check-out fast path (M4-11), the created goal's first workflow "
-              "(M4-20), the C1 rehearsal (M4-22), and STEP 5's branch arm (MC11 / 7.453), which "
-              "applies it to a BRANCH package.")
+              "(M4-20) and the C1 rehearsal (M4-22). STEP 5's NESTED ARM (7.615) writes no enqueue "
+              "of its own — it hands its rows to this one in the readiness result.")
         print("\n  from edge_runner_job import enqueue")
         print("  enqueue%s" % (inspect.signature(enqueue),))
         print("\n  -> {%s}" % ", ".join(ENQUEUE_RESULT_KEYS))
@@ -4705,7 +5082,21 @@ def main():
             print("NOT ENQUEUED (whole pass stood down) — %s" % arming, file=sys.stderr)
             return 0
         full = marks if not args.seat else run_stage(coord, pkg)
-        res3 = readiness(coord, pkg, {r["seat"]: r["disposition"] for r in full})
+        full_marks = {r["seat"]: r["disposition"] for r in full}
+        if args.catalog_root:
+            res3, arm = nested_pass(coord, pkg, args.catalog_root, args.nested_bindings, full_marks)
+            for e in arm["expanded"]:
+                print("EXPANDED  %-28s workflow %s" % (e["seat"], e["workflow"]))
+            for i in arm["instances"]:
+                print("INSTANCE  %-28s %s — %d row(s), mark: %s"
+                      % (i["seat"], i["taskforce-id"], len(i["rows"]), i["mark"] or "in flight"))
+            # FAIL LOUD, on stderr, for the same reason every other refusal here is: a nested row
+            # nobody expanded is a branch of the DAG that silently never runs.
+            for r in arm["refused"]:
+                print("NOT EXPANDED  %s — [%s] %s" % (r["seat"], r["code"], r["reason"]),
+                      file=sys.stderr)
+        else:
+            res3 = readiness(coord, pkg, full_marks)
         res = enqueue(coord, pkg, job_id, profile, readiness_result=res3, submit=door,
                       at=args.at, dry_run=args.dry_run or bool(arm_dry))
         if args.json:
