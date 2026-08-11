@@ -174,6 +174,12 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
+# The ONE Python reading of `cage.SeatBinds` — this file's sibling in the kit, and
+# the SAME evaluator the edge-runner's enqueue-time admission check calls, so the
+# generation-time preflight and the enqueue gate can never disagree about what the
+# cage opens (IPH-2). `self_isolate` above already bound this folder onto sys.path.
+import cagespec  # noqa: E402 — team-kit is on sys.path from line 157
+
 # goal_cli.py is the goals-tree capability sibling of this team-kit — resolved
 # relative to this file, never from a hardcoded workspace path.
 _GOAL_CLI_DIR = Path(__file__).resolve().parent.parent / "capabilities" / "goals-tree" / "tool"
@@ -189,6 +195,8 @@ from goal_cli import (  # noqa: E402 — path bound just above
     check_acyclic,
     index_units,
     load_catalogs,
+    render_csv_line,
+    substitute_after_ids,
     SECTION_RE,
     TOOLING_FINDING_BLOCK,
     WRITE_IF_SOMETHING,
@@ -401,15 +409,6 @@ CAGE_GOAL_WRITES_COLUMN = "goal-writes"
 # resolved relative to THIS file exactly as goal_cli's tool dir is above.
 _SPAWN_PROFILES = Path(__file__).resolve().parent.parent / "config" / "spawn-profiles.yaml"
 
-# The template line the `goal-writes` declaration fills, and the two verbs that
-# open a path READ-WRITE. Both are cage.js's vocabulary (`RW_VERBS`), restated
-# here because the gate and the emitter sit on opposite sides of a language
-# boundary; the pair is four tokens and a drift in it turns a probe red rather
-# than opening a wall — see cage.js for the one definition that binds bwrap.
-_GOAL_WRITE_SLOT = "{grant:goalWrite}"
-_CAGE_RW_VERBS = ("bind", "bind-try")
-
-
 def _cage_rw_covers(rel: str) -> bool:
     """True when the seat cage composes a READ-WRITE opening over `rel`, a path
     relative to the goal folder.
@@ -428,25 +427,24 @@ def _cage_rw_covers(rel: str) -> bool:
     ground-truth files need no list here: `sessions.csv` and `state.csv` are
     covered only by the read-only goal floor, peer seat folders by the `seats`
     tmpfs, and `seat.md` by its own ro carve, so each one answers False without
-    anybody restating it."""
+    anybody restating it.
+
+    ⚠ THE READING ITSELF LIVES IN `cagespec.py` SINCE IPH-2, not here. This gate
+    and the edge-runner's enqueue-time admission check now share ONE evaluator,
+    so the two cannot answer the same question differently; this function keeps
+    only its own load of the live template. `rel` is passed as the goal-writes
+    declaration because that is what it IS at every call site — the line
+    `bind-try:{grant:goalWrite}` is the one this declaration fills.
+    `cagespec.PEER` is the occupant: no real seat name can equal it, so no
+    `{seatDir}` opening can ever make a `seats/...` declaration read writable —
+    the same answer this gate gave before the evaluator was shared. Anything
+    underivable evaluates `undecided`, which is not `writable`, so the refusal
+    stays fail-closed."""
     binds = ((yaml.safe_load(_SPAWN_PROFILES.read_text(encoding="utf-8")) or {})
              .get("cage") or {}).get("SeatBinds") or []
-    target = PurePosixPath(rel)
-    writable = False
-    for entry in binds:
-        verb, _, template = str(entry).partition(":")
-        if template == _GOAL_WRITE_SLOT:
-            covered = rel                      # the line THIS declaration fills
-        elif template.startswith("{goalDir}"):
-            covered = template[len("{goalDir}"):].lstrip("/")
-        else:
-            continue                           # not a goal-relative opening
-        if covered:
-            c = PurePosixPath(covered)
-            if target != c and c not in target.parents:
-                continue
-        writable = verb in _CAGE_RW_VERBS      # last one covering it wins
-    return writable
+    verdict, _entry = cagespec.evaluate(binds, rel, seat=cagespec.PEER,
+                                        goal_writes=[rel])
+    return verdict == cagespec.WRITABLE
 
 
 def open_binding(seat: str, b: dict, package: Path) -> bool:
@@ -951,15 +949,10 @@ def rename_after_cell(raw: str, rename: dict[str, str]) -> str:
     """A frozen `after` cell with its MEMBERS renamed and NOTHING else touched —
     Rule 13's "verbatim apart from the instance renaming" (criterion 8).
 
-    Bracketed guard spans pass through untouched: a guard's field or value may
-    spell a seat id, and renaming inside one would rewrite a condition rather
-    than a member. Outside the brackets the only tokens are member ids and the
-    `,`/`|` joins, so a blanket id substitution there is exactly the rename."""
-    return "".join(
-        part if part.startswith("[")
-        else re.sub(r"[a-z0-9][a-z0-9-]*",
-                    lambda m: rename.get(m.group(0), m.group(0)), part)
-        for part in re.split(r"(\[[^\]]*\])", raw))
+    ⚠ DELEGATES. `goal_cli.substitute_after_ids` is the ONE reading of an `after`
+    cell's member ids; `add-seat`'s splice is its other caller. A second copy of
+    the guard-span walk here was a second grammar waiting to drift."""
+    return substitute_after_ids(raw, rename)
 
 
 def nested_instance(package: Path, catalog_root: Path, workflow: str,
@@ -2636,6 +2629,17 @@ def emit_harness_configs(plan: dict) -> list[str]:
 #              at its real path plus a sandbox symlink carrying the installed
 #              NAME, both ends of the host symlink. An UNCAGED seat's
 #              declaration realizes nothing, exactly as before.
+#              ⚠ Its `entry-point` column is the ONE that may leave the
+#              component, and `ws:` is the ONLY way it may (owner 2026-08-11,
+#              IPH-6 / D33): `ws:<path-from-the-workspace-root>` resolves
+#              against the first ancestor holding `.rbtv/config/`, which is
+#              how a MIRROR-resident seat reaches a workspace-resident tool
+#              (`ws:3-resources/tools/stools/stools.py` is the live instance).
+#              Legal on `method=path` rows ONLY — the installer copies every
+#              other method's entry-point out of the component, and a
+#              workspace path is not inside it. A `..`-climbing entry-point is
+#              REFUSED at generation time on EVERY method, prefixed or not, so
+#              the rule cannot be reintroduced by copying an old example.
 SEAT_EXPOSE_METHODS = ("skill", "command", "rule", "hook", "sub-agent", "path")
 
 _LOADER_NOTE = ("Generated by materialize-seats.py from the component's "
@@ -2776,6 +2780,37 @@ def _assembled_is_interactive(assembled: str) -> bool:
     return str(val).strip().strip('"').lower() in ("yes", "true")
 
 
+WS_PREFIX = "ws:"
+ENTRY_AUTHORED = "__entry-point-authored__"
+
+
+def _workspace_root(start: Path) -> Path:
+    """The WORKSPACE rooting `start` — the first ancestor holding a
+    `.rbtv/config/` DIRECTORY — and the base a `ws:` entry-point resolves
+    against (owner ruling, 2026-08-11, IPH-6 / D33).
+
+    The directory walk is the ONE derivation correct in both production and
+    the selftest fixture: no `parents[n]` rule off `--package` or
+    `--catalog-root` is right in both trees, and this one needs neither.
+
+    ⚠ `ws:` is NOT a sibling of `rbtv:` and shares no dispatch with it.
+    `rbtv:` prefixes a REFERENCE in a seat's `exposes:` frontmatter and picks
+    WHICH COMPONENT DIRECTORY a manifest is read from; `ws:` prefixes the
+    ENTRY-POINT COLUMN of one manifest row and picks the BASE a file path
+    resolves against. Different inputs, different sites, different return
+    types — they meet only at the workspace root."""
+    for parent in (start, *start.parents):
+        if (parent / ".rbtv" / "config").is_dir():
+            return parent
+    raise Refuse(
+        "ws-root-underivable",
+        "a `ws:` entry-point resolves against the workspace root and no "
+        "`.rbtv/config/` directory exists at or above the referencing "
+        "component — searched "
+        + " · ".join(str(p) for p in (start, *start.parents)),
+        str(start))
+
+
 def _exposure_rows(comp_dir: Path) -> dict[str, dict]:
     """part-id -> exposure.csv row of ONE component ({} when no manifest).
 
@@ -2784,7 +2819,31 @@ def _exposure_rows(comp_dir: Path) -> dict[str, dict]:
     and `web/browse/exposure.csv` headers are the live shape), and a plain
     DictReader takes that first comment line for the header — every part-id
     then reads as absent, which surfaces as `exposes-ref-dangling` against a
-    manifest that plainly contains the row."""
+    manifest that plainly contains the row.
+
+    The `entry-point` cell is NORMALIZED here, at the ONE reader every
+    entry-point consumer goes through (the `exposed-clis` render, the
+    existence gate, the loader target and the rule-body read all take their
+    row from this function), so the four join sites need no edit and cannot
+    drift apart. Two rules, in this order:
+
+      1. a `ws:`-prefixed cell — legal on `method=path` rows ONLY — becomes
+         its absolute resolution against `_workspace_root(comp_dir)`. pathlib
+         discards the left operand of a join whose right side is absolute, so
+         every `ref_dir / entry` join downstream keeps working unchanged.
+      2. a cell with ANY `..` path component is REFUSED. Applying the ban
+         AFTER the prefix strip means `ws:../outside` and a bare `../outside`
+         take ONE rule, and the climb cannot be reintroduced by copying an old
+         example (owner ruling, IPH-6 / D33).
+
+    The gate on rule 1 is load-bearing, not cosmetic: `install2.py` treats
+    `path` and `pool` as INVENTORY and skips its entry-point existence check
+    for them, so the installer never meets a `ws:` cell — on any other method
+    it would try to copy a file at a literal `ws:…` path.
+
+    ⚠ CONTRACT: the returned row's `entry-point` is the RESOLVED cell, not the
+    authored one. The authored text stays under `ENTRY_AUTHORED` so a
+    downstream refusal quotes what the author typed."""
     path = comp_dir / EXPOSURE_NAME
     if not path.is_file():
         return {}
@@ -2793,8 +2852,34 @@ def _exposure_rows(comp_dir: Path) -> dict[str, dict]:
     rows: dict[str, dict] = {}
     for row in csv.DictReader(lines):
         pid = (row.get("part-id") or "").strip()
-        if pid:
-            rows[pid] = row
+        if not pid:
+            continue
+        raw = (row.get("entry-point") or "").strip()
+        entry = raw
+        if raw.startswith(WS_PREFIX):
+            method = (row.get("method") or "").strip()
+            if method != "path":
+                raise Refuse(
+                    "exposes-entry-invalid",
+                    f"part '{pid}' declares entry-point '{raw}' on a "
+                    f"method={method or '(empty)'} row — `ws:` is legal on "
+                    "`method=path` rows ONLY, because every other method's "
+                    "entry-point is COPIED out of the component by the "
+                    "installer and a workspace path is not inside it",
+                    str(path))
+            entry = str(_workspace_root(comp_dir) / raw[len(WS_PREFIX):])
+        if ".." in Path(entry).parts:
+            raise Refuse(
+                "exposes-entry-escape",
+                f"part '{pid}' declares entry-point '{raw}', which climbs out "
+                "of its component with `..` — an entry point never leaves the "
+                "component by counting directories. Reach a tool elsewhere in "
+                "the workspace with the `ws:` prefix instead "
+                "(`ws:<path-from-the-workspace-root>`)",
+                str(path))
+        row["entry-point"] = entry
+        row[ENTRY_AUTHORED] = raw
+        rows[pid] = row
     return rows
 
 
@@ -2966,11 +3051,16 @@ def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
                         str(ref_dir / EXPOSURE_NAME))
                 entry = (rows[pid].get("entry-point") or "").strip()
                 if not entry or not (ref_dir / entry).is_file():
+                    # The AUTHORED cell is quoted, not the normalized one — a
+                    # `ws:` row's resolved absolute path is not what anyone
+                    # typed, so the fix is unfindable from it; the resolution
+                    # rides alongside so the join base stays visible.
+                    authored = rows[pid].get(ENTRY_AUTHORED) or entry
                     raise Refuse(
                         "exposes-entry-missing",
                         f"seat '{seat}' exposes '{ref}' ({method}) whose "
-                        f"entry-point '{entry or '(empty)'}' resolves to no "
-                        "file under its component — nothing to realize",
+                        f"entry-point '{authored or '(empty)'}' resolves to no "
+                        f"file ({ref_dir / entry}) — nothing to realize",
                         str(ref_dir / EXPOSURE_NAME))
                 parts.append((method, pid, rows[pid], ref_dir))
         plan["exposes"][seat] = exposes
@@ -3154,10 +3244,14 @@ def _descriptor_binding(plan: dict, seat: str) -> dict:
 
 def _render_csv_line(values: list[str]) -> str:
     """One registry line, csv-quoted exactly as the append writes it (a
-    multi-predecessor `after` cell carries commas and must quote)."""
-    buf = io.StringIO()
-    csv.writer(buf, lineterminator="\n").writerow(values)
-    return buf.getvalue()[:-1]
+    multi-predecessor `after` cell carries commas and must quote).
+
+    ⚠ DELEGATES to `goal_cli.render_csv_line` — THE canonical form, and the
+    single-writer claim `add-seat`'s canonical-form guard depends on: that guard
+    re-renders every untouched row through goal_cli's writer and requires
+    byte-equality with what THIS append produced. Two writers would let the
+    guard pass on a file the append would have written differently."""
+    return render_csv_line(values)
 
 
 def render_taskforce_rows(plan: dict) -> None:
@@ -4280,8 +4374,16 @@ def build_fixture(tmp: Path) -> dict:
         "cmd1,workflow,command,,commands/cmd1.md,run the demo flow\n"
         "rul1,reference,rule,,rules/rul1.md,house style rule\n"
         "hk1,capability,hook,,hooks/hk1.json,post-write lint\n"
-        "res1,prompt,sub-agent,,prompts/res1.md,fixture researcher\n",
+        "res1,prompt,sub-agent,,prompts/res1.md,fixture researcher\n"
+        # The WORKSPACE root (IPH-6 / D33): a `ws:` entry-point resolves
+        # against the first ancestor holding `.rbtv/config/` — `tmp` here,
+        # created just below — so the tool lands OUTSIDE the component
+        # without a single `..`, which is now refused.
+        "wstool,tool,path,,ws:wsbin/wstool.py,\n",
         encoding="utf-8")
+    (tmp / "wsbin").mkdir()
+    (tmp / "wsbin" / "wstool.py").write_text(
+        "#!/usr/bin/env python3\nprint('wstool')\n", encoding="utf-8")
     # The SECOND RESOLUTION ROOT (d-path-exposes-authorable): a `rbtv:` ref
     # addresses the rbtv REPO tree, found by walking up from the referencing
     # component to `.rbtv/config/install.json` and reading `rbtv.json`'s
@@ -4327,7 +4429,7 @@ def build_fixture(tmp: Path) -> dict:
              "  rule: [rul1]\n"
              "  hook: [hk1]\n"
              "  sub-agent: [res1]\n"
-             "  path: [rbtv:ignite/coordfix]\n"
+             "  path: [rbtv:ignite/coordfix, wstool]\n"
              "---\n\nWhole-file prompt card — read for `exposes:`; assembly "
              "still resolves the catalog prompt row.\n")):
         p = expc / rel
@@ -6889,10 +6991,20 @@ def run_selftest() -> int:
         sfm = yaml.safe_load(
             _FM_RE.match((sd / "seat.md").read_text(encoding="utf-8")).group(1))
         coordfix = str(Path(fxe["repo_mod"]) / "team-kit" / "coordfix.py")
+        wstool = str(Path(fxe["tmp"]) / "wsbin" / "wstool.py")
         check("EXP-1 green: a `rbtv:`-prefixed `path` ref resolves through "
               "install.json/rbtv.json and lands in seat.md as `exposed-clis:` "
               "— `<part-id> <absolute entry point>`, the cage's grant surface",
-              sfm.get("exposed-clis") == [f"coordfix {coordfix}"],
+              f"coordfix {coordfix}" in (sfm.get("exposed-clis") or []),
+              repr(sfm.get("exposed-clis")))
+        check("EXP-1 green: a `ws:`-prefixed ENTRY-POINT resolves against the "
+              "WORKSPACE root (first ancestor holding .rbtv/config/) and lands "
+              "absolute in `exposed-clis:` — the sanctioned way out of the "
+              "component, replacing the `..` climb the ban now refuses "
+              "(IPH-6 / D33). Both prefixes render one list: `rbtv:` picked a "
+              "component directory, `ws:` picked a path base",
+              sfm.get("exposed-clis") == [f"coordfix {coordfix}",
+                                          f"wstool {wstool}"],
               repr(sfm.get("exposed-clis")))
         check("EXP-1 green: the declaration is readable by the cage's LIST "
               "reader shape (a block list of scalars under the key)",
@@ -6946,8 +7058,8 @@ def run_selftest() -> int:
         # …and the SAME two refusals across the second root: a `rbtv:` ref is
         # not a bypass of the gates the own-tree grammar fires.
         prompt_path.write_text(
-            orig.replace("path: [rbtv:ignite/coordfix]",
-                         "path: [rbtv:ignite/ghostcli]"), encoding="utf-8")
+            orig.replace("rbtv:ignite/coordfix",
+                         "rbtv:ignite/ghostcli"), encoding="utf-8")
         pr3 = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
                        "--bindings", fxe["b_exp"]] + common_e, clean_env)
         check("EXP-1 red: a dangling `rbtv:` reference refuses "
@@ -6956,8 +7068,8 @@ def run_selftest() -> int:
               and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
               pr3.stderr.strip()[:200])
         prompt_path.write_text(
-            orig.replace("path: [rbtv:ignite/coordfix]",
-                         "path: [rbtv:ignite/skillish]"), encoding="utf-8")
+            orig.replace("rbtv:ignite/coordfix",
+                         "rbtv:ignite/skillish"), encoding="utf-8")
         pr4 = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
                        "--bindings", fxe["b_exp"]] + common_e, clean_env)
         check("EXP-1 red: a `rbtv:` ref whose row declares method 'skill' "
@@ -6967,8 +7079,8 @@ def run_selftest() -> int:
               and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
               pr4.stderr.strip()[:200])
         prompt_path.write_text(
-            orig.replace("path: [rbtv:ignite/coordfix]",
-                         "path: [rbtv:coordfix]"), encoding="utf-8")
+            orig.replace("rbtv:ignite/coordfix",
+                         "rbtv:coordfix"), encoding="utf-8")
         pr5 = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
                        "--bindings", fxe["b_exp"]] + common_e, clean_env)
         check("EXP-1 red: a `rbtv:` ref with no directory segment refuses "
@@ -6977,6 +7089,47 @@ def run_selftest() -> int:
               and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
               pr5.stderr.strip()[:200])
         prompt_path.write_text(orig, encoding="utf-8")
+        # ── the `..` BAN (IPH-6 / D33) — enforced in _exposure_rows, AFTER the
+        # prefix strip, so the bare climb and the prefixed climb take ONE rule.
+        # The mutation is on the MANIFEST, not the prompt card: the ban covers
+        # every row of every manifest read, not merely the referenced ones.
+        manifest = Path(fxe["catalog"]) / "exp-comp" / EXPOSURE_NAME
+        orig_manifest = manifest.read_text(encoding="utf-8")
+        for label, cell in (("a bare", "../outside/x.py"),
+                            ("a `ws:`-prefixed", "ws:../outside/x.py")):
+            manifest.write_text(
+                orig_manifest.replace("ws:wsbin/wstool.py", cell),
+                encoding="utf-8")
+            pr6 = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
+                           "--bindings", fxe["b_exp"]] + common_e, clean_env)
+            check(f"EXP-1 red: {label} `..`-climbing entry-point refuses "
+                  "exposes-entry-escape at GENERATION time, names `ws:` as the "
+                  "fix, and writes NOTHING — one rule covers both forms",
+                  pr6.returncode == 1
+                  and "exposes-entry-escape" in pr6.stderr
+                  and "ws:" in pr6.stderr
+                  and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
+                  pr6.stderr.strip()[:250])
+        manifest.write_text(orig_manifest, encoding="utf-8")
+        # …and the root itself: a `ws:` cell under a component with no
+        # `.rbtv/config/` ANYWHERE above it. Read directly — a whole materialize
+        # needs a catalog, and what is under test is the one derivation.
+        with tempfile.TemporaryDirectory() as ws_td:
+            lone = Path(ws_td) / "lone-comp"
+            lone.mkdir()
+            (lone / EXPOSURE_NAME).write_text(
+                "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+                "lonely,tool,path,,ws:wsbin/wstool.py,\n", encoding="utf-8")
+            try:
+                _exposure_rows(lone)
+                ws_code = "(no refusal — the row resolved)"
+            except Refuse as exc:
+                ws_code = exc.code
+            check("EXP-1 red: a `ws:` entry-point under a component with no "
+                  "`.rbtv/config/` above it refuses ws-root-underivable — the "
+                  "workspace is DERIVED, never guessed, and an underivable one "
+                  "is a refusal rather than a silent join against nothing",
+                  ws_code == "ws-root-underivable", ws_code)
 
     print("RF-1 --refresh: bring an existing seat folder to the catalog's shape")
     with tempfile.TemporaryDirectory() as rf_td:
