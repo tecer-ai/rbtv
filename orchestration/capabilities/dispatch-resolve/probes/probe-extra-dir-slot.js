@@ -183,12 +183,13 @@ check('4', 'NO shipped profile declares {extra_dir}, so every daemon argv is byt
   return `${names.length} shipped profiles, none declaring {extra_dir}`;
 });
 
-// ⚠ TRIPWIRE — FLIPS THE DAY THE PROFILES ARE AUTHORED. The two pairs that record a
-// `launch_profile` (`claude-code-cli:sonnet`, `opencode:sakana`) point at `cli-claude-sonnet` /
-// `cli-opencode-sakana`, which DO NOT EXIST in the shipped config (task 7.86 authors them). Until
-// they do, the split cannot be declared on a real conductor-lane profile without editing a LIVE
-// daemon row. This check states that absence as a measurement rather than leaving it implied.
-check('4-GAP', 'the conductor-lane cli-* profiles are still unauthored (tripwire — flip when 7.86 lands)', () => {
+// ⚠ TRIPWIRE — FLIPS THE DAY A CONDUCTOR-LANE PROFILE IS AUTHORED. The `cli-*` family this split
+// belongs on was retired by `r-seats-only-architecture` (2026-08-06) and never re-created; the
+// manifest field that once pointed at it (`launch_profile`) was retired with the deny-list by the
+// owner ruling of 2026-08-11. Until a cage-free conductor-lane profile exists, the split cannot be
+// declared on a real profile without editing a LIVE daemon row. This check states that absence as a
+// measurement rather than leaving it implied.
+check('4-GAP', 'no conductor-lane cli-* profile exists (tripwire — flip when one is authored)', () => {
   const shipped = lane.loadProfiles(SHIPPED_CONFIG);
   const present = Object.keys(shipped.profiles).filter((n) => n.startsWith('cli-'));
   if (present.length) {

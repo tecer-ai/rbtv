@@ -84,7 +84,6 @@ variants:
       write_enforcement: git-diff-vs-allowlist   # post-run `git -C <worktree> diff --name-only HEAD` of every changed path vs the task allowlist is the ONLY reliable enforcement; out-of-allowlist = halt + surface, never auto-revert
 
     # --- invocation + failures (routing §4, §2) ---
-    launch_profile: cli-opencode-z1   # task 7.86 — THE named profile this (model, variant) pair resolves through (ignite/config/spawn-profiles.yaml, resolved by ignite/launch-profiles/). Picking the variant IS picking the profile. Declares caged/portable halves and bakes no posture the conductor chooses per dispatch.
     invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/opencode/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/opencode/delta.md
@@ -179,7 +178,6 @@ variants:
       write_enforcement: git-diff-vs-allowlist
 
     # --- invocation + failures ---
-    launch_profile: cli-opencode-sakana   # task 7.86 — REPOINTED from `opencode-sakana` (which stays, and keeps the daemon spawn lane) to its conductor-lane twin. The twin declares a CAGED half ONLY: opencode carries no sandbox of its own, so it must REFUSE on a cage-less host rather than run with every wall missing.
     invocation_pointer: ./manual.md
     manual_path: ./manual.md
     delta_path: ./delta.md
@@ -267,7 +265,6 @@ variants:
       write_enforcement: git-diff-vs-allowlist
 
     # --- invocation + failures ---
-    launch_profile: cli-opencode-deepseek-flash   # task 7.86 — THE named profile this (model, variant) pair resolves through (ignite/config/spawn-profiles.yaml, resolved by ignite/launch-profiles/). Picking the variant IS picking the profile. Declares caged/portable halves and bakes no posture the conductor chooses per dispatch.
     invocation_pointer: ./manual.md
     manual_path: ./manual.md
     delta_path: ./delta.md
@@ -355,7 +352,6 @@ variants:
       write_enforcement: git-diff-vs-allowlist
 
     # --- invocation + failures ---
-    launch_profile: cli-opencode-deepseek-pro   # task 7.86 — THE named profile this (model, variant) pair resolves through (ignite/config/spawn-profiles.yaml, resolved by ignite/launch-profiles/). Picking the variant IS picking the profile. Declares caged/portable halves and bakes no posture the conductor chooses per dispatch.
     invocation_pointer: ./manual.md
     manual_path: ./manual.md
     delta_path: ./delta.md

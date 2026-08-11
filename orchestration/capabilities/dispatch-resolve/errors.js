@@ -16,10 +16,11 @@ class DispatchResolveError extends Error {
   }
 }
 
-// The profile declares `sandbox.SeatBinds`. The conductor loads the shared config with a
-// NON-INTERPRETING validator stub (see resolve.js), so a bind template reaching this consumer is
-// unvalidated by construction — this refusal is what keeps the stub from becoming a hole.
-const E_SEATBINDS_PROFILE = 'E_SEATBINDS_PROFILE';
+// `E_SEATBINDS_PROFILE` was RETIRED with the seat-binds deny-list (owner ruling 2026-08-11:
+// launch_profile retired, manual invocation permanent (executes d-r2-preflight-manual-plus-skill)).
+// Its premise — seat profiles are the exception — died when `r-seats-only-architecture` spread the
+// shared cage into every profile. `resolve.js`'s stub comment carries why the stub is safe without
+// it. Named here, not silently absent, so a catch site written against the old code reads why.
 
 // No work-target was supplied. The confinement split (dispatch-wrapper.md:36, row G1) requires TWO
 // path values — guidance-root and work-target — and a profile expresses ONE.
@@ -31,7 +32,6 @@ const E_ADD_DIR_RELATIVE = 'E_ADD_DIR_RELATIVE';
 
 module.exports = {
   DispatchResolveError,
-  E_SEATBINDS_PROFILE,
   E_ADD_DIR_ABSENT,
   E_ADD_DIR_RELATIVE,
 };

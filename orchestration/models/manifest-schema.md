@@ -96,26 +96,27 @@ A manifest is one YAML document with four top-level keys (plus one optional inst
 
 Every routing input below the model level lives **inside a variant** — because routing routes on `(model, variant)`, and two variants of the same model can differ in reasoning score, cost score, or context window (e.g. a `--thinking` vs `--no-thinking` profile, or two configured models).
 
-### `variants[].launch_profile` — the named launch profile (task 7.54)
+### `variants[].launch_profile` — **RETIRED** (owner ruling 2026-08-11)
 
-| Field | Type | Meaning |
-|-------|------|---------|
-| `launch_profile` | string (optional) | The name of THE launch profile this `(model, variant)` resolves through — a key of `ignite/config/spawn-profiles.yaml`, resolved by the ONE shared resolver `ignite/launch-profiles/` (task 7.42). **Picking the variant IS picking the profile**: the mapping is one-to-one, and the conductor supplies only the profile NAME, an abstract effort level, and values for DECLARED SLOTS — never argv, never flags. |
+**The field no longer exists.** Owner ruling 2026-08-11 (executing
+`d-r2-preflight-manual-plus-skill`): `launch_profile` is retired and the 11 recorded values were
+dropped from the four CLI manifests in the same change. Recorded here rather than deleted so a
+reader of an older manifest, task, or card knows what the key meant and why it is gone.
 
-**⚠ ITS ABSENCE IS DELIBERATE AND MEANS SOMETHING — read it as DEFERRED, never as overlooked.**
-Measured 2026-07-28: **2 of 11** elected CLI `(model, variant)` pairs carry a profile
-(`claude-code-cli:sonnet`, `opencode:sakana`). The other 9 have none — only 3 of the 6 committed
-profiles are real harness targets, and one of those three (`codex-git-write`) **pins no model at
-all**, so it would select a variant only by ambient `~/.codex/config.toml` state and recording it
-would assert a mapping true on exactly one machine. **Authoring the missing profiles is task
-`7.86`.**
+**What it was** (task 7.54): an optional string on a variant naming THE launch profile that
+`(model, variant)` resolved through — a key of `ignite/config/spawn-profiles.yaml`, resolved by the
+shared resolver `ignite/launch-profiles/` (task 7.42).
 
-⇒ **A variant with no `launch_profile` still dispatches through its package manual**, which is why
-those manuals are intact and MUST stay so until 7.86 lands. Retiring a package's invocation
-knowledge is gated on EVERY elected variant of that package having a profile
-(**package-granularity is the gate**) — and even then only the invocation knowledge retires:
-exit codes, recovery protocols, resume mechanics, failure modes and the per-model task contract
-have **no field in the profile schema**, so deleting the table would destroy their only home
+**Why it went.** Task 7.86 repointed every recorded value at a conductor-lane `cli-*` twin it was to
+author; `r-seats-only-architecture` (2026-08-06) then retired that whole family, and the twins were
+never authored — so all 11 mappings named profiles the shipped config does not have. Nothing read
+the field either: routing (`route.py`) never did (see §4's table row), and manual invocation of the
+`rbtv-dispatch-resolve` skill — where the conductor names the profile itself — is the permanent
+contract.
+
+⇒ **Every variant dispatches through its package manual**, as the 9 uncovered pairs already did.
+Those manuals stay: they are the only home for exit codes, recovery protocols, resume mechanics,
+failure modes and the per-model task contract, none of which ever had a field in the profile schema
 (**content-granularity is the cut**; leader ruling 2026-07-28).
 
 ---
@@ -230,7 +231,7 @@ The proof that no field is bloat: each maps to a question the routing card (`{rb
 | `tool_surface` | "Does the worker have the tools this task needs (shell/web/MCP)?" | §2 (capability gate), §6 (web via tools) |
 | `confinement` | "How do I bound this worker's writes — and is that my job, not the CLI's?" | §4 (guidance-file check), §8 (allowlist enforcement) |
 | `invocation_pointer` | "Where is the exact command shape when I package the dispatch?" | §4 → hands to dispatch-wrapper / model manual |
-| `launch_profile` | "Which NAMED launch profile does the dispatch resolve through for this pair — so the command is resolved, not composed?" | §4 → hands to dispatch-wrapper §5a pre-flight, which calls `orchestration/capabilities/dispatch-resolve`. **Not an ELECTION input** — routing cognition (scores, floors, ranking, `route.py`) never reads it; it is consumed only AFTER the pair is already chosen (task 7.54 migrates the mechanism layer only). |
+| ~~`launch_profile`~~ | **RETIRED** (owner ruling 2026-08-11 — see §1). No manifest carries it; the conductor names the profile itself when it invokes `rbtv-dispatch-resolve`. It was never an ELECTION input, so routing cognition (`route.py`) is unaffected. |
 | `manual_path` | "What manual-path constant do I PIN into this task's frontmatter so the worker/scaffold never re-derives it?" | §4 → planning→dispatch seam (frontmatter the dispatch-scaffold + planning emit; closes the D10 re-derivation gap) |
 | `delta_path` | "Where is this package's render-source delta, as a constant — to compose the dispatch without re-deriving the path?" | §4 → dispatch-scaffold compose-from-source (the delta the scaffold reads) |
 | `specialty` | "Two variants tie within the chosen tier — which is BEST at this task's shape?" | §2a (within-tier tiebreaker, AFTER the boundedness master cut) + §4 carrier choice; the positive form is also surfaced in `orchestration/docs/routing-system.md` Part II |

@@ -92,7 +92,6 @@ variants:
       write_enforcement: git-diff-vs-allowlist   # confinement is the orchestrator's job: --permission-mode acceptEdits AUTHORIZES writes but does not BOUND them to an allowlist — back every dispatch with the post-run git diff --name-only vs the task allowlist. Out-of-allowlist = halt + surface, never auto-revert
 
     # --- invocation + failures (routing §4, §2) ---
-    launch_profile: cli-claude-fable   # task 7.86 — THE named profile this (model, variant) pair resolves through (ignite/config/spawn-profiles.yaml, resolved by ignite/launch-profiles/). Picking the variant IS picking the profile. Declares caged/portable halves and bakes no posture the conductor chooses per dispatch.
     invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/claude-code-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-code-cli/delta.md
@@ -173,7 +172,6 @@ variants:
       write_enforcement: git-diff-vs-allowlist   # confinement is the orchestrator's job: --permission-mode acceptEdits AUTHORIZES writes but does not BOUND them to an allowlist — back every dispatch with the post-run git diff --name-only vs the task allowlist
 
     # --- invocation + failures (routing §4, §2) ---
-    launch_profile: cli-claude-opus   # task 7.86 — THE named profile this (model, variant) pair resolves through (ignite/config/spawn-profiles.yaml, resolved by ignite/launch-profiles/). Picking the variant IS picking the profile. Declares caged/portable halves and bakes no posture the conductor chooses per dispatch.
     invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/claude-code-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-code-cli/delta.md
@@ -252,7 +250,6 @@ variants:
       write_enforcement: git-diff-vs-allowlist   # back every dispatch with the post-run git diff vs allowlist; --permission-mode authorizes but does not bound writes
 
     # --- invocation + failures ---
-    launch_profile: cli-claude-sonnet   # task 7.86 — REPOINTED from `claude-sonnet-tools`, which bakes `--allowedTools "Bash(git *),Write"`. The old profile is NOT deleted: it is a daemon-spawn profile with real job history, so it keeps its `exec:` shape and its own lane. This pair now resolves through the halved, posture-free profile instead.
     invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/claude-code-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-code-cli/delta.md
@@ -332,7 +329,6 @@ variants:
       write_enforcement: git-diff-vs-allowlist
 
     # --- invocation + failures ---
-    launch_profile: cli-claude-haiku   # task 7.86 — THE named profile this (model, variant) pair resolves through (ignite/config/spawn-profiles.yaml, resolved by ignite/launch-profiles/). Picking the variant IS picking the profile. Declares caged/portable halves and bakes no posture the conductor chooses per dispatch.
     invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/claude-code-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-code-cli/delta.md

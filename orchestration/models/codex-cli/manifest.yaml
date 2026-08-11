@@ -85,7 +85,6 @@ variants:
       write_enforcement: git-diff-vs-allowlist   # the sandbox is real but its reliability as the sole boundary for this orchestrator is UNPILOTED — back it with post-run git diff of every changed path vs the allowlist
 
     # --- invocation + failures (routing §4, §2) ---
-    launch_profile: cli-codex-gpt-5-5   # task 7.86 — THE named profile this (model, variant) pair resolves through (ignite/config/spawn-profiles.yaml, resolved by ignite/launch-profiles/). Picking the variant IS picking the profile. Declares caged/portable halves and bakes no posture the conductor chooses per dispatch.
     invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/codex-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/codex-cli/delta.md
@@ -172,7 +171,6 @@ variants:
       write_enforcement: git-diff-vs-allowlist
 
     # --- invocation + failures ---
-    launch_profile: cli-codex-gpt-5-4   # task 7.86 — THE named profile this (model, variant) pair resolves through (ignite/config/spawn-profiles.yaml, resolved by ignite/launch-profiles/). Picking the variant IS picking the profile. Declares caged/portable halves and bakes no posture the conductor chooses per dispatch.
     invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/codex-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/codex-cli/delta.md

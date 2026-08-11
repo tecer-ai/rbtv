@@ -24,10 +24,14 @@
 // verdict carried no information at all, and it stayed that way through unrelated edits.
 //
 // The fix follows the sibling `probe-extra-dir-slot.js` exactly: the LANE'S OWN BOUNDS (the
-// deny-list, the confinement split, effort translation, the raw-flag refusal, the pinned-flag
-// pre-flight) are mechanism, and mechanism is proven on a fixture this file owns — a roster change
-// can never strand them again. What genuinely IS a statement about the live tree stays live, as
-// the three `LIVE-*` measurements at the bottom.
+// confinement split, effort translation, the raw-flag refusal, the pinned-flag pre-flight) are
+// mechanism, and mechanism is proven on a fixture this file owns — a roster change can never
+// strand them again. What genuinely IS a statement about the live tree stays live, as the four
+// `LIVE-*` checks at the bottom.
+//
+// ⚠ REPOINTED AGAIN 2026-08-11 — owner ruling: launch_profile retired, manual invocation permanent
+// (executes d-r2-preflight-manual-plus-skill). The seat-binds deny-list and the `launch_profile`
+// field are GONE, so §1 and LIVE-2/LIVE-3 now pin the RETIRED state instead of the defect state.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 //
 // Run:  node orchestration/capabilities/dispatch-resolve/probes/probe-dispatch-resolve.js
@@ -86,10 +90,10 @@ function expectRefusal(code, fn) {
 
 // ── the fixture ───────────────────────────────────────────────────────────────────────────────
 // FOUR profiles, one per shape the lane's bounds need, and nothing else:
-//   fx-seat     declares `sandbox.SeatBinds`   -> the deny-list's RED, and the reason the bare
-//               load refuses (so the stub is provably load-bearing)
-//   fx-claude   a plain claude profile with an effort dial -> the deny-list's GREEN, the
-//               confinement split, the live pinned-flag pre-flight, the claude effort dialect
+//   fx-seat     declares `sandbox.SeatBinds`   -> the reason the bare load refuses (so the stub is
+//               provably load-bearing), and §1's subject: it resolves, and its cage reaches nothing
+//   fx-claude   a plain claude profile with an effort dial -> the confinement split, the live
+//               pinned-flag pre-flight, the claude effort dialect
 //   fx-codex    the SECOND dialect — the same abstract level rendering differently is what makes
 //               "translated, never hand-written" a claim rather than a coincidence
 //   fx-no-dial  no effort block at all -> the G-270 refusal of a dial-less pair
@@ -156,7 +160,7 @@ check('P1', 'the committed config exists at the path this lane reads', () => {
 check('P2', 'BARE load of the fixture REFUSES (so the stub is load-bearing, not decorative)', () =>
   expectRefusal('E_CONFIG_LOAD', () => profiles.loadConfig(fixturePath)));
 
-check('P3', 'fx-seat REALLY declares sandbox.SeatBinds (else the deny-list check is vacuous)', () => {
+check('P3', 'fx-seat REALLY declares sandbox.SeatBinds (else §1s no-cage check is vacuous)', () => {
   const raw = fs.readFileSync(fixturePath, 'utf8');
   if (!/SeatBinds/.test(raw)) throw new Error('no SeatBinds key anywhere in the fixture');
   return 'fx-seat.sandbox.SeatBinds declared in the fixture this probe wrote';
@@ -173,24 +177,34 @@ check('P4', 'WITH the stub the whole fixture loads (all 4 profiles)', () => {
   return names.join(', ');
 });
 
-// ── 1 · THE DENY-LIST — the leader's binding acceptance bar ───────────────────────────────────
+// ── 1 · THE DENY-LIST IS RETIRED — and the cage never reached argv anyway ─────────────────────
+//
+// Owner ruling 2026-08-11: launch_profile retired, manual invocation permanent (executes
+// d-r2-preflight-manual-plus-skill). The seat-binds deny-list and `E_SEATBINDS_PROFILE` are gone —
+// their premise (seat profiles are the exception) died when `r-seats-only-architecture` spread the
+// shared cage into every profile. What replaces the guard is the fact that made it unnecessary:
+// `resolveProfile` returns argv/binary and NOT the sandbox block, so an unvalidated bind template
+// cannot reach a command line through this lane. Both directions are asserted below.
 
-check('1-RED', 'resolving fx-seat is REFUSED (the deny-list FIRES)', () =>
-  expectRefusal(lane.E_SEATBINDS_PROFILE, () => lane.assertNoSeatBinds(config, 'fx-seat')));
-
-check('1-GREEN', 'a profile WITHOUT SeatBinds passes the deny-list (it is not blanket-refusing)', () => {
-  // ⚠ NOT a vacuous green, and the distinction is what the old version lost: `assertNoSeatBinds`
-  // RETURNS SILENTLY for an unknown profile name, so the retired `claude-sonnet-tools` kept
-  // "passing" this check for days after it stopped existing. The fixture profile is asserted
-  // present first, so a green here means admitted, never absent.
-  if (!config.profiles['fx-claude']) throw new Error('fx-claude absent — the green would be vacuous');
-  lane.assertNoSeatBinds(config, 'fx-claude');
-  return 'fx-claude present AND admitted';
+check('1-NO-DENYLIST', 'the seat-binds deny-list is GONE from the resolve path (surface + behaviour)', () => {
+  if (lane.assertNoSeatBinds || lane.E_SEATBINDS_PROFILE) {
+    throw new Error('E_SEATBINDS_PROFILE / assertNoSeatBinds still exported — the retirement is incomplete');
+  }
+  const r = lane.preflightDispatch(config, 'fx-seat', { addDir: path.resolve(os.tmpdir()) });
+  if (!r.argv.length) throw new Error('fx-seat resolved to an empty argv');
+  return `fx-seat (SeatBinds-declaring) resolves: ${r.argv.join(' ')}`;
 });
 
-check('1-RED-via-entry', 'the deny-list fires through the ENTRY POINT too, not only the bound', () =>
-  expectRefusal(lane.E_SEATBINDS_PROFILE, () =>
-    lane.preflightDispatch(config, 'fx-seat', { addDir: '/tmp', effort: 'high' })));
+check('1-NO-CAGE-IN-ARGV', 'the resolved result carries NO cage — the stub has nothing to leak', () => {
+  const r = lane.preflightDispatch(config, 'fx-seat', { addDir: path.resolve(os.tmpdir()) });
+  if ('sandbox' in r) throw new Error('the resolved result exposes a sandbox block');
+  const blob = JSON.stringify(r);
+  if (/SeatBinds|seatDir/.test(blob)) throw new Error(`bind vocabulary reached the result: ${blob.slice(0, 160)}`);
+  // The positive control: the fixture really does declare it, so the absence above is a property of
+  // the RESOLVER, not of a fixture that never had one (P3 asserts the declaration itself).
+  if (!config.profiles['fx-seat'].sandbox.SeatBinds) throw new Error('fx-seat lost its SeatBinds — control void');
+  return 'fx-seat declares SeatBinds; nothing of it appears in argv or the result';
+});
 
 // ── 2 · THE CONFINEMENT SPLIT (row G1) — homed in the pre-flight per ruling #1486 ──────────────
 
@@ -298,60 +312,55 @@ check('LIVE-1', 'the shipped config still loads through this consumer\'s stub', 
   return `${n} shipped profiles loaded`;
 });
 
-// ⚠ LIVE DEFECT #1, ASSERTED RATHER THAN WORKED AROUND.
-// `r-seats-only-architecture` (2026-08-06) moved SeatBinds from ONE profile (`claude-seat`) to the
-// ONE SHARED `cage:` block every profile inherits. The conductor's deny-list refuses any profile
-// declaring `sandbox.SeatBinds` — correctly, since this consumer loads them through a
-// non-interpreting stub — so it now refuses ALL of them: the dispatch-resolve lane can resolve
-// ZERO live profiles. The deny-list is not wrong; its premise (seat profiles are the exception) is.
-// The fix is an architecture call — teach this lane the cage vocabulary, or give the conductor a
-// cage-free profile family — and is NOT this row's to make. This check FAILS THE DAY IT IS FIXED.
-check('LIVE-2', 'EVERY shipped profile is deny-listed, so the lane resolves none (tripwire — flip when fixed)', () => {
+// ⚠ REPOINTED 2026-08-11 — THESE TWO USED TO PIN THE DEFECT STATE, THEY NOW PIN THE RETIRED STATE.
+// Owner ruling 2026-08-11: launch_profile retired, manual invocation permanent (executes
+// d-r2-preflight-manual-plus-skill). LIVE-2 asserted that the deny-list refused all 14 shipped
+// profiles; LIVE-3 that all 11 recorded `launch_profile` values dangled. Both facts were closed by
+// the ruling — by removing the deny-list and the field, not by making them resolve — so each check
+// now asserts the ABSENCE that the ruling created, and fails the day either creeps back.
+check('LIVE-2', 'NO seat-binds deny-list in the resolve path: every shipped profile loads and admits', () => {
   const shipped = lane.loadProfiles(CONFIG);
   const names = Object.keys(shipped.profiles);
-  const resolvable = names.filter((n) => {
-    try { lane.assertNoSeatBinds(shipped, n); return true; } catch { return false; }
-  });
-  if (resolvable.length) {
-    throw new Error(`${resolvable.length}/${names.length} shipped profiles are now resolvable ` +
-      `(${resolvable.join(', ')}) — restore a real end-to-end leg here and in LIVE-3`);
+  const caged = names.filter((n) => shipped.profiles[n].sandbox && shipped.profiles[n].sandbox.SeatBinds);
+  // The precondition, so the green is not vacuous: the shared cage really does bind every profile.
+  if (caged.length !== names.length) {
+    throw new Error(`${caged.length}/${names.length} shipped profiles carry SeatBinds — the shared ` +
+      'cage no longer covers the roster, so this check no longer measures what it claims');
   }
-  return `0/${names.length} resolvable; all carry the shared cage's SeatBinds`;
+  if (lane.E_SEATBINDS_PROFILE || lane.assertNoSeatBinds) {
+    throw new Error('the seat-binds deny-list is back on the lane surface — it was RETIRED by the ' +
+      '2026-08-11 owner ruling; re-open the ruling before restoring it');
+  }
+  return `${names.length}/${names.length} shipped profiles are SeatBinds-bearing and none is refused`;
 });
 
-// ⚠ LIVE DEFECT #2, same treatment. Task 7.86 repointed every recorded `launch_profile` at a
-// conductor-lane `cli-*` twin it was to author; `r-seats-only-architecture` then retired that whole
-// family. The twins were never authored, so the manifest -> profile mapping is 100% DANGLING: every
-// recorded value names a profile the shipped config does not have. The sibling probe
-// (`probe-extra-dir-slot.js` check 4-GAP) measures the same absence from the config side; this is
-// the manifest side of one fact. Replaces the old `6` / `6-COUNTS` pair, whose hardcoded
-// "2 covered / 11 elected" literals were stale the day 7.86 landed.
-check('LIVE-3', 'every recorded launch_profile is DANGLING (tripwire — flip when the profiles land)', () => {
+check('LIVE-3', 'NO manifest records a launch_profile — the field is RETIRED (owner ruling 2026-08-11)', () => {
   if (!yaml) throw new Error('js-yaml unresolvable from here AND from ignite/ — cannot read manifests');
-  const shipped = lane.loadProfiles(CONFIG);
   const recorded = [];
+  let scanned = 0;
   for (const pkg of fs.readdirSync(MODELS_DIR)) {
     const mf = path.join(MODELS_DIR, pkg, 'manifest.yaml');
     if (!fs.existsSync(mf)) continue;
+    scanned += 1;
     const d = yaml.load(fs.readFileSync(mf, 'utf8'));
     for (const v of d.variants || []) {
-      if (v.launch_profile) recorded.push({ pair: `${pkg}:${v.variant}`, profile: v.launch_profile });
+      if (v.launch_profile) recorded.push(`${pkg}:${v.variant} -> ${v.launch_profile}`);
     }
   }
-  if (!recorded.length) throw new Error('NO launch_profile recorded anywhere — the check is vacuous');
-  const present = recorded.filter((r) => Boolean(shipped.profiles[r.profile]));
-  if (present.length) {
-    throw new Error(`${present.length}/${recorded.length} mappings now RESOLVE ` +
-      `(${present.map((r) => `${r.pair}->${r.profile}`).join(', ')}) — replace this tripwire with an ` +
-      'end-to-end resolve+pre-flight leg over the mappings that landed');
+  // Precondition: manifests were actually read. Zero files scanned would print the same green.
+  if (!scanned) throw new Error(`no manifest.yaml found under ${MODELS_DIR} — the check is vacuous`);
+  if (recorded.length) {
+    throw new Error(`${recorded.length} launch_profile value(s) recorded again (${recorded.join(', ')}) — ` +
+      'the field was RETIRED by the 2026-08-11 owner ruling; re-open the ruling before re-adding it');
   }
-  return `${recorded.length} recorded mappings, 0 present in the shipped roster ` +
-    `(all name retired/unauthored cli-* twins, e.g. ${recorded[0].pair} -> ${recorded[0].profile})`;
+  return `${scanned} manifests scanned, 0 launch_profile values — retired as ruled`;
 });
 
-check('LIVE-4', 'the uncovered pairs keep their invocation manual (their only home until 7.86 lands)', () => {
+check('LIVE-4', 'every CLI package keeps its invocation manual (now the ONLY dispatch home)', () => {
   // Unchanged in intent from the old `6-COUNTS` tail, minus the literals: the manuals are what this
-  // row was ruled NOT to delete, and that bound holds whatever the roster count is.
+  // row was ruled NOT to delete, and that bound holds whatever the roster count is. With
+  // `launch_profile` retired (2026-08-11) the manuals are no longer an interim home — they are the
+  // dispatch home for every elected pair.
   const CLI = ['claude-code-cli', 'codex-cli', 'kimi-code-cli', 'opencode'];
   for (const pkg of CLI) {
     if (!fs.existsSync(path.join(MODELS_DIR, pkg, 'manual.md'))) {

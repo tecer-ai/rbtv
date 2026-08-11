@@ -8,12 +8,14 @@
 // (`ignite/server/spawn/config.js`), consumer 2 the sub-agent dispatch capability (task 7.43).
 //
 // ⚠ WHAT THIS ROW DELIVERS AND WHAT IT DOES NOT — read before assuming coverage:
-// 2 of 11 elected CLI (model, variant) pairs have a profile at all. The other 9 keep their package
-// invocation manuals, which is DELIBERATE and is task 7.86's to close, not an oversight. And even
-// for a covered pair, only the INVOCATION knowledge has a new home: exit codes, recovery
-// protocols, resume mechanics, failure modes and the per-model task contract have NO FIELD in the
-// profile schema and stay in the delta. Package-granularity is the gate; content-granularity is
-// the cut (leader ruling 2026-07-28, #1486).
+// NO manifest records a launch_profile any more (owner ruling 2026-08-11: launch_profile retired,
+// manual invocation permanent (executes d-r2-preflight-manual-plus-skill)), so EVERY elected CLI
+// pair dispatches from its package manual and the conductor names any profile it resolves by hand.
+// Only INVOCATION knowledge was ever in scope for a profile anyway: exit codes, recovery protocols,
+// resume mechanics, failure modes and the per-model task contract have NO FIELD in the profile
+// schema and stay in the delta (content-granularity is the cut; leader ruling 2026-07-28, #1486).
+// The shipped roster is 14 DAEMON SEAT profiles — see dispatch-resolve.md for what resolving one
+// does and does not give a manual dispatch.
 
 const resolve = require('./resolve');
 const errors = require('./errors');
@@ -25,7 +27,6 @@ module.exports = {
   preflightDispatch: resolve.preflightDispatch,
   loadProfiles: resolve.loadProfiles,
   // the individual bounds, exported so a probe can exercise each one on its own terms
-  assertNoSeatBinds: resolve.assertNoSeatBinds,
   assertWorkTarget: resolve.assertWorkTarget,
   // task 7.87 criterion 4: does THIS profile write its own add-dir flag through `{extra_dir}`,
   // or does the caller still owe a hand-composed one?

@@ -13,29 +13,28 @@ const path = require('node:path');
 const profiles = require('../../../ignite/launch-profiles');
 const {
   DispatchResolveError,
-  E_SEATBINDS_PROFILE,
   E_ADD_DIR_ABSENT,
   E_ADD_DIR_RELATIVE,
 } = require('./errors');
 
-// ── The SeatBinds stub, and the deny-list that keeps it honest ────────────────────────────────
+// ── The SeatBinds stub ────────────────────────────────────────────────────────────────────────
 //
-// ⚠ MEASURED, and it is the reason this module exists in this shape. The shared resolver REFUSES
-// the committed `config/spawn-profiles.yaml` outright unless the caller injects a SeatBinds
-// template validator: profile `claude-seat` declares `sandbox.SeatBinds` (task 7.11), and
-// `profiles.js` refuses an unvalidated bind template rather than waving it through — correctly,
-// "absence of a checker must never become absence of a check". The real validator lives in
-// `server/spawn/cage.js`.
+// ⚠ MEASURED. The shared resolver REFUSES `config/spawn-profiles.yaml` outright unless the caller
+// injects a SeatBinds template validator: `profiles.js` refuses an unvalidated bind template rather
+// than waving it through — correctly, "absence of a checker must never become absence of a check".
+// The real validator lives in `server/spawn/cage.js`, which this module may not import: the
+// conductor is a NON-DAEMON consumer by construction. Since `r-seats-only-architecture`
+// (2026-08-06) the shared `cage:` block gives EVERY profile a `sandbox.SeatBinds`, so the stub is
+// what makes the file loadable here at all.
 //
-// ⇒ ONE profile declaring `SeatBinds` poisons the load for EVERY non-daemon consumer of the whole
-// file. The conductor is a non-daemon consumer BY CONSTRUCTION (its whole point is reaching the
-// resolver with no daemon in the picture), so it cannot inject the real validator without coupling
-// the orchestration module to daemon internals.
-//
-// ⚠ THE COST OF THE STUB, STATED RATHER THAN SOFTENED: a non-interpreting stub DEFEATS that guard
-// for `claude-seat`. "The conductor will never resolve `claude-seat`" is DISCIPLINE, not
-// ENFORCEMENT. The deny-list below is what converts it back to enforcement — which is why the stub
-// and the deny-list are one mechanism and neither ships without the other.
+// ⚠ WHY THE STUB IS NOT A HOLE — the honest statement, replacing the deny-list this module used to
+// carry (owner ruling 2026-08-11: launch_profile retired, manual invocation permanent (executes
+// d-r2-preflight-manual-plus-skill)). `resolveProfile` returns argv/binary/effort/toolset — the
+// sandbox block is NOT among them, and nothing in this lane reads, renders or forwards it. The
+// bind template therefore never reaches a command line through this consumer, so there is nothing
+// for an unvalidated template to corrupt here. Applying the cage is the DAEMON's mechanism
+// (`server/spawn/`), and a conductor's manual dispatch applies none — see dispatch-resolve.md
+// § What this lane does NOT give you.
 //
 // (A FORMER sibling consumer, `ignite/capabilities/sub-agent-dispatch` — task 7.43, retired by
 // `r-seats-only-architecture` 2026-08-06 — took the OTHER branch and imported the real validator
@@ -44,7 +43,6 @@ const {
 function nonInterpretingSeatBindValidator() {
   // Deliberately returns without inspecting the template. Interpreting a bind vocabulary this
   // module does not own would be a SECOND interpreter — the exact drift 7.42 exists to prevent.
-  // Every profile that reaches this stub is refused at resolve time by `assertNoSeatBinds`.
   return undefined;
 }
 
@@ -52,24 +50,6 @@ function loadProfiles(configPath) {
   return profiles.loadConfig(configPath, {
     seatBindValidator: nonInterpretingSeatBindValidator,
   });
-}
-
-// The deny-list. Fail-closed: a profile declaring `sandbox.SeatBinds` is NEVER resolved by the
-// conductor, because this consumer validated nothing about that declaration.
-function assertNoSeatBinds(config, profileName) {
-  const profile = config.profiles[profileName];
-  if (!profile) return; // unknown profile — let the shared resolver raise E_UNKNOWN_PROFILE
-  const binds = profile.sandbox && profile.sandbox.SeatBinds;
-  if (binds !== undefined) {
-    throw new DispatchResolveError(
-      E_SEATBINDS_PROFILE,
-      `profile '${profileName}' declares sandbox.SeatBinds, which this consumer loaded through a ` +
-      `NON-INTERPRETING validator stub — refusing to resolve it rather than dispatching against a ` +
-      `bind template nothing has validated. The conductor is a non-daemon consumer and does not ` +
-      `own the SeatBinds vocabulary (that is server/spawn/cage.js's).`,
-      { profile: profileName, declared: binds },
-    );
-  }
 }
 
 // ── The confinement split (row G1), enforced ──────────────────────────────────────────────────
@@ -144,6 +124,10 @@ function resolveExtraDirSlot(profile, slots, addDir) {
 // expensive order: both refusals that need no subprocess fire BEFORE the pre-flight shells out to
 // the binary's `--help`.
 //
+// The ordering note above once had three refusals to order; the seat-binds deny-list was RETIRED
+// (owner ruling 2026-08-11: launch_profile retired, manual invocation permanent (executes
+// d-r2-preflight-manual-plus-skill)) — see the stub comment for why its premise died.
+//
 // ⚠ THE ADD-DIR CHECK IS HOMED HERE ON A LEADER RULING (2026-07-28, #1486) AND THE REASON IS
 // STRUCTURAL, not stylistic. It was first ruled as "the conductor refuses to dispatch when the
 // add-dir is absent" — but there is NO conductor code path that composes a command line
@@ -154,7 +138,6 @@ function resolveExtraDirSlot(profile, slots, addDir) {
 function preflightDispatch(config, profileName, opts = {}) {
   const { effort, slots = {}, addDir, preflightOpts = {} } = opts;
 
-  assertNoSeatBinds(config, profileName);
   assertWorkTarget(addDir);
 
   const profile = config.profiles && config.profiles[profileName];
@@ -169,7 +152,6 @@ function preflightDispatch(config, profileName, opts = {}) {
 
 module.exports = {
   loadProfiles,
-  assertNoSeatBinds,
   assertWorkTarget,
   declaresExtraDir,
   resolveExtraDirSlot,
