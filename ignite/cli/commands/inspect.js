@@ -22,12 +22,13 @@ ignite inspect status <exec-id>
 ignite inspect logs <exec-id> [--tail <n>]
 ignite inspect daemon
 ignite inspect ticker
-ignite inspect messages <exec-id>
+ignite inspect messages <exec-id> [--tail <n>]
 ignite inspect executions --status <status> [--offset <n>] [--limit <n>]
 ignite inspect executions --status <status> --tail <n>
 
   Read-only. Renders server state (or the full envelope with --json).
-  messages:   the message rows of the execution's chain-stable thread.
+  messages:   the message rows of the execution's chain-stable thread,
+              OLDEST-FIRST. --tail <n>: the NEWEST n, plus the total.
   executions: every execution in one status, paged OLDEST-FIRST —
               launching|running|done|blocked|failed|stalled|killed.
               --tail <n>: the NEWEST n, plus the total, in one command.`;
@@ -132,20 +133,82 @@ function corpusPreview(corpus) {
   return flat.length > CORPUS_PREVIEW_CHARS ? flat.slice(0, CORPUS_PREVIEW_CHARS - 1) + '…' : flat;
 }
 
+function renderMessageRow(m) {
+  console.log(`#${m.msg_id} ${m.created_at} ${m.type} from=${m.sender} status=${m.status ?? '-'} ${corpusPreview(m.corpus)}`);
+}
+
 async function runMessages(argv, ctx) {
   const rawId = requirePositional(argv, 'exec-id');
   if (!/^\d+$/.test(rawId)) throw new CliUsageError('inspect messages requires an integer id');
+
+  const rawTail = takeValue(argv, '--tail');
+  let tail;
+  if (rawTail !== undefined) {
+    if (!/^\d+$/.test(rawTail) || Number(rawTail) <= 0) throw new CliUsageError('--tail must be a positive integer');
+    tail = Number(rawTail);
+  }
   if (argv.length > 0) throw new CliUsageError(`inspect messages: unrecognized argument(s): ${argv.join(' ')}`);
 
-  const { envelope } = await ctx.call('inspect', { target: 'messages', id: rawId });
+  const payload = { target: 'messages', id: rawId };
+
+  // --tail N: the thread listing is ordered OLDEST-FIRST (getMessages orders msg_id ASC) and
+  // exposes offset/limit paging only, never a reverse read — so the NEWEST message costs blind
+  // offset probes. Identical defect and identical fix as `inspect executions --tail` (7.62): the
+  // envelope's `total` makes the last page addressable, so ask for one row to learn the total and
+  // then jump to `total - N`. TWO round trips, whatever the size of the thread.
+  //
+  // A daemon predating `total` (the field ships with this change) still answers — the walk below
+  // is `inspect logs --tail`'s answer to the same contract, and it is what runs against an
+  // un-redeployed box. Delete it once no such daemon is left; `tailOf` is the total either way.
+  if (tail !== undefined) {
+    const head = await ctx.call('inspect', { ...payload, offset: 0, limit: 1 });
+    if (!head.envelope.ok) return finish(head.envelope, { json: ctx.json });
+    const total = head.envelope.result.total;
+    const thread = head.envelope.result.thread;
+
+    let rows;
+    let walked = null;
+    if (Number.isInteger(total)) {
+      const offset = Math.max(0, total - tail);
+      const page = await ctx.call('inspect', { ...payload, offset, limit: tail });
+      if (!page.envelope.ok) return finish(page.envelope, { json: ctx.json });
+      rows = page.envelope.result.rows || [];
+    } else {
+      let offset = 0;
+      let all = [];
+      let lastEnvelope = null;
+      for (;;) {
+        const { envelope } = await ctx.call('inspect', { ...payload, offset, limit: PAGE_LIMIT });
+        lastEnvelope = envelope;
+        if (!envelope.ok) break;
+        const chunk = envelope.result.rows || [];
+        all = all.concat(chunk);
+        if (envelope.result.eof || chunk.length === 0) break;
+        offset = envelope.result.nextOffset;
+      }
+      if (!lastEnvelope.ok) return finish(lastEnvelope, { json: ctx.json });
+      walked = all.length;
+      rows = all.slice(-tail);
+    }
+
+    const tailOf = Number.isInteger(total) ? total : walked;
+    const synth = { ok: true, result: { target: 'messages', id: Number(rawId), thread, rows, eof: true, tailOf } };
+    return finish(synth, {
+      json: ctx.json,
+      renderSuccess: (result) => {
+        console.log(`messages (thread ${result.thread}): newest ${result.rows.length} of ${result.tailOf} row(s)`);
+        for (const m of result.rows) renderMessageRow(m);
+      },
+    });
+  }
+
+  const { envelope } = await ctx.call('inspect', payload);
   return finish(envelope, {
     json: ctx.json,
     renderSuccess: (result) => {
       const rows = result.rows || [];
       console.log(`messages (thread ${result.thread}): ${rows.length} row(s)`);
-      for (const m of rows) {
-        console.log(`#${m.msg_id} ${m.created_at} ${m.type} from=${m.sender} status=${m.status ?? '-'} ${corpusPreview(m.corpus)}`);
-      }
+      for (const m of rows) renderMessageRow(m);
       if (result.eof === false) {
         console.log(`... more available (nextOffset=${result.nextOffset})`);
       }
