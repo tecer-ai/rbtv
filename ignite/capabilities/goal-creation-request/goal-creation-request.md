@@ -16,7 +16,7 @@ builds it.
 |---|---|
 | `validate <request.json> [--goals-root R]` | Validates field by field and **names every field it checked**. Performs no act. Exit 0 accepted, 1 refused. |
 | `handle <request.json> …` | Validates, then create → arm → launch. A refused request performs **no** act. `--no-launch` withholds the launch act; `--dry-run` writes nothing. |
-| `scaffold-and-queue --inbox D --goals-root R --workflow W --entry-seat S [--delay-seconds 600] [--ignite-bin B]` | **The daemon-executed verb** (task C2). Drains a staged inbox: per request, validate → scaffold the goal → register the goal's first workflow job homed at it → queue that job `--delay-seconds` out. **Arms nothing, launches nothing.** Exit 0 when every drained request was accepted (or the inbox was empty), 1 otherwise. |
+| `scaffold-and-queue --inbox D --goals-root R --workflow W --entry-seat S [--delay-seconds N] [--ignite-bin B]` | **The daemon-executed verb** (task C2). Drains a staged inbox: per request, validate → scaffold the goal → register the goal's first workflow job homed at it → queue that job `--delay-seconds` out. **Arms nothing, launches nothing.** Exit 0 when every drained request was accepted (or the inbox was empty), 1 otherwise. |
 
 ## `scaffold-and-queue` — the caged requester's path, and the measurements that shaped it
 
