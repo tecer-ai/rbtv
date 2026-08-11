@@ -1242,7 +1242,7 @@ tools:
       - --budget-json
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/budget.json
       - --delay-seconds
-      - "60"
+      - "600"
       - --ignite-bin
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/cli/ignite.js
 
