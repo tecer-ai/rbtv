@@ -59,7 +59,7 @@ const NO_GOAL_SEAT_NOTICE = "⚠ no goal-master seat is open for this goal — a
 // wording was an INSTRUCTION to re-send, and following it now would deliver the message twice —
 // once by hand and once by the retry. So the wording and the guard shipped together: a manual
 // re-send on the thread DROPS the pending retry, and the notice stops asking for one.
-const SEAT_BUSY_NOTICE = "⚠ that work is still busy with the previous message — yours will be sent again automatically as soon as it frees";
+const SEAT_BUSY_NOTICE = "⚠ that work is still busy with the previous message — yours was NOT delivered yet; it will be sent again automatically as soon as it frees";
 
 // The give-up twin of the notice above: the seat stayed busy past the retry window, so the
 // re-submit was abandoned. Only HERE does the owner get told to send it again — and by then there
