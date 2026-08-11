@@ -24148,6 +24148,16 @@ def _selftest_checks(args, failures, names):
               and "unjoined: NO taskforce.csv ROW (no-registry-row)" in _a3_js
               and "ADMITTED WITHOUT A READINESS TERM"
               in _a3l_run(only="unjoined,okseat", force=True)[0])
+        # ⚠ THE CLAUSE-J SEAT IS REMOVED THE MOMENT ITS ROWS ARE DONE, AND THAT IS LOAD-BEARING.
+        # `_a3l` is REUSED by every later block (F1's `done`-class ladder, 7.280/O3), and under
+        # `d-registry-refusal-supersedes-clause-j` an unjoined seat left on disk makes EVERY
+        # subsequent WHOLE-SET launch (`only=None`) refuse at exit 2 in `check_bindings` — before
+        # the relaunch ladder is reached at all. Measured: it swallowed `F1 criterion 6`'s P2a leg,
+        # which then read `(no leg named)` while the guard it tests was intact (7.721; the arm-3
+        # ladder's P2a, driven ABOVE this point, was green throughout). The fixture is isolated
+        # here rather than the leg matched more loosely — a leg matched on a bare refusal cannot
+        # tell its own guard from any other, which is the property that whole ladder is built on.
+        __import__("shutil").rmtree(_a3l / "seats" / "unjoined")
 
         # ---- arm 4's instrument-path halves: ADMITTED while STILL CARRYING A CLASS ------------
         _a3_write_grants([{"seat": "ex1", "session-id": _a3l_sid, "anchor": _a3l_anchor,
