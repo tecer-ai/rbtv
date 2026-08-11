@@ -24585,7 +24585,7 @@ def _selftest_checks(args, failures, names):
                                       "box": {"available_mb": 999999},
                                       "seats": list(seats)}), encoding="utf-8")
 
-        def _c3_run(**kw):
+        def _c3_run(no_target=False, **kw):
             _d = dict(agent="leader", package=str(_c3l), dry_run=True)
             _d.update(kw)
             # ⚠ 7.718: THIS BLOCK SETS ITS OWN LAUNCH TARGET, like every sibling block that launches
@@ -24599,7 +24599,12 @@ def _selftest_checks(args, failures, names):
             # still CORRECT — the rows fail on `code == 0` alone — and, having launched nothing,
             # write no `sessions.csv`, so the census-absent rows behind them read COLD-START instead
             # of census-unproducible: EIGHT rows red on any host whose shell is outside tmux.
-            # NOT a weakening of that refusal, which is ruled behaviour with its own rows (F18).
+            # NOT a weakening of that refusal, which is ruled behaviour with its own rows (F18) —
+            # and `no_target=True` is how those rows OPT OUT: F18 reproduces a daemon-fired exec's
+            # environment (NEITHER variable set) and asserts the refusal, so the helper must hand it
+            # the empty environment it popped rather than quietly re-supply the input under test.
+            if no_target:
+                return refuse(cmd_launch, **_d)
             _c3_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
             os.environ["COORD_LAUNCH_TARGET"] = "%0"
             try:
@@ -25065,10 +25070,15 @@ def _selftest_checks(args, failures, names):
         wake_ok["v"] = True
         _f18_splits = len(split_targets)
         try:
-            _f18_none, _f18_none_code = _c3_run(only="cap1", dry_run=False)
-            _f18_blank, _f18_blank_code = _c3_run(only="cap1", dry_run=False, tmux_target="   ")
+            # `no_target=True` on all three: popping the two variables above is only half of
+            # reproducing the daemon exec's environment — `_c3_run` supplies its own
+            # `COORD_LAUNCH_TARGET` (7.718), and the arm under test must not be handed the very
+            # input it exists to prove is missing.
+            _f18_none, _f18_none_code = _c3_run(only="cap1", dry_run=False, no_target=True)
+            _f18_blank, _f18_blank_code = _c3_run(only="cap1", dry_run=False, no_target=True,
+                                                  tmux_target="   ")
             _f18_mid = len(split_targets)
-            _f18_ok, _f18_ok_code = _c3_run(only="cap1", dry_run=False,
+            _f18_ok, _f18_ok_code = _c3_run(only="cap1", dry_run=False, no_target=True,
                                             tmux_target="%f18-explicit")
         finally:
             wake_ok["v"] = _f18_prior_wake
