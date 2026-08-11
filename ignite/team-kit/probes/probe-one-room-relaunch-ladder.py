@@ -6,37 +6,39 @@ bounded relaunch ladders acting on the SAME room: `ignite/team-kit/watch.py` and
 `orchestration/cli/team-monitor/team_monitor.py`. Both derive their own lease reading, both spend
 their own backoff budget, and both run `tmux new-session -d -s <room>` on the same name. Two
 mechanisms that can disagree and BOTH ACT is the failure `ignite/jobs/goal-watcher-job.py` says the
-architecture exists to prevent, and it was LIVE, not theoretical. 7.664 removes the `watch.py`
-ladder; `team_monitor.relaunch_room()` is the survivor.
+architecture exists to prevent, and it was LIVE, not theoretical. 7.664 removed the `watch.py`
+ladder; `team_monitor.relaunch_room()` is the survivor. Task 7.35 then deleted `watch.py`
+itself, so R1 no longer drives that loop — it asserts the file is GONE, which is the strongest
+form of "it issues no relaunch".
 
 ⚠ ZERO IS AS RED AS TWO, AND R2 IS WHERE THAT IS CHECKABLE. The property is not "watch.py stopped
 relaunching" — a task that deleted BOTH ladders would satisfy that and leave a crashed room with
 nothing to restore it. The property is that the count is ONE and that the survivor is named.
 
-⚠ R1 IS DRIVEN, NOT READ. It runs the REAL `watch_loop` over a lease pinned to `gone` for a full
-ladder's worth of passes and counts `tmux new-session` at the module's OWN `subprocess` seam — so
-a relaunch smuggled back under a different function name, or inlined into the loop body, is counted
-just the same. A `hasattr` scan alone would miss both.
+⚠ R1 WAS DRIVEN AND IS NOW ABSENCE. It used to run the REAL `watch_loop` over a lease pinned
+`gone` and count `tmux new-session` at that module's OWN `subprocess` seam. Task 7.35 deleted the
+file, and a deleted loop cannot smuggle a relaunch back under another name — so the driven
+measurement is replaced by the fact that subsumes it: the second ladder's whole FILE is gone.
 
-RED-FIRST. `RBTV_PROBE_TREE` names an alternative rbtv repo root and re-points `watch.py` — and
-ONLY `watch.py`, because it is the file under test — at that tree. Pointed at a pre-7.664 tree,
-R1/R2/R3 go red and C0 stays green. `team_monitor.py` is always read from the live tree: it is the
-survivor this probe measures watch.py AGAINST, not a thing under test.
+RED-FIRST, and it still works. `RBTV_PROBE_TREE` names an alternative rbtv repo root and
+re-points the `watch.py` LOOKUP — and only that lookup — at that tree. Pointed at a pre-7.35
+tree, R1 and R2 go red (the file is there, and it carries `relaunch_room`) and C0 stays green.
+`team_monitor.py` is always read from the live tree: it is the survivor this probe measures
+AGAINST, not a thing under test.
 
 ARMS
   C0  THE FIXTURE MEASURES RELAUNCHES AT ALL: the surviving ladder, driven through the same spy,
       really does issue one `tmux new-session` for the room. Vacuity guard — if this reds, a green
       R1 means only that the spy is deaf.
-  R1  DRIVEN: `watch.watch_loop`, over a lease pinned `gone` for more passes than a full backoff
-      tuple, issues ZERO `tmux new-session` through `watch.subprocess`.
+  R1  ABSENCE: `ignite/team-kit/watch.py` does not exist, so the second loop cannot relaunch
+      anything. Pointed at a pre-7.35 tree by `RBTV_PROBE_TREE` this reds.
   R2  COUNTED, NOT ASSUMED: of the two sensors, EXACTLY ONE carries a room-relaunch actuator, and
       it is `team_monitor`. Two is the defect; zero is a room nothing restores.
-  R3  THE SURVIVOR IS STILL BOUNDED, and the removed seam is gone: `team_monitor.RELAUNCH_BACKOFF_S`
-      is a non-empty tuple whose LENGTH is the attempt cap, and `watch.watch_loop` no longer exposes
-      a `relaunch_fn` injection point for a second ladder to be plugged into.
+  R3  THE SURVIVOR IS STILL BOUNDED: `team_monitor.RELAUNCH_BACKOFF_S` is a non-empty tuple
+      whose LENGTH is the attempt cap, so no second constant can disagree with it.
 
-⚠ AN ABSENT TARGET IS THE FAILURE, NEVER A SKIP. If either file is missing or will not import, the
-corresponding arm FAILS. INOPERATIVE (exit 2) is for the probe itself being unable to run.
+⚠ AN ABSENT SURVIVOR IS THE FAILURE, NEVER A SKIP. If `team_monitor.py` is missing or will not
+import, its arms FAIL. (`watch.py`'s absence is the property, not a skip.) INOPERATIVE (exit 2) is for the probe itself being unable to run.
 
 ⚠ IT TOUCHES NO ROOM, NO GOAL AND NO `.rbtv/`. Every `subprocess` call on the loop's path is
 intercepted by the spy; the run root is a throwaway temp dir; no tmux binary is required, so this
@@ -127,51 +129,14 @@ class Spy:
                 if len(c) >= 2 and c[0] == "tmux" and c[1] == "new-session"]
 
 
-class Stop(Exception):
-    pass
-
-
-def drive_watch(watch, passes_wanted):
-    """Run the REAL `watch_loop` over a lease pinned `gone`. Returns (spy, passes, sleeps).
-
-    `goal_finished` and `lease_evidence` are pinned so the loop takes the CRASH path every pass —
-    the one path a relaunch could live on. `do_pass` and `sleep_fn` are the only other seams: the
-    pass work is not this row's subject, and a real backoff sleep would cost 520 seconds.
-    """
-    spy = Spy()
-    real_sub, real_fin, real_lease = watch.subprocess, watch.goal_finished, watch.lease_evidence
-    watch.subprocess = spy
-    watch.goal_finished = lambda _p: False
-    watch.lease_evidence = lambda _p: ("gone", ROOM, 0, "fixture: no room matches the predicate")
-    seen, slept = [], []
-
-    def do_pass(_a):
-        seen.append(1)
-        if len(seen) >= passes_wanted:
-            raise Stop()
-
-    with tempfile.TemporaryDirectory(prefix="probe-one-ladder-") as td:
-        (Path(td) / "coordination").mkdir()
-        args = types.SimpleNamespace(cadence_s=-1)
-        try:
-            watch.watch_loop(args, Path(td), do_pass=do_pass, sleep_fn=slept.append)
-        except Stop:
-            pass
-        finally:
-            watch.subprocess, watch.goal_finished = real_sub, real_fin
-            watch.lease_evidence = real_lease
-    return spy, len(seen), [s for s in slept if s != -1]
-
-
 def main():
-    for tag, target in (("C0", MONITOR), ("R1", WATCH)):
-        if not target.is_file():
-            # ⚠ NOT a skip: an absent target IS a failure of the property under test.
-            check(tag, False, f"{target} does not exist — the one-ladder property cannot hold in a "
-                              f"file that is gone")
-            return
+    if not MONITOR.is_file():
+        # ⚠ NOT a skip: an absent SURVIVOR is a failure of the property under test — zero
+        # ladders is a crashed room with nothing to restore it.
+        check("C0", False, f"{MONITOR} does not exist — the one-ladder property cannot hold "
+                          f"when the survivor is gone")
+        return
     tm = load("tm_under_probe", MONITOR)
-    watch = load("watch_under_probe", WATCH)
 
     # ---- C0: the spy really does hear a relaunch.
     spy0 = Spy()
@@ -181,30 +146,25 @@ def main():
           f"new-session calls={spy0.new_sessions()}, detail={detail0!r} — so a zero count at R1 is "
           f"a measurement, not a deaf fixture")
 
-    # ---- R1: the driven measurement.
-    bound = len(tm.RELAUNCH_BACKOFF_S)
-    spy1, npasses, sleeps = drive_watch(watch, bound + 3)
-    fired = spy1.new_sessions()
-    check("R1", not fired,
-          f"watch_loop over a lease pinned `gone` for {npasses} passes (a full bound of {bound} "
-          f"plus 3) issued {len(fired)} `tmux new-session` call(s) at watch.subprocess: {fired}; "
-          f"backoff sleeps={sleeps}; total subprocess calls={len(spy1.calls)}")
+    # ---- R1: the second ladder's whole FILE is gone (task 7.35), which subsumes the driven
+    # measurement this arm used to take: a deleted loop issues nothing under any name.
+    check("R1", not WATCH.exists(),
+          f"{WATCH} exists={WATCH.exists()} — the second bounded relaunch ladder lived in that "
+          f"file and it was deleted with it; RBTV_PROBE_TREE aimed at a pre-7.35 tree reds this")
 
     # ---- R2: the COUNT, and the survivor by name.
-    carriers = [n for n, m in (("watch", watch), ("team_monitor", tm))
-                if callable(getattr(m, "relaunch_room", None))]
+    carriers = (["watch"] if WATCH.exists() else []) + (
+        ["team_monitor"] if callable(getattr(tm, "relaunch_room", None)) else [])
     check("R2", carriers == ["team_monitor"],
           f"room-relaunch actuators across the two sensors: {carriers} — the property is EXACTLY "
           f"one, named. Two is the defect this task removed; zero would be a crashed room with "
           f"nothing to restore it")
 
-    # ---- R3: the survivor is bounded, and the removed seam is gone.
+    # ---- R3: the survivor is bounded.
     backoff = getattr(tm, "RELAUNCH_BACKOFF_S", None)
-    seam = "relaunch_fn" in inspect.signature(watch.watch_loop).parameters
-    check("R3", isinstance(backoff, tuple) and len(backoff) > 0 and not seam,
+    check("R3", isinstance(backoff, tuple) and len(backoff) > 0,
           f"the survivor's bound is {backoff} ({len(backoff) if backoff else 0} attempts, the "
-          f"tuple's LENGTH is the cap, so no second constant can disagree); watch_loop still "
-          f"exposes a `relaunch_fn` seam: {seam}")
+          f"tuple's LENGTH is the cap, so no second constant can disagree)")
 
 
 try:

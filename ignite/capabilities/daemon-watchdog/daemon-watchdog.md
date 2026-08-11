@@ -30,6 +30,46 @@ identical on every row: **acted, or acted and it did not come back.** Nothing no
 | `probe-suite` | `<workspace>/.rbtv/runtime/probe-suite/latest.json`: `now - fired_at > stale_after_seconds`. **Liveness only** — `verdict`/`passed`/`failed` sit in that same artifact and are deliberately never read here | `RBTV_IGNITE_UNIT=<timer> rbtv-ignite-daemon restart` — see § The row that used to bypass the operator |
 | `goal-watcher` | the job's own periodic **queue row**, via `inspect queue`: overdue by more than the row's OWN `interval_seconds`. No row at all = **skip** (see below). Queue unreadable = **skip**, because that means the daemon is down and the `daemon` row already owns both the cause and the only lever | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart` — a FULL daemon restart, and the DM says so in those words |
 
+## The fifth row: daemon IDENTITY — RESTARTED · CRASH-LOOP · IDENTITY · STALE CODE
+
+The four rows above answer *is it up*. This one answers *is it the SAME one, and is it running
+the code on disk* — the questions `ignite/team-kit/watch.py` used to answer before it was deleted
+(task 7.35, run decision D8), and which nothing else in the repo asks.
+
+**Why it could not just ride the `daemon` row.** That row asks the GATEWAY, and the gateway's
+answer carries `pid` / `uptime_ms` / `last_tick` and **no identity that can be correlated across
+passes**. A pid printed and compared to nothing is how a swapped-out process reads as continuous
+health. So this row reads systemd for the daemon unit — one `systemctl --user show` per pass —
+and compares it against the previous pass's reading on disk.
+
+| Verdict | Decided by |
+|---------|-----------|
+| **RESTARTED** | the unit's `InvocationID` differs from the previous pass's. Keyed on the NEW invocation, never on a change record existing, so one restart is announced exactly once — including a restart that happened while the watchdog itself was down |
+| **CRASH-LOOP** | systemd's own `NRestarts` CLIMBING across passes. A steady outage is binary and is announced once; a crash loop is monotonic (2026-07-27: `NRestarts=32`, climbing every 5s, found by hand) and re-announces while it worsens. Read from systemd's counter, never counted from this pass's sampling — a 60s watchdog counting a 5s loop would undercount by two orders of magnitude |
+| **IDENTITY** | `MainPID` **and** `InvocationID` compared against the previous pass — not merely printed. A pid that moved under an unchanged invocation is reported as CHANGED, never folded into "same" |
+| **STALE CODE** | `.rbtv/runtime/daemon-code.json` (written at boot by `ignite/server/code-fingerprint.js`) correlated **`InvocationID`-FIRST**, then the named files re-hashed from disk |
+
+**Two rules that are load-bearing and must not be "simplified".**
+
+* **`--user` is in the argv, not in a comment.** The unit is user-scoped, and the SYSTEM bus
+  answers `LoadState=not-found ActiveState=inactive MainPID=0 exit 0` — byte-identical to the user
+  bus's answer for a unit that genuinely does not exist. ⇒ `not-found` is reported **UNKNOWN, never
+  absent**, and UNKNOWN never pushes a DM: a measurement failing is not an event.
+* **Identity before bytes, three verdicts never collapsed.** The boot marker is a FILE and outlives
+  the process that wrote it. Hashing first would return a false `current` across a
+  restart-without-redeploy, so a marker whose `InvocationID` does not match the live unit is
+  `unknown` — never `stale`, never `current`.
+
+It is a REPORT row and sits **outside the restart table on purpose**: no restart fixes any of the
+four, and the `daemon` row already owns the only restart lever this unit has (CMP-28 invariant 2 —
+probe · restart · report, never interpret). Its alert texts carry their dedupe key **before** the
+em-dash (`[restarts N]`, `[inv X]`), because the pass-level dedupe fingerprints on the head of each
+alert: without the key a climbing crash loop and a second restart would both read as an unchanged
+repeat and stay suppressed for the whole re-alert window.
+
+`--dry-run` reads these verdicts and **persists nothing** — consuming the prior-pass identity would
+swallow the very restart the next real pass exists to announce.
+
 **Three of these deserve their reasoning stated.**
 
 1. **The goal-watcher job has NO systemd unit of its own.** It is a recurring entry in the
@@ -114,6 +154,7 @@ Every per-instance value is resolved at runtime; nothing is baked into the code.
 | `RBTV_WATCHDOG_TARGETS` | all four rows. **The test-override hook** — mirrors `RBTV_IGNITE_UNIT`: a probe scopes the pass to one row and points that row's unit variable at a throwaway unit, instead of editing the real probe table |
 | `RBTV_WATCHDOG_OPERATOR` | the sibling `daemon-operator/tool/rbtv-ignite-daemon`, else `rbtv-ignite-daemon` on PATH |
 | `RBTV_WATCHDOG_STATE` | `<workspace>/.rbtv/runtime/watchdog/state.json` |
+| `RBTV_WATCHDOG_DAEMON_STATE` | `<workspace>/.rbtv/runtime/watchdog/daemon.json` — the prior-pass daemon identity the RESTARTED / CRASH-LOOP / IDENTITY verdicts compare against. Its OWN file: `RBTV_WATCHDOG_STATE` above is cleared to `null` on every all-green pass, which is exactly the pass a restart has to be detected ACROSS |
 | `RBTV_WATCHDOG_REALERT_SECONDS` | `21600` (6h) — how long an UNCHANGED alert stays suppressed before it is re-sent. `0` re-notifies every pass |
 | `RBTV_WATCHDOG_NOTIFY_FILE` | unset. **Test double** — when set, notifications are appended there as JSON lines and Slack is never called |
 | `RBTV_WATCHDOG_NOTIFY_PREFIX` | empty — prepended to every message; how a TEST DM is marked as one |
@@ -161,6 +202,13 @@ unit and routes notify to a test double;
 the same non-interference guarantee `rbtv-ignite-daemon selftest` established for this
 capability family. A real-DM confirmation is a one-time manual step
 (`RBTV_WATCHDOG_NOTIFY_PREFIX` marks it), never part of the repeatable check.
+
+`probes/probe-g188-daemon-identity.py` proves the fifth row — 96 checks over the four
+verdicts, every systemd answer substituted and every file in a temp dir, so it runs on any
+host and never touches the live unit or the real `.rbtv/runtime/`. It carries a red-first
+control of its own: `RBTV_WATCHDOG_TOOL_PATH=<another copy>` points it at a different
+watchdog, and a watchdog missing the verdicts is reported as four named red arms rather than
+one traceback.
 
 ## Retirement
 

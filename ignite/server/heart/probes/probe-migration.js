@@ -319,6 +319,26 @@ out(`EXIT: ${passed === checks.length ? 0 : 1}`);
 out(`WALL_MS: ${Date.now() - started}`);
 exitCode = passed === checks.length ? 0 : 1;
 
+} catch (e) {
+  // ⚠ OUT OF ROOM IS ENVIRONMENTAL, NOT AN ASSERTION FAILURE - and it used to be
+  // indistinguishable from one. This probe holds FIVE concurrent copies of the store under
+  // os.tmpdir() (fx + pristine + prefix + fail + future); against the VPS live store that is
+  // ~514 MiB, on a quota-mounted tmpfs /tmp. When the room ran out the throw landed at a
+  // copyfile site with EVERY emitted check still reading PASS, so the red named an errno
+  // (-122) instead of a cause (task 7.705). Say which wall was hit, and what to do about it.
+  const shortage = !e ? null
+    : e.code === 'EDQUOT' ? 'quota'
+    : e.code === 'ENOSPC' ? 'space'
+    // The FIRST copy is a VACUUM INTO, so it meets the same wall as SQLITE_FULL rather than as
+    // an fs errno. Same cause, same refusal - classifying only the fs half would leave the
+    // earlier site still reporting the mystery this catch exists to end.
+    : /database or disk is full/i.test(e.message || '') ? 'space'
+    : null;
+  if (!shortage) throw e;
+  out('', `REFUSED (environmental, not a defect): out of ${shortage} writing a fixture under `
+    + `${os.tmpdir()} (${e.code || e.message}). This probe needs room for 5 concurrent copies `
+    + `of the store there. Free ${shortage}, or point TMPDIR at a roomier filesystem.`);
+  out('EXIT: 1');   // exitCode is already 1
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }

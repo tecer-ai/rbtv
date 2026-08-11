@@ -73,9 +73,6 @@ exactly how the transient watch units are named, and a string test would have si
 pid-survival check on every one of them. `kill` against a `.timer` refuses loudly (systemd: "Unit
 type does not support process killing") rather than reporting a false success.
 
-**The watch loop is NOT reachable here.** It has no fixed unit — see `rbtv ignite watch`
-(`capabilities/watch-operator/`).
-
 **Environment:** `RBTV_IGNITE_UNIT` (default `rbtv-ignite.service`; wins over `--service`) · `RBTV_IGNITE_SETTLE_SECONDS`
 (default 3) · `RBTV_IGNITE_JOURNAL_LINES` (default 20) · `RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS`
 (default 300). The unit name is an override so a probe can

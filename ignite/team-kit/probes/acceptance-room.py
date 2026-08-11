@@ -8,7 +8,7 @@ scores the six controls `s4-09` § Acceptance names, each with a red arm that is
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WAY-STATION (role.md §1.1 — the team-kit → ignite boundary). This lives on the RETIRING side
-because its SUBJECT is the retiring side: it exercises `coord.py`, `watch.py` and `budget.py`,
+because its SUBJECT is the retiring side: it exercises `coord.py` and `budget.py`,
 which is where the Stage 4 revival arm is being built. When revival moves into ignite
 (`goal-watcher-job`, CMP-21), THIS FILE MOVES WITH IT — the switch is cheap by construction and
 that cheapness is the whole reason building it here is allowed: it takes no path, no constant and
@@ -114,7 +114,6 @@ such restriction.
       room.kill_harness("s-int-claude")          # kill -9, pid read from the SNAPSHOT
       snap = room.capture()                      # roster_absent is now non-empty
       room.set_floor(99999999)                   # budget.json floors.launch_refuse_mb
-      room.watch_tick()                          # watch.py, NO --loop
       room.age(300)                              # captured_at only, on a real capture
 
 Every subprocess helper runs under `room.env()`: `TMUX`, `TMUX_PANE`, `COORD_AGENT` and
@@ -137,7 +136,6 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 KIT = HERE.parent                                     # ignite/team-kit
 KIT_COORD = KIT / "coord.py"
-KIT_WATCH = KIT / "watch.py"
 KIT_BUDGET = KIT / "budget.py"
 KIT_MONITOR = (KIT.parent.parent / "orchestration" / "cli" / "team-monitor" / "team_monitor.py")
 
@@ -508,12 +506,6 @@ class AcceptanceRoom:
         p.write_text(json.dumps(doc, indent=2), encoding="utf-8")
         return doc
 
-    def watch_tick(self, *extra, check=False, timeout=300):
-        """`watch.py` ONE TICK — no `--loop`. `--loop` is declared with NO default
-        (`watch.py:3333`), so its absence is a single pass and never an infinite one."""
-        return self.sh([sys.executable, str(KIT_WATCH), "--package", str(self.pkg), *extra],
-                       check=check, timeout=timeout)
-
     def coord(self, *args, check=False, timeout=180):
         return self.sh([sys.executable, str(KIT_COORD), "--package", str(self.pkg), *args],
                        check=check, timeout=timeout)
@@ -603,14 +595,13 @@ def _selftest():
 
     # ---- 6 first: the two suites the room must not have broken, and they take the longest. ----
     #
-    # THE TWO INVOCATIONS ARE NOT THE SAME SHAPE, and getting that wrong is a green-looking red:
-    # `watch.py` takes a FLAG (`watch.py:3335`), `coord.py` takes a SUBCOMMAND (`coordinate
-    # selftest`). `coord.py --selftest` does not run the suite at all — argparse refuses it for a
-    # missing <command> and exits 2, which reads as "the suite failed" while nothing ever ran.
-    # And `coord.py` must be run from INSIDE the kit (team-kit/CLAUDE.md: it aborts on missing
-    # sibling assets otherwise).
-    for label, cmd, cwd in (("watch.py --selftest", [str(KIT_WATCH), "--selftest"], None),
-                            ("coord.py selftest", [str(KIT_COORD), "selftest"], KIT)):
+    # THE INVOCATION SHAPE IS LOAD-BEARING, and getting it wrong is a green-looking red:
+    # `coord.py` takes a SUBCOMMAND (`coordinate selftest`). `coord.py --selftest` does not run
+    # the suite at all — argparse refuses it for a missing <command> and exits 2, which reads as
+    # "the suite failed" while nothing ever ran. And `coord.py` must be run from INSIDE the kit
+    # (team-kit/CLAUDE.md: it aborts on missing sibling assets otherwise). The sibling
+    # `watch.py --selftest` invocation was removed with that file (task 7.35).
+    for label, cmd, cwd in (("coord.py selftest", [str(KIT_COORD), "selftest"], KIT),):
         r = subprocess.run([sys.executable, *cmd], capture_output=True, text=True, timeout=1800,
                            cwd=str(cwd) if cwd else None)
         tail = [ln for ln in (r.stdout or "").strip().splitlines() if ln.strip()][-1:] or [""]
@@ -678,11 +669,6 @@ def _selftest():
               and aged["writer_pid"] == after_kill["writer_pid"]
               and "_aged_by_acceptance_room" in aged
               and AcceptanceRoom.snapshot_is_real(aged)[0])
-
-        # a one-shot watch.py tick must run on this package without touching anything live
-        tick = room.watch_tick()
-        check("   (substrate) `watch.py --package <room>` runs one tick with no --loop and "
-              "returns", tick.returncode in (0, 1, 2), f"exit {tick.returncode}")
 
         # ---- 3. isolation is proven, not assumed ----
         during = AcceptanceRoom.default_socket_inventory()

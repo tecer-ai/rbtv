@@ -9,7 +9,6 @@ recovery agent every period regardless of health — an unbounded paid path.
 | Script | Job | Judges | Acts when |
 |--------|-----|--------|-----------|
 | `selfheal-room.py` | 7.71 | a tmux session named as the room | the session does not exist |
-| `selfheal-watch.py` | 7.72 | `{package}/coordination/watch-heartbeat.json` | the stamp is old **or** its pid is not a live `watch.py` |
 | `edge-runner-job.py` | C1 | the executing goal's finished seats + every downstream `after` row | the package is ARMED (`{package}/coordination/edge-fastpath.json`); otherwise it stands down |
 | `goal-watcher-job.py` | 7.32 / B2 | the goal's `state.json` snapshot (CMP-20) and nothing raw | a threshold in CMP-21's Layout is crossed — see below; **DARK today, no live catalogue entry** |
 | `jobcontain.py` | both | — | (library: self-cap, wall clock, single-instance lock) |
@@ -195,8 +194,6 @@ its queue rows and run these by hand:
 # room dead — relaunch it through the kit path that created it
 python3 <rbtv>/ignite/team-kit/coord.py --package <PKG> launch --only <SEAT> --force
 
-# sensor dead — relaunch the watch loop (cadence comes from the goal's budget.json; pass no number)
-nohup python3 <rbtv>/ignite/team-kit/watch.py --package <PKG> --notify --loop-forever >/dev/null 2>&1 &
 ```
 
 ## What they write
@@ -222,11 +219,6 @@ would hand its 256 MB cap to the very sensor or recovery agent it is resurrectin
   recovery through the daemon would widen that invariant, would be dead code tonight
   (`RBTV_IGNITE_TMUX_ROOM` is deliberately unset), and would be exactly the control-loop cutover
   `r-cutover-gated` forbids. Full reasoning in `selfheal-room.py`'s docstring.
-- **A heartbeat is two facts** (7.72): the timestamp *and* that its stated pid is a live
-  `watch.py`. A fresh stamp left by a dead writer is a gravestone, and freshness-only logic reads
-  it as healthy for a whole tolerance window — observed on this run 2026-07-27 04:46–04:54.
-- **Tolerance ×3**, matching `coord.watcher_heartbeat()`, so the job and the `coordinate workers`
-  line humans read never disagree about the same file.
 - **One catalogue entry per target.** Each detector's target is in its argv, not its cwd, so
   re-pointing a job at a live target requires a config edit plus a daemon restart rather than a
   different enqueue.

@@ -39,6 +39,12 @@ Environment (every per-instance value is resolved at runtime; nothing is baked i
                               sibling capability, else on PATH)
   RBTV_WATCHDOG_STATE         alert-dedupe state file (default
                               <workspace>/.rbtv/runtime/watchdog/state.json)
+  RBTV_WATCHDOG_DAEMON_STATE  prior-pass daemon identity, the state the RESTARTED /
+                              CRASH-LOOP / IDENTITY verdicts compare against (default
+                              <workspace>/.rbtv/runtime/watchdog/daemon.json). Its OWN
+                              file: the alert-dedupe state above is cleared to null on
+                              every all-green pass, which is exactly the pass a restart
+                              has to be detected ACROSS.
   RBTV_WATCHDOG_REALERT_SECONDS  how long an UNCHANGED alert stays suppressed
                               before it is re-sent (default 21600 = 6h). Without
                               this ceiling a stuck condition DMs once and then
@@ -52,6 +58,7 @@ Environment (every per-instance value is resolved at runtime; nothing is baked i
                               disagree about it
 """
 import calendar
+import hashlib
 import json
 import os
 import subprocess
@@ -59,6 +66,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 HELLO_MARK = "Socket Mode connection established (hello)"
 RECONNECT_FAIL_MARK = "Socket Mode reconnect failed"
@@ -228,6 +236,333 @@ def probe_goal_watcher():
     return "up", "next fire due in %ds (interval=%ss)" % (int(-overdue), interval)
 
 
+# ── daemon identity · restart · crash-loop · stale code ─────────────────────
+# Ported from `ignite/team-kit/watch.py` (`daemon_identity`, `_daemon_change`,
+# `daemon_code_state`, `check_daemon`) when that file was deleted — task 7.35, run
+# decision D8. WHY THEY COULD NOT JUST RIDE THE `daemon` ROW ABOVE: that row asks the
+# GATEWAY, and the gateway's answer carries pid/uptime/last_tick and NO identity that can
+# be correlated across passes. These four verdicts are therefore read from systemd for the
+# daemon unit and compared against the PREVIOUS pass's reading on disk.
+#
+# They are a REPORT row, deliberately outside the restart table: not one of them is fixed
+# by a restart, and the `daemon` row above already owns the only restart lever this unit
+# has. CMP-28 invariant 2 holds — probe · restart · report, never interpret.
+
+
+def daemon_state_path():
+    return env("RBTV_WATCHDOG_DAEMON_STATE",
+               os.path.join(WORKSPACE, ".rbtv", "runtime", "watchdog", "daemon.json"))
+
+
+def load_daemon_state():
+    try:
+        with open(daemon_state_path()) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_daemon_state(st):
+    """Its OWN file, next to state.json rather than inside it: the alert-dedupe record is
+    rewritten wholesale on every pass (and cleared to None when all green), so parking a
+    prior-pass identity in it would erase the identity exactly when the system is healthy —
+    which is every pass a restart has to be detected ACROSS."""
+    p = os.path.abspath(daemon_state_path())
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = p + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(st, f)
+    os.replace(tmp, p)
+
+
+def _int_or_none(kv, key):
+    """systemd's counter as an int, or None when absent/unparseable — NEVER 0 on failure.
+    0 is a MEANINGFUL value here (a unit that has never restarted), so defaulting a failed
+    read to 0 reports the healthiest possible answer at the moment the read broke. None is
+    the only honest absence, and the caller reads it as "no comparison possible"."""
+    try:
+        return int(kv.get(key))
+    except (TypeError, ValueError):
+        return None
+
+
+def daemon_identity():
+    """The daemon unit's systemd identity THIS PASS — or UNKNOWN, said out loud.
+
+    ⚠⚠ `--user` IS LOAD-BEARING AND IS NOT A STYLE CHOICE. The unit is user-scoped. Asking
+    the SYSTEM bus for it returns, measured on this box against the live daemon:
+        LoadState=not-found  ActiveState=inactive  SubState=dead  MainPID=0  exit 0
+    which is BYTE-IDENTICAL to what the user bus returns for a unit that genuinely does not
+    exist — exit 0 in both cases. So "the daemon is gone" and "I asked the wrong bus" are
+    THE SAME ANSWER. ⇒ `not-found` IS REPORTED AS UNKNOWN, NEVER AS ABSENT. A determinate
+    `loaded` + `inactive` IS reportable as stopped: there the unit answered for itself.
+
+    Returns one of:
+        {"state": "running", "unit", "pid", "since", "invocation", "restarts"}
+        {"state": "stopped", "unit", "why", "restarts"}   — the unit answered; it is down
+        {"state": "unknown", "unit", "why"}               — the question could not be answered
+    `invocation` is systemd's InvocationID, minted fresh on every start: the restart
+    comparison keys on it rather than MainPID, which the kernel recycles and which carries
+    no promise of uniqueness across time."""
+    props = ["LoadState", "ActiveState", "SubState", "MainPID", "ActiveEnterTimestamp",
+             "InvocationID", "NRestarts"]
+    try:
+        rc, out = run(["systemctl", "--user", "show", DAEMON_UNIT,
+                       "--property=" + ",".join(props)])
+    except Exception as exc:
+        return {"state": "unknown", "unit": DAEMON_UNIT,
+                "why": "systemctl --user did not answer (%s)" % exc}
+    if rc != 0:
+        return {"state": "unknown", "unit": DAEMON_UNIT,
+                "why": "systemctl --user exited %s: %s"
+                       % (rc, (out or "").strip()[:120] or "no output")}
+    kv = {}
+    for line in (out or "").splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            kv[k.strip()] = v.strip()
+    load = kv.get("LoadState")
+    if not load:
+        return {"state": "unknown", "unit": DAEMON_UNIT,
+                "why": "systemctl --user printed no LoadState"}
+    if load != "loaded":
+        return {"state": "unknown", "unit": DAEMON_UNIT,
+                "why": "LoadState=%s — indistinguishable from asking the wrong bus, so this is "
+                       "NOT reported as absent" % load}
+    active = kv.get("ActiveState", "")
+    if active != "active":
+        return {"state": "stopped", "unit": DAEMON_UNIT,
+                "restarts": _int_or_none(kv, "NRestarts"),
+                "why": "the unit answered for itself: ActiveState=%s SubState=%s"
+                       % (active or "?", kv.get("SubState") or "?")}
+    invocation = kv.get("InvocationID") or ""
+    pid = kv.get("MainPID") or ""
+    if not invocation or not pid.isdigit() or int(pid) <= 0:
+        return {"state": "unknown", "unit": DAEMON_UNIT,
+                "why": "unit is active but its identity is unreadable "
+                       "(MainPID=%s, InvocationID=%s)"
+                       % (pid or "?", "set" if invocation else "empty")}
+    return {"state": "running", "unit": DAEMON_UNIT, "pid": int(pid),
+            "restarts": _int_or_none(kv, "NRestarts"),
+            "since": kv.get("ActiveEnterTimestamp") or "", "invocation": invocation}
+
+
+def _daemon_change(prev, now):
+    """The restart record to persist, or None — given the PREVIOUS pass's reading and this
+    one's. A change is claimed ONLY between determinate readings: a transition into or out
+    of `unknown` is a MEASUREMENT failing, not an event observed, and reporting it as a
+    restart would manufacture exactly the false certainty this exists to remove."""
+    if not isinstance(prev, dict) or not isinstance(now, dict):
+        return None
+    if prev.get("state") == "unknown" or now.get("state") == "unknown":
+        return None
+    if (prev.get("state") == now.get("state")
+            and prev.get("invocation", "") == now.get("invocation", "")):
+        return None
+    return {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "from": prev, "to": now}
+
+
+def identity_verdict(prev, now):
+    """IDENTITY — the running daemon COMPARED against the one previously seen, never merely
+    printed. The gateway row prints a pid and compares it to nothing, which is how a
+    swapped-out process reads as continuous health. Both keys are compared: the
+    InvocationID because it is the only per-start unique, the MainPID because a pid that
+    moved under an UNCHANGED invocation is an anomaly worth saying out loud rather than
+    silently folding into "same"."""
+    if not isinstance(now, dict) or now.get("state") != "running":
+        return "no comparison — this pass has no determinate identity (%s)" % (
+            (now or {}).get("state") or "?")
+    if not isinstance(prev, dict) or prev.get("state") != "running":
+        return "no comparison — no determinate previous reading (first pass, or the last one " \
+               "was %s)" % ((prev or {}).get("state") or "absent")
+    same_inv = prev.get("invocation") == now.get("invocation")
+    same_pid = prev.get("pid") == now.get("pid")
+    if same_inv and same_pid:
+        return "SAME as the previous pass (pid %s, invocation %s)" % (
+            now.get("pid"), str(now.get("invocation"))[:12])
+    return "CHANGED — pid %s -> %s, invocation %s -> %s" % (
+        prev.get("pid"), now.get("pid"),
+        str(prev.get("invocation"))[:12], str(now.get("invocation"))[:12])
+
+
+def daemon_code_state(workspace_root, daemon):
+    """Is the DAEMON running current code? Returns (verdict, detail).
+
+    ⚠⚠ THE MARKER OUTLIVES THE PROCESS THAT WROTE IT, and that is the whole reason this is
+    careful. It is a file: if the daemon dies, `.rbtv/runtime/daemon-code.json` SURVIVES
+    carrying the last boot's fingerprint. A reader trusting it standalone would report "code
+    is current" about a daemon that is not running — absence-reading-as-health, arriving
+    through the artifact built to prevent it.
+
+    ⇒ THREE OUTCOMES, KEPT DISTINCT; COLLAPSING ANY TWO IS THE DEFECT:
+        "stale"    the marker MATCHES the live unit's boot AND named files changed on disk.
+        "current"  the marker matches the live unit's boot and every named file agrees.
+        "unknown"  anything else — no marker, corrupt marker, a marker from a DIFFERENT
+                   boot, or a daemon that is not determinately running. NEVER stale, NEVER
+                   current.
+    ⚠ IDENTITY FIRST, BYTES SECOND. A byte comparison against a marker from a previous boot
+    is arithmetic about a process that no longer exists — and hash-first would return a
+    false `current` across a restart-without-redeploy, which is the common case."""
+    if not isinstance(daemon, dict) or daemon.get("state") != "running":
+        return "unknown", "the daemon is not determinately running, so nothing can be correlated"
+    p = Path(workspace_root) / ".rbtv" / "runtime" / "daemon-code.json"
+    try:
+        marker = json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return "unknown", ("no boot marker at .rbtv/runtime/daemon-code.json — this daemon "
+                           "booted before the marker existed, or its write failed")
+    except (json.JSONDecodeError, OSError) as exc:
+        return "unknown", "the boot marker is unreadable (%s)" % exc.__class__.__name__
+    if not isinstance(marker, dict):
+        return "unknown", "the boot marker is not an object"
+    live_inv, mark_inv = daemon.get("invocation"), marker.get("invocation")
+    if not mark_inv or not live_inv or mark_inv != live_inv:
+        return "unknown", ("the marker is from a DIFFERENT boot than the running unit "
+                           "(marker %s, live %s), so it describes a process that is gone"
+                           % (str(mark_inv)[:12] or "none", str(live_inv)[:12]))
+    entries = (marker.get("code") or {}).get("entries")
+    if not isinstance(entries, dict) or not entries:
+        # Empty-but-present is the state that lies; the writer never emits it, and a reader
+        # that accepted it would report "nothing drifted" forever.
+        return "unknown", "the marker carries no file fingerprints"
+    # ⚠ THE ROOT IS TAKEN FROM THE MARKER, NEVER RE-DERIVED HERE. The writer knows its own
+    # root and says so; a literal here would freeze one install's layout into a component
+    # every install runs.
+    root = marker.get("code_root") or marker.get("root")
+    if not root:
+        return "unknown", ("the marker does not say which root its paths are relative to, so "
+                           "they cannot be resolved without guessing this install's layout")
+    root = Path(root)
+    drifted = []
+    for rel, want in sorted(entries.items()):
+        try:
+            got = hashlib.sha256((root / rel).read_bytes()).hexdigest()
+        except OSError:
+            drifted.append("%s (unreadable now)" % rel)
+            continue
+        if got != want:
+            drifted.append(rel)
+    if drifted:
+        return "stale", ", ".join(drifted[:6]) + (
+            " (+%d more)" % (len(drifted) - 6) if len(drifted) > 6 else "")
+    return "current", "%d files match the bytes this daemon booted on" % len(entries)
+
+
+def check_daemon(sysstate, daemon, change, notes, code=None):
+    """The four verdicts as AT MOST ONE alert per pass. Mutates `sysstate` (the prior-pass
+    record) and appends to `notes`; returns the report row.
+
+    ⚠ THE CALIBRATION. A note earns its interruption by naming a HARD, MEASURABLE
+    transition — never a judgment, never the watchdog's own difficulty:
+      DOWN       once per EPISODE, re-arming when the unit returns.
+      RESTARTED  once per EVENT, keyed on the NEW InvocationID — never on a change record
+                 merely existing, which would re-announce the same restart forever.
+      CRASH-LOOP re-fires while `NRestarts` CLIMBS. DOWN is binary and gets one note, but a
+                 crash loop is MONOTONIC (2026-07-27: NRestarts=32 and climbing every 5s,
+                 learned by hand) — deterioration, not repetition. Read from systemd's OWN
+                 counter, never counted from this pass's sampling: a 60s watchdog counting
+                 a 5s loop would undercount by two orders of magnitude.
+      STALE CODE once per deploy, keyed on invocation + drift set.
+      UNKNOWN    NEVER pushes, in any of the four. It means THE MEASUREMENT FAILED, not that
+                 something happened; a flag that fires on the watchdog's own blindness is
+                 what trains a reader to discount the next one. It stays LOUD on the row.
+    ⚠ The alert TEXTS carry their dedupe key BEFORE the em-dash (`[restarts N]`, `[inv X]`)
+    because the pass-level dedupe fingerprints on the head of each alert: without the key a
+    climbing crash loop and a second restart would both read as an unchanged repeat and be
+    suppressed for the whole re-alert window."""
+    state = (daemon or {}).get("state")
+    restarts = (daemon or {}).get("restarts")
+    seen = sysstate.get("daemon_restarts_flagged")
+    climbing = isinstance(restarts, int) and isinstance(seen, int) and restarts > seen
+    lines = []
+    if state == "stopped":
+        if not sysstate.get("notified_daemon_down") or climbing:
+            loop = (" ⚠ AND IT IS CRASH-LOOPING: systemd's own restart count has risen "
+                    "%s -> %s since the last warning, so it is failing repeatedly rather than "
+                    "sitting still." % (seen, restarts) if climbing else
+                    " Announced ONCE for this outage.")
+            lines.append("daemon: IGNITE DAEMON IS DOWN [restarts %s] — %s. Nothing is running "
+                         "jobs, ticks or spawns.%s"
+                         % (restarts if isinstance(restarts, int) else "?",
+                            (daemon or {}).get("why") or "unit inactive", loop))
+            sysstate["notified_daemon_down"] = True
+            if isinstance(restarts, int):
+                sysstate["daemon_restarts_flagged"] = restarts
+    elif state == "running":
+        # Re-arm on recovery so a SECOND outage is announced. Only a determinate `running`
+        # clears it — the `unknown` fall-through below deliberately clears nothing.
+        sysstate.pop("notified_daemon_down", None)
+        to = (change or {}).get("to") or {}
+        inv = to.get("invocation")
+        if inv and sysstate.get("notified_daemon_invocation") != inv:
+            frm = (change or {}).get("from") or {}
+            lines.append(
+                "daemon: IGNITE DAEMON RESTARTED [inv %s] — pid %s -> %s, observed %s. An "
+                "owner-side deploy or bounce is otherwise INVISIBLE; that happened twice on "
+                "2026-07-27 and was noticed hours late both times. This says THAT it "
+                "restarted, never WHICH CODE it loaded."
+                % (str(inv)[:12], frm.get("pid") or "?", to.get("pid") or "?",
+                   (change or {}).get("at") or "?"))
+            sysstate["notified_daemon_invocation"] = inv
+        # SEEDED QUIETLY on the running path, never flagged from here: a unit that
+        # crash-looped BEFORE this code landed carries a high NRestarts, and announcing it
+        # now would report an outage already lived through. A fix whose first act is a false
+        # alarm teaches its reader to discount the next one.
+        if isinstance(restarts, int):
+            sysstate["daemon_restarts_flagged"] = restarts
+    if code and code[0] == "stale":
+        seen_stale = sysstate.get("notified_daemon_stale")
+        key = "%s:%s" % ((daemon or {}).get("invocation"), code[1])
+        if seen_stale != key:
+            lines.append("daemon: IGNITE DAEMON IS RUNNING STALE CODE [%s] — %s changed on disk "
+                         "since this daemon booted, and node binds a module's source at require, "
+                         "so the running daemon can never pick it up. It will keep serving the "
+                         "OLD behaviour while every surface reports healthy. A restart deploys "
+                         "it (owner-only, task 7.68)." % (str(code[1])[:40], code[1]))
+            sysstate["notified_daemon_stale"] = key
+    elif code and code[0] == "current":
+        sysstate.pop("notified_daemon_stale", None)
+    # `unknown` falls through: no note, and NOTHING IS CLEARED. Popping the down-flag on an
+    # unreadable pass would silently re-arm a duplicate announcement for an outage already
+    # reported — a measurement failing must never be able to manufacture a flag.
+    if lines:
+        notes.append(" ".join(lines))
+    label = {"running": "ok", "stopped": "DOWN", "unknown": "UNKNOWN"}.get(state, "UNKNOWN")
+    detail = ("pid %s" % daemon.get("pid") if state == "running"
+              else (daemon or {}).get("why") or "unreadable")
+    if isinstance(restarts, int) and restarts:
+        detail += " (systemd restarts: %s)" % restarts
+    if code:
+        # Printed in EVERY state, including current: a healthy case printing nothing leaves
+        # "checked and current" to be inferred from an absence, in the one feature whose
+        # whole subject is that absence and health look identical.
+        detail += {"current": ", running current code",
+                   "stale": ", RUNNING STALE CODE",
+                   "unknown": ", code UNKNOWN (%s)" % code[1]}.get(code[0], "")
+    return "%-13s %-6s %s" % ("daemon-id", label, detail)
+
+
+def daemon_verdicts(persist=True):
+    """ONE reading per pass, feeding BOTH the report rows and the alerts. Returns
+    (rows, alerts).
+
+    ⚠ ONE READING IS A CORRECTNESS POINT, not tidiness: two `systemctl` calls in one pass
+    can straddle a restart, and the row would then report an identity the alert contradicts.
+    Two readings of one moment that disagree is the defect class this exists to close."""
+    st = load_daemon_state()
+    prev = st.get("daemon")
+    now = daemon_identity()
+    change = _daemon_change(prev, now)
+    code = daemon_code_state(WORKSPACE, now)
+    notes = []
+    rows = [check_daemon(st, now, change, notes, code),
+            "%-13s %-6s %s" % ("  ->", "ident", identity_verdict(prev, now))]
+    st["daemon"] = now
+    if persist:
+        save_daemon_state(st)
+    return rows, notes
+
+
 # ── restart actions ─────────────────────────────────────────────────────────
 # EVERY systemd-backed row goes through the daemon-operator, which already verifies
 # survival rather than taking a single read (PRIN-11 — no second restart-and-verify
@@ -388,6 +723,17 @@ def main(argv):
             unrestored = True
             alerts.append("%s is DOWN and did NOT come back after %s — %s. Restart output: %s"
                           % (name, describe(), after_detail, out[-400:] or "<none>"))
+
+    # The four systemd-sourced verdicts (RESTARTED · CRASH-LOOP · IDENTITY · stale code).
+    # Outside the restart table on purpose: no restart fixes any of them, and the `daemon`
+    # row above already owns the only restart lever this unit has. A --dry-run reads them
+    # but persists nothing — consuming the prior-pass identity would swallow the very
+    # restart the next real pass exists to announce.
+    if "daemon" in targets:
+        rows, notes = daemon_verdicts(persist=not dry)
+        lines.extend(rows)
+        if not dry:
+            alerts.extend(notes)
 
     print("\n".join(lines))
 

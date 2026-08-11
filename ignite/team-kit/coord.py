@@ -1074,156 +1074,6 @@ def at_approval_gate(pane):
     return any(m in title for m in APPROVAL_TITLE_MARKERS)
 
 
-def watcher_heartbeat(base):
-    """The watcher loop's last-pass record, or None when no watcher has ever run in this package.
-
-    P32 — nothing watched the watcher: `watch.py` runs detached for hours (nohup), so when its
-    loop dies the run loses liveness/context/approval flagging SILENTLY, and the absence of flags
-    reads exactly like a healthy run. The loop stamps every pass; the roster view reads the stamp,
-    which makes leader's existing orientation command the external check."""
-    p = base / "watch-heartbeat.json"
-    if not p.exists():
-        return None
-    try:
-        hb = json.loads(p.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    if not isinstance(hb, dict) or not hb.get("last_pass"):
-        return None
-    try:
-        age_min = int((datetime.now() - datetime.fromisoformat(hb["last_pass"])).total_seconds()
-                      // 60)
-    except (TypeError, ValueError):
-        return None
-    loop_min = hb.get("loop_min")
-    # A one-shot pass (no --loop) has no cadence to be late against: judge it on a flat 30 min.
-    # A looping watcher gets three missed passes of slack before it is called stale — one skipped
-    # pass is a slow tmux capture, three in a row is a dead loop.
-    stale_after = (loop_min * 3) if isinstance(loop_min, int) and loop_min > 0 else 30
-    hb["age_min"] = age_min
-    hb["stale"] = age_min > stale_after
-    hb["stale_after"] = stale_after
-    hb["code_drifted"], hb["code_known"] = _heartbeat_code_drift(hb.get("code"))
-    return hb
-
-
-def _heartbeat_code_drift(loaded):
-    """(drifted file names, whether the question could be answered at all) — run issue G-158.
-
-    The loop stamps a sha per source file it LOADED; this re-reads those same paths NOW. A
-    disagreement means a live, heartbeating, apparently-healthy loop is executing code that no
-    longer exists on disk — the failure mode that bit three long-lived processes inside one hour on
-    2026-07-27, each caught only by hand-comparing a process start time against a commit time.
-
-    ⚠ ABSENCE IS REPORTED AS UNKNOWN, NEVER AS OK. A loop started before this field existed writes
-    no `code` key, and that is indistinguishable from a current one unless it is said out loud —
-    which is the same absence-reads-as-health shape this whole class is made of. A caller that
-    treats a missing marker as "fine" has rebuilt the defect at the reader."""
-    if not isinstance(loaded, dict) or not loaded:
-        return [], False
-    drifted = []
-    for path, want in sorted(loaded.items()):
-        try:
-            now = hashlib.sha256(Path(path).read_bytes()).hexdigest()
-        except OSError:
-            drifted.append(Path(path).name + " (unreadable now)")
-            continue
-        if now != want:
-            drifted.append(Path(path).name)
-    return drifted, True
-
-
-def _heartbeat_daemon_lines(hb, stale):
-    """(fold-into-the-ok-line suffix, [loud lines]) for the ignite daemon — run issue G-188.
-
-    The run had NO detector for "the daemon restarted". It tracked MainPID in PROSE, in a handoff
-    doc, BY HAND — and prose does not execute. Twice on 2026-07-27 a restart went unnoticed; the
-    second cost ~50 minutes of a false picture and an owner brief that had to be withdrawn. The
-    watch loop samples the unit each pass; this renders it on the line the reader already reads,
-    because a separate command is a command nobody runs.
-
-    ⚠ THE BOUND, and it must not be read as more than it is: this says THAT the daemon restarted.
-    It says NOTHING about WHICH BYTES it is running. There is no G-158-style import-time
-    fingerprint on the daemon side, so "the deploy took" remains an inference — a refinement that
-    lands in the daemon's own boot code, not here.
-
-    ⚠ ABSENCE IS REPORTED AS UNKNOWN, NEVER AS OK, in both directions: a loop predating the field
-    writes no `daemon` key, and a pass that could not read the unit writes state=unknown. Both are
-    said out loud, for the reason `_heartbeat_code_drift` gives — a caller that reads a missing
-    marker as "fine" has rebuilt the defect at the reader."""
-    dmn = hb.get("daemon")
-    loud = []
-    fold = ""
-    # A STALE watcher's daemon reading is as old as its last pass. Saying so is the difference
-    # between a fact and a fossil: without the qualifier the reader takes an hours-old pid for a
-    # live one, which is this class's whole failure shape wearing a different hat.
-    asof = " (as of that last pass, which is STALE)" if stale else ""
-    if not isinstance(dmn, dict) or not dmn.get("state"):
-        loud.append(("hint", "daemon: UNKNOWN — this loop predates the daemon marker, so nothing "
-                             "here can tell whether the ignite daemon has restarted. Treat it as "
-                             "UNVERIFIED, not healthy; a restart of the loop makes it answerable."))
-        dmn = {}
-    elif dmn["state"] == "running":
-        pid = dmn.get("pid")
-        since = (dmn.get("since") or "").replace("UTC", "").strip()
-        fold = f", daemon pid {pid}" + (f" since {since}" if since else "") + asof
-    elif dmn["state"] == "stopped":
-        loud.append(("dead", f"daemon: DOWN — {dmn.get('why') or 'the unit reports inactive'}"
-                             f"{asof}. Nothing is running jobs, ticks or spawns."))
-    else:
-        loud.append(("dead", f"daemon: UNKNOWN — {dmn.get('why') or 'unreadable'}{asof}. This is "
-                             f"NOT a report that the daemon is absent: on this box a system-scope "
-                             f"query for the user-scoped unit answers exit 0 with LoadState="
-                             f"not-found, byte-identical to a unit that never existed. Ask "
-                             f"`systemctl --user status {dmn.get('unit') or 'the ignite unit'}` "
-                             f"before concluding."))
-    # G-188 stage 3, THE PULL SURFACE — and its absence here was the defect. The watcher computes
-    # "is the daemon running current code" every pass; this is the ONLY place that turns it into
-    # something a reader sees, because `coordinate workers` composes from the heartbeat file. A
-    # verdict computed and never surfaced is a value with no consumer (G-184's shape), and it fails
-    # in the direction that looks healthiest: a silent line.
-    dcode = hb.get("daemon_code")
-    # ⚠ THE CODE VERDICT IS ONLY WORTH A LINE WHILE THE DAEMON IS RUNNING. A down or unreadable
-    # daemon ALREADY has a loud line above saying so, and "code state UNKNOWN" underneath it adds no
-    # decision — it is the 11-of-12 false-positive shape, arriving as a second line about the same
-    # fact. The gap this closes is a RUNNING daemon whose line would otherwise imply healthy bytes.
-    running_now = isinstance(dmn, dict) and dmn.get("state") == "running"
-    if not running_now:
-        dcode = None
-    if isinstance(dcode, dict) and dcode.get("verdict") == "current":
-        # Folded into the ok line, never given one of its own: G-158's second pass proved that a
-        # healthy case printing NOTHING leaves "checked and current" to be inferred from an absence,
-        # in the one feature whose whole subject is absence looking like health.
-        fold += ", running current code"
-    elif isinstance(dcode, dict) and dcode.get("verdict") == "stale":
-        loud.append(("dead", f"daemon: RUNNING STALE CODE — {dcode.get('detail') or 'files changed'} "
-                             f"changed on disk since this daemon booted, and node binds a module's "
-                             f"source at require, so the running daemon can never pick it up. It "
-                             f"keeps serving the OLD behaviour while every other surface reports "
-                             f"healthy. A restart deploys it (owner-only, task 7.68)."))
-    elif isinstance(dcode, dict):
-        loud.append(("hint", f"daemon: code state UNKNOWN — {dcode.get('detail') or 'not determinable'}"
-                             f". Treat it as UNVERIFIED, not healthy."))
-    elif running_now:
-        # A loop predating the field writes no key at all. Said out loud for the same reason the
-        # watcher's own missing marker is: a caller that reads a missing marker as "fine" has
-        # rebuilt the defect at the reader. Bounded to the running case by the rule above.
-        loud.append(("hint", "daemon: code state UNKNOWN — this watch loop predates the daemon "
-                             "code-state check, so nothing here can tell whether the daemon is "
-                             "running current bytes. A loop restart makes it answerable."))
-    chg = hb.get("daemon_change")
-    if isinstance(chg, dict) and isinstance(chg.get("to"), dict):
-        frm, to = chg.get("from") or {}, chg["to"]
-        loud.append(("dead", f"daemon: RESTARTED — observed {chg.get('at') or '?'} "
-                             f"(pid {frm.get('pid') or '?'} -> {to.get('pid') or '?'}, "
-                             f"state {frm.get('state') or '?'} -> {to.get('state') or '?'}). "
-                             f"An owner-side deploy or bounce is INVISIBLE to this run otherwise; "
-                             f"this line is sticky and stays until the next change, because both "
-                             f"restarts on 2026-07-27 were noticed hours late. It does NOT say "
-                             f"which code the daemon loaded."))
-    return fold, loud
-
-
 WAKE_ENTER_ATTEMPTS = 3
 # A real production wake (300+ chars) takes some TUIs noticeably longer than round-2's 0.15s
 # first-check assumed just to REDRAW the pasted text, before Enter's effect is even relevant — a
@@ -2631,8 +2481,6 @@ def taskforce_ids(pkg):
         if v and v not in out:
             out.append(v)
     return "|".join(out)
-
-
 
 
 # ---------- 7.607 E1: THE DERIVED LEASE, accessed — never re-implemented here ----------------
@@ -8214,8 +8062,6 @@ def deliver_handoff(args, base, seat):
                 f"keeps repeating.", C_DEAD), file=sys.stderr)
 
 
-
-
 # ---- M4-11 (task 7.126): THE CHECK-OUT FAST PATH ----------------------------------------------
 #
 # A seat's clean check-out already MAKES its successors ready. Nothing ACTUATES that: advancement is
@@ -9158,51 +9004,6 @@ def cmd_workers(args):
             print(c(f"awaiting close: {seat} — checked out {aged} ago; its pane is already gone, "
                     f"but the close never ran, so the roster and session trace are unfinished "
                     f"— {coord_invocation(args)} close-seat {seat} --no-export", C_HINT))
-    # P32: the watcher is the run's sentinel and NOTHING watched it. Its loop is detached, so a
-    # dead loop looks exactly like a quiet run — no flags either way. The roster view is where
-    # leader already looks, so the heartbeat is checked here rather than in a new command.
-    hb = watcher_heartbeat(base)
-    if hb:
-        cadence = f", loop {hb['loop_min']}min" if hb.get("loop_min") else ", one-shot"
-        pid = f", pid {hb['pid']}" if hb.get("pid") else ""
-        # G-158, second pass: UNKNOWN and STALE were both loud and the HEALTHY case printed
-        # NOTHING, so "checked and current" was left to be INFERRED from an absence — in the one
-        # feature whose whole subject is that absence and health look identical. It cost a real
-        # reader real time: the chief-of-staff opened coord.py at this print site to confirm the
-        # silence was by design rather than assume the absence was good news.
-        # Appended to the ok line rather than given a line of its own: the success line already
-        # exists, so terse-on-success survives and the common path gains no new noise.
-        code_ok = ""
-        if hb.get("code_known") and not hb.get("code_drifted"):
-            names = sorted(Path(p).name for p in (hb.get("code") or {}))
-            code_ok = f", running current {' + '.join(names)}" if names else ""
-        daemon_fold, daemon_loud = _heartbeat_daemon_lines(hb, hb["stale"])
-        if hb["stale"]:
-            print(c(f"watcher: STALE — last pass {hb['age_min']}min ago (stale past "
-                    f"{hb['stale_after']}min{cadence}{pid}). Nothing is measuring liveness, "
-                    f"context or approval gates right now; restart the loop.", C_DEAD))
-        else:
-            print(c(f"watcher: ok — last pass {hb['age_min']}min ago{cadence}{pid}{code_ok}"
-                    f"{daemon_fold}", C_ALIVE))
-        # G-158: "is it running" and "is it running WHAT WE THINK" are different questions, and
-        # only the first was ever asked. A loop that imported an old coord.py keeps passing every
-        # check above — fresh heartbeat, live pid, flags delivered — while executing code that no
-        # longer exists. Printed next to the liveness line because the two are read together and a
-        # separate command would be a command nobody runs.
-        if not hb.get("code_known"):
-            print(c("watcher: code version UNKNOWN — this loop predates the code marker, so "
-                    "nothing here can tell whether it is running current code. Treat it as "
-                    "UNVERIFIED, not healthy; a restart makes it answerable.", C_HINT))
-        elif hb.get("code_drifted"):
-            print(c(f"watcher: RUNNING STALE CODE — {', '.join(hb['code_drifted'])} changed on "
-                    f"disk since this loop imported it, and python binds source at import, so the "
-                    f"running loop can never pick it up. It will keep heartbeating and reporting "
-                    f"healthy on the OLD behaviour. Restart the loop to deploy.", C_DEAD))
-        # G-188: the daemon. Same print site as the two questions above, and for the same reason —
-        # this is where the reader already looks. The healthy case rides the ok line; only DOWN,
-        # UNKNOWN and RESTARTED take a line of their own.
-        for kind, line in daemon_loud:
-            print(c(line, C_DEAD if kind == "dead" else C_HINT))
     if not getattr(args, "history", False):
         print(c(f"-- current rows only (log tail #{tail}); --history for every row, --full for "
                 f"untruncated summaries", C_HINT))
@@ -18366,25 +18167,6 @@ def _selftest_checks(args, failures, names):
               "normally the moment its title clears",
               "at an approval gate" not in out)
 
-        # ---- P32: the roster view is the external check on the watcher loop ----
-        hbp = base_dir(ns()) / "watch-heartbeat.json"
-        hbp.write_text(json.dumps({"last_pass": datetime.now().isoformat(timespec="seconds"),
-                                   "loop_min": 10, "pid": 4242}), encoding="utf-8")
-        out = run(cmd_workers, full=False, history=False)
-        check("P32: `workers` reports the watcher loop's last pass — the loop runs detached, so "
-              "before this a DEAD watcher was indistinguishable from a quiet run (no flags "
-              "either way) and the run lost liveness/context/approval cover silently",
-              "watcher: ok" in out and "loop 10min" in out and "pid 4242" in out)
-        hbp.write_text(json.dumps({"last_pass": "2000-01-01T00:00:00", "loop_min": 10,
-                                   "pid": 4242}), encoding="utf-8")
-        out = run(cmd_workers, full=False, history=False)
-        check("P32: past three missed passes it is reported STALE, naming what has stopped being "
-              "measured — one skipped pass is a slow capture, three is a dead loop",
-              "watcher: STALE" in out and "stale past 30min" in out)
-        hbp.unlink()
-        out = run(cmd_workers, full=False, history=False)
-        check("P32: a run with no watcher prints no line at all — the row is evidence, not chrome",
-              "watcher:" not in out)
         live_tmux_panes["v"] = set()
 
         # ---- 7.80/G-195: coordinate's agent_type render half ----
@@ -30483,7 +30265,6 @@ def build_parser():
     s.set_defaults(func=cmd_lifecycle_exec)
     p.command_parsers = made  # so the self-test can render every command's help
     return p
-
 
 
 def assert_argv_body_shell_safe(args):
