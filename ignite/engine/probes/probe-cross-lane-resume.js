@@ -58,6 +58,7 @@ const attached = require('../attached-execution');
 const record = require('../execution-record');
 const { createEngine } = require('../index');
 const { openHeartStore } = require('../../server/heart/heart-store');
+const { requirePythonCmd } = require('../../lib/python-cmd');
 
 // Every .js/.py under the module, minus vendored code — the enumerator a structural claim must go
 // through, because a hand-glob's wrong answer and right answer are the same empty result.
@@ -560,7 +561,7 @@ async function main() {
   // The launch TRACE the old guard refused on — header from the SCHEMA OWNER (coord.py
   // SESSIONS_COLS), never spelled here. It is written for two reasons: the trace is still the
   // lifecycle accounting both lanes keep, and the LAST arm below measures what it now does NOT do.
-  const HEADER = require('node:child_process').execFileSync('python3',
+  const HEADER = require('node:child_process').execFileSync(requirePythonCmd(),
     ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
       path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim();
   const FOREIGN_SESSION = '11111111-2222-3333-4444-555555555555';

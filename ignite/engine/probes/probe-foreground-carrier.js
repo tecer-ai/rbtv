@@ -56,6 +56,7 @@ const attached = require('../attached-execution');
 // two answer alike rather than asserting it (7.626 review F3).
 const ferry = require('../../bridges/chat/bus-ferry');
 const { openHeartStore } = require('../../server/heart/heart-store');
+const { requirePythonCmd } = require('../../lib/python-cmd');
 const { loadConfig } = require('../../server/spawn/config');
 
 // ── fixture ───────────────────────────────────────────────────────────────────────────────────
@@ -650,7 +651,7 @@ async function main() {
     allTrace.rows.every((r) => r.ended && r.disposition === 'exited' && r['disposition-writer'] === 'kit'),
     allTrace.rows.map((r) => `${r.seat}:${r.ended || 'OPEN'}/${r.disposition || '-'}`).join(' '));
 
-  const askPython = (src) => spawnSync('python3', ['-c', src], { encoding: 'utf8', cwd: IGNITE_SRC });
+  const askPython = (src) => spawnSync(requirePythonCmd(), ['-c', src], { encoding: 'utf8', cwd: IGNITE_SRC });
   const readersSay = askPython(`
 import sys, pathlib, importlib.util
 sys.path.insert(0, 'team-kit')

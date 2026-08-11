@@ -34,6 +34,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
 const { capture } = require('./lib');
+const { requirePythonCmd } = require('../../../lib/python-cmd');
 const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags } = require('../cage');
 const { buildBwrapArgv } = require('../bwrap');
 
@@ -90,7 +91,7 @@ function fixture() {
   sh('git', ['commit', '-q', '-m', 'base'], repo);
 
   // THE FLOW UNDER TEST creates the worktrees — not this probe by hand.
-  const flow = (...args) => sh('python3', [FLOW, ...args, '--ws', ws, '--repo', repo, '--goal', GOAL], ws);
+  const flow = (...args) => sh(requirePythonCmd(), [FLOW, ...args, '--ws', ws, '--repo', repo, '--goal', GOAL], ws);
   flow('open-goal');
   flow('open-seat', '--seat', MINE);
   flow('open-seat', '--seat', PEER);
@@ -235,7 +236,7 @@ capture('probe-worktree-flow', async (lines) => {
     // ── W-6 — the flow's own cleanup, seen through the cage's eyes: after merge-seat the seat's
     // worktree is gone, so the grant that opened it resolves to nothing. Zero grants is the
     // correct answer for a closed seat, and it is reached without a special case.
-    sh('python3', [FLOW, 'merge-seat', '--ws', f.ws, '--repo', f.repo, '--goal', GOAL, '--seat', MINE], f.ws);
+    sh(requirePythonCmd(), [FLOW, 'merge-seat', '--ws', f.ws, '--repo', f.repo, '--goal', GOAL, '--seat', MINE], f.ws);
     const after = grantsFor(f, MINE);
     leg('W-6', 'after merge-seat the seat holds NO grant — cleanup closes the opening too',
       after.length === 0 && !readByPath(f.mineWt) && !readByListing(f.mineWt),

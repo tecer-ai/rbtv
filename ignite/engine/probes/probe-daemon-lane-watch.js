@@ -64,6 +64,7 @@ const record = require('../execution-record');
 const laneWatch = require('../lane-watch');
 const { createEngine } = require('../index');
 const { openHeartStore } = require('../../server/heart/heart-store');
+const { requirePythonCmd } = require('../../lib/python-cmd');
 
 // ── the mutation harness ──────────────────────────────────────────────────────────────────────
 // The module is recompiled IN MEMORY under its own real filename, so its relative `require`s
@@ -157,7 +158,7 @@ function laneCli(args, { expectRefusal = false } = {}) {
     // RBTV_IGNITE_CONFIG_PATH points the CLI's profile-name check at THIS fixture's config — the
     // same override the daemon honours. Without it the door would validate `probe-lane` against
     // the shipped config, where it does not exist, and every write here would refuse.
-    const out = execFileSync('python3', [GOAL_CLI, '--root', goalsRoot, 'lane', ...args],
+    const out = execFileSync(requirePythonCmd(), [GOAL_CLI, '--root', goalsRoot, 'lane', ...args],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, RBTV_IGNITE_CONFIG_PATH: configPath } });
     return { ok: true, out };
   } catch (err) {

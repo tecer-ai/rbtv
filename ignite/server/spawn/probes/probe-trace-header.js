@@ -30,6 +30,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
 const { capture, reapWorkerUnit } = require('./lib');
+const { requirePythonCmd } = require('../../../lib/python-cmd');
 const { listSystemdUnits } = require('../carrier');
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../spawn');
@@ -40,7 +41,7 @@ const { createSpawnManager } = require('../spawn');
 // failure this leg exists to catch.
 const KIT = path.resolve(__dirname, '../../../team-kit');
 function ownerHeader() {
-  return execFileSync('python3', ['-c',
+  return execFileSync(requirePythonCmd(), ['-c',
     'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
     KIT], { encoding: 'utf8', timeout: 60000 }).trim();
 }

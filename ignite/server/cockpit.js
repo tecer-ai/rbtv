@@ -70,6 +70,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { pythonCmd } = require('../lib/python-cmd');
 
 const { assertTmuxName } = require('./spawn/tmux');
 // 7.607 E3: the ONE home of 'is this goal executing' (design-lock item 1). Required here, never
@@ -118,7 +119,7 @@ function resolveTeamviewArgv({ igniteSrc, env = process.env, exists = fs.existsS
 
   if (igniteSrc) {
     const sibling = path.resolve(igniteSrc, '..', 'orchestration', 'cli', 'teamview', 'teamview.py');
-    if (exists(sibling)) return ['python3', sibling];
+    if (exists(sibling)) { const py = pythonCmd(); return py ? [py, sibling] : null; }
   }
   return null;
 }

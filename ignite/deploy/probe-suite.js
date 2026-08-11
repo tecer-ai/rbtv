@@ -68,6 +68,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { pythonCmd } = require('../lib/python-cmd');
 
 const IGNITE_ROOT = path.resolve(__dirname, '..');
 const DEFAULT_TIMEOUT_MS = 180000;
@@ -164,35 +165,6 @@ function tmuxIsolatedEnv(opts) {
     cachedIsolatedEnv = env;
   }
   return cachedIsolatedEnv;
-}
-
-// ⚠ `python3` IS NOT AN INTERPRETER ON WINDOWS — IT IS USUALLY A LIE (task 7.700). Windows ships a
-// Microsoft-Store app-execution alias at `%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe` that is
-// ON PATH, IS EXECUTABLE, AND RUNS NO PYTHON: it prints "Python was not found; run without
-// arguments to install from the Microsoft Store" and exits non-zero (9009 from cmd, 49 from a
-// POSIX shell). So every `.py` probe read RED-by-environment through this runner on the Windows
-// desktop while the real interpreter sat on the same PATH as `python`.
-// THE DETECTION MUST THEREFORE BE AN EXECUTION, NOT A LOOKUP. `where python3` finds the alias;
-// `spawnSync` succeeds in spawning the alias; only its EXIT CODE plus its OUTPUT distinguish it
-// from a real interpreter. Probed ONCE per process, in PATH order, first candidate that actually
-// reports `Python <n>` on exit 0 wins.
-// POSIX IS BYTE-UNCHANGED: `python3 --version` exits 0 saying `Python 3.x` there, so `python3` is
-// still what every probe is spawned with. The `python` fallback is reachable only where `python3`
-// does not exist or is the alias, and when NEITHER candidate runs we hand back `python3` so the
-// failure a box without Python produces is the same one it produced before.
-let cachedPython;
-function pythonCmd() {
-  if (cachedPython !== undefined) return cachedPython;
-  cachedPython = null;
-  for (const cmd of ['python3', 'python']) {
-    const r = spawnSync(cmd, ['--version'], { encoding: 'utf8', timeout: 15000 });
-    if (r.error || r.status !== 0) continue;
-    if ([r.stdout, r.stderr].some((s) => /^Python \d/.test(String(s || '').trim()))) {
-      cachedPython = cmd;
-      break;
-    }
-  }
-  return cachedPython;
 }
 
 function executeProbe(probe, opts) {

@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn: childSpawn, execFileSync } = require('node:child_process');
+const { requirePythonCmd } = require('../../lib/python-cmd');
 const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot } = require('./config');
 const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCagedSettings } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
@@ -321,7 +322,7 @@ function appendRowEnsuringHeader(csvPath, values, log) {
   if (before.exists && before.header.length > 0) return written;
   try {
     const kit = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'), 'team-kit');
-    const header = execFileSync('python3', [...SESSIONS_HEADER_ARGV, kit],
+    const header = execFileSync(requirePythonCmd(), [...SESSIONS_HEADER_ARGV, kit],
       { encoding: 'utf8', timeout: 30000 }).trim();
     if (!header.includes(',')) throw new Error(`the schema owner returned no header: ${JSON.stringify(header)}`);
     fs.writeFileSync(csvPath, `${header}\n`, 'utf8');
