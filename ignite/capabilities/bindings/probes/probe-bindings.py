@@ -149,9 +149,10 @@ with tempfile.TemporaryDirectory() as td:
     croot = td / "bindings"
     out = mod.scaffold(LIVE_MANIFEST, croot)
     sheet = Path(out["bindings"])
-    check("scaffold filed the sheet at <root>/meta/planning/plan.json — the code is the manifest's "
-          "shared seat prefix",
-          sheet == croot / "meta" / "planning" / "plan.json", str(sheet))
+    check("scaffold filed the sheet at the D15 module-first path "
+          "<root>/modules/meta/planning/bindings/plan.json — the code is the manifest's shared "
+          "seat prefix",
+          sheet == croot / "modules" / "meta" / "planning" / "bindings" / "plan.json", str(sheet))
     doc = json.loads(sheet.read_text())
     manifest_seats = mod.manifest_seats(LIVE_MANIFEST)
     check("every manifest seat is present and UNCAST",
@@ -170,7 +171,9 @@ with tempfile.TemporaryDirectory() as td:
     check("effort NUMBER 4 stored as the native STRING `xhigh`, read back from the FILE — the rung "
           "the profile's four-level translation table does not carry",
           stored["effort"] == "xhigh" and stored["model"] == "claude-opus-5", json.dumps(stored))
-    check("the sheet reports which seats remain uncast", len(r["uncast"]) == 15, str(len(r["uncast"])))
+    check("the sheet reports which seats remain uncast — every manifest seat but the one just cast",
+          len(r["uncast"]) == len(manifest_seats) - 1,
+          f"{len(r['uncast'])} of {len(manifest_seats)}")
 
     before = sha(sheet)
     arms = [
@@ -205,8 +208,10 @@ with tempfile.TemporaryDirectory() as td:
     fake.parent.mkdir(parents=True)
     fake.write_text("Seat/workflow,after\npxyz-one,\npxyz-two,pxyz-one\n", encoding="utf-8")
     o = mod.scaffold(fake, croot)
-    check("a manifest with prefix `pxyz` files itself as pxyz.json under probemod/probecomp",
-          Path(o["bindings"]) == croot / "probemod" / "probecomp" / "pxyz.json", o["bindings"])
+    check("a manifest with prefix `pxyz` files itself as pxyz.json under the D15 path "
+          "modules/probemod/probecomp/bindings",
+          Path(o["bindings"]) == croot / "modules" / "probemod" / "probecomp" / "bindings"
+          / "pxyz.json", o["bindings"])
     fake.write_text("Seat/workflow,after\npxyz-one,\nabcd-two,pxyz-one\n", encoding="utf-8")
     refused, msg = refuses(lambda: mod.scaffold(fake, croot), _mod=mod)
     check("a manifest whose rows share NO prefix refuses rather than picking one", refused, msg[:120])
