@@ -192,27 +192,48 @@ async function runExecutions(argv, ctx) {
   }
   if (argv.length > 0) throw new CliUsageError(`inspect executions: unrecognized argument(s): ${argv.join(' ')}`);
 
-  // --tail N: the listing is ordered OLDEST-FIRST (jobs_log ORDER BY exec_id) and the
-  // contract exposes offset/limit paging only, never a reverse read or a total — so the
-  // newest row costs blind offset probes. Same answer `inspect logs --tail` already gives
-  // for the same contract: walk the pages through the gateway and keep the last N
-  // client-side. `tailOf` IS the total the envelope never carried.
+  // --tail N: the listing is ordered OLDEST-FIRST (jobs_log ORDER BY exec_id) and exposes
+  // offset/limit paging only, never a reverse read — so the newest row costs blind offset
+  // probes. With the envelope's `total` the last page is addressable: ask for one row to
+  // learn the total, then jump to `total - N`. TWO round trips, whatever the size of the
+  // set (measured on the live VPS: 25,858 `done` rows).
+  //
+  // A daemon predating `total` (the field ships with this change) still answers — the walk
+  // below is `inspect logs --tail`'s answer to the same contract, and it is what runs against
+  // an un-redeployed box. Delete it once no such daemon is left; `tailOf` is the total either
+  // way.
   if (tail !== undefined) {
-    let offset = 0;
-    let rows = [];
-    let lastEnvelope = null;
-    for (;;) {
-      const { envelope } = await ctx.call('inspect', { ...payload, offset, limit: PAGE_LIMIT });
-      lastEnvelope = envelope;
-      if (!envelope.ok) break;
-      const chunk = envelope.result.rows || [];
-      rows = rows.concat(chunk);
-      if (envelope.result.eof || chunk.length === 0) break;
-      offset = envelope.result.nextOffset;
-    }
-    if (!lastEnvelope.ok) return finish(lastEnvelope, { json: ctx.json });
+    const head = await ctx.call('inspect', { ...payload, offset: 0, limit: 1 });
+    if (!head.envelope.ok) return finish(head.envelope, { json: ctx.json });
+    const total = head.envelope.result.total;
 
-    const synth = { ok: true, result: { target: 'executions', status, rows: rows.slice(-tail), eof: true, tailOf: rows.length } };
+    let rows;
+    let walked = null;
+    if (Number.isInteger(total)) {
+      const offset = Math.max(0, total - tail);
+      const page = await ctx.call('inspect', { ...payload, offset, limit: tail });
+      if (!page.envelope.ok) return finish(page.envelope, { json: ctx.json });
+      rows = page.envelope.result.rows || [];
+    } else {
+      let offset = 0;
+      let all = [];
+      let lastEnvelope = null;
+      for (;;) {
+        const { envelope } = await ctx.call('inspect', { ...payload, offset, limit: PAGE_LIMIT });
+        lastEnvelope = envelope;
+        if (!envelope.ok) break;
+        const chunk = envelope.result.rows || [];
+        all = all.concat(chunk);
+        if (envelope.result.eof || chunk.length === 0) break;
+        offset = envelope.result.nextOffset;
+      }
+      if (!lastEnvelope.ok) return finish(lastEnvelope, { json: ctx.json });
+      walked = all.length;
+      rows = all.slice(-tail);
+    }
+
+    const tailOf = Number.isInteger(total) ? total : walked;
+    const synth = { ok: true, result: { target: 'executions', status, rows, eof: true, tailOf } };
     return finish(synth, {
       json: ctx.json,
       renderSuccess: (result) => {

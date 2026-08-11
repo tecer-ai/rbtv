@@ -192,6 +192,11 @@ async function main() {
         p1 && p1.ok === true && p1.result.rows.length === 1 && p1.result.eof === false && p1.result.nextOffset === 1,
         `result=${JSON.stringify(p1 && p1.result && { n: p1.result.rows.length, eof: p1.result.eof, next: p1.result.nextOffset })}`);
 
+      // `total` is what makes the LAST page addressable — `eof` only says whether the page you
+      // asked for was the last one, never where that page starts. --tail below jumps on it.
+      check('a PAGE reports the total of the whole filtered set, not just of the page',
+        p1 && p1.result.total === 2, `total=${p1 && p1.result.total} rows=${p1 && p1.result.rows.length}`);
+
       const p2 = parseJson((await runCli(['--json', 'inspect', 'executions', '--status', 'failed', '--offset', String(p1.result.nextOffset), '--limit', '1'], cliEnv)).stdout);
       const walked = p1.result.rows.concat(p2.result.rows).map((x) => x.exec_id).sort((x, y) => x - y);
       check('walking nextOffset through the CLI reaches every row exactly once and ends at eof:true',

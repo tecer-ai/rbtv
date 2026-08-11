@@ -801,7 +801,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       const all = heartStore.listExecutionsByStatus(status);
       const rows = all.slice(offset, offset + limit);
       const nextOffset = offset + rows.length;
-      return { target, status, rows, nextOffset, eof: nextOffset >= all.length };
+      // `total` — the size of the WHOLE filtered set, not of this page. It is free here (the
+      // read already materialised `all`) and it is what makes the last page ADDRESSABLE: without
+      // it the listing is oldest-first with no end marker, so reaching the newest row costs blind
+      // offset probes or a walk of every page (`inspect executions --tail`, which jumps straight
+      // to `total - n` when this field is present). `eof` answers "is this the last page I asked
+      // for"; only `total` answers "where IS the last page".
+      return { target, status, rows, total: all.length, nextOffset, eof: nextOffset >= all.length };
     }
 
     // ── task 7.93 · the THREAD-ADDRESSED messages read ──────────────────────────────────────
