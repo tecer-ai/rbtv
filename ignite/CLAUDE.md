@@ -145,13 +145,13 @@ either: a read-only check must not write into the goals workspace as the price o
 dispatch fenced against `.rbtv/**` can run the suite without breaching its own fence. A summary
 worth keeping is worth naming — pass `--summary <path>` and it is written verbatim there.
 
-## jobs/ — four scripts ACT on Linux only (author their briefs against the VPS)
+## jobs/ — three scripts ACT on Linux only (author their briefs against the VPS)
 
-`ignite/jobs/` holds the daemon's `fire-tool` detector scripts. Four of them —
-`goal-watcher-job.py`, `selfheal-watch.py`, `selfheal-room.py` and `restart-daemon.py` — import
+`ignite/jobs/` holds the daemon's `fire-tool` detector scripts. Three of them —
+`goal-watcher-job.py`, `selfheal-room.py` and `restart-daemon.py` — import
 `jobcontain.py`, whose containment ACTIONS exist only on POSIX: `single_instance`'s `fcntl`
 double-run lock and `contain`/`child_preexec`'s `resource` memory cap. Since task 7.715 those
-imports are LAZY and keyed on `ImportError`, so the four scripts LOAD anywhere — they can be read
+imports are LAZY and keyed on `ImportError`, so the three scripts LOAD anywhere — they can be read
 and statically checked on the Windows desktop — but they only ACT on Linux.
 
 **Author any brief that EXERCISES their real behaviour against the ignite VPS, not the desktop.**
