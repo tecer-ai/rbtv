@@ -220,7 +220,11 @@ async function main() {
       r1.sessionId && r1.sessionId === r2.sessionId, { first: r1.sessionId, second: r2.sessionId });
     check('arm2: the second turn was faster than the first (no process creation on a warm turn)',
       typeof r2.ms === 'number' && typeof r1.ms === 'number', { turn1Ms: r1.ms, turn2Ms: r2.ms, feedGapMs: t2 - t1 });
-    cap.log({ step: 'warm turn latency', turn1Ms: r1.ms, turn2Ms: r2.ms, note: 'turn1 includes the live launch; turn2 is the warm figure' });
+    // ⚠ turn2Ms IS NOT A WARM FIGURE. `ms` is stamped inside feed()'s executor, but turn 2 is fed
+    // mid-turn, so its result cannot arrive until turn 1's has: turn2Ms = (remaining turn 1) +
+    // (turn 2's own work). Measured once: turn1 3449, feedGap 2555, turn2 2584 — of which 894 was
+    // spent waiting out turn 1. Reading turn2Ms as warm-path latency reads ~35% queue wait.
+    cap.log({ step: 'warm turn latency', turn1Ms: r1.ms, turn2Ms: r2.ms, feedGapMs: t2 - t1, note: 'turn1 includes the live launch; turn2 CARRIES THE QUEUE WAIT for turn1 — not a warm figure' });
 
     // ── ARM 3 — accounting ────────────────────────────────────────────────────────────────────
     {
@@ -240,15 +244,26 @@ async function main() {
     {
       const before = mgr.list()[0];
       const mgrIdle = mgr;
+      // ⚑ THE UNIT NAME IS ASSERTED BEFORE IT IS USED, because getting it wrong INVERTS the
+      // orphan check below into a green. `list()` is a hand-written snake_case projection: rename
+      // or drop `session_id` there (or change the unit-name shape in `carrier.js`) and the derived
+      // name points at a unit that never existed — `is-active` fails on the first iteration,
+      // `gone` is true, and the probe reports "no orphan left behind" while a real worker unit is
+      // orphaned after every reap. The session answered two turns moments ago, so its unit is
+      // alive right here by construction; a name that resolves to no live unit is a broken name,
+      // and this fails loudly on it instead of manufacturing the pass below.
+      const unit = `rbtv-worker-${before && before.session_id}.service`;
+      check('arm4: the live session\'s unit name is derivable from `list()` AND names a LIVE unit before the reap (a wrong name would manufacture the pass below)',
+        Boolean(before && before.session_id) && unitAlive(unit), { unit, before });
       // Reaping is asked of the manager directly rather than waited out: the window is 10 minutes
       // by design and a probe that slept it would be a probe nobody runs.
       const reaped = mgrIdle.reapAll('probe-reap');
       check('arm4: the reaper closed the live session', reaped === 1 && mgr.size() === 0, { reaped, size: mgr.size() });
       // The child gets EOF and exits; the unit goes with it (`--collect`).
       let gone = false;
-      for (let i = 0; i < 40 && !gone; i += 1) { await sleep(250); gone = !unitAlive(`${before.session_id ? `rbtv-worker-${before.session_id}` : 'none'}.service`); }
+      for (let i = 0; i < 40 && !gone; i += 1) { await sleep(250); gone = !unitAlive(unit); }
       check('arm4: the child process actually EXITED on stdin close — no orphan unit left behind',
-        gone, { unit: `rbtv-worker-${before && before.session_id}.service` });
+        gone, { unit });
     }
 
     // ── ARM 5 — a crash mid-turn must not swallow the owner's message ──────────────────────────
