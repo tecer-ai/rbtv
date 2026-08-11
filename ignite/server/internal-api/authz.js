@@ -409,7 +409,43 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     return canRegisterJob({ sender, verb: 'deregister-job' });
   }
 
-  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, principalsOf, PRINCIPALS };
+  // May this attested sender record the OWNER'S ANSWER on a goal's coordination bus
+  // (task 7.771, owner ruling 2026-08-11 § D8)?
+  //
+  // BRIDGE ONLY — the narrowest predicate in this module, and deliberately narrower than every
+  // sibling above. The act is not "write a message": it is ASSERTING THAT THE HUMAN ANSWERED, and
+  // the row it writes clears a seat's mechanical hold (`execution-record.js#blockAndQueueVerdict`).
+  // A forged one lets a run walk past a question the owner never saw — the exact failure D8 exists
+  // to prevent, reached through the door built to prevent it.
+  //
+  // ⚑ `kind: agent` IS REFUSED, and that is the whole point of the predicate: an ordinary seat
+  // token could otherwise release its OWN hold. `enqueue-job` and `send-message` are open to an
+  // agent token precisely because neither can do that.
+  // ⚑ `kind: owner` IS REFUSED TOO — not because a human owner may not answer, but because he has
+  // no need of this door: he is already at the seat's bus with `coordinate send` and at Slack with
+  // the bridge. A kind with no caller is dead flexibility on an authorization surface. Widen it the
+  // day something owner-shaped needs it, and say what.
+  // ⚑ NOT ASKED THROUGH `principalsOf`, and the reason is `canRegisterJob`'s verbatim: the resolver
+  // chain feeds canRemoveQueueRow / canKillSession too, so teaching it a bridge principal would
+  // silently widen decisions this ruling never touched. This function tests `sender.kind` directly
+  // and mints no PRINCIPALS entry, so nothing else can ever inherit the grant.
+  function canRecordBusAnswer({ sender }) {
+    const allowed = !!sender && sender.kind === 'bridge';
+    const seenAs = !sender ? 'no attested sender at all'
+      : (typeof sender.kind === 'string' && sender.kind
+        ? `a ${sender.kind} token`
+        : 'a sender carrying no attested kind');
+    return {
+      allowed,
+      principals: allowed ? ['bridge'] : [],
+      // S-3's rule, applied: state the predicate ACTUALLY ENFORCED and the kind SEEN.
+      reason: allowed
+        ? 'authorized as: the chat bridge'
+        : `record-bus-answer requires the chat BRIDGE token; you are ${seenAs}`,
+    };
+  }
+
+  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, principalsOf, PRINCIPALS };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };

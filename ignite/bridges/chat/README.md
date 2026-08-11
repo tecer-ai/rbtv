@@ -385,9 +385,75 @@ mechanism, and a producer opts in with one token.
 Agent X posts a bus row `to: owner` → both gates pass → the row anchors
 X's thread in the goal channel (**no sitting**). The owner replies in that thread → `kind:
 'agent'` → a `session-create` at **X's own seat** revives X with the reply as its bare prompt (a
-chain is minted). X's next `to: owner` row → ferried into the **same** thread (the map is keyed
-on `from`). The owner's next reply → a `send-message` **follow-up** on X's chain. No relay LLM
-anywhere; the only sittings are the agents themselves.
+chain is minted), **and the reply is recorded back onto X's bus as a `type: answer` row** (see
+below). X's next `to: owner` row → ferried into the **same** thread (the map is keyed on `from`).
+The owner's next reply → a warm turn, else a `send-message` **follow-up** on X's chain — **and that
+one is recorded onto the bus too**, at whichever of the two answered. No relay LLM anywhere; the
+only sittings are the agents themselves.
+
+### The answer goes back onto the bus (task 7.771, owner ruling 2026-08-11 § D8)
+
+Delivering the reply was never the whole act: until this row **nothing recorded anywhere that the
+ask had been answered**. The bus kept every question and no reply, so the mechanical hold
+(`engine/execution-record.js#blockAndQueueVerdict`, § The hold keys on a DELIVERED ask) could never
+see an ask close, and a seat could check out past a question the owner had already answered.
+
+So the bridge makes ONE extra gateway call — `record-bus-answer { goal, seat, corpus }` — and the
+**daemon** shells to `coord.py send <seat> --type answer --file <body> --as owner --force
+[--re <ask#>]`.
+
+**ONE implementation, THREE doors** (owner review, 2026-08-11). "The owner answered" is ONE FACT,
+and an owner turn can arrive through any of three paths: `onChatMessage` forks on
+`threadMap.has()`, and `chat-bridge.js` tries the warm path ahead of both. The first cut recorded on
+the session-create leg only — the same single-source-of-truth defect this design exists to delete.
+Every door now calls `forward-path.js#recordBusAnswer`; the `route.kind === 'agent'` guard lives
+inside it, so a `goal` or `master` surface writes nothing at any door.
+
+| door | fires when | its own success condition |
+|---|---|---|
+| session-create (reply #1) | the thread has no chain yet | the enqueue was accepted **and** not suppressed at the idempotent door |
+| follow-up (reply #2+, cold) | the chain exists, warm declined | same, **and** not a corrective redispatch |
+| warm (reply #2+, live session) | `chat-bridge.js` — the session answered | `warm.answered` — the seat CONSUMED the words. Whether the agent's reply then posted to Slack is the other direction and does not un-answer it |
+
+**Exactly one fires per owner turn**, by construction: a warm answer returns before the forward
+path is reached, and the cold fork is exclusive. The call stays on each door's own success path and
+is **never hoisted into `onChatMessage` ahead of the fork** — the seat-busy branch deliberately does
+not deliver, so an answer recorded there would assert the owner answered while nothing reached the
+seat.
+
+| bound | why |
+|---|---|
+| the **bridge never spawns** | `chat-bridge-spec.md` lines 14/26 and `probe-chat-boundary`. The bridge asks; `engine/bus-answer.js` acts. Same split `live-sessions.js:10-15` describes for the warm-session manager |
+| **coord is the only writer** of `coordination/messages.md` | a second writer from JavaScript is the defect class D8 deletes. This side holds no format, no lock and no append |
+| `--force` | four `cmd_send` gates written for SEAT-TO-SEAT traffic can refuse the write and lose the owner's answer: **length** (`MESSAGE_MAX = 2000` vs. arbitrary Slack text), closing seat, bounded inbox, unknown recipient |
+| `--re` is **resolved, not carried** | the bridge cannot know the ask id (`agentThreads` stores only `threadTs`); the daemon derives it from the goal's own bus through `execution-record.js#openOwnerAsks` — the SAME pairing the hold makes, so coord's `pending` and the hold cannot disagree |
+| the goal and seat names are **validated at three doors** | they arrive from an internet-facing component and become path segments under `.rbtv/goals/`: shape at the gateway, shape again at the core (DEC-3), then shape + **existence on disk** in `bus-answer.js` |
+| authorization is **`kind: bridge` only** | the row clears a seat's mechanical hold, so an `agent` token must not be able to forge one and release its own hold (`authz.canRecordBusAnswer`) |
+| **delivery never fails because the bookkeeping failed** | the reply reaching the seat is the load-bearing act and has already happened. Every failure is logged at `warn` and changes neither the outcome nor the exit path |
+
+⚠ **A CORRECTIVE REDISPATCH IS NOT AN OWNER ANSWER** (ruled 2026-08-11). `chat-bridge.js` calls the
+follow-up leg with `corrective: true` as the reply contract's revive turn — the BRIDGE re-asking a
+worker that returned a malformed reply. The owner sent nothing, so recording an `answer` on his
+behalf would clear a seat's hold on the strength of a schema complaint. Same reasoning that already
+makes a corrective post no decline notice and never type `answer`.
+
+⚠ **THE GATE IS NOT `replyType === 'answer'`, THOUGH IT LOOKS LIKE THE TIGHTER CHECK — IT IS DEAD
+CODE.** `replyType` is `answer` only when `entry.pendingAsk`, and **nothing sets that true in this
+deployment**: `setPendingAsk(true)` fires only from `deliverToOwner({ markAsk: true })`, and every
+live call site passes `markAsk: false` (`reply-leg.js:489` — "ask-detection out of scope v1"). A
+ferried agent ask does not set it either — `routeToAgentThread` posts through
+`transport.sendToOwner`, which never touches the flag. Gating on it would read as correct and never
+once fire, on the precise surface this whole mechanism exists for. Grep before restoring it.
+*(Consequence beyond this row: D105's reply-type pinning is inert — every follow-up is typed `note`,
+so the store's `messages` never carries an `answer` either. Separate defect, not fixed here.)*
+
+⚠ **A DOOR-SUPPRESSED ENQUEUE RECORDS NOTHING.** `heart-store.js#enqueue` returns
+`{ deduped: true }` *before* the INSERT and discards the payload — the owner's corpus with it. The
+store's own comment makes the rule general: *"a caller that must not lose its payload MUST read
+`deduped` rather than treating a returned id as delivery."* Whether a `send-message` job can key
+that door depends on whether its catalogue row is homed, which is deployment state — so the write
+requires unambiguous delivery instead of guessing. ⚠ The follow-up leg's own `forwarded: true`
+still ignores `deduped`, unlike the session-create leg's; a latent gap, named not fixed.
 
 ## The warm path — live sessions (`live-session-design.md` §1/§4, built 2026-08-10)
 
@@ -714,7 +780,7 @@ Bodies over ~3000 chars are cut at a **line boundary** and end
 |------|------|
 | `index.js` | process entry + `buildBridge()` composition |
 | `chat-bridge.js` | wires transport + allowlist + thread-map + forward-path + reply-leg; inbound + outbound; owns the reply addresses and the `(goal, agent)` → thread map |
-| `forward-path.js` | the D104/D105 forward contract (session-create / follow-up / reply type) |
+| `forward-path.js` | the D104/D105 forward contract (session-create / follow-up / reply type), plus the ONE `record-bus-answer` gateway call that puts the owner's reply back on the asking seat's bus (§ The answer goes back onto the bus). The ACT is daemon-side (`engine/bus-answer.js`) — this subtree may hold no spawn |
 | `reply-leg.js` | the D110 outbound driver: worker turn finishes → fetch its answer via `inspect` → apply the bridge-owned reply contract (per-harness normalize · fence · lint · bounded corrective revive) → `deliverToOwner` into the Slack thread |
 | `mrkdwn.js` | markdown→mrkdwn normalization (the best-effort safety net) AND `lintMrkdwn`, the reply contract's conformance check — one module, because both need the same answer to "what is a markdown-ism, and where is it data" |
 | `bus-ferry.js` | the bus ferry: coordination-bus rows addressed `to: owner` → through the two gates on agent-initiated contact → the sending agent's own thread in the goal channel, else the channel master (post + mint a sitting); everything else, `to: master` included, is not its business. One way; cursor-at-tail, persisted |

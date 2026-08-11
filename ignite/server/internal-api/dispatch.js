@@ -31,6 +31,9 @@ const { createAuthzPolicy } = require('./authz');
 // required-argument set enqueue enforces, so the report and the runtime cannot disagree.
 const { jobFireability } = require('../heart/heart-store');
 const { appendKillRecord } = require('./keys-audit');
+// The `record-bus-answer` act (task 7.771). Required rather than injected, like `appendKillRecord`
+// above and unlike `liveSessions`: it is a stateless call, not a manager holding processes.
+const { recordBusAnswer } = require('../../engine/bus-answer');
 const path = require('path');
 
 const ENVELOPE_VERSION = 1;
@@ -77,10 +80,27 @@ const ENVELOPE_VERSION = 1;
 // write lands through the already-shipped heartStore.recordMessage, whose `messages` row has
 // carried (type, sender, thread, corpus) since before this task. `d-team-kit-realization`'s
 // divergences 1 and 4 STAND — the client is adapted to the gateway's shape, never the reverse.
+// `record-bus-answer` is the TWELFTH intent, added ADDITIVELY by task 7.771 (owner ruling
+// 2026-08-11, design `one-readiness-predicate.md` § D8) under the SAME §1 extension rule as its
+// three predecessors: it records the owner's Slack reply as a `type: answer` row on the asking
+// seat's coordination bus, with its OWN complete re-validation clause and its OWN authz decision
+// (`authz.canRecordBusAnswer` — BRIDGE ONLY, the narrowest in the policy module). The ENVELOPE
+// VERSION IS UNCHANGED and no existing intent's payload semantics move. Before it, the bus kept
+// every question and no reply, so `engine/execution-record.js#blockAndQueueVerdict` could never see
+// an ask close and a run could walk past a question the owner had already answered.
+// ⚑ THE WRITE IS NOT PERFORMED HERE AND NOT IN JAVASCRIPT AT ALL: `coordination/messages.md` has
+// exactly one writer, `coord.py`, and `engine/bus-answer.js` shells to it. This handler validates,
+// authorizes, and delegates — the same shape `live-feed` has over the live-session manager.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
+  'record-bus-answer',
 ]);
+
+// The goal/seat name shape, re-checked at the core independently of the gateway's copy
+// (`gateway/parse.js#BUS_NAME_RE`) — DEC-3: gateway origin is not trust, and these two tokens
+// become path segments under `.rbtv/goals/`.
+const BUS_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
 
@@ -445,7 +465,7 @@ function toWireError(err) {
 // It is called ONLY after a real queue row is minted — never on a dry run, never on a validation
 // failure — and it is the one external-work signal the ticker is allowed to react to. Absent →
 // the enqueue behaves exactly as before and the row waits out the cadence.
-function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonLoadedCode = null, daemonConfig = null, readConfiguredTickIntervalMs = null, onEnqueue = null, liveSessions = null }) {
+function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonLoadedCode = null, daemonConfig = null, readConfiguredTickIntervalMs = null, onEnqueue = null, liveSessions = null, workspaceRoot = null }) {
   if (typeof secret !== 'string' || secret.length === 0) {
     throw new Error('createInternalApi requires a non-empty per-boot client secret');
   }
@@ -1254,6 +1274,60 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     return { sent: true, msg_id: row && row.msg_id, thread: payload.thread, type: payload.type, sender: senderId };
   }
 
+  // ── task 7.771 · the owner's answer, recorded on the coordination bus ─────────────────────
+  //
+  // Its own COMPLETE re-validation clause (DEC-3: gateway origin is not trust), in the same order
+  // every sibling handler uses: strict schema, then shape, then authorization, then the act.
+  //
+  // ⚑ THE TWO NAMES ARE RE-CHECKED HERE. They arrived from an internet-facing component and become
+  // PATH SEGMENTS under `.rbtv/goals/`, so the front door's copy is not the only thing between a
+  // traversal and a directory read. `engine/bus-answer.js` checks them a THIRD time against the
+  // module that owns the constant (`bus-ferry#isSafeName`) and then asks disk whether the goal and
+  // the seat actually exist — the questions the gateway holds no handle for and must not grow one.
+  // ⚑ NOTHING HERE WRITES THE BUS. `coordination/messages.md` has exactly one writer, `coord.py`.
+  // ⚑ AUTHORIZATION IS BRIDGE-ONLY and is asked in the ONE policy module, never as an `if` here.
+  async function handleRecordBusAnswer(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (!['goal', 'seat', 'corpus'].includes(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    for (const key of ['goal', 'seat']) {
+      if (typeof payload[key] !== 'string' || !BUS_NAME_RE.test(payload[key])) {
+        throw new InternalApiError(VALIDATION_FAILED, `record-bus-answer ${key} must be a bare name (no path separators, no "..", no control characters)`, { check: 'name-shape', field: key });
+      }
+    }
+    if (typeof payload.corpus !== 'string' || payload.corpus.trim().length === 0) {
+      throw new InternalApiError(VALIDATION_FAILED, 'record-bus-answer requires a non-empty corpus', { check: 'corpus-shape', field: 'corpus' });
+    }
+
+    const decision = authz.canRecordBusAnswer({ sender });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
+    }
+    if (!workspaceRoot) {
+      throw new InternalApiError(INTERNAL, 'this daemon has no workspace root, so it can reach no goal bus', { check: 'workspace-root' });
+    }
+
+    const out = await recordBusAnswer({
+      workspaceRoot, goal: payload.goal, seat: payload.seat, corpus: payload.corpus,
+    });
+    if (!out.recorded) {
+      // A REFUSAL AS DATA, not a throw — and deliberately not a typed error either. The caller's
+      // delivery has already happened; its job on this result is to LOG, never to change course
+      // (the bookkeeping must not be able to undo the act). A typed error would be reported to the
+      // owner as a failed reply, which would be a lie about a message that landed.
+      log('warn', 'record-bus-answer did NOT record a row — the reply was still delivered', {
+        goal: payload.goal, seat: payload.seat, senderId: sender && sender.id, reason: out.reason, detail: out.detail || out.error || null,
+      });
+      return { recorded: false, reason: out.reason, goal: payload.goal, seat: payload.seat };
+    }
+    log('info', 'recorded the owner\'s answer on the coordination bus', {
+      goal: payload.goal, seat: payload.seat, msgId: out.msgId, re: out.re, senderId: sender && sender.id,
+    });
+    return { recorded: true, msg_id: out.msgId, re: out.re, goal: payload.goal, seat: payload.seat };
+  }
+
   // Kill a session — expose the spawn module's EXISTING kill surface (TERM → grace →
   // KILL of the whole process tree, status → `killed`) on the wire (cli-expansion ruling
   // D2, ce-4). Kill is NOT headed-only — a session is "killable at any time" regardless
@@ -1407,6 +1481,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'deregister-job': result = handleDeregisterJob(env.payload, env.sender); break;
         case 'live-feed': result = await handleLiveFeed(env.payload, env.sender); break;
         case 'send-message': result = handleSendMessage(env.payload, env.sender); break;
+        case 'record-bus-answer': result = await handleRecordBusAnswer(env.payload, env.sender); break;
       }
 
       // Outbound round-trip: the snapshot the gateway receives is DETACHED, so

@@ -762,6 +762,10 @@ async function main() {
     // live-session-design.md §1: the ONE handle the `live-feed` intent reaches. Null when the
     // manager failed to build, which the handler reports rather than faulting on.
     liveSessions,
+    // Task 7.771: `record-bus-answer` addresses a GOAL, and a goal folder is per-WORKSPACE state
+    // (`.rbtv/goals/<goal>`), so the handler needs the root this daemon serves. Passed as plain
+    // data, like every other value here — the internal API resolves no paths of its own.
+    workspaceRoot,
   });
 
   const gateway = createGateway({

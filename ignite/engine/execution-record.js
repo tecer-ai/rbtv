@@ -261,14 +261,22 @@ function closeExecutionLocked({ goalFolder, sessionId, outcome, endedAt }) {
 // held-ness stored anywhere: held-ness IS the row (PRIN-11).
 //
 // ⚠ WHAT RELEASES IT — AND WHY IT IS NOT A LATER BUS ROW, though the ruling's sketch reads that
-// way. NOTHING WRITES AN ANSWER ROW TO THE BUS: `bus-ferry.js` is outbound-only by construction
-// ("Slack → bus stays the sittings' job") and the owner's reply in the agent's thread mints a
-// SESSION at the asking seat's own home (`bridges/chat/forward-path.js`, route kind `agent`). So a
-// release derived from a bus answer would be a hold nothing could ever clear — measured by reading
-// every writer of `coordination/messages.md`: `coord.py send` and the two capability tools, none of
-// them the bridge. (It was also measured the hard way: the first version of this file did re-derive
-// the hold from the bus at every close, and the REVIVED session's own `done` republished `blocked`
-// because the original ask was still sitting there unanswered. The probe's paired arm went red.)
+// way. This paragraph WAS true and is now HALF true; both halves matter, so it is amended rather
+// than rewritten. The measurement it records stands: `bus-ferry.js` is outbound-only by
+// construction ("Slack → bus stays the sittings' job") and the owner's reply in the agent's thread
+// mints a SESSION at the asking seat's own home (`bridges/chat/forward-path.js`, route kind
+// `agent`), so for as long as no writer put the answer on the bus, a release derived from a bus
+// answer was a hold nothing could ever clear. (It was also measured the hard way: the first
+// version of this file did re-derive the hold from the bus at every close, and the REVIVED
+// session's own `done` republished `blocked` because the original ask was still sitting there
+// unanswered. The probe's paired arm went red.)
+//   ⚑ TASK 7.771 (owner ruling 2026-08-11, design § D8) MADE ONE WRITER EXIST, and it is still not
+// the bridge: the reply leg makes ONE gateway call (`record-bus-answer`) and the DAEMON shells to
+// `coord.py send --type answer`, so `coordination/messages.md` keeps exactly one writer — coord.
+// The `open` walk above therefore now SHIFTS on a delivered reply, and `spent` stops being the only
+// discriminator. Nothing here changed: both terms are computed exactly as before, and a deployment
+// whose bridge predates 7.771 (or whose bus write failed — it is best-effort by ruling) is the
+// unchanged `spent`-only case. See `engine/bus-answer.js`.
 //   The release is therefore the REVIVAL the answer mints: it opens a SECOND record row for the
 // seat, and the seat's LAST word in the record is what every reader keys on (`seeding.js#recordView`
 // § notFinished) — open while the revived session works, `done` when it finishes. The owner's answer
@@ -376,6 +384,26 @@ function addressesSeat(to, seat) {
   return String(to).split(/[,\s]+/).some((t) => t === seat);
 }
 
+// THE PAIRING — this seat's `to: owner` rows that no later `answer` addressed back has closed, in
+// id order, as ROWS. Extracted from `blockAndQueueVerdict` (below) by task 7.771 for ONE reason:
+// `engine/bus-answer.js` has to name the ask its `--re` settles, and a second walk of the same
+// file with the same rule is exactly the "two readers of one question that disagree" this whole
+// design removes. There is now one definition and two consumers — the hold, and the row that
+// clears it.
+//
+// Greedy and FIFO (`shift`): the oldest open row is the one an answer settles. NOT ask-only — a
+// `to: owner` note holds a slot too, because it is a thing the seat put in front of the owner;
+// callers that need an ASK specifically (coord's `--re` takes nothing else) filter on `type`.
+function openOwnerAsks(busText, seat) {
+  const { parseMessages, addressesOwner } = require('../bridges/chat/bus-ferry');
+  const open = [];
+  for (const row of parseMessages(busText)) {
+    if (row.from === seat && addressesOwner(row.to)) open.push(row);
+    else if (row.type === 'answer' && addressesSeat(row.to, seat) && open.length) open.shift();
+  }
+  return open;
+}
+
 // The evidence string when the seat is HELD, else null. Held = the arm is `block-and-queue` AND the
 // seat's last `to: owner` row on the coordination bus has no LATER `answer` addressed back to it.
 //
@@ -383,15 +411,11 @@ function addressesSeat(to, seat) {
 // second parser of that file is a lane that disagrees with the ferry about what a seat declared and
 // what it asked, which is the defect `seatIsHumanInteractive`'s F3 note describes in full.
 function blockAndQueueVerdict(heartStore, goalFolder, seat) {
-  const { seatFallback, parseMessages, addressesOwner } = require('../bridges/chat/bus-ferry');
+  const { seatFallback } = require('../bridges/chat/bus-ferry');
   if (seatFallback(goalFolder, seat) !== FALLBACK_BLOCK_AND_QUEUE) return null;
   let text;
   try { text = fs.readFileSync(path.join(goalFolder, ...BUS_RELPATH), 'utf8'); } catch { return null; }
-  const open = [];                                     // ids of this seat's still-unanswered asks
-  for (const row of parseMessages(text)) {
-    if (row.from === seat && addressesOwner(row.to)) open.push(row.id);
-    else if (row.type === 'answer' && addressesSeat(row.to, seat) && open.length) open.shift();
-  }
+  const open = openOwnerAsks(text, seat).map((row) => row.id); // this seat's still-unanswered asks
   if (!open.length) return null;              // never asked, or every ask was answered on the bus
   // …minus the asks a previous turn of this seat was ALREADY HELD on (see the pairing note above).
   // A `blocked` row whose TURN was also `blocked` is a genuinely blocked turn, not a spent hold —
@@ -545,6 +569,8 @@ module.exports = {
   BLOCKED,
   FALLBACK_BLOCK_AND_QUEUE,
   blockAndQueueVerdict,
+  openOwnerAsks,
+  addressesSeat,
   askParkedAtGate,
   outcomeForSeat,
   LANE_ATTACHED,

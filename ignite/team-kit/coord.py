@@ -306,6 +306,15 @@ FM_KEY = {
     # PATH — were coupled only by accident of the kit's model: `ephemeral` meant both "short-lived"
     # and "keeps no memory", and the watcher is the case that pulls them apart.
     "close": re.compile(r"^close:\s*(\S+)\s*$", re.MULTILINE),
+    # D8 (`one-readiness-predicate`) — THE SEAT'S FALLBACK ARM: what it does when it must reach
+    # the owner and the owner is not standing there. Read here for ONE purpose, the check-out hold
+    # below; the ferry reads the same key to decide what to do with the row itself.
+    # ⚠ `[ \t]*(.+?)[ \t]*$` IS `bus-ferry.js#seatDirFallback`'s PATTERN, BYTE FOR BYTE, and not
+    # the `(\S+)` shape of its neighbours here. `fallback: block-and-queue  # ratified 2026-08-09`
+    # must read as the SAME WORD to both readers — a value the ferry acts on and this gate cannot
+    # see is a seat held for an ask that was never delivered, or released on one that was. `\s` is
+    # barred for `outputs:`'s reason above: it matches the NEWLINE and reaches into the next key.
+    "fallback": re.compile(r"^fallback:[ \t]*(.+?)[ \t]*$", re.MULTILINE),
 }
 
 
@@ -324,6 +333,169 @@ def _fm_mechanical_close(fm):
     absence of the key, mean the full closer ceremony — the default stays the careful one."""
     m = FM_KEY["close"].search(fm)
     return bool(m) and m.group(1).lower() == "mechanical"
+
+
+# The three arms a seat may declare, and the one this file acts on. MIRRORED from
+# `bus-ferry.js#seatDirFallback` — same vocabulary, same frontmatter-only scope, same strips, same
+# "absent, unreadable or outside the vocabulary is no arm at all". NOT a second classification: the
+# ferry decides what happens to a `to: owner` ROW on this declaration and the check-out gate below
+# decides whether the seat may claim `done` while that row is unanswered. One declaration, two acts.
+FALLBACK_ARMS = ("park", "default-and-disclose", "block-and-queue")
+FALLBACK_BLOCK_AND_QUEUE = "block-and-queue"
+
+
+def _fm_fallback(fm):
+    """The declared fallback arm, or "" (absent / unreadable / a word outside the vocabulary —
+    the ferry's `null` in this file's idiom). The trailing-comment and quote strips are the
+    ferry's own, for the reason stated there: `fallback: block-and-queue # ratified …` is
+    `block-and-queue` to the `yaml.safe_load` that `component-lint` validates the seat with, so a
+    reader without the strip passes lint and reads a word nobody wrote."""
+    m = FM_KEY["fallback"].search(fm)
+    v = re.sub(r"\s+#.*$", "", m.group(1)).strip().strip("'\"").lower() if m else ""
+    return v if v in FALLBACK_ARMS else ""
+
+
+# ── D8's PARK FORK: WAS THE ASK EVER DELIVERED TO THE OWNER? (owner-ruled 2026-08-11) ──────────
+#
+# THE RULING. A PARKED ask does not hold the seat. The ferry delivers a `to: owner` row only when
+# the goal is in `interactive` execution mode AND the sending seat declares `human-interactive:`;
+# otherwise the row PARKS — nobody is told, so nobody can answer, and holding the seat's `done` on
+# it is a hold the owner can never clear by answering (`d-parked-ask-autonomous-workaround`: the
+# seat proceeds on its authored autonomous workaround and the wave continues).
+#
+# ⚠⚠ THIS IS A SECOND READING OF THE FERRY'S GATES, AUTHORIZED AS A PINNED MIRROR AND NOTHING ELSE.
+# The owner was offered the alternative — have the ferry RECORD delivered/parked on the bus — and
+# rejected it: `bus-ferry.js`'s header declares "No gateway intent, no store handle, no listener, no
+# write to the bus", and amending that bound is a bigger change than this earns. So coord reads the
+# SAME FILES the ferry reads, with the ferry's own rules, and the equality is PINNED BY A SELFTEST
+# ROW THAT EXECUTES BOTH READERS OVER ONE SET OF FIXTURES (`D8 pin`, below) — the shape
+# `probe-daemon-lane-watch.js` § L0 used for the `after`-cell parser. A mirror nobody checks is the
+# drift this whole design deleted; the pin is the part that makes the mirror legitimate.
+#
+# SOURCE OF TRUTH, mirrored function for function:
+#   `engine/execution-record.js#askParkedAtGate`  → `ask_parked_at_gate`
+#   `bridges/chat/bus-ferry.js#goalExecutionMode` → `goal_execution_mode`   (rung 1 + the rejoin)
+#   `bridges/chat/bus-ferry.js#goalKindMode`      → `_goal_kind_mode`       (rung 2)
+#   `bridges/chat/bus-ferry.js#seatIsHumanInteractive` → `seat_is_human_interactive`
+#   `frontmatterOf` / `isSafeName` / the strips    → `_ferry_frontmatter` / `_ferry_safe_name` /
+#                                                    `_ferry_scalar`
+#
+# ⚠ THE FAIL-SAFE DIRECTION, DECIDED HERE RATHER THAN INHERITED FROM WHICHEVER BRANCH FALLS OUT.
+# A cannot-tell READS AS PARKED, i.e. the seat is RELEASED. Three reasons, in order of weight:
+#
+#   1. THE LADDER IS TOTAL — there is no unresolved state to pick a direction for. Every input
+#      lands on `interactive` or `autonomous`: rung 1 the `execution-mode` file, rung 2 `goal.md`'s
+#      `goal-kind:`, rung 3 ABSENCE, which the owner's C-4 ruling defines as `autonomous`. And
+#      absence is the COMMON case. So "hold when unsure" would not be caution — it would hold every
+#      goal that never declared a mode, which is exactly the stall this ruling removes.
+#   2. IGNORANCE HERE IS NOT IGNORANCE ABOUT DELIVERY; IT IS THE DELIVERY ANSWER. The gates are a
+#      pure function of two files (the ferry writes no marker, by design). An unreadable file is
+#      what MAKES the ferry park — it ran the same read, took the same `catch`, and told nobody. To
+#      hold on it would be to hold a seat on a row the ferry provably did not send.
+#   3. THE OTHER DIRECTION IS NOT REACHABLE HONESTLY ANYWAY: coord would have to disagree with the
+#      ferry on inputs where the ferry's answer is KNOWN, which the pin below would then have to
+#      encode as an exception — a mirror with a carve-out is the drift, pre-installed.
+#
+# ⚠ THE RESIDUAL RISK, STATED because the pin cannot see it: the pin runs both readers on ONE
+# filesystem, so it proves the RULES agree and cannot prove the BYTES do. The ferry reads on the
+# host; a seat's coord reads inside its cage. Both files sit at the package root the cage already
+# binds (coord reads `taskforce.csv` and `seats/*/seat.md` from it on every check-out), so a
+# divergence would take a binding change — and it would show up as a seat NOT held, with the
+# released-note below naming the gate, rather than as silence.
+FERRY_INTERACTIVE_MODE = "interactive"
+FERRY_AUTONOMOUS_MODE = "autonomous"
+# `isSafeName`, verbatim — including its refusal of the reserved `owner` token.
+FERRY_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+# `frontmatterOf`, verbatim: the FIRST `---`-fenced block, or "" when the file does not open with
+# one. NOT `frontmatter_text` above — that reader keeps the opening fence and is byte-matched to
+# `discover_workers`'s span. These gates are the FERRY'S question, so they take the ferry's span.
+FERRY_FRONTMATTER_RE = re.compile(r"^---\r?\n([\s\S]*?)\r?\n---")
+
+
+def _ferry_safe_name(name):
+    return bool(FERRY_SAFE_NAME_RE.match(str(name))) and str(name) != OWNER_TOKEN
+
+
+def _ferry_frontmatter(text):
+    m = FERRY_FRONTMATTER_RE.match(str(text))
+    return m.group(1) if m else ""
+
+
+def _ferry_scalar(fm, key):
+    """One frontmatter scalar, read the ferry's way: `[ \\t]*(.+?)[ \\t]*$`, then the trailing-`#`
+    strip, then the quote strip, then lowercased. "" when absent. Every gate reader in `bus-ferry`
+    normalizes this way and the ABSENCE of the strip was a measured defect there (7.626 F3), so it
+    is one function here rather than three copies."""
+    m = re.search(rf"^{key}:[ \t]*(.+?)[ \t]*$", fm, re.MULTILINE)
+    return re.sub(r"\s+#.*$", "", m.group(1)).strip().strip("'\"").lower() if m else ""
+
+
+def _ferry_read(path):
+    """A file the ferry would have read, or None when it could not. `errors="replace"` is not
+    laxity: Node's `readFileSync(p, 'utf8')` DECODES invalid bytes to U+FFFD and returns a string,
+    where Python would raise — and a raise here would be a Python-only verdict on bytes the ferry
+    read happily. Only the errors Node's `catch` sees (ENOENT, EISDIR, EACCES …) return None."""
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _goal_kind_mode(goal_dir):
+    """Rung 2 — the goal's BIRTH ATTRIBUTE, read ONLY when rung 1 found no file. Rung 3 (absence)
+    is `autonomous`, the ratified default: a goal nobody declared reachable is not reachable."""
+    raw = _ferry_read(Path(goal_dir) / "goal.md")
+    kind = "" if raw is None else _ferry_scalar(_ferry_frontmatter(raw), "goal-kind")
+    return FERRY_INTERACTIVE_MODE if kind == FERRY_INTERACTIVE_MODE else FERRY_AUTONOMOUS_MODE
+
+
+def goal_execution_mode(goal_folder):
+    """Can this goal talk to the owner at all? The C-4 three-rung ladder (owner-ruled 2026-08-10).
+
+    ⚠ THE WORKSPACE ROUND-TRIP IS MIRRORED, NOT SHORT-CIRCUITED, and it is load-bearing. The JS
+    takes `(workspaceRoot, goalId)` and REBUILDS `<ws>/.rbtv/goals/<id>`, where the caller derived
+    `<ws>` as `goalFolder/../../..`. For a goal that lives there the trip is an identity; for a
+    package ANYWHERE ELSE it resolves to a directory that does not exist, and every rung then falls
+    to `autonomous`. Reading `<goal_folder>/execution-mode` directly would be the obvious
+    simplification and it would DISAGREE with the ferry on exactly that case — a package outside
+    `.rbtv/goals/` is one the ferry's own goal walk never visits, so its asks are never delivered,
+    so its seats must never be held. The pin fixtures carry that case."""
+    goal_folder = Path(goal_folder)
+    if not _ferry_safe_name(goal_folder.name):
+        return FERRY_AUTONOMOUS_MODE
+    goal_dir = goal_folder.parent.parent.parent / ".rbtv" / "goals" / goal_folder.name
+    raw = _ferry_read(goal_dir / "execution-mode")
+    if raw is None:
+        return _goal_kind_mode(goal_dir)          # the FILE keeps precedence; absence drops a rung
+    return (FERRY_INTERACTIVE_MODE if raw.strip().lower() == FERRY_INTERACTIVE_MODE
+            else FERRY_AUTONOMOUS_MODE)
+
+
+def seat_is_human_interactive(goal_folder, seat):
+    """Gate 1 — does the SEAT declare itself able to talk to a human? `seats/<seat>/seat.md`
+    frontmatter, by PATH, because that is the descriptor the ferry read. Deliberately NOT
+    `briefing_frontmatters` (which keys by the DECLARED name and also serves the legacy `workers/`
+    layout): where the two disagree — a seat whose folder name is not its declared name — the ferry
+    found no file and PARKED, so the honest answer to "was this delivered" is the path read's. That
+    mismatch is `component-lint`'s `wrongfolder` defect, not a delivery question."""
+    if not _ferry_safe_name(seat):
+        return False
+    fm = _ferry_read(Path(goal_folder) / "seats" / str(seat) / "seat.md")
+    return fm is not None and _ferry_scalar(_ferry_frontmatter(fm),
+                                            "human-interactive") in ("yes", "true")
+
+
+def ask_parked_at_gate(goal_folder, seat):
+    """The ferry's own gate NAME when this seat's `to: owner` row PARKS, else "" (delivered).
+
+    The ladder's third rung — `fallback: park` — is deliberately absent here for the JS's reason:
+    every caller has already established the arm is `block-and-queue`, so that rung cannot fire.
+    "" rather than `None` so the value reads as a reason string throughout; the pin normalizes."""
+    if goal_execution_mode(goal_folder) != FERRY_INTERACTIVE_MODE:
+        return "execution-mode"
+    if not seat_is_human_interactive(goal_folder, seat):
+        return "human-interactive"
+    return ""
 
 
 def _fm_window(fm):
@@ -8366,10 +8538,16 @@ def cmd_checkout(args):
             1)
     # ---- 7.676 (+ D3): VERIFY BEFORE ASSERTING `done` -------------------------------------------
     #
-    # TWO QUESTIONS AT ONE GATE, and both are about a DEBT the seat's own briefing or the run's own
-    # DAG created: did this seat produce what it DECLARED it would (7.676, `outputs:`), and did it
-    # write the guard value a live `after` member READS (D3, `guarded_pairs`). Everything below
-    # about gating, refusing and not downgrading applies identically to both.
+    # THREE QUESTIONS AT ONE GATE, and every one of them asks whether this `done` is TRUE: did this
+    # seat produce what it DECLARED it would (7.676, `outputs:`), did it write the guard value a
+    # live `after` member READS (D3, `guarded_pairs`), and is it sitting on an ASK the owner has not
+    # answered (D8, `open_asks`). Everything below about gating, refusing and not downgrading
+    # applies identically to all three.
+    #
+    # ⚠ THE THIRD IS NOT A DEBT THE SEAT CAN DISCHARGE — an answer is the owner's to give, so its
+    # remedy is `--incomplete`, not "do it and re-run". Its own block below carries that
+    # distinction; it is named here so a reader of this header does not carry the first two's shape
+    # onto it.
     #
     # ⚠ IT GATES THE `done` PATH ALONE. `--renew` asserts nothing finished (a successor is being
     # booted precisely because the work continues), and `--incomplete` is the seat ALREADY saying
@@ -8460,6 +8638,86 @@ def cmd_checkout(args):
                 f"said so, and leader picks the work up:\n"
                 f"  {coord_invocation(args)} checkout --incomplete \"<why the guard is "
                 f"unestablished>\"",
+                1)
+        # ---- D8 (`one-readiness-predicate`): THE THIRD QUESTION AT THE SAME GATE ---------------
+        #
+        # IS THIS SEAT SITTING ON A QUESTION THE OWNER NEVER ANSWERED? `d-block-and-queue-
+        # mechanical-hold` says a `fallback: block-and-queue` seat that asked the owner and exited
+        # with no answer is not `done` TO THE DAG — its dependents do not start. That hold lived in
+        # `engine/seeding.js`, inside the `after`-cell walk `seatState` used to do. D1 DELETED that
+        # walk: seeding now consumes `ready-seats --json`, and readiness is read off the CHECK-OUT.
+        # So the seat still reads `live` locally and is not re-dispatched, but its SUCCESSORS are
+        # gated by coord alone — and a held seat checking out `done` released every one of them,
+        # its execution record saying `blocked`, its check-out saying `done`, only the latter read.
+        # The hold is expressed HERE or it is expressed nowhere.
+        #
+        # ⚠ SAME THREE RULES AS THE TWO ABOVE. Only the `done` branch is gated (this is inside the
+        # `not renew and not incomplete` block), so `incomplete`, `failed`, `exited`, `renew` and
+        # `revive` are UNTOUCHED — the honest ending must never be harder to reach than the
+        # dishonest one, which is the 2026-08-09 defect and the reason the escape exists at all. It
+        # REFUSES rather than downgrading, and it runs BEFORE the export and the roster flip, so a
+        # refusal costs the seat the re-run and nothing else.
+        #
+        # ⚠ ONE READER, AND IT IS COORD'S OWN. `open_asks` is the predicate `pending` renders,
+        # narrowed to this seat and to `owner`. Nothing here re-derives ask/answer pairing and
+        # nothing reaches for the engine's execution store — which is unreachable from inside a
+        # seat cage anyway (measured 2026-08-11: no bus, no /proc MainPID, no store on disk), and
+        # degrading it to empty INVERTS the verdict on the one case that matters. What settles an
+        # ask is coord's own rule, enforced at `send`: an answer carries `--re <#>`. So the hold
+        # lifts on exactly the row `pending` stops showing, and on no other event.
+        # ⚠⚠ THE TRANSPORT THAT WRITES THE OWNER'S ANSWER ONTO THIS BUS MUST CARRY `--re <ask#>`.
+        # `send --type answer` without it is admitted only under `--force`, and that row leaves the
+        # ask OPEN for every reader — `pending`, this gate, and the seat's own eyes. A bridge that
+        # cannot name the ask number can read it here: `pending --as <seat>` lists it.
+        #
+        # ⚠ AN ASK THE FERRY PARKED DOES NOT HOLD, AND ITS ABSENCE FROM THIS REFUSAL IS DELIBERATE
+        # — not an oversight (owner ruling 2026-08-11, `d-parked-ask-autonomous-workaround`). The
+        # ferry delivers a `to: owner` row only when the goal is `interactive` AND the seat declares
+        # `human-interactive:`; otherwise nobody is told, so no answer can EVER arrive, and a hold
+        # there is one the owner cannot clear by answering. `ask_parked_at_gate` above is the
+        # ferry's own gate ladder, mirrored and pinned — read its header for the mirror's terms and
+        # for why a cannot-tell reads as PARKED. A released seat is NOT silent: the note below names
+        # the gate on the seat's own output and on its durable disposition record, so a reader can
+        # tell "measured and released" from "never asked".
+        _bq_fm = briefing_frontmatters(workers_dir(args)).get(me)
+        _bq_open = (open_asks(load_messages(base)[1], sender=me, to=OWNER_TOKEN)
+                    if _bq_fm and _fm_fallback(_bq_fm[0]) == FALLBACK_BLOCK_AND_QUEUE else [])
+        _bq_gate = ask_parked_at_gate(package_dir(args), me) if _bq_open else ""
+        if _bq_open and _bq_gate:
+            _bq_note = (f"owner-ask hold NOT applied: {len(_bq_open)} unanswered ask(s) to the "
+                        f"owner, PARKED by the ferry at gate `{_bq_gate}` — never delivered, so no "
+                        f"answer can settle them")
+            _outputs_note += f" · {_bq_note}"
+            print(c(f"note: {_bq_note}. Your `done` STANDS (the wave continues). You are expected "
+                    f"to have PROCEEDED on your authored autonomous workaround — record the "
+                    f"derivation in this goal's decisions.md / doubts.md for the owner to review "
+                    f"on his return (d-s14-autonomous-dod).", C_HINT))
+        if _bq_open and not _bq_gate:
+            refuse(
+                "state",
+                f"'{me}' declares `fallback: block-and-queue` and has {len(_bq_open)} ask(s) to "
+                f"the owner that nobody has answered, so this check-out will not record `done`. "
+                f"That arm is this seat's OWN declaration that it blocks on its question, and "
+                f"`done` is the ONE disposition that advances the run's DAG — recording it here "
+                f"starts every successor on the assumption your question was settled "
+                f"(`d-block-and-queue-mechanical-hold`). Nothing was written, nothing was exported "
+                f"and your roster row is still ACTIVE.\n"
+                + "".join(f"  UNANSWERED: #{b['num']} to {b['to']} — {truncate(body_of(b), 160)}\n"
+                          for b in _bq_open) +
+                f"END HONESTLY — this is the way out, and the only one you can reach on your own, "
+                f"because the answer is not yours to produce:\n"
+                f"  {coord_invocation(args)} checkout --incomplete \"asked the owner in "
+                + ", ".join(f"#{b['num']}" for b in _bq_open) + f" and ended with no answer\"\n"
+                f"It does NOT advance your successors, which is the point: the run records that "
+                f"you said so and leader picks the work up.\n"
+                f"THE ONE OTHER ENDING, if it is TRUE: the answer LANDED while you were working. "
+                f"Look — {coord_invocation(args)} pending — and if nothing is listed under \"your "
+                f"asks nobody has answered\", re-run a plain checkout and it passes. (An answer "
+                f"settles an ask only when it carries `--re <#>`.)\n"
+                f"⚠ YOUR QUESTION WAS DELIVERED — this seat is `human-interactive:` and this goal "
+                f"is in `interactive` execution mode, which is what puts it in front of the owner. "
+                f"Retracting it to get past this gate would discard a question he can still answer; "
+                f"the parked case, where nobody could be told, does not reach this refusal at all.",
                 1)
     if renew:
         if handoff is None:
@@ -9825,15 +10083,24 @@ def why_not_woken(b, agent, gmap, observers, decls=None):
     return "not in its inbox"
 
 
-def open_asks(blocks):
+def open_asks(blocks, sender=None, to=None):
     """Asks nobody has settled: type ask, not superseded, and no answer/verdict carrying `re:`
     its number (T4/F11 — before the link existed, an unanswered ask was invisible without
-    re-reading the whole log)."""
+    re-reading the whole log).
+
+    `sender` and `to` NARROW this one answer; they never compute a second one. `pending` passes
+    neither and gets the room's open asks. The check-out hold (D8) passes both and gets "does THIS
+    seat have an unanswered ask TO THE OWNER" — so the view a seat reads before it leaves and the
+    gate that stops it leaving cannot disagree about what is open. `sender` goes through
+    `is_own_send`, never a name compare, for G-94's reason: a foreign seat wearing this seat's role
+    name must not hold it here any more than it may fill its inbox there."""
     superseded = {b["supersedes"] for b in blocks if b["supersedes"] is not None}
     settled = {b["re"] for b in blocks
                if b["re"] is not None and b["type"] in ("answer", "verdict")}
     return [b for b in blocks
-            if b["type"] == "ask" and b["num"] not in superseded and b["num"] not in settled]
+            if b["type"] == "ask" and b["num"] not in superseded and b["num"] not in settled
+            and (sender is None or is_own_send(b, sender))
+            and (to is None or b["to"] == to)]
 
 
 def age_of(ts):
@@ -23553,7 +23820,8 @@ def _selftest_checks(args, failures, names):
         # roster, and BOTH disposition surfaces — because the predicate has four terms and a row
         # that shares a package with its neighbours cannot isolate which term it moved.
         def _rs_make(name, tf, built=None, active=(), awaiting=(), sessions=(),
-                     store=None, store_ids=None, guards=None, outputs=None):
+                     store=None, store_ids=None, guards=None, outputs=None, fallbacks=None,
+                     at=None):
             """A self-contained run package. `tf` is [(seat, after-cell)]; `awaiting` and
             `sessions` are [(seat, disposition)] on the live and durable surfaces.
 
@@ -23570,8 +23838,18 @@ def _selftest_checks(args, failures, names):
             D4: `outputs` is {seat: "a.md, b/"} written as the descriptor's `outputs:` key, with
             `cwd:` pinned to that seat's own folder so a RELATIVE declaration resolves somewhere
             this suite can predict. Omitted ⇒ no key, which is what every fixture above carries and
-            is why their `seed` is `[]`."""
-            p = Path(td) / f"rs-{name}"
+            is why their `seed` is `[]`.
+
+            D8: `fallbacks` is {seat: arm} written as the descriptor's `fallback:` key VERBATIM —
+            trailing comment included, if the caller writes one — so the D8 rows below assert the
+            same reading the ferry makes off the same bytes. Omitted ⇒ no key, which is every
+            fixture above and is why the check-out hold cannot touch them.
+
+            D8: `at` puts the package somewhere OTHER than the suite's flat temp root — the D8 rows
+            need `<ws>/.rbtv/goals/<goal>`, because the delivery gates they exercise resolve the
+            workspace by walking three levels up from the package and rebuilding that path. Omitted
+            ⇒ the flat root, which is every fixture above."""
+            p = Path(at) if at is not None else Path(td) / f"rs-{name}"
             (p / "coordination").mkdir(parents=True)
             (p / "seats").mkdir()
             if store is not None:
@@ -23597,9 +23875,11 @@ def _selftest_checks(args, failures, names):
                     # fixture above this change keeps a byte-identical descriptor and no row
                     # that reads `cwd` moves.
                     _out = (outputs or {}).get(s)
+                    _fb = (fallbacks or {}).get(s)
                     (p / "seats" / s / "seat.md").write_text(
                         f"---\nagent: {s}\nmodel: opus\n"
                         + (f"cwd: {p / 'seats' / s}\noutputs: {_out}\n" if _out else "")
+                        + (f"human-interactive: yes\nfallback: {_fb}\n" if _fb else "")
                         + "---\nbrief\n", encoding="utf-8")
             (p / "coordination" / "workers.md").write_text(
                 WORKERS_HEADER + "".join(
@@ -24536,6 +24816,286 @@ def _selftest_checks(args, failures, names):
               "or one that refused none, reds one of the two. The successor's verdict is asserted "
               "as well as the exit code: the point of writing the value is that an edge advances",
               _d3_c2 is None and _d3_v2["gp"] == "DONE" and _d3_v2["s1"] == "READY")
+
+        # ---- D8: A `done` IS REFUSED WHILE THIS SEAT'S OWN ASK TO THE OWNER IS UNANSWERED -------
+        # Driven through the REAL `cmd_checkout` and the REAL `cmd_send`, on one package, in the
+        # order a seat meets it — and every control differs from the held seat in exactly ONE fact,
+        # so a gate that held everybody and a gate that held nobody each red a row.
+        #
+        #   bq   held      declares the arm, asked the owner, nobody answered
+        #   bqa  admitted  the SAME shape, plus the owner's `--re` answer on the bus
+        #   bqn  admitted  the SAME arm, never asked
+        #   dd   admitted  asked and unanswered, but its arm is `default-and-disclose`
+        def _d8h_send(pkg, seat, **kw):
+            _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": seat,
+                  "force": True, "to": OWNER_TOKEN, "type": "ask", "supersedes": None,
+                  "re_num": None, "file": None,
+                  "message": f"may I ship the {seat} plan without the review?"}
+            _d.update(kw)
+            return harness_outcome(cmd_send, argparse.Namespace(**_d))
+
+        # ⚠ THE FIXTURE LIVES AT `<ws>/.rbtv/goals/<goal>` AND CARRIES AN `execution-mode`, because
+        # the hold now asks whether the ferry would have DELIVERED the ask. Both are load-bearing:
+        # off that path the JS's workspace round-trip resolves to nothing and every rung falls to
+        # `autonomous`, and with no mode file rung 3 says `autonomous` too — either way the ask is
+        # PARKED and nothing below could hold. A fixture that cannot be held cannot fail.
+        _d8h_pkg = _rs_make("d8h", [("bq", ""), ("bqa", ""), ("bqn", ""), ("dd", ""), ("bqp", ""),
+                                    ("succ", "bq")],
+                            at=Path(td) / "d8h-ws" / ".rbtv" / "goals" / "d8h",
+                            fallbacks={"bq": "block-and-queue  # ratified 2026-08-09",
+                                       "bqa": "'block-and-queue'", "bqn": "block-and-queue",
+                                       "bqp": "block-and-queue", "dd": "default-and-disclose"})
+        (_d8h_pkg / "execution-mode").write_text("interactive\n", encoding="utf-8")
+        # `bqp` is the PARKED control and its descriptor is rewritten HERE, in the open, rather than
+        # through `_rs_make`: it declares the arm and does NOT declare `human-interactive:`, so the
+        # ferry's gate 2 was shut for it — it asked, nobody was told, and no answer can ever come.
+        (_d8h_pkg / "seats" / "bqp" / "seat.md").write_text(
+            "---\nagent: bqp\nmodel: opus\nfallback: block-and-queue\n---\nbrief\n",
+            encoding="utf-8")
+        for _d8h_s, _d8h_p in (("bq", "%81"), ("bqa", "%82"), ("bqn", "%83"), ("dd", "%84"),
+                               ("bqp", "%85")):
+            _d3_checkin(_d8h_pkg, _d8h_s, _d8h_p)
+        _d8h_cwd = os.getcwd()
+        try:
+            # ⚠ THE CWD IS SET, NOT INHERITED (stage 4's idiom, G-218) AND IT IS LOAD-BEARING HERE.
+            # A seat's cwd is its own folder INSIDE the goal — every seat of the live goal declares
+            # exactly that — so `origin_of` stamps no `from-pkg:` and `is_own_send` is TRUE. Run
+            # from the suite's own cwd the asks are stamped `external`, `is_own_send` is FALSE for
+            # every one of them, and all four arms below would pass with the gate deleted.
+            os.chdir(_d8h_pkg)
+            for _d8h_s in ("bq", "bqa", "dd", "bqp"):
+                _d8h_send(_d8h_pkg, _d8h_s)
+            _d8h_ask = {b["sender"]: b["num"]
+                        for b in load_messages(_d8h_pkg / "coordination")[1]}
+            # THE OWNER'S ANSWER, written through the real send path in the form the transport must
+            # use: `--type answer --re <ask#>` addressed back to the asking seat. Without `--re` the
+            # row is admitted (under --force) and settles NOTHING — `pending` and this gate both go
+            # on showing the ask open, which is the fact the bridge's call site has to carry.
+            _d8h_send(_d8h_pkg, OWNER_TOKEN, to="bqa", type="answer", re_num=_d8h_ask["bqa"],
+                      message="yes — ship it, the review is waived")
+            _d8h_o1, _d8h_e1, _d8h_c1 = harness_outcome(
+                cmd_checkout, _d3_ns(_d8h_pkg, as_agent="bq"))
+            _d8h_mid = {r["seat"]: r["disposition"]
+                        for r in json.loads(_rs(_d8h_pkg, json=True)[0])}
+            # the SAME seat, the SAME open ask, ending honestly
+            _d8h_io, _d8h_ie, _d8h_ic = harness_outcome(
+                cmd_checkout, _d3_ns(_d8h_pkg, as_agent="bq", incomplete="the owner never answered"))
+            _d8h_ao, _d8h_ae, _d8h_ac = harness_outcome(
+                cmd_checkout, _d3_ns(_d8h_pkg, as_agent="bqa"))
+            _d8h_no, _d8h_ne, _d8h_nc = harness_outcome(
+                cmd_checkout, _d3_ns(_d8h_pkg, as_agent="bqn"))
+            _d8h_do, _d8h_de, _d8h_dc = harness_outcome(
+                cmd_checkout, _d3_ns(_d8h_pkg, as_agent="dd"))
+            # the PARKED control: same arm, same open ask, gate 2 shut for it
+            _d8h_po, _d8h_pe, _d8h_pc = harness_outcome(
+                cmd_checkout, _d3_ns(_d8h_pkg, as_agent="bqp"))
+            _d8h_p_still_open = [b["num"] for b in
+                                 open_asks(load_messages(_d8h_pkg / "coordination")[1],
+                                           sender="bqp", to=OWNER_TOKEN)]
+        finally:
+            os.chdir(_d8h_cwd)
+        _d8h_rows = {r["seat"]: r for r in json.loads(_rs(_d8h_pkg, json=True)[0])}
+        check("D8 A `done` CHECK-OUT IS REFUSED WHILE THIS SEAT'S OWN ASK TO THE OWNER IS "
+              "UNANSWERED, AND THE REFUSAL NAMES THE ASK — its number AND its words — AND THE WAY "
+              "OUT. D1 deleted the `after`-cell walk that held a `block-and-queue` seat's "
+              "DEPENDENTS, and readiness is read off the check-out now: without this, a seat "
+              "carrying a delivered, unanswered owner ask checks out `done` and releases every "
+              "successor on a question nobody settled. ⚠⚠ ONLY THE `done` BRANCH: the SAME seat "
+              "with the SAME open ask ends `incomplete` and is ADMITTED — the honest ending must "
+              "never be harder to reach than the dishonest one (the 2026-08-09 defect) — and its "
+              "successor stays BLOCKED, which is what the hold is FOR. ⚠ AND THE REFUSAL WRITES "
+              "NOTHING: the seat has no disposition at all until it ends honestly",
+              _d8h_c1 == 1 and "refused [coord state]" in (_d8h_o1 + _d8h_e1)
+              and f"#{_d8h_ask['bq']} to owner" in (_d8h_o1 + _d8h_e1)
+              and "may I ship the bq plan" in (_d8h_o1 + _d8h_e1)      # the ask's own words
+              and "checkout --incomplete" in (_d8h_o1 + _d8h_e1)       # the way out is NAMED
+              # …and the refusal states WHY this ask is one the owner can still answer, so a seat
+              # cannot read it as an invitation to retract the question and walk
+              and "YOUR QUESTION WAS DELIVERED" in (_d8h_o1 + _d8h_e1)
+              and _d8h_mid["bq"] is None                               # the refusal wrote nothing
+              and _d8h_ic is None
+              and _d8h_rows["bq"]["disposition"] == "incomplete"
+              and _d8h_rows["succ"]["verdict"] == "BLOCKED")
+        check("D8 (admission arm) A SEAT WHOSE ASK CARRIES AN ANSWER ON THE BUS CHECKS OUT `done` "
+              "CLEANLY. It differs from the held seat in exactly ONE act — the owner's "
+              "`--type answer --re <ask#>` row — so a gate that refused every `block-and-queue` "
+              "seat reds here, and one that refused none reds above. The settling predicate is "
+              "`open_asks`, coord's OWN: what lifts the hold is exactly what makes the ask stop "
+              "showing in `pending`, and nothing else",
+              _d8h_ac is None and _d8h_rows["bqa"]["disposition"] == "done"
+              and not open_asks(load_messages(_d8h_pkg / "coordination")[1],
+                                sender="bqa", to=OWNER_TOKEN))
+        check("D8 (scope arms) A SEAT THAT NEVER ASKED AND A SEAT WHOSE ARM IS NOT "
+              "`block-and-queue` ARE BOTH UNTOUCHED. `bqn` declares the arm and asked nothing; "
+              "`dd` asked the owner and is still unanswered but declares `default-and-disclose` — "
+              "an arm that says it PROCEEDED on its stated default and is not waiting. Either arm "
+              "dropped and this gate holds seats the ruling never spoke about, which on a DAG is a "
+              "stall nobody can clear but the seat's own `--incomplete`",
+              _d8h_nc is None and _d8h_rows["bqn"]["disposition"] == "done"
+              and _d8h_dc is None and _d8h_rows["dd"]["disposition"] == "done"
+              and open_asks(load_messages(_d8h_pkg / "coordination")[1],
+                            sender="dd", to=OWNER_TOKEN))
+        check("D8 (the park fork) AN ASK THE FERRY PARKED DOES NOT HOLD, AND THE RELEASE IS SAID "
+              "OUT LOUD. `bqp` differs from the held `bq` in ONE fact — it declares no "
+              "`human-interactive:`, so the ferry's gate 2 was shut and its question was never put "
+              "in front of anybody. Holding it would be a hold the owner cannot clear by answering "
+              "(owner ruling 2026-08-11, `d-parked-ask-autonomous-workaround`: the seat proceeds on "
+              "its authored autonomous workaround and the wave continues). ⚠ RELEASED IS NOT "
+              "SETTLED and the record must not blur them: the ask is STILL OPEN on the bus "
+              "afterwards, and the check-out names the gate on the seat's output AND on its durable "
+              "disposition record — so a reader can tell `measured and released` from `never asked`",
+              _d8h_pc is None and _d8h_rows["bqp"]["disposition"] == "done"
+              and "PARKED by the ferry at gate `human-interactive`" in (_d8h_po + _d8h_pe)
+              and _d8h_p_still_open == [_d8h_ask["bqp"]]
+              and "PARKED by the ferry at gate" in json.loads(
+                  (_d8h_pkg / "coordination" / "disposition-bqp.json")
+                  .read_text(encoding="utf-8"))["outputs-verified"]
+              # and the two verdicts come from ONE reader: the gate that released it is the gate
+              # the mirror reports for that seat, not a second opinion computed at the check-out
+              and ask_parked_at_gate(_d8h_pkg, "bqp") == "human-interactive"
+              and ask_parked_at_gate(_d8h_pkg, "bq") == "")
+        check("D8 (readers) THE ARM CLASSIFIER MIRRORS `bus-ferry.js#seatDirFallback` AND THE ASK "
+              "READER IS `pending`'s OWN. `fallback:` is read off frontmatter with the ferry's "
+              "trailing-comment and quote strips — the `bq`/`bqa` descriptors above carry both "
+              "forms and are held/admitted on the arm, not on the punctuation — a word outside the "
+              "three-arm vocabulary is NO arm, and `open_asks`'s two narrowings SELECT from the one "
+              "predicate rather than computing a second: unnarrowed it is exactly what `pending` "
+              "renders. Two readers of one declaration is how a seat gets held for an ask that was "
+              "never delivered",
+              _fm_fallback("---\nfallback: block-and-queue  # ratified\n") == "block-and-queue"
+              and _fm_fallback("---\nfallback: 'park'\n") == "park"
+              and _fm_fallback("---\nfallback: BLOCK-AND-QUEUE\n") == "block-and-queue"
+              and _fm_fallback("---\nfallback: whatever\n") == ""
+              and _fm_fallback("---\nseat: x\n") == ""
+              and list(FALLBACK_ARMS) == ["park", "default-and-disclose", "block-and-queue"]
+              and [b["num"] for b in open_asks(
+                  load_messages(_d8h_pkg / "coordination")[1])] == [_d8h_ask["bq"],
+                                                                    _d8h_ask["dd"],
+                                                                    _d8h_ask["bqp"]])
+
+        # ---- D8 PIN: THE PARK GATES, BOTH READERS, ONE SET OF FIXTURES -------------------------
+        # `ask_parked_at_gate` is a SECOND READING of the ferry's delivery gates, authorized as a
+        # PINNED MIRROR (owner ruling 2026-08-11 — the alternative, having the ferry record
+        # delivered/parked on the bus, was rejected against `bus-ferry.js`'s "no write to the bus"
+        # bound). THIS ROW IS THE PIN, and it is the condition the mirror was authorized under.
+        #
+        # The shape is `probe-daemon-lane-watch.js` § L0's, with the languages swapped: it executed
+        # the PYTHON `after`-cell parser in a subprocess and compared term by term; this executes
+        # the JS gate ladder in a subprocess and compares term by term, over the SAME fixture
+        # directories both readers open.
+        #
+        # ⚠ IT ASSERTS THE EXPECTED TABLE AS WELL AS THE EQUALITY, and the second is not redundant:
+        # equality alone is satisfied by two readers that are wrong together, and it would let a
+        # change to the FERRY drag this mirror along silently. With both, a ferry change reds the
+        # table (telling you the ruling moved) and a mirror change reds the equality (telling you
+        # this file drifted).
+        #
+        # ⚠ AND IT FAILS RATHER THAN SKIPS when `node` or the engine tree is absent. This file's own
+        # doctrine, stated at `advice_refused_sends`: a blind check reporting clean IS the defect.
+        # An unrunnable pin means the mirror is unchecked, which is the state the ruling forbids.
+        _pin_ws = Path(td) / "d8pin" / "ws"
+        _PIN_HI = "human-interactive: yes\n"
+
+        def _pin_goal(name, mode=None, kind=None, seats=(), root=None):
+            g = (root if root is not None else _pin_ws / ".rbtv" / "goals") / name
+            (g / "seats").mkdir(parents=True, exist_ok=True)
+            if mode is not None:
+                (g / "execution-mode").write_text(mode, encoding="utf-8")
+            if kind is not None:
+                (g / "goal.md").write_text(f"---\nname: {name}\ngoal-kind: {kind}\n---\nbody\n",
+                                           encoding="utf-8")
+            for _s, _extra in seats:
+                (g / "seats" / _s).mkdir(parents=True, exist_ok=True)
+                (g / "seats" / _s / "seat.md").write_text(f"---\nseat: {_s}\n{_extra}---\nbrief\n",
+                                                          encoding="utf-8")
+            return g
+
+        # (goal folder, seat, expected gate) — "" is DELIVERED, so the ask holds the seat.
+        _pin_cases = [
+            (_pin_goal("g-del", mode="interactive\n", seats=[("alpha", _PIN_HI)]), "alpha", ""),
+            (_pin_goal("g-mode-auto", mode="autonomous\n", seats=[("alpha", _PIN_HI)]),
+             "alpha", "execution-mode"),
+            # gate 2 shut two ways: no key at all, and an explicit `no`
+            (_pin_goal("g-nokey", mode="interactive\n", seats=[("alpha", "")]),
+             "alpha", "human-interactive"),
+            (_pin_goal("g-hi-no", mode="interactive\n",
+                       seats=[("alpha", "human-interactive: no\n")]), "alpha",
+             "human-interactive"),
+            # …and the strips, on both keys: a value the linting YAML reader accepts must read the
+            # same to both gate readers (the 7.626 F3 defect, in both languages at once)
+            (_pin_goal("g-hi-quoted", mode="interactive\n",
+                       seats=[("alpha", "human-interactive: \"yes\"  # ratified\n")]), "alpha", ""),
+            # RUNG 1 — the file wins over the birth attribute, in BOTH directions
+            (_pin_goal("g-r1-shuts", mode="autonomous\n", kind="interactive",
+                       seats=[("alpha", _PIN_HI)]), "alpha", "execution-mode"),
+            (_pin_goal("g-r1-opens", mode="interactive\n", kind="autonomous",
+                       seats=[("alpha", _PIN_HI)]), "alpha", ""),
+            # RUNG 2 — no file: the birth attribute answers, comment strip included
+            (_pin_goal("g-r2-int", kind="interactive", seats=[("alpha", _PIN_HI)]), "alpha", ""),
+            (_pin_goal("g-r2-cmt", kind="interactive  # ratified 2026-08-10",
+                       seats=[("alpha", _PIN_HI)]), "alpha", ""),
+            (_pin_goal("g-r2-auto", kind="autonomous", seats=[("alpha", _PIN_HI)]),
+             "alpha", "execution-mode"),
+            # RUNG 3 — neither: `autonomous`, the ratified default (C-4)
+            (_pin_goal("g-r3", seats=[("alpha", _PIN_HI)]), "alpha", "execution-mode"),
+            # the seat's descriptor is simply absent
+            (_pin_goal("g-noseat", mode="interactive\n"), "alpha", "human-interactive"),
+            # a seat NAME that fails `isSafeName` never reaches disk in either reader
+            (_pin_goal("g-del2", mode="interactive\n", seats=[("alpha", _PIN_HI)]),
+             "../alpha", "human-interactive"),
+            # ⚠ THE WORKSPACE ROUND-TRIP: a package that is NOT under `.rbtv/goals/` resolves to a
+            # directory neither reader finds, so every rung falls to `autonomous`. A mirror that
+            # read `<goal_folder>/execution-mode` directly would answer DELIVERED here and hold a
+            # seat whose goal the ferry's own walk never visits.
+            (_pin_goal("g-offtree", mode="interactive\n", seats=[("alpha", _PIN_HI)],
+                       root=Path(td) / "d8pin" / "elsewhere"), "alpha", "execution-mode"),
+        ]
+        # a goal id that fails `isSafeName` — the reserved `owner` token, refused by name
+        _pin_cases.append((_pin_goal("owner", mode="interactive\n", seats=[("alpha", _PIN_HI)]),
+                           "alpha", "execution-mode"))
+
+        _pin_js = Path(__file__).resolve().parent.parent / "engine" / "execution-record.js"
+        _pin_py = [ask_parked_at_gate(_g, _s) for _g, _s, _e in _pin_cases]
+        _pin_want = [_e for _g, _s, _e in _pin_cases]
+        _pin_js_out, _pin_why = None, ""
+        if not _pin_js.is_file():
+            _pin_why = f"the engine's verdict module is absent at {_pin_js}"
+        else:
+            try:
+                _pin_r = subprocess.run(
+                    ["node", "-e",
+                     "const rec = require(process.argv[1]);\n"
+                     "process.stdout.write(JSON.stringify(JSON.parse(process.argv[2])\n"
+                     "  .map(([f, s]) => rec.askParkedAtGate(f, s) || '')));\n",
+                     str(_pin_js),
+                     json.dumps([[str(_g), _s] for _g, _s, _e in _pin_cases])],
+                    capture_output=True, text=True, timeout=120)
+                if _pin_r.returncode != 0:
+                    _pin_why = (f"node exited {_pin_r.returncode}: "
+                                f"{(_pin_r.stderr or _pin_r.stdout or '').strip()[:200]}")
+                else:
+                    _pin_js_out = json.loads(_pin_r.stdout or "null")
+            except (OSError, subprocess.SubprocessError, ValueError) as _pin_exc:
+                _pin_why = f"could not run the ferry's own reader ({type(_pin_exc).__name__}: {_pin_exc})"
+        _pin_diff = ([] if _pin_js_out is None else
+                     [f"{_g.name}/{_s}: js={_j!r} py={_p!r} want={_e!r}"
+                      for (_g, _s, _e), _j, _p in zip(_pin_cases, _pin_js_out, _pin_py)
+                      if _j != _p or _p != _e])
+        check("D8 pin: THE PARK GATES ARE A MIRROR, AND THIS IS WHAT MAKES THE MIRROR LEGITIMATE — "
+              "`coord.py#ask_parked_at_gate` and `engine/execution-record.js#askParkedAtGate` are "
+              "executed over the SAME %d fixtures and compared term by term, AND against the "
+              "expected table (equality alone is satisfied by two readers wrong together, and it "
+              "would let a change to the FERRY drag this mirror along in silence). Covered: both "
+              "gates open; each gate shut independently and by an absent key; the quote/comment "
+              "strips; all three rungs of the C-4 execution-mode ladder including the file's "
+              "precedence over the birth attribute in both directions; a missing descriptor; an "
+              "unsafe seat name and an unsafe goal id; and a package OUTSIDE `.rbtv/goals/`, which "
+              "the JS's workspace round-trip resolves to nothing — mismatches: %s"
+              % (len(_pin_cases),
+                 ("PIN INOPERATIVE — %s. The mirror is UNCHECKED, which is the state the ruling "
+                  "forbids; a blind check reporting clean IS the defect" % _pin_why)
+                 if _pin_js_out is None else ("none" if not _pin_diff else "; ".join(_pin_diff))),
+              _pin_js_out is not None and not _pin_diff)
 
         _rg_help = build_parser().format_help()
         check("dag-10 RS-27 (7.383) THE VERB IS REGISTERED AND THE INDEX A SEAT READS NAMES IT. "
@@ -30099,7 +30659,7 @@ HELP_EPILOG = """everyday
   read        your unread messages, {limit} at a time (cursor persisted per agent)
   send / escalate / fail-status  message one agent, a group, or all — typed, their pane woken · dod-judge retry escalation: append the ONE escalation row, addressed `owner`, once a milestone's consecutive-FAIL count reaches its bar · read-only: that count, the resolved bar and where it came from
   pending     open asks: waiting on you, open to everyone, yours unanswered
-  rule-guard / checkout  record YOUR OWN seat's value for a guard a live `after` member reads — the seat named in the (seat, key) pair writes it, no other seat may, --source mandatory (--go; reports bare) · end your session, exports your transcript first — REFUSED while a declared output or a guard you owe is missing; --renew --handoff hands this seat to your own next session
+  rule-guard / checkout  record YOUR OWN seat's value for a guard a live `after` member reads — the seat named in the (seat, key) pair writes it, no other seat may, --source mandatory (--go; reports bare) · end your session, exports your transcript first — REFUSED while a declared output or a guard you owe is missing, or an ask of yours to the owner is unanswered; --renew --handoff hands this seat to your own next session
 
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
@@ -30176,9 +30736,21 @@ def advice_coached_sends(path=None):
     # ("--force adds them anyway, if ..."), and guessing that the next word is a value swallows
     # that prose into argv, which the parser then rejects: a false RED on a hint that was fine.
     value_flags = set()
+    # …and which of those take a MESSAGE NUMBER, asked of the parser the same way (`type=int`).
+    # Advice writes that value as a placeholder — `--re <#>`, `--supersedes {n}` — and the generic
+    # placeholder substitution below turns it into `body`, which `type=int` then rejects: a false
+    # RED on a hint that was fine, and false REDs are how correct hints get deleted (G-151). `--re`
+    # carried a hardcoded exception for exactly this; DERIVING the pair instead means the next
+    # numeric flag arrives covered rather than red (G-158). Found by `--supersedes`: D8's refusal
+    # coached it for one sitting, this check correctly reported it as an offender, and the ruling
+    # that removed that line (a parked ask no longer reaches the refusal) left the generalization
+    # standing on its own — it is a property of the parser, not of the advice that surfaced it.
+    msgnum_flags = set()
     for act in _send_actions(build_parser()):
         if act.nargs != 0 and getattr(act, "const", None) is None:
             value_flags.update(o for o in act.option_strings if o.startswith("--"))
+            if act.type is int:
+                msgnum_flags.update(o for o in act.option_strings if o.startswith("--"))
 
     outer = []
 
@@ -30222,7 +30794,7 @@ def advice_coached_sends(path=None):
                 argv.append(t)
                 if t in value_flags and i + 1 < len(toks):
                     v = toks[i + 1]
-                    argv.append("ASK" if t == "--re"
+                    argv.append("ASK" if t in msgnum_flags
                                 else ("body" if _ADVICE_PLACEHOLDER.match(v) else v))
                     i += 2
                 else:
@@ -30588,8 +31160,11 @@ def build_parser():
         "\n"
         "--incomplete is the THIRD ending, and the honest one: your briefing asked for something\n"
         "that does not exist and is not coming. It ends the seat WITHOUT advancing anything and\n"
-        "routes your reason to leader. A plain checkout with declared outputs missing is REFUSED\n"
-        "and points you here — `done` advances the run, so it is not a word you may guess with.",
+        "routes your reason to leader. A plain checkout is REFUSED and points you here when a\n"
+        "declared output is missing, when a guard value you owe is unwritten, or when an ask of\n"
+        "yours to the owner is unanswered — `done` advances the run, so it is not a word you may\n"
+        "guess with. The last of those three is the one you cannot clear yourself: an answer is\n"
+        "the owner's to give, so this is the way out, not a wait.",
         "example:\n"
         "  coordinate checkout\n"
         "  coordinate checkout --renew\n"

@@ -153,49 +153,91 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     }
   }
 
-  // The launch profile for a first message, by SURFACE (task 7.58). Master (DM) and
-  // goal (channel) traffic are different work — cold-contact intake versus a message
-  // on an existing goal's thread — so they may run different profiles. Both fall back
-  // to the single `sessionProfile`, so an unconfigured deployment behaves exactly as
-  // it did before this task. No new job payload field is introduced anywhere: the
-  // surface distinction rides the EXISTING `profile` arg, because inventing a wire
-  // field would put the bridge ahead of the job catalogue's own args schema.
-  // 'agent' rides the GOAL profile: an agent thread is goal work seen through one seat's
-  // conversation, not cold-contact intake — and minting a third profile key would be a config
-  // surface nobody asked for (ratified 2026-08-09).
+  // ── THE OWNER ANSWERED: SAY SO ON THE BUS (task 7.771, owner ruling 2026-08-11 § D8) ─────────
   //
-  // ⚑ THIS NAMES THE FALLBACK, NOT THE MODEL A SEAT RUNS ON (ruling D19, 2026-08-11). The profile
-  // resolved here used to be the whole answer, and that was the defect: reviving an agent thread
-  // launched the DEPLOYMENT'S chat profile at that agent's seat, so a seat cast `claude-fable-5`
-  // in `taskforce.csv` and in its own `seat.md` ran `claude-sonnet-5` whenever the owner answered
-  // it in Slack. The fix is NOT here and deliberately so — a seat's cast must win on every lane,
-  // not only this one, and the bridge holds no profile roster to resolve it against (it knows
-  // three profile NAMES from its own config and nothing about `spawn-profiles.yaml`, which is the
-  // boundary `probe-chat-boundary` enforces). Resolution is DAEMON-SIDE, at the one point every
-  // launch passes through: `server/spawn/spawn.js#profileForSeatCast`, over the shared catalog in
-  // `launch-profiles/catalog.js`.
+  // A reply in an AGENT'S OWN THREAD is delivered as a session-create at that seat's home — and
+  // until this call NOTHING recorded anywhere that the ask had been answered. The coordination bus
+  // kept every question and no reply, so `engine/execution-record.js#blockAndQueueVerdict` could
+  // never see the pairing close and a run could walk past a question the owner had answered.
   //
-  // So what this function returns is what a seat runs when it declares NO cast — the channel
-  // master, by design (`materialize-seats.py#open_binding`: "the master's harness and model are
-  // named by the chat bridge at spawn time"), which is precisely the case this surface split was
-  // built for. Nothing here changed at D19, and nothing here should: the bridge names a fallback
-  // and the seat's own record outranks it.
-  function profileFor(route) {
-    if (route && (route.kind === 'goal' || route.kind === 'agent')) return config.goalProfile || config.sessionProfile;
-    return config.masterProfile || config.sessionProfile;
+  // ⚑ ONE GATEWAY CALL, NO SPAWN, NO SECOND WRITER. This subtree may not hold a child process
+  // (`chat-bridge-spec.md` lines 14/26; `probes/probe-chat-boundary.js` scans every runtime `.js`
+  // here and derives its file list from the directory), and `coordination/messages.md` may not gain
+  // a JavaScript writer. So the bridge asks and the DAEMON acts — `engine/bus-answer.js` shells to
+  // `coord.py send --type answer`, the file's one writer. Same split `live-sessions.js:10-15`
+  // describes for the warm-session manager, for the same structural reason.
+  //
+  // ⚑ `kind: 'agent'` ONLY. A top-level message in a GOAL channel is the owner INITIATING with the
+  // goal, not answering a seat, and writing an `answer` there would falsely clear goal-master's
+  // open ask. Master/DM traffic has no seat and no bus at all.
+  //
+  // ⚑ DELIVERY NEVER FAILS BECAUSE THE BOOKKEEPING FAILED. The reply reaching the seat is the
+  // load-bearing act and it has ALREADY HAPPENED when this runs. Every failure — gateway refusal,
+  // transport down, coord refusing, a throw — is logged loudly and changes NEITHER the outcome nor
+  // the exit path: the return value below is decoration on an already-successful result.
+  //
+  // ⚑ ONE IMPLEMENTATION, THREE CONSUMERS — owner review, 2026-08-11. "The owner answered" is ONE
+  // FACT, and the first cut of this recorded it on the session-create leg ONLY. That is the same
+  // single-source-of-truth defect this design exists to delete: `onChatMessage` forks on
+  // `threadMap.has()` (legitimately — reviving a dead seat and speaking to a live one are different
+  // acts) and `chat-bridge.js` tries the WARM path ahead of both, so one owner turn can arrive
+  // through any of THREE doors. Recording it at one door meant building the same thing again at
+  // the other two. Now every door calls THIS function; only the guard below is shared.
+  //
+  // ⚑ THE CALL STAYS ON EACH DOOR'S OWN SUCCESS PATH, and is NOT hoisted into `onChatMessage`
+  // ahead of the fork. The reply has not been delivered at that point, and the seat-busy/deduped
+  // branch deliberately does NOT deliver — it posts a decline notice and the text is re-submitted
+  // later by `chat-bridge.js`. An answer recorded there would assert the owner answered while
+  // nothing had reached the seat. Each door's honest success condition differs, and each states it:
+  //   · session-create — the enqueue was accepted AND not suppressed at the idempotent door
+  //   · follow-up      — same, plus NOT a corrective redispatch (below)
+  //   · warm           — the session ANSWERED (`chat-bridge.js`), which is proof the owner's words
+  //                      were consumed; whether the agent's reply then posted to Slack is a
+  //                      different question and does not un-answer it
+  // EXACTLY ONE fires per owner turn: a warm answer returns before the forward path is reached, and
+  // the fork below is exclusive. No double write is possible by construction.
+  async function recordBusAnswer({ route, text }) {
+    if (!route || route.kind !== 'agent' || !route.goalId || !route.agent) return null;
+    try {
+      const res = await forwarder.forward('record-bus-answer', {
+        goal: String(route.goalId), seat: String(route.agent), corpus: String(text || ''),
+      });
+      if (!res.ok) {
+        log('warn', 'the owner\'s answer was DELIVERED but NOT recorded on the bus — the seat\'s ask stays open to every reader', { goalId: route.goalId, agent: route.agent, error: res.error });
+        return { recorded: false, error: (res.error && res.error.code) || 'unknown' };
+      }
+      if (!res.result || res.result.recorded !== true) {
+        log('warn', 'the owner\'s answer was DELIVERED but the daemon recorded no bus row', { goalId: route.goalId, agent: route.agent, reason: res.result && res.result.reason });
+        return { recorded: false, reason: (res.result && res.result.reason) || 'unknown' };
+      }
+      log('info', 'recorded the owner\'s answer on the seat\'s coordination bus', { goalId: route.goalId, agent: route.agent, msgId: res.result.msg_id, re: res.result.re });
+      return { recorded: true, msgId: res.result.msg_id, re: res.result.re };
+    } catch (err) {
+      log('warn', 'recording the owner\'s answer on the bus THREW — the reply was still delivered', { goalId: route.goalId, agent: route.agent, error: err.message });
+      return { recorded: false, error: err.message };
+    }
   }
 
-  // The reasoning RUNG that rides with the profile, MASTER SURFACE ONLY (owner ruling
-  // `d-0811lp-effort-lane-build-now`, 2026-08-11). Goal and agent traffic carry no effort key and
-  // run the harness default — there is no `goal_effort`, and inventing one would be a config
-  // surface nobody asked for (the same call `profileFor`'s header records for the third profile key).
-  // ⚠ IT IS PAIRED WITH THE PROFILE, NOT INDEPENDENT OF IT: a rung is 1..N in the ladder THAT
-  // profile declares, so `master_profile.py` writes the two together and clears the rung whenever
-  // the profile changes without one. A rung surviving a switch to a shorter-laddered harness would
-  // refuse at the spawn, one owner message later.
-  function effortFor(route) {
-    if (route && (route.kind === 'goal' || route.kind === 'agent')) return null;
-    return config.masterEffort ?? null;
+  // ── THE TRANSPORT NAMES NO EXECUTION (launch-cast unification, owner ruling D2, 2026-08-11) ──
+  //
+  // This used to be a per-SURFACE profile choice (`master_profile` for DMs, `goal_profile` for
+  // goal/agent threads) plus a master-only effort rung — so which harness, model and reasoning
+  // level an agent ran at depended on where its message arrived from. The failure that earned this
+  // rewrite: `plan-interviewer`, cast `claude-fable-5` at `effort: high` in its own `seat.md` and
+  // in `taskforce.csv`, answered every Slack turn as `claude-sonnet-5` at the harness default.
+  //
+  // D19 had already ruled the seat's cast outranks the caller's profile — but it was enforced only
+  // at `spawn()`, and the WARM leg (`server/spawn/live-sessions.js`) never went through `spawn()`.
+  // So message #1 of a thread ran the cast and every message after it ran the transport's value,
+  // at the same seat, in the same thread. Both doors resolve identically now, and an uncast seat
+  // REFUSES (`catalog.js#E_UNCAST_SEAT`) instead of inheriting whatever the bridge carried.
+  //
+  // `sessionProfile` is what remains, and it decides NOTHING: the enqueue must carry a non-empty
+  // `profile` arg (`launch-agent` REQUIRED_ARGS) and the daemon replaces it with the seat's cast or
+  // refuses. It is the request; the seat's record is the decision. Kept as one value for every
+  // surface precisely so no surface can mean anything by it.
+  function profileFor() {
+    return config.sessionProfile;
   }
 
   // WHERE the session runs, by surface. Master/mention traffic uses the configured
@@ -221,7 +263,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // difference is that a second seat-busy refusal posts NO notice. The owner was told once, and
   // a notice per poll pass would turn one honest line into a stream of them.
   async function forwardSessionCreate({ chatThreadId, text, route, retry = false }) {
-    const profile = profileFor(route);
+    const profile = profileFor();
     if (!profile) {
       // A launch-agent job MUST name a profile (DEC-1 R3; the store re-validates it
       // exists). Missing config is a loud refusal, never a silent malformed forward.
@@ -265,10 +307,9 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       run_at: nowIsoUtc(),                      // due now: the next tick dispatches it
     };
     if (home.workdir) payload.args.workdir = home.workdir;
-    // Only present when configured, so a deployment on the pre-ruling `chat-agent` job id — whose
-    // args_schema admits no `effort` — is unaffected and enqueues exactly what it always did.
-    const effort = effortFor(route);
-    if (effort !== null) payload.args.effort = effort;
+    // NO `effort` KEY (launch-cast unification, 2026-08-11). The rung is the SEAT's declaration
+    // now, read daemon-side off its descriptor at both launch doors — so putting one on the wire
+    // here would be the transport naming execution again, in the one field it still touches.
 
     const res = await forwarder.forward('enqueue-job', payload);
     if (!res.ok) {
@@ -316,7 +357,8 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     const queueId = res.result && res.result.jobId;
     threadMap.create(chatThreadId, { queueId });
     log('info', 'session-create job enqueued', { chatThreadId, queueId, route: route && route.kind, goalId: route && route.goalId, profile, workdir: home.workdir || null });
-    return { forwarded: true, leg: 'session-create', intent: 'enqueue-job', queueId, route: route && route.kind, goalId: (route && route.goalId) || null };
+    const busAnswer = await recordBusAnswer({ route, text });
+    return { forwarded: true, leg: 'session-create', intent: 'enqueue-job', queueId, route: route && route.kind, goalId: (route && route.goalId) || null, ...(busAnswer ? { busAnswer } : {}) };
   }
 
   // A follow-up in an already-mapped conversation → a send-message action-type
@@ -368,7 +410,38 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     }
     if (replyType === 'answer') threadMap.setPendingAsk(chatThreadId, false); // the ask has now been answered
     log('info', 'follow-up send-message enqueued', { chatThreadId, corrective, replyType, thread: resolved.chainThread, route: route && route.kind, goalId: route && route.goalId, queueId: res.result && res.result.jobId });
-    return { forwarded: true, leg: 'follow-up', corrective, intent: 'enqueue-job', replyType, thread: resolved.chainThread, queueId: res.result && res.result.jobId, route: route && route.kind, goalId: (route && route.goalId) || null };
+    // THE SAME FACT, THIS DOOR (owner review 2026-08-11 — see `recordBusAnswer`'s header). Two
+    // conditions ride with it here that the session-create leg does not have, and neither is a
+    // style choice:
+    //
+    // ⚑ NOT A CORRECTIVE REDISPATCH — ruled, not inherited by accident. `chat-bridge.js` calls this
+    // leg with `corrective: true` as the reply contract's REVIVE turn: the BRIDGE re-asking a
+    // worker that returned a malformed reply. The owner sent nothing and said nothing, so recording
+    // an `answer` on his behalf would clear a seat's hold on the strength of a schema complaint.
+    // This is the same reasoning this function's own header already gives for why a corrective
+    // posts no decline notice ("the owner sent nothing") and is never typed `answer`.
+    //
+    // ⚑ NOT `replyType === 'answer'`, THOUGH IT LOOKS LIKE THE OBVIOUS GATE — IT IS DEAD CODE.
+    // `replyType` is `answer` only when `entry.pendingAsk`, and NOTHING SETS THAT TRUE in this
+    // deployment: `setPendingAsk(true)` fires only from `deliverToOwner({ markAsk: true })`, and
+    // every live call site passes `markAsk: false` (`reply-leg.js:489` says why — "ask-detection
+    // out of scope v1"). A ferried agent ask does not set it either: `routeToAgentThread` posts
+    // through `transport.sendToOwner`, which never touches the flag. So gating on it would look
+    // exactly right, read as the tighter check, and never once fire — on the precise surface this
+    // whole row exists for. Grep before restoring it.
+    //
+    // ⚑ AND NOT WHILE THE DOOR SUPPRESSED THE ENQUEUE. `heart-store.js#enqueue` returns
+    // `{ deduped: true }` BEFORE the INSERT and DISCARDS the payload — the owner's corpus with it —
+    // and its own comment makes the rule general: "a caller that must not lose its payload MUST
+    // read `deduped` rather than treating a returned id as delivery." Whether a `send-message` job
+    // can key that door depends on whether its catalogue row is HOMED, which is deployment state,
+    // not something this file can know — so the write requires unambiguous delivery instead of
+    // guessing. ⚠ This leg's own `forwarded: true` is UNCHANGED and still ignores `deduped`, which
+    // is a latent gap the session-create leg does not have. Named here, not fixed here.
+    const busAnswer = !corrective && !(res.result && res.result.deduped)
+      ? await recordBusAnswer({ route, text })
+      : null;
+    return { forwarded: true, leg: 'follow-up', corrective, intent: 'enqueue-job', replyType, thread: resolved.chainThread, queueId: res.result && res.result.jobId, route: route && route.kind, goalId: (route && route.goalId) || null, ...(busAnswer ? { busAnswer } : {}) };
   }
 
   // The single entry: an inbound chat message. Admission FIRST (chat-bridge-spec.md
@@ -409,7 +482,14 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // conversation's profile and home through THESE functions rather than a second copy of the
   // surface rules. A warm session must run the same profile at the same seat the cold path would
   // have used, or the two paths are two different agents wearing one thread.
-  return { onChatMessage, forwardSessionCreate, forwardFollowUp, profileFor, workdirFor, CMP8_TYPES };
+  //
+  // ⚑ `recordBusAnswer` IS EXPOSED FOR EXACTLY THAT REASON, one fact further on. The warm leg is
+  // the THIRD door an owner answer can arrive through and it never touches either leg above
+  // (`chat-bridge.js` returns before the forward path when a warm session answers), so without
+  // this the same defect the owner caught on 2026-08-11 would simply reappear there. The bridge
+  // calls THIS function; it does not get a second copy of the rule, exactly as it does not get a
+  // second copy of the surface rules.
+  return { onChatMessage, forwardSessionCreate, forwardFollowUp, profileFor, workdirFor, recordBusAnswer, CMP8_TYPES };
 }
 
 module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, SEAT_BUSY_GAVE_UP_NOTICE, resolveGoalSeat };

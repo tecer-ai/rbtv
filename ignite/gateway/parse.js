@@ -57,10 +57,38 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // realization`'s divergences (1) explicit recipient addressing and (4) a stored `to:` column STAND
 // as substrate facts; the client is adapted to the gateway's shape, the gateway is never taught a
 // recipient. The write lands through the already-shipped heartStore.recordMessage — NO store change.
+// ⚑ `record-bus-answer` ADDED by task 7.771 (owner ruling 2026-08-11, design
+// `one-readiness-predicate.md` § D8): the TWELFTH intent — the owner's Slack reply, recorded on the
+// asking seat's coordination bus. Before it the bus kept every question and no reply, so nothing
+// mechanical could tell an answered ask from an unanswered one and a seat could walk past the
+// owner's question (`engine/execution-record.js#blockAndQueueVerdict`).
+// ⚑ WHY A NEW INTENT AND NOT AN `enqueue-job` VARIANT — the owner's ruling, with the alternative it
+// beat: `enqueue-job` carrying a `fire-tool` job needs a `config/spawn-profiles.yaml` entry plus a
+// CREATE-ONLY `register-job` row on the live box (open issue S-2: no in-place repair, and that box
+// already carries two permanently dead ids from exactly this). This is also `live-feed`'s and
+// `send-message`'s reason in one line: an intent that enqueues nothing cannot honestly be an
+// enqueue — an answer to a waiting human is delivered, not scheduled.
+// ⚑ IT IS NOT THE BRIDGE HOLDING A NEW CAPABILITY (`chat-bridge-spec.md` line 26, "no new intent of
+// its own"). The bridge makes ONE ordinary authenticated gateway call and holds no spawn path; the
+// daemon shells to `coord.py`, which is the same split `live-feed` already carries for the warm
+// session manager. Authorization is `kind: bridge` ONLY (`authz.canRecordBusAnswer`) — narrower
+// than any sibling here, because forging an owner's answer clears another seat's mechanical hold.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
+  'record-bus-answer',
 ]);
+
+// A goal id and a seat name, SHAPE ONLY. A deliberate SECOND copy of `bus-ferry.js#SAFE_NAME_RE`,
+// for exactly the reason every sibling copy in this file exists: the gateway holds no store, no
+// config and no sibling import by design (DEC-4), so it cannot read the constant from the module
+// that owns it — and the core re-validates independently (DEC-3), which is the point.
+//
+// ⚠ THESE TWO TOKENS REACH THE DAEMON FROM AN INTERNET-FACING COMPONENT and become PATH SEGMENTS
+// under `.rbtv/goals/`. The anchors are load-bearing: no separator, no `..`, no control character,
+// no leading dot, no empty string. Refused here rather than sanitized — a name that needs cleaning
+// is a name nobody meant.
+const BUS_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const SESSION_MODES = new Set(['headless', 'headed']);
@@ -549,6 +577,33 @@ function parseSendMessage(payload) {
   return { type: payload.type, thread: payload.thread, corpus: payload.corpus };
 }
 
+// `record-bus-answer` (task 7.771) — SHAPE ONLY, like every parse here. Three fields, closed set.
+//
+// ⚑ WHAT THE GATEWAY CANNOT CHECK AND MUST NOT GROW A HANDLE TO TRY: whether the goal exists,
+// whether the seat is materialized in it, and which ask the answer settles. All three are
+// filesystem questions and all three are the CORE's complete re-validation (DEC-3) — see
+// `engine/bus-answer.js`. What IS decidable from the payload alone is the SHAPE of the two names,
+// and that is refused here as well as there, because a malformed one should never reach the core.
+// ⚑ `re` IS NOT A FIELD. The ask id is RESOLVED daemon-side from the goal's own bus through the
+// same pairing the mechanical hold makes; accepting one from the wire would let a caller point an
+// answer at a question it does not settle.
+// ⚑ AN EMPTY CORPUS IS REFUSED, unlike `send-message`'s. That door records a message; this one
+// records that a HUMAN ANSWERED, and an empty answer is a row asserting something that did not
+// happen — it would clear a seat's hold with no content behind it.
+function parseRecordBusAnswer(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['goal', 'seat', 'corpus']), 'record-bus-answer');
+  for (const key of ['goal', 'seat']) {
+    if (typeof payload[key] !== 'string' || !BUS_NAME_RE.test(payload[key])) {
+      bad(`record-bus-answer ${key} must be a bare name — letters, digits, '.', '_' or '-', starting alphanumeric (no path separators, no "..", no control characters)`, key);
+    }
+  }
+  if (typeof payload.corpus !== 'string' || payload.corpus.trim().length === 0) {
+    bad('record-bus-answer requires a non-empty corpus (the owner\'s words)', 'corpus');
+  }
+  return { goal: payload.goal, seat: payload.seat, corpus: payload.corpus };
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -566,6 +621,7 @@ function parseRequest({ intent, payload }) {
     case 'deregister-job': return parseDeregisterJob(payload);
     case 'live-feed': return parseLiveFeed(payload);
     case 'send-message': return parseSendMessage(payload);
+    case 'record-bus-answer': return parseRecordBusAnswer(payload);
   }
 }
 

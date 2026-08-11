@@ -526,9 +526,25 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         const text = verdict.ok
           ? verdict.body
           : (verdict.body !== null ? bestEffortText(verdict.body) : warm.text);
+        // ⚑ THE OWNER ANSWERED: SAY SO ON THE BUS — the THIRD door (task 7.771; owner review
+        // 2026-08-11). `forward-path.js#recordBusAnswer` is called, never re-implemented: "the
+        // owner answered" is ONE FACT and recording it at one door is what made the first cut of
+        // this a single-source-of-truth defect. The guard (`route.kind === 'agent'` only) travels
+        // inside that function, so a goal channel or a DM writes nothing here either.
+        //
+        // ⚑ IT RIDES `warm.answered`, NOT THE SLACK POST, and the two are genuinely different
+        // questions. `warm.answered` means the live session CONSUMED the owner's words and produced
+        // a turn from them — that IS delivery, and it is already irreversible. Whether the agent's
+        // reply then reached Slack is the OTHER direction; a rate-limited post does not un-answer
+        // the question the seat already read. So BOTH exits below carry it.
+        //
+        // ⚑ AND IT RUNS AFTER THE POST, not before. This is the latency path the warm leg exists
+        // to win (`live-session-design.md` §4), and the bus write shells to a python process — so
+        // ordering it first would spend the owner's own wait on bookkeeping he cannot see.
         const delivered = await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text, markAsk: false });
+        const busAnswer = await forwardPath.recordBusAnswer({ route, text: chatMsg.text });
         if (delivered && delivered.delivered !== false) {
-          const out = { forwarded: true, leg: 'live-session', warm: true, ms: warm.ms };
+          const out = { forwarded: true, leg: 'live-session', warm: true, ms: warm.ms, ...(busAnswer ? { busAnswer } : {}) };
           log('info', 'chat message handled on the warm path', { chatThreadId: chatMsg.chatThreadId, ...out });
           return out;
         }
@@ -536,7 +552,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         // agent the same question, so this stops here and says so — the same honesty the reply
         // leg's give-up notice carries.
         log('error', 'warm turn answered but its reply could not be posted — NOT re-asking the agent', { chatThreadId: chatMsg.chatThreadId, reason: delivered && (delivered.reason || delivered.error) });
-        return { forwarded: true, leg: 'live-session', warm: true, delivered: false };
+        return { forwarded: true, leg: 'live-session', warm: true, delivered: false, ...(busAnswer ? { busAnswer } : {}) };
       }
     }
 
