@@ -992,7 +992,8 @@ def build_fixture(root):
         d.mkdir(parents=True, exist_ok=True)
         d.joinpath("seat.md").write_text(
             "---\nseat: %s\n---\n<io-spec id=\"fx-io\" version=\"latest\">\n## Inputs\n\n- none.\n"
-            "\n## Outputs\n\n- `outputs/present.md` — the declared artifact.\n</io-spec>\n" % seat)
+            "\n## Outputs\n\n- `outputs/present.md` — the declared artifact.\n</io-spec>\n" % seat,
+            encoding="utf-8")
 
     # Session rows for the two that need a trace: one terminal-and-still-rostered, one CRASHED
     # (open row, and its roster row will be inactive).
