@@ -1,3 +1,11 @@
+# Repo-wide line-ending policy (owner-ruled 2026-08-11, core-build task 7.728):
+# git decides what is text and normalizes it to LF in every commit, regardless
+# of any machine's autocrlf/eol config. The index was verified 100% LF at the
+# ruling (1509 tracked files, zero i/crlf), so this changes no committed bytes —
+# it only prevents a misconfigured machine from ever committing CRLF wholesale.
+# Working trees keep their platform-native endings (autocrlf still governs checkout).
+* text=auto
+
 # Pin the stamp-script test fixtures to LF in every working tree.
 #
 # This repo runs with core.autocrlf=true, so a fresh checkout/clone would
