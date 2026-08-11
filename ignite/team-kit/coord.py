@@ -258,7 +258,13 @@ FM_KEY = {
     # the rest SILENTLY — the exact half-read that would make a two-output seat verifiable on one.
     # ABSENT MEANS UNDECLARED, never "nothing to produce" — `declared_outputs` carries that
     # distinction all the way onto the durable record rather than collapsing it to a bool.
-    "outputs": re.compile(r"^outputs:\s*(.+?)\s*$", re.MULTILINE),
+    # ⚠ `[ \t]*`, NEVER `\s*` (7.711). `\s` matches the NEWLINE, so `^outputs:\s*(.+?)\s*$` reached
+    # PAST an empty `outputs:` and captured the NEXT LINE — `outputs:` + an indented `- plan.md`
+    # block parsed to the single value `- plan.md`, and a bare `outputs:` before `cwd:` parsed to
+    # `cwd: /x`. Both declare a path that can never exist, and a declared-but-absent output
+    # HARD-BLOCKS the seat's `done` forever. The docstring below promises `[]` for a key with
+    # nothing after it; only a horizontal-space class keeps that promise.
+    "outputs": re.compile(r"^outputs:[ \t]*(.+?)[ \t]*$", re.MULTILINE),
     "observer": re.compile(r"^observer:\s*(\S+)\s*$", re.MULTILINE),
     "auto-wake": re.compile(r"^auto-wake:\s*(\S+)\s*$", re.MULTILINE),
     # r-cos-bounded-inbox / r-engineer-contact — the SENDER BOUND: a comma-separated allow-list of
@@ -344,6 +350,34 @@ def _fm_outputs(fm):
     check-out's."""
     m = FM_KEY["outputs"].search(fm)
     return [s.strip() for s in m.group(1).split(",") if s.strip()] if m else []
+
+
+# 7.711: the key is read off ONE line as a bare comma-separated list, so the three shapes an author
+# reaches for by reflex — an indented YAML block list, a flow/bracket list, and the inline `#`
+# comment every SIBLING key tolerates (they capture `(\S+)` and drop the rest; this one captures the
+# whole line) — all parse to paths that CANNOT EXIST. That is strictly worse than declaring nothing:
+# an absent key is admitted and recorded `none-declared`, while a malformed one hard-blocks the
+# seat's `done` with a "MISSING: - plan.md" the author cannot act on. Named refusal instead.
+_OUTPUTS_BLOCK_YAML = re.compile(r"^outputs:[ \t]*\r?\n[ \t]*-[ \t]", re.MULTILINE)
+
+
+def _fm_outputs_defect(fm):
+    """Why this descriptor's `outputs:` cannot be a path list — "" when there is nothing wrong.
+
+    Detected on the descriptor, not on the check-out, because the value is WRONG the moment it is
+    written; the check-out is merely where it becomes unsatisfiable."""
+    if _OUTPUTS_BLOCK_YAML.search(fm):
+        return ("it is an INDENTED YAML BLOCK LIST. This key is read off ONE line — "
+                "`outputs: plan.md, build/report.json`")
+    for v in _fm_outputs(fm):
+        if v.startswith("[") or v.endswith("]"):
+            return (f"the entry `{v}` carries YAML flow-list punctuation. This key is a BARE "
+                    f"comma-separated list, not YAML — `outputs: plan.md, build/report.json`")
+        if "#" in v:
+            return (f"the entry `{v}` carries an inline `#` comment. Unlike its sibling keys this "
+                    f"one captures the REST OF THE LINE, so the comment becomes part of the path — "
+                    f"put the note on its own line above the key")
+    return ""
 
 
 def briefing_files(wdir):
@@ -8280,6 +8314,19 @@ def declared_outputs(args, seat):
     for w in discover_workers(workers_dir(args)):
         if w["agent"] != seat:
             continue
+        # 7.711 — refused HERE, and only here, though the defect is detected at the parse point:
+        # `discover_workers` is read by launch, status and the sensors, and killing those over
+        # another seat's descriptor typo would be a worse failure than the one being fixed. This is
+        # the one caller for which the value is load-bearing.
+        if w["outputs_defect"]:
+            refuse("input",
+                   f"'{seat}' has a MALFORMED `outputs:` declaration and this check-out cannot be "
+                   f"satisfied as written: {w['outputs_defect']}.\n"
+                   f"  descriptor: {w['briefing']}\n"
+                   f"Rewrite it on one line, or DELETE the key — an absent `outputs:` is admitted "
+                   f"and the record says `none-declared`. Refusing here costs the re-run only: "
+                   f"nothing was written, nothing was exported, your roster row is still ACTIVE.",
+                   1)
         missing = []
         for d in w["outputs"]:
             p = Path(d) if os.path.isabs(d) else Path(w["cwd"]) / d
@@ -10983,6 +11030,8 @@ def discover_workers(wdir):
             # is absolutized at THIS parse point and a declared output is resolved against it.
             # Parsing the descriptor twice would be two readers of one file (PRIN-11).
             "outputs": _fm_outputs(fm),
+            # 7.711: read at the SAME parse point for the same reason — one reader of one file.
+            "outputs_defect": _fm_outputs_defect(fm),
         })
     return found
 

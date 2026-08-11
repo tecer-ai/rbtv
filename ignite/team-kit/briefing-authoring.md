@@ -46,6 +46,14 @@ can actually run). Both are decided once, per run, and the briefings below only 
   skip the check (neither asserts completion). Omitting the key is allowed and never refused: the
   seat's disposition record then reads `none-declared` and that `done` is unverified — declare the
   key whenever the seat has a checkable artifact.
+  ⚠ **NO INLINE `#` COMMENT ON THIS KEY, and it is the only one (7.711).** Its siblings capture
+  `(\S+)` and drop the rest of the line, so a trailing comment is harmless on them; `outputs:`
+  captures the WHOLE line, so the comment becomes part of the path. The asymmetry is kept rather
+  than removed: stripping a comment would mean guessing which `#` in a line is a comment and which
+  is a legal character in a path, and a guess in a path parser is exactly what produced this
+  defect. It is REFUSED BY NAME instead — as are the two other shapes reflex reaches for, an
+  indented YAML block list and a bracket list `[a.md, b.md]`. Put the note on its own line above
+  the key.
   ⚠ **`outputs:` is NOT `surfaces:`.** The briefing's owned-surfaces claim is what a seat may WRITE
   (a permission, single-writer arbitration — still prose; the `surfaces:` key is unbuilt, G-57).
   `outputs:` is what a seat must have PRODUCED (a debt, checked at the ending). Often the same

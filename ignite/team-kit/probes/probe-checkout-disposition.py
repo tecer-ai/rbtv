@@ -274,6 +274,26 @@ def main():
               "map is what routes this ending to the leader",
               set(mod._DEFERRAL_BY_DISPOSITION.values()) <= set(mod.CLASS_TO_VERDICT)
               and "declared-incomplete" in mod.CLASS_TO_VERDICT)
+        # ---- A6 (7.711): a MALFORMED `outputs:` is refused by name, not left unsatisfiable -------
+        # The pre-7.711 program had no arm here and none of the 16 above reach it: every one of them
+        # declares a WELL-FORMED value. The three shapes below all parsed to a path that can never
+        # exist, so the seat was hard-blocked out of `done` forever — and the block-YAML case is the
+        # cruel one, because the author DID produce the file the block declares.
+        for shape, decl, produced in (
+                ("block-YAML",     "\n  - plan.md", "plan.md"),
+                ("bracket-list",   "[a.md, b.md]",  "a.md"),
+                ("inline-comment", "plan.md  # the plan", "plan.md")):
+            mp = make_package(tmp / f"malformed-{shape}", {"author": decl})
+            (mp / "workers" / "author" / produced).write_text("delivered\n", encoding="utf-8")
+            checkin(mod, mp, "author", "%9")
+            out_x, code_x = checkout(mod, mp, "author")
+            check(f"A6({shape}): the descriptor is REFUSED BY NAME at check-out — the author is "
+                  f"told the declaration is malformed, not handed an unsatisfiable missing-path "
+                  f"list for a file they already produced",
+                  code_x != 0 and "refused [coord input]" in out_x and "outputs:" in out_x
+                  and "MISSING (or empty)" not in out_x
+                  and active(mod, mp, "author") and disposition_of(mp, "author") is None)
+
         bridge = [v for vs in mod.LIFECYCLE_INTENT_OF.values()
                   if vs is not mod.LIFECYCLE_INTENT_ABSENT for v in vs]
         check("A5: the bridge holds — every checkout intent the executor's argv maps to is a "
