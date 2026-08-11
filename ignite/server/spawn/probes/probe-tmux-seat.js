@@ -169,6 +169,28 @@ capture('probe-tmux-seat', async (lines) => {
     assert(res.scopeArgv.includes('MemoryMax=64M'), "leg9: the PROFILE's caps ride the scope (R7 — mechanism comes from the profile)");
     lines.push('leg9 R7 split: workdir from the seat descriptor, caps/argv from the profile, in one composition');
 
+    // ── leg 9b: the EFFORT RUNG reaches the SEAT door too ─────────────────────────────────────
+    // The headless door has composed the rung since `d-0811lp-effort-lane-build-now` (2026-08-11)
+    // and probe-effort-lane proves it there. This door composed its own argv and never consulted
+    // the ladder, so a HEADED seat ran the harness default no matter what its cast asked for —
+    // silently, which is exactly what G-270 forbids. Same one interpreter (`resolveEffort`), so
+    // the assertion is the profile's OWN rung literal, never a spelling this probe knows.
+    const dryEffort = await ctx.mgr.spawnSeat(row.exec_id, 'test-headed', {
+      room: 'probegoal', seatName: 'probe-seat', seatDir, dryRun: true, effort: 2,
+    });
+    const inner = dryEffort.wrappedArgv;
+    const tEffort = inner.lastIndexOf('-t');
+    assert(tEffort !== -1 && inner[tEffort + 1] === '0.2',
+      `leg9b: rung 2 must compose the fixture ladder's own rung-2 literal; got ${inner.join(' ')}`);
+    // …and a rung outside the ladder is REFUSED here exactly as it is headless — never clamped.
+    let outOfRange = null;
+    try {
+      await ctx.mgr.spawnSeat(row.exec_id, 'test-headed', { room: 'probegoal', seatName: 'probe-seat', seatDir, dryRun: true, effort: 9 });
+    } catch (e) { outOfRange = e; }
+    assert(outOfRange && outOfRange.code === 'E_UNKNOWN_EFFORT',
+      `leg9b: rung 9 on a 2-rung ladder must refuse E_UNKNOWN_EFFORT (got ${outOfRange && outOfRange.code})`);
+    lines.push('leg9b effort: the seat door composes the rung through the SAME resolveEffort the headless door uses; out-of-range refuses');
+
     // No store row was written by a dry run.
     const after = ctx.store.getExecution(row.exec_id);
     assert(!after.session_id, 'leg10: dryRun wrote no session id to the store');

@@ -602,15 +602,23 @@ async function main() {
   // settle ledger frames the whole cutover ("DEC-1 is amended in TARGET, never in gate", R28).
   return {
     ...spawnManager,
-    // `resumeRef` MUST ride through this decoration (r-chat-chain-resumes-session): the ticker
-    // passes it positionally, and a wrapper pinned to the old arity silently drops it — measured
-    // 2026-08-08 (execs 24666/24669/24672): the tick log said `chain: resume`, the argv ran the
-    // exec template, and the sitting answered the owner with no thread history. Headed spawns
-    // never resume, so the ref is forwarded on the headless path only.
-    spawn: (execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown', resumeRef = null) => {
+    // ⚑ THIS PASS-THROUGH IS NO LONGER ARITY-PINNED, and that is the fix for a CLASS, not for one
+    // operand. The ticker passes every operand positionally, so a wrapper that names a fixed list
+    // silently eats whatever was added to `spawn()` after the list was written. It has done so
+    // twice: `resumeRef` (r-chat-chain-resumes-session) measured 2026-08-08 on execs
+    // 24666/24669/24672 — the tick log said `chain: resume`, the argv ran the exec template, and
+    // the sitting answered the owner with no thread history — and `effort`
+    // (`d-0811lp-effort-lane-build-now`), wired end to end on 2026-08-11 through every layer BUT
+    // this one, so a daemon seat ran the harness default while the tick log reported its rung.
+    // The headless path therefore forwards `...rest` WHOLE and cannot drop an operand again;
+    // `probe-effort-lane` leg 8 holds that shape. Only the headed branch names positions, because
+    // it must hand `spawnSeat` its arguments by name — a headed seat carries no prompt and never
+    // resumes, so those two are skipped.
+    spawn: (execId, profileName, sessionMode = 'headless', ...rest) => {
       if (sessionMode !== 'headed') {
-        return spawnManager.spawn(execId, profileName, sessionMode, prompt, workdir, enqueuedBy, resumeRef);
+        return spawnManager.spawn(execId, profileName, sessionMode, ...rest);
       }
+      const [, workdir, enqueuedBy = 'unknown', , effort = null] = rest;
       // ⚑ THE ROOM IS NOW REQUIRED FOR A HEADED SPAWN, and that is a real behavior change, not a
       // tidy-up: `RBTV_IGNITE_TMUX_ROOM` unset used to mean "fall back to the pty path" (the
       // `r-cutover-gated` posture — the new target OFF unless someone turned it on). There is no
@@ -651,6 +659,7 @@ async function main() {
         room: tmuxRoom,
         seatDir: workdir,
         enqueuedBy,
+        effort,
       });
     },
     // ⚑ THE HEADED exit_code OVERRIDE IS GONE, and what it guarded is stated rather than assumed

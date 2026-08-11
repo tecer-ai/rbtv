@@ -1328,7 +1328,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   // `dryRun: true` composes and returns WITHOUT creating a pane or writing a store row. It exists
   // because composition is the half that is checkable off a live room — the probe uses it, and so
   // does any caller that wants to see the exact argv before it runs.
-  async function spawnSeat(execId, profileName, { room, seatName, seatDir, dryRun = false, enqueuedBy = 'unknown', readLease = undefined } = {}) {
+  async function spawnSeat(execId, profileName, { room, seatName, seatDir, dryRun = false, enqueuedBy = 'unknown', readLease = undefined, effort = null } = {}) {
     // The seat's cast wins here too (D19), and for the same reason it does on the headless door:
     // the two doors are the daemon's whole launch surface, and a seat that ran its cast headless
     // but the caller's profile in a pane would be one seat wearing two models. Resolved BEFORE the
@@ -1437,7 +1437,16 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // settings file) — which is exactly why leaving this door out would have been a latent defect
     // rather than an observable one. PLANNED here and COPIED past the dryRun return below: the
     // probe must see the real argv without this composition leaving a file behind.
-    const harnessArgvRaw = (profile.headed && profile.headed.tui && profile.headed.tui.argv) || profile.exec.argv;
+    // The EFFORT RUNG rides this door too, through the SAME one interpreter `composeArgv` uses
+    // (`resolveEffort` — never a second reading of the `effort:` table). A seat door that composed
+    // its own argv and skipped the ladder ran the harness default while the tick log reported the
+    // rung, which is precisely the silent drop G-270 forbids. Null composes nothing, so every
+    // caller that passes no rung is byte-unchanged; an out-of-range rung refuses here exactly as
+    // it does headless, and an inert dial accepts and emits nothing.
+    const harnessArgvRaw = [
+      ...((profile.headed && profile.headed.tui && profile.headed.tui.argv) || profile.exec.argv),
+      ...resolveEffort(profile, effort, profileName).argv,
+    ];
     const settings = planCagedSettings(harnessArgvRaw, resolvedWorkdir);
     const harnessArgv = settings.argv;
     const sessionId = generateSessionId();
