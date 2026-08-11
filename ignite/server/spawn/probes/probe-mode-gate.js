@@ -7,14 +7,18 @@ capture('probe-mode-gate', async (lines) => {
   const ctx = setup();
   try {
     const cases = [
-      { name: 'headed on non-headed profile', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headed', null, null, 'probe') },
-      { name: 'unknown mode', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'tmux', null, null, 'probe') },
+      { name: 'headed on non-headed profile', code: 'E_HEADED_NOT_CAPABLE', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headed', null, null, 'probe') },
+      { name: 'unknown mode', code: 'E_UNKNOWN_MODE', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'tmux', null, null, 'probe') },
     ];
+    // ASSERT the code, never merely record it: a loop that pushed `err.code` and moved on reported
+    // PASS while both refusals had silently become ERR_INVALID_ARG_TYPE (the `path.basename(null)`
+    // regression of 29220dc9) — a probe that cannot fail is not a probe.
     for (const c of cases) {
       try {
         await c.fn();
-        lines.push(`${c.name}: UNEXPECTED PASS`);
+        throw new Error(`${c.name}: UNEXPECTED PASS — expected ${c.code}`);
       } catch (err) {
+        if (err.code !== c.code) throw err;
         lines.push(`${c.name}: ${err.code}`);
       }
     }

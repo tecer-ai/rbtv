@@ -14,15 +14,19 @@ capture('probe-workdir-gate', async (lines) => {
     lines.push(`symlink ${escapeLink} -> ${fs.realpathSync(escapeLink)} (outside workdir_root ${ctx.workRoot})`);
 
     const cases = [
-      { name: 'workdir outside workdir_root', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, ctx.escapedir, 'probe') },
-      { name: 'symlink escape (link inside root resolves outside)', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, escapeLink, 'probe') },
-      { name: 'absolute path outside root', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, '/tmp', 'probe') },
+      { name: 'workdir outside workdir_root', code: 'E_WORKDIR_ESCAPE', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, ctx.escapedir, 'probe') },
+      { name: 'symlink escape (link inside root resolves outside)', code: 'E_WORKDIR_ESCAPE', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, escapeLink, 'probe') },
+      { name: 'absolute path outside root', code: 'E_WORKDIR_ESCAPE', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, '/tmp', 'probe') },
     ];
+    // ASSERT the code, never merely record it — the two legs below already do. A loop that pushes
+    // `err.code` and moves on cannot fail, so any refusal that degrades into a different throw
+    // (e.g. the `path.basename(null)` ERR_INVALID_ARG_TYPE regression of 29220dc9) still reads PASS.
     for (const c of cases) {
       try {
         await c.fn();
-        lines.push(`${c.name}: UNEXPECTED PASS`);
+        throw new Error(`${c.name}: UNEXPECTED PASS — expected ${c.code}`);
       } catch (err) {
+        if (err.code !== c.code) throw err;
         lines.push(`${c.name}: ${err.code}`);
       }
     }

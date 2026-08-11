@@ -474,7 +474,7 @@ function profileForSeatCast(profiles, seatDir, profileName, log) {
     harness: seatDeclaresValue(seatDir, 'harness'),
     model: seatDeclaresValue(seatDir, 'model'),
   };
-  return castProfileFor(profiles, binding, profileName, log, path.basename(seatDir));
+  return castProfileFor(profiles, binding, profileName, log, seatDir ? path.basename(seatDir) : null);
 }
 
 // ── `rw-paths:` — the seat-declared READ-WRITE workspace paths (owner ruling "a", 2026-08-06) ──
