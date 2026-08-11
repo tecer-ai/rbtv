@@ -13892,13 +13892,29 @@ def cmd_launch(args):
     #
     # ADMIT(w) == clause I  (`--declare-only` admitted, the landed sibling instrument)
     #          or clause I′ (this launch's ruled-relaunch grant, matched and unspent)
-    #          or clause J  (no row joined — fail-OPEN ALWAYS, and NAMED)
+    #          or clause J  (no row joined — fail-OPEN where it is REACHED, and NAMED)
     #          or the A–G conjunction over named row fields.
     #
+    # ⚠ CLAUSE J IS SUPERSEDED WHERE THE REGISTRY HAS ROWS — `d-registry-refusal-supersedes-clause-j`
+    # (OWNER RULING, 2026-08-10), superseding the `e0796b12` (2026-08-03) reading that clause J
+    # fails open on EVERY launch. `check_bindings` (G-51 / 7.99) runs far above this filter and
+    # REFUSES at exit 2 when the registry is NON-EMPTY and a launched seat has no `taskforce.csv`
+    # row: that state is not a join gap, it is a lost record — a goal whose registry should carry
+    # a row and does not is CORRUPT, which is precisely what the check exists to catch. The
+    # owner's deciding invariant: *a seat cannot exist in `goal/` if there is no taskforce entry —
+    # but in scaffolding it can exist even if not bound to any workflow.*
+    #
+    # SO CLAUSE J IS NOT DEAD, AND ITS SURVIVING SCOPE IS EXACTLY THE TWO STATES THE REFUSAL DOES
+    # NOT REACH: an EMPTY registry (`check_bindings` opens `if not registry: return` — the legacy
+    # `workers/` package and the scaffolding case, never in dispute), and `--force` (which WARNS
+    # per seat and proceeds). Both are asserted: 7.99's no-registry row, and 7.274's clause-J rows.
+    #
     # ⚠ CLAUSE J CARRIES NO INVOCATION-SHAPE CONDITION AND MUST NOT ACQUIRE ONE — not an `--only`
-    # cardinality, not the exit-1 flag, not any other property of how the launch was typed.
-    # Deferring an unjoined seat would mint a launch outage out of a join gap, which is the wrong
-    # fail direction: the same direction this file already refuses for a degraded sensor.
+    # cardinality, not the exit-1 flag, not any other property of how the launch was typed. Nor
+    # does the refusal above it: the supersession is keyed on the REGISTRY's state, never on how
+    # the launch was typed. Where clause J IS reached, deferring would mint a launch outage out of
+    # a join gap, which is the wrong fail direction: the same direction this file already refuses
+    # for a degraded sensor.
     #
     # ⚠ CLAUSE I′ IS SCOPED TO THE GRANT ROW'S OWN `seat` CELL, which is what makes the admitted
     # set exactly one seat — not any cardinality of `--only`. P2b already refuses a second name;
@@ -24092,24 +24108,46 @@ def _selftest_checks(args, failures, names):
               "and a check that cannot tell those apart measures nothing",
               _a3_ok_dry_code == 0 and _a3_defer_lines(_a3_ok_dry) == []
               and "[dry-run] okseat" in _a3_ok_dry)
-        # ---- clause J: the unjoined seat, fail-OPEN, and NAMED ----
+        # ---- clause J: the unjoined seat — SUPERSEDED where the registry HAS rows -------------
+        # `d-registry-refusal-supersedes-clause-j` (OWNER RULING, 2026-08-10) supersedes
+        # `e0796b12`'s reading for THIS fixture's state: `_a3l` carries a taskforce.csv with rows,
+        # so `unjoined` is a LOST ROW, not a join gap, and the launch refuses at exit 2. Clause J
+        # survives where that refusal is not reached — an EMPTY registry (7.99's own no-registry
+        # row, green) and `--force`, which is asserted here so the admission PRINT stays under
+        # test on the fixture that produced the ruling. The rows below assert BOTH directions:
+        # deleting them for the refusal's sake would lose clause J's surviving coverage entirely.
         _a3_unj = [w["agent"] for w in discover_workers(_a3l / "seats")]
         (_a3l / "seats" / "unjoined").mkdir(exist_ok=True)
         (_a3l / "seats" / "unjoined" / "seat.md").write_text(
             "---\nagent: unjoined\nmodel: opus\n---\nbrief\n", encoding="utf-8")
         _a3_j, _a3_j_code = _a3l_run(only="unjoined")
-        check("7.274 CLAUSE J: a seat with NO `taskforce.csv` row is ADMITTED on every launch "
-              "shape, and the launch PRINTS that it was admitted without a readiness term. "
-              "Deferring would mint a launch outage out of a join gap — the wrong fail direction, "
-              "and the same one this file already refuses for a degraded sensor",
-              _a3_j_code == 0 and "unjoined" not in [_s for _s, _a in _a3_tf]
-              and "ADMITTED WITHOUT A READINESS TERM" in _a3_j
-              and "[dry-run] unjoined" in _a3_j)
-        check("7.274 CLAUSE J carries NO invocation-shape condition: the same seat is admitted on "
-              "a SET launch too, not only when named alone. Putting clause J behind an `--only` "
-              "split would defer unjoined seats on ordinary mass launches — the exact inversion, "
-              "on the common path",
-              "ADMITTED WITHOUT A READINESS TERM" in _a3l_run(only="unjoined,okseat")[0])
+        _a3_jf, _a3_jf_code = _a3l_run(only="unjoined", force=True)
+        check("7.274 CLAUSE J, SUPERSEDED where the registry HAS rows "
+              "(`d-registry-refusal-supersedes-clause-j`): a seat with NO `taskforce.csv` row is "
+              "REFUSED at exit 2 by the registry check that runs ABOVE the admission filter, and "
+              "clause J never evaluates it — a registry that should carry the row and does not is "
+              "corrupt state, not a join gap. AND THE OTHER DIRECTION, which is what keeps clause "
+              "J tested rather than deleted: under `--force` the refusal warns and proceeds, and "
+              "THERE clause J still admits and still PRINTS that it admitted without a readiness "
+              "term. Both arms on one seat — the refusal arm alone would be satisfied by a launch "
+              "that refuses everything, the admission arm alone by one that refuses nothing",
+              _a3_j_code == 2 and "unjoined" not in [_s for _s, _a in _a3_tf]
+              and "unjoined: NO taskforce.csv ROW (no-registry-row)" in _a3_j
+              and "ADMITTED WITHOUT A READINESS TERM" not in _a3_j
+              and _a3_jf_code == 0
+              and "ADMITTED WITHOUT A READINESS TERM" in _a3_jf
+              and "[dry-run] unjoined" in _a3_jf)
+        _a3_js, _a3_js_code = _a3l_run(only="unjoined,okseat")
+        check("7.274 the supersession carries NO invocation-shape condition, and neither does "
+              "what survives of clause J: the SAME seat is refused on a SET launch too, not only "
+              "when named alone, and under `--force` it is admitted on the set launch too. Either "
+              "gate keyed on an `--only` cardinality would rule one way when a seat is named "
+              "alone and the other way on an ordinary mass launch — the inversion on the common "
+              "path. The registry's state decides; how the launch was typed decides nothing",
+              _a3_js_code == 2
+              and "unjoined: NO taskforce.csv ROW (no-registry-row)" in _a3_js
+              and "ADMITTED WITHOUT A READINESS TERM"
+              in _a3l_run(only="unjoined,okseat", force=True)[0])
 
         # ---- arm 4's instrument-path halves: ADMITTED while STILL CARRYING A CLASS ------------
         _a3_write_grants([{"seat": "ex1", "session-id": _a3l_sid, "anchor": _a3l_anchor,
