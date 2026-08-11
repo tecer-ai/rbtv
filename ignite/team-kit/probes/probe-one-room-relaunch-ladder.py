@@ -48,6 +48,10 @@ Run it through the suite — `node ignite/deploy/probe-suite.js --only one-room-
 never by hand (`G-163`). Exit 0 = green · 1 = a property is broken · 2 = INOPERATIVE.
 """
 
+import os as _os, sys as _sys, pathlib as _pl  # task 7.630: solo-run tmux isolation, FIRST
+_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "team-kit" / "self_isolate.py").is_file()) / "team-kit"))
+from self_isolate import self_isolate_tmux as _self_isolate_tmux; _self_isolate_tmux()
+
 import importlib.util
 import inspect
 import os

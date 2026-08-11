@@ -8,6 +8,7 @@
 // that nothing was created. A gate that throws loudly while still having mkdir'd a session dir
 // and appended a row would satisfy the error check and fail the actual bar.
 
+require('../../../deploy/probe-self-isolate').selfIsolateTmux(); // solo-run tmux isolation (task 7.630) — no-op under the runner
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

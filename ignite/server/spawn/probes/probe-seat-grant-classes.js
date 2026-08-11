@@ -24,6 +24,7 @@
 // The evidence rule is probe-seat-cage's (design §6, D51): a write claim is proven ON DISK from
 // OUTSIDE the cage, by the target file's bytes. The in-cage exit status is information only.
 
+require('../../../deploy/probe-self-isolate').selfIsolateTmux(); // solo-run tmux isolation (task 7.630) — no-op under the runner
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

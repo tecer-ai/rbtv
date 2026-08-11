@@ -48,6 +48,7 @@
 // Nothing about the rule's inputs is hand-fed on the C1/C2/C7 paths: the rooms are real tmux
 // sessions, read by the real lease module, and the decision is reached inside a real `ticker.tick()`.
 
+require('../../../deploy/probe-self-isolate').selfIsolateTmux(); // solo-run tmux isolation (task 7.630) — no-op under the runner
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

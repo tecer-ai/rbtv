@@ -24,6 +24,7 @@
 // positions of every live reader. T4 is the failure arm: a spawn that cannot come up must leave NO
 // row and NO file, which is the false-completion the ordering exists to prevent.
 
+require('../../../deploy/probe-self-isolate').selfIsolateTmux(); // solo-run tmux isolation (task 7.630) — no-op under the runner
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

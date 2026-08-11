@@ -22,6 +22,7 @@
 // grants — and read back from outside. A seat that reported its own success on stdout would be
 // telling us what it believed; a file in the one writable directory is what the kernel allowed.
 
+require('../../../deploy/probe-self-isolate').selfIsolateTmux(); // solo-run tmux isolation (task 7.630) — no-op under the runner
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');

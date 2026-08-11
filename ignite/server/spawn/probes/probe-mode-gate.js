@@ -1,5 +1,6 @@
 'use strict';
 
+require('../../../deploy/probe-self-isolate').selfIsolateTmux(); // solo-run tmux isolation (task 7.630) — no-op under the runner
 const { setup, teardown, capture, fire } = require('./lib');
 
 capture('probe-mode-gate', async (lines) => {

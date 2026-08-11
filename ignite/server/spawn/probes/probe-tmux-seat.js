@@ -13,6 +13,7 @@
 // that the layers nest in the load-bearing order, that a bwrap-less box fails closed before any
 // pane argv exists, and that an untranslatable cap refuses rather than silently under-confining.
 
+require('../../../deploy/probe-self-isolate').selfIsolateTmux(); // solo-run tmux isolation (task 7.630) — no-op under the runner
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');

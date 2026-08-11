@@ -20,6 +20,7 @@
 // `RBTV_IGNITE_WORKSPACE_ROOT` is set because the probe's store lives under a tmp dir with no
 // `.rbtv/` ancestor — it is `resolveWorkspaceRoot`'s own documented fallback, not a test backdoor.
 
+require('../../../deploy/probe-self-isolate').selfIsolateTmux(); // solo-run tmux isolation (task 7.630) — no-op under the runner
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');

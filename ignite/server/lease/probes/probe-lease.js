@@ -31,6 +31,7 @@
 // runs and the run asserts it reached that total — a truncated run reads greener than a complete
 // one (G-121).
 
+require('../../../deploy/probe-self-isolate').selfIsolateTmux(); // solo-run tmux isolation (task 7.630) — no-op under the runner
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
