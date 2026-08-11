@@ -561,6 +561,16 @@ class TestFailureModes:
         assert exit_code != 0, f"Expected non-zero exit for malformed profile, got {exit_code}"
         assert "error" in result, f"Expected error key in result: {result}"
 
+    @pytest.mark.parametrize("field", ["inlined_context_size", "known_input_size"])
+    def test_malformed_profile_string_int_field(self, field):
+        """A string in an int-typed selector input → malformed_profile naming it, no traceback."""
+        profile = _profile(**{field: "10000"})
+        exit_code, result = _run_route(profile)
+        assert exit_code != 0, f"Expected non-zero exit for string {field}, got {exit_code}"
+        assert "_raw_stdout" not in result, f"Expected JSON, got a traceback: {result}"
+        assert result.get("error") == "malformed_profile", result
+        assert any(field in d for d in result.get("details", [])), result
+
     def test_zero_candidates(self):
         """Profile requiring web but no web_access variant available → zero-candidates error."""
         # Force needs_web=True with a code task and impossibly large context so no variant survives

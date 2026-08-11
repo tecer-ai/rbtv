@@ -73,6 +73,16 @@ REQUIRED_PROFILE_FIELDS = [
     "inlined_context_size",
 ]
 
+# Int-typed selector inputs. Presence alone is not enough — a string here reaches the selector
+# arithmetic and crashes it (`'<' not supported between 'int' and 'str'`) or is silently coerced,
+# so _validate_profile type-checks each PRESENT value and returns malformed_profile naming it.
+INT_PROFILE_FIELDS = [
+    "inlined_context_size",
+    "known_input_size",
+    "needed_reasoning_floor",
+    "needed_coding_floor",
+]
+
 REQUIRED_VARIANT_FIELDS = [
     "variant", "reasoning", "context_window", "cost",
     "coding", "web_access",
@@ -1571,6 +1581,10 @@ def _validate_profile(profile: dict) -> list[str]:
     for field in REQUIRED_PROFILE_FIELDS:
         if field not in profile:
             errors.append(f"missing required field: {field}")
+    for field in INT_PROFILE_FIELDS:
+        value = profile.get(field)
+        if value is not None and not isinstance(value, int):
+            errors.append(f"field must be an integer: {field} (got {type(value).__name__})")
     # Check for contradiction: self_execute + unresolved stakes
     if profile.get("self_execute") and profile.get("stakes") == "unresolved":
         errors.append("contradiction: self_execute flag set but stakes is unresolved")
