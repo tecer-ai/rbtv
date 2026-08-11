@@ -1,117 +1,138 @@
 #!/usr/bin/env python3
-"""probe-g158-stale-code — does anything notice a kit file changing UNDER a running process?
+"""probe-g158-stale-code — does anything notice a source file changing UNDER a running loop?
 
-WHAT IT PROVES, and why watch.py's selftest does not already prove it. The selftest corrupts a
-stamped sha and checks the verdict: that exercises the READER. The decision this fix turns on is on
-the WRITER side — the fingerprint is captured at IMPORT, once, and never recomputed. Only changing
-a file after import can tell those two designs apart, and the wrong one is the one a reasonable
-person writes.
+REPOINTED BY TASK 7.35 (Phase B). It used to score `watch.py`'s import-time fingerprint. That file
+is retired and the exposure did NOT retire with it — it MOVED. `goal-watcher-job` is per-fire and
+re-imports on every fire, so it needs no marker at all; `team_monitor.cmd_run` is now the system's
+ONLY `while True:` single-process loop, and python binds module source at import, so an edit to it
+or to `coord.py` never reaches a running sensor. The loop keeps writing snapshots that are
+indistinguishable from a correct run. Three long-lived processes ran stale code inside one hour on
+2026-07-27 and every one was caught by hand, comparing a start time against a commit time.
+
+WHAT IT PROVES, and why a selftest cannot. The decision this fix turns on is on the WRITER side —
+the fingerprint is captured ONCE and never recomputed. Only changing a file AFTER that capture can
+tell the two designs apart, and the wrong one is the one a reasonable person writes:
 
   arm A (the shipped fix)  — must DETECT the change
-  arm B (the mutation)     — recomputes the fingerprint when it stamps, and must FAIL to detect it,
+  arm B (the mutation)     — recomputes the fingerprint at stamp time, and must FAIL to detect it,
                              because hashing a file against itself can never disagree. It reports a
                              healthy loop over the exact defect: a green harness in the fix for the
                              green-harness class.
 
 A probe that only ran arm A would pass just as happily over a detector that can never fire.
 
-HERMETIC BY CONSTRUCTION, and this is a safety property, not tidiness. The experiment MUTATES a
-coord.py, and coord.py is the only messaging path every seat in a room shares — a probe that edited
-the live one would take the room down for as long as it ran, and forever if it died mid-way. So it
-copies the kit to a temp dir and does all of its work on the copy. It never writes inside the kit
-it was launched from. Run it from anywhere.
+⚠ THE FILE IT MUTATES IS NOT THE MODULE UNDER TEST, and that is the point. A watch.py-only marker
+read CURRENT throughout the 2026-07-27 drift because the file that moved was `coord.py`. So the
+mutation lands on the SENSOR ENGINE the loop imports by path — a second file, in a second custody
+directory — which only a `sys.modules`-derived fingerprint can cover.
 
-  python3 probes/probe-g158-stale-code.py      # exit 0 = the detector discriminates
+HERMETIC BY CONSTRUCTION, and this is a safety property, not tidiness. The experiment MUTATES
+source, so it builds a throwaway tree mirroring the repo's layout and does every write there. It
+never writes inside the tree it was launched from.
+
+  python3 probes/probe-g158-stale-code.py    # exit 0 = the detector discriminates
+Exit 0 = green · 1 = the detector does not discriminate · 2 = INOPERATIVE.
 """
-import json
+
+import importlib.util
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
-KIT = Path(__file__).resolve().parent.parent
-INNER = "G158_PROBE_INNER"
+for _v in ("TMUX", "TMUX_PANE"):
+    os.environ.pop(_v, None)
+
+HERE = Path(__file__).resolve().parent
+ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
+TARGET = ROOT / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
+ENGINE = ROOT / "orchestration" / "cli" / "ctx-monitor" / "ctx_monitor.py"
+OUT = HERE / "probe-g158-stale-code.out"
+
+lines, failures, inoperative = [], [], []
 
 
-def inner():
-    """Runs INSIDE the temp kit copy. Import, change a file, stamp, read the verdict back."""
-    kit = Path(__file__).resolve().parent
-    sys.path.insert(0, str(kit))
-    import watch
-    import coord
+def check(tag, ok, detail):
+    lines.append(f"{'PASS' if ok else 'FAIL'}  {tag}  {detail}")
+    if not ok:
+        failures.append(tag)
 
-    base = Path(tempfile.mkdtemp()) / "coordination"
-    base.mkdir(parents=True)
 
-    target = kit / "coord.py"
-    original = target.read_bytes()
-    # The moment the defect models: a fix lands while the process is running. Python bound the
-    # source at import, so this process can never pick it up — it just keeps heartbeating.
-    target.write_bytes(original + b"\n# a fix landed while this process was running\n")
-    try:
-        if os.environ.get("MUTATION") == "1":
-            watch.LOADED_CODE = watch._loaded_code_fingerprint()
-        watch.save_heartbeat(base, 10)
-        hb = coord.watcher_heartbeat(base)
-        print(json.dumps({"code_known": hb.get("code_known"),
-                          "code_drifted": hb.get("code_drifted")}))
-    finally:
-        target.write_bytes(original)
-    return 0
+def stop(tag, detail):
+    lines.append(f"INOP  {tag}  {detail}")
+    inoperative.append(tag)
 
 
 def main():
-    if os.environ.get(INNER) == "1":
-        return inner()
+    if not TARGET.exists() or not ENGINE.exists():
+        # NOT a skip: the target's absence IS a failure of the property under test.
+        check("C0", False, f"missing {TARGET if not TARGET.exists() else ENGINE}")
+        return
 
-    tmp = Path(tempfile.mkdtemp(prefix="g158-kit-"))
+    tmp = Path(tempfile.mkdtemp(prefix="g158-tm-"))
     try:
-        for py in KIT.glob("*.py"):
-            shutil.copy2(py, tmp / py.name)
-        shutil.copy2(Path(__file__).resolve(), tmp / "inner.py")
-        if not (tmp / "coord.py").exists() or not (tmp / "watch.py").exists():
-            print("REFUSED: the kit copy is missing coord.py or watch.py — nothing to probe.",
-                  file=sys.stderr)
-            return 2
+        tm_dir = tmp / "orchestration" / "cli" / "team-monitor"
+        eng_dir = tmp / "orchestration" / "cli" / "ctx-monitor"
+        tm_dir.mkdir(parents=True)
+        eng_dir.mkdir(parents=True)
+        shutil.copy2(TARGET, tm_dir / "team_monitor.py")
+        shutil.copy2(ENGINE, eng_dir / "ctx_monitor.py")
 
-        results = {}
-        for arm, mutation in (("A-fix", "0"), ("B-mutation", "1")):
-            env = dict(os.environ, **{INNER: "1", "MUTATION": mutation})
-            r = subprocess.run([sys.executable, str(tmp / "inner.py")],
-                               capture_output=True, text=True, timeout=180, env=env, cwd=str(tmp))
-            if r.returncode != 0:
-                print(f"FAIL {arm}: inner run exited {r.returncode}\n{r.stderr.strip()}",
-                      file=sys.stderr)
-                return 1
-            try:
-                results[arm] = json.loads(r.stdout.strip().splitlines()[-1])
-            except (ValueError, IndexError):
-                print(f"FAIL {arm}: inner run printed no verdict:\n{r.stdout}", file=sys.stderr)
-                return 1
+        spec = importlib.util.spec_from_file_location("tm_g158", tm_dir / "team_monitor.py")
+        tm = importlib.util.module_from_spec(spec)
+        sys.modules["tm_g158"] = tm
+        spec.loader.exec_module(tm)
 
-        a, b = results["A-fix"], results["B-mutation"]
-        a_detects = a.get("code_known") is True and "coord.py" in (a.get("code_drifted") or [])
-        b_detects = bool(b.get("code_drifted"))
+        if not hasattr(tm, "code_state") or not hasattr(tm, "loaded_code_fingerprint"):
+            check("C0", False, "this tree's sensor carries NO loaded-code fingerprint — a "
+                               "long-lived loop running stale code is undetectable from outside, "
+                               "which is G-158 itself")
+            return
 
-        print(f"A (shipped fix): code_known={a['code_known']} drifted={a['code_drifted']}")
-        print(f"B (recompute-at-stamp mutation): code_known={b['code_known']} "
-              f"drifted={b['code_drifted']}")
-        if a_detects and not b_detects:
-            print("PASS — the detector fires on a file changed under a running process, and the "
-                  "recompute-at-stamp design does NOT. The import-time capture is load-bearing.")
-            return 0
-        if not a_detects:
-            print("FAIL — the shipped fix did not detect a file changed under a running process. "
-                  "The detector cannot fire; that is G-158 itself.", file=sys.stderr)
-        else:
-            print("FAIL — the mutation ALSO detected it, so this probe does not discriminate the "
-                  "two designs and proves nothing about the import-time capture.", file=sys.stderr)
-        return 1
+        # The loop's own import surface: the engine is reached by path, so it enters `sys.modules`
+        # only once the sensor has actually used it — which is why the capture is at first use.
+        tm.sensor()
+        before = tm.code_state()
+        covered = sorted(Path(p).name for p in before["files"])
+        check("C0", before["known"] is True and "ctx_monitor.py" in covered
+              and "team_monitor.py" in covered,
+              f"the fingerprint is DERIVED from what this process loaded and covers more than "
+              f"the module itself: {covered}")
+
+        # The moment the defect models: a fix lands while the process is running. Python bound the
+        # source at import, so this process can never pick it up — it just keeps capturing.
+        engine_copy = eng_dir / "ctx_monitor.py"
+        engine_copy.write_bytes(engine_copy.read_bytes()
+                                + b"\n# a fix landed while this process was running\n")
+
+        a = tm.code_state()                       # arm A — the shipped fix
+        tm._LOADED_CODE = None                    # arm B — recompute the fingerprint at stamp time
+        b = tm.code_state()
+
+        a_detects = a["known"] is True and "ctx_monitor.py" in a["drifted"]
+        b_detects = bool(b["drifted"])
+        check("A-FIX", a_detects,
+              f"a file changed UNDER the running process is detected: known={a['known']} "
+              f"drifted={a['drifted']}")
+        check("B-MUTATION", not b_detects,
+              f"the recompute-at-stamp design detects NOTHING (drifted={b['drifted']}) — hashing "
+              f"a file against itself can never disagree, so this arm is what makes A a "
+              f"measurement rather than a restatement")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+try:
+    main()
+except Exception as exc:  # noqa: BLE001 — a crashed probe is INOPERATIVE, never a silent pass
+    stop("PROBE", f"{type(exc).__name__}: {exc}")
+
+verdict = ("INOPERATIVE" if inoperative else "FAILED" if failures else "GREEN")
+body = "\n".join([f"{verdict}  probe-g158-stale-code  ({time.strftime('%Y-%m-%dT%H:%M:%S%z')})",
+                  f"target={TARGET}", *lines,
+                  f"failures={failures} inoperative={inoperative}"]) + "\n"
+OUT.write_text(body)
+sys.stdout.write(body)
+sys.exit(2 if inoperative else 1 if failures else 0)

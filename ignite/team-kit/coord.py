@@ -2483,6 +2483,11 @@ def seat_recorded_log(pkg, seat):
     its tmux server never gets `ended` stamped, and that death is exactly the case its one caller —
     #259's kill gate — reaches this for. Selecting the open row would miss it.
 
+    LAST-ROW selection is OWNER-RULED (`decisions.md#d-kill-gate-last-row-stands`) — do not "fix"
+    it on sight. Accepted cost: on a seat that has since started a newer session, this can clear an
+    older DEAD session's kill using the newer session's log. Re-open only on a real incident that
+    destroys a record that mattered, or once the pending-close record carries its own session id.
+
     NEVER RAISES, and returns `""` on every surface that cannot answer (no `sessions.csv`, a header
     predating the `recorded` column, an unreadable trace): the caller is a gate that must FAIL
     CLOSED on a record it cannot read, never take the whole reap sweep down with it."""
