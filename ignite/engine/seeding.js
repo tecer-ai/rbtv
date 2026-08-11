@@ -113,14 +113,14 @@ function readCsv(file) {
 // is noise; if it stops being noise, batch the VERB (`ready-seats` over N packages) — never
 // reintroduce a JS reader.
 const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
-const READY_SEATS_TIMEOUT_MS = 60000;
+const COORD_TIMEOUT_MS = 60000;
 
 function readySeats(goalFolder) {
   const refuse = (reason) => ({ ready: null, rows: [], reason });
   let raw;
   try {
     raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'ready-seats', '--json'], {
-      encoding: 'utf8', timeout: READY_SEATS_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (err) {
     return refuse(`\`ready-seats --json\` did not answer (${err.code || err.message})`
@@ -139,6 +139,40 @@ function readySeats(goalFolder) {
     ready.set(r.seat, Array.isArray(r.seed) ? r.seed : []);
   }
   return { ready, rows, reason: null };
+}
+
+// ── THE BOOT PROMPT — coord's, consumed here, composed nowhere ────────────────────────────────
+//
+//   python3 <ignite>/team-kit/coord.py --package <goal-folder> boot-prompt <seat>
+//
+// A queued seat that carries no `prompt` reaches `spawn.js#ensurePromptFile`, which writes a
+// 0-BYTE file, and the harness exits 1 on "Input must be provided either through stdin or as a
+// prompt argument when using --print" — measured on two goals, 2026-08-11 (execs 26274, 26358).
+// The prompt exists; nothing asked for it. `coord.py#boot_prompt` is the ONE composer — it is what
+// `launch` boots every seat on, and it alone knows the ephemeral/persistent split, the memory-file
+// instruction and the leader's resume-first form. Composing a second one in JavaScript is exactly
+// the drift § D1 deletes, so the seeding pass ASKS instead.
+//
+// ⚠ ONE SUBPROCESS PER LAUNCH, NOT PER PASS — deliberately not carried on `ready-seats --json`.
+// That verb runs every cadence for every daemon-assigned goal; a launch happens once per seat, for
+// the whole life of the seat. Measured on this box: `ready-seats --json` is ~0.43 s, and this verb
+// costs the same interpreter start — so the readiness surface stays a status read of a few hundred
+// bytes rather than a multi-KB prompt payload recomputed every ten seconds for nobody.
+//
+// ⚠ NULL IS A REFUSAL AND NEVER AN EMPTY PROMPT. Empty output is treated as failure for the same
+// reason the whole defect exists: an empty prompt enqueued in a new place is the same bug moved.
+function seatBootPrompt(goalFolder, seat) {
+  let raw;
+  try {
+    raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'boot-prompt', seat], {
+      encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    return { prompt: null, reason: `\`boot-prompt ${seat}\` did not answer (${err.code || err.message})`
+      + `${err.stderr ? `: ${String(err.stderr).trim().slice(0, 400)}` : ''}` };
+  }
+  if (!raw || !raw.trim()) return { prompt: null, reason: `\`boot-prompt ${seat}\` printed nothing` };
+  return { prompt: raw, reason: null };
 }
 
 // Does any OTHER row of this taskforce read `seat`'s declared output? Answered off coord's own
@@ -486,6 +520,23 @@ function enqueueEligible(heartStore, rows, {
       if (logger) logger({ level: 'warn', message: 'seat NOT enqueued — a declared output is inadmissible for a caged launch', seat: row.seat, evidence: refusal });
       continue;
     }
+    // ── THE BOOT PROMPT, THE LAST PRE-QUEUE REFUSAL ──────────────────────────────────────────
+    // Composed by coord, for THIS seat, from THIS goal's package — never here. Ordered after the
+    // cage test and BEFORE the relaunch grant is spent: a seat that cannot be composed for is not
+    // launched, so its one-shot grant must survive to be spent on the pass that can.
+    const { prompt, reason: promptReason } = seatBootPrompt(goalFolder, row.seat);
+    if (prompt === null) {
+      if (logger) {
+        logger({
+          level: 'warn',
+          message: 'seat NOT enqueued — coord could not compose its boot prompt, and a seat queued '
+            + 'without one boots a harness that exits immediately on empty input',
+          seat: row.seat,
+          evidence: promptReason,
+        });
+      }
+      continue;
+    }
     if (relaunch) relaunch.delete(row.seat);
 
     const after = (row.after || '').trim();
@@ -500,7 +551,13 @@ function enqueueEligible(heartStore, rows, {
       // LONGER RIDES IN ARGV AND MUST NOT BE PUT BACK — a seat is driven by its DESCRIPTOR and by
       // the room, never by argv text." So the seed coord resolves is CARRIED (logged per seat and
       // returned on the pass) rather than submitted; the door is where it would have to be widened.
-      args: JSON.stringify({ profile, workdir: seatDir }),
+      //
+      // ⚠ `prompt` IS A REGISTERED KEY (`seedTaskforce`'s `optional: {workdir, prompt}`) and it is
+      // what the harness is actually booted on: `ticker.js#launchAgent` reads `args.prompt ?? null`
+      // and `spawn.js#ensurePromptFile` writes those bytes as the session's stdin. Passed VERBATIM
+      // — coord printed it with no trailing newline exactly so nothing here has to strip anything,
+      // and a consumer that strips is a consumer that has begun re-assembling the prompt.
+      args: JSON.stringify({ profile, workdir: seatDir, prompt }),
       sessionMode: 'headless',
       triggerKind: 'scheduled',
       runAt: isoNow(),
@@ -590,6 +647,7 @@ module.exports = {
   SEAT_STATES,
   readCsv,
   readySeats,
+  seatBootPrompt,
   successorReads,
   taskforcePath,
   readTaskforce,
