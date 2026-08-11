@@ -218,7 +218,12 @@ QUOTED verbatim:
   — and approving each costs one config edit plus one restart; after that its advances are ordinary
   enqueues. ⚠ Two things this does NOT do: it does not sandbox a fired tool (`caps: {}` /
   `sandbox: {}` are unchanged — it bounds who can STEER a tool, never what a tool can DO), and it
-  does not govern a fire-tool row's `workdir`, which stays per-run and unvalidated (row 7.562).
+  does not govern a fire-tool row's `workdir` — that is row 7.562's own door
+  (`checkFireToolWorkdir`), which admits the configured `default_workdir_root` by EXACT equality or
+  a path inside a `.rbtv/goals/<goal>` containment, and since ruling
+  `d-0811-workdir-symlink-boot-resolve` also requires the value to resolve inside the goals root
+  resolved ONCE at engine boot — closing the symlinked-goal-segment escape the C5 review measured,
+  while still admitting a not-yet-scaffolded goal and a goals root that is itself a symlink.
 - **`daemon-watchdog`** (`ignite/capabilities/daemon-watchdog/`) — the ignite LIVENESS surface
   (CMP-28): a systemd user timer firing one deterministic pass that probes the deployment,
   restarts what is down through the services' own units, and DMs the owner only when it acted or

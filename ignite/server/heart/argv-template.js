@@ -61,6 +61,7 @@
 // value at ENQUEUE, so no such row is ever stored; `ticker.js` launchStartWorkflow re-validates at
 // FIRE, because the store can hold rows enqueued before this code existed.
 
+const fs = require('node:fs');
 const path = require('node:path');
 
 // Kebab-case, the same shape `goal_creation_request.py`'s GOAL_NAME_RE already enforces on goal
@@ -95,23 +96,86 @@ function nameRule(label) {
 // `..` is refused on the RAW value first rather than normalised away, because a value that needed
 // normalising to become legal is a value someone wrote to escape.
 //
-// ⚠ THE CONTAINMENT IS LEXICAL, NOT RESOLVED — measured, C5 review 2026-08-08. A workdir whose
-// segments read `.rbtv/goals/<x>` but whose `<x>` is a SYMLINK pointing elsewhere passes this rule,
-// and the fired child's cwd is then outside the goals root (capture:
-// `evidence/c5-review/c5r-02-integration-attacks.txt` § P2). This is deliberate, not an oversight:
-// resolving with `realpath` would refuse two legal cases — a workdir scaffolded but not yet on disk,
-// and a deployment whose `.rbtv/goals` root is itself a symlink onto another volume (the resolved
-// path no longer carries the `.rbtv/goals` segments at all). The exposure it leaves is bounded by
-// who can PLANT a symlink under the goals root, which is local filesystem write as the daemon user
-// — strictly more access than this rule defends against. A row author cannot reach it: the inbox
-// boundary carries a goal NAME through `GOAL_NAME_RE`, which creates a directory and never a link.
-// Tightening this needs an owner ruling on the two legal cases above, not a silent realpath.
+// ⚠ THE LEXICAL CONTAINMENT IS BACKED BY A BOOT-TIME RESOLVE (owner ruling
+// `d-0811-workdir-symlink-boot-resolve`, option (a); it discharges the reservation this block used
+// to carry). The segment test above is necessary and was never sufficient: measured in the C5
+// review 2026-08-08, a workdir whose segments read `.rbtv/goals/<x>` but whose `<x>` is a SYMLINK
+// pointing elsewhere passed it, and the fired child's cwd was then outside the goals root. So the
+// goals root is resolved ONCE at daemon boot — a TRUSTED value, composed from the boot-read
+// `default_workdir_root` and never from a row — and cached (`setResolvedGoalsRoot`, called from the
+// engine's composition root). Each candidate workdir is then required to resolve INSIDE that cached
+// real path.
+//
+// ⚠ WHAT IS RESOLVED IS THE LONGEST EXISTING PREFIX, AND THAT IS THE WHOLE DESIGN. The two legal
+// cases the ruling names are SERVED, not refused:
+//   A. A workdir scaffolded but NOT YET ON DISK — `goal_creation_request.py:476` composes
+//      `goals_root / <goal-name>` before the scaffold creates it. A goal-name segment that does not
+//      exist is never resolved, so it cannot be refused for failing to resolve. Full-path `realpath`
+//      — option (c) — is exactly what would refuse this, and the owner DECLINED it.
+//   B. A `.rbtv/goals` root that is ITSELF a symlink onto another volume. The boot resolve stores
+//      the root's REAL path, so a workdir under the symlinked root resolves to that same real path
+//      and is admitted — where a lexical `.rbtv/goals` segment test on the RESOLVED path would have
+//      refused it, the resolved path no longer carrying those segments at all.
+// The one thing this refuses that the lexical rule admitted is the hostile shape: an EXISTING
+// segment under the goals root that resolves out of it.
+//
+// ⚠ ACCEPTED RESIDUAL, BY RULING, NOT BY OVERSIGHT: a boot-to-spawn TOCTOU window. The root is
+// cached at boot, not re-resolved per check, so a root replaced under a running daemon is not seen
+// until the next boot. The owner accepted this rather than pay a per-check resolve of the root.
+// The exposure both the residual and the closed hole live in is bounded by who can PLANT a symlink
+// under the goals root — local filesystem write as the daemon user, strictly more access than this
+// rule defends against. A row author cannot reach it: the inbox boundary carries a goal NAME
+// through `GOAL_NAME_RE`, which creates a directory and never a link.
+//
+// ⚠ NO CACHED ROOT ⇒ NO RESOLVE-COMPARE, and the rule is byte-for-byte what it was before. That is
+// the case for every consumer that never boots an engine (the probes' fixture roots, a unit-level
+// caller), and it is why this change refuses nothing that was admitted before on those paths.
 //
 // ⚠ `sanctionedRoot` (task 7.562, owner ruling `d-owner-board-clear-0809`) is the configured
 // `default_workdir_root`, admitted by EXACT EQUALITY and never as a prefix. "Anything under the
 // workspace root" would be no containment at all — that root holds `.rbtv/config/.env` and the
 // source tree. Passed by the fire-tool doors, which know it; omitted elsewhere, where the rule is
 // exactly what it has always been. Widening only, so no value accepted before is refused now.
+// The boot-resolved goals root, or null when nothing has booted an engine in this process.
+// ponytail: module-global, because the two doors (`ticker.js` launchFireTool, `heart-store.js`
+// validateArgs) call the validator with a fixed arity this change is not allowed to widen — and
+// one process runs one engine. Thread it as an argument if that ever stops being true.
+let resolvedGoalsRoot = null;
+
+// Called ONCE, at the engine's composition root, with the boot-read `default_workdir_root` (the
+// workspace root). Resolves `<root>/.rbtv/goals` and caches its REAL path. A falsy root, or a root
+// whose goals tree is not on disk yet, leaves the cache null — the resolve-compare then never runs
+// and the rule is exactly the lexical one, which is the pre-ruling behaviour and refuses nothing.
+function setResolvedGoalsRoot(workspaceRoot) {
+  resolvedGoalsRoot = null;
+  if (typeof workspaceRoot !== 'string' || workspaceRoot.length === 0) return null;
+  try {
+    resolvedGoalsRoot = fs.realpathSync(path.join(workspaceRoot, '.rbtv', 'goals'));
+  } catch {
+    resolvedGoalsRoot = null;
+  }
+  return resolvedGoalsRoot;
+}
+
+// Does `value` resolve inside the cached goals root? Climb to the LONGEST EXISTING prefix and
+// resolve THAT: a segment that does not exist cannot be a symlink, so leaving it unresolved costs
+// nothing and is what admits legal case A. Only ENOENT climbs — any other error is a refusal,
+// because a path we cannot resolve is not a path we can vouch for.
+function resolvesInsideGoalsRoot(value) {
+  let candidate = value;
+  for (;;) {
+    try {
+      const real = fs.realpathSync(candidate);
+      return real === resolvedGoalsRoot || real.startsWith(resolvedGoalsRoot + path.sep);
+    } catch (err) {
+      if (err.code !== 'ENOENT') return false;
+      const parent = path.posix.dirname(candidate);
+      if (parent === candidate) return false;
+      candidate = parent;
+    }
+  }
+}
+
 function workdirRule(value, sanctionedRoot = null) {
   if (typeof value !== 'string') return `workdir must be a string, got ${typeof value}`;
   if (value.length === 0 || value.length > MAX_PATH) {
@@ -131,6 +195,13 @@ function workdirRule(value, sanctionedRoot = null) {
       ? `workdir must be exactly the configured default_workdir_root (${sanctionedRoot}) `
         + 'or resolve inside a `.rbtv/goals/<goal>` containment'
       : 'workdir must resolve inside a `.rbtv/goals/<goal>` containment';
+  }
+  // The resolve-compare (ruling `d-0811-workdir-symlink-boot-resolve`). LAST, so the segment test
+  // still answers first and every refusal reason above is unchanged — and skipped entirely when no
+  // engine boot cached a root.
+  if (resolvedGoalsRoot && !resolvesInsideGoalsRoot(value)) {
+    return 'workdir must resolve inside the boot-resolved goals root '
+      + `(${resolvedGoalsRoot}) — a segment on this path is a symlink out of it`;
   }
   return null;
 }
@@ -319,4 +390,5 @@ module.exports = {
   checkTemplateArgs,
   checkFireToolWorkdir,
   expandArgv,
+  setResolvedGoalsRoot,
 };
