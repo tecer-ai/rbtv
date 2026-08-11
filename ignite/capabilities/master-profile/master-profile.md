@@ -46,6 +46,15 @@ built rather than the knob dropped, explicitly overriding that reservation. What
 raised live. **Half selection is still refused** (G-144) and still belongs to 7.43/7.54 — the
 effort ladder was separable from it, which is why this could ship without that refactor.
 
+⚠ **The MODEL half is built too** (ruling D19, 2026-08-11, run `ignite-planning-hardening`). Task
+7.54's `(harness, model) → profile-name` catalog is live — `launch-profiles/catalog.js`, applied at
+`server/spawn/spawn.js#profileForSeatCast` — so a seat that declares `harness:`/`model:` in its own
+`seat.md` now launches on the profile it is cast as, on every lane, including a chat revival. That
+does **not** touch this capability: the channel master declares no cast by design
+(`materialize-seats.py#open_binding` — its harness and model stay the chat bridge's to name), which
+is exactly the fallback case the catalog leaves alone, so the master's profile knob behaves as
+documented above.
+
 ## ⚠ What a rung IS — a number, 1..N, in **that profile's** ladder
 
 Owner ruling **`d-0811lp-effort-numeric-per-profile`**: *"use N levels (1-N), from lower to higher

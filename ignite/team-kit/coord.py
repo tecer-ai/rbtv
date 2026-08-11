@@ -1475,9 +1475,22 @@ def tmux_raise_history_limit():
 #          hand-reaped by the leader; hand-reaping does not scale to an unattended night.
 # Both are answered the same way: ask the process table, never the roster.
 
-HARNESS_PROCS = ("claude", "codex", "opencode")
+# 7.731: DERIVED, never re-typed. A harness's descriptor keyword IS the basename it launches as
+# (`harness_command` runs CLAUDE_BIN/CODEX_BIN/OPENCODE_BIN, all defaulting to those exact names),
+# so the launch surface and the process-matching surface are ONE list. Re-declaring it here let a
+# 4th harness reach `validate_seat` while every live pane of it read as DEAD — the same second-copy
+# drift 7.689 closed in edge-runner-job.py. The name stays: it reads right at the `ps` sites.
+HARNESS_PROCS = HARNESSES
 HARNESS_UP_TIMEOUT = 25.0   # cold claude start measured ~2-4s on this box; generous, bounded
 HARNESS_UP_POLL = 0.5
+# 7.567: the THIRD launch outcome gets its own exit code. `exit 0` from `launch` must mean a
+# harness was POSITIVELY OBSERVED running; `exit 1` means a seat was POSITIVELY refused. The
+# outcome in between — this host could not observe either way — used to return the empty error
+# string and read as success. It now carries this prefix, and `cmd_launch` exits the code below.
+# Codes already spoken for and NOT to be reused: 2 (argparse), 3 (EXIT_NO_SEAT in
+# workflow_launcher.py, 7.548's certified zero-seat semantics), 5 (cmd at coord.py:10734).
+EXIT_INDETERMINATE = 4
+HARNESS_UP_UNVERIFIABLE = "harness liveness INDETERMINATE"
 PID_EXIT_TIMEOUT = 6.0
 # Set to skip the checkin-time harness check. The escape hatch exists because a positive-absence
 # verdict rests on argv shape: a harness launched under a wrapper this code cannot recognize would
@@ -1928,17 +1941,30 @@ def reaper_script(idents, delay):
 
 
 def wait_harness_up(pane, timeout=HARNESS_UP_TIMEOUT):
-    """Poll until a harness process is running under `pane`. Returns (pids, err): err is '' when
-    one came up OR when liveness is unverifiable here; non-empty ONLY on positive absence."""
+    """Poll until a harness process is running under `pane`. Returns (pids, err): err is '' ONLY
+    when a harness was positively observed. Positive absence returns the G-11 refusal; liveness
+    this host cannot observe returns an err prefixed `HARNESS_UP_UNVERIFIABLE` (7.567), which the
+    caller classifies apart from a refusal — 'cannot tell' is neither success nor failure."""
     deadline = time.time() + timeout
     while True:
         pids, verifiable = pane_harness_pids(pane)
         if pids:
             return pids, ""
         # "Cannot tell" does not improve with waiting (no pane pid, no readable process table) —
-        # return at once rather than burning the whole timeout on an unanswerable question.
+        # return at once rather than burning the whole timeout on an unanswerable question. The
+        # reason is re-derived here (one extra tmux call, failure path only) because
+        # `pane_harness_pids` collapses both causes into a single False, and an operator holding
+        # an indeterminate exit code needs to know WHICH of the two the box hit.
         if not verifiable:
-            return [], ""
+            if not pane:
+                why = "no pane was given"
+            elif not tmux_pane_pid(pane):
+                why = f"tmux could not report a pid for pane {pane}"
+            else:
+                why = "the process table could not be read (`ps -eo pid=,ppid=,args=` failed)"
+            return [], (f"{HARNESS_UP_UNVERIFIABLE}: {why}, so neither the presence NOR the "
+                        f"absence of a {'/'.join(HARNESS_PROCS)} process could be observed. The "
+                        f"start line WAS submitted; check by hand: tmux capture-pane -p -t {pane}")
         if time.time() >= deadline:
             break
         time.sleep(HARNESS_UP_POLL)
@@ -2091,9 +2117,28 @@ def arm_pid_reaper(idents, delay=4):
 # ⚠ AN EMPTY CELL MEANS `this session never checked in, or the row predates the column`. It is
 # NEVER read as `started` — a launch that opened a row for a seat whose harness then died before
 # check-in is exactly the G-11 shape, and inheriting `started` here would erase it.
+# ⚠ `model` IS APPENDED AT THE END, NOT PLACED BESIDE `harness` WHERE IT READS BETTER (ruling
+# D19, 2026-08-11). `widen_header`'s whole safety argument is append-only, and a fresh file whose
+# header ordered `model` mid-list would disagree in ORDER with every legacy file this kit widens —
+# which is the run-1/run-2 disagreement that docstring exists to warn about. Column order in a CSV
+# carries no meaning; agreement between a born file and a widened one does.
+#
+# ⚠ THE COLUMN IS NOT NEW ON DISK, ONLY NEW TO THIS CONTRACT. `model` was hand-added to run-2's
+# header long ago and never populated (see `widen_header`), so this ADOPTS the spelling already
+# there rather than minting a second one — a `model` and a `model-id` in two files would be the
+# exact drift the one-schema-owner rule exists to prevent.
+#
+# WHAT WRITES IT: this kit's own `session_open` (from the roster row's cast), and the daemon's two
+# launch doors — `server/spawn/spawn.js` and `engine/attached-execution.js` — which read it off
+# the RESOLVED launch profile's own `--model` pin. Both write the model that ACTUALLY launched,
+# never the one a seat was cast as: the point of the column is that a divergence between the two
+# becomes visible in the seat's own trace instead of only in the system journal (design proposal
+# §2 defect 9 — a seat cast `claude-fable-5` ran `claude-sonnet-5` for weeks and nothing said so).
+# An EMPTY cell means `this writer did not know the model, or the row predates the column` — never
+# "no model".
 SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir",
                  "recorded", "started", "ended", "pid", "pid-starttime", "tty", "disposition",
-                 "disposition-writer", "execution", "checkin"]
+                 "disposition-writer", "execution", "checkin", "model"]
 NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close re-resolves
 
 
@@ -2422,9 +2467,13 @@ def widen_header(header, cols):
     APPEND-ONLY, and that is the whole safety argument: existing columns keep their positions, so
     a positional reader cannot break (run-1 and run-2 already disagree on column ORDER, which is
     exactly why re-sorting into SESSIONS_COLS order would corrupt one of them). Nothing is ever
-    renamed or removed here — a column this kit no longer writes (`model`, hand-added to run-2's
-    header and never populated) stays, blank, because deleting it is a different decision with a
-    different owner.
+    renamed or removed here — a column this kit does not write stays, blank, because deleting it is
+    a different decision with a different owner.
+
+    ⚠ `model` USED TO BE THIS DOCSTRING'S EXAMPLE of such a column — hand-added to run-2's header
+    and never populated. It stopped being one at ruling D19 (2026-08-11): it is a member of
+    `SESSIONS_COLS` now and three writers fill it, so run-2's long-blank column starts carrying the
+    model each session actually launched on. Nothing about this function changed; the example did.
     """
     missing = [c for c in cols if c not in header]
     return (header + missing, bool(missing))
@@ -2847,7 +2896,11 @@ def session_open(args, w, since=None, wait=None, pane=None, session_id=None, rec
            # is now goal-durable. READ, never minted here — minting is the boot's one act.
            # Off `pkg`, which this function already resolved — NOT a second `base_dir(args)` hop:
            # that call re-enters the package resolver and re-points the injection context mid-act.
-           "execution": current_execution(pkg / "coordination")}
+           "execution": current_execution(pkg / "coordination"),
+           # The cast this seat's session opened on (D19), off the SAME roster row `harness` is
+           # read from two lines above — never re-derived, so the pair cannot disagree. Blank when
+           # the roster names none, which is exactly what a blank cell means here.
+           "model": w.get("model", "")}
     with coord_lock(base_dir(args)):
         path = sessions_csv(pkg)
         header, rows = read_csv_table(path, SESSIONS_COLS)
@@ -13054,8 +13107,16 @@ def seat_placement(w):
     return "pane", None
 
 
-def launch_seat(w, args, target, prompt=None, pane=None, resume=None):
+def launch_seat(w, args, target, prompt=None, pane=None, resume=None, strict_liveness=False):
     """Open a pane/window for one seat and start its harness. Returns (pane_id, err).
+
+    `strict_liveness` (7.567) decides what happens on the THIRD outcome — this host could not
+    observe the harness either way. `cmd_launch` sets it, because the ruling that `exit 0` means
+    POSITIVELY OBSERVED is about the launch verb's exit code. The renew/relaunch/restart callers
+    leave it off and keep their pre-7.567 behaviour: an indeterminate verdict is warned about and
+    passed, because their failure paths kill panes, fire lifecycle alarms and re-launch seats — a
+    false failure there costs more than an unverified success, the same asymmetry the checkin path
+    already rules on.
 
     `pane` reuses an EXISTING pane (a renew respawned in place — G-12) instead of placing a new
     one. Never returns success on a pane where no harness came up: G-11's whole failure was a
@@ -13140,6 +13201,10 @@ def launch_seat(w, args, target, prompt=None, pane=None, resume=None):
     if not ok:
         return pane, f"pane opened but harness start FAILED: {terr}"
     _, uerr = wait_harness_up(pane)
+    if uerr.startswith(HARNESS_UP_UNVERIFIABLE) and not strict_liveness:
+        print(c(f"WARNING {w['agent']}: {uerr}. Proceeding as if it booted (see "
+                f"`strict_liveness`).", C_DEAD), file=sys.stderr)
+        uerr = ""
     if uerr:
         return pane, uerr
     if w["harness"] == "claude":
@@ -14405,14 +14470,16 @@ def cmd_launch(args):
     refresh_mirrors_for(workers)
 
     tmux_raise_history_limit()  # exports capture full scrollback (see export-transcript)
-    refused = []
+    refused, indeterminate = [], []
     for w in workers:
-        pane, err = launch_seat(w, args, target)
+        pane, err = launch_seat(w, args, target, strict_liveness=True)
         kind, wname = seat_placement(w)
         place = {"own": "window", "shared": f"window:{wname}"}.get(kind, "pane")
         label = f"{w['agent']} ({w['harness']}/{w['model'] or 'plan-default'}, {place})"
         if err:
-            refused.append(w["agent"])
+            # 7.567: a seat this host could not OBSERVE is not a refused seat. Both are counted
+            # out of `launched` — neither was seen up — but only a refusal is a positive finding.
+            (indeterminate if err.startswith(HARNESS_UP_UNVERIFIABLE) else refused).append(w["agent"])
             print(f"  {label}: FAILED — {err}", file=sys.stderr)
         else:
             print(f"launched {label} in {pane}"
@@ -14439,7 +14506,7 @@ def cmd_launch(args):
     # ⚠ THE COUNTS ARE NOT DECORATION: an exit code cannot distinguish PARTIAL from TOTAL failure,
     # and that difference decides what the operator does next (relaunch two seats, or find out why
     # nothing came up). The code says "something failed"; only this line says how much.
-    launched = len(workers) - len(refused)
+    launched = len(workers) - len(refused) - len(indeterminate)
     # 7.241: the UNDECLARED-ending seats join the refusal AFTER `launched` is computed, never
     # before — they were filtered OUT of `workers`, so seeding them into `refused` would subtract
     # them from a total they were never in and undercount the seats that actually came up. They
@@ -14455,6 +14522,17 @@ def cmd_launch(args):
     # by this path's own exit instrument, which is what makes the two paths' exit codes agree.
     refused = refused + [w["agent"] for w in blocked] \
         + [w["agent"] for w, _c, _r in _adm_deferred]
+    # 7.567 PRECEDENCE — refusal outranks indeterminacy. A refusal is a POSITIVE observation that
+    # a seat did not come up; an indeterminate outcome only says this host could not look. A run
+    # carrying both has a KNOWN failure in it and must exit 1, with the indeterminate seats named
+    # in the line above rather than hidden behind the weaker code. Exit EXIT_INDETERMINATE only
+    # when nothing was positively refused and something could not be observed.
+    if indeterminate:
+        print(c(f"launch INDETERMINATE for {len(indeterminate)} seat(s) "
+                f"({', '.join(indeterminate)}): this host could not observe whether their harness "
+                f"came up — the per-seat reason is above. NOT counted as launched, and NOT a "
+                f"refusal: check them by hand before treating them either way.",
+                C_DEAD), file=sys.stderr)
     if refused:
         print(c(f"launch INCOMPLETE: {launched} launched, {len(refused)} refused "
                 f"({', '.join(refused)}). The launched seats are UP and were not rolled back.",
@@ -14467,6 +14545,8 @@ def cmd_launch(args):
                 f"appear there; the {len(refused)} refused one(s) will not, and that is this "
                 f"command's own result, not a second failure", C_HINT))
         sys.exit(1)
+    if indeterminate:
+        sys.exit(EXIT_INDETERMINATE)
     print(c(f"next: {coord_invocation(args)} workers — every seat above must appear there; one "
             f"that never checks in never booted", C_HINT))
 
@@ -14666,6 +14746,14 @@ def cmd_close(args):
         print(f"closer launch FAILED: pane opened but harness start FAILED: {terr}", file=sys.stderr)
         sys.exit(1)
     _, uerr = wait_harness_up(pane)
+    # 7.567: an INDETERMINATE verdict must not be reported as a failed closer. This path's refusal
+    # says "nothing ran" and tells the operator to kill the pane — false, and destructive, on a box
+    # that merely could not look. Same asymmetry the checkin path already rules on: losing a real
+    # closer to a false refusal is worse than proceeding unverified. Loud, and passed through.
+    if uerr.startswith(HARNESS_UP_UNVERIFIABLE):
+        print(c(f"WARNING closer for '{args.target}': {uerr}. Proceeding as if it booted — verify "
+                f"the pane by hand.", C_DEAD), file=sys.stderr)
+        uerr = ""
     if uerr:
         print(f"closer launch FAILED: {uerr}\nThe seat '{args.target}' was NOT closed — nothing "
               f"ran. Kill the dead pane BY ID (tmux kill-pane -t {pane}) and retry.",
@@ -15689,8 +15777,16 @@ def _selftest_checks(args, failures, names):
     reaped, respawned = [], []
     pane_harness_pids = lambda pane: (([], False) if harness_up["v"] is None
                                       else (list(harness_up["v"]), True))
+    # 7.567: the INDETERMINATE outcome is its OWN fixture switch, not a re-reading of
+    # `harness_up["v"] is None`. That default is set once at the top and left alone by most rows,
+    # so routing it through the new refusal would flip every launch row in this suite from 0 to
+    # EXIT_INDETERMINATE — a fixture change wearing a behaviour change's clothes. Rows that want
+    # the third outcome raise this deliberately, exactly as they raise `wake_ok`.
+    harness_cant_tell = {"v": False}
     wait_harness_up = lambda pane, timeout=HARNESS_UP_TIMEOUT: (
-        ([], "") if harness_up["v"] is None or harness_up["v"]
+        ([], f"{HARNESS_UP_UNVERIFIABLE}: stubbed — this fixture host cannot observe {pane}")
+        if harness_cant_tell["v"]
+        else ([], "") if harness_up["v"] is None or harness_up["v"]
         else ([], f"no harness process is running in {pane} after {timeout:.0f}s (G-11)"))
     pane_harness_idents = lambda pane: ([] if harness_up["v"] is None
                                         else [(p, f"stamp-{p}") for p in harness_up["v"]])
@@ -16610,6 +16706,35 @@ def _selftest_checks(args, failures, names):
               "landed and no harness came up; here the wake itself failed, and the seat must not "
               "be reported launched on the strength of a pane existing",
               "FAILED" in _ko and "harness start FAILED" in _ko and _kc == 1)
+
+        # ---- 7.567: the THIRD launch outcome gets its own exit code -------------------------
+        # `wait_harness_up`'s "cannot tell" leg returned ('', no error) and was therefore
+        # INDISTINGUISHABLE from a harness positively observed running: exit 0 on a box that never
+        # looked. The three rows below pin all three outcomes at the one instrument that matters
+        # to a scripted caller — the exit code.
+        harness_up["v"] = [4242]        # a harness IS up: isolates indeterminacy as the only cause
+        harness_cant_tell["v"] = True
+        _i7_o, _i7_c = refuse(cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
+        harness_cant_tell["v"] = False
+        check("7.567: a launch whose harness liveness this host could NOT OBSERVE exits "
+              "EXIT_INDETERMINATE, not 0 — `exit 0` must mean a harness was POSITIVELY SEEN, and "
+              "the indeterminate leg used to return the empty error string and read as success",
+              _i7_c == EXIT_INDETERMINATE and "launch INDETERMINATE" in _i7_o
+              and HARNESS_UP_UNVERIFIABLE in _i7_o)
+        check("7.567: and it is NOT reported as a refusal — an operator must not go hunting for a "
+              "seat that failed when what happened is that nothing looked",
+              "launch INCOMPLETE" not in _i7_o and "0 launched" not in _i7_o)
+        harness_up["v"] = []            # positively absent again
+        _r7_o, _r7_c = refuse(cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
+        check("7.567: a GENUINE refusal still exits 1 and still reads INCOMPLETE — the new code "
+              "is a third outcome, never a softening of the second (precedence: refusal wins)",
+              _r7_c == 1 and "launch INCOMPLETE" in _r7_o and "G-11" in _r7_o)
+        harness_up["v"] = [4242]
+        _c7_o, _c7_c = refuse(cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
+        check("7.567: and a CLEAN launch still exits 0 — the new code must not leak onto the "
+              "success path it was carved out of",
+              _c7_c == 0 and "launch INDETERMINATE" not in _c7_o
+              and "launch INCOMPLETE" not in _c7_o)
 
         # ---- guard sweep, slice 1 sites 6-7: a CLOSER that never booted must not open CLOSING --
         # `cmd_close` sets the CLOSING state only after the closer is verified up, and its own
@@ -19126,6 +19251,50 @@ def _selftest_checks(args, failures, names):
               any("no transcript" in b for b in
                   reap_blockers(dict(_fresh, exported=False), 30, {"%77"}))
               and any("no longer on disk" in b for b in reap_blockers(_fresh, 30, {"%77"})))
+        # ---- D19 (2026-08-11): the `model` column — the seat's ACTUAL launch model in its own
+        # trace. Three arms, because the column has three ways to be uselessly wrong: absent from
+        # the contract, absent from a LEGACY file that the widen was supposed to reach (the G-152
+        # blind spot — a schema change verified only where the schema is BORN), or present and
+        # never populated (which is the state `model` sat in for months before this ruling).
+        _d19_legacy = Path(tempfile.mkdtemp(prefix="coord-d19-")) / "pkg"
+        (_d19_legacy / "coordination").mkdir(parents=True)
+        # A pre-D19 header: every column EXCEPT `model`, in an order that is deliberately NOT
+        # SESSIONS_COLS' order — the run-1/run-2 disagreement `widen_header` protects.
+        _d19_old_header = ["seat", "session-id", "harness", "started"]
+        _d19_old_row = ["kappa", "kappa-0810-1200", "claude", "2026-08-10T12:00:00Z"]
+        write_csv_table(sessions_csv(_d19_legacy), _d19_old_header, [_d19_old_row])
+        _d19_widened, _d19_changed = widen_header(_d19_old_header, SESSIONS_COLS)
+        check("D19 ARM (a) — `model` IS IN THE CONTRACT, exactly once, and LAST. Appended rather "
+              "than placed beside `harness` so a freshly-born file and a widened legacy file agree "
+              "on column order; the position is asserted because the whole append-only safety "
+              "argument is what the placement buys",
+              SESSIONS_COLS.count("model") == 1 and SESSIONS_COLS[-1] == "model")
+        check("D19 ARM (b) — A LEGACY TRACE GAINS `model` THROUGH THE WIDEN, and the columns it "
+              "already had DO NOT MOVE. Both halves are asserted: a widen that added the column by "
+              "re-sorting into SESSIONS_COLS order would satisfy 'model is present' while "
+              "corrupting every positional reader of the old file, which is the G-152/run-2 shape "
+              "this arm exists to catch",
+              _d19_changed and "model" in _d19_widened
+              and _d19_widened[:len(_d19_old_header)] == _d19_old_header
+              and pad_row(_d19_old_row, _d19_widened)[_d19_widened.index("harness")] == "claude")
+        # ARM (c) exercises the REAL writer/reader pair on the widened header, because that is the
+        # mechanic every consumer depends on: the daemon's two doors write this row BY COLUMN NAME
+        # and silently DROP a key the header lacks, so "the column is addressable by name after a
+        # widen" is precisely the property that decides whether their offered value records or
+        # vanishes. Asserted through `write_csv_table`/`read_csv_table`, never a hand-built string.
+        _d19_row = pad_row(_d19_old_row, _d19_widened)
+        _d19_row[_d19_widened.index("model")] = "claude-fable-5"
+        write_csv_table(sessions_csv(_d19_legacy), _d19_widened, [_d19_row])
+        _d19_back_h, _d19_back_rows = read_csv_table(sessions_csv(_d19_legacy), SESSIONS_COLS)
+        _d19_cell = _d19_back_rows[0][_d19_back_h.index("model")]
+        _d19_seat = _d19_back_rows[0][_d19_back_h.index("seat")]
+        check("D19 ARM (c) — THE COLUMN IS ADDRESSABLE AND ROUND-TRIPS BY NAME on a WIDENED legacy "
+              "trace: the model written comes back verbatim AND the pre-existing `seat` cell is "
+              "still its own value. Both halves matter — a widen that shifted cells would return "
+              "the right model from the wrong row. `model` spent months present and always-empty, "
+              "a state indistinguishable from this change never landing, so the populated read is "
+              "the assertion and the declaration is not",
+              _d19_cell == "claude-fable-5" and _d19_seat == "kappa")
         # ---- 7.692: #259's gate reads HARNESS-NATIVE FIRST, pipe-pane `recorded` as the FALLBACK
         # (`decisions.md#d-transcript-consumers-split`). EACH ARM IS PROVEN BY THE ABSENCE OF THE
         # OTHER RECORD — the fixture leaves exactly one of the two readable per arm, so a pass can
@@ -28138,8 +28307,13 @@ def _selftest_checks(args, failures, names):
           "a bare basename",
           is_harness_argv("/usr/bin/node /opt/x/opencode --help")
           and is_harness_argv("claude --model opus P") and not is_harness_argv("bash -c ls"))
-    check("G-11: unverifiable is not absent — no pane, no pid, nothing to refuse on (fail-safe)",
-          pane_harness_pids("") == ([], False) and wait_harness_up("", timeout=0.1) == ([], ""))
+    check("G-11: unverifiable is not absent — no pane, no pid, nothing to refuse on (fail-safe). "
+          "7.567: and it is not SUCCESS either — the err names the outcome and says which of the "
+          "two causes (no pane pid vs unreadable process table) the box hit",
+          pane_harness_pids("") == ([], False)
+          and wait_harness_up("", timeout=0.1)[0] == []
+          and wait_harness_up("", timeout=0.1)[1].startswith(HARNESS_UP_UNVERIFIABLE)
+          and "no pane was given" in wait_harness_up("", timeout=0.1)[1])
 
     _pane_seat = {"agent": "eta", "harness": "claude", "model": "opus", "effort": "high",
                   "window": False}

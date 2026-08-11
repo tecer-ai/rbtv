@@ -161,15 +161,32 @@ function setResolvedGoalsRoot(workspaceRoot) {
 // resolve THAT: a segment that does not exist cannot be a symlink, so leaving it unresolved costs
 // nothing and is what admits legal case A. Only ENOENT climbs — any other error is a refusal,
 // because a path we cannot resolve is not a path we can vouch for.
-function resolvesInsideGoalsRoot(value) {
+// `root` is PARAMETERIZED (task fA-4, D-1) so the seat-cage grant resolvers in
+// `server/spawn/spawn.js` can ask this same question of a different containment — a specific
+// `{goalDir}`, or the workspace root — instead of minting a third containment rule. It defaults to
+// the cached goals root, so the fire-tool caller below is byte-unchanged. The root MUST already be
+// a REAL path (`setResolvedGoalsRoot` realpaths it; a caller passing its own root realpaths it
+// first), otherwise a symlinked root would never equal the resolved candidate and every value
+// would be refused.
+//
+// ⚠ A falsy root returns FALSE, never true: "no root to check against" is not a pass. The one
+// pre-existing caller is already guarded by `resolvedGoalsRoot &&`, so this only bounds new ones.
+//
+// ⚠ `path.dirname`, not `path.posix.dirname`: on POSIX — the only place the daemon runs — the two
+// are identical for the absolute paths this walks, so the fire-tool behaviour is byte-for-byte what
+// it was. On Windows `path.posix.dirname('C:\\a\\b')` returns `.` immediately, which collapsed the
+// climb and made the check refuse everything; native `dirname` climbs correctly on both, which is
+// what lets this be exercised off the VPS at all.
+function resolvesInsideGoalsRoot(value, root = resolvedGoalsRoot) {
+  if (!root) return false;
   let candidate = value;
   for (;;) {
     try {
       const real = fs.realpathSync(candidate);
-      return real === resolvedGoalsRoot || real.startsWith(resolvedGoalsRoot + path.sep);
+      return real === root || real.startsWith(root + path.sep);
     } catch (err) {
       if (err.code !== 'ENOENT') return false;
-      const parent = path.posix.dirname(candidate);
+      const parent = path.dirname(candidate);
       if (parent === candidate) return false;
       candidate = parent;
     }
@@ -391,4 +408,8 @@ module.exports = {
   checkFireToolWorkdir,
   expandArgv,
   setResolvedGoalsRoot,
+  // Exported for the seat-cage grant resolvers (`server/spawn/spawn.js`), which must answer the
+  // SAME symlink-aware containment question against their own roots (fA-4 D-1). One rule, three
+  // callers — a second spelling of "does this path really live under that one" is a second wall.
+  resolvesInsideGoalsRoot,
 };

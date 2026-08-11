@@ -177,7 +177,17 @@ QUOTED verbatim:
 - **`bindings`** (`ignite/capabilities/bindings/`) — the CASTING SHEET a workflow is run through
   (owner-ruled 2026-08-10): which harness, model and effort each seat gets. A workflow is the
   program, a **taskforce** is its running instance, and the bindings file is what casts one into the
-  other; `team-kit/materialize-seats.py --bindings` is its ONE consumer. Four verbs — `catalog`
+  other; `team-kit/materialize-seats.py --bindings` is its ONE consumer. ⚠ **A cast is now HONOURED
+  AT LAUNCH** (ruling D19, 2026-08-11): `launch-profiles/catalog.js` maps a seat's declared
+  `(harness, model)` to the profile NAME that runs it — task 7.54's catalog half, built — and
+  `server/spawn/spawn.js#profileForSeatCast` applies it at the one point every lane's launch passes
+  through, so a seat runs what its `seat.md` casts it as whether the daemon lane, the attached lane
+  or a Slack revival dispatched it. Before it, every lane launched a caller-named profile and a seat
+  cast as a frontier model silently ran the deployment's chat model. It shares ONE derivation law
+  with this capability's own `catalog` verb (`bindings.py#catalog`) — `probe-binding-catalog`
+  compares the two row for row so they cannot drift; an unmappable or ambiguous cast is a typed
+  refusal, never a fallback; a seat declaring no cast (the channel master's `open_binding`) is
+  untouched. Four verbs — `catalog`
   (every harness+model this workspace can spawn, each effort dial NUMBERED), `inspect` (every
   manifest seat with its definition file, staffing hints and casting state), `scaffold`
   (create-only), `set`. ⚠ **NOT the two-part shape of the two capabilities above, and that is
@@ -192,9 +202,38 @@ QUOTED verbatim:
   HARNESS's native ladder (claude: 1=low … 5=max) and the file stores the harness's own string; the
   per-profile `effort.values` table is a different object (the daemon lane's four abstract levels)
   and using it would make `xhigh` unspellable. One file per WORKFLOW at
-  `.rbtv/config/bindings/{module}/{component}/{code}.json` — `{code}` is the workflow's code, the
-  seat-id prefix its manifest rows carry, derived and never typed. Deployment config, never the
-  mirror. Contract in `bindings.md`.
+  `.rbtv/config/modules/{module}/{component}/bindings/{code}.json` — `{code}` is the workflow's
+  code, the seat-id prefix its manifest rows carry, derived and never typed. Deployment config,
+  never the mirror — and ONE INSTANCE of the general config convention
+  (`.rbtv/config/modules/<module>/<component>/…`, stated in `team-kit/starter-set/conduct.md` § 11).
+  ⚠ The pre-D15 `.rbtv/config/bindings/…` spelling still READS, with a WARN naming the new path, so
+  an un-migrated deployment breaks loudly rather than silently. Contract in `bindings.md`.
+- **Etiquette reaches every user-facing seat by materialization, not by nine remembered edits**
+  (owner rulings D11 + D15, 2026-08-10). A seat whose prompt definition declares
+  `human-interactive:` gets extra SKILL parts folded into its `exposes:` set by
+  `team-kit/materialize-seats.py` as if it had declared them, so the injected reference passes the
+  same resolution / method / entry-point gates an authored one does. ⚠ **WHICH parts is instance
+  policy and appears nowhere in the shared source** — the list is a JSON array of part refs (the
+  `exposes:` grammar) at the config convention's address for this component,
+  `.rbtv/config/modules/ignite/team-kit/interactive-exposes.json`. No such file, no `.rbtv/config`,
+  or an empty list injects NOTHING and renders byte-identically to before; a listed part that does
+  not resolve takes the ordinary `exposes-ref-dangling` refusal at generation time.
+- **What a caged seat may write in its own goal folder, and the gate that proves it** (owner rulings
+  D2/D9/D13, 2026-08-10). The goal folder is read-only to a seat except for three carves in
+  `config/spawn-profiles.yaml`'s `cage.SeatBinds`: the seat's own folder, the **five
+  write-if-something ledgers** (`issues.md` · `decisions.md` · `doubts.md` · `gotchas.md` ·
+  `ideas.md` — goal_cli's `WRITE_IF_SOMETHING`, so a seat that hits a tooling gap can actually file
+  it where the router sends it), and the ONE path the seat's role produces, declared in the seat
+  catalogue's **`goal-writes`** column (interviewer → `goal.md`) and emitted by
+  `team-kit/materialize-seats.py` into `seat.md`'s frontmatter. ⚠ **The declaration is checked
+  against the cage AT MATERIALIZATION, not discovered at spawn**: `_cage_rw_covers` reads that same
+  `SeatBinds` list and REFUSES to materialize a seat whose declared write the sandbox will not open
+  read-write — so a briefing can no longer promise a write the kernel answers `EROFS` to, which is
+  how a full interviewing session was lost (2026-08-09). Identity ground truth stays refused by bind
+  ORDER rather than by a second list: `sessions.csv` and `state.csv` are carved back read-only after
+  the opening, peer seat folders are absent under the `seats` tmpfs, and `seat.md` keeps its own
+  read-only carve. `append`-only is the intent and **read-write is the grant** — bwrap has no
+  append-only mount, so the bound is the file set.
 - **Per-run arguments on a fired tool — an IDENTITY allowlist, refusing by default** (task 7.559,
   owner ruling `d-owner-7559-design-rulings-0808`; `server/heart/argv-template.js` +
   `server/ticker/ticker.js` `launchFireTool`). A `tools:` entry in `config/spawn-profiles.yaml` may

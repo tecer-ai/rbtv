@@ -297,3 +297,18 @@ In addition to the workspace's own pre-dispatch gate, every dispatch prompt MUST
 
 **A dispatch prompt missing ANY of these rows is REWRITTEN BEFORE SENDING** — never
 sent-and-corrected, because a worker acts on the prompt it got.
+
+## 11 · Owner-specific configuration
+
+**Shared scaffolding NEVER carries a value that belongs to ONE deployment** — a path, a channel, a
+credential, a name, a threshold. What you author states WHERE a deployment's values live, never WHAT
+they are. A workflow or component that needs such a value REACHES for the two-step routing below, in
+order, instead of inventing a per-goal answer.
+
+- **First, the surfaces that already carry it.** The workspace's `CLAUDE.md` / `agents.md`, or the
+  `rbtv-output-resolution` rule where the value is an output destination. Read it from there — a
+  second home for a value that already has one is drift.
+- **Otherwise, a config file** at `.rbtv/config/modules/<module>/<component>/…` — module first, then
+  the component that owns the value.
+- **The live instance is the bindings capability's casting sheets**, at
+  `.rbtv/config/modules/<module>/<component>/bindings/<code>.json`.

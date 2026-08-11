@@ -59,7 +59,7 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   `profiles:` in `config/spawn-profiles.yaml` (the workspace's spawnable set) and gated by
   `coord.py#validate_seat` (the predicate materialize's F6 gate imports), so what an agent reads and
   what refuses it are ONE object. One file per WORKFLOW at
-  `.rbtv/config/bindings/{module}/{component}/{code}.json` — deployment config, never the mirror,
+  `.rbtv/config/modules/{module}/{component}/bindings/{code}.json` — deployment config, never the mirror,
   which carries component definitions only. Contract: `capabilities/bindings/bindings.md`.
 - **`daemon-watchdog/`** — the ignite LIVENESS surface (`CMP-28`): a systemd user timer firing one
   deterministic probe/restart/report pass over the whole deployment. **The one capability here the
@@ -88,7 +88,11 @@ daemon process. `server/spawn/config.js` is now a thin daemon-side adapter over 
 LIBRARY, not a capability: `capabilities/` above is for standalone operator surfaces the `rbtv` CLI
 delegates to, which this is not. The other two ruled consumers — the attached dispatch capability
 (7.43) and the orchestration conductor's CLI-worker dispatch (7.54) — are **not built**; shipping
-with one live consumer is 7.42's scope.
+with one live consumer is 7.42's scope. ⚠ **7.54's CATALOG half IS built** (ruling D19, 2026-08-11):
+`catalog.js` maps a seat's declared `(harness, model)` to the profile NAME that runs it, and
+`server/spawn/spawn.js#profileForSeatCast` applies it at the single point every launch passes
+through — so a seat runs what its `seat.md` casts it as on every lane. The conductor-dispatch half
+of 7.54 remains unbuilt, as does 7.43.
 
 Contract, the caller bounds, and the disclosed residuals: `launch-profiles/README.md`.
 
@@ -141,13 +145,13 @@ either: a read-only check must not write into the goals workspace as the price o
 dispatch fenced against `.rbtv/**` can run the suite without breaching its own fence. A summary
 worth keeping is worth naming — pass `--summary <path>` and it is written verbatim there.
 
-## jobs/ — four scripts ACT on Linux only (author their briefs against the VPS)
+## jobs/ — three scripts ACT on Linux only (author their briefs against the VPS)
 
-`ignite/jobs/` holds the daemon's `fire-tool` detector scripts. Four of them —
-`goal-watcher-job.py`, `selfheal-watch.py`, `selfheal-room.py` and `restart-daemon.py` — import
+`ignite/jobs/` holds the daemon's `fire-tool` detector scripts. Three of them —
+`goal-watcher-job.py`, `selfheal-room.py` and `restart-daemon.py` — import
 `jobcontain.py`, whose containment ACTIONS exist only on POSIX: `single_instance`'s `fcntl`
 double-run lock and `contain`/`child_preexec`'s `resource` memory cap. Since task 7.715 those
-imports are LAZY and keyed on `ImportError`, so the four scripts LOAD anywhere — they can be read
+imports are LAZY and keyed on `ImportError`, so the three scripts LOAD anywhere — they can be read
 and statically checked on the Windows desktop — but they only ACT on Linux.
 
 **Author any brief that EXERCISES their real behaviour against the ignite VPS, not the desktop.**

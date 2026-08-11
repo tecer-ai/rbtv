@@ -41,16 +41,21 @@ def _run_route(profile: dict, explain: bool = False, env_override: dict | None =
     """Run route.py with a profile, return (exit_code, parsed_json).
 
     By default (elect=False) routes over the full real corpus with the workspace election
-    BYPASSED: it passes --models-dir at the live models/ dir, which (by design) disables the
-    election filter. Ranking-logic assertions then do not depend on the mutable rbtv.json
-    `model_packages`. Pass elect=True to exercise the default CLI path with election ACTIVE
-    (the election filter itself is covered by TestElection)."""
+    BYPASSED via --no-election. Ranking-logic assertions then do not depend on the mutable
+    rbtv.json `model_packages`. Pass elect=True to exercise the default CLI path with election
+    ACTIVE (the election filter itself is covered by TestElection).
+
+    Uses --no-election, NOT --models-dir at the live dir (which is what this helper passed
+    before d-0811-route-seam-flag-split): --models-dir is now a credential-CONFINING scratch
+    seam, so routing the live corpus through it would ignore the OS-env keys that
+    `live_corpus_keys` and `env_override` pin — measuring the unprovisioned machine instead of
+    the router. --no-election is the election lever alone, which is all this helper wanted."""
     cmd = [sys.executable, str(ROUTE_PY)]
     if explain:
         cmd.append("--explain")
     if not elect:
         # Bypass the workspace election → route the full real corpus (election-independent).
-        cmd += ["--models-dir", str(MODELS_DIR)]
+        cmd.append("--no-election")
 
     env = os.environ.copy()
     if env_override:
@@ -68,6 +73,31 @@ def _run_route(profile: dict, explain: bool = False, env_override: dict | None =
     except json.JSONDecodeError:
         output = {"_raw_stdout": proc.stdout, "_raw_stderr": proc.stderr}
     return proc.returncode, output
+
+
+@pytest.fixture
+def live_corpus_keys(monkeypatch):
+    """Pin the api-key availability inputs that the LIVE-corpus verdict assertions depend on.
+
+    A test asserting WHICH model wins over the real corpus only measures the ROUTER if the
+    corpus's availability is fixed. Without this, the verdict turns on whether the HOST
+    happens to carry DEEPSEEK_API_KEY / GEMINI_API_KEY (OS env, or the rbtv.json `env_file`):
+    on a provisioned box opencode:deepseek-pro (cost 1) wins a fully-bounded code leaf; on an
+    unprovisioned one it is dropped at the availability stage and kimi (cost 3) wins instead.
+    Same router, same corpus, opposite verdict — that is a reading of the machine, not of the
+    routing logic. Requesting this fixture makes the availability input EXPLICIT rather than
+    ambient; it does not weaken any assertion.
+
+    Values are synthetic placeholders — route.py tests key PRESENCE only, never the value.
+    `_run_route`'s subprocess inherits them through its `os.environ.copy()`, so this one
+    fixture covers both the in-process `route.route(...)` and the CLI call styles.
+
+    Deliberately per-test opt-in, not autouse: the availability-gate tests
+    (TestApiKeyAvailability, TestStoredCredentialAvailability, TestEnvFileResolution) assert
+    the key-ABSENT leg and must keep their own isolation.
+    """
+    for var in ("DEEPSEEK_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.setenv(var, "test-fake-not-real")
 
 
 def _profile(**overrides) -> dict:
@@ -89,11 +119,11 @@ class TestReferenceProfiles:
     """Criterion 1: one command returns the SAME (model, variant) the routing-card §2a yields by hand,
     for 3 reference profiles (fully-bounded code, partially-bounded, unbounded)."""
 
-    def test_fully_bounded_code(self):
+    def test_fully_bounded_code(self, live_corpus_keys):
         """Fully-bounded code → cheapest capable non-haiku code-eligible pair.
         opencode deepseek-pro (cost 1, routable_for code roles) wins the cost-ascending
-        rank: its DEEPSEEK_API_KEY resolves via the vault env_file (manifest auth.env_var
-        override), so the cost-1 code executors are available and kimi (cost 3) ranks
+        rank: its DEEPSEEK_API_KEY is pinned present by `live_corpus_keys` (manifest
+        auth.env_var override), so the cost-1 code executors are available and kimi (cost 3) ranks
         behind them; deepseek-pro beats deepseek-flash on the cost tie (capability 5/4
         vs 4/3, capability-descending tiebreak)."""
         profile = _profile(
@@ -277,7 +307,13 @@ class TestStoredCredentialAvailability:
 
     @pytest.fixture
     def isolated(self, tmp_path, monkeypatch):
+        # Clear BOTH env vars this class gates on: ZHIPU_API_KEY (the Z1_AUTH path) and
+        # DEEPSEEK_API_KEY (the no-credential_store control in
+        # test_variant_without_credential_store_is_env_var_only). Clearing only ZHIPU left that
+        # control reading the HOST: on a box carrying DEEPSEEK_API_KEY the variant resolved
+        # AVAILABLE and the assert failed, while the same test passed on a box without the key.
         monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
         return tmp_path
 
@@ -428,7 +464,7 @@ class TestPlanCap:
         assert parsed["kimi-code-cli"]["context_window"] == 128000
         assert parsed["codex-cli"]["context_window"] == 200000
 
-    def test_plan_cap_applied_filters_capped_variant(self):
+    def test_plan_cap_applied_filters_capped_variant(self, live_corpus_keys):
         """Criterion 5 (cap-applied half): a plan cap below the inlined size filters the
         capped variant OUT, even though the manifest window would have fit. Exercised against
         the REAL manifests via route.route() with a scratch plans map (the real cap logic)."""
@@ -1259,9 +1295,17 @@ class TestEnvFileResolution:
     AVAILABLE; removing the line flips it unavailable. NEVER reads the owner's real env file.
     """
 
-    def test_env_file_makes_provider_available(self, tmp_path):
+    def test_env_file_makes_provider_available(self, tmp_path, monkeypatch):
         """Fake key in a temp env_file → provider available; remove key → unavailable."""
         import route
+
+        # The env_file leg is only observable when the OS env var is ABSENT — OS env takes
+        # precedence (asserted by the sibling test below). Without this delenv the second
+        # assertion read the HOST: on a box exporting DEEPSEEK_API_KEY the provider stayed
+        # available after the key was removed from the env_file, and the test failed there
+        # while passing on a box without the key. Isolating it is what makes this test measure
+        # env_file resolution rather than the machine.
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
 
         # Create a temp env_file with a FAKE key (never touches the real .env)
         env_file = tmp_path / ".env"
@@ -1493,10 +1537,10 @@ class TestHaikuGuard:
         kept_flag = route._exclude_haiku(list(entries), {"delegation_map_allows_haiku": True}, [])
         assert sorted(e["variant"] for e in kept_flag) == ["haiku", "opus", "sonnet"]
 
-    def test_real_corpus_unaffected_no_haiku_wins(self):
+    def test_real_corpus_unaffected_no_haiku_wins(self, live_corpus_keys):
         """Zero-regression spot-check: a fully-bounded code task over the live corpus picks
-        opencode:deepseek-flash (the cost-1 code executor; DEEPSEEK_API_KEY resolves via the
-        env_file) and no haiku passes the S7 guard even if present. The flag must not change
+        an opencode deepseek backend (the cost-1 code executors; DEEPSEEK_API_KEY pinned present
+        by `live_corpus_keys`) and no haiku passes the S7 guard even if present. The flag must not change
         the verdict on the real corpus."""
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
@@ -1549,6 +1593,65 @@ def _build_synth_only_corpus(tmp_path: Path) -> Path:
     models.mkdir(parents=True)
     (models / "manifest.yaml").write_text(_SYNTH_ONLY_MANIFEST, encoding="utf-8")
     return tmp_path
+
+
+# Scratch catalog for the credential-confinement pin: a cost-1 package whose availability
+# hangs on DEEPSEEK_API_KEY, plus a cost-2 keyless package that wins whenever the keyed one is
+# dropped. Package id `deepseek-api` is deliberate — route.py derives DEEPSEEK_API_KEY from it.
+# The keyed variant also declares `auth.credential_store`, so it carries BOTH host-state
+# resolution paths (OS env var and a harness's stored-login file) and the one pin below covers
+# each — d-0811-seam-confines-credential-store.
+_SCRATCH_KEYED_MANIFEST = """model: deepseek-api
+evidence_status: validated
+
+variants:
+  - variant: keyed-cheap
+    reasoning: 1
+    context_window: 500000
+    max_output: 8000
+    cost: 1
+    coding: 4
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: true
+      method: api-key
+      interactive: false
+      credential_store: opencode
+      credential_store_key: deepseek
+"""
+
+_SCRATCH_FREE_MANIFEST = """model: synthetic-free
+evidence_status: validated
+
+variants:
+  - variant: free-dearer
+    reasoning: 1
+    context_window: 500000
+    max_output: 8000
+    cost: 2
+    coding: 4
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+"""
+
+
+def _build_keyed_scratch_corpus(tmp_path: Path) -> Path:
+    """Create the keyed scratch catalog; returns the models dir to pass to --models-dir."""
+    models = tmp_path / "orchestration" / "models"
+    for pkg, manifest in (
+        ("deepseek-api", _SCRATCH_KEYED_MANIFEST),
+        ("synthetic-free", _SCRATCH_FREE_MANIFEST),
+    ):
+        (models / pkg).mkdir(parents=True)
+        (models / pkg / "manifest.yaml").write_text(manifest, encoding="utf-8")
+    return models
 
 
 class TestModelsDir:
@@ -1650,7 +1753,64 @@ class TestModelsDir:
         assert "synthetic-only" in models_found
         assert "kimi-code-cli" not in models_found
 
-    def test_flag_absent_default_identity(self):
+    def test_seam_run_is_credential_independent(self, tmp_path):
+        """d-0811-route-seam-credential-confinement: a --models-dir run answers the SAME with
+        and without a live credential present.
+
+        The scratch catalog's cost-1 package is api-key gated on DEEPSEEK_API_KEY. Before the
+        confinement, exporting that key on the HOST made it available and it won; without the
+        key it was dropped and the cost-2 keyless package won — the same scratch corpus giving
+        opposite answers on different machines. The seam now resolves credential presence from
+        the scratch root only (no OS env, no live-vault env_file), so both runs agree.
+
+        BOTH host-state paths are pinned (d-0811-seam-confines-credential-store): the OS env var
+        AND a harness's stored-login file, which the keyed variant also declares. The store is
+        planted under a scratch XDG_DATA_HOME — never the real one — so the four combinations of
+        (env key, stored login) must all agree, and each alone would flip the verdict unconfined.
+        """
+        scratch_models_dir = _build_keyed_scratch_corpus(tmp_path)
+        store = tmp_path / "xdg" / "opencode" / "auth.json"
+        store.parent.mkdir(parents=True)
+        store.write_text(json.dumps({"deepseek": {"type": "api", "key": "not-real"}}), encoding="utf-8")
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+
+        def _seam_verdict(key_present: bool, store_present: bool = False) -> tuple:
+            env = os.environ.copy()
+            env.pop("DEEPSEEK_API_KEY", None)      # never read the host's own credential state
+            if key_present:
+                env["DEEPSEEK_API_KEY"] = "test-fake-not-real"
+            # Point the store resolver at scratch either way: with the planted store, or at an
+            # empty dir — never at the developer's real ~/.local/share/opencode/auth.json.
+            env["XDG_DATA_HOME"] = str(tmp_path / ("xdg" if store_present else "xdg-empty"))
+            proc = subprocess.run(
+                [sys.executable, str(ROUTE_PY), "--models-dir", str(scratch_models_dir)],
+                input=json.dumps(profile),
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            assert proc.returncode == 0, f"route.py failed: {proc.stdout}{proc.stderr}"
+            result = json.loads(proc.stdout)
+            return result["model"], result["variant"]
+
+        verdicts = {
+            (key, stored): _seam_verdict(key, stored)
+            for key in (True, False)
+            for stored in (True, False)
+        }
+        assert len(set(verdicts.values())) == 1, (
+            f"scratch-seam run is credential-DEPENDENT across (env key, stored login): {verdicts}"
+        )
+        # Non-vacuous: the agreed answer is the confined one (keyed package unavailable).
+        assert verdicts[(True, True)] == ("synthetic-free", "free-dearer"), (
+            f"seam should route the keyless package, got {verdicts[(True, True)]}"
+        )
+
+    def test_flag_absent_default_identity(self, live_corpus_keys):
         """Flag absent → route.py output matches the live-corpus baseline
         (opencode:deepseek-pro, the cost-1 code executor).
 
@@ -1672,7 +1832,7 @@ class TestModelsDir:
             f"flag absent: default behavior changed, expected opencode, got {result['model']}"
         )
 
-    def test_cli_flag_absent_same_as_pre_change(self):
+    def test_cli_flag_absent_same_as_pre_change(self, live_corpus_keys):
         """Full-corpus baseline via the CLI: _run_route (elect=False) passes --models-dir at the
         live catalog, which bypasses the workspace election and routes the FULL real corpus —
         the pre-election behavior, where opencode:deepseek-pro wins a fully-bounded code
@@ -2213,7 +2373,7 @@ class TestRoutableForCodeEligibility:
     the code roles, and both carry honest (non-trivial) coding scores (3-4). They must be
     dropped from code leaves and the explain trace must show the routable_for drop reason."""
 
-    def test_deepseek_api_dropped_from_code_leaf(self):
+    def test_deepseek_api_dropped_from_code_leaf(self, live_corpus_keys):
         """deepseek-api variants carry coding 3 or 4 (honest board scores, D13) but their
         routable_for omits bounded-code/unbounded-code. They must be dropped from code leaves."""
         import route
@@ -2246,7 +2406,7 @@ class TestRoutableForCodeEligibility:
             f"deepseek-api drop should cite routable_for, got: {deepseek_drops}"
         )
 
-    def test_gemini_api_dropped_from_code_leaf(self):
+    def test_gemini_api_dropped_from_code_leaf(self, live_corpus_keys):
         """gemini-api variants carry coding 1 or 3 (honest board scores, D13) but their
         routable_for omits bounded-code/unbounded-code. They must be dropped from code leaves."""
         import route
@@ -2427,7 +2587,7 @@ class TestEffortPostPin:
     reasoning_modes.depths. Single-mode workers return no effort field (no-op).
     CLI multi-mode workers return an effort string keyed from the band."""
 
-    def test_fully_bounded_code_full_corpus_winner_is_single_mode(self):
+    def test_fully_bounded_code_full_corpus_winner_is_single_mode(self, live_corpus_keys):
         """The full-corpus fully-bounded code winner (opencode:deepseek-flash) carries
         depths=[] (the effort ladder is unverified through opencode) — the effort field
         must be ABSENT from the verdict (single-mode no-op)."""
@@ -2617,7 +2777,7 @@ variants:
 class TestFootprintRouting:
     """p1-1 spec Test Plan #1-#5: the footprint-aware GATE + biggest-capable fallback."""
 
-    def test_bounded_300k_routes_to_biggest_capable_opus(self):
+    def test_bounded_300k_routes_to_biggest_capable_opus(self, live_corpus_keys):
         """Test #1: a >300k-token bounded single-unit task never routes to a sub-1M worker — the
         footprint fallback picks a 1M-window worker (opencode:deepseek-pro, the cheapest of the
         1M tie), NOT kimi/codex/sonnet. The trace shows the window-cap drops + the footprint
@@ -2675,7 +2835,7 @@ class TestFootprintRouting:
             f"footprint drop must not use the inlined_size message form: {reasons}"
         )
 
-    def test_back_compat_no_known_input_routes_identically(self):
+    def test_back_compat_no_known_input_routes_identically(self, live_corpus_keys):
         """Test #3 (back-compat — SACRED): a profile with NO known_input_size routes byte-identically
         to today. The cap branch and the fallback never fire when the field is absent. Asserted two
         ways: (a) the with-field-absent verdict equals the explicit pre-change baseline pair, and
@@ -2705,7 +2865,7 @@ class TestFootprintRouting:
             "the utilization-cap GATE must not fire when known_input_size is absent"
         )
 
-    def test_cap_boundary_200000_via_gate_200001_via_fallback(self):
+    def test_cap_boundary_200000_via_gate_200001_via_fallback(self, live_corpus_keys):
         """Test #4: cap boundary behaves exactly. 200000 clears the normal GATE (Opus, no fallback);
         200001 drops Opus at the GATE (needs ceil(200001/0.20)=1,000,005) then falls back to Opus."""
         # 200000 → ceil(200000/0.20) = 1,000,000; Opus (1M) PASSES the normal GATE. No fallback.
@@ -2743,7 +2903,7 @@ class TestFootprintRouting:
             f"opus GATE-drop at 200001 must name min window 1000005, got {opus_drops}"
         )
 
-    def test_cap_is_configurable_without_code_change(self):
+    def test_cap_is_configurable_without_code_change(self, live_corpus_keys):
         """Test #5: the cap is configurable without a code change. With window_utilization_cap=0.5,
         the GATE uses 2× (300000→600000) not 5×, so Opus (1M) clears the GATE and no fallback fires;
         under the default 0.20 the SAME input needs 1.5M, Opus fails, and the fallback fires. Exercised
@@ -2799,7 +2959,7 @@ class TestFootprintRouting:
                 f"malformed cap {bad!r} must log a cap_invalid note, got {log}"
             )
 
-    def test_known_input_zero_routes_normally(self):
+    def test_known_input_zero_routes_normally(self, live_corpus_keys):
         """Spec Edge Case: known_input_size=0 → ceil(0/cap)=0, every worker passes the cap (a
         0-token known input fits anything). Must not crash; routes like the no-field path
         (opencode:deepseek-pro)."""
@@ -3137,7 +3297,7 @@ class TestOpencode:
             if saved is not None:
                 os.environ["ZHIPU_API_KEY"] = saved
 
-    def test_sakana_cost7_never_auto_picked(self):
+    def test_sakana_cost7_never_auto_picked(self, live_corpus_keys):
         """With EVERY opencode key injected, a fully-bounded code leaf resolves to the
         cost-1 deepseek-pro backend — cost-7 sakana ranks last and is never auto-picked
         on a cost-ascending rank."""

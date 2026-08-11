@@ -12,7 +12,13 @@ goal's seats are materialized. Nothing boot-reads it, no daemon holds it open: *
 is a plain file write and no restart is ever needed** — which is why this tool, unlike its
 `goal-launch-delay` / `master-profile` siblings, has no staged-inbox/daemon-fire second half.
 
-    .rbtv/config/bindings/{module}/{component}/{code}.json     ← the canonical path (owner ruling 1)
+    .rbtv/config/modules/{module}/{component}/bindings/{code}.json   ← the canonical path
+                                                                       (owner ruling 1, filed
+                                                                        module-first by D15)
+
+The pre-D15 spelling `.rbtv/config/bindings/{module}/{component}/{code}.json` still READS — every
+verb falls back to it and WARNS with the new path named — so a deployment that has not moved its
+files yet keeps working loudly rather than breaking silently.
 
 DEPLOYMENT CONFIG, NOT A COMPONENT DEFINITION. The mirror (`.rbtv/mirror/<module>/<component>/`)
 carries what a component IS; a casting sheet is what THIS WORKSPACE decided to spend on running it,
@@ -215,8 +221,21 @@ def workflow_code(seats):
 
 
 def bindings_path(wf, config_root=None):
-    root = Path(config_root) if config_root else wf["workspace"] / ".rbtv" / "config" / "bindings"
-    return root / wf["module"] / wf["component"] / f"{wf['code']}.json"
+    """The casting sheet's canonical path — MODULE-FIRST since owner ruling D15.
+
+    BACKWARD COMPAT, deliberately loud: a deployment whose sheets still sit at the pre-D15
+    `<config>/bindings/<module>/<component>/<code>.json` keeps working — every verb operates on the
+    old file and WARNS with the new path named. Silence here would let a deployment sit
+    un-migrated forever; a refusal would take the channel master's own knob down mid-migration."""
+    root = Path(config_root) if config_root else wf["workspace"] / ".rbtv" / "config"
+    new = root / "modules" / wf["module"] / wf["component"] / "bindings" / f"{wf['code']}.json"
+    old = root / "bindings" / wf["module"] / wf["component"] / f"{wf['code']}.json"
+    if not new.exists() and old.is_file():
+        print(f"WARN: {old} is the PRE-MIGRATION casting-sheet path. This run reads it, but MOVE "
+              f"it to {new} — owner ruling D15 files deployment config module-first at "
+              f".rbtv/config/modules/<module>/<component>/bindings/<code>.json.", file=sys.stderr)
+        return old
+    return new
 
 
 # ─────────────────────────────────────────────────────────────────────── the catalog
@@ -523,8 +542,9 @@ def main(argv=None):
                       help="the spawn-profiles document the castable set is derived from")
     root = argparse.ArgumentParser(add_help=False)
     root.add_argument("--config-root",
-                      help="bindings root (default: <workspace>/.rbtv/config/bindings, derived "
-                           "from the manifest's own location)")
+                      help="config root (default: <workspace>/.rbtv/config, derived from the "
+                           "manifest's own location); the sheet sits at "
+                           "<config-root>/modules/<module>/<component>/bindings/<code>.json")
     sub = p.add_subparsers(dest="verb", required=True)
 
     c = sub.add_parser("catalog", parents=[prof],

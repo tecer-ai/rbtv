@@ -400,8 +400,11 @@ state nothing reads.
 ⚠ **A `daemon` assignment MUST name a launch profile, and the NAME IS VALIDATED — at both doors.**
 Seeding takes a profile BY NAME from the one shared config and never derives one (`DEC-1` § Shared
 profile source — the same argument `rbtv run --profile` makes); `taskforce.csv`'s harness/model
-columns are task **7.54**'s catalog, not a profile name. There is no third place to read it from, so
-the marker carries it.
+columns are a CAST, not a profile name. There is no third place to read the name from, so the marker
+carries it. ⚠ Since ruling **D19** the marker's profile is the **fallback**, not the answer for
+every seat: task 7.54's catalog is built (`launch-profiles/catalog.js`) and applied at
+`server/spawn/spawn.js#profileForSeatCast`, so a seat whose `seat.md` declares a cast launches on
+THAT profile and the marker covers only the seats that declare none.
 
 - **At the CLI**, `--set daemon` refuses without `--profile`, *and* refuses a name `profiles:` in the
   shared config does not carry — naming the valid set. Presence alone was not enough: `enqueue`'s
@@ -561,9 +564,11 @@ the wave structure**. Seats with no `after` are wave 1 and are enqueued together
 run at once is the ticker's `max_live_agent_sessions`, not this capability's: the wave decides
 ELIGIBILITY, the ticker decides DISPATCH.
 
-**The profile is passed by NAME and never derived.** Mapping an elected (harness, model) onto one
-profile name is core-build task **7.54**'s catalog; a second mapping here is exactly the drift
-`DEC-1` § Shared profile source exists to prevent. All four properties of the widened sole-spawn
+**The profile is passed by NAME and never derived HERE.** Mapping an elected (harness, model) onto
+one profile name is core-build task **7.54**'s catalog — built at `launch-profiles/catalog.js` and
+applied at the one shared launch point (`server/spawn/spawn.js#profileForSeatCast`, ruling D19), so
+a seat runs its own cast and this name is what an uncast seat falls back to. A second mapping *here*
+would still be exactly the drift `DEC-1` § Shared profile source exists to prevent. All four properties of the widened sole-spawn
 gate hold: a pinned NAMED profile from the one shared config · picked by name · caller free text
 never reaching argv · the pure-mechanism boundary intact.
 

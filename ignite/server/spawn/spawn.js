@@ -5,6 +5,10 @@ const path = require('node:path');
 const { spawn: childSpawn, execFileSync } = require('node:child_process');
 const { requirePythonCmd } = require('../../lib/python-cmd');
 const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, resolveEffort } = require('./config');
+// The (harness, model) -> profile-name catalog, from the ONE shared resolver (task 7.54). Reached
+// through `server/spawn/config.js`'s own upstream — this module already depends on that adapter,
+// so nothing new crosses the daemon boundary.
+const { declaresBinding, profileForBinding, bindingOf } = require('../../launch-profiles/catalog');
 const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCagedSettings } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
@@ -13,6 +17,10 @@ const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags, contains
 const { parseServiceSeatPath, parseSeatPath, checkGoalExecuting, checkMaterializedSeat } = require('../seat-identity/seat-folder');
 const { deriveLease } = require('../lease/lease');  // 7.607 E1 — the bus/goals authz predicate
 const { appendRow, readCsv } = require('../seat-identity/csv');
+// The ONE symlink-aware containment rule (fA-4 D-1), parameterized by root and shared with the
+// fire-tool workdir guard rather than respelled here — `path.resolve` + a lexical prefix test
+// answers where a path POINTS, never where it LANDS.
+const { resolvesInsideGoalsRoot } = require('../heart/argv-template');
 const {
   generateSessionId,
   selectCarrier,
@@ -428,6 +436,70 @@ function seatDeclaresList(seatDir, key) {
   return items;
 }
 
+// The SCALAR half of the one declaration reader — same surface (seat.md frontmatter, ro-bound
+// inside the cage), same lightweight parse, same fail-closed absence as its two siblings above.
+// It exists because the seat's CAST is a scalar: `materialize-seats.py#_descriptor_frontmatter`
+// emits `harness:` / `model:` / `effort:` as plain values, and emits ALL THREE OR NONE (the
+// `open_binding` rule — the channel master declares none by design, so its harness and model stay
+// the chat bridge's to name).
+//
+// `key` is always a literal from THIS module — never caller input.
+function seatDeclaresValue(seatDir, key) {
+  try {
+    const md = fs.readFileSync(path.join(seatDir, 'seat.md'), 'utf8');
+    const fm = /^---\n([\s\S]*?)\n---/.exec(md);
+    if (!fm) return '';
+    const m = new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(fm[1]);
+    return m ? m[1].trim().replace(/^["']|["']$/g, '') : '';
+  } catch {
+    // no seat.md yet (pre-materialization, or a first-fire job-born seat): not declared, and an
+    // undeclared cast is the FALLBACK case, never a refusal.
+    return '';
+  }
+}
+
+// ── THE SEAT'S CAST → THE PROFILE THAT RUNS IT (task 7.54 · owner ruling D19, extending D16) ────
+//
+// The defect: two launch paths reached a seat and NEITHER read what the seat was cast as. The
+// daemon lane passed one profile for every seat of a goal (`engine/seeding.js`), and the chat
+// bridge passed a deployment-wide chat profile by surface (`bridges/chat/forward-path.js`) — so
+// the planning interviewer, cast `claude-fable-5` in `taskforce.csv` AND in its own `seat.md`, was
+// revived on `claude-sonnet-5` whenever the owner answered it in Slack, with `sessions.csv`
+// recording the launch as if nothing had diverged.
+//
+// ⚑ RESOLVED HERE, IN THE ONE FUNCTION EVERY LAUNCH ROUTES THROUGH, and that placement IS the fix.
+// Resolving it in either caller would have left the other one broken and added a second mapping;
+// `spawn()` is downstream of the ticker, the chat bridge, the daemon lane, the attached lane and
+// the warm-session leg alike, and it is also UPSTREAM of both records (`jobs_log.profile` and the
+// at-dispatch `sessions.csv` row are written below), so record and reality cannot drift apart by
+// construction — they are written from the resolved value, not the requested one.
+//
+// ⚑ THE CAST OUTRANKS THE CALLER'S NAMED PROFILE, deliberately. A caller's profile is what runs a
+// seat that declares NO cast; it is not a licence to override one that does. That is G-111's rule
+// (an asserted value never outranks a declared one) applied to the model, and it is the whole
+// content of ruling D16 — the record is the authority for what a seat runs.
+//
+// Returns the caller's own `profileName` unchanged whenever the seat declares no cast, which is
+// the channel master (`open_binding`), every unmaterialized seat, and every pre-D19 deployment —
+// so a workspace that casts nothing behaves exactly as it did before this function existed.
+function profileForSeatCast(profiles, seatDir, profileName, log) {
+  const binding = {
+    harness: seatDeclaresValue(seatDir, 'harness'),
+    model: seatDeclaresValue(seatDir, 'model'),
+  };
+  if (!declaresBinding(binding)) return profileName;
+  // Throws E_UNMAPPED_BINDING / E_AMBIGUOUS_BINDING — never falls back. A cast this workspace
+  // cannot spawn must stop the launch: continuing on the caller's profile is precisely the silent
+  // wrong-model launch being fixed.
+  const cast = profileForBinding(profiles, binding, { seat: path.basename(seatDir) });
+  if (cast !== profileName) {
+    log('info', 'launching the profile the seat is CAST as, not the one the caller named (D19)', {
+      seatDir, requested: profileName, cast, harness: binding.harness, model: binding.model,
+    });
+  }
+  return cast;
+}
+
 // ── `rw-paths:` — the seat-declared READ-WRITE workspace paths (owner ruling "a", 2026-08-06) ──
 //
 // Motivating case: the channel-master holds the whole workspace under `read-root: true`, so an
@@ -463,7 +535,90 @@ function resolveRwPathGrants(seatPath, log) {
       continue;
     }
     if (!fs.existsSync(target)) { refuse(`does not exist (never created from here): ${target}`); continue; }
+    // fA-4 D-1 — THE LEXICAL TESTS ABOVE ANSWER WHERE THE PATH POINTS, NOT WHERE IT LANDS. A seat
+    // with a writable directory anywhere in the workspace can plant a symlink and declare it; the
+    // rules above see a tidy relative path and admit it. Resolve for real, against BOTH bounds:
+    // inside the workspace root, and — separately — NOT inside the goals tree, because rule 3's
+    // whole point is that a symlink is the way an entry gets there without spelling it.
+    const realRoot = (() => { try { return fs.realpathSync(root); } catch { return null; } })();
+    const realGoals = (() => { try { return fs.realpathSync(goals); } catch { return null; } })();
+    if (!realRoot || !resolvesInsideGoalsRoot(target, realRoot)) {
+      refuse(`RESOLVES outside the workspace root — a segment on this path is a symlink out of it: ${target}`);
+      continue;
+    }
+    if (realGoals && resolvesInsideGoalsRoot(target, realGoals)) {
+      refuse(`RESOLVES inside ${goals} through a symlink — the identity/ground-truth surfaces stay unwritable: ${target}`);
+      continue;
+    }
     grants.push({ rwPath: target });
+  }
+  return grants;
+}
+
+// ── `goal-writes:` — the seat's ONE declared role output (owner ruling D9, 2026-08-10) ─────────
+//
+// `rw-paths` above cannot express this, and must not be widened to: it REFUSES every entry under
+// `.rbtv/goals` precisely because that subtree holds every `sessions.csv` and every `seat.md`. So
+// the thing a seat's role actually PRODUCES — the interviewer's `goal.md`, the structurer's
+// `milestones.csv` — had no expressible grant at all, and the interviewer found that out by meeting
+// EROFS on the one file it existed to write, after a full night of interviewing (2026-08-09).
+//
+// GOAL-RELATIVE, not workspace-relative. That is the single vocabulary difference from `rw-paths`
+// and it is what makes an entry inside `.rbtv/goals` safe to admit here: the path can only ever
+// resolve inside THIS seat's own goal folder, so no entry can name another goal, another seat, or
+// anything outside the tree. The cage template's `bind-try:{grant:goalWrite}` line consumes it.
+//
+// GROUND TRUTH IS NOT DEFENDED BY A LIST HERE, deliberately — it is defended by bind ORDER in
+// `config/spawn-profiles.yaml`: the two `ro-bind-try` carves (`sessions.csv`, `state.csv`) sit
+// immediately AFTER this grant's line, peer seat folders are absent under the `seats` tmpfs, and
+// `seat.md` keeps its own read-only carve. A second list here would be a second place the wall is
+// reasoned about. `materialize-seats.py` refuses such a declaration at AUTHORING time as well,
+// where the author is still holding the file.
+//
+// FAIL-CLOSED PER ENTRY, same posture and same reason as `rw-paths`: a bad entry is skipped and
+// LOGGED, never fatal — one typo in a descriptor must not take a seat offline.
+//
+// ⚠ IT CREATES THE DECLARED OUTPUT WHEN ABSENT, and that is the ONE place it departs from its
+// `rw-paths` sibling (owner ruling D21, 2026-08-11). The departure is forced by bwrap, not chosen:
+// a bind needs an existing source and the goal root is read-only, so a seat whose product does not
+// exist YET — the structurer's `milestones.csv`, every checker's findings file — could never create
+// it, and "declare your output" would work only for the one file the scaffolder happens to seed.
+// Skipping instead would have made the grant useless for most of the roles it exists to serve.
+// The precedent is IN THIS FILE: `composeCageFor` already touches an absent `sessions.csv` for the
+// service seat, for the same reason and with the same guard. Bounded exactly: only the ONE
+// already-validated goal-relative path (absolute, escaping and outside-goal declarations were
+// refused above, and `materialize-seats.py` refused ground truth at authoring time), at most its
+// parent directory, and always EMPTY — never content, never a template.
+function resolveGoalWriteGrants(seatPath, log) {
+  const goalDir = seatPath.goalDir;
+  const grants = [];
+  for (const entry of seatDeclaresList(seatPath.seatDir, 'goal-writes')) {
+    const refuse = (reason) => log('warn', `goal-writes entry REFUSED: ${reason}`, { seat: seatPath.seat, seatDir: seatPath.seatDir, entry });
+    if (!entry) { refuse('empty entry'); continue; }
+    if (path.isAbsolute(entry)) { refuse('absolute path — goal-writes entries are goal-relative'); continue; }
+    const target = path.resolve(goalDir, entry);
+    if (!contains(goalDir, target) || target === goalDir) { refuse(`resolves outside the seat's own goal folder: ${target}`); continue; }
+    // fA-4 D-1 — SAME RULE AS ITS SIBLING, AND IT MUST RUN BEFORE THE D21 CREATION BELOW. The seat
+    // holds RW on `{goalDir}/coordination`, so it can plant a symlink there, declare it, and be
+    // handed an RW bind of the link's REAL target; and `mkdirSync`/`writeFileSync` follow symlinked
+    // segments too, so a check placed after creation would already have written through the link.
+    const realGoalDir = (() => { try { return fs.realpathSync(goalDir); } catch { return null; } })();
+    if (!realGoalDir || !resolvesInsideGoalsRoot(target, realGoalDir)) {
+      refuse(`RESOLVES outside the seat's own goal folder — a segment on this path is a symlink out of it: ${target}`);
+      continue;
+    }
+    if (!fs.existsSync(target)) {
+      // D21: create it EMPTY so the bind has a source. A failure here is the same logged skip as
+      // any other bad entry — a goal folder that cannot take the file must not take the seat down.
+      try {
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, '');
+      } catch (err) {
+        refuse(`does not exist and could not be created: ${target} — ${err.message}`);
+        continue;
+      }
+    }
+    grants.push({ goalWrite: target });
   }
   return grants;
 }
@@ -827,6 +982,7 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       ...localBin,
       ...exposedClis,
       ...resolveTmuxSocketGrant(seatPath),
+      ...resolveGoalWriteGrants(seatPath, log),
       ...resolveRwPathGrants(seatPath, log),
     ],
   });
@@ -919,6 +1075,20 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     validateRequestKeys({ profile: profileName, session_mode: sessionMode, prompt, workdir });
 
     rejectFlagInjection(workdir, 'workdir');
+
+    // ── THE SEAT'S CAST WINS (task 7.54 · D19) ───────────────────────────────────────────────
+    // Resolved FIRST, so every gate below — unknown-profile, exec shape, resume template, headed
+    // capability, workdir root — runs against the profile that will ACTUALLY launch rather than
+    // the one the caller asked for. Doing it after those gates would validate one profile and
+    // spawn another, which is the same class of lie in a new place.
+    //
+    // ponytail: reads the cast off the RAW `workdir`, before `resolveWorkdir` normalizes it. Every
+    // daemon caller passes an absolute seat folder already (the ticker composes it, the chat
+    // bridge passes `resolveGoalSeat().seatDir`), and `composeArgv` reads `seat.md` off this same
+    // value a few lines later. Ceiling: a RELATIVE workdir resolves no descriptor, so its cast is
+    // not honoured — it falls back to the caller's profile exactly as before. Upgrade path if a
+    // relative-workdir caller ever appears: resolve the workdir first and re-run the gates.
+    profileName = profileForSeatCast(config.profiles || {}, workdir, profileName, log);
 
     // An OWN-property test, never a bare lookup: `config.profiles` is a plain object parsed from
     // YAML, so a request naming an INHERITED key (`constructor`, `toString`, `valueOf`) passes a
@@ -1109,6 +1279,19 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
           seat: dispatchSeat.seat,
           'session-id': sessionId,
           harness: harnessOf(profile) || '',
+          // THE PREVENTION GUARANTEE for the wrong-model defect (design proposal §2 defect 9):
+          // the model that ACTUALLY launched, read off the resolved profile's own pin — never off
+          // the seat's declaration, which is the claim being checked, and never off the caller's
+          // request. With it, a divergence between what a seat is cast as and what it ran is
+          // visible in the seat's OWN trace instead of only in the system journal.
+          //
+          // ⚑ OFFERED, NOT IMPOSED. `appendRow` writes BY COLUMN NAME against the file's own
+          // header and REPORTS unknown keys as `dropped` rather than inventing a column — and
+          // `coord.py#SESSIONS_COLS` owns this schema (task 7.37), not this writer. So on a
+          // deployment whose header has no `model` column this is a no-op with a warn, and it
+          // starts recording the moment the schema owner adds one. A second spelling of the
+          // header here is exactly how the run-1 and run-2 headers came to disagree.
+          model: (bindingOf(profile) || {}).model || '',
           workdir: resolvedWorkdir,
           pid,
           'pid-starttime': pidStarttime,
@@ -1169,6 +1352,13 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   // because composition is the half that is checkable off a live room — the probe uses it, and so
   // does any caller that wants to see the exact argv before it runs.
   async function spawnSeat(execId, profileName, { room, seatName, seatDir, dryRun = false, enqueuedBy = 'unknown', readLease = undefined } = {}) {
+    // The seat's cast wins here too (D19), and for the same reason it does on the headless door:
+    // the two doors are the daemon's whole launch surface, and a seat that ran its cast headless
+    // but the caller's profile in a pane would be one seat wearing two models. Resolved BEFORE the
+    // gates below so they validate what actually launches. `seatDir` is this door's explicit
+    // argument, so there is no relative-path ceiling here.
+    profileName = profileForSeatCast(config.profiles || {}, seatDir, profileName, log);
+
     // An own-property test, for the reason given at the request-validation door above (task
     // 7.542): a bare lookup admits every inherited key of `Object.prototype` as a profile name.
     if (!Object.hasOwn(config.profiles || {}, profileName)) {
@@ -1598,6 +1788,11 @@ module.exports = {
   resolveSandbox,
   ensureLogPath,
   appendRowEnsuringHeader,
+  // Exported for `launch-profiles/probes/probe-binding-catalog.js`: the seat-cast resolution is
+  // the half of the D19 fix that reads a REAL descriptor, and a probe that stubs the descriptor
+  // read would prove the catalog and not the fix.
+  seatDeclaresValue,
+  profileForSeatCast,
 };
 
 function validateSpawnRequest(req) {

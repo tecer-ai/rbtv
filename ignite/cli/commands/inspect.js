@@ -22,21 +22,25 @@ ignite inspect status <exec-id>
 ignite inspect logs <exec-id> [--tail <n>]
 ignite inspect daemon
 ignite inspect ticker
-ignite inspect messages <exec-id>
+ignite inspect messages <exec-id> [--tail <n>]
 ignite inspect executions --status <status> [--offset <n>] [--limit <n>]
+ignite inspect executions --status <status> --tail <n>
 
   Read-only. Renders server state (or the full envelope with --json).
-  messages:   the message rows of the execution's chain-stable thread.
-  executions: every execution in one status, paged —
-              launching|running|done|blocked|failed|stalled|killed.`;
+  messages:   the message rows of the execution's chain-stable thread,
+              OLDEST-FIRST. --tail <n>: the NEWEST n, plus the total.
+  executions: every execution in one status, paged OLDEST-FIRST —
+              launching|running|done|blocked|failed|stalled|killed.
+              --tail <n>: the NEWEST n, plus the total, in one command.`;
 
 const TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions']);
 
-// A single page's line count for the (offset, limit) walk logs paging does.
-// Generous but arbitrary — the server-side page bound (internal-api-contract-
-// spec.md §1 inspect) governs the real ceiling; this just keeps the walk to a
-// handful of round trips for an ordinary log.
-const LOG_PAGE_LIMIT = 500;
+// A single page's size for the (offset, limit) walk that `--tail` does — for
+// logs, and since the executions tail, for executions too. Generous but
+// arbitrary — the server-side page bound (internal-api-contract-spec.md §1
+// inspect) governs the real ceiling; this just keeps the walk to a handful of
+// round trips.
+const PAGE_LIMIT = 500;
 
 function renderRows(label, rows) {
   console.log(`${label}: ${rows.length} row(s)`);
@@ -100,7 +104,7 @@ async function runLogs(argv, ctx) {
   let lines = [];
   let lastEnvelope = null;
   for (;;) {
-    const { envelope } = await ctx.call('inspect', { target: 'logs', id: rawId, offset, limit: LOG_PAGE_LIMIT });
+    const { envelope } = await ctx.call('inspect', { target: 'logs', id: rawId, offset, limit: PAGE_LIMIT });
     lastEnvelope = envelope;
     if (!envelope.ok) break;
     const chunk = envelope.result.lines || [];
@@ -129,23 +133,82 @@ function corpusPreview(corpus) {
   return flat.length > CORPUS_PREVIEW_CHARS ? flat.slice(0, CORPUS_PREVIEW_CHARS - 1) + '…' : flat;
 }
 
+function renderMessageRow(m) {
+  console.log(`#${m.msg_id} ${m.created_at} ${m.type} from=${m.sender} status=${m.status ?? '-'} ${corpusPreview(m.corpus)}`);
+}
+
 async function runMessages(argv, ctx) {
   const rawId = requirePositional(argv, 'exec-id');
   if (!/^\d+$/.test(rawId)) throw new CliUsageError('inspect messages requires an integer id');
+
+  const rawTail = takeValue(argv, '--tail');
+  let tail;
+  if (rawTail !== undefined) {
+    if (!/^\d+$/.test(rawTail) || Number(rawTail) <= 0) throw new CliUsageError('--tail must be a positive integer');
+    tail = Number(rawTail);
+  }
   if (argv.length > 0) throw new CliUsageError(`inspect messages: unrecognized argument(s): ${argv.join(' ')}`);
 
-  const { envelope } = await ctx.call('inspect', { target: 'messages', id: rawId });
+  const payload = { target: 'messages', id: rawId };
+
+  // --tail N: the thread listing is ordered OLDEST-FIRST (getMessages orders msg_id ASC) and
+  // exposes offset/limit paging only, never a reverse read — so the NEWEST message costs blind
+  // offset probes. Identical defect and identical fix as `inspect executions --tail` (7.62): the
+  // envelope's `total` makes the last page addressable, so ask for one row to learn the total and
+  // then jump to `total - N`. TWO round trips, whatever the size of the thread.
+  //
+  // A daemon predating `total` (the field ships with this change) still answers — the walk below
+  // is `inspect logs --tail`'s answer to the same contract, and it is what runs against an
+  // un-redeployed box. Delete it once no such daemon is left; `tailOf` is the total either way.
+  if (tail !== undefined) {
+    const head = await ctx.call('inspect', { ...payload, offset: 0, limit: 1 });
+    if (!head.envelope.ok) return finish(head.envelope, { json: ctx.json });
+    const total = head.envelope.result.total;
+    const thread = head.envelope.result.thread;
+
+    let rows;
+    let walked = null;
+    if (Number.isInteger(total)) {
+      const offset = Math.max(0, total - tail);
+      const page = await ctx.call('inspect', { ...payload, offset, limit: tail });
+      if (!page.envelope.ok) return finish(page.envelope, { json: ctx.json });
+      rows = page.envelope.result.rows || [];
+    } else {
+      let offset = 0;
+      let all = [];
+      let lastEnvelope = null;
+      for (;;) {
+        const { envelope } = await ctx.call('inspect', { ...payload, offset, limit: PAGE_LIMIT });
+        lastEnvelope = envelope;
+        if (!envelope.ok) break;
+        const chunk = envelope.result.rows || [];
+        all = all.concat(chunk);
+        if (envelope.result.eof || chunk.length === 0) break;
+        offset = envelope.result.nextOffset;
+      }
+      if (!lastEnvelope.ok) return finish(lastEnvelope, { json: ctx.json });
+      walked = all.length;
+      rows = all.slice(-tail);
+    }
+
+    const tailOf = Number.isInteger(total) ? total : walked;
+    const synth = { ok: true, result: { target: 'messages', id: Number(rawId), thread, rows, eof: true, tailOf } };
+    return finish(synth, {
+      json: ctx.json,
+      renderSuccess: (result) => {
+        console.log(`messages (thread ${result.thread}): newest ${result.rows.length} of ${result.tailOf} row(s)`);
+        for (const m of result.rows) renderMessageRow(m);
+      },
+    });
+  }
+
+  const { envelope } = await ctx.call('inspect', payload);
   return finish(envelope, {
     json: ctx.json,
     renderSuccess: (result) => {
       const rows = result.rows || [];
       console.log(`messages (thread ${result.thread}): ${rows.length} row(s)`);
-      for (const m of rows) {
-        console.log(`#${m.msg_id} ${m.created_at} ${m.type} from=${m.sender} status=${m.status ?? '-'} ${corpusPreview(m.corpus)}`);
-      }
-      if (result.eof === false) {
-        console.log(`... more available (nextOffset=${result.nextOffset})`);
-      }
+      for (const m of rows) renderMessageRow(m);
     },
   });
 }
@@ -159,14 +222,29 @@ async function runMessages(argv, ctx) {
 // drift (the enum already lives at gateway/parse.js and dispatch.js, and a third
 // copy here would be guarded by nothing at the moment a caller most needs the right
 // answer). The cost is one round trip on a typo; the refusal names the valid set.
+function renderExecutionRow(r) {
+  console.log(`#${r.exec_id} ${r.fired_at} ${r.action_type} job=${r.job_id} session=${r.session_id ?? '-'} pid=${r.pid ?? '-'} exit=${r.exit_code ?? '-'} thread=${r.thread ?? '-'}`);
+}
+
 async function runExecutions(argv, ctx) {
   const status = takeValue(argv, '--status');
   if (status === undefined) throw new CliUsageError('inspect executions requires --status <status>');
+
+  const rawTail = takeValue(argv, '--tail');
+  let tail;
+  if (rawTail !== undefined) {
+    if (!/^\d+$/.test(rawTail) || Number(rawTail) <= 0) throw new CliUsageError('--tail must be a positive integer');
+    tail = Number(rawTail);
+  }
 
   const payload = { target: 'executions', status };
   for (const flag of ['--offset', '--limit']) {
     const raw = takeValue(argv, flag);
     if (raw === undefined) continue;
+    // --tail names a window from the END; --offset/--limit name one from the START.
+    // Accepting both would silently honour one — the shape that teaches a caller a
+    // flag works when it does not (parse.js's stated reason for refusing both ways).
+    if (tail !== undefined) throw new CliUsageError(`inspect executions: ${flag} and --tail are mutually exclusive`);
     const key = flag.slice(2);
     if (!/^\d+$/.test(raw)) throw new CliUsageError(`${flag} must be a non-negative integer`);
     if (key === 'limit' && Number(raw) <= 0) throw new CliUsageError('--limit must be a positive integer');
@@ -174,15 +252,64 @@ async function runExecutions(argv, ctx) {
   }
   if (argv.length > 0) throw new CliUsageError(`inspect executions: unrecognized argument(s): ${argv.join(' ')}`);
 
+  // --tail N: the listing is ordered OLDEST-FIRST (jobs_log ORDER BY exec_id) and exposes
+  // offset/limit paging only, never a reverse read — so the newest row costs blind offset
+  // probes. With the envelope's `total` the last page is addressable: ask for one row to
+  // learn the total, then jump to `total - N`. TWO round trips, whatever the size of the
+  // set (measured on the live VPS: 25,858 `done` rows).
+  //
+  // A daemon predating `total` (the field ships with this change) still answers — the walk
+  // below is `inspect logs --tail`'s answer to the same contract, and it is what runs against
+  // an un-redeployed box. Delete it once no such daemon is left; `tailOf` is the total either
+  // way.
+  if (tail !== undefined) {
+    const head = await ctx.call('inspect', { ...payload, offset: 0, limit: 1 });
+    if (!head.envelope.ok) return finish(head.envelope, { json: ctx.json });
+    const total = head.envelope.result.total;
+
+    let rows;
+    let walked = null;
+    if (Number.isInteger(total)) {
+      const offset = Math.max(0, total - tail);
+      const page = await ctx.call('inspect', { ...payload, offset, limit: tail });
+      if (!page.envelope.ok) return finish(page.envelope, { json: ctx.json });
+      rows = page.envelope.result.rows || [];
+    } else {
+      let offset = 0;
+      let all = [];
+      let lastEnvelope = null;
+      for (;;) {
+        const { envelope } = await ctx.call('inspect', { ...payload, offset, limit: PAGE_LIMIT });
+        lastEnvelope = envelope;
+        if (!envelope.ok) break;
+        const chunk = envelope.result.rows || [];
+        all = all.concat(chunk);
+        if (envelope.result.eof || chunk.length === 0) break;
+        offset = envelope.result.nextOffset;
+      }
+      if (!lastEnvelope.ok) return finish(lastEnvelope, { json: ctx.json });
+      walked = all.length;
+      rows = all.slice(-tail);
+    }
+
+    const tailOf = Number.isInteger(total) ? total : walked;
+    const synth = { ok: true, result: { target: 'executions', status, rows, eof: true, tailOf } };
+    return finish(synth, {
+      json: ctx.json,
+      renderSuccess: (result) => {
+        console.log(`executions (status ${result.status}): newest ${result.rows.length} of ${result.tailOf} row(s)`);
+        for (const r of result.rows) renderExecutionRow(r);
+      },
+    });
+  }
+
   const { envelope } = await ctx.call('inspect', payload);
   return finish(envelope, {
     json: ctx.json,
     renderSuccess: (result) => {
       const rows = result.rows || [];
       console.log(`executions (status ${result.status}): ${rows.length} row(s)`);
-      for (const r of rows) {
-        console.log(`#${r.exec_id} ${r.fired_at} ${r.action_type} job=${r.job_id} session=${r.session_id ?? '-'} pid=${r.pid ?? '-'} exit=${r.exit_code ?? '-'} thread=${r.thread ?? '-'}`);
-      }
+      for (const r of rows) renderExecutionRow(r);
       if (result.eof === false) {
         console.log(`... more available (nextOffset=${result.nextOffset})`);
       }

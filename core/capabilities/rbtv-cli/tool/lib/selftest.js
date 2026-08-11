@@ -286,6 +286,32 @@ const CHECKS = [
     if (!/\/nonexistent-rbtv-root/.test(r.stderr)) throw new Error('the refusal does not name the root it resolved');
   }],
 
+  ['the gateway verb list matches the client\'s own COMMANDS map (ASSERTED, both directions)', () => {
+    // The drift this catches, measured 2026-08-11 (7.560a §5): the hand-listed array missed
+    // `deregister-job` and still named `send`/`screen`, retired at 7.29 — so `rbtv ignite
+    // deregister-job` refused a verb the standalone client ran. verbs.js now DERIVES the list
+    // from `ignite/cli/commands/`, which closes that gap but opens a narrower one: a helper
+    // `.js` dropped into that directory would be routed as a verb it is not. So the assertion
+    // is against the map itself, read from the client's source — the thing the directory is
+    // only a proxy for. Both directions, because a one-way check passes on either kind of drift.
+    const src = fs.readFileSync(verbs.GATEWAY_CLIENT, 'utf8');
+    const block = src.match(/const COMMANDS = \{([\s\S]*?)\n\};/);
+    if (!block) throw new Error(`could not find the COMMANDS map in ${verbs.GATEWAY_CLIENT}`);
+    const mapped = new Set(
+      [...block[1].matchAll(/^\s*'?([a-z][a-z-]*)'?\s*:\s*require\(/gm)].map((m) => m[1]),
+    );
+    if (!mapped.size) throw new Error('parsed the COMMANDS map but found no commands in it');
+    const routed = new Set(verbs.GATEWAY_COMMANDS);
+    const missing = [...mapped].filter((c) => !routed.has(c));
+    const extra = [...routed].filter((c) => !mapped.has(c));
+    if (missing.length || extra.length) {
+      throw new Error(
+        `gateway verb list is out of step with the client: ${missing.length ? `unroutable ${missing.join(', ')}` : ''}`
+        + `${missing.length && extra.length ? '; ' : ''}${extra.length ? `routed but nonexistent ${extra.join(', ')}` : ''}`,
+      );
+    }
+  }],
+
   ['blurb truncation never emits a partial escape or unbounded text', () => {
     const long = `${'x'.repeat(400)}. tail`;
     const out = blurb(long);

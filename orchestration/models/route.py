@@ -503,6 +503,20 @@ def _parse_manifest_yaml(path: Path) -> dict:
     return result
 
 
+# Test-seam credential confinement (d-0811-route-seam-credential-confinement + the
+# d-0811-route-seam-flag-split extension, 2026-08-11). main() sets this True when
+# --models-dir / --rbtv-json is given: key presence then resolves ONLY from the scratch root's
+# env_file — neither the host's OS env NOR a harness's stored-login file is consulted (the
+# latter added by d-0811-seam-confines-credential-store, 2026-08-11: both are host state, and
+# confining one and not the other left the seam machine-dependent anyway) — so a scratch what-if
+# run answers the same on every machine. Seamless runs (and the pure election bypass --no-election) leave it False, so
+# their resolution is unchanged: OS env first, then the live vault's env_file.
+# ponytail: module-level flag rather than a `confined` parameter threaded through the ~10
+# _is_variant_available call sites; only main() writes it, once, before any routing call.
+# Thread the parameter if an in-process caller ever needs two confinement modes at once.
+_SEAM_CONFINED = False
+
+
 def _check_api_key_present(model_name: str, rbtv_cfg: dict, vault_root: Path, env_var: str | None = None) -> bool:
     """Check if an API key resolves for a model package. OS env first, then env_file.
 
@@ -528,7 +542,9 @@ def _check_api_key_present(model_name: str, rbtv_cfg: dict, vault_root: Path, en
                 provider = provider[: -len(_suffix)]
                 break
         env_var_name = f"{provider.upper()}_API_KEY"
-    if os.environ.get(env_var_name):
+    # OS env is HOST state: under the scratch seam it is deliberately NOT consulted, so the
+    # run's credential answer comes from the scratch root alone (see _SEAM_CONFINED above).
+    if not _SEAM_CONFINED and os.environ.get(env_var_name):
         return True
     env_file = rbtv_cfg.get("env_file")
     if env_file:
@@ -604,7 +620,15 @@ def _check_stored_credential(store_id: str | None, store_key: str | None) -> boo
 
     Unknown store id, blank key, absent/unreadable file, or malformed JSON → False (degrade,
     never raise — manifest-schema.md §4: a manifest must NEVER crash route.py).
+
+    Under the scratch seam this path is CLOSED (owner ruling d-0811-seam-confines-credential-store):
+    a CLI's login file is host state exactly as the OS env is, so confining one and not the other
+    left the seam still answering differently per machine — the one property it exists for. A
+    scratch corpus that must model an available stored-login variant points XDG_DATA_HOME (or the
+    store's own resolver env) at scratch instead.
     """
+    if _SEAM_CONFINED:
+        return False
     if not store_id or not store_key:
         return False
     resolver = CREDENTIAL_STORE_RESOLVERS.get(store_id)
@@ -1957,9 +1981,23 @@ def main():
             "Override the catalog root (the orchestration/models/ directory). "
             "When given, EVERY catalog-resolution path (enumeration, manifest loading) uses this "
             "directory instead of the live orchestration/models/ tree. "
-            "Confinement boundary: rbtv.json-derived inputs that are NOT catalog content "
-            "(env_file key presence, plan-overlay caps) are still resolved from the live vault root. "
+            "CREDENTIAL-CONFINING: a run through this seam resolves api-key presence from the "
+            "SCRATCH root only — the host's OS env is ignored and the live vault's env_file is "
+            "not read — so the same scratch corpus answers identically on any machine. "
+            "Confinement boundary: plan-overlay caps (model_plans_file) still resolve from the "
+            "live vault root. Also bypasses the workspace election (route from exactly this "
+            "catalog); to bypass the election over the LIVE catalog use --no-election instead. "
             "Default: None — resolves the live orchestration/models/ tree from the rbtv repo root."
+        ),
+    )
+    parser.add_argument(
+        "--no-election", action="store_true",
+        help=(
+            "Route the FULL live catalog with the workspace election (rbtv.json "
+            "`model_packages` / `model_variants`) DISABLED. Catalog root and credential "
+            "resolution are untouched — this is the election lever alone, for measuring "
+            "ranking over the whole corpus without the mutable election in the way. "
+            "Use --models-dir when the CATALOG is what you want to replace."
         ),
     )
     parser.add_argument(
@@ -2018,11 +2056,24 @@ def main():
         rbtv_cfg = _load_rbtv_json(vault_root)
     plans = _load_model_plans(vault_root, rbtv_cfg)
 
+    # Credential confinement under the scratch seam (d-0811-route-seam-credential-confinement):
+    # key presence resolves from the SCRATCH root (the --rbtv-json parent, else the synthetic
+    # rbtv_root behind --models-dir), never the live vault, and the host's OS env is ignored.
+    # Seamless runs — and --no-election, which replaces no root — keep cred_root == vault_root
+    # and _SEAM_CONFINED False, so their resolution is byte-unchanged.
+    cred_root = vault_root
+    if args.models_dir or args.rbtv_json:
+        global _SEAM_CONFINED
+        _SEAM_CONFINED = True
+        cred_root = vault_root if args.rbtv_json else rbtv_root
+
     # Election (election-authoritative): the workspace's elected model packages gate routing.
     # --models-dir confinement is an explicit catalog override and BYPASSES the election (route
     # from exactly that catalog). Absent model_packages -> None -> no filter (back-compat).
-    elected = None if args.models_dir else rbtv_cfg.get("model_packages")
-    elected_variants = None if args.models_dir else rbtv_cfg.get("model_variants")
+    # --no-election is the explicit lever for the same bypass over the LIVE catalog.
+    _bypass_election = bool(args.models_dir or args.no_election)
+    elected = None if _bypass_election else rbtv_cfg.get("model_packages")
+    elected_variants = None if _bypass_election else rbtv_cfg.get("model_variants")
 
     # --availability: profile-free recall mode. Branch BEFORE the profile load — print the
     # elected/not-elected package ids (over the inputs resolved above; honors --rbtv-json /
@@ -2047,7 +2098,7 @@ def main():
             sys.exit(1)
 
     # Route
-    result = route(profile, rbtv_root, vault_root, rbtv_cfg, plans, explain=args.explain, elected=elected, elected_variants=elected_variants)
+    result = route(profile, rbtv_root, cred_root, rbtv_cfg, plans, explain=args.explain, elected=elected, elected_variants=elected_variants)
 
     # Output
     output = json.dumps(result, indent=2, ensure_ascii=False)

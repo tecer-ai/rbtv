@@ -217,10 +217,17 @@ function jobIdFor(seat, goal = null) {
 // scheduler is written: seeding only decides WHICH seats are eligible now, and the ticker decides
 // what actually launches and how many run at once (`max_live_agent_sessions` — the parallel wave).
 //
-// The PROFILE is not derived from the row's `harness`/`model`. Mapping an elected (model, variant)
-// onto exactly one profile NAME is task 7.54's catalog, and inventing a second mapping here is the
-// drift that DEC-1's shared-profile-source ruling exists to prevent. So the profile is passed by
-// NAME by the caller, resolved from the ONE shared config.
+// The PROFILE is not derived from the row's `harness`/`model` HERE, and it no longer needs to be.
+// Mapping a cast (harness, model) onto exactly one profile NAME is task 7.54's catalog, which is
+// now BUILT — `launch-profiles/catalog.js#profileForBinding`, the ONE derivation, shared with
+// `capabilities/bindings/tool/bindings.py#catalog`. It is applied at the ONE point every launch
+// passes through (`server/spawn/spawn.js#profileForSeatCast`, owner ruling D19), so a seat runs
+// what its `seat.md` casts it as no matter which lane dispatched it.
+//
+// So the profile is still passed by NAME by the caller and is still resolved from the ONE shared
+// config — it is now the FALLBACK for a seat that declares no cast (the channel master's
+// `open_binding` case), not the answer for every seat. Deriving it here as well would be the
+// second mapping DEC-1's shared-profile-source ruling exists to prevent.
 function seedTaskforce(heartStore, goalFolder, { profile, logger, goal = null }) {
   const rows = readTaskforce(goalFolder);
 

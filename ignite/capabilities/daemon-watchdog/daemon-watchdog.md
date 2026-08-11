@@ -28,7 +28,7 @@ identical on every row: **acted, or acted and it did not come back.** Nothing no
 | `daemon` | `POST /` `{intent:"inspect", payload:{target:"daemon"}}` at the gateway with a Bearer token. Connect failure / timeout / non-200 = **down**. HTTP 401 = **alarm**, never down: the daemon is up and answering, the token is not accepted — restarting cannot fix that and would loop | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart` |
 | `bridge` | `is-active`, AND the newest Socket-Mode lifecycle line in the last 200 journal lines. `active` only proves the Node process exists — Slack's socket can die under it. The bridge's own `reconnect()` is the first line of self-heal, so what this catches is that **backoff loop being stuck**: newest marker is a reconnect failure with no later hello. Neither marker present is NOT a fault; a healthy bridge is quiet | `RBTV_IGNITE_UNIT=<bridge unit> rbtv-ignite-daemon restart` |
 | `probe-suite` | `<workspace>/.rbtv/runtime/probe-suite/latest.json`: `now - fired_at > stale_after_seconds`. **Liveness first, then correctness**: a LIVE artifact whose `verdict` is anything other than `GREEN`/`UNKNOWN` is an **alarm**, never a down — a failing or ungraded suite is not a liveness problem and no restart fixes it. That covers `RED` (`d-probe-suite-verdict-delivery`, 2026-08-10) and the runner-grade-broken set — `ERROR` · `COVERAGE-MISMATCH` · `ARTIFACT-PATH-MISMATCH` · `ARTIFACT-MISSING` · `INCOMPLETE` (owner ruling 2026-08-11), which carry a `note`/`error` instead of a `failed` count and were previously reported as healthy | `RBTV_IGNITE_UNIT=<timer> rbtv-ignite-daemon restart` — see § The row that used to bypass the operator |
-| `goal-watcher` | the job's own periodic **queue row**, via `inspect queue`: overdue by more than the row's OWN `interval_seconds`. No row at all = **skip** (see below). Queue unreadable = **skip**, because that means the daemon is down and the `daemon` row already owns both the cause and the only lever | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart` — a FULL daemon restart, and the DM says so in those words |
+| `goal-watcher` | the job's own periodic **queue row**, via `inspect queue`: overdue by more than the row's OWN `interval_seconds`. No row at all = **alarm** (see below). Queue unreadable = **skip**, because that means the daemon is down and the `daemon` row already owns both the cause and the only lever | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart` — a FULL daemon restart, and the DM says so in those words |
 
 ## The fifth row: daemon IDENTITY — RESTARTED · CRASH-LOOP · IDENTITY · STALE CODE
 
@@ -81,15 +81,30 @@ swallow the very restart the next real pass exists to announce.
    `interval_seconds`, fetched in the same pass. A cadence literal here would be a home in
    waiting — it drifts silently the moment anyone retunes the job, and nothing consumes it
    to notice.
-3. **NOT SCHEDULED is not DOWN.** A job with no queue row is disarmed, and arming it is a
-   RULING — a run closes, an owner removes the row, and the catalogue entry stays `enabled`
-   either way, so nothing observable here separates "disarmed on purpose" from "row lost".
-   No restart creates a queue row. Alarming would page the owner about a condition this
-   component can neither judge (invariant 2 — that is interpretation) nor act on, once a
-   minute forever (invariant 3 by volume). It reads `skip`: printed on stdout and in the
-   journal, never a DM, never a failed unit. Whether the goal-watcher SHOULD be armed is a
-   correctness question, and § Differentiation on the registry record assigns those
-   elsewhere.
+3. **NOT SCHEDULED is an ALARM, not a skip** (owner ruling 2026-08-11, reversing the
+   original `skip`). No restart creates a queue row — that part was always right, and it is
+   why the state is `alarm` (report, human needed) and never `down` (restart). What the old
+   `skip` got wrong is that it made the arm's one hard failure look exactly like health on
+   the only channel that pushes: the arm sat keyed on the deregistered `selfheal-watch` id
+   for a full night, printing `skip` every pass while the live watcher went unwatched and
+   nothing paged. The volume fear behind the old reading is already answered by the
+   fingerprint dedupe + re-alert ceiling (§ Environment, `RBTV_WATCHDOG_REALERT_SECONDS`).
+   Invariant 2 holds: the row REPORTS an absence, it does not judge whether the job should
+   be armed. Deliberately disarming this job now means also scoping the pass off it
+   (`RBTV_WATCHDOG_TARGETS`) — a disarm is a ruling, and the ruling has to be written down
+   somewhere the watchdog can read.
+
+   **Where it is written, and why that is not a new mechanism** (ruled 2026-08-11). It goes in
+   `units/rbtv-watchdog.service` as an `Environment="RBTV_WATCHDOG_TARGETS=daemon,bridge,probe-suite"`
+   line, with the reason for the omission in a comment directly above it. That unit is a
+   git-tracked template already carrying `Environment=` lines, `main()` reads the variable on
+   every pass, and an unknown name there exits `2` rather than being ignored — so the ruling is
+   versioned, reviewable, colocated with its reason, and enforced by the same read that scopes
+   the pass. A disarm REGISTRY was considered and NOT built: it would be a second home for one
+   fact that this line already holds, and a registry the watchdog had to consult could itself go
+   stale, reintroducing the exact silent-`skip` failure the `alarm` ruling just closed. The cost
+   is real and accepted — the omission lives in the unit rather than beside the row it disarms,
+   so a reader of this table does not see it. That is what the mandatory comment is for.
 
 ## The row that used to bypass the operator, and why it no longer does
 
@@ -150,8 +165,8 @@ Every per-instance value is resolved at runtime; nothing is baked into the code.
 | `RBTV_WATCHDOG_GATEWAY` | `http://127.0.0.1:7431/` |
 | `IGNITE_WATCHDOG_TOKEN` | unset. **No fallback to another sender's token, deliberately** — borrowing one would file every probe under the wrong sender id in the gateway's audit columns AND would silently satisfy the mint that § Enabling this thing exists to force. Absent = `alarm`, re-alerted on the ceiling below until someone mints it |
 | `RBTV_WATCHDOG_DAEMON_UNIT` · `_BRIDGE_UNIT` · `_PROBE_TIMER` | `rbtv-ignite.service` · `rbtv-chat-bridge.service` · `rbtv-probe-suite.timer` |
-| `RBTV_WATCHDOG_WATCH_JOB` | `selfheal-watch` |
-| `RBTV_WATCHDOG_TARGETS` | all four rows. **The test-override hook** — mirrors `RBTV_IGNITE_UNIT`: a probe scopes the pass to one row and points that row's unit variable at a throwaway unit, instead of editing the real probe table |
+| `RBTV_WATCHDOG_WATCH_JOB` | `goal-watcher-job` — the live goal-watcher catalogue entry. Was `selfheal-watch` until 2026-08-11; that job was deregistered and the arm went permanently inert against it |
+| `RBTV_WATCHDOG_TARGETS` | all four rows. **The test-override hook** — mirrors `RBTV_IGNITE_UNIT`: a probe scopes the pass to one row and points that row's unit variable at a throwaway unit, instead of editing the real probe table. **Also the recorded-disarm surface**: set persistently in `units/rbtv-watchdog.service` to omit a row that is disarmed ON PURPOSE, with the reason commented above it (§ NOT SCHEDULED is an ALARM). Refuses an unknown name with exit `2` — never a silent no-op |
 | `RBTV_WATCHDOG_OPERATOR` | the sibling `daemon-operator/tool/rbtv-ignite-daemon`, else `rbtv-ignite-daemon` on PATH |
 | `RBTV_WATCHDOG_STATE` | `<workspace>/.rbtv/runtime/watchdog/state.json` |
 | `RBTV_WATCHDOG_DAEMON_STATE` | `<workspace>/.rbtv/runtime/watchdog/daemon.json` — the prior-pass daemon identity the RESTARTED / CRASH-LOOP / IDENTITY verdicts compare against. Its OWN file: `RBTV_WATCHDOG_STATE` above is cleared to `null` on every all-green pass, which is exactly the pass a restart has to be detected ACROSS |

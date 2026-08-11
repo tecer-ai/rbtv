@@ -20,10 +20,48 @@ skill, or a test with no daemon in the picture.
 |---|----------|-------|
 | 1 | the daemon's spawn path (`server/spawn/config.js`, a thin adapter over this) | **LIVE** |
 | 2 | the sub-agent dispatch capability | task **7.43** — built, then **RETIRED** per `r-seats-only-architecture` (2026-08-06): the daemon's sub-agent lane is gone; delegation is seat-side |
-| 3 | the orchestration conductor's CLI-worker dispatch | task **7.54** — NOT BUILT |
+| 3 | the orchestration conductor's CLI-worker dispatch | task **7.54** — NOT BUILT (its *catalog* half is — see below) |
 
 **Shipping with one live consumer is 7.42's correct outcome, not an unfinished one.** Stated
 plainly so no reader infers more completeness than exists.
+
+## `catalog.js` — the `(harness, model) → profile-name` catalog (task 7.54's catalog half)
+
+Built 2026-08-11 under owner ruling **D19** (extending D16). It answers the one question this
+module could not: *given a seat cast as `harness: claude` / `model: claude-fable-5`, which launch
+profile RUNS that?* Four call sites — `engine/seeding.js`, `engine/lane-watch.js`,
+`engine/attached-execution.js` and `bridges/chat/forward-path.js` — each held a cast and could not
+name its profile, so every one of them launched a caller-named profile instead. A planning seat
+cast as a frontier model silently ran the deployment's chat model whenever it was revived from
+Slack, and `sessions.csv` recorded the launch as if nothing had diverged.
+
+| Export | Answers |
+|--------|---------|
+| `bindingOf(profile)` | the `(harness, model)` a profile runs, off its own `exec:` argv pin |
+| `catalogOf(profiles)` | every castable profile as rows |
+| `declaresBinding(binding)` | whether a seat declares a cast at all (both halves present) |
+| `profileForBinding(profiles, binding)` | **the lookup** — the profile name, or a typed refusal |
+
+Three bounds, each earned:
+
+- **ONE derivation law, shared with `capabilities/bindings/tool/bindings.py#catalog`.** That tool
+  answers the AUTHORING question off the same document; this one answers the LAUNCH question. They
+  must agree or a cast the author was allowed to write is a cast the daemon cannot run, so the law
+  (`harness = basename(argv[0])`; `model = the token after the first of --model / -m, never last`)
+  is implemented identically on both sides. Only the READER differs — Python line-scans the YAML,
+  this side is handed the parsed config. `probe-binding-catalog` arm 10 runs BOTH against the
+  shipped config and compares them **row for row**, so a drift reds a probe instead of surfacing
+  as an unlaunchable seat months later.
+- **An unmappable or ambiguous cast is a typed REFUSAL** (`E_UNMAPPED_BINDING`,
+  `E_AMBIGUOUS_BINDING`), never a fallback to the caller's profile — falling back *is* the defect.
+  Aliases are refused, not rewritten: the model vocabulary is the profile's pin verbatim.
+- **Applied at ONE point**, `server/spawn/spawn.js#profileForSeatCast`, which is downstream of
+  every lane and upstream of both records (`jobs_log.profile` and the at-dispatch `sessions.csv`
+  row), so what launched and what was recorded cannot drift apart. A seat declaring no cast — the
+  channel master's `open_binding` case, and every unmaterialized seat — falls back to the caller's
+  profile unchanged, which is what keeps this additive.
+
+The conductor-dispatch half of 7.54 remains unbuilt; so does 7.43. This is the catalog only.
 
 ⚠ **The live consumer uses the EXTRACTED parts, not the whole surface.** The daemon calls
 `loadConfig`, `resolveTemplateSlots`, `resolveWorkdir`, `resolveWorkspaceRoot`, `sessionsRootFor`

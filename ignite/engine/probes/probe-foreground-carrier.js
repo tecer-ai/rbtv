@@ -29,6 +29,12 @@
 // whose `headed.tui` is `sleep`/`true`, which needs no terminal. What is NOT proven here is that a
 // harness TUI behaves correctly on an inherited tty — that is the B2 dogfood's, with a person at
 // the keyboard.
+//
+// ⚠ KNOWN CAPABLE OF A TRANSIENT FALSE-RED UNDER VPS LOAD. This probe races REAL subprocess
+// spawns and kills against hard wall-clock margins — B1j asserts `waveMs < waveIntervalMs`
+// (2000 ms) for three real subprocess dispatches inside one tick interval on a shared 4-core box.
+// Measured red 2026-08-11 at VPS HEAD 8ae0978a; unreproducible, 48/48 green on re-run the same
+// day. Diagnosis: environment/timing, not code. Widening the margin is an owner call, not a fix.
 
 const fs = require('node:fs');
 const os = require('node:os');

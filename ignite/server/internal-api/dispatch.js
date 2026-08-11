@@ -810,7 +810,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       const all = heartStore.listExecutionsByStatus(status);
       const rows = all.slice(offset, offset + limit);
       const nextOffset = offset + rows.length;
-      return { target, status, rows, nextOffset, eof: nextOffset >= all.length };
+      // `total` — the size of the WHOLE filtered set, not of this page. It is free here (the
+      // read already materialised `all`) and it is what makes the last page ADDRESSABLE: without
+      // it the listing is oldest-first with no end marker, so reaching the newest row costs blind
+      // offset probes or a walk of every page (`inspect executions --tail`, which jumps straight
+      // to `total - n` when this field is present). `eof` answers "is this the last page I asked
+      // for"; only `total` answers "where IS the last page".
+      return { target, status, rows, total: all.length, nextOffset, eof: nextOffset >= all.length };
     }
 
     // ── task 7.93 · the THREAD-ADDRESSED messages read ──────────────────────────────────────
@@ -835,7 +841,10 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       const all = heartStore.getMessages().filter((m) => m.thread === payload.thread);
       const rows = all.slice(offset, offset + limit);
       const nextOffset = offset + rows.length;
-      return { target, thread: payload.thread, rows, nextOffset, eof: nextOffset >= all.length };
+      // `total` — same reason as the executions listing above: the read already materialised the
+      // whole filtered set, and it is what makes the LAST page addressable on a msg_id-ASC listing
+      // with no reverse read (`inspect messages --tail` jumps to `total - n` on it).
+      return { target, thread: payload.thread, rows, total: all.length, nextOffset, eof: nextOffset >= all.length };
     }
 
     // status/logs/messages are execution-scoped: `id` is required and must exist
@@ -867,7 +876,9 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       const all = heartStore.getMessages().filter((m) => m.thread === execRow.thread);
       const rows = all.slice(offset, offset + limit);
       const nextOffset = offset + rows.length;
-      return { target, id, thread: execRow.thread, rows, nextOffset, eof: nextOffset >= all.length };
+      // `total` — see the thread-addressed branch above; free here for the same reason (`all` is
+      // already materialised) and it is what `inspect messages --tail` jumps on.
+      return { target, id, thread: execRow.thread, rows, total: all.length, nextOffset, eof: nextOffset >= all.length };
     }
 
     if (target === 'status') {

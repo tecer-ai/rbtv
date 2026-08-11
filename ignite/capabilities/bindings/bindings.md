@@ -15,13 +15,22 @@ workflow (the program)  +  bindings (the casting)  ──materialize-seats──
 ## Where the file lives, and why not in the mirror
 
 ```
-.rbtv/config/bindings/{module}/{component}/{code}.json
-.rbtv/config/bindings/meta/planning/plan.json          ← the planning workflow's sheet
+.rbtv/config/modules/{module}/{component}/bindings/{code}.json
+.rbtv/config/modules/meta/planning/bindings/plan.json   ← the planning workflow's sheet
 ```
 
 The mirror (`.rbtv/mirror/<module>/<component>/`) carries what a component **is**. A casting sheet
 is what **this deployment decided to spend** on running it — a different kind of fact with a
 different lifetime — so it lives under `.rbtv/config/` beside the other deployment knobs.
+
+This path is ONE INSTANCE of the general configuration convention — owner-specific values live at
+`.rbtv/config/modules/<module>/<component>/…`, stated once in
+`ignite/team-kit/starter-set/conduct.md` § 11.
+
+⚠ **The pre-D15 spelling `.rbtv/config/bindings/{module}/{component}/{code}.json` still READS.** A
+deployment that has not moved its files keeps working: every verb falls back to the old path and
+WARNS, naming the new one. The fallback is compatibility, not a second canonical path — move the
+files and the warning stops.
 
 `{code}` is the **workflow's code**: the seat-id prefix every manifest row already carries
 (`plan-interviewer`, `plan-splitter`, … → `plan`). It is DERIVED from the manifest and never typed —

@@ -6,6 +6,7 @@
 // disjointness check in selftest.js can read it, rather than a human re-deriving
 // it each time a route is added.
 
+const fs = require('fs');
 const path = require('path');
 const { RBTV_ROOT } = require('./catalog');
 
@@ -46,10 +47,33 @@ const DAEMON_VERBS = ['start', 'restart', 'stop', 'kill', 'unit', 'selftest'];
 // The gateway client's own command set. Kept here ONLY to route and to prove
 // disjointness; the client remains the single source of truth for its behaviour
 // and its help (`rbtv ignite --help` execs the client's own help).
-const GATEWAY_COMMANDS = [
-  'register-job', 'add-job', 'remove-job', 'inspect',
-  'snooze', 'status', 'send', 'screen', 'kill',
-];
+//
+// READ from the client's one-file-per-command directory, never hand-listed. The
+// hand-listed copy drifted THREE ways at once (7.560a §5, measured 2026-08-08): it
+// missed `deregister-job` — so `rbtv ignite deregister-job` refused a verb the client
+// implements, while the standalone client ran it — and it still named `send` and
+// `screen`, both retired at task 7.29. A mirror maintained by hand drifts silently
+// because nothing reads it against its subject; deriving it retires the whole class
+// rather than the three instances. `ignite.js` calls `main()` at module load and so
+// cannot be required for its `COMMANDS` map — its `commands/` directory is the
+// next-closest source of truth, and it is 1:1 with that map by construction.
+const GATEWAY_COMMANDS = (() => {
+  try {
+    return fs.readdirSync(path.join(path.dirname(GATEWAY_CLIENT), 'commands'))
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => path.basename(f, '.js'))
+      .sort();
+  } catch (err) {
+    // An UNRESOLVABLE root must still reach catalog.js's teaching refusal — reading the
+    // directory here happens at require time, ahead of it, so a bare throw would replace
+    // that refusal with an ENOENT stack (selftest: "an unresolvable rbtv root refuses with
+    // a teaching error, not a stack trace" — measured going red exactly this way while this
+    // derivation was written). A wrongly-empty list on a REAL tree is not swallowed: the
+    // both-directions selftest check below compares it against the client's COMMANDS map.
+    if (err.code !== 'ENOENT') throw err;
+    return [];
+  }
+})();
 
 const GOAL_VERBS = ['scaffold', 'reindex', 'lint', 'materialize', 'selftest'];
 

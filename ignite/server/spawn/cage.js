@@ -39,8 +39,15 @@ const { SpawnError, E_CAGE_TEMPLATE, E_CAGE_GROUND_TRUTH } = require('./errors')
 // The bind verbs a template may declare. Deliberately NOT the whole bwrap vocabulary: these three
 // compose every opening `r-711-write-bounds` allows, and an unknown verb is a template error
 // rather than a silently-dropped line.
-const BIND_VERBS = new Set(['ro-bind', 'bind', 'tmpfs']);
-const RW_VERBS = new Set(['bind']);
+// `bind-try` is `bind` that TOLERATES A MISSING SOURCE (bwrap's own `--bind-try`). It exists for
+// the goal-root ledger carve: those five files are created at goal creation, so binding them
+// plainly would be correct on every goal the scaffolder made — and would make a goal folder
+// PREDATING one of the five (or one an operator deleted) unspawnable, because bwrap fails the
+// whole namespace on a missing bind source. A ledger that is absent should cost that ledger, never
+// the seat. It counts as an RW verb below: when the source IS there the opening is read-write, and
+// the ground-truth assertion must read it that way or the wall drifts.
+const BIND_VERBS = new Set(['ro-bind', 'ro-bind-try', 'bind', 'bind-try', 'tmpfs']);
+const RW_VERBS = new Set(['bind', 'bind-try']);
 
 // `{grant:FIELD}` — the one PARAMETERIZED slot form. An entry carrying any `{grant:...}` slot is
 // expanded ONCE PER GRANT rather than once, which is how a per-worktree / per-repo opening is
@@ -306,7 +313,7 @@ function memoryMaskPaths(home) {
 // Compose the mask FLAGS to append after a seat cage's own openings (last = wins).
 //
 //   composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructionFiles })
-//     -> { flags, masked: { instructionFiles, configDirs, memory }, policy }
+//     -> { flags, masked: { instructionFiles, configDirs, memory, secrets }, policy }
 //
 // Returns flags rather than spec entries because a file mask is `--ro-bind /dev/null <file>` —
 // SRC != DEST, which the spec vocabulary (SRC == DEST throughout) cannot express.
@@ -316,7 +323,7 @@ function memoryMaskPaths(home) {
 // path special-case — a second seat needing the same posture declares it and gets it.
 function composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructionFiles = false, home = os.homedir() } = {}) {
   const flags = [];
-  const masked = { instructionFiles: 0, configDirs: 0, memory: 0 };
+  const masked = { instructionFiles: 0, configDirs: 0, memory: 0, secrets: 0 };
   const policy = keepInstructionFiles ? 'keep-instruction-files' : 'cut-all';
 
   const maskDir = (p) => { flags.push('--tmpfs', p); };
@@ -344,6 +351,20 @@ function composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructi
       }
       if (dir === path.normalize(workspaceRoot)) break;
     }
+  }
+
+  // THE THIRD-PARTY SECRETS FILE (owner ruling 2026-08-11, task 7.566). `.rbtv/config/.env`
+  // holds provider credentials, and a `read-root: true` seat binds the ENTIRE workspace root
+  // read-only — so every one of them was legible to that cage's occupant. Masked here, for
+  // EVERY seat: no seat has a reason to read it. The one key a caged seat legitimately needs
+  // moved out to `.rbtv/config/sender-token.env`, which is NOT masked and stays readable
+  // (cli/lib/config.js#readEnvFileToken) — the split is what makes this mask survivable.
+  // Same absent-path discipline as the walk above: nothing covering it (or a tmpfs cover) means
+  // nothing bound it, and masking would only make bwrap mkdir a mountpoint over nothing.
+  if (workspaceRoot) {
+    const envFile = path.join(path.normalize(workspaceRoot), '.rbtv', 'config', '.env');
+    const cover = lastCovering(spec, envFile);
+    if (cover && cover.verb !== 'tmpfs' && fs.existsSync(envFile)) { maskFile(envFile); masked.secrets++; }
   }
 
   // Bound (iii): auto-memory is dropped for ALL seat spawns, channel seat included.
