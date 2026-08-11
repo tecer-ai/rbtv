@@ -233,8 +233,8 @@ def main():
         tmp = Path(td)
         cfg = tmp / "spawn-profiles.yaml"
         text = LIVE_CONFIG.read_text(encoding="utf-8")
-        stripped = text.replace('      - --delay-seconds\n      - "600"\n', "", 1)
-        check(stripped != text, "the fixture removed the shipped --delay-seconds pair")
+        stripped, n = re.subn(r'( *)- --delay-seconds\n\1- "?\d+"?\n', "", text, count=1)
+        check(n == 1, "the fixture removed the shipped --delay-seconds pair")
         cfg.write_text(stripped, encoding="utf-8")
 
         v = mod.read_value(cfg)
