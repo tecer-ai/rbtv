@@ -21,9 +21,15 @@ can actually run). Both are decided once, per run, and the briefings below only 
   --renew --handoff`, and by a closer on the leader-initiated failure close; persistent seats
   only), and `transcripts/` (export target). The legacy flat `workers/<agent>.md` still launches.
 - Briefings carry `agent:` frontmatter (the roster signature `launch` discovers), plus optional
-  `harness:` (claude | codex | opencode; default claude), `model:` (claude alias, or the
+  `harness:` (claude | codex | opencode | kimi; default claude), `model:` (claude alias, or the
   provider/model slug for opencode — REQUIRED there; omitted on codex = plan default),
-  `effort:` (claude only, default high), `cwd:` (launch dir; folder-form default is the seat's
+  `effort:` (EVERY harness that has a dial, written as that harness's OWN word — read from the
+  profile's `effort.rungs` in `spawn-profiles.yaml`, never a cross-harness vocabulary, and the
+  ladders differ per MODEL not per harness: `claude-fable` has five rungs while `claude-haiku`
+  has none, and `zai-coding-plan/glm-5.2` has two. **There is NO default any more** — a seat cast
+  onto a profile with a real ladder and no `effort:` is REFUSED at launch, and one whose profile
+  declares an inert dial accepts the word and applies nothing, reporting it rather than dropping
+  it), `cwd:` (launch dir; folder-form default is the seat's
   own folder), `window: yes` (own tmux window/tab instead of a tiled pane — use for ephemeral/
   loop seats; long-lived core seats stay panes in the leader window: the hybrid layout),
   `ephemeral: yes` (memoryless one-pass seat: relaunched fresh, departs itself, never closed/
