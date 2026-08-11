@@ -167,6 +167,14 @@ must ride in the row's body for the ferry to route on it. It sits on the last li
 
 ## How the seat drives it
 
+⚠ **The seat is asked for effort in PROSE** — *"switch to opus at high effort"*, *"think harder"*,
+*"max reasoning"* — and must convert that itself. There is no word→number table anywhere in this
+capability, deliberately: a table refuses the phrasing nobody anticipated. What the tool ships
+instead is the SHAPE of the scale, printed by `show` and by `request --help` as `EFFORT_GUIDANCE`
+— a rung is a *position* on the target profile's ladder, so the phrasing maps proportionally onto
+1..N (minimal → 1, medium → the middle rung, high → just below N on a ladder of 4+, maximum → N),
+and a request naming **no** effort omits the rung rather than guessing one.
+
 ```bash
 # what is it now, and what may I ask for?
 .../capabilities/master-profile/tool/rbtv-master-profile show

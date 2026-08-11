@@ -52,8 +52,10 @@ live conversation — a probe may not cost that.
      profile name — one outcome path, not a second.
 """
 
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -559,6 +561,24 @@ def main():
         check(len(rows) == 1 and "[deliver: wake]" in rows[0]["body"]
               and "REFUSED" in rows[0]["body"],
               f"and it wakes an agent on the thread through the ONE outcome mapping (got {len(rows)} row(s))")
+
+    # ── 10c THE PROSE→RUNG GUIDANCE ───────────────────────────────────────────────────────
+    #
+    # The requester is an LLM handed effort in prose. The scheme is only usable if the explanation
+    # of it is on the surfaces that requester actually reads — `show` and `request --help` — so
+    # this asserts the text is on BOTH, not merely defined in the module.
+    print("check 10c — the prose→rung guidance reaches both surfaces the requester reads")
+    marker = "converting a prose effort request into a rung"
+    seen = {}
+    for name, argv in (("show", ["show", "--config", str(LIVE_CONFIG), "--profiles", str(LIVE_PROFILES)]),
+                       ("request --help", ["request", "--help"])):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.suppress(SystemExit):
+            mod.main(argv)
+        seen[name] = marker in buf.getvalue()
+    check(all(seen.values()) and marker in mod.EFFORT_GUIDANCE,
+          f"the guidance prints on show and on request --help (got {seen}) — stated once in "
+          f"EFFORT_GUIDANCE, never retyped per surface")
 
     if inoperative:
         print(f"probe-master-profile: INOPERATIVE — {inoperative}")

@@ -111,6 +111,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -240,6 +241,21 @@ def ladders(profiles_path=DEFAULT_PROFILES):
                      else "inert (accepts any rung, applies none — G-270)" if ladder == []
                      else f"1..{len(ladder)} ({', '.join(f'{i + 1}={v}' for i, v in enumerate(ladder))})")
     return out
+
+
+# ⚠ THE REQUESTER IS AN LLM AND ITS INPUT IS PROSE ("switch to opus at high effort", "think
+# harder", "max reasoning"). What it needs is not a word→number table — which refuses the phrasing
+# nobody anticipated — but the SHAPE of the scale, from which it translates any wording itself.
+# Stated once here and printed on both surfaces the requester reads: `show` and `request --help`.
+EFFORT_GUIDANCE = (
+    "converting a prose effort request into a rung: a rung is a POSITION on the TARGET profile's "
+    "ladder, so map the phrasing proportionally onto 1..N — N is that profile's own, and `show` "
+    "prints every profile's ladder. minimal/quick/low → 1; medium/normal → the middle rung; "
+    "high → just below N on a ladder of 4+ (on a 2- or 3-rung ladder it IS N); "
+    "maximum/deepest/think-hardest → N. If the request names NO effort, OMIT the rung rather than "
+    "guessing one — the harness then runs its own default. A profile with no dial accepts a rung "
+    "and reports it inert."
+)
 
 
 # ───────────────────────────────────────────────────────────────── the targeted JSON edit
@@ -641,7 +657,8 @@ def main(argv=None):
                    help="the reasoning RUNG for the NEW profile: an integer 1..N in that profile's "
                         "own ladder, 1 = lowest reasoning. `show` prints every profile's N. OMIT IT "
                         "and the harness default is used — and any rung currently set is CLEARED, "
-                        "because a rung is only meaningful against the profile it was chosen for.")
+                        "because a rung is only meaningful against the profile it was chosen "
+                        "for. " + EFFORT_GUIDANCE)
     q.add_argument("--inbox", required=True)
     q.add_argument("--ignite-bin", default="ignite")
     q.add_argument("--chat-thread", default=None,
@@ -663,6 +680,7 @@ def main(argv=None):
             v = read_value(args.config)
             v["available"] = sorted(known_profiles(args.profiles))
             v["effort-ladders"] = ladders(args.profiles)
+            v["effort-guidance"] = EFFORT_GUIDANCE
             if args.json:
                 print(json.dumps(v, indent=2))
             else:
@@ -673,6 +691,7 @@ def main(argv=None):
                 print("available (profile — effort rungs you may ask for):")
                 for n in v["available"]:
                     print(f"  {n}: {v['effort-ladders'][n]}")
+                print(textwrap.fill(EFFORT_GUIDANCE, 96, subsequent_indent="  "))
                 print("boot-read: a change needs an `rbtv-chat-bridge` restart to take effect, "
                       "and that restart ends the live chat session")
             return 0
