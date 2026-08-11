@@ -41,16 +41,21 @@ def _run_route(profile: dict, explain: bool = False, env_override: dict | None =
     """Run route.py with a profile, return (exit_code, parsed_json).
 
     By default (elect=False) routes over the full real corpus with the workspace election
-    BYPASSED: it passes --models-dir at the live models/ dir, which (by design) disables the
-    election filter. Ranking-logic assertions then do not depend on the mutable rbtv.json
-    `model_packages`. Pass elect=True to exercise the default CLI path with election ACTIVE
-    (the election filter itself is covered by TestElection)."""
+    BYPASSED via --no-election. Ranking-logic assertions then do not depend on the mutable
+    rbtv.json `model_packages`. Pass elect=True to exercise the default CLI path with election
+    ACTIVE (the election filter itself is covered by TestElection).
+
+    Uses --no-election, NOT --models-dir at the live dir (which is what this helper passed
+    before d-0811-route-seam-flag-split): --models-dir is now a credential-CONFINING scratch
+    seam, so routing the live corpus through it would ignore the OS-env keys that
+    `live_corpus_keys` and `env_override` pin — measuring the unprovisioned machine instead of
+    the router. --no-election is the election lever alone, which is all this helper wanted."""
     cmd = [sys.executable, str(ROUTE_PY)]
     if explain:
         cmd.append("--explain")
     if not elect:
         # Bypass the workspace election → route the full real corpus (election-independent).
-        cmd += ["--models-dir", str(MODELS_DIR)]
+        cmd.append("--no-election")
 
     env = os.environ.copy()
     if env_override:
@@ -1590,6 +1595,60 @@ def _build_synth_only_corpus(tmp_path: Path) -> Path:
     return tmp_path
 
 
+# Scratch catalog for the credential-confinement pin: a cost-1 package whose availability
+# hangs on DEEPSEEK_API_KEY, plus a cost-2 keyless package that wins whenever the keyed one is
+# dropped. Package id `deepseek-api` is deliberate — route.py derives DEEPSEEK_API_KEY from it.
+_SCRATCH_KEYED_MANIFEST = """model: deepseek-api
+evidence_status: validated
+
+variants:
+  - variant: keyed-cheap
+    reasoning: 1
+    context_window: 500000
+    max_output: 8000
+    cost: 1
+    coding: 4
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: true
+      method: api-key
+      interactive: false
+"""
+
+_SCRATCH_FREE_MANIFEST = """model: synthetic-free
+evidence_status: validated
+
+variants:
+  - variant: free-dearer
+    reasoning: 1
+    context_window: 500000
+    max_output: 8000
+    cost: 2
+    coding: 4
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+"""
+
+
+def _build_keyed_scratch_corpus(tmp_path: Path) -> Path:
+    """Create the keyed scratch catalog; returns the models dir to pass to --models-dir."""
+    models = tmp_path / "orchestration" / "models"
+    for pkg, manifest in (
+        ("deepseek-api", _SCRATCH_KEYED_MANIFEST),
+        ("synthetic-free", _SCRATCH_FREE_MANIFEST),
+    ):
+        (models / pkg).mkdir(parents=True)
+        (models / pkg / "manifest.yaml").write_text(manifest, encoding="utf-8")
+    return models
+
+
 class TestModelsDir:
     """Criterion 1 of pilot-levers: --models-dir confinement for route.py.
 
@@ -1688,6 +1747,50 @@ class TestModelsDir:
         models_found = enum_complete.get("models", [])
         assert "synthetic-only" in models_found
         assert "kimi-code-cli" not in models_found
+
+    def test_seam_run_is_credential_independent(self, tmp_path):
+        """d-0811-route-seam-credential-confinement: a --models-dir run answers the SAME with
+        and without a live credential present.
+
+        The scratch catalog's cost-1 package is api-key gated on DEEPSEEK_API_KEY. Before the
+        confinement, exporting that key on the HOST made it available and it won; without the
+        key it was dropped and the cost-2 keyless package won — the same scratch corpus giving
+        opposite answers on different machines. The seam now resolves credential presence from
+        the scratch root only (no OS env, no live-vault env_file), so both runs agree.
+        """
+        scratch_models_dir = _build_keyed_scratch_corpus(tmp_path)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+
+        def _seam_verdict(key_present: bool) -> tuple:
+            env = os.environ.copy()
+            env.pop("DEEPSEEK_API_KEY", None)      # never read the host's own credential state
+            if key_present:
+                env["DEEPSEEK_API_KEY"] = "test-fake-not-real"
+            proc = subprocess.run(
+                [sys.executable, str(ROUTE_PY), "--models-dir", str(scratch_models_dir)],
+                input=json.dumps(profile),
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            assert proc.returncode == 0, f"route.py failed: {proc.stdout}{proc.stderr}"
+            result = json.loads(proc.stdout)
+            return result["model"], result["variant"]
+
+        with_key = _seam_verdict(True)
+        without_key = _seam_verdict(False)
+        assert with_key == without_key, (
+            "scratch-seam run is credential-DEPENDENT: host key present gave "
+            f"{with_key}, absent gave {without_key}"
+        )
+        # Non-vacuous: the agreed answer is the confined one (keyed package unavailable).
+        assert with_key == ("synthetic-free", "free-dearer"), (
+            f"seam should route the keyless package, got {with_key}"
+        )
 
     def test_flag_absent_default_identity(self, live_corpus_keys):
         """Flag absent → route.py output matches the live-corpus baseline
