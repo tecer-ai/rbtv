@@ -2434,6 +2434,42 @@ def session_transcript_path(pkg, seat, sid):
     return seat_sessions_dir(pkg, seat) / sid / "transcript.log"
 
 
+def nonempty_file(p):
+    """True when `p` names a file with bytes in it. A zero-byte record is not a record."""
+    try:
+        return bool(p) and Path(p).is_file() and Path(p).stat().st_size > 0
+    except OSError:
+        return False
+
+
+def seat_recorded_log(pkg, seat):
+    """`seat`'s pipe-pane log path from its LAST `sessions.csv` row (`recorded`), or `""`.
+
+    THE LAST ROW, not the last OPEN one, and for `resume_ref`'s reason: a session that died with
+    its tmux server never gets `ended` stamped, and that death is exactly the case its one caller —
+    #259's kill gate — reaches this for. Selecting the open row would miss it.
+
+    NEVER RAISES, and returns `""` on every surface that cannot answer (no `sessions.csv`, a header
+    predating the `recorded` column, an unreadable trace): the caller is a gate that must FAIL
+    CLOSED on a record it cannot read, never take the whole reap sweep down with it."""
+    try:
+        path = sessions_csv(pkg)
+        if not path.exists():
+            return ""
+        header, rows = read_csv_table(path, SESSIONS_COLS)
+        idx = {c: i for i, c in enumerate(header)}
+        if not {"seat", "recorded"} <= set(idx):
+            return ""
+        found = ""
+        for r in rows:
+            pad_row(r, header)
+            if r[idx["seat"]].strip() == seat:
+                found = r[idx["recorded"]].strip()
+        return found
+    except (OSError, ValueError, csv.Error):
+        return ""
+
+
 def mint_session_id_from(taken, seat):
     stem = f"{seat}-{file_stamp()}"
     sid, n = stem, 2
@@ -5276,7 +5312,7 @@ def awaiting_debts(base, live=None):
     return sorted(out, key=lambda r: (-1 if r[2] is None else r[2]), reverse=True)
 
 
-def reap_blockers(entry, age, panes, decls=None, seat=None):
+def reap_blockers(entry, age, panes, decls=None, seat=None, pkg=None):
     """Every reason `entry` must NOT be reaped, as a list. EMPTY means every precondition holds.
 
     A LIST, not a bool, and that is the design: `reap` kills panes, so a caller — and the leader
@@ -5288,6 +5324,9 @@ def reap_blockers(entry, age, panes, decls=None, seat=None):
       TRANSCRIPT EXISTS — #259's ratified mapping gates the kill on it, and the marker records
       whether the export actually landed rather than leaving this to be re-derived. Checked against
       the FILE, not only the flag: a recorded path whose file has since gone is not a transcript.
+      TWO records can satisfy it, in order: the harness-native export FIRST, and — only when that
+      export is missing or empty — the seat's pipe-pane `recorded` log (`pkg`, the goal folder, is
+      what makes that second read possible; without it the gate reads the export alone and holds).
 
       NO HUMAN ON THE PANE — the reason this is not a nicety: a checked-out seat's pane can be
       picked up by a live owner conversation, and a mechanical reap there terminates the
@@ -5349,11 +5388,31 @@ def reap_blockers(entry, age, panes, decls=None, seat=None):
         out.append("its checkout recorded disposition=renew and the renewal executor has not "
                    "acted yet — reaping now would kill the pane the renewal needs")
     recorded = [(int(p), str(s)) for p, s in (entry or {}).get("pids") or []]
+    # THE HARNESS-NATIVE EXPORT IS READ FIRST AND THE PIPE-PANE `recorded` LOG IS THE FALLBACK,
+    # REACHED ONLY WHEN THAT EXPORT IS MISSING OR EMPTY — `decisions.md#d-transcript-consumers-split`
+    # (owner, 2026-08-10). A RECORDED EXCEPTION to 7.31's precedence, earned by this gate's own
+    # target failure case: the kill exists for a dead tmux server or a dead harness, which is
+    # precisely when the export can be absent — and the pipe-pane log, written from pane BIRTH, is
+    # the only one of the two records that survives that death. A gate reading only the record that
+    # empties in its own target case gates nothing. The same ruling leaves `checkout` verification
+    # on the harness-native field ALONE, deliberately: its scenario is an orderly close where the
+    # export exists and is the richer record, so the two consumers are split rather than unified.
+    # ⚠ EMPTY COUNTS AS MISSING, and that is not a widening for its own sake: the pre-7.692 gate
+    # tested `exists()` only, so a zero-byte export — what a killed harness leaves — passed it
+    # outright. That hole is what the ARM (b) selftest row reddens.
     tpath = (entry or {}).get("transcript") or ""
-    if not entry.get("exported") or not tpath:
-        out.append("no transcript was exported — #259 gates the kill on it existing")
-    elif not Path(tpath).exists():
-        out.append(f"its recorded transcript {tpath} is no longer on disk")
+    exported = bool(entry.get("exported")) and bool(tpath)
+    if not (exported and nonempty_file(tpath)):
+        if not nonempty_file(seat_recorded_log(pkg, seat) if pkg and seat else ""):
+            if not exported:
+                out.append("no transcript was exported — #259 gates the kill on it existing, and "
+                           "no pipe-pane log stands in for it")
+            elif not Path(tpath).exists():
+                out.append(f"its recorded transcript {tpath} is no longer on disk, and no "
+                           f"pipe-pane log stands in for it")
+            else:
+                out.append(f"its recorded transcript {tpath} is EMPTY, and no pipe-pane log "
+                           f"stands in for it")
     if not recorded:
         out.append("no harness identity was recorded, so the pane was never provably seat-only")
     elif pane and pane in panes:
@@ -15045,7 +15104,12 @@ def cmd_reap(args):
     decls = inbox_decls(args)
     freed, held = [], []
     for seat, entry, age, _alive in debts:
-        blockers = reap_blockers(entry, age, panes, decls, seat)
+        # ponytail: `base.parent` is the goal folder because `base_dir` builds it as
+        # `<goal>/coordination`; under an explicit `--base` override it is not, and the pipe-pane
+        # fallback then finds no `sessions.csv` and the gate reads the export alone — fail-closed,
+        # never a crash. Upgrade path if `reap --base` ever needs the fallback: resolve the package
+        # through `package_dir(args, register=False)` and handle its refusal here.
+        blockers = reap_blockers(entry, age, panes, decls, seat, base.parent)
         seen, ready = confirm_reap(base, seat, blockers)
         aged = f"{age}min" if age is not None else "unknown age"
         if blockers:
@@ -19210,6 +19274,52 @@ def _selftest_checks(args, failures, names):
               any("no transcript" in b for b in
                   reap_blockers(dict(_fresh, exported=False), 30, {"%77"}))
               and any("no longer on disk" in b for b in reap_blockers(_fresh, 30, {"%77"})))
+        # ---- 7.692: #259's gate reads HARNESS-NATIVE FIRST, pipe-pane `recorded` as the FALLBACK
+        # (`decisions.md#d-transcript-consumers-split`). EACH ARM IS PROVEN BY THE ABSENCE OF THE
+        # OTHER RECORD — the fixture leaves exactly one of the two readable per arm, so a pass can
+        # only have come from the record that arm names. Asserting "it passed" with both records on
+        # disk would grade nothing: either read satisfies it.
+        _t692 = Path(tempfile.mkdtemp(prefix="coord-7692-")) / "pkg"
+        (_t692 / "coordination").mkdir(parents=True)
+        (_t692 / "seats").mkdir()
+        _t692_log = session_transcript_path(_t692, "kappa", "kappa-0810-1200")
+        _t692_log.parent.mkdir(parents=True)
+        _t692_log.write_text("pane output that outlived the tmux server\n", encoding="utf-8")
+        _t692_row = [""] * len(SESSIONS_COLS)
+        _t692_row[SESSIONS_COLS.index("session-id")] = "kappa-0810-1200"
+        _t692_row[SESSIONS_COLS.index("seat")] = "kappa"
+        _t692_row[SESSIONS_COLS.index("recorded")] = str(_t692_log)
+        write_csv_table(sessions_csv(_t692), SESSIONS_COLS, [_t692_row])
+        _t692_native = _t692 / "native-export.txt"
+        _t692_native.write_text("the harness-native export\n", encoding="utf-8")
+        _t692_blank = _t692 / "empty-export.txt"
+        _t692_blank.write_text("", encoding="utf-8")
+        _t692_have = {"since": now(), "pane": "%77", "pids": [[1, "1"]],
+                      "transcript": str(_t692_native), "exported": True}
+        _t692_gone = dict(_t692_have, transcript="", exported=False)
+        _t692_empty = dict(_t692_have, transcript=str(_t692_blank))
+        check("7.692/#259 ARM (a) — HARNESS-NATIVE STAYS PRIMARY AND IS WHAT THE GATE CONSUMES "
+              "WHEN IT IS THERE, proven by making the pipe-pane log UNREACHABLE for this arm: no "
+              "`pkg` is passed, so no second record exists to read and only the export can have "
+              "satisfied it. The fallback is an EXCEPTION to 7.31's precedence, not a replacement",
+              not any("transcript" in b for b in reap_blockers(_t692_have, 30, {"%77"})))
+        check("7.692/#259 ARM (b) — A MISSING OR EMPTY EXPORT FALLS BACK TO THE PIPE-PANE "
+              "`recorded` LOG, the only one of the two records written from pane BIRTH and so the "
+              "only one that survives the tmux death this gate exists for. BOTH empty shapes reach "
+              "it: nothing exported at all, and an export whose file is zero bytes — the second is "
+              "the one a gate testing only `exists()` would wave through",
+              not any("transcript" in b for b in
+                      reap_blockers(_t692_gone, 30, {"%77"}, None, "kappa", _t692))
+              and not any("transcript" in b for b in
+                          reap_blockers(_t692_empty, 30, {"%77"}, None, "kappa", _t692)))
+        check("7.692/#259 THE RED — WITH NEITHER RECORD READABLE THE KILL IS STILL HELD: the "
+              "fallback widened the gate by exactly ONE record and did not open it. Seat `lambda` "
+              "owns no `sessions.csv` row, so it inherits no other seat's log; the empty-export "
+              "shape is refused by name rather than folded into 'missing'",
+              any("no transcript" in b for b in
+                  reap_blockers(_t692_gone, 30, {"%77"}, None, "lambda", _t692))
+              and any("EMPTY" in b for b in
+                      reap_blockers(_t692_empty, 30, {"%77"}, None, "lambda", _t692)))
         # The pane is in the live set but holds NO recognisable harness, so the recorded identity
         # cannot be matched — the repurposed-pane case, reached without needing a real tmux pane.
         check("G-134/B: NO HUMAN ON THE PANE is proven by IDENTITY, not assumed — a pane that no "

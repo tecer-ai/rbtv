@@ -2139,8 +2139,10 @@ def cmd_selftest(args):
 
     # ---- messages tail + dispatch tokens (owner-requested teamview feed, 2026-07-28) ----
     with tempfile.TemporaryDirectory() as td:
-        coord = Path(td) / "coordination"
-        coord.mkdir()
+        # NOT named `coord`: that binding shadows this module's `coord()` importer for the WHOLE
+        # function scope, so every earlier `coord()` call in this selftest raised UnboundLocalError.
+        coord_dir = Path(td) / "coordination"
+        coord_dir.mkdir()
         check("messages_tail: absent log reads None, never an empty tail",
               messages_tail(td) is None)
         body = ["# messages — append-only coordination log\n"]
@@ -2148,7 +2150,7 @@ def cmd_selftest(args):
             body.append(f"## {i} | from: seat-a | to: seat-b | type: note "
                         f"| 2026-07-28 10:{i:02d}\n\nline one of msg {i}.\n"
                         f"line two of msg {i}.\n")
-        (coord / "messages.md").write_text("\n".join(body), encoding="utf-8")
+        (coord_dir / "messages.md").write_text("\n".join(body), encoding="utf-8")
         mt = messages_tail(td)
         check("messages_tail: last 10 of 12 entries, in log order, total = highest number",
               mt["total"] == 12 and len(mt["tail"]) == 10
@@ -2161,7 +2163,7 @@ def cmd_selftest(args):
               and isinstance(e["sent_epoch"], float))
         long = ("## 13 | from: a | to: b | type: note | 2026-07-28 11:00\n\n"
                 + "x" * 1000 + "\n")
-        with (coord / "messages.md").open("a", encoding="utf-8") as fh:
+        with (coord_dir / "messages.md").open("a", encoding="utf-8") as fh:
             fh.write("\n" + long)
         check("messages_tail: body text is capped, never the whole essay",
               len(messages_tail(td)["tail"][-1]["text"]) <= MSG_TEXT_CAP + 1)

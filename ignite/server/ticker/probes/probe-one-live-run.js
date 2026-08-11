@@ -6,7 +6,7 @@
 // is new and that this whole epic exists for — a goal that is NOT executing has its start ADMITTED
 // no matter what any stored register row says.
 //
-// EIGHT CHECK GROUPS, and the ones that carry the weight are the CONTROLS.
+// NINE CHECK GROUPS PLUS A RED ARM, and the ones that carry the weight are the CONTROLS.
 //
 //   C1  a live ROOM      -> the row is NOT fired (no jobs_log row, the queue row survives) and the
 //                           tick records `action: 'queued'`.
@@ -28,6 +28,17 @@
 //                           The bound: the gate must not stop the watchers and self-heal jobs that
 //                           exist precisely to run WHILE a goal executes.
 //   C8  the gate throws  -> QUEUED and never rethrown; the error rides the event.
+//   C9  THE DRAIN       -> C1's PREVIOUSLY-QUEUED row starts BY ITSELF once the room is killed,
+//                           with the three observations 7.132 demanded measured in order: the
+//                           control that it had not started before, the close OBSERVED in the
+//                           fixture server's inventory, and the fire recorded AFTER it (both
+//                           timestamps). Not a fresh `add-job` after a hand-close (7.77's
+//                           Disclosure 4) — that substitution proves nothing about the queue.
+//   ⚠⚠ C9r THE RED ARM. The SAME drain predicate over a `fireQueueRow` short-circuited on
+//                           that one row — a scheduler that reached the fire and dropped it. It
+//                           must read FALSE. A green over a path that cannot go red is not
+//                           evidence, which is the whole reason C9's verdict is a named
+//                           predicate instead of inline assertions.
 //
 // ⚠ IT NEVER TOUCHES A REAL ROOM. The live scenarios run against an ISOLATED tmux server
 // (`TMUX_TMPDIR` pointed at a scratch dir, `TMUX`/`TMUX_PANE` unset), created and killed inside
@@ -41,7 +52,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { setup, teardown, capture } = require('./lib');
+const { setup, teardown, capture, sleep } = require('./lib');
 const { describeGate, oneLiveRunDecision } = require('../one-live-run');
 
 const WORKFLOW = 'start-a-run';
@@ -115,6 +126,20 @@ function firedRowsFor(ctx, queueId) {
 
 function queueRowStillThere(ctx, queueId) {
   return !!ctx.store.getQueueRow(queueId);
+}
+
+// THE DRAIN VERDICT, spelled ONCE. C9 asserts it TRUE and C9r asserts the very same expression
+// FALSE under a mutant; two hand-written copies of "did it drain" would let the red arm agree with
+// a predicate the green arm never used, which is the failure a red arm exists to exclude.
+//
+// All three conjuncts are load-bearing: no `queued` action (the gate admitted it), exactly one
+// jobs_log row for THAT queue_id (it started, and once), and the queue row consumed (7.523's
+// "queue row gone or re-armed"). Dropping the middle one would leave the absence-shaped check
+// 7.77 refuses — satisfiable by a scheduler that dropped the start on the floor.
+function drainProven(ctx, result, queueId) {
+  return queuedActionFor(result, queueId) === null
+    && firedRowsFor(ctx, queueId).length === 1
+    && !queueRowStillThere(ctx, queueId);
 }
 
 function defaultServerSessions() {
@@ -267,14 +292,90 @@ async function run(lines) {
       'C8 the failure is not silent — the error rides the event into the tick log',
       String(contained.event['live-lease'].reason).slice(0, 80));
 
-    // ── C9 — the room goes away and the SAME goal now starts ──────────────────────────────────
-    // The queued row from C1 is still due. Nothing on disk changes; only the room does.
+    // ── C9 — THE DRAIN, WITH 7.132'S THREE OBSERVATIONS ───────────────────────────────────────
+    //
+    // The queued row from C1 is STILL DUE and is the one measured here. Nothing on disk changes;
+    // only the room does. Observations taken in order: OBS-3 the control (it had not started
+    // before), OBS-1 the close OBSERVED, OBS-2 the fire recorded after it.
+    assert(lines, firedRowsFor(ctx, qLive.queue_id).length === 0 && queueRowStillThere(ctx, qLive.queue_id),
+      'C9 OBS-3 THE CONTROL, taken BEFORE the close — the row had NOT started yet: zero jobs_log '
+      + 'rows and the queue row still present. Without it, a start seen after the close could have '
+      + 'happened at any earlier tick and the ordering would be assumed rather than measured');
+
     itmux(['kill-session', '-t', room], { allowFail: true });
+    const closeObservedAt = new Date();
+    const afterClose = (itmux(['list-sessions', '-F', '#{session_name}'], { allowFail: true }) || '')
+      .split('\n').map((s) => s.trim()).filter(Boolean);
+    assert(lines, !afterClose.includes(room),
+      `C9 OBS-1 THE CLOSE IS OBSERVED at ${closeObservedAt.toISOString()} — room "${room}" is gone `
+      + 'from the fixture server\'s own session inventory. Read back, never inferred from the kill '
+      + 'command\'s exit code', JSON.stringify(afterClose));
+
+    // `fired_at` is written at SECOND resolution, so a tick inside the close's own second would
+    // record a stamp EQUAL to it and OBS-2's ordering would be unprovable from the store's own
+    // record. Waiting past the boundary makes the recorded fire STRICTLY later — a measured
+    // ordering, not a tolerance quietly allowing equality.
+    await sleep(1000 - (closeObservedAt.getTime() % 1000) + 50);
     const rDrain = await ctx.ticker.tick(new Date());
-    assert(lines, queuedActionFor(rDrain, qLive.queue_id) === null
-      && firedRowsFor(ctx, qLive.queue_id).length === 1,
-      '⚠ C9 THE QUEUED ROW DRAINS BY ITSELF once the room is gone — with every file on disk '
-      + 'unchanged, including the `state=closed` register. The room, and only the room, decided');
+    const drainRow = firedRowsFor(ctx, qLive.queue_id)[0] || null;
+
+    assert(lines, drainProven(ctx, rDrain, qLive.queue_id),
+      `⚠ C9 THE PREVIOUSLY-QUEUED ROW DRAINS BY ITSELF once the room is gone — the SAME queue_id `
+      + `(${qLive.queue_id}) fired, exactly one jobs_log row, queue row consumed, with every file `
+      + 'on disk unchanged including the `state=closed` register. The room, and only the room, '
+      + 'decided. This is the queue draining, NOT a fresh add-job after a hand-close');
+    assert(lines, !!drainRow && Date.parse(drainRow.fired_at) > closeObservedAt.getTime(),
+      'C9 OBS-2 the previously-queued run STARTED AFTER the close — both timestamps recorded',
+      `close=${closeObservedAt.toISOString()} fired_at=${drainRow && drainRow.fired_at}`);
+
+    // ── ⚠⚠ C9r — THE RED ARM: the same predicate over a short-circuited `fireQueueRow` ─────────
+    //
+    // `fireQueueRow` is the ONLY thing that removes or re-arms a queue row, so it is the single
+    // point where a drain becomes observable at all. Returning `null` for THIS row alone
+    // reproduces a scheduler that reached the fire and dropped it on the floor — precisely the
+    // failure C9 has to be able to see. Same goal shape, same close, same predicate; only the fire
+    // is broken. The mutant is removed BEFORE the verdict is read, so nothing downstream inherits
+    // it. It is scoped by queue_id: a blanket stub would also break the C2/C7 rows already fired.
+    const GOAL_RED = `zz-olr-red-${U}`;
+    makeGoal(wsRoot, {
+      goal: GOAL_RED,
+      runsCsv: 'run-id,type,state,opened,closed\nrun-1,fresh,closed,t0,t1\n',
+      runFolders: ['run-1'],
+    });
+    itmux(['new-session', '-d', '-s', GOAL_RED]);
+    registerRunStart(ctx, { jobId: 'start-red', goal: GOAL_RED });
+    const qRed = enqueueDue(ctx, 'start-red', { workflow: WORKFLOW });
+    const rRedQueued = await ctx.ticker.tick(new Date());
+    assert(lines, queuedActionFor(rRedQueued, qRed.queue_id) !== null,
+      'C9r the red arm STARTS FROM C1\'s state — its row is genuinely queued behind a live room, '
+      + 'so what follows tests the drain and not a differently-shaped scenario');
+
+    itmux(['kill-session', '-t', GOAL_RED], { allowFail: true });
+    const realFire = ctx.store.fireQueueRow;
+    ctx.store.fireQueueRow = function (a) {
+      return a && a.queueId === qRed.queue_id ? null : realFire.call(this, a);
+    };
+    let rRed;
+    try {
+      rRed = await ctx.ticker.tick(new Date());
+    } finally {
+      delete ctx.store.fireQueueRow;
+    }
+    assert(lines, ctx.store.fireQueueRow === realFire,
+      'C9r the mutant is REMOVED before the verdict is read — the red is the arm\'s, not a residue');
+    assert(lines, drainProven(ctx, rRed, qRed.queue_id) === false,
+      '⚠⚠ C9r THE RED ARM FIRES — with `fireQueueRow` short-circuited on that one row the SAME '
+      + 'predicate that passed C9 reads FALSE. The drain check CAN fail, so C9 is evidence and not '
+      + 'a tautology that any scheduler would satisfy',
+      JSON.stringify({
+        fired: firedRowsFor(ctx, qRed.queue_id).length,
+        queueRowSurvives: queueRowStillThere(ctx, qRed.queue_id),
+      }));
+    assert(lines, (rRed.actions || []).some(
+      (a) => a.phase === 'dispatch' && a.queueId === qRed.queue_id && a.reason === 'fire-failed'),
+      'C9r it went red for the INTENDED cause — the tick records `fire-failed` on that row. A red '
+      + 'arm that failed for some other reason would demonstrate nothing about this check',
+      JSON.stringify((rRed.actions || []).filter((a) => a.queueId === qRed.queue_id)));
 
     lines.push(`CHECKS: ${passed}/${passed} passed`);
     lines.push('ONE_LIVE_RUN_OK: true');
