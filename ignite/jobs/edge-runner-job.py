@@ -194,6 +194,14 @@ READS = [
     # near-miss here, it is the wrong answer whenever a SECOND instance of the same workflow exists,
     # because both instances share the four letters and only the id separates them.
     (TASKFORCE, "taskforce-id"),
+    # STEP 5 (task 7.717) adds the SECOND column, under the OWNER GRANT
+    # `d-r2-milestone-id-read-granted` (2026-08-10, ratification 2), on the SAME condition the first
+    # one carried: the audit row lands in the same change — it did, trace-field-audit.md row 18.
+    # It is CARRIED DATA, never a scope key: the arm passes the nested row's milestone verbatim to
+    # the materializer so the instance's rows are milestone-addressable, and scoping stays by
+    # `taskforce-id` above. An EMPTY cell stays empty — the flag is not passed at all, so no
+    # milestone is invented for a parent that declares none.
+    (TASKFORCE, "milestone-id"),
     # STEP 3b (7.425 / W2) adds exactly this one, and it is audited at row 14 — see the constant.
     # The FIELD is `None` because the guard NAMES its own field (`ref[field=value]`), so no fixed
     # column resolves the site; that is the same reason row 14 carries `field: null`.
@@ -1732,6 +1740,11 @@ FIXTURE_SEAT_MD = "---\nseat: %s\n---\nfixture seat\n"
 
 # REQUIRED, with no defaults, because M4-10's interface has none: the catalogue id belongs to
 # whoever armed the queue, and the daemon requires a profile of every launch-agent job.
+#
+# ⚠ THE FILE ALSO CARRIES TWO OPTIONAL KEYS, `catalog-root` and `nested-bindings` (task 7.718), and
+# they are OPTIONAL rather than required on purpose: they are STEP 5's inputs, a run with no nested
+# rows needs neither, and requiring them would disarm every arm file written before they existed.
+# `nested_arming` owns their resolution and states why this file is their home.
 ARM_REQUIRED = ("job-id", "profile")
 
 # ⚠ `why-not`, and NOT the word a reader reaches for first — the same collision M4-10 hit one key
@@ -1981,14 +1994,29 @@ def fastpath_lines(res):
 # No second enqueue is written: the readied rows go into the readiness result STEP 4 already takes.
 #
 # ⚠ THE ARM NEEDS A CATALOG ROOT AND A BINDINGS FILE, AND SAYS SO. Classification needs the first
-# (the daemon's argv carries none — the untyped refusal above is still that condition's answer) and
-# materializing needs the second, since a bindings file is where the harness·model·effort triple
+# and materializing needs the second, since a bindings file is where the harness·model·effort triple
 # lives and this stage invents no launch policy. Neither is guessed and neither is defaulted; an
 # absent one is a TYPED refusal on that row, and the rest of the pass is unaffected.
+# ⚠ AND SINCE TASK 7.718 A FIRED PASS CAN ACTUALLY HAVE THEM. Until then it could not: a `fire-tool`
+# argv is fixed at boot, the daemon's carried neither, so a PRODUCTION nested fire always left as
+# the typed refusal and the arm was reachable only from a hand-run or a check. `nested_arming` now
+# reads both off the run's OWN arm file — the same file STEP 4's two values come from — so arming a
+# run for nested expansion is one act, in one place, readable back off disk.
 #
-# ⚠ NO MILESTONE-ID IS CARRIED FORWARD, and that is the grant holding. Reading the nested row's
-# `milestone-id` cell to pass it to the materializer would be a SECOND unaudited column. The grant
-# is one column; the instance materializes without a milestone rather than acquiring a read.
+# ⚠ THE MILESTONE-ID IS CARRIED FORWARD SINCE 2026-08-10 (task 7.717) — and the paragraph that
+# stood here said the opposite, which was TRUE of the one-column world and is kept as history rather
+# than erased: *"NO MILESTONE-ID IS CARRIED FORWARD, and that is the grant holding. Reading the
+# nested row's `milestone-id` cell to pass it to the materializer would be a SECOND unaudited
+# column."* It is no longer unaudited. A SECOND owner grant (`d-r2-milestone-id-read-granted`) paid
+# the same price the first did — audit row 18, landed in this same change — and the arm now reads
+# the nested row's own cell and passes it to the materializer VERBATIM, so the instance's rows are
+# milestone-addressable instead of milestone-less.
+#
+# It is CARRIED DATA AND NEVER A SCOPE KEY, and the distinction is the whole reason two grants were
+# needed rather than one. `taskforce-id` ANSWERS "which rows are this instance's"; a milestone is
+# shared by many instances and answers nothing of the kind, so scoping stays on the id above and
+# would still be wrong on the milestone. An EMPTY cell carries as EMPTY — the flag is not passed at
+# all — because a parent that declares no milestone must not have one invented for its instance.
 
 MATERIALIZE_PATH = HERE.parent / "team-kit" / "materialize-seats.py"
 
@@ -2033,12 +2061,18 @@ def nested_rows(coord, pkg, catalog_root, ms=None):
     return nested, refused
 
 
-def taskforce_ids(pkg):
-    """`{seat: taskforce-id}` off `taskforce.csv` — THE GRANTED READ (`d-r2-taskforce-id-read-
-    granted`, audit row 17), and the only place this file touches that column.
+def taskforce_ids(pkg, column="taskforce-id"):
+    """`{seat: <column>}` off `taskforce.csv` — THE GRANTED READS, and the only place this file
+    touches either column: `taskforce-id` (`d-r2-taskforce-id-read-granted`, audit row 17) and
+    `milestone-id` (`d-r2-milestone-id-read-granted`, audit row 18).
 
-    A row with no id carries `""` rather than being dropped: "this row belongs to no instance" is an
-    answer the caller must be able to see, and a missing key would read as a missing ROW."""
+    ONE reader for both, deliberately: two copies of this loop would be two chances to disagree
+    about which rows exist, and the column is the only thing that differs. `column` is never
+    caller-composed — the two literals above are its whole domain, and both are audited.
+
+    A row with no value carries `""` rather than being dropped: "this row belongs to no instance"
+    (or "declares no milestone") is an answer the caller must be able to see, and a missing key
+    would read as a missing ROW."""
     out = {}
     tf = pkg / "taskforce.csv"
     if not tf.exists():
@@ -2047,7 +2081,7 @@ def taskforce_ids(pkg):
         for row in csv.DictReader(fh):
             seat = (row.get("seat") or "").strip()
             if seat:
-                out[seat] = (row.get("taskforce-id") or "").strip()
+                out[seat] = (row.get(column) or "").strip()
     return out
 
 
@@ -2096,17 +2130,23 @@ def instance_terminal_mark(rows, marks):
     return ADVANCES_EDGE if all(v == ADVANCES_EDGE for v in values) else "failed"
 
 
-def _nested_materialize_argv(pkg, catalog_root, bindings, workflow, nested_seat):
+def _nested_materialize_argv(pkg, catalog_root, bindings, workflow, nested_seat, milestone=""):
     """The materializer's argv for ONE nested expansion. Split out so a check can read the command
-    without running it — and so the flags this arm needs are stated in exactly one place."""
-    return [sys.executable, str(MATERIALIZE_PATH),
+    without running it — and so the flags this arm needs are stated in exactly one place.
+
+    `milestone` is the NESTED ROW'S OWN cell, carried verbatim (audit row 18). An empty cell adds NO
+    flag: `--milestone-id ""` and no flag at all write the same empty column, but only the second
+    one is honest about having read nothing to write."""
+    argv = [sys.executable, str(MATERIALIZE_PATH),
             "--package", str(pkg),
             "--workflow", workflow,
             "--nested",
             "--catalog-root", str(catalog_root),
             "--bindings", str(bindings),
-            "--after", nested_seat,
-            "--json"]
+            "--after", nested_seat]
+    if milestone:
+        argv += ["--milestone-id", milestone]
+    return argv + ["--json"]
 
 
 def _run_materialize(argv):
@@ -2146,6 +2186,7 @@ def nested_arm(coord, pkg, catalog_root, bindings=None, marks=None, ms=None, run
         return out
     ready = set(readiness(coord, pkg, marks)["ready"])
     tf_ids = taskforce_ids(pkg)
+    milestones = taskforce_ids(pkg, "milestone-id")
     for seat, ref in sorted(nested.items()):
         try:
             prefix = ms.read_workflow_prefix(Path(ref.source).parent)
@@ -2169,7 +2210,8 @@ def nested_arm(coord, pkg, catalog_root, bindings=None, marks=None, ms=None, run
                                                  "invents no launch policy. Pass "
                                                  "--nested-bindings."})
                 continue
-            rc, sout, serr = run(_nested_materialize_argv(pkg, catalog_root, bindings, ref.name, seat))
+            rc, sout, serr = run(_nested_materialize_argv(pkg, catalog_root, bindings, ref.name,
+                                                          seat, milestones.get(seat, "")))
             if rc != 0:
                 out["refused"].append({"seat": seat, "code": "materialize-refused",
                                        "reason": "the materializer returned %d expanding %r: %s"
@@ -4347,7 +4389,7 @@ def check_nested_arm_expands_and_marks(coord, _pkg):
     """7.615 — STEP 5's arm, end to end, on the MATERIALIZER'S OWN fixture (a catalog, a workflow
     that declares its four letters, and a bindings file — none of which the edge fixture has).
 
-    Five arms, and the last one is the reason the read was granted:
+    Seven arms; SIBLING is the reason the first read was granted and the last two are the second's:
 
       RED FIRST     before the arm runs, the nested row is READY and reaches the queue as NOTHING:
                     it is excluded `nested-workflow-row`, and no instance row exists. Without this
@@ -4363,7 +4405,12 @@ def check_nested_arm_expands_and_marks(coord, _pkg):
                     mark above must not move. The by-name-prefix scoping is computed right here as
                     the control: it sees the sibling's rows and answers NOT-terminal, so the two
                     scopings DISAGREE on this fixture and the granted id column is what makes the
-                    answer right."""
+                    answer right.
+      MILESTONE     (7.717) every row of the instance carries the PARENT ROW'S `milestone-id`
+                    verbatim, read back off `taskforce.csv` — not off the argv this file built.
+      NO INVENTION  (7.717) the same expansion off a parent whose milestone cell is EMPTY leaves
+                    every instance row empty. Run on the fixture's SECOND goal so it disturbs no
+                    arm above; without it the carry could be a hardcoded default wearing a read."""
     ms = load_materialize()
     tmp = Path(tempfile.mkdtemp(prefix="edge-nested-arm-"))
     try:
@@ -4413,6 +4460,18 @@ def check_nested_arm_expands_and_marks(coord, _pkg):
                            % (len(roots), inst["rows"], res1["ready"]))
         root = roots[0]
 
+        # MILESTONE (task 7.717) — the instance's rows carry the PARENT ROW'S cell, verbatim, read
+        # back off `taskforce.csv` rather than off the argv this file composed.
+        ms_col = taskforce_ids(pkg, "milestone-id")
+        parent_ms = ms_col.get(nested_seat, "")
+        if not parent_ms:
+            return False, ("MILESTONE: the fixture's nested row declares no milestone, so the "
+                           "verbatim-carry arm below would pass on an empty string either way")
+        carried = {s: ms_col.get(s, "") for s in inst["rows"]}
+        if set(carried.values()) != {parent_ms}:
+            return False, ("MILESTONE: the instance's rows carry %r, not the parent row's %r "
+                           "verbatim" % (carried, parent_ms))
+
         # IDEMPOTENT
         _res2, arm2 = nested_pass(coord, pkg, catalog, bindings, ms=ms)
         if arm2["expanded"]:
@@ -4448,14 +4507,35 @@ def check_nested_arm_expands_and_marks(coord, _pkg):
             return False, ("SIBLING CONTROL did not fire: scoping by the name prefix answered %r "
                            "over %s, so this fixture does not discriminate the two scopings"
                            % (control, by_prefix))
+
+        # NO INVENTION (task 7.717) — the SAME expansion off a parent whose milestone cell is EMPTY,
+        # on the fixture's SECOND goal so none of the arms above is disturbed. Empty in, empty out.
+        pkg2 = Path(fx["pkg9"])
+        with (pkg2 / "taskforce.csv").open("a", encoding="utf-8", newline="") as fh:
+            fh.write("tf-1,%s,chief,claude,claude-opus-5,high,,\n" % nested_seat)
+        _nested_fx_close(pkg2, "chief")
+        _res5, arm5 = nested_pass(coord, pkg2, catalog, bindings, ms=ms)
+        if len(arm5["expanded"]) != 1:
+            return False, ("NO INVENTION: %d row(s) expanded on the empty-milestone parent "
+                           "(refused: %s), expected exactly 1"
+                           % (len(arm5["expanded"]), arm5["refused"]))
+        blank_rows = arm5["instances"][0]["rows"]
+        blank_col = taskforce_ids(pkg2, "milestone-id")
+        invented = {s: blank_col.get(s, "") for s in blank_rows if blank_col.get(s, "")}
+        if invented:
+            return False, ("NO INVENTION: the parent row declares NO milestone and its instance's "
+                           "rows came back carrying %r — a milestone was invented" % invented)
+
         return True, ("red first: %r ready and refused, no instance row; EXPAND: instance %s "
                       "(%s) minted and its root %r READIED in one pass; IDEMPOTENT: the second "
                       "pass expanded nothing; TERMINAL: derived mark `%s`; SIBLING: a second "
                       "instance of the same workflow left the mark alone — and the by-prefix "
                       "scoping over %s answers NOT-terminal, which is the wrong answer the granted "
-                      "`taskforce-id` read replaces"
+                      "`taskforce-id` read replaces; MILESTONE: every instance row carries the "
+                      "parent's %r verbatim; NO INVENTION: the same expansion off an EMPTY-milestone "
+                      "parent left %s empty"
                       % (nested_seat, inst["taskforce-id"], ", ".join(inst["rows"]), root,
-                         ADVANCES_EDGE, by_prefix))
+                         ADVANCES_EDGE, by_prefix, parent_ms, ", ".join(blank_rows)))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -4606,6 +4686,8 @@ def cmd_selftest(fixture):
         # STEP 5 / the daemon entry (task C1, owner ruling d-owner-batch1 (1))
         ("goal-resolves-the-live-run", lambda: check_goal_resolves_the_live_run()),
         ("arming-has-one-home", lambda: check_arming_has_exactly_one_home(coord, pkg)),
+        # STEP 5's two inputs reach a FIRED pass (task 7.718)
+        ("nested-launch-inputs-armed", lambda: check_nested_launch_inputs_are_armed(coord, pkg)),
         ("catalogue-entry-drives-parser", lambda: check_catalogue_entry_drives_this_interface()),
     ]
     failed = 0
@@ -4752,6 +4834,136 @@ def check_arming_has_exactly_one_home(_coord, pkg):
                 p.unlink()
         else:
             p.write_bytes(had)
+
+
+def _fire_main(argv, capture):
+    """Run `main()` as a FIRED PASS would — real parser, real resolvers, real STEP 5 — and return
+    `(rc, everything it printed)`.
+
+    stdout AND stderr are captured to one file because the pass deliberately splits its report
+    across both (`NOT EXPANDED` goes to stderr), and a check that read only one of them would miss
+    exactly the refusal it exists to measure."""
+    held = sys.argv, sys.stdout, sys.stderr
+    sys.argv = ["edge-runner-job.py"] + list(argv)
+    try:
+        with capture.open("w", encoding="utf-8") as fh:
+            sys.stdout = sys.stderr = fh
+            try:
+                rc = main()
+            except SystemExit as exc:                              # argparse's own exits
+                rc = exc.code
+    finally:
+        sys.argv, sys.stdout, sys.stderr = held
+    return rc, capture.read_text(encoding="utf-8")
+
+
+def _expanded_lines(text):
+    """The pass's EXPANDED report lines. A prefix match, never a substring one: the refusal line is
+    `NOT EXPANDED`, so `"EXPANDED" in text` reads a refusal as an expansion — which is the exact
+    inversion the red arms below exist to catch, and it passed both of them on the first run."""
+    return [l for l in text.splitlines() if l.startswith("EXPANDED")]
+
+
+def check_nested_launch_inputs_are_armed(coord, _pkg):
+    """7.718 — STEP 5's TWO INPUTS reach a FIRED pass, off the run's own arm file.
+
+    This is the arm's PRODUCTION shape, and until this check existed there was none: 7.615 built
+    the nested arm and proved it from a fixture that handed both inputs in as parameters, while the
+    fired path — a `fire-tool` argv fixed at boot — carried neither, so every production nested row
+    left as the typed `nested-bindings-absent` refusal. `main()` is driven here, not `nested_pass`.
+
+    Only the DAEMON is a fixture: the door is injected at `door_at`'s documented seam and the lease
+    is stubbed, exactly as the two checks above do. Everything between the argv and the expansion —
+    the parser, `resolve_package`, `enqueue_arming`, `nested_arming`, `nested_pass` — is the shipped
+    code.
+
+      FIRED       argv carries NEITHER --catalog-root nor --nested-bindings (the daemon's own
+                  condition). The arm file carries both. The nested row EXPANDS, and the pass names
+                  the arm file as the source of each input.
+      RED A       the same fire with `nested-bindings` removed from the arm file: the row leaves as
+                  the TYPED `nested-bindings-absent` refusal, and nothing is expanded.
+      RED B       the same fire with `catalog-root` removed instead: STEP 5 is not entered at all
+                  (nothing can be classified), the pass SAYS which input was absent, and the row
+                  still leaves NAMED — the UNTYPED leave 7.607 E3 pinned, naming the
+                  nested-workflow cause and its task rather than a classification nobody ran.
+      OVERRIDE    argv wins over the arm file, per input independently."""
+    ms = load_materialize()
+    coord_mod = load_coord()
+    held_lease, held_door = coord_mod.derive_lease, globals()["door_at"]
+    tmp = Path(tempfile.mkdtemp(prefix="edge-nested-armed-"))
+    try:
+        fx = ms.build_fixture(tmp)
+        pkg, catalog, bindings = Path(fx["pkg"]), fx["catalog"], fx["b_both"]
+        nested_seat = "demo-flow"
+        with (pkg / "taskforce.csv").open("a", encoding="utf-8", newline="") as fh:
+            fh.write("tf-1,%s,chief,claude,claude-opus-5,high,,m1\n" % nested_seat)
+        _nested_fx_close(pkg, "chief")
+        coord_mod.derive_lease = _lease_stub([pkg.name])
+        globals()["door_at"] = lambda _binary: (lambda _argv: (0, "queued: queue id 1", ""))
+        arm = arm_path(pkg)
+        arm.parent.mkdir(parents=True, exist_ok=True)
+        base = {"job-id": "fx-armed-job", "profile": "fx-armed-profile", "dry-run": True}
+        fired = ["--goal", str(pkg), "--enqueue", "--ignite-bin", "/fx/ignite"]
+
+        def write_arm(**extra):
+            arm.write_text(json.dumps(dict(base, **extra)), encoding="utf-8")
+
+        # RED B FIRST — no catalog root, so STEP 5 cannot even be entered. Run before the green so
+        # the green cannot be measuring an instance this arm left behind.
+        write_arm(**{"nested-bindings": bindings})
+        _rcb, outb = _fire_main(fired, tmp / "red-b.out")
+        if "catalog-root ABSENT" not in outb:
+            return False, "RED B: the pass did not name catalog-root as the absent input: %s" % outb[:400]
+        if _expanded_lines(outb):
+            return False, "RED B: a row expanded with no catalog root at all"
+        # The UNTYPED leave, and the distinction is real: with no catalog root the classifier is
+        # never asked, so the row leaves NAMED but its cause is not TYPED `nested-workflow-row` —
+        # it names the nested-workflow possibility and the task that owns it. Same needles
+        # `check_nested_row_refuses_out_loud`'s UNTYPED ARM asserts, measured here off a FIRED pass.
+        if "NESTED-WORKFLOW" not in outb.upper() or NESTED_ROW_TASK not in outb:
+            return False, ("RED B: the nested row went silent — the pass names neither the "
+                           "nested-workflow cause nor %s: %s" % (NESTED_ROW_TASK, outb[:400]))
+
+        # RED A — a catalog root but no bindings: classified, ready, and TYPED-refused.
+        write_arm(**{"catalog-root": catalog})
+        _rca, outa = _fire_main(fired, tmp / "red-a.out")
+        if "nested-bindings-absent" not in outa:
+            return False, "RED A: no typed `nested-bindings-absent` refusal: %s" % outa[:400]
+        if _expanded_lines(outa):
+            return False, "RED A: a row expanded with no bindings input"
+
+        # FIRED — both inputs on the arm file, neither on the argv.
+        write_arm(**{"catalog-root": catalog, "nested-bindings": bindings})
+        _rc, out = _fire_main(fired, tmp / "fired.out")
+        if "nested-bindings-absent" in out:
+            return False, "FIRED: the typed refusal still fired with both inputs armed: %s" % out[:400]
+        if not any(nested_seat in l for l in _expanded_lines(out)):
+            return False, "FIRED: %r did not expand: %s" % (nested_seat, out[:600])
+        source = next((l for l in out.splitlines() if l.startswith("nested arming:")), "")
+        if str(arm) not in source or source.count(str(arm)) != 2:
+            return False, ("FIRED: the pass does not name the arm file as the source of BOTH "
+                           "inputs: %r" % source)
+
+        # OVERRIDE — argv beats the arm file, one input at a time.
+        oroot, obinds, owhy = nested_arming(pkg, "/argv-catalog", None)
+        if oroot != "/argv-catalog" or obinds != bindings:
+            return False, "OVERRIDE: --catalog-root did not win alone (%r/%r)" % (oroot, obinds)
+        if "explicit override" not in owhy:
+            return False, "OVERRIDE: the provenance does not say the argv overrode: %s" % owhy
+        _r2, b2, _w2 = nested_arming(pkg, None, "/argv-bindings")
+        if b2 != "/argv-bindings":
+            return False, "OVERRIDE: --nested-bindings did not win alone (%r)" % b2
+        return True, ("a FIRED pass (real argv, real resolvers; only the door and the lease are "
+                      "fixtures) carrying NEITHER --catalog-root nor --nested-bindings expanded %r "
+                      "with both inputs read off %s, and named that file as the source of each; RED "
+                      "A (no `nested-bindings`) left the row typed `nested-bindings-absent` and "
+                      "expanded nothing; RED B (no `catalog-root`) never entered STEP 5, said which "
+                      "input was absent, and left the row NAMED on the nested cause citing %s; argv "
+                      "overrode the file per input." % (nested_seat, arm, NESTED_ROW_TASK))
+    finally:
+        coord_mod.derive_lease = held_lease
+        globals()["door_at"] = held_door
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def check_catalogue_entry_drives_this_interface():
@@ -4913,6 +5125,47 @@ def enqueue_arming(pkg, job_id, profile):
     return arm["job-id"], arm["profile"], bool(arm.get("dry-run")), scope
 
 
+def nested_arming(pkg, catalog_root, nested_bindings):
+    """(catalog-root, nested-bindings, provenance) — STEP 5's TWO inputs, resolved the SAME WAY and
+    from the SAME HOME as STEP 4's two (task 7.718).
+
+    THE ARM FILE IS THE HOME, AND FOR THE REASON `enqueue_arming` ALREADY STATES. A `fire-tool`
+    argv is FIXED AT BOOT and carries nothing per-fire, so a production nested fire could reach
+    STEP 5 with neither input: the arm declared `--nested-bindings` and TYPED-refused every ready
+    nested row on it, and no catalog root meant STEP 5 was never entered at all. Both values are
+    per-RUN — which catalog this goal's manifests resolve against, and what its instances' seats are
+    cast as — so pinning either in the catalogue argv would mint the second home
+    `check_catalogue_entry_drives_this_interface` refuses for `job-id` and `profile`. Whoever ARMS
+    the run supplies them, in the file that already answers "what is this armed FOR".
+
+    ⚠ BOTH KEYS ARE OPTIONAL, and that is not laxity. `ARM_REQUIRED` is unchanged, so every arm file
+    written before this existed still arms STEP 4 exactly as it did; a run with no nested rows needs
+    neither value, and requiring them would disarm every such run. An ABSENT one is still what it
+    always was — a TYPED refusal on the nested row (`nested-bindings-absent`), or, with no catalog
+    root, the typed `nested-workflow-row` exclusion — never a guess and never a silence.
+
+    ⚠ THE VALUES ARE CARRIED VERBATIM, not resolved against the package. A relative path in the arm
+    file resolves against the FIRING PROCESS's cwd, which under a fire-tool exec is the unit's, not
+    the run's. Whoever arms the run writes absolute paths; inventing a base here would be this file
+    deciding what the armer meant.
+
+    Explicit argv still wins, per input INDEPENDENTLY — unlike `--job-id`/`--profile`, which are a
+    pair because neither half alone is a usable arming. These two are separate questions."""
+    arm = fastpath_arm(pkg)[0] or {}
+    root = catalog_root or (arm.get("catalog-root") or None)
+    binds = nested_bindings or (arm.get("nested-bindings") or None)
+    why = []
+    for name, from_argv, value in (("catalog-root", catalog_root, root),
+                                   ("nested-bindings", nested_bindings, binds)):
+        if value is None:
+            why.append("%s ABSENT (neither --%s nor `%s` in %s)"
+                       % (name, name, name, arm_path(pkg)))
+        else:
+            why.append("%s from %s" % (name, "--%s (explicit override)" % name if from_argv
+                                       else "`%s` in %s" % (name, arm_path(pkg))))
+    return root, binds, "; ".join(why)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--package", help="the goal folder to verify seats in")
@@ -4955,12 +5208,15 @@ def main():
     p.add_argument("--catalog-root", default=None, dest="catalog_root",
                    help="the component catalog root a manifest reference is classified against "
                         "(MC9). With --enqueue it also ARMS STEP 5's nested arm: a nested-workflow "
-                        "row can only be expanded by a pass that can classify it")
+                        "row can only be expanded by a pass that can classify it. OPTIONAL on the "
+                        "argv — a fired pass reads it from the run's own arm file "
+                        "(`catalog-root` in coordination/edge-fastpath.json); this flag overrides")
     p.add_argument("--nested-bindings", default=None, dest="nested_bindings",
                    help="with --enqueue and --catalog-root: the bindings JSON a nested instance is "
                         "materialized with (the harness·model·effort of its seats). No default — "
                         "this stage invents no launch policy, and a ready nested row with no "
-                        "bindings input is a TYPED refusal, never a guessed materialization")
+                        "bindings input is a TYPED refusal, never a guessed materialization. Read "
+                        "from the arm file's `nested-bindings` key when the argv omits it")
     # `--bindings`, `--milestone-id`, `--conduct`, `--claude-md` and `--budget-json` are DELETED
     # (2026-08-10, task 7.615). Every one of them existed for `--branch-arm`, which 7.607 E2b
     # deleted, and none had another reader — argparse accepted them and nothing ever looked. The
@@ -5083,8 +5339,14 @@ def main():
             return 0
         full = marks if not args.seat else run_stage(coord, pkg)
         full_marks = {r["seat"]: r["disposition"] for r in full}
-        if args.catalog_root:
-            res3, arm = nested_pass(coord, pkg, args.catalog_root, args.nested_bindings, full_marks)
+        catalog_root, nested_bindings, nested_arm_why = nested_arming(
+            pkg, args.catalog_root, args.nested_bindings)
+        # PRINTED, for the same reason `arming:` above is: "what were STEP 5's inputs, and where did
+        # each come from" is unanswerable off a diff months later, and a fire that expanded nothing
+        # for want of an input must say WHICH input.
+        print("nested arming: %s" % nested_arm_why)
+        if catalog_root:
+            res3, arm = nested_pass(coord, pkg, catalog_root, nested_bindings, full_marks)
             for e in arm["expanded"]:
                 print("EXPANDED  %-28s workflow %s" % (e["seat"], e["workflow"]))
             for i in arm["instances"]:

@@ -161,8 +161,9 @@ explicitly, never silently.
 | 15 | `7.56` | (b) run-state recompute CLI — `skipped` | `null` | none — DERIVED state, computed from `edge-runner-job.readiness()`'s THIRD verdict list (task 7.425 built the guard evaluator) | `null` — no column resolves this site |
 | 16 | `7.475` | durable disposition reader — row selection among OPEN session rows (`sessions_open_ids`, `coord.py`; added by the 7.475 reader widening, audited 7.607 E4) | `session-id` | `{RUN}/sessions.csv` | **true** |
 | 17 | `7.615` | nested launch arm — WHICH instance a nested-workflow row expanded to, and whether every row of THAT instance is terminal | `taskforce-id` | `{RUN}/taskforce.csv` | **true** |
+| 18 | `7.717` | nested launch arm — the milestone a nested-workflow row's instance is materialized UNDER, carried verbatim to the materializer | `milestone-id` | `{RUN}/taskforce.csv` | **true** |
 
-**15 rows `present=true` · 0 rows `present=false` · 2 rows `present=null` · `missing[] = []`.** (Row 16 appended 2026-08-10, task 7.607 E4 — the E3b `reads-match-coord-reader` red's prescribed remedy; the 13-row tally below this point is historical.)
+**16 rows `present=true` · 0 rows `present=false` · 2 rows `present=null` · `missing[] = []`.** (Row 16 appended 2026-08-10, task 7.607 E4 — the E3b `reads-match-coord-reader` red's prescribed remedy; the 13-row tally below this point is historical.)
 
 > [!note] Row 17 appended 2026-08-10, task 7.615, under the owner grant `d-r2-taskforce-id-read-granted`.
 > `present` is **true** off §4's own recorded header — `{RUN}/taskforce.csv` reads
@@ -177,6 +178,21 @@ explicitly, never silently.
 > instance's rows too. It reads no second column under this grant — the milestone-id a
 > materialization would otherwise carry forward is deliberately NOT read, and the instance is
 > materialized without one rather than acquiring an unaudited read.
+> **⚠ That last clause was the DISCLOSED INTERIM, and it ended on 2026-08-10:** a SECOND owner grant
+> (`d-r2-milestone-id-read-granted`) authorizes the milestone-id read, and row 18 below is its
+> same-change audit row. This grant is still one column; the milestone-id is now read under its OWN.
+
+> [!note] Row 18 appended 2026-08-10, task 7.717, under the owner grant `d-r2-milestone-id-read-granted`.
+> `present` is **true** off the same recorded header row 17 stands on — `milestone-id` is
+> `{RUN}/taskforce.csv`'s LAST column. No re-run of §4's script produced this row and none is
+> claimed.
+> **THE SECOND COLUMN AT THE SAME ONE STAGE, AND IT IS CARRIED DATA, NOT A SCOPE KEY.** It
+> authorizes `edge-runner-job.py`'s STEP-5 nested arm to read `milestone-id` off the NESTED ROW and
+> pass it verbatim to `materialize-seats.py --milestone-id`, so the instance's rows land
+> milestone-addressable instead of milestone-less. Instance scoping stays on `taskforce-id` (row
+> 17) and is untouched by this: a milestone is shared by many row sets and names no instance.
+> An EMPTY cell is carried as EMPTY — the flag is not passed at all — because a parent that
+> declares no milestone must not have one invented for its instance.
 
 > [!warning] Row 15's reason clause was CORRECTED on 2026-08-06 (task 7.454 / MC12). The original is retained here, not erased.
 > **As originally written:** *"none — the state is unreachable, no guard evaluator is built (G-301/G-308)"*.

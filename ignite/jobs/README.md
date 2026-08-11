@@ -96,6 +96,22 @@ that, and both are properties of THIS job rather than of the two above:
   package's own `coordination/edge-fastpath.json` — the same file the check-out fast path reads, so
   the two triggers of CMP-25 are armed by ONE act. An unarmed package is marked, reported, and
   advanced not at all. That is what keeps `r-cutover-gated` intact through the registration.
+- **STEP 5's two inputs come from the SAME file, and they are OPTIONAL keys in it** (task 7.718):
+  `catalog-root` (what a manifest reference is classified against) and `nested-bindings` (the
+  bindings JSON an expanded instance's seats are cast from). Both are per-RUN, so neither may be
+  pinned in the fixed catalogue argv without minting a second home. Without them a fired pass could
+  never expand a nested-workflow row at all — it left as a typed refusal every time. Optional
+  because a run with no nested rows needs neither, so every arm file written before they existed
+  still arms STEP 4 unchanged; an absent one is still a typed leave on the nested row, never a
+  guess. `--catalog-root` / `--nested-bindings` on the argv override the file, per input.
+
+  ```json
+  {"job-id": "edge-runner-launch", "profile": "claude-opus",
+   "catalog-root": "/abs/path/to/catalog", "nested-bindings": "/abs/path/to/bindings.json"}
+  ```
+
+  ⚠ Both paths are carried VERBATIM. A relative one resolves against the firing process's cwd —
+  under a fire-tool exec that is the unit's, not the run's — so write them absolute.
 
 Registering it on a machine (per-machine runtime state — never in git, and needing a daemon restart
 first so the boot-read catalogue carries the entry):
