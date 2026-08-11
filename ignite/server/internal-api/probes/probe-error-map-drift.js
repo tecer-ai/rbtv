@@ -55,12 +55,16 @@ const { checkClosedSetPartition } = require('./lib/closed-set');
 // rather than shrinking the universe it measures.
 const ERROR_MODULES = ['../../spawn/errors', '../../heart/errors'];
 const defined = new Set();
+// Findings go in `failures` — the ONE thing exitCode derives from. The name/value mismatch below
+// used to emit() a line literally spelling FAIL: into lines[], which nothing reads: a probe that
+// prints FAIL and exits 0 is worse than one with no check, because the green exit is believed.
+const failures = [];
 for (const mod of ERROR_MODULES) {
   const exp = require(mod);
   for (const [name, value] of Object.entries(exp)) {
     if (typeof value === 'string' && /^E_[A-Z0-9_]+$/.test(value)) defined.add(value);
     if (typeof value === 'string' && /^E_/.test(name) && name !== value) {
-      emit(`FAIL: ${mod} exports ${name} whose value '${value}' does not match its name`);
+      failures.push(`${mod} exports ${name} whose value '${value}' does not match its name`);
     }
   }
 }
@@ -69,7 +73,7 @@ for (const mod of ERROR_MODULES) {
 // lives in the shared lib (see header note); this probe supplies its own failure
 // wording so the findings keep naming THIS map's decay mode. On top of it: every
 // mapped value a ratified wire code, every classification a real rationale (below).
-const failures = checkClosedSetPartition({
+failures.push(...checkClosedSetPartition({
   universe: defined,
   sides: [
     { name: 'STORE_TO_WIRE', keys: [...STORE_TO_WIRE.keys()] },
@@ -84,7 +88,7 @@ const failures = checkClosedSetPartition({
     contradiction: (code, homes) =>
       `CONTRADICTION: '${code}' is in BOTH ${homes.join(' and ')} — a code cannot be mapped and not-wire-reachable at once`,
   },
-});
+}));
 
 for (const [code, wire] of STORE_TO_WIRE) {
   if (!WIRE_ERROR_CODES.has(wire)) {

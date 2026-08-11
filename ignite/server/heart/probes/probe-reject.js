@@ -48,12 +48,22 @@ try {
   const queueRows = store.listQueue();
   closeHeartStore();
 
+  const rejectOk = Boolean(caught) && caught.code === E_UNKNOWN_PROFILE && queueRows.length === 0;
+
   out('COMMAND: node ' + path.relative(process.cwd(), __filename));
   out(`ERROR_CODE: ${caught ? caught.code : 'NONE'}`);
   out(`ERROR_MESSAGE: ${caught ? caught.message : 'no error thrown'}`);
   out(`EXPECTED_CODE: ${E_UNKNOWN_PROFILE}`);
   out(`QUEUE_ROWS_AFTER: ${queueRows.length}`);
-  out(`REJECT_OK: ${caught && caught.code === E_UNKNOWN_PROFILE && queueRows.length === 0}`);
+  out(`REJECT_OK: ${rejectOk}`);
+
+  // ASSERT it, never merely record it: REJECT_OK was printed behind an unconditional exitCode 0,
+  // so the probe could not fail. The same guard is exercised through the wire by probe-revalidate
+  // and probe-dryrun; this is the only witness at the store door itself.
+  if (!rejectOk) {
+    throw new Error(`REJECT_OK false — expected ${E_UNKNOWN_PROFILE} and 0 queue rows, got ${caught ? caught.code : 'NO THROW'} and ${queueRows.length} row(s)`);
+  }
+
   out(`EXIT: 0`);
   out(`WALL_MS: ${Date.now() - start}`);
   process.exitCode = 0;

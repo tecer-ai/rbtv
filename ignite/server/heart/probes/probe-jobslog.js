@@ -74,7 +74,7 @@ try {
 
   const threadMatches = row2.thread === row1.thread && row3.thread === row1.thread;
   const parentMatches = row2.parent_exec_id === row1.exec_id && row3.parent_exec_id === row2.exec_id;
-  const danglingRejected = fkError && (fkError.message.includes('FOREIGN KEY') || fkError.message.includes('constraint failed') || fkError.code === 'ERR_SQLITE_CONSTRAINT');
+  const danglingRejected = Boolean(fkError) && (fkError.message.includes('FOREIGN KEY') || fkError.message.includes('constraint failed') || fkError.code === 'ERR_SQLITE_CONSTRAINT');
 
   out('COMMAND: node ' + path.relative(process.cwd(), __filename));
   out(`ROW1_EXEC_ID: ${row1.exec_id}`);
@@ -90,6 +90,16 @@ try {
   out(`PARENT_LINKED: ${parentMatches}`);
   out(`DANGLING_REJECTED: ${danglingRejected}`);
   out(`DANGLING_ERROR: ${fkError ? fkError.message : 'none'}`);
+
+  // ASSERT the invariants, never merely record them: every boolean above was printed and thrown
+  // away behind an unconditional exitCode 0. A migration issuing `PRAGMA foreign_keys = OFF`
+  // without restoring it lets the dangling-parent INSERT succeed and this probe still reads PASS —
+  // and `foreign_keys` is exercised in no other probe. THREAD_COLUMN_PRESENT asserts FALSE: the
+  // thread is derived from parent_exec_id, never a stored column, so its presence is the failure.
+  if (threadColumnPresent || !threadMatches || !parentMatches || !danglingRejected) {
+    throw new Error(`jobs_log invariant broken — THREAD_COLUMN_PRESENT=${threadColumnPresent} (must be false) THREAD_DERIVED_STABLE=${threadMatches} PARENT_LINKED=${parentMatches} DANGLING_REJECTED=${danglingRejected} (fk error: ${fkError ? fkError.message : 'none — the FK did not fire'})`);
+  }
+
   out(`EXIT: 0`);
   out(`WALL_MS: ${Date.now() - start}`);
   process.exitCode = 0;
