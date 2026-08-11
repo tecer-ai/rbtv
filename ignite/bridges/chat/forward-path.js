@@ -52,9 +52,19 @@ const NO_GOAL_SEAT_NOTICE = "⚠ no goal-master seat is open for this goal — a
 // The THIRD honest refusal, same mechanics again: the daemon's idempotent door suppressed this
 // session-create because the seat is still busy with a live turn, so NOTHING was enqueued
 // (ruling `d-q9-door`). Fixed string, no internals — it states the outcome the owner cannot
-// otherwise see (his message did NOT land) and the act that fixes it (send it again), because
-// unlike the two notices above, nobody else can act on this one: it clears on its own.
-const SEAT_BUSY_NOTICE = "⚠ that work is still busy with the previous message — yours was NOT delivered, please send it again shortly";
+// otherwise see (his message did NOT land) and what happens next.
+//
+// ⚑ IT NO LONGER ASKS THE HUMAN TO RE-SEND (owner ruling 2026-08-11, task 7.541). The bridge
+// re-submits the message itself when the seat frees (chat-bridge.js § pending re-submit). The old
+// wording was an INSTRUCTION to re-send, and following it now would deliver the message twice —
+// once by hand and once by the retry. So the wording and the guard shipped together: a manual
+// re-send on the thread DROPS the pending retry, and the notice stops asking for one.
+const SEAT_BUSY_NOTICE = "⚠ that work is still busy with the previous message — yours will be sent again automatically as soon as it frees";
+
+// The give-up twin of the notice above: the seat stayed busy past the retry window, so the
+// re-submit was abandoned. Only HERE does the owner get told to send it again — and by then there
+// is no pending retry left to double with.
+const SEAT_BUSY_GAVE_UP_NOTICE = "⚠ that work stayed busy — your message was NOT delivered, please send it again";
 
 // The FOURTH honest refusal (ratified 2026-08-09): the owner replied in an agent's own thread,
 // but that agent's seat is no longer on disk — it was never materialized, or it was cleaned up.
@@ -153,6 +163,23 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // 'agent' rides the GOAL profile: an agent thread is goal work seen through one seat's
   // conversation, not cold-contact intake — and minting a third profile key would be a config
   // surface nobody asked for (ratified 2026-08-09).
+  //
+  // ⚑ THIS NAMES THE FALLBACK, NOT THE MODEL A SEAT RUNS ON (ruling D19, 2026-08-11). The profile
+  // resolved here used to be the whole answer, and that was the defect: reviving an agent thread
+  // launched the DEPLOYMENT'S chat profile at that agent's seat, so a seat cast `claude-fable-5`
+  // in `taskforce.csv` and in its own `seat.md` ran `claude-sonnet-5` whenever the owner answered
+  // it in Slack. The fix is NOT here and deliberately so — a seat's cast must win on every lane,
+  // not only this one, and the bridge holds no profile roster to resolve it against (it knows
+  // three profile NAMES from its own config and nothing about `spawn-profiles.yaml`, which is the
+  // boundary `probe-chat-boundary` enforces). Resolution is DAEMON-SIDE, at the one point every
+  // launch passes through: `server/spawn/spawn.js#profileForSeatCast`, over the shared catalog in
+  // `launch-profiles/catalog.js`.
+  //
+  // So what this function returns is what a seat runs when it declares NO cast — the channel
+  // master, by design (`materialize-seats.py#open_binding`: "the master's harness and model are
+  // named by the chat bridge at spawn time"), which is precisely the case this surface split was
+  // built for. Nothing here changed at D19, and nothing here should: the bridge names a fallback
+  // and the seat's own record outranks it.
   function profileFor(route) {
     if (route && (route.kind === 'goal' || route.kind === 'agent')) return config.goalProfile || config.sessionProfile;
     return config.masterProfile || config.sessionProfile;
@@ -176,7 +203,11 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   }
 
   // A first message that STARTS work → a session-creating launch-agent job.
-  async function forwardSessionCreate({ chatThreadId, text, route }) {
+  // `retry` — this call IS the automatic re-submit of a message the door already refused
+  // (chat-bridge.js § pending re-submit). Everything about the leg is identical; the ONE
+  // difference is that a second seat-busy refusal posts NO notice. The owner was told once, and
+  // a notice per poll pass would turn one honest line into a stream of them.
+  async function forwardSessionCreate({ chatThreadId, text, route, retry = false }) {
     const profile = profileFor(route);
     if (!profile) {
       // A launch-agent job MUST name a profile (DEC-1 R3; the store re-validates it
@@ -250,10 +281,11 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
         chatThreadId, route: route && route.kind, goalId: route && route.goalId,
         heldQueueId: res.result.jobId, because: res.result.because, seatKey: res.result.seat_key,
       });
-      await postDeclineNotice(chatThreadId, SEAT_BUSY_NOTICE);
-      // The undelivered text rides the REFUSAL so no caller has to reconstruct what was lost —
-      // `chat-bridge.js` routeBusRowToMaster already falls through to posting the row raw on a
-      // not-forwarded result, which turns this from silent loss into a degraded delivery.
+      if (!retry) await postDeclineNotice(chatThreadId, SEAT_BUSY_NOTICE);
+      // The undelivered text rides the REFUSAL — and since task 7.541 it has a PRODUCTION reader:
+      // `chat-bridge.js` records it as a pending re-submit and this same leg re-fires it when the
+      // seat frees. (It also still serves the older degraded path — routeBusRowToMaster falls
+      // through to posting the row raw on a not-forwarded result.)
       return {
         forwarded: false,
         leg: 'session-create',
@@ -363,4 +395,4 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   return { onChatMessage, forwardSessionCreate, forwardFollowUp, profileFor, workdirFor, CMP8_TYPES };
 }
 
-module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, resolveGoalSeat };
+module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, SEAT_BUSY_GAVE_UP_NOTICE, resolveGoalSeat };

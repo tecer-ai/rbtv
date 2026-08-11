@@ -59,7 +59,7 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   `profiles:` in `config/spawn-profiles.yaml` (the workspace's spawnable set) and gated by
   `coord.py#validate_seat` (the predicate materialize's F6 gate imports), so what an agent reads and
   what refuses it are ONE object. One file per WORKFLOW at
-  `.rbtv/config/bindings/{module}/{component}/{code}.json` — deployment config, never the mirror,
+  `.rbtv/config/modules/{module}/{component}/bindings/{code}.json` — deployment config, never the mirror,
   which carries component definitions only. Contract: `capabilities/bindings/bindings.md`.
 - **`daemon-watchdog/`** — the ignite LIVENESS surface (`CMP-28`): a systemd user timer firing one
   deterministic probe/restart/report pass over the whole deployment. **The one capability here the
@@ -88,7 +88,11 @@ daemon process. `server/spawn/config.js` is now a thin daemon-side adapter over 
 LIBRARY, not a capability: `capabilities/` above is for standalone operator surfaces the `rbtv` CLI
 delegates to, which this is not. The other two ruled consumers — the attached dispatch capability
 (7.43) and the orchestration conductor's CLI-worker dispatch (7.54) — are **not built**; shipping
-with one live consumer is 7.42's scope.
+with one live consumer is 7.42's scope. ⚠ **7.54's CATALOG half IS built** (ruling D19, 2026-08-11):
+`catalog.js` maps a seat's declared `(harness, model)` to the profile NAME that runs it, and
+`server/spawn/spawn.js#profileForSeatCast` applies it at the single point every launch passes
+through — so a seat runs what its `seat.md` casts it as on every lane. The conductor-dispatch half
+of 7.54 remains unbuilt, as does 7.43.
 
 Contract, the caller bounds, and the disclosed residuals: `launch-profiles/README.md`.
 

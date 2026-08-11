@@ -34,7 +34,18 @@ carried on the master-sitting spawn path**, at three independent points:
 
 So the dial exists in the config vocabulary and is **not connected**. Shipping `--effort` here would
 have written a value nothing reads — a knob that turns and does nothing, which is worse than no
-knob. Wiring it is a daemon change (tasks 7.43 / 7.54, both unbuilt), not a tool change.
+knob. Wiring it is a daemon change, not a tool change.
+
+⚠ **The MODEL half of that sentence is now stale, and the effort half is not** (ruling D19,
+2026-08-11). Task 7.54's `(harness, model) → profile-name` catalog **is built** —
+`launch-profiles/catalog.js`, applied at `server/spawn/spawn.js#profileForSeatCast` — so a seat
+that declares `harness:`/`model:` in its own `seat.md` now launches on the profile it is cast as,
+on every lane, including a chat revival. That does **not** touch this capability: the channel
+master declares no cast by design (`materialize-seats.py#open_binding` — its harness and model stay
+the chat bridge's to name), which is exactly the fallback case the catalog leaves alone, so the
+master's profile knob behaves as documented above. **`effort` remains unconnected** at all three
+points in the table — the catalog resolves a profile, and a profile's `effort:` block still has no
+daemon caller (tasks 7.43 and the conductor-dispatch half of 7.54 are still unbuilt).
 
 What the master CAN change today is the profile, and a profile pins its model (`--model` is in every
 `exec`/`resume` argv, and `headed.tui` pins it too since `d-s21-headed-tui-pins-model`).

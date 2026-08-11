@@ -318,12 +318,17 @@ function spawnForegroundInTerminal(argv, cwd) {
 // has ALREADY refused for want of one — through `spawn.js`'s `appendRowEnsuringHeader`, now IMPORTED
 // rather than copied. The copy that stood here duplicated the MECHANISM, never the schema, and only
 // because `spawn.js` was another session's dirty file at that build's moment.
-function appendForegroundSessionRow({ goalFolder, seat, sessionId, harness, workdir, logger = null }) {
+function appendForegroundSessionRow({ goalFolder, seat, sessionId, harness, model, workdir, logger = null }) {
   const csvPath = path.join(goalFolder, SESSIONS_CSV);
   const values = {
     'session-id': sessionId,
     seat,
     harness: harness || '',
+    // The model that ACTUALLY launched (ruling D19's prevention guarantee), on the same terms as
+    // the daemon door's row: OFFERED to `appendRowEnsuringHeader`, which writes by column name and
+    // REPORTS an unknown key as `dropped` rather than inventing a column. `coord.py#SESSIONS_COLS`
+    // owns this schema, so a deployment whose header lacks `model` is unaffected.
+    model: model || '',
     workdir,
     pid: String(process.pid),
     'pid-starttime': processStartTime(process.pid) || '',
@@ -436,8 +441,30 @@ function nextHeldReadySeat(heartStore, rows, isHeld, relaunch, view = null) {
 
 function runForegroundSeat({
   heartStore, seat, goalFolder, profileName, profile, tick, now,
+  // The whole profile set, so the seat's cast can be resolved to a profile NAME through the one
+  // shared catalog (D19). The default `{}` is an EMPTY catalog, not a bypass: an UNCAST seat still
+  // runs the caller's profile exactly as before, but a seat that DOES declare a cast refuses with
+  // `E_UNMAPPED_BINDING` — refusing is the D19 behaviour, and a caller holding a profile roster
+  // must pass it. The live caller (`executeAttached`) does; only unit fixtures omit it.
+  spawnProfiles = {},
   spawnForeground = spawnForegroundInTerminal, logger = null,
 }) {
+  const seatDir = path.join(goalFolder, 'seats', seat);
+  // ── THE SEAT'S CAST WINS HERE TOO (task 7.54 · ruling D19) ──────────────────────────────────
+  // The THIRD launch door, and it shares the shape exactly: a seat folder, a caller-named profile,
+  // and both records written from whatever this function decides. Resolved BEFORE the headed check
+  // below, so the capability gate below validates the profile that will actually carry the human —
+  // a seat cast as one model must not open a terminal on another.
+  {
+    const { profileForSeatCast } = require('../server/spawn/spawn');
+    const cast = profileForSeatCast(spawnProfiles || {}, seatDir, profileName,
+      (level, message, extra) => { if (logger) logger({ level, message, seat, ...extra }); });
+    if (cast !== profileName) {
+      profileName = cast;
+      profile = spawnProfiles[cast];
+    }
+  }
+
   if (!profile.headed || !profile.headed.tui) {
     throw new Error(
       `seat ${seat} is held for you (it declares human-interactive: and this goal runs in ` +
@@ -451,7 +478,6 @@ function runForegroundSeat({
   const { generateSessionId } = require('../server/spawn/carrier');
   const { composeArgv } = require('../server/spawn/spawn');
 
-  const seatDir = path.join(goalFolder, 'seats', seat);
   const sessionId = generateSessionId();
   // mode `headed` selects `profile.headed.tui`; the descriptor injection
   // (`--append-system-prompt-file <seatDir>/seat.md`, claude-only and file-conditional) rides along
@@ -477,8 +503,10 @@ function runForegroundSeat({
 
   // S-20: the launch trace row, in the dispatching act, before the child owns the terminal.
   const { harnessOf } = require('../server/spawn/harness-config');
+  const { bindingOf } = require('../launch-profiles/catalog');
   appendForegroundSessionRow({
-    goalFolder, seat, sessionId, harness: harnessOf(profile), workdir: seatDir, logger,
+    goalFolder, seat, sessionId, harness: harnessOf(profile),
+    model: (bindingOf(profile) || {}).model, workdir: seatDir, logger,
   });
   // S-23: and the goal's EXECUTION RECORD, in the same act. Written here rather than left to the
   // per-tick publish for one reason that is specific to this carriage: this call BLOCKS for as long
@@ -818,9 +846,12 @@ async function executeAttached({
 
   if (!profile) {
     throw new Error(
-      'an attached run needs a NAMED launch profile from the one shared config. The (harness, ' +
-      'model) -> profile-name catalog is core-build task 7.54, and a second mapping invented here ' +
-      'is exactly the drift DEC-1 § Shared profile source forbids.'
+      'an attached run needs a NAMED launch profile from the one shared config — it is what the ' +
+      "run's seats fall back to. The (harness, model) -> profile-name catalog (core-build task " +
+      '7.54) is BUILT and lives at launch-profiles/catalog.js; it is applied at the one shared ' +
+      'launch point (server/spawn/spawn.js#profileForSeatCast, ruling D19), so a seat that ' +
+      'declares a cast in its seat.md runs THAT rather than this name. A second mapping invented ' +
+      'here would still be the drift DEC-1 § Shared profile source forbids.'
     );
   }
 
@@ -907,6 +938,7 @@ async function executeAttached({
           goalFolder,
           profileName: profile,
           profile: spawnConfig.profiles[profile],
+          spawnProfiles: spawnConfig.profiles,   // D19 — so the seat's own cast can outrank this name
           tick: engine.getTickNumber(),
           now: now(),
           spawnForeground,

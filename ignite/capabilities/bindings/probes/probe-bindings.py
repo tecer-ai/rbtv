@@ -4,7 +4,7 @@
 NOTHING HERE TOUCHES THE LIVE BINDINGS TREE OR THE LIVE MIRROR. Every write lands under `tempfile`:
 the catalog is derived from a byte-copy of `ignite/config/spawn-profiles.yaml`, the casting sheets
 are written under a throwaway `--config-root`, and the one materialize exercise runs into a
-throwaway goal package with `--dry-run`. The live `.rbtv/config/bindings/` is read by nothing here.
+throwaway goal package with `--dry-run`. The live `.rbtv/config/modules/` is read by nothing here.
 
   1. THE CATALOG IS DERIVED, NOT REMEMBERED — re-pin a model in a COPY of spawn-profiles and the
      catalog follows it; delete a profile and it leaves. A catalog that answered from a frozen

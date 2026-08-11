@@ -29,6 +29,14 @@ const {
 } = require('./profiles');
 const { detectHostCapability, CAGED, PORTABLE } = require('./host');
 const { preflightPinnedFlags, pinnedFlagsOf, readHelp } = require('./preflight');
+const {
+  bindingOf,
+  catalogOf,
+  declaresBinding,
+  profileForBinding,
+  E_UNMAPPED_BINDING,
+  E_AMBIGUOUS_BINDING,
+} = require('./catalog');
 const errors = require('./errors');
 
 module.exports = {
@@ -48,6 +56,14 @@ module.exports = {
   preflightPinnedFlags,
   pinnedFlagsOf,
   readHelp,
+  // the (harness, model) -> profile-name catalog (task 7.54; owner ruling D19). ONE derivation,
+  // shared with `capabilities/bindings/tool/bindings.py#catalog` — see catalog.js's header.
+  bindingOf,
+  catalogOf,
+  declaresBinding,
+  profileForBinding,
+  E_UNMAPPED_BINDING,
+  E_AMBIGUOUS_BINDING,
   // vocabulary
   CLOSED_SLOTS,
   KNOWN_EFFORT_LEVELS,

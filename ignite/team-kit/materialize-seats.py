@@ -191,6 +191,7 @@ from goal_cli import (  # noqa: E402 — path bound just above
     load_catalogs,
     SECTION_RE,
     TOOLING_FINDING_BLOCK,
+    WRITE_IF_SOMETHING,
 )
 
 # ---------------------------------------------------------------- constants
@@ -380,6 +381,73 @@ CAGE_GRANTS = (
 CAGE_RW_COLUMN = "rw-paths"
 CAGE_GRANTS_COLUMN = "cage-grants"
 
+# ---- `goal-writes` — the seat's ONE declared output (owner ruling D9) ----
+#
+# `rw-paths` cannot express "let this seat write its own goal's goal.md": it
+# REFUSES every entry under `.rbtv/goals` by design, and rightly — that subtree
+# holds every sessions.csv and every seat.md. So the seat's actual work product
+# had no expressible grant at all, and the plan-interviewer discovered that
+# after a full night of interviewing, by meeting EROFS on the one file it
+# existed to produce (2026-08-09).
+#
+#   seats.csv:  goal-writes          "goal.md"
+#
+# ONE path, relative to the seat's own GOAL folder — not the workspace, which is
+# what `rw-paths` is relative to. Emitted as a one-item LIST so spawn.js reads it
+# with `seatDeclaresList`, the same reader `rw-paths` already goes through.
+CAGE_GOAL_WRITES_COLUMN = "goal-writes"
+
+# The cage template's home — the ignite config sibling of this team-kit,
+# resolved relative to THIS file exactly as goal_cli's tool dir is above.
+_SPAWN_PROFILES = Path(__file__).resolve().parent.parent / "config" / "spawn-profiles.yaml"
+
+# The template line the `goal-writes` declaration fills, and the two verbs that
+# open a path READ-WRITE. Both are cage.js's vocabulary (`RW_VERBS`), restated
+# here because the gate and the emitter sit on opposite sides of a language
+# boundary; the pair is four tokens and a drift in it turns a probe red rather
+# than opening a wall — see cage.js for the one definition that binds bwrap.
+_GOAL_WRITE_SLOT = "{grant:goalWrite}"
+_CAGE_RW_VERBS = ("bind", "bind-try")
+
+
+def _cage_rw_covers(rel: str) -> bool:
+    """True when the seat cage composes a READ-WRITE opening over `rel`, a path
+    relative to the goal folder.
+
+    THE GENERATION-TIME PREFLIGHT (owner ruling D13). Read out of
+    `config/spawn-profiles.yaml`'s `cage.SeatBinds` — the very list spawn.js
+    composes the sandbox from — so what a seat is told it may write and what the
+    kernel will actually let it write cannot drift into disagreeing. That
+    disagreement, with nothing anywhere comparing the two surfaces, is the whole
+    defect: sixteen seats carried a permissions block claiming a write the cage
+    denied, and the first one to run found out the hard way.
+
+    The reading is cage.js's own and must stay it: input order is output order,
+    and the LAST entry covering a path decides what that path IS — so a `tmpfs`
+    or a `ro-bind` placed after an opening takes it back. This is why the
+    ground-truth files need no list here: `sessions.csv` and `state.csv` are
+    covered only by the read-only goal floor, peer seat folders by the `seats`
+    tmpfs, and `seat.md` by its own ro carve, so each one answers False without
+    anybody restating it."""
+    binds = ((yaml.safe_load(_SPAWN_PROFILES.read_text(encoding="utf-8")) or {})
+             .get("cage") or {}).get("SeatBinds") or []
+    target = PurePosixPath(rel)
+    writable = False
+    for entry in binds:
+        verb, _, template = str(entry).partition(":")
+        if template == _GOAL_WRITE_SLOT:
+            covered = rel                      # the line THIS declaration fills
+        elif template.startswith("{goalDir}"):
+            covered = template[len("{goalDir}"):].lstrip("/")
+        else:
+            continue                           # not a goal-relative opening
+        if covered:
+            c = PurePosixPath(covered)
+            if target != c and c not in target.parents:
+                continue
+        writable = verb in _CAGE_RW_VERBS      # last one covering it wins
+    return writable
+
 
 def open_binding(seat: str, b: dict, package: Path) -> bool:
     """True when this seat's harness·model·effort triple is deliberately
@@ -471,6 +539,32 @@ def _cage_frontmatter(seat: str, seats_cat: dict) -> dict:
             )
     if rw:
         fm[CAGE_RW_COLUMN] = rw
+    declared = str(row.get(CAGE_GOAL_WRITES_COLUMN, "") or "").strip()
+    if declared:
+        parts = PurePosixPath(declared).parts
+        if PurePosixPath(declared).is_absolute() or ".." in parts:
+            raise Refuse(
+                "cage-goal-writes-shape",
+                f"seat '{seat}' declares goal-writes '{declared}' — the column "
+                "names ONE path RELATIVE TO THE SEAT'S OWN GOAL FOLDER (note: "
+                "not to the workspace, which is what rw-paths is relative to); "
+                "an absolute path, or one that climbs out with '..', is a grant "
+                "the cage cannot compose",
+            )
+        if not _cage_rw_covers(declared):
+            raise Refuse(
+                "cage-goal-writes-ungranted",
+                f"seat '{seat}' declares goal-writes '{declared}' but "
+                f"{_SPAWN_PROFILES.name}'s cage composes NO read-write opening "
+                "over it — materializing this seat would hand its occupant a "
+                "briefing that promises a write the kernel answers EROFS to, "
+                "which is exactly how the plan-interviewer lost a night's work "
+                "(2026-08-09). Ground truth is refused here by construction and "
+                "stays refused: sessions.csv and state.csv sit under the "
+                "read-only goal floor, another seat's folder under the seats "
+                "tmpfs, and seat.md under its own read-only carve",
+            )
+        fm[CAGE_GOAL_WRITES_COLUMN] = [declared]
     return fm
 
 # ---- pass-folder substitution (B4, B5, G-planner-0804-1502) ----
@@ -2219,6 +2313,23 @@ it.
 Why this file exists at all: a `claude` seat launched by the daemon receives `seat.md` in
 its system prompt and needs no pointer. Your harness has no such flag, so this pointer is
 the only thing that tells you the descriptor is there. Nothing else will.
+
+## Your standard surfaces — fixed names, so nothing has to be guessed
+
+| Surface | What goes there |
+|---------|-----------------|
+| `memory.md` — THIS folder | your dated working state: the half of your resume contract that is not `seat.md` |
+| {ledgers} — the GOAL folder | the five write-if-something ledgers. Every seat may append to all five; nothing obliges an entry |
+| the path `seat.md`'s `goal-writes` names | your role's ONE product in the goal folder. No `goal-writes` line means your role produces nothing there, and your work stays in THIS folder |
+| `downloads/` · `scratchpad/` · `outputs/` — THIS folder | fetched files · working scratch · finished artifacts |
+
+**The three folders do not exist yet — CREATE ONE THE FIRST TIME YOU NEED IT**, and do not
+create the others speculatively. The names are standard so that a human and the next
+sitting find your files where they expect them; three empty directories in every seat
+folder forever buy nothing the name alone does not.
+
+Never mint a fourth name for one of these, and never write inside another seat's folder —
+the cage makes peer seat folders ABSENT, so an attempt fails rather than lands.
 """
 
 # The forced-read preamble for rule exposure (d-materializer-seat-loaders;
@@ -2252,7 +2363,12 @@ def _write_seat_agents_md(folder: Path, seat: str, package: Path,
     `issues.md`, not the seat folder's: for a standing seat the two are the same folder,
     and for every other seat the goal's ledger is the one that exists."""
     target = folder / "AGENTS.md"
-    text = _SEAT_AGENTS_MD.format(seat=seat)
+    # The five ledger names come from goal_cli's ONE dictionary — the same one that
+    # creates the files and renders the goal router's table. Restating them here is
+    # how `gotchas.md` came to be scaffolded but named nowhere a seat reads.
+    text = _SEAT_AGENTS_MD.format(
+        seat=seat,
+        ledgers=" · ".join(f"`{f}`" for f in WRITE_IF_SOMETHING))
     if rules:
         text += _SEAT_RULES_BLOCK.format(rows="\n".join(
             f"- `.agents/behavior-rules/{pid}.md` — {desc}"
@@ -2594,6 +2710,72 @@ def _prompt_exposes(comp_dir: Path, executor: str, seat: str) -> dict:
     return out
 
 
+# The INTERACTIVE-SEAT injection (F5; owner rulings D11 + D15, 2026-08-10).
+# A seat the catalog marks `human-interactive:` gets extra SKILL parts folded
+# into its exposure set exactly as if its prompt frontmatter had declared them
+# — so the owner-facing etiquette a user-facing seat must follow arrives by
+# materialization instead of by nine remembered frontmatter edits.
+#
+# WHICH parts is INSTANCE policy and lives nowhere in this file: the list is
+# read from the workspace config convention `.rbtv/config/modules/<module>/
+# <component>/…` (D15) at this component's own address. Absent file, absent
+# `.rbtv/config`, or an empty list injects NOTHING — an install without the
+# convention renders byte-identically to before. A listed part that does not
+# resolve takes the ordinary `exposes-ref-dangling` refusal below, at
+# generation time, like any authored reference.
+INTERACTIVE_EXPOSES_REL = Path(
+    ".rbtv", "config", "modules", "ignite", "team-kit",
+    "interactive-exposes.json")
+
+
+def _interactive_expose_refs(comp_dir: Path) -> list[str]:
+    """The configured skill part refs for interactive seats — [] when the
+    workspace carries no such file. The workspace is DERIVED, never guessed:
+    the first ancestor holding a `.rbtv/config/` is the anchor (the same walk
+    `_rbtv_repo_root` does), and only THAT workspace's file is read, so a
+    grandparent tree can never leak its policy in."""
+    for parent in (comp_dir, *comp_dir.parents):
+        if not (parent / ".rbtv" / "config").is_dir():
+            continue
+        book = parent / INTERACTIVE_EXPOSES_REL
+        if not book.is_file():
+            return []
+        try:
+            refs = json.loads(book.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise Refuse(
+                "interactive-exposes-invalid",
+                f"the interactive-seat expose list is not readable JSON — "
+                f"{exc}",
+                str(book)) from exc
+        if not isinstance(refs, list) or not all(
+                isinstance(r, str) and r.strip() for r in refs):
+            raise Refuse(
+                "interactive-exposes-invalid",
+                "the interactive-seat expose list must be a JSON list of "
+                "part-ref strings (the `exposes:` reference grammar)",
+                str(book))
+        return [r.strip() for r in refs]
+    return []
+
+
+def _assembled_is_interactive(assembled: str) -> bool:
+    """Whether the seat's ASSEMBLED frontmatter declares `human-interactive:`
+    — the one marker the code already carries for "a human is on the other end"
+    (goal_cli#assemble_seat reads it off the prompt definition and passes it
+    through; see EMITTER_OWNED_KEYS). Tolerances match the daemon's reader
+    (`server/spawn/live-sessions.js`): `yes`/`true`, quoted or not."""
+    m = _FM_RE.match(assembled or "")
+    if not m:
+        return False
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError:
+        return False
+    val = fm.get("human-interactive") if isinstance(fm, dict) else None
+    return str(val).strip().strip('"').lower() in ("yes", "true")
+
+
 def _exposure_rows(comp_dir: Path) -> dict[str, dict]:
     """part-id -> exposure.csv row of ONE component ({} when no manifest).
 
@@ -2704,6 +2886,16 @@ def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
         srow = seats_cat.get(seat) or {}
         executor = (srow.get("prompt-id") or srow.get("executor") or "").strip()
         exposes = _prompt_exposes(comp_dir, executor, seat)
+        # F5: a user-facing seat's configured skill parts join its declared
+        # set here, BEFORE the gates below — an injected reference is held to
+        # exactly the same resolution, method and entry-point checks as an
+        # authored one, and nothing downstream can tell them apart.
+        if _assembled_is_interactive((plan.get("assembled") or {}).get(seat)):
+            extra = [r for r in _interactive_expose_refs(comp_dir)
+                     if r not in exposes.get("skill", [])]
+            if extra:
+                exposes = {**exposes,
+                           "skill": [*exposes.get("skill", []), *extra]}
         if not exposes:
             continue
         parts: list[tuple[str, str, dict, Path]] = []
@@ -3021,7 +3213,15 @@ def render_taskforce_rows(plan: dict) -> None:
         )
     else:
         text = tf_path.read_text(encoding="utf-8")
-    if not text.endswith("\n"):
+    # D-2: `if text` — a ZERO-BYTE registry is not an unterminated tail. It carries no partial
+    # trailing line to be unparseable, so diagnosing it as corruption sent the operator to repair
+    # a file that has nothing to repair. Empty now falls through to the header check, which names
+    # the header it lacks.
+    # ponytail: the empty file lands on `registry-header-drift`, not the `registry-absent` it
+    # reads like — `registry-absent` and `plan_package_creation` both gate on `is_file()`, so
+    # routing it there would print creation advice that cannot fire. Upgrade path: teach BOTH
+    # those `is_file()` tests to treat a zero-byte registry as absent, in one change.
+    if text and not text.endswith("\n"):
         raise Refuse(
             "registry-tail-unterminated",
             f"{TASKFORCE_NAME} does not end in a newline — a partial trailing "
@@ -3346,7 +3546,7 @@ EMITTER_OWNED_KEYS = frozenset((
     # the descriptor) — never via a binding — so a deliberate un-declaration
     # in the catalog must APPLY on --refresh, not refuse as hand-authored.
     "human-interactive", "fallback",
-    *CAGE_GRANTS, CAGE_RW_COLUMN,
+    *CAGE_GRANTS, CAGE_RW_COLUMN, CAGE_GOAL_WRITES_COLUMN,
     # The per-unit reference keys. The emitter still writes these for an
     # OLD-LAYOUT catalog (it carries the assembler's frontmatter through), and
     # stops for a whole-file one (`d-prompt-task-files` retired unit
@@ -6948,6 +7148,60 @@ def run_selftest() -> int:
               (pr_hi.stderr.strip()[:200]
                or after_hi.split("\n---", 1)[0][:300]))
         hi_prompt.write_text(hi_declared, encoding="utf-8")
+        # ── F5: the INTERACTIVE-SEAT expose injection ──────────────────────
+        # A seat marked human-interactive picks up the WORKSPACE-configured
+        # skill parts with nothing added to its own frontmatter, and an
+        # install carrying no such config renders BYTE-IDENTICALLY to before —
+        # the two halves of the acceptance criterion, proven against the same
+        # descriptor rather than against two counts of it.
+        (hi_comp / "references").mkdir(parents=True, exist_ok=True)
+        (hi_comp / "references" / "etq.md").write_text(
+            "# etq\n\nFixture etiquette reference.\n", encoding="utf-8")
+        (hi_comp / EXPOSURE_NAME).write_text(
+            "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+            "etq,reference,skill,,references/etq.md,fixture etiquette\n",
+            encoding="utf-8")
+        _invoke(["--package", str(hi_home)] + common_hi, clean_env)
+        base_hi = (hi_home / "seat.md").read_text(encoding="utf-8")
+        book = tmp_rf / INTERACTIVE_EXPOSES_REL
+        book.parent.mkdir(parents=True, exist_ok=True)
+        book.write_text(json.dumps(["hi-comp/etq"]) + "\n", encoding="utf-8")
+        pr_f5 = _invoke(["--package", str(hi_home)] + common_hi, clean_env)
+        inj_hi = (hi_home / "seat.md").read_text(encoding="utf-8")
+        loader = hi_home / ".claude" / "skills" / "etq" / "SKILL.md"
+        check("F5-ETQ: an interactive seat with the workspace config present "
+              "gets the configured skill part injected — it reaches the "
+              "emitted `exposes:` and mints its loader, with NOTHING declared "
+              "in the seat's own prompt frontmatter",
+              pr_f5.returncode == 0
+              and "hi-comp/etq" in (yaml.safe_load(
+                  inj_hi.split("\n---", 1)[0].lstrip("-\n")) or {}
+                  ).get("exposes", {}).get("skill", [])
+              and loader.is_file()
+              and str((hi_comp / "references" / "etq.md").resolve())
+              in loader.read_text(encoding="utf-8"),
+              (pr_f5.stderr.strip()[:200]
+               or inj_hi.split("\n---", 1)[0][:300]))
+        # The DISCRIMINATOR: the injection is keyed on the marker, not applied
+        # to every seat. exp-seat is not interactive and the same config is in
+        # place — without this arm, "inject into everything" passes too.
+        _invoke(["--package", str(home)] + common_r, clean_env)
+        check("F5-ETQ control: a NON-interactive seat gets no injection "
+              "while the "
+              "same config is present — the `human-interactive:` marker is "
+              "what keys it",
+              "etq" not in (Path(home) / "seat.md").read_text(
+                  encoding="utf-8").split("\n---", 1)[0],
+              (Path(home) / "seat.md").read_text(
+                  encoding="utf-8").split("\n---", 1)[0][:300])
+        book.unlink()
+        pr_f5o = _invoke(["--package", str(hi_home)] + common_hi, clean_env)
+        check("F5-ETQ: config ABSENT is a silent no-op — the descriptor is "
+              "byte-identical to the pre-config render, so an install without "
+              "the convention keeps today's behaviour exactly",
+              pr_f5o.returncode == 0
+              and (hi_home / "seat.md").read_text(encoding="utf-8") == base_hi,
+              (pr_f5o.stderr.strip()[:200] or "descriptor drifted"))
         # The manifest-comment control: browse/exposure.csv leads with a prose
         # header block, and a plain DictReader takes that line for the header —
         # every part-id then reads absent and the ref refuses as dangling.
@@ -7053,6 +7307,22 @@ def run_selftest() -> int:
               str(seat_home(Path(tmp_cg) / "goals" / "_exp-seat", "exp-seat"))
               == str(Path(tmp_cg) / "goals" / "_exp-seat"),
               str(seat_home(Path(tmp_cg) / "goals" / "_exp-seat", "exp-seat")))
+        # The generation-time preflight, asserted against the LIVE cage template
+        # rather than a fixture: the gate is worth exactly as much as its
+        # agreement with `config/spawn-profiles.yaml`, so this row goes red the
+        # day the ledger carve, the goal-writes line or the ground-truth carve
+        # leaves that file — which is the one way the gate could start passing
+        # seats the sandbox will refuse.
+        gw_writable = [*WRITE_IF_SOMETHING, "goal.md", "taskforce.csv"]
+        gw_refused = ["sessions.csv", "state.csv", "seats/peer/seat.md",
+                      "seats/peer/outputs/x.md"]
+        check("CG-1 green: the preflight reads the live cage template — the five "
+              "ledgers and a role's declared output are read-write, while the "
+              "identity ground truth and a peer seat's folder are NOT",
+              all(_cage_rw_covers(p) for p in gw_writable)
+              and not any(_cage_rw_covers(p) for p in gw_refused),
+              str([p for p in gw_writable if not _cage_rw_covers(p)])
+              + str([p for p in gw_refused if _cage_rw_covers(p)]))
         for bad, code in (
                 ("read-root ghost-grant,1-projects", "cage-grant-unknown"),
                 ("read-root,/abs/path", "cage-rw-path-absolute"),

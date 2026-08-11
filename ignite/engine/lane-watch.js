@@ -21,13 +21,19 @@
 // and "assigned to nobody" are deliberately not distinguished: neither is the daemon's business, and
 // a third state would be a state nothing reads.
 //
-// ⚠ THE FILE CARRIES A SECOND TOKEN — THE LAUNCH PROFILE — and it has to. Seeding needs a NAMED
-// profile from the one shared config (`DEC-1` § Shared profile source: this lane never composes or
-// derives one, exactly as `rbtv run --profile` never does), and there is no other honest place to
-// read it from: `taskforce.csv`'s harness/model columns are task 7.54's catalog, not a profile name.
-// Handing a goal to the daemon without saying what its seats run on is not a thing that can work, so
-// the CLI REFUSES `--set daemon` without `--profile`. A hand-written `daemon` with no profile is
-// therefore rare, and it warns rather than guessing.
+// ⚠ THE FILE CARRIES A SECOND TOKEN — THE LAUNCH PROFILE — and it still has to, though what the
+// token MEANS narrowed at ruling D19. Seeding needs a NAMED profile from the one shared config
+// (`DEC-1` § Shared profile source: this lane never composes or derives one, exactly as
+// `rbtv run --profile` never does). `taskforce.csv`'s harness/model columns are task 7.54's
+// catalog — which is now BUILT (`launch-profiles/catalog.js`) and applied at the single launch
+// point every lane shares (`server/spawn/spawn.js#profileForSeatCast`), so a seat that declares a
+// cast runs THAT, whichever profile this token names.
+//
+// The token is therefore the FALLBACK for seats that declare no cast, not the answer for all of
+// them — and it stays REQUIRED for exactly the same reason as before: handing a goal to the daemon
+// without saying what its uncast seats run on is not a thing that can work, so the CLI REFUSES
+// `--set daemon` without `--profile`. A hand-written `daemon` with no profile is therefore rare,
+// and it warns rather than guessing.
 //
 // WHAT THIS PASS IS NOT: a second seeding implementation. It decides WHICH goals, and calls
 // `engine.seedGoal` for each — the one seam (PRIN-11).

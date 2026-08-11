@@ -75,7 +75,7 @@ rbtv-ignite-watchdog,tool,path,,capabilities/daemon-watchdog/tool/rbtv-ignite-wa
 rbtv-goal-request,tool,path,,capabilities/goal-creation-request/tool/rbtv-goal-request,
 rbtv-goal,tool,path,rbtv goal,capabilities/goals-tree/tool/rbtv-goal,
 rbtv-goal-launch-delay,tool,path,,capabilities/goal-launch-delay/tool/rbtv-goal-launch-delay,"Read and change how long a master-created goal waits before its first workflow job fires — the --delay-seconds operand of the tools: goal-creation-request argv in spawn-profiles.yaml"
-rbtv-bindings,tool,path,,capabilities/bindings/tool/rbtv-bindings,"Author the casting sheet that turns a workflow into a taskforce — the per-seat harness/model/effort file materialize-seats.py reads as --bindings, at .rbtv/config/bindings/{module}/{component}/{code}.json"
+rbtv-bindings,tool,path,,capabilities/bindings/tool/rbtv-bindings,"Author the casting sheet that turns a workflow into a taskforce — the per-seat harness/model/effort file materialize-seats.py reads as --bindings, at .rbtv/config/modules/{module}/{component}/bindings/{code}.json"
 rbtv-master-profile,tool,path,,capabilities/master-profile/tool/rbtv-master-profile,"Read and change which harness+model the channel master's next sitting runs on — the master_profile field of .rbtv/config/chat-bridge-config.json, validated against the live profiles: set"
 rbtv-ignite-ticker,tool,path,rbtv ignite ticker,capabilities/ticker-settings/tool/rbtv-ignite-ticker,
 rbtv-seat-identity,tool,path,,server/seat-identity/rbtv-seat-identity,

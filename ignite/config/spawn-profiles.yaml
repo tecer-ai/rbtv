@@ -91,8 +91,10 @@ default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every s
 #                      artifacts are never masked — a seat may carry its own `.claude/`.
 #   gateway-env: true  NOT a mount — passes IGNITE_GATEWAY_ADDR into the session's environment
 #                      (a `--setenv`, composed beside these binds; no token, ever — the sender
-#                      token reaches a CLI from the workspace's gitignored `.rbtv/config/.env`,
-#                      read there by `cli/lib/config.js` resolveToken)
+#                      token reaches a CLI from the workspace's gitignored
+#                      `.rbtv/config/sender-token.env` — its OWN file since 7.566, because the
+#                      `.env` beside it holds third-party secrets and is MASKED in every seat
+#                      cage — read there by `cli/lib/config.js` resolveToken)
 #   rw-paths:          a BLOCK LIST of workspace-relative paths bound READ-WRITE (owner ruling
 #                      "a", 2026-08-06). The generic answer to an in-workspace CLI that must
 #                      rewrite its own state under the `read-root` floor — the motivating case
@@ -126,6 +128,41 @@ cage:
     - "ro-bind:{grant:readRoot}"
     # READ the goal's own record — decisions.md, issues.md, doubts.md.
     - "ro-bind:{goalDir}"
+    # THE FIVE WRITE-IF-SOMETHING LEDGERS, READ-WRITE (owner ruling D2/D9, 2026-08-10). The goal
+    # folder above is read-only, so until now a seat that hit a defect could not file it: the
+    # router told every seat "a tooling gap goes in issues.md", the cage answered EROFS, and the
+    # finding went to the message bus where nothing collected it (the plan-interviewer session,
+    # 2026-08-09). Five literal lines rather than one wider opening — the goal root also holds
+    # `sessions.csv`, `state.csv`, `taskforce.csv` and `goal.md`, and those stay under the ro floor.
+    # ⚠ APPEND-ONLY IS THE INTENT, READ-WRITE IS THE GRANT: bwrap has no append-only mount, so the
+    # bound is the FILE SET, not the operation. The five names are goal_cli.py's
+    # `WRITE_IF_SOMETHING` keys — the same dictionary that creates them and renders the router
+    # table that sends seats here. `bind-try` (not `bind`): a goal folder missing one of the five
+    # must lose that ledger, never fail to spawn.
+    - "bind-try:{goalDir}/issues.md"
+    - "bind-try:{goalDir}/decisions.md"
+    - "bind-try:{goalDir}/doubts.md"
+    - "bind-try:{goalDir}/gotchas.md"
+    - "bind-try:{goalDir}/ideas.md"
+    # GOAL-WRITES grant (owner ruling D9): the ONE goal-folder path this seat's role PRODUCES —
+    # the interviewer's `goal.md`, the structurer's `milestones.csv`. Declared in the seat
+    # catalogue's `goal-writes` column, emitted by `team-kit/materialize-seats.py` into seat.md's
+    # frontmatter (ro-bound inside the cage, so an occupant cannot widen it), and refused at
+    # MATERIALIZATION if this template would not open it read-write — the generation-time preflight
+    # reads THIS list to decide, so the gate and the wall can never disagree.
+    # ⚠ Ground truth stays refused by ORDER, not by a second list: `sessions.csv`/`state.csv` are
+    # covered only by the ro floor above, peer seat folders by the tmpfs below, and `seat.md` by its
+    # own ro carve — so a declaration naming any of them is not RW-covered and the gate refuses it.
+    - "bind-try:{grant:goalWrite}"
+    # …and the CARVE that makes the line above safe, in the same shape the goalsWrite grant's
+    # `goalsWriteGroundTruth` carve takes: the two GOAL-ROOT files no seat may ever rewrite, back
+    # to read-only IMMEDIATELY AFTER the opening that could otherwise have covered them. Order is
+    # the whole mechanism — a declaration naming either one composes to an opening this line then
+    # takes back, so the preflight above computes `not writable` and refuses to materialize it.
+    # ⚠ `taskforce.csv` is deliberately NOT carved: appending its rows is the binder seat's actual
+    # role output, and it is the materializer's surface, not the identity gate's ground truth.
+    - "ro-bind-try:{goalDir}/sessions.csv"
+    - "ro-bind-try:{goalDir}/state.csv"
     # ⚠ 7.607 E2b: `tmpfs:{goalDir}/runs` and `ro-bind:{runDir}` are DELETED with the run layer
     # (design-lock item 8 — the package IS the goal folder). The `{runDir}` SLOT is retired with
     # them, and so is `spawn.js#composeCageFor`'s mkdir of the runs mountpoint (E2a §5.1: with
@@ -1077,7 +1114,7 @@ tools:
   # satisfied for `planning`, and the three
   # values named here as unresolved are RULED and landed: the call shape is the WHOLE planning DAG
   # (`--workflow planning --root`, 16 manifest seats, entry seat `plan-interviewer`), the bindings file is
-  # the workflow's ONE casting sheet at `.rbtv/config/bindings/meta/planning/plan.json`, and the
+  # the workflow's ONE casting sheet at `.rbtv/config/modules/meta/planning/bindings/plan.json`, and the
   # fresh goal's package IS ITS GOAL FOLDER (7.607 E2b, design-lock item 8 — `runs/run-1` is
   # extinguished), created by this same act and riding the queued row's args as a whole token.
   #
@@ -1116,7 +1153,7 @@ tools:
       - --catalog-root
       - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta/
       - --bindings
-      - /home/henri/ht-wkdir/second-brain/.rbtv/config/bindings/meta/planning/plan.json
+      - /home/henri/ht-wkdir/second-brain/.rbtv/config/modules/meta/planning/bindings/plan.json
       # The OWNER-APPROVED starter set, shipped with the team-kit beside `conduct-template.md`.
       # ⚠ NOT `conduct-template.md` ITSELF — that file is an UNFILLED FORM whose own first lines say
       # a run's conduct-author instantiates it "filling every {{slot}}", and `--conduct` BYTE-COPIES.
