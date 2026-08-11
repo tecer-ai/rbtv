@@ -25,9 +25,6 @@ const TICKER_SETTINGS = path.join(
 const ATTACHED_EXECUTION = path.join(
   RBTV_ROOT, 'ignite', 'capabilities', 'attached-execution', 'tool', 'rbtv-execution',
 );
-const WATCH_OPERATOR = path.join(
-  RBTV_ROOT, 'ignite', 'capabilities', 'watch-operator', 'tool', 'rbtv-ignite-watch',
-);
 const TEAMBUILD = path.join(
   RBTV_ROOT, 'core', 'capabilities', 'teambuild', 'tool', 'rbtv-teambuild',
 );
@@ -45,13 +42,6 @@ const TICKER_VERBS = ['show', 'set-interval', 'history', 'selftest'];
 // dead. No field appears in both, which is the only reason PRIN-11 is satisfied.
 const DAEMON_VERBS = ['start', 'restart', 'stop', 'kill', 'unit', 'selftest'];
 
-// The watch loop is the fourth ignite service and the ONLY one with no fixed unit: its unit is
-// transient and derived from a RUN PACKAGE, so it takes its own namespace rather than a
-// `--service` row on the daemon route. `heartbeat-set` is the WATCH loop's pass cadence — NOT the
-// ticker's `set-interval`, which lives on the route above and is a different object entirely.
-const WATCH_VERBS = [
-  'unit', 'start', 'restart', 'stop', 'kill', 'heartbeat-show', 'heartbeat-set', 'selftest',
-];
 
 // The gateway client's own command set. Kept here ONLY to route and to prove
 // disjointness; the client remains the single source of truth for its behaviour
@@ -86,13 +76,6 @@ const ROUTES = [
     exec: 'direct',
     verbs: TICKER_VERBS,
     summary: 'ignite tick cadence — show/set-interval/history (edits settings.json; takes effect at the next daemon restart)',
-  },
-  {
-    prefix: ['ignite', 'watch'],
-    target: WATCH_OPERATOR,
-    exec: 'direct',
-    verbs: WATCH_VERBS,
-    summary: 'ignite watch loop — power verbs for a RUN\'s transient watch unit, and its pass cadence (heartbeat-set; NOT the ticker\'s set-interval)',
   },
   {
     prefix: ['ignite'],
@@ -155,8 +138,6 @@ module.exports = {
   GATEWAY_CLIENT,
   GOALS_TREE,
   DAEMON_VERBS,
-  WATCH_OPERATOR,
-  WATCH_VERBS,
   GATEWAY_COMMANDS,
   GOAL_VERBS,
   TEAMBUILD,

@@ -78,11 +78,9 @@ rbtv-goal-launch-delay,tool,path,,capabilities/goal-launch-delay/tool/rbtv-goal-
 rbtv-bindings,tool,path,,capabilities/bindings/tool/rbtv-bindings,"Author the casting sheet that turns a workflow into a taskforce — the per-seat harness/model/effort file materialize-seats.py reads as --bindings, at .rbtv/config/bindings/{module}/{component}/{code}.json"
 rbtv-master-profile,tool,path,,capabilities/master-profile/tool/rbtv-master-profile,"Read and change which harness+model the channel master's next sitting runs on — the master_profile field of .rbtv/config/chat-bridge-config.json, validated against the live profiles: set"
 rbtv-ignite-ticker,tool,path,rbtv ignite ticker,capabilities/ticker-settings/tool/rbtv-ignite-ticker,
-rbtv-ignite-watch,tool,path,rbtv ignite watch,capabilities/watch-operator/tool/rbtv-ignite-watch,
 rbtv-seat-identity,tool,path,,server/seat-identity/rbtv-seat-identity,
 ignite-cli,tool,path,rbtv ignite,cli/ignite.js,
 coordinate,tool,path,,team-kit/coord.py,
-team-kit-watch,tool,path,,team-kit/watch.py,
 floor-lint,tool,path,,team-kit/floor-lint.py,
 materialize-seats,tool,path,,team-kit/materialize-seats.py,
 worktree-flow,tool,path,,team-kit/worktree-flow.py,

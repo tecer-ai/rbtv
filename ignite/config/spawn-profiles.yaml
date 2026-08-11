@@ -722,7 +722,8 @@ tools:
       # 2026-07-27, so a fire would have booted the recovery seat into a closed run's package
       # while the job's own status kept reading healthy. Swapping in run-3 reproduces that defect
       # at the next run close; naming the GOAL and deriving the lease at fire time does not. Same
-      # remedy and same shape as the live `selfheal-watch` entry below — resolved through
+      # remedy and same shape as the `selfheal-watch` entry that used to sit below (deleted
+      # with `watch.py`, task 7.35) — resolved through
       # coord.derive_lease (7.607: liveness computed from live evidence — the goal's room and
       # verified seat processes; no stored register), which REFUSES on unreadable or ambiguous
       # evidence rather than guessing.
@@ -769,122 +770,7 @@ tools:
       - --coord
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
 
-  # ── task 7.72 (issues.md G-2) — watch-heartbeat freshness + relaunch ──────
-  # LIVE target: the run's only sensor. A heartbeat is TWO facts — the timestamp AND that
-  # its stated pid is a live watch.py (p-heartbeat-is-two-facts). Tolerance 3 matches
-  # coord.watcher_heartbeat()'s three-missed-passes judgement, so the job and `coordinate workers`
-  # never disagree about the same file. Refuses to double-start.
-  selfheal-watch:
-    argv:
-      - /usr/bin/python3
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-watch.py
-      # ⚠ THIS ENTRY DELIBERATELY NAMES NO RUN — task 7.117, leader ruling on ask #204
-      # (`issues.md` G-305/G-318). It used to pin one run's package explicitly, and that run had
-      # CLOSED days earlier: a fire would have relaunched a sensor against a closed run's package
-      # while the self-heal's own status kept reading healthy. That is the cadence lesson one field
-      # over — a run number in an argv is a HOME IN WAITING, and it goes stale the moment that run
-      # closes. ⚠ THIS COMMENT THEREFORE NAMES NO RUN EITHER, deliberately: a run number in prose
-      # is a home in waiting too, and it drifts in silence because nothing consumes it.
-      # Re-pinning it to the then-live run would have reproduced the defect at the very next close,
-      # so the target is now RESOLVED rather than pinned: `--goal` names the GOAL, and
-      # `selfheal-watch.py` asks `coord.derive_lease()` AT FIRE TIME whether the goal is
-      # executing (7.607: live evidence — the goal's room + verified seat processes; the run
-      # register is extinguished). There is no value left here to go stale. The lease REFUSES on
-      # unreadable or ambiguous evidence rather than guessing, so a broken reading produces a
-      # loud non-zero exit, never a silently wrong target.
-      - --goal
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp
-      - --coord
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
-      - --watch-py
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/watch.py
-      - --notify
-      # ⚠ THIS ENTRY DELIBERATELY NAMES NO CADENCE VALUE — task 7.112, ruling `r-watch-loop-30s`.
-      # It used to pass `--loop "10"`, and that is the FLOOR'S LESSON ONE FIELD OVER: a number in an
-      # argv is a HOME IN WAITING. The cadence's normative home is the run's budget.json
-      # (`cadence.watch_loop_max_seconds`); `selfheal-watch.py` now relaunches with a valueless
-      # `--loop-forever` and `watch.py` reads the declaration. A recovery path holding no number
-      # cannot resurrect a sensor at a cadence nobody ruled.
-      # The relaunch must reproduce the sensor's OWN invocation, whatever that invocation is:
-      # a self-heal that silently dropped a flag would resurrect a WEAKER sensor than the one
-      # that died, and the run would never notice the downgrade (G-42).
-      # ⚠ THIS COMMENT DELIBERATELY NAMES NO FLOOR VALUE. It used to quote one, and a number in
-      # prose is a HOME IN WAITING — it drifts silently because nothing consumes it, and the
-      # argument above never needed it. The floor's normative home is the run's budget.json.
-      #
-      # NOTIFY ROUTING — the G-42 argument above, fired for real (issue G-leader-0805-0120).
-      # This entry carried NO --watch-arg at all, so the relaunch produced
-      # `--package/--notify/--loop-forever` and nothing else. Both routing flags then fall to
-      # watch.py's own `leader` default, and a flag whose SUBJECT is the leader has the leader as
-      # its only recipient — the messaging layer refuses it, silently. That is not hypothetical:
-      # 7 leader-subject flags died that way between 2026-07-30 and 08-03, and on 08-05 01:17:59
-      # this job raced a manual restart and did relaunch a flag-less loop (caught by the run's
-      # operational-recovery seat — a role RETIRED since, `decisions.md#d-watcher-deterministic-
-      # chain`; the catch is the history, the role names nothing live). The comment above
-      # already stated the rule this argv
-      # was breaking. These four items reproduce the live sensor's invocation, verified against
-      # the running loop's /proc cmdline and the run seed's canonical command, which agree.
-      # ⚠ ROLE NAME, NOT A POLICY VALUE: `leader` is a fixed seat of the run system, present in
-      # every run — it is not a number, not a cadence, and not a floor, so the home-in-waiting
-      # argument above does NOT apply to it. What WOULD be a home in waiting is a run id or a
-      # pane, and neither appears here.
-      # ⚠⚠ THE `--notify-fallback` PAIR WAS DELETED HERE (r11 Stage 0, ruling
-      # `decisions.md#d-watcher-deterministic-chain`, 2026-08-08). It named the RETIRED
-      # operational-recovery role, and a fallback pointing at a role that no longer exists is a
-      # flag addressed to nobody. Deleting it is safe TODAY because this entry's queue row is
-      # DISARMED — it cannot fire — and because the landmine was unreachable but present.
-      # ⚠ WHAT THE DELETION LEAVES OPEN, STATED RATHER THAN LEFT TO BE DISCOVERED: `watch.py`
-      # defaults BOTH `--notify-to` and `--notify-fallback` to `leader`, and its own rule is that
-      # a flag whose SUBJECT is `--notify-to` is diverted to the fallback. With both resolving to
-      # `leader`, a LEADER-SUBJECT flag diverts to the leader itself and the messaging layer drops
-      # it silently — the exact defect G-leader-0805-0120 recorded (7 flags lost 07-30..08-03).
-      # A successor recipient above the leader is `master`/owner per the ruling's chain, and no
-      # such SEAT exists in a run roster, so naming one here would substitute a dead address for
-      # a dead role. This is therefore RE-ARM-GATED: before this row is ever armed again, either
-      # watch.py's divert target is ruled, or this entry names a live one. Do not arm it blind.
-      # ⚠ THE `=` IS LOad-BEARING, NOT STYLE. `--watch-arg --notify-to` as two items makes argparse
-      # read `--notify-to` as the NEXT FLAG, not as a value ("expected one argument"), and the job
-      # would then die at parse time on every fire — a self-heal that cannot start is worse than the
-      # silent-drop it was fixed to prevent. The split form was written here first and the dry-run
-      # is what caught it. Any future passthrough of a dash-leading argument uses `=` too.
-      - --watch-arg=--notify-to
-      - --watch-arg=leader
-      - --budget-s
-      - "120"
 
-  # THROWAWAY twin: a scratch package with its own heartbeat and its own watch.py.
-  # No --notify: a throwaway watcher must never inject traffic into the live room.
-  #
-  # ⚠ THIS ENTRY KEEPS AN EXPLICIT `--package` AND MUST NEVER RESOLVE LIVE (task 7.117, leader
-  # ruling (b) on ask #204). `--package` is the EXPLICIT OVERRIDE, so naming it here means this
-  # entry never enters the resolving branch at all. That is the whole point: a THROWAWAY watcher
-  # resolved onto the LIVE run would inject throwaway state into the live room, which this entry's
-  # own `--notify` omission above exists to prevent and which C4 forbids outright.
-  # THE CLOSED-RUN SEGMENT IN THE PATH BELOW IS DELIBERATE AND IS NOT A STALE PIN. It is a scratch
-  # fixture inside a CLOSED run, and a closed run is the STABLE place for one precisely because
-  # nothing rewrites closed-run history. Relocating it into the live run was considered and RULED
-  # AGAINST: it buys nothing and puts throwaway state where C4 has to reason about it.
-  # So the absence-of-run-numbers property is the LIVE entry's, not this one's.
-  # ⚠ AND THIS ENTRY DELIBERATELY CARRIES NO `--goal` / `--coord`. Were they here, a later hand
-  # dropping `--package` would leave a throwaway job silently resolving onto the LIVE run — the
-  # exact C4 breach above. Without them it REFUSES with a non-zero exit instead. Fail closed.
-  selfheal-watch-throwaway:
-    argv:
-      - /usr/bin/python3
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-watch.py
-      - --package
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/seats/jobs-builder/throwaway/pkg-watch
-      - --watch-py
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/watch.py
-      # The SAME passthrough as the live entry, and it is not cosmetic: the relaunch path is
-      # only ever exercised by this twin (the live entry no-ops while the sensor is healthy),
-      # so without these the staged-failure probe would run an argv that does not contain the
-      # thing being proved. Integrator's catch, #303.
-      # ⚠ SO THE CADENCE ARGV LEFT THIS ENTRY IN THE SAME ACT AS THE LIVE ONE (task 7.112). By the
-      # argument directly above, moving only one would have left the probe proving an argv nobody
-      # runs — the twin must keep matching the live entry, including in what it no longer carries.
-      - --budget-s
-      - "120"
 
   # ── task 7.32 (settle ledger R24/R32) — the goal-watcher-job ───────────────
   # STAGED DAEMON EXPOSURE (leader #628, integrator note — the only lines here NOT authored by

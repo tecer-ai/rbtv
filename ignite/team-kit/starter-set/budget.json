@@ -17,13 +17,6 @@
   "tmp_free_warn_mb": 512,
   "_tmp_free_warn_scope": "LABELED TREND ONLY — never a gate, never a detector. statvfs is PROVEN blind to the quota edge (EDQUOT at 1 KB while df read hundreds of MB free), so this number can only say 'the filesystem is filling', never 'the box is usable'. The BINDING probe is the gauge's own small canary write, a code-side constant deliberately decoupled from this floor. Its HOME since task 7.35 is the surviving sensor — team_monitor.tmp_canary_write (orchestration/cli/team-monitor/team_monitor.py), published on every snapshot as box.tmp_quota; it moved there from the retired watch.py, and ignite/jobs/probes/probe-team-monitor-homings.py pins all three of its outcomes."
  },
- "cadence": {
-  "watch_loop_max_seconds": 30,
-  "ruling": "r-watch-loop-30s — owner, 2026-07-30.",
-  "_scope": "A CEILING — the maximum interval of the watch layer's pass cadence, in seconds. Deliberately its OWN section: not a cap (a count of panes), not a floor (an MB threshold an act is refused or flagged at). A third kind of number never borrows another kind's slot.",
-  "_read_never_copied": "Same doctrine as floors: a consumer READS this field, never carries the value in argv, env, or prose.",
-  "_interim_overshoot": "⚠ DISCLOSED, NEVER NORMALIZED: watch.py's --loop is integer MINUTES, so no invocation satisfies 30s today and the interim loop runs at --loop 1 = 60s — 2x this ceiling, breach-by-necessity. Ends when the seconds-granular change lands; from that moment the running tool binds at 30. A run inheriting this file inherits the disclosure, not a licence."
- },
  "job_fire": {
   "interval_seconds": 30,
   "ruling": "r-job-fire-interval-30s — owner, 2026-07-30.",

@@ -17,13 +17,6 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
 - **`daemon-operator/`** — the ignite OPERATOR surface: local systemd USER unit ops (`start` /
   `restart` / `stop` / `kill` / `unit`) that work precisely when the daemon is DOWN. Contract:
   `capabilities/daemon-operator/daemon-operator.md`.
-- **`watch-operator/`** — the WATCH-LOOP operator surface: the same power verbs plus the loop's
-  pass cadence (`heartbeat-set`), against a RUN's TRANSIENT unit rather than a fixed one. Its own
-  capability because the target is a run PACKAGE and the unit name is derived from it, so every
-  verb resolves WHICH run first (and refuses rather than guessing). It delegates
-  `unit`/`restart`/`stop`/`kill` back to `daemon-operator`. ⚠ `heartbeat-set` is the WATCH loop's
-  cadence, NEVER the ticker's `set-interval`. Contract:
-  `capabilities/watch-operator/watch-operator.md`.
 - **`goals-tree/`** — the goals-tree machinery (`scaffold` / `reindex` / `lint` / `materialize` /
   `lane` — the last being the DAEMON'S PICKUP BUTTON: one word in `<goal>/execution-lane` that the
   daemon's watch pass reads before every tick, `d-daemon-lane-button`).

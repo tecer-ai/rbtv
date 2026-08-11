@@ -84,12 +84,6 @@ entries below cite.
   charter in `watch.py` (beside its PROP-11 loop) is the source; this bullet must not drift from it.
   Context is measurable for claude-harness seats only — codex/opencode seats
   get liveness/inactivity/approval watching.
-  **Something must watch the watcher (P32).** The loop is detached, so its death produces no
-  signal — a dead watcher and a healthy quiet run look identical. Every pass stamps
-  `coordination/watch-heartbeat.json` and `workers` reports the watcher `ok` or `STALE`; leader
-  checks that line at every drain, and restarts the loop on STALE. On a long AFK run, add the
-  redundancy the single sentinel cannot give itself: a second watcher seat on a different cadence,
-  or the deputy running one `watch.py` pass by hand at each of its own checkpoints.
 - **Harness note.** codex and opencode seats follow this protocol in full — their loaders
   (`AGENTS.md` in the seat folder) point them here. They have no `/rename`; their identity lives
   in the pane/window title. Wakes reach them as terminal input like any pane.
