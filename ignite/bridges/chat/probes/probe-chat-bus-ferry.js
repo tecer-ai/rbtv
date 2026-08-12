@@ -131,7 +131,13 @@ function makeBridge({ workspaceRoot, stateFile = null, busFerry = true, busFerry
     makeTransport: () => slack,
     forwarderImpl: makeFakeForwarder(),
     replyLegOptions: { pollMs: 3600000 },
-    busFerryOptions: { pollMs: 3600000, ...busFerryOptions }, // driven by hand via tick()
+    // ⚑ THE AGENT-THREAD LEG IS UNWIRED HERE, DELIBERATELY (2026-08-12). These arms are about
+    // PARSING, TRUNCATION, RETRY and CURSORS — the ferry's DM leg is simply the surface they
+    // measure them on, and `routeToAgentThread: null` is the documented unwired configuration
+    // (bus-ferry.js § routeToAgentThread), not a bypass. Wired, every one of them would now
+    // measure the goal-channel routing instead: since the no-channel DM fallback was removed a
+    // channel-less goal holds its rows, and `probe-chat-agent-thread` is where that claim lives.
+    busFerryOptions: { pollMs: 3600000, routeToAgentThread: null, ...busFerryOptions }, // driven by hand via tick()
   });
   return { ...built, slack, config };
 }
@@ -467,81 +473,44 @@ async function main() {
       { def: { busFerry: def.busFerry, dm: def.busFerryDmUser }, on: on.busFerryDmUser, explicit: explicit.busFerryDmUser });
   }
 
-  // 11 — THE OWNER LEG'S DM HALF (owner ruling 2026-08-07, retargeted to `to: owner` by
-  //      `d-agents-address-owner-not-master`): when the goal has NO Slack channel the row still
-  //      reaches the owner's DM, that post's own thread is MINTED as a sitting, and the owner's
-  //      un-mentioned reply CONTINUES it — so the sitting holds the bus row that opened its
-  //      thread. (The roster stand-down and holder-name legs that used to open this arm are GONE
-  //      with the machinery they tested: the ferry no longer reads `workers.md`, no longer reads
-  //      `relays:`, and never carries `master` at all. Arm 3b above is what replaced them.)
+  // 11 — THE DM LEG MINTS NOTHING (owner ruling 2026-08-12). The arm that stood here asserted
+  //      the opposite: a channel-less goal's row reached the DM and that post's own thread was
+  //      MINTED as a channel-master sitting with the row as its prompt. Both halves are gone —
+  //      the fallback (bus-ferry.js) and the mint (chat-bridge.js `routeBusRowToMaster`) — because
+  //      together they had the channel master ANSWER a question an agent addressed to the human
+  //      (`meeting-digest`, 02:13 UTC). What a channel-less goal does now is measured in
+  //      `probe-chat-agent-thread` arm 5, which owns every routing-surface claim; what is measured
+  //      HERE is only that the DM leg, when it is the one that runs, seats nobody.
   {
-    // NO GOAL CHANNEL → the DM post MINTS a sitting, and the owner's un-mentioned reply in that
-    // thread CONTINUES it as a follow-up. This is the Slack transcript defect: the sitting must
-    // hold the bus row that opened its thread.
-    const root2 = mkroot();
-    const { file: file2 } = seedGoal(root2, 'goal-s', '2026-08-03a', { backlogRows: 1 });
+    const root = mkroot();
+    const { file } = seedGoal(root, 'goal-s', '2026-08-03a', { backlogRows: 1 });
     const forwards = [];
-    // The minted session-create's queue row is 7; its session is live on chain thread
-    // `exec-7`, so the follow-up's chain resolution (thread-map tier 1) succeeds and the
-    // reply leg below asserts the FULL path rather than a decline.
     const spyForwarder = {
       async forward(intent, payload) { forwards.push({ intent, payload }); return { ok: true, result: { jobId: 7 } }; },
-      async inspect() {
-        return { ok: true, result: { live_sessions: [{ queue_id: 7, exec_id: 7, thread: 'exec-7' }], recent_ticks: [] } };
-      },
+      async inspect() { return { ok: true, result: { live_sessions: [], recent_ticks: [] } }; },
     };
     const slack2 = makeFakeSlack();
     const b2 = buildBridge({
       gatewayAddr: '127.0.0.1:0', bridgeToken: 'stub', sessionJobId: 'chat-launch',
       sessionProfile: 'p', sendMessageJobId: 'send-message', workdir: null,
-      workspaceRoot: root2, channelPrefix: 'test-', stateFile: null, busFerry: true,
+      workspaceRoot: root, channelPrefix: 'test-', stateFile: null, busFerry: true,
       busFerryDmUser: USER, allowlist: [USER],
       slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
     }, {
       logger: () => {}, makeTransport: () => slack2, forwarderImpl: spyForwarder,
-      replyLegOptions: { pollMs: 3600000 }, busFerryOptions: { pollMs: 3600000 },
+      replyLegOptions: { pollMs: 3600000 },
+      busFerryOptions: { pollMs: 3600000, routeToAgentThread: null },
     });
     await b2.bridge.start();
     await b2.bridge.busFerry.tick();
-    append(file2, msgRow(2, 'leader', 'owner', 'note', 'the owner-review doc is ready'));
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'the owner-review doc is ready'));
     await b2.bridge.busFerry.tick();
-
-    const rowText = slack2.posted[0] && slack2.posted[0].text;
-    const minted = `${DM}:1.0`;                          // the fake's post ts
-    const create = forwards.find((f) => f.payload && f.payload.job_id === 'chat-launch');
-    check('with NO goal channel the row is posted to the DM AND mints a channel-master session-create',
-      slack2.posted.length === 1 && Boolean(create) && create.intent === 'enqueue-job',
-      { posted: slack2.posted.length, forwards: forwards.map((f) => f.payload && f.payload.job_id) });
-    // NARROWED 2026-08-07 (owner amendment `r-bare-prompt-admits-one-correlation-id`): the
-    // prompt may carry ONE leading `chat-thread: <channel>:<ts>` line — the sitting's own
-    // thread, so it can stamp a bus relay with where the answer belongs. Behind that line the
-    // row must STILL be byte-identical: no second rendering, no charter.
-    const CORRELATION_PREFIX = /^chat-thread: [A-Z][A-Z0-9_]{2,}(?::\d+\.\d+)?\n\n/;
-    const mintedPrompt = create && String(create.payload.args.prompt);
-    check('the minted session-create prompt IS the posted row byte-for-byte, behind at most the one correlation line',
-      Boolean(create) && mintedPrompt.replace(CORRELATION_PREFIX, '') === rowText,
-      { prompt: mintedPrompt, posted: rowText });
-    check('and that correlation line names the thread the sitting was minted on',
-      Boolean(create) && mintedPrompt.startsWith(`chat-thread: ${minted}\n\n`),
-      { prompt: mintedPrompt, minted });
-    check('the ferry post is now a CONVERSATION keyed on its own ts — the owner can reply into it',
-      b2.threadMap.has(minted), { minted, mapped: b2.threadMap.has(minted) });
-
-    // THE REPRO: an un-mentioned DM reply inside the minted thread. Before this change the
-    // thread was unknown, so it minted a SECOND session that had never seen the bus row.
-    const before = forwards.length;
-    await b2.bridge.onChatMessage({
-      chatUserId: USER, chatThreadId: minted, text: 'anybody there?',
-      _channel: DM, _channelType: 'im', _threadTs: '1.0', _msgTs: '2.0', _inThread: true,
-    });
-    const after = forwards.slice(before);
-    check("the owner's reply in that thread CONTINUES the sitting — send-message on the row's own chain, never a second session",
-      after.length === 1 && after[0].payload.job_id === 'send-message'
-      && after[0].payload.args.thread === 'exec-7'
-      && after[0].payload.args.corpus === 'anybody there?',
-      { jobs: after.map((f) => f.payload && f.payload.job_id), thread: after[0] && after[0].payload.args.thread });
+    check('the DM leg posts the row VERBATIM and mints NOTHING — no session-create rides a bare owner-addressed row any more',
+      slack2.posted.length === 1
+      && slack2.posted[0].text === '*bus \u2192 you* \u2014 goal-s/2026-08-03a \u00b7 from leader \u00b7 note \u00b7 #2\nthe owner-review doc is ready'
+      && forwards.length === 0,
+      { posted: slack2.posted.map((p) => p.text.split('\n')[0]), forwards: forwards.map((f) => f.payload && f.payload.job_id) });
     b2.bridge.stop();
-
   }
 
   // 9 (7.546) — BORN-WATCHED. The first-sight rule protects a run's HISTORY, and a run this
@@ -626,7 +595,10 @@ async function main() {
     }, {
       logger: () => {}, makeTransport: () => slack, forwarderImpl: spy,
       replyLegOptions: { pollMs: 3600000 },
-      busFerryOptions: { pollMs: 3600000, watchDebounceMs: 50 },
+      // The agent-thread leg unwired, `makeBridge`'s reason verbatim: this arm measures the WATCH
+      // and the `[deliver:]` disposition at a named thread, and its first row is a plain DM post
+      // whose `ts` the three token rows below address.
+      busFerryOptions: { pollMs: 3600000, watchDebounceMs: 50, routeToAgentThread: null },
     });
     await b.bridge.start();
     check('start() arms a watcher on the goals root AND on the goal\'s coordination dir',

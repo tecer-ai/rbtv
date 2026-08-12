@@ -44,7 +44,11 @@ function makeFakeSlack() {
   const posted = [];
   let nextId = 1;
   let nextTs = 1;
-  return {
+  let failLists = 0;
+  // `lists` counts the conversations.list walks: "the bridge re-asked Slack on a map miss" is a
+  // CALL, and a check that only reads the outcome cannot tell a re-resolution from a lucky cache.
+  const counter = {
+    lists: 0,
     channels, posted,
     postsIn(channel) { return posted.filter((p) => p.channel === channel); },
     async authTest() { return { ok: true, userId: BOT }; },
@@ -55,7 +59,12 @@ function makeFakeSlack() {
       channels.push(ch);
       return { ok: true, channel: { id: ch.id, name: ch.name } };
     },
+    // A Slack API failure on the LOOKUP, which is a different fact from "the channel is not
+    // there" — and the only way to drive `resolve-failed` through the real code path.
+    failNextLists(n) { failLists = n; },
     async listChannels({ excludeArchived = true } = {}) {
+      counter.lists += 1;
+      if (failLists > 0) { failLists -= 1; return { ok: false, error: 'ratelimited' }; }
       const visible = channels.filter((c) => (excludeArchived ? !c.is_archived : true));
       return { ok: true, channels: visible.map((c) => ({ id: c.id, name: c.name })), nextCursor: null };
     },
@@ -68,6 +77,7 @@ function makeFakeSlack() {
     async start() { return { connected: true }; },
     stop() {},
   };
+  return counter;
 }
 
 // Every session-creating enqueue reads back as a LIVE session on its own queue row (the
@@ -274,6 +284,21 @@ const MUTATIONS = [
     expect: ['S-13 RESTART', 'CONTROL: a token naming a KNOWN DM thread'] },
   { name: 'agentthreads-not-persisted', file: 'chat-bridge.js', from: 'agentThreads: Object.fromEntries(agentThreads),', to: '',
     expect: ['the anchored thread is persisted', 'start() restores'] },
+  // 2026-08-12 — the two halves of the missing-channel incident, each proven to be the thing
+  // doing the work. The first puts the map back in charge of a question only Slack can answer;
+  // the second puts the DM fallback back.
+  { name: 'miss-trusts-the-in-memory-map', file: 'chat-bridge.js',
+    from: 'await goalChannels.resolveChannel(goalId)',
+    to: "{ channelId: goalChannels.channelForGoal(goalId), reason: 'no-channel' }",
+    expect: ['(c) and the miss ASKED SLACK', '(c) THE FIX'] },
+  { name: 'resolve-failure-reads-as-absence', file: 'goal-channel-map.js',
+    from: "      return { channelId: null, reason: 'resolve-failed' };",
+    to: "      return { channelId: null, reason: 'no-channel' };",
+    expect: ['a FAILED lookup is `resolve-failed`'] },
+  { name: 'no-channel-falls-back-to-the-dm', file: 'bus-ferry.js',
+    from: 'res = await routeToAgentThread({ goalId, agent: row.from, text: threadText });',
+    to: 'res = await routeToAgentThread({ goalId, agent: row.from, text: threadText });\n              if (res && !res.delivered && res.reason === \'no-channel\') res = null;',
+    expect: ['(a) gates pass'] },
   { name: 'agent-homed-at-goal-master', file: 'forward-path.js', from: "route.kind === 'agent' ? route.agent : 'goal-master'", to: "'goal-master'",
     expect: ['HOMED AT THE ASKING SEAT'] },
 ];
@@ -675,21 +700,89 @@ async function main() {
     a.bridge.stop();
   }
 
-  // 5 — NO CHANNEL → THE OWNER DM, unchanged (fail toward delivery). A goal whose channel was
-  //     never created must not cost a row; that is the one reason the agent leg falls back.
+  // 5 — NO CHANNEL: THE ROW IS HELD, THE OWNER IS TOLD, AND A CHANNEL CREATED AFTER BOOT IS
+  //     RE-RESOLVED (owner ruling 2026-08-12). Three claims, one incident:
+  //       (a) the row does NOT fall back to the owner's DM and mints NOTHING. The old fallback
+  //           posted the row to the DM and minted a channel-master sitting with it as the prompt,
+  //           so a question addressed to the HUMAN was answered by an agent.
+  //       (b) after `NOTICE_AT_ATTEMPT` failed passes the owner gets ONE notice that names the
+  //           goal and the seat and carries NO part of the row — and seats nobody.
+  //       (c) the miss re-asks SLACK. The in-memory map is filled by `recover()` at boot only,
+  //           and every goal channel is created by a throwaway CLI subprocess this process never
+  //           sees — which is the whole incident: a channel created 9h after boot read as absent.
+  //           `createChannel` straight on the fake IS that subprocess.
   {
     const root = mkroot();
     const { file } = seedGoal(root, 'goal-unmapped', { seats: { leader: 'yes' } });
     const a = makeBridge({ workspaceRoot: root });
     await a.bridge.start();                                  // NOTE: no registerGoal
     await a.bridge.busFerry.tick();
+    const listsAtStart = a.slack.lists;
     append(file, msgRow(2, 'leader', 'owner', 'ask', 'no channel for this goal'));
     await a.bridge.busFerry.tick();
-    check('gates pass but the goal has NO channel → the row falls back to the owner DM and mints the channel-master sitting, as before',
-      a.slack.postsIn(DM).length === 1
-      && a.slack.postsIn(DM)[0].text === '*bus → you* — goal-unmapped/2026-08-03a · from leader · ask · #2\nno channel for this goal'
-      && a.forwarder.creates().length === 1,
-      { dmPosts: a.slack.postsIn(DM).map((p) => p.text.split('\n')[0]), creates: a.forwarder.creates().length });
+    check('(a) gates pass but the goal has NO channel → NOTHING is posted anywhere, NOTHING is minted, and the cursor does NOT advance — the row is held, never downgraded into the owner\'s DM',
+      a.slack.posted.length === 0 && a.forwarder.creates().length === 0
+      && a.bridge.busFerry._cursors.get('goal-unmapped/2026-08-03a') === 1,
+      { posted: a.slack.posted.map((p) => p.text.split('\n')[0]), creates: a.forwarder.creates().length,
+        cursor: a.bridge.busFerry._cursors.get('goal-unmapped/2026-08-03a') });
+    check('(c) and the miss ASKED SLACK rather than trusting the map — one conversations.list walk per attempt',
+      a.slack.lists > listsAtStart, { lists: a.slack.lists, before: listsAtStart });
+
+    await a.bridge.busFerry.tick();
+    await a.bridge.busFerry.tick();                          // attempt 3 → the notice
+    const notices = a.slack.postsIn(DM);
+    check('(b) at the third failed pass the owner is told the CHANNEL is missing — ONE notice, naming the goal and the seat, carrying no part of the row, minting nothing',
+      notices.length === 1 && /goal-unmapped/.test(notices[0].text) && /leader/.test(notices[0].text)
+      && !/no channel for this goal/.test(notices[0].text) && a.forwarder.creates().length === 0,
+      { notices: notices.map((p) => p.text), creates: a.forwarder.creates().length });
+    await a.bridge.busFerry.tick();
+    check('(b) and ONCE is once — a fourth failed pass adds no second notice',
+      a.slack.postsIn(DM).length === 1, { notices: a.slack.postsIn(DM).length });
+
+    // (c) THE REPAIR: the channel appears out of band, exactly as the daemon's throwaway
+    // `goal-channel-cli.js ensure` subprocess creates it — nothing tells this process.
+    await a.slack.createChannel({ name: `${PREFIX}goal-unmapped` });
+    await a.bridge.busFerry.tick();
+    const channelId = a.bridge.goalChannels.channelForGoal('goal-unmapped');
+    check('(c) THE FIX: the next pass re-resolves the new channel from Slack, binds it, and the HELD row lands in the agent\'s own thread there — no DM, no sitting',
+      Boolean(channelId) && a.slack.postsIn(channelId).length === 1
+      && /no channel for this goal/.test(a.slack.postsIn(channelId)[0].text)
+      && a.slack.postsIn(DM).length === 1 && a.forwarder.creates().length === 0
+      && a.bridge.busFerry._cursors.get('goal-unmapped/2026-08-03a') === 2,
+      { channelId, channelPosts: a.slack.postsIn(channelId || 'none').map((p) => p.text.split('\n')[0]),
+        cursor: a.bridge.busFerry._cursors.get('goal-unmapped/2026-08-03a') });
+    a.bridge.stop();
+  }
+
+  // 5b — SLACK DID NOT ANSWER IS NOT "THE CHANNEL IS MISSING" (review D1/D3). A rate-limited
+  //      `conversations.list` resolves nothing, and the old shape reported that as `no-channel` —
+  //      which would fire the notice above and tell the owner to create a channel that exists.
+  //      Held and retried, loudly, with NO notice: the four passes take the row past
+  //      `NOTICE_AT_ATTEMPT`, so a notice keyed on the wrong reason would already have posted.
+  {
+    const root = mkroot();
+    const { file } = seedGoal(root, 'goal-ratelimited', { seats: { leader: 'yes' } });
+    const a = makeBridge({ workspaceRoot: root });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick();
+    // The channel EXISTS — the only thing wrong is that Slack will not say so.
+    await a.slack.createChannel({ name: `${PREFIX}goal-ratelimited` });
+    a.slack.failNextLists(4);
+    append(file, msgRow(2, 'leader', 'owner', 'ask', 'the lookup will fail'));
+    for (let i = 0; i < 4; i++) await a.bridge.busFerry.tick();
+    check('a FAILED lookup is `resolve-failed`, not `no-channel`: the row is held and retried past the notice threshold with NOTHING posted anywhere — no false "create the channel" DM',
+      a.slack.posted.length === 0 && a.forwarder.creates().length === 0
+      && a.bridge.busFerry._cursors.get('goal-ratelimited/2026-08-03a') === 1,
+      { posted: a.slack.posted.map((p) => p.text.split('\n')[0]), lists: a.slack.lists,
+        cursor: a.bridge.busFerry._cursors.get('goal-ratelimited/2026-08-03a') });
+    // THE PAIR: the same row, the same channel, once Slack answers.
+    await a.bridge.busFerry.tick();
+    const channelId = a.bridge.goalChannels.channelForGoal('goal-ratelimited');
+    check('and the retry delivers the moment Slack answers — so "held" above is the rate limit, not a ferry that ferries nothing',
+      Boolean(channelId) && a.slack.postsIn(channelId).length === 1
+      && a.slack.postsIn(DM).length === 0
+      && a.bridge.busFerry._cursors.get('goal-ratelimited/2026-08-03a') === 2,
+      { channelId, posts: a.slack.postsIn(channelId || 'none').map((p) => p.text.split('\n')[0]) });
     a.bridge.stop();
   }
 

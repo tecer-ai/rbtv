@@ -179,27 +179,22 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       }
       log('warn', 'bus row named a chat thread but no sitting was minted — falling back to the owner DM post', { chatThreadId: chatThread, reason: (back && (back.reason || back.error)) || 'unknown' });
     }
+    // ⚑ THE BARE ARM POSTS AND STOPS — IT MINTS NOTHING (owner ruling 2026-08-12). A row with no
+    // `[chat-thread:]` token was never part of a conversation the owner opened, and minting a
+    // channel-master sitting with the row's own text as its prompt handed the master a question
+    // that was ADDRESSED TO THE HUMAN — measured on `meeting-digest` 02:13 UTC, where the
+    // plan-interviewer's `to: owner` ask reached the DM and the channel master answered it.
+    // The mint that stands is the one above: a row NAMING a thread the owner already engaged.
+    //
+    // ⚑ THE REPLY ADDRESS IS STILL RECORDED, and only the mint is gone. The address is how the
+    // bridge KNOWS this thread (`knowsThread`, S-13) and how it would post into it — dropping it
+    // with the mint would quietly narrow the return leg's known set, which is a second change
+    // nobody ruled.
     const posted = await transport.sendToOwner({ channel, threadTs: null, text });
-    if (!posted || !posted.delivered) return posted; // ferry retries; nothing minted
-    if (!posted.ts) {
-      // Delivered but unthreadable: keep the delivery (the owner has the row) and say so.
-      // Minting a conversation on a missing ts would key a sitting nothing can reply into.
-      log('warn', 'bus row posted but no ts returned — no channel-master sitting minted', { channel });
-      return posted;
+    if (posted && posted.delivered && posted.ts) {
+      replyAddr.set(`${channel}:${posted.ts}`, { channel, threadTs: posted.ts });
+      saveState();
     }
-    const chatThreadId = `${channel}:${posted.ts}`;
-    replyAddr.set(chatThreadId, { channel, threadTs: posted.ts });
-    const outcome = await forwardPath.forwardSessionCreate({
-      chatThreadId, text, route: { kind: 'master', goalId: null },
-    });
-    if (outcome && outcome.forwarded) {
-      replyLeg.arm(chatThreadId);
-      log('info', 'bus row minted a channel-master sitting', { chatThreadId, queueId: outcome.queueId });
-    } else {
-      // The row IS delivered to the owner either way — that is why the post comes first.
-      log('warn', 'bus row delivered to the owner but no sitting was minted', { chatThreadId, reason: (outcome && (outcome.reason || outcome.error)) || 'unknown' });
-    }
-    saveState();
     return posted;
   }
 
@@ -293,11 +288,22 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // the asker instead of some relay.
   //
   // ⚑ NO CHANNEL → `no-channel`, never a post somewhere else. The ferry reads that one reason
-  // and falls back to the owner DM, so the decision "is a missing channel worth a lost row"
+  // and holds the row for its next pass, so the decision "what does a missing channel cost"
   // lives in one place (there) instead of being taken twice.
+  //
+  // ⚑ AND `resolveChannel`, NEVER `channelForGoal` (2026-08-12). The in-memory map only knows
+  // the channels this process saw; every goal channel is created by a THROWAWAY CLI subprocess
+  // the bridge never observes, so a miss here must ask Slack before it means anything. See
+  // `goal-channel-map.js` § "a map miss is not proof of absence".
+  //
+  // ⚑ AND THE REFUSAL REASON IS CARRIED THROUGH UNCHANGED. `no-channel` (the channel does not
+  // exist) and `resolve-failed` (Slack did not answer) are different facts and the ferry acts on
+  // the difference — collapsing them here would put the distinction the map just made straight
+  // back in the bin.
   async function routeToAgentThread({ goalId, agent, text }) {
-    const channel = goalChannels ? goalChannels.channelForGoal(goalId) : null;
-    if (!channel) return { delivered: false, reason: 'no-channel' };
+    const resolved = goalChannels ? await goalChannels.resolveChannel(goalId) : { channelId: null, reason: 'no-channel' };
+    const channel = resolved.channelId;
+    if (!channel) return { delivered: false, reason: resolved.reason };
     const known = agentThreadFor(goalId, agent);
     const posted = await transport.sendToOwner({ channel, threadTs: known, text });
     if (!posted || !posted.delivered) return posted || { delivered: false, reason: 'post-failed' };

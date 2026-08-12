@@ -55,6 +55,7 @@ const path = require('node:path');
 const DEFAULT_POLL_MS = 15000;
 const DEFAULT_WATCH_DEBOUNCE_MS = 200;
 const DEFAULT_MAX_ATTEMPTS = 20;      // per-row post retries before skipping it (never unbounded)
+const NOTICE_AT_ATTEMPT = 3;          // failed no-channel attempts before the owner is told (once)
 const DEFAULT_MAX_BODY_CHARS = 3000;  // phone-first: a bus row can be an essay
 
 // `## 4774 | from: master | to: leader | type: note | 2026-08-06 14:23`
@@ -497,12 +498,13 @@ function createBusFerry({
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   maxBodyChars = DEFAULT_MAX_BODY_CHARS,
   onMutate = null,
-  // WHERE a row goes when no live seat holds the role. Injected by the bridge, which owns
-  // the thread map and the forward path this ferry deliberately does not hold: it posts the
-  // row to the owner DM and MINTS that post's thread as a channel-master sitting, so the
-  // agent answers in-thread and the owner's reply continues the SAME sitting with the row
-  // in its history. Default (probes, any embedder that wires nothing) is the plain DM post
-  // this module shipped with — same signature, same `{ delivered, ts }` contract.
+  // WHERE a row goes when it is not routed to an agent's own thread. Injected by the bridge,
+  // which owns the thread map and the forward path this ferry deliberately does not hold.
+  // ⚑ IT POSTS AND SEATS NOBODY (owner ruling 2026-08-12). It used to MINT that post's thread as a
+  // channel-master sitting, which had an agent answering questions addressed to the human; only a
+  // row NAMING a thread the owner already engaged still mints one. Default (probes, any embedder
+  // that wires nothing) is the plain DM post this module shipped with — same signature, same
+  // `{ delivered, ts }` contract.
   routeToMaster = null,
   // WHERE a gated row goes when the agent that raised it is allowed to reach the owner
   // directly: its OWN thread in the goal's Slack channel (ratified 2026-08-09). Injected by
@@ -775,20 +777,22 @@ function createBusFerry({
             // belongs in the goal channel, in the thread that is this agent's conversation with
             // the owner — not in the owner's undifferentiated DM queue.
             //
-            // ⚑ `no-channel` IS THE ONLY REASON THAT FALLS BACK, and it falls back on purpose:
-            // the goal has no Slack surface at all (never registered, or the map has not
-            // recovered), so the DM leg is the difference between a degraded delivery and a lost
-            // row. Any OTHER failure is a real post failure and takes the bounded-retry path
-            // below — a rate limit must never be silently downgraded into a different surface.
+            // ⚑ `no-channel` NO LONGER FALLS BACK TO THE DM (owner ruling 2026-08-12). It used
+            // to, on the reasoning that a degraded delivery beats a lost row — but the DM leg
+            // ALSO minted a channel-master sitting with the row's text as its prompt, so a
+            // question an agent addressed to the HUMAN was answered by another agent. Measured on
+            // `meeting-digest` 02:13 UTC. A missing channel is now an ordinary post failure: the
+            // row stays undelivered, the bounded retry below re-tries it every pass (by then
+            // `resolveChannel` has re-asked Slack — chat-bridge.js), and at NOTICE_AT_ATTEMPT the
+            // owner is told the CHANNEL is missing, with none of the row's content.
             if (!chatThread && routeToAgentThread) {
               const threadText = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm });
               res = await routeToAgentThread({ goalId, agent: row.from, text: threadText });
-              if (res && !res.delivered && res.reason === 'no-channel') res = null;
-              // ⚑ `else if (res)`, never a bare `else`: an injected `routeToAgentThread` that
+              // ⚑ `if (res)`, never a bare `else`: an injected `routeToAgentThread` that
               // returns nothing at all (an embedder's stub, a forgotten `return`) falls through to
               // the DM leg below, and flagging it as thread-routed would make the log claim a
               // surface the row never reached.
-              else if (res) { viaAgentThread = true; postedText = threadText; }
+              if (res) { viaAgentThread = true; postedText = threadText; }
             }
             if (!res) {
               const send = routeToMaster || ((a) => transport.sendToOwner(a));
@@ -798,7 +802,9 @@ function createBusFerry({
               postedText = text;
             }
             delivered = Boolean(res && res.delivered);
-            error = res && res.error;
+            // `reason` too: the agent leg's refusals carry one and no `error`, and a retry log
+            // that reported `undefined` for every one of them is the failure hiding itself.
+            error = res && (res.error || res.reason);
           } catch (err) {
             error = err.message;
           }
@@ -815,6 +821,23 @@ function createBusFerry({
           const akey = `${key}#${row.id}`;
           const n = (attempts.get(akey) || 0) + 1;
           attempts.set(akey, n);
+          // THE MISSING-CHANNEL NOTICE (owner ruling 2026-08-12). A row that cannot reach its
+          // goal channel is now held rather than downgraded into the DM, and a held row the owner
+          // is never told about is the silence this whole module exists to end. So ONCE per stuck
+          // row — `n ===`, never `>=` — he gets a line naming the goal and the seat and NOTHING
+          // ELSE: no body, no header render, and posted through the transport directly, so no
+          // sitting can be minted from it and no agent ever reads the row.
+          if (n === NOTICE_AT_ATTEMPT && error === 'no-channel') {
+            try {
+              await transport.sendToOwner({
+                channel: dmChannel, threadTs: null,
+                text: `:warning: goal *${goalId}* has no Slack channel — seat *${row.from}* is trying to reach you and cannot. Nothing of its message is shown here. Create the channel (\`goal-channel-cli.js ensure ${goalId}\`) and it is delivered on the next pass.`,
+              });
+              log('warn', 'bus ferry told the owner a goal channel is MISSING — the row is held, not downgraded', { key, msgId: row.id, from: row.from, attempts: n });
+            } catch (err) {
+              log('warn', 'bus ferry could not post the missing-channel notice', { key, msgId: row.id, error: err.message });
+            }
+          }
           if (n >= maxAttempts) {
             attempts.delete(akey);
             cursors.set(key, row.id); // advance — never wedge the ferry on one row

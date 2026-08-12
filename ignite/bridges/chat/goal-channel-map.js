@@ -224,6 +224,67 @@ function createGoalChannelMap({ slack, prefix, ownerUser = null, logger = null }
     return { ok: true, goalId: gid, channelId: String(channelId) };
   }
 
+  // A MAP MISS IS NOT PROOF OF ABSENCE — the one-shot re-resolution (2026-08-12).
+  //
+  // The map is filled by `recover()` at BOOT and by `ensureChannel`/`bindExisting` in THIS
+  // process. A channel created by anybody else afterwards is invisible to a long-running
+  // bridge — and that is the NORMAL case, not an edge one: the daemon's ticker creates every
+  // goal channel through a throwaway `goal-channel-cli.js ensure` subprocess (deliberately,
+  // for the credential boundary — see the design doc), so the bridge never observes the act.
+  // Measured 2026-08-12: `meeting-digest`'s channel was created 9h after the bridge booted,
+  // its seat's owner ask read as `no-channel`, and the row fell through to the owner's DM.
+  //
+  // So: on a miss, ask SLACK for the derived name — the same bijection `recover()` rides,
+  // through the same `findByName` — and bind what it finds. THIS is the choke point every
+  // caller should use; `channelForGoal` stays the pure in-memory read for the callers that
+  // want one.
+  //
+  // ponytail: NO negative cache, and the absence is the design. Slack is asked only on a MISS
+  // (a bound goal returns from memory), and the only caller retries one row per goal per 15s
+  // poll and gives up after 20 — so a truly missing channel costs at most one
+  // `conversations.list` walk per stuck goal per poll, which is already bounded by the caller.
+  // Add a per-goal cooldown here if that ever shows up as a rate limit; a knob for a load that
+  // does not exist is state to keep correct for nothing.
+  //
+  // ⚑ IT RETURNS `{ channelId, reason }`, AND `resolve-failed` IS NOT `no-channel`. "Slack did not
+  // answer" and "the channel does not exist" are opposite facts that a single `null` made
+  // indistinguishable — and the caller ACTS on the difference: a genuine absence earns the owner a
+  // notice telling him to create the channel, which on a 45-second rate limit would be a lie about
+  // a channel that already exists. A throw is the same fact as `{ ok: false }` and is caught here
+  // for the same reason: uncaught, it would escape the caller into the ferry's generic catch and
+  // the row would be classified as an unknown failure and dropped at the attempt cap.
+  async function resolveChannel(goalId) {
+    const gid = String(goalId);
+    const cached = channelForGoal(gid);
+    if (cached) return { channelId: cached, reason: 'cached' };
+    let name;
+    try {
+      name = channelNameForGoal(gid, pfx);
+    } catch (err) {
+      log('warn', 'goal id is not channel-derivable — cannot re-resolve on a map miss', { goalId: gid, error: err.message });
+      return { channelId: null, reason: 'no-channel' };
+    }
+    let found;
+    try {
+      found = await findByName(name);
+    } catch (err) {
+      found = { ok: false, error: `list-threw: ${err && err.message}` };
+    }
+    if (found.ok && found.channel) {
+      bindExisting(gid, found.channel.id, found.channel.name);
+      log('info', 'goal channel MISSED the in-memory map and was re-resolved from Slack — it was created after this process booted', { goalId: gid, channelId: found.channel.id, name });
+      return { channelId: found.channel.id, reason: 'resolved' };
+    }
+    if (!found.ok) {
+      // Slack could not answer. Say NOTHING about whether the channel exists — the caller must
+      // retry, not conclude.
+      log('warn', 'goal channel could not be RESOLVED — Slack did not answer; this is NOT evidence the channel is missing', { goalId: gid, name, error: found.error || null });
+      return { channelId: null, reason: 'resolve-failed' };
+    }
+    log('warn', 'goal channel not in the map AND not in the workspace — nothing to bind', { goalId: gid, name });
+    return { channelId: null, reason: 'no-channel' };
+  }
+
   // RECOVERY — rebuild the whole map from the workspace. This is the payoff of
   // name-derivation: a restarted bridge calls this once and is whole again, with no
   // persisted state anywhere. Channels whose name does not derive a goal id are
@@ -277,7 +338,7 @@ function createGoalChannelMap({ slack, prefix, ownerUser = null, logger = null }
   }
 
   return {
-    ensureChannel, bindExisting, recover, retire,
+    ensureChannel, bindExisting, recover, retire, resolveChannel,
     channelForGoal, goalForChannel, size,
     prefix: pfx,
   };
