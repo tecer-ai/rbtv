@@ -41,3 +41,8 @@ tecer-gsmm-introduction*.html
 # needed a `git rm --cached` to take effect), and a second per-module line would have reopened the
 # same gap for whichever module grew probes next.
 **/probes/*.out
+
+# save-coord.py staging artifacts — transient by design ("a candidate nobody names
+# destroys nothing", save-coord.py:142). One was committed by accident in e5dff4b8 at
+# 31,586 lines; this keeps the next one out.
+ignite/team-kit/coord-candidate*.py
