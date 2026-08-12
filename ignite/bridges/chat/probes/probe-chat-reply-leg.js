@@ -52,7 +52,19 @@
 //       non-conformant turn is delivered best-effort (extracted text through
 //       toMrkdwn behind the warning marker, never the bare fallback) and the budget
 //       resets — while a genuinely TEXTLESS log still delivers the bare fallback and
-//       is never revived.
+//       is never revived;
+//   (l) a COMPACTION spawn is WATCHED but never POSTED — its output is the chain's
+//       short-term memory, and not a byte of it reaches Slack;
+//   (s) the 2026-08-12 SILENT DEAD END replayed: the revive's corrective turn was
+//       dispatched AS a compaction turn, the leg (which then skipped compact spawns)
+//       watched nothing, the chain crashed inside it, and the conversation sat silent
+//       for the full 10-minute window before disarming. Now: the compact spawn is
+//       captured (s1), retired without delivery (s2), and a chain with no answering
+//       turn behind it disarms on the SHORT corrective window with the dead-air notice
+//       in the thread (s3) — while a pass that could not READ the ticker declares
+//       nothing at all (s4), the gateway timeouts that framed the live incident;
+//   (t) THE LATENCY LINE: one line per delivered reply carrying end-to-end seconds
+//       (owner message armed → post landed), raised to WARN past the threshold.
 //
 // MUTATION EVIDENCE (validation #2): each guard is provable by this probe —
 //   • comment the `deliver(...)` call in reply-leg.js _runOnce → b/c/e/g fail;
@@ -74,8 +86,14 @@
 //   • run the conformant path through toMrkdwn → (o) fails (the `---` line vanishes);
 //   • make `p.revives` per-exec instead of per-conversation → (q2) fails (a third
 //     revive is spent and nothing is delivered);
-//   • deliver FALLBACK_TEXT instead of the best-effort text at the bound → (q2) fails.
-// Run each mutation → probe FAILS → restore byte-exact → passes.
+//   • deliver FALLBACK_TEXT instead of the best-effort text at the bound → (q2) fails;
+//   • restore the `|| a.compact` skip in the ticker capture loop → l/f/s1/s2/s3 fail;
+//   • drop the `tickerOk` gate from the spawn-wait rung → (s4) fails (a blind pass
+//     disarms a live conversation);
+//   • pin `slow` to false in the delivery log → (t1) fails (a 40 s reply logs at info);
+//   • put the corrective rung back on `windowMs` → s3/s4 fail (the short window is gone).
+// Run each mutation → probe FAILS → restore byte-exact → passes. All five above were RUN
+// on 2026-08-12: each went red exactly as listed, and the restored control went green.
 //
 // ⚑ Timing uses Node `Date.now()` — `date +%s%3N` is broken on this box (D64).
 
@@ -385,22 +403,25 @@ async function main() {
       sent.length === 8 && lastText() === 'woken third turn reply' && pend().delivered.has(33),
       { sentCount: sent.length, text: lastText() });
 
-    // ── (l) COMPACTION turn skipped: compact:true spawns are the chain's
-    // short-term memory, never an owner-facing reply — never watched, never posted. ─
+    // ── (l) COMPACTION turn: WATCHED but never POSTED. A compact:true spawn is the chain's
+    // short-term memory, never an owner-facing reply — so nothing of it reaches Slack. It IS
+    // watched, though (changed 2026-08-12, see leg (s) for the incident that forced it): skipping
+    // it made the leg blind to the one spawn standing between an owner turn and its answer. ─────
     state.recentTicks.push({ tick: 9, actions: [{ action: 'spawn', execId: 34, queueId: 778, thread: 'exec-26', compact: true }] });
     state.status.set(34, { live: false, status: 'done' });
     state.logs.set(34, [resultLine('a summary that must never reach Slack')]);
     await leg().tick();
     await leg().tick();
-    record('l:compact:true spawn never watched nor delivered',
-      !pend().watching.has(34) && !pend().delivered.has(34) && sent.length === 8 && lastText() !== 'a summary that must never reach Slack',
-      { sentCount: sent.length, watching: [...pend().watching.keys()], text: lastText() });
+    record('l:compact:true spawn is watched, retired without delivery, and NOTHING of it is posted',
+      !pend().watching.has(34) && pend().delivered.has(34) && pend().compacted === true
+      && sent.length === 8 && lastText() !== 'a summary that must never reach Slack',
+      { sentCount: sent.length, watching: [...pend().watching.keys()], compacted: pend().compacted, text: lastText() });
 
     // Final delivered-set sanity: 26, 27, 28, 29, 30, 31, 33 delivered exactly once
     // (seven real-reply posts), 32 retired undelivered but its give-up NOTICE posted;
-    // 34 (compaction) untouched; nothing left watching.
+    // 34 (compaction) retired WITHOUT a post; nothing left watching.
     record('f:each exec delivered exactly once; give-up exec retired with an honest notice',
-      pend().delivered.size === 8 && [26, 27, 28, 29, 30, 31, 32, 33].every((e) => pend().delivered.has(e))
+      pend().delivered.size === 9 && [26, 27, 28, 29, 30, 31, 32, 33, 34].every((e) => pend().delivered.has(e))
       && pend().watching.size === 0 && sent.length === 8,
       { delivered: [...pend().delivered], watching: [...pend().watching.keys()], sentCount: sent.length });
 
@@ -547,6 +568,96 @@ async function main() {
     record('r:a spent revive with no spawn inside the window disarms AND posts the dead-air notice',
       revivedR && !pend() && lastText() === DEAD_AIR_NOTICE,
       { revivedR, stillPending: Boolean(pend()), text: lastText() });
+    // ── (s) A COMPACTION TURN IS WATCHED, NOT IGNORED — AND A CHAIN THAT DIES INSIDE ONE ────────
+    // Measured live 2026-08-12 (thread D0BJ50Y1DC6:1786501607, sessions 88136051→178e7b3d): the
+    // revive's corrective send-message DID dispatch (queue 458, tick 235206) and the daemon woke
+    // the chain three seconds later — but as a COMPACTION turn (tick 235208, exec 26449,
+    // `compact:true`, the transcript having crossed history_compact_chars). The leg skipped every
+    // compact spawn, so it watched nothing; exec 26449 then crashed (exit 1) and halted the chain,
+    // and TEN MINUTES later the conversation disarmed on "corrective spawn never appeared". The
+    // owner had silence for the whole window. This leg replays that exact shape.
+    // The fixture's tick log is RESET first: a fresh arm carries an empty `delivered` set, so every
+    // historical spawn still in `recentTicks` would be captured and delivered all over again —
+    // an artefact of the stand-in, not of the driver.
+    state.recentTicks = [];
+    await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'a turn whose chain compacts', channel: CHANNEL, thread_ts: ROOT_TS, ts: '1700000000.000900', event_ts: '1700000000.000900', client_msg_id: 'reply-leg-m9' });
+    const armedS = await waitFor(() => Boolean(pend()));
+    const sentBeforeS = sent.length;
+    state.recentTicks.push({ tick: 19, actions: [{ action: 'spawn', execId: 50, queueId: QUEUE, compact: true }] });
+    state.status.set(50, { live: true, status: 'running', profile: 'claude-opus' });
+    await leg().tick();
+    record('s1:a compact:true spawn on the conversation is CAPTURED and flagged (it used to be skipped entirely)',
+      armedS && Boolean(pend()) && pend().watching.has(50) && pend().watching.get(50).compact === true,
+      { armedS, watching: pend() ? [...pend().watching.keys()] : null, compact: pend() && pend().watching.get(50) && pend().watching.get(50).compact });
+
+    // Its output is the chain's MEMORY, never a reply — so even a perfectly conformant fenced body
+    // in a compaction log must not reach Slack.
+    state.status.set(50, { live: false, status: 'failed', profile: 'claude-opus' });
+    state.logs.set(50, [resultLine('a compaction summary that must never reach the owner')]);
+    await leg().tick();
+    record('s2:the compaction turn is retired WITHOUT delivering — even a conformant fenced body stays out of Slack',
+      sent.length === sentBeforeS && Boolean(pend()) && pend().watching.size === 0 && pend().delivered.has(50) && pend().compacted === true,
+      { sentCount: sent.length, sentBeforeS, lastText: lastText(), watching: pend() ? [...pend().watching.keys()] : null, compacted: pend() && pend().compacted });
+
+    // The chain died inside the compaction (the live crash) — no answering turn ever spawns. The
+    // wait that now applies is the SHORT one, and the owner is told.
+    pend().armedAt = nowMs() - (120 * 1000) - 1; // past correctiveWindowMs, far inside the 10-min windowMs
+    await leg().tick();
+    record('s3:a compaction with no answering turn disarms on the SHORT window and posts the dead-air notice',
+      !pend() && sent.length === sentBeforeS + 1 && lastText() === DEAD_AIR_NOTICE,
+      { stillPending: Boolean(pend()), sentCount: sent.length, text: lastText() });
+
+    // ── (s4) A BLIND DRIVER NEVER DECLARES A SPAWN MISSING ───────────────────────────────────────
+    // Three `inspect ticker` timeouts framed the live incident. "No spawn appeared" is a claim
+    // about what the ticker showed; a pass that could not read it has seen nothing to claim.
+    state.recentTicks = [];   // same stand-in artefact as above: a fresh arm re-captures old spawns
+    await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'a turn during a gateway blackout', channel: CHANNEL, thread_ts: ROOT_TS, ts: '1700000000.001000', event_ts: '1700000000.001000', client_msg_id: 'reply-leg-m10' });
+    await waitFor(() => Boolean(pend()));
+    const sentBeforeS4 = sent.length;
+    pend().armedAt = nowMs() - (11 * 60 * 1000); // past EVERY window
+    const realInspect = forwarder.inspect;
+    forwarder.inspect = async (target, extra) => (target === 'ticker'
+      ? { ok: false, error: { code: 'TRANSPORT', message: 'gateway did not respond within 10000ms' } }
+      : realInspect(target, extra));
+    await leg().tick();
+    const heldBlind = Boolean(pend()) && sent.length === sentBeforeS4;
+    forwarder.inspect = realInspect;
+    await leg().tick();
+    record('s4:a pass that could not read the ticker does NOT disarm; the next pass that can, does',
+      heldBlind && !pend() && sent.length === sentBeforeS4 + 1 && lastText() === DEAD_AIR_NOTICE,
+      { heldBlind, stillPending: Boolean(pend()), sentCount: sent.length, sentBeforeS4, text: lastText() });
+
+    // ── (t) THE LATENCY LINE — one per delivered reply, end to end ───────────────────────────────
+    // Owner-facing latency is the owner's message being armed → the post landing; everything the
+    // bridge does in between (dispatch, run, revives, compaction, retries) is inside it. Over the
+    // threshold the same line is raised to a WARNING.
+    const bridgeLines = () => cap.lines.filter((e) => e.bridge && /delivered worker reply to owner/.test(e.bridge.message));
+    await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'a slow one', channel: CHANNEL, thread_ts: ROOT_TS, ts: '1700000000.001100', event_ts: '1700000000.001100', client_msg_id: 'reply-leg-m11' });
+    await waitFor(() => Boolean(pend()));
+    pend().turnStartedAt = nowMs() - 40000; // 40 s end-to-end, past the 30 s default threshold
+    state.recentTicks.push({ tick: 20, actions: [{ action: 'spawn', execId: 51, queueId: QUEUE }] });
+    state.status.set(51, { live: false, status: 'failed', profile: 'claude-opus' });
+    state.logs.set(51, [resultLine('the slow answer')]);
+    await leg().tick();
+    const slowLine = bridgeLines().pop();
+    record('t1:a delivery past the threshold logs ONE line at WARN carrying the end-to-end seconds',
+      Boolean(slowLine) && slowLine.bridge.level === 'warn' && /SLOW/.test(slowLine.bridge.message)
+      && slowLine.bridge.latencyS >= 39 && slowLine.bridge.latencyS < 60 && slowLine.bridge.thresholdS === 30
+      && lastText() === 'the slow answer',
+      { line: slowLine && slowLine.bridge, text: lastText() });
+
+    await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'a fast one', channel: CHANNEL, thread_ts: ROOT_TS, ts: '1700000000.001200', event_ts: '1700000000.001200', client_msg_id: 'reply-leg-m12' });
+    await waitFor(() => Boolean(pend()));
+    state.recentTicks.push({ tick: 21, actions: [{ action: 'spawn', execId: 52, queueId: QUEUE }] });
+    state.status.set(52, { live: false, status: 'failed', profile: 'claude-opus' });
+    state.logs.set(52, [resultLine('the fast answer')]);
+    await leg().tick();
+    const fastLine = bridgeLines().pop();
+    record('t2:a delivery inside the threshold logs the SAME line at info, seconds still on it',
+      Boolean(fastLine) && fastLine !== slowLine && fastLine.bridge.level === 'info'
+      && !/SLOW/.test(fastLine.bridge.message) && typeof fastLine.bridge.latencyS === 'number'
+      && fastLine.bridge.latencyS < 30 && lastText() === 'the fast answer',
+      { line: fastLine && fastLine.bridge, text: lastText() });
   } catch (err) {
     cap.log({ error: err.message, stack: err.stack });
     checks.push({ name: 'no-exception', ok: false, error: err.message });

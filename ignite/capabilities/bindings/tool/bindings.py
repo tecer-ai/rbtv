@@ -55,7 +55,13 @@ disagree. It is composed from exactly two measured sources, and nothing else:
 
   2. WHETHER a pair has an effort dial — the profile's own `effort:` block. `effort: { inert: true }`
      is a MEASUREMENT under G-270 ("a harness whose dial does not exist says so"), so an inert
-     profile has NO dial here and refuses any effort number.
+     profile has NO dial — and a rung on it is ACCEPTED and stored as the word `inert`, never
+     refused (owner ruling `d-effort-refuses-only-where-a-dial-exists`: refuse only where a dial
+     EXISTS and the level is out of its range). ⚠ THIS REVERSED ON 2026-08-12. It refused until
+     then, which made a `claude-haiku` cast un-makeable through this CLI — `cast_seat` popped the
+     rung and `materialize-seats.py#open_binding` then refused the half-declared triple on a
+     standing seat, so the channel master's own sheet had to be hand-written. A profile declaring
+     no `effort:` block AT ALL still refuses a rung: there, nothing downstream could translate one.
 
   …and the LEVELS of a dial that exists come from THE PROFILE'S OWN `effort.rungs` list — the one
   copy, read straight off `spawn-profiles.yaml` (`profile_effort` below, which is ALSO the
@@ -185,6 +191,12 @@ LANE_DEFAULTS = {"cwd-mode": "seat-folder"}
 LANE_PER_SEAT = {"agent_type": "staff", "mode": "interactive", "ctx-refresh": 35}
 
 CASTING_KEYS = ("harness", "model", "effort")
+
+# What the sheet stores as the effort of a cast onto an INERT profile (`effort: { inert: true }` —
+# `claude-haiku`). It is not a rung name because that profile has no ladder to name one from; it is
+# the honest word for what the seat's descriptor then carries, and every reader of that field
+# already short-circuits on the profile's inert table before looking at the word. See `cast_seat`.
+INERT_EFFORT = "inert"
 
 
 class Refusal(Exception):
@@ -357,7 +369,13 @@ def catalog(profiles_path=DEFAULT_PROFILES):
         levels = profile_effort(name, profiles_path)
         reason = validate_seat({"agent": name, "harness": harness, "model": model})
         rows.append({"profile": name, "harness": harness, "model": model,
-                     "effort-levels": list(levels or []), "castable": not reason,
+                     # `effort-levels` collapses the reader's three-way answer to a list, so the
+                     # INERT case (`[]`) and the no-table-at-all case (`None`) read alike on it.
+                     # They are not alike: a rung is ACCEPTED on the first and refused on the
+                     # second (`cast_seat`), so the distinction gets its own key rather than a
+                     # substring match on the prose below.
+                     "effort-levels": list(levels or []), "effort-inert": levels == [],
+                     "castable": not reason,
                      "not-castable-because": reason or None,
                      "effort-dial": "inert (the profile declares `effort: { inert: true }` — G-270: "
                                     "a harness whose dial does not exist says so)" if levels == []
@@ -557,7 +575,26 @@ def cast_seat(path, seat, harness, model, effort_number,
               f"Run `catalog` to see every pair with its effort numbers.")
 
     levels = row["effort-levels"]
-    if effort_number is None:
+    inert = bool(row.get("effort-inert"))
+    if inert:
+        # OWNER RULING `d-effort-refuses-only-where-a-dial-exists` (2026-08-11): a cast refuses
+        # ONLY where a dial EXISTS and the level is out of its range; where the model has NO dial
+        # the declaration is ACCEPTED and reported inert (G-270), never dropped. This tool refused
+        # instead until 2026-08-12 — the "known asymmetry" that ruling filed as defensible while
+        # "nothing casts seats to either" inert profile. Something does: the channel master runs on
+        # `claude-haiku` for the warm-session path, and the refusal made that cast UN-MAKEABLE
+        # through the owner's own CLI (the rung was popped, then `materialize-seats.py#open_binding`
+        # refused `open-binding-partial` on the standing seat, so the live sheet had to be
+        # hand-written).
+        #
+        # THE STORED WORD IS `inert`, NOT A RUNG NAME, because there is no ladder to name one from.
+        # It reads honestly in the seat's own descriptor and every downstream reader already agrees
+        # with it: `profiles.js#resolveEffort` and `catalog.js#effortRungFor` report inert BEFORE
+        # looking at the word, and `coord.py#validate_seat` validates a word only against a
+        # non-empty ladder. An inert profile declares no range, so no rung is out of range on it and
+        # a rung is accepted whether one is named or not.
+        effort = INERT_EFFORT
+    elif effort_number is None:
         if levels:
             raise Refusal(f"{harness}/{model} has an effort dial with {len(levels)} levels "
                           f"({', '.join(levels)}) — name one by number, 1..{len(levels)}. "
@@ -565,9 +602,11 @@ def cast_seat(path, seat, harness, model, effort_number,
         effort = ""
     else:
         if not levels:
-            raise Refusal(f"{harness}/{model} has NO effort dial ({row['effort-dial']}), so effort "
-                          f"number {effort_number} names nothing. Omit the number: a stored value "
-                          f"nothing honours is a knob that turns and does nothing.")
+            raise Refusal(f"{harness}/{model} declares NO effort table at all "
+                          f"({row['effort-dial']}), so effort number {effort_number} names nothing "
+                          f"and nothing downstream could translate it — `resolveEffort` refuses a "
+                          f"rung on such a profile too. A harness with no dial must declare "
+                          f"`effort: {{ inert: true }}`, which IS accepted here and stored inert.")
         if not 1 <= effort_number <= len(levels):
             raise Refusal(f"effort {effort_number} is outside 1..{len(levels)} for {harness}: "
                           + ", ".join(f"{i}={lv}" for i, lv in enumerate(levels, 1)))
@@ -590,7 +629,7 @@ def cast_seat(path, seat, harness, model, effort_number,
     return {"ok": True, "action": "set" if not dry_run else "dry-run", "bindings": str(path),
             "seat": seat, "before": before,
             "after": {"harness": harness, "model": model, "effort": effort or None},
-            "effort-number": effort_number, "effort-ladder": levels,
+            "effort-number": effort_number, "effort-ladder": levels, "effort-inert": inert,
             "uncast": uncast}
 
 

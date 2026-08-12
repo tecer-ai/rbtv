@@ -110,7 +110,8 @@ can never disagree. It is composed from exactly two measured sources:
    literal its `exec` argv PINS.
 2. **Whether a pair has an effort dial** — the profile's own `effort:` block. `effort: { inert: true }`
    is a MEASUREMENT under G-270 (*"a harness whose dial does not exist says so"*), so an inert
-   profile has no dial and refuses any effort number.
+   profile has no dial — and a rung on it is **accepted and stored as the word `inert`** (owner
+   ruling `d-effort-refuses-only-where-a-dial-exists`). See § The effort NUMBER.
 
 …and the **levels** of a dial that exists come from **the profile's own `effort.rungs` list** — per
 MODEL, never per harness (owner ruling 2026-08-11: *"effort level is not per harness, is per
@@ -162,8 +163,18 @@ models printed, never silently rewritten.
 
 `set … 4` on a claude pair stores `"effort": "xhigh"`. The number is an input abstraction — a
 1-based index into that harness's native ladder — and the FILE stores the harness's own string,
-because that string is what reaches the binary. Out of range refuses with the ladder printed; a
-number against a dial-less pair refuses rather than storing a knob that turns nothing.
+because that string is what reaches the binary. Out of range refuses with the ladder printed.
+
+⚠ **An INERT profile (`effort: { inert: true }` — `claude-haiku`) ACCEPTS a rung and stores the word
+`inert`, with or without a number.** This REVERSED on 2026-08-12, under owner ruling
+`d-effort-refuses-only-where-a-dial-exists` — *refuse only where a dial EXISTS and the level is out
+of its range*. The old refusal popped the field, and `materialize-seats.py#open_binding` then
+refused the half-declared triple on a standing seat, so the channel master's `claude-haiku` cast was
+un-makeable through this CLI and its sheet had to be hand-written. `inert` is not a rung name
+because an inert profile has no ladder to name one from; every downstream reader
+(`profiles.js#resolveEffort`, `catalog.js#effortRungFor`, `coord.py#validate_seat`) reports inert
+before it looks at the word. A profile declaring **no `effort:` block at all** still refuses a rung —
+there, nothing downstream could translate one either.
 
 ## What the file carries
 

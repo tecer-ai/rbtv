@@ -111,6 +111,19 @@ const DEAD_AIR_NOTICE = '⚠ no reply is coming for this turn — the agent run 
 
 const DEFAULT_POLL_MS = 3000;                 // single driver cadence (D110 step 3)
 const DEFAULT_WINDOW_MS = 10 * 60 * 1000;     // bound: wait for a spawn ≤ 10 min (step 6)
+
+// The CORRECTIVE spawn wait, deliberately far shorter than the first-turn window above. A revive
+// enqueues a send-message on a chain that is ALREADY awake, and the daemon dispatches it on the
+// next tick — measured 2026-08-12: enqueue 02:28:42, spawn 02:28:45, three seconds. Ten minutes of
+// silence to detect "it never came" is ten minutes the owner spends staring at nothing. 120 s is
+// ~40 poll cycles past that horizon, which absorbs a burst of gateway timeouts; and the rung is
+// additionally gated on having SUCCESSFULLY read the ticker this pass (see `tickerOk` below), so a
+// blind driver never declares a spawn missing it merely could not look for.
+const DEFAULT_CORRECTIVE_WINDOW_MS = 120 * 1000;
+
+// End-to-end latency (owner message accepted → reply posted) above which the delivery line is
+// raised to a WARNING. Env-overridable; no config machinery — one number, one place.
+const DEFAULT_LATENCY_WARN_S = Number(process.env.RBTV_CHAT_REPLY_LATENCY_WARN_S || 30);
 const DEFAULT_LOG_LIMIT = 1000;               // per-page log fetch bound (server clamps to its MAX_PAGE)
 const DEFAULT_MAX_LOG_PAGES = 50;             // cap the log paging loop (never unbounded)
 const DEFAULT_MAX_STATUS_ERRORS = 20;         // disarm after persistent status errors (step 6)
@@ -259,6 +272,8 @@ function createReplyLeg({
   logger = null,
   pollMs = DEFAULT_POLL_MS,
   windowMs = DEFAULT_WINDOW_MS,
+  correctiveWindowMs = DEFAULT_CORRECTIVE_WINDOW_MS,
+  latencyWarnS = DEFAULT_LATENCY_WARN_S,
   logLimit = DEFAULT_LOG_LIMIT,
   maxLogPages = DEFAULT_MAX_LOG_PAGES,
   maxStatusErrors = DEFAULT_MAX_STATUS_ERRORS,
@@ -298,11 +313,16 @@ function createReplyLeg({
     const queueId = entry ? entry.queueId : null;
     let p = pending.get(id);
     if (!p) {
-      p = { queueId, armedAt: Date.now(), watching: new Map(), delivered: new Set(), statusErrors: 0, revives: 0 };
+      p = { queueId, armedAt: Date.now(), turnStartedAt: Date.now(), watching: new Map(), delivered: new Set(), statusErrors: 0, revives: 0, compacted: false };
       pending.set(id, p);
     } else {
       p.armedAt = Date.now();
+      // `armedAt` is a spawn-wait deadline and is reset by revives and deliveries; `turnStartedAt`
+      // is the OWNER's clock and moves only here, on a real owner turn. The end-to-end latency the
+      // owner actually experiences is measured from this one, never from armedAt.
+      p.turnStartedAt = Date.now();
       p.revives = 0; // a NEW owner turn — never charged for the previous turn's corrections
+      p.compacted = false;
       if (p.queueId == null) p.queueId = queueId;
     }
     log('info', 'reply leg armed for conversation', { chatThreadId: id, queueId: p.queueId });
@@ -365,10 +385,23 @@ function createReplyLeg({
       //    later turn is a wake/recycle re-dispatch on a NEW queue row, matched by
       //    the spawn action's chain thread against the mapped conversation's
       //    resolved chainThread (p7-multiturn — the server stamps `thread` on every
-      //    spawn action). A `compact: true` spawn is a compaction turn: its output
-      //    is the chain's short-term memory, never an owner-facing reply — skipped.
+      //    spawn action).
+      //
+      //    ⚑ A `compact: true` spawn IS CAPTURED, and used to be skipped. Its output is the
+      //    chain's short-term memory, never an owner-facing reply — but skipping it made the leg
+      //    BLIND to the one spawn that stands between an owner turn and its answer. Measured
+      //    2026-08-12 (thread D0BJ50Y1DC6:1786501607): a revive enqueued its corrective
+      //    send-message (queue 458, 02:28:42), the daemon woke the chain and dispatched it three
+      //    seconds later — AS A COMPACTION TURN (tick 235208, exec 26449, `compact:true`, because
+      //    the chain transcript had crossed `history_compact_chars`). The leg ignored that spawn,
+      //    watched nothing, and 10 minutes on disarmed with "corrective spawn never appeared" —
+      //    while the compaction turn had in fact spawned, crashed (exit 1, 02:28:59) and HALTED
+      //    the chain, so no answering turn was ever coming. Captured, it is retired without
+      //    delivery when it ends (below) — one status poll buys the leg the difference between
+      //    "the chain is working" and "the chain is dead".
       const tickerRes = await forwarder.inspect('ticker');
-      if (tickerRes && tickerRes.ok && tickerRes.result) {
+      const tickerOk = Boolean(tickerRes && tickerRes.ok && tickerRes.result);
+      if (tickerOk) {
         const ticks = Array.isArray(tickerRes.result.recent_ticks) ? tickerRes.result.recent_ticks : [];
         for (const [id, p] of pending) {
           const entry = threadMap.get(id);
@@ -377,7 +410,7 @@ function createReplyLeg({
           for (const t of ticks) {
             const actions = Array.isArray(t.actions) ? t.actions : [];
             for (const a of actions) {
-              if (!a || a.action !== 'spawn' || a.execId == null || a.compact) continue;
+              if (!a || a.action !== 'spawn' || a.execId == null) continue;
               const byQueue = p.queueId != null && Number(a.queueId) === Number(p.queueId);
               const byThread = chainThread !== null && a.thread === chainThread;
               if (!byQueue && !byThread) continue;
@@ -398,10 +431,12 @@ function createReplyLeg({
               // follow-up is honestly DECLINED — correct behaviour, avoidable cause.
               // Found live: a follow-up sent ~2.5 min after its first turn (while a
               // seat close/renew was captured in between) declined for exactly this.
-              threadMap.bindSessionExecId(id, execId);
+              // …and a COMPACTION turn is never the chain's first exec, so it must never become
+              // the first-wins binding the follow-up leg derives every later thread from.
+              if (!a.compact) threadMap.bindSessionExecId(id, execId);
               if (!p.delivered.has(execId) && !p.watching.has(execId)) {
-                p.watching.set(execId, { capturedAt: Date.now(), attempts: 0 });
-                log('info', 'reply leg captured spawn exec for conversation', { chatThreadId: id, queueId: p.queueId, execId, matchedBy: byQueue ? 'queue-id' : 'chain-thread' });
+                p.watching.set(execId, { capturedAt: Date.now(), attempts: 0, compact: Boolean(a.compact) });
+                log('info', 'reply leg captured spawn exec for conversation', { chatThreadId: id, queueId: p.queueId, execId, compact: Boolean(a.compact), matchedBy: byQueue ? 'queue-id' : 'chain-thread' });
               }
             }
           }
@@ -430,6 +465,21 @@ function createReplyLeg({
           // the exec is marked delivered ONLY on a confirmed delivery, so a
           // transient logs/transport/Slack failure never burns the reply.
           const watch = p.watching.get(execId);
+
+          // A COMPACTION turn ended. Its output is the chain's memory, not a reply — nothing is
+          // fetched and nothing is delivered. Retire it and RESTART the spawn wait: the answering
+          // turn is dispatched only after this one ends, so the clock on it starts now. If no
+          // answering turn follows (the chain crashed, as it did on 2026-08-12), the wait blows
+          // within `correctiveWindowMs` and the owner is told — instead of ten minutes of silence.
+          if (watch.compact) {
+            p.watching.delete(execId);
+            p.delivered.add(execId);
+            p.armedAt = Date.now();
+            p.compacted = true;
+            log('info', 'reply leg retired a compaction turn — now waiting for the answering turn', { chatThreadId: id, execId });
+            continue;
+          }
+
           let failure = null;
           try {
             const read = await fetchReplyText(execId, id, statusRes.result.profile);
@@ -494,7 +544,17 @@ function createReplyLeg({
                 p.delivered.add(execId);
                 p.armedAt = Date.now(); // healthy activity — reset the spawn-wait window
                 p.revives = 0;          // the turn ended in a delivery; the next one starts fresh
-                log('info', 'reply leg delivered worker reply to owner', { chatThreadId: id, execId, chars: text.length, conformant: verdict.ok });
+                p.compacted = false;
+                // THE LATENCY LINE — one per delivered reply, end to end: the owner's message
+                // being armed → this post landing. Everything the bridge does between those two
+                // stamps (dispatch, run, revives, compaction, retries) is inside it, which is
+                // exactly what the owner feels. Over threshold it is raised to a WARNING.
+                const latencyS = p.turnStartedAt ? Math.round((Date.now() - p.turnStartedAt) / 100) / 10 : null;
+                const slow = latencyS !== null && latencyS > latencyWarnS;
+                log(slow ? 'warn' : 'info', slow
+                  ? 'reply leg delivered worker reply to owner — SLOW, over the latency threshold'
+                  : 'reply leg delivered worker reply to owner',
+                { chatThreadId: id, execId, chars: text.length, conformant: verdict.ok, latencyS, thresholdS: latencyWarnS });
               }
             }
           } catch (err) {
@@ -508,6 +568,7 @@ function createReplyLeg({
               // NOT delivered and the warn says so — never a silent success.
               p.watching.delete(execId);
               p.delivered.add(execId);
+              p.compacted = false; // the turn is over (undelivered, and said so) — stop waiting on it
               log('warn', 'reply leg giving up on exec after persistent fetch/delivery failures — reply NOT delivered', { chatThreadId: id, execId, attempts: watch.attempts, failure });
               // Tell the owner (D111 part 2) instead of silence — best-effort: a
               // failed notice post is logged and dropped, never retried into a loop.
@@ -536,7 +597,10 @@ function createReplyLeg({
       const deadAir = async (id, reason) => {
         try {
           const n = await deliver({ chatThreadId: id, text: DEAD_AIR_NOTICE, markAsk: false });
-          if (n && n.delivered === false) log('warn', 'reply leg dead-air notice not delivered (best-effort, dropped)', { chatThreadId: id, reason });
+          // Both outcomes are logged. Only the failure used to be, so an owner reporting silence
+          // after a disarm could not be told from the log whether the notice was posted at all.
+          if (n && n.delivered === false) log('warn', 'reply leg dead-air notice not delivered (best-effort, dropped)', { chatThreadId: id, reason, why: n.reason || n.error || 'unknown' });
+          else log('info', 'reply leg dead-air notice posted to owner', { chatThreadId: id, reason });
         } catch (err) {
           log('warn', 'reply leg dead-air notice threw (best-effort, dropped)', { chatThreadId: id, reason, error: err.message });
         }
@@ -549,20 +613,31 @@ function createReplyLeg({
           await deadAir(id, 'status-errors');
           continue;
         }
-        // A corrective turn was ordered and its spawn never came. Without this rung the
-        // conversation pends FOREVER: the revive retired its exec into `delivered`, so the
-        // never-delivered rung below can never match again. Measured live 2026-08-10 (kimi
-        // execvp failure): revive issued 12:49:47, no spawn ever followed, silence.
-        if (p.revives > 0 && p.watching.size === 0 && (now - p.armedAt) > windowMs) {
-          log('warn', 'reply leg disarming conversation — corrective spawn never appeared', { chatThreadId: id, revives: p.revives, windowMs });
+        // THE SPAWN-WAIT RUNG — one rung, three ways in, because they differ only in HOW LONG a
+        // missing spawn is allowed to stay missing:
+        //   • nothing ever delivered  → the FIRST turn is still owed a spawn (the original bound).
+        //   • a revive was issued     → its corrective turn was ordered and never came (2026-08-10,
+        //                               kimi execvp failure). The revive retired its exec into
+        //                               `delivered`, so the first way in can never match again.
+        //   • a compaction was retired → the ANSWERING turn was owed and never came (2026-08-12,
+        //                               exec 26449 crashed after compacting). Same shape, and the
+        //                               first two ways in both miss it.
+        // The last two wait `correctiveWindowMs`, not `windowMs`: both are a re-dispatch on a chain
+        // that is ALREADY awake, which the daemon fires on the next tick. Ten minutes there is ten
+        // minutes of the owner staring at nothing. An ORDINARY follow-up keeps the long window —
+        // it may legitimately queue behind the chain's running turn.
+        //
+        // ⚑ THE RUNG REQUIRES `tickerOk`. "No spawn appeared" is a claim about what the ticker
+        // showed, and this pass may not have been able to LOOK — on 2026-08-12 the gateway timed
+        // out on `inspect ticker` for minutes at a stretch. A driver that cannot see the ticker
+        // must not declare a thread dead; it waits for a pass that can.
+        const fast = p.revives > 0 || p.compacted === true;
+        const owedSpawn = p.delivered.size === 0 || fast;
+        if (tickerOk && owedSpawn && p.watching.size === 0 && (now - p.armedAt) > (fast ? correctiveWindowMs : windowMs)) {
+          const reason = p.revives > 0 ? 'revive-no-spawn' : p.compacted ? 'compaction-no-answering-turn' : 'no-spawn';
+          log('warn', 'reply leg disarming conversation — expected spawn never appeared', { chatThreadId: id, queueId: p.queueId, reason, revives: p.revives, windowMs: fast ? correctiveWindowMs : windowMs });
           pending.delete(id);
-          await deadAir(id, 'revive-no-spawn');
-          continue;
-        }
-        if (p.watching.size === 0 && p.delivered.size === 0 && (now - p.armedAt) > windowMs) {
-          log('warn', 'reply leg disarming conversation — no spawn within window', { chatThreadId: id, queueId: p.queueId, windowMs });
-          pending.delete(id);
-          await deadAir(id, 'no-spawn');
+          await deadAir(id, reason);
         }
       }
     } finally {

@@ -64,10 +64,13 @@ both inversions are the point:
      `request --effort` stages the rung; `apply` writes the HARNESS'S OWN LEVEL STRING (never the
      number) into the sheet; a rung outside the TARGET profile's ladder is refused at BOTH halves
      with the range named; a rung valid on one profile and invalid on another proves the range is
-     the profile's, not a global ceiling. ⚠ AND THE TWO SHEET-ONLY RULES, WHICH REVERSE WHAT THE
-     RETIRED TARGET DID: a profile WITH a dial and NO rung is REFUSED (materialize refuses
-     `effort-missing`), and a rung on an INERT profile is REFUSED rather than stored inert — a
-     stored level no harness honours is the knob-that-does-nothing G-270 exists to expose.
+     the profile's, not a global ceiling. ⚠ AND THE TWO EFFORT RULES OF THE SHEET: a profile
+     WITH a dial and NO rung is REFUSED (materialize refuses `effort-missing`) — that one reverses
+     what the retired target did — while a rung on an INERT profile is ACCEPTED and stored as the
+     word `inert`, which is owner ruling `d-effort-refuses-only-where-a-dial-exists` and the arm
+     that reds if the 2026-08-12 refusal returns. That refusal ALSO popped the field, and
+     `open_binding` then refused the half-declared triple on this very seat, so the master's live
+     `claude-haiku` cast could not be made through this tool at all.
 """
 
 import contextlib
@@ -582,14 +585,20 @@ def main():
               f"rung {over} is refused on codex NAMING 1..{len(CODEX)} and accepted on claude — "
               f"the range belongs to the profile")
 
-        # (d) THE SHEET'S TWO RULES, AND BOTH REVERSE THE RETIRED TARGET'S BEHAVIOUR.
-        digest = sha(sheet)
+        # (d) THE SHEET'S TWO EFFORT RULES. The first is the LIVE MASTER'S OWN CAST: this seat runs
+        #     on `claude-haiku` for the warm-session path, and until 2026-08-12 this tool REFUSED
+        #     that rung and POPPED the field, after which `open_binding` refused the half-declared
+        #     triple — so the cast in force could not be made by the CLI that owns it and the sheet
+        #     was hand-written. Owner ruling `d-effort-refuses-only-where-a-dial-exists`: accept,
+        #     and record `inert`. The whole triple must land, which is what the last clause checks.
         stage(inbox, {"master-profile": "claude-haiku", "effort": 3})
         out = mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)
-        stated = (out["results"][-1] or {}).get("stated-refusal", "")
-        check(out["ok"] is False and sha(sheet) == digest and "NO effort dial" in stated,
-              f"a rung on an INERT profile is REFUSED, not stored — a level string no harness "
-              f"honours is the knob-that-does-nothing ({stated[:70]})")
+        entry = seat_entry(sheet, LIVE_SEAT)
+        check(out["ok"] is True and entry.get("effort") == "inert"
+              and entry.get("model") == "claude-haiku-4-5" and entry.get("harness") == "claude",
+              f"a rung on an INERT profile is ACCEPTED and stored as `inert`, with the whole "
+              f"harness·model·effort triple present so a STANDING seat materializes "
+              f"({entry.get('harness')!r}, {entry.get('model')!r}, {entry.get('effort')!r})")
 
         stage(inbox, {"master-profile": "claude-opus"})
         out = mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)

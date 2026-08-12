@@ -56,25 +56,29 @@ to highest reasoning, in the ladder THAT PROFILE declares in `spawn-profiles.yam
 N differs per harness — claude 5 (low·medium·high·xhigh·max), codex 3, kimi 2 — so a rung is only
 meaningful against a profile, and a request outside that profile's range is REFUSED naming it.
 
-⚠ A PROFILE WITH NO DIAL (`effort: { inert: true }` — `claude-haiku`, `test-sleep`) REFUSES a rung
-here rather than accepting it inert. That is a DIFFERENCE from the retired bridge-config path, not
-an inconsistency with G-270: G-270 governs what a dial REPORTS about itself, and `show` still
-reports those profiles as inert. This is a WRITE into a file `materialize-seats.py` reads, and a
-stored level string no harness honours is precisely the knob-that-does-nothing G-270 exists to
-expose. The mirror-image rule holds too: a profile that HAS a dial must be given a rung, because
-materialize refuses `effort-missing` on it.
+⚠ A PROFILE WITH NO DIAL (`effort: { inert: true }` — `claude-haiku`, `test-sleep`) ACCEPTS a rung
+and the sheet stores the word `inert`. It REFUSED one until 2026-08-12 — the "known asymmetry"
+`d-effort-refuses-only-where-a-dial-exists` filed as defensible while nothing cast a seat to an
+inert profile. Something does: the channel master runs on `claude-haiku` for the warm-session path,
+and the refusal made that cast un-makeable through THIS tool — `cast_seat` popped the rung and
+`materialize-seats.py#open_binding` then refused the half-declared triple on the standing seat, so
+the live sheet had to be hand-written (measured 2026-08-12). The ruling governs both doors now:
+refuse only where a dial EXISTS and the level is out of its range. The mirror-image rule is
+unchanged: a profile that HAS a dial must be given a rung, because materialize refuses
+`effort-missing` on it.
 
-⚠ THE RUNG IS WRITTEN WITH THE PROFILE, ALWAYS, AND CLEARED WHEN NONE IS GIVEN. `request opus`
-without `--effort` REMOVES the sheet's `effort` field. That is not tidiness: a rung left behind
-across a switch to a shorter-laddered harness (rung 4 on claude, then a switch to codex, whose top
-is 3) would pass every door here and REFUSE AT THE SPAWN, one owner message later — the exact
-failure mode the profile-name validation exists to prevent, one field over.
+⚠ THE RUNG IS WRITTEN WITH THE PROFILE, ALWAYS — NEVER LEFT OVER FROM THE PREVIOUS ONE. A rung
+belongs to the profile it was chosen for: rung 4, chosen on a five-rung claude ladder and left
+behind across a switch to codex (top rung 3), would pass every door here and REFUSE AT THE SPAWN,
+one owner message later — the exact failure mode the profile-name validation exists to prevent, one
+field over. So the switch rewrites the field: a dialled profile takes the rung it was given (and
+refuses without one), and an INERT one takes the word `inert` whether a rung was named or not.
 
 ⚠ AND ON THE SHEET, THE EFFORT RULES ARE THE SHEET'S — `bindings.cast_seat` IS THE VALIDATOR HERE,
 called dry-run by `request` and for real by `apply`, so one function answers "may I?" and performs
-"do it". It is STRICTER than the retired bridge-config path in both directions: a pair WITH a dial
-must name a rung (materialize refuses `effort-missing`), and a pair with NO dial must not carry one
-(a stored value nothing honours is a knob that turns and does nothing). That is why this file no
+"do it". It is STRICTER than the retired bridge-config path in ONE direction: a pair WITH a dial
+must name a rung, because materialize refuses `effort-missing` on it. In the other direction the
+two agree — a pair with no dial accepts a rung and records it inert. That is why this file no
 longer carries its own `validate_effort` — a second effort validator over a file another tool owns
 is the drift the ladder reader was already collapsed to avoid.
 
@@ -264,10 +268,11 @@ def validate(name, profiles_path=DEFAULT_PROFILES):
 # ⚠ THERE IS NO `validate_effort` IN THIS FILE ANY MORE, AND ITS ABSENCE IS THE POINT.
 #
 # It was the three-way rung check (`None` = no dial · `[]` = inert · list = rungs) that guarded a
-# write into the bridge config. The 2026-08-12 retarget moved the write onto the casting sheet, and
-# the sheet's rules are STRICTER in both directions — a pair WITH a dial must carry a rung
-# (materialize refuses `effort-missing`) and a pair WITHOUT one must not (a stored value nothing
-# honours is a knob that turns and does nothing). Keeping the old checker beside the new file would
+# write into the bridge config. The 2026-08-12 retarget moved the write onto the casting sheet,
+# whose rule is STRICTER in one direction — a pair WITH a dial must carry a rung, because
+# materialize refuses `effort-missing` — and identical in the other: a pair with an INERT dial
+# accepts any rung and stores `inert` (`d-effort-refuses-only-where-a-dial-exists`). Keeping the
+# old checker beside the new file would
 # have been a second effort validator over a document this tool does not own — the exact shape of
 # drift the ladder-reader collapse above was performed to end, one field over.
 #
@@ -299,8 +304,9 @@ EFFORT_GUIDANCE = (
     "high → just below N on a ladder of 4+ (on a 2- or 3-rung ladder it IS N); "
     "maximum/deepest/think-hardest → N. If the request names NO effort but the target profile HAS a "
     "ladder, you must still pick one — the middle rung is the honest default for an unstated ask — "
-    "because a dialled seat with no effort is refused. Pass NO rung only for a profile `show` marks "
-    "inert (it has no dial, and a rung on it is refused rather than stored)."
+    "because a dialled seat with no effort is refused. A profile `show` marks INERT has no dial at "
+    "all: pass a rung or omit it, either way the sheet records `inert` and the harness runs "
+    "single-mode."
 )
 
 
@@ -437,7 +443,12 @@ def _report_body(record, repass):
                 "SKIPPED (--no-repass) — the sheet is written but `seat.md` still carries the old "
                 "cast, which is what a launch actually reads")
         rung = record.get("requested-effort")
-        if rung is None:
+        if change.get("effort-inert"):
+            # The rung, if one was asked for, is NOT reported as applied: this profile has no dial,
+            # so it is accepted and recorded inert (G-270 — stated, never silently dropped).
+            effort_line = (f"effort: `{after.get('effort')}` — this model has no effort dial, so "
+                           f"any rung is accepted and applies nothing")
+        elif rung is None:
             effort_line = "effort: harness default (this pair declares no dial)"
         else:
             effort_line = (f"effort: rung {rung} = `{after.get('effort')}` on "

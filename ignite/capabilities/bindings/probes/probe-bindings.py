@@ -17,9 +17,16 @@ throwaway goal package with `--dry-run`. The live `.rbtv/config/modules/` is rea
      4` on claude writes `xhigh`, read back FROM THE FILE. `xhigh` is exactly the rung the profile's
      four-level translation table does not carry, so this check also discriminates "native ladder"
      from "profile table".
-  4. EVERY REFUSAL SHAPE LEAVES THE SHEET BYTE-IDENTICAL — unknown pair, effort out of range, effort
-     on a dial-less pair, a seat the manifest does not carry, `set` before `scaffold`, and a second
-     `scaffold`. Each refuses, each states why, and the file's sha256 is unchanged.
+  3b. AN INERT DIAL ACCEPTS THE RUNG AND STORES `inert` — `claude/claude-haiku-4-5`, with a rung and
+     without one (owner ruling `d-effort-refuses-only-where-a-dial-exists`). This tool REFUSED it
+     until 2026-08-12, popping the field, after which `open_binding` refused the half-declared
+     triple on the standing channel-master seat: the master's live cast was un-makeable through the
+     CLI. Reds if that refusal returns.
+  4. EVERY REFUSAL SHAPE LEAVES THE SHEET BYTE-IDENTICAL — unknown pair, effort out of range, a rung
+     on a profile declaring NO effort table at all (the ruling's other half, run against a COPY of
+     the profiles document with haiku's table deleted, since no live profile is in that state), a
+     seat the manifest does not carry, `set` before `scaffold`, and a second `scaffold`. Each
+     refuses, each states why, and the file's sha256 is unchanged.
   5. THE CODE IS DERIVED FROM THE MANIFEST — a manifest whose rows share no prefix REFUSES rather
      than picking one, and the filename follows the prefix when it changes.
   6. THE MUTANTS — four, each re-running one arm of check 4/5 against a source copy with exactly one
@@ -191,6 +198,45 @@ with tempfile.TemporaryDirectory() as td:
           len(r["uncast"]) == len(manifest_seats) - 1,
           f"{len(r['uncast'])} of {len(manifest_seats)}")
 
+    # AN INERT DIAL ACCEPTS A RUNG AND STORES THE WORD `inert` — owner ruling
+    # `d-effort-refuses-only-where-a-dial-exists` ("refuse only where a dial EXISTS and the level is
+    # out of its range"). ⚠ THIS IS THE REGRESSION GUARD FOR A MEASURED DEFECT, not a style check:
+    # this tool REFUSED the rung until 2026-08-12 and POPPED the field with it, after which
+    # `materialize-seats.py#open_binding` refused the half-declared triple on the STANDING
+    # channel-master seat — so the master's live `claude-haiku` cast could not be made through the
+    # owner's own CLI at all and its sheet had to be hand-written. Both arms are asserted, rung
+    # named and rung omitted, because the omitted one is the half that produced the partial triple.
+    # The Refusal is CAUGHT rather than left to propagate: a regression here is the old refusal
+    # coming back, and an uncaught one would kill the probe mid-file — red either way, but with no
+    # named check and no capture written. Caught, the regression reports itself in one line.
+    ir, with_rung, no_rung, stated = None, {}, {}, ""
+    try:
+        ir = mod.set_seat(LIVE_MANIFEST, "plan-planner", "claude", "claude-haiku-4-5", 2,
+                          config_root=croot, profiles_path=LIVE_PROFILES)
+        with_rung = json.loads(sheet.read_text())["seats"]["plan-planner"]
+        mod.set_seat(LIVE_MANIFEST, "plan-planner", "claude", "claude-haiku-4-5", None,
+                     config_root=croot, profiles_path=LIVE_PROFILES)
+        no_rung = json.loads(sheet.read_text())["seats"]["plan-planner"]
+    except mod.Refusal as exc:
+        stated = f"REFUSED: {exc}"
+    check("a rung on an INERT profile (claude/claude-haiku-4-5) is ACCEPTED and stored as the word "
+          "`inert` — with a rung AND without one, so the triple is never half-declared",
+          with_rung.get("effort") == "inert" and no_rung.get("effort") == "inert"
+          and (ir or {}).get("effort-inert") is True,
+          stated[:200] or (f"with rung {with_rung.get('effort')!r}, without "
+                           f"{no_rung.get('effort')!r}, effort-inert={ir['effort-inert']!r}"))
+
+    # …and the OTHER half of the same ruling still refuses: a profile declaring NO `effort:` block
+    # at all cannot translate a rung, and neither can anything downstream (`resolveEffort` throws
+    # E_UNKNOWN_EFFORT on it). No LIVE profile is in that state — `loadConfig` forces a dial-less
+    # harness to say `inert: true` — so the arm runs against a COPY with haiku's one-line table
+    # deleted, and the deletion is asserted to have landed rather than assumed.
+    no_dial = td / "no-dial-profiles.yaml"
+    no_dial.write_text(LIVE_PROFILES.read_text(encoding="utf-8")
+                       .replace("    effort: { inert: true }\n", "", 1), encoding="utf-8")
+    if mod.profile_effort("claude-haiku", no_dial) is not None:
+        inoperative.append("the no-effort-table fixture still declares a dial — its arm scores nothing")
+
     before = sha(sheet)
     arms = [
         ("unknown pair (a model no profile pins)",
@@ -199,9 +245,9 @@ with tempfile.TemporaryDirectory() as td:
         ("effort out of range (6 on a five-rung ladder)",
          lambda: mod.set_seat(LIVE_MANIFEST, "plan-planner", "claude", "claude-opus-5", 6,
                               config_root=croot, profiles_path=LIVE_PROFILES)),
-        ("effort on a dial-less pair (claude/claude-haiku-4-5 declares effort: inert)",
+        ("effort on a pair whose profile declares NO effort table at all",
          lambda: mod.set_seat(LIVE_MANIFEST, "plan-planner", "claude", "claude-haiku-4-5", 2,
-                              config_root=croot, profiles_path=LIVE_PROFILES)),
+                              config_root=croot, profiles_path=no_dial)),
         ("a seat the manifest does not carry",
          lambda: mod.set_seat(LIVE_MANIFEST, "plan-nonesuch", "claude", "claude-opus-5", 4,
                               config_root=croot, profiles_path=LIVE_PROFILES)),

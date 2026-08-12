@@ -91,21 +91,27 @@ reasoning, rung N the highest, and **N differs per profile** because each harnes
 - **Out of range is refused, loudly, naming the range** — at `request`, again at `apply`, and again
   at the spawn. A rung is only meaningful against a profile, so it is always checked against the
   profile the request is switching **to**, never the one in force.
-- **An inert profile REFUSES a rung**, and this REVERSED with the retarget. Against the bridge
-  config a rung on `claude-haiku` was accepted and reported inert (G-270). Against the sheet it is
-  refused: the sheet stores the harness's own LEVEL STRING for `materialize-seats.py` to render, and
-  a stored level no harness honours is precisely the knob-that-does-nothing G-270 exists to expose.
-  G-270 is unchanged — it governs what a dial REPORTS about itself, and `show` still reports those
-  profiles as inert.
+- **An inert profile ACCEPTS a rung and the sheet records `inert`** — owner ruling
+  `d-effort-refuses-only-where-a-dial-exists`: *refuse only where a dial EXISTS and the level is out
+  of its range*. ⚠ **The sheet REFUSED one between the 2026-08-12 retarget and later that same day**,
+  on the reasoning that a stored level no harness honours is the knob-that-does-nothing G-270 exists
+  to expose. What that missed: the refusal also POPPED the field, and
+  `materialize-seats.py#open_binding` refuses a half-declared triple on a standing seat — so the
+  channel master's `claude-haiku` cast (the warm-session latency fix) was **un-makeable through this
+  tool** and its sheet had to be hand-written. The word `inert` is the honest storage: not a rung
+  name (an inert profile has no ladder to name one from), and every reader of the field —
+  `profiles.js#resolveEffort`, `catalog.js#effortRungFor`, `coord.py#validate_seat` — reports inert
+  before it looks at the word.
 - **The mirror-image rule holds too: a profile WITH a dial MUST be given a rung.** `materialize`
   refuses `effort-missing` on a dialled seat, so "no rung" is not a valid cast for `claude-opus`.
-  Only a dial-less profile may carry none.
+  An inert profile carries `inert` instead — never nothing, because a standing seat's triple is all
+  three or none (`materialize-seats.py#open_binding`).
 - `show` prints every profile's ladder, so nobody has to know N out of band.
 
-## ⚠ The rung is written WITH the profile, and an omitted rung CLEARS the old one
+## ⚠ The rung is written WITH the profile — never left over from the previous one
 
-`request claude-opus --effort 4` writes all three fields. `request claude-haiku` — no `--effort`,
-and none admitted — writes the pair and **removes** the sheet's `effort`. That is not tidiness:
+`request claude-opus --effort 4` writes all three fields. `request claude-haiku` — with or without
+`--effort` — writes the pair and the word `inert`. That is not tidiness:
 rung 4 chosen for a five-rung harness, left behind across a switch to a three-rung one, passes every
 door in this tool and then **refuses at the spawn**, one owner message later — the exact failure the
 profile-name validation exists to prevent, one field over.
@@ -244,9 +250,9 @@ rung is the honest default for an unstated ask), because a dialled seat with no 
 
 # change it (validates name AND rung against the live config, stages, enqueues — one command)
 # `--chat-thread` is YOUR thread: the plain `chat-thread:` line at the top of your prompt.
-# `--effort` is REQUIRED for a profile with a dial and REFUSED for one without — the sheet must
-# hold a rung `materialize` accepts. Omitting it on a dial-less profile CLEARS any rung currently
-# set, because a rung belongs to the profile it was chosen for. `show` says which profiles are inert.
+# `--effort` is REQUIRED for a profile with a dial — the sheet must hold a rung `materialize`
+# accepts. On an INERT profile it is optional and applies nothing: the sheet records `inert` either
+# way, because a rung belongs to the profile it was chosen for. `show` says which profiles are inert.
 .../capabilities/master-profile/tool/rbtv-master-profile request claude-opus --effort 4 \
   --chat-thread C0ABCDEFG:1754812345.123456 \
   --inbox /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/settings-requests/master-profile
