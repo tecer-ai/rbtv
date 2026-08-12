@@ -58,6 +58,7 @@ function createEngine({
   workflows = {},
   tickIntervalMs,
   spawnConfigPath,
+  spawnDataRoot = null,
   userManager = true,
   tickerConfig = {},
   feedPath = null,
@@ -83,6 +84,7 @@ function createEngine({
     configPath: spawnConfigPath,
     logger,
     userManager,
+    dataRoot: spawnDataRoot,
   });
   const spawnManager = decorateSpawnManager
     ? decorateSpawnManager(bareSpawnManager, heartStore)

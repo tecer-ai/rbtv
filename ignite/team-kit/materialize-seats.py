@@ -407,6 +407,16 @@ CAGE_GRANTS_COLUMN = "cage-grants"
 # with `seatDeclaresList`, the same reader `rw-paths` already goes through.
 CAGE_GOAL_WRITES_COLUMN = "goal-writes"
 
+# ---- `on-fail-relaunch` — a judge seat's declared loop route (owner ruling 2026-08-12) ----
+#
+# The FAIL-verdict loop re-fire (`concepts/loop.md`): the seats this judge's FAIL re-dispatches
+# on their slots, below the retry bar. Declared per seat in the CATALOG (the loop's shape differs
+# per workflow and per judge), emitted into seat.md frontmatter, read at verdict time by
+# `coord.py#on_fail_relaunch_route` — deterministic routing at the edge, never an agent's act.
+#
+#   seats.csv:  on-fail-relaunch     "forg-builder,forg-judge"
+ON_FAIL_RELAUNCH_COLUMN = "on-fail-relaunch"
+
 # The cage template's home — the ignite config sibling of this team-kit,
 # resolved relative to THIS file exactly as goal_cli's tool dir is above.
 _SPAWN_PROFILES = Path(__file__).resolve().parent.parent / "config" / "spawn-profiles.yaml"
@@ -652,6 +662,18 @@ def _cage_frontmatter(seat: str, seats_cat: dict) -> dict:
                 "tmpfs, and seat.md under its own read-only carve",
             )
         fm[CAGE_GOAL_WRITES_COLUMN] = [declared]
+    route = [e.strip() for e in
+             str(row.get(ON_FAIL_RELAUNCH_COLUMN, "") or "").split(",") if e.strip()]
+    for entry in route:
+        if entry not in seats_cat:
+            raise Refuse(
+                "on-fail-relaunch-unknown-seat",
+                f"seat '{seat}' declares on-fail-relaunch '{entry}' — no such seat in the "
+                "catalog; a loop routed at a seat that cannot exist is a loop that stalls "
+                "silently at its first FAIL, hours later, in a grant file nobody reads",
+            )
+    if route:
+        fm[ON_FAIL_RELAUNCH_COLUMN] = route
     return fm
 
 # ---- pass-folder substitution (B4, B5, G-planner-0804-1502) ----

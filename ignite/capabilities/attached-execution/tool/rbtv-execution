@@ -194,7 +194,13 @@ async function main(argv) {
       spawnConfigPath,
       tickIntervalMs: opts.tickMs || null,
       maxTicks: Number.isFinite(opts.maxTicks) ? opts.maxTicks : null,
-      logger: opts.json ? null : (m) => process.stderr.write(`${m.level || 'info'}: ${m.message}\n`),
+      // The seat and the evidence ride the line — a held/skipped seat log without its seat name
+      // is unactionable at the one surface a human is watching (owner feedback 2026-08-12).
+      logger: opts.json ? null : (m) => {
+        const seat = m.seat ? ` [${m.seat}]` : '';
+        const why = m.evidence ? ` — ${String(m.evidence).split('\n')[0].slice(0, 160)}` : '';
+        process.stderr.write(`${m.level || 'info'}: ${m.message}${seat}${why}\n`);
+      },
     });
   } catch (err) {
     // The substrate refusal and the store refusals are TEACHING refusals — they carry the ruling,

@@ -31,6 +31,7 @@
 //     ./substrate.js for what it refuses and why a refusal rather than a fallback.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createEngine } = require('./index');
@@ -119,6 +120,98 @@ function assertNotTheDaemonStore(storePath, spawnConfig) {
       `construction, not guarded — the in-process E_SECOND_WRITER guard cannot see the daemon.`
     );
   }
+}
+
+// THIS MACHINE's state root, read from the install's endpoint record — the file § State layout
+// names as the ONE home of that fact (`.rbtv/modules/ignite/server.json`, machine-keyed because it
+// travels via git to every machine). Null on any miss (no record, no entry for this hostname):
+// absence here is a config state, not an error, and the caller falls through to the committed value.
+function machineStateRoot(goalFolder) {
+  const parts = goalFolder.split(path.sep);
+  const idx = parts.lastIndexOf('.rbtv');
+  if (idx === -1) return null;
+  const wsRoot = parts.slice(0, idx).join(path.sep) || path.sep;
+  try {
+    const record = JSON.parse(fs.readFileSync(path.join(wsRoot, '.rbtv', 'modules', 'ignite', 'server.json'), 'utf8'));
+    const entry = record.machines && record.machines[os.hostname()];
+    return (entry && entry.state_root) || null;
+  } catch {
+    return null;
+  }
+}
+
+// ── THE PER-TICK STATUS BLOCK (owner request 2026-08-12) ─────────────────────────────────────────
+//
+// The attached run owns a real terminal, and "tick N start / tick N end" was all it said while a
+// seat ran for minutes — the operator could not tell running from queued from held without a second
+// terminal and `--status`. This block is DERIVED per pass from the same post-tick reads the exit
+// decision uses (the pre-tick view is stale by exactly the thing that just happened — same hazard
+// evaluateExit's re-read comment documents), so it can never disagree with the verdict printed
+// after it. It prints on STATE change, with a paced re-print while something runs so the elapsed
+// column stays honest — never every tick, which would bury the engine's own lines.
+function elapsedSince(iso) {
+  if (!iso) return '?';
+  const s = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000));
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  return h ? `${h}h${String(m % 60).padStart(2, '0')}m` : m ? `${m}m${String(s % 60).padStart(2, '0')}s` : `${s}s`;
+}
+
+function renderStatusBlock(heartStore, rows, isHeld, view, ready) {
+  const castOf = (r) => [r.harness, r.model, r.effort].filter(Boolean).join('/') || '(uncast)';
+  const running = new Map();
+  for (const status of ['launching', 'running']) {
+    for (const ex of heartStore.listExecutionsByStatus(status)) {
+      const m = /^seat-(.+)$/.exec(ex.job_id || '');
+      if (m) running.set(m[1], ex.started_at || ex.fired_at || null);
+    }
+  }
+  const finished = rows.filter((r) => view.finished.has(r.seat)).map((r) => r.seat);
+  const finishedSet = new Set(finished);
+  const pending = rows.filter((r) => !finishedSet.has(r.seat) && !running.has(r.seat));
+  const heldCount = pending.filter((r) => isHeld && isHeld(r.seat)).length;
+
+  const lines = [];
+  const keyParts = [];
+  lines.push(`── ${running.size} running · ${pending.length} queued/waiting · ${heldCount} interactive held for you · ${finished.length}/${rows.length} done ──`);
+  if (running.size) {
+    lines.push('Running');
+    for (const r of rows) {
+      if (!running.has(r.seat)) continue;
+      lines.push(`  ${r.seat}  ${castOf(r)}  up ${elapsedSince(running.get(r.seat))}`);
+      keyParts.push(`run:${r.seat}`);
+    }
+  }
+  if (pending.length) {
+    lines.push('Queue');
+    const pendingSet = new Set(pending.map((r) => r.seat));
+    const afterList = (r) => (r.after || '').split(',').map((s) => s.trim()).filter(Boolean);
+    // Display nesting only: a seat hangs under its FIRST still-pending predecessor; the full
+    // `after` list is printed on the row, so a multi-predecessor edge loses nothing.
+    const children = new Map();
+    const roots = [];
+    for (const r of pending) {
+      const parent = afterList(r).find((a) => pendingSet.has(a)) || null;
+      if (parent) {
+        if (!children.has(parent)) children.set(parent, []);
+        children.get(parent).push(r);
+      } else roots.push(r);
+    }
+    const printRow = (r, depth) => {
+      const state = ready && ready.has(r.seat) ? 'ready' : 'waiting';
+      const mark = isHeld && isHeld(r.seat) ? ' · interactive' : '';
+      const after = afterList(r).length ? `  after: ${afterList(r).join(', ')}` : '';
+      lines.push(`  ${'   '.repeat(depth)}${depth ? '└─ ' : ''}${r.seat}  ${castOf(r)}  [${state}]${after}${mark}`);
+      keyParts.push(`${state}:${r.seat}`);
+      for (const c of children.get(r.seat) || []) printRow(c, depth + 1);
+    };
+    for (const r of roots) printRow(r, 0);
+  }
+  if (finished.length) lines.push(`Done  ${finished.join(', ')}`);
+  keyParts.push(`done:${finished.join(',')}`);
+  // `key` deliberately carries NO elapsed times: equality means "same picture", so the caller can
+  // re-print on change and merely refresh (paced) while the picture holds.
+  return { block: lines.join('\n'), key: keyParts.join('|') };
 }
 
 // ── S-18 · THE CROSS-LANE REFUSAL, v1 — RETIRED (owner ruling #d-s23-single-execution-record-now)
@@ -888,6 +981,22 @@ async function executeAttached({
   const spawnConfig = loadConfig(spawnConfigPath);
   assertNotTheDaemonStore(storePath, spawnConfig);
 
+  // ── THE SESSION-ARTIFACT ROOT THIS LANE SPAWNS AGAINST (logs/, exits/) ────────────────────────
+  //
+  // The committed config's `spawn.data_root` is the SEED value — system-centric
+  // (/var/lib/rbtv-ignite), overridable by RBTV_IGNITE_DATA_ROOT, which the daemon's unit sets and
+  // folds into a materialized effective config before its engine boots. This lane boots from the
+  // committed file in a user shell where that env var is normally ABSENT, so without a resolution
+  // of its own it spawns headless seats against a root a user cannot mkdir — the spawn dies at
+  // `ensureLogPath` with EACCES before `launching` is ever recorded (measured 2026-08-12:
+  // forge-prompt-channel-master forg-builder, two same-second `crash sweep: exit=null` deaths).
+  // Resolution order: the operator env override, then THIS MACHINE's recorded state root from the
+  // install's endpoint record (`.rbtv/modules/ignite/server.json` — the one home of that fact),
+  // then the config value as committed. Null falls through to the config untouched.
+  const spawnDataRoot = process.env.RBTV_IGNITE_DATA_ROOT
+    || machineStateRoot(goalFolder)
+    || null;
+
   // ── `--profile` IS DEMANDED ONLY WHERE A SEAT WOULD READ IT (2026-08-12, narrowing D19) ──────
   //
   // This used to be an unconditional refusal. Ruling D19 had already made the caller's name the
@@ -939,6 +1048,7 @@ async function executeAttached({
     workflows: spawnConfig.workflows || {},
     tickIntervalMs: tickIntervalMs || undefined,
     spawnConfigPath,
+    spawnDataRoot,
     tickerConfig: tickIntervalMs ? { tick_interval_ms: tickIntervalMs } : {},
     feedPath: path.join(goalFolder, 'feed.jsonl'),
     logPath: path.join(goalFolder, 'ticker.log'),
@@ -982,6 +1092,8 @@ async function executeAttached({
     const foreground = [];
 
     let ticks = 0;
+    let lastStatusKey = null;
+    let lastStatusTick = 0;
     for (;;) {
       // THE FOREGROUND CARRIER, ahead of the enqueue pass and BLOCKING: while this seat's session
       // owns the terminal nothing else in this run advances, which is the design's own sentence.
@@ -1060,8 +1172,17 @@ async function executeAttached({
       // before that happened — so the pre-tick answer would call the seat it just unblocked
       // unreachable and END THE RUN `blocked` one pass early. One extra `ready-seats` per pass
       // (~0.4 s) against a decision that terminates the run.
-      const verdict = evaluateExit(engine.heartStore, rows, grants,
-        recordView(engine.heartStore, goalFolder, { relaunch: grants }), readySeats(goalFolder).ready);
+      const postView = recordView(engine.heartStore, goalFolder, { relaunch: grants });
+      const postReady = readySeats(goalFolder).ready;
+      // The status block, from the SAME post-tick reads the exit decision is about to use.
+      const status = renderStatusBlock(engine.heartStore, rows, isHeld, postView, postReady);
+      const refreshDue = status.block.includes('Running') && (ticks - lastStatusTick) * intervalMs >= 60000;
+      if (status.key !== lastStatusKey || refreshDue) {
+        lastStatusKey = status.key;
+        lastStatusTick = ticks;
+        process.stdout.write(`${status.block}\n`);
+      }
+      const verdict = evaluateExit(engine.heartStore, rows, grants, postView, postReady);
       if (verdict.done) {
         return {
           host,

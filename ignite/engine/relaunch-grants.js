@@ -74,7 +74,46 @@ function spendGrant(goalFolder, seat) {
   const tmp = `${file}.tmp.${process.pid}`;      // same directory — that is what makes rename atomic
   fs.writeFileSync(tmp, keep.length ? `${keep.join('\n')}\n` : '', 'utf8');
   fs.renameSync(tmp, file);
+  spendCoordTwin(goalFolder, seat);
   return true;
+}
+
+// ── THE COORD TWIN'S SPEND (loop re-fire, owner ruling 2026-08-12) ─────────────────────────────
+//
+// The verdict verb's `on-fail-relaunch` route mints into BOTH grant stores (see coord.py
+// #mint_loop_refire), because coord's csv is what flips a `done` seat READY on the ready surface
+// and this file is what hides its history from the engine's own eligibility reader. The csv grant
+// is spent by `coordinate launch` on the tmux lane — but the ENGINE lane never calls that, so an
+// engine spend that left the twin standing would flip the seat READY again after its re-run,
+// forever, and hold its dependents on `relaunch-granted` with it. Stamping the FIRST unspent row
+// for the seat here keeps the two stores moving as one on this lane. Best-effort by design: no
+// csv, no matching row, or an unparseable file spends nothing and fails silently — this is a
+// hygiene write over another surface's file, and refusing the engine's own spend over it would
+// invert the ownership. Plain comma split: every column the writer emits (seat, session-id,
+// anchor, minted-by, stamps) is comma-free by construction.
+function spendCoordTwin(goalFolder, seat) {
+  const file = path.join(goalFolder, 'coordination', 'relaunch-grants.csv');
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return; }
+  const lines = text.split('\n');
+  const header = (lines[0] || '').split(',').map((c) => c.trim());
+  const seatIdx = header.indexOf('seat');
+  const spentIdx = header.indexOf('spent-at');
+  if (seatIdx === -1 || spentIdx === -1) return;
+  for (let i = 1; i < lines.length; i += 1) {
+    if (!lines[i].trim()) continue;
+    const cells = lines[i].split(',');
+    if ((cells[seatIdx] || '').trim() !== seat || (cells[spentIdx] || '').trim()) continue;
+    while (cells.length <= spentIdx) cells.push('');
+    cells[spentIdx] = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    lines[i] = cells.join(',');
+    const tmp = `${file}.tmp.${process.pid}`;
+    try {
+      fs.writeFileSync(tmp, lines.join('\n'), 'utf8');
+      fs.renameSync(tmp, file);
+    } catch { /* hygiene write only — the engine's own spend already happened */ }
+    return;
+  }
 }
 
 module.exports = { GRANT_FILE, grantPath, readGrants, grantRelaunch, spendGrant };

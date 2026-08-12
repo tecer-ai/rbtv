@@ -189,6 +189,10 @@ function main() {
   check('P4 the operator escape works too — the SAME held goal is `live` without a `--relaunch` grant and not with it',
     r.relaunchWithout.alpha === 'live' && r.relaunchWith.alpha !== 'live',
     `without=${r.relaunchWithout.alpha} · with=${r.relaunchWith.alpha}`);
+  check('P5 the loop re-fire (owner ruling 2026-08-12) — a grant releases a FINISHED seat: `done` '
+    + 'without it, dispatchable again with it',
+    r.doneRelaunchWithout.alpha === 'done' && r.doneRelaunchWith.alpha !== 'done',
+    `without=${r.doneRelaunchWithout.alpha} · with=${r.doneRelaunchWith.alpha}`);
 
   // ── R · THE REVIEW'S THREE FINDINGS, each an arm ────────────────────────────────────────────
   say('');
@@ -309,12 +313,14 @@ function main() {
       'const isDone = (seat) => ((done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat, goal))));',
       (o) => o.recordAfterAsk.join() === 'alpha=blocked' && o.statesWhileHeld.alpha === 'done',
       (o) => `record ${JSON.stringify(o.recordAfterAsk)} · alpha=${o.statesWhileHeld.alpha} — read as finished off a row that says blocked`],
-    // review F1 — the grant bailing on "has a done row" instead of "finished by the last word"
-    ['grant', 'the relaunch grant bails on ANY `done` row (review F1)',
+    // the loop re-fire (owner ruling 2026-08-12) — a mutant that restores the retired
+    // finished-guard must be CAUGHT: a granted `done` seat would stay done and the FAIL loop
+    // could never re-dispatch the builder on its slot (`concepts/loop.md`).
+    ['grant', 'the relaunch grant refuses a FINISHED seat (pre-loop-re-fire behavior)',
+      'finished.delete(seat);',
       'if (finished.has(seat)) continue;',
-      'if (done.has(seat)) continue;',
-      (o) => o.secondHoldRelaunch.alpha === 'live',
-      (o) => `after the grant alpha=${o.secondHoldRelaunch.alpha} (the escape is a NO-OP)`],
+      (o) => o.doneRelaunchWith.alpha === 'done',
+      (o) => `after the grant alpha=${o.doneRelaunchWith.alpha} (the loop re-fire is a NO-OP)`],
     // review F2 — the foreign deletion doing the same, hiding a crashed foreign revival
     ['foreign', 'the foreign deletion outranks a LATER open row (review F2)',
       'for (const seat of finished) foreign.delete(seat);',

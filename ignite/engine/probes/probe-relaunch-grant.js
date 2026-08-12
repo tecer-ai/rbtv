@@ -250,9 +250,14 @@ async function main() {
   check('LEG 4 …and it spends the grant on the same terms the daemon does',
     !grantsApi.readGrants(g4).has(SEAT), JSON.stringify([...grantsApi.readGrants(g4)]));
 
-  // ── LEG 5 · FINISHED IS NEVER OVERRIDABLE ────────────────────────────────────────────────────
+  // ── LEG 5 · THE LOOP RE-FIRE: A GRANT RE-OPENS A `done` SEAT (owner ruling 2026-08-12) ───────
+  // This leg used to pin the OPPOSITE — "finished is never overridable". The loop re-fire ruling
+  // moved the "must not re-run completed work" guard to the grant's MINT (a deliberate act: the
+  // relaunch CLI, the leader, the verdict verb's `on-fail-relaunch` route), so the eligibility
+  // reader now honors a grant on a `done` row — that is what re-dispatches a FAILed builder on
+  // its slot (`concepts/loop.md`).
   say('');
-  say('LEG 5 — a grant can never re-open a seat the RECORD calls done');
+  say('LEG 5 — the loop re-fire: a grant re-opens a seat the RECORD calls done');
   const g5 = makeGoal('grant-finished');
   const job5 = seeding.jobIdFor(SEAT, 'grant-finished');
   // The cross-lane `done` shape: the record says done and THIS store has no row at all, so the
@@ -266,13 +271,11 @@ async function main() {
   }
   grantsApi.grantRelaunch(g5, SEAT);
   const finishedPass = daemonPass(g5, 'grant-finished');
-  check('LEG 5 a granted seat whose last record row is `done` is NOT enqueued',
-    finishedPass.pickup.enqueued.length === 0 && finishedPass.pickup.skippedAsFinished.includes(SEAT),
+  check('LEG 5 a granted seat whose last record row is `done` IS enqueued — the loop re-fire',
+    finishedPass.pickup.enqueued.includes(SEAT) && !finishedPass.pickup.skippedAsFinished.includes(SEAT),
     `enqueued ${JSON.stringify(finishedPass.pickup.enqueued)} · skippedAsFinished ${JSON.stringify(finishedPass.pickup.skippedAsFinished)}`);
-  check('LEG 5 …and the grant is NOT spent — an authorization nothing consumed must still stand',
-    grantsApi.readGrants(g5).has(SEAT), JSON.stringify([...grantsApi.readGrants(g5)]));
-  check('LEG 5 …with no job row registered for it either — nothing was written off a grant that fired nothing',
-    withDaemonStore((s) => jobRows(s, job5).length) === 0);
+  check('LEG 5 …and the grant IS spent at that enqueue — single-use, so the seat cannot loop free',
+    !grantsApi.readGrants(g5).has(SEAT), JSON.stringify([...grantsApi.readGrants(g5)]));
 
   // ── LEG 6 · AN UNSPENT GRANT SURVIVES AN UNLAUNCHABLE PASS ───────────────────────────────────
   say('');

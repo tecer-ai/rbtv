@@ -504,7 +504,15 @@ function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
   // the set instead of the parameter.
   if (grants.size) {
     for (const seat of grants) {
-      if (finished.has(seat)) continue;
+      // Since the 2026-08-12 loop-re-fire ruling the grant releases a FINISHED seat too — the
+      // finished-guard that stood here (review F1's fix kept it on the last word) is gone,
+      // because "a grant must not re-run completed work" now holds at the MINT, not here: the
+      // file is written only by deliberate acts (the relaunch CLI, the leader, the verdict
+      // verb's route-back), and the loop's whole point is re-dispatching a done-but-FAILed seat
+      // on its slot (`concepts/loop.md`). Do not spell the old guard in this comment — the hold
+      // probe's mutation site is matched by exact text.
+      finished.delete(seat);
+      done.delete(seat);
       foreign.delete(seat);
       notFinished.delete(seat);
       blocked.delete(seat);
@@ -609,8 +617,13 @@ function executionsByJob(heartStore, relaunch = null, goal = null) {
   }
   if (relaunch) {
     for (const seat of relaunch) {
-      const jobId = jobIdFor(seat, goal);
-      if (!seatIsFinished(byJob.get(jobId))) byJob.delete(jobId);
+      // A granted seat's history is hidden WHOLE — finished rows included (owner ruling
+      // 2026-08-12, the loop re-fire: a judge's FAIL verdict relaunches a builder whose row says
+      // `done`, per `concepts/loop.md` — "a fresh worker re-dispatched on the slot"). The guard
+      // that kept finished rows visible ("a grant must not re-run completed work") moved to the
+      // MINT: every writer of the grant file is a deliberate act (the relaunch CLI, the leader,
+      // the verdict verb's route-back), so admission rests on the act, not on this reader.
+      byJob.delete(jobIdFor(seat, goal));
     }
   }
   return byJob;
@@ -883,7 +896,11 @@ function seedGoal({ heartStore, goalFolder, profile, goal, logger = null, isHeld
   seedTaskforce(heartStore, goalFolder, { profile, logger, goal, rows });
   const heldByStore = {};
   const enqueued = enqueueEligible(heartStore, rows, { profile, goalFolder, logger, goal, view, isHeld, relaunch, ready, readyRows, granted, heldByStore });
-  const byJob = executionsByJob(heartStore, null, goal);
+  // WITH the grant set, since the loop re-fire (2026-08-12): the `states` report below must agree
+  // with the enqueue decision above, and a granted `done` seat is dispatchable again — reporting
+  // it `done` off a grant-blind read is the same one-report-contradicting-the-other defect F2
+  // fixed for `skippedAsFinished`.
+  const byJob = executionsByJob(heartStore, relaunch, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
   return {
     goalFolder,

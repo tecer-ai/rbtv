@@ -9845,6 +9845,89 @@ def cmd_escalate(args):
               f"nothing appended")
 
 
+# ── THE LOOP RE-FIRE (owner ruling 2026-08-12) — deterministic routing at the verdict edge ──────
+#
+# `concepts/workflow-edge.md`: "the loop re-fire — a loop's validation seat emits a fail verdict
+# and the edge reading it re-launches the loop branch"; `concepts/loop.md`: the FAIL-verdict redo
+# is "a fresh worker re-dispatched on the slot", bounded by the retry budget. Judgment produced
+# the verdict; the ROUTING is this code — no pass-opener agent, no seat self-evaluation. The
+# route is DECLARED on the judge's own seat descriptor (`on-fail-relaunch:` in seat.md
+# frontmatter, materialized from the workflow's seats.csv), because the loop's shape differs per
+# workflow and per judge; a judge declaring none gets exactly the old behavior.
+
+ON_FAIL_RELAUNCH_KEY = "on-fail-relaunch"
+
+
+def on_fail_relaunch_route(base, seat):
+    """The caller seat's declared loop route — the `on-fail-relaunch:` frontmatter list in its
+    own `{package}/seats/<seat>/seat.md` (block list or `[a, b]` flow). `[]` when the file, the
+    frontmatter, or the key is absent: no declaration means no loop, never a guessed one."""
+    raw = _ferry_read(Path(base).parent / "seats" / str(seat) / "seat.md")
+    if raw is None:
+        return []
+    fm = _ferry_frontmatter(raw)
+    m = re.search(rf"^{ON_FAIL_RELAUNCH_KEY}:[ \t]*(.*)$", fm, re.MULTILINE)
+    if not m:
+        return []
+    inline = m.group(1).strip()
+    if inline.startswith("[") and inline.endswith("]"):
+        return [t.strip().strip("'\"") for t in inline[1:-1].split(",") if t.strip()]
+    out = []
+    # `m.end()` sits before the key line's own newline — strip it, or the scan's first "line" is
+    # the empty string and the block list reads as absent.
+    for line in fm[m.end():].lstrip("\r\n").splitlines():
+        lm = re.match(r"^[ \t]*-[ \t]*(\S+)", line)
+        if not lm:
+            break
+        out.append(lm.group(1).strip().strip("'\""))
+    return out
+
+
+def mint_loop_refire(base, sender, route, anchor):
+    """Grant ONE relaunch to each route seat, in BOTH grant stores — coord's
+    `coordination/relaunch-grants.csv` (flips DONE→READY on the ready surface, 7.776) and the
+    engine's `<goal>/relaunch-grants` (hides the seat's finished history from the eligibility
+    reader). Two writes because the two lanes deliberately read different files; a loop that
+    re-fires on one lane only is a loop that stalls on the other. The csv grant carries NO
+    session-id, so it is surfaced unconditionally; the anchor records WHICH fail minted it.
+    Returns the seat names granted.
+
+    ⚠ EACH CSV GRANT IS BOUND TO THE ROUTE SEAT'S LATEST SESSION — open or ended — because that
+    binding is what makes the grant ONE-SHOT on the ready surface with no spend path: the flip
+    skips a grant whose session-id is not the seat's last ended one, so a grant bound to the
+    builder's just-ended session (or the judge's own still-open one) surfaces exactly until that
+    seat's NEXT session ends, then reads stale. An unbound grant would flip the seat READY after
+    every later completion, forever — the loop that never converges."""
+    latest = {}
+    try:
+        with open(Path(base).parent / "sessions.csv", encoding="utf-8", newline="") as fh:
+            for r in csv.DictReader(fh):
+                s = (r.get("seat") or "").strip()
+                if s:
+                    latest[s] = (r.get("session-id") or "").strip()
+    except (OSError, csv.Error):
+        latest = {}
+    granted = []
+    for seat in route:
+        if not _ferry_safe_name(seat):
+            print(f"warning: {ON_FAIL_RELAUNCH_KEY} entry {seat!r} is not a valid seat name — "
+                  f"skipped", file=sys.stderr)
+            continue
+        mint_relaunch_grant(base, seat, latest.get(seat, ""), anchor, sender)
+        granted.append(seat)
+    grant_file = Path(base).parent / "relaunch-grants"
+    try:
+        existing = {ln.strip() for ln in grant_file.read_text(encoding="utf-8").splitlines()
+                    if ln.strip()}
+    except OSError:
+        existing = set()
+    with open(grant_file, "a", encoding="utf-8") as fh:
+        for seat in granted:
+            if seat not in existing:
+                fh.write(seat + "\n")
+    return granted
+
+
 def cmd_verdict(args):
     """IPH-26 — the trial verdict as a VERB, and THE ONLY DOOR THAT CAN ARM THE ESCALATION GATE.
 
@@ -9933,6 +10016,26 @@ def cmd_verdict(args):
                        f"verdict: {args.clause}\n{message_body(args)}", why=want)
     print(f"verdict {args.clause}: sent message #{n} ({sender} -> {args.to}, type: verdict, "
           f"why: {want})")
+    # THE LOOP RE-FIRE — see the helpers above. BELOW the bar, a FAIL from a judge whose seat.md
+    # declares `on-fail-relaunch:` mints one relaunch per route seat, deterministically, in the
+    # same act that recorded the verdict. AT the bar nothing is minted — the escalation appended
+    # by cmd_escalate below is the halt, and the owner's answer is what restarts the loop. The
+    # count/bar read here and the one inside `escalate_if_second_fail` may straddle a concurrent
+    # append; the benign race is the same one the lock-safety note above discloses.
+    if args.clause == "FAIL":
+        route = on_fail_relaunch_route(base, sender)
+        if route:
+            count = trailing_fail_verdicts(base, mid)
+            bar, _bsrc = resolve_retry_threshold(base, mid)
+            if count < bar:
+                granted = mint_loop_refire(base, sender, route, f"loop:{want}:fail-{count}")
+                if granted:
+                    print(f"loop re-fire: FAIL {count} of bar {bar} — relaunch granted to "
+                          f"{', '.join(granted)} in both grant stores; the next seeding pass "
+                          f"re-dispatches them on their slots")
+            else:
+                print(f"loop re-fire: WITHHELD — FAIL count {count} reaches bar {bar}; the "
+                      f"escalation row below is the halt, and the owner's answer restarts the loop")
     return cmd_escalate(args)
 
 
@@ -12465,6 +12568,17 @@ def ready_seat_rows(args):
             if _name and _name not in term:
                 term[_name] = terminal_disposition(pkg, base, _name, awaiting=awaiting)
 
+    # ── THE EDGE-VIEW OF `term` (loop re-fire, owner ruling 2026-08-12) ─────────────────────────
+    # A predecessor holding an UNSPENT surfaced grant is about to run AGAIN, so FOR ITS DEPENDENTS
+    # its old `done` check-out is superseded exactly as it is for its own admission below — the
+    # 7.776 flip moved the seat's OWN verdict to READY but left its dependents reading the stale
+    # `done`, so a judge routed back through `on-fail-relaunch` would re-fire CONCURRENTLY with
+    # the rebuild it exists to re-try. The seat's own row keeps the untouched `term` (the flip's
+    # reason must name the real check-out); only the member arithmetic reads this view.
+    edge_term = {name: (("relaunch-granted", "relaunch-grants.csv", None)
+                        if name in grants and t[0] == "done" else t)
+                 for name, t in term.items()}
+
     out = []
     for seat, preds in after.items():
         value, source, skew = term[seat]
@@ -12511,7 +12625,7 @@ def ready_seat_rows(args):
             # of the rendered word against a literal — a `met` derived by matching `state` against
             # `("done", "done+guard-ruled")` would be a second copy of that branch set, and would
             # silently go wrong the day a met rendering gains a third form (D6 added two).
-            state, entry, met_names = after_member_state(p, term, guards)
+            state, entry, met_names = after_member_state(p, edge_term, guards)
             render[p] = {"state": state, "met": entry is None}
             if entry is not None:
                 unmet.append(f"{p}={state}")

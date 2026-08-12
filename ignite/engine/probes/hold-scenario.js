@@ -391,6 +391,19 @@ async function scenario() {
   out.unflaggedGate = (publish7.proceeded || []).map((p) => (p.evidence.match(/gate: ([a-z-]+)/) || [])[1]);
   out.unflaggedEnqueued = withEngine((e) => e.seedGoal({ goalFolder: d7, goal: g7, profile: 'probe-hold' })).enqueued;
 
+  // 12. THE LOOP RE-FIRE (owner ruling 2026-08-12, `concepts/loop.md`): a grant releases a
+  //     FINISHED seat — a judge's FAIL verdict re-dispatches a builder whose row says `done` on
+  //     its own slot. Measured as a pair against the same goal: without the grant the seat reads
+  //     `done`; with it, it is dispatchable again. The "must not re-run completed work" guard now
+  //     lives at the grant's MINT (a deliberate act), not in the eligibility reader.
+  const g8 = 'hold-goal-done-relaunch';
+  const d8 = makeGoal(g8, { arm: 'block-and-queue' });
+  withEngine((e) => e.seedGoal({ goalFolder: d8, goal: g8, profile: 'probe-hold' }));
+  withEngine((e) => runSession(e, g8, d8, 'alpha'));                         // works, checks out done
+  withEngine((e) => e.publishRecord());
+  out.doneRelaunchWithout = withEngine((e) => e.seedGoal({ goalFolder: d8, goal: g8, profile: 'probe-hold' })).states;
+  out.doneRelaunchWith = grantOn(d8, g8).states;
+
   return out;
 }
 

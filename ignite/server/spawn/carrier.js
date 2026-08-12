@@ -240,7 +240,7 @@ function spawnSystemd({ sessionId, argv, workdir, logPath, stdinFile = null, exi
   ensureDir(path.dirname(logPath));
   const { args, unitName } = buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile, exitFile, caps, sandbox, envFile, setenv, userManager });
 
-  if (logger) logger({ level: 'info', message: 'systemd-run', args });
+  if (logger) logger('info', 'systemd-run', { args });
 
   const proc = spawn('systemd-run', args, { detached: false, stdio: ['ignore', 'pipe', 'pipe'] });
   return new Promise((resolve, reject) => {
@@ -273,7 +273,7 @@ function spawnSetsid({ sessionId, argv, workdir, logPath, stdinFile = null, exit
   // stdin — same bytes-then-EOF contract as StandardInput=file:. No stdinFile => stdin ignored.
   const stdinFd = stdinFile ? fs.openSync(stdinFile, 'r') : null;
 
-  if (logger) logger({ level: 'info', message: 'setsid spawn', argv, workdir, logPath });
+  if (logger) logger('info', 'setsid spawn', { argv, workdir, logPath });
 
   const proc = spawn(argv[0], argv.slice(1), {
     cwd: workdir,
@@ -380,7 +380,7 @@ function setsidStatus(pid, pidStarttime = null) {
 function killSystemd(unitName, graceSeconds = 10, userManager = true, logger = null) {
   return new Promise((resolve) => {
     const flag = userManager ? '--user' : '--system';
-    if (logger) logger({ level: 'info', message: 'systemd kill SIGTERM', unitName });
+    if (logger) logger('info', 'systemd kill SIGTERM', { unitName });
     try {
       execFileSync('systemctl', [flag, 'kill', '--signal=SIGTERM', unitName], { stdio: 'ignore', timeout: 10000 });
     } catch {}
@@ -394,7 +394,7 @@ function killSystemd(unitName, graceSeconds = 10, userManager = true, logger = n
       }
       if (Date.now() >= deadline) {
         clearInterval(timer);
-        if (logger) logger({ level: 'info', message: 'systemd kill SIGKILL', unitName });
+        if (logger) logger('info', 'systemd kill SIGKILL', { unitName });
         try {
           execFileSync('systemctl', [flag, 'kill', '--signal=SIGKILL', unitName], { stdio: 'ignore', timeout: 10000 });
         } catch {}
@@ -406,7 +406,7 @@ function killSystemd(unitName, graceSeconds = 10, userManager = true, logger = n
 
 function killSetsid(pid, graceSeconds = 10, logger = null) {
   return new Promise((resolve) => {
-    if (logger) logger({ level: 'info', message: 'setsid kill SIGTERM', pid });
+    if (logger) logger('info', 'setsid kill SIGTERM', { pid });
     try {
       process.kill(-pid, 'SIGTERM');
     } catch {}
@@ -422,7 +422,7 @@ function killSetsid(pid, graceSeconds = 10, logger = null) {
       }
       if (Date.now() >= deadline) {
         clearInterval(timer);
-        if (logger) logger({ level: 'info', message: 'setsid kill SIGKILL', pid });
+        if (logger) logger('info', 'setsid kill SIGKILL', { pid });
         try {
           process.kill(-pid, 'SIGKILL');
         } catch {}

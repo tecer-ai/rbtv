@@ -1055,8 +1055,15 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   return flags;
 }
 
-function createSpawnManager({ heartStore, configPath, logger = null, userManager = true }) {
+function createSpawnManager({ heartStore, configPath, logger = null, userManager = true, dataRoot: dataRootOverride = null }) {
   const config = loadConfig(configPath);
+  // `dataRoot` override: the attached lane's carriage of RBTV_IGNITE_DATA_ROOT. The daemon folds
+  // that env var into a materialized effective config before it gets here (server/index.js
+  // #materializeEffectiveConfig); the attached lane hands the committed config path raw, so the
+  // operator override the unit file documents never reached this constructor and a console `rbtv
+  // run` tried the seed config's system-centric /var/lib/rbtv-ignite (EACCES for a user shell —
+  // measured 2026-08-12, forge-prompt-channel-master forg-builder, two same-second spawn deaths).
+  if (dataRootOverride) config.spawn.data_root = dataRootOverride;
   const dataRoot = config.spawn.data_root;
   if (!dataRoot) {
     throw new SpawnError(E_MISSING_KEY, 'spawn.data_root is required', { key: 'spawn.data_root' });
