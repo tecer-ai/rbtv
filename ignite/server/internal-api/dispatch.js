@@ -751,15 +751,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     const queueRows = heartStore.listQueue();
     const dueSoon = queueRows.filter((r) => r.run_at !== undefined).slice(0, 20);
 
-    // getMessages orders msg_id ASC; its `limit` is a HEAD bound and the store
-    // exposes no thread filter and no DESC order (read-only surface — no store
-    // change here, D75). Passing a limit here would take the OLDEST N messages,
-    // then filter owner-feed within them — so once the head fills with non-feed
-    // messages the "recent" notes silently vanish. Fetch all, filter, take the
-    // tail: the 10 most-recent owner-feed notes. v1-scale only (loads all rows).
-    const allMessages = heartStore.getMessages();
-    const ownerFeedNotes = allMessages
-      .filter((m) => m.thread === 'owner-feed')
+    // getMessages orders msg_id ASC; its `limit` is a HEAD bound, so passing one here would take
+    // the OLDEST N messages and the "recent" notes would silently vanish once the head filled with
+    // non-feed rows. The THREAD is filtered in SQL and the tail taken in JS — the fetch-all-then-
+    // filter this used to do materialised every message row in the store, corpus included, on a
+    // path the chat bridge polls every 3 s (see getMessages' header: it is what wedged the gateway
+    // on 2026-08-12).
+    const ownerFeedNotes = heartStore.getMessages({ thread: 'owner-feed' })
       .slice(-10)
       .map((m) => ({
         msg_id: m.msg_id,
@@ -873,7 +871,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         throw new InternalApiError(VALIDATION_FAILED, 'inspect messages takes an id OR a thread, never both', { check: 'thread-xor-id', field: 'thread' });
       }
       const { offset, limit } = pageBounds(payload);
-      const all = heartStore.getMessages().filter((m) => m.thread === payload.thread);
+      const all = heartStore.getMessages({ thread: payload.thread });
       const rows = all.slice(offset, offset + limit);
       const nextOffset = offset + rows.length;
       // `total` — same reason as the executions listing above: the read already materialised the
@@ -901,14 +899,11 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       // across recycles), and re-implementing that walk would smear the
       // arithmetic across call sites (D44).
       //
-      // Fetch-all-then-filter mirrors handleInspectTicker's owner-feed read
-      // above, for the SAME reason: getMessages() orders msg_id ASC and exposes
-      // no thread filter (read-only surface — no store change, D75), and passing
-      // its HEAD-bound `limit` would page over the WRONG set. v1-scale only.
-      // The page bound is server-ENFORCED on the filtered set, same clamp as
-      // `logs` (contract § 1: offset/limit bounded).
+      // The thread is filtered IN SQL, mirroring handleInspectTicker's owner-feed read above: its
+      // HEAD-bound `limit` would page over the WRONG set, so the page bound stays server-ENFORCED
+      // on the filtered set (same clamp as `logs`, contract § 1: offset/limit bounded).
       const { offset, limit } = pageBounds(payload);
-      const all = heartStore.getMessages().filter((m) => m.thread === execRow.thread);
+      const all = heartStore.getMessages({ thread: execRow.thread });
       const rows = all.slice(offset, offset + limit);
       const nextOffset = offset + rows.length;
       // `total` — see the thread-addressed branch above; free here for the same reason (`all` is

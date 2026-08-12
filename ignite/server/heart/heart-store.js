@@ -1277,9 +1277,15 @@ class HeartStore {
     return this._attachThread(stmt.get(execId) || null);
   }
 
-  listExecutionsByStatus(status) {
+  // `withThread: false` skips the per-row `_chainThread` walk. It is not a micro-optimisation: the
+  // walk is a RECURSIVE CTE per row, so a caller that scans every status pays one such query per
+  // execution in the store's whole history — 743 ms of the 874 ms this call cost on the daemon's
+  // store 2026-08-12, every tick, to serve a caller (`engine/execution-record.js#publishToRecord`)
+  // that never reads `thread`. Callers that DO read it get it, unchanged, by default.
+  listExecutionsByStatus(status, { withThread = true } = {}) {
     const stmt = this._prepare('SELECT * FROM jobs_log WHERE status = ? ORDER BY exec_id');
-    return stmt.all(status).map((r) => this._attachThread(r));
+    const rows = stmt.all(status);
+    return withThread ? rows.map((r) => this._attachThread(r)) : rows;
   }
 
   // ────────────────────────────────────────────────────────────────────────────────────────────
@@ -1683,12 +1689,24 @@ class HeartStore {
     return stmt.get(msgId) || null;
   }
 
-  getMessages({ unroutedOnly = false, unbroadcastOnly = false, type = null, limit = null } = {}) {
+  // `thread` filters IN SQL, and that is the whole point of it existing. Every caller that wanted
+  // one thread used to fetch the table and filter in JS — which materialises EVERY message row,
+  // corpus included, into JS objects to keep a handful. On this daemon's store that was ~27k rows
+  // and ~27 MB of text per call, on a path the chat bridge polls every 3 s: the main thread ends up
+  // permanently allocating and collecting, and libuv can only `accept()` between JS turns, so the
+  // gateway's LISTEN backlog stops draining while the ticker's timers still fire. Measured
+  // 2026-08-12: 160 ms and ~90 MB of garbage per call, and the cost grows with history forever
+  // (retention never touches heart.db by construction).
+  getMessages({ unroutedOnly = false, unbroadcastOnly = false, type = null, thread = null, limit = null } = {}) {
     let sql = 'SELECT * FROM messages';
     const conds = [];
     const params = [];
     if (unroutedOnly) conds.push('routed_at_tick IS NULL');
     if (unbroadcastOnly) conds.push('broadcast_at_tick IS NULL');
+    if (thread !== null) {
+      conds.push('thread = ?');
+      params.push(thread);
+    }
     // Task 7.19: `{ unroutedOnly: true, type: 'completion' }` is the ticker's
     // bounded Advance fetch — matched by the partial index
     // idx_messages_unrouted_completion so per-tick work never scans the

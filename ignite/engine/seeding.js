@@ -432,7 +432,9 @@ function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
   const ours = new Set();
   if (heartStore) {
     for (const status of ALL_TURN_STATUSES) {
-      for (const row of heartStore.listExecutionsByStatus(status)) {
+      // `withThread: false` — only `session_id` is read here, and the attach is a recursive CTE
+      // PER ROW. This runs once per goal per cadence over the store's WHOLE history.
+      for (const row of heartStore.listExecutionsByStatus(status, { withThread: false })) {
         if (row.session_id) ours.add(row.session_id);
       }
     }
@@ -582,7 +584,10 @@ const ALL_TURN_STATUSES = ['launching', 'running', 'done', 'blocked', 'failed', 
 function executionsByJob(heartStore, relaunch = null, goal = null) {
   const byJob = new Map();
   for (const status of ALL_TURN_STATUSES) {
-    for (const row of heartStore.listExecutionsByStatus(status)) {
+    // `withThread: false` — see `recordView` above. No consumer of this map reads `thread`
+    // (the wave math keys on `job_id`, `status` and `session_id`); the attach is a recursive CTE
+    // per row, paid once per goal per cadence over every execution ever recorded.
+    for (const row of heartStore.listExecutionsByStatus(status, { withThread: false })) {
       const list = byJob.get(row.job_id) || [];
       list.push(row);
       byJob.set(row.job_id, list);

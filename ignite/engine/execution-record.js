@@ -421,7 +421,7 @@ function blockAndQueueVerdict(heartStore, goalFolder, seat) {
   // A `blocked` row whose TURN was also `blocked` is a genuinely blocked turn, not a spent hold —
   // only a `done` turn is ever rewritten here, so that join is what tells the two apart (F3).
   const doneTurns = new Set();
-  for (const row of heartStore.listExecutionsByStatus(DONE)) {
+  for (const row of heartStore.listExecutionsByStatus(DONE, { withThread: false })) {
     if (row.session_id) doneTurns.add(row.session_id);
   }
   const spent = readExecutionRecord(goalFolder).rows
@@ -474,9 +474,13 @@ function outcomeForSeat(heartStore, goalFolder, seat, status) {
 // second place to write execution state, it is where execution OUTCOMES are published.
 //
 // ponytail: a full scan of the store's own status partitions each tick, and one file read per goal
-// touched. On the daemon's store that is O(rows) every cadence; it is nothing beside the tick's own
-// SQL today, and the upgrade path when it stops being nothing is a watermark on `exec_id` plus a
-// re-scan of the non-terminal rows only.
+// touched. On the daemon's store that is O(rows) every cadence — 131 ms at 26,791 rows on
+// 2026-08-12 — and the upgrade path when that stops being cheap is a watermark on `exec_id` plus a
+// re-scan of the non-terminal rows only. ⚠ It was NOT cheap until that date and the reason is worth
+// keeping: `listExecutionsByStatus` attached a chain `thread` to every row with a recursive CTE per
+// row, so this pass cost 874 ms a tick to act on 18 rows, and blocked the gateway's accept path for
+// most of a cadence. This call now passes `withThread: false`. Anything added to this loop is paid
+// once per execution EVER RECORDED, so measure it against the whole store, not against a fresh one.
 function publishToRecord(heartStore, { statuses, logger = null } = {}) {
   const all = statuses || ['launching', 'running', 'done', 'blocked', 'failed', 'stalled', 'killed'];
   const opened = [];
@@ -496,7 +500,9 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
     return closedIds.get(goalFolder).has(sessionId);
   };
   for (const status of all) {
-    for (const row of heartStore.listExecutionsByStatus(status)) {
+    // `withThread: false` — this pass reads workdir/session_id/status/timestamps and never
+    // `thread`, and the attach is a recursive CTE PER ROW over the store's whole history.
+    for (const row of heartStore.listExecutionsByStatus(status, { withThread: false })) {
       const home = seatHomeOf(row.workdir);
       if (!home || !row.session_id) continue;      // not a seat launch, or not launched yet
       const lane = laneOf(heartStore.dbPath, home.goalFolder);
