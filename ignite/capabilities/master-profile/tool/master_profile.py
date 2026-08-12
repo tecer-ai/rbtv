@@ -389,6 +389,16 @@ def validate_chat_thread(thread):
     return thread
 
 
+def _anchor_inbox(raw):
+    """A RELATIVE `--inbox` is WORKSPACE-relative, never cwd-relative. The seat that
+    stages a request runs with cwd inside its own seat folder; resolving there
+    `mkdir -p`'d a nested `.rbtv/goals` tree under the seat (measured 2026-08-12 —
+    `goal_cli`'s root walk-up then scaffolded a real goal into it). Absolute paths
+    (the daemon's fired argv, the probes' tmp fixtures) pass through untouched."""
+    p = Path(raw).expanduser()
+    return p if p.is_absolute() else _WORKSPACE / p
+
+
 def _goal_dir(inbox):
     """The goal folder the request was STAGED IN.
 
@@ -730,12 +740,12 @@ def main(argv=None):
                       "restarted, so requesting a change no longer ends your chat session")
             return 0
         if args.verb == "request":
-            out = request(args.inbox, args.profile, args.ignite_bin, profiles_path=args.profiles,
+            out = request(_anchor_inbox(args.inbox), args.profile, args.ignite_bin, profiles_path=args.profiles,
                           dry_run=args.dry_run, chat_thread=args.chat_thread, effort=args.effort,
                           bindings=args.bindings, seat=args.seat)
             print(json.dumps(out, indent=2))
             return 0 if out["ok"] else 1
-        out = apply(args.inbox, args.bindings, args.seat, args.catalog_root,
+        out = apply(_anchor_inbox(args.inbox), args.bindings, args.seat, args.catalog_root,
                     profiles_path=args.profiles, repass=not args.no_repass, dry_run=args.dry_run)
         print(json.dumps(out, indent=2))
         return 0 if out["ok"] else 1

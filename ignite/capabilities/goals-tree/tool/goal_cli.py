@@ -466,6 +466,14 @@ def resolve_goals_root(explicit: str | None) -> Path:
             raise Refusal(f"--root {root}: not a directory")
         return root
     here = Path.cwd().resolve()
+    # A cwd already INSIDE a goals tree resolves to THAT tree, and this scan runs
+    # BEFORE the child scan below. Order is load-bearing: a stray `.rbtv/goals`
+    # nested under a seat folder (mkdir'd by a cwd-relative inbox path, measured
+    # 2026-08-12 — the seat's next scaffold landed a real goal inside it) would
+    # otherwise win the child scan from every seat cwd.
+    for cand in (here, *here.parents):
+        if cand.name == "goals" and cand.parent.name == ".rbtv":
+            return cand
     for cand in (here, *here.parents):
         goals = cand / ".rbtv" / "goals"
         if goals.is_dir():

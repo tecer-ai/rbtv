@@ -71,6 +71,11 @@ both inversions are the point:
      that reds if the 2026-08-12 refusal returns. That refusal ALSO popped the field, and
      `open_binding` then refused the half-declared triple on this very seat, so the master's live
      `claude-haiku` cast could not be made through this tool at all.
+ 11. A RELATIVE `--inbox` IS WORKSPACE-RELATIVE, NEVER CWD-RELATIVE — the half of the 2026-08-12
+     misrooting this capability owns. Resolving a relative inbox at the caller's cwd `mkdir -p`'d a
+     stray `.rbtv/goals` under the requesting seat's own folder, which `goal_cli`'s root walk-up
+     then scaffolded a real goal into. Absolute paths pass through untouched. Proven at the
+     FUNCTION and through `main` on the real argv, with the pre-fix `Path(raw)` as the red control.
 """
 
 import contextlib
@@ -714,6 +719,102 @@ def main():
           f"the guidance prints on show and on request --help (got {seen}) — stated once in "
           f"EFFORT_GUIDANCE, never retyped per surface")
 
+    # ── 11 A RELATIVE `--inbox` IS WORKSPACE-RELATIVE, NEVER CWD-RELATIVE ─────────────────
+    #
+    # ⚠ THIS ARM IS THE HALF OF A LIVE INCIDENT, AND ITS TWIN LIVES IN goals-tree. On 2026-08-12
+    # the channel master staged a request with a RELATIVE `--inbox` from a sitting whose cwd was
+    # its own seat folder. `request` resolved it there and `mkdir -p`'d `.rbtv/goals/…` UNDER THE
+    # SEAT; `goal_cli.resolve_goals_root`'s child scan then matched that stray tree from every seat
+    # cwd beneath it, and the seat's next `scaffold` created a real goal inside it, where nothing
+    # enumerates it. `_anchor_inbox` closes this half: relative → `_WORKSPACE`, absolute → through.
+    # (The other half — the walk-up ORDER — is scored by
+    # `capabilities/goals-tree/probes/probe-goals-root-walkup.py`.)
+    #
+    # ⚠ THE FUNCTION ARMS ALONE WOULD BE VACUOUS, AND THAT IS WHY (b) AND ITS MUTANT EXIST. Every
+    # other check in this file calls `apply`/`request` as PYTHON FUNCTIONS with ABSOLUTE fixture
+    # paths — the anchoring happens in `main`, on `args.inbox`, which none of them reach. A pure
+    # `_anchor_inbox("x") == _WORKSPACE / "x"` assertion would stay green if `main` stopped calling
+    # it. So (b) drives the REAL argv through `main` and reads what the callee was handed, and its
+    # mutant neuters `_anchor_inbox` to the pre-fix `Path` and requires the SAME argv to hand over
+    # a cwd-relative path.
+    #
+    # Nothing is created anywhere: `main`'s callees are spied and refuse before any write, and the
+    # anchored path is only ever COMPARED — never opened.
+    print("check 11 — a relative --inbox anchors on the WORKSPACE, an absolute one passes through")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td).resolve()
+        ws = Path(mod._WORKSPACE).resolve()
+
+        # (a) the function itself, evaluated from a cwd that is NOT the workspace.
+        prior = Path.cwd()
+        try:
+            os.chdir(tmp)
+            rel = Path(mod._anchor_inbox("settings-requests/master-profile")).resolve()
+            absolute = tmp / "somewhere" / "inbox"
+            through = Path(mod._anchor_inbox(str(absolute)))
+        finally:
+            os.chdir(prior)
+        check(rel == (ws / "settings-requests" / "master-profile").resolve(),
+              f"a relative --inbox resolves under the WORKSPACE root, not the cwd (got {rel})")
+        check(tmp not in rel.parents and rel != tmp,
+              f"and NOTHING about it is cwd-derived — {tmp} is not on the resolved path")
+        check(through == absolute,
+              f"an ABSOLUTE --inbox is handed through byte for byte (got {through}) — the daemon's "
+              f"fired argv and this file's own tmp fixtures must not be rewritten")
+
+        # (b) THE WIRING, through `main`, on the argv shape the caller actually types. Both verbs,
+        #     because the fix touched two call sites and one of them is easy to miss.
+        real_apply, real_request = mod.apply, mod.request
+        seen = {}
+
+        def spy(key):
+            def f(inbox, *a, **k):
+                seen[key] = Path(inbox)
+                raise mod.Refusal("probe spy — nothing was done")
+            return f
+
+        for verb, argv in (("apply", ["apply", "--inbox", "rel/inbox", "--no-repass"]),
+                           ("request", ["request", "claude-opus", "--inbox", "rel/inbox",
+                                        "--effort", str(len(CLAUDE)), "--dry-run"])):
+            try:
+                mod.apply, mod.request = spy("apply"), spy("request")
+                os.chdir(tmp)
+                with contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    mod.main(argv)
+            finally:
+                os.chdir(prior)
+                mod.apply, mod.request = real_apply, real_request
+            check(seen.get(verb) == ws / "rel" / "inbox",
+                  f"main's `{verb}` verb hands its callee the WORKSPACE-anchored inbox "
+                  f"(got {seen.get(verb)})")
+
+        # (c) THE MUTANT — the pre-fix behaviour is `Path(raw)`, and it MUST re-produce the
+        #     cwd-relative path row (b) just refused. Patched on `mod._anchor_inbox` because that
+        #     is the global `main` resolves; if this does not go through, row (b) is scoring
+        #     nothing and the whole leg is unproven rather than green.
+        real_anchor = mod._anchor_inbox
+        seen.clear()
+        try:
+            mod._anchor_inbox = lambda raw: Path(raw)
+            mod.apply = spy("apply")
+            os.chdir(tmp)
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                mod.main(["apply", "--inbox", "rel/inbox", "--no-repass"])
+        finally:
+            os.chdir(prior)
+            mod._anchor_inbox, mod.apply, mod.request = real_anchor, real_apply, real_request
+        if (tmp / seen.get("apply", Path("."))).resolve() != (tmp / "rel" / "inbox") \
+                or seen.get("apply") == ws / "rel" / "inbox":
+            inoperative.append(f"the pre-fix `Path(raw)` did NOT produce a cwd-relative inbox "
+                               f"(got {seen.get('apply')!r}) — check 11(b) is not being produced "
+                               f"by `_anchor_inbox`, so it scores nothing")
+        else:
+            print("  ok   the mutant handed over a cwd-relative inbox — check 11(b) discriminates")
+        check(mod._anchor_inbox is real_anchor and mod.apply is real_apply,
+              "...and the anchor and both callees are restored, so nothing below runs patched")
+
     if inoperative:
         print(f"probe-master-profile: INOPERATIVE — {inoperative}")
         return 2
@@ -727,7 +828,8 @@ def main():
           "unescaped, and the name lookup is proven discriminating by mutation — the argv the "
           "daemon actually fires runs clean as a subprocess AND lands its edit, and a request "
           "naming its chat thread reports its outcome (accepted OR refused) as exactly one "
-          "ferry-parseable bus row written BEFORE the re-render")
+          "ferry-parseable bus row written BEFORE the re-render, and a relative --inbox anchors "
+          "on the WORKSPACE rather than the caller's cwd while an absolute one passes through")
     return 0
 
 
