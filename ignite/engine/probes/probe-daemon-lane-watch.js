@@ -107,6 +107,13 @@ cfg.profiles['probe-lane'] = {
   caps: { memory_max: '64M', cpu_quota: '10%', runtime_max: '5m', tasks_max: 16 },
   sandbox: { ProtectSystem: 'strict', ReadWritePaths: ['{workdir}'], PrivateTmp: true, NoNewPrivileges: true },
 };
+// The CAST twin of `probe-lane`. `probe-lane`'s argv pins no model, so no seat can be cast TO it —
+// a cast is derived from a profile's own `--model` pin. The narrowing's fixture needs a profile a
+// seat can name, and this is it; nothing launches through it, only resolves to it.
+cfg.profiles['probe-lane-cast'] = {
+  ...cfg.profiles['probe-lane'],
+  exec: { argv: ['sleep', '--model', 'probe-cast-model', '1'], prompt: 'stdin' },
+};
 const configPath = path.join(tmp, 'spawn-profiles.yaml');
 fs.writeFileSync(configPath, yaml.dump(cfg));
 
@@ -116,13 +123,18 @@ const isoNow = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 // Two seats, `bravo` after `alpha` — the wave that makes "did it skip the finished one" answerable.
 // NO `execution-mode` file: absent means `autonomous` (ratified default), which is the state a
 // daemon-run goal is in, and it keeps the foreground carrier out of this probe entirely.
-function makeGoal(name) {
+// `cast` writes the seat's harness+model into its DESCRIPTOR frontmatter — the surface the launch
+// reads (`spawn.js#seatDeclaresValue`), and therefore the surface the `--profile` narrowing asks
+// about. Default OFF: every goal below predates the narrowing and its seats declare NO cast, which
+// is what keeps the "a profile is still demanded" arms measuring the case they were written for.
+function makeGoal(name, { cast = null } = {}) {
   const dir = path.join(goalsRoot, name);
   for (const s of ['alpha', 'bravo']) fs.mkdirSync(path.join(dir, 'seats', s), { recursive: true });
   fs.mkdirSync(path.join(dir, 'coordination'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'taskforce.csv'), `taskforce-id,seat,after\ntf-${name},alpha,\ntf-${name},bravo,alpha\n`);
+  const castLines = cast ? `harness: ${cast.harness}\nmodel: ${cast.model}\n` : '';
   for (const s of ['alpha', 'bravo']) {
-    fs.writeFileSync(path.join(dir, 'seats', s, 'seat.md'), `---\nseat: ${s}\n---\n\nbody\n`);
+    fs.writeFileSync(path.join(dir, 'seats', s, 'seat.md'), `---\nseat: ${s}\n${castLines}---\n\nbody\n`);
   }
   return dir;
 }
@@ -149,6 +161,11 @@ fs.writeFileSync(path.join(hiGoal, 'seats', 'alpha', 'seat.md'),
 // because the pause must be measured while other goals ARE being adopted in the same pass — a
 // "not adopted" that holds when nothing is adopted measures nothing.
 const pausedGoal = makeGoal('paused-goal');
+// The NARROWING fixture (2026-08-12, D19): every seat declares a cast, so no launch of this goal
+// can ever read the marker's fallback token. Its whole point is to be the OTHER answer to the
+// question `no-profile-goal` asks — same bare `daemon` marker, opposite verdict — because a
+// refusal measured alone cannot tell an unconditional gate from a conditional one.
+const castGoal = makeGoal('cast-goal', { cast: { harness: 'sleep', model: 'probe-cast-model' } });
 const armlessGoal = makeGoal('armless-goal');
 fs.writeFileSync(path.join(armlessGoal, 'execution-mode'), 'interactive\n');
 fs.writeFileSync(path.join(armlessGoal, 'seats', 'alpha', 'seat.md'),
@@ -282,10 +299,22 @@ async function main() {
   say('');
   say('L2 — `rbtv goal lane` writes the marker, with no daemon in the picture');
   const refused = laneCli(['switch-goal', '--set', 'daemon'], { expectRefusal: true });
-  check('L2 `--set daemon` WITHOUT `--profile` is REFUSED — a goal handed to the daemon that names no '
-    + 'launch profile cannot run, and the refusal is at the door rather than a journal warning at 03:00',
-    refused.ok === false && /--profile/.test(refused.out) && !fs.existsSync(lanePath(switchGoal)),
+  check('L2 `--set daemon` WITHOUT `--profile` is REFUSED when a SEAT of that goal declares no cast '
+    + '(these do) — nothing can say what it runs on, and the refusal is at the door rather than a '
+    + 'journal warning at 03:00. It NAMES the seats that forced it',
+    refused.ok === false && /--profile/.test(refused.out) && /alpha/.test(refused.out)
+      && !fs.existsSync(lanePath(switchGoal)),
     refused.out.trim().split('\n').pop());
+  // ⚑ THE OTHER ANSWER, in the same run and through the same door (narrowing of D19, 2026-08-12).
+  // Only the seats' descriptors differ. Without this arm the one above is green whether the gate
+  // is conditional or unconditional — which is exactly how the flag came to be demanded on a goal
+  // where all 17 seats were cast and no launch ever read the value.
+  laneCli(['cast-goal', '--set', 'daemon']);
+  check('L2 …and on a FULLY CAST goal the same command SUCCEEDS with no profile named — the marker '
+    + 'is a bare `daemon`, which both readers already resolved',
+    fs.readFileSync(lanePath(castGoal), 'utf8') === 'daemon\n'
+      && laneWatch.readLane(castGoal).lane === 'daemon' && laneWatch.readLane(castGoal).profile === null,
+    `${JSON.stringify(fs.readFileSync(lanePath(castGoal), 'utf8'))} ${JSON.stringify(laneWatch.readLane(castGoal))}`);
   // ⚑ THE DOOR CHECK (review F2). A `--profile` typo used to be accepted here: the marker was
   // written, the daemon adopted the goal, `seedTaskforce` registered a job row per seat, and only
   // then did `enqueue` refuse `E_UNKNOWN_PROFILE` — leaving orphan rows and a goal that threw
@@ -456,13 +485,26 @@ async function main() {
       && Array.isArray(m.known) && m.known.includes('probe-lane') && /rbtv goal lane/.test(m.fix || '')),
     JSON.stringify(log1.filter((m) => m.goal === 'bad-profile-goal').map((m) => m.level)));
   const noProfSkip = pass1.skipped.find((s) => s.goal === 'no-profile-goal');
-  check('L5b a `daemon` marker naming NO profile is SKIPPED with its own reason and its own fix hint '
+  check('L5b a `daemon` marker naming NO profile, on a goal whose seats declare NO cast, is SKIPPED '
+    + 'with its own reason and its own fix hint — and the line NAMES the seats that forced it '
     + '(the branch a mutation used to survive because nothing measured it)',
     Boolean(noProfSkip) && noProfSkip.reason === 'no-profile-in-the-assignment'
       && log1.some((m) => m.goal === 'no-profile-goal' && m.level === 'warn'
         && /NO launch profile/.test(m.message || '')
+        && /alpha/.test(m.forcedBy || '')
         && /--set daemon --profile/.test(m.fix || '')),
     JSON.stringify(noProfSkip || 'not skipped at all'));
+  // ⚑ THE SAME BARE MARKER, THE OPPOSITE VERDICT — the pair is the measurement (narrowing of D19).
+  // A fully cast goal is ADOPTED, and the fallback it seeds with is DERIVED from its own casts
+  // through the one catalog, never guessed and never the caller's. The profile is asserted on the
+  // log line an operator reads, because "adopted" alone would not say WHICH profile got recorded.
+  const castPickup = pass1.adopted.find((a) => a.goal === 'cast-goal');
+  check('L5b …while a FULLY CAST goal with the SAME bare `daemon` marker is ADOPTED, seeding with the '
+    + 'profile DERIVED from its own seats\' casts (`probe-lane-cast`, which no caller named)',
+    Boolean(castPickup)
+      && log1.some((m) => m.goal === 'cast-goal' && /goal seeded/.test(m.message || '')
+        && m.profile === 'probe-lane-cast'),
+    JSON.stringify(log1.filter((m) => m.goal === 'cast-goal').map((m) => `${m.message}:${m.profile}`)));
 
   // ── L5c · THE FAILURE IS BOUNDED, and un-bounds itself when the marker changes ───────────────
   {
@@ -786,6 +828,30 @@ async function main() {
         && chi.humanInteractiveDispatched.alpha === 'block-and-queue'
         && !clog.some((m) => m.goal === 'm7-arm-goal' && m.level === 'warn'),
       chi ? JSON.stringify(chi.humanInteractiveDispatched || null) : 'goal not adopted');
+  }
+
+  // M8 · THE DERIVATION REMOVED — the narrowing's own branch (2026-08-12, D19). Without it a bare
+  // `daemon` marker is the pre-narrowing dead end for EVERY goal, cast or not, so the CLI has to
+  // demand a profile again and the operator types a value no launch reads. The arm reads the
+  // ADOPTION, not the log: the harm is a goal that never starts.
+  {
+    const mutant = mutantWatch(
+      '        else profile = fallbackProfileFor(goalFolder, known);',
+      '        else forcedBy = \'the derivation was mutated away\';');
+    const mutRoot = path.join(tmp, 'm8');
+    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    const log = [];
+    const engine = createEngine({
+      dbPath: path.join(tmp, 'm8.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    let pass;
+    try { pass = mutant({ goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
+    check('L8 M8 the fallback derivation REMOVED -> the FULLY CAST goal is no longer adopted at all '
+      + '(L5b RED): a bare `daemon` marker becomes a dead end again, for a goal no launch of which '
+      + 'would ever have read the token',
+      !pass.adopted.some((a) => a.goal === 'cast-goal')
+        && pass.skipped.some((s) => s.goal === 'cast-goal' && s.reason === 'no-profile-in-the-assignment'),
+      JSON.stringify(pass.skipped.filter((s) => s.goal === 'cast-goal')) || 'not skipped');
   }
 
   // M3 · THE WATCH IS NEVER CALLED — the state this whole build ends, mutated back into place. The
