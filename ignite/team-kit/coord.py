@@ -59,7 +59,6 @@ KIMI_BIN = os.environ.get("COORD_KIMI_BIN", "kimi")
 # (`harness_command` AND `resume_command` both build from it) — never `TMUX_TMPDIR`, which binds
 # a process to one tmux SERVER and is untouched by this (coord.py:5502).
 AGENT_TMPDIR = "/home/henri/.cache/agent-tmp"
-DEFAULT_MODEL = "claude-opus-5"
 DEFAULT_EFFORT = "high"
 HARNESSES = ("claude", "codex", "opencode", "kimi")
 CLOSER_MODEL = "claude-sonnet-5"
@@ -13598,7 +13597,16 @@ def validate_seat(w):
     locally (accepted alias/slug SHAPES per harness) — never a provider call. A well-formed
     slug the provider still rejects dies at boot anyway; the watcher's leftover-window flag
     (PROP-10) is the detection net for that residue. Returns '' when launchable, else the
-    reason (used to refuse a launch BEFORE any pane opens)."""
+    reason (used to refuse a launch BEFORE any pane opens).
+
+    ⚠ IT IS A TYPO-CATCHER, NEVER A SECURITY GATE, and it was owner-ruled NOT tightened when
+    the claude branch's raw `model` interpolation was quoted (2026-08-12): codex and kimi have
+    NO model rule here at all — any string, the empty one included, is accepted — so
+    `shlex.quote` at the COMPOSITION SITE in `harness_command` is the only thing that has ever
+    made those two branches safe, and is now the only thing making claude's safe. NEVER treat a
+    slug this function accepted as sanitized. It is written HERE because `bindings.py#catalog`
+    imports this very function as its catalog validator, so the misreading is one import away.
+    """
     if w["harness"] not in HARNESSES:
         return f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
     if w["harness"] == "claude" and not (
@@ -13667,7 +13675,7 @@ def harness_command(w, prompt=None, prompt_path=None):
     eff = _cast_effort(w)[1]
     eff = f" {eff}" if eff else ""
     if w["harness"] == "claude":
-        return f"{env}{CLAUDE_BIN} --model {w['model']}{eff} {arg}", ""
+        return f"{env}{CLAUDE_BIN} --model {shlex.quote(w['model'])}{eff} {arg}", ""
     if w["harness"] == "kimi":
         # Mirrors this profile's `exec:` argv in `config/spawn-profiles.yaml` (`kimi`), verified
         # against `kimi --help` on this box rather than read off the profile alone — G-13 is the
@@ -17228,6 +17236,38 @@ def _selftest_checks(args, failures, names):
               "dial, and that divergence is stated here rather than found in a pane",
               "--model fable" in _alias_cmd and "--effort" not in _alias_cmd
               and validate_seat(dict(by["alpha"], model="fable")) == "")
+        # SHELL INJECTION, closed at the COMPOSITION SITE. `w['model']` was interpolated RAW on
+        # the claude branch while the other three quoted it, and `validate_seat` accepts any
+        # `claude-*` string — so an agent that can write a bindings casting sheet (a GRANTED
+        # capability) could put a `;` in a model slug and run arbitrary shell in the pane:
+        # delivery is `wake` -> `tmux_send_text` -> `tmux send-keys -l` into an interactive
+        # shell that parses the line. THE PAYLOAD IS SPACE-FREE ON PURPOSE — `FM_KEY["model"]`
+        # is `^model:\s*(\S+)\s*$`, so a spaced value round-trips through seat.md to `""` and an
+        # arm built on one would be testing an input no descriptor can carry.
+        _inj_bad = []
+        for _inj_h in HARNESSES:
+            _inj_cmd, _ = harness_command(
+                dict(by["alpha"], harness=_inj_h, model="claude-5;touch/tmp/PWNED"), "P")
+            _inj_flag = "--model" if _inj_h == "claude" else "-m"
+            if (_inj_cmd is None
+                    or f"{_inj_flag} 'claude-5;touch/tmp/PWNED'" not in _inj_cmd
+                    or f"{_inj_flag} claude-5;touch/tmp/PWNED" in _inj_cmd):
+                _inj_bad.append(_inj_h)
+        check("SHELL INJECTION: a seat-supplied model slug carrying a shell metacharacter is "
+              "NEUTRALISED on EVERY harness branch — asserted by ITERATING `HARNESSES`, not over "
+              "claude alone, so a fifth branch added without quoting reds HERE instead of in a "
+              "pane. Both directions are spelled out as LITERALS: the quoted form is present AND "
+              "the raw form is absent. A row written as `shlex.quote(payload) in cmd` would read "
+              "its own constant, move with any change to the composition and pass all of them. "
+              "NON-VACUITY IN THE SAME ROW, and env-independent (never a whole-line literal — "
+              "`CLAUDE_BIN` is overridable via COORD_CLAUDE_BIN): the pinned id and the alias "
+              "still compose UNQUOTED, so the fix is proven a no-op on real input rather than "
+              "merely present, and an unconditional `'{model}'` wrap would fail it",
+              not _inj_bad
+              and "--model claude-fable-5" in cmd
+              and "--model 'claude-fable-5'" not in cmd
+              and "--model fable" in _alias_cmd
+              and "--model 'fable'" not in _alias_cmd)
         check("T1: every harness command is prefixed with the seat's COORD_AGENT identity",
               cmd.startswith("COORD_AGENT=alpha ")
               and f"COORD_AGENT=alpha TMPDIR={AGENT_TMPDIR} {CLAUDE_BIN}" in cmd)
