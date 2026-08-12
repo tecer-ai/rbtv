@@ -42,6 +42,10 @@ function assert(cond, msg) {
 // carries the owner's attached session and is never touched or extended by this probe.
 const ROOM = 'a4goal';
 const ROOM_TMPDIR = path.join(os.tmpdir(), `e2a-a4-${process.pid}`);
+// Cage-breach assertions below deliberately target the REAL live vault, not a fixture — derived
+// from this script's own location so the literal is never hand-copied (same style as
+// check-master-cast.js's IGNITE/WORKSPACE derivation). __dirname = .../ignite/server/spawn/probes.
+const VAULT = path.resolve(__dirname, '..', '..', '..', '..', '..', '..', '..');
 const MEM = '384M';
 const MEM_BYTES = 384 * 1024 * 1024;
 
@@ -67,11 +71,11 @@ const SEAT_SCRIPT = [
   // Absence checks. ENOENT is the kernel saying the path is not there — that is the whole point,
   // and it is why this records PRESENT paths rather than error strings: an error message proves
   // the tool said no, a missing file proves the kernel did.
-  'for p in /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv /home/henri/ht-wkdir/second-brain/.rbtv/config /home/henri/.ssh /home/henri/.local/state/rbtv-ignite /home/henri/ht-wkdir/second-brain/CLAUDE.md; do',
+  `for p in ${VAULT}/3-resources/tools/rbtv ${VAULT}/.rbtv/config /home/henri/.ssh /home/henri/.local/state/rbtv-ignite ${VAULT}/CLAUDE.md; do`,
   '  if [ -e "$p" ]; then echo "PRESENT=$p" >> a4-report.txt; else echo "absent=$p" >> a4-report.txt; fi',
   'done',
-  'ls -A /home/henri/ht-wkdir/second-brain > a4-vault-listing.txt 2>&1',
-  'echo breach > /home/henri/ht-wkdir/second-brain/3-resources/A4-BREACH 2>/dev/null && echo WROTE > a4-breach-inside.txt || echo REFUSED > a4-breach-inside.txt',
+  `ls -A ${VAULT} > a4-vault-listing.txt 2>&1`,
+  `echo breach > ${VAULT}/3-resources/A4-BREACH 2>/dev/null && echo WROTE > a4-breach-inside.txt || echo REFUSED > a4-breach-inside.txt`,
   'echo "done=true" >> a4-report.txt',
   'sleep 25',
 ].join('\n');
@@ -189,9 +193,9 @@ capture('probe-tmux-seat-live', async (lines) => {
     assert(!/PRESENT=/.test(raw), 'no ungranted path was present inside the live seat');
     const vaultListing = fs.readFileSync(path.join(seatDir, 'a4-vault-listing.txt'), 'utf8').trim();
     lines.push(`legB absence: in-namespace listing of the vault root = ${JSON.stringify(vaultListing)}`);
-    const hostVaultEntries = fs.readdirSync('/home/henri/ht-wkdir/second-brain').length;
+    const hostVaultEntries = fs.readdirSync(VAULT).length;
     lines.push(`         host listing of the same path has ${hostVaultEntries} entries`);
-    assert(!fs.existsSync('/home/henri/ht-wkdir/second-brain/3-resources/A4-BREACH'), 'the breach file does NOT exist on the real disk');
+    assert(!fs.existsSync(path.join(VAULT, '3-resources', 'A4-BREACH')), 'the breach file does NOT exist on the real disk');
     lines.push('legB on-disk: the breach write left NO file on the host — checked from outside the namespace after the seat ran');
 
     // ── leg C: the seat is a tmux pane, with the caps in its own scope ────────────────────

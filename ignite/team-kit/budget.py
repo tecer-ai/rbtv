@@ -61,7 +61,7 @@ THREE THINGS IT REFUSES TO DO, each because the run got burned by the opposite:
      panes: the staffer (resolves -- fine), the owner door (carries agent_type
      master -- fine), and THE OWNER'S OWN CLAUDE SESSION ON THIS BOX, whose cwd
      is the vault root and resolves to nothing. MEASURED, not reasoned:
-     resolve_descriptor("/home/henri/ht-wkdir/second-brain") -> None.
+     resolve_descriptor(<workspace root, e.g. the vault root>) -> None.
 
      An owner session and a leaked agent pane are OBSERVATIONALLY IDENTICAL in
      the snapshot: live agent harness, no roster row, no descriptor. Nothing in

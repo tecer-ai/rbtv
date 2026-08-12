@@ -46,7 +46,7 @@ DISCLOSED SUBSTITUTIONS AND SKIPS (R-6 — an unrun arm reported as absent is th
   * Part 2 row 6 drives the REAL `cmd_lifecycle_exec` — all five entry guards, then
     `run_lifecycle_sequence` — on a throwaway package, disposition `close`, no pane.
 
-RUN IT:  cd /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit
+RUN IT:  cd <repo>/ignite/team-kit   # this file's parent directory
          python3 probes/probe-lifecycle-idents.py
 
 Exit 0 = every arm passed. Exit 1 = a property is broken. Exit 2 = the probe could not run (never

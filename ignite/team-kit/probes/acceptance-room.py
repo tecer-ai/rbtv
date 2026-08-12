@@ -98,12 +98,14 @@ such restriction.
 
 ──────────────────────────────── USE ──────────────────────────────────────────────────────────
 
-  python3 /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/probes/acceptance-room.py --selftest
+  python3 acceptance-room.py --selftest   # run from this file's own directory (ignite/team-kit/probes/)
 
   # from a consumer task (the filename has a hyphen, so import it by path — the pattern
-  # team_monitor.py itself uses for ctx_monitor):
+  # team_monitor.py itself uses for ctx_monitor). Derive the path from your own file's
+  # location rather than hardcoding it, e.g. if your task lives elsewhere in this repo:
   import importlib.util
-  P = "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/probes/acceptance-room.py"
+  from pathlib import Path
+  P = Path(__file__).resolve().parents[N] / "ignite/team-kit/probes/acceptance-room.py"  # N = hops to repo root
   spec = importlib.util.spec_from_file_location("acceptance_room", P)
   ar = importlib.util.module_from_spec(spec); spec.loader.exec_module(ar)
 

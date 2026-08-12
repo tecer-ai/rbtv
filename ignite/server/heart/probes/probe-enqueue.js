@@ -73,7 +73,9 @@ try {
   // fixture is now the only way to reach it. The self-heal and goal-creation rows below ARE the args
   // shapes actually stored live (read read-only from `heart.db`: `{"tool":"selfheal-watch"}` /
   // `{"tool":"goal-creation-request"}`), so arm 3 still exercises real rows.
-  const LIVE_GOAL = '/home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp';
+  // Derived from this script's own location — never a baked-in vault path (task 7.799).
+  const WORKSPACE = path.resolve(__dirname, '..', '..', '..', '..', '..', '..', '..');
+  const LIVE_GOAL = path.join(WORKSPACE, '.rbtv', 'goals', 'build-core-daemon-mvp');
   const doorTools = {
     'allowlisted-tool': {
       argv: ['/usr/bin/python3', '/…/some-job.py', '--goal', '{{goal}}'],
@@ -156,7 +158,7 @@ try {
   // widened to the bare grammar call, THIS is the arm that goes red — and the live self-heal rows
   // are what would have been refused in production.
   accepted('7.574(3) a fire-tool workdir outside `.rbtv/goals/` is still legal (no workflow containment)',
-    'selfheal-watch', { tool: 'selfheal-watch', workdir: '/home/henri/ht-wkdir/second-brain' });
+    'selfheal-watch', { tool: 'selfheal-watch', workdir: WORKSPACE });
   accepted('7.574(3) an entry declaring NO args_allowlist admits its untemplated row unchanged',
     'goal-creation-request', { tool: 'goal-creation-request' });
   // ⚠⚠ THE DOOR REFUSES TO JUDGE AN OPERATOR TYPO. A malformed `args_allowlist` is a SHAPE error,
