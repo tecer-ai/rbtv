@@ -10,7 +10,7 @@ rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--kind K] [--due D
 rbtv-goal reindex
 rbtv-goal lint <goal-name>
 rbtv-goal materialize <goal-name> --catalog-root DIR [--force] [--dry-run]
-rbtv-goal lane <goal-name> [--set daemon --profile NAME | --set console]
+rbtv-goal lane <goal-name> [--set daemon [--profile NAME] | --set console]
 rbtv-goal pause <goal-name>
 rbtv-goal resume <goal-name>
 rbtv-goal dag <goal-name>
@@ -91,7 +91,8 @@ stand-in pattern, no contract change at fold-in.
 
 ```
 rbtv-goal lane <goal>                                   # which lane runs this right now?
-rbtv-goal lane <goal> --set daemon --profile claude-sonnet
+rbtv-goal lane <goal> --set daemon                      # every seat declares its own cast
+rbtv-goal lane <goal> --set daemon --profile claude-sonnet   # …a fallback for the uncast ones
 rbtv-goal lane <goal> --set console
 ```
 
@@ -102,7 +103,18 @@ seeds the goals assigned to it through `engine.seedGoal`; the console lane is `r
 - **ABSENT MEANS `console`.** An unreadable file, a junk word and a missing file are ONE answer —
   the daemon adopts ONLY goals explicitly assigned to it. Fail-closed on purpose: the opposite
   default would have adopted every goal folder already on disk the first time the daemon ticked.
-- **`--set daemon` REQUIRES `--profile`, and the NAME IS VALIDATED** against `profiles:` in the one
+- **`--set daemon` REQUIRES `--profile` ONLY WHEN A SEAT WOULD READ IT** (narrowing of ruling D19,
+  2026-08-12). Since D19 a seat whose `seat.md` declares a harness+model cast launches on the
+  profile that cast maps to, whatever this token says — so on a fully cast goal the flag was a
+  value the operator typed and no launch ever read (measured on a live 17-seat goal: 17 cast,
+  0 uncast). The question is asked of `engine/seeding.js#uncastSeats` — the ONE predicate, shared
+  with the daemon's own watch pass, reading `seat.md` (the surface the launch reads, not
+  `taskforce.csv`) through the catalog's own `declaresBinding` — and the refusal NAMES the seats
+  that forced it (`lane-uncast-seats`). A goal whose seats cannot be read yet keeps the requirement
+  (`lane-cast-unknown`): a lane may legitimately be assigned BEFORE `materialize`, and "I cannot
+  tell" is not "nobody needs it". A `daemon` marker with no second token is normal and both readers
+  already resolved it.
+- **A NAME THAT IS GIVEN IS VALIDATED** against `profiles:` in the one
   shared launch-profile config (`config/spawn-profiles.yaml`, or `RBTV_IGNITE_CONFIG_PATH`); the
   refusal prints the valid set. Only the KEYS are read here — the profile schema stays
   `launch-profiles/profiles.js`'s, never re-interpreted. The name is carried as a second token in
@@ -313,16 +325,18 @@ the `after` member grammar **on top of** acyclicity. Two rules, and a refusal na
 
 | Rule (the finding's `check` string) | Refuses |
 |---|---|
-| ``guard grammar `ref[field=value]` `` | a member carrying brackets that is not a guard — `a[nokey]`, `a[k=v]x`, an unclosed `a[k=v`. `parse_after_member` hands such a token back WHOLE, so the edge-runner looks up a seat literally named `a[nokey]`, finds nothing, and the edge is permanently unmet with no reason given. Refused at registration instead. |
+| ``guard grammar `ref[field=value]` `` | a member carrying brackets that is not a guard — `a[nokey]`, `a[k=v]x`, an unclosed `a[k=v`. `parse_after_member` hands such a token back WHOLE, so the evaluator looks up a seat literally named `a[nokey]`, finds nothing, and the edge is permanently unmet with no reason given. Refused at registration instead. |
 | ``alternate grammar `a|b` `` | an empty alternate limb — `a|`, `|b`, `a||b`. An alternate joins two NAMED predecessors. |
 
 **Grammar only.** The arm rules on ADMISSIBILITY, never on whether a guard is satisfied — that
-evaluation is the edge-runner's (CMP-25), against the predecessor's validated output. A clean
+evaluation is `coord.ready_seat_rows`', against the ruling recorded in
+`coordination/guard-values.csv`. A clean
 verdict here says the manifest is well-formed, nothing about how it will route.
 
 **One decomposition, imported.** The member grammar is decomposed in exactly one place in this
-system — `coord.py`'s `parse_after_member` (7.424/W1 collapsed the two readings that used to
-exist). `after_member_grammar()` imports it; there is no copy of the grammar in this file, and if
+system — `coord.py`'s `parse_after_member` and `after_member_limbs` (7.424/W1 collapsed the two
+readings that used to exist; `one-readiness-predicate.md` collapsed the second copy of the limb
+split). `after_member_grammar()` / `after_member_limbs()` import them; there is no copy of the grammar in this file, and if
 the import fails the check REFUSES rather than reading clean. The same import backs
 `check_acyclic`'s edge extraction, which previously truncated a member at its first `[` — under
 that reading `a[g=y]|b` lost limb `b`, and a cycle through it was reported clean (the

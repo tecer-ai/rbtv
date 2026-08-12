@@ -8,7 +8,7 @@ the daemon down, which is why they live on the rbtv side and never on ignite):
     rbtv-goal reindex
     rbtv-goal lint <goal-name>
     rbtv-goal materialize <goal-name> [--catalog-root DIR] [--force] [--dry-run]
-    rbtv-goal lane <goal-name> [--set daemon --profile NAME | --set console]
+    rbtv-goal lane <goal-name> [--set daemon [--profile NAME] | --set console]
     rbtv-goal pause <goal-name>            # stash the lane assignment (issue S-33)
     rbtv-goal resume <goal-name>           # …and hand it back, byte for byte
     rbtv-goal dag <goal-name>              # the graph + each seat's derived state
@@ -83,12 +83,20 @@ GOAL_KIND_DEFAULT = "interactive"
 # ⚠ ABSENT MEANS `console`. The daemon adopts ONLY goals explicitly assigned to it — the reader's
 # whole argument is in lane-watch.js's header, and this writer must not disagree with it.
 #
-# ⚠ A `daemon` assignment CARRIES ITS LAUNCH PROFILE as a second token, and `--set daemon` refuses
-# without one. Seeding needs a NAMED profile from the one shared config (DEC-1 § Shared profile
-# source — this lane never derives one, exactly as `rbtv run --profile` never does), and there is
-# nowhere else honest to read it from. Handing a goal to the daemon without saying what its seats
-# run on is not a thing that can work, so it is refused at the door rather than warned about at
-# 03:00 in a journal.
+# ⚠ A `daemon` assignment MAY CARRY A LAUNCH PROFILE as a second token, and `--set daemon` refuses
+# without one ONLY WHEN A SEAT WOULD ACTUALLY READ IT (narrowing of ruling D19, 2026-08-12).
+# Seeding needs a NAMED profile from the one shared config (DEC-1 § Shared profile source — this
+# lane never derives one from thin air), but since D19 a seat that declares a harness+model cast in
+# its `seat.md` launches on the profile THAT maps to, whatever this token says: the catalog
+# (`launch-profiles/catalog.js`) is applied at the one launch point every lane shares. So on a
+# fully cast goal the token was a value the operator typed and no launch ever read — measured on
+# the live 17-seat planning goal, 17 cast and 0 uncast.
+#
+# The refusal is now the narrow one and it NAMES the seats that forced it (`_uncast_seats`, which
+# asks the launch's own reader rather than parsing anything here). Handing a goal to the daemon
+# without saying what its UNCAST seats run on is still not a thing that can work, so that case is
+# still refused at the door rather than warned about at 03:00 in a journal — `lane-watch.js`'s
+# no-profile branch is that 03:00 journal line, and it is the fallback, not the gate.
 LANE_FILE = "execution-lane"
 LANES = ("daemon", "console")
 
@@ -991,6 +999,60 @@ def _spawn_profile_names() -> list[str]:
     return sorted((raw.get("profiles") or {}).keys())
 
 
+class _CastUnknown(RuntimeError):
+    """The goal's seats could not be inspected, so "does any seat need a fallback profile" is
+    UNKNOWN — which is never the same answer as `no`. Its own type because the door refuses
+    differently for it than for a measured `some`."""
+
+
+# ── WHICH SEATS WOULD ACTUALLY READ `--profile` — ASKED, NEVER RE-DERIVED ─────────────────────
+#
+# ⚠ THE ANSWER IS NOT COMPUTED HERE, AND NOT COMPUTED IN PYTHON AT ALL. `engine/seeding.js`
+# exports `uncastSeats`, which reads what the LAUNCH reads through the launch's own reader
+# (`spawn.js#seatDeclaresValue` over `seats/<seat>/seat.md`) and answers with the catalog's own
+# predicate (`launch-profiles/catalog.js#declaresBinding`). One home, two callers: the daemon's
+# watch pass asks the same function, so what this door accepts and what that pass seeds cannot
+# disagree. A python re-implementation would be a second reader of the same fact — the drift
+# DEC-1 § Shared profile source forbids, and the precedent is `probe-bindings.py`'s "one `node`
+# call covers the whole matrix — never a python re-implementation".
+#
+# ⚠ AND IT IS `seat.md`, NOT `taskforce.csv`, THOUGH BOTH CARRY harness/model/effort. The launch
+# reads the descriptor; `lint`'s own "binding matches taskforce.csv" finding exists because the
+# two CAN disagree, and a gate reading the other surface could refuse a launch that would work.
+# Reading the csv here would also have to be quote-aware — a multi-predecessor `after` cell is
+# written QUOTED, and a naive split shifts every column to its right onto the wrong field.
+#
+# ⚠ FAIL-CLOSED, AND THE FAILURE IS TYPED. Anything that stops the answer arriving — no `node`, a
+# goal with no `taskforce.csv` yet, an unreadable one — raises `_CastUnknown`, never an empty
+# list. "I could not ask" and "nobody needs it" are different claims, and only the second may
+# lift a requirement.
+def _uncast_seats(goal_dir: Path) -> list[str]:
+    """The seats of this goal that declare NO harness+model cast. Raises `_CastUnknown`."""
+    import subprocess
+
+    seeding = Path(__file__).resolve().parents[3] / "engine" / "seeding.js"
+    try:
+        proc = subprocess.run(
+            ["node", "-e",
+             "process.stdout.write(JSON.stringify("
+             "require(process.argv[1]).uncastSeats(process.argv[2])))",
+             str(seeding), str(goal_dir)],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _CastUnknown(f"the launch's own seat reader could not be run: {exc}") from exc
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "").strip()
+        lines = err.splitlines() or ["no output"]
+        # node prints the throw site and a stack around the message; the message is the line that
+        # names the error class. Falling back to the last line would quote a stack frame.
+        raise _CastUnknown(next((ln.strip() for ln in lines if re.match(r"^\w*Error\b", ln.strip())),
+                                lines[-1].strip())[:400])
+    try:
+        return list(json.loads(proc.stdout))
+    except (ValueError, TypeError) as exc:
+        raise _CastUnknown(f"unreadable answer: {proc.stdout[:200]!r}") from exc
+
+
 def cmd_lane(args) -> int:
     root = resolve_goals_root(args.root)
     name = args.goal_name
@@ -1019,18 +1081,44 @@ def cmd_lane(args) -> int:
             raise Refusal(f"--set {target}: must be one of {', '.join(LANES)}")
         profile = getattr(args, "profile", None)
         if target == "daemon" and not profile:
-            raise Refusal(
-                "--set daemon requires --profile <name>: the daemon seeds this goal's seats with a "
-                "NAMED launch profile from the one shared config (the same argument `rbtv run "
-                "--profile` requires), and it never derives one. Names come from `profiles:` in "
-                "ignite/config/spawn-profiles.yaml."
-            )
+            # ⚠ THE UNMATERIALIZED GOAL IS RULED, NOT FALLEN INTO. A lane may legitimately be
+            # assigned BEFORE `materialize` — `lane-watch.js` treats "assigned, no taskforce.csv
+            # yet" as normal and quiet — and at that moment NO seat exists to inspect. The
+            # requirement therefore STANDS for that goal: the whole value of this refusal is
+            # naming the seats that force it, and with no seats there is no name to give, only a
+            # guess. Lifting it on a guess moves the failure from this terminal, where the operator
+            # is standing, to a daemon journal line at 03:00 — which is precisely what the marker's
+            # header rules against. It also changes nothing for anybody: `--profile` was
+            # unconditional until today, so every existing caller already passes one.
+            try:
+                uncast = _uncast_seats(goal_dir)
+            except _CastUnknown as exc:
+                raise Refusal(
+                    f"--set daemon needs --profile <name> here: this goal's seats cannot be read, "
+                    f"so whether ANY of them needs a fallback profile is unknown — which is not the "
+                    f"same as 'none' ({exc}). If the goal is simply not materialized yet, run "
+                    f"`rbtv-goal materialize {name}` and re-run this WITHOUT --profile; otherwise "
+                    "name one now. Names come from `profiles:` in ignite/config/spawn-profiles.yaml.",
+                    "lane-cast-unknown") from exc
+            if uncast:
+                raise Refusal(
+                    f"--set daemon needs --profile <name> for this goal: {len(uncast)} seat(s) "
+                    f"declare no harness+model cast in their seat.md, so the daemon has nothing to "
+                    f"launch them on and the name you pass is what THEY fall back to — "
+                    f"{', '.join(uncast)}. Cast them (`rbtv-bindings set`, then re-materialize) and "
+                    "this flag stops being required; every other seat runs the profile its own cast "
+                    "maps to either way (ruling D19). Names come from `profiles:` in "
+                    "ignite/config/spawn-profiles.yaml.",
+                    "lane-uncast-seats")
         if target == "console" and profile:
             raise Refusal(
                 "--profile is meaningless with --set console: the console lane takes its profile "
                 "from the `rbtv run --profile` you type, not from this file."
             )
-        if target == "daemon":
+        # `and profile` since the narrowing: a name that was not given is not a name that is
+        # wrong. Without it this validated `None` against `profiles:` and refused a fully cast
+        # goal with "--profile None: not a launch profile" — measured, not imagined.
+        if target == "daemon" and profile:
             known = _spawn_profile_names()
             if profile not in known:
                 raise Refusal(
@@ -1038,7 +1126,12 @@ def cmd_lane(args) -> int:
                     f"Known: {', '.join(known) or '(none configured)'}. Profiles are PINNED and "
                     "NAMED there; this verb never composes or guesses one."
                 )
-        text = f"daemon {profile}\n" if target == "daemon" else "console\n"
+        # A `daemon` marker with NO second token is the fully-cast case — `readLane` on both sides
+        # already answers `profile: null` for it, so the grammar did not have to change.
+        if target == "daemon":
+            text = f"daemon {profile}\n" if profile else "daemon\n"
+        else:
+            text = "console\n"
         # Temp + rename, like the execution record beside it: a reader takes no lock, and a
         # truncate-then-write leaves a window where the marker reads EMPTY — which the daemon's
         # reader resolves as `console` and would silently drop a goal it was mid-assignment.
@@ -1065,10 +1158,13 @@ def cmd_lane(args) -> int:
             # daemon assignment was thrown away.
             print(f"{name}: PAUSED — stashed lane assignment {paused_from!r}; nothing new is "
                   f"seeded until `rbtv-goal resume {name}` ({where})")
-        if lane == "daemon":
-            print(f"{name}: DAEMON lane, profile {profile} — the daemon's watch pass picks it up ({where})")
+        if lane == "daemon" and profile:
+            print(f"{name}: DAEMON lane, fallback profile {profile} — the daemon's watch pass picks it up ({where})")
+        elif lane == "daemon":
+            print(f"{name}: DAEMON lane, no fallback profile — every seat runs the profile its own "
+                  f"cast maps to; the daemon's watch pass picks it up ({where})")
         elif present:
-            print(f"{name}: CONSOLE lane — run it with `rbtv run {goal_dir} --profile <name>` ({where})")
+            print(f"{name}: CONSOLE lane — run it with `rbtv run {goal_dir}` ({where})")
         else:
             print(f"{name}: CONSOLE lane (no assignment file — absent means console, and the "
                   f"daemon adopts only goals explicitly assigned to it)")
@@ -1107,11 +1203,11 @@ class Findings:
 # called". `_module_level_literals` reads coord.py by AST for a different reason —
 # it needs module-level LITERALS, which do not require execution; a grammar does.
 
-_AFTER_GRAMMAR = None
+_COORD_GRAMMAR = None
 
 
-def after_member_grammar():
-    """`coord.py`'s `parse_after_member`, imported. Refuses rather than degrading.
+def _coord_grammar():
+    """`coord.py`, imported once. Refuses rather than degrading.
 
     `coord.py` imports `budget` from its own directory, so that directory goes on
     `sys.path` for the exec and comes straight back off — the "not importable from
@@ -1124,9 +1220,9 @@ def after_member_grammar():
     guards were never checked — the vacuous-clean class `check_acyclic` exists to
     close, rebuilt one layer up.
     """
-    global _AFTER_GRAMMAR
-    if _AFTER_GRAMMAR is not None:
-        return _AFTER_GRAMMAR
+    global _COORD_GRAMMAR
+    if _COORD_GRAMMAR is not None:
+        return _COORD_GRAMMAR
     import importlib.util
 
     coord_path = coord_source_path()
@@ -1153,13 +1249,18 @@ def after_member_grammar():
     finally:
         sys.dont_write_bytecode = bytecode
         sys.path.remove(str(coord_path.parent))
-    fn = getattr(mod, "parse_after_member", None)
-    if not callable(fn):
-        raise Refusal(
-            f"{coord_path}: `parse_after_member` is absent or not callable — the grammar "
-            f"this check imports has moved or been renamed; NO claim can be made.")
-    _AFTER_GRAMMAR = fn
-    return fn
+    for name in ("parse_after_member", "after_member_limbs"):
+        if not callable(getattr(mod, name, None)):
+            raise Refusal(
+                f"{coord_path}: `{name}` is absent or not callable — the grammar "
+                f"this check imports has moved or been renamed; NO claim can be made.")
+    _COORD_GRAMMAR = mod
+    return mod
+
+
+def after_member_grammar():
+    """`coord.py`'s `parse_after_member`, imported. The MEMBER half of the grammar."""
+    return _coord_grammar().parse_after_member
 
 
 def after_cell_members(raw: str) -> list[str]:
@@ -1168,25 +1269,17 @@ def after_cell_members(raw: str) -> list[str]:
 
 
 def after_member_limbs(member: str) -> list[str]:
-    """The alternates of ONE member: `a|b` -> `['a', 'b']`, `a[g=y]` -> `['a[g=y]']`.
+    """`coord.py`'s `after_member_limbs`, imported. The ALTERNATE half of the grammar.
 
-    ⚠ THE ORDER IS LOAD-BEARING and is `_manifest_after_ids`' own: bracketed content
-    is neutralised BEFORE the alternate split, so a `|` INSIDE a guard value never
-    reads as an alternate. Cutting the other way round is the strip-then-split defect
-    (#3386) this file used to carry: `a[g=y]|b` truncated at the first `[` and limb
-    `b` vanished from the graph — an edge never traversed, reported clean.
-
-    Blanked positionally rather than removed, so each limb is sliced from the
-    ORIGINAL text and keeps its own guard for the member-grammar read below.
+    ⚠ IT USED TO BE A BYTE-IDENTICAL SECOND COPY, and that was the same defect W1 closed
+    one function over — two readings of an `after` cell free to drift. Re-pointed at
+    coord through the SAME bridge `after_member_grammar` already used
+    (`build/one-readiness-predicate.md`); coord's own docstring carries the order rule
+    (bracketed content neutralised BEFORE the alternate split, so a `|` inside a guard
+    value never reads as an alternate — the strip-then-split defect #3386) and the
+    reason the blanking is positional.
     """
-    blanked = re.sub(r"\[[^\]]*\]", lambda m: "\0" * len(m.group(0)), member)
-    limbs, start = [], 0
-    for i, ch in enumerate(blanked):
-        if ch == "|":
-            limbs.append(member[start:i])
-            start = i + 1
-    limbs.append(member[start:])
-    return limbs
+    return _coord_grammar().after_member_limbs(member)
 
 
 def after_pred_names(raw: str) -> list[str]:
@@ -1256,13 +1349,13 @@ def check_after_grammar(rows: list[dict], f: Findings, path: Path,
 
     `check_acyclic` answers "is this graph acyclic and do its edges resolve". It says
     nothing about whether a guard is ADMISSIBLE: `a[nokey]` is not a guarded member at
-    all — `parse_after_member` hands it back whole and the edge-runner treats it as a
+    all — `parse_after_member` hands it back whole and the evaluator treats it as a
     seat name that cannot exist, so the edge is permanently unmet and nothing says why.
     This arm refuses it at registration instead, naming the rule.
 
     Grammar-only. It rules on ADMISSIBILITY, never on whether a guard is satisfied —
-    that is the edge-runner's evaluation (CMP-25) against the predecessor's validated
-    output, and no verdict about it is implied here.
+    that is `coord.ready_seat_rows`' evaluation, against the ruling recorded in
+    `coordination/guard-values.csv`, and no verdict about it is implied here.
     """
     parse = after_member_grammar()
     for row in rows:
@@ -4688,8 +4781,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="assign the goal to a lane. Flipping it MID-GOAL is supported and is the "
                         "point: the execution record makes the other lane skip what this one finished")
     p.add_argument("--profile", default=None,
-                   help="REQUIRED with --set daemon: the launch profile, BY NAME, the daemon seeds "
-                        "this goal's seats with (from `profiles:` in the one shared config)")
+                   help="with --set daemon: the FALLBACK launch profile, BY NAME, for seats that "
+                        "declare no harness+model cast (from `profiles:` in the one shared config). "
+                        "Required only when this goal HAS such a seat — the refusal names them")
     p.set_defaults(func=cmd_lane)
 
     # The PAUSE pair (issue S-33). `pause` stashes the lane assignment behind a `paused ` prefix

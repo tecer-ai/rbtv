@@ -4,15 +4,24 @@
 WHAT THIS IS. `server/spawn/cage.js#composeSeatCage` is the daemon's cage composer and stays the
 only thing that composes a real bwrap spec. This module is its MIRROR for the two Python gates that
 must answer "is this goal-relative path writable / readable in the seat cage?" BEFORE any process
-exists — `team-kit/materialize-seats.py`'s generation-time preflight and `jobs/edge-runner-job.py`'s
-declared-output admission check. Both call THIS module; a second reading in either of them would be
-a second place the wall is reasoned about, which is the defect the shared reader exists to remove.
+exists. Its ONE caller today is `team-kit/materialize-seats.py`'s generation-time preflight; a
+second reading in it would be a second place the wall is reasoned about, which is the defect the
+shared reader exists to remove.
 
-⚠ IT IS A MIRROR, AND MIRRORS DRIFT. Two things hold it against `cage.js`:
-  1. `edge-runner-job.py#check_deriver_mirrors_the_composer` drives the REAL `composeSeatCage`
-     through node over the LIVE SeatBinds and asserts this module's `compose` matches it
+⚠ ITS SECOND CALLER — `jobs/edge-runner-job.py`'s enqueue-time declared-output admission check —
+WAS DELETED (`build/one-readiness-predicate.md`). Its successor `engine/cage-admission.js` drives
+`cage.js#composeSeatCage` LIVE in JavaScript rather than mirroring it, which is the improvement the
+ruling names. So the two admission gates no longer share this evaluator: they share the TEMPLATE
+(`cage.SeatBinds`), and this module is now one side of a mirror whose held-against check went with
+the file that held it (see 1 below).
+
+⚠ IT IS A MIRROR, AND MIRRORS DRIFT. Two things held it against `cage.js`:
+  1. ⚠ GONE. `edge-runner-job.py#check_deriver_mirrors_the_composer` drove the REAL `composeSeatCage`
+     through node over the LIVE SeatBinds and asserted this module's `compose` matched it
      entry-for-entry after re-rooting — and that every entry this module DROPS resolves outside the
-     goal folder under node. A verb, slot or grant class added to the template turns that check red.
+     goal folder under node. A verb, slot or grant class added to the template turned that check
+     red. It was deleted with its file and NOTHING replaces it: this mirror is currently unpinned,
+     and a template change can now diverge silently on the Python side. Filed, not fixed here.
   2. Everything underivable is UNDECIDED, and undecided REFUSES at every caller. An unknown verb, an
      unknown slot, an unknown `{grant:FIELD}`, a malformed entry, an escaping token or an empty
      template all return `None`/`undecided` rather than a guess. Fail-closed here is load-bearing:

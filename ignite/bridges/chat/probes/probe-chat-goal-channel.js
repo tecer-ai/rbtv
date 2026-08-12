@@ -225,14 +225,32 @@ async function main() {
     const stray = await bridge.onChatMessage(msg({ channel: 'C_STRAY', ts: '3.1', channelType: 'channel' }));
     const group = await bridge.onChatMessage(msg({ channel: 'G_MPIM', ts: '4.1', channelType: 'mpim' }));
 
-    const dmJob = forwarder.enqueued.find((e) => e.payload.args && e.payload.args.profile === 'master-profile');
-    const goalJob = forwarder.enqueued.find((e) => e.payload.args && e.payload.args.profile === 'goal-profile');
+    // ⚑ DISCRIMINATED BY WORKDIR, NOT BY PROFILE, since owner ruling D2 (2026-08-11). These two
+    // lines used to find each surface's job by its own profile name — which only worked while the
+    // transport chose a profile PER SURFACE, the thing that ruling deleted. Both surfaces now carry
+    // the one non-deciding `session_profile`, so profile can no longer tell them apart; WHERE the
+    // sitting is homed still can, and homing IS the transport's remaining business.
+    // This fixture configures `workdir: null`, so master traffic enqueues WITHOUT a workdir key
+    // while goal traffic carries the goal-master seat dir `workdirFor` resolved — which is the
+    // homing difference the two route checks below are about, and the only surface distinction the
+    // transport still makes.
+    const jobs = forwarder.enqueued.filter((e) => e.payload.args);
+    const dmJob = jobs.find((e) => !e.payload.args.workdir);
+    const goalJob = jobs.find((e) => Boolean(e.payload.args.workdir));
 
     check('DM routes as MASTER traffic, never goal traffic', dm.forwarded === true && dm.route === 'master' && dm.goalId === null && Boolean(dmJob), { dm });
     check('mapped channel routes as GOAL traffic, attributed to its goal', goal.forwarded === true && goal.route === 'goal' && goal.goalId === 'goal-three' && Boolean(goalJob), { goal });
     check('unmapped channel refused — NOTHING enqueued', stray.forwarded === false && stray.reason === 'unroutable-surface', { stray });
     check('group DM (mpim) refused — neither master nor goal', group.forwarded === false && group.reason === 'unroutable-surface', { group });
     check('exactly two jobs enqueued across four inbound messages', forwarder.enqueued.length === 2, { enqueued: forwarder.enqueued.length });
+    // …and the ruling itself, asserted rather than merely worked around: two DIFFERENT surfaces,
+    // ONE profile value. Paired with the two route checks above, which prove the surfaces really
+    // were told apart — so this cannot pass by both jobs being the same job.
+    check('both surfaces carry the SAME profile — the transport names no execution (D2)',
+      Boolean(dmJob) && Boolean(goalJob) && dmJob !== goalJob
+      && dmJob.payload.args.profile === goalJob.payload.args.profile
+      && dmJob.payload.args.profile === 'fallback-profile',
+      { dm: dmJob && dmJob.payload.args.profile, goal: goalJob && goalJob.payload.args.profile });
   }
 
   // 6 — THE 1:1 INVARIANT: the goal thread is the CHANNEL, so two messages posted at

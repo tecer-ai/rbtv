@@ -9,7 +9,7 @@ the calling terminal, and it dies with that terminal.
 
 | | daemon lane | attached lane |
 |---|---|---|
-| entry | `rbtv ignite daemon start` | `rbtv run <goal-folder> --profile <name>` |
+| entry | `rbtv ignite daemon start` | `rbtv run <goal-folder> [--profile <name>]` |
 | store | `{state_root}/heart.db` | `<goal-folder>/heart.db` |
 | lifetime | outlives the terminal | dies with it |
 | recovery | `goal-watcher-job` | **the owner re-runs the verb** — no watcher, ruled |
@@ -398,17 +398,32 @@ whole tree on the first tick after deploy. "Assigned to the console" and "assign
 deliberately not distinguished — neither is the daemon's business, and a third state would be a
 state nothing reads.
 
-⚠ **A `daemon` assignment MUST name a launch profile, and the NAME IS VALIDATED — at both doors.**
-Seeding takes a profile BY NAME from the one shared config and never derives one (`DEC-1` § Shared
-profile source — the same argument `rbtv run --profile` makes); `taskforce.csv`'s harness/model
-columns are a CAST, not a profile name. There is no third place to read the name from, so the marker
-carries it. ⚠ Since ruling **D19** the marker's profile is the **fallback**, not the answer for
-every seat: task 7.54's catalog is built (`launch-profiles/catalog.js`) and applied at
-`server/spawn/spawn.js#profileForSeatCast`, so a seat whose `seat.md` declares a cast launches on
-THAT profile and the marker covers only the seats that declare none.
+⚠ **A `daemon` assignment MAY name a launch profile, and where it does the NAME IS VALIDATED — at
+both doors.** Seeding takes a profile BY NAME from the one shared config and never composes one
+(`DEC-1` § Shared profile source — the same argument `rbtv run --profile` makes). ⚠ Since ruling
+**D19** that name is the **fallback**, not the answer for every seat: task 7.54's catalog is built
+(`launch-profiles/catalog.js`) and applied at `server/spawn/spawn.js#profileForSeatCast`, so a seat
+whose `seat.md` declares a cast launches on THAT profile and the marker covers only the seats that
+declare none.
 
-- **At the CLI**, `--set daemon` refuses without `--profile`, *and* refuses a name `profiles:` in the
-  shared config does not carry — naming the valid set. Presence alone was not enough: `enqueue`'s
+⚠ **AND SO THE TOKEN IS OPTIONAL SINCE 2026-08-12** (the narrowing of D19). Demanding it
+unconditionally made the operator type a value no launch ever read — measured on the live 17-seat
+planning goal: 17 seats cast, 0 uncast. Both doors now ask `seeding.js#uncastSeats` — the ONE
+predicate, reading what the launch reads (`seat.md`, through `spawn.js#seatDeclaresValue`) and
+answering with the catalog's own `declaresBinding` — and demand a name only when some seat would
+actually consult it, naming those seats in the refusal. A goal that needs none supplies its own
+from its casts (`fallbackProfileFor`), because `launch-agent` structurally requires a `profile`
+argument (`heart-store.js#REQUIRED_ARGS_BY_ACTION`): the slot cannot be emptied, only answered
+without asking. The derived name is inert by construction (every cast outranks it) and pins a
+model, so a seat added later with no cast REFUSES loudly (`E_UNCAST_SEAT`) instead of running on it.
+
+- **At the CLI**, `--set daemon` refuses without `--profile` **when a seat of that goal declares no
+  cast** (refusal code `lane-uncast-seats`, naming the seats) or when the goal's seats cannot be
+  read at all (`lane-cast-unknown` — an UNMATERIALIZED goal is ruled to keep the requirement: the
+  refusal's value is naming the seats, and with no seats there is only a guess, whose cost is a
+  daemon journal line at 03:00 instead of a message in the terminal the operator is standing at).
+  A name that IS given is still refused when `profiles:` in the
+  shared config does not carry it — naming the valid set. Presence alone was not enough: `enqueue`'s
   `args_schema` only asks that `profile` be a STRING, so a typo passed every gate and surfaced as a
   spawn failure per seat, long after the person who typed it stopped watching.
 - **At the watch**, the same name is checked against the store's own profile catalogue **before
@@ -686,7 +701,8 @@ direction); its arms now measure the resume, behaviourally, in both:
 `ignite/engine/probes/probe-daemon-lane-watch.js` — **the trigger** (`#d-daemon-lane-button`). The
 marker's grammar (absent, empty, junk and `console` are ONE answer; only `daemon` opens it, trimmed
 and case-insensitive) · the CLI as the writer, cross-checked against the engine's reader so the two
-languages cannot drift, with `--set daemon` REFUSED without a profile · one watch pass over a real
+languages cannot drift, with `--set daemon` REFUSED without a profile on a goal whose seats declare
+no cast (the fixture's seats declare none) · one watch pass over a real
 goals tree: the assigned goal adopted, the **console-assigned control** untouched with nothing of it
 reaching the daemon's store, a goal under a genuinely LIVE run lock skipped and then adopted on the
 pass after the lock is gone (the pair, so "not seeded" can never pass for an inert watch), and a seat

@@ -152,8 +152,15 @@ async function main() {
       one.forwarded === true && one.route === 'master' && one.goalId === null && one.leg === 'session-create', { one });
     check('mention conversation is thread-scoped (channel:thread_ts), not the channel',
       forwarder.enqueued.length === 2 && one.leg === 'session-create' && two.leg === 'session-create', { legs: [one.leg, two.leg] });
-    check('mention session uses the MASTER profile and the configured workdir',
-      forwarder.enqueued.every((e) => e.payload.args.profile === 'master-profile' && e.payload.args.workdir === '/configured/master/workdir'),
+    // ⚑ INVERTED 2026-08-11 (launch-cast unification, owner ruling D2). This asserted a
+    // per-SURFACE profile — mention traffic ran `master_profile`, goal traffic `goal_profile` —
+    // which is exactly the transport deciding what an agent runs. Those keys are DELETED; every
+    // surface now carries the one non-deciding `session_profile` and the daemon replaces it with
+    // the seat's cast (or refuses). The WORKDIR half is untouched: where a sitting is homed is
+    // still the transport's business, and it is the control that keeps this arm non-vacuous —
+    // a bridge that stopped forwarding entirely would fail it rather than pass.
+    check('mention session carries the ONE non-deciding profile, and still homes at the configured workdir',
+      forwarder.enqueued.every((e) => e.payload.args.profile === 'fallback-profile' && e.payload.args.workdir === '/configured/master/workdir'),
       { args: forwarder.enqueued.map((e) => e.payload.args) });
 
     await bridge.deliverToOwner({ chatThreadId: 'C_RANDOM:1.1', text: 'answer' });
@@ -206,7 +213,10 @@ async function main() {
     const args = forwarder.enqueued[0] && forwarder.enqueued[0].payload.args;
     check('goal session-create is homed at the open run\'s goal-master seat',
       res.forwarded === true && Boolean(args) && args.workdir === expected, { workdir: args && args.workdir, expected });
-    check('goal session-create keeps the goal profile', Boolean(args) && args.profile === 'goal-profile', { profile: args && args.profile });
+    // …and the SAME value on goal traffic — that sameness IS the ruling. Paired with the mention
+    // arm above: two surfaces, one profile, so no surface can mean anything by it.
+    check('goal session-create carries the SAME profile as master traffic — the surface decides nothing',
+      Boolean(args) && args.profile === 'fallback-profile', { profile: args && args.profile });
     bridge.stop();
   }
 

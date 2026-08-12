@@ -41,6 +41,9 @@ const { loadConfig } = require('../server/spawn/config');
 const {
   readCsv, jobIdFor, seedTaskforce, executionsByJob, seatIsFinished, seatHasRun,
   seatState, SEAT_STATES, enqueueEligible, recordView, readySeats,
+  // WHO NEEDS A FALLBACK PROFILE NAMED, and what a fully cast goal names for itself. Shared with
+  // the daemon lane's watch pass so both doors demand `--profile` on exactly the same goals.
+  uncastSeats, fallbackProfileFor,
 } = require('./seeding');
 // THE GOAL'S EXECUTION RECORD — the one place any lane's reader asks "did this seat finish"
 // (owner ruling decisions.md#d-s23-single-execution-record-now).
@@ -866,19 +869,42 @@ async function executeAttached({
   const goalFolder = resolveGoalFolder(goalFolderInput);
   const storePath = path.join(goalFolder, STORE_FILENAME);
 
-  if (!profile) {
-    throw new Error(
-      'an attached run needs a NAMED launch profile from the one shared config — it is what the ' +
-      "run's seats fall back to. The (harness, model) -> profile-name catalog (core-build task " +
-      '7.54) is BUILT and lives at launch-profiles/catalog.js; it is applied at the one shared ' +
-      'launch point (server/spawn/spawn.js#profileForSeatCast, ruling D19), so a seat that ' +
-      'declares a cast in its seat.md runs THAT rather than this name. A second mapping invented ' +
-      'here would still be the drift DEC-1 § Shared profile source forbids.'
-    );
-  }
-
   const spawnConfig = loadConfig(spawnConfigPath);
   assertNotTheDaemonStore(storePath, spawnConfig);
+
+  // ── `--profile` IS DEMANDED ONLY WHERE A SEAT WOULD READ IT (2026-08-12, narrowing D19) ──────
+  //
+  // This used to be an unconditional refusal. Ruling D19 had already made the caller's name the
+  // FALLBACK for a seat that declares no cast — the catalog (`launch-profiles/catalog.js`) is
+  // applied at the one shared launch point (`spawn.js#profileForSeatCast`), so a cast seat runs
+  // its OWN profile whatever is passed here — and on a fully cast goal the demanded value was
+  // therefore never read at all (measured: the live 17-seat planning goal casts all 17).
+  //
+  // The ask is now the narrow one, asked of `seeding.js#uncastSeats` — the same function the
+  // daemon lane's pass asks, so the two lanes cannot disagree about which goals need a name. When
+  // no seat needs one, the goal supplies its own (see `fallbackProfileFor` for why the slot cannot
+  // simply be emptied, and why the derived value is inert rather than arbitrary).
+  //
+  // ⚠ AN UNMATERIALIZED GOAL IS NOT A CASE HERE, and that is not a decision this line makes:
+  // `uncastSeats` reads the taskforce through `readTaskforce`, which is the same refusal
+  // `enqueueEligible` would raise four lines later with a profile in hand ("no taskforce — a run
+  // executes the run's seats"). Identical with or without `--profile`, so the narrowing changed
+  // nothing about it.
+  if (!profile) {
+    const uncast = uncastSeats(goalFolder);
+    if (uncast.length) {
+      throw new Error(
+        `--profile <name> is REQUIRED for this goal: ${uncast.length} seat(s) declare no `
+        + `harness+model cast in their seat.md, so there is nothing to launch them on and the name `
+        + `you pass is what they fall back to — ${uncast.join(', ')}. Cast them `
+        + `(\`rbtv-bindings set\` and re-materialize) and the flag stops being required, or name a `
+        + `profile now. Every OTHER seat runs the profile its own cast maps to either way `
+        + `(launch-profiles/catalog.js, ruling D19).`
+      );
+    }
+    profile = fallbackProfileFor(goalFolder, spawnConfig.profiles || {});
+  }
+
   if (!spawnConfig.profiles[profile]) {
     throw new Error(
       `unknown launch profile '${profile}' — known: ${Object.keys(spawnConfig.profiles).join(', ')}. ` +

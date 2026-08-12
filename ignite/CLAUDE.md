@@ -34,7 +34,8 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   not execution** — it stops the daemon starting anything new for the goal, never a session already
   running. Contract: `capabilities/goals-tree/tool/README.md`.
 - **`attached-execution/`** — the ATTACHED lane, the **`rbtv run`** verb (`rbtv run <goal-folder>
-  --profile <name>`; entry point `capabilities/attached-execution/tool/rbtv-execution`, reached by
+  [--profile <name>]` — the FALLBACK for seats that declare no harness+model cast, required only
+  when the goal has one; entry point `capabilities/attached-execution/tool/rbtv-execution`, reached by
   delegation from the TOP-LEVEL `rbtv` CLI — never `rbtv ignite`). Owner ruling
   `d-attached-run-embedded-engine`: ONE implementation of workflow advancement, TWO attachments —
   the SAME engine (`ignite/engine/`) the daemon runs, attached to the calling terminal instead of a

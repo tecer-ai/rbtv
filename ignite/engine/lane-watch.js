@@ -21,19 +21,25 @@
 // and "assigned to nobody" are deliberately not distinguished: neither is the daemon's business, and
 // a third state would be a state nothing reads.
 //
-// ⚠ THE FILE CARRIES A SECOND TOKEN — THE LAUNCH PROFILE — and it still has to, though what the
-// token MEANS narrowed at ruling D19. Seeding needs a NAMED profile from the one shared config
-// (`DEC-1` § Shared profile source: this lane never composes or derives one, exactly as
-// `rbtv run --profile` never does). `taskforce.csv`'s harness/model columns are task 7.54's
-// catalog — which is now BUILT (`launch-profiles/catalog.js`) and applied at the single launch
-// point every lane shares (`server/spawn/spawn.js#profileForSeatCast`), so a seat that declares a
-// cast runs THAT, whichever profile this token names.
+// ⚠ THE FILE CARRIES AN OPTIONAL SECOND TOKEN — THE FALLBACK LAUNCH PROFILE. Seeding needs a
+// NAMED profile from the one shared config (`DEC-1` § Shared profile source: this lane never
+// composes one), because `launch-agent` structurally requires a `profile` argument. But WHICH name
+// stopped mattering for a cast seat at ruling D19: task 7.54's catalog is BUILT
+// (`launch-profiles/catalog.js`) and applied at the single launch point every lane shares
+// (`server/spawn/spawn.js#profileForSeatCast`), so a seat that declares a cast in its `seat.md`
+// runs THAT, whichever profile this token names.
 //
-// The token is therefore the FALLBACK for seats that declare no cast, not the answer for all of
-// them — and it stays REQUIRED for exactly the same reason as before: handing a goal to the daemon
-// without saying what its uncast seats run on is not a thing that can work, so the CLI REFUSES
-// `--set daemon` without `--profile`. A hand-written `daemon` with no profile is therefore rare,
-// and it warns rather than guessing.
+// ⚠ SO THE TOKEN IS OPTIONAL SINCE 2026-08-12, AND THE MARKER'S GRAMMAR DID NOT CHANGE TO SAY SO
+// — `readLane` already returned `profile: null` for a bare `daemon`. What changed is what this
+// pass DOES with that: it asks `seeding.js#uncastSeats` which seats would actually consult a
+// fallback, and when the answer is NONE it derives one from the goal's own casts
+// (`fallbackProfileFor`) and seeds. The demand used to be unconditional at both CLI doors, which
+// on a fully cast goal made the operator type a value no launch ever reads — measured on the live
+// 17-seat planning goal: 17 cast, 0 uncast.
+//
+// A bare `daemon` marker on a goal that DOES carry an uncast seat is still not seeded, for exactly
+// the reason it never was: nothing can say what that seat runs on. It warns, and the warning now
+// NAMES the seats that forced it rather than restating a rule.
 //
 // WHAT THIS PASS IS NOT: a second seeding implementation. It decides WHICH goals, and calls
 // `engine.seedGoal` for each — the one seam (PRIN-11).
@@ -45,6 +51,10 @@ const { RUN_LOCK, runnerAlive, heldSeatPredicate } = require('./attached-executi
 // `heldSeatPredicate` reads both gates from. A second parser of that frontmatter is a lane that
 // disagrees with the ferry about what a seat declared (7.626 criterion 2).
 const { seatFallback } = require('../bridges/chat/bus-ferry');
+// WHO NEEDS THE MARKER'S FALLBACK TOKEN, and what a fully cast goal supplies instead. The one home
+// of that answer — `rbtv run` and `rbtv-goal lane` ask the same two functions, so this pass and
+// the CLI that writes the marker can never disagree about which goals need a profile named.
+const { uncastSeats, fallbackProfileFor } = require('./seeding');
 
 const LANE_FILE = 'execution-lane';
 const DAEMON = 'daemon';
@@ -146,7 +156,10 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
     if (!entry.isDirectory()) continue;
     const goal = entry.name;
     const goalFolder = path.join(goalsRoot, goal);
-    const { lane, profile, raw } = readLane(goalFolder);
+    // `let`, because a marker that names NO profile has one DERIVED below — and it is derived into
+    // this same binding deliberately: every line downstream (the store guard, `seedGoal`, the log)
+    // then reads the value that will actually be used, with no second name to keep in step.
+    let { lane, profile, raw } = readLane(goalFolder);
 
     if (lane !== DAEMON) {
       skipped.push({ goal, reason: 'not-assigned-to-the-daemon' });
@@ -161,11 +174,32 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
       continue;
     }
 
+    const known = (engine.heartStore && engine.heartStore.config && engine.heartStore.config.profiles) || {};
+
+    // ⚠ A MARKER NEED NOT NAME A PROFILE — it must only name one when a SEAT would consult it
+    // (2026-08-12, narrowing D19; the header's second ⚠ carries the argument). `uncastSeats` is
+    // the one predicate both CLI doors ask, so what this pass seeds and what `rbtv-goal lane`
+    // accepts are the same question answered by the same code. Nothing here is fatal, exactly as
+    // nothing else in this loop is: an unreadable taskforce or an unmappable cast leaves the goal
+    // for the next cadence rather than taking the tick down.
+    let forcedBy = null;
+    if (!profile) {
+      try {
+        const uncast = uncastSeats(goalFolder);
+        if (uncast.length) forcedBy = `seat(s) that declare no cast in their seat.md: ${uncast.join(', ')}`;
+        else profile = fallbackProfileFor(goalFolder, known);
+      } catch (err) {
+        forcedBy = `this goal's own casts could not answer it (${err.message})`;
+      }
+    }
+
     if (!profile) {
       skipped.push({ goal, reason: 'no-profile-in-the-assignment' });
       say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
-        'lane watch: goal is assigned to the daemon but names NO launch profile — not seeded', {
+        'lane watch: goal is assigned to the daemon, names NO launch profile, and cannot supply one '
+        + 'from its own casts — not seeded', {
           goal,
+          forcedBy,
           fix: `rbtv goal lane ${goal} --set daemon --profile <name>`,
         });
       continue;
@@ -178,7 +212,6 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
     // first pass and then threw every cadence forever. Refusing here writes nothing at all.
     // `Object.hasOwn`, not a truthiness test, for the store's own reason: `constructor` is a legal
     // kebab-case name that walks the prototype chain and reads present.
-    const known = (engine.heartStore && engine.heartStore.config && engine.heartStore.config.profiles) || {};
     if (!Object.hasOwn(known, profile)) {
       skipped.push({ goal, reason: 'unknown-profile', profile });
       say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',

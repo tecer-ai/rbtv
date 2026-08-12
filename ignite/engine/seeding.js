@@ -207,6 +207,81 @@ function readTaskforce(goalFolder) {
   return rows;
 }
 
+// ── WHICH SEATS ACTUALLY NEED THE CALLER'S PROFILE (the D19 narrowing, 2026-08-12) ────────────
+//
+// Ruling D19 made the caller-named profile the FALLBACK for a seat that declares no cast, but the
+// two doors that take it — `rbtv run --profile` and `rbtv-goal lane --set daemon --profile` —
+// went on DEMANDING it unconditionally. Measured on the live 17-seat planning goal: 17 seats
+// declare harness+model, 0 declare none, so the operator was typing an answer to a question the
+// launch never asks. These two functions are the ONE answer both doors ask instead.
+//
+// ⚠ THE SURFACE IS `seat.md`, AND THAT IS MEASURED, NOT ASSUMED. `taskforce.csv` carries
+// `harness,model,effort` columns too, and `rbtv run --help` says "seat.md" — they can disagree
+// (`goal_cli.py#lint`'s "binding matches taskforce.csv" finding exists because they do). The
+// LAUNCH reads the DESCRIPTOR: `spawn.js#profileForSeatCast` builds its binding from
+// `seatDeclaresValue(seatDir, 'harness'|'model')`, and every lane — daemon seeding, the attached
+// tick, the foreground carrier, the warm-session leg — reaches the catalog through it. A gate
+// reading the other surface is a gate that can disagree with the thing it gates. `taskforce.csv`
+// supplies the seat NAMES here and nothing else.
+//
+// ⚠ THE PREDICATE AND THE DERIVATION ARE BOTH THE CATALOG'S OWN. `declaresBinding` answers
+// "is this seat cast at all"; `profileForBinding` answers "which profile IS that cast". Nothing
+// here re-implements either — a second interpreter of the one mapping is the drift
+// DEC-1 § Shared profile source forbids, and it is the drift `catalog.js` was built to end.
+//
+// Both are LAZY-required for the reason `attached-execution.js` lazy-requires the same reader:
+// `seeding.js` is loaded by probes and by the engine index that have no business pulling in the
+// spawn manager, and a new module-level import is a sibling dependency every one of them inherits.
+function seatCast(goalFolder, seat) {
+  const { seatDeclaresValue } = require('../server/spawn/spawn');
+  const seatDir = path.join(goalFolder, 'seats', seat);
+  return {
+    harness: seatDeclaresValue(seatDir, 'harness'),
+    model: seatDeclaresValue(seatDir, 'model'),
+  };
+}
+
+// The seats a fallback profile would actually be consulted FOR — i.e. the ones that declare no
+// cast. Empty means no launch of this goal will ever read the caller's profile name, which is
+// exactly when demanding one is demanding a value that is never read.
+//
+// Throws `readTaskforce`'s refusal when the goal is not materialized: "which seats need a
+// fallback" has no answer before the seats exist, and inventing one either way is a guess. Each
+// caller rules what to do with that — see their own comments.
+function uncastSeats(goalFolder) {
+  const { declaresBinding } = require('../launch-profiles/catalog');
+  return readTaskforce(goalFolder)
+    .filter((row) => !declaresBinding(seatCast(goalFolder, row.seat)))
+    .map((row) => row.seat);
+}
+
+// THE FALLBACK A FULLY CAST GOAL SUPPLIES FOR ITSELF — and why one is still needed at all.
+//
+// `launch-agent` STRUCTURALLY requires a `profile` argument: `heart-store.js`'s
+// `REQUIRED_ARGS_BY_ACTION` names it, registration REFUSES a schema that omits it (campaign issue
+// S-2(a)'s guard), and `ticker.js` DEFERS a queue row whose `args.profile` is not a known profile.
+// So the slot cannot be emptied by anything short of a store-schema change on live rows — it can
+// only be ANSWERED without asking the operator.
+//
+// It is answered from the goal's OWN casts: the profile the first seat is cast to. That value is
+//   (a) real and valid — it is a key of `profiles:` by construction, being the catalog's own answer;
+//   (b) provably inert — every seat's declared cast outranks the caller's name at the launch point
+//       (`castProfileFor`), so no seat of a fully cast goal ever runs on it;
+//   (c) SAFE against a seat added later with no cast — a derived profile PINS a model, so
+//       `castProfileFor` refuses that seat loudly with `E_UNCAST_SEAT` rather than silently
+//       running it on somebody else's model. That is the D19 failure mode, and picking a
+//       model-less stand-in (`test-sleep`) instead would have re-opened it.
+//
+// Throws `E_UNMAPPED_BINDING` when the first seat's declared cast names a pair this workspace
+// cannot spawn. That is the right refusal and it is not softened: the goal cannot launch on any
+// profile in that state, and the catalog's message prints the castable set, which is the answer
+// the operator needs.
+function fallbackProfileFor(goalFolder, profiles) {
+  const { profileForBinding } = require('../launch-profiles/catalog');
+  const seat = readTaskforce(goalFolder)[0].seat;
+  return profileForBinding(profiles || {}, seatCast(goalFolder, seat), { seat });
+}
+
 // ── WHAT THE RECORD SAYS ABOUT EACH SEAT, from the perspective of THIS store ──────────────────
 //
 // Two answers, not one, and the second is the review finding F3/F6 this exists to close.
@@ -651,6 +726,9 @@ module.exports = {
   successorReads,
   taskforcePath,
   readTaskforce,
+  seatCast,
+  uncastSeats,
+  fallbackProfileFor,
   jobIdFor,
   seedTaskforce,
   executionsByJob,

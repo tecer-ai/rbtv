@@ -80,11 +80,13 @@ QUOTED verbatim:
   which lane currently runs the goal, and the daemon's watch pass (`ignite/engine/lane-watch.js`,
   fired by the daemon loop before every tick) seeds the goals assigned `daemon` through
   `engine.seedGoal`. Absent means `console` — the daemon adopts only what it was explicitly given;
-  `--set daemon` requires `--profile`; flipping it mid-goal is the supported act. Contract in
+  `--set daemon` requires `--profile` only when a seat of that goal declares no harness+model cast
+  (the refusal names them); flipping it mid-goal is the supported act. Contract in
   `tool/README.md`; the lane half also in `capabilities/attached-execution/attached-execution.md`
   § The daemon lane's goal pickup.
 - **`attached-execution`** (`ignite/capabilities/attached-execution/`) — the ATTACHED lane: the
-  **`rbtv run`** verb (`rbtv run <goal-folder> --profile <name>`; entry point
+  **`rbtv run`** verb (`rbtv run <goal-folder> [--profile <name>]` — the flag is the FALLBACK for
+  seats that declare no cast, and is required only when the goal has one; entry point
   `tool/rbtv-execution`, delegated from the TOP-LEVEL `rbtv` CLI — never `rbtv ignite`). Owner
   ruling `d-attached-run-embedded-engine`: ONE implementation of workflow advancement, TWO
   attachments — the same engine (`ignite/engine/`) the daemon runs, attached to the calling
@@ -246,6 +248,22 @@ QUOTED verbatim:
   the opening, peer seat folders are absent under the `seats` tmpfs, and `seat.md` keeps its own
   read-only carve. `append`-only is the intent and **read-write is the grant** — bwrap has no
   append-only mount, so the bound is the file set.
+- **…and the DERIVED write surface every descriptor now carries** (2026-08-11). The gate above
+  answers "is the declared PATH writable" and held; it is one question short of what an occupant
+  needs, because **every RW opening over a file sits inside `ro-bind:{goalDir}`, so the file is
+  writable and its DIRECTORY is not** — and `Write`/`Edit`, like every atomic writer, create
+  `<file>.tmp.<hash>` as a sibling before renaming. The kernel answers `EROFS` naming the TEMP
+  path; the occupant reads it as "I have no write access", re-tests by touching a probe file in
+  the goal root (read-only by design, so it refuses forever), and reports a permission failure
+  that was never one. A second interviewing session was lost to exactly that (2026-08-11) with the
+  grant correct the whole time. So `materialize-seats.py` renders a **derived** write-surface
+  section into every `seat.md` and a short twin into every `AGENTS.md`: the writable paths read
+  out of `cage.SeatBinds` through `cagespec.evaluate` — the same evaluator the refusal gate uses,
+  so shadowing carves are respected and the list cannot disagree with the kernel — plus the
+  symptom→meaning line (`that EROFS means your file IS writable and your tool is not`) and the
+  in-place `cat > path <<'EOF'` form. Both are regenerated on every materialize; the section
+  states it beats any authored prose above it, which is how a `<permissions>` unit still saying
+  "Write: the goal folder" stops misleading its occupant. Rows `CG-2` in the selftest.
 - **Per-run arguments on a fired tool — an IDENTITY allowlist, refusing by default** (task 7.559,
   owner ruling `d-owner-7559-design-rulings-0808`; `server/heart/argv-template.js` +
   `server/ticker/ticker.js` `launchFireTool`). A `tools:` entry in `config/spawn-profiles.yaml` may
@@ -305,7 +323,7 @@ delegated call's stdout, stderr and exit code are the delegate's, unchanged.
 rbtv ignite                      the module's components, its rules, and its action verbs
 rbtv ignite <component>          that component's entry point body + its invocable entry points
 
-rbtv run <goal-folder> (--profile NAME | --status)  -> capabilities/attached-execution
+rbtv run <goal-folder> ([--profile NAME] | --status) -> capabilities/attached-execution
 rbtv ignite daemon start|restart|stop|kill|unit [--service ignite|chat-bridge|probe-suite]
                                                     -> capabilities/daemon-operator
 rbtv ignite ticker show|set-interval|history        -> capabilities/ticker-settings

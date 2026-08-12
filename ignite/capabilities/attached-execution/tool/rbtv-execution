@@ -37,7 +37,7 @@ const EXIT_QUESTION = 3;   // distinct: a run that STOPPED TO ASK is not a run t
 
 function help() {
   return [
-    'rbtv run <goal-folder> --profile <name> [options]',
+    'rbtv run <goal-folder> [--profile <name>] [options]',
     'rbtv run <goal-folder> --status            (orient; read-only, no daemon, no profile)',
     '',
     'Boot the ignite engine IN THIS TERMINAL and advance the goal. The engine is the daemon\'s —',
@@ -52,10 +52,12 @@ function help() {
     '  --status                ORIENT instead of run: print done / ready / next / held-for-user',
     '                          for this goal and exit. Read-only, needs no daemon, needs no',
     '                          profile, and works before the goal has ever run.',
-    '  --profile <name>        REQUIRED (unless --status). A launch profile, BY NAME, from the one shared config.',
-    '                          It is the FALLBACK: a seat whose seat.md declares a harness+model cast',
-    '                          launches on THAT profile instead (the (harness, model) -> profile catalog,',
-    '                          launch-profiles/catalog.js, applied at spawn — ruling D19).',
+    '  --profile <name>        The FALLBACK launch profile, BY NAME, from the one shared config. A seat',
+    '                          whose seat.md declares a harness+model cast launches on the profile THAT',
+    '                          maps to instead (launch-profiles/catalog.js, applied at spawn — D19), so',
+    '                          this name is read only by seats that declare no cast.',
+    '                          REQUIRED ONLY IF THIS GOAL HAS SUCH A SEAT — the refusal names them.',
+    '                          Passing it on a fully cast goal is legal and changes nothing.',
     '                          This verb never composes a launch command of its own.',
     '  --config <path>         the shared launch-profile config (default: the ignite config).',
     '  --tick-ms <n>           tick cadence in ms (default 10000).',
@@ -154,8 +156,11 @@ async function main(argv) {
     return EXIT_OK;
   }
 
-  if (!opts.profile) return refuse('--profile <name> is required. Profiles are pinned and NAMED in the one shared config; this verb never composes one.');
-
+  // ⚠ NO `--profile` GATE HERE, deliberately (2026-08-12, narrowing D19). Whether this goal needs
+  // a fallback profile named is a question about ITS SEATS, and this file cannot see them — it
+  // holds no config and reads no descriptor. `executeAttached` asks `seeding.js#uncastSeats` once
+  // the config is loaded, and its refusal NAMES the seats that forced the flag. A gate here would
+  // be a second, blinder answer to the same question.
   const spawnConfigPath = opts.config || path.join(IGNITE_SRC, 'config', 'spawn-profiles.yaml');
 
   let result;

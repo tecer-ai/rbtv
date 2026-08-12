@@ -737,9 +737,13 @@ async function main() {
     const create = a.forwarder.creates()[0];
     const seatDir = path.join(goalDir, 'seats', 'leader');
     const CORRELATION_PREFIX = /^chat-thread: [A-Z][A-Z0-9_]{2,}(?::\d+\.\d+)?\n\n/;
-    check('the owner\'s reply mints a session-create HOMED AT THE ASKING SEAT, on the goal profile',
+    // ⚑ "on the goal profile" RETIRED 2026-08-11 (owner ruling D2): `goal_profile` is deleted and
+    // every surface carries the one non-deciding `session_profile`. HOMED AT THE ASKING SEAT is
+    // the claim that mattered here and it is untouched — the workdir is what makes the owner's
+    // reply reach the asker, and it is what the daemon then resolves the seat's cast FROM.
+    check('the owner\'s reply mints a session-create HOMED AT THE ASKING SEAT, on the one non-deciding profile',
       first.forwarded === true && first.leg === 'session-create' && first.route === 'agent'
-      && Boolean(create) && create.payload.args.workdir === seatDir && create.payload.args.profile === 'goal-profile'
+      && Boolean(create) && create.payload.args.workdir === seatDir && create.payload.args.profile === 'fallback-profile'
       && create.payload.session_mode === 'headless',
       { first, workdir: create && create.payload.args.workdir, expected: seatDir });
     check('the prompt is the owner\'s BARE text behind the ONE correlation line — no behavioural text on this leg either',

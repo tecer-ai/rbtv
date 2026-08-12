@@ -175,9 +175,11 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 # The ONE Python reading of `cage.SeatBinds` — this file's sibling in the kit, and
-# the SAME evaluator the edge-runner's enqueue-time admission check calls, so the
-# generation-time preflight and the enqueue gate can never disagree about what the
-# cage opens (IPH-2). `self_isolate` above already bound this folder onto sys.path.
+# the reading THIS gate uses (IPH-2). ⚠ It used to be shared with the edge-runner's
+# enqueue-time admission check; that check is now `engine/cage-admission.js`, which
+# drives `cage.js` LIVE instead of mirroring it (`build/one-readiness-predicate.md`
+# § D5), so what the two gates share is the TEMPLATE, not this evaluator.
+# `self_isolate` above already bound this folder onto sys.path.
 import cagespec  # noqa: E402 — team-kit is on sys.path from line 157
 
 # goal_cli.py is the goals-tree capability sibling of this team-kit — resolved
@@ -430,9 +432,9 @@ def _cage_rw_covers(rel: str) -> bool:
     anybody restating it.
 
     ⚠ THE READING ITSELF LIVES IN `cagespec.py` SINCE IPH-2, not here. This gate
-    and the edge-runner's enqueue-time admission check now share ONE evaluator,
-    so the two cannot answer the same question differently; this function keeps
-    only its own load of the live template. `rel` is passed as the goal-writes
+    keeps only its own load of the live template. (The enqueue-time admission
+    check it once shared that evaluator with is now `engine/cage-admission.js`,
+    driving `cage.js` live.) `rel` is passed as the goal-writes
     declaration because that is what it IS at every call site — the line
     `bind-try:{grant:goalWrite}` is the one this declaration fills.
     `cagespec.PEER` is the occupant: no real seat name can equal it, so no
@@ -440,11 +442,98 @@ def _cage_rw_covers(rel: str) -> bool:
     the same answer this gate gave before the evaluator was shared. Anything
     underivable evaluates `undecided`, which is not `writable`, so the refusal
     stays fail-closed."""
-    binds = ((yaml.safe_load(_SPAWN_PROFILES.read_text(encoding="utf-8")) or {})
-             .get("cage") or {}).get("SeatBinds") or []
-    verdict, _entry = cagespec.evaluate(binds, rel, seat=cagespec.PEER,
+    verdict, _entry = cagespec.evaluate(_seat_binds(), rel, seat=cagespec.PEER,
                                         goal_writes=[rel])
     return verdict == cagespec.WRITABLE
+
+
+def _seat_binds() -> list:
+    """The live `cage.SeatBinds` template, read fresh. One loader for both
+    readers below so a template change cannot reach one and not the other."""
+    return ((yaml.safe_load(_SPAWN_PROFILES.read_text(encoding="utf-8")) or {})
+            .get("cage") or {}).get("SeatBinds") or []
+
+
+def _cage_write_surface(seat: str, goal_writes: list, binds=None) -> list:
+    """The goal-relative paths this seat's cage actually opens READ-WRITE, in
+    template order — DERIVED, never restated.
+
+    `_cage_rw_covers` above answers "is the DECLARED path writable" and that
+    gate has held since 2026-08-09. It is one question short of what an
+    occupant needs, and the shortfall cost the plan-interviewer a second night
+    (2026-08-11): every RW opening over a FILE sits inside `ro-bind:{goalDir}`,
+    so the file is writable and its DIRECTORY is not — and `Write`/`Edit`, like
+    every atomic writer, create `<file>.tmp.<hash>` as a sibling before
+    renaming. The kernel answers EROFS naming the temp path, the occupant reads
+    it as "I have no write access", and re-tests by touching a probe file in
+    the goal root, which is read-only by design and therefore refuses forever.
+
+    Shadowing is respected because each candidate goes back through
+    `cagespec.evaluate`: a path this template opens and a later `ro-bind` carve
+    takes back (`sessions.csv`, `state.csv`) must not appear here. Filtering
+    `spec` on the RW verbs alone would list exactly those two.
+
+    Openings that compose OUTSIDE the goal folder (worktrees, `~/.local/bin`,
+    the tmux socket) are absent by construction — `cagespec` drops them — which
+    is why the rendered heading says "inside your goal folder" and means it.
+
+    `binds` exists ONLY so the selftest's red arms can mutate the template and
+    prove the controls fail — the same knob, for the same reason, as
+    `render_descriptors`'s `resolve_inline`/`reorder`. Every real caller reads
+    the live file."""
+    binds = _seat_binds() if binds is None else binds
+    spec = cagespec.compose(binds, seat=seat, goal_writes=goal_writes) or []
+    out: list = []
+    for _verb, rel in spec:
+        if not rel or rel in out:
+            continue
+        if cagespec.evaluate(binds, rel, seat=seat,
+                             goal_writes=goal_writes)[0] == cagespec.WRITABLE:
+            out.append(rel)
+    return out
+
+
+# The derived write-surface section every descriptor carries. `{rows}` is the
+# only slot; the trap paragraph is CONSTANT because the trap is — a single-file
+# RW opening inside a read-only directory is what the template composes for
+# EVERY seat, whether the file is a `goal-writes` product or one of the five
+# ledgers the router sends every seat to.
+_WRITE_SURFACE_BLOCK = """\
+
+<!-- DERIVED at materialize from config/spawn-profiles.yaml's `cage.SeatBinds` — the
+     very list spawn.js composes your sandbox from, read through the one evaluator
+     (cagespec.py) the materializer's own refusal gate uses. WHERE ANY PROSE ABOVE
+     DISAGREES WITH THIS SECTION, THIS SECTION IS RIGHT: the prose is authored, this
+     is measured. -->
+
+## Your write surface — what the kernel will actually answer
+
+Read-write inside your goal folder. Everything else THERE is read-only, including the
+goal folder itself:
+
+{rows}
+
+This list is scoped to your goal folder and is not your whole grant: openings that compose
+OUTSIDE it — a worktree, another goal's coordination dir, `~/.local/bin`, the tmux socket —
+are granted separately by your `seat.md` frontmatter and are not enumerated here.
+
+⚠ **A path above that is a FILE is bound file-by-file inside a read-only directory.**
+`Write` and `Edit` — and every other atomic writer — create a sibling temp file
+`<yourfile>.tmp.<hash>` and rename it over the target, so they fail with:
+
+    EROFS: read-only file system, open '<yourfile>.tmp.<hash>'
+
+**That error means your file IS writable and your tool is not.** It is not a missing
+permission and nobody needs to grant you anything. Write in place instead:
+
+    cat > <path> <<'EOF'
+    …file content…
+    EOF
+
+⚠ **Never test your write rights by creating a probe file in the goal folder.** That
+folder is read-only by design and refuses whatever your grants are — the probe measures
+the floor, never your grant. Test the actual path you mean to write.
+"""
 
 
 def open_binding(seat: str, b: dict, package: Path) -> bool:
@@ -1922,6 +2011,17 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
                 f"    coordinate --package {package} --as {seat} checkout\n"
             )
 
+        # The DERIVED write surface, on EVERY descriptor. Unconditional on
+        # purpose: the trap is a property of the cage template, not of any one
+        # seat's declaration, so a seat with no `goal-writes` still meets it on
+        # the five ledgers the router sends every seat to.
+        surface = _cage_write_surface(
+            seat, fm.get(CAGE_GOAL_WRITES_COLUMN) or [])
+        tail += _WRITE_SURFACE_BLOCK.format(
+            rows="\n".join(f"- `{p}`" for p in surface) if surface else
+            "- (nothing — this seat's cage opens no read-write path inside its "
+            "goal folder)")
+
         # Same yaml.safe_dump call goal_cli uses at cmd_materialize — an
         # unparseable descriptor is unproducible by construction (G-256).
         header = ("---\n"
@@ -2323,6 +2423,23 @@ folder forever buy nothing the name alone does not.
 
 Never mint a fourth name for one of these, and never write inside another seat's folder —
 the cage makes peer seat folders ABSENT, so an attempt fails rather than lands.
+
+## Writing into the GOAL folder — read this BEFORE you conclude you lack permission
+
+`seat.md`'s "Your write surface" section lists the paths your cage opens read-write; it is
+derived from the cage itself, so it beats any prose that disagrees with it. One property of
+that list decides whether your first write succeeds:
+
+**Every one of those paths that is a FILE is bound file-by-file inside a read-only
+directory.** `Write` and `Edit` — and every atomic writer — create a sibling temp file
+`<yourfile>.tmp.<hash>` and rename it over the target, so they fail with
+`EROFS: read-only file system, open '<yourfile>.tmp.<hash>'`. **That error means your file
+IS writable and your tool is not.** Nobody needs to grant you anything. Write in place:
+`cat > <path> <<'EOF' … EOF`.
+
+And never test your write rights by creating a probe file in the goal folder — that folder
+is read-only by design, so the probe refuses whatever your grants are. It measures the
+floor, not your grant. Test the path you actually mean to write.
 """
 
 # The forced-read preamble for rule exposure (d-materializer-seat-loaders;
@@ -6250,6 +6367,8 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "RF-1": (("RF-1 green",), ("RF-1 red",)),
     # The seat-cage declaration (owner-ruled 2026-08-10).
     "CG-1": (("CG-1 green",), ("CG-1 red",)),
+    # The derived write surface + the temp-file EROFS trap (2026-08-11).
+    "CG-2": (("CG-2 green",), ("CG-2 red",)),
     # The pass-folder substitution rows (B4, B5, G-planner-0804-1502).
     "PF-1": (("PF-1 green",), ("PF-1 red",)),
     "PF-2": (("PF-2 green",), ("PF-2 red",)),
@@ -7515,6 +7634,64 @@ def run_selftest() -> int:
                   and not (Path(fxc["pkg9"]) / "seats" / "exp-seat").exists(),
                   pr.stderr.strip()[:200])
         seats_csv.write_text(base, encoding="utf-8")
+
+        # ── CG-2: the DERIVED write surface reaches the occupant ────────────
+        # `_cage_rw_covers` (CG-1 above) proves the DECLARED path is writable.
+        # That gate held and the plan-interviewer still lost a night to EROFS
+        # (2026-08-11), because a file bound inside `ro-bind:{goalDir}` cannot
+        # take the sibling temp file `Write`/`Edit` create. These arms assert
+        # the descriptor now HANDS the occupant both halves: which paths are
+        # writable, and what the temp-file EROFS actually means.
+        body = md.read_text(encoding="utf-8") if md.is_file() else ""
+        agents_md = md.parent / "AGENTS.md"
+        pointer = agents_md.read_text(encoding="utf-8") \
+            if agents_md.is_file() else ""
+        surface = _cage_write_surface("exp-seat", [])
+        check("CG-2 green: seat.md carries the DERIVED write surface — the five "
+              "ledgers, the planning workspace and the seat's own folder, read "
+              "out of the live cage template",
+              all(p in surface for p in
+                  (*WRITE_IF_SOMETHING, "planning", "seats/exp-seat"))
+              and all(f"- `{p}`" in body for p in surface),
+              str(surface))
+        check("CG-2 green: ...and the identity ground truth is NOT on it — the "
+              "`ro-bind-try` carves shadow the openings above them, so what the "
+              "occupant reads is what the kernel will answer",
+              not any(p in surface for p in ("sessions.csv", "state.csv")),
+              str(surface))
+        trap = "EROFS: read-only file system, open '<yourfile>.tmp.<hash>'"
+        check("CG-2 green: BOTH surfaces name the temp-file EROFS and say what "
+              "it means — the descriptor claude gets in its system prompt, and "
+              "the AGENTS.md pointer every other harness reads from its cwd",
+              trap in body
+              and "IS writable and your tool is not" in body
+              and "IS writable and your tool is not" in pointer,
+              f"seat.md={trap in body} AGENTS.md={'tmp.<hash>' in pointer}")
+        # The two controls. Without them the arms above are satisfied by a
+        # template that never covered ground truth at all, and by a formatter
+        # that can only ever emit a non-empty list.
+        # ⚠ The control FLIPS the carve's VERB — it does not delete the line.
+        # Deleting it was the first spelling and it passed for the wrong
+        # reason: the carve entry is the only thing that puts `sessions.csv`
+        # into the candidate set at all, so removing it made the path absent
+        # rather than writable, and the arm above would have read green against
+        # a surface that could never have listed it. The verb IS the decision
+        # (last covering entry wins), so the verb is what the control moves.
+        flipped = [e.replace("ro-bind-try:{goalDir}/sessions.csv",
+                             "bind-try:{goalDir}/sessions.csv")
+                   for e in _seat_binds()]
+        check("CG-2 red: flip the sessions.csv carve to a READ-WRITE verb and "
+              "sessions.csv APPEARS on the surface — so its absence above is "
+              "caused by that verb, and the arm can go red",
+              "sessions.csv" in _cage_write_surface("exp-seat", [],
+                                                    binds=flipped),
+              str(_cage_write_surface("exp-seat", [], binds=flipped))[:200])
+        check("CG-2 red: a template that composes nothing yields an EMPTY "
+              "surface — the 'nothing' branch is reachable, so a non-empty "
+              "list above is a measurement and not the only possible output",
+              _cage_write_surface("exp-seat", [], binds=[]) == []
+              and _cage_write_surface("exp-seat", [],
+                                      binds=["bind:{grant:unknownThing}"]) == [])
 
     print("dag-04 acceptance pass (SC rows, each with its failing control)")
     run_dag04_acceptance(check, clean_env)

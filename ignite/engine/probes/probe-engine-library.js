@@ -145,6 +145,15 @@ cfg.profiles['probe-seat'] = {
     NoNewPrivileges: true,
   },
 };
+// The CAST twin of `probe-seat`: identical in every way except that its argv PINS a model, which
+// is what makes it reachable through the (harness, model) -> profile catalog. `probe-seat` pins
+// none on purpose (a seat with no cast falls back to it under D3(a)); a seat can therefore never
+// be CAST to it, and C5's fully-cast arm needs a profile a seat CAN be cast to. `sleep` will
+// reject the argv if it ever runs — irrelevant, that arm asserts the DOOR, never a launch.
+cfg.profiles['probe-seat-cast'] = {
+  ...cfg.profiles['probe-seat'],
+  exec: { argv: ['sleep', '--model', 'probe-cast-model', '1'], prompt: 'stdin' },
+};
 const configPath = path.join(tmp, 'spawn-profiles.yaml');
 fs.writeFileSync(configPath, yaml.dump(cfg));
 
@@ -568,11 +577,6 @@ async function main() {
     helpRes.status === 0 && /goal-folder/.test(helpRes.stdout),
     `exit ${helpRes.status}`);
 
-  const noProfile = runCli(['run', tmp]);
-  check('C5 `rbtv run` with no --profile REFUSES with a non-zero exit',
-    noProfile.status === 1 && /--profile/.test(noProfile.stderr),
-    `exit ${noProfile.status}`);
-
   const cliDir = path.join(workspace, '.rbtv', 'goals', 'cli-goal');
   // ⚠ THE WHOLE GOAL FOLDER, and it is not decoration. A seat's workdir is its own folder; without
   // one every fire of this fixture REFUSED at the workdir guard and the rows landed `failed`. That
@@ -593,6 +597,39 @@ async function main() {
   check('C5 the store it created is IN THE GOAL FOLDER, reached through the CLI',
     fs.existsSync(path.join(cliDir, 'heart.db')),
     path.join(cliDir, 'heart.db'));
+
+  // ── C5b · `--profile` IS DEMANDED ONLY WHERE A SEAT WOULD READ IT (narrowing of D19) ────────
+  //
+  // ⚠ THIS REPLACES an arm that asserted the refusal was UNCONDITIONAL — `runCli(['run', tmp])`
+  // with no profile, exit 1. That arm went red with the narrowing, and its intent survives here
+  // in both directions, which the single arm could not measure: an unconditional refusal and a
+  // conditional one look identical from the refusing side alone.
+  //
+  // The two goals differ in ONE byte-level fact and nothing else: whether their `seat.md` files
+  // declare a cast. `cli-goal`'s seats are the ones `materializeSeatFolder` writes — descriptor,
+  // no `harness:`/`model:` — so a launch of them WOULD read the caller's profile, and the verb
+  // must still demand one AND name them. `cast-goal`'s seats are the same folders with a cast
+  // appended, so no launch of them can ever read it, and the verb must not ask.
+  const noProfile = runCli(['run', cliDir, '--config', configPath, '--max-ticks', '1']);
+  check('C5b `rbtv run` with no --profile on a goal whose seats declare NO cast REFUSES, and NAMES them',
+    noProfile.status === 1 && /--profile/.test(noProfile.stderr)
+      && SEATS.every((s) => noProfile.stderr.includes(s)),
+    `exit ${noProfile.status}: ${noProfile.stderr.split('\n')[0].slice(0, 160)}`);
+
+  const castDir = path.join(workspace, '.rbtv', 'goals', 'cast-goal');
+  makeGoalFolder(castDir);
+  fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(castDir, 'taskforce.csv'));
+  for (const s of SEATS) {
+    const md = path.join(castDir, 'seats', s, 'seat.md');
+    // Into the FRONTMATTER, where `spawn.js#seatDeclaresValue` reads it — appending to the body
+    // would leave the seats uncast and the arm would pass for the wrong reason.
+    fs.writeFileSync(md, fs.readFileSync(md, 'utf8')
+      .replace(/^---\n/, '---\nharness: sleep\nmodel: probe-cast-model\n'));
+  }
+  const castRes = runCli(['run', castDir, '--config', configPath, '--max-ticks', '1']);
+  check('C5b …and on a FULLY CAST goal it never asks — the run proceeds and opens the store',
+    !/--profile/.test(castRes.stderr) && fs.existsSync(path.join(castDir, 'heart.db')),
+    `exit ${castRes.status}: ${(castRes.stderr.split('\n').find((l) => /profile/.test(l)) || 'no profile line').slice(0, 160)}`);
 
   // ── C3c · KILLED MID-RUN, then re-run — criterion 3's literal words ────────────────────────
   //
