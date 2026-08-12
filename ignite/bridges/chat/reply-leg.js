@@ -180,26 +180,56 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 // A model literal may itself contain `/` (`zai-coding-plan/glm-5.2`) — which is exactly why the
 // FIRST segment is taken and not the last.
 //
-// ⚠ HISTORICAL ROWS CARRY THE OLD NAME. `jobs_log` was not migrated (nothing in it is re-read as
-// a launch instruction — it is an audit column), so a row written before 2026-08-12 holds e.g.
-// `claude-opus`. That form has no `/`, so the first segment is the whole string and the arm falls
-// through to plain text — the same honest default an unrecognized harness gets. This leg only ever
-// reads executions it is CURRENTLY watching, so it never meets one in practice.
+// ⚠ THE LEGACY NAME FORM STILL FLOWS TODAY — it is not "historical". `jobs_log` was not migrated
+// (nothing in it is re-read as a launch instruction — it is an audit column), and the bridge's own
+// enqueue path was still writing `claude-sonnet` on 2026-08-12, on live execs THIS leg was
+// watching. A slashless name has no `/`, so the first segment is the whole string; the resolver
+// below therefore matches on a `-` boundary too, and treats "unrecognized" as an event to report
+// rather than a shape to assume.
 //
-// `jobs_log.profile` is nullable, but never null on an exec THIS leg watches: the leg watches
-// ticker SPAWN actions only, and every spawn resolves a spec before it records anything.
+// ⚠ AND `jobs_log.profile` IS GENUINELY NULL SOMETIMES. It was claimed here to be "never null on
+// an exec THIS leg watches, because every spawn resolves a spec before it records anything" — the
+// resolution is what can FAIL. `heart-store.js#fireQueueRow` inserts the `launching` row with a
+// NULL profile and only a SUCCESSFUL spawn fills in the resolved spec key, so a spawn that failed
+// (an uncast seat, a refused launch) leaves the column NULL on a row this leg is watching. Null is
+// therefore an ordinary input on the unrecognized path — loud, structured extractor first, raw
+// text only as the last resort — and never the silent whole-log dump it used to be.
 //
-// ⚑ THE DEFAULT ARM IS PLAIN TEXT, AND THAT IS THE HONEST DEFAULT, not a guess: a harness that
-// emits no structured events writes its answer as text, so an unrecognized profile degrades to
-// reading the log as what it is. The two structured arms deliberately do NOT fall through to it —
-// a claude or codex log with no message event holds JSON, and dumping JSON into the owner's thread
-// is the thing D110 step 4 forbids. For those two, no message event means no text.
-function normalizeLog(lines, profile) {
-  const harness = String(profile || '').split('/')[0];
+// ⚑ THE PLAIN-TEXT ARM IS FOR HARNESSES WE KNOW EMIT NO EVENTS, NEVER FOR A VALUE WE FAILED TO
+// RECOGNIZE. It used to be both, and that cost the owner a whole evening (2026-08-12): the live
+// value was the legacy profile NAME `claude-sonnet`, `'claude-sonnet' !== 'claude'` under the old
+// strict equality, and every claude reply became the ENTIRE stream-json session log delivered as
+// "the reply" — head-clamped to the SessionStart hook banner — with not one log line saying why.
+// Recognition is now (a) the first `/` segment, (b) matched on a `-` boundary inside it, so both
+// `claude/claude-haiku-4-5` and `claude-sonnet` reach the claude arm; and an UNRECOGNIZED value is
+// LOUD and tries the structured extractor before it will ever hand back a raw log. A raw-log dump
+// is no longer reachable without a warn having named the value that caused it.
+const HARNESS_TOKENS = ['claude', 'codex', 'opencode', 'kimi'];
+function resolveHarness(profile) {
+  const seg = String(profile || '').split('/')[0];
+  return HARNESS_TOKENS.find((t) => seg === t || seg.startsWith(`${t}-`)) || null;
+}
+
+// `notify` (optional) is called ONLY on the unrecognized-harness path, with the value that was not
+// recognized and whether the text being returned is a RAW LOG. The caller logs the warn and — the
+// point of the flag — declines to blame the AGENT for a fence the bridge never located.
+function normalizeLog(lines, profile, notify = null) {
+  const harness = resolveHarness(profile);
   if (harness === 'claude') return extractReplyText(lines);
   if (harness === 'codex') return extractCodexText(lines);
-  const text = lines.join('\n').replace(ANSI, '');
-  return text.trim() ? text : null;
+  const plain = () => {
+    const t = lines.join('\n').replace(ANSI, '');
+    return t.trim() ? t : null;
+  };
+  // A KNOWN plain-text harness (opencode, kimi) writes its answer as text — reading the log as
+  // what it is remains the honest default there, and a missing fence there IS the agent's.
+  if (harness) return plain();
+  // Unrecognized. Best effort in order of least damage: the structured extractor first (a result
+  // event is the answer and nothing else in the log is), the raw text only if that finds nothing.
+  const structured = extractReplyText(lines);
+  const text = structured !== null ? structured : plain();
+  if (notify) notify({ profile: String(profile || ''), rawFallback: structured === null && text !== null });
+  return text;
 }
 
 // The contract's own extraction: the content of the LAST COMPLETE sentinel pair. Last-wins is what
@@ -310,6 +340,9 @@ function createReplyLeg({
   //   revives,           // corrective turns spent on the CURRENT owner turn (bound, decision 7).
   //                      //   Reset by arm() — a new owner turn gets a fresh budget — and by any
   //                      //   delivery, which is what ends a turn.
+  //   disarmedAt,        // ms or null — the spawn-wait rung fired and the owner was told. The
+  //                      //   entry is KEPT for one more corrective window so a late spawn can
+  //                      //   still be captured and delivered (§ TOMBSTONE), then reaped.
   // }
   const pending = new Map();
   let timer = null;
@@ -325,10 +358,11 @@ function createReplyLeg({
     const queueId = entry ? entry.queueId : null;
     let p = pending.get(id);
     if (!p) {
-      p = { queueId, armedAt: Date.now(), turnStartedAt: Date.now(), watching: new Map(), delivered: new Set(), statusErrors: 0, revives: 0, compacted: false };
+      p = { queueId, armedAt: Date.now(), turnStartedAt: Date.now(), watching: new Map(), delivered: new Set(), statusErrors: 0, revives: 0, compacted: false, disarmedAt: null };
       pending.set(id, p);
     } else {
       p.armedAt = Date.now();
+      p.disarmedAt = null; // a new owner turn revives a tombstoned conversation outright
       // `armedAt` is a spawn-wait deadline and is reset by revives and deliveries; `turnStartedAt`
       // is the OWNER's clock and moves only here, on a real owner turn. The end-to-end latency the
       // owner actually experiences is measured from this one, never from armedAt.
@@ -345,6 +379,10 @@ function createReplyLeg({
   // end so the LAST result line is seen even when the log spans pages (the server
   // clamps `limit` to its MAX_PAGE; we follow `nextOffset` until `eof`).
   //
+  // `rawFallback: true` on the returned read means the text is a RAW LOG the leg could not
+  // attribute to any harness — the one shape whose missing fence is the BRIDGE's failure and not
+  // the agent's, and the caller must not revive on it (see the revive gate).
+  //
   // Returns { fetched: false } on a FAILED page read (a transient gateway/transport
   // error — the real answer may still be on disk, so the caller RETRIES, bounded),
   // or { fetched: true, text } where text === null means the log was read to eof
@@ -358,24 +396,35 @@ function createReplyLeg({
   // and no second lookup is made: the caller has the value in hand at exactly this point.
   async function fetchReplyText(execId, chatThreadId, profile) {
     const lines = [];
+    let rawFallback = false;
+    const notify = (ev) => {
+      rawFallback = ev.rawFallback;
+      log('warn', ev.rawFallback
+        ? 'reply leg could not resolve the harness AND found no result event — delivering RAW LOG text, and NOT blaming the agent for it'
+        : 'reply leg could not resolve the harness — fell back to the structured extractor, which found the reply',
+      { chatThreadId, execId, profile: ev.profile, knownHarnesses: HARNESS_TOKENS.join(',') });
+    };
     let offset = 0;
     for (let page = 0; page < maxLogPages; page++) {
       const res = await forwarder.inspect('logs', { id: execId, offset, limit: logLimit });
       if (!res || !res.ok || !res.result) {
         log('warn', 'reply leg logs inspect failed — will retry next pass', { chatThreadId, execId, offset, error: res && res.error && res.error.code });
-        return { fetched: false, text: null };
+        return { fetched: false, text: null, rawFallback: false };
       }
       const pageLines = Array.isArray(res.result.lines) ? res.result.lines : [];
       for (const l of pageLines) lines.push(l);
       const next = res.result.nextOffset;
       offset = Number.isInteger(next) ? next : (offset + pageLines.length);
-      if (res.result.eof || pageLines.length === 0) return { fetched: true, text: normalizeLog(lines, profile) };
+      if (res.result.eof || pageLines.length === 0) {
+        const text = normalizeLog(lines, profile, notify);
+        return { fetched: true, text, rawFallback };
+      }
     }
     // Page cap hit without eof: an absurdly long log (> maxLogPages × server page).
     // The result line is the LAST line, so it was NOT reached — treat as no
     // parseable reply (honest fallback), never deliver a mid-log line as the answer.
     log('warn', 'reply leg log page cap hit before eof — treating as no parseable reply', { chatThreadId, execId, pagesRead: maxLogPages, linesRead: lines.length });
-    return { fetched: true, text: null };
+    return { fetched: true, text: null, rawFallback: false };
   }
 
   // One driver pass (the setInterval body; also directly drivable for tests). A
@@ -508,7 +557,15 @@ function createReplyLeg({
               // on the CONVERSATION and not on the exec. A per-exec counter would hand every
               // revive a fresh allowance of two and the loop would never terminate; this one is
               // spent by the revive's own bad output, so the bound holds whatever the agent does.
-              if (!verdict.ok && verdict.body !== null && p.revives < maxRevives) {
+              //
+              // ⚑ AND NEVER ON TEXT THE BRIDGE COULD NOT ATTRIBUTE. `read.rawFallback` means the
+              // body is a raw log the leg failed to resolve a harness for — the fence may be
+              // sitting in it perfectly formed, wrapped in thousands of lines of JSON the check
+              // cannot see past. Telling that agent "your turn ended with no fence" is a false
+              // accusation that costs a duplicate session and a duplicate Slack message per
+              // revive; it happened twice per conversation on 2026-08-12. An extraction failure is
+              // the BRIDGE's problem: it is warned about above and delivered best-effort.
+              if (!verdict.ok && verdict.body !== null && !read.rawFallback && p.revives < maxRevives) {
                 const back = typeof redispatch === 'function'
                   ? await redispatch({ chatThreadId: id, text: buildFeedback(verdict.problems) })
                   : { forwarded: false, reason: 'no-redispatch-wired' };
@@ -546,6 +603,7 @@ function createReplyLeg({
                 log('warn', 'reply leg delivering a NON-CONFORMANT reply', {
                   chatThreadId: id, execId, revives: p.revives,
                   problems: verdict.problems.map((x) => x.issue), hasText: verdict.body !== null,
+                  rawFallback: read.rawFallback,
                 });
               }
               const d = await deliver({ chatThreadId: id, text, markAsk: false }); // plain agent output (D105 note; ask-detection out of scope v1)
@@ -557,6 +615,7 @@ function createReplyLeg({
                 p.armedAt = Date.now(); // healthy activity — reset the spawn-wait window
                 p.revives = 0;          // the turn ended in a delivery; the next one starts fresh
                 p.compacted = false;
+                p.disarmedAt = null;    // a LATE reply arrived after all — the tombstone is lifted
                 // THE LATENCY LINE — one per delivered reply, end to end: the owner's message
                 // being armed → this post landing. Everything the bridge does between those two
                 // stamps (dispatch, run, revives, compaction, retries) is inside it, which is
@@ -619,6 +678,14 @@ function createReplyLeg({
       };
       const now = Date.now();
       for (const [id, p] of Array.from(pending.entries())) {
+        // A TOMBSTONED conversation has already been declared dead to the owner; it is kept only
+        // so a LATE spawn can still be captured and delivered (below, § tombstone). Once the grace
+        // is spent with nothing watched, the entry is reaped — a tombstone is not a leak.
+        if (p.disarmedAt && p.watching.size === 0 && (now - p.disarmedAt) > correctiveWindowMs) {
+          log('info', 'reply leg reaped a tombstoned conversation — no late reply arrived', { chatThreadId: id, graceMs: correctiveWindowMs });
+          pending.delete(id);
+          continue;
+        }
         if (p.statusErrors >= maxStatusErrors) {
           log('warn', 'reply leg disarming conversation — persistent status errors', { chatThreadId: id, statusErrors: p.statusErrors });
           pending.delete(id);
@@ -645,10 +712,20 @@ function createReplyLeg({
         // must not declare a thread dead; it waits for a pass that can.
         const fast = p.revives > 0 || p.compacted === true;
         const owedSpawn = p.delivered.size === 0 || fast;
-        if (tickerOk && owedSpawn && p.watching.size === 0 && (now - p.armedAt) > (fast ? correctiveWindowMs : windowMs)) {
+        if (tickerOk && !p.disarmedAt && owedSpawn && p.watching.size === 0 && (now - p.armedAt) > (fast ? correctiveWindowMs : windowMs)) {
           const reason = p.revives > 0 ? 'revive-no-spawn' : p.compacted ? 'compaction-no-answering-turn' : 'no-spawn';
           log('warn', 'reply leg disarming conversation — expected spawn never appeared', { chatThreadId: id, queueId: p.queueId, reason, revives: p.revives, windowMs: fast ? correctiveWindowMs : windowMs });
-          pending.delete(id);
+          // § TOMBSTONE — `revive-no-spawn` ONLY. That disarm used to `pending.delete(id)`, which
+          // made the notice a LIE whenever it was merely EARLY: on 2026-08-12 the corrective spawn
+          // HAD run and had answered fine — the daemon was mid-restart and the ticker did not show
+          // it in time — and with the entry gone there was no longer any path for that answer to
+          // reach the owner. Keeping the entry for ONE more corrective window costs one Map row and
+          // buys the late reply a door; the reaper above closes it. The notice is still posted NOW
+          // (the owner is never left waiting on a maybe) and posted ONCE — `disarmedAt` gates this
+          // rung as well as the reaper. The other two reasons keep the plain delete: a chain that
+          // crashed inside its compaction turn is not late, it is dead.
+          if (reason === 'revive-no-spawn') p.disarmedAt = now;
+          else pending.delete(id);
           await deadAir(id, reason);
         }
       }
@@ -674,8 +751,12 @@ function createReplyLeg({
   return { arm, start, stop, tick: _runOnce, _pending: pending };
 }
 
+// KEEP THE TAIL. An agent's answer is what its turn ENDS on — for every harness the leg reads, the
+// reply is at EOF and the head is boot noise. Head-clamping delivered exactly that noise to the
+// owner on 2026-08-12: 3518 bytes of SessionStart hook banner, cut mid-word, while the real reply
+// sat past the cut. If anything is lost to the bound, it must be the preamble.
 function clampBestEffort(s) {
-  return s.length <= BEST_EFFORT_MAX_CHARS ? s : `${s.slice(0, BEST_EFFORT_MAX_CHARS)}\n… (truncated)`;
+  return s.length <= BEST_EFFORT_MAX_CHARS ? s : `… (truncated)\n${s.slice(-BEST_EFFORT_MAX_CHARS)}`;
 }
 
 // THE BEST-EFFORT DELIVERY SHAPE, shared by BOTH legs. The cold leg reaches it after its revive

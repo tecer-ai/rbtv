@@ -325,6 +325,118 @@ async function autoResubmitArms(check) {
     b.bridge.stop();
     try { fs.rmSync(stateDir, { recursive: true, force: true }); } catch {}
   }
+
+  // ── ARM 10 · ⚠ THE HELD DUPLICATE · one question, TWO Slack messages, ONE run ──────────────
+  //
+  // Measured 2026-08-12: the owner's DM reached the bridge twice, byte-identical, 22s apart with
+  // DIFFERENT Slack ts (he re-sent across a Socket Mode reconnect). Two genuine messages, so the
+  // transport's redelivery guard neither saw them nor should have. The door held the second
+  // correctly — and arms 5-6 then ran it as a SECOND full conversation at the same seat when the
+  // turn ended: duplicate agent chain, duplicate spend, the same garbled answer twice.
+  //
+  // ⚠ TWO CONVERSATIONS, ONE SEAT — the reason a per-thread check would not have caught this and
+  // the drop is keyed on the seat home instead. Threads A and B are different; the master seat
+  // they both home at is not.
+  //
+  // ⚠ THE ASSERTION IS A COUNT, and that is its own red arm: against the pre-fix bridge the held
+  // text is re-submitted when the seat frees and this reads 2. Presence would pass either way —
+  // the same reasoning arm 7 is built on.
+  {
+    const r = makeBridgeRig();
+    await r.bridge.start();
+    const TEXT = 'ARM10 create a goal for the meeting digest';
+
+    r.door.busy = false;
+    const first = await r.bridge.onChatMessage(dm('10.1', TEXT));
+    r.door.busy = true; // that create is now a LIVE TURN holding the master seat
+
+    // The SAME text, a second Slack message, its own thread — the observed incident exactly.
+    const second = await r.bridge.onChatMessage(dm('10.2', TEXT));
+    const heldAnything = Boolean(r.bridge._pendingRetries && r.bridge._pendingRetries.size > 0);
+    const notice = r.slack.posted[r.slack.posted.length - 1];
+
+    r.door.busy = false; // the turn ends — pre-fix, this is where the second chain was born
+    await r.bridge.replyLeg.tick();
+    await r.bridge.replyLeg.tick();
+
+    check('arm10-identical-message-at-a-BUSY-seat-is-dropped-not-held',
+      first.forwarded === true && second.forwarded === false && heldAnything === false,
+      { firstForwarded: first.forwarded, secondForwarded: second.forwarded, secondReason: second.reason,
+        pending: r.bridge._pendingRetries ? Array.from(r.bridge._pendingRetries.keys()) : 'NO SUCH TABLE' });
+
+    check('arm10-the-duplicate-runs-EXACTLY-ONE-conversation',
+      createsCarrying(r.door, 'ARM10') === 1,
+      { createsCarryingTheText: createsCarrying(r.door, 'ARM10'),
+        note: '2 = the duplicate agent chain observed on 2026-08-12' });
+
+    // The door already promised an automatic re-send. Dropping in silence would make that a lie.
+    check('arm10-the-owner-is-told-the-duplicate-was-not-sent-again',
+      Boolean(notice) && /identical/i.test(notice.text) && /NOT sent again/i.test(notice.text)
+        && !/queue|seat_key|exec|job_id|dedup|workdir|\d{2,}/i.test(notice.text),
+      { notice: notice && notice.text });
+
+    // ⚑ AND A DIFFERENT MESSAGE AT THE SAME BUSY SEAT IS STILL HELD — the discriminating control.
+    // Without it a guard that dropped EVERY held message would pass all three checks above.
+    {
+      const r2 = makeBridgeRig();
+      await r2.bridge.start();
+      r2.door.busy = false;
+      await r2.bridge.onChatMessage(dm('10.3', 'ARM10B first question'));
+      r2.door.busy = true;
+      const other = await r2.bridge.onChatMessage(dm('10.4', 'ARM10B a COMPLETELY different question'));
+      const held = Boolean(r2.bridge._pendingRetries && r2.bridge._pendingRetries.has('D_IM:10.4'));
+      r2.door.busy = false;
+      await r2.bridge.replyLeg.tick();
+      check('arm10-control-a-DIFFERENT-message-is-still-held-and-still-lands',
+        other.forwarded === false && held === true
+          && createsCarrying(r2.door, 'a COMPLETELY different question') === 1,
+        { held, delivered: createsCarrying(r2.door, 'a COMPLETELY different question') });
+      r2.bridge.stop();
+    }
+    r.bridge.stop();
+  }
+
+  // ── ARM 11 · A GATEWAY HARD REFUSAL IS NOT SILENCE (root-cause report 2026-08-12, defect 3) ──
+  //
+  // The sibling of every refusal above: `forwarder.forward` returns `{ok:false}` — gateway down,
+  // token rejected, payload re-validated away — so NOTHING is enqueued and nothing will retry it.
+  // That branch logged a warn and returned, and the owner's thread stayed empty; it was the last
+  // TRUE SILENCE in the forward path. A bare forward path is enough here: the act under test is
+  // one call and one notice, with no door, no seat and no bookkeeping in it.
+  {
+    const posted = [];
+    const mkFp = () => forwardPathModule.createForwardPath({
+      forwarder: { async forward() { return { ok: false, error: { code: 'E_TRANSPORT', message: 'connect ECONNREFUSED' } }; } },
+      threadMap: createThreadMap(),
+      allowlist: createAllowlist({ allowed: [USER] }),
+      config: { sessionJobId: 'chat-launch', sendMessageJobId: 'send-message', workdir: '/shared/master/seat' },
+      logger: null,
+      deliver: async ({ chatThreadId, text }) => { posted.push({ chatThreadId, text }); return { delivered: true }; },
+    });
+
+    const res = await mkFp().forwardSessionCreate({
+      chatThreadId: 'D_IM:11.1', text: 'ARM11 the gateway is refusing', route: { kind: 'master', goalId: null },
+    });
+    check('arm11-a-gateway-refused-session-create-TELLS-the-owner',
+      res.forwarded === false && posted.length === 1
+        && posted[0].chatThreadId === 'D_IM:11.1'
+        && posted[0].text === forwardPathModule.GATEWAY_REFUSED_NOTICE
+        // The D111 fixed-string discipline: no gateway internals reach chat.
+        && !/E_TRANSPORT|ECONNREFUSED/.test(posted[0].text),
+      { forwarded: res.forwarded, posted: posted.map((p) => p.text) });
+
+    // ⚑ THE DISCRIMINATING CONTROL, and the reason the notice is `!retry`-guarded at all:
+    // `chat-bridge.js#retryPending` treats any non-seat-busy refusal as its give-up and posts
+    // SEAT_BUSY_GAVE_UP_NOTICE itself, so a notice here on the re-submit pass would put TWO lines
+    // in the thread for ONE undelivered message. Drop the guard and this arm goes red; drop the
+    // notice line entirely and the arm above does.
+    const before = posted.length;
+    await mkFp().forwardSessionCreate({
+      chatThreadId: 'D_IM:11.2', text: 'ARM11 re-submit', route: { kind: 'master', goalId: null }, retry: true,
+    });
+    check('arm11-control-the-RE-SUBMIT-pass-posts-nothing-the-give-up-notice-is-the-bridge-s',
+      posted.length === before, { postedOnRetry: posted.length - before });
+  }
 }
 
 async function main() {

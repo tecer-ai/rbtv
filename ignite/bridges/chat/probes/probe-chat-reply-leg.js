@@ -565,9 +565,27 @@ async function main() {
     const revivedR = pend() && pend().revives === 1 && pend().watching.size === 0;
     pend().armedAt = nowMs() - (10 * 60 * 1000) - 1; // backdate past the default spawn-wait window
     await leg().tick();
-    record('r:a spent revive with no spawn inside the window disarms AND posts the dead-air notice',
-      revivedR && !pend() && lastText() === DEAD_AIR_NOTICE,
-      { revivedR, stillPending: Boolean(pend()), text: lastText() });
+    const sentAfterR = sent.length;
+    record('r:a spent revive with no spawn inside the window posts the dead-air notice',
+      revivedR && lastText() === DEAD_AIR_NOTICE,
+      { revivedR, text: lastText() });
+    // …AND KEEPS THE ENTRY AS A TOMBSTONE (2026-08-12 root cause, defect 4). The disarm used to
+    // delete it outright, which is why the notice could be a LIE: the corrective spawn had in fact
+    // run and answered — the daemon was mid-restart and the ticker showed it late — and with the
+    // entry gone that answer had nowhere to land. The entry now survives ONE corrective window so a
+    // late spawn is still captured and delivered, the notice is posted exactly ONCE while it does,
+    // and the entry is reaped when the grace is spent with nothing watched. `revive-no-spawn` only:
+    // a chain that died inside a compaction turn is dead, not late, and still deletes on the spot.
+    const tombstoned = Boolean(pend()) && typeof pend().disarmedAt === 'number';
+    await leg().tick();
+    record('r2:the tombstone is kept for a late spawn, and the notice is NOT posted twice',
+      tombstoned && Boolean(pend()) && sent.length === sentAfterR,
+      { tombstoned, stillPending: Boolean(pend()), sentAfterR, sentNow: sent.length });
+    pend().disarmedAt = nowMs() - (10 * 60 * 1000); // spend the grace with nothing watched
+    await leg().tick();
+    record('r3:a tombstone whose grace expires with nothing watched is reaped — never a leak',
+      !pend() && sent.length === sentAfterR,
+      { stillPending: Boolean(pend()), sentNow: sent.length });
     // ── (s) A COMPACTION TURN IS WATCHED, NOT IGNORED — AND A CHAIN THAT DIES INSIDE ONE ────────
     // Measured live 2026-08-12 (thread D0BJ50Y1DC6:1786501607, sessions 88136051→178e7b3d): the
     // revive's corrective send-message DID dispatch (queue 458, tick 235206) and the daemon woke

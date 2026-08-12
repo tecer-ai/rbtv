@@ -73,6 +73,14 @@ const SEAT_BUSY_GAVE_UP_NOTICE = "⚠ that work stayed busy — your message was
 // deployment's business, not chat's.
 const NO_AGENT_SEAT_NOTICE = "⚠ that agent's seat is no longer open — its thread can't be answered";
 
+// The FIFTH honest refusal (2026-08-12, root-cause report § secondary defect 3): the GATEWAY
+// refused the session-create outright — down, timing out, token rejected, payload re-validated
+// away. Nothing was enqueued and nothing will retry it, so this branch was the one TRUE SILENCE
+// left in the forward path: every sibling refusal above notifies, and this one logged a warn and
+// returned while the owner watched an empty thread. Fixed string, no internals — a gateway error
+// code is deployment business, and the owner's act is the same whatever it says.
+const GATEWAY_REFUSED_NOTICE = "⚠ couldn't start work on that message — it was NOT delivered, please send it again shortly";
+
 // Where a session on a GOAL surface is HOMED: a named seat of that goal.
 //   <workspaceRoot>/.rbtv/goals/<goalId>/seats/<seatName>
 //
@@ -307,6 +315,11 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     const res = await forwarder.forward('enqueue-job', payload);
     if (!res.ok) {
       log('warn', 'session-create enqueue refused by gateway', { chatThreadId, error: res.error });
+      // ⚑ `!retry` FOR THE SAME REASON THE SEAT-BUSY BRANCH BELOW CARRIES IT, not by symmetry: on
+      // the re-submit path `chat-bridge.js#retryPending` treats any non-seat-busy refusal as the
+      // give-up and posts SEAT_BUSY_GAVE_UP_NOTICE itself, so notifying here too would put two
+      // lines in the owner's thread for one undelivered message.
+      if (!retry) await postDeclineNotice(chatThreadId, GATEWAY_REFUSED_NOTICE);
       return { forwarded: false, leg: 'session-create', intent: 'enqueue-job', error: res.error };
     }
     // ⚠ A RETURNED QUEUE ID IS NOT DELIVERY — the door may have suppressed this create
@@ -485,4 +498,4 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   return { onChatMessage, forwardSessionCreate, forwardFollowUp, workdirFor, recordBusAnswer, CMP8_TYPES };
 }
 
-module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, SEAT_BUSY_GAVE_UP_NOTICE, resolveGoalSeat };
+module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, SEAT_BUSY_GAVE_UP_NOTICE, GATEWAY_REFUSED_NOTICE, resolveGoalSeat };

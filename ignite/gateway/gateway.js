@@ -272,7 +272,13 @@ function createGateway({ dispatch, internalSecret, sendersFilePath, logger = nul
   function close() {
     const open = servers;
     servers = [];
-    return Promise.all(open.map((srv) => new Promise((resolve) => srv.close(() => resolve())))).then(() => undefined);
+    return Promise.all(open.map((srv) => new Promise((resolve) => {
+      srv.close(() => resolve());
+      // srv.close() only stops ACCEPTING; a persistent client socket (the chat
+      // bridge holds one) keeps the callback from ever firing, and shutdown then
+      // hangs until systemd's 90s SIGKILL — observed twice on 2026-08-12.
+      srv.closeAllConnections();
+    }))).then(() => undefined);
   }
 
   return { handleRequest, listen, close, senderCount: senders.length };

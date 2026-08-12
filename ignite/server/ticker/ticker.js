@@ -159,7 +159,34 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   let nudgePending = null; // { reason, delayMs } — the one nudge waiting on its timer or on the running tick
   let nudgedWith = null;   // reason the tick about to start was nudged with (consumed by tick())
 
+  // ⚠ THE SHUTDOWN LATCH — the nudge chain is a SECOND tick driver, and the daemon's
+  // `clearInterval(timer)` only ever stopped the FIRST one. Measured 2026-08-12 on the live VPS:
+  // SIGTERM landed 21:20:35, `received SIGTERM, shutting down` logged 21:20:43, and ticks
+  // 241980/241981/241982 still ran (and still DISPATCHED) at 21:21:01-21:21:05, because each
+  // nudged tick re-arms the next through `nudge()` at the tail of `tick()` — a self-perpetuating
+  // `setTimeout` the cadence `clearInterval` cannot reach. The daemon was launching new work out
+  // of a process systemd was waiting to reap.
+  //
+  // The latch is checked in BOTH places on purpose: `nudge()` so nothing new is ever armed, and
+  // `tick()` so a timer that already fired (or a cadence//caller tick racing the signal) still
+  // dispatches nothing. One flag, both doors — a guard on the arming side alone loses the race
+  // with a callback already queued on the event loop.
+  let stopped = false;
+
+  // Called from the daemon's SIGTERM path (server/index.js). Idempotent, and NOT a close: the
+  // store, the spawn manager and any in-flight tick are somebody else's to wind down. This stops
+  // the loop from STARTING anything more.
+  function stop() {
+    stopped = true;
+    if (nudgeTimer) {
+      clearTimeout(nudgeTimer);
+      nudgeTimer = null;
+    }
+    nudgePending = null;
+  }
+
   function nudge(reason = 'enqueue', delayMs = NUDGE_DEBOUNCE_MS) {
+    if (stopped) return;
     const dueAt = Date.now() + delayMs;
     if (nudgeTimer) {
       // Debounce: a burst of enqueues coalesces into the pending nudge. A LATER-due request
@@ -1765,6 +1792,10 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   }
 
   async function tick(now = new Date()) {
+    if (stopped) {
+      const halted = { phase: 'tick', action: 'skipped-stopped' };
+      return { tick: getTickNumber(), skipped: true, actions: [halted] };
+    }
     if (ticking) {
       const skipped = { phase: 'tick', action: 'skipped-reentrant' };
       log('warn', 'tick skipped: already running');
@@ -1836,7 +1867,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   // alternative shapes: re-implementing the spawn in the engine would be a second performer of an
   // act that must stay singular, and threading a callback down from `server/index.js` would put
   // the wire somewhere neither end can read.
-  return { tick, getTickNumber, nudge, ensureGoalChannel };
+  return { tick, getTickNumber, nudge, stop, ensureGoalChannel };
 }
 
 module.exports = { createTicker };

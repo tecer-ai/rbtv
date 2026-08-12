@@ -565,14 +565,26 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // The door suppressed the create and handed back the text it discarded — record it for the
     // automatic re-submit (§ pending re-submit). `undeliveredText` rides ONLY that refusal.
     if (outcome && outcome.undeliveredText && chatMsg.chatThreadId) {
-      pendingRetries.set(chatMsg.chatThreadId, { text: outcome.undeliveredText, route, since: Date.now() });
-      saveState();
-      log('info', 'message held for automatic re-submit — the seat is busy', { chatThreadId: chatMsg.chatThreadId, reason: outcome.reason });
+      // …unless the seat is busy with THIS EXACT TEXT (§ the held duplicate). Re-submitting it
+      // would run the owner's one question as two conversations.
+      const busyWith = lastForwarded.get(seatHomeOf(route) || ' none');
+      if (busyWith && busyWith.text === outcome.undeliveredText && (Date.now() - busyWith.at) <= RETRY_WINDOW_MS) {
+        log('warn', 'held message DROPPED — byte-identical to the message this seat is already working on', { chatThreadId: chatMsg.chatThreadId, reason: outcome.reason });
+        await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text: SEAT_BUSY_DUPLICATE_NOTICE, markAsk: false });
+      } else {
+        pendingRetries.set(chatMsg.chatThreadId, { text: outcome.undeliveredText, route, since: Date.now() });
+        saveState();
+        log('info', 'message held for automatic re-submit — the seat is busy', { chatThreadId: chatMsg.chatThreadId, reason: outcome.reason });
+      }
     }
     // Arm the reply leg on every FORWARDED turn — a session-create (new conversation)
     // or a follow-up (the chain re-dispatches → a new exec on the same queue). The
     // leg then watches for the spawn, awaits turn-end, and delivers the reply.
     if (outcome && outcome.forwarded && chatMsg && chatMsg.chatThreadId) {
+      // What this seat is now working on (§ the held duplicate) — recorded on the COLD path only.
+      // A warm turn answers within the same call, so the seat it ran at is free again by the time
+      // anything could match it, and remembering that text would only invite a false drop later.
+      noteForwarded(route, chatMsg.text);
       replyLeg.arm(chatMsg.chatThreadId);
       // The read-receipt: ONE marker, stamped the moment the message is accepted for
       // processing and taken off when its answer lands (§ pending marker below). It
@@ -691,6 +703,40 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // waiting on the same thing, a seat finishing its turn.
   const RETRY_WINDOW_MS = 10 * 60 * 1000;
 
+  // ⚠ THE HELD DUPLICATE (owner-observed 2026-08-12). The owner's DM arrived TWICE, byte-identical,
+  // 22 seconds apart across a Socket Mode drop/reconnect — two GENUINE Slack messages with different
+  // ts (he re-sent after seeing silence), so the transport's redelivery guard cannot see them and
+  // must not. The door refused the second correctly; the re-submit above then ran it as a SECOND
+  // full conversation when the seat freed 100s later: a duplicate agent chain, duplicate model
+  // spend, and the same answer delivered twice.
+  //
+  // ⚑ THE SEAT IS THE UNIT, NOT THE CONVERSATION — which is the whole reason this is not a
+  // per-thread check. The two DMs were two conversations; what they shared was ONE master seat, and
+  // the seat is what the door dedupes on. So the bridge remembers the last text it sent to each seat
+  // home, and a hold whose text matches it byte-for-byte is DROPPED at the door rather than queued.
+  //
+  // ponytail: exact match, one entry per seat, no persistence, 10-minute ceiling — the window is one
+  // live turn. Clear the entry when that turn's reply lands if a false drop is ever observed.
+  const lastForwarded = new Map(); // seat home -> { text, at }
+
+  // The seat a route homes at, from the forward path's OWN resolver — so the key is the thing the
+  // door actually keys on and not a second guess at it. `master` stands in for an unset workdir:
+  // all master traffic shares one seat, which is exactly the observed case.
+  function seatHomeOf(route) {
+    const home = route ? forwardPath.workdirFor(route) : null;
+    return home && home.ok ? (home.workdir || 'master') : null;
+  }
+
+  function noteForwarded(route, text) {
+    const seat = seatHomeOf(route);
+    if (seat) lastForwarded.set(seat, { text, at: Date.now() });
+  }
+
+  // Posted INSTEAD of holding. The owner has already been told by the door's own notice that his
+  // message will be re-sent automatically; dropping it silently would make that a lie. Fixed string,
+  // no internals — the same D111 discipline the other two notices keep.
+  const SEAT_BUSY_DUPLICATE_NOTICE = "⚠ that was identical to the message already being worked on — it was NOT sent again; the answer to the first one is on its way";
+
   function dropPendingRetry(chatThreadId) {
     if (!pendingRetries.delete(chatThreadId)) return false;
     log('info', 'pending re-submit dropped — the human sent a new message on this thread', { chatThreadId });
@@ -704,6 +750,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       const res = await forwardPath.forwardSessionCreate({ chatThreadId: id, text: r.text, route: r.route, retry: true });
       if (res && res.forwarded) {
         pendingRetries.delete(id);
+        noteForwarded(r.route, r.text); // this text is now the seat's live turn (§ the held duplicate)
         replyLeg.arm(id);
         saveState();
         log('info', 'pending re-submit delivered — the seat freed', { chatThreadId: id, queueId: res.queueId, waitedMs: Date.now() - r.since });

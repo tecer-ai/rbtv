@@ -970,6 +970,12 @@ async function main() {
       log('info', `received ${signal}, shutting down`);
       clearInterval(timer);
       clearInterval(retentionTimer);
+      // ⚠ TWO TICK DRIVERS, AND THE `clearInterval` ABOVE REACHES ONLY ONE. The ticker's nudge
+      // chain re-arms itself with `setTimeout` on every nudged tick, so it survived this handler
+      // and kept DISPATCHING after SIGTERM — measured 2026-08-12, ticks 241907-241912 launching
+      // workers at 21:06:29 and 21:06:41 out of a process systemd was already stopping. Latching
+      // the ticker is what makes "stops NEW dispatches immediately" true.
+      ticker.stop();
       // Close the ingress FIRST: a request accepted after the store closes would
       // fault on a dead handle instead of being refused cleanly.
       try {
