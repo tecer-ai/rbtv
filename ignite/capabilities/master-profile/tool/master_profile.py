@@ -4,19 +4,31 @@ runs on (issue C-1, owner-ruled 2026-08-10).
 
 WHAT THE KNOB ACTUALLY IS, AND WHERE IT LIVES
 ---------------------------------------------
-`master_profile` in `.rbtv/config/chat-bridge-config.json`. The chat bridge reads it at boot
-(`bridges/chat/config.js`) and `forward-path.js#profileFor` selects it for MASTER (DM) traffic:
+⚠ RETARGETED 2026-08-12. Until then the knob was `master_profile` in
+`.rbtv/config/chat-bridge-config.json`, read at boot by the chat bridge and selected per SURFACE by
+`forward-path.js#profileFor`. The launch-cast unification (owner ruling D2, 2026-08-11) DELETED
+that key's readers — the transport stopped naming execution — and this tool was parked on a
+refusal naming the correct target rather than half-retargeted. This IS that retarget, and the
+refusal is gone with it.
 
-    return config.masterProfile || config.sessionProfile;
+The knob is now the channel master's own CASTING SHEET —
+`.rbtv/config/modules/meta/master-agent/bindings/channel-master.json`, the `harness` · `model` ·
+`effort` triple of its one seat. The master is cast exactly like every other seat; what makes it
+special is only that it is the seat allowed to re-cast ITSELF. `materialize-seats.py --repass`
+re-renders `seat.md` from the sheet, and every launch door resolves the cast from that descriptor
+(`launch-profiles/catalog.js#castProfileFor`, read fresh per message), so the change lands on the
+owner's next word.
 
-so an absent or empty `master_profile` silently falls back to `session_profile` — which is why this
-tool refuses to CREATE the key rather than inventing one (see `write_value`). The value is a
-spawn-profile NAME from `profiles:` in `ignite/config/spawn-profiles.yaml`, and it is validated
-against that live list at BOTH halves: a name absent from it does not fail at the bridge, it fails
-at the SPAWN, one owner message later, with the sitting already accounted for.
+The AGENT-FACING unit is still a spawn-profile NAME from `profiles:` in
+`ignite/config/spawn-profiles.yaml` — one profile IS one harness+model pair
+(`r-seats-only-architecture`), so a name is a complete cast and the requester keeps the one
+vocabulary `show` prints. The name is resolved to its pair and validated at BOTH halves: an
+unknown or uncastable name does not fail at the sheet, it fails at the SPAWN, one owner message
+later, with the sitting already accounted for.
 
 The owner's ruling was explicit: **do not change the system, give the agent a tool to interact with
-it in its native place.** So this file edits one line of that JSON and nothing else.
+it in its native place.** So this file writes the same three fields a hand-edit would, through the
+same validator `rbtv-bindings set` uses, and nothing else.
 
 EFFORT — A NUMERIC RUNG, AND THE LANE UNDER IT WAS BUILT ON 2026-08-11
 ----------------------------------------------------------------------
@@ -29,47 +41,74 @@ the `chat-agent` job's schema admitted no `effort`, `ticker.js#launchAgent` read
 the "NO daemon caller today — Re-rule at 7.43/7.54" reservation at `internal-api/dispatch.js:405`
 and the sibling refusal in `spawn.js` (G-144). Every link in that trace now carries the field.
 
-  · `bridges/chat/config.js` reads `master_effort`; `forward-path.js#effortFor` pairs it with the
-    MASTER profile only and puts it in the enqueue `args`;
-  · the job id the bridge names must admit it — a registered `args_schema` is CREATE-ONLY, so the
-    old `chat-agent` id could not be widened and a NEW one carrying `"effort": "integer"` was
-    registered and pointed at by `session_job_id` (the old id is retired in place, still refusing);
   · `ticker.js#launchAgent` reads `args.effort` and passes it to `spawnManager.spawn(...)`;
   · `spawn.js#composeArgv` composes it through `resolveEffort()` — the SAME function
     `launch-profiles/resolveProfile` calls, never a second reading of the table.
 
+⚠ THE FIRST TWO LINKS OF THAT TRACE ARE HISTORY. They were the bridge's `master_effort` key and the
+job id widened to admit it — the per-SURFACE lane, deleted by D2 the same week it shipped. What
+survived is the half below them, and it is the half that matters: the rung reaches `composeArgv`
+from the SEAT'S DESCRIPTOR now, on every lane, so the effort this tool writes is honoured whether
+the master is reached over chat or spawned by the daemon.
+
 WHAT A RUNG IS (owner ruling `d-0811lp-effort-numeric-per-profile`): an integer 1..N, ordered lowest
 to highest reasoning, in the ladder THAT PROFILE declares in `spawn-profiles.yaml` (`effort.rungs`).
 N differs per harness — claude 5 (low·medium·high·xhigh·max), codex 3, kimi 2 — so a rung is only
-meaningful against a profile, and a request outside that profile's range is REFUSED naming it. A
-profile with no dial (`effort: { inert: true }`, e.g. `claude-haiku` and the whole `opencode-*` set)
-ACCEPTS any rung and reports it inert (G-270): the dial visibly does nothing there, which is the
-honest report rather than a silent drop. Omit the rung and the harness runs its own default.
+meaningful against a profile, and a request outside that profile's range is REFUSED naming it.
+
+⚠ A PROFILE WITH NO DIAL (`effort: { inert: true }` — `claude-haiku`, `test-sleep`) REFUSES a rung
+here rather than accepting it inert. That is a DIFFERENCE from the retired bridge-config path, not
+an inconsistency with G-270: G-270 governs what a dial REPORTS about itself, and `show` still
+reports those profiles as inert. This is a WRITE into a file `materialize-seats.py` reads, and a
+stored level string no harness honours is precisely the knob-that-does-nothing G-270 exists to
+expose. The mirror-image rule holds too: a profile that HAS a dial must be given a rung, because
+materialize refuses `effort-missing` on it.
 
 ⚠ THE RUNG IS WRITTEN WITH THE PROFILE, ALWAYS, AND CLEARED WHEN NONE IS GIVEN. `request opus`
-without `--effort` REMOVES `master_effort`. That is not tidiness: a rung left behind across a switch
-to a shorter-laddered harness (rung 4 on claude, then a switch to codex, whose top is 3) would pass
-every door here and REFUSE AT THE SPAWN, one owner message later — the exact failure mode the
-profile-name validation exists to prevent, one field over.
+without `--effort` REMOVES the sheet's `effort` field. That is not tidiness: a rung left behind
+across a switch to a shorter-laddered harness (rung 4 on claude, then a switch to codex, whose top
+is 3) would pass every door here and REFUSE AT THE SPAWN, one owner message later — the exact
+failure mode the profile-name validation exists to prevent, one field over.
+
+⚠ AND ON THE SHEET, THE EFFORT RULES ARE THE SHEET'S — `bindings.cast_seat` IS THE VALIDATOR HERE,
+called dry-run by `request` and for real by `apply`, so one function answers "may I?" and performs
+"do it". It is STRICTER than the retired bridge-config path in both directions: a pair WITH a dial
+must name a rung (materialize refuses `effort-missing`), and a pair with NO dial must not carry one
+(a stored value nothing honours is a knob that turns and does nothing). That is why this file no
+longer carries its own `validate_effort` — a second effort validator over a file another tool owns
+is the drift the ladder reader was already collapsed to avoid.
 
 WHY THIS IS TWO HALVES AND NOT ONE COMMAND
 -------------------------------------------
-Identical to its sibling `goal-launch-delay`, and to `goal-creation-request` before it: the channel
-master's cage binds `.rbtv/config` READ-ONLY (`touch` answers `Read-only file system`), so the seat
-cannot write this file; `fire-tool` argv is STATIC, so no gateway verb can carry a request body to a
-fired tool, and the payload must travel as a FILE staged in the seat's own folder; `enqueue-job` is
-the one gateway verb open to every sender kind including a `bridge` token, so it is the trigger.
+⚠ THE REASON CHANGED WITH THE TARGET, AND IT IS NARROWER NOW. It is NOT that the seat cannot write
+the sheet: the bindings tree is in the channel master's `rw-paths` and the seat writes it directly
+(`capabilities/bindings` is a one-part capability for exactly that reason). It is the RE-RENDER.
+`--repass` rewrites `<goal>/seat.md`, and `spawn.js`'s `rw-paths` resolver refuses any grant
+overlapping `.rbtv/goals/` on purpose — a seat may not rewrite its own identity surface. So the
+seat can author the cast and cannot make it take, which is the worst of both; the split gives the
+authoring to the seat's `request` and the re-render to the daemon's `apply`. Measured and filed as
+`i-cast-rerender-blocked` on the master's own issues ledger, 2026-08-11.
 
-⚠ THE RESTART IS THE LAST ACT. The bridge config is boot-read by `rbtv-chat-bridge.service`, so the
-edit is inert until that unit restarts — and the restart kills the very conversation the requesting
-sitting is having. Edit first, outcome record on disk second, restart last: a sitting that vanishes
-mid-restart still finds its answer written when the next one reads the inbox.
+The transport is unchanged from its siblings `goal-launch-delay` and `goal-creation-request`:
+`fire-tool` argv is STATIC, so no gateway verb can carry a request body to a fired tool and the
+payload must travel as a FILE staged in the seat's own folder; `enqueue-job` is the one gateway
+verb open to every sender kind including a `bridge` token, so it is the trigger.
+
+⚠ NOTHING IS RESTARTED ANY MORE, AND THE SITTING SURVIVES. The old apply restarted
+`rbtv-chat-bridge.service` because the bridge boot-read the value — which killed the very
+conversation that asked for the switch. Nothing boot-reads a casting sheet: `spawn.js` reads
+`seat.md` per launch (`readFileSync`, never cached), and the warm leg re-resolves the cast on EVERY
+owner message and reaps a live session whose conversation now names a different profile
+(`live-sessions.js` § REAP ON A PROFILE SWITCH). So the re-render is the last act, the switch takes
+effect on the owner's next word, and the thread that requested it is still there to read the report.
 
 THE SELF-REPORT — WHY THE OUTCOME TRAVELS BACK ON THE COORDINATION BUS
 ----------------------------------------------------------------------
-An outcome record in `done/` is durable but SILENT: the sitting that asked for the change is killed
-by the restart, and the owner is left watching a Slack thread where nothing ever answers (issue
-`i-profile-switch-no-feedback`, owner-ruled 2026-08-10). So `request` now takes the sitting's own
+An outcome record in `done/` is durable but SILENT: the sitting that asked for the change ended
+with its turn, and the owner is left watching a Slack thread where nothing ever answers (issue
+`i-profile-switch-no-feedback`, owner-ruled 2026-08-10 — when the restart also killed that sitting
+outright; the sitting survives now, but the silence does not fix itself). So `request` takes the
+sitting's own
 `--chat-thread <channel>:<ts>` — every sitting is told its thread in the plain form on the first
 line of its prompt — and `apply` writes the outcome back into that thread.
 
@@ -96,9 +135,10 @@ An ACCEPTED change is a settled fact nobody must act on and stays `post`; only t
 wakes anybody. The choice is made at the ONE call site in `apply` — the outcome verdict IS the
 signal, so no second flag decides it.
 
-⚠ THE REPORT PRECEDES THE RESTART, so it cannot state the restart's exit code — it states what is
-ABOUT to happen. Restart-last is a ruled invariant (above); reporting after it would mean reporting
-from inside a killed process. The rc stays where it always was: the outcome record on disk.
+⚠ THE REPORT PRECEDES THE RE-RENDER, so it cannot state its exit code — it states what is ABOUT to
+happen. That ordering was forced when the last act killed this process; it is kept because the
+report is still the courtesy and the change is still the job. The rc stays where it always was:
+the outcome record on disk, rewritten once the re-render returns.
 
 ⚠ A FAILED APPEND NEVER ABORTS THE APPLY. The switch is the job; the report is the courtesy. A
 report that cannot be written is recorded IN the outcome record (`chat-report.error`) and the fire
@@ -107,7 +147,6 @@ continues — losing the change to save the message would be exactly backwards.
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import sys
@@ -117,43 +156,20 @@ from pathlib import Path
 
 _IGNITE = Path(__file__).resolve().parents[3]
 DEFAULT_PROFILES = _IGNITE / "config" / "spawn-profiles.yaml"
-DAEMON_OPERATOR = _IGNITE / "capabilities" / "daemon-operator" / "tool" / "rbtv-ignite-daemon"
 TEAM_KIT = _IGNITE / "team-kit"      # `coord.py` — the ONE allocator of bus message ids
+MATERIALIZE = TEAM_KIT / "materialize-seats.py"      # the ONE re-render, never a second renderer
 # The workspace root is the folder that roots `.rbtv/` — <workspace>/3-resources/tools/rbtv/ignite
-DEFAULT_CONFIG = _IGNITE.parents[3] / ".rbtv" / "config" / "chat-bridge-config.json"
+_WORKSPACE = _IGNITE.parents[3]
+DEFAULT_SEAT = "channel-master"
+DEFAULT_BINDINGS = (_WORKSPACE / ".rbtv" / "config" / "modules" / "meta" / "master-agent"
+                    / "bindings" / f"{DEFAULT_SEAT}.json")
+DEFAULT_CATALOG_ROOT = _WORKSPACE / ".rbtv" / "mirror" / "meta"
 
-# ── request/apply DISABLED 2026-08-11 — launch-cast unification, owner ruling D2 ────────────────
-#
-# This tool's whole mechanism is a line-precise edit of `master_profile` (and `master_effort`) in
-# `.rbtv/config/chat-bridge-config.json`, followed by a bridge restart. Those keys no longer decide
-# anything: the chat bridge stopped naming execution, and the channel master is cast like every
-# other seat — in its bindings sheet, read into its `seat.md`, resolved daemon-side at every launch
-# door. Writing them would edit a value nothing reads.
-#
-# REFUSING rather than retargeting, deliberately and temporarily. The correct target is
-# `.rbtv/config/modules/meta/master-agent/bindings/channel-master.json` plus a `--repass` re-render,
-# which is a different write (a JSON object field, not a hand-authored config line), a different
-# validation (a cast the profile catalog can spawn, not a known profile NAME), and a different apply
-# step (re-materialize, no restart — so the knob stops costing the owner the chat session he is
-# using to turn it). That is a build, not an edit, and a half-retargeted knob is worse than one that
-# says plainly it is out of order: the failure this whole change closes is a control that reads as
-# working and changes nothing.
-#
-# `show` still works and still tells the truth about the retired keys, which is what a reader
-# arriving here needs to see.
-RETARGET_REFUSAL = (
-    "master-profile request/apply are OUT OF SERVICE since the launch-cast unification "
-    "(2026-08-11, owner ruling D2). The chat bridge no longer names the master's harness or model, "
-    "so `master_profile`/`master_effort` in chat-bridge-config.json decide nothing and writing them "
-    "would change nothing. The channel master is now CAST like every other seat. To change what it "
-    "runs: edit the cast in "
-    ".rbtv/config/modules/meta/master-agent/bindings/channel-master.json (harness · model · effort "
-    "— all three or none), then re-render its descriptor with "
-    "`materialize-seats.py --package <ws>/.rbtv/goals/_channel-master --seat channel-master "
-    "--catalog-root <ws>/.rbtv/mirror/meta --bindings <that file> --repass --root`. No bridge "
-    "restart is needed, so this no longer ends a live chat session. Retargeting this tool to do "
-    "that automatically is a filed follow-up."
-)
+# ⚠ EVERY ONE OF THOSE IS A DEFAULT FOR A HUMAN AT A TERMINAL, AND THE FIRED ARGV NAMES ALL OF THEM
+# EXPLICITLY (`tools: master-profile:` in spawn-profiles.yaml). Same reason the sibling entries
+# spell out `--config`: a reader of that entry can see WHICH sheet a fire rewrites and WHICH seat it
+# re-renders without opening this script. The `--package` is the exception and is DERIVED from
+# `--inbox` rather than defaulted — see `_goal_dir`.
 
 KEY = "master_profile"
 ENTRY_TOOL_KEY = "master-profile"   # this capability's own `tools:` key
@@ -163,58 +179,7 @@ DONE_DIR = "done"
 REFUSED_DIR = "refused"
 
 
-class Refusal(Exception):
-    """A refusal names what was rejected and what held instead — never a bare status."""
-
-
-def known_profiles(profiles_path=DEFAULT_PROFILES):
-    """The live `profiles:` key set, read from the config the daemon boots on.
-
-    ⚠ NOT A HARD-CODED ROSTER. The owner-ruled roster changes (four claude models, codex, kimi, the
-    opencode set), and a list frozen in this file would refuse a profile that exists or admit one
-    that was removed — the second being the failure that reaches the spawn.
-
-    ponytail: a line scan, not a YAML parse. It reads the two-space keys directly under the
-    `profiles:` root key and stops at the next root key. Ceiling: it would miss a profile declared
-    with a non-standard indent or a quoted key. Upgrade path if that ever happens: PyYAML is
-    already a daemon dependency — but a parse here would be the ONLY reader of this document that
-    needs one, for a question a scan answers exactly.
-    """
-    lines = Path(profiles_path).read_text(encoding="utf-8").splitlines()
-    at = next((i for i, ln in enumerate(lines) if ln.rstrip() == "profiles:"), None)
-    if at is None:
-        raise Refusal(f"{profiles_path} declares no root key `profiles:` — refusing to validate a "
-                      f"profile name against a list this file does not carry")
-    names = []
-    for ln in lines[at + 1:]:
-        if ln.strip() and not ln.startswith(" ") and not ln.lstrip().startswith("#"):
-            break                       # the next root key ends the section
-        m = re.match(r"^  ([A-Za-z0-9][A-Za-z0-9._-]*):\s*$", ln)
-        if m:
-            names.append(m.group(1))
-    if not names:
-        raise Refusal(f"the `profiles:` section of {profiles_path} declares no profiles — refusing "
-                      f"to validate against an empty list, which would refuse EVERY name")
-    return names
-
-
-def validate(name, profiles_path=DEFAULT_PROFILES):
-    """The ONE validator, called by both halves. The client so a typo refuses in the sitting that
-    made it; the daemon because a client-side check is not a check (the staged payload is written
-    by the requester and can be edited between staging and the fire)."""
-    if not isinstance(name, str) or not name.strip():
-        raise Refusal(f"{KEY} must be a non-empty string, got {name!r}")
-    known = known_profiles(profiles_path)
-    if name not in known:
-        raise Refusal(f"`{name}` is not a declared spawn profile. The live `profiles:` set is: "
-                      f"{', '.join(sorted(known))}. Refused HERE because an unknown name does not "
-                      f"fail at the bridge — it fails at the spawn, one owner message later.")
-    return name
-
-
-EFFORT_KEY = "master_effort"
-
-# ── THE LADDER READER IS IMPORTED, NEVER RE-SCRAPED ─────────────────────────────────────────────
+# ── THE CATALOG, THE LADDER READER AND THE WRITE ARE IMPORTED, NEVER RE-IMPLEMENTED ─────────────
 #
 # `effort_ladder` IS `bindings.profile_effort` — the same function object, not a copy that agrees.
 # It was a copy until 2026-08-11, and the copies DISAGREED on identical bytes: this file line-scanned
@@ -224,9 +189,12 @@ EFFORT_KEY = "master_effort"
 # profile, in the same file, in the same second. Two copies agree on the day they are written; that
 # is the only day they are guaranteed to.
 #
-# The contract that survived is THIS file's three-way one (`None` / `[]` / list), because it is the
-# richer one — see `validate_effort` below, which needs to tell "accepts a rung and applies nothing"
-# (G-270 inert) from "cannot translate a rung at all" (no dial). The scrape's two-way `()` could not.
+# ⚠ THE 2026-08-12 RETARGET MADE THE OTHER THREE THE SAME KIND OF FACT. Once this tool's target
+# became a CASTING SHEET, `bindings` was no longer a library it borrowed a reader from — it is the
+# capability that OWNS the file. So the name→cast resolution (`profile_row`), the castable set
+# (`catalog`) and the write itself (`cast_seat`) all come from there too. What this file still owns
+# is the TRANSPORT — staging, the fire, the bus report, the re-render — which is the half `bindings`
+# has no reason to know about.
 #
 # The direction is bindings ← master-profile, and it is acyclic: `bindings` imports nothing from
 # here, and its ONE cross-tool import (`coord.py#validate_seat`) is function-scoped and lazy, so
@@ -236,30 +204,77 @@ EFFORT_KEY = "master_effort"
 _BINDINGS_TOOL = str(_IGNITE / "capabilities" / "bindings" / "tool")
 if _BINDINGS_TOOL not in sys.path:
     sys.path.insert(0, _BINDINGS_TOOL)
-from bindings import profile_effort as effort_ladder     # noqa: E402
+from bindings import (                                    # noqa: E402
+    Refusal,
+    profile_effort as effort_ladder,
+    catalog as bindings_catalog,
+    profile_row,
+    cast_seat,
+)
+
+# ⚠ `Refusal` IS IMPORTED, NOT DECLARED — AND THAT IS A FIX, NOT TIDINESS. This file declared its
+# own identically-named, identically-worded exception class until 2026-08-12. The moment `cast_seat`
+# became this tool's validator, that made the refusals it raises a DIFFERENT TYPE from the ones
+# `main` catches: a legitimate "this profile has a 5-rung dial, name one" came back as an unhandled
+# traceback with no `{"ok": false, "refusal": …}` envelope, and inside `apply` it fell to the
+# catch-all and was recorded as `Refusal: …` — an internal class name in the record where a stated
+# reason belongs. Measured on the fixture before it could reach a live fire. One capability pair,
+# one refusal type.
 
 
-def validate_effort(profile, rung, profiles_path=DEFAULT_PROFILES):
-    """The ONE effort validator, called by both halves — same reason `validate` is, and one more:
-    a rung is only meaningful against a PROFILE, so it is checked against the profile this same
-    request is switching TO, never against the one in force."""
-    if rung is None:
-        return None
-    if not isinstance(rung, int) or isinstance(rung, bool) or rung < 1:
-        raise Refusal(f"effort must be an integer rung >= 1 (rung 1 = lowest reasoning), got {rung!r}")
-    ladder = effort_ladder(profile, profiles_path)
-    if ladder is None:
-        raise Refusal(f"`{profile}` declares no `effort:` block in {profiles_path}, so it cannot "
-                      f"translate a rung. Omit the effort: the harness runs its own default.")
-    if ladder == []:
-        return rung                     # inert — accepted and reported, never silently dropped
-    if rung > len(ladder):
-        raise Refusal(f"effort {rung} is outside `{profile}`'s range 1..{len(ladder)} "
-                      f"({', '.join(f'{i + 1}={v}' for i, v in enumerate(ladder))}). Every harness "
-                      f"declares its OWN ladder, so a rung that is valid on one profile is not on "
-                      f"another — refused HERE because out of range does not fail at the bridge, "
-                      f"it fails at the spawn, one owner message later.")
-    return rung
+def known_profiles(profiles_path=DEFAULT_PROFILES):
+    """The names this tool will accept — the CASTABLE profiles, read live off the catalog.
+
+    ⚠ NOT A HARD-CODED ROSTER. The owner-ruled roster changes (four claude models, codex, kimi, the
+    opencode set), and a list frozen in this file would refuse a profile that exists or admit one
+    that was removed — the second being the failure that reaches the spawn.
+
+    ⚠ AND NOT THE `profiles:` KEY SET EITHER, WHICH IS THE WIDER AND WRONG LIST. This was a line
+    scan of that section until 2026-08-12, which admitted every declared name — including ones no
+    seat can be cast as (`test-sleep`: `coord.py#validate_seat` rejects its harness) and ones that
+    spawn nothing (no `exec:` half). Against the bridge config that only ever cost a spawn; against
+    a casting sheet it would write a cast `materialize-seats.py`'s F6 gate refuses, which is a
+    refusal at goal-creation for the whole batch. The catalog is the ONE derivation both this tool
+    and `rbtv-bindings` enforce, so the names offered here are exactly the names accepted.
+    """
+    return sorted(r["profile"] for r in bindings_catalog(profiles_path) if r["castable"])
+
+
+def validate(name, profiles_path=DEFAULT_PROFILES):
+    """Resolve a profile NAME to the catalog row that IS its cast. The ONE resolver, called by both
+    halves. The client so a typo refuses in the sitting that made it; the daemon because a
+    client-side check is not a check (the staged payload is written by the requester and can be
+    edited between staging and the fire)."""
+    if not isinstance(name, str) or not name.strip():
+        raise Refusal(f"{KEY} must be a non-empty string, got {name!r}")
+    row = profile_row(name, profiles_path)
+    if row is not None and row["castable"]:
+        return row
+    known = known_profiles(profiles_path)
+    if row is not None:
+        raise Refusal(f"`{name}` is a declared spawn profile but is NOT castable: "
+                      f"{row['not-castable-because']}. A seat may only be cast as a pair "
+                      f"`coord.py#validate_seat` accepts — the same predicate materialize's F6 gate "
+                      f"runs over the whole batch. Castable names: {', '.join(known)}.")
+    raise Refusal(f"`{name}` is not a castable spawn profile. The live castable set is: "
+                  f"{', '.join(known)}. Refused HERE because an unknown name does not fail when the "
+                  f"sheet is written — it fails at the spawn, one owner message later.")
+
+
+# ⚠ THERE IS NO `validate_effort` IN THIS FILE ANY MORE, AND ITS ABSENCE IS THE POINT.
+#
+# It was the three-way rung check (`None` = no dial · `[]` = inert · list = rungs) that guarded a
+# write into the bridge config. The 2026-08-12 retarget moved the write onto the casting sheet, and
+# the sheet's rules are STRICTER in both directions — a pair WITH a dial must carry a rung
+# (materialize refuses `effort-missing`) and a pair WITHOUT one must not (a stored value nothing
+# honours is a knob that turns and does nothing). Keeping the old checker beside the new file would
+# have been a second effort validator over a document this tool does not own — the exact shape of
+# drift the ladder-reader collapse above was performed to end, one field over.
+#
+# `bindings.cast_seat` is the validator now: `request` calls it with `dry_run=True` (validates,
+# writes nothing) and `apply` calls it for real. One function answers "may I?" and performs "do it",
+# so the two answers cannot disagree. `effort_ladder` survives because `ladders()` below still needs
+# to PRINT every ladder — a display, not a gate.
 
 
 def ladders(profiles_path=DEFAULT_PROFILES):
@@ -282,133 +297,65 @@ EFFORT_GUIDANCE = (
     "ladder, so map the phrasing proportionally onto 1..N — N is that profile's own, and `show` "
     "prints every profile's ladder. minimal/quick/low → 1; medium/normal → the middle rung; "
     "high → just below N on a ladder of 4+ (on a 2- or 3-rung ladder it IS N); "
-    "maximum/deepest/think-hardest → N. If the request names NO effort, OMIT the rung rather than "
-    "guessing one — the harness then runs its own default. A profile with no dial accepts a rung "
-    "and reports it inert."
+    "maximum/deepest/think-hardest → N. If the request names NO effort but the target profile HAS a "
+    "ladder, you must still pick one — the middle rung is the honest default for an unstated ask — "
+    "because a dialled seat with no effort is refused. Pass NO rung only for a profile `show` marks "
+    "inert (it has no dial, and a rung on it is refused rather than stored)."
 )
 
 
-# ───────────────────────────────────────────────────────────────── the targeted JSON edit
+# ───────────────────────────────────────────── the cast: read it here, WRITE IT THROUGH `bindings`
 #
-# ⚠ A LINE EDIT, NOT A json.load/json.dump ROUND TRIP. The live file is hand-authored with
-# one-space indentation; re-dumping it would rewrite every line of a config an operator reads and
-# diffs, turning a one-value change into a whole-file diff. The line edit changes exactly the bytes
-# that are the value.
-
-_LINE = re.compile(r'^(\s*"%s"\s*:\s*)"([^"]*)"(\s*,?\s*)$' % KEY)
-_ELINE = re.compile(r'^(\s*"%s"\s*:\s*)(-?\d+)(\s*,?\s*)$' % EFFORT_KEY)
-
-
-def read_value(config=DEFAULT_CONFIG):
-    """The value in force and where it comes from. Pure read — safe from inside the cage."""
-    config = Path(config)
-    lines = config.read_text(encoding="utf-8").splitlines(keepends=True)
-    effort, effort_line = None, None
-    for i, ln in enumerate(lines):
-        e = _ELINE.match(ln.rstrip("\n"))
-        if e:
-            effort, effort_line = int(e.group(2)), i + 1
-    for i, ln in enumerate(lines):
-        m = _LINE.match(ln.rstrip("\n"))
-        if m:
-            return {"profile": m.group(2), "source": "explicit", "config": str(config),
-                    "line": i + 1, "effort": effort, "effort-line": effort_line,
-                    "where": f"{config}:{i + 1} — the `{KEY}` field. ⚠ RETIRED 2026-08-11 "
-                             f"(launch-cast unification, owner ruling D2): NOTHING READS IT. "
-                             f"bridges/chat/config.js no longer resolves it, and "
-                             f"forward-path.js#profileFor no longer picks a profile per surface. "
-                             f"The master's harness+model+effort live in its bindings sheet, like "
-                             f"every other seat's — this line is residue"
-                             + (f"; `{EFFORT_KEY}` = rung {effort} at :{effort_line}, equally dead "
-                                f"— `forward-path.js#effortFor` no longer exists"
-                                if effort is not None else f"; no `{EFFORT_KEY}`")}
-    # No key — which since the 2026-08-11 retirement is simply the normal state, not a fallback
-    # case. `session_profile` is reported because it is the one value every surface still carries,
-    # NOT because anything selects the master's execution from it any more.
-    doc = json.loads(config.read_text(encoding="utf-8"))
-    return {"profile": doc.get("session_profile"), "source": "session_profile-fallback",
-            "config": str(config), "line": None, "effort": effort, "effort-line": effort_line,
-            "where": f"`{KEY}` is ABSENT from {config} — the expected state since its retirement "
-                     f"(2026-08-11, owner ruling D2). No surface reads it. `session_profile` is "
-                     f"the one non-deciding value every surface carries; the master's execution "
-                     f"comes from its bindings sheet"}
+# ⚠ THE WRITE IS NOT IN THIS FILE. It was a pair of line-precise regex edits into a hand-authored
+# JSON config until 2026-08-12 (`_LINE`/`_ELINE`, `write_value`, `write_effort`) — the right shape
+# for that document, and the wrong one for this target. A casting sheet is machine-authored,
+# `bindings._write` round-trips it at one-space indent, and `bindings.cast_seat` is the function
+# that already knew every rule about what may go in it. So the ~110 lines of edit machinery were
+# DELETED rather than pointed at a new file: a second writer of a document another capability owns
+# is drift with a deadline.
+#
+# What is left here is the READ, and it is a read the seat can perform from inside its own cage —
+# the bindings tree is in the master's `rw-paths`.
 
 
-def write_value(config, name):
-    config = Path(config)
-    lines = config.read_text(encoding="utf-8").splitlines(keepends=True)
-    for i, ln in enumerate(lines):
-        m = _LINE.match(ln.rstrip("\n"))
-        if m:
-            previous = m.group(2)
-            lines[i] = f'{m.group(1)}"{name}"{m.group(3)}\n'
-            # tmp + os.replace: atomically on disk before anything restarts anything.
-            tmp = config.with_name(config.name + f".master-profile.{os.getpid()}.tmp")
-            tmp.write_text("".join(lines), encoding="utf-8")
-            os.replace(tmp, config)
-            return {"action": "updated", "line": i + 1, "previous": previous,
-                    "profile": name, "config": str(config)}
-    # ⚠ REFUSE RATHER THAN CREATE THE KEY. An absent `master_profile` is a live configuration
-    # choice — master traffic riding `session_profile` deliberately — and minting the key would
-    # SPLIT the two surfaces without anyone deciding to. That is an operator's edit, not a
-    # requester's, and it is one line of JSON for whoever wants it.
-    raise Refusal(f"{config} carries no `{KEY}` field. Master traffic is currently riding "
-                  f"`session_profile` by fallback, and creating the key would split the two "
-                  f"surfaces apart — a configuration decision, not a value change. Add "
-                  f"`\"{KEY}\": \"<profile>\"` to that file by hand first; this tool then owns it.")
+def read_value(bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, profiles_path=DEFAULT_PROFILES):
+    """The cast in force, reported in BOTH vocabularies. Pure read — safe from inside the cage.
 
+    The sheet stores `harness`/`model`/`effort` — the harness's own strings, which is what
+    `materialize-seats.py` renders and what a launch door reads. The requester speaks in profile
+    NAMES and RUNG NUMBERS. Both are returned, mapped through the same catalog `validate` resolves
+    against, so `show` can print what is in force in the words `request` will accept back.
 
-def write_effort(config, rung):
-    """Set, replace or REMOVE the `master_effort` line. Unlike `write_value` this one may CREATE
-    its key — and the asymmetry is not an oversight. An absent `master_profile` is a live
-    configuration choice (master traffic riding `session_profile` by fallback), so minting it would
-    decide something nobody decided; an absent `master_effort` has no such second meaning — it is
-    simply "harness default" — and a knob that can be turned up but never down is worse than none.
-
-    ⚠ THE RESULT IS PARSED BEFORE IT IS COMMITTED. This is a line edit into a hand-authored
-    document (same reason as `write_value`), and inserting or deleting a line is where a line edit
-    can produce invalid JSON — a trailing comma before `}`. `json.loads` on the composed text is
-    the cheapest possible proof that it did not, and it runs before `os.replace` touches anything.
+    An UNRECOGNISED cast is reported, never refused: a sheet hand-edited to a pair no profile
+    declares is exactly the state a reader most needs to see spelled out, and refusing to read it
+    would leave `show` unable to explain why the next spawn fails.
     """
-    config = Path(config)
-    lines = config.read_text(encoding="utf-8").splitlines(keepends=True)
-    previous, at = None, None
-    for i, ln in enumerate(lines):
-        m = _ELINE.match(ln.rstrip("\n"))
-        if m:
-            previous, at = int(m.group(2)), i
-            break
+    bindings = Path(bindings)
+    doc = json.loads(bindings.read_text(encoding="utf-8"))
+    entry = (doc.get("seats") or {}).get(seat)
+    if entry is None:
+        raise Refusal(f"{bindings} carries no seat `{seat}` — its seats are: "
+                      f"{', '.join(sorted((doc.get('seats') or {}))) or '(none)'}. This tool reads "
+                      f"and writes ONE seat of an existing sheet; it never mints either.")
+    harness, model, effort = entry.get("harness"), entry.get("model"), entry.get("effort")
+    row = next((r for r in bindings_catalog(profiles_path)
+                if r["harness"] == harness and r["model"] == model), None)
+    profile = row["profile"] if row else None
+    ladder = list(row["effort-levels"]) if row else []
+    rung = ladder.index(effort) + 1 if effort in ladder else None
 
-    if rung is None:
-        if at is None:
-            return {"action": "absent", "previous": None, "effort": None}
-        del lines[at]
-        action = "removed"
-    elif at is not None:
-        lines[at] = f'{_ELINE.match(lines[at].rstrip(chr(10))).group(1)}{rung}{_ELINE.match(lines[at].rstrip(chr(10))).group(3)}\n'
-        action = "updated"
+    if profile is None:
+        where = (f"{bindings} — seat `{seat}`. ⚠ its cast `{harness}/{model}` matches NO profile in "
+                 f"{profiles_path}, so the next spawn of this seat REFUSES "
+                 f"(`catalog.js#E_UNCAST_SEAT`). Request a castable name to repair it.")
     else:
-        # Inserted directly BELOW `master_profile`, whose indentation and trailing comma it copies:
-        # the two are one setting in two fields and a reader diffs them together.
-        host = next((i for i, ln in enumerate(lines) if _LINE.match(ln.rstrip("\n"))), None)
-        if host is None:
-            raise Refusal(f"{config} carries no `{KEY}` field to pair an effort with — set the "
-                          f"profile first (this tool refuses to create that key; see write_value).")
-        m = _LINE.match(lines[host].rstrip("\n"))
-        indent = m.group(1)[:len(m.group(1)) - len(m.group(1).lstrip())]
-        lines.insert(host + 1, f'{indent}"{EFFORT_KEY}": {rung},\n')
-        action = "created"
+        where = (f"{bindings} — the `harness`/`model`/`effort` of seat `{seat}`, rendered into "
+                 f"{seat}'s `seat.md` by `materialize-seats.py --repass` and resolved at every "
+                 f"launch door by `launch-profiles/catalog.js#castProfileFor`. Read per launch, "
+                 f"never boot-cached: a change lands on the owner's next message.")
+    return {"profile": profile, "harness": harness, "model": model, "effort": effort,
+            "rung": rung, "bindings": str(bindings), "seat": seat, "where": where}
 
-    text = "".join(lines)
-    try:
-        json.loads(text)
-    except Exception as exc:
-        raise Refusal(f"the composed {config} is not valid JSON after the `{EFFORT_KEY}` edit "
-                      f"({type(exc).__name__}: {exc}) — NOTHING was written")
-    tmp = config.with_name(config.name + f".master-effort.{os.getpid()}.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, config)
-    return {"action": action, "previous": previous, "effort": rung}
 
 
 # ────────────────────────────────────── the self-report back into the owner's own chat thread
@@ -424,8 +371,6 @@ CHAT_THREAD_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}:\d+\.\d+$")
 # wrote this row, the daemon-side half of this tool did, and the owner reads it as `from <this>`.
 REPORT_SENDER = ENTRY_TOOL_KEY
 
-RESTART_UNIT = "rbtv-chat-bridge"
-
 
 def validate_chat_thread(thread):
     """The ONE thread-id validator, called by both halves — same reason `validate` is."""
@@ -438,15 +383,22 @@ def validate_chat_thread(thread):
     return thread
 
 
-def _bus_dir(inbox):
-    """The coordination bus of the goal the request was STAGED IN — `<goal>/coordination`.
+def _goal_dir(inbox):
+    """The goal folder the request was STAGED IN.
 
     DERIVED, never named: the inbox is `<goal>/settings-requests/<capability>`, so its grandparent
-    IS the requesting goal's folder, and that goal's bus is the one the ferry enumerates for it.
-    Naming `_channel-master` here would hard-code one workspace's goal into a repo whose components
-    must be general — and would send a probe's report onto the live bus.
+    IS the requesting goal's folder. Naming `_channel-master` here would hard-code one workspace's
+    goal into a repo whose components must be general — and would point a probe's fire at the live
+    package. TWO consumers: the bus the outcome is reported on, and the `--package` the re-render
+    runs against. They are the same folder by construction, so they are derived once.
     """
-    return Path(inbox).resolve().parents[1] / "coordination"
+    return Path(inbox).resolve().parents[1]
+
+
+def _bus_dir(inbox):
+    """The coordination bus of the goal the request was staged in — `<goal>/coordination`, the one
+    the ferry enumerates for it."""
+    return _goal_dir(inbox) / "coordination"
 
 
 def report_to_thread(inbox, thread, body, deliver="post"):
@@ -473,41 +425,45 @@ def report_to_thread(inbox, thread, body, deliver="post"):
                 "note": "the change itself was applied — only the owner-facing report failed"}
 
 
-def _report_body(record, restart):
+def _report_body(record, repass):
     """Slack mrkdwn, and only mrkdwn: no pipe tables, no `#` headings, no `[](…)` links — the ferry
     delivers a conformant body VERBATIM, and a markdown-ism arrives as literal punctuation."""
     if record["outcome"] == "ACCEPTED":
         change = record.get("change") or {}
-        # NOT an rc — the report precedes the restart by ruling, so it says what is about to happen.
-        line = (f"restarting `{RESTART_UNIT}` now — the last act of this job, and it ends this sitting"
-                if restart else
-                f"SKIPPED (--no-restart) — the change stays inert until `{RESTART_UNIT}` restarts")
-        eff = record.get("effort-change") or {}
+        after = change.get("after") or {}
+        # NOT an rc — the report precedes the re-render by ruling, so it says what is about to happen.
+        line = ("re-rendering this seat's `seat.md` from the sheet now — the last act of this job"
+                if repass else
+                "SKIPPED (--no-repass) — the sheet is written but `seat.md` still carries the old "
+                "cast, which is what a launch actually reads")
         rung = record.get("requested-effort")
         if rung is None:
-            effort_line = "effort: harness default (no rung set)"
-        elif record.get("effort-inert"):
-            effort_line = (f"effort: rung {rung} recorded, but `{record['requested']}` has NO dial "
-                           f"(inert) — it will apply nothing")
+            effort_line = "effort: harness default (this pair declares no dial)"
         else:
-            effort_line = f"effort: rung {rung} of `{record['requested']}`'s ladder ({record.get('effort-ladder')})"
-        if eff.get("previous") is not None and eff.get("previous") != rung:
-            effort_line += f"  (was rung {eff['previous']})"
-        return (f"*master profile changed* — `{change.get('previous')}` → `{record['requested']}`\n"
+            effort_line = (f"effort: rung {rung} = `{after.get('effort')}` on "
+                           f"`{record['requested']}`'s ladder ({record.get('effort-ladder')})")
+        was = record.get("before") or {}
+        return (f"*master cast changed* — `{was.get('profile')}` → `{record['requested']}` "
+                f"({after.get('harness')}/{after.get('model')})\n"
                 f"{effort_line}\n"
-                f"restart: {line}\n"
-                f"scope: applies to NEW threads only — this thread stays on its current profile")
-    return (f"*master profile change REFUSED* — still `{record['before']['profile']}`\n"
+                f"apply: {line}\n"
+                f"scope: takes effect on your NEXT message — the live session is reaped when its "
+                f"conversation names a different profile, and nothing is restarted")
+    return (f"*master cast change REFUSED* — still `{(record.get('before') or {}).get('profile')}`\n"
             f"why: {str(record.get('stated-refusal'))[:600]}\n"
-            f"restart: none — nothing changed")
+            f"apply: none — nothing changed")
 
 
 # ─────────────────────────────────────────────────────────────────────────── the client half
 
 def request(inbox, name, ignite_bin, profiles_path=DEFAULT_PROFILES, job_id=JOB_ID, dry_run=False,
-            chat_thread=None, effort=None):
-    validate(name, profiles_path)
-    validate_effort(name, effort, profiles_path)     # against the TARGET profile, not the one in force
+            chat_thread=None, effort=None, bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT):
+    row = validate(name, profiles_path)
+    # THE FULL WRITE, WITH THE WRITE TURNED OFF. Not a lighter client-side approximation of the
+    # daemon's check — literally the same call `apply` makes, `dry_run=True`. A rung the sheet would
+    # refuse therefore refuses HERE, in the sitting that typed it, instead of at a fire the owner is
+    # no longer watching. The seat can run it because the bindings tree is in its `rw-paths`.
+    cast_seat(bindings, seat, row["harness"], row["model"], effort, profiles_path, dry_run=True)
     if chat_thread is not None:
         validate_chat_thread(chat_thread)
     inbox = Path(inbox)
@@ -538,9 +494,14 @@ def request(inbox, name, ignite_bin, profiles_path=DEFAULT_PROFILES, job_id=JOB_
         out["ok"] = False
         out["note"] = (f"the request is STAGED at {staged} but the enqueue failed — it will be "
                        f"applied by the next fire of this tool, or re-run the enqueue by hand")
-    out["warning"] = ("applying this restarts rbtv-chat-bridge, which ENDS the live chat session "
-                      "this request was made from. The next owner message opens a new one, on the "
-                      "new profile.")
+    # ⚠ THIS FIELD IS READ ALOUD TO THE OWNER. It said "applying this restarts rbtv-chat-bridge,
+    # which ENDS the live chat session this request was made from" until 2026-08-12 — true of the
+    # retired bridge-config target, false of this one, and the kind of false a requesting agent
+    # repeats verbatim into Slack as a warning about a cost nobody is paying.
+    out["note"] = ("nothing is restarted and this session survives. The daemon writes the cast and "
+                   "re-renders this seat's descriptor; the switch takes effect on the owner's NEXT "
+                   "message, when the live session is reaped for naming a different profile. The "
+                   "outcome lands in done/ or refused/ either way.")
     return out
 
 
@@ -562,23 +523,37 @@ def _settle(inbox, src, verdict, record, dry_run):
         dest = dest_dir / f"{src.name}.{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
     src.replace(dest)
     record["moved-to"] = str(dest)
-    record.setdefault("restart", "pending")
+    record.setdefault("repass", "pending")
     _outcome(dest, record)
     return record
 
 
-def _restart():
-    """Delegated to `daemon-operator` (PRIN-11) — `RBTV_IGNITE_UNIT` steers it at a throwaway unit
-    for the probe, exactly as it does for `rbtv-ignite-ticker`."""
-    r = subprocess.run([str(DAEMON_OPERATOR), "restart", "--service", "chat-bridge"],
-                       capture_output=True, text=True)
-    return {"rc": r.returncode, "cmd": f"{DAEMON_OPERATOR} restart --service chat-bridge",
-            "unit": os.environ.get("RBTV_IGNITE_UNIT", "rbtv-chat-bridge.service"),
+def _repass(package, seat, catalog_root, bindings):
+    """Re-render the seat's descriptor from the sheet. Delegated to `materialize-seats.py`
+    (PRIN-11) — the ONE renderer of a seat.md, the same one goal creation runs.
+
+    ⚠ THIS IS WHY THERE IS A DAEMON HALF AT ALL. `--repass` writes `<package>/seat.md`, and a
+    seat's own cage refuses every `rw-paths` grant overlapping `.rbtv/goals/` (`spawn.js` — a seat
+    may not rewrite its own identity surface). The requesting sitting can author the cast and
+    cannot make it take; this side makes it take.
+
+    `--root` marks the materialized row a DAG root, as the seat already is. On a `--repass` of an
+    existing standing seat no taskforce row is appended (measured: `taskforce_rows_appended: 0`) —
+    the flag is required because an omitted insertion point never defaults to root, not because
+    anything is being inserted.
+    """
+    cmd = [sys.executable, str(MATERIALIZE), "--package", str(package), "--seat", str(seat),
+           "--catalog-root", str(catalog_root), "--bindings", str(bindings),
+           "--repass", "--root", "--json"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    return {"rc": r.returncode, "cmd": " ".join(cmd),
+            "descriptor": str(Path(package) / "seat.md"),
             "stdout": r.stdout.strip()[-800:], "stderr": r.stderr.strip()[-800:]}
 
 
-def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=False):
-    """Drain, apply, then restart the bridge — in that order, once per fire."""
+def apply(inbox, bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, catalog_root=DEFAULT_CATALOG_ROOT,
+          profiles_path=DEFAULT_PROFILES, repass=True, dry_run=False):
+    """Drain, write the cast, then re-render the descriptor — in that order, once per fire."""
     inbox = Path(inbox)
     if not inbox.is_dir():
         raise Refusal(f"the staged inbox {inbox} does not resolve to a directory — nothing to drain")
@@ -587,7 +562,7 @@ def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=F
             raise Refusal(f"{candidate} is a symlink, and this verb refuses to drain through one. "
                           f"NOTHING was drained; replace it with a real directory.")
 
-    before = read_value(config)
+    before = read_value(bindings, seat, profiles_path)
     results, accepted = [], []
     for src in sorted(p for p in inbox.iterdir() if p.name.endswith(".json")):
         record = {"request-file": str(src), "before": before}
@@ -603,21 +578,23 @@ def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=F
             # itself. A malformed token refuses the request instead of being reported into nowhere.
             if payload.get("chat-thread") is not None:
                 record["chat-thread"] = validate_chat_thread(payload["chat-thread"])
-            name = validate(payload["master-profile"], profiles_path)
+            row = validate(payload["master-profile"], profiles_path)
+            name = row["profile"]
             record["requested"] = name
-            # Client-side validation is not validation: the payload is written by the requester and
-            # can be edited between staging and the fire. Re-checked here against the SAME target.
-            rung = validate_effort(name, payload.get("effort"), profiles_path)
-            ladder = effort_ladder(name, profiles_path)
+            rung = payload.get("effort")
+            ladder = row["effort-levels"]
             record["requested-effort"] = rung
-            record["effort-inert"] = ladder == []
             record["effort-ladder"] = (None if not ladder else
                                        ", ".join(f"{i + 1}={v}" for i, v in enumerate(ladder)))
-            if not dry_run:
-                record["change"] = write_value(config, name)
-                # ⚠ THE PAIR IS WRITTEN TOGETHER AND AN OMITTED RUNG CLEARS THE OLD ONE — see the
-                # module docstring: a rung outliving its profile refuses at the spawn, not here.
-                record["effort-change"] = write_effort(config, rung)
+            # Client-side validation is not validation: the payload is written by the requester and
+            # can be edited between staging and the fire. This IS the client's call re-run with the
+            # write switched on — same function, same rules, so an "it passed at `request`" can
+            # never mean something different here.
+            #
+            # ⚠ THE TRIPLE IS WRITTEN TOGETHER AND AN OMITTED RUNG CLEARS THE OLD ONE — see the
+            # module docstring: a rung outliving its profile refuses at the spawn, not here.
+            record["change"] = cast_seat(bindings, seat, row["harness"], row["model"], rung,
+                                         profiles_path, dry_run=dry_run)
             verdict = "ACCEPTED"
             accepted.append(name)
         except Refusal as exc:
@@ -631,7 +608,7 @@ def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=F
     out = {"ok": all(r["outcome"] == "ACCEPTED" for r in results),
            "drained": len(results), "before": before, "results": results}
 
-    # ── THE SELF-REPORT, AND IT RUNS BEFORE THE RESTART BELOW ────────────────────────────────
+    # ── THE SELF-REPORT, AND IT RUNS BEFORE THE RE-RENDER BELOW ──────────────────────────────
     # ACCEPTED and REFUSED alike: "your switch did not happen, and here is why" is the answer the
     # owner is owed most. Only a request that NAMED a thread reports; the rest are silent exactly
     # as before, so nothing a previous caller staged acquires a new behaviour.
@@ -643,17 +620,19 @@ def apply(inbox, config, profiles_path=DEFAULT_PROFILES, restart=True, dry_run=F
             # settled change is a fact nobody has to act on and is POSTED verbatim; a REFUSAL
             # is an unfinished job, so it WAKES an agent on the thread that asked for it.
             r["chat-report"] = report_to_thread(inbox, r["chat-thread"],
-                                                _report_body(r, restart),
+                                                _report_body(r, repass),
                                                 "wake" if r["outcome"] == "REFUSED" else "post")
             if r.get("moved-to"):
                 _outcome(Path(r["moved-to"]), r)
 
     if accepted and not dry_run:
-        out["after"] = read_value(config)
-        out["restart"] = _restart() if restart else {"skipped": "--no-restart"}
+        out["after"] = read_value(bindings, seat, profiles_path)
+        # The package is the goal the request was staged in — never a name typed into this argv.
+        out["repass"] = (_repass(_goal_dir(inbox), seat, catalog_root, bindings) if repass
+                         else {"skipped": "--no-repass"})
         for r in results:
             if r["outcome"] == "ACCEPTED" and r.get("moved-to"):
-                r["restart"] = out["restart"]
+                r["repass"] = out["repass"]
                 r["after"] = out["after"]
                 _outcome(Path(r["moved-to"]), r)
     return out
@@ -663,35 +642,39 @@ def main(argv=None):
     p = argparse.ArgumentParser(
         prog="rbtv-master-profile",
         description="read and change which harness+model — and at which reasoning RUNG — the "
-                    "channel master's next sitting runs on: the `master_profile` and "
-                    "`master_effort` fields of .rbtv/config/chat-bridge-config.json")
+                    "channel master's next sitting runs on: the harness/model/effort triple of its "
+                    "seat in .rbtv/config/modules/meta/master-agent/bindings/channel-master.json")
     # ⚠ THE OPTIONS HANG OFF THE VERBS, NOT OFF THE ROOT PARSER — a FIX, not a style call. As root
     # options argparse accepts them only BEFORE the verb, while the `tools:` entry and every
-    # documented example spell them after (`apply --inbox … --config X --profiles Y`). The twin
+    # documented example spell them after (`apply --inbox … --bindings X --profiles Y`). The twin
     # capability's first live fire died on exactly that (`error: unrecognized arguments: --config`),
     # leaving the request un-drained and the execution recorded `failed`. Shared parent parsers keep
     # ONE definition of each option and admit it where callers actually put it.
-    cfg_opt = argparse.ArgumentParser(add_help=False)
-    cfg_opt.add_argument("--config", default=str(DEFAULT_CONFIG),
-                         help="the chat-bridge config that carries the knob (default: the live one)")
+    sheet_opt = argparse.ArgumentParser(add_help=False)
+    sheet_opt.add_argument("--bindings", default=str(DEFAULT_BINDINGS),
+                           help="the casting sheet that carries the knob (default: the live one)")
+    sheet_opt.add_argument("--seat", default=DEFAULT_SEAT,
+                           help="which seat of that sheet is the master (default: %(default)s)")
     prof_opt = argparse.ArgumentParser(add_help=False)
     prof_opt.add_argument("--profiles", default=str(DEFAULT_PROFILES),
                           help="the spawn-profiles document a requested name is validated against")
     sub = p.add_subparsers(dest="verb", required=True)
 
-    s = sub.add_parser("show", parents=[cfg_opt, prof_opt],
-                       help="print the profile in force, where it comes from, and the "
+    s = sub.add_parser("show", parents=[sheet_opt, prof_opt],
+                       help="print the cast in force, where it comes from, and the "
                             "names that may be requested")
     s.add_argument("--json", action="store_true")
 
-    q = sub.add_parser("request", parents=[prof_opt],
+    q = sub.add_parser("request", parents=[sheet_opt, prof_opt],
                        help="[the seat's verb] stage a change and enqueue the daemon "
                             "job that applies it")
     q.add_argument("profile")
     q.add_argument("--effort", type=int, default=None,
                    help="the reasoning RUNG for the NEW profile: an integer 1..N in that profile's "
-                        "own ladder, 1 = lowest reasoning. `show` prints every profile's N. OMIT IT "
-                        "and the harness default is used — and any rung currently set is CLEARED, "
+                        "own ladder, 1 = lowest reasoning. `show` prints every profile's N. REQUIRED "
+                        "when the profile HAS a dial and refused when it has none — the sheet stores "
+                        "the harness's own level string, and materialize refuses a dialled seat with "
+                        "no effort. Omitting it on a dial-less profile clears any rung currently set, "
                         "because a rung is only meaningful against the profile it was chosen "
                         "for. " + EFFORT_GUIDANCE)
     q.add_argument("--inbox", required=True)
@@ -702,43 +685,47 @@ def main(argv=None):
                         "into that thread; omitted, the outcome is only the file in done/refused/")
     q.add_argument("--dry-run", action="store_true")
 
-    a = sub.add_parser("apply", parents=[cfg_opt, prof_opt],
-                       help="[the daemon's verb] drain the inbox, edit the config, "
-                            "restart the bridge")
+    a = sub.add_parser("apply", parents=[sheet_opt, prof_opt],
+                       help="[the daemon's verb] drain the inbox, write the cast, "
+                            "re-render the seat descriptor")
     a.add_argument("--inbox", required=True)
-    a.add_argument("--no-restart", action="store_true")
+    a.add_argument("--catalog-root", default=str(DEFAULT_CATALOG_ROOT),
+                   help="the component catalog the re-render reads the seat definition from")
+    a.add_argument("--no-repass", action="store_true")
     a.add_argument("--dry-run", action="store_true")
 
     args = p.parse_args(argv)
     try:
-        if args.verb in ("request", "apply"):
-            raise Refusal(RETARGET_REFUSAL)
         if args.verb == "show":
-            v = read_value(args.config)
-            v["available"] = sorted(known_profiles(args.profiles))
+            v = read_value(args.bindings, args.seat, args.profiles)
+            v["available"] = known_profiles(args.profiles)
             v["effort-ladders"] = ladders(args.profiles)
             v["effort-guidance"] = EFFORT_GUIDANCE
             if args.json:
                 print(json.dumps(v, indent=2))
             else:
-                print(f"master_profile: {v['profile']}  ({v['source']})")
-                print(f"master_effort:  {v['effort'] if v['effort'] is not None else 'unset (harness default)'}"
-                      f"   [{v['effort-ladders'].get(v['profile'], 'unknown profile')}]")
+                print(f"cast:   {v['harness']}/{v['model']}"
+                      f"  (profile `{v['profile'] or 'UNKNOWN — matches no declared profile'}`)")
+                effort = f"{v['effort']} (rung {v['rung']})" if v["rung"] else (
+                    v["effort"] or "none (harness default)")
+                print(f"effort: {effort}"
+                      f"   [{v['effort-ladders'].get(v['profile'], 'no ladder — unknown profile')}]")
                 print(f"from: {v['where']}")
                 print("available (profile — effort rungs you may ask for):")
                 for n in v["available"]:
                     print(f"  {n}: {v['effort-ladders'][n]}")
                 print(textwrap.fill(EFFORT_GUIDANCE, 96, subsequent_indent="  "))
-                print("boot-read: a change needs an `rbtv-chat-bridge` restart to take effect, "
-                      "and that restart ends the live chat session")
+                print("takes effect on the NEXT message — nothing is boot-read and nothing is "
+                      "restarted, so requesting a change no longer ends your chat session")
             return 0
         if args.verb == "request":
             out = request(args.inbox, args.profile, args.ignite_bin, profiles_path=args.profiles,
-                          dry_run=args.dry_run, chat_thread=args.chat_thread, effort=args.effort)
+                          dry_run=args.dry_run, chat_thread=args.chat_thread, effort=args.effort,
+                          bindings=args.bindings, seat=args.seat)
             print(json.dumps(out, indent=2))
             return 0 if out["ok"] else 1
-        out = apply(args.inbox, args.config, profiles_path=args.profiles,
-                    restart=not args.no_restart, dry_run=args.dry_run)
+        out = apply(args.inbox, args.bindings, args.seat, args.catalog_root,
+                    profiles_path=args.profiles, repass=not args.no_repass, dry_run=args.dry_run)
         print(json.dumps(out, indent=2))
         return 0 if out["ok"] else 1
     except Refusal as exc:

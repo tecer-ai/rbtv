@@ -371,6 +371,13 @@ def castable(profiles_path=DEFAULT_PROFILES):
     return {(r["harness"], r["model"]): r for r in catalog(profiles_path) if r["castable"]}
 
 
+def profile_row(name, profiles_path=DEFAULT_PROFILES):
+    """The catalog row a profile NAME resolves to, or None. The same rows `catalog` prints and
+    `set` enforces — keyed by name, because a caller holding a profile name (the channel master's
+    knob) needs the harness+model it stands for, and one profile IS one harness+model pair."""
+    return next((r for r in catalog(profiles_path) if r["profile"] == name), None)
+
+
 def _coord_validate_seat():
     """The launch-time harness+model predicate, IMPORTED from coord.py — never re-implemented.
 
@@ -454,9 +461,16 @@ def inspect(workflow_csv, config_root=None):
 # ─────────────────────────────────────────────────────────────────────── scaffold / set
 
 def _write(path, doc):
+    # ⚠ `ensure_ascii=False`, AND IT IS A FIX. Without it `json.dumps` escapes every non-ASCII
+    # character, so writing ONE seat's cast also rewrote every line of prose in the sheet that
+    # contained an em dash — `—` became `—` in the `_what`/`_code`/`description` keys nobody
+    # touched. Measured 2026-08-12 on the channel master's sheet: a three-field change produced a
+    # five-line prose diff. These files are hand-authored and read by humans; the two planning
+    # sheets on this deployment already carry escaped dashes from earlier writes. The file is
+    # opened as UTF-8 either way, so nothing about what parsers see changes.
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
 
 
@@ -508,6 +522,25 @@ def set_seat(workflow_csv, seat, harness, model, effort_number,
         raise Refusal(f"{path} does not exist — `scaffold {workflow_csv}` first. `set` edits one "
                       f"seat of an existing sheet; it never mints the sheet, so a typo'd workflow "
                       f"path cannot quietly create a second casting sheet nobody reads.")
+    return cast_seat(path, seat, harness, model, effort_number, profiles_path, dry_run)
+
+
+def cast_seat(path, seat, harness, model, effort_number,
+              profiles_path=DEFAULT_PROFILES, dry_run=False):
+    """Validate one cast against the catalog and write it into ONE seat of an EXISTING sheet.
+
+    Split out of `set_seat` so a STANDING seat — whose sheet is named for the seat rather than
+    derived from a workflow manifest, because a standing seat has no manifest (task 7.617) — casts
+    through the SAME validator and the SAME write. `capabilities/master-profile` is that second
+    caller: the channel master's own knob. Everything above this line is the WORKFLOW half —
+    resolving which sheet and proving the seat is one of the manifest's; a caller that already
+    knows its sheet and its seat has nothing to resolve and calls straight in here.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise Refusal(f"{path} does not exist. This writes one seat of an EXISTING sheet and never "
+                      f"mints one, so a mistyped path cannot quietly create a casting sheet "
+                      f"nobody reads.")
 
     known = castable(profiles_path)
     row = known.get((harness, model))

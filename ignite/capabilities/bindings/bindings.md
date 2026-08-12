@@ -52,8 +52,13 @@ only way to keep N copies honest is to not have them.
 ## Not a two-part capability — and that is the measured difference
 
 `goal-launch-delay` and `master-profile` each split into a seat-side `request` and a daemon-side
-`apply`, because the value they change lives in a file the requesting seat's cage binds read-only
-and a service boot-reads. **Neither is true here.** The bindings tree is in the channel master's
+`apply`. ⚠ **Their reasons are no longer the same, and `master-profile`'s is now the interesting
+one:** since its 2026-08-12 retarget it writes a file in THIS tree — which the master's cage grants
+it — and it stays split ONLY because the `--repass` that makes the write take effect writes
+`<goal>/seat.md`, and a seat cage refuses every grant overlapping `.rbtv/goals/`. So the sheet-write
+half of that capability is as unsplit as this one; the re-render is what needs the daemon.
+
+For this capability neither the read-only cage nor a boot-read is true. The bindings tree is in the channel master's
 `rw-paths`, and nothing boot-reads it — materialization opens the file at goal-creation time and
 closes it. So every verb is a plain direct file write, there is no staged inbox, no `enqueue-job`
 trigger, and no restart. A seat runs this tool itself.
@@ -66,6 +71,32 @@ trigger, and no restart. A seat runs this tool itself.
 | `inspect <workflow.csv>` | Every manifest seat: id, the seat-definition file it resolves to, its staffing hints (advisory), and its current casting — plus which seats remain uncast. |
 | `scaffold <workflow.csv>` | Creates the sheet at the canonical path with every manifest seat present and casting values null; lane constants prefilled. **Create-only** — it refuses over an existing sheet rather than silently re-casting a taskforce that may already have run. |
 | `set <workflow.csv> <seat> <harness> <model> <effort-number>` | Casts one seat. |
+
+## ⚠ `set` has TWO halves, and a STANDING seat calls only the second
+
+`set_seat` = resolve which sheet (from the workflow manifest) + prove the seat is one of the
+manifest's + **`cast_seat`**. `cast_seat(path, seat, harness, model, effort_number)` is the half that
+validates a cast against the catalog and writes it into one seat of an EXISTING sheet — it was split
+out on 2026-08-12 so a caller that already KNOWS its sheet and its seat has nothing to resolve.
+
+That caller is **`capabilities/master-profile`**, the channel master's own knob. A standing seat is
+not a workflow, so it has no manifest and no four-letter code, and its sheet is named for the SEAT
+(`bindings/channel-master.json`) — which is why `set` cannot serve it (task 7.617) and why that file
+was hand-authored until the retarget. ⚠ **The decision recorded in row 7.749 — teach `rbtv-bindings`
+a standing-seat MODE, or let `master-profile` write the file itself — was resolved as NEITHER
+extreme: `master-profile` owns the transport and the path, and this capability owns the validation
+and the write.** No second opinion about what may go in the file exists, and no verb here grew a
+standing-seat surface nobody asked for. The imports are pinned by object identity in
+`capabilities/master-profile/probes/probe-master-profile.py` check 10d.
+
+## ⚠ The write is `ensure_ascii=False`, and that is a fix
+
+`_write` dumped without it until 2026-08-12, so writing ONE seat's three casting fields also rewrote
+every line of prose in the sheet containing a non-ASCII character — `—` became `\u2014` in the
+`_what` / `_code` / `description` keys nobody touched. Measured on the channel master's sheet: a
+three-field change produced a five-line prose diff. These files are hand-authored and read by
+humans; the file is opened as UTF-8 either way, so nothing a parser sees changed. The two planning
+sheets on this deployment still carry escaped dashes from earlier writes.
 
 ## `catalog` is the validator, not just a display
 

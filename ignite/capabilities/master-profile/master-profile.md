@@ -1,25 +1,42 @@
 # master-profile — the channel master choosing its own harness and model
 
 Issue **C-1** (owner-ruled 2026-08-10). Twin of `goal-launch-delay`: same ruling, same two-part
-transport, different file, different validator, different unit restarted.
+transport, different file, different validator, different last act.
 
 The tool is `tool/rbtv-master-profile`.
 
 ## What the knob actually is
 
-`master_profile` in `.rbtv/config/chat-bridge-config.json`. The bridge reads it at boot
-(`bridges/chat/config.js`) and `forward-path.js#profileFor` selects it for **master (DM)** traffic:
+⚠ **RETARGETED 2026-08-12** (task *"RETARGET master-profile request/apply onto the bindings path"*,
+core-build). Until then the knob was `master_profile` in `.rbtv/config/chat-bridge-config.json`,
+boot-read by the bridge and selected per SURFACE by `forward-path.js#profileFor`. The launch-cast
+unification (owner ruling **D2**, 2026-08-11) deleted that key's readers, and this tool was parked
+on a refusal naming the correct target rather than half-retargeted — the right interim call, and a
+dead CLI for a day. Owner's words at the door: *"THERE IS A REASON I CREATED A CLI FOR MASTER TO
+CHANGE MODEL, AND EFFORT."*
 
-```js
-return config.masterProfile || config.sessionProfile;
+The knob is the master's own **casting sheet**:
+
+```
+.rbtv/config/modules/meta/master-agent/bindings/channel-master.json
+  → seats["channel-master"].{harness, model, effort}
 ```
 
-so an absent or empty `master_profile` silently falls back to `session_profile` — which is why this
-tool **refuses to create the key** rather than inventing one (below). The value is a spawn-profile
-NAME from `profiles:` in `config/spawn-profiles.yaml`; today's live set is fourteen names
-(`claude-fable` · `claude-opus` · `claude-sonnet` · `claude-haiku` · `codex-gpt-5-5` · `kimi` · the
-`opencode-*` set · `test-sleep`), and `show` prints it rather than restating it here, because a
-roster written into a document goes stale silently.
+which is the same kind of file `rbtv-bindings` writes for every workflow seat. Per
+`d-master-is-cast-like-any-other-seat` the SEAT governs and this CLI's job is to **re-cast the
+seat** — never to pass a per-dispatch override on the wire. `materialize-seats.py --repass`
+re-renders `seat.md` from the sheet, and every launch door resolves the cast from that descriptor
+(`launch-profiles/catalog.js#castProfileFor`, `readFileSync` per launch, never boot-cached).
+
+The AGENT-FACING unit is still a spawn-profile NAME from `profiles:` in `config/spawn-profiles.yaml`
+— one profile IS one harness+model pair (`r-seats-only-architecture`), so a name is a complete cast
+and the requester keeps one vocabulary. `show` prints the askable set rather than this document
+restating it, because a roster written into a document goes stale silently.
+
+⚠ **THE NAMES OFFERED ARE THE CASTABLE ONES, WHICH IS NARROWER THAN `profiles:`.** The old
+validator accepted every declared key; the sheet must hold a pair `coord.py#validate_seat` accepts,
+because that is the predicate `materialize-seats.py`'s F6 gate runs over the whole batch. `test-sleep`
+is the sharp case — a declared profile that is not castable, and the old validator waved it through.
 
 ## The effort rung — a wall until 2026-08-11, built since
 
@@ -36,11 +53,14 @@ built rather than the knob dropped, explicitly overriding that reservation. What
 
 | Link | What it does now |
 |---|---|
-| `bridges/chat/config.js` | reads `master_effort` (integer, shape-checked at boot) |
-| `bridges/chat/forward-path.js#effortFor` | pairs it with the **master** profile and puts it in the enqueue `args` (goal/agent traffic carries none) |
-| the catalogue job id | a **new** id whose `args_schema` declares `"effort": "integer"`, named by `session_job_id`. Registration is create-only, so the old id could not be widened — it stays registered and still refuses, retired in place |
+| ~~`bridges/chat/config.js` reads `master_effort`~~ | **HISTORY.** Deleted by D2 the same week it shipped — the transport names no execution |
+| ~~`forward-path.js#effortFor`~~ · ~~the widened job id~~ | **HISTORY**, same ruling. The per-SURFACE effort lane is gone |
 | `server/ticker/ticker.js#launchAgent` | reads `args.effort`, passes it to `spawnManager.spawn(...)` |
 | `server/spawn/spawn.js#composeArgv` | composes it through `resolveEffort()` — the **same** function `launch-profiles/resolveProfile` calls, never a second reading of the table |
+
+⚠ **The first two rows are history and the last two are the load-bearing half.** The rung reaches
+`composeArgv` from the SEAT'S DESCRIPTOR now, on every lane, so the effort this tool writes is
+honoured whether the master is reached over chat or spawned by the daemon.
 
 `dispatch.js`'s five "re-rule at 7.43/7.54" notes are now four: `E_UNKNOWN_EFFORT` is re-ruled and
 raised live. **Half selection is still refused** (G-144) and still belongs to 7.43/7.54 — the
@@ -50,10 +70,10 @@ effort ladder was separable from it, which is why this could ship without that r
 7.54's `(harness, model) → profile-name` catalog is live — `launch-profiles/catalog.js`, applied at
 `server/spawn/spawn.js#profileForSeatCast` — so a seat that declares `harness:`/`model:` in its own
 `seat.md` now launches on the profile it is cast as, on every lane, including a chat revival. That
-does **not** touch this capability: the channel master declares no cast by design
-(`materialize-seats.py#open_binding` — its harness and model stay the chat bridge's to name), which
-is exactly the fallback case the catalog leaves alone, so the master's profile knob behaves as
-documented above.
+is now the mechanism this capability RUNS ON. ⚠ The sentence that stood here until 2026-08-12 —
+*"the channel master declares no cast by design … its harness and model stay the chat bridge's to
+name"* — was already false when D2 retired `open_binding` for this seat. The master declares its
+cast like everyone else, and this tool is how it changes it.
 
 ## ⚠ What a rung IS — a number, 1..N, in **that profile's** ladder
 
@@ -71,39 +91,59 @@ reasoning, rung N the highest, and **N differs per profile** because each harnes
 - **Out of range is refused, loudly, naming the range** — at `request`, again at `apply`, and again
   at the spawn. A rung is only meaningful against a profile, so it is always checked against the
   profile the request is switching **to**, never the one in force.
-- **An inert profile ACCEPTS a rung and applies none** (G-270), and says so. So a rung set while
-  the master runs on `claude-haiku` visibly does nothing — the honest report, not a defect.
-- **No rung at all = the harness default**, which is exactly the behaviour before this existed.
+- **An inert profile REFUSES a rung**, and this REVERSED with the retarget. Against the bridge
+  config a rung on `claude-haiku` was accepted and reported inert (G-270). Against the sheet it is
+  refused: the sheet stores the harness's own LEVEL STRING for `materialize-seats.py` to render, and
+  a stored level no harness honours is precisely the knob-that-does-nothing G-270 exists to expose.
+  G-270 is unchanged — it governs what a dial REPORTS about itself, and `show` still reports those
+  profiles as inert.
+- **The mirror-image rule holds too: a profile WITH a dial MUST be given a rung.** `materialize`
+  refuses `effort-missing` on a dialled seat, so "no rung" is not a valid cast for `claude-opus`.
+  Only a dial-less profile may carry none.
 - `show` prints every profile's ladder, so nobody has to know N out of band.
 
 ## ⚠ The rung is written WITH the profile, and an omitted rung CLEARS the old one
 
-`request claude-opus --effort 4` writes both fields. `request codex-gpt-5-5` — no `--effort` —
-writes the profile and **removes** `master_effort`. That is not tidiness: rung 4 chosen for a
-five-rung harness, left behind across a switch to a three-rung one, passes every door in this tool
-and then **refuses at the spawn**, one owner message later — the exact failure the profile-name
-validation exists to prevent, one field over.
+`request claude-opus --effort 4` writes all three fields. `request claude-haiku` — no `--effort`,
+and none admitted — writes the pair and **removes** the sheet's `effort`. That is not tidiness:
+rung 4 chosen for a five-rung harness, left behind across a switch to a three-rung one, passes every
+door in this tool and then **refuses at the spawn**, one owner message later — the exact failure the
+profile-name validation exists to prevent, one field over.
 
-(`master_profile` itself is still never *created* by this tool — see below. `master_effort` is,
-because an absent `master_effort` has no second meaning: it is simply "harness default", and a knob
-that can be turned up but never down is worse than no knob.)
+⚠ **AND THE VALIDATOR IS `bindings.cast_seat`, NOT A CHECKER IN THIS TOOL.** `request` calls it with
+`dry_run=True` and `apply` calls it for real — one function answers *"may I?"* and performs *"do
+it"*, so the two answers cannot disagree. The tool's own `validate_effort` was DELETED rather than
+kept beside it: a second effort validator over a file another capability owns is the drift the
+ladder-reader collapse (below) was performed to end, one field over. The task's criterion 4 said
+*"validate_effort already does this; keep it"* — the intent (the rung is checked against the TARGET
+profile's ladder at request time) is met and made stricter; the named function is not kept, and
+that divergence is deliberate.
 
 ## The three verbs
 
 | Verb | What it does | Who runs it |
 |---|---|---|
-| `show [--json]` | the profile **and rung** in force, whether the profile is explicit or the `session_profile` fallback, the exact `file:line`, and **every profile with the rungs it admits** | anyone, including a caged seat |
+| `show [--json]` | the cast in force in BOTH vocabularies (harness/model/effort AND the profile name + rung it maps to), the sheet it came from, and **every castable profile with the rungs it admits** | anyone, including a caged seat |
 | `request <profile> [--effort N] --inbox D [--chat-thread C:TS]` | validate the name against the live roster **and the rung against that profile's ladder** → stage `{"master-profile": …, "effort": N}` (plus the thread id when given) → `ignite add-job` | **the seat** |
-| `apply --inbox D --config F --profiles P [--no-restart]` | drain, re-validate, edit **both** JSON fields, record the outcome, **report into the requester's chat thread**, restart `rbtv-chat-bridge` LAST | **the daemon**, via `tools: master-profile` |
+| `apply --inbox D --bindings F --seat S --catalog-root R --profiles P [--no-repass]` | drain, re-validate, write the **harness/model/effort triple**, record the outcome, **report into the requester's chat thread**, `--repass` the seat's descriptor LAST | **the daemon**, via `tools: master-profile` |
 
 Exit 0 when everything drained was accepted (or the inbox was empty), 1 otherwise.
 
-## Why the transport is split in two
+## Why the transport is split in two — and the reason NARROWED with the retarget
 
-Identical to `goal-launch-delay` and to `goal-creation-request` before it, and the reasoning is not
-restated here (`goal-launch-delay.md` § *Why the transport is split in two* carries it): the cage
-binds `.rbtv/config` read-only, `fire-tool` argv is static so the payload travels as a file, and
-`enqueue-job` is the one gateway verb open to a `bridge` token.
+⚠ **IT IS NO LONGER "THE SEAT CANNOT WRITE THE FILE".** The bindings tree is in the channel master's
+`rw-paths`, and the seat writes it directly — that is exactly why `capabilities/bindings` is a
+one-part capability. The split survives for the **RE-RENDER**: `--repass` rewrites
+`<goal>/seat.md`, and `spawn.js`'s `rw-paths` resolver refuses any grant overlapping `.rbtv/goals/`
+by design, because a seat may not rewrite its own identity surface. So the seat can author the cast
+and cannot make it take — the worst of both — and the split gives authoring to `request` and the
+re-render to `apply`. Measured and filed as `i-cast-rerender-blocked` on the master's own issues
+ledger (2026-08-11); closed by this change.
+
+The transport itself is unchanged from `goal-launch-delay` and `goal-creation-request`
+(`goal-launch-delay.md` § *Why the transport is split in two* carries the reasoning): `fire-tool`
+argv is static so the payload travels as a file staged in the seat's own folder, and `enqueue-job`
+is the one gateway verb open to a `bridge` token.
 
 ## ⚠ Validation is against the LIVE roster, at both halves
 
@@ -111,38 +151,51 @@ An unknown profile name **does not fail at the bridge**. It fails at the *spawn*
 later, with the sitting already accounted for — which is why the name is checked at the door and
 again at the fire, and why the refusal names the whole live set back to the requester.
 
-The roster is **read** from `spawn-profiles.yaml`, never carried as a copy: a list frozen in the tool
-would refuse a profile that exists or admit one that was removed, the second being the failure that
-reaches the spawn. Adding a profile to that file needs no edit here.
+The roster is **read** from `spawn-profiles.yaml` through `bindings.catalog` — the ONE derivation
+`rbtv-bindings catalog` prints and `rbtv-bindings set` enforces — never carried as a copy: a list
+frozen in the tool would refuse a profile that exists or admit one that was removed, the second being
+the failure that reaches the spawn. Adding a profile to that file needs no edit here.
 
-*ponytail:* the read is a line scan of the two-space keys under `profiles:`, not a YAML parse.
-Ceiling: a profile declared with a non-standard indent or a quoted key would be missed. Upgrade path
-if that ever happens: PyYAML is already a daemon dependency — but a parse here would be the only
-reader of this document that needs one, for a question a scan answers exactly.
+⚠ **The line-scan of the `profiles:` keys is GONE, and it was not merely slower — it was WIDER.** It
+answered "is this a declared key?", which admits `test-sleep` and any profile with no `exec:` half.
+The sheet needs "is this a castable pair?", and only the catalog answers that.
 
-## ⚠ An absent `master_profile` refuses rather than being created
+## ⚠ An unknown SEAT refuses rather than being created
 
-If the key is not in the file, master traffic is riding `session_profile` **by fallback** — a live
-configuration choice. Minting the key would split the two surfaces apart without anyone deciding to.
-That is an operator's edit (one line of JSON), not a requester's; once it exists, this tool owns it.
+A sheet whose `seats` map does not carry the named seat is a refusal naming what it does carry.
+Minting the entry would cast a seat nothing materializes. (This replaces the retired
+*"an absent `master_profile` refuses rather than being created"* rule, which guarded the same class
+of mistake one file over.)
 
-## ⚠ The restart ends the owner's live chat session
+## ⚠ Nothing is restarted, and the owner's chat session survives
 
-`rbtv-chat-bridge.service` is boot-read, so there is no cheaper way to apply this — and the sitting
-that made the request is the one that dies. Hence the ordering, which is the same as the twin's and
-for the same reason: **edit (atomic `os.replace`) → outcome record on disk → restart last**. The
-next sitting reads what happened to the request the previous one made. `request` says this out loud
-in its own output rather than leaving the seat to discover it.
+This is the single biggest behavioural change of the retarget. The old apply restarted
+`rbtv-chat-bridge.service` because the bridge boot-read the value, which killed the very
+conversation that asked for the switch — a knob that cost the owner his session to turn.
 
-The restart is delegated to `daemon-operator` (`restart --service chat-bridge`), never
-re-implemented (`PRIN-11`) — which is also what lets `RBTV_IGNITE_UNIT` steer the probe at a
-throwaway unit.
+A casting sheet is not boot-read by anything:
+
+| Link | What makes the switch land |
+|---|---|
+| `server/spawn/spawn.js` | reads `seat.md` per launch (`readFileSync`), never cached |
+| `launch-profiles/catalog.js#castProfileFor` | maps the descriptor's `(harness, model)` to the profile name, and the seat's cast BEATS the caller's |
+| `server/spawn/live-sessions.js` | re-resolves the cast on EVERY owner message and REAPS a warm session whose conversation now names a different profile (§ *REAP ON A PROFILE SWITCH*) |
+
+So the ordering is **write (atomic `os.replace` via `bindings._write`) → outcome record on disk →
+re-render last**, the switch takes effect on the owner's next word, and the thread that requested it
+is still there to read the report.
+
+The re-render is delegated to `team-kit/materialize-seats.py`, the ONE renderer of a `seat.md`
+(`PRIN-11`) — the same one goal creation runs. `--package` is DERIVED from `--inbox` (the inbox is
+`<goal>/settings-requests/<capability>`, so its grandparent IS the goal folder), which keeps one
+goal name out of the fired argv instead of two that could drift apart.
 
 ## ⚠ `--chat-thread` — the outcome reports itself back into the owner's thread
 
 Issue `i-profile-switch-no-feedback` (owner-ruled 2026-08-10). The outcome record in `done/` is
-durable but **silent**: the sitting that asked is killed by the restart, and the owner watches a
-thread where nothing ever answers. So `request` takes `--chat-thread <channel>:<ts>` — the sitting's
+durable but **silent**: the sitting that asked ended with its turn, and the owner watches a thread
+where nothing ever answers. (When this was ruled, the restart also killed that sitting outright. The
+sitting survives now; the silence does not fix itself.) So `request` takes `--chat-thread <channel>:<ts>` — the sitting's
 own thread, which it already knows from the plain `chat-thread:` line at the top of every prompt —
 the staged payload carries it as `"chat-thread"`, and `apply` reports the outcome there.
 
@@ -166,7 +219,7 @@ asks to be POSTED verbatim: no agent, no inference, no ~12 s spawn pipeline. Voc
 | Property | Why |
 |---|---|
 | ACCEPTED **and** refused both report | "your switch did not happen, and here is why" is the answer the owner is owed most |
-| the report precedes the restart | restart-last is the ruled invariant above, so the row **cannot** state the restart's exit code — it states what is *about to* happen. The rc stays in the outcome record |
+| the report precedes the re-render | render-last is the ruled invariant above, so the row **cannot** state its exit code — it states what is *about to* happen. The rc stays in the outcome record, rewritten once the render returns |
 | a failed append never aborts the apply | the switch is the job, the report is the courtesy — it is recorded as `chat-report.error` in the outcome record and the fire continues |
 | no token → nothing is appended | pre-existing callers keep the behaviour they had |
 | a token the ferry could not route is **refused**, at both halves | the shape mirrors `bus-ferry.js`'s `CHAT_THREAD_RE` anchored; an accepted-but-unroutable token is a report nobody receives |
@@ -182,7 +235,8 @@ capability, deliberately: a table refuses the phrasing nobody anticipated. What 
 instead is the SHAPE of the scale, printed by `show` and by `request --help` as `EFFORT_GUIDANCE`
 — a rung is a *position* on the target profile's ladder, so the phrasing maps proportionally onto
 1..N (minimal → 1, medium → the middle rung, high → just below N on a ladder of 4+, maximum → N),
-and a request naming **no** effort omits the rung rather than guessing one.
+and a request naming **no** effort still has to pick one when the target has a ladder (the middle
+rung is the honest default for an unstated ask), because a dialled seat with no effort is refused.
 
 ```bash
 # what is it now, and what may I ask for?
@@ -190,8 +244,9 @@ and a request naming **no** effort omits the rung rather than guessing one.
 
 # change it (validates name AND rung against the live config, stages, enqueues — one command)
 # `--chat-thread` is YOUR thread: the plain `chat-thread:` line at the top of your prompt.
-# `--effort` is OPTIONAL: omit it for the harness default — and note that omitting it CLEARS any
-# rung currently set, because a rung belongs to the profile it was chosen for.
+# `--effort` is REQUIRED for a profile with a dial and REFUSED for one without — the sheet must
+# hold a rung `materialize` accepts. Omitting it on a dial-less profile CLEARS any rung currently
+# set, because a rung belongs to the profile it was chosen for. `show` says which profiles are inert.
 .../capabilities/master-profile/tool/rbtv-master-profile request claude-opus --effort 4 \
   --chat-thread C0ABCDEFG:1754812345.123456 \
   --inbox /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/settings-requests/master-profile
@@ -204,7 +259,11 @@ ls .../settings-requests/master-profile/done .../settings-requests/master-profil
 
 1. create the inbox directory the entry names
    (`.rbtv/goals/_channel-master/settings-requests/master-profile`);
-2. restart the daemon — `spawn-profiles.yaml` is boot-read;
+2. restart the daemon — `spawn-profiles.yaml` is boot-read. ⚠ **This is not a one-time step: the
+   `tools:` argv is held in memory from boot (`heartStore.config.tools`, no reload path), so ANY
+   edit to this capability's registered argv is inert until `rbtv-ignite-daemon restart` runs.
+   Measured 2026-08-12 during the retarget — the new flags were on disk and the daemon kept firing
+   the old ones;**
 3. `ignite register-job master-profile --action-type fire-tool --args-schema '{"required":{"tool":"string"}}'`.
 
 `register-job` is create-only and refused to a `bridge` token — an operator act, done once. The seat
@@ -213,29 +272,58 @@ only ever needs `add-job`, which the `request` verb issues for it.
 ## Probe
 
 `probes/probe-master-profile.py` — run it through the enumerator
-(`node deploy/probe-suite.js --only probe-master-profile`). Entirely under `tempfile` on a byte-copy
-of the live bridge config with the restart stubbed. It proves: the edit lands and is read back from
-the file; the restart is invoked **at the bridge unit and never at the ignite unit**, and the config
-as the restart saw it already carried the new value; four refusal shapes leave the file's sha256
-unchanged with no restart fired, the unknown-name refusal naming the live set back; validation reads
-the roster **live** (a profile present only in a copy is accepted against that copy, and one absent
-from a copy is refused against it — a hard-coded roster fails this and only this); an absent key
-refuses instead of being created; exactly one line moves and the document's own indentation survives;
-and a **mutant** with the membership check neutered goes green, so the refusal is proven to come
-from that check. Check 9 covers the self-report: `--chat-thread` stages the id and an unroutable one
-refuses at request time; a threaded apply appends **exactly one** row, parsed back the way the ferry
-parses it (fields by key) with the bracketed token, the old→new line and the scope line, ending in a
-newline; the restart stub's **snapshot of the bus** already holds that row (report precedes restart);
-an untokened request appends nothing; a refused one reports its refusal. The fixture's inbox has the
-real `<goal>/settings-requests/<capability>` shape, because that is what the bus path is derived
-from — and it keeps the probe off the live bus. Check 10 covers the effort rung end to end: the
-ladders are read off the LIVE `spawn-profiles.yaml` per profile; `request --effort` stages the rung
-and `apply` writes `master_effort` beside `master_profile` **in the file**, read back off the file
-rather than off the record; the SAME rung is refused on a shorter-laddered profile and accepted on a
-longer one, which is what proves the range is the profile's and not a global ceiling; an inert
-profile accepts it and records `effort-inert`; and a switch with no rung clears the stale one. Check
-10b proves a refused rung rides the SAME `[deliver: wake]` outcome mapping check 9c proves for a
-refused profile name — one outcome path, not a second.
+(`node deploy/probe-suite.js --only master-profile`). Entirely under `tempfile` on a byte-copy of
+the live CASTING SHEET, with the re-render stubbed: the real one rewrites the channel master's own
+descriptor, which decides what the owner's next sitting runs, and a probe may not move that.
+
+It proves: the cast lands in the sheet and is read back **from the file**, with the harness's own
+level string stored (never the rung number); the re-render is invoked with `--repass`, against the
+`--package` DERIVED from the inbox, on the same seat and sheet the write just landed in, and the
+sheet **as the render saw it** already carried the new cast (a render that preceded the write would
+render the OLD cast and report success); five refusal shapes leave the sheet's sha256 unchanged with
+no render fired — including `test-sleep`, a DECLARED profile that is not castable, whose refusal
+must name `validate_seat`; validation reads the roster **live** (the same name accepted against the
+live document and refused against a copy it was renamed out of); an unknown SEAT refuses instead of
+being created; and a **mutant** with the name lookup neutered goes green, so the refusal is proven
+to come from that lookup.
+
+⚠ **Check 6 is the surgical-write control, and it is not decoration.** It asserts that every line of
+the sheet which is not the seat's own casting fields survives BYTE FOR BYTE, and that no character
+was escaped into a `\uXXXX` sequence. On 2026-08-12 `bindings._write` dumped without
+`ensure_ascii=False`, so writing three fields also rewrote five lines of hand-authored prose
+(`—` → `\u2014`) in keys nobody touched — a live regression caught only because a human diffed the
+file. This arm is the machine that catches it next time.
+
+Check 8 runs the argv the `tools: master-profile` entry actually declares, as a SUBPROCESS, and
+asserts it RUNS CLEAN and LANDS its edit. ⚠ It was inverted for one day (2026-08-11) to assert a
+REFUSAL, while the tool was parked out of service — an arm asserting that the one surface the daemon
+fires refuses is an arm that goes green on a broken capability. Disclosed bound: `--no-repass` is
+appended, because the real renderer needs a real goal package and the fixture is a bare inbox, so
+the subprocess covers every declared token and the drain-and-write, not the render; the render's own
+argv is covered at function level by check 2.
+
+Check 9 covers the self-report: `--chat-thread` stages the id and an unroutable one refuses at
+request time; a threaded apply appends **exactly one** row, parsed back the way the ferry parses it
+(fields by key) with the bracketed token, the old→new line and the takes-effect-next-message line,
+ending in a newline; the stub's **snapshot of the bus** already holds that row (report precedes
+render); an untokened request appends nothing; a refused one reports its refusal. The fixture's
+inbox has the real `<goal>/settings-requests/<capability>` shape, because that is what BOTH the bus
+path and the `--package` are derived from — and it keeps the probe off the live bus and the live
+seat.
+
+Check 10 covers the effort rung end to end, including the two sheet-only rules that REVERSE the
+retired target's behaviour: a rung on an INERT profile is refused rather than stored, and a DIALLED
+profile with NO rung is refused naming `effort-missing`. Check 10b proves a refused rung rides the
+SAME `[deliver: wake]` outcome mapping check 9c proves for a refused profile name — one outcome
+path, not a second.
+
+⚠ **Check 10d pins FIVE objects by identity, not by value** — `cast_seat`, `catalog`, `profile_row`,
+`profile_effort` and `Refusal` are all `bindings`' own objects, and a mutation control proves
+`apply`'s write actually routes through the imported writer rather than around it. Value equality is
+the vacuous version: two copies of the ladder reader agreed on the day they were written and drifted
+silently after, which is the defect that earned this check. `Refusal` joined the list on 2026-08-12
+because the two classes being distinct made every refusal `cast_seat` raised escape `main`'s handler
+as a traceback instead of the `{"ok": false, "refusal": …}` envelope.
 
 The daemon side of the lane has its own probe, `server/spawn/probes/probe-effort-lane.js`: the
 composer applies a rung on three differently-spelled harnesses, refuses out of range naming it,
