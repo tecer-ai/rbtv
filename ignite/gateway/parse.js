@@ -507,13 +507,21 @@ function parseRegisterJob(payload) {
 // What the gateway CANNOT check and must not grow a handle to try: whether the id is in
 // the catalogue at all. That is the core's complete re-validation (DEC-3), and it is the
 // discriminating refusal this whole intent exists to have.
+// ⚑ `purge` is the RECLAIM arm's opt-in (deregister → purge frees the id). SHAPE ONLY here
+// too: whether the row is disabled, unqueued and idle is state, which only the core can read,
+// and it is where all three purge guards live. A STRICT boolean with no coercion — `"false"`
+// and `0` are refused rather than read, because every truthiness convention that has ever
+// been guessed at differs on one of them, and the one that gets guessed wrong deletes a row.
 function parseDeregisterJob(payload) {
   requireObject(payload);
-  rejectUnknownKeys(payload, new Set(['job_id']), 'deregister-job');
+  rejectUnknownKeys(payload, new Set(['job_id', 'purge']), 'deregister-job');
   if (typeof payload.job_id !== 'string' || payload.job_id.length === 0) {
     bad('deregister-job requires a non-empty job_id', 'job_id');
   }
-  return { job_id: payload.job_id };
+  if (payload.purge !== undefined && typeof payload.purge !== 'boolean') {
+    bad('deregister-job purge must be a boolean', 'purge');
+  }
+  return { job_id: payload.job_id, purge: payload.purge === true };
 }
 
 // live-session-design.md §1 — feed one owner turn to a warm session.

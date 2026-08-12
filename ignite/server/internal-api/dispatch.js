@@ -181,11 +181,12 @@ const REGISTER_ALLOWED_KEYS = new Set([
 // derives it from `exec_id` through the store instead.
 const LIVE_FEED_KEYS = new Set(['conversation', 'prompt', 'workdir', 'profile', 'exec_id', 'start']);
 
-// The deregister-job payload's field set (task 7.364) — exactly one key. No `dry_run`:
-// the act is a single idempotent flag flip whose only refusal (unknown id) is decidable
-// by an `inspect jobs` read the sender can already make, so a validate-only mode would
-// add a second code path with nothing to validate.
-const DEREGISTER_ALLOWED_KEYS = new Set(['job_id']);
+// The deregister-job payload's field set (task 7.364) — the id, plus `purge` for the reclaim
+// arm. No `dry_run`: every refusal either arm can raise (unknown id; still enabled; pending
+// queue rows; live executions) is decidable from `inspect jobs`/`inspect queue`/`inspect
+// executions` reads the sender can already make, so a validate-only mode would add a second
+// code path with nothing to validate that a read does not already answer.
+const DEREGISTER_ALLOWED_KEYS = new Set(['job_id', 'purge']);
 
 // ── Boundary serialization ───────────────────────────────────────────────────
 //
@@ -284,6 +285,10 @@ const STORE_TO_WIRE = new Map([
   // "that catalogue id is already taken", fixed by picking another id. Not NOT_FOUND
   // (nothing is missing) and not INTERNAL (nothing broke).
   ['E_JOB_EXISTS', VALIDATION_FAILED],
+  // The purge arm's three state refusals (still enabled / pending queue rows / live
+  // executions). VALIDATION_FAILED for the E_JOB_EXISTS reason exactly: the id is there, the
+  // sender may act on it, and what refused is a state check naming the command that clears it.
+  ['E_JOB_PURGE_REFUSED', VALIDATION_FAILED],
   ['E_JOB_DISABLED', VALIDATION_FAILED],
   ['E_BAD_ARGS', VALIDATION_FAILED],
   ['E_UNKNOWN_PROFILE', VALIDATION_FAILED],
@@ -1127,12 +1132,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
   // writes at most one column of one row. Added ADDITIVELY; the envelope version is
   // UNCHANGED.
   //
-  // DISABLE, NOT DELETE — and that is the ruled shape, not a first cut: `queue.job_id`
-  // REFERENCES `jobs(job_id)`, so a delete either fails on a live queue row or orphans
-  // it, and the id would become re-registerable with a different action type while
-  // `jobs_log` history still points at the old one. Disabling STOPS the definition for
-  // real: the ticker defers every due row whose job is not enabled, and enqueue refuses
-  // E_JOB_DISABLED.
+  // TWO ARMS, and the default is the safe one. Bare = DISABLE: the ticker defers every due row
+  // whose job is not enabled, and enqueue refuses E_JOB_DISABLED, so the definition stops for
+  // real while its row and audit trail stay. `purge: true` = DELETE, which frees the id for
+  // re-registration; it exists because disable alone left every machine-minted goal-scoped id
+  // (`<goal>-workflow-start`, `seat-<goal>-<seat>`) burnt for the life of the store. Its three
+  // guards live in the store, next to the transaction that has to hold them — see
+  // `heartStore.deregisterJob`'s header for why deletion stopped being refused a surface.
   function handleDeregisterJob(payload, sender) {
     // STRICT SCHEMA FIRST, matching every sibling handler — and load-bearing for
     // probe-intent-drift.js, which proves this case exists by sending one unknown field.
@@ -1146,6 +1152,12 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     if (typeof payload.job_id !== 'string' || payload.job_id.length === 0) {
       throw new InternalApiError(VALIDATION_FAILED, 'job_id must be a non-empty string', { check: 'job_id-shape', field: 'job_id' });
     }
+    // Same re-check on the destructive flag, and STRICT for the reason the gateway states: a
+    // truthiness convention guessed wrong here deletes a row. Absent is false.
+    if (payload.purge !== undefined && typeof payload.purge !== 'boolean') {
+      throw new InternalApiError(VALIDATION_FAILED, 'purge must be a boolean', { check: 'purge-shape', field: 'purge' });
+    }
+    const purge = payload.purge === true;
 
     // Authorization BEFORE the store read, so a refused sender learns nothing about the
     // catalogue — including whether an id exists. Same policy as the create arm.
@@ -1157,13 +1169,17 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     // The store owns existence: an unknown id throws E_UNKNOWN_JOB, which the wire map
     // renders VALIDATION_FAILED. That refusal is the POINT of this intent — a stop path
     // that reported success over a job that does not exist would be worse than none.
-    const row = heartStore.deregisterJob({ jobId: payload.job_id });
+    const row = heartStore.deregisterJob({ jobId: payload.job_id, purge });
 
     // Loud, owner-readable feedback (D21(3)) in the shape remove-job/register-job set.
     // `pending_queue_rows` is stated because a disable does NOT empty the queue: those
     // rows stay, deferred every tick, until someone runs `remove-job <queue-id>`.
+    // `purged` rides as its own field rather than being inferred from `enabled: false` —
+    // a disabled row and a deleted one are both "not enabled", and a caller writing a
+    // teardown ledger must be able to tell "stopped" from "gone".
     return {
       deregistered: true,
+      purged: row.purged === true,
       job_id: row.job_id,
       enabled: row.enabled === 1,
       was_enabled: row.was_enabled,

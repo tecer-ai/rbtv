@@ -17,6 +17,7 @@ const {
   E_BAD_MODE,
   E_QUEUE_ROW_NOT_FOUND,
   E_JOB_EXISTS,
+  E_JOB_PURGE_REFUSED,
 } = require('./errors');
 const { minutesToTicks } = require('./warnings');
 
@@ -621,12 +622,12 @@ class HeartStore {
   // id would quietly repoint a working job. A duplicate is now refused typed
   // (E_JOB_EXISTS) and the sender picks another id.
   //
-  // UPDATE has no v1 surface. DISABLE now does — `deregisterJob` below (task 7.364),
-  // added additively for exactly the reason this comment used to state as acceptable:
-  // with no retirement path at all, every register-job BURNT its id permanently, and a
-  // HOMED job outlived the goal tree it names. Changing a row's action type or schema
-  // is still an operator action on the box, and DELETION is still refused a surface
-  // (queue.job_id REFERENCES jobs(job_id) — a delete orphans or fails on live rows).
+  // UPDATE has no v1 surface. DISABLE and DELETE both do — `deregisterJob` below, whose
+  // purge arm is the RECLAIM path (read its header for why deletion stopped being refused
+  // a surface): an id whose retirement is complete becomes registerable again. Changing a
+  // LIVE row's action type or schema is still an operator action on the box — the supported
+  // sequence is deregister → purge → register, never an in-place rewrite, so a working
+  // definition can still never be silently repointed.
   //
   // ⚑ AUTHORIZATION IS NOT ASKED HERE. This is the data layer; the caller (the
   // internal API) owns policy — the D65(B) split p4-0 set for removeQueueRow.
@@ -689,11 +690,12 @@ class HeartStore {
     // Live rows are untouched — the permissive reading stays for anything already in the catalogue,
     // exactly as the three strictness checks above are scoped.
     //
-    // WHY AT THIS DOOR AND NOWHERE ELSE: the id is BURNT the moment it lands. Create-only, no
-    // update, no unregister, so the only repair is a direct database write on the box — the exact
-    // out-of-band path this intent exists to close. And the row does not fail loudly: it reports
-    // `enabled=1` forever while being structurally incapable of firing, so nothing downstream ever
-    // contradicts it. The door that accepts the schema is the last honest place to refuse it.
+    // WHY AT THIS DOOR AND NOWHERE ELSE: the row does not fail loudly. It reports `enabled=1`
+    // forever while being structurally incapable of firing, so nothing downstream ever contradicts
+    // it — the live catalogue carries two such rows (`goal-watcher`, `goal-watcher-throwaway`),
+    // registered with `{}` before this check existed. The door that accepts the schema is the last
+    // honest place to refuse it. The purge arm now makes such a row RECOVERABLE (deregister →
+    // purge → re-register), which is a repair path, not a reason to admit the row.
     {
       const needed = REQUIRED_ARGS_BY_ACTION[actionType] || [];
       const declared = parseArgsSchema(argsSchema).required;
@@ -730,23 +732,54 @@ class HeartStore {
     return this.getJob(jobId);
   }
 
-  // ── The DISABLE arm (task 7.364 / F20; G-m4-demo-verdict-assembler-0804-1610) ──
-  // The catalogue's stop path. It flips `enabled` to 0 and nothing else — the row,
-  // its id, and its audit trail stay. DELIBERATELY NOT A DELETE: `queue.job_id`
-  // REFERENCES `jobs(job_id)`, so a delete either fails on a live queue row or (with
-  // FKs off) orphans it, and `jobs_log` reads back through the id. Disabling is the
-  // arm the storage already admits — no schema change, and it is a REAL stop, not a
-  // cosmetic flag: the ticker's dispatch defers any due queue row whose job is not
-  // enabled (ticker.js, `job-invalid`), and enqueue refuses with E_JOB_DISABLED. So a
-  // definition disabled AFTER its rows were queued still never fires.
+  // ── The RETIREMENT arm (task 7.364 / F20; G-m4-demo-verdict-assembler-0804-1610) ──
+  // The catalogue's stop path, in TWO steps that are deliberately not one act.
+  //
+  // DISABLE (default) flips `enabled` to 0 and nothing else — the row, its id, and its
+  // audit trail stay. It is a REAL stop, not a cosmetic flag: the ticker's dispatch defers
+  // any due queue row whose job is not enabled (ticker.js, `job-invalid`), and enqueue
+  // refuses with E_JOB_DISABLED. So a definition disabled AFTER its rows were queued still
+  // never fires.
   //
   // IDEMPOTENT: disabling an already-disabled job is a clean success reporting
   // `was_enabled: false`, never an error — a teardown must be re-runnable. An UNKNOWN
   // id is the opposite and is refused typed (E_UNKNOWN_JOB): reporting success over a
   // job that does not exist is the exact failure a stop path must not have.
   //
+  // ── PURGE (`purge: true`) — THE RECLAIM PATH, added because disable alone was not one ──
+  // It DELETES the row, which frees the id for re-registration. This reverses the
+  // "DELETION is refused a surface" line this comment used to carry, and the reason is
+  // measured, not stylistic: the catalogue holds TWO populations. Hand-authored durable
+  // definitions (~10) — for which create-only is exactly right, since a re-register that
+  // silently repoints a working job is the disaster the 2026-07-25 ruling prevents — and
+  // MACHINE-MINTED goal-scoped rows: `<goal>-workflow-start` plus one `seat-<goal>-<seat>`
+  // per seat, minted by `capabilities/goal-creation-request` and `engine/seeding.js`, whose
+  // ids derive from a REUSABLE goal name and whose lifetime is the goal's. With no reclaim
+  // path those accumulate forever and a deleted goal folder BURNS its whole id set: the live
+  // catalogue reached 44 rows with 22 dead, and `-v2` re-minting (`chat-agent-v2`,
+  // `goal-watcher-job`) had already become the house workaround for an un-repairable id.
+  //
+  // THE HISTORY OBJECTION DOES NOT HOLD, and it was checked rather than assumed:
+  // `queue.job_id` is the ONLY foreign key into `jobs` in the whole schema, and
+  // `jobs_log.job_id` is a plain column that denormalizes `action_type` and `args` — so past
+  // executions read correctly with the catalogue row gone. What a purge DOES cost is that an
+  // id may name two different jobs across time; `jobs_log.fired_at` is what separates them.
+  //
+  // THREE GUARDS, all inside the transaction, all refusing E_JOB_PURGE_REFUSED with a
+  // `reason` and the command that clears it:
+  //   enabled            — purge only finishes a retirement someone already declared. This is
+  //                        what makes a bulk purge loop over the disabled rows structurally
+  //                        unable to touch a live definition.
+  //   pending-queue-rows — the FK would fail anyway; refusing by name beats an SQLITE_
+  //                        CONSTRAINT, and a cascade here would silently cancel a schedule.
+  //   live-executions    — the real hazard, and the one not visible from the schema: with the
+  //                        row gone, `_findSeatHolder`'s `seatKeyOf(getJob(...))` reads null
+  //                        for that job, so the idempotent door stops seeing the running turn.
+  //                        Re-register the same id (the whole point of a purge) and the seat
+  //                        could double-fire under a turn still in flight.
+  //
   // ⚑ AUTHORIZATION IS NOT ASKED HERE — the caller owns policy (the D65(B) split).
-  deregisterJob({ jobId, updatedAt }) {
+  deregisterJob({ jobId, updatedAt, purge = false }) {
     if (typeof jobId !== 'string' || jobId.length === 0) {
       throw new HeartStoreError(E_BAD_ARGS, 'job_id must be a non-empty string', { field: 'jobId' });
     }
@@ -758,18 +791,58 @@ class HeartStore {
         throw new HeartStoreError(E_UNKNOWN_JOB, `unknown job: ${jobId}`, { field: 'jobId', jobId });
       }
       const wasEnabled = row.enabled === 1;
+      // Counted INSIDE the transaction and reported out loud (D21(3)): a disable leaves
+      // pending rows in the queue, deferred every tick rather than removed. An operator
+      // who wants them gone runs `remove-job <queue-id>` — and cannot learn that from a
+      // bare success line. The purge arm turns the same count into a refusal.
+      const pending = this._prepare('SELECT COUNT(*) AS n FROM queue WHERE job_id = ?').get(jobId).n;
+
+      if (purge) {
+        const refuse = (reason, message, details) => {
+          this.db.exec('ROLLBACK;');
+          throw new HeartStoreError(E_JOB_PURGE_REFUSED, message, { field: 'jobId', jobId, reason, ...details });
+        };
+        if (wasEnabled) {
+          refuse('enabled',
+            `job still enabled: ${jobId}. A purge only completes a retirement that was already `
+            + `declared — run \`ignite deregister-job ${jobId}\` first, then purge. `
+            + 'That order is what lets a bulk purge over the disabled rows never reach a live job.',
+            {});
+        }
+        if (pending > 0) {
+          refuse('pending-queue-rows',
+            `${pending} pending queue row(s) still reference ${jobId}. They are not cascaded away: `
+            + 'removing a repeating row cancels the WHOLE schedule (D68), which is not something a '
+            + 'catalogue purge may do silently. Clear them with `ignite remove-job <queue-id>` '
+            + '(`ignite inspect queue` lists them), then purge.',
+            { pending_queue_rows: pending });
+        }
+        const nonTerminal = [...TURN_STATUSES].filter((s) => !TERMINAL_TURN_STATUSES.has(s));
+        const live = this._prepare(
+          `SELECT COUNT(*) AS n FROM jobs_log WHERE job_id = ? AND status IN (${nonTerminal.map(() => '?').join(',')})`,
+        ).get(jobId, ...nonTerminal).n;
+        if (live > 0) {
+          refuse('live-executions',
+            `${live} execution(s) of ${jobId} are still non-terminal (${nonTerminal.join('/')}). `
+            + 'Purging now would hide those turns from the idempotent door, so a re-registration of '
+            + 'this id could double-fire the seat under a turn still in flight. Let them finish, or '
+            + '`ignite kill <session-id>` them, then purge.',
+            { live_executions: live });
+        }
+        this._prepare('DELETE FROM jobs WHERE job_id = ?').run(jobId);
+        this.db.exec('COMMIT;');
+        // The DELETED row's own fields ride the answer: after the commit there is nothing left
+        // to read back, and a caller that cannot say WHAT it purged cannot write a useful log.
+        return { ...row, purged: true, was_enabled: wasEnabled, pending_queue_rows: 0 };
+      }
+
       if (wasEnabled) {
         this._prepare('UPDATE jobs SET enabled = 0, updated_at = ? WHERE job_id = ?')
           .run(updatedAt || isoNow(), jobId);
       }
-      // Counted INSIDE the transaction and reported out loud (D21(3)): a disable leaves
-      // pending rows in the queue, deferred every tick rather than removed. An operator
-      // who wants them gone runs `remove-job <queue-id>` — and cannot learn that from a
-      // bare success line.
-      const pending = this._prepare('SELECT COUNT(*) AS n FROM queue WHERE job_id = ?').get(jobId).n;
       const after = this.getJob(jobId);
       this.db.exec('COMMIT;');
-      return { ...after, was_enabled: wasEnabled, pending_queue_rows: pending };
+      return { ...after, purged: false, was_enabled: wasEnabled, pending_queue_rows: pending };
     } catch (err) {
       try { this.db.exec('ROLLBACK;'); } catch {}
       throw err;
@@ -1822,6 +1895,7 @@ module.exports = {
   HeartStoreError,
   E_QUEUE_ROW_NOT_FOUND,
   E_JOB_EXISTS,
+  E_JOB_PURGE_REFUSED,
   E_SECOND_WRITER,
   E_UNKNOWN_JOB,
   E_JOB_DISABLED,

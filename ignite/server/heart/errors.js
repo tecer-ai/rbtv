@@ -35,6 +35,16 @@ const E_QUEUE_ROW_NOT_FOUND = 'E_QUEUE_ROW_NOT_FOUND';
 // Both map to VALIDATION_FAILED, but collapsing them into one code would make the
 // sender read "unknown job" for a job that exists, which is a lie about the state.
 const E_JOB_EXISTS = 'E_JOB_EXISTS';
+// Typed refusal for the PURGE arm of `deregister-job` (the catalogue's reclaim path).
+// ONE code, not three, and that is the D23 "invent only when necessary" line held: the
+// three refusals it carries — the row is still enabled, pending queue rows reference it,
+// a non-terminal execution is still running it — are all "the catalogue will not let go
+// of this id YET", and a caller branches on `details.reason` (`enabled` |
+// `pending-queue-rows` | `live-executions`), which each message also names in words along
+// with the command that clears it. Distinct from E_JOB_EXISTS (that id is taken, pick
+// another) and E_UNKNOWN_JOB (no such id): here the id exists, the sender may have it,
+// and something concrete is in the way.
+const E_JOB_PURGE_REFUSED = 'E_JOB_PURGE_REFUSED';
 
 // G-135. Raised at DAEMON START, which is the only place they can be raised: the store is opened
 // before anything else exists. Both are refusals to proceed on a store this build cannot honestly
@@ -56,6 +66,7 @@ module.exports = {
   E_BAD_MODE,
   E_QUEUE_ROW_NOT_FOUND,
   E_JOB_EXISTS,
+  E_JOB_PURGE_REFUSED,
   E_MIGRATION_FAILED,
   E_STORE_NEWER_THAN_CODE,
 };

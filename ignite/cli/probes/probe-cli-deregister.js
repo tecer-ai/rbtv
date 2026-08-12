@@ -26,6 +26,14 @@
 //   7. `ignite --help` lists the verb — read out of the TOOL's own help output.
 //   8. A BRIDGE sender is refused UNAUTHORIZED_SENDER; an AGENT sender is allowed (the
 //      same master-approximation policy the create arm carries).
+//   9-13. THE PURGE ARM end to end: --purge on an ENABLED job is refused and deletes
+//      nothing (the ordering guard, through the real binary); --purge on the disabled
+//      definition removes the row from `inspect jobs` entirely; the id then REGISTERS
+//      AGAIN — the payoff, and the whole reason the arm exists; and the flag is in the
+//      tool's own help. The three purge guards themselves are proved at the store layer by
+//      `server/heart/probes/probe-deregister-purge.js`, where a pending queue row and a
+//      live execution can be seeded without spawning real work — deliberately not
+//      redundant with this probe, which cannot seed them and alone can see the transport.
 //
 // NEVER touches the live daemon or the live catalogue: throwaway workspace, throwaway
 // senders file, ephemeral port; only the child this probe spawns is ever signaled.
@@ -176,6 +184,56 @@ async function main() {
     } else {
       out('SKIP  agent-sender authz — the fixture workspace defines no agent token');
     }
+
+    // ── 9-12. THE PURGE ARM, end to end ──────────────────────────────────────────────
+    // Its three guards are proved at the store layer (server/heart/probes/
+    // probe-deregister-purge.js), where the pending-queue-row and live-execution states can
+    // be seeded deterministically. What is provable ONLY here is the part that crosses the
+    // transport: the flag survives argv → gateway → core, the row is gone read back through
+    // the tool's OWN read surface, and the id genuinely re-registers.
+
+    // 9. CONTROL first — the ordering guard, through the real binary. An ENABLED job is
+    //    refused, which is what makes a bulk purge over the disabled rows unable to reach a
+    //    live definition.
+    await runCli(['register-job', 'purge-still-enabled', '--action-type', 'launch-agent', '--args-schema', SCHEMA], ownerEnv);
+    r = await runCli(['deregister-job', 'purge-still-enabled', '--purge'], ownerEnv);
+    out('--- CONTROL: --purge on an ENABLED job ---', 'EXIT=' + r.code, 'STDERR=' + r.stderr.trim());
+    check('CONTROL: --purge on an ENABLED job is REFUSED (exit 4, E_JOB_PURGE_REFUSED)',
+      r.code === 4 && /E_JOB_PURGE_REFUSED/.test(r.stderr) && !/purged:/.test(r.stdout),
+      `exit=${r.code} stdout=${r.stdout.trim()} stderr=${r.stderr.trim()}`);
+    check('CONTROL: the refused purge left the row in the catalogue',
+      !!jobRow((await runCli(['--json', 'inspect', 'jobs'], ownerEnv)).stdout, 'purge-still-enabled'),
+      'row should still be present');
+
+    // 10. The act, on the definition check 2 disabled.
+    r = await runCli(['deregister-job', 'throwaway-deregister', '--purge'], ownerEnv);
+    out('--- deregister-job --purge ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim(), 'STDERR=' + r.stderr.trim());
+    check('--purge on a DISABLED definition exits 0 and says the id is free',
+      r.code === 0 && /purged/.test(r.stdout) && /free/.test(r.stdout),
+      `exit=${r.code} stdout=${r.stdout.trim()}`);
+
+    // 11. GONE — read back through the READ surface, never from the command's own line.
+    //     `null` here is the discriminating outcome: check 3 proved the same helper returns a
+    //     row for a merely-disabled job, so an absent row can only mean the DELETE landed.
+    r = await runCli(['--json', 'inspect', 'jobs'], ownerEnv);
+    const purged = jobRow(r.stdout, 'throwaway-deregister');
+    out('--- inspect jobs AFTER PURGE ---', JSON.stringify(purged));
+    check('AFTER PURGE: the row is GONE from the catalogue (not merely disabled)',
+      purged === null, `row=${JSON.stringify(purged)}`);
+
+    // 12. ⚑ THE PAYOFF, and the whole reason this arm exists: the id is registerable again.
+    //     Before it, a deleted goal burnt `<goal>-workflow-start` and every `seat-<goal>-*`
+    //     for the life of the store, and re-scaffolding under the same name was impossible.
+    r = await runCli(['register-job', 'throwaway-deregister', '--action-type', 'launch-agent', '--args-schema', SCHEMA], ownerEnv);
+    check('PAYOFF: the purged id REGISTERS AGAIN (E_JOB_EXISTS no longer fires)',
+      r.code === 0 && !/E_JOB_EXISTS/.test(r.stderr),
+      `exit=${r.code} stderr=${r.stderr.trim()}`);
+
+    // 13. The flag is discoverable from the tool's own help, not only from this source.
+    r = await runCli(['deregister-job', '--help'], ownerEnv);
+    check('`ignite deregister-job --help` documents --purge',
+      r.code === 0 && /--purge/.test(r.stdout) && /FREES THE ID/.test(r.stdout),
+      `exit=${r.code}`);
   } finally {
     await stopDaemon(d);
   }
