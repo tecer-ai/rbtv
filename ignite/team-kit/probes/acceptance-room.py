@@ -160,34 +160,50 @@ KIT_MONITOR = (KIT.parent.parent / "orchestration" / "cli" / "team-monitor" / "t
 # harness name; argv[0] is the copy's path, so tmux reports the harness name; the script body
 # runs, so flags are ignored; and `read -t` is a builtin, so there is NO CHILD PROCESS and the
 # foreground process group is the stub itself.
-# ⚠ THE EMPTY-INPUT REFUSAL (2026-08-12, IPH-24) IS DUPLICATED VERBATIM in `probe-planning-entry.py`
-# and `probe-sensor-start.py`, and all three were changed in the SAME commit. The standing trigger
-# recorded in those two files says to revisit unification on the first DIVERGENCE — this change is
-# deliberately NOT one: the guard is byte-identical at all three sites.
+# ⚠ THE EMPTY-INPUT REFUSAL (2026-08-12, IPH-24). This stub shape used to exist in THREE copies, and
+# the standing trigger on them said to revisit unification on the first DIVERGENCE. It never fired:
+# the guard landed in all three in ONE commit (`02141759`), and the other two copies —
+# `goal-creation-request/probes/probe-planning-entry.py` and `probe-sensor-start.py` — were DELETED
+# outright hours later by the goal-creation-request rework, taking their `make_shims` with them.
+# THIS IS NOW THE ONLY COPY, so the trigger has nothing left to compare against; if a second copy is
+# ever cut again, re-arm it there and keep the two byte-identical.
 #
 # WHY IT EXISTS: until now the stub ignored argv entirely and accepted a launch line the REAL binary
 # REFUSES, so a 177-check suite stayed green while every real daemon-lane seat died on empty input.
 # Measured on this box 2026-08-12 — `claude --model M </dev/null` and `claude -p --model M "" </dev/null`
-# BOTH print the line below and exit 1. UNGATED by `-p` on purpose: the real binary refuses without
-# `-p` too (first case), and a `-p`-gated guard would be dead code in the tmux lane these probes
-# drive. AN OPERAND is a non-empty argument that is neither a flag NOR a flag's value, so
-# `--model M` and `--effort high` are never mistaken for a turn. Stricter than the real binary only
-# for an interactive-TTY-with-no-prompt launch, which this lane never composes (`coord.py#
-# harness_command` always appends `"$(cat <prompt-file>)"`).
+# BOTH print the line below and exit 1. AN OPERAND is a non-empty argument that is neither a flag NOR
+# a flag's value, so `--model M` and `--effort high` are never mistaken for a turn.
+#
+# ⚠⚠ THE `-p` GATE IS NOT HOUSE STYLE — IT IS A MEASUREMENT, AND `open_seat` BELOW IS WHAT FORCED IT.
+# The guard was written UNGATED first, on the reasoning that the real binary refuses without `-p`
+# too and that this lane never composes a promptless launch. THE SECOND HALF IS FALSE, and this file
+# is where it is false: `open_seat` starts a seat with `send-keys <harness> Enter` — the BARE binary
+# name, no arguments, on a pane TTY. Measured on a real pty, 2026-08-12:
+#
+#   the REAL binary, bare, stdin = pty  ->  opens its REPL and WAITS (no error, still alive at 8 s)
+#   the ungated stub, bare, stdin = pty  ->  refused, exit 1
+#
+# So ungated the stub was STRICTER THAN THE THING IT IMPERSONATES, and `open_seat`'s 20 s wait for
+# `pane_current_command == <harness>` would have raised `RoomError` on every seat this room opens.
+# The `-p` gate is the ruled fallback for exactly that finding.
+# ⚠ KNOWN AND ACCEPTED CONSEQUENCE: `-p` never appears in a tmux-lane launch, so this guard is INERT
+# in all three probes that carry it — it bites only the daemon/stdin lane's shape. That is the cost
+# of not breaking `open_seat`; a guard that fires here cannot also let a bare TTY launch live.
 # ponytail: the prev-token rule stands in for claude's real flag table. Two known ceilings, neither
 # reachable from `harness_command`: a BOOLEAN flag placed immediately before the prompt reads as its
 # value, and a subcommand-first line (`opencode run … P`) reads the subcommand as the operand.
 # Upgrade to an explicit value-taking-flag list if either shape ever gets composed.
-STUB_GUARD = ('op=; pf=0\n'
+STUB_GUARD = ('op=; pf=0; pr=\n'
               'for a in "$@"; do\n'
               '  case $a in\n'
+              '    -p|--print) pr=1; pf=1 ;;\n'
               '    -*) pf=1 ;;\n'
               '    "") pf=0 ;;\n'
               '    *) [ "$pf" = 0 ] && op=1\n'
               '       pf=0 ;;\n'
               '  esac\n'
               'done\n'
-              'if [ -z "$op" ] && ! read -rt 1 _; then\n'
+              'if [ -n "$pr" ] && [ -z "$op" ] && ! read -rt 1 _; then\n'
               '  echo "Error: Input must be provided either through stdin or as a prompt argument'
               ' when using --print" >&2\n'
               '  exit 1\n'
