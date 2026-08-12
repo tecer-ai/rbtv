@@ -3695,6 +3695,51 @@ RULED_FLIP_FROM_STATES = (RULED_FLIP_FROM, "")
 # trade was weighed and OWNED at that ruling; it is not being discovered here.
 RELAUNCH_GRANT_FROM_STATES = ("exited", "done")
 
+# ---- 7.776: THE DAEMON'S OWN RETRY BUDGET, AND WHY IT RANGES OVER A DIFFERENT VOCABULARY ------
+#
+# ⚠⚠ THESE CONSTANTS RANGE OVER THE EXECUTION RECORD'S `outcome` VOCABULARY — `done|blocked|failed|
+# killed`, `engine/execution-record.js` § THE SCHEMA — AND **NOT** OVER THE DISPOSITION VOCABULARY
+# `RELAUNCH_GRANT_FROM_STATES` ABOVE RANGES OVER (`exited`/`done`/`renew`/`revive`/`incomplete`,
+# written into `sessions.csv` by a seat's own check-out). Two files, two runtimes, two questions: a
+# DISPOSITION is a fact about a PROCESS's ending as its occupant declared it; an OUTCOME is a fact
+# about the WORK as the lane that ran it witnessed it. `failed` and `killed` are not disposition
+# values at all, and `exited` is not an outcome value at all.
+#
+# ⚠ SO `RELAUNCH_GRANT_FROM_STATES` IS DELIBERATELY **NOT** WIDENED TO REACH THEM, and that is not
+# an oversight left for a later tidy-up. Widening it would move `rule-relaunch`'s mint precondition
+# and `cmd_launch`'s P3b leg — two sites that read `sessions.csv` and would then be comparing a
+# disposition cell against outcome words it can never hold. The measured case that forces the split:
+# goal `forge-reference-seat-id-naming`, seat `forg-intake`, 2026-08-11 — a daemon-lane execution
+# that ended `failed` in `executions.csv` and wrote NO `sessions.csv` AT ALL, so a disposition-keyed
+# constant cannot see it and never will.
+#
+# ⚠ THE MEMBERS ARE SPELLED OUT AS LITERALS, never derived from the constant above and never
+# imported from the engine's words — the same discipline stated three paragraphs up, for the same
+# reason: a set written in terms of another moves with it and re-couples what the split separates.
+#
+# ⚠ `blocked` IS NOT A MEMBER, AND ITS ABSENCE IS THE DECISION, not the leftover. A `blocked`
+# outcome means the seat is waiting on the OWNER; an automatic retry would spin a wave against a
+# human who has not answered — the one terminal outcome whose remedy is a person. `done` is not a
+# member for the obvious reason, and both exclusions are asserted BY EXERCISE in the self-test,
+# because "the daemon may not re-run finished or held work" is the property, not a side effect of
+# a list.
+DAEMON_RETRY_FROM_OUTCOMES = ("failed", "killed")
+
+# TWO automatic attempts per seat, then the seat waits for a human — the same number, chosen for the
+# same reason, as the gap-wave loop's own retry bar (`resolve_retry_threshold`'s absent-everywhere
+# default). A transient (a rate limit, a torn read, a harness that exited on empty input) clears on
+# the second attempt; a third attempt has never been the thing that fixed a real defect, it is the
+# thing that burns budget in a loop while nobody is watching.
+# ⚠ IT IS A BUDGET, NOT A LIVE-GRANT COUNT: the bound is checked against every row this seat carries
+# that the DAEMON minted, spent or not, so two retries is two retries for the life of the goal.
+DAEMON_RETRY_BOUND = 2
+
+# The policy citation a daemon-minted grant carries in its `anchor` cell, where a leader's grant
+# carries the leader's ruling anchor. A CONSTANT rather than a per-mint string, for two reasons: the
+# spend must present the anchor back verbatim (`match_relaunch_grant` checks it), and an operator
+# reading `relaunch-grants.csv` can tell an automatic retry from a ruled one by the cell alone.
+DAEMON_RETRY_ANCHOR = "p-daemon-self-grant-retry"
+
 
 def relaunch_grant_from_phrase():
     """The grant's admissible from-states as one back-ticked phrase, DERIVED from the constant.
@@ -12370,8 +12415,16 @@ def ready_seat_rows(args):
     # cell is surfaced unconditionally: the tool asserted no binding, so this reports rather than
     # infers one. FIRST unspent match in file order wins, which is `match_relaunch_grant`'s rule too.
     #
-    # ⚠ REPORT-ONLY. It changes NO verdict and admits NO seat: the READY admission logic below is
-    # untouched, and spending a grant remains `launch --relaunch-ruled`'s act alone.
+    # ⚠⚠ IT IS A TERM OF THE VERDICT (7.776) — IT WAS "REPORT-ONLY" AND IS NOT ANY MORE. An UNSPENT
+    # grant found here FLIPS a `DONE` row to `READY` in the disposition branch below, because the
+    # ignite daemon's seeding pass is a `verdict == "READY"` filter and nothing else: a report it
+    # must parse out of a reason string is a report it does not read. THREE commands write the file
+    # now — `rule-relaunch` and `launch --relaunch-ruled` (the leader's ruled pair) and `seat-retry`
+    # (the daemon's automatic pair, 7.776).
+    # ⚠ WHAT IS STILL UNTOUCHED, stated because the sentence above used to cover it: the LAUNCH
+    # admission predicate reads FIELDS and never `verdict` (`no-class-clause`, below), so this flip
+    # admits nothing at `coordinate launch` — a hand launch of a flipped seat still needs
+    # `--relaunch-ruled <anchor>`. The flip moves the READY SURFACE, which is the daemon's door.
     grants = {}
     for _gi, _g in read_relaunch_grants(base):
         if _g["spent-at"]:
@@ -12553,19 +12606,33 @@ def ready_seat_rows(args):
                                   "established. Routes to the leader, which investigates and "
                                   "either relaunches or flips the row to `done`. It advances "
                                   "NO edge meanwhile")
-            # THE WARNING BESIDE THE VERDICT, NOT INSTEAD OF IT. The verdict stays `DONE` — this
-            # row IS terminal and is NOT a launch candidate on any ordinary shape — but a grant the
-            # `leader` already minted for it is an authorization sitting unspent, and `DONE` being
-            # absorbing means no later sweep would ever have said so. Naming the anchor, the mint
-            # time and the EXACT invocation is the whole value: a reader who has to reconstruct the
-            # spend command is the reader who leaves it unspent for 90 minutes.
+            # 7.776: THE GRANT IS THE VERDICT NOW, NOT A WARNING BESIDE IT. It was a warning
+            # appended to a `DONE` reason, and that was measured to be worth nothing to the one
+            # consumer that matters: the daemon's seeding pass filters `verdict == "READY"` and
+            # reads no reason strings, so a minted grant sat unspent while every sweep said `DONE`
+            # (measured on run-3 — grant minted 17:54, launchable 18:24, launched 19:24 by hand).
+            #
+            # ⚠ IT FIRES ON ANY UNSPENT GRANT, NOT ONLY A DAEMON-MINTED ONE, and the absence of a
+            # `minted-by` condition here is an OWNER RULING (2026-08-12), not an omission: a grant
+            # the leader mints is acted on automatically too. The minter is REPORTED in the reason
+            # so an operator can tell the two apart; it decides nothing.
+            #
+            # ⚠ THIS BRANCH DOES NOT RE-TEST THE SEAT'S PREDECESSORS, and that is consistent rather
+            # than lax: an unspent grant is an instrument admitting ONE seat, and the launch
+            # ladder's clause I-prime already admits a granted seat past the `after` arithmetic. The
+            # `seed` this row carries is therefore the partial one the loop built — complete
+            # whenever the predecessors are in fact met, which is every case a `DONE` row reaches.
             _rg = grants.get(seat)
             if _rg:
-                rec["reason"] += (
-                    f"  ⚠ UNSPENT RELAUNCH GRANT — the `leader` minted one for this seat at "
-                    f"{_rg['minted-at'] or '(unstamped)'} under anchor `{_rg['anchor']}` and "
-                    f"nothing has spent it. This DONE verdict is ABSORBING and does not see it; "
-                    f"the grant is single-use and session-bound. Spend it: "
+                rec["verdict"] = "READY"
+                rec["reason"] = (
+                    f"UNSPENT RELAUNCH GRANT — `{_rg['minted-by'] or '(unrecorded)'}` minted one "
+                    f"for this seat at {_rg['minted-at'] or '(unstamped)'} under anchor "
+                    f"`{_rg['anchor']}`, bound to session `{_rg['session-id'] or '(unbound)'}`, and "
+                    f"nothing has spent it. It SUPERSEDES this row's check-out `{value}` "
+                    f"({source}) FOR ADMISSION ONLY — the ended row is untouched and clears by "
+                    f"SUPERSESSION when the admitted session writes its own. The grant is "
+                    f"single-use and is stamped spent at admission. Spend it: "
                     f"{coord_invocation(args)} launch --only {seat} "
                     f"--relaunch-ruled {shlex.quote(_rg['anchor'])}")
         elif active:
@@ -12879,7 +12946,18 @@ RELAUNCH_GRANT_COLS = ["seat", "session-id", "anchor", "minted-by", "minted-at",
 
 def relaunch_grants_csv(base):
     """`{package}/coordination/relaunch-grants.csv` — under the dir this run's single-writer map
-    reserves to scripts. Exactly two commands write it: `rule-relaunch` mints, `launch` spends."""
+    reserves to scripts.
+
+    THREE commands write it, and the third is the one a reader will not guess (7.776): the `leader`
+    mints with `rule-relaunch` and spends with `launch --relaunch-ruled`; the `ignite-daemon` mints
+    AND spends with `seat-retry`, unattended, against the execution record's failed outcome. The
+    count was `two` here and in the hoist comment inside `ready_seat_rows` until 7.776 — a wrong
+    count in a docstring is what the next agent builds a "nothing else can touch this file"
+    assumption on.
+
+    ⚠ AND IT IS NO LONGER REPORT-ONLY. An UNSPENT row for a seat now FLIPS that seat's `ready-seats`
+    verdict from `DONE` to `READY` (see the DONE branch of `ready_seat_rows`), so this file is a term
+    of a verdict rather than a note beside one."""
     return Path(base) / "relaunch-grants.csv"
 
 
@@ -12919,18 +12997,29 @@ def match_relaunch_grant(base, seat, session_id, anchor):
     return None, None, "spent"
 
 
+def _mint_relaunch_grant_unlocked(base, seat, session_id, anchor, minted_by):
+    """The append itself, WITHOUT taking the lock — for a caller already holding it.
+
+    Split out for `_append_message_unlocked`'s reason, and it is not stylistic: `coord_lock` is an
+    `fcntl.flock` on a fresh open of `{base}/.lock`, and flock records are per open-file-description,
+    so a second acquire INSIDE an outstanding hold blocks against itself in the same process. A
+    caller that must derive-then-append under ONE hold (`cmd_seat_retry`'s mint, exactly as
+    `escalate_if_second_fail` does) therefore cannot call the locking wrapper."""
+    path = relaunch_grants_csv(base)
+    header, rows = read_csv_table(path, RELAUNCH_GRANT_COLS)
+    header, _ = widen_header(header, RELAUNCH_GRANT_COLS)
+    rows = [pad_row(r, header) for r in rows]
+    rec = {"seat": seat, "session-id": session_id, "anchor": anchor,
+           "minted-by": minted_by, "minted-at": now(), "spent-at": ""}
+    rows.append([rec.get(col, "") for col in header])
+    write_csv_table(path, header, rows)
+    return rec
+
+
 def mint_relaunch_grant(base, seat, session_id, anchor, minted_by):
     """Append one grant row. Returns the row as written."""
-    path = relaunch_grants_csv(base)
     with coord_lock(base):
-        header, rows = read_csv_table(path, RELAUNCH_GRANT_COLS)
-        header, _ = widen_header(header, RELAUNCH_GRANT_COLS)
-        rows = [pad_row(r, header) for r in rows]
-        rec = {"seat": seat, "session-id": session_id, "anchor": anchor,
-               "minted-by": minted_by, "minted-at": now(), "spent-at": ""}
-        rows.append([rec.get(col, "") for col in header])
-        write_csv_table(path, header, rows)
-    return rec
+        return _mint_relaunch_grant_unlocked(base, seat, session_id, anchor, minted_by)
 
 
 def spend_relaunch_grant(base, seat, session_id, anchor):
@@ -13035,6 +13124,125 @@ def cmd_rule_relaunch(args):
             f"admission. It does not clear the `{disp}` row — that clears by SUPERSESSION when the "
             f"admitted session writes its own ended row.\nnext: "
             f"{coord_invocation(args)} launch --only {seat} --relaunch-ruled {anchor}", C_HINT))
+
+
+# ---------- 7.776: THE DAEMON SELF-GRANT (`coordinate seat-retry`) ----------------------------
+#
+# WHAT IT IS: the ignite daemon mints its OWN single-use, session-bound relaunch grant against an
+# execution that ended badly, and spends it at the shared enqueue point. Same instrument, same file,
+# same single-use/session-bound/spent-at-admission semantics as the leader's ruled relaunch — a
+# different MINTER and a different ANCHOR, and a BOUND, because nobody is watching.
+#
+# WHY THE SESSION-ID ARRIVES AS AN ARGUMENT AND IS NOT RESOLVED HERE. This file never opens
+# `executions.csv` and the engine never opens `relaunch-grants.csv`: the engine owns the outcome
+# record, coord owns the grant record, and neither runtime reads the other's file. The join crosses
+# as a COMMAND-LINE ARGUMENT. That is what makes the case this closes solvable at all — the measured
+# seat (`forge-reference-seat-id-naming/forg-intake`) has a `failed` execution row and NO
+# `sessions.csv`, so there is no session-id coord could resolve on its own.
+#
+# ⚠ THE GATE IS `is_authorized_launcher` — THE EXISTING PREDICATE, not a new one. Owner ruling 7.738
+# already put `DAEMON_IDENTITY` in it, on the reasoning that a daemon-fired launch IS a launch; this
+# verb authorizes exactly one launch, so it belongs behind the same door. The `leader` is admitted
+# by the same predicate and that is deliberate: a human debugging the daemon's lane can drive this
+# verb by hand, and a second predicate for one caller is how a widening gets re-litigated.
+def cmd_seat_retry(args):
+    """(daemon) MINT or SPEND the daemon's own automatic relaunch grant for ONE seat's session.
+
+    TWO ARMS, ONE VERB, because they are two halves of one instrument and splitting them would put
+    the bound in one command and the burn in another. `--mint` appends the grant; `--spend` stamps
+    it. Both are keyed on (seat, session-id) — the spend path's own key.
+
+    ⚠ THE MINT'S DERIVE-SCAN-APPEND SHARE ONE `coord_lock` HOLD, exactly as `escalate_if_second_fail`
+    does and for the same race: two concurrent passes must not both observe "budget remains" or
+    "no unspent grant yet" and both append. The bound and the dup check are worth nothing outside
+    the hold that makes them atomic with the write they guard.
+
+    ⚠ THE BOUND COUNTS ONLY ROWS THIS DAEMON MINTED. A leader's grant is never charged against the
+    daemon's budget — the leader rules per instance and answers for it; the daemon spends
+    unattended and is the party the budget exists to bound."""
+    gate(args, "seat-retry", is_authorized_launcher,
+         "the leader's and the ignite daemon's — `is_authorized_launcher`, the SAME predicate "
+         "`launch` carries, because this verb authorizes exactly one launch (owner ruling 7.738)",
+         remedy="this is the daemon's unattended retry path; a human ruling one relaunch uses "
+                "`rule-relaunch` + `launch --relaunch-ruled`, which records WHO ruled it")
+    base = base_dir(args)
+    seat = args.seat
+    sid = (args.session or "").strip()
+    as_json = bool(getattr(args, "json", False))
+
+    def emit(payload, human):
+        print(json.dumps(payload, indent=2, sort_keys=True) if as_json else human)
+
+    if not sid:
+        refuse("input",
+               "--session is the EXECUTION's own session-id and it is the grant's binding; an "
+               "empty one would mint an authorization bound to nothing, which every later sweep "
+               "reads as unbound and offers unconditionally.", 2)
+
+    if args.spend:
+        # The row is read OUTSIDE the lock and its anchor handed to `spend_relaunch_grant`, which
+        # re-matches under its own hold. Deliberate, and fail-closed rather than sloppy: a
+        # concurrent spend that wins the race leaves this one matching nothing, and an empty stamp
+        # is exactly the answer the caller must act on. Reading the anchor rather than assuming
+        # `DAEMON_RETRY_ANCHOR` is what makes this arm spend a LEADER-minted grant too — the owner
+        # ruled the daemon acts on any unspent grant, not only its own.
+        row = next((g for _i, g in read_relaunch_grants(base)
+                    if g["seat"] == seat and g["session-id"] == sid and not g["spent-at"]), None)
+        stamp = spend_relaunch_grant(base, seat, sid, row["anchor"]) if row else ""
+        if not stamp:
+            emit({"status": "not-spent", "seat": seat, "session-id": sid, "stamp": "",
+                  "reason": "no-unspent-grant" if row is None else "raced",
+                  "grant": row},
+                 f"{seat}: NOT SPENT — no unspent grant for session {sid}"
+                 if row is None else
+                 f"{seat}: NOT SPENT — a concurrent spend took the row for session {sid} first")
+            return
+        emit({"status": "spent", "seat": seat, "session-id": sid, "stamp": stamp,
+              "grant": dict(row, **{"spent-at": stamp})},
+             f"{seat}: GRANT SPENT at {stamp} (session {sid}, anchor `{row['anchor']}`, "
+             f"minted by {row['minted-by'] or '(unrecorded)'})")
+        return
+
+    outcome = (args.outcome or "").strip()
+    if outcome not in DAEMON_RETRY_FROM_OUTCOMES:
+        refuse("state",
+               f"--outcome `{outcome or '(empty)'}` is not one this verb retries. It mints on "
+               f"{' / '.join('`%s`' % o for o in DAEMON_RETRY_FROM_OUTCOMES)} ONLY, and the value "
+               f"comes from the EXECUTION RECORD's outcome vocabulary "
+               f"(`done|blocked|failed|killed`), never from a session's disposition cell.\n"
+               f"`blocked` is EXCLUDED BY DECISION: it means the seat is waiting on the OWNER, and "
+               f"an automatic retry would spin a wave against a human who has not answered. "
+               f"`done` is finished work.", 1)
+
+    with coord_lock(base):
+        rows = read_relaunch_grants(base)
+        spent_budget = sum(1 for _i, g in rows
+                           if g["seat"] == seat and g["minted-by"] == DAEMON_IDENTITY)
+        if spent_budget >= DAEMON_RETRY_BOUND:
+            refuse("state",
+                   f"'{seat}' has exhausted the daemon's retry budget: {spent_budget} of "
+                   f"{DAEMON_RETRY_BOUND} grants already minted by `{DAEMON_IDENTITY}` for this "
+                   f"seat (spent or not). The seat now waits for a human — that is the bound's "
+                   f"whole purpose, and raising it is a ruling, not a retry.\n"
+                   f"A human who has investigated relaunches it the ruled way: "
+                   f"{coord_invocation(args)} rule-relaunch {seat} --anchor <your-anchor> --go, "
+                   f"then launch --only {seat} --relaunch-ruled <your-anchor>. That grant is "
+                   f"minted by the `leader` and is NOT charged against this budget.", 1)
+        if any(g["seat"] == seat and g["session-id"] == sid and not g["spent-at"]
+               for _i, g in rows):
+            refuse("state",
+                   f"'{seat}' already carries an UNSPENT grant for session {sid}. Minting a second "
+                   f"would authorize two relaunches where one execution failed — and would charge "
+                   f"the budget twice for one failure.\n"
+                   f"Spend the one that exists: {coord_invocation(args)} seat-retry {seat} "
+                   f"--spend --session {sid}", 1)
+        rec = _mint_relaunch_grant_unlocked(base, seat, sid, DAEMON_RETRY_ANCHOR, DAEMON_IDENTITY)
+
+    emit({"status": "minted", "seat": seat, "session-id": sid, "outcome": outcome,
+          "bound": DAEMON_RETRY_BOUND, "minted-so-far": spent_budget + 1, "grant": rec},
+         f"{seat}: GRANT MINTED for session {sid} on outcome `{outcome}` — "
+         f"{spent_budget + 1} of {DAEMON_RETRY_BOUND} automatic retries used. "
+         f"anchor `{rec['anchor']}` minted-by `{rec['minted-by']}` at {rec['minted-at']}")
 
 
 # ---------- dag-11: the attest-exit arm (`coordinate attest-exit`) ----------
@@ -13486,15 +13694,18 @@ def cmd_ready_seats(args):
               + (f"   (also carries `row-outcome/"
                  + "`, `row-outcome/".join(_other) + "`, which is not an enumerated stop-state "
                  "and does NOT suppress)" if _other else ""))
-        # THE GRANT, printed where present. Unlike the lines above this one is NOT a term of the
-        # predicate — it decides nothing and is rendered only when it exists, because a
-        # `-> True` line for "no grant is outstanding" would read as a term that held the seat.
+        # THE GRANT, printed where present. Rendered only when it exists, because a `-> True` line
+        # for "no grant is outstanding" would read as a term that held the seat.
+        # 7.776: it OVERRIDES the disposition term above rather than sitting beside it — this line
+        # said "Decides NO term above" while the flip was landing in the same change, which is the
+        # exact shape of a reader building against a dead spec.
         _rg = rec.get("relaunch-grant")
         if _rg:
             print(f"  ⚠ UNSPENT RELAUNCH GRANT — anchor `{_rg['anchor']}`, minted "
                   f"{_rg['minted-at'] or '(unstamped)'} by {_rg['minted-by'] or '(unrecorded)'}, "
-                  f"session `{_rg['session-id'] or '(unbound)'}`. Decides NO term above; spend it: "
-                  f"{coord_invocation(args)} launch --only {rec['seat']} "
+                  f"session `{_rg['session-id'] or '(unbound)'}`. It OVERRIDES the "
+                  f"`terminal(self)` term above: this seat reads READY on its account alone. "
+                  f"Spend it: {coord_invocation(args)} launch --only {rec['seat']} "
                   f"--relaunch-ruled {shlex.quote(_rg['anchor'])}")
         if not rec["after"]:
             print("  every `after` predecessor is `done`                   -> True (root — none)")
@@ -27117,6 +27328,158 @@ def _selftest_checks(args, failures, names):
               and "if disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_mint_leg
               and "if _rl_disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_ladder_src)
 
+        # ============ 7.776: THE DAEMON SELF-GRANT (`seat-retry` + the DONE->READY flip) ========
+        # ITS OWN PACKAGE, not `_a3l`. This block MINTS repeatedly against the bound and SPENDS,
+        # and `_a3l` is reused by the O3 block below — a fixture whose grant file this block had
+        # been writing into would make those rows depend on how many times the bound was exercised
+        # here. Two seats, and the split is the whole design in fixture form: `failed` carries an
+        # EXECUTION-shaped failure and NO `sessions.csv` row at all (the measured
+        # `forge-reference-seat-id-naming/forg-intake` shape); `ruled` carries an ENDED session with
+        # disposition `exited`, which is what the LEADER's own mint needs.
+        _sr_pkg = _rs_make("7776-retry", [("failed", ""), ("blk", ""), ("ruled", "")],
+                           sessions=[("ruled", "exited")])
+        _sr_base = _sr_pkg / "coordination"
+
+        def _sr_run(**kw):
+            """(stdout, combined, exit) — stdout kept SEPARATE so `--json` stays parseable, exactly
+            as `_rs` does, because a refusal writes to stderr and would otherwise poison the parse."""
+            _d = dict(agent=DAEMON_IDENTITY, package=str(_sr_pkg), seat="failed",
+                      mint=False, spend=False, session=None, outcome=None, json=False)
+            _d.update(kw)
+            _o, _e, _c = harness_outcome(cmd_seat_retry, ns(**_d))
+            return _o, _o + _e, (0 if _c is None else _c)
+
+        def _sr_rows(seat):
+            return [g for _i, g in read_relaunch_grants(_sr_base) if g["seat"] == seat]
+
+        # ---- the BOUND, at N and at N+1, with its own positive control -----------------------
+        _sr_m1 = _sr_run(mint=True, session="s-1", outcome="failed", json=True)
+        _sr_m2 = _sr_run(mint=True, session="s-2", outcome="killed", json=True)
+        _sr_m3 = _sr_run(mint=True, session="s-3", outcome="failed", json=True)
+        check("7.776 THE RETRY BOUND HOLDS AT N+1, AND MINTS 1..N SUCCEED IN THE SAME RUN. The "
+              "control is the whole row: an arm that only asserts the third mint REFUSES is "
+              "satisfied by a verb whose minting is simply broken, and it would read green with "
+              "the bound deleted and the writer dead. Both earlier mints are asserted to have "
+              "MINTED and to have LANDED IN THE FILE, on two different admissible outcomes; the "
+              "third is refused BY THE BOUND, named in the text, with the file still carrying "
+              "exactly N rows. The bound is read from the constant, never re-typed as a literal",
+              _sr_m1[2] == 0 and _sr_m2[2] == 0 and _sr_m3[2] == 1
+              and json.loads(_sr_m1[0])["status"] == "minted"
+              and json.loads(_sr_m2[0])["status"] == "minted"
+              and json.loads(_sr_m2[0])["grant"]["minted-by"] == DAEMON_IDENTITY
+              and json.loads(_sr_m2[0])["grant"]["anchor"] == DAEMON_RETRY_ANCHOR
+              and "exhausted the daemon's retry budget" in _sr_m3[1]
+              and len(_sr_rows("failed")) == DAEMON_RETRY_BOUND == 2)
+
+        # ---- the OUTCOME domain: `blocked` and `done` are refused, `killed` is not ------------
+        _sr_blk = _sr_run(seat="blk", mint=True, session="s-b", outcome="blocked")
+        _sr_dn = _sr_run(seat="blk", mint=True, session="s-b", outcome="done")
+        _sr_xd = _sr_run(seat="blk", mint=True, session="s-b", outcome="exited")
+        _sr_empty = _sr_rows("blk")
+        _sr_kil = _sr_run(seat="blk", mint=True, session="s-b", outcome="killed", json=True)
+        check("7.776 THE OUTCOME DOMAIN, BY EXERCISE AND IN BOTH DIRECTIONS. `blocked` is refused "
+              "BECAUSE IT MEANS A HUMAN OWES AN ANSWER — retrying it spins a wave against somebody "
+              "who has not replied — and `done` is refused because it is finished work; both write "
+              "NOTHING, read back off disk rather than trusted from the refusal text. `exited` is "
+              "refused too, and that arm is the VOCABULARY one: `exited` is a DISPOSITION word and "
+              "not an outcome word at all, so a verb that had reached for "
+              "`RELAUNCH_GRANT_FROM_STATES` would accept it here. The CONTROL is `killed` on the "
+              "SAME seat and the SAME session immediately after: it MINTS, so 'refuses correctly' "
+              "cannot be confused with 'this verb cannot mint'",
+              _sr_blk[2] == 1 and _sr_dn[2] == 1 and _sr_xd[2] == 1
+              and "`blocked` is EXCLUDED BY DECISION" in _sr_blk[1]
+              and _sr_empty == []
+              and _sr_kil[2] == 0 and json.loads(_sr_kil[0])["status"] == "minted"
+              and len(_sr_rows("blk")) == 1)
+
+        # ---- the DUP refusal and the SPEND, on the row the control just minted ---------------
+        _sr_dup = _sr_run(seat="blk", mint=True, session="s-b", outcome="failed")
+        _sr_sp1 = _sr_run(seat="blk", spend=True, session="s-b", json=True)
+        _sr_sp2 = _sr_run(seat="blk", spend=True, session="s-b", json=True)
+        check("7.776 ONE FAILURE BUYS ONE GRANT, AND A GRANT IS SPENT ONCE. A second mint for a "
+              "session that already carries an unspent grant is refused (it would authorize two "
+              "relaunches for one failure AND charge the budget twice); the spend then stamps that "
+              "row and reports the stamp; and the IDENTICAL spend immediately after reports "
+              "`not-spent` with an EMPTY stamp rather than re-stamping — the replay arm, asserted "
+              "on the file as well as on the output",
+              _sr_dup[2] == 1 and "already carries an UNSPENT grant" in _sr_dup[1]
+              and len(_sr_rows("blk")) == 1
+              and _sr_sp1[2] == 0 and json.loads(_sr_sp1[0])["status"] == "spent"
+              and json.loads(_sr_sp1[0])["stamp"]
+              and _sr_sp2[2] == 0 and json.loads(_sr_sp2[0])["status"] == "not-spent"
+              and json.loads(_sr_sp2[0])["stamp"] == ""
+              and all(g["spent-at"] for g in _sr_rows("blk")))
+
+        # ---- the VERDICT FLIP, driven by the LEADER's own mint --------------------------------
+        # The grant is minted by `rule-relaunch` — the REAL command, gated `is_leader` — for two
+        # reasons at once. It is the ONLY mint whose session-id matches `sessions_last_ended`, which
+        # is what `ready_seat_rows`' hoist filters on; and it makes this row assert the OWNER RULING
+        # that the flip fires on ANY unspent grant rather than only a daemon-minted one.
+        _sr_v_before = _rs_v(_sr_pkg)[0]
+        _sr_rr = refuse(cmd_rule_relaunch, seat="ruled", anchor="p-sr-ruled", go=True,
+                        **dict(package=str(_sr_pkg), base=None, workers_dir=None, force=False,
+                               as_agent=None, agent="leader"))
+        _sr_v_granted = _rs_v(_sr_pkg)[0]
+        _sr_row_granted = {r["seat"]: r for r in json.loads(_rs(_sr_pkg, json=True)[0])}["ruled"]
+        _sr_sp3 = _sr_run(seat="ruled", spend=True,
+                          session=sessions_last_ended(_sr_pkg)["ruled"][0], json=True)
+        _sr_v_spent = _rs_v(_sr_pkg)[0]
+        check("7.776 AN UNSPENT GRANT FLIPS `DONE` -> `READY`, AND ITS ABSENCE DOES NOT. The same "
+              "seat is measured THREE times on one package: `DONE` before any grant exists, `READY` "
+              "while one is unspent, `DONE` again the moment it is spent — so the arm measures the "
+              "GRANT and not the fixture. `DONE` is ABSORBING and that is exactly why this had to "
+              "become a verdict term: the daemon's seeding pass filters `verdict == \"READY\"` and "
+              "parses no reason strings, so the warning this replaces was worth nothing to the one "
+              "consumer it was written for (run-3: minted 17:54, launched by hand 19:24). ⚠ THE "
+              "GRANT IS THE `leader`'S, NOT THE DAEMON'S — owner ruling 2026-08-12: the flip fires "
+              "on ANY unspent grant, so no `minted-by` condition may be added to it. The reason "
+              "names the MINTER, the ANCHOR and the MINT STAMP, and the row still carries the grant "
+              "on the wire",
+              _sr_v_before["ruled"] == "DONE"
+              and _sr_rr[1] == 0
+              and _sr_v_granted["ruled"] == "READY"
+              and _sr_sp3[2] == 0 and json.loads(_sr_sp3[0])["status"] == "spent"
+              and _sr_v_spent["ruled"] == "DONE"
+              and "UNSPENT RELAUNCH GRANT" in _sr_row_granted["reason"]
+              and "leader" in _sr_row_granted["reason"]
+              and "p-sr-ruled" in _sr_row_granted["reason"]
+              and (_sr_row_granted["relaunch-grant"] or {}).get("anchor") == "p-sr-ruled"
+              and _sr_row_granted["disposition"] == "exited")
+
+        # ---- the DISCLOSED LIMIT the JS half is built against ---------------------------------
+        check("7.776 A GRANT WHOSE SESSION-ID MATCHES NO ENDED SESSION ROW IS NOT ON THE WIRE, AND "
+              "THE DAEMON'S SEEDING PASS IS WRITTEN AGAINST THAT. The hoist filters a grant against "
+              "`sessions_last_ended`, deliberately (a grant naming a superseded session refuses at "
+              "the spend as `stale-session`, so surfacing it would advertise an authorization that "
+              "cannot be spent). A seat with NO `sessions.csv` row AT ALL therefore never carries "
+              "its daemon-minted grant on `relaunch-grant`, however many were minted — which is the "
+              "measured `forg-intake` shape, and is why `seeding.js` merges the row its OWN mint "
+              "call returned instead of re-reading it here. Stated as a row so the next agent finds "
+              "it before rebuilding the JS half on an assumption this file does not hold",
+              len(_sr_rows("failed")) == 2
+              and {r["seat"]: r for r in json.loads(_rs(_sr_pkg, json=True)[0])}[
+                  "failed"]["relaunch-grant"] is None
+              and "failed" not in sessions_last_ended(_sr_pkg))
+
+        # ---- THE NON-LEAK, at the source and by exercise --------------------------------------
+        _sr_mint_src = _a3_inspect.getsource(cmd_seat_retry)
+        check("7.776 THE TWO VOCABULARIES DO NOT LEAK INTO EACH OTHER. `RELAUNCH_GRANT_FROM_STATES` "
+              "is BYTE-UNCHANGED at `('exited', 'done')` and the two tuples are DISJOINT — they "
+              "range over `sessions.csv`'s disposition cell and `executions.csv`'s outcome cell "
+              "respectively, two files written by two runtimes. Asserted at the SOURCE in both "
+              "directions: `cmd_rule_relaunch`'s mint leg still reads the disposition constant and "
+              "names the outcome one NOWHERE, and `cmd_seat_retry` is the mirror image. The "
+              "positive control is that each slice is asserted to CONTAIN the predicate it is "
+              "supposed to be showing, because an absence proves nothing about text that was never "
+              "there. The behavioural twin is the `exited` refusal two rows up",
+              RELAUNCH_GRANT_FROM_STATES == ("exited", "done")
+              and DAEMON_RETRY_FROM_OUTCOMES == ("failed", "killed")
+              and not (set(RELAUNCH_GRANT_FROM_STATES) & set(DAEMON_RETRY_FROM_OUTCOMES))
+              and "if disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_mint_leg
+              and "DAEMON_RETRY_FROM_OUTCOMES" not in _f4_mint_src
+              and "if outcome not in DAEMON_RETRY_FROM_OUTCOMES:" in _sr_mint_src
+              and "RELAUNCH_GRANT_FROM_STATES" not in _sr_mint_src)
+
         # ============ O3 (7.280): THE `--only` STATEMENT + THE CARVE-OUT CONSUMPTION ============
         # Spec: `planning/briefing-scoped-launch/only-statement-spec.md` (O1, sha256 c3113ec9…,
         # ACCEPTED) § `statement-shape` / `refusal-set` / `no-force-clause` / `dry-run-parity`, and
@@ -31205,7 +31568,7 @@ HELP_EPILOG = """everyday
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / rule-relaunch  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / rule-relaunch / seat-retry  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · (daemon) mint/spend that same grant AUTOMATICALLY against a `failed`/`killed` EXECUTION, bounded at two attempts per seat
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -32034,6 +32397,44 @@ def build_parser():
                    help="ACT: append the grant row; without it nothing is written")
     add_identity_flags(s)
     s.set_defaults(func=cmd_rule_relaunch)
+
+    s = command(
+        "seat-retry",
+        "(daemon) MINT or SPEND the ignite daemon's OWN automatic relaunch grant — the same\n"
+        "single-use, session-bound instrument `rule-relaunch` mints, minted unattended against an\n"
+        "EXECUTION that ended `failed`/`killed` and bounded at two attempts per seat.\n"
+        "\n"
+        "⚠ THE OUTCOME COMES FROM THE EXECUTION RECORD (`<goal>/executions.csv`), NOT from a\n"
+        "session's disposition — the two vocabularies are disjoint, and a seat can carry a failed\n"
+        "outcome with no `sessions.csv` row at all. This file never opens that record: the caller\n"
+        "reads it and passes the session-id and the outcome as arguments.\n"
+        "\n"
+        "NOT AN OVERRIDE. `--mint` refuses a third attempt, an outcome outside the retry set\n"
+        "(`blocked` means a human owes an answer), and a second grant for a session that already\n"
+        "carries one. `--spend` stamps whatever unspent grant the pair names — a LEADER-minted one\n"
+        "included, per owner ruling: an unspent grant is acted on whoever minted it.",
+        "example:\n"
+        "  coordinate seat-retry forg-intake --mint --session 317b947d-… --outcome failed\n"
+        "  coordinate seat-retry forg-intake --spend --session 317b947d-… --json\n"
+        "next: nothing by hand — the daemon's seeding pass mints, re-reads `ready-seats` and "
+        "spends at the enqueue. Read the trail in coordination/relaunch-grants.csv")
+    s.add_argument("seat", help="the TARGET seat whose failed execution is being retried — never the caller")
+    _sr = s.add_mutually_exclusive_group(required=True)
+    _sr.add_argument("--mint", action="store_true",
+                     help="append the grant row for (seat, --session), subject to the retry bound")
+    _sr.add_argument("--spend", action="store_true",
+                     help="stamp `spent-at` on the unspent grant for (seat, --session); prints an "
+                          "empty stamp and a reason when there is none to spend")
+    s.add_argument("--session", metavar="ID", default=None, required=True,
+                   help="the EXECUTION's session-id, as `executions.csv` carries it — the grant's "
+                        "binding, and the join key back to the evidence")
+    s.add_argument("--outcome", metavar="WORD", default=None,
+                   help="required with --mint: that execution's own outcome cell. Only `failed` "
+                        "and `killed` mint; `blocked` and `done` are refused by state")
+    s.add_argument("--json", action="store_true",
+                   help="machine-readable result on stdout — the shape the daemon's seeding pass reads")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_seat_retry)
 
     s = command(
         "export-transcript",
