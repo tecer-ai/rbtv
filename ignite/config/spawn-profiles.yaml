@@ -1095,9 +1095,10 @@ tools:
   # only shape that does. The tool moves each request into `done/` or `refused/` as it goes, so a
   # re-fire never re-processes what it already handled.
   #
-  # ⚠ IT SCAFFOLDS AND QUEUES — IT DOES NOT ARM AND DOES NOT LAUNCH. `arm()`/`launch()` are the
-  # entry's other acts and this path never reaches them; a goal born here is BORN INERT, and its
-  # first workflow job is a QUEUE ROW ten minutes out, not a running session.
+  # ⚠ IT SCAFFOLDS — IT QUEUES NOTHING, ARMS NOTHING AND LAUNCHES NOTHING (7.778). `launch()` is
+  # the entry's other act and this path never reaches it. A goal born here is born INTO A LANE
+  # (`<goal>/execution-lane`, task 7.777, a REQUIRED field of every staged request), and the
+  # daemon's watch pass is what picks a `daemon` goal up; a `console` goal waits for `rbtv run`.
   #
   # ⚠ --ignite-bin IS NOT OPTIONAL, and the reason is the absolute-interpreter one `restart-daemon`
   # above carries: a fire-tool exec inherits the systemd --user MANAGER's PATH, which does not carry
@@ -1105,13 +1106,12 @@ tools:
   # daemon. It names the REPO file, never the symlink — the symlink's lifetime is shorter than this
   # config's, which is what `server/heart/catalogue-paths.js`'s boot check exists to catch.
   #
-  # ⚠ LANDING THIS ENTRY DOES NOT ARM IT — three gated acts stand between here and a fire, and the
+  # ⚠ LANDING THIS ENTRY DOES NOT ARM IT — two gated acts stand between here and a fire, and the
   # ORDER matters: (1) create the inbox dir `<.rbtv/goals/_channel-master/requests>`, (2) restart
-  # the daemon (this file is boot-read), (3) `register-job` + `add-job`. Done out of order, step 2
-  # logs one `catalogue-paths` error per boot for a `--inbox` that does not exist yet (the check
-  # logs, it never refuses the boot).
+  # the daemon (this file is boot-read). Done out of order, step 2 logs one `catalogue-paths` error
+  # per boot for a `--inbox` that does not exist yet (the check logs, it never refuses the boot).
   #
-  # ⚠ `--workflow`/`--entry-seat` NAME WHAT EVERY MASTER-CREATED GOAL STARTS WITH — RULED, task C5.
+  # ⚠ `--workflow` NAMES WHAT EVERY MASTER-CREATED GOAL IS MATERIALIZED WITH — RULED, task C5.
   # Owner ruling `d-owner-q10-launcher-0808` (1), 2026-08-08: a master-created goal that does not
   # route to a pre-existing workflow starts in the PLANNING workflow.
   # ⚠ REPOINTED 2026-08-10 (issue C-2). The component this ruling was landed against —
@@ -1119,42 +1119,24 @@ tools:
   # planning-v4 stage-B rename, vault commit `01f60de16`; task 7.598), entry seat `elicitator` —
   # was DELETED, and every daemon-fired creation refused `workflow-unknown` at `create-package`
   # until this edit. The live component is `.rbtv/mirror/meta/planning/`, the planning REWRITE:
-  # 16 manifest seats in `workflows/planning/planning.csv`, entry seat `plan-interviewer` (the
-  # chain's root, verified on disk against that component's `seats.csv` before this edit). The
-  # ruling is unchanged — a master-created goal still starts in planning; only the component it
-  # names moved.
+  # 16 manifest seats in `workflows/planning/planning.csv`. The ruling is unchanged — a
+  # master-created goal still starts in planning; only the component it names moved.
   #
-  # ⚠ THE PAIR THAT WAS HERE BEFORE WOULD HAVE RE-RUN THE BUILD WAVE ON EVERY FRESH GOAL.
-  # `master-request-launch-entry` / `request-schema-absence-remeasurer` name the run-3 wave that
-  # BUILT this machinery, and that wave's root seat is a build-time MEASUREMENT seat ("re-measure
-  # that no request schema already exists"). They were the shipped default because they were the
-  # only names in hand when the entry was written, never because they were right for production.
+  # ⚠ `--entry-seat` AND `--delay-seconds` ARE GONE (7.778, owner-ruled). They fed the
+  # `register-job` + `add-job` pair that planted a `<goal>-workflow-start` row at goal birth, and
+  # both that pair and the `workflows: planning:` launcher it fired are DELETED. The entry seat is
+  # no longer named here because nothing here opens it: seeding does, from the lane marker. What
+  # `enqueue-job` refuses and what `argv-template.js` expands are unchanged mechanisms — they
+  # simply have no registrant from this door any more.
   #
-  # ⚠ THE ENTRY SEAT NOW RIDES THE QUEUE ROW, not just the job's home (task C5): `scaffold-and-queue`
-  # puts `entry-seat` in the enqueued args AND homes the job at `--goal/--seat`, because the
-  # launcher's argv template expands `{{entry-seat}}` from the ARGS while the ticker resolves the
-  # seat FOLDER from the home. Per-row templating is what lets one generic launcher serve every
-  # workflow; `server/heart/argv-template.js` carries the mechanism and its injection argument.
+  # ⚠ A FAILED SCAFFOLD LEAVES THE PARTIAL GOAL STANDING — ruled, no unwind
+  # (`d-owner-q10-launcher-0808` clause 3). The daemon cannot prove it alone created that
+  # directory, so the partial state is DISCLOSED in the request's refusal record (`goal-dir`,
+  # `goal-exists`, `scaffolded`) instead of deleted. Expect orphan goal directories after a failed
+  # fire; that is the ruled behaviour.
   #
-  # ⚠ A FAILED REGISTRATION LEAVES THE SCAFFOLDED GOAL STANDING — ruled, no unwind (same ruling,
-  # clause 3). The daemon cannot prove it alone created that directory, so the partial state is
-  # DISCLOSED in the request's refusal record (`goal-dir`, `goal-exists`, `scaffolded`) instead of
-  # deleted. Expect orphan goal directories after a failed fire; that is the ruled behaviour.
-  #
-  # ⚠ NO LONGER DARK — the `workflows: planning:` entry at the foot of this file is the
-  # counterpart this comment used to name as missing (task C5E, owner rulings
-  # `d-owner-planning-entry-0808` and `d-owner-planning-entry-2-0808`). `enqueue-job` refuses a
-  # `start-workflow` row whose workflow is absent from `config.workflows`; that refusal is now
-  # satisfied for `planning`, and the three
-  # values named here as unresolved are RULED and landed: the call shape is the WHOLE planning DAG
-  # (`--workflow planning --root`, 16 manifest seats, entry seat `plan-interviewer`), the bindings file is
-  # the workflow's ONE casting sheet at `.rbtv/config/modules/meta/planning/bindings/plan.json`, and the
-  # fresh goal's package IS ITS GOAL FOLDER (7.607 E2b, design-lock item 8 — `runs/run-1` is
-  # extinguished), created by this same act and riding the queued row's args as a whole token.
-  #
-  # ⚠ LANDED IS NOT LIVE, AND THE GAP IS THIS FILE'S OWN. It is BOOT-READ, so the entry below and
-  # the section at the foot both activate at the NEXT daemon restart and not before. Arming remains
-  # the separately gated sequence spelled out four comments up.
+  # ⚠ LANDED IS NOT LIVE, AND THE GAP IS THIS FILE'S OWN. It is BOOT-READ, so the entry below
+  # activates at the NEXT daemon restart and not before.
   #
   # ⚠ THE FIVE NEW FLAGS BELOW ARE WHAT MAKES THE GOAL BORN READY TO EXECUTE. `scaffold-and-queue`
   # completes the goal folder's WORKING SURFACES through the ruled name `scaffold-seats` instead of
@@ -1176,8 +1158,6 @@ tools:
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals
       - --workflow
       - planning
-      - --entry-seat
-      - plan-interviewer
       # ⚠ THE CATALOG ROOT IS THE SHARED PARENT, NOT THE planning COMPONENT FOLDER. The workflow is
       # resolved as `<catalog-root>/<component>/workflows/planning/planning.csv`, so the root must
       # be the MODULE folder that CONTAINS the component. (Under the retired planning-deprecated
@@ -1199,62 +1179,34 @@ tools:
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/CLAUDE.md
       - --budget-json
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/budget.json
-      - --delay-seconds
-      - "60"
       - --ignite-bin
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/cli/ignite.js
 
-  # ── goal-launch-delay (issue C-1) — the channel master retiming ITS OWN queue delay ──────────
-  #
-  # THE KNOB IS THE `--delay-seconds` OPERAND OF THE ENTRY DIRECTLY ABOVE. There is no separate
-  # "delay setting" anywhere in this system, which is the whole reason this entry exists: the owner
-  # ruled (2026-08-10) that the master gets a TOOL TO INTERACT WITH THE SETTING IN ITS NATIVE PLACE,
-  # not a new settings surface to keep in sync with this one. So the fired tool performs a
-  # LINE-PRECISE edit of the two lines above and restarts the daemon — it never round-trips this
-  # document through a YAML dumper, which would delete every comment in it.
-  #
-  # ⚠ SAME TWO-PART TRANSPORT AS `goal-creation-request`, FOR THE SAME MEASURED REASONS, and none
-  # of them is a preference: the master's cage binds this repo READ-ONLY (`touch` → `Read-only file
-  # system`), so the seat cannot make this edit; `fire-tool` argv is STATIC (only `workdir` crosses
-  # from a queue row), so the requested VALUE must travel as a file staged in the seat's own folder;
-  # and `enqueue-job` carries no authz gate, so it is the one trigger a `bridge` token can pull.
-  #
-  # ⚠ THIS ENTRY LETS A FIRED TOOL RESTART THE DAEMON THAT FIRED IT — OWNER-APPROVED
-  # (`d-master-zero-restrictions-accepted`), and safe by ordering rather than by luck: the YAML is
-  # written with `os.replace` and every outcome record is on disk BEFORE the restart is invoked.
-  # A `systemd-run --user` transient unit is its own unit under the user manager, not a child of
-  # `rbtv-ignite.service`'s cgroup, so it survives that restart — measured live at build time.
-  #
-  # ⚠ THE INBOX IS THIS CAPABILITY'S OWN, NOT `goal-creation-request`'s. One drained directory per
-  # tool: a shared one would hand each drain the other's payloads, and both would refuse them.
-  goal-launch-delay:
-    argv:
-      - /usr/bin/python3
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/capabilities/goal-launch-delay/tool/goal_launch_delay.py
-      - apply
-      - --inbox
-      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/settings-requests/goal-launch-delay
-      # The document this tool edits — named explicitly rather than left to the tool's own default,
-      # so a reader of this entry can see WHICH file a fire rewrites without opening the script.
-      - --config
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml
-
   # ── master-profile (issue C-1) — the channel master choosing ITS OWN harness and model ────────
   #
-  # THE KNOB IS `master_profile` IN `.rbtv/config/chat-bridge-config.json`, read at boot by
-  # `bridges/chat/config.js` and selected for master (DM) traffic by `forward-path.js#profileFor`
-  # (`config.masterProfile || config.sessionProfile`). Same ruling, same shape, same transport as
-  # the entry above; the differences are the file, the validator, and the unit restarted.
+  # ⚠ RETARGETED 2026-08-12. The knob WAS `master_profile` in `.rbtv/config/chat-bridge-config.json`,
+  # boot-read by the chat bridge and selected per surface by `forward-path.js#profileFor`. The
+  # launch-cast unification (owner ruling D2, 2026-08-11) deleted that key's readers — the transport
+  # stopped naming execution — so the fire below now edits the master's own CASTING SHEET, the same
+  # kind of file `rbtv-bindings` writes for every workflow seat, and re-renders its `seat.md` from it.
   #
-  # ⚠ THE REQUESTED NAME IS VALIDATED AGAINST THE LIVE `profiles:` SET OF THIS FILE, at both halves.
-  # An unknown profile name does NOT fail at the bridge — it fails at the SPAWN, one owner message
-  # later, with the sitting already accounted for. The tool reads the roster rather than carrying a
-  # copy of it, so adding a profile above needs no edit here.
+  # ⚠ THE REQUESTED NAME IS VALIDATED AGAINST THE LIVE `profiles:` SET OF THIS FILE, at both halves —
+  # and against `coord.py#validate_seat` on top of it, because the sheet must hold a pair that the
+  # F6 gate of `materialize-seats.py` accepts. An unknown or uncastable name does NOT fail when the
+  # sheet is written — it fails at the SPAWN, one owner message later, with the sitting already
+  # accounted for. The tool reads the roster rather than carrying a copy, so adding a profile above
+  # needs no edit here.
   #
-  # ⚠ THE RESTART ENDS THE OWNER'S LIVE CHAT SESSION. `rbtv-chat-bridge.service` is boot-read, so
-  # there is no cheaper way to apply this, and the requesting sitting is the one that dies. That is
-  # why the outcome record lands in the requester's own folder BEFORE the restart: the next sitting
-  # reads what happened to the request the previous one made.
+  # ⚠ NOTHING IS RESTARTED, AND THE OWNER'S CHAT SESSION SURVIVES. A casting sheet is not boot-read:
+  # `spawn.js` reads `seat.md` per launch and `live-sessions.js` reaps a warm session whose
+  # conversation now names a different profile, so the switch lands on the owner's next message.
+  # The `--repass` re-render is the whole reason this is a DAEMON fire at all — `seat.md` sits under
+  # `.rbtv/goals/`, which every seat cage refuses to grant writably, so the seat can author the cast
+  # and only this side can make it take.
+  #
+  # ⚠ `--package` IS ABSENT ON PURPOSE. It is derived from `--inbox` (the inbox is
+  # `<goal>/settings-requests/<capability>`, so its grandparent IS the goal folder), which keeps one
+  # goal name out of this argv instead of two that could drift apart.
   master-profile:
     argv:
       - /usr/bin/python3
@@ -1262,8 +1214,17 @@ tools:
       - apply
       - --inbox
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/settings-requests/master-profile
-      - --config
-      - /home/henri/ht-wkdir/second-brain/.rbtv/config/chat-bridge-config.json
+      # The sheet this fire rewrites and the seat of it that is the master — named explicitly rather
+      # than left to the tool's own defaults, so a reader of this entry can see WHICH cast a fire
+      # changes without opening the script.
+      - --bindings
+      - /home/henri/ht-wkdir/second-brain/.rbtv/config/modules/meta/master-agent/bindings/channel-master.json
+      - --seat
+      - channel-master
+      # Where the re-render reads the seat DEFINITION from (the component mirror), as distinct from
+      # the sheet above, which carries only what this deployment decided to spend on running it.
+      - --catalog-root
+      - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta
       - --profiles
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml
 
@@ -1291,58 +1252,15 @@ tools:
 # start-workflow exec inherits the systemd --user manager's PATH, which does not carry
 # `~/.local/bin`, so `coordinate` as a bare name resolves interactively and NOT here. Same rule and
 # same reason as `--ignite-bin` on the tools above.
-workflows:
-
-  # The workflow EVERY master-created goal starts in — owner ruling `d-owner-q10-launcher-0808` (1).
-  # The launcher is workflow-AGNOSTIC: it reads the run package, the goal and the entry seat off the
-  # row, so a second workflow needs a new key here and no new program.
-  #
-  # ⚠ WHY A LAUNCHER PROGRAM AND NOT `coordinate launch` DIRECTLY. Two measured facts, both in
-  # `evidence/c5e/c5e-01-premise-probes.txt` P6 and in the launcher's own docstring: `coordinate
-  # launch` contains ZERO `new-session` calls (it opens a WINDOW in an EXISTING session, and at
-  # 10 minutes old this goal has none), and it resolves its target from
-  # `COORD_LAUNCH_TARGET or TMUX_PANE`, NEITHER of which the daemon exports. With both unset tmux
-  # resolves an empty target to the MOST RECENT session — which is how a stray launch reaches the
-  # LIVE room. So the room is created and the target is named EXPLICITLY, or the act refuses.
-  #
-  # ⚠ THE SESSION IS PER-RUN AND ITS NAME DERIVES FROM THE GOAL — owner ruling
-  # `d-owner-planning-entry-2-0808` (Q2). It is composed by the launcher as `<goal>-<run-id>`, so
-  # NO short-lived identifier is baked into this file: a pane or window id would name a thing whose
-  # lifetime is far shorter than this config's, which is the hazard `catalogue-paths.js` exists to
-  # catch. The rejected alternatives are recorded in that ruling — an always-on boot-time room, or
-  # widening the certified templating key set with a new byte class on an exec'd command line.
-  #
-  # ✅ FIRST FIRE ON A BRAND-NEW PACKAGE OPENS THE ENTRY SEAT. `coordinate launch` carries a
-  # COLD-START admission (team-kit 7.406): a package no sensor has ever run against and no seat has
-  # ever launched into is admitted on the EMPTY-ROOM BOUND. Proven end to end by
-  # `probes/probe-planning-entry.py` P5 (the real launcher, no --dry-run, the seat's pane asserted).
-  # ⚠ SUBJECT TO THE RAM FLOOR, which this launcher leaves binding (--force yes, --force-memory
-  # no): under memory pressure the first fire opens NOTHING and exits non-zero.
-  # ⚠ THIS CORRECTS WHAT THIS COMMENT SAID UNTIL TASK 7.548 — that the first fire opens no seat and
-  # that whoever arms goal-creation must add the team-monitor census sensor to the arming sequence.
-  # That was read off the census-FAILURE branch, not measured, and its remedy is impossible:
-  # `team_monitor.py` resolves the room's session FROM THE ROSTER and refuses while no seat has
-  # checked in (exit 4), so it cannot run before the first launch. NOTHING ABOUT THE CENSUS BELONGS
-  # IN THE ARMING SEQUENCE.
-  #
-  # ⚠ THE LAUNCHER'S EXIT CODE IS THE STORE RECORD (`recordToolCompletion`: 0 -> `done`, non-zero ->
-  # `failed`). 0 means A SEAT OPENED and nothing else; 3 means the launch ran and admitted nobody —
-  # loud, typed, recorded `failed` rather than a false `done`. The row is ONE-SHOT (deleted at fire),
-  # so that failure has no cadence to recur on.
-  # ⚠ THE KEY IS THE WORKFLOW NAME THE QUEUED ROW CARRIES. `scaffold-and-queue` puts
-  # `{"workflow": <--workflow>}` in the row's `--args-json`, and `enqueue-job` looks the row up
-  # here by that exact string — so this key MUST track the `--workflow` value in the
-  # `goal-creation-request` entry above. Renamed `planning-deprecated:` -> `planning:` with it
-  # (issue C-2, 2026-08-10).
-  planning:
-    argv:
-      - /usr/bin/python3
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/capabilities/goal-creation-request/tool/workflow_launcher.py
-      - --package
-      - "{{workdir}}"
-      - --goal
-      - "{{goal}}"
-      - --entry-seat
-      - "{{entry-seat}}"
-      - --coord
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
+# ⚠ 7.778 — THE SECTION IS EMPTY, AND THAT IS THE CURRENT END STATE, NOT AN OVERSIGHT.
+# The one entry that lived here (`planning:`, firing
+# `capabilities/goal-creation-request/tool/workflow_launcher.py`) is DELETED with the door that
+# armed it: goal creation no longer plants a `<goal>-workflow-start` row at birth. A created goal
+# declares its LANE instead (`<goal>/execution-lane`, task 7.777), and the daemon's watch pass
+# seeds it from that marker every cadence.
+#
+# ⚠ THE `start-workflow` ACTION TYPE IS **NOT** DELETED. It is a generic dispatch category with
+# live consumers (`server/ticker/one-live-run.js`, `server/ticker/goal-channel-start.js`), and an
+# empty map here simply means every `start-workflow` row is refused at the enqueue door until
+# somebody registers a workflow — which is the correct posture, not a regression.
+workflows: {}

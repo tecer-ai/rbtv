@@ -45,6 +45,10 @@ const {
   // the daemon lane's watch pass so both doors demand `--profile` on exactly the same goals.
   uncastSeats, fallbackProfileFor,
 } = require('./seeding');
+// THE RELAUNCH GRANT'S ONE HOME — `<goal-folder>/relaunch-grants`, the same file the daemon lane
+// reads inside the shared seeding functions. This lane used to keep the grant in a process-local
+// `Set` built from argv, which is why the other lane could never be given one at all.
+const { readGrants, grantRelaunch, spendGrant } = require('./relaunch-grants');
 // THE GOAL'S EXECUTION RECORD — the one place any lane's reader asks "did this seat finish"
 // (owner ruling decisions.md#d-s23-single-execution-record-now).
 // `outcomeForSeat` is the BLOCK-AND-QUEUE HOLD's one decision point, shared with the per-tick
@@ -678,8 +682,18 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = nu
     // an answer nobody has.
     return !(ready && ready.has(r.seat));
   });
+  // WHICH OF THEM A GRANT COULD ACTUALLY RELEASE, computed here because this is where the holds are
+  // already in hand. It is exactly the set `recordView`'s grant loop deletes from — a seat held by
+  // the record (somebody else's row, an open row, `blocked` on the owner) — and deliberately NOT
+  // every unfinished seat: a seat whose `after` is unmet is not offered by coord either way, so
+  // naming it in the remedy would send an operator to spend a grant that changes nothing.
+  const grantable = (rs) => rs.filter((r) => (foreign && foreign.has(r.seat))
+    || (notFinished && notFinished.has(r.seat))).map((r) => r.seat);
   if (stuck.length === unfinished.length) {
-    return { done: true, reason: 'blocked', unfinished: unfinished.map((r) => r.seat) };
+    return {
+      done: true, reason: 'blocked', unfinished: unfinished.map((r) => r.seat),
+      grantable: grantable(unfinished),
+    };
   }
 
   // A seat that HAS RUN and did not finish — a failed detached child, or a foreground seat the
@@ -689,7 +703,9 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = nu
   // explicit `--relaunch`, never because the loop came back around.
   const failed = unfinished.filter((r) => seatHasRun(byJob.get(jobIdFor(r.seat))));
   if (failed.length) {
-    return { done: true, reason: 'seat-failed', unfinished: failed.map((r) => r.seat) };
+    // Every one of these IS grantable: it has an execution row in THIS store and nothing else, so
+    // hiding that row is precisely what a grant does (`executionsByJob`).
+    return { done: true, reason: 'seat-failed', unfinished: failed.map((r) => r.seat), grantable: failed.map((r) => r.seat) };
   }
   return { done: false, live: 0 };
 }
@@ -954,7 +970,13 @@ async function executeAttached({
     const resumedAtTick = engine.getTickNumber();
     const intervalMs = tickIntervalMs || 10000;
     const isHeld = heldSeatPredicate(goalFolder);
-    const grants = new Set(relaunch);
+    // The grants this run may spend. A caller-supplied seat list (`relaunch`) is MINTED INTO THE
+    // FILE rather than kept in this process: one home means the seat a console run granted is the
+    // seat the daemon lane would also honour, and a grant that could not be spent this run survives
+    // the terminal closing. The seeding pass sources the same file for itself, so this set is only
+    // what THIS loop needs for its own carriage and exit decisions.
+    for (const seat of relaunch) grantRelaunch(goalFolder, seat);
+    const grants = readGrants(goalFolder);
     // BEFORE the first pass: a foreground row left non-terminal belongs to a runner that is gone.
     const reconciled = reconcileForegroundOrphans(engine.heartStore, { logger });
     const foreground = [];
@@ -993,7 +1015,10 @@ async function executeAttached({
         const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants, view, ready);
         if (!held || carriedThisPass.has(held.seat)) break;
         carriedThisPass.add(held.seat);
-        grants.delete(held.seat);            // the grant is SPENT at the launch, never re-read
+        // The grant is SPENT at the launch, never re-read — in memory AND on disk, in one act.
+        // The second half is what stops a re-run of `rbtv run` (or the daemon's next pass) finding
+        // the same grant still standing and carrying the seat a second time.
+        if (grants.delete(held.seat)) spendGrant(goalFolder, held.seat);
         foreground.push(runForegroundSeat({
           heartStore: engine.heartStore,
           seat: held.seat,
@@ -1049,6 +1074,10 @@ async function executeAttached({
           seats: rows.map((r) => r.seat),
           asks: verdict.asks || [],
           unfinished: verdict.unfinished || [],
+          // The seats a relaunch grant could actually release — what the CLI's remedy hint prints,
+          // so the hint is not a guess made from the outcome word (it used to be exactly that, and
+          // was therefore unreachable on the `blocked` verdict a cross-lane failed seat produces).
+          grantable: verdict.grantable || [],
           foreground,
           reconciled,
         };
@@ -1060,7 +1089,7 @@ async function executeAttached({
         return {
           host, outcome: 'max-ticks', goalFolder, storePath, resumedAtTick,
           tick: engine.getTickNumber(), ticks, seats: rows.map((r) => r.seat), asks: [], unfinished: [],
-          foreground, reconciled,
+          grantable: [], foreground, reconciled,
         };
       }
       await sleep(intervalMs);

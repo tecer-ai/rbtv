@@ -2,10 +2,12 @@
 
 // Owner ruling "1a" (2026-08-06) — the CROSS-GOAL INSTRUMENT grant classes:
 //
-// ⚠ 7.607 E1 RE-FOUNDING. `bus-write` / `goals-write` are no longer scoped by `runs.csv`'s
-// `state` column but by the DERIVED LEASE (`server/lease/lease.js`, design lock item 4, SECURITY):
-// a goal contributes a grant only while its ROOM EXISTS and at least one seat of that room has a
-// live, ancestry-verified process. So the fixture below builds REAL tmux rooms with REAL verified
+// ⚠ 7.607 E1 RE-FOUNDING, AS AMENDED BY 7.778. `bus-write` is scoped by the DERIVED LEASE
+// (`server/lease/lease.js`, design lock item 4, SECURITY): a goal contributes a BUS grant only
+// while its ROOM EXISTS and at least one seat of that room has a live, ancestry-verified process.
+// `goals-write` was scoped the same way until owner ruling 2026-08-12 removed its liveness
+// conjunct — it is now every goal folder but the seat's own. The two classes are therefore
+// asserted SEPARATELY below (G8a/G8b), not together. So the fixture below builds REAL tmux rooms with REAL verified
 // seats — "open" is no longer something a fixture can assert into a CSV, and that is the point:
 // with seat folders becoming goal-durable, a register-shaped predicate would have widened the bus
 // to every historical seat a goal ever had. Legs G8a/G8b are that widening, refused.
@@ -239,17 +241,26 @@ capture('probe-seat-grant-classes', async (lines) => {
     // These are the two states a register-shaped predicate carried into the extinguished layout
     // would have GRANTED, and the ruling forbids both by name: "historical seat folders on disk
     // grant nothing", and access holds only "while [a seat] has a live, ancestry-verified process".
-    // Each is asserted on BOTH grant classes, because a widening in either is the same breach.
+    //
+    // ⚠ 7.778 SPLIT THE TWO CLASSES APART HERE, AND THE SPLIT IS THE POINT — they used to be
+    // asserted together on the premise that a widening in either is the same breach. That premise
+    // is now false for ONE of them. The ruling above is about the COORDINATION BUS (design lock
+    // item 4 names it: "a seat reads/writes the coordination BUS only while…"), and it is
+    // UNCHANGED and still asserted below. `goals-write` had its liveness conjunct REMOVED by owner
+    // ruling 2026-08-12: the grant list is a SPAWN-TIME SNAPSHOT, so a goal created during a
+    // sitting could never be in it, which made the channel master's promised cross-goal writes
+    // impossible rather than merely narrow. So each G8 leg now says BUS: NOTHING, FOLDER: GRANTED.
     leg('G8a', '⚠⚠ a goal with EVERY seat folder it ever had still on disk (they are GOAL-DURABLE '
-      + 'now) but with NO ROOM grants NOTHING — not the bus, not the goal folder. This is the exact '
-      + 'widening a register-shaped predicate carried into the extinguished layout would produce',
-      !granted.includes(f.historicalCoord) && !granted.includes(f.historicalRun),
-      `historical coordination in flags: ${granted.includes(f.historicalCoord)}; run folder: ${granted.includes(f.historicalRun)}`);
+      + 'now) but with NO ROOM grants NO BUS — the exact widening a register-shaped predicate '
+      + 'carried into the extinguished layout would produce — while its GOAL FOLDER *is* granted '
+      + 'since 7.778 removed that class\'s liveness conjunct',
+      !granted.includes(f.historicalCoord) && granted.includes(f.historicalRun),
+      `historical coordination in flags: ${granted.includes(f.historicalCoord)} (must be false); run folder: ${granted.includes(f.historicalRun)} (must be true)`);
     leg('G8b', '⚠⚠ a goal that HAS a live room but whose only registered occupant is a DEAD pid '
-      + 'grants NOTHING either — the room alone is a lease for the ticker gate but never for authz; '
-      + 'an unoccupied room is a room nobody is in',
-      !granted.includes(f.ghostCoord) && !granted.includes(f.ghostRun),
-      `ghost coordination in flags: ${granted.includes(f.ghostCoord)}; run folder: ${granted.includes(f.ghostRun)}`);
+      + 'grants NO BUS either — the room alone is a lease for the ticker gate but never for authz; '
+      + 'an unoccupied room is a room nobody is in — and its GOAL FOLDER is granted, same split',
+      !granted.includes(f.ghostCoord) && granted.includes(f.ghostRun),
+      `ghost coordination in flags: ${granted.includes(f.ghostCoord)} (must be false); run folder: ${granted.includes(f.ghostRun)} (must be true)`);
     leg('G8c', 'and the CONTROL that makes G8a/G8b mean something: the two executing goals with '
       + 'live ancestry-verified occupants ARE granted, from the same walk, in the same call',
       granted.includes(f.betaCoord) && granted.includes(f.ownCoord),
@@ -344,13 +355,19 @@ capture('probe-seat-grant-classes', async (lines) => {
     // body matched `--bind` targets against a /runs\/run-N$/ regex; with the compartment gone that
     // pattern matches NOTHING, so the leg would have compared [] against [] and passed while
     // measuring nothing at all. Membership of each goal dir the fixture built is checked instead.
+    //
+    // ⚠ 7.778 — THE EXPECTED SET GREW, AND THE LEG STILL DISCRIMINATES. It used to be the
+    // EXECUTING, OCCUPIED other goals; the liveness conjunct is gone, so it is now EVERY other
+    // goal — including `historical` (no room at all) and `ghost` (a room nobody is in), which is
+    // the whole loosening, measured here. What it still catches: the OWN goal leaking in
+    // (narrowing 1), and a resolver that grants nothing at all.
     const allGoalDirs = [f.runDir, f.betaRun, f.gammaRun, f.historicalRun, f.ghostRun];
     const grantedRunDirs = allGoalDirs.filter((d) => hasFlag(granted, '--bind', d));
-    const expected = [f.betaRun, f.gammaRun].sort();
-    leg('G6d', 'the granted GOAL-FOLDER set is exactly the EXECUTING, OCCUPIED other goals — not the own goal, not a roomless one, not an unoccupied room',
+    const expected = [f.betaRun, f.gammaRun, f.historicalRun, f.ghostRun].sort();
+    leg('G6d', 'the granted GOAL-FOLDER set is EVERY other goal in the workspace, live or not (7.778 removed the liveness conjunct) — and never the own goal',
       JSON.stringify([...new Set(grantedRunDirs)].sort()) === JSON.stringify(expected),
       `granted ${JSON.stringify([...new Set(grantedRunDirs)].sort())} vs expected ${JSON.stringify(expected)} `
-      + `(alpha own, historical roomless, ghost unoccupied — all absent)`);
+      + `(alpha own absent; historical roomless and ghost unoccupied both PRESENT — the loosening)`);
     leg('G6h', 'a seat declaring nothing gets no goal folder at all',
       allGoalDirs.every((d) => !hasFlag(plain, '--bind', d)),
       `plain seat goal-folder openings: ${JSON.stringify(allGoalDirs.filter((d) => hasFlag(plain, '--bind', d)))}`);

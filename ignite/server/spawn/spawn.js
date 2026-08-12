@@ -662,9 +662,10 @@ function resolveBusWriteGrants(seatPath) {
   return grants;
 }
 
-// The two grant resolvers' shared walk: every goal folder, its lease derived once. Spelled here so
-// the authz predicate has ONE home (PRIN-11) — two copies of "which goals are executing" is the
-// same drift as two copies of "is this run open" was.
+// The BUS grant's walk: every goal folder, its lease derived once. Spelled here so the authz
+// predicate has ONE home (PRIN-11) — two copies of "which goals are executing" is the same drift
+// as two copies of "is this run open" was. ⚠ It had a second caller (`goals-write`) until 7.778
+// removed that class's liveness conjunct; ONE caller is the current end state, not a leftover.
 function leasedGoals(workspaceRoot) {
   const goalsDir = path.join(workspaceRoot, '.rbtv', 'goals');
   let goals;
@@ -682,14 +683,43 @@ function leasedGoals(workspaceRoot) {
   return out;
 }
 
-// `goals-write: true` — RW on the GOAL FOLDER of every goal that is EXECUTING, so a seat holding
-// the materializer (`team-kit/materialize-seats.py`) can seat a cataloged seat into a live
-// execution: it writes `seats/<seat>/seat.md` and appends `taskforce.csv`, and that append is an
-// atomic tmp-file-plus-rename IN THE GOAL DIR — which is why the grant is the goal dir and not
-// `seats/` alone. Same lease scoping as `bus-write` above, through the same one lease reader.
+// `goals-write: true` — RW on the GOAL FOLDER of every goal in the workspace but its own, so a
+// seat holding the materializer (`team-kit/materialize-seats.py`) can seat a cataloged seat into a
+// goal: it writes `seats/<seat>/seat.md` and appends `taskforce.csv`, and that append is an atomic
+// tmp-file-plus-rename IN THE GOAL DIR — which is why the grant is the goal dir and not `seats/`
+// alone.
 //
-// TWO NARROWINGS, both load-bearing:
+// ── 7.778 — THE LIVENESS CONDITION IS REMOVED (owner-ruled 2026-08-12) ────────────────────────
 //
+// This grant was lease-scoped, exactly like `bus-write` above: a goal contributed a grant only
+// while its room existed AND at least one seat of that room had an ancestry-verified live process.
+// That was measured to make the channel master's own promised act IMPOSSIBLE, not merely narrow:
+//
+//   · the grant list is resolved ONCE, when the sandbox is composed at spawn — it is a SNAPSHOT,
+//     not a live query, so nothing the sitting does afterwards can widen it;
+//   · a goal CREATED during that sitting therefore cannot be in the snapshot, by construction;
+//   · so the master's write of a just-created goal's `<goal>/execution-lane` died on `EROFS`,
+//     every time, whatever it did. There was no ordering that worked.
+//
+// The lane's own routing is fixed at the other end (7.777 — the DAEMON writes the marker during
+// creation, in the process that writes `goal.md`), but the same snapshot argument bites every
+// other cross-goal act the master is entitled to: a goal it is meant to seat into is not
+// guaranteed to have had a live pane at the instant this seat spawned. LIVENESS IS THEREFORE NOT
+// AN ENTITLEMENT PREDICATE HERE — it is a fact about a moment that has already passed.
+//
+// ⚠ THE LIVENESS CONJUNCT STAYS EXACTLY AS IT WAS FOR `bus-write` ABOVE, and that is deliberate.
+// The coordination bus is where seats' identities and messages live, and the 7.607 E1 ruling
+// (design lock item 4) is explicit that its narrowness is preserved: "a seat reads/writes the
+// coordination bus only while it has a live, ancestry-verified process in the goal's current
+// execution — historical seat folders on disk grant nothing." That ruling is about the BUS. It is
+// not restated for the goal folder, and this row does not touch it.
+//
+// WHAT ENTITLEMENT REMAINS after the loosening — three conditions, all still enforced:
+//
+//   0. THE SEAT MUST DECLARE `goals-write: true` IN ITS OWN `seat.md`, which is written by the
+//      materializer/master and ro-bound inside the cage. No occupant can widen its own walls; a
+//      seat that does not declare the key gets an empty grant list and the template line composes
+//      to nothing. This is the actual entitlement gate and it is untouched.
 //   1. THE SEAT'S OWN GOAL FOLDER IS NEVER GRANTED. A seat would otherwise re-open its own
 //      goal dir read-write ON TOP of `tmpfs:{goalDir}/seats` and the `ro-bind:{seatDir}/seat.md`
 //      carve — un-erasing peer seat folders and handing the occupant its own permission record.
@@ -700,24 +730,28 @@ function leasedGoals(workspaceRoot) {
 //      who is sitting in a goal; a cross-goal writer of it could spoof any seat's identity.
 //      `assertGroundTruthUnwritable` only guards THIS seat's own sessions.csv — it cannot see the
 //      other goals this grant opens, so the carve is what keeps them shut.
-// 7.607 E1: same lease predicate as `resolveBusWriteGrants` above, same seat conjunct, same
-// fail-closed posture — read that block for the security argument; it is not restated here. The
-// TWO NARROWINGS below are untouched by the re-founding and remain load-bearing.
+//
+// The walk is the goals root directly rather than `leasedGoals`, because a lease is now the wrong
+// question here — and it never creates a directory. Order is readdirSync's, sorted, so the
+// composed spec is deterministic across spawns.
 function resolveGoalsWriteGrants(seatPath) {
   if (!seatDeclares(seatPath.seatDir, 'goals-write')) return [];
+  const goalsDir = path.join(seatPath.workspaceRoot, '.rbtv', 'goals');
+  let goals;
+  try {
+    goals = fs.readdirSync(goalsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  } catch {
+    return [];
+  }
   const grants = [];
-  for (const { lease } of leasedGoals(seatPath.workspaceRoot)) {
-    for (const room of lease.rooms) {
-      if (room.seats.length === 0) continue;             // no live occupant ⇒ nothing to seat into
-      const pkgDir = room.packageDir;
-      if (!fs.existsSync(pkgDir)) continue;              // never created from here
-      if (contains(pkgDir, seatPath.seatDir)) continue;  // narrowing 1 — never the seat's own home
-      grants.push({ goalsWrite: pkgDir });
-      const sessions = path.join(pkgDir, 'sessions.csv');
-      // narrowing 2 — a SEPARATE grant so the carve line composes only where the file exists;
-      // a package with no sessions.csv yet has no ground truth to carve back.
-      if (fs.existsSync(sessions)) grants.push({ goalsWriteGroundTruth: sessions });
-    }
+  for (const goal of goals) {
+    const pkgDir = path.join(goalsDir, goal);
+    if (contains(pkgDir, seatPath.seatDir)) continue;  // narrowing 1 — never the seat's own home
+    grants.push({ goalsWrite: pkgDir });
+    const sessions = path.join(pkgDir, 'sessions.csv');
+    // narrowing 2 — a SEPARATE grant so the carve line composes only where the file exists;
+    // a goal with no sessions.csv yet has no ground truth to carve back.
+    if (fs.existsSync(sessions)) grants.push({ goalsWriteGroundTruth: sessions });
   }
   return grants;
 }

@@ -326,19 +326,52 @@ exitCode = passed === checks.length ? 0 : 1;
   // ~514 MiB, on a quota-mounted tmpfs /tmp. When the room ran out the throw landed at a
   // copyfile site with EVERY emitted check still reading PASS, so the red named an errno
   // (-122) instead of a cause (task 7.705). Say which wall was hit, and what to do about it.
-  const shortage = !e ? null
-    : e.code === 'EDQUOT' ? 'quota'
-    : e.code === 'ENOSPC' ? 'space'
-    // The FIRST copy is a VACUUM INTO, so it meets the same wall as SQLITE_FULL rather than as
-    // an fs errno. Same cause, same refusal - classifying only the fs half would leave the
-    // earlier site still reporting the mystery this catch exists to end.
-    : /database or disk is full/i.test(e.message || '') ? 'space'
-    : null;
+  // ⚠⚠ CLASSIFY BY MEASUREMENT, NEVER BY THE ERROR'S VOCABULARY - the wall wears a different
+  // face at every site, and an enumeration of faces is blind to precisely the one it has not met
+  // yet. Three met so far on ONE box in ONE hour (2026-08-12), each unclassified by the list that
+  // preceded it: `code: 'Unknown system error -122', errno: -122` at copyFileSync (EDQUOT has NO
+  // entry in libuv's error table, so the `e.code === 'EDQUOT'` test written FOR this errno could
+  // never match); `ERR_SQLITE_ERROR errcode 10 'disk I/O error'` from the VACUUM INTO once /tmp
+  // was tighter, which is not the SQLITE_FULL wording the message test looked for; and the
+  // documented EDQUOT/ENOSPC/SQLITE_FULL trio the 7.705 arms were red-proofed against - with
+  // INJECTED errors, which is why the live shapes went unmet.
+  //
+  // So the question is put to the FILESYSTEM instead: allocate one more store-sized file where the
+  // fixtures go. It fails -> the probe could not have had its five copies, whatever the throw was
+  // called. It succeeds -> room was not the wall and the throw is rethrown unchanged, which is the
+  // discriminator (an EACCES on one path still rethrows, as 7.705 requires).
+  const roomNeeded = (() => {
+    try { return fs.statSync(liveStorePath()).size; } catch { return 128 * 1024 * 1024; }
+  })();
+  const shortage = (() => {
+    const p = path.join(tmp, 'headroom.probe');
+    try {
+      const fd = fs.openSync(p, 'w');
+      try { fs.writeSync(fd, Buffer.alloc(roomNeeded)); } finally { fs.closeSync(fd); }
+      return null;
+    } catch (probeErr) {
+      // Vocabulary is allowed to pick the WORD only — it no longer decides anything, so an
+      // unrecognised face degrades to a vaguer noun and never back to a rethrown mystery.
+      // ponytail: on a box that is BOTH out of room and carrying a real fixture defect this reads
+      // the defect as environmental. Free the room and re-run — the refusal names that as the act.
+      return probeErr.code === 'ENOSPC' ? 'space'
+        : (probeErr.code === 'EDQUOT' || probeErr.errno === -122) ? 'quota'
+        : 'room';
+    } finally {
+      fs.rmSync(p, { force: true });
+    }
+  })();
   if (!shortage) throw e;
   out('', `REFUSED (environmental, not a defect): out of ${shortage} writing a fixture under `
-    + `${os.tmpdir()} (${e.code || e.message}). This probe needs room for 5 concurrent copies `
-    + `of the store there. Free ${shortage}, or point TMPDIR at a roomier filesystem.`);
-  out('EXIT: 1');   // exitCode is already 1
+    + `${os.tmpdir()} (${e.code || e.message}) — confirmed by measurement, a further `
+    + `${roomNeeded} B could not be written there either. This probe needs room for 5 concurrent `
+    + `copies of the store. Free ${shortage}, or point TMPDIR at a roomier filesystem.`);
+  // 2 = INOPERATIVE, not 1 = FAIL: the probe scored nothing and asserts nothing, which is the
+  // suite's exit-2 convention (probe-suite.js#grade, ruling d-probe-suite-verdict-delivery,
+  // landed an hour after this arm was written). Exit 1 published an environmental shortage as a
+  // migration defect and turned the scheduled verdict RED for it.
+  out('EXIT: 2');
+  exitCode = 2;
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }

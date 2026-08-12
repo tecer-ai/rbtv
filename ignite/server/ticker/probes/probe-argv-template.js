@@ -719,7 +719,14 @@ async function run(lines) {
         }
       }
     }
-    check(lines, drift.length === 0 && frozenEntries > 0 && listedEntries > 0,
+    // ⚠ `listedEntries` IS REPORTED, NOT REQUIRED. It used to be asserted `> 0`, which read as a
+    // vacuity guard but was really a claim about the SHIPPED CONFIG's contents: that some entry
+    // must declare an allowlist. `765c9fac` deleted `edge-runner`, the only one that ever did, with
+    // the Python edge-runner — a deliberate retirement whose own yaml comment says "the mechanism
+    // stays; it has no user" — and this arm went red for a config change that drifted nothing. The
+    // allowlisted path's coverage is F1b/F10 against a fixture this probe builds, never the live
+    // catalogue; `drift` is what still fires the day an entry declares a list again.
+    check(lines, drift.length === 0 && frozenEntries > 0,
       `S3b every SHIPPED tools entry still composes unchanged — ${frozenEntries} frozen byte-identical, ${listedEntries} allowlisted admitting every listed member`,
       drift.length ? `DRIFT: ${drift.join(' | ')}` : `frozen=${frozenEntries} allowlisted=${listedEntries} of ${shippedNames.length}`);
     const liveRowTool = shippedTools['goal-creation-request'] || null;

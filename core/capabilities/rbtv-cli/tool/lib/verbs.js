@@ -75,7 +75,7 @@ const GATEWAY_COMMANDS = (() => {
   }
 })();
 
-const GOAL_VERBS = ['scaffold', 'reindex', 'lint', 'materialize', 'lane', 'pause', 'resume', 'dag', 'add-seat', 'selftest'];
+const GOAL_VERBS = ['scaffold', 'reindex', 'lint', 'materialize', 'lane', 'pause', 'resume', 'relaunch', 'dag', 'add-seat', 'selftest'];
 
 // Core-build task 7.433. The staffing-discovery browse — one database per verb.
 // `search` joins them at 7.434: the semantic ranking now exists behind its own

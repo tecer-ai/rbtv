@@ -28,6 +28,11 @@ const path = require('node:path');
 // wrote. Verified by running the verb, not by counting the segments.
 const IGNITE_SRC = process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '..', '..', '..');
 const { executeAttached, statusAttached } = require(path.join(IGNITE_SRC, 'engine', 'attached-execution.js'));
+// `--relaunch` no longer builds a process-local Set: it MINTS the grant into the goal folder's own
+// `relaunch-grants` file, which is the one home both lanes read (engine/relaunch-grants.js). The
+// flag keeps its name and its meaning to an operator — what changed is that the grant survives this
+// process, so the DAEMON lane can spend one too.
+const { grantRelaunch, GRANT_FILE } = require(path.join(IGNITE_SRC, 'engine', 'relaunch-grants.js'));
 
 const EXIT_OK = 0;
 const EXIT_REFUSED = 1;
@@ -68,6 +73,11 @@ function help() {
     '                          work gets run twice. This is the explicit act that runs it again, once.',
     '                          It hides nothing and rewrites nothing: the failed attempt stays on record,',
     '                          and a seat that FINISHED is never re-run by a grant.',
+    `                          THE GRANT PERSISTS: it is written to <goal-folder>/${GRANT_FILE} (one`,
+    '                          bare seat name per line) and is spent by whichever lane launches the',
+    '                          seat — this run, a later run, or the DAEMON. A grant that could not be',
+    '                          launched this pass survives to the pass that can. `rbtv goal relaunch`',
+    '                          writes the same file without starting a console run.',
     '  --json                  machine-readable result on stdout.',
     '',
     'EXIT CODES',
@@ -163,6 +173,19 @@ async function main(argv) {
   // be a second, blinder answer to the same question.
   const spawnConfigPath = opts.config || path.join(IGNITE_SRC, 'config', 'spawn-profiles.yaml');
 
+  // THE GRANT IS RECORDED BEFORE THE ENGINE BOOTS, and that ordering is the point: a run refused
+  // for any reason after this line (an unknown profile, a live runner on the goal) leaves the
+  // operator's authorization standing instead of losing it with the process. The engine sources it
+  // from the file, so nothing is passed down — one home, read by both lanes.
+  for (const seat of opts.relaunch) {
+    try {
+      const file = grantRelaunch(opts.goalFolder, seat);
+      if (!opts.json) process.stderr.write(`relaunch GRANTED — ${seat} (${file})\n`);
+    } catch (err) {
+      return refuse(`could not record the relaunch grant for '${seat}': ${err.message}`);
+    }
+  }
+
   let result;
   try {
     result = await executeAttached({
@@ -171,7 +194,6 @@ async function main(argv) {
       spawnConfigPath,
       tickIntervalMs: opts.tickMs || null,
       maxTicks: Number.isFinite(opts.maxTicks) ? opts.maxTicks : null,
-      relaunch: opts.relaunch,
       logger: opts.json ? null : (m) => process.stderr.write(`${m.level || 'info'}: ${m.message}\n`),
     });
   } catch (err) {
@@ -205,10 +227,22 @@ async function main(argv) {
     if (result.outcome === 'seat-failed') {
       process.stdout.write(`\nSTOPPED — a seat did not finish: ${result.unfinished.join(', ')}\n`);
       process.stdout.write('Nothing is live and nothing is queued, so no further tick can change this.\n');
-      process.stdout.write(`To give one another attempt: re-run with --relaunch ${result.unfinished[0]}\n`);
     } else if (result.unfinished.length) {
       process.stdout.write(`\nBLOCKED — nothing can advance. Unfinished: ${result.unfinished.join(', ')}\n`);
       process.stdout.write('Each is waiting on a seat that has not finished. Check that seat first.\n');
+    }
+    // ── THE REMEDY, REACHABLE FROM BOTH VERDICTS ────────────────────────────────────────────────
+    // It used to be gated on `outcome === 'seat-failed'` and therefore NEVER printed on `blocked` —
+    // which is exactly the verdict a CROSS-LANE failed seat produces (the record holds it, so it is
+    // `stuck`, not `failed`). The operator read "BLOCKED — nothing can advance" with no hint that a
+    // relaunch is the fix. It is driven off `grantable` rather than the outcome word so it stays
+    // TRUTHFUL: only seats a grant could actually release are named, and a `blocked` run whose seats
+    // are merely waiting on an unmet `after` still prints nothing.
+    const grantable = result.grantable || [];
+    if (grantable.length) {
+      process.stdout.write(`A relaunch grant can release: ${grantable.join(', ')}\n`);
+      process.stdout.write(`To give one another attempt: re-run with --relaunch ${grantable[0]}\n`);
+      process.stdout.write(`(or \`rbtv goal relaunch <goal> --seat ${grantable[0]}\` — the grant persists in the goal folder until it is spent, by this lane or the daemon.)\n`);
     }
   }
 
