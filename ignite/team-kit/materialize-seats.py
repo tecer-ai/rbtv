@@ -5,10 +5,11 @@ The command MATERIALIZES seats incrementally into an EXISTING run: it resolves
 the added seat set (a seat catalog `seats.csv` row for --seat; a workflow
 manifest `<component>/workflows/<W>/<W>.csv` for --workflow), validates the
 per-seat executor bindings, and plans three kinds of write in this order — per
-seat, its `{package}/seats/<seat>/seat.md` descriptor and then the
-`{package}/seats/<seat>/AGENTS.md` POINTER to that descriptor (owner ruling
-2026-08-07; see `_SEAT_AGENTS_MD` for why a pointer and not a copy, and why the
-`agents-md` mirror cannot own it), and finally `{package}/taskforce.csv` row
+seat, its `{package}/seats/<seat>/seat.md` descriptor and then its GUIDANCE
+PAIR — `CLAUDE.md` + `AGENTS.md`, one body under each harness's native name
+(owner ruling `d-uniform-descriptor-carriage`, 2026-08-12; see
+`_SEAT_GUIDANCE_MD` for the stance and why the `agents-md` mirror cannot own
+it), and finally `{package}/taskforce.csv` row
 appends. It is an ignite-job: argv-only, environment-free, exit codes
 0 success / 1 refusal / 2 usage, machine-readable `--json` result, no bus
 writes, no messages, no pane — announcing what was materialized is the
@@ -2082,8 +2083,9 @@ def build_plan(package: Path, added: list[str], internal_after: dict,
     for seat in added:
         writes.append({"kind": "seat-descriptor", "seat": seat,
                        "path": str(seat_home(package, seat) / "seat.md")})
-        writes.append({"kind": "seat-agents-pointer", "seat": seat,
-                       "path": str(seat_home(package, seat) / "AGENTS.md")})
+        for name in ("CLAUDE.md", "AGENTS.md"):
+            writes.append({"kind": "seat-guidance", "seat": seat,
+                           "path": str(seat_home(package, seat) / name)})
     writes.append({
         "kind": "taskforce-append",
         "path": str(package / TASKFORCE_NAME),
@@ -2386,48 +2388,53 @@ def create_run_package(package: Path, creation: list[dict]) -> list[str]:
     return written
 
 
-# ── The seat's AGENTS.md — a POINTER, never a copy (owner ruling 2026-08-07) ──────────
+# ── The seat's guidance pair — CLAUDE.md + AGENTS.md, ONE body (owner ruling ─────────
+#    `d-uniform-descriptor-carriage`, 2026-08-12; supersedes the 2026-08-07 pointer ruling)
 #
-# WHY IT EXISTS. A daemon-spawned `claude` seat receives its descriptor in the SYSTEM
-# PROMPT (`server/spawn/spawn.py`… `composeArgv` appends `--append-system-prompt-file
-# <workdir>/seat.md`), so nothing needs to tell it to read the file — it already has it.
-# `codex` and `opencode` have NO system-prompt flag: measured 2026-08-07 on this box,
-# `codex exec --help` offers only `-c/--config` and `-p/--profile`, and `opencode run
-# --help` (read through a PTY, since its help writes zero bytes into a pipe) offers none
-# at all. What BOTH of them do read, automatically, is an `AGENTS.md` in the working
-# directory — verified live: a temp dir holding an AGENTS.md that said "reply MANGO" made
-# each of them reply MANGO. That auto-read file is therefore the ONE carriage that reaches
-# them, and this is it.
+# WHY ONE BODY UNDER TWO NAMES. The descriptor now ARRIVES AT SPAWN on every harness —
+# claude in the system prompt (`composeArgv` appends `--append-system-prompt-file
+# <workdir>/seat.md`), every other harness as the head of its first stdin message (same
+# function; carriage measured 2026-08-12 on this box: codex 0.144.5 `exec -`, opencode
+# 1.17.18 `run`, kimi 1.48.0 `-p`). With delivery uniform, the 2026-08-07 reason for the
+# two guidance files to DIVERGE (claude must not be told to re-read what its system prompt
+# carries; codex/opencode needed a pointer) is gone: every daemon-launched sitting already
+# holds seat.md, so BOTH files now say the same thing — don't re-read it — under each
+# harness's native guidance name. What the files add beyond that stance is the seat
+# folder's standing knowledge: the standard surfaces, the goal-folder write mechanics,
+# and (when the seat exposes rules) the forced-read rules preamble.
 #
-# ⚑ A POINTER, NOT THE CONTENT — owner-ruled. Inlining seat.md here would fork the
-# descriptor into two files that drift, and a seat's descriptor has exactly one home.
+# ⚑ THE DON'T-READ CLAUSE IS CONDITIONAL, owner-ruled (Q2a, 2026-08-12): a session opened
+# BY HAND in the seat folder received no descriptor, and an absolute "never read seat.md"
+# would order it to run the seat blind. The exception paragraph is that session's one
+# recovery path — never delete it.
 #
-# ⚑ WHY IT CANNOT BE THE `agents-md` MIRROR'S JOB. That driver
-# (`orchestration/models/mirror/driver/guidance.py`) writes each AGENTS.md as banner + the
-# body of its SIBLING CLAUDE.md, verbatim — a derived copy that by construction cannot say
-# anything its CLAUDE.md does not. The ruling needs the two to DIVERGE (CLAUDE.md must not
-# mention seat.md; AGENTS.md must). A seat folder has no CLAUDE.md, so the mirror has no
-# source to walk here and never touches this file — which is exactly what makes the
-# divergence possible instead of a fight.
-_SEAT_AGENTS_MD = """\
-# AGENTS.md — {seat}
+# ⚑ STILL NOT THE `agents-md` MIRROR'S JOB. That driver
+# (`orchestration/models/mirror/driver/guidance.py`) renders AGENTS.md from a SIBLING
+# CLAUDE.md it finds by walking the tree; seat folders are written HERE, by the act that
+# materializes the seat, so the pair is complete the moment the seat exists and no mirror
+# pass is a dependency of a launch. `_write_seat_guidance`'s banner guard is what keeps
+# the two writers from fighting: this tool only ever overwrites what carries its own
+# generated banner.
+_SEAT_GUIDANCE_MD = """\
+# {seat} — seat folder guidance
 
-> Generated by `materialize-seats.py` beside this seat's `seat.md`. Not a mirror of any
-> CLAUDE.md, and not a copy of the descriptor: a pointer to it.
+> Generated by `materialize-seats.py` beside this seat's `seat.md`. `CLAUDE.md` and
+> `AGENTS.md` carry this SAME body — one text under each harness's native guidance name
+> (`d-uniform-descriptor-carriage`). Regenerated freely; never hand-edit it.
 
-## Before your first word — read `seat.md` in this folder and FOLLOW it
+## Your descriptor is `seat.md` — and it already arrived with your launch
 
-`seat.md` is a MUST-READ AND MUST-FOLLOW file, not a reference. Its directives bind this
-sitting from its first action: the seat's task, identity, instruments, rhythm, format
-duties, and its bounds. Read it before you answer anything — including a question that
-looks trivial, which is exactly where it gets skipped.
+A daemon-launched sitting receives this seat's `seat.md` AT SPAWN, on every harness: a
+`claude` session carries it in its system prompt; every other harness receives it as the
+head of its first message, above the wake payload. Its directives bind this sitting from
+its first action: the seat's task, identity, instruments, rhythm, format duties, and its
+bounds. Do NOT read `seat.md` again — you have already read it, and a second copy buys
+one tool call and nothing else.
 
-NEVER ask whether to read it. By the time you write your first word you have already read
-it.
-
-Why this file exists at all: a `claude` seat launched by the daemon receives `seat.md` in
-its system prompt and needs no pointer. Your harness has no such flag, so this pointer is
-the only thing that tells you the descriptor is there. Nothing else will.
+**The ONE exception — no descriptor in your context.** If you can find no seat descriptor
+in what you received (a session opened BY HAND in this folder, not launched by the
+daemon), then `seat.md` is a MUST-READ, NOW, before your first word — including before a
+question that looks trivial, which is exactly where it gets skipped.
 
 ## Your standard surfaces — fixed names, so nothing has to be guessed
 
@@ -2480,25 +2487,33 @@ them, read EVERY file below NOW — before seat.md's task work — and follow ea
 """
 
 
-def _write_seat_agents_md(folder: Path, seat: str, package: Path,
-                          rules: list[tuple[str, str]] = ()) -> str | None:
-    """Write (or refresh) the seat's AGENTS.md pointer. Returns the path if written.
+# The banner substring the guard below keys on — present in `_SEAT_GUIDANCE_MD` (and in the
+# retired pointer template, so pre-ruling generated AGENTS.md files regenerate cleanly).
+_GUIDANCE_BANNER = "Generated by `materialize-seats.py`"
 
-    Regenerated freely — unlike `seat.md` this is fixed boilerplate with no per-run
-    content (plus, when the seat exposes rules, the forced-read preamble naming each
-    materialized copy), so there is no drift to preserve and no reason to refuse an
-    overwrite.
+
+def _write_seat_guidance(folder: Path, seat: str, package: Path,
+                         rules: list[tuple[str, str]] = ()) -> list[str]:
+    """Write (or refresh) the seat's guidance pair — `CLAUDE.md` + `AGENTS.md`, ONE body
+    under each harness's native guidance name (`d-uniform-descriptor-carriage`). Returns
+    the paths written (byte-identical targets are skipped).
+
+    Regenerated freely — fixed boilerplate with no per-run content (plus, when the seat
+    exposes rules, the forced-read preamble naming each materialized copy), so there is
+    no drift to preserve. ⚑ EXCEPT A HAND-AUTHORED FILE: a target that exists WITHOUT the
+    generated banner is left byte-untouched (the standing master seat's own CLAUDE.md is
+    the live case) — regenerate-freely is a property of what THIS tool generated, never a
+    license over an owner's file.
 
     It also carries the tooling-gap filing block (owner ruling 2026-08-10), rendered
     from goal_cli's ONE constant — the goal router carries the same text, and a second
     copy of it here would be a second thing to drift. The fallback path is the PACKAGE's
     `issues.md`, not the seat folder's: for a standing seat the two are the same folder,
     and for every other seat the goal's ledger is the one that exists."""
-    target = folder / "AGENTS.md"
     # The five ledger names come from goal_cli's ONE dictionary — the same one that
     # creates the files and renders the goal router's table. Restating them here is
     # how `gotchas.md` came to be scaffolded but named nowhere a seat reads.
-    text = _SEAT_AGENTS_MD.format(
+    text = _SEAT_GUIDANCE_MD.format(
         seat=seat,
         ledgers=" · ".join(f"`{f}`" for f in WRITE_IF_SOMETHING))
     if rules:
@@ -2507,11 +2522,19 @@ def _write_seat_agents_md(folder: Path, seat: str, package: Path,
             for pid, desc in rules))
     text += "\n" + TOOLING_FINDING_BLOCK.format(
         issues=f"`{package / 'issues.md'}` (this seat's own goal ledger)")
-    if target.exists() and target.read_text(encoding="utf-8") == text:
-        return None
-    target.write_text(text, encoding="utf-8", newline="\n")
-    target.chmod(0o644)
-    return str(target)
+    written: list[str] = []
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        target = folder / name
+        if target.exists():
+            current = target.read_text(encoding="utf-8")
+            if current == text:
+                continue
+            if _GUIDANCE_BANNER not in current:
+                continue  # hand-authored — never clobbered
+        target.write_text(text, encoding="utf-8", newline="\n")
+        target.chmod(0o644)
+        written.append(str(target))
+    return written
 
 
 # ── plugin/MCP registration files — the `config` method (d-mcp-registration-is-config) ──
@@ -2749,8 +2772,11 @@ def emit_harness_configs(plan: dict) -> list[str]:
 #              fires nothing until the launch profile carries that; see the
 #              core-build issues ledger. opencode has no hook surface
 #              (CMP-12)
-#   sub-agent  .claude/agents/<id>.md + .opencode/agents/<id>.md — thin
-#              loaders; codex has no confirmed-native definition (CMP-12)
+#   sub-agent  .claude/agents/<id>.md + .opencode/agents/<id>.md thin loaders
+#              + .codex/agents/<id>.toml (measured 2026-08-12, codex 0.147.0:
+#              project-local, field `developer_instructions` — INERT until the
+#              seat folder is trusted in ~/.codex/config.toml; trust is a
+#              deployment act, tracked in the core-build task file)
 #
 # `agents.md` and `config` are NOT seat-authorable here — the seat AGENTS.md
 # pointer and the plugin/MCP registration files are materialized by their own
@@ -3195,16 +3221,30 @@ def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
         plan["expose_parts"][seat] = parts
 
 
+def _seat_rules_from_parts(plan: dict) -> dict[str, list[tuple[str, str]]]:
+    """The rule-method subset of each seat's resolved exposes — the ONE derivation the
+    guidance preamble renders from, shared by the materialize, --repass and --refresh
+    paths (a plain repass re-renders the guidance pair without planning loader files,
+    so the preamble list cannot live inside render_seat_exposures alone)."""
+    out: dict[str, list[tuple[str, str]]] = {}
+    for seat, parts in (plan.get("expose_parts") or {}).items():
+        rules = [(pid, (row.get("description") or "").strip()
+                  or f"{pid} — exposed via {ref_dir.name}/exposure.csv")
+                 for method, pid, row, ref_dir in parts if method == "rule"]
+        if rules:
+            out[seat] = rules
+    return out
+
+
 def render_seat_exposures(plan: dict) -> None:
     """Plan the per-seat loader files for the resolved `exposes:` parts
     (validation already fired in resolve_seat_exposes) and DECLARE each in
     writes[]. Hooks MERGE into the .claude/settings.json the plugin/MCP
     surface may already carry — one writer per file, never two."""
     plan["seat_exposures"] = {}
-    plan["seat_rules"] = {}
+    plan["seat_rules"] = _seat_rules_from_parts(plan)
     for seat, parts in (plan.get("expose_parts") or {}).items():
         files: dict[str, str] = {}
-        rules: list[tuple[str, str]] = []
         hooks: dict = {}
         for method, pid, row, ref_dir in parts:
             entry = str((ref_dir / (row.get("entry-point") or "").strip())
@@ -3229,11 +3269,31 @@ def render_seat_exposures(plan: dict) -> None:
                     encoding="utf-8")
                 files[f".claude/rules/{pid}.md"] = body
                 files[f".agents/behavior-rules/{pid}.md"] = body
-                rules.append((pid, desc))
+                # (the guidance preamble's (pid, desc) list is derived once, in
+                # _seat_rules_from_parts — never accumulated here a second time)
             elif method == "sub-agent":
                 text = _loader_md(pid, desc, entry, "sub-agent", named=True)
                 files[f".claude/agents/{pid}.md"] = text
                 files[f".opencode/agents/{pid}.md"] = text
+                # codex sub-agent definition — MEASURED 2026-08-12 on codex-cli
+                # 0.147.0 (d-uniform-descriptor-carriage, second measurement
+                # amendment): `.codex/agents/<name>.toml` is read PROJECT-LOCALLY
+                # and its honored instruction field is `developer_instructions`
+                # (token test; `instructions` and `description` never reached the
+                # agent) — but ONLY when the folder is trusted in the user's
+                # `~/.codex/config.toml` ([projects."<dir>"] trust_level =
+                # "trusted"; an argv `-c` override does NOT unlock it). This file
+                # is therefore INERT until the seat folder is trusted — trust
+                # management is a deployment act, tracked separately; writing the
+                # definition here keeps the seat complete the day it is.
+                # json.dumps output is a valid TOML basic string for this text.
+                files[f".codex/agents/{pid}.toml"] = (
+                    f"# {_LOADER_NOTE}\n"
+                    f"name = {json.dumps(pid)}\n"
+                    f"description = {json.dumps(desc)}\n"
+                    "developer_instructions = "
+                    + json.dumps(f"Read `{entry}` NOW and follow it as this "
+                                 "sub-agent's full instructions.") + "\n")
             elif method == "hook":
                 try:
                     data = json.loads(Path(entry).read_text(encoding="utf-8"))
@@ -3276,8 +3336,6 @@ def render_seat_exposures(plan: dict) -> None:
                                 "exposure manifest — regenerated freely, "
                                 "never hand-edited.",
                  "hooks": hooks}, indent=2, sort_keys=True) + "\n"
-        if rules:
-            plan["seat_rules"][seat] = rules
         if files:
             plan["seat_exposures"][seat] = files
             for rel in sorted(files):
@@ -3310,8 +3368,8 @@ def emit_seat_descriptors(plan: dict) -> list[str]:
     --force-partial an existing seat.md must byte-match the freshly rendered
     one (completing a partial failure, never overwriting drift).
 
-    Each seat also gets an `AGENTS.md` POINTER to its descriptor — the carriage for
-    the harnesses that have no system-prompt flag (see `_SEAT_AGENTS_MD`)."""
+    Each seat also gets its GUIDANCE PAIR — `CLAUDE.md` + `AGENTS.md`, one body under
+    each harness's native guidance name (see `_SEAT_GUIDANCE_MD`)."""
     written: list[str] = []
     for seat in plan["added_seats"]:
         text = plan["descriptors"][seat]
@@ -3333,24 +3391,20 @@ def emit_seat_descriptors(plan: dict) -> list[str]:
                     "completes a partial failure, never overwrites drift",
                     str(target),
                 )
-            # The descriptor is already correct; the POINTER may still be missing —
+            # The descriptor is already correct; the GUIDANCE PAIR may still be missing —
             # completing a partial failure has to complete both halves.
-            also = _write_seat_agents_md(
+            written.extend(_write_seat_guidance(
                 folder, seat, Path(plan["package"]),
-                (plan.get("seat_rules") or {}).get(seat, ()))
-            if also:
-                written.append(also)
+                (plan.get("seat_rules") or {}).get(seat, ())))
             continue
         folder.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8", newline="\n")
         target.chmod(0o644)
         folder.chmod(0o755)
         written.append(str(target))
-        also = _write_seat_agents_md(
+        written.extend(_write_seat_guidance(
             folder, seat, Path(plan["package"]),
-            (plan.get("seat_rules") or {}).get(seat, ()))
-        if also:
-            written.append(also)
+            (plan.get("seat_rules") or {}).get(seat, ())))
     return written
 
 
@@ -3997,9 +4051,14 @@ def run(args) -> dict:
     # replaces descriptors, nothing else.
     resolve_seat_exposes(plan, catalogs[0])
     if repass:
-        # A repass renders and REPLACES descriptors, nothing else: the
+        # A repass renders and REPLACES descriptors — plus the seat's GUIDANCE
+        # PAIR, which is pure derived boilerplate regenerated with the same
+        # freedom as the descriptor (`d-uniform-descriptor-carriage`): the
         # registry row, the run register and every package surface are the
-        # previous materialize's and stay byte-untouched.
+        # previous materialize's and stay byte-untouched. The exposure LOADER
+        # files remain --refresh's alone: dropping a previously-exposed part
+        # needs check_refresh_drops' nothing-is-lost gate, which a plain
+        # repass deliberately does not run.
         plan["writes"] = [
             {"kind": "seat-descriptor-repass", "seat": seat,
              "path": str(seat_home(package, seat) / "seat.md")}
@@ -4007,24 +4066,26 @@ def run(args) -> dict:
         ]
         plan["rows_appended"] = 0
         render_descriptors(plan, catalogs[0], units)
+        plan["seat_rules"] = _seat_rules_from_parts(plan)
         if refresh:
             # Every gate before any write: nothing is lost, THEN the
             # seat-folder surfaces are planned beside the descriptor.
             check_refresh_drops(package, plan)
             render_seat_exposures(plan)
-            for seat in added:
+        for seat in added:
+            for name in ("CLAUDE.md", "AGENTS.md"):
                 plan["writes"].append(
-                    {"kind": "seat-agents-pointer", "seat": seat,
-                     "path": str(seat_home(package, seat) / "AGENTS.md")})
+                    {"kind": "seat-guidance", "seat": seat,
+                     "path": str(seat_home(package, seat) / name)})
         if args.dry_run:
             return result_of(plan, dry_run=True)
         repass_descriptors(plan)
         if refresh:
             emit_seat_exposures(plan)
-            for seat in added:
-                _write_seat_agents_md(
-                    seat_home(package, seat), seat, package,
-                    (plan.get("seat_rules") or {}).get(seat, ()))
+        for seat in added:
+            _write_seat_guidance(
+                seat_home(package, seat), seat, package,
+                (plan.get("seat_rules") or {}).get(seat, ()))
         return result_of(plan, dry_run=False)
     # dag-04 + dag-05: EVERY gate fires HERE — the emission gates, then the
     # three registry validations — before the dry-run return and before any
@@ -4808,19 +4869,24 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
             # than the emitter made POSIX-only.
             paths = [_sep(w["path"]) for w in green_json.get("writes", [])]
             kinds = [w["kind"] for w in green_json.get("writes", [])]
-            # Per seat: descriptor THEN its AGENTS.md pointer, in emit order; then
-            # the one registry append. Kinds are asserted too — a path pair alone
-            # would still pass if both entries claimed to be descriptors.
-            check("plan: writes name both descriptors, each seat's AGENTS.md "
-                  "pointer, and the registry append",
-                  len(paths) == 5
+            # Per seat: descriptor THEN its guidance pair (CLAUDE.md + AGENTS.md,
+            # d-uniform-descriptor-carriage), in emit order; then the one registry
+            # append. Kinds are asserted too — a path set alone would still pass
+            # if entries claimed the wrong kind.
+            check("plan: writes name both descriptors, each seat's guidance "
+                  "pair, and the registry append",
+                  len(paths) == 7
                   and paths[0].endswith("seats/alpha/seat.md")
-                  and paths[1].endswith("seats/alpha/AGENTS.md")
-                  and paths[2].endswith("seats/beta/seat.md")
-                  and paths[3].endswith("seats/beta/AGENTS.md")
-                  and paths[4].endswith(TASKFORCE_NAME)
-                  and kinds == ["seat-descriptor", "seat-agents-pointer",
-                                "seat-descriptor", "seat-agents-pointer",
+                  and paths[1].endswith("seats/alpha/CLAUDE.md")
+                  and paths[2].endswith("seats/alpha/AGENTS.md")
+                  and paths[3].endswith("seats/beta/seat.md")
+                  and paths[4].endswith("seats/beta/CLAUDE.md")
+                  and paths[5].endswith("seats/beta/AGENTS.md")
+                  and paths[6].endswith(TASKFORCE_NAME)
+                  and kinds == ["seat-descriptor", "seat-guidance",
+                                "seat-guidance",
+                                "seat-descriptor", "seat-guidance",
+                                "seat-guidance",
                                 "taskforce-append"],
                   f"{paths} {kinds}")
             check("plan: planned append count is 2, warnings plumbed empty",
@@ -4843,16 +4909,18 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
             # (new files) plus their registry appends (the ONLY modified
             # pre-existing files). Exactly those, nothing else.
             post = _hash_tree(tmp)
-            # Each materialized seat contributes TWO new files: its descriptor and
-            # its AGENTS.md pointer (owner ruling 2026-08-07 — the carriage for the
-            # harnesses with no system-prompt flag). Both are named here, so the
-            # write set stays exact: adding a third artifact still fails this check.
+            # Each materialized seat contributes THREE new files: its descriptor and
+            # its guidance pair (CLAUDE.md + AGENTS.md, d-uniform-descriptor-carriage).
+            # All are named here, so the write set stays exact: adding a fourth
+            # artifact still fails this check.
             expected_new = {
                 str((Path(fx["pkg"]) / "seats" / s / name).relative_to(tmp))
-                for s in ("alpha", "beta") for name in ("seat.md", "AGENTS.md")
+                for s in ("alpha", "beta")
+                for name in ("seat.md", "CLAUDE.md", "AGENTS.md")
             } | {
                 str((Path(fx["pkg9"]) / "seats" / "alpha" / name)
-                    .relative_to(tmp)) for name in ("seat.md", "AGENTS.md")
+                    .relative_to(tmp))
+                for name in ("seat.md", "CLAUDE.md", "AGENTS.md")
             }
             expected_modified = {
                 str((Path(fx["pkg"]) / TASKFORCE_NAME).relative_to(tmp)),
@@ -4878,6 +4946,18 @@ def run_scenario_suite(env: dict, check=None) -> list[tuple[str, int, str]]:
                   "OWNS that tooling" in alpha_agents
                   and str(Path(fx["pkg"]) / "issues.md") in alpha_agents,
                   alpha_agents[-500:])
+            # d-uniform-descriptor-carriage: ONE body under both native names —
+            # byte-identical, carrying the don't-re-read stance AND its hand-opened
+            # exception (Q2a: absolute wording would run a hand-opened session blind).
+            alpha_claude = (alpha_md.parent / "CLAUDE.md").read_text(
+                encoding="utf-8")
+            check("dag-04: the guidance pair is ONE body (CLAUDE.md == AGENTS.md) "
+                  "with the don't-re-read stance and its hand-opened exception",
+                  alpha_claude == alpha_agents
+                  and "Do NOT read `seat.md` again" in alpha_claude
+                  and "no descriptor in your context" in alpha_claude
+                  and _GUIDANCE_BANNER in alpha_claude,
+                  alpha_claude[:400])
             pre = post  # canary control baselines on the post-suite tree
             # SK-5 control arm: the hash comparison CAN go red.
             canary = tmp / "canary.txt"
@@ -6647,7 +6727,8 @@ def run_pass_substitution_acceptance(check) -> None:
               and "pass: planning/briefing-a-briefing/" in after
               and "planning/m1-first-milestone/" not in after
               and [w["kind"] for w in res["writes"]]
-              == ["seat-descriptor-repass"], str(res)[:300])
+              == ["seat-descriptor-repass",
+                  "seat-guidance", "seat-guidance"], str(res)[:300])
         check("PF-3 green: --repass leaves the registry row BYTE-IDENTICAL "
               "(it re-renders a descriptor, it never re-registers a seat)",
               (fx["pkg"] / TASKFORCE_NAME).read_text(encoding="utf-8")
@@ -7094,6 +7175,7 @@ def run_selftest() -> int:
             ".claude/rules/rul1.md", ".agents/behavior-rules/rul1.md",
             ".claude/settings.json", ".codex/hooks.json",
             ".claude/agents/res1.md", ".opencode/agents/res1.md",
+            ".codex/agents/res1.toml",
         ]
         check("EXP-1 green: every declared method materializes its "
               "per-harness realization (CMP-12), sibling-component AND "

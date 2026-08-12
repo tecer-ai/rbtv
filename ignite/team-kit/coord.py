@@ -13911,20 +13911,19 @@ def window_drift(w, peers):
 # doors agree BY CONSTRUCTION and the next harness added to that file is honoured here with no code
 # change. `probe-bindings.py`'s both-doors sweep is what holds the two spellings together.
 #
-# ⚠ THE LADDER IS READ BY `bindings.py#profile_effort` AND BY NOTHING ELSE. Two scrapers of these
+# ⚠ THE LADDER IS READ BY `bindings.py#spec_effort` AND BY NOTHING ELSE. Two scrapers of these
 # same bytes already disagreed on identical input (measured 2026-08-11 — one read INERT where the
 # other read a five-rung ladder), so this file adds no third opinion on the rungs. What it reads for
-# itself is only WHICH profile runs this cast and that profile's `effort.argv`.
+# itself is only that spec's `effort.argv`.
 #
-# ⚠ THE (harness, model) DERIVATION LAW HAS TWO SIBLINGS and a change belongs in all three, in the
-# same change — `launch-profiles/catalog.js#bindingOf` and
-# `capabilities/bindings/tool/bindings.py#catalog`:
-#     harness = basename(exec.argv[0])
-#     model   = the token following the FIRST of `--model` / `-m` that appears in argv, never the
-#               last token (a trailing flag has no value to read)
-# A third reader is a real cost, and it is paid deliberately: the two siblings both reach this
-# answer only THROUGH a call that would re-enter `validate_seat` (`bindings.py#catalog` gates every
-# row on it), so calling either from here is unbounded recursion, not reuse.
+# ⚠ THE THIRD DERIVATION OF (harness, model) IS GONE (`#d-abolish-profile-names`, 2026-08-12). This
+# function used to SCAN every profile block for one whose argv pinned the seat's pair, because the
+# document was keyed by an arbitrary name. `launch-specs:` is keyed by the pair, so the lookup is
+# now a two-level dict access and the law it re-implemented (harness = basename(argv[0]); model =
+# the token after the first `--model`/`-m`) exists in exactly one place: the daemon's config-LOAD
+# guard `launch-profiles/profiles.js#validateSpecKey`. The recursion hazard that forced the third
+# copy — both siblings reach the answer only through a call that re-enters `validate_seat` — is
+# moot now that no call is needed at all.
 #
 # ⚠ IMPORT DIRECTION — S-4. `bindings.py` imports `validate_seat` FROM this file, lazily, inside its
 # own function. This import mirrors that exactly: LAZY, inside the function, and FAIL-SOFT. A
@@ -13947,20 +13946,20 @@ def _profiles_doc(path, _stamp):
 
 
 @functools.lru_cache(maxsize=64)
-def _profile_rungs(name, path, _stamp):
-    """This profile's ladder as a tuple — `bindings.py#profile_effort`'s three-way answer, memoized
-    per profile on the same stamp. The caller has already put its directory on `sys.path`."""
-    from bindings import profile_effort
-    rungs = profile_effort(name, path)
+def _spec_rungs(harness, model, path, _stamp):
+    """This launch spec's ladder as a tuple — `bindings.py#spec_effort`'s three-way answer, memoized
+    per spec on the same stamp. The caller has already put its directory on `sys.path`."""
+    from bindings import spec_effort
+    rungs = spec_effort(harness, model, path)
     return None if rungs is None else tuple(rungs)
 
 
 def _cast_effort(w):
     """`(rungs, fragment)` for this seat's cast, both read off the profile that runs it.
 
-    `rungs` is `bindings.py#profile_effort`'s three-way answer, forwarded verbatim: `None` = no dial
-    (or no profile in this workspace casts this pair), `[]` = an INERT dial (G-270 — accepted and
-    reported, never silently dropped), `[...]` = a real ladder. `fragment` is the profile's own
+    `rungs` is `bindings.py#spec_effort`'s three-way answer, forwarded verbatim: `None` = no dial
+    (or this workspace declares no launch spec for the pair), `[]` = an INERT dial (G-270 — accepted
+    and reported, never silently dropped), `[...]` = a real ladder. `fragment` is the spec's own
     `effort.argv` with `{effort}` substituted and each element shell-quoted, ready to splice into a
     launch line — and it is `''` unless the seat's declared word is ON that ladder.
 
@@ -13976,24 +13975,11 @@ def _cast_effort(w):
         path = str(DEFAULT_PROFILES)
         st = os.stat(path)
         stamp = (st.st_mtime_ns, st.st_size)
-        for name, block in (_profiles_doc(path, stamp).get("profiles") or {}).items():
-            argv = ((block or {}).get("exec") or {}).get("argv") or []
-            if not argv or os.path.basename(str(argv[0])) != w.get("harness"):
-                continue
-            model = ""
-            for flag in ("--model", "-m"):
-                if flag in [str(a) for a in argv[:-1]]:
-                    model = str(argv[[str(a) for a in argv].index(flag) + 1])
-                    break
-            if model != (w.get("model") or ""):
-                continue
-            # ponytail: FIRST match wins where two profiles claim one (harness, model).
-            # `catalog.js` refuses that case and `bindings.py` silently takes the last; all three
-            # disagree, and `profiles:` is documented one-per-pair so none of them is reachable
-            # today. Ceiling: a duplicated pair resolves to whichever is authored first. Upgrade
-            # path: refuse, the way `catalog.js#profileForBinding` already does — worth doing the
-            # day that law is unified rather than a fourth private answer to it now.
-            rungs = _profile_rungs(name, path, stamp)
+        harness = str(w.get("harness") or "")
+        model = str(w.get("model") or "")
+        block = ((_profiles_doc(path, stamp).get("launch-specs") or {}).get(harness) or {}).get(model)
+        if isinstance(block, dict):
+            rungs = _spec_rungs(harness, model, path, stamp)
             rungs = None if rungs is None else list(rungs)
             declared = str(w.get("effort") or "").strip()
             if not rungs or declared not in rungs:
