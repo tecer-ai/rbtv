@@ -18,7 +18,16 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   `restart` / `stop` / `kill` / `unit`) that work precisely when the daemon is DOWN. Contract:
   `capabilities/daemon-operator/daemon-operator.md`.
 - **`goals-tree/`** — the goals-tree machinery (`scaffold` / `reindex` / `lint` / `materialize` /
-  `lane` / `pause` / `resume` / `dag` / `add-seat` / `retry-threshold`). `retry-threshold` is the
+  `lane` / `pause` / `resume` / `dag` / `add-seat` / `retry-threshold` / `teardown`).
+  ⚠ **`teardown` is the ONE verb here that needs the DAEMON UP**, and reasoning from its siblings
+  will mislead you: every other verb is a local file operation *precisely so* it works daemon-down,
+  but what teardown reclaims is the job CATALOGUE, which lives in the machine's `heart.db` and is
+  served only by the gateway (§ State layout). It calls `ignite deregister-job --purge` for each of
+  a goal's rows so the goal's NAME is free again (issue `IPH-27`) — scaffolding WRITES those rows,
+  deleting the goal folder removed none of them, and `register-job` is create-only, so a deleted
+  goal BURNT its name. It composes the ids from the goal's own `taskforce.csv`, so **run it BEFORE
+  deleting the folder**; it never deletes the folder itself (owner-ruled 2026-08-12 — it cannot
+  prove it created that directory) and never kills a live session. `retry-threshold` is the
   MILESTONE RETRY BAR (issue `IPH-11`): the consecutive-FAIL count at which the dod-judge escalates
   to the owner — per goal, with a per-milestone override in the `retry-threshold` column of
   `milestones.csv`, absent everywhere = 2. It writes the two files `coord.py`'s
@@ -47,19 +56,25 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   blocks while it runs). Exit codes: `0` complete or tick bound reached · `1` refused or cannot
   advance (`seat-failed`) · `3` a worker asked a question and the run handed it back. Contract:
   `capabilities/attached-execution/attached-execution.md`.
-- **`goal-launch-delay/`** and **`master-profile/`** — the channel master's two self-service knobs
-  (issue C-1, owner-ruled 2026-08-10): how long a master-created goal waits before its first
-  workflow job fires, and which harness+model the master's next sitting runs on. Each is a **two-part
-  capability** and that shape is measured, not chosen: the master's cage binds this repo and
-  `.rbtv/config` READ-ONLY, `fire-tool` argv is static so a request BODY can only travel as a file
-  staged in the seat's own folder, and `enqueue-job` is the one gateway verb open to a `bridge`
-  token — so the seat's `request` verb stages + triggers, and the daemon's `apply` verb edits the
-  native file and restarts the affected unit LAST. ⚠ **Neither knob introduces a settings file** —
-  each edits the value in its native place (`tools: goal-creation-request:`'s `--delay-seconds`
-  operand in `config/spawn-profiles.yaml`; `master_profile` in `.rbtv/config/chat-bridge-config.json`)
-  with a line-precise edit, because both documents are hand-authored and a parser round trip would
-  destroy them. Contracts: `capabilities/goal-launch-delay/goal-launch-delay.md`,
+- **`master-profile/`** — the channel master's self-service knob (issue C-1, owner-ruled
+  2026-08-10): which harness+model+effort the master's next sitting runs on. A **two-part
+  capability** — the seat's `request` verb stages a file and triggers, the daemon's `apply` verb
+  performs the act — because `fire-tool` argv is static, so a request BODY can only travel as a
+  staged file, with `enqueue-job` the one gateway verb open to a `bridge` token. It was RETARGETED
+  2026-08-12 off the retired `master_profile` key onto the master's own CASTING SHEET
+  (`.rbtv/config/modules/meta/master-agent/bindings/channel-master.json`), which its cage GRANTS it
+  — so it writes through `bindings.cast_seat` (one validator, one write, shared with
+  `rbtv-bindings set`) and splits ONLY because the `materialize-seats.py --repass` that makes the
+  write take effect writes `<goal>/seat.md`, and every seat cage refuses grants overlapping
+  `.rbtv/goals/`. ⚠ **It restarts nothing and no longer costs the owner the chat session he is using
+  to turn it**: a casting sheet is not boot-read, so the switch lands on the next message. Contract:
   `capabilities/master-profile/master-profile.md`.
+  ⚠ **Its former sibling `goal-launch-delay/` is DELETED** (task 7.778, owner-ruled 2026-08-12).
+  It retimed the `--delay-seconds` operand of a queued `<goal>-workflow-start` row, and both that
+  row and the `workflow_launcher.py` it fired are gone: a created goal now declares its LANE at
+  birth (`<goal>/execution-lane`, task 7.777) and the daemon's watch pass seeds it from that
+  marker — there is no delay left to tune. Do not reason from `master-profile` to a second knob;
+  there is only one.
 - **`bindings/`** — the CASTING SHEET surface (owner-ruled 2026-08-10): which harness, model and
   effort each seat of a workflow runs on. A workflow is the program, a taskforce is its running
   instance, and the bindings file is what casts one into the other —

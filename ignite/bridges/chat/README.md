@@ -376,8 +376,9 @@ as everywhere else. On a **goal-channel** thread the row is posted verbatim rega
 already does), and `wake` degrades to `post` with a warn: a `kind: 'master'` sitting is never minted
 on a goal surface.
 
-Producers today: `capabilities/master-profile` and `capabilities/goal-launch-delay` emit
-`[deliver: post]` on their settled-outcome row. Nothing emits `wake` yet — the disposition is the
+Producers today: `capabilities/master-profile` emits `[deliver: post]` on its settled-outcome row.
+(`capabilities/goal-launch-delay` was the second producer until task 7.778 deleted that capability
+with the goal-launch door it tuned.) Nothing emits `wake` yet — the disposition is the
 mechanism, and a producer opts in with one token.
 
 ### The loop, end to end
