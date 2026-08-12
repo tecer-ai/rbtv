@@ -1,21 +1,33 @@
 #!/usr/bin/env python3
 """rbtv-goal — the goals-tree machinery (task 7.63).
 
-The verbs over the CMP-4 goals tree, all LOCAL file operations (they work with
-the daemon down, which is why they live on the rbtv side and never on ignite):
+The verbs over the CMP-4 goals tree — LOCAL file operations, with ONE stated
+exception (they work with the daemon down, which is why they live on the rbtv
+side and never on ignite):
 
-    rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--kind K] [--due DATE] [--dry-run]
+    rbtv-goal scaffold <goal-name> --contract FILE|- --lane daemon [--profile NAME] | --lane console
+                                   [--type T] [--kind K] [--due DATE] [--dry-run]
     rbtv-goal reindex
     rbtv-goal lint <goal-name>
     rbtv-goal materialize <goal-name> [--catalog-root DIR] [--force] [--dry-run]
     rbtv-goal lane <goal-name> [--set daemon [--profile NAME] | --set console]
     rbtv-goal pause <goal-name>            # stash the lane assignment (issue S-33)
     rbtv-goal resume <goal-name>           # …and hand it back, byte for byte
+    rbtv-goal relaunch <goal-name> --seat X # authorize ONE more attempt at a seat that failed
     rbtv-goal dag <goal-name>              # the graph + each seat's derived state
     rbtv-goal add-seat <goal-name> --seat X --after a[,b] [--before x[,y]] --bindings SHEET
                                    --catalog-root DIR [--splice-only] [--dry-run]
+    rbtv-goal teardown <goal-name> [--yes] [--dry-run]   # ⚠ NEEDS THE DAEMON UP (IPH-27)
     rbtv-goal gate-key-check <goal-name> --pass-folder NAME [--override ANCHOR]
     rbtv-goal check-acyclic <file> [--id-col C] [--after-col C]
+
+⚠ `teardown` IS THE EXCEPTION TO THE LOCAL-ONLY PROPERTY ABOVE, and it cannot be
+otherwise: what it reclaims is the job CATALOGUE, which lives in the machine's
+`heart.db` and is served only by the gateway (ignite/CLAUDE.md § State layout —
+"the jobs catalogue is not readable without the daemon"). It refuses typed
+(`daemon-unreachable`) rather than half-working, and it changes no file in the
+goals tree — it deletes catalogue rows and leaves the goal FOLDER alone
+(owner-ruled 2026-08-12; see the verb's own header for why).
 
 Grammar is owner-ruled (r-763-grammar-ruled, all four items at their recommended
 defaults) and is implemented here, not re-derived. Exit codes follow the sd-graph
@@ -559,6 +571,33 @@ def cmd_scaffold(args) -> int:
     if mode not in EXECUTION_MODES:
         raise Refusal(f"--execution-mode {mode}: must be one of {', '.join(EXECUTION_MODES)}")
 
+    # ── 7.777: A GOAL DECLARES ITS LANE AT BIRTH ─────────────────────────────────────────────
+    # Same `getattr` reason as `kind` and `execution_mode` above — hand-built Namespaces reach
+    # this function and argparse's validation never runs on them, so the check lives here and the
+    # subparser declares neither `required=` nor `choices=` (argparse's error text cannot carry
+    # the wording below).
+    #
+    # ⚠ REFUSED BEFORE THE FIRST WRITE, AND THAT PLACEMENT IS THE WHOLE POINT. The first
+    # filesystem mutation in this function is `goal_dir.mkdir(parents=True)` some sixty lines
+    # down; nothing here rolls back, and `goal_creation_request.py` rules that a failure past the
+    # scaffold seam leaves the goal standing ("no unwind is built, and none may be added"). A gate
+    # placed any later trades a refusal for a half-built goal that then refuses re-creation as
+    # already existing.
+    lane = getattr(args, "lane", None)
+    lane_profile = getattr(args, "profile", None)
+    if lane not in LANES:
+        raise Refusal(
+            "this goal needs a lane: pass `--lane daemon` if the daemon runs it unattended, or "
+            "`--lane console` if you run it when you type `rbtv run`. Nothing was created — the "
+            "lane is declared at birth precisely so a goal is never silently one of them."
+            + (f" (got {lane!r})" if lane else ""),
+            "lane-absent")
+    # NAME-only. Whether any seat still NEEDS this fallback is unanswerable here: no seat exists
+    # yet (`materialize-seats` runs later, as its own act), so `uncastSeats` on a fresh goal can
+    # only say "unknown". Cast coverage keeps its one home — `lane-watch.js` skips an uncast goal
+    # at seeding time with a named warning.
+    check_lane_profile(lane, lane_profile, "--lane")
+
     goal_dir = root / name
     if goal_dir.exists():
         raise Refusal(
@@ -602,7 +641,7 @@ def cmd_scaffold(args) -> int:
     # longer written here: it is one of the five write-if-something files and comes off
     # `standard_artifacts` with the other four (its old body called itself a "decision log",
     # which is the exact word §9 rules these files are NOT).
-    created_names = ["goal.md", "threads.sql", EXECUTION_MODE_FILE, "milestones.csv",
+    created_names = ["goal.md", "threads.sql", EXECUTION_MODE_FILE, LANE_FILE, "milestones.csv",
                      "planning/", *standard_artifacts(name)]
     plan = {
         "goal": name,
@@ -624,6 +663,9 @@ def cmd_scaffold(args) -> int:
     # file, so a comment or a header line here would read as "not interactive" and silently
     # make every goal autonomous.
     (goal_dir / EXECUTION_MODE_FILE).write_text(mode + "\n", encoding="utf-8", newline="\n")
+    # The lane marker, through the SAME composer and the SAME writer `lane --set` uses — one
+    # grammar, one tmp+rename, so a goal born daemon and a goal moved to daemon are byte-identical.
+    write_lane_raw(goal_dir, lane_text(lane, lane_profile))
     # 7.136 / d-0811lp-milestones-flow-writes: `lint` requires milestones.csv on EVERY goal, and
     # until now its only writer was the selftest — so every goal born through the creation flow
     # failed its own lint gate. Header-only: a goal is born with no milestones, and the spine is
@@ -686,6 +728,42 @@ def read_lane_raw(goal_dir: Path) -> str:
 
 def lane_is_paused(raw: str) -> bool:
     return bool(LANE_PAUSED_RE.match(raw))
+
+
+def lane_text(target: str, profile: str | None) -> str:
+    """THE ONE composer of the marker's grammar — `lane --set` and `scaffold --lane` both write
+    through it, because a second speller of `daemon <profile>` is drift `readLane` would misparse
+    in silence. A `daemon` marker with NO second token is the fully-cast case: both readers
+    already answer `profile: null` for it, so the grammar did not have to change."""
+    if target == "daemon":
+        return f"daemon {profile}\n" if profile else "daemon\n"
+    return "console\n"
+
+
+def check_lane_profile(lane: str, profile: str | None, flag: str) -> None:
+    """The two `--profile` refusals BOTH lane doors share — one home, two callers (`--set` for
+    `lane`, `--lane` for `scaffold`). `flag` is the caller's own spelling, so the operator is told
+    about the flag he typed.
+
+    ⚠ COVERAGE — "does any seat still need this fallback" — is NOT asked here. It is answerable
+    only where seats exist, which is `cmd_lane`'s uncast gate below; at scaffold time none do.
+    """
+    if lane == "console" and profile:
+        raise Refusal(
+            f"--profile is meaningless with {flag} console: the console lane takes its profile "
+            "from the `rbtv run --profile` you type, not from this file."
+        )
+    # `and profile` since the narrowing: a name that was not given is not a name that is wrong.
+    # Without it this validated `None` against `profiles:` and refused a fully cast goal with
+    # "--profile None: not a launch profile" — measured, not imagined.
+    if lane == "daemon" and profile:
+        known = _spawn_profile_names()
+        if profile not in known:
+            raise Refusal(
+                f"--profile {profile}: not a launch profile in the shared config. "
+                f"Known: {', '.join(known) or '(none configured)'}. Profiles are PINNED and "
+                "NAMED there; this verb never composes or guesses one."
+            )
 
 
 def write_lane_raw(goal_dir: Path, text: str) -> None:
@@ -754,6 +832,75 @@ def cmd_resume(args) -> int:
         print(f"{name}: RESUMED — lane assignment restored to {lane.upper()}"
               + (f", profile {profile}" if profile else "")
               + f" ({goal_dir / LANE_FILE})")
+    return 0
+
+
+# ---------------------------------------------------------------- relaunch
+#
+# THE OPERATOR'S ACT THAT AUTHORIZES ONE MORE ATTEMPT (task 7.776). A seat that ended `failed` or
+# exited is not retried on its own — the grant is what buys it one more run, and it is spent by
+# the pass that acts on it, so a second failure needs a second grant.
+#
+# ⚠ ONE BARE SEAT NAME PER LINE, no header and no csv. The reader on the other side (the seeding
+# pass) parses exactly that; columns would be a schema two languages have to agree on, for a file
+# whose whole content is a list of names.
+
+
+RELAUNCH_GRANTS_FILE = "relaunch-grants"
+
+
+def read_relaunch_grants(goal_dir: Path) -> list[str]:
+    """The seats holding an UNSPENT grant. Absent file = none — the same shape `read_lane`
+    gives its own missing marker."""
+    try:
+        raw = (goal_dir / RELAUNCH_GRANTS_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return [ln.strip() for ln in raw.splitlines() if ln.strip()]
+
+
+def cmd_relaunch(args) -> int:
+    """Grant ONE more attempt at a seat of this goal."""
+    _root, goal_dir, name = _lane_goal_dir(args)
+    seat = args.seat.strip()
+
+    # The seat must be one this goal HAS. A typo that lands in the file is a grant nothing will
+    # ever spend, and the operator's only signal would be the seat never running.
+    tf_path = goal_dir / "taskforce.csv"
+    if not tf_path.is_file():
+        raise Refusal(
+            f"{tf_path}: this goal has no taskforce yet, so it has no seat to relaunch — staff it "
+            f"first (`rbtv-goal materialize {name}`).", "taskforce-absent")
+    seats = [s for s in ((r.get("seat") or "").strip() for r in read_csv(tf_path)) if s]
+    if seat not in seats:
+        raise Refusal(
+            f"--seat {seat}: this goal has no such seat. Its seats are: "
+            f"{', '.join(seats) or '(none)'}.", "seat-absent")
+
+    granted = read_relaunch_grants(goal_dir)
+    if seat in granted:
+        raise Refusal(
+            f"--seat {seat}: an unspent relaunch grant for this seat is already standing in "
+            f"{goal_dir / RELAUNCH_GRANTS_FILE}. One grant buys one attempt; it is spent when the "
+            "seat runs, and only then does a second one mean anything.", "grant-duplicate")
+
+    # tmp + rename for `write_lane_raw`'s reason, on a file read by the same kind of unlocked
+    # reader: a truncate-then-write leaves a window where this file reads EMPTY, and empty here
+    # means "no grant" — the seat would be skipped and the operator's act silently lost.
+    tmp = goal_dir / f"{RELAUNCH_GRANTS_FILE}.tmp"
+    tmp.write_text("".join(f"{s}\n" for s in [*granted, seat]), encoding="utf-8", newline="\n")
+    tmp.replace(goal_dir / RELAUNCH_GRANTS_FILE)
+
+    lane, _profile = read_lane(goal_dir)
+    happens = ("the daemon will run this seat again on its next pass" if lane == "daemon"
+               else f"the next `rbtv run {goal_dir}` will run this seat again")
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "goal": name, "seat": seat, "lane": lane,
+                          "granted": [*granted, seat],
+                          "file": str(goal_dir / RELAUNCH_GRANTS_FILE)}, indent=2))
+    else:
+        print(f"{name}/{seat}: relaunch GRANTED — {happens}. The grant is spent by that run; a "
+              f"further attempt needs a further grant ({goal_dir / RELAUNCH_GRANTS_FILE})")
     return 0
 
 
@@ -1110,34 +1257,8 @@ def cmd_lane(args) -> int:
                     "maps to either way (ruling D19). Names come from `profiles:` in "
                     "ignite/config/spawn-profiles.yaml.",
                     "lane-uncast-seats")
-        if target == "console" and profile:
-            raise Refusal(
-                "--profile is meaningless with --set console: the console lane takes its profile "
-                "from the `rbtv run --profile` you type, not from this file."
-            )
-        # `and profile` since the narrowing: a name that was not given is not a name that is
-        # wrong. Without it this validated `None` against `profiles:` and refused a fully cast
-        # goal with "--profile None: not a launch profile" — measured, not imagined.
-        if target == "daemon" and profile:
-            known = _spawn_profile_names()
-            if profile not in known:
-                raise Refusal(
-                    f"--profile {profile}: not a launch profile in the shared config. "
-                    f"Known: {', '.join(known) or '(none configured)'}. Profiles are PINNED and "
-                    "NAMED there; this verb never composes or guesses one."
-                )
-        # A `daemon` marker with NO second token is the fully-cast case — `readLane` on both sides
-        # already answers `profile: null` for it, so the grammar did not have to change.
-        if target == "daemon":
-            text = f"daemon {profile}\n" if profile else "daemon\n"
-        else:
-            text = "console\n"
-        # Temp + rename, like the execution record beside it: a reader takes no lock, and a
-        # truncate-then-write leaves a window where the marker reads EMPTY — which the daemon's
-        # reader resolves as `console` and would silently drop a goal it was mid-assignment.
-        tmp = goal_dir / f"{LANE_FILE}.tmp"
-        tmp.write_text(text, encoding="utf-8", newline="\n")
-        tmp.replace(goal_dir / LANE_FILE)
+        check_lane_profile(target, profile, "--set")
+        write_lane_raw(goal_dir, lane_text(target, profile))
 
     lane, profile = read_lane(goal_dir)
     present = (goal_dir / LANE_FILE).exists()
@@ -3429,6 +3550,267 @@ def cmd_add_seat(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- teardown
+
+
+# ⚠⚠ THE ONE VERB IN THIS FILE THAT NEEDS THE DAEMON UP (see the module docstring's amendment).
+# Every other verb here is a local file operation precisely so it works with the daemon down; this
+# one cannot be, because the thing it reclaims — the job CATALOGUE — lives in `heart.db` under the
+# machine's state root and is reachable only through the gateway (ignite/CLAUDE.md § State layout:
+# "the jobs catalogue is not readable without the daemon", an accepted consequence of the ruling
+# that the store stays ONE per-machine file). It refuses typed when the daemon is unreachable
+# rather than half-working.
+#
+# WHY IT EXISTS (IPH-27). Scaffolding a goal WRITES catalogue rows — `<goal>-workflow-start` from
+# `capabilities/goal-creation-request`, and one `seat-<goal>-<seat>` per seat from
+# `engine/seeding.js#seedTaskforce` on the goal's first seed. Deleting the goal folder removed none
+# of them, and registration is create-only, so the goal's NAME was burnt: 18 stranded rows for one
+# goal, and a same-name re-scaffold refused `E_JOB_EXISTS`. `deregister-job --purge` made the rows
+# reclaimable; this verb is what CALLS it, so a teardown is one command instead of an undocumented
+# 3-step-per-row sequence whose ordering is easy to get wrong.
+#
+# ⚠ IT DOES NOT DELETE THE GOAL FOLDER, and that is owner-ruled (2026-08-12), not an omission. It
+# is the same reasoning `goal_creation_request.py` records for building no unwind on a failed
+# scaffold: this tool cannot prove it alone created that directory, so removing it would be a
+# destructive act taken on an assumption. Teardown cleans the DAEMON's side and tells you the
+# folder is yours. Run it BEFORE deleting the folder — that is the order the exact-id path needs.
+
+_WORKFLOW_START_SUFFIX = "-workflow-start"
+# The non-terminal turn statuses, spelled here because this process cannot import the store's set.
+# ⚠ Keep in step with `TURN_STATUSES - TERMINAL_TURN_STATUSES` in `server/heart/heart-store.js`.
+# A status DROPPED from this list is the dangerous direction: teardown would stop seeing a live
+# turn it should have refused on. `--dry-run` prints what it saw, so a drift is visible.
+_LIVE_STATUSES = ("launching", "running", "stalled")
+
+
+def _ignite_bin(explicit: str | None) -> list[str]:
+    """The argv prefix that runs the ignite client.
+
+    NAMED, never resolved on PATH — the same fact every daemon-fired entry in
+    `config/spawn-profiles.yaml` states: a systemd --user manager's PATH does not carry
+    `~/.local/bin`, so a bare `ignite` resolves interactively and nowhere else.
+    """
+    if explicit:
+        # A `.js` path needs an interpreter; anything else (a symlink on PATH, a wrapper) is
+        # already executable and is run as given.
+        return ["node", explicit] if explicit.endswith(".js") else [explicit]
+    return ["node", str(Path(__file__).resolve().parents[3] / "cli" / "ignite.js")]
+
+
+def _ignite(prefix: list[str], *argv: str) -> dict:
+    """One `ignite --json` call. Returns the gateway envelope; raises Refusal on transport death.
+
+    ⚠ THE TRANSPORT FAILURE IS ITS OWN REFUSAL, never folded into "the daemon said no". Exit 5 is
+    `CLI_TRANSPORT_ERROR` — the daemon is down or unreachable — and a teardown that reported
+    "nothing to purge" because it could not ASK would be the worst possible answer here: it reads
+    as a clean teardown over a catalogue it never saw.
+    """
+    import subprocess
+
+    try:
+        proc = subprocess.run([*prefix, "--json", *argv], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise Refusal(f"could not run the ignite client ({' '.join(prefix)}): {exc}",
+                      "ignite-unrunnable") from exc
+    if proc.returncode == 5:
+        raise Refusal(
+            "the ignite daemon is unreachable, so the job catalogue cannot be read. Unlike every "
+            "other `rbtv-goal` verb, teardown NEEDS the daemon up — the catalogue lives in the "
+            "machine's heart.db and only the gateway serves it. Start it "
+            "(`rbtv ignite daemon start`) and re-run. Nothing was changed.",
+            "daemon-unreachable")
+    try:
+        return json.loads(proc.stdout)
+    except ValueError:
+        raise Refusal(
+            f"the ignite client answered nothing parseable to `{' '.join(argv)}` "
+            f"(exit {proc.returncode}): {(proc.stderr or proc.stdout or '').strip()[:400]}",
+            "ignite-unparseable")
+
+
+def _ignite_result(env: dict, what: str) -> dict:
+    if not env.get("ok"):
+        err = env.get("error") or {}
+        raise Refusal(f"{what} refused by the daemon [{err.get('code')}]: {err.get('message')}",
+                      "daemon-refused")
+    return env.get("result") or {}
+
+
+def cmd_teardown(args) -> int:
+    """Reclaim a goal's catalogue rows so its NAME is free again. Leaves the folder alone."""
+    root = resolve_goals_root(args.root)
+    goal_dir = resolve_goal_dir(root, args.goal_name)
+    goal = args.goal_name
+    prefix = _ignite_bin(getattr(args, "ignite_bin", None))
+
+    # ── Which rows belong to this goal? TWO paths, and the difference is not cosmetic ──────────
+    # EXACT (the folder is still here): the goal's own `taskforce.csv` is the same list
+    # `seedTaskforce` composed the ids from, so `seat-<goal>-<seat>` is reconstructed, never
+    # guessed. This is why teardown is meant to run BEFORE the folder is deleted.
+    #
+    # PREFIX-SCAN (the folder is already gone): there is nothing left to read, so the ids are
+    # matched by name. ⚠ THIS IS THE UNSAFE PATH AND IT IS GATED FOR A MEASURED REASON — a goal
+    # name can be a PREFIX of another goal's name, and this box carries a live pair today
+    # (`throwaway-0811-settle` / `throwaway-0811-settle-kill`), so `seat-throwaway-0811-settle-`
+    # matches the OTHER goal's seat rows. The owner ruling (2026-08-12) is that the matches are
+    # PRINTED and confirmed rather than deleted on trust, and the shadow warning below names the
+    # collision outright instead of leaving it for a tired reader to spot in a list.
+    tf_path = goal_dir / "taskforce.csv"
+    shadowed: list[str] = []
+    excluded: list[str] = []
+    # ONE catalogue read, reused by both paths below and by the presence check — a second read
+    # would be a second snapshot, and the two could disagree about a row minted between them.
+    catalogue = {r["job_id"]: r for r in
+                 (_ignite_result(_ignite(prefix, "inspect", "jobs"), "inspect jobs").get("rows") or [])}
+    if tf_path.is_file():
+        # The EXACT path needs no collision handling at all: every id is composed from THIS goal's
+        # own seat registry, so another goal's row can never enter the set in the first place.
+        source = "taskforce"
+        seats = [(r.get("seat") or "").strip() for r in read_csv(tf_path)]
+        wanted = [f"{goal}{_WORKFLOW_START_SUFFIX}"] + [f"seat-{goal}-{s}" for s in seats if s]
+    else:
+        source = "prefix-scan"
+        if goal_dir.is_dir():
+            raise Refusal(
+                f"{tf_path}: absent, but {goal_dir} still exists. Teardown reads the goal's own "
+                "seat registry to compose exact job ids; without it the only alternative is a "
+                "name-prefix match, which this verb will not do while the folder is there to be "
+                "repaired. Restore taskforce.csv, or delete the folder and re-run to get the "
+                "confirm-first orphan path.", "registry-absent")
+        seat_prefix = f"seat-{goal}-"
+        matched = sorted(j for j in catalogue
+                         if j == f"{goal}{_WORKFLOW_START_SUFFIX}" or j.startswith(seat_prefix))
+        # ── THE PREFIX COLLISION, EXCLUDED rather than merely warned about ────────────────────
+        # A goal name can be a PREFIX of another goal's name — this box carries a live pair
+        # (`throwaway-0811-settle` / `throwaway-0811-settle-kill`) — so `seat-throwaway-0811-
+        # settle-` matches the OTHER goal's seat rows and the sweep would delete them.
+        #
+        # ⚠ THIS WAS A REFUSAL GATED ON `not args.yes` AND THAT WAS A DEFECT, caught by
+        # `probes/probe-goal-teardown.js` on its first run: `--yes` is the operator saying "the
+        # orphan list is right", and it was ALSO waiving a completely different and stronger
+        # hazard, so `teardown orphan --yes` silently purged `orphan-kill`'s seat row. A guard a
+        # caller can switch off with a flag meant for something else is not a guard.
+        #
+        # Excluding is better than refusing on both counts: the sweep becomes CORRECT rather than
+        # merely blocked, and there is no flag interaction left to get wrong. What it CANNOT see
+        # is a shadowing goal whose folder is ALSO gone — nothing in `seat-<goal>-<seat>` says
+        # where the goal name ends (seat names carry `-` too: `seat-meeting-digest-plan-check-
+        # edges`), so that case is genuinely undecidable from the data and is what the printed
+        # confirm-first list below is for.
+        shadowed = sorted(p.name for p in root.iterdir()
+                          if p.is_dir() and p.name.startswith(f"{goal}-"))
+        theirs = {j for s in shadowed for j in matched
+                  if j == f"{s}{_WORKFLOW_START_SUFFIX}" or j.startswith(f"seat-{s}-")}
+        wanted = [j for j in matched if j not in theirs]
+        excluded = sorted(theirs)
+
+    # Absent is NORMAL, not an error: a seat row is only registered once the goal is first seeded,
+    # so a goal that never ran has the workflow-start row and nothing else.
+    present = [j for j in wanted if j in catalogue]
+    absent = [j for j in wanted if j not in catalogue]
+
+    queue_rows = _ignite_result(_ignite(prefix, "inspect", "queue"), "inspect queue").get("rows") or []
+    doomed_queue = [q for q in queue_rows if q.get("job_id") in set(present)]
+
+    # ── The live-turn gate, checked for the WHOLE set before anything is touched ───────────────
+    # The store refuses a purge with a live execution anyway; asking here first is what makes the
+    # refusal ATOMIC. Discovering it mid-loop would leave some rows purged, some disabled and some
+    # untouched — a half-torn-down goal is harder to reason about than an untouched one.
+    live: list[dict] = []
+    for status in _LIVE_STATUSES:
+        for row in (_ignite_result(_ignite(prefix, "inspect", "executions", "--status", status),
+                                   f"inspect executions --status {status}").get("rows") or []):
+            if row.get("job_id") in set(present):
+                live.append({"exec_id": row.get("exec_id"), "job_id": row.get("job_id"),
+                             "status": status})
+    if live:
+        named = ", ".join(f"{r['job_id']} (exec {r['exec_id']}, {r['status']})" for r in live)
+        raise Refusal(
+            f"{len(live)} execution(s) of this goal are still running: {named}. Nothing was "
+            "changed — a teardown does not kill live work. Let them finish, or "
+            "`ignite kill <session-id>` them, then re-run.", "live-executions")
+
+    plan = {"goal": goal, "source": source, "purge": present, "not_registered": absent,
+            "remove_queue_rows": [q["queue_id"] for q in doomed_queue],
+            "prefix_shadowed_goals": shadowed, "excluded_as_another_goals": excluded}
+
+    # THE confirm-first gate, and the ONLY one — the shadow hazard is handled by EXCLUSION above,
+    # never by a second refusal a flag could waive (that interaction was the defect).
+    if source == "prefix-scan" and not args.dry_run and not args.yes:
+        raise Refusal(
+            f"{goal}: the goal folder is gone, so these {len(present)} row(s) were matched by "
+            "NAME, not read from the goal's registry:\n  " + ("\n  ".join(present) or "(none)")
+            + (f"\n({len(excluded)} row(s) were already excluded as belonging to "
+               f"{', '.join(shadowed)}.)" if excluded else "")
+            + "\nRe-run with --yes to purge them, or --dry-run to see the full plan.",
+            "confirm-required")
+
+    if args.dry_run:
+        if args.json:
+            print(json.dumps({"ok": True, "dry_run": True, **plan}, indent=2))
+        else:
+            _print_teardown_plan(plan, goal_dir)
+        return 0
+
+    # ── The act, in the ONE order the purge guards admit ──────────────────────────────────────
+    # queue rows first (a pending row refuses the purge), then disable, then purge. Never forced:
+    # if a step refuses, the refusal is reported against that id and the rest still run — by this
+    # point the atomic gate above has already cleared the only failure worth aborting for.
+    removed, purged, failed = [], [], []
+    for q in doomed_queue:
+        env = _ignite(prefix, "remove-job", str(q["queue_id"]))
+        (removed if env.get("ok") else failed).append(
+            q["queue_id"] if env.get("ok")
+            else {"queue_id": q["queue_id"], "error": (env.get("error") or {}).get("message")})
+    for job_id in present:
+        env = _ignite(prefix, "deregister-job", job_id)
+        if not env.get("ok"):
+            failed.append({"job_id": job_id, "step": "deregister",
+                           "error": (env.get("error") or {}).get("message")})
+            continue
+        env = _ignite(prefix, "deregister-job", job_id, "--purge")
+        if env.get("ok"):
+            purged.append(job_id)
+        else:
+            failed.append({"job_id": job_id, "step": "purge",
+                           "error": (env.get("error") or {}).get("message")})
+
+    out = {"ok": not failed, "goal": goal, "source": source, "purged": purged,
+           "queue_rows_removed": removed, "not_registered": absent, "failed": failed,
+           "goal_dir": str(goal_dir), "goal_dir_exists": goal_dir.is_dir()}
+    if args.json:
+        print(json.dumps(out, indent=2))
+    else:
+        print(f"teardown {goal}: purged {len(purged)} catalogue row(s)"
+              + (f", removed {len(removed)} queued row(s)" if removed else "")
+              + (f", {len(absent)} never registered" if absent else ""))
+        for j in purged:
+            print(f"  purged  {j}")
+        for f in failed:
+            print(f"  FAILED  {f.get('job_id') or f.get('queue_id')}: {f.get('error')}")
+        print(f"  the goal NAME '{goal}' is now free — `ignite register-job` can take its ids again")
+        if goal_dir.is_dir():
+            print(f"  THE FOLDER IS UNTOUCHED and is yours to remove: {goal_dir}")
+    return 1 if failed else 0
+
+
+def _print_teardown_plan(plan: dict, goal_dir: Path) -> None:
+    print(f"teardown {plan['goal']} — DRY RUN, nothing changed  (ids from: {plan['source']})")
+    for j in plan["purge"]:
+        print(f"  would purge   {j}")
+    for q in plan["remove_queue_rows"]:
+        print(f"  would remove  queue row {q}")
+    for j in plan["not_registered"]:
+        print(f"  skip          {j} (never registered)")
+    for j in plan["excluded_as_another_goals"]:
+        print(f"  EXCLUDED      {j} (belongs to a goal whose name extends this one)")
+    if plan["prefix_shadowed_goals"]:
+        print(f"  ⚠ '{plan['goal']}' is a name prefix of: {', '.join(plan['prefix_shadowed_goals'])}"
+              " — their rows are excluded above. A shadowing goal whose FOLDER IS ALSO GONE cannot"
+              " be detected; check the purge list for ids that are not this goal's seats")
+    print(f"  the folder would be left alone: {goal_dir}")
+
+
 # ---------------------------------------------------------------- selftest
 
 
@@ -3456,7 +3838,7 @@ def cmd_selftest(args) -> int:
 
         print("scaffold")
         rc = cmd_scaffold(argparse.Namespace(
-            goal_name="demo-goal", type="one-shot", due="2026-09-01",
+            goal_name="demo-goal", type="one-shot", due="2026-09-01", lane="console",
             contract=str(contract), **vars(ns)))
         check("scaffold exits 0", rc == 0)
         gd = root / "demo-goal"
@@ -3503,7 +3885,7 @@ def cmd_selftest(args) -> int:
 
         rc = cmd_scaffold(argparse.Namespace(
             goal_name="kinded-goal", type="one-shot", kind="non-interactive", due=None,
-            contract=str(contract), **vars(ns)))
+            lane="console", contract=str(contract), **vars(ns)))
         kfm, _ = read_goal_md(root / "kinded-goal")
         check("explicit --kind round-trips to frontmatter",
               rc == 0 and kfm.get("goal-kind") == "non-interactive", str(kfm.get("goal-kind")))
@@ -3528,16 +3910,22 @@ def cmd_selftest(args) -> int:
               kind_finding(lint_goal(root, "badkind-goal").items))
 
         print("scaffold refusals")
+        # Every row names a lane, so each arm refuses for ITS OWN reason: the 7.777 lane gate sits
+        # ahead of the create-only check, and an arm that omitted the flag would go on passing
+        # while testing nothing but the lane gate.
         for label, kwargs in (
             ("re-scaffold refused (create-only)",
-             dict(goal_name="demo-goal", type="one-shot", due=None, contract=str(contract))),
+             dict(goal_name="demo-goal", type="one-shot", due=None, lane="console",
+                  contract=str(contract))),
             ("bad name refused",
-             dict(goal_name="Bad_Name", type="one-shot", due=None, contract=str(contract))),
+             dict(goal_name="Bad_Name", type="one-shot", due=None, lane="console",
+                  contract=str(contract))),
             ("bad type refused",
-             dict(goal_name="other-goal", type="nonsense", due=None, contract=str(contract))),
+             dict(goal_name="other-goal", type="nonsense", due=None, lane="console",
+                  contract=str(contract))),
             ("bad kind refused",
              dict(goal_name="other-goal", type="one-shot", kind="nonsense", due=None,
-                  contract=str(contract))),
+                  lane="console", contract=str(contract))),
         ):
             try:
                 cmd_scaffold(argparse.Namespace(**kwargs, **vars(ns)))
@@ -3559,7 +3947,7 @@ def cmd_selftest(args) -> int:
             arm = f"unreadable --contract ({label}) refuses instead of crashing"
             try:
                 cmd_scaffold(argparse.Namespace(
-                    goal_name="contract-goal", type="one-shot", due=None,
+                    goal_name="contract-goal", type="one-shot", due=None, lane="console",
                     contract=str(bad), **vars(ns)))
                 check(arm, False, "did not refuse")
             except Refusal:
@@ -4268,7 +4656,7 @@ def cmd_selftest(args) -> int:
         # bindings) belong to the fixture, not to this question.
         cmd_scaffold(argparse.Namespace(
             root=str(root), json=False, goal_name="pool-goal", type="one-shot",
-            due=None, kind=None, contract=str(contract), dry_run=False))
+            due=None, kind=None, lane="console", contract=str(contract), dry_run=False))
         pg = root / "pool-goal"
         (pg / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
@@ -4760,6 +5148,17 @@ def build_parser() -> argparse.ArgumentParser:
                         f"{EXECUTION_MODE_FILE} file (default: {EXECUTION_MODE_DEFAULT}, which "
                         "is what an absent file already reads as). The workflow-level default is "
                         "resolved by the request layer and passed here — this verb derives none")
+    # NO `required=`/`choices=` on purpose: the gate lives in `cmd_scaffold` (hand-built
+    # Namespaces reach it without argparse), and argparse's error text cannot carry the operator
+    # wording the refusal there owes the person who typed the command.
+    p.add_argument("--lane", default=None,
+                   help="which lane runs this goal — `daemon` (the daemon runs it unattended) or "
+                        "`console` (you run it when you type `rbtv run`). REQUIRED: a goal born "
+                        "without a lane is silently a console goal")
+    p.add_argument("--profile", default=None,
+                   help="with --lane daemon: the FALLBACK launch profile, BY NAME, for seats that "
+                        "declare no harness+model cast (from `profiles:` in the one shared "
+                        "config). Only the NAME is checked here — no seat exists yet to need it")
     p.add_argument("--due", default=None)
     p.add_argument("--contract", required=True,
                    help="FILE, or - for stdin: the goal-radius contract prose")
@@ -4798,6 +5197,16 @@ def build_parser() -> argparse.ArgumentParser:
         "resume", help="unstash the lane assignment a `pause` put away, byte for byte"))
     p.add_argument("goal_name")
     p.set_defaults(func=cmd_resume)
+
+    # Task 7.776 — the operator's one-more-attempt act, in the lane family because it is the same
+    # kind of thing: a file in the goal folder that the next pass reads before it seeds.
+    p = add_common(sub.add_parser(
+        "relaunch",
+        help="authorize ONE more attempt at a seat that ended failed — spent by the run it buys"))
+    p.add_argument("goal_name")
+    p.add_argument("--seat", required=True,
+                   help="the seat, by name, exactly as this goal's taskforce.csv spells it")
+    p.set_defaults(func=cmd_relaunch)
 
     # IPH-11 — the escalation bar as CONFIGURATION. Bare, it is read-only: `retry-threshold
     # <goal>` is also the orientation verb ("what will the judge escalate at").
@@ -4854,6 +5263,24 @@ def build_parser() -> argparse.ArgumentParser:
                    help="run every gate and print the local graph around the new seat; "
                         "touch nothing")
     p.set_defaults(func=cmd_add_seat)
+
+    p = add_common(sub.add_parser(
+        "teardown",
+        help="reclaim a goal's job-catalogue rows so its NAME is free again (NEEDS the daemon up; "
+             "leaves the goal folder alone)"))
+    p.add_argument("goal_name")
+    p.add_argument("--ignite-bin", default=None,
+                   help="path to the ignite client (default: this repo's cli/ignite.js under node). "
+                        "Auth and gateway address come from the environment the client already "
+                        "reads — IGNITE_SENDER_TOKEN and IGNITE_GATEWAY_ADDR / server.json")
+    p.add_argument("--yes", action="store_true",
+                   help="confirm the ORPHAN path, where the goal folder is already gone and ids "
+                        "were matched by NAME rather than read from the goal's own registry. "
+                        "Never needed when taskforce.csv is present")
+    p.add_argument("--dry-run", action="store_true",
+                   help="print the plan — every row that would be purged and every queue row that "
+                        "would be removed — and change nothing")
+    p.set_defaults(func=cmd_teardown)
 
     p = add_common(sub.add_parser("lint", help="read-only validate + dry-run emulate (exit 0/1)"))
     p.add_argument("goal_name")

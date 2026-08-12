@@ -12,7 +12,7 @@ four files — `goal.md`, `decisions.md`, `runs.csv`, `threads.sql` — so the r
 
 ⚠ 7.607 E2a — THE ARTIFACT SET IS ONE FILE SHORTER, AND ITS ABSENCE IS ASSERTED. `runs.csv` is NOT
 written any more: the run layer is extinguished (`decisions.md#d-runs-extinguished`), the register
-with it, and a created goal now carries NINE files. `NEVER_WRITTEN` below asserts the register's
+with it, and 7.777 added the `execution-lane` marker, so a created goal now carries TEN files. `NEVER_WRITTEN` below asserts the register's
 absence directly — dropping it from the expected LIST alone would let a scaffold that still minted
 one pass, which is the whole failure mode this probe exists to refuse.
 
@@ -82,7 +82,9 @@ RUN_LAYER_MARKERS = ("../..", "runs/run-", "run folder")
 # then delete the check that name is written, and the probe would stay green over the regression.
 ROUTERS = ("CLAUDE.md", "AGENTS.md")
 WRITE_IF_SOMETHING = ("issues.md", "decisions.md", "doubts.md", "gotchas.md", "ideas.md")
-PRE_EXISTING = ("goal.md", "threads.sql")
+# 7.777 — `execution-lane` joins them: `cmd_scaffold` writes the lane marker directly from the
+# REQUIRED `--lane`, so a goal is never born without one and this arm is what says so.
+PRE_EXISTING = ("goal.md", "threads.sql", "execution-lane")
 # 7.607 E2a — the register is EXTINGUISHED, and its absence is a property, not an omission.
 NEVER_WRITTEN = ("runs.csv",)
 
@@ -135,8 +137,10 @@ def read_bytes(path: Path) -> bytes:
 
 def scaffold(tool: Path, root: Path, goal: str, contract: Path):
     r = subprocess.run(
+        # `--lane` is REQUIRED at the creation verb since 7.777 (`console`, so no `--profile` is
+        # needed); the marker it writes is asserted as part of the ruled set below.
         [sys.executable, str(tool), "--root", str(root), "scaffold", goal,
-         "--contract", str(contract)],
+         "--contract", str(contract), "--lane", "console"],
         capture_output=True, text=True, timeout=120)
     return r.returncode, (r.stdout or ""), (r.stderr or "")
 

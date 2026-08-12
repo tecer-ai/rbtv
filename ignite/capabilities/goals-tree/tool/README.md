@@ -5,7 +5,8 @@ grammar is owner-ruled (`r-763-grammar-ruled` — all four decision items at the
 defaults) and is **implemented here, not re-derived**.
 
 ```
-rbtv-goal scaffold <goal-name> --contract FILE|-  [--type T] [--kind K] [--due DATE]
+rbtv-goal scaffold <goal-name> --contract FILE|-  --lane daemon|console [--profile NAME]
+                                                  [--type T] [--kind K] [--due DATE]
                                                   [--execution-mode interactive|autonomous] [--dry-run]
 rbtv-goal reindex
 rbtv-goal lint <goal-name>
@@ -18,11 +19,19 @@ rbtv-goal add-seat <goal-name> --seat X --after a[,b] [--before x[,y]]
                                --bindings SHEET.json --catalog-root DIR
                                [--splice-only] [--allow-daemon-complex-cell]
                                [--allow-open-execution] [--dry-run]
+rbtv-goal teardown <goal-name> [--yes] [--dry-run] [--ignite-bin PATH]   # ⚠ NEEDS THE DAEMON UP
 rbtv-goal selftest
 ```
 
 `--root` (the `.rbtv/goals` root) and `--json` are accepted on either side of the verb. Without
 `--root` the root is found by walking up from the working directory.
+
+**⚠ `teardown` is the ONE verb here that requires the daemon to be running**, and it is the one
+exception to the local-file-operations property every other verb has. What it reclaims is the job
+CATALOGUE, which lives in the machine's `heart.db` and is served only by the gateway (`ignite/CLAUDE.md`
+§ State layout — "the jobs catalogue is not readable without the daemon"). It refuses typed
+(`daemon-unreachable`) rather than half-working, and it reads auth from the environment the `ignite`
+client already reads (`IGNITE_SENDER_TOKEN`, `IGNITE_GATEWAY_ADDR` / `server.json`).
 
 **`--kind interactive|non-interactive`** (default `interactive`) stamps `goal-kind` into `goal.md`
 frontmatter. Owner ruling `d-owner-batch1` (2), 2026-08-08: the frontmatter IS the carrier — a
@@ -77,7 +86,7 @@ stand-in pattern, no contract change at fold-in.
 
 | Verb | Does | Never |
 |---|---|---|
-| `scaffold` | Creates the goal root — `goal.md` (identity frontmatter + the contract body), `threads.sql` (empty schema), `execution-mode` (one word — the owner-contact policy, `--execution-mode`), plus the standard goal-folder artifacts of § below — then reindexes. **No `runs.csv`:** the run register was extinguished in 7.607 (design-lock item 1) and liveness is DERIVED from the goal's tmux room, never stored. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes seat folders — seat birth is `materialize`'s step |
+| `scaffold` | Creates the goal root — `goal.md` (identity frontmatter + the contract body), `threads.sql` (empty schema), `execution-mode` (one word — the owner-contact policy, `--execution-mode`), `execution-lane` (one word — WHICH LANE runs it, from the REQUIRED `--lane`; task 7.777, and `--profile` rides it for the daemon lane), plus the standard goal-folder artifacts of § below — then reindexes. **No `runs.csv`:** the run register was extinguished in 7.607 (design-lock item 1) and liveness is DERIVED from the goal's tmux room, never stored. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes seat folders — seat birth is `materialize`'s step |
 | `reindex` | Rebuilds `goals.csv` whole from every `goal.md` frontmatter. Always the full projection; a partial one would leave silent staleness. Fails loud on an unparseable descriptor, naming the file, and leaves `goals.csv` **untouched** — a projection that silently drops a goal is corruption. | Touches any goal folder |
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
 | `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
@@ -86,6 +95,7 @@ stand-in pattern, no contract change at fold-in.
 | `dag` | READ-ONLY one-shot graph view: every `taskforce.csv` row with its predecessors (through the after grammar, never a comma split) and its execution state derived from `executions.csv`, in dependency order, plus `seats/` folders with no row. | Writes anything, or stores a state — every field is derived |
 | `add-seat` | Grows a **paused** goal's roster: gates, mints the seat through `materialize-seats.py`, then splices it into the after-graph in ONE atomic registry write (§ below). | Runs without a pause, splices before minting, or rewrites a row it did not re-parent |
 | `retry-threshold` | Shows or sets the consecutive-FAIL bar the dod-judge escalates to the owner at (§ below). Bare, it is READ-ONLY orientation. | Enforces the bar, or resolves it for the gate — `coord.py#resolve_retry_threshold` is the authority; this verb writes the two files it reads |
+| `teardown` | Reclaims the goal's JOB-CATALOGUE rows so its NAME is free again (`IPH-27`, § below): removes their pending queue rows, then `deregister-job --purge`es each one, in the one order the purge guards admit. Ids come from the goal's OWN `taskforce.csv`, so another goal's row can never enter the set. **⚠ The only verb here that needs the daemon UP.** | **Deletes the goal FOLDER** (owner-ruled 2026-08-12 — it cannot prove it created that directory), kills a live session, or cascades a queue row it did not name |
 
 ### `lane` — the daemon's pickup button (owner ruling `d-daemon-lane-button`, 2026-08-10)
 
@@ -103,6 +113,9 @@ seeds the goals assigned to it through `engine.seedGoal`; the console lane is `r
 - **ABSENT MEANS `console`.** An unreadable file, a junk word and a missing file are ONE answer —
   the daemon adopts ONLY goals explicitly assigned to it. Fail-closed on purpose: the opposite
   default would have adopted every goal folder already on disk the first time the daemon ticked.
+  ⚠ **A goal scaffolded since 7.777 is never absent**: `scaffold --lane` is REQUIRED, so the
+  marker is written at birth and this reader's absence arm covers only goals older than that (or
+  a `pause`, which stashes the assignment behind a prefix both readers resolve to `console`).
 - **`--set daemon` REQUIRES `--profile` ONLY WHEN A SEAT WOULD READ IT** (narrowing of ruling D19,
   2026-08-12). Since D19 a seat whose `seat.md` declares a harness+model cast launches on the
   profile that cast maps to, whatever this token says — so on a fully cast goal the flag was a
@@ -256,6 +269,50 @@ file **outside** the goal folder for the mint and removed in a `finally`.
 
 Measured end to end by `../probes/probe-goal-splice.py`
 (`node deploy/probe-suite.js --only goal-splice`), which runs the real command as a subprocess.
+
+### `teardown` — reclaiming a goal's NAME (issue `IPH-27`, owner ruling 2026-08-12)
+
+```
+rbtv-goal teardown my-goal --dry-run     # the plan: every row that would go, nothing changed
+rbtv-goal teardown my-goal               # …then delete the folder yourself
+rbtv-goal teardown my-goal --yes         # the ORPHAN path, when the folder is already gone
+```
+
+Scaffolding a goal WRITES job-catalogue rows — one `seat-<goal>-<seat>` per seat from
+`engine/seeding.js#seedTaskforce` on the goal's first seed. *(A `<goal>-workflow-start` row from
+`capabilities/goal-creation-request` was the other producer until task 7.778 deleted that door;
+rows minted before then are still on disk and are still this verb's to reclaim.)* Deleting the goal folder removed none
+of them, and `register-job` is create-only, so **the goal's NAME was burnt**: 18 stranded rows for
+one goal on the live box, and a same-name re-scaffold refused `E_JOB_EXISTS`. `ignite
+deregister-job --purge` made the rows reclaimable; this verb is what calls it.
+
+**Run it BEFORE deleting the folder.** With `taskforce.csv` present the ids are COMPOSED from the
+goal's own seat registry — reconstructed, never guessed — so no other goal's row can be in the set.
+
+| It does | It never |
+|---|---|
+| removes the goal's pending queue rows, then deregisters + purges each catalogue row — in that order, because a pending row refuses the purge | forces past a guard, or cascades a queue row it did not name |
+| refuses UP FRONT, atomically, if ANY of the goal's jobs has a non-terminal execution, naming each | kills a live session — `ignite kill <session-id>` is a separate, deliberate act |
+| leaves the goal FOLDER completely untouched and says so | delete a directory it cannot prove it created (the same reasoning `goal_creation_request.py` records for building no unwind on a failed scaffold) |
+| treats an id that was never registered as normal, not an error | report success over a catalogue it could not read — a transport failure is its own typed refusal |
+
+**The orphan path, and the collision it has to survive.** With the folder already gone there is no
+registry to read, so ids are matched by NAME (`seat-<goal>-`) — and **a goal name can be a prefix of
+another goal's name**; this workspace carried a live pair (`throwaway-0811-settle` /
+`throwaway-0811-settle-kill`). Rows belonging to a still-present shadowing goal are therefore
+**EXCLUDED** from the sweep and listed as excluded, and the remaining name-matched list is PRINTED
+and requires `--yes`.
+
+⚠ The exclusion cannot see a shadowing goal whose folder is ALSO gone: nothing in
+`seat-<goal>-<seat>` says where the goal name ends (seat names carry `-` too —
+`seat-meeting-digest-plan-check-edges`), so that case is undecidable from the data and the printed
+list is the only guard. **Read it.** The first cut of this made the shadow check a *refusal* gated
+on `not --yes`, so the flag confirming the orphan list also switched off the shadow protection —
+`../probes/probe-goal-teardown.js` caught that on its first run, and excluding replaced refusing.
+
+Measured end to end by `../probes/probe-goal-teardown.js`
+(`node deploy/probe-suite.js --only goal-teardown`), which boots its own throwaway daemon and runs
+the real command as a subprocess — never the live daemon, never the live catalogue.
 
 ### What `lint` checks
 

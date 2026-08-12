@@ -101,7 +101,8 @@ def build_tree(td: Path):
     root.mkdir(parents=True)
     contract = td / "contract.md"
     contract.write_text("Grow the roster, verified at the edge.\n", encoding="utf-8")
-    rc, _, err = run(["--root", str(root), "scaffold", "live-goal", "--contract", str(contract)])
+    rc, _, err = run(["--root", str(root), "scaffold", "live-goal", "--contract", str(contract),
+                      "--lane", "console"])   # 7.777: the lane is declared at birth or refused
     if rc != 0:
         raise RuntimeError(f"could not scaffold the fixture goal: {err.strip()}")
     goal = root / "live-goal"

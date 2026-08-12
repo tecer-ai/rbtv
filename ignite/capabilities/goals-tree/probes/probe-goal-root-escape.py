@@ -132,7 +132,7 @@ def build_tree(td: Path) -> tuple[Path, Path, Path]:
     contract.write_text("Ship the thing.\n", encoding="utf-8")
 
     rc, _, err = run(TOOL, ["--root", str(decoy_root), "scaffold", "outside-goal",
-                            "--contract", str(contract)])
+                            "--contract", str(contract), "--lane", "console"])
     if rc != 0:
         raise RuntimeError(f"could not scaffold the decoy goal: {err.strip()}")
     goal = decoy_root / "outside-goal"
@@ -378,7 +378,7 @@ def main() -> int:
         # ── 4. THE POSITIVE CONTROL — an ordinary in-root name is NOT refused ──────────────────
         contract = td / "contract.md"
         rc, _, se = run(TOOL, ["--root", str(root), "scaffold", "inside-goal",
-                               "--contract", str(contract)])
+                               "--contract", str(contract), "--lane", "console"])
         check("4. an in-root goal still scaffolds", rc == 0, se.strip()[:200])
         rc, so, se = run(TOOL, ["--root", str(root), "lint", "inside-goal"])
         check("4. an in-root goal is LINTED, not refused as an escape",
